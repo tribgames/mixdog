@@ -7,6 +7,17 @@ import { nativeOverlayClick } from './native-click';
 
 app.disableHardwareAcceleration();
 app.setPath('userData', join(process.env.OVERLAY_TEST_DIRECTORY!, 'profile'));
+/** Electron's stdio pipes are asynchronous: text written without waiting for its flush is
+ * lost when the process exits, which reads in CI as a successful run with no result. */
+const emit = (stream: NodeJS.WriteStream, text: string) =>
+  new Promise<void>(resolve => { stream.write(text, () => resolve()); });
+// Retiring the frozen renderer leaves this fixture with zero windows until the replacement
+// exists. Without this listener Electron's default quit-on-last-window-close runs the whole
+// quit sequence right there, the process exits 0 before any result or diagnostic is written,
+// and app.exit(1) from the rejection handler can no longer change that exit code.
+app.on('window-all-closed', () => {
+  void emit(process.stderr, 'OVERLAY_WINDOWS_ALL_CLOSED\n');
+});
 
 const nextWindow = () => new Promise<BrowserWindow>(resolve => {
   app.once('browser-window-created', (_event, window) => resolve(window));
@@ -55,22 +66,27 @@ void app.whenReady().then(async () => {
     const [x, y] = replacement.getPosition();
     const handle = replacement.getNativeWindowHandle();
     const hidden = new Promise<void>(resolve => replacement.once('hide', () => resolve()));
-    await nativeOverlayClick(
+    const clickMode = await nativeOverlayClick(
       handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE()),
       screen.dipToScreenPoint({ x: x + point.x, y: y + point.y }),
     );
+    await emit(process.stderr, `OVERLAY_CLICK_MODE ${clickMode}\n`);
     await hidden;
     assert.equal(replacement.isVisible(), false);
     assert.equal(coordinator.snapshot().userControlActive, true);
     assert.throws(() => coordinator.assertAutomationAllowed());
     assert.equal(resumed, 0);
-    process.stdout.write(`OVERLAY_RESULT ${JSON.stringify({
+    await emit(process.stdout, `OVERLAY_RESULT ${JSON.stringify({
       retired: hung.isDestroyed(), visible: replacement.isVisible(),
       inputBlocked: coordinator.snapshot().userControlActive, resumed,
     })}\n`);
   } finally {
     overlay.dispose();
     coordinator.reset();
-    app.quit();
   }
-}).catch(error => { console.error(error); app.exit(1); });
+  // app.quit() would hand the exit code to the quit sequence; exit only after the flush above.
+  app.exit(0);
+}).catch(async error => {
+  await emit(process.stderr, `${(error as Error)?.stack || String(error)}\n`);
+  app.exit(1);
+});

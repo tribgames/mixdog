@@ -10,6 +10,13 @@ import { nativeOverlayClick } from './native-click';
 
 app.disableHardwareAcceleration();
 app.setPath('userData', join(process.env.OVERLAY_TEST_DIRECTORY!, 'profile'));
+/** Electron's stdio pipes are asynchronous: text written without waiting for its flush is
+ * lost when the process exits, which reads in CI as a successful run with no result. */
+const emit = (stream: NodeJS.WriteStream, text: string) =>
+  new Promise<void>((resolve) => { stream.write(text, () => resolve()); });
+// This fixture owns its only window; Electron's default quit-on-last-window-close would
+// otherwise end the process the moment a failing step reaches the finally-block destroy.
+app.on('window-all-closed', () => {});
 void app.whenReady().then(async () => {
   const window = new BrowserWindow({
     width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT, show: false, focusable: false, transparent: true, frame: false,
@@ -93,13 +100,14 @@ void app.whenReady().then(async () => {
       nativeDeadline = setTimeout(() => reject(new Error('native Stop acknowledgement missing')),10_000);
     });
     try {
-      await Promise.all([
+      const [clickMode] = await Promise.all([
         nativeOverlayClick(
           handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE()),
           screen.dipToScreenPoint({ x: windowX + point.x, y: windowY + point.y }),
         ),
         nativeAck,
       ]);
+      await emit(process.stderr, `OVERLAY_CLICK_MODE ${clickMode}\n`);
     } finally {
       clearTimeout(nativeDeadline);
       stopReceived = undefined;
@@ -161,9 +169,14 @@ void app.whenReady().then(async () => {
       `window.mixdogComputerControl({action:'dismiss',generation:7})`);
     assert.equal(dismissed.accepted, true);
     assert.equal(window.isVisible(), false);
-    process.stdout.write(`OVERLAY_RESULT ${JSON.stringify({ resumed, stopped, seconds, layout, visible: false })}\n`);
+    await emit(process.stdout,
+      `OVERLAY_RESULT ${JSON.stringify({ resumed, stopped, seconds, layout, visible: false })}\n`);
   } finally {
     window.destroy();
-    app.quit();
   }
-}).catch((error) => { console.error(error); app.exit(1); });
+  // app.quit() would hand the exit code to the quit sequence; exit only after the flush above.
+  app.exit(0);
+}).catch(async (error) => {
+  await emit(process.stderr, `${(error as Error)?.stack || String(error)}\n`);
+  app.exit(1);
+});
