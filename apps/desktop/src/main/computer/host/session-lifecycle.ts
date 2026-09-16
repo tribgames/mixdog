@@ -287,6 +287,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
       ...activeExecutionsBySession.keys(),
       ...commandChainsBySession.keys(),
       ...cleanupJobs.keys(),
+      ...(computerUseCoordinator.snapshot().pausedSessionIds ?? []),
       ...computerUseCoordinator.snapshot().activities.map((activity) => activity.sessionId),
     ]);
     const stopNative = async (): Promise<void> => {

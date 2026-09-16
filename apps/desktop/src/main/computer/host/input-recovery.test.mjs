@@ -173,3 +173,43 @@ test('a keyboard-opened owned dialog retains focus for follow-up without restori
   assert.equal(result.focus_preserved_for_followup, true);
   assert.deepEqual(calls, ['input_recovery_state']);
 });
+
+test('closing a dialog preserves input evidence and accepts only its previously observed owner', async () => {
+  for (const foreground of ['hwnd:0x2', 'hwnd:0x999']) {
+    const calls = [];
+    const resolver = createInputResolution({
+      sessionIdFor: () => 'test',
+      callPowerShell: async request => {
+        calls.push(request);
+        return { ok: true, result: {
+          ...state, target_exists: false, foreground_window_id: foreground, foreground_within_target: false,
+        } };
+      },
+    });
+    const result = await resolver.verifyInputRecovery({ action: 'key', delivery: 'foreground' },
+      'hwnd:0x1', { ...original, targetOwnerWindowId: 'hwnd:0x2' }, {});
+    assert.equal(result.ok, foreground === 'hwnd:0x2');
+    assert.equal(result.target_closed, true);
+    assert.equal(calls.length, 1, 'a completed dialog action must not refocus or send another input');
+    assert.equal(calls[0].after_input, true);
+    assert.equal(calls[0].window_id, 'hwnd:0x1');
+  }
+});
+
+test('closed-dialog recovery still rejects observer loss and intervening user input', async () => {
+  for (const [change, expected] of [
+    [{ input_monitor_id: 'replacement' }, 'input_observation_unavailable'],
+    [{ input_user_sequence: 1 }, 'user_input_active'],
+  ]) {
+    const resolver = createInputResolution({
+      sessionIdFor: () => 'test',
+      callPowerShell: async () => ({ ok: true, result: {
+        ...state, target_exists: false, foreground_window_id: 'hwnd:0x2', ...change,
+      } }),
+    });
+    const result = await resolver.verifyInputRecovery({ action: 'key', delivery: 'foreground' },
+      'hwnd:0x1', { ...original, targetOwnerWindowId: 'hwnd:0x2' }, {});
+    assert.equal(result.ok, false);
+    assert.equal(result.code, expected);
+  }
+});

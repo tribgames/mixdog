@@ -1,20 +1,20 @@
 import { overlayStyles } from './content-styles';
 
-export const OVERLAY_WIDTH = 360;
-export const OVERLAY_HEIGHT = 96;
-export const OVERLAY_COMPACT_WIDTH = 220;
+export const OVERLAY_WIDTH = 220;
+export const OVERLAY_HEIGHT = 72;
 
-/** Two controls only: Resume appears while the user holds control, Stop is
- * always there. Taking control needs no button; touching the desktop does it. */
+/** Stop is always available. Paused work also offers Resume and a display-only
+ * dismissal; hiding the controls never grants permission to send input. */
 export function overlayHtml(locale: string): string {
   const ko = locale.toLowerCase().startsWith('ko');
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
-<style>:root { --compact-width:${OVERLAY_COMPACT_WIDTH}px; }${overlayStyles}</style></head><body><div id="pill">
+<style>${overlayStyles}</style></head><body><div id="pill">
 <svg id="outline" aria-hidden="true"><rect class="track"/><rect class="highlight" pathLength="100"/></svg>
 <span id="dot"></span>
-<div id="status" role="status"><div id="title">${ko ? 'Mixdog 사용 중' : 'Mixdog using'}</div><div id="detail" hidden></div></div>
+<div id="status" role="status"><div id="title">${ko ? 'Mixdog 사용 중' : 'Mixdog using'}</div></div>
 <button id="resume" type="button" hidden aria-label="${ko ? '재개' : 'Resume'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l14-8z"/></svg></button>
+<button id="dismiss" type="button" hidden aria-label="${ko ? '표시창 닫기' : 'Close overlay'}" title="${ko ? '표시창만 닫습니다. 입력 차단은 유지됩니다.' : 'Close overlay only; input remains blocked.'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 4 6 6 6-6 2 2-6 6 6 6-2 2-6-6-6 6-2-2 6-6-6-6z"/></svg></button>
 <button id="stop" type="button" aria-label="${ko ? '중지' : 'Stop'}" title="${ko ? '중지' : 'Stop'} (Ctrl+Alt+Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"/></svg></button>
 </div></body></html>`;
 }
@@ -26,23 +26,18 @@ export function overlayScript(locale = 'en'): string {
     let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
     const resume = document.getElementById('resume');
     const stop = document.getElementById('stop');
-    const detail = document.getElementById('detail');
+    const dismiss = document.getElementById('dismiss');
     const render = () => {
       document.body.dataset.paused = String(state.paused);
       document.body.dataset.error = String(failed || Boolean(state.attention));
       document.getElementById('title').textContent = failed
-        ? ${JSON.stringify(ko ? '요청 실패' : 'Request failed')}
+        ? ${JSON.stringify(ko ? '실패' : 'Failed')}
         : pending === 'stop' ? ${JSON.stringify(ko ? '중지 중' : 'Stopping')}
         : state.title || ${JSON.stringify(ko ? 'Mixdog 사용 중' : 'Mixdog using')};
-      const text = failed && !state.attention
-        ? ${JSON.stringify(ko ? '요청을 완료하지 못했습니다. 다시 눌러 주세요.' : 'The request did not complete. Press again.')}
-        : pending === 'stop' && !failed
-          ? ${JSON.stringify(ko ? '입력 차단과 작업 종료를 확인하는 중입니다.' : 'Confirming input blocking and task cancellation.')}
-        : state.detail || '';
-      detail.textContent = text;
-      detail.hidden = !text;
       resume.hidden = !state.paused;
       resume.disabled = !state.canResume || state.busy || Boolean(pending);
+      dismiss.hidden = !state.paused;
+      dismiss.disabled = !state.canDismiss;
       resume.setAttribute('aria-busy', String(pending === 'resume'));
       stop.setAttribute('aria-busy', String(pending === 'stop' || Boolean(state.busy && !pending)));
     };
@@ -78,6 +73,7 @@ export function overlayScript(locale = 'en'): string {
       void send(request);
     };
     stop.onclick = () => { armed = undefined; void send({ action:'stop', generation:state.generation }); };
+    dismiss.onclick = () => { armed = undefined; void send({ action:'dismiss', generation:state.generation }); };
     window.mixdogComputerOverlay = (next) => {
       if (next.renderRevision < renderedRevision) return;
       renderedRevision = next.renderRevision;

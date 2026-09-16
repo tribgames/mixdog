@@ -38,15 +38,25 @@ function Get-WindowIntegrity($req) {
 function Get-InputRecoveryState($req) {
   $state = Get-CurrentSession
   $target = [IntPtr]::Zero
-  if ($req.ref) {
+  if ($req.after_input -eq $true -and $req.window_id) {
+    # Post-dispatch monitoring must survive an action closing its own dialog.
+    # This read grants no input permission and never resolves another target.
+    $target = [MixWin32]::ParseWindowId([string]$req.window_id)
+  } elseif ($req.ref) {
     $target = Get-RefTopHandle (Get-RefRecord $req.ref)
   } elseif ($req.window_id -or $req.window) {
     $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
   } elseif ([MixWin32]::IsWindowHandle($state.LastFocus)) {
     $target = $state.LastFocus
   }
-  if (-not [MixWin32]::IsWindowHandle($target)) {
+  $targetExists = [MixWin32]::IsWindowHandle($target)
+  if ($target -eq [IntPtr]::Zero -or (-not $targetExists -and $req.after_input -ne $true)) {
     throw 'foreground input target is unavailable before dispatch'
+  }
+  $targetOwnerId = ''
+  if ($targetExists) {
+    $targetInfo = [MixWin32]::Info($target)
+    if ($null -ne $targetInfo) { $targetOwnerId = [string]$targetInfo.OwnerId }
   }
   $foreground = [MixWin32]::Foreground()
   $restore = if ([MixWin32]::IsWindowHandle($state.OriginalFocus)) {
@@ -69,6 +79,8 @@ function Get-InputRecoveryState($req) {
     input_monitor_id = $inputEvidence.Generation
     input_user_sequence = $inputEvidence.Sequence
     target_window_id = [MixWin32]::WindowId($target)
+    target_exists = $targetExists
+    target_owner_window_id = $targetOwnerId
     foreground_window_id = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
     restore_window_id = $(if ([MixWin32]::IsWindowHandle($restore)) { [MixWin32]::WindowId($restore) } else { '' })
     restore_owner_window_id = $restoreOwnerId

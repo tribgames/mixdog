@@ -1,7 +1,7 @@
 import { app, BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
-import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT, OVERLAY_COMPACT_WIDTH } from '../content';
+import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT } from '../content';
 import { computerUseOverlayPresentation } from '../model';
 import { createComputerOverlayController } from '../controls';
 import { bindComputerOverlayControls } from '../ipc-controls';
@@ -15,7 +15,7 @@ void app.whenReady().then(async () => {
     width: OVERLAY_WIDTH, height: OVERLAY_HEIGHT, show: false, focusable: false, transparent: true, frame: false,
     alwaysOnTop: true, skipTaskbar: true,
     webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false,
-      preload: join(process.env.OVERLAY_TEST_DIRECTORY!, 'preload.cjs') },
+      preload: join(process.env.OVERLAY_TEST_DIRECTORY!, 'preload/computer-overlay.js') },
   });
   // A renderer failure otherwise surfaces only as the generic "script failed to execute".
   window.webContents.on('console-message', (event) => {
@@ -37,7 +37,7 @@ void app.whenReady().then(async () => {
     };
     const controller = createComputerOverlayController(controls, () => {});
     bindComputerOverlayControls(window.webContents, controller, controls,
-      () => ({ sessionIds: ['fixture'], generation: 7 }));
+      () => ({ sessionIds: ['fixture'], generation: 7, canDismiss: true }), () => window.hide());
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event) => event.preventDefault());
     await window.loadURL(`data:text/html;base64,${Buffer.from(overlayHtml('ko')).toString('base64')}`);
@@ -77,7 +77,7 @@ void app.whenReady().then(async () => {
         button.addEventListener('pointerdown', () => {
           window.mixdogComputerOverlay({
             paused:true,canResume:true,generation:7,renderRevision:3,
-            title:'사용자 조작 중',detail:'입력이 멈춘 뒤 5초 후 자동 재개합니다.'
+            title:'일시정지',canDismiss:true
           });
           button.getBoundingClientRect();
         }, {once:true});
@@ -130,7 +130,7 @@ void app.whenReady().then(async () => {
             text:document.body.innerText.trim(),
             moving:document.getElementById('outline').getAnimations({subtree:true})
               .some(animation=>animation.playState==='running'),
-            fits:[...document.querySelectorAll('#pill,#status,#title,#detail,button')].filter(element=>!element.hidden).every(element=>{
+            fits:[...document.querySelectorAll('#pill,#status,#title,button')].filter(element=>!element.hidden).every(element=>{
               const rect=element.getBoundingClientRect();
               return element.scrollWidth<=element.clientWidth && element.scrollHeight<=element.clientHeight
                 && rect.left>=0 && rect.right<=innerWidth && rect.top>=0 && rect.bottom<=innerHeight;
@@ -138,11 +138,11 @@ void app.whenReady().then(async () => {
           })
         `);
         assert.equal(observed.title, presentation.title);
-        assert.equal(observed.text, [presentation.title, presentation.detail].filter(Boolean).join('\n'));
+        assert.equal(observed.text, presentation.title);
         assert.equal(observed.moving, !presentation.paused);
         assert.equal(observed.fits, true, `${locale}/${reason} overflows`);
-        assert.equal(observed.pillWidth, (reason ? OVERLAY_WIDTH : OVERLAY_COMPACT_WIDTH) - 20,
-          `${locale}/${reason} should use only the needed pill width`);
+        assert.equal(observed.pillWidth, OVERLAY_WIDTH - 20,
+          `${locale}/${reason} must keep the same compact width`);
         stopBounds ??= observed.stopBounds;
         assert.deepEqual(observed.stopBounds, stopBounds, `${locale}/${reason} moved the Stop hit target`);
         layout.push({ locale, reason, ...observed });
@@ -156,6 +156,10 @@ void app.whenReady().then(async () => {
       `window.mixdogComputerControl({action:'configure',seconds:-1}).then(()=>false,()=>true)`), true);
     await click(true, revision++, 'stop');
     assert.equal(stopped, 2);
+    window.showInactive();
+    const dismissed = await window.webContents.executeJavaScript(
+      `window.mixdogComputerControl({action:'dismiss',generation:7})`);
+    assert.equal(dismissed.accepted, true);
     assert.equal(window.isVisible(), false);
     process.stdout.write(`OVERLAY_RESULT ${JSON.stringify({ resumed, stopped, seconds, layout, visible: false })}\n`);
   } finally {

@@ -50,7 +50,8 @@ test('repeated Stop shares one completion and a failed Stop can be retried', asy
     cleanupState: 'ready', pausedSessionIds: ['fixture'], activities: [], cursors: [], targetLeases: [],
   }, 'ko', controller.state(3));
   assert.equal(presentation.canResume, false);
-  assert.match(presentation.detail, /입력은 차단/);
+  assert.equal(presentation.attention, true);
+  assert.equal(presentation.canDismiss, true);
   await controller.invoke('stop', 3, ['fixture']);
   assert.equal(calls, 2);
   assert.deepEqual(controller.state(4), { busy: false, error: '' });

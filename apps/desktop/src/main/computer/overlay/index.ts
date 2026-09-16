@@ -9,7 +9,7 @@ import {
 } from './model';
 import { createComputerUseCursorOverlay } from './cursor-overlay';
 import { registerComputerUseInternalWindow } from './internal-windows';
-import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT, OVERLAY_COMPACT_WIDTH } from './content';
+import { overlayHtml, overlayScript, OVERLAY_WIDTH, OVERLAY_HEIGHT } from './content';
 import { createComputerOverlayController, type ComputerUseOverlayControls } from './controls';
 import { bindComputerOverlayControls } from './ipc-controls';
 import { renderComputerOverlayWindows } from './render-windows';
@@ -29,8 +29,7 @@ interface OverlayWindowEntry {
 
 function overlayBounds(display: Display): Electron.Rectangle {
   return {
-    // Center the compact pill; details expand left so Stop never moves.
-    x: Math.round(display.workArea.x + ((display.workArea.width + OVERLAY_COMPACT_WIDTH) / 2) - OVERLAY_WIDTH),
+    x: Math.round(display.workArea.x + (display.workArea.width - OVERLAY_WIDTH) / 2),
     y: display.workArea.y + 6,
     width: OVERLAY_WIDTH,
     height: OVERLAY_HEIGHT,
@@ -45,12 +44,13 @@ export function createComputerUseOverlay(
   /** One overlay window per display, keyed by Electron display id. */
   const windows = new Map<number, OverlayWindowEntry>();
   const creatingWindows = new Map<number, Promise<BrowserWindow>>();
-  const rendererCrashes = new Map<number, number>();
+  const rendererFailures = new Map<number, number>();
   let disposed = false;
   let latestSnapshot: ComputerUseSnapshot = computerUseCoordinator.snapshot();
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
   let hideTimer: NodeJS.Timeout | null = null;
   let renderRevision = 0;
+  let dismissedGeneration: number | undefined;
   const controller = createComputerOverlayController(controls, () => {
     if (!disposed) void render().catch(() => {});
   });
@@ -99,16 +99,22 @@ export function createComputerUseOverlay(
     }
     next.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     next.webContents.on('will-navigate', (event) => event.preventDefault());
-    next.on('unresponsive', () => {
-      if (!disposed) void controller.invoke('pause', latestPresentation.generation, latestPresentation.sessionIds);
-    });
-    next.webContents.on('render-process-gone', () => {
-      if (disposed) return;
-      rendererCrashes.set(display.id, (rendererCrashes.get(display.id) || 0) + 1);
-      if (!next.isDestroyed()) next.destroy();
+    const retireUnavailableWindow = (): void => {
+      if (disposed || next.isDestroyed()) return;
+      rendererFailures.set(display.id, (rendererFailures.get(display.id) || 0) + 1);
+      // A hung renderer cannot handle Dismiss, navigation, or another render.
+      // Retire only this control window; the host retains the input interlock.
+      // Release its creation slot even if loadURL/executeJavaScript never settles.
+      creatingWindows.delete(display.id);
+      next.destroy();
       void controller.invoke('pause', latestPresentation.generation, latestPresentation.sessionIds);
+    };
+    next.on('unresponsive', retireUnavailableWindow);
+    next.webContents.on('render-process-gone', retireUnavailableWindow);
+    bindComputerOverlayControls(next.webContents, controller, controls, () => latestPresentation, () => {
+      dismissedGeneration = latestPresentation.generation;
+      void render().catch(() => {});
     });
-    bindComputerOverlayControls(next.webContents, controller, controls, () => latestPresentation);
     next.on('closed', () => {
       unregisterInternalWindow();
       if (windows.get(display.id)?.window === next) windows.delete(display.id);
@@ -118,7 +124,7 @@ export function createComputerUseOverlay(
         `data:text/html;base64,${Buffer.from(overlayHtml(locale)).toString('base64')}`,
       );
       await next.webContents.executeJavaScript(overlayScript(locale));
-      if (disposed || !screen.getAllDisplays().some(current => current.id === display.id)) {
+      if (disposed || next.isDestroyed() || !screen.getAllDisplays().some(current => current.id === display.id)) {
         throw new Error('Computer Use overlay disposed during creation');
       }
       windows.set(display.id, { window: next, lastRenderedPresentation: '' });
@@ -132,8 +138,8 @@ export function createComputerUseOverlay(
   const ensureWindowForDisplay = async (display: Display): Promise<BrowserWindow> => {
     // Recover controls once while paused. Repeated renderer failure must not
     // spawn an automatic crash loop; a subsequent user resume can try again.
-    if ((rendererCrashes.get(display.id) || 0) > 1) {
-      throw new Error('computer_control_surface_unavailable: overlay renderer repeatedly exited');
+    if ((rendererFailures.get(display.id) || 0) > 1) {
+      throw new Error('computer_control_surface_unavailable: overlay renderer repeatedly failed');
     }
     const existing = windows.get(display.id);
     if (existing && !existing.window.isDestroyed()) return existing.window;
@@ -144,7 +150,7 @@ export function createComputerUseOverlay(
     try {
       return await creating;
     } finally {
-      creatingWindows.delete(display.id);
+      if (creatingWindows.get(display.id) === creating) creatingWindows.delete(display.id);
     }
   };
 
@@ -197,6 +203,7 @@ export function createComputerUseOverlay(
     const revision = latestSnapshot.revision;
     const presentation = computerUseOverlayPresentation(latestSnapshot, locale,
       controller.state(latestSnapshot.takeoverGeneration ?? 0));
+    if (presentation.paused && dismissedGeneration === presentation.generation) presentation.visible = false;
     latestPresentation = presentation;
     if (!presentation.visible) {
       for (const entry of windows.values()) entry.lastRenderedPresentation = '';
@@ -225,12 +232,13 @@ export function createComputerUseOverlay(
   };
 
   const unsubscribe = computerUseCoordinator.subscribe((snapshot) => {
-    if (latestSnapshot.userControlActive && !snapshot.userControlActive) rendererCrashes.clear();
+    if (!snapshot.userControlActive) dismissedGeneration = undefined;
+    if (latestSnapshot.userControlActive && !snapshot.userControlActive) rendererFailures.clear();
     latestSnapshot = snapshot;
     void render().catch(() => {});
   });
   const shortcutRegistered = globalShortcut.register(STOP_SHORTCUT, () => {
-    if (latestPresentation.visible) stop();
+    if (latestPresentation.visible || latestSnapshot.userControlActive) stop();
   });
   const onDisplaysChanged = (): void => {
     if (disposed) return;

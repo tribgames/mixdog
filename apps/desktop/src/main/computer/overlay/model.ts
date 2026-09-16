@@ -13,8 +13,8 @@ export interface ComputerUseOverlayPresentation {
   accent: string;
   paused: boolean;
   canResume: boolean;
+  canDismiss: boolean;
   generation: number;
-  detail: string;
   busy: boolean;
   idleResumeSeconds: number;
   attention: boolean;
@@ -75,44 +75,20 @@ export function computerUseOverlayPresentation(
   const failed = snapshot.cleanupState === 'failed' || control.error === 'cleanup';
   const confirmation = failed || Boolean(snapshot.attentionRequired) || Boolean(control.error)
     || ['input_observation_unavailable', 'input_recovery_unconfirmed', 'input_cleanup_unconfirmed'].includes(snapshot.takeoverReason || '');
-  // Every line here is shown on the pill, so it names the way out as well as the state.
-  const detail = control.error === 'cleanup' || (failed && !control.error)
-    ? (ko ? '입력 정리를 확인하지 못했습니다. 중지를 누르면 확인 후 닫힙니다.'
-      : 'Input cleanup is unconfirmed. Stop verifies it and closes.')
-    : control.error === 'stop'
-      ? (ko ? '종료 확인이 지연됐습니다. 입력은 차단된 상태입니다.'
-        : 'Stop is unconfirmed. Input remains blocked.')
-    : control.error === 'stale'
-      ? (ko ? '상태가 바뀌었습니다. 다시 눌러 주세요.' : 'State changed. Press again.')
-      : control.error
-        ? (ko ? '요청을 완료하지 못했습니다. 다시 눌러 주세요.' : 'The request did not complete. Press again.')
-        : pending
-          ? (ko ? '입력 해제와 작업 종료를 확인하는 중입니다.' : 'Confirming input release and worker exit.')
-          : control.busy
-            ? (ko ? '요청을 처리하는 중입니다.' : 'Processing the request.')
-          : paused && snapshot.takeoverReason === 'user_stop'
-            ? (ko ? '중지하는 중입니다.' : 'Stopping.')
-          : paused && snapshot.takeoverReason === 'user_input_active' && (snapshot.idleResumeSeconds ?? 5) > 0
-            ? (ko ? `입력이 멈춘 뒤 ${snapshot.idleResumeRemaining ?? snapshot.idleResumeSeconds ?? 5}초 후 자동 재개합니다.`
-              : `Auto-resumes ${snapshot.idleResumeRemaining ?? snapshot.idleResumeSeconds ?? 5}s after input stops.`)
-          : confirmation
-            ? (ko ? '입력 복구를 확인하지 못했습니다. 재개 또는 중지하세요.' : 'Input recovery is unconfirmed. Resume or Stop.')
-          : paused
-            ? (ko ? '재개하면 새 화면을 확인하고 이어갑니다.' : 'Resume checks fresh state before continuing.')
-            : '';
   return {
     // A pending cleanup with no session, pause, or failure behind it is a
     // no-op release (idle worker reap, deferred session release) and stays
     // hidden; a failed cleanup always surfaces.
     visible: sessionIds.length > 0 || paused || failed,
     sessionIds,
-    title: confirmation ? (ko ? '확인 필요' : 'Confirmation needed')
+    title: confirmation ? (ko ? '확인 필요' : 'Check')
       : paused && snapshot.takeoverReason === 'user_stop' ? (ko ? '중지 중' : 'Stopping')
-      : paused ? (ko ? '사용자 조작 중' : 'User controlling')
+      : paused ? (ko ? '일시정지' : 'Paused')
       : (ko ? 'Mixdog 사용 중' : 'Mixdog using'),
     accent: activity ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
     paused, canResume: paused && !pending && !failed && control.error !== 'stop',
-    generation: snapshot.takeoverGeneration ?? 0, detail, busy: control.busy === true,
+    canDismiss: paused,
+    generation: snapshot.takeoverGeneration ?? 0, busy: control.busy === true,
     idleResumeSeconds: snapshot.idleResumeSeconds ?? 5,
     attention: confirmation,
   };

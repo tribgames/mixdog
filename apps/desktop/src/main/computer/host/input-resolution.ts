@@ -72,6 +72,7 @@ export function createInputResolution(host: InputResolutionHost) {
       window: command.window ?? null,
       window_id: targetWindowId ?? null,
       ref: includeRef ? command.ref ?? null : null,
+      after_input: !includeRef,
       session_id: sessionIdFor(command),
       read_only: true,
     });
@@ -79,6 +80,8 @@ export function createInputResolution(host: InputResolutionHost) {
     const result = response.result || {};
     const recovery: InputRecoveryState = {
       targetWindowId: String(result.target_window_id || ''),
+      targetExists: typeof result.target_exists === 'boolean' ? result.target_exists : undefined,
+      targetOwnerWindowId: String(result.target_owner_window_id || ''),
       foregroundWindowId: String(result.foreground_window_id || ''),
       restoreWindowId: String(result.restore_window_id || result.foreground_window_id || ''),
       restoreOwnerWindowId: String(result.restore_owner_window_id || ''),
@@ -218,6 +221,22 @@ export function createInputResolution(host: InputResolutionHost) {
           ok: false, recovery_skipped: true, user_control: true,
           code: 'user_input_active',
           ...(readbackError ? { readback_error: readbackError } : {}),
+        };
+      }
+      if (current.targetExists === false) {
+        // The owner was recorded before dispatch, not inferred from the new
+        // foreground. A missing observer or intervening user input still fails above.
+        const returnedToOwner = Boolean(inputRecovery.targetOwnerWindowId)
+          && current.foregroundWindowId === inputRecovery.targetOwnerWindowId;
+        const cursorUnchanged = current.cursorX === inputRecovery.cursorX
+          && current.cursorY === inputRecovery.cursorY;
+        return {
+          ok: returnedToOwner && (preserveCursor || cursorUnchanged),
+          target_closed: true,
+          focus_preserved_for_followup: returnedToOwner,
+          cursor_preserved: preserveCursor,
+          cursor_restored: cursorUnchanged,
+          reasserted: false,
         };
       }
       // An explicitly refused input that left focus where it was needs no

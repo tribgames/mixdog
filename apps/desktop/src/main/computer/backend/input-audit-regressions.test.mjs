@@ -1,11 +1,19 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { fileURLToPath } from 'node:url';
-import test from 'node:test';
+import test, { after } from 'node:test';
+import { powershellHostProgram } from './program.ts';
 
 const execute = promisify(execFile);
 const windows = { skip: process.platform !== 'win32', timeout: 20_000 };
+const directory = await mkdtemp(join(tmpdir(), 'mixdog-input-audit-'));
+after(() => rm(directory, { recursive: true, force: true }));
+const sourcePath = join(directory, 'backend.ps1');
+// Parse the shipped program, not a template with unresolved policy placeholders.
+await writeFile(sourcePath, powershellHostProgram(), 'utf8');
 
 async function nativeFixture(body) {
   const script = String.raw`
@@ -31,10 +39,52 @@ ${body}
   ], {
     windowsHide: true, timeout: 15_000,
     env: { ...process.env,
-      MIXDOG_FIXTURE_INPUT_SOURCE: fileURLToPath(new URL('./sources/input.ps1', import.meta.url)) },
+      MIXDOG_FIXTURE_INPUT_SOURCE: sourcePath },
   });
   return JSON.parse(stdout.trim());
 }
+
+test('native post-input observation survives a closed dialog without weakening pre-dispatch checks', windows, async () => {
+  const result = await nativeFixture(String.raw`
+Add-Type -TypeDefinition @'
+using System;
+public class Info { public string OwnerId = "hwnd:0x2"; }
+public class Point { public int X = 10, Y = 20; }
+public class Evidence { public bool Ready = true; public string Generation = "monitor"; public int Sequence = 0; }
+public static class MixWin32 {
+  public static bool TargetExists = true;
+  public static bool IsWindowHandle(IntPtr h) { return h == new IntPtr(2) || (h == new IntPtr(1) && TargetExists); }
+  public static IntPtr ParseWindowId(string s) { return new IntPtr(s == "hwnd:0x1" ? 1 : 2); }
+  public static string WindowId(IntPtr h) { return "hwnd:0x" + h.ToInt64().ToString("x"); }
+  public static IntPtr Foreground() { return new IntPtr(2); }
+  public static Info Info(IntPtr h) { return new Info(); }
+  public static Point Cursor() { return new Point(); }
+  public static int InputTick() { return 100; }
+  public static bool IsOwnedBy(IntPtr a, IntPtr b) { return false; }
+}
+public static class MixInputObservation { public static Evidence Read() { return new Evidence(); } }
+'@
+function Get-CurrentSession { return @{ OriginalFocus = [IntPtr]2; LastFocus = [IntPtr]1 } }
+function Resolve-WindowInfo($title, $id) {
+  if (-not [MixWin32]::TargetExists) { throw 'window_id is stale or invalid' }
+  return @{ Handle = [IntPtr]1 }
+}
+function Get-PhysicalInputIdleMs { return [int]::MaxValue }
+. (Import-InputFunction 'Get-InputRecoveryState')
+$before = Get-InputRecoveryState @{ window_id = 'hwnd:0x1' }
+[MixWin32]::TargetExists = $false
+$rejected = $false
+try { Get-InputRecoveryState @{ window_id = 'hwnd:0x1' } | Out-Null } catch { $rejected = $true }
+$after = Get-InputRecoveryState @{ window_id = 'hwnd:0x1'; after_input = $true }
+@{ before = $before; after = $after; rejected = $rejected } | ConvertTo-Json -Depth 5 -Compress
+`);
+  assert.equal(result.before.target_owner_window_id, 'hwnd:0x2');
+  assert.equal(result.rejected, true);
+  assert.equal(result.after.target_exists, false);
+  assert.equal(result.after.target_window_id, 'hwnd:0x1');
+  assert.equal(result.after.input_observer_ready, true);
+  assert.equal(result.after.input_monitor_id, result.before.input_monitor_id);
+});
 
 test('menu dispatch stays in its live branch or an owned popup, never another app', windows, async () => {
   const rows = await nativeFixture(String.raw`

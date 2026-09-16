@@ -86,6 +86,28 @@ test('abort does not report cleanup success before elevated termination is confi
   }
 });
 
+test('Stop clears a paused session even after its worker and activity have already disappeared', async () => {
+  const coordinator = new ComputerUseCoordinator();
+  const stopped = [];
+  const host = createSessionLifecycle({
+    coordinator, execution: createExecutionState(),
+    powerShellBySession: new Map(), workerLastUsedAt: new Map(),
+    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async id => { stopped.push(id); return true; },
+    elevatedSessionIds: () => [], sessionIdFor: command => command.session_id,
+    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    cleanupInput: async () => true,
+    runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+  });
+  coordinator.pauseForUser('input_observation_unavailable', ['retired-fixture']);
+  coordinator.cancelSession('retired-fixture');
+  assert.equal(coordinator.snapshot().activities.length, 0);
+  await host.stopAllComputerSessions();
+  assert.deepEqual(stopped, ['retired-fixture']);
+  assert.equal(coordinator.snapshot().userControlActive, false);
+  assert.deepEqual(coordinator.snapshot().pausedSessionIds ?? [], []);
+});
+
 test('Stop clears a latched cleanup failure only after every worker exited and held input was released', async () => {
   const coordinator = new ComputerUseCoordinator();
   let workersAlive = true;

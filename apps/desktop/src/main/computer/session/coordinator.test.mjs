@@ -186,14 +186,14 @@ test('overlay model distinguishes user control and confirmation while listing ev
     });
     const attention = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
     assert.equal(attention.visible, true);
-    assert.equal(attention.title, 'Confirmation needed');
+    assert.equal(attention.title, 'Check');
     assert.equal(attention.attention, true);
     coordinator.clearAttention('session-foreground');
 
     coordinator.pauseForUser('emergency_shortcut');
     const paused = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
     assert.equal(paused.visible, true);
-    assert.equal(paused.title, '사용자 조작 중');
+    assert.equal(paused.title, '일시정지');
     assert.equal(paused.paused, true);
   } finally {
     coordinator.reset();

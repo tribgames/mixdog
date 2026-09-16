@@ -13,6 +13,8 @@ interface ActiveObservation {
 
 export interface InputRecoveryState {
   targetWindowId: string;
+  targetExists?: boolean;
+  targetOwnerWindowId?: string;
   foregroundWindowId: string;
   restoreWindowId: string;
   /** Owner of the restore window, recorded while it still exists. */

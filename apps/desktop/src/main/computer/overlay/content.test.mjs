@@ -18,22 +18,22 @@ test('outline glow disappears while paused and returns on resume without hiding 
   } finally { dom.window.close(); }
 });
 
-test('only Stop shows while running; Resume and the detail line appear with user control', () => {
+test('only Stop shows while running; paused controls never add a description', () => {
   const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only', url: 'https://fixture.invalid' });
   try {
     dom.window.eval(overlayScript('ko'));
     const publish = dom.window.mixdogComputerOverlay;
     const { document } = dom.window;
     const resume = document.getElementById('resume');
-    const detail = document.getElementById('detail');
     publish({ title: 'Mixdog 사용 중', detail: '', paused: false, canResume: false, generation: 6, renderRevision: 1 });
     assert.equal(resume.hidden, true);
-    assert.equal(detail.hidden, true);
+    assert.equal(document.getElementById('detail'), null);
+    assert.equal(document.getElementById('dismiss').hidden, true);
     assert.equal(document.getElementById('stop').disabled, false);
     publish({ title: '확인 필요', detail: '입력 정리를 확인하지 못했습니다.', attention: true, paused: true, canResume: false, generation: 7, renderRevision: 2 });
     assert.equal(document.getElementById('title').textContent, '확인 필요');
-    assert.equal(detail.hidden, false);
-    assert.equal(detail.textContent, '입력 정리를 확인하지 못했습니다.');
+    assert.equal(document.body.textContent.includes('입력 정리를 확인하지 못했습니다.'), false);
+    assert.equal(document.getElementById('dismiss').hidden, false);
     assert.equal(document.body.dataset.error, 'true');
     assert.equal(resume.hidden, false);
     assert.equal(resume.disabled, true);
@@ -66,8 +66,8 @@ test('Resume retains its pointer-down generation and a failed request says so on
     dom.window.mixdogComputerControl = async () => { throw new Error('channel unavailable'); };
     resume.click();
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(dom.window.document.getElementById('title').textContent, '요청 실패');
-    assert.equal(dom.window.document.getElementById('detail').textContent, '요청을 완료하지 못했습니다. 다시 눌러 주세요.');
+    assert.equal(dom.window.document.getElementById('title').textContent, '실패');
+    assert.equal(dom.window.document.getElementById('detail'), null);
     assert.equal(dom.window.document.body.dataset.error, 'true');
     assert.equal(resume.disabled, false);
   } finally { dom.window.close(); }
@@ -90,7 +90,7 @@ test('a rejected Stop is reported even though Stop itself moves the generation',
     assert.equal(stop.getAttribute('aria-busy'), 'true');
     assert.equal(dom.window.document.getElementById('title').textContent, '중지 중');
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(dom.window.document.getElementById('title').textContent, '요청 실패');
+    assert.equal(dom.window.document.getElementById('title').textContent, '실패');
     assert.equal(dom.window.document.body.dataset.error, 'true');
     assert.equal(stop.getAttribute('aria-busy'), 'false');
     assert.equal(stop.disabled, false);
@@ -119,5 +119,31 @@ test('the Stop button remains usable during pending resume and cleanup failure',
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(dom.window.document.body.dataset.error, 'true');
     assert.equal(dom.window.document.getElementById('resume').disabled, true);
+  } finally { dom.window.close(); }
+});
+
+test('display-only dismissal stays usable while Stop is pending', async () => {
+  const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only' });
+  try {
+    const calls = [];
+    let finishStop;
+    dom.window.mixdogComputerControl = request => {
+      calls.push(request.action);
+      return request.action === 'stop'
+        ? new Promise(resolve => { finishStop = resolve; })
+        : Promise.resolve({ accepted: true });
+    };
+    dom.window.eval(overlayScript('ko'));
+    dom.window.mixdogComputerOverlay({
+      paused: true, canResume: false, canDismiss: true, attention: true, generation: 1, renderRevision: 1,
+    });
+    dom.window.document.getElementById('stop').click();
+    const dismiss = dom.window.document.getElementById('dismiss');
+    assert.equal(dismiss.disabled, false);
+    dismiss.click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(calls, ['stop', 'dismiss']);
+    finishStop({ accepted: true });
+    await new Promise(resolve => setImmediate(resolve));
   } finally { dom.window.close(); }
 });

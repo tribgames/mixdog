@@ -47,6 +47,9 @@ export function createComputerOverlayController(
     }
   };
   return {
+    cancelResume(): void {
+      if (pendingAction === 'resume') pending?.abort();
+    },
     state(generation: number) {
       return { busy, error: errorGeneration === 'any' || errorGeneration === generation ? error : '' };
     },
