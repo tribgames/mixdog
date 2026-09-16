@@ -5,6 +5,45 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Code Tidy: Install now downloads the core engines (Biome, ruff, shfmt,
+  shellcheck, PSScriptAnalyzer) with progress, and the built-in card lists
+  every engine with its version, language, source and size; engines picked
+  up later by a project appear in the same list. Engines missing at tidy time
+  download automatically by default (`tidy.downloads` still honors `ask` and
+  `never`). PSScriptAnalyzer is a sha256-verified managed download from the
+  PowerShell Gallery instead of a host-only module, and C# gets a real
+  dotnet-format runner. Fixes: rustfmt 1.9 diff headers and `\\?\` paths are
+  parsed, large Biome reports no longer collapse to zero findings when the
+  output is chunked, fixability is classified through `biome explain`, and
+  the history-comment rule only removes comments that are entirely history
+  and never extends past the comment (it could delete the next statement).
+- Sidebar rows share one status tag next to the title across built-ins,
+  plugins, skills, MCP servers, schedules, webhooks and agents: nothing when
+  enabled, otherwise `Not used`, `Not installed`, `Installing… N%`, `Failed`
+  or `Not connected`. Disabled agents keep their model line.
+- FastDirect refuses to repack or install an `app.asar` whose production
+  dependency closure is incomplete and falls back to a full build, so a
+  broken updater (`Cannot find module 'graceful-fs'`) is no longer inherited
+  by every incremental update.
+- Agent workers that were reaped are no longer resurrected by session scans
+  or by the desktop agent list; re-registered finished sessions keep their
+  real finish time, so leases expire instead of restarting every hour.
+- Orchestration modes `none`, `focused`, `balanced` and `swarm` replace the
+  Solo workflow and are chosen per session; settings are localized.
+- Desktop: local path links in markdown open in the editor, and the editor
+  opens files outside the project.
+- Browser Use serializes snapshots per page and hardens the settle and
+  capture paths.
+- Computer Use: a frozen overlay renderer is retired and replaced, input
+  recovery state survives the switch, and the overlay fixtures no longer exit
+  early on a single-display machine.
+- Shell: PowerShell hosts no longer hard-block `grep`, `sed` and `awk` in
+  preflight; the tool description routes dedicated-tool work instead. Rules,
+  skills, README and the new `docs/context-efficiency.md` are refreshed.
+- The repository is formatted with Biome 2.5.13 (`biome.json` pins the
+  existing style), rustfmt, dotnet-format and PSScriptAnalyzer; unused
+  imports, dead helpers and in-file-only exports are removed.
+
 ## v0.9.168 - 2026-09-16
 
 - Closing a Computer Use session always sends its own release request. The
