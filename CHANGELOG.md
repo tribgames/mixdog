@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.168 - 2026-09-16
+
 - Computer Use overlay: two controls, Stop and Resume. The pause button is
   gone (touching the desktop already hands control to the user); the pill now
   shows why a control is unavailable or why a request failed instead of
