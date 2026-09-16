@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-08-31T10:13:14.743Z",
+  "generated_at": "2026-09-16T20:08:13.286Z",
   "release_tag": "runtime-v0.4.1",
   "pg": {
     "major": 16,
@@ -32,8 +32,8 @@
     },
     "win32-x64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz",
-      "sha256": "5bcb16ec5269a7d40b9f6d3b8c1811257f55c43d9d0b6dc5cd7d55d39eb259f9",
-      "size": 22885622
+      "sha256": "32f0890a52bb28cefa2f8d716c0a1aa889f329bd79be96fff466205343be7686",
+      "size": 22885595
     }
   }
 }
