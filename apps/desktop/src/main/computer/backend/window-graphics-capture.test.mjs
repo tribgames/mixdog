@@ -9,10 +9,20 @@ import { PS_SESSION } from './ps-session.ts';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 import { PS_WINDOW_CAPTURE } from './ps-runtime.ts';
 import { NATIVE_CAPTURE_WORK_MS } from '../shared/capture-attempts.ts';
+import { probeWindowsGraphicsCapture } from './fixtures/wgc-capability.mjs';
 
 test('WGC captures a covered fixture without foreign pixels, preserves foreground and rejects changed geometry', {
-  skip: process.platform !== 'win32', timeout: 40_000,
-}, async () => {
+  skip: process.platform !== 'win32', timeout: 120_000,
+}, async (t) => {
+  // Everything below needs an OS that can actually hand out a capture item and
+  // a compositor frame. Where it can, the whole assertion set stays enforced;
+  // where the probe proves it cannot (hosted CI desktops), the capability is
+  // named instead of failing as a product defect.
+  const capability = await probeWindowsGraphicsCapture();
+  if (!capability.available) {
+    t.skip(`WGC capability probe reported Windows.Graphics.Capture unavailable on this host: ${capability.reason}`);
+    return;
+  }
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-wgc-'));
   const fixture = String.raw`
 public sealed class WgcFixture : System.Windows.Forms.Form {
@@ -97,7 +107,9 @@ try {
     await writeFile(join(directory, 'check.ps1'), program);
     const { stdout } = await promisify(execFile)('powershell.exe',
       ['-NoProfile', '-NonInteractive', '-File', join(directory, 'check.ps1')],
-      { windowsHide: true, timeout: 30_000, env: { ...process.env,
+      // Cold `Add-Type` of the host C# on a loaded hosted runner takes ~10s, so
+      // this budget bounds a hung capture only, never a slow-but-healthy host.
+      { windowsHide: true, timeout: 60_000, env: { ...process.env,
         MIXDOG_COMPUTER_HOST_CACHE: '', MIXDOG_COMPUTER_HOST_BUILD: '' } });
     const value = JSON.parse(stdout.trim());
     assert.equal(value.covered, true);
