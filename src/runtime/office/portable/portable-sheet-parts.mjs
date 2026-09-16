@@ -1,4 +1,4 @@
-import { dirname, join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { columnNumber, parseCellRef } from './portable-cells.mjs';
 import {
   addPackageRelationship,

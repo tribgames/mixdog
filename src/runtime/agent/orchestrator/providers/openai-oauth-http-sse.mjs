@@ -1,7 +1,7 @@
 /**
  * openai-oauth-http-sse.mjs — HTTP/SSE fallback transport for openai-oauth.
  *
- * Extracted from openai-oauth.mjs. Used when the WebSocket transport is
+ * Used when the WebSocket transport is
  * unhealthy (see _shouldUseOpenAIHttpFallback / shouldFallbackTransport).
  * Owns SSE frame parsing, the single-emit tool-call dedupe contract
  * (scripts/openai-oauth-http-sse-toolcall-smoke.mjs) and fallback headers.

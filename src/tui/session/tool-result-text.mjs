@@ -1,7 +1,7 @@
 /**
  * src/tui/session/tool-result-text.mjs - flatten tool-result content shapes into
  * display text, plus collapsed-detail/grouped fallbacks and error framing.
- * Extracted from session-local.mjs; toolResultText/toolAggregateDetailFallback/
+ * toolResultText/toolAggregateDetailFallback/
  * toolGroupedDisplayFallback remain part of session-local.mjs's public surface.
  */
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';

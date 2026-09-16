@@ -1,6 +1,6 @@
 // Keyword-to-symbol fuzzy matching: tokenization, token-aligned contiguous
 // match, ordered token match, and ranking key. Pure string helpers with no
-// graph/cache state. Extracted from search.mjs.
+// graph/cache state.
 
 export function _keywordSymbolSortKey(symbolName, keyword) {
   const lowerName = String(symbolName || '').toLowerCase();

@@ -13,8 +13,8 @@
 import { makeModelCache } from './model-cache.mjs';
 import { ANTIGRAVITY_MODELS, PROJECT_ENDPOINT, antigravityHeaders, _scrubTokens } from './antigravity-oauth-tokens.mjs';
 
-export const ANTIGRAVITY_MODEL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-export const ANTIGRAVITY_MODEL_CACHE_VERSION = 1;
+const ANTIGRAVITY_MODEL_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const ANTIGRAVITY_MODEL_CACHE_VERSION = 1;
 const FETCH_MODELS_TIMEOUT_MS = 15_000;
 // Tier labels the gateway puts in parentheses, in effort order.
 const TIER_EFFORTS = { 'extra low': 'minimal', minimal: 'minimal', low: 'low', medium: 'medium', high: 'high' };
@@ -159,7 +159,7 @@ export function normalizeAntigravityCatalog(rawModels) {
 }
 
 /** Catalog to resolve wire ids against: in-memory mirror, disk cache, then the curated fallback. */
-export function antigravityCatalogModels() {
+function antigravityCatalogModels() {
   if (!_mirror) _mirror = antigravityModelCache.loadSync();
   return _mirror || ANTIGRAVITY_MODELS;
 }

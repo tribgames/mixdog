@@ -3,7 +3,6 @@
 // viewport, floating panels, prompt cluster, statusline). All data and
 // handlers arrive via one ctx object from App().
 import React from 'react';
-import { isCompletedTranscriptTailAppendedThisCommit } from './live-spinner-visibility.mjs';
 import { Box, Text } from 'ink';
 import { theme, surfaceBackground } from '../theme.mjs';
 import { centerLine, promptStatusColor, toolApprovalDescription } from './app-format.mjs';
@@ -57,9 +56,7 @@ export function renderAppView(ctx) {
     overlayHintFallbackRow,
     overlayHintOnLastItem,
     panelCloseMaskRows,
-    panelInkMaskEpoch,
     panelTransitionClearRows,
-    panelTransitionEpoch,
     picker,
     pickerOpenedFromEnterRef,
     pickerOpenedFromEnterTimerRef,

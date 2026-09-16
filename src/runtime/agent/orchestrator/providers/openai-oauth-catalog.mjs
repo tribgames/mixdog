@@ -39,7 +39,7 @@ const _modelCache = makeModelCache({
 });
 
 /** Fresh on-disk catalog (null past the TTL), adopted as the mirror. */
-export function loadCodexCatalogCache() {
+function loadCodexCatalogCache() {
   const cached = _modelCache.loadSync();
   if (cached) _mirror = cached.slice();
   return cached;

@@ -5,7 +5,7 @@ import sharp from 'sharp';
 
 export const SAVE_OPTIONS = Object.freeze({ useObjectStreams: true, addDefaultPage: false });
 
-export const PAGE_SIZES = Object.freeze({
+const PAGE_SIZES = Object.freeze({
   a3: [841.89, 1190.55],
   a4: [595.28, 841.89],
   a5: [419.53, 595.28],

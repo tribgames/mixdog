@@ -1,7 +1,7 @@
 // Steering-message normalization/merge helpers extracted from loop.mjs.
 // Merges queued steering entries into a single content payload + display text.
 
-export function steeringContentText(content) {
+function steeringContentText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
     return content

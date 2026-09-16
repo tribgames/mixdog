@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import {
   PIXELS_TO_POINTS,
   addPackageRelationship,
@@ -44,7 +43,6 @@ import {
   upsertSectionReference,
   wordDrawingXml,
   writeHeaderFooterPart,
-  writeSectionProperties,
   writeSectionPropertiesAt,
 } from './portable-docx-parts.mjs';
 import {

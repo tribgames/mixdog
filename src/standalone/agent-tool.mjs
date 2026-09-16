@@ -9,15 +9,12 @@ import {
 } from '../runtime/shared/background-tasks.mjs';
 import { presentErrorText, errorLine } from '../runtime/shared/err-text.mjs';
 import { ensureProcessListenerHeadroom } from '../runtime/shared/process-listener-headroom.mjs';
-import { prepareAgentSession } from '../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
 import {
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   watchdogPartialHandoffFromError,
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
-import {
-  AGENT_TOOL,
-} from './agent-tool/tool-def.mjs';
+import { AGENT_TOOL } from './agent-tool/tool-def.mjs';
 import {
   agentScope,
   clean,
@@ -39,15 +36,8 @@ import {
   reconcileJobWatchdogPartial,
 } from './agent-tool/job-task-reconcile.mjs';
 import { createSpawnFlow } from './agent-tool/spawn-flow.mjs';
-import { resolveAgentSpawnPreset } from './agent-tool/spawn-preset.mjs';
-import {
-  isLeadPoolAgent,
-  isTerminalWorkerStatus,
-} from './agent-tool/worker-rows.mjs';
-import {
-  beginAgentTurnReview,
-  completeAgentTurnReview,
-} from '../runtime/shared/turn-snapshot.mjs';
+import { isLeadPoolAgent, isTerminalWorkerStatus } from './agent-tool/worker-rows.mjs';
+import { beginAgentTurnReview, completeAgentTurnReview } from '../runtime/shared/turn-snapshot.mjs';
 // Re-export the static tool descriptor so importers of this facade keep the
 // identical public surface (`import { AGENT_TOOL } from './agent-tool.mjs'`).
 export { AGENT_TOOL };
@@ -78,28 +68,36 @@ export function createStandaloneAgent({
   isKeychainPrewarmReady = () => true,
 }) {
   const mgr = baseMgr;
-  const canUseSessionSurface = (session) => typeof sessionSurface?.runTurn === 'function'
-    && sessionSurface.canRun?.(session) !== false;
+  const canUseSessionSurface = (session) =>
+    typeof sessionSurface?.runTurn === 'function' && sessionSurface.canRun?.(session) !== false;
   const statusListeners = new Set();
   const notifyStatusChange = () => {
     for (const listener of [...statusListeners]) {
-      try { listener(); } catch { /* status observers never affect agent lifecycle */ }
+      try {
+        listener();
+      } catch {
+        /* status observers never affect agent lifecycle */
+      }
     }
   };
   // Optional bridge to the standard hook bus for SubagentStart / SubagentStop.
   // Best-effort: a hook error must never affect worker spawn/finish.
   function emitSubagentEvent(phase, agent, extra = {}) {
     if (typeof onSubagentEvent !== 'function') return;
-    try { onSubagentEvent(phase, { agent_type: agent || null, ...extra }); } catch { /* best-effort */ }
+    try {
+      onSubagentEvent(phase, { agent_type: agent || null, ...extra });
+    } catch {
+      /* best-effort */
+    }
   }
   function createTurnReviewCollector(session, tag, agent, notifyContext = {}) {
     const ownerSessionId = clean(
-      notifyContext?.callerSessionId
-      || notifyContext?.sessionId
-      || notifyContext?.routingSessionId
-      || session?.parentSessionId
-      || notifyContext?.ownerSessionId
-      || session?.ownerSessionId,
+      notifyContext?.callerSessionId ||
+        notifyContext?.sessionId ||
+        notifyContext?.routingSessionId ||
+        session?.parentSessionId ||
+        notifyContext?.ownerSessionId ||
+        session?.ownerSessionId
     );
     const handle = beginAgentTurnReview(ownerSessionId, session?.id, { tag, agent });
     let latestPatch = null;
@@ -114,118 +112,99 @@ export function createStandaloneAgent({
       },
     };
   }
-    // Tag maps + resolve/bind/reap lifecycle: agent-tool/tag-registry.mjs.
-    const {
-      tags,
-      tagAgents,
-      tagCwds,
-      reapTimers,
-      wantsSessionScan,
-      resolveTag,
-      getLiveSession,
-      tagForSession,
-      agentSessionEntries,
-      nextTag,
-      refreshTagsFromSessions,
-      bindTag,
-      forgetTag,
-      forgetTerminalSession,
-      tombstoneTerminalSession,
-      tagTombstoneForTag,
-      consumeTagTombstone,
-      cancelReap,
-      clearScheduledReaps,
-      scheduleReap,
-      transitionStaleNonterminalRows,
-      readAllTagTombstones,
-      readTagTombstones,
-      readWorkerRows,
-      writeWorkerRows,
-      flushWorkerIndexMutations,
-      upsertWorkerSession,
-      upsertWorkerSessionDeferred,
-      upsertLeadSession,
-      removeWorkerRow,
-      refreshTagsFromIndex,
-    } = createTagRegistry({
-      dataDir,
-      cfgMod,
-      mgr,
-      emitSubagentEvent,
-    });
+  // Tag maps + resolve/bind/reap lifecycle: agent-tool/tag-registry.mjs.
+  const {
+    tags,
+    tagAgents,
+    tagCwds,
+    reapTimers,
+    wantsSessionScan,
+    resolveTag,
+    getLiveSession,
+    tagForSession,
+    agentSessionEntries,
+    nextTag,
+    refreshTagsFromSessions,
+    bindTag,
+    forgetTerminalSession,
+    tagTombstoneForTag,
+    consumeTagTombstone,
+    cancelReap,
+    clearScheduledReaps,
+    scheduleReap,
+    readAllTagTombstones,
+    readWorkerRows,
+    writeWorkerRows,
+    flushWorkerIndexMutations,
+    upsertWorkerSessionDeferred,
+    upsertLeadSession,
+    removeWorkerRow,
+  } = createTagRegistry({
+    dataDir,
+    cfgMod,
+    mgr,
+    emitSubagentEvent,
+  });
 
-    // Job/session views (list/getJob/render/spawn-meta): agent-tool/job-views.mjs.
-    const {
-      isSessionBusy,
-      ensureProvider,
-      list,
-      sessionProgressExtras,
-      jobWorkerSnapshot,
-      listJobs,
-      getJob,
-      workerFallbackJob,
-      getJobOrWorker,
-      renderJob,
-      preparedSpawnMeta,
-      pendingSpawnMeta,
-      mergeJobMeta,
-    } = createJobViews({
-      mgr,
-      getLiveSession,
-      reg,
-      DEFAULT_SPAWN_PREP_TIMEOUT_MS,
-      refreshTagsFromSessions,
-      agentSessionEntries,
-      tags,
-      cfgMod,
-    });
+  // Job/session views (list/getJob/render/spawn-meta): agent-tool/job-views.mjs.
+  const {
+    isSessionBusy,
+    ensureProvider,
+    list,
+    listJobs,
+    getJobOrWorker,
+    renderJob,
+    preparedSpawnMeta,
+    pendingSpawnMeta,
+    mergeJobMeta,
+  } = createJobViews({
+    mgr,
+    getLiveSession,
+    reg,
+    DEFAULT_SPAWN_PREP_TIMEOUT_MS,
+    refreshTagsFromSessions,
+    agentSessionEntries,
+    tags,
+    cfgMod,
+  });
 
-    // Spawn/job lifecycle (startJob/watchdogs/prepare/run): agent-tool/spawn-flow.mjs.
-    const {
-      closePreparedSpawn,
-      workerNotifyFn,
-      notifyOwnerAgentCompletionEarly,
-      startJob,
-      startDeferredSpawnJob,
-      progressWatchdogs,
-      startProgressIdleWatchdog,
-      turnStartStamper,
-      progressStamper,
-      prepareSpawn,
-      prepareSpawnInProcess,
-      runSpawn,
-    } = createSpawnFlow({
-      mgr,
-      forgetTerminalSession,
-      pendingSpawnMeta,
-      DEFAULT_SPAWN_PREP_TIMEOUT_MS,
-      mergeJobMeta,
-      preparedSpawnMeta,
-      upsertWorkerSessionDeferred,
-      refreshTagsFromSessions,
-      readWorkerRows,
-      defaultCwd,
-      mcpScopeId,
-      nextTag,
-      cancelReap,
-      bindTag,
-      emitSubagentEvent,
-      notifyStatusChange,
-      notifySessionCompletion,
-      sessionSurface,
-      scheduleReap,
-      cfgMod,
-      dataDir,
-      STANDALONE_SOURCE_ROOT,
-      ensureProvider,
-      resolveTag,
-      wantsSessionScan,
-      createTurnReviewCollector,
-    });
-
-  async function spawn(args) {
-    return await runSpawn(await prepareSpawn(args));
-  }
+  // Spawn/job lifecycle (startJob/watchdogs/prepare/run): agent-tool/spawn-flow.mjs.
+  const {
+    workerNotifyFn,
+    notifyOwnerAgentCompletionEarly,
+    startJob,
+    startDeferredSpawnJob,
+    startProgressIdleWatchdog,
+    turnStartStamper,
+    progressStamper,
+  } = createSpawnFlow({
+    mgr,
+    forgetTerminalSession,
+    pendingSpawnMeta,
+    DEFAULT_SPAWN_PREP_TIMEOUT_MS,
+    mergeJobMeta,
+    preparedSpawnMeta,
+    upsertWorkerSessionDeferred,
+    refreshTagsFromSessions,
+    readWorkerRows,
+    defaultCwd,
+    mcpScopeId,
+    nextTag,
+    cancelReap,
+    bindTag,
+    emitSubagentEvent,
+    notifyStatusChange,
+    notifySessionCompletion,
+    sessionSurface,
+    scheduleReap,
+    cfgMod,
+    dataDir,
+    STANDALONE_SOURCE_ROOT,
+    ensureProvider,
+    resolveTag,
+    wantsSessionScan,
+    createTurnReviewCollector,
+  });
 
   async function prepareSend(args, context = {}) {
     refreshTagsFromSessions({ scanSessions: wantsSessionScan(args), context });
@@ -279,15 +258,17 @@ export function createStandaloneAgent({
       const turnHooks = {
         notifyFn: workerNotifyFn(sessionId, notifyContext || {}),
         onToolResult: (message) => turnReview.onToolResult(message),
-        ...(job ? {
-          onTerminalResult: (terminalResult) => {
-            turnReview.complete();
-            const value = completionValue(terminalResult);
-            if (job) job._terminalResultValue = value;
-            notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
-            reconcileJobTerminalResult(job, value);
-          },
-        } : {}),
+        ...(job
+          ? {
+              onTerminalResult: (terminalResult) => {
+                turnReview.complete();
+                const value = completionValue(terminalResult);
+                if (job) job._terminalResultValue = value;
+                notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
+                reconcileJobTerminalResult(job, value);
+              },
+            }
+          : {}),
       };
       const result = canUseSessionSurface(session)
         ? await sessionSurface.runTurn({
@@ -304,7 +285,7 @@ export function createStandaloneAgent({
             null,
             session.cwd || defaultCwd,
             null,
-            turnHooks,
+            turnHooks
           );
       // Early preview no longer suppresses the canonical body notification;
       // notifyTaskCompletion fires once with output via resolve/reconcile.
@@ -347,12 +328,10 @@ export function createStandaloneAgent({
       scheduleReap(sessionId);
       // Same lifecycle as a fresh spawn: the transcript/tag stays resumable,
       // while heavy process-local runtime state is reclaimed immediately.
-      try { mgr.unloadSessionRuntime?.(sessionId, 'agent-turn-complete'); } catch {}
+      try {
+        mgr.unloadSessionRuntime?.(sessionId, 'agent-turn-complete');
+      } catch {}
     }
-  }
-
-  async function send(args) {
-    return await runSend(await prepareSend(args));
   }
 
   // Shared send dispatch for an already-resolved live session. Used by the
@@ -360,9 +339,11 @@ export function createStandaloneAgent({
   // live session (reuse path). Busy sessions queue the prompt; idle ones run a
   // background send job that continues the existing session (context kept).
   function dispatchToExistingSession(prepared, notifyContext, extras = {}) {
-    if (!canUseSessionSurface(prepared.session)
-      && isSessionBusy(prepared.sessionId)
-      && typeof mgr.enqueuePendingMessage === 'function') {
+    if (
+      !canUseSessionSurface(prepared.session) &&
+      isSessionBusy(prepared.sessionId) &&
+      typeof mgr.enqueuePendingMessage === 'function'
+    ) {
       const queueDepth = mgr.enqueuePendingMessage(prepared.sessionId, prepared.prompt);
       return renderResult({
         queued: true,
@@ -373,16 +354,21 @@ export function createStandaloneAgent({
         queueDepth,
       });
     }
-    const job = startJob('send', {
-      tag: tagForSession(prepared.sessionId),
-      sessionId: prepared.sessionId,
-      agent: prepared.session.agent || null,
-      provider: prepared.session.provider || null,
-      model: prepared.session.model || null,
-      preset: prepared.session.presetName || null,
-      effort: prepared.session.effort || null,
-      fast: prepared.session.fast === true,
-    }, (job, ownerNotifyContext) => runSend(prepared, ownerNotifyContext, job), notifyContext);
+    const job = startJob(
+      'send',
+      {
+        tag: tagForSession(prepared.sessionId),
+        sessionId: prepared.sessionId,
+        agent: prepared.session.agent || null,
+        provider: prepared.session.provider || null,
+        model: prepared.session.model || null,
+        preset: prepared.session.presetName || null,
+        effort: prepared.session.effort || null,
+        fast: prepared.session.fast === true,
+      },
+      (job, ownerNotifyContext) => runSend(prepared, ownerNotifyContext, job),
+      notifyContext
+    );
     return renderResult({ ...extras, ...renderJob(job, false) });
   }
 
@@ -418,9 +404,8 @@ export function createStandaloneAgent({
       throw new Error(`agent close: target "${target}" is a Lead session`);
     }
     cancelReap(sessionId);
-    const descendantSessionIds = typeof mgr.descendantSessionIds === 'function'
-      ? mgr.descendantSessionIds(sessionId)
-      : [];
+    const descendantSessionIds =
+      typeof mgr.descendantSessionIds === 'function' ? mgr.descendantSessionIds(sessionId) : [];
     const tag = tagForSession(sessionId);
     clearAgentStatuslineRoute(sessionId);
     // Cancel any running background task bound to this session BEFORE closing
@@ -501,9 +486,12 @@ export function createStandaloneAgent({
     writeWorkerRows((byKey, tombstonesByKey) => {
       for (const [key, row] of [...byKey.entries()]) {
         if (isLeadPoolAgent(row.agent)) continue;
-        if (ownerSessionId
-          && clean(row.ownerSessionId) !== ownerSessionId
-          && !closedSessionIds.has(clean(row.sessionId))) continue;
+        if (
+          ownerSessionId &&
+          clean(row.ownerSessionId) !== ownerSessionId &&
+          !closedSessionIds.has(clean(row.sessionId))
+        )
+          continue;
         byKey.delete(key);
       }
       if (!ownerSessionId) tombstonesByKey.clear();
@@ -516,12 +504,14 @@ export function createStandaloneAgent({
   function terminalWorkerRowForTag(tag, context = {}) {
     const value = clean(tag);
     if (!value) return null;
-    return readWorkerRows(context).find((row) => {
-      if (clean(row.tag) !== value) return false;
-      if (!isTerminalWorkerStatus(row.status || row.stage)) return false;
-      if (getLiveSession(clean(row.sessionId))) return false;
-      return true;
-    }) || null;
+    return (
+      readWorkerRows(context).find((row) => {
+        if (clean(row.tag) !== value) return false;
+        if (!isTerminalWorkerStatus(row.status || row.stage)) return false;
+        if (getLiveSession(clean(row.sessionId))) return false;
+        return true;
+      }) || null
+    );
   }
 
   function hasTerminalTrace(tag, context = {}) {
@@ -556,7 +546,11 @@ export function createStandaloneAgent({
         // happened before the auxiliary worker row was flushed.
         refreshTagsFromSessions({ scanSessions: true, context: scopedContext });
       }
-      if (type === 'list') return renderResult({ workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }), jobs: listJobs(scopedContext) });
+      if (type === 'list')
+        return renderResult({
+          workers: list({ scanSessions: wantsSessionScan(args), context: scopedContext }),
+          jobs: listJobs(scopedContext),
+        });
       if (type === 'status') return renderResult(renderJob(getJobOrWorker(args, scopedContext), false));
       if (type === 'read') {
         const job = getJobOrWorker(args, scopedContext);
@@ -596,7 +590,9 @@ export function createStandaloneAgent({
           let inheritedRow = null;
           try {
             inheritedRow = readWorkerRows(ownershipContext).find((row) => clean(row.tag) === fallbackTag) || null;
-          } catch { inheritedRow = null; }
+          } catch {
+            inheritedRow = null;
+          }
           const inheritedTombstone = tagTombstoneForTag(fallbackTag, ownershipContext);
           const explicitAgent = clean(args.agent);
           // A local proof wins even if another terminal also owns this tag.
@@ -605,7 +601,8 @@ export function createStandaloneAgent({
           if (!inheritedRow && !inheritedTombstone) throw err;
           const inheritedSessionId = clean(inheritedRow?.sessionId);
           const inheritedAgent = explicitAgent || clean(inheritedRow?.agent) || clean(inheritedTombstone?.agent);
-          const inheritedCwd = clean(args.cwd) || clean(inheritedRow?.cwd) || clean(inheritedTombstone?.cwd) || clean(callerCwd);
+          const inheritedCwd =
+            clean(args.cwd) || clean(inheritedRow?.cwd) || clean(inheritedTombstone?.cwd) || clean(callerCwd);
           if (!inheritedAgent || !inheritedCwd) throw err;
           // Drop this terminal's in-memory trace and remove ONLY the persisted
           // row matching inheritedRow.sessionId. Do NOT call forgetTag here: it
@@ -614,9 +611,17 @@ export function createStandaloneAgent({
           // deletes are guarded on the tag pointing at OUR sessionId so a peer
           // cache entry (see above) is left intact (it rebuilds from rows).
           if (tags.get(fallbackTag) === inheritedSessionId) {
-            try { tags.delete(fallbackTag); tagAgents.delete(fallbackTag); tagCwds.delete(fallbackTag); } catch {}
+            try {
+              tags.delete(fallbackTag);
+              tagAgents.delete(fallbackTag);
+              tagCwds.delete(fallbackTag);
+            } catch {}
           }
-          if (inheritedSessionId) { try { removeWorkerRow({ sessionId: inheritedSessionId }); } catch {} }
+          if (inheritedSessionId) {
+            try {
+              removeWorkerRow({ sessionId: inheritedSessionId });
+            } catch {}
+          }
           if (inheritedTombstone) consumeTagTombstone(inheritedTombstone);
           const spawnArgs = {
             ...args,
@@ -673,9 +678,9 @@ export function createStandaloneAgent({
               };
               respawned = true;
             } else {
-              const foreignTombstone = readAllTagTombstones().find((row) => (
-                clean(row.tag) === explicitTag && !rowMatchesContext(row, context)
-              ));
+              const foreignTombstone = readAllTagTombstones().find(
+                (row) => clean(row.tag) === explicitTag && !rowMatchesContext(row, context)
+              );
               if (foreignTombstone) {
                 throw new Error(`agent spawn: tag "${explicitTag}" belongs to another terminal`);
               }
@@ -687,7 +692,7 @@ export function createStandaloneAgent({
           callerCwd,
           context,
           notifyContext,
-          respawned ? { respawned: true } : {},
+          respawned ? { respawned: true } : {}
         );
         return renderResult(renderJob(job, false));
       }
@@ -716,9 +721,7 @@ export function createStandaloneAgent({
       return {
         workers: list({ scanSessions: false, context: scopedContext }),
         jobs: listJobs(scopedContext),
-        scope: ownerSession
-          ? { sessionId: ownerSession }
-          : pid ? { clientHostPid: pid } : { allTerminals: true },
+        scope: ownerSession ? { sessionId: ownerSession } : pid ? { clientHostPid: pid } : { allTerminals: true },
       };
     },
     recoverWorkers: (context = {}) => {

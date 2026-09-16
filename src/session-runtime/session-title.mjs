@@ -40,7 +40,7 @@ function titleMessageText(message, role) {
   return hasMeaningfulTitleText(visible) ? visible : '';
 }
 
-export function firstTurnTitleSource(prompt) {
+function firstTurnTitleSource(prompt) {
   const raw = sessionMessageText(prompt);
   if (!raw || isSessionPreviewNoise(raw)) return '';
   const visible = cleanSessionPreview(raw, 4_000);
@@ -52,7 +52,7 @@ export function firstTurnTitleSource(prompt) {
  * excluded; only the final visible assistant text before the next user stays.
  * A session that moved past turn three (e.g. because an earlier attempt timed
  * out) still titles from its first three exchanges instead of never. */
-export function thirdTurnTitleSource(messages) {
+function thirdTurnTitleSource(messages) {
   const turns = [];
   let current = null;
   for (const message of Array.isArray(messages) ? messages : []) {
@@ -85,7 +85,7 @@ function greetingTitle(source) {
   return '';
 }
 
-export function resolvedSystemLocale() {
+function resolvedSystemLocale() {
   try {
     return Intl.DateTimeFormat().resolvedOptions().locale || '';
   } catch {

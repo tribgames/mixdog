@@ -3,7 +3,7 @@
  * identifier is shortened, and no row/retention/vector setting is changed.
  * Build replacements concurrently; take only a bounded metadata lock to swap.
  */
-export const SESSION_INDEXES = [
+const SESSION_INDEXES = [
   // Memory's ordered session paging needs its composite btree. A hash-only
   // replacement preserved rows but regressed the largest session in replay.
   { schema: 'trace', table: 'trace_events', name: 'idx_trace_session' },

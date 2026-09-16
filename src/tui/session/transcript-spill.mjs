@@ -510,7 +510,6 @@ export function createSessionItemMutators({
       id,
       streaming: false,
     };
-    const index = state.items.length;
     const items = normalizeItems([...state.items, item]);
     itemIndexById.clear();
     for (let i = 0; i < items.length; i++) {

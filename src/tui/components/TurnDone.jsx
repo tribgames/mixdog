@@ -9,7 +9,6 @@
  * scrollback as a post-think summary line. It leaves a
  * quiet, dim record of how long the turn took next to the answer it belongs to.
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 import { formatDuration } from '../time-format.mjs';

@@ -1,5 +1,4 @@
 import { statSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'path';
 import { expandAbsoluteGlobs } from './lib/absolute-glob-expand.mjs';
 import { buildGlobPatternGroups } from './lib/glob-static-prefix.mjs';
@@ -14,12 +13,10 @@ import {
   resolveAgainstCwd,
 } from './path-utils.mjs';
 import {
-  _suggestIndexedPaths,
   basePathDiagnostic,
   buildNotFoundHint,
   finalizeReadFamilyEnoentTail,
   isUncOrSmbPath,
-  relativePathPrefix,
   relativeSearchResultPath,
   resolveSearchScope,
   uncRefusalMessage,

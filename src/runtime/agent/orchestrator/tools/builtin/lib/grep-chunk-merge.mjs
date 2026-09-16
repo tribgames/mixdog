@@ -5,7 +5,7 @@
 // by the sequential `room` yields identical lines, and the re-extract with
 // `room` reproduces the same truncation flags — the merged output and
 // `truncatedAggregate` are byte-identical to the old serial loop while the
-// grep calls overlap. Extracted from search-grep-tool.mjs; `executeGrepTool`
+// grep calls overlap. `executeGrepTool`
 // is injected to avoid an import cycle.
 import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
 import {

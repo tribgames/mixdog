@@ -1,4 +1,4 @@
-import { dirname, join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { textBodyXml, toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
@@ -48,9 +48,8 @@ import { contrastRatio, relativeLuminance } from './text-metrics.mjs';
 
 export async function handleAddSlide(context, op) {
   const { zip } = context;
-  let slides = context.slides;
   const created = await addPresentationSlide(zip, op);
-  slides = context.slides = await presentationSlides(zip);
+  context.slides = await presentationSlides(zip);
   return { op: op.op, changed: true, slide: created.position, layout: created.layout };
 }
 
@@ -189,7 +188,6 @@ export async function handleSetNotes(context, op) {
 
 export async function handleFillTemplate(context, op) {
   const { zip } = context;
-  const slides = context.slides;
   const paths = Object.keys(zip.files).filter((name) =>
     /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name)
   );
@@ -198,7 +196,6 @@ export async function handleFillTemplate(context, op) {
 
 export async function handleReplaceText(context, op) {
   const { zip } = context;
-  const slides = context.slides;
   let count = 0;
   const paths = Object.keys(zip.files).filter((name) =>
     /^ppt\/(slides\/slide\d+|notesSlides\/notesSlide\d+)\.xml$/.test(name)
@@ -214,9 +211,8 @@ export async function handleReplaceText(context, op) {
 
 export async function handleImportSlides(context, op) {
   const { zip } = context;
-  let slides = context.slides;
   const merged = await importSlidesIntoPresentation(zip, op.path, op.slides, op.after);
-  slides = context.slides = await presentationSlides(zip);
+  context.slides = await presentationSlides(zip);
   return { op: op.op, changed: merged.count > 0, count: merged.count, source: op.path };
 }
 
@@ -235,7 +231,7 @@ export async function handleSetSlideBackground(context, op) {
 const QUIET_INK_ON_LIGHT = Object.freeze(['6A7179', '5A616A', '474D55']);
 const QUIET_INK_ON_DARK = Object.freeze(['A9B1B9', 'C2C9D0', 'D9DEE3']);
 
-export function quietInk(background) {
+function quietInk(background) {
   const field = String(background || '')
     .replace(/^#/, '')
     .slice(-6)

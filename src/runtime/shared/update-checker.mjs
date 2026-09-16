@@ -7,19 +7,13 @@
  * the result on disk (TTL 24h) so repeated calls (e.g. on every TUI mount)
  * don't hammer the registry. Network/parse failures are silent — this is a
  * best-effort convenience check, never a boot-blocking dependency.
- *
- * runGlobalUpdate() shells out to `npm install -g mixdog@latest` in the
- * background (windowsHide so no console flash on Windows) and resolves once
- * the child exits, reporting the resolved version on success.
  */
 
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, delimiter, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
 import { writeJsonAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
-import { detachedSpawnOpts } from './spawn-flags.mjs';
 
 const PACKAGE_NAME = 'mixdog';
 const REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
@@ -260,52 +254,6 @@ export function npmCliJsPath() {
     }
   }
   return null;
-}
-
-/**
- * runGlobalUpdate() — `npm install -g mixdog@latest` in a background child
- * process. Prefers spawning node.exe with npm-cli.js directly (shell-less, so
- * Windows never opens a console window); falls back to npm.cmd via shell when
- * npm-cli.js cannot be located. Resolves once the child exits; never throws —
- * failures come back as {ok:false, error}.
- */
-function runGlobalUpdate() {
-  return new Promise((resolvePromise) => {
-    let child;
-    try {
-      const installArgs = ['install', '-g', `${PACKAGE_NAME}@latest`];
-      const cliJs = npmCliJsPath();
-      const isWin = process.platform === 'win32';
-      const [cmd, args, useShell] = cliJs
-        ? [process.execPath, [cliJs, ...installArgs], false]
-        : [isWin ? 'npm.cmd' : 'npm', installArgs, isWin];
-      child = spawn(cmd, args, {
-        stdio: 'ignore',
-        shell: useShell,
-        ...detachedSpawnOpts,
-      });
-    } catch (err) {
-      resolvePromise({ ok: false, error: err?.message || String(err) });
-      return;
-    }
-    child.once('error', (err) => {
-      resolvePromise({ ok: false, error: err?.message || String(err) });
-    });
-    // Detach from the event-loop keep-alive so a boot-time auto-update can
-    // never hold the TUI/node process open after the user quits; the exit
-    // listener still fires as long as the process is otherwise alive.
-    child.unref?.();
-    child.once('exit', async (code) => {
-      if (code === 0) {
-        // Best-effort: report whichever version the registry now reports as
-        // latest (the just-installed one), falling back to 'unknown'.
-        const version = await fetchLatestFromRegistry();
-        resolvePromise({ ok: true, version: version || 'unknown' });
-      } else {
-        resolvePromise({ ok: false, error: `npm install exited with code ${code}` });
-      }
-    });
-  });
 }
 
 export { PACKAGE_NAME as UPDATE_PACKAGE_NAME };

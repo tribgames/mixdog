@@ -1,7 +1,6 @@
 import { performance } from 'perf_hooks';
 import { safeIpcSend } from '../../shared/safe-ipc-send.mjs';
-// IPC worker-mode message loop extracted from channels/index.mjs
-// (behavior-preserving). Installs shutdown handlers, the parent->worker message
+// IPC worker-mode message loop. Installs shutdown handlers, the parent->worker message
 // router, and the retrying start() bootstrap. Call once from the worker entry
 // when _isWorkerMode && process.send.
 export function runWorkerIpc({

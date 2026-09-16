@@ -2,7 +2,7 @@
  * openai-compat-wire.mjs — message/tool wire conversion + response parsing for
  * the OpenAI-compat provider.
  *
- * Extracted from openai-compat.mjs. Pure (stateless) converters between the
+ * Pure (stateless) converters between the
  * agent's internal message/tool shape and the OpenAI Chat Completions /
  * Responses API wire shapes, plus the response tool-call / text / search-source
  * parsers. No provider instance state; openai-compat.mjs imports these entry
@@ -23,7 +23,7 @@ import {
 import { providerReplayItems } from './lib/provider-replay.mjs';
 import { ensureResponsesCallOutputs } from './lib/wire-pairing.mjs';
 
-export function positiveTokenInt(value) {
+function positiveTokenInt(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 }

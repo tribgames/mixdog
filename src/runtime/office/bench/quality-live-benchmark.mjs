@@ -477,7 +477,7 @@ async function createDocument(directory, content) {
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
 
-export async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
+async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
   if (process.platform !== 'win32')
     throw new Error('Office quality live benchmark requires Windows and Microsoft Office');
   const timestamp = new Date()

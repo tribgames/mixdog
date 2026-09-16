@@ -1,7 +1,7 @@
 /**
  * components/UsagePanel.jsx - global provider quota / balance dashboard.
  */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';

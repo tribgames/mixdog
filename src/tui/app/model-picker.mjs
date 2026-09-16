@@ -1,7 +1,7 @@
 /*
  * model-picker.mjs — the Model picker cluster (openModelPicker).
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory. Every function body is the original App logic verbatim, with closure
  * identifiers threaded through the factory argument. The nested effort helpers
  * (preferredEffort/effortItemsFor/modelDefaultEffort/…) stay inside the opener.
@@ -64,14 +64,12 @@ export function createModelPicker({
     setProviderPrompt(null);
     setSettingsPrompt(null);
     modelPickerRequestRef.current += 1;
-    let modelPickerClosed = false;
     let providerListHighlightProvider = null;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
     const returnOnNestedCancel = options.returnOnNestedCancel === true;
     const handoffPanel = options.handoffPanel && typeof options.handoffPanel === 'object' ? options.handoffPanel : null;
     const cancelModelPicker = () => {
-      modelPickerClosed = true;
       if (returnTo) returnTo();
       else own.close();
     };
@@ -400,7 +398,6 @@ export function createModelPicker({
           const selected =
             item?._model || models.find((m) => m.provider === item?._provider && m.id === item?._modelId);
           if (!selected) return;
-          modelPickerClosed = true;
           const effort = coerceEffort(selected);
           const fastCapable = fastAvailableFor(selected, effort);
           const routeInput = {

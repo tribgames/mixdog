@@ -126,7 +126,6 @@ export async function executeReadTool(
   const {
     classifyResultKind,
     coalesceObjectReadEntries,
-    coerceShapeFlex,
     isBlockedDevicePath,
     isUncPath,
     isWindowsDevicePath,

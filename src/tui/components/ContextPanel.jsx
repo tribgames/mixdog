@@ -1,7 +1,6 @@
 /**
  * components/ContextPanel.jsx - read-only context usage dashboard.
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';

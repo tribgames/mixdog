@@ -40,7 +40,7 @@ function _executableNames(name, platform) {
   return [text, `${text}.exe`, `${text}.cmd`, `${text}.bat`, `${text}.com`];
 }
 
-export function findPathExecutable(
+function findPathExecutable(
   name,
   { pathValue = process.env.PATH || '', platform = process.platform, maxDirectories = 64 } = {}
 ) {
@@ -76,7 +76,7 @@ export function findPathExecutable(
 // a startup observation like the git line, not a permanent rule; a failed or
 // slow probe renders nothing rather than a guess. Names are the ones models
 // guessed wrong most often in recorded runs (python3/file/python ≈ 70%).
-export const SHELL_TOOL_STARTUP_NAMES = Object.freeze([
+const SHELL_TOOL_STARTUP_NAMES = Object.freeze([
   'python3',
   'python',
   'py',
@@ -227,7 +227,7 @@ export function describeGitStartupState({ cwd = process.cwd(), ...pathOptions } 
 // (11/11 trials on orientation-heavy tasks), one full model round-trip spent
 // on a listing the prompt could have carried. Capped so a large root does not
 // swell the prompt; the cap is reported so the caller knows to list for more.
-export const CWD_STARTUP_ENTRY_LIMIT = 40;
+const CWD_STARTUP_ENTRY_LIMIT = 40;
 
 export function describeCwdStartupEntries({ cwd = process.cwd(), limit = CWD_STARTUP_ENTRY_LIMIT } = {}) {
   let entries;

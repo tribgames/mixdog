@@ -5,7 +5,7 @@ import { evaluateOfficeChecklist, reviewRenderedOfficePages } from '../quality/a
 import { isSmallWorksheetDocument } from '../quality/assurance-rendered.mjs';
 import { buildOfficePolishPlan, normalizeOfficeReviewIssues } from '../quality/quality-pipeline.mjs';
 import { scoreOfficeReleaseQuality } from '../quality/quality-score.mjs';
-import { exists, snapshot } from './office-sessions.mjs';
+import { exists } from './office-sessions.mjs';
 import { cachedOfficePreview, renderOfficePreview } from './office-render-preview.mjs';
 import { pptxReviewArtifacts } from '../authoring/pptx-review-artifacts.mjs';
 import { persistOfficeTransaction } from './office-transactions.mjs';

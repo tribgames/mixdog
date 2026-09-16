@@ -239,4 +239,4 @@ function createVoiceTranscription({ getConfig, dataDir }) {
   return { isVoiceAttachment, transcribeVoice };
 }
 
-export { isVoiceAttachment, runCmd, createVoiceTranscription };
+export { createVoiceTranscription };

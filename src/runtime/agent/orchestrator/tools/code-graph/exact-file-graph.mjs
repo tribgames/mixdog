@@ -1,6 +1,6 @@
 // Exact-file graph: a single-file graph built straight from the native record,
 // cached by source hash so repeated outline / find_symbol calls on the same
-// file never re-run the binary. Extracted from dispatch.mjs.
+// file never re-run the binary.
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { resolve as pathResolve } from 'node:path';

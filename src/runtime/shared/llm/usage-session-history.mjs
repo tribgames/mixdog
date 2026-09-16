@@ -33,8 +33,8 @@ import { resolvePluginData } from '../plugin-paths.mjs';
 import { billableInputTokensForProvider, computeCostUsd } from './cost.mjs';
 import { isConversationUsageSource, usageRollupDayKey } from './usage-rollup.mjs';
 
-export const USAGE_HISTORY_FILE = 'usage-history.local.json';
-export const USAGE_HISTORY_VERSION = 1;
+const USAGE_HISTORY_FILE = 'usage-history.local.json';
+const USAGE_HISTORY_VERSION = 1;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // A session document is transcript-sized. The largest on a working machine sit
@@ -451,7 +451,7 @@ function historyEntries(state) {
 }
 
 /** Whatever the cache holds right now — no disk scan, no waiting. */
-export function loadUsageSessionHistory() {
+function loadUsageSessionHistory() {
   const state = readCache();
   return {
     days: buildUsageHistoryDays(historyEntries(state)),

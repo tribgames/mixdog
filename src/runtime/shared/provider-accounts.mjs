@@ -14,12 +14,12 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
 const MAX_ACCOUNTS = 20;
 const file = () => join(resolvePluginData(), 'provider-accounts.json');
 
-export function requireAccountProvider(provider) {
+function requireAccountProvider(provider) {
   if (!ACCOUNT_PROVIDERS.includes(provider)) throw new TypeError('Unknown OAuth provider.');
   return provider;
 }
 
-export function requireAccountId(id) {
+function requireAccountId(id) {
   if (id !== 'default' && (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id))) {
     throw new TypeError('Invalid provider account id.');
   }

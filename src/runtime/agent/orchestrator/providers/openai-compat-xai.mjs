@@ -2,7 +2,7 @@
  * openai-compat-xai.mjs — xAI/Grok Responses-API routing, prompt-cache lanes
  * and cache tracing for the OpenAI-compat provider.
  *
- * Extracted from openai-compat.mjs. Owns the xAI prompt-cache lane RESOLUTION
+ * Owns the xAI prompt-cache lane RESOLUTION
  * (shard/slot selection) plus cache routing/fingerprint/trace helpers and the
  * compat cache trace writer shared by chat-completions and Responses paths.
  * openai-compat.mjs imports the routing/lane/trace entry points. Admission is

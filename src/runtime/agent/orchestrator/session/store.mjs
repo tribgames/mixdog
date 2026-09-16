@@ -15,13 +15,7 @@ import {
   CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
 } from './store/canonical-reader.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../lib/mixdog-debug.cjs';
-import {
-  getStoreDir,
-  sessionPath,
-  publishHeartbeat,
-  deleteHeartbeat,
-  deleteSessionPresence,
-} from './store/paths-heartbeat.mjs';
+import { getStoreDir, sessionPath, deleteHeartbeat, deleteSessionPresence } from './store/paths-heartbeat.mjs';
 import {
   guardedSaveOptions as _guardedSaveOptions,
   cancelSessionWrites as _cancelSessionWrites,
@@ -34,16 +28,7 @@ import {
   WRITE_COMMIT_TIMEOUT as _WRITE_COMMIT_TIMEOUT,
   WRITE_COMMIT_STALE as _WRITE_COMMIT_STALE,
 } from './store/write-guards.mjs';
-import {
-  SESSION_SUMMARY_INDEX_VERSION,
-  summaryIndexPath,
-  _sessionSummary,
-  _normalizeSummaryIndex,
-  _writeSummaryIndex,
-  _upsertSessionSummary,
-  _removeSessionSummary,
-  _flushPendingSummaryOps,
-} from './store-summary-index.mjs';
+import { _flushPendingSummaryOps } from './store-summary-index.mjs';
 // Facade re-export: summary-index API moved to store-summary-index.mjs; keep
 // prior importers of store.mjs unchanged.
 export {
@@ -86,7 +71,6 @@ import {
   _clearLiveSession,
   LIVE_MEDIA_RETENTION_MS,
   _messagesCarryLiveMedia,
-  getSessionSaveError,
   clearSessionSaveError,
   _recordSaveFailure,
   _recordSaveDrop,
@@ -110,8 +94,6 @@ import {
   _saveAsyncQueued,
   _saveAsyncInflight,
   _deferredSessionSaves,
-  saveSessionAsync,
-  saveSessionAsyncDeferred,
   _resetSaveWorkerBookkeeping,
 } from './store/save-worker.mjs';
 import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './store/save-worker.mjs';
@@ -1356,7 +1338,6 @@ export function deleteSession(id, options = {}) {
     // "nothing was deleted AND nothing was mutated": a liveness veto, a
     // contended commit lock, an unreadable probe, ambiguous/foreign bytes, or
     // a failed unlink.
-    let removed = false; // diagnostics only: whether canonical bytes were unlinked
     if (probe.state === PROBE_PRESENT) {
       // STRICT OWNERSHIP AT THE COMMIT EDGE. The bytes are re-read here,
       // under the same commit lock, immediately before the unlink — not
@@ -1370,7 +1351,6 @@ export function deleteSession(id, options = {}) {
         if (record.id !== id) return false;
         try {
           unlinkSync(path);
-          removed = true;
         } catch {
           return false; // canonical file survives → nothing was deleted
         }

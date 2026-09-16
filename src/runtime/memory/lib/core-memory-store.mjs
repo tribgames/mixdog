@@ -70,7 +70,7 @@ export function normalizeCoreInput(input = {}, options = {}) {
   return { element, summary, category, suppliedCategory, errors };
 }
 
-export function _getDb(dataDir) {
+function _getDb(dataDir) {
   if (!dataDir) throw new Error('core-memory: dataDir required');
   const db = getDatabase(dataDir);
   if (!db) throw new Error('core-memory: database not open — call openDatabase first');

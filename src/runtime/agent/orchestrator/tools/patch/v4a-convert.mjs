@@ -1,5 +1,5 @@
 // V4A hunk locator, in-memory apply, rename sections, and V4A -> unified
-// conversion. Moved verbatim from patch.mjs; anchor/context matching, EOF
+// conversion. Anchor/context matching, EOF
 // handling, rename atomicity, and conversion output are all unchanged.
 
 import { readFileSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';

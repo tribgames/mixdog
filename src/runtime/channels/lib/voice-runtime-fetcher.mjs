@@ -101,7 +101,6 @@ class VoiceRuntimeUnsupportedError extends Error {
     this.unsupportedPlatform = key;
   }
 }
-export { VoiceRuntimeUnsupportedError };
 
 // POSIX zip archives do not reliably carry the executable bit through every
 // extractor (unzip/bsdtar), so freshly extracted whisper-cli / whisper-server

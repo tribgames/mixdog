@@ -10,7 +10,6 @@
  * The width-fitting algorithm (ideal vs min widths, proportional shrink, hard
  * wrap, vertical fallback for narrow terminals) is preserved verbatim.
  */
-import React from 'react';
 import { Text, useStdout } from 'ink';
 import { buildTableRender } from '../markdown/table-layout.mjs';
 

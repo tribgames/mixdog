@@ -1,4 +1,4 @@
-import { basename, extname, join, posix } from 'node:path';
+import { extname, posix } from 'node:path';
 import { resolveImageLayout } from './image-layout.mjs';
 import { contrastRatio, shrinkFontSizeToFit } from './text-metrics.mjs';
 import {

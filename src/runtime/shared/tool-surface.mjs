@@ -713,7 +713,6 @@ export function toolWorkUnit(name, args = {}, category = '') {
         noun: 'memory item',
       });
     case 'memory': {
-      const action = String(a.action || '').toLowerCase();
       const op = String(a.op || '').toLowerCase();
       const isMutation = op === 'add' || op === 'edit' || op === 'delete';
       if (isMutation)

@@ -12,10 +12,9 @@
  *   - queries  (for the abort message)
  *   - createdAt
  *
- * On add: write through to disk. On complete/error: remove entry.
- * On bootstrap: read file, emit one abort Noti per surviving entry, clear.
- *
- * Best-effort everywhere — never let persist IO break the caller.
+ * Remaining public surface: hasPending() probes the spool so the scheduler
+ * treats an in-flight dispatch as active. Expired entries are pruned on that
+ * read. Writes are best-effort — never let persist IO break the caller.
  */
 
 import fs from 'fs';
@@ -164,40 +163,6 @@ function pathFor(dataDir) {
   return join(dataDir, FILE_NAME);
 }
 
-async function readAll(dataDir) {
-  try {
-    const p = pathFor(dataDir);
-    try {
-      await fs.promises.access(p);
-    } catch {
-      return {};
-    }
-    const raw = await fs.promises.readFile(p, 'utf8');
-    if (!raw.trim()) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function readAllSync(dataDir) {
-  try {
-    const p = pathFor(dataDir);
-    try {
-      fs.accessSync(p);
-    } catch {
-      return {};
-    }
-    const raw = fs.readFileSync(p, 'utf8');
-    if (!raw.trim()) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
 async function writeAll(dataDir, map) {
   try {
     const p = pathFor(dataDir);
@@ -225,11 +190,9 @@ async function writeAll(dataDir, map) {
 /**
  * Prune expired entries. Returns `{ map, changed }` so callers can decide
  * whether to write the pruned state back to disk. `changed === true` iff
- * at least one entry was deleted (or was present but falsy). addPending
- * always writes regardless, so it does not need the flag; hasPending /
- * recoverPending / removePending use it to persist the pruned map instead
- * of letting expired entries accumulate in pending-dispatches.json across
- * restarts.
+ * at least one entry was deleted (or was present but falsy). hasPending uses
+ * it to persist the pruned map so expired entries do not accumulate in
+ * pending-dispatches.json across restarts.
  */
 function gc(map) {
   const now = Date.now();
@@ -241,51 +204,6 @@ function gc(map) {
     }
   }
   return { map, changed };
-}
-
-function normalizeClientHostPid(v) {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-export function addPending(dataDir, handle, tool, queries, callerSessionId, clientHostPid) {
-  if (!dataDir || !handle) return;
-  const tail = getTail(dataDir).then(async () => {
-    try {
-      const lp = await acquireFileLock(dataDir);
-      if (!lp) return;
-      try {
-        const { map } = gc(await readAll(dataDir));
-        // Preserve any prior fields (createdAt / caller scoping) so a re-add
-        // for the same handle does not reset its recovery metadata.
-        const prior = map[handle] && typeof map[handle] === 'object' ? map[handle] : {};
-        const sid =
-          callerSessionId != null && String(callerSessionId) ? String(callerSessionId) : prior.callerSessionId;
-        const hostPid = normalizeClientHostPid(clientHostPid) ?? normalizeClientHostPid(prior.clientHostPid);
-        map[handle] = {
-          ...prior,
-          tool,
-          queries: Array.isArray(queries) ? queries : [String(queries)],
-          createdAt: prior.createdAt || Date.now(),
-          ...(sid ? { callerSessionId: sid } : {}),
-          ...(hostPid ? { clientHostPid: hostPid } : {}),
-        };
-        await writeAll(dataDir, map);
-        try {
-          process.stderr.write(
-            `[dispatch-persist] persist handle=${handle} tool=${tool} entries=${Object.keys(map).length}\n`
-          );
-        } catch {
-          /* best-effort */
-        }
-      } finally {
-        releaseFileLock(lp);
-      }
-    } catch {
-      /* best-effort */
-    }
-  });
-  setTail(dataDir, tail);
 }
 
 /**
@@ -331,167 +249,4 @@ export function hasPending(dataDir) {
   } catch {
     return false;
   }
-}
-
-function removePending(dataDir, handle) {
-  if (!dataDir || !handle) return;
-  const tail = getTail(dataDir).then(async () => {
-    try {
-      const lp = await acquireFileLock(dataDir);
-      if (!lp) return;
-      try {
-        const { map, changed } = gc(await readAll(dataDir));
-        let mutated = changed;
-        if (handle in map) {
-          delete map[handle];
-          mutated = true;
-          try {
-            process.stderr.write(`[dispatch-persist] ack-pop handle=${handle} entries=${Object.keys(map).length}\n`);
-          } catch {
-            /* best-effort */
-          }
-        }
-        if (mutated) await writeAll(dataDir, map);
-      } finally {
-        releaseFileLock(lp);
-      }
-    } catch {
-      /* best-effort */
-    }
-  });
-  setTail(dataDir, tail);
-}
-
-/**
- * Called once at plugin bootstrap after the MCP transport is connected.
- * For every pending entry remaining from the previous process lifetime,
- * emit a single Aborted notification with `type: 'dispatch_result'` so the
- * Lead can close the loop on its next turn. Then clear the file.
- *
- * Recovery is chained onto the per-dataDir tail so it serializes with any
- * in-flight addPending / removePending mutations for the same dataDir.
- * Notifications fire asynchronously; the return value is the number of
- * handles queued for recovery (callers use it as bootstrap telemetry).
- */
-function recoverPending(dataDir, notifyFn, { sessionId, priorSessionId, clientHostPid } = {}) {
-  if (!dataDir || typeof notifyFn !== 'function') return 0;
-  const { map: snapshot } = gc(readAllSync(dataDir));
-  const filterSid = sessionId != null && String(sessionId) ? String(sessionId) : null;
-  const priorSid = priorSessionId != null && String(priorSessionId) ? String(priorSessionId) : null;
-  const filterHostPid = normalizeClientHostPid(clientHostPid);
-  const matchesScope = (entry) => {
-    if (!filterSid && !filterHostPid) return true;
-    const callerSessionId = entry?.callerSessionId;
-    const cid = callerSessionId != null && String(callerSessionId) ? String(callerSessionId) : null;
-    if (cid && (cid === filterSid || (priorSid != null && cid === priorSid))) return true;
-    const entryHostPid = normalizeClientHostPid(entry?.clientHostPid);
-    return filterHostPid != null && entryHostPid === filterHostPid;
-  };
-  const scoped = filterSid || filterHostPid;
-  const queued = scoped
-    ? Object.keys(snapshot).filter((h) => matchesScope(snapshot[h])).length
-    : Object.keys(snapshot).length;
-  const tail = getTail(dataDir).then(async () => {
-    const lp = await acquireFileLock(dataDir);
-    if (!lp) return;
-    try {
-      const { map, changed } = gc(await readAll(dataDir));
-      const handles = Object.keys(map).filter((handle) => {
-        return matchesScope(map[handle]);
-      });
-      if (handles.length === 0) {
-        // No handles to recover for this scope. A gc() pass may still have
-        // pruned expired entries — persist the pruned `map` (NOT `{}`): under a
-        // session-scoped recovery `handles` is only the reconnecting session's
-        // subset, so other sessions' still-live pending entries remain in `map`
-        // and must survive. (Unscoped recovery reaches here only when `map` is
-        // already empty, so writing `map` is equivalent to writing `{}` there.)
-        if (changed) await writeAll(dataDir, map);
-        return;
-      }
-      for (const handle of handles) {
-        const entry = map[handle] || {};
-        const tool = entry.tool || 'dispatch';
-        const queries = Array.isArray(entry.queries) ? entry.queries : [];
-        // Determine the true owner session for this entry. A scoped recovery
-        // may have matched purely on clientHostPid (not on the owner session
-        // id); in that case we must NOT stamp the reconnecting filter session's
-        // id onto another session's abort — that injects an old-session abort
-        // into the wrong resumed session. Deliver to the true owner session, or
-        // leave the entry persisted when it carries no owner session to target.
-        const cid =
-          entry.callerSessionId != null && String(entry.callerSessionId) ? String(entry.callerSessionId) : null;
-        const ownerMatch = cid != null && (cid === filterSid || (priorSid != null && cid === priorSid));
-        if (scoped && !ownerMatch && cid == null) {
-          // hostPid-only match with no owner session id — cannot target a
-          // session safely. Leave persisted for a correctly-scoped recovery.
-          continue;
-        }
-        // Owner match → prefer the reconnecting filter session id (the owner's
-        // new session). When only priorSessionId matched and no current
-        // sessionId was supplied, filterSid is null — keep the entry's known
-        // owner `cid` for stamping/ack scoping rather than dropping it.
-        // Non-owner matches (hostPid-only) always stamp the entry's true owner.
-        const stampSid = ownerMatch && filterSid ? filterSid : cid;
-        // Single recovery mode: the worker was in flight at restart. Emit the
-        // Aborted boilerplate so the Lead can retry. Completed result bodies are
-        // never persisted, so there is nothing to replay here.
-        const qSuffix = queries.length === 1 ? '1 query' : `${queries.length} queries`;
-        const content = `[${tool}] Aborted — plugin restart interrupted dispatch (${qSuffix}). Retry if still needed.`;
-        const isError = true;
-        const meta = {
-          type: 'dispatch_result',
-          dispatch_id: handle,
-          tool,
-          error: String(isError),
-          ...(stampSid ? { caller_session_id: stampSid } : {}),
-          ...(filterHostPid > 0
-            ? { client_host_pid: String(filterHostPid) }
-            : entry.clientHostPid > 0
-              ? { client_host_pid: String(entry.clientHostPid) }
-              : {}),
-          instruction: `Earlier ${tool} dispatch (${handle}) was aborted by a plugin restart. Retry if the answer is still needed.`,
-        };
-        try {
-          process.stderr.write(`[dispatch-persist] recover handle=${handle} tool=${tool} kind=abort\n`);
-        } catch {
-          /* best-effort */
-        }
-        // Entry remains on disk until notifyFn settles as DELIVERED. Matching
-        // notifyToolCompletion settlement semantics (tool-execution-contract),
-        // only an explicit `false`/`0` resolve counts as undelivered and keeps
-        // the entry for retry; any other resolve (including `undefined`/void
-        // from a delivered notifyFn) removes it — otherwise it re-fires until
-        // TTL. A crash between fire and ack is likewise safe: the entry survives
-        // and recoverPending re-fires it on the next restart.
-        try {
-          Promise.resolve(notifyFn(content, meta))
-            .then((ok) => {
-              if (ok !== false && ok !== 0) removePending(dataDir, handle);
-            })
-            .catch(() => {
-              /* best-effort — entry stays for next recoverPending */
-            });
-        } catch {
-          /* best-effort */
-        }
-      }
-      // Do NOT bulk-clear here.  Each handle is removed individually above,
-      // only after its notifyFn acks.  If gc() pruned expired entries, write
-      // back the pruned map (without expired keys) — live handles remain on
-      // disk until their per-handle removePending calls land.
-      if (changed) await writeAll(dataDir, map);
-      try {
-        process.stderr.write(`[dispatch-persist] recoverPending recovered=${handles.length} entries queued\n`);
-      } catch {
-        /* best-effort */
-      }
-    } catch {
-      /* best-effort */
-    } finally {
-      releaseFileLock(lp);
-    }
-  });
-  setTail(dataDir, tail);
-  return queued;
 }

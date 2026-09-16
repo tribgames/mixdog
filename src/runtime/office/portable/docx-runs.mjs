@@ -156,7 +156,7 @@ function leftoverMarks(author = '') {
  *  cells are resolved as small bodies of their own. Runs, wrappers, and
  *  contents must already be resolved. With `author` only that reviewer's
  *  marks are settled; the others stay tracked. */
-export function resolveDocxParagraphMarks(documentXml, { resolution = 'accept', author = '' } = {}) {
+function resolveDocxParagraphMarks(documentXml, { resolution = 'accept', author = '' } = {}) {
   const clearTag = resolution === 'accept' ? 'ins' : 'del';
   const leftover = leftoverMarks(author);
   const body = resolveMarksInBody(String(documentXml || ''), resolution, author);
@@ -189,7 +189,7 @@ export function resolveDocxParagraphMarks(documentXml, { resolution = 'accept', 
 /** Tracked table rows: a deleted row that is accepted (or an inserted row
  *  that is rejected) disappears; the other marker is cleared. A row holding
  *  a nested table keeps its content and only loses the marker. */
-export function resolveDocxRowMarks(documentXml, { resolution = 'accept', author = '' } = {}) {
+function resolveDocxRowMarks(documentXml, { resolution = 'accept', author = '' } = {}) {
   const removeTag = resolution === 'accept' ? 'del' : 'ins';
   let xml = String(documentXml || '');
   let removed = 0;

@@ -26,7 +26,7 @@ export function normalizeIngestRole(role) {
 }
 
 // Extract the first textual content block from a message content field.
-export function firstTextContent(content) {
+function firstTextContent(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   for (const item of content) {
@@ -216,7 +216,7 @@ function redactToolArgString(rawArgs) {
 // structured handoff preserves assistant tool_calls and tool_result bodies
 // (not just plain text). Keeps valid tool-call/tool-result pairing legible by
 // tagging each with its toolCallId, while redacting sensitive argument values.
-export function sessionMessageContent(m) {
+function sessionMessageContent(m) {
   const parts = [];
   const base = firstTextContent(m?.content);
   if (base && base.trim()) parts.push(base.trim());

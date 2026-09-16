@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join, posix } from 'node:path';
+import { extname, posix } from 'node:path';
 import { applyCellStyle, resolveCellStyles } from './portable-sheet-styles.mjs';
 import { conditionalFormatKind, listValidationFormula, normalizeXlsxFormula } from './xlsx-contract.mjs';
 import { chartXml } from './portable-chart.mjs';
@@ -11,12 +11,10 @@ import {
   cellStyleIndexes,
   columnLabel,
   columnNumber,
-  existingCellStyle,
   expandRange,
   forceWorkbookRecalculation,
   parseCellRef,
   setCellInSheet,
-  setCellStyleInSheet,
   setCellStylesInSheet,
   setCellsInSheet,
   sharedStrings,
@@ -49,7 +47,6 @@ import {
 } from './portable-xml.mjs';
 import { ensureWorksheetDrawing, excelPasswordHash, writeWorksheetNote } from './portable-sheet-parts.mjs';
 import {
-  absoluteRange,
   appendDifferentialFormat,
   appendWorksheetSection,
   composeSheetView,
@@ -86,7 +83,7 @@ const MAX_STYLED_CELLS = 20_000;
 // instead of Excel's field codes. An ampersand opens a code, so the caller's
 // own text is escaped first and the tokens become codes afterwards; without
 // this a page number could not be written at all on the portable backend.
-export function headerFooterFields(text) {
+function headerFooterFields(text) {
   return String(text ?? '')
     .replace(/&/g, '&&')
     .replace(/\{page\}/gi, '&P')
@@ -165,7 +162,7 @@ function pictureDescription(altText) {
 
 // Cell validation as both backends express it: the OOXML names here, the Excel
 // enumeration in the COM host.
-export const XLSX_VALIDATION_TYPES = Object.freeze({
+const XLSX_VALIDATION_TYPES = Object.freeze({
   list: 'list',
   whole: 'whole',
   decimal: 'decimal',
@@ -175,7 +172,7 @@ export const XLSX_VALIDATION_TYPES = Object.freeze({
   custom: 'custom',
 });
 
-export const XLSX_VALIDATION_OPERATORS = Object.freeze({
+const XLSX_VALIDATION_OPERATORS = Object.freeze({
   between: 'between',
   notbetween: 'notBetween',
   equal: 'equal',

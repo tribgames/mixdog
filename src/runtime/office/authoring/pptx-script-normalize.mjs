@@ -272,7 +272,7 @@ function nextRelationshipId(relationships) {
 }
 
 /** Attach the SVG each kit icon carries on its name as the picture's vector source. */
-export async function attachSvgIcons(zip, slidePart, xml) {
+async function attachSvgIcons(zip, slidePart, xml) {
   if (!xml.includes(SVG_PREFIX)) return { xml, attached: 0 };
   const relationshipPath = relationshipsPart(slidePart);
   let relationships = await zipText(zip, relationshipPath);

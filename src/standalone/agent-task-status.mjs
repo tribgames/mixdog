@@ -19,7 +19,7 @@ function positiveSeconds(now, ts) {
   return Math.max(0, Math.floor((now - n) / 1000));
 }
 
-export function formatAgentWatchdogSummary(policy, snapshot = null) {
+function formatAgentWatchdogSummary(policy, snapshot = null) {
   if (!policy || !agentWatchdogPolicyActive(policy)) return null;
   const transportMs = policy.firstTransportMs ?? policy.firstResponseMs ?? 0;
   const semanticMs = policy.firstSemanticMs ?? policy.firstVisibleCeilingMs ?? 0;

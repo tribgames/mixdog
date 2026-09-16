@@ -17,7 +17,7 @@ import { interruptTaskWaitForSession } from '../runtime/agent/orchestrator/sessi
 import { markPendingGoalReminder } from './goal-reminder.mjs';
 import { runWithCwdOverride } from '../runtime/shared/user-cwd.mjs';
 
-export function splitToolStatusCounts(rows) {
+function splitToolStatusCounts(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const regular = list.filter((row) => row?.kind !== 'mcp' && row?.kind !== 'skill');
   const mcp = list.filter((row) => row?.kind === 'mcp');
@@ -46,7 +46,6 @@ export function createSessionTurnApi(deps) {
     setFirstTurnCompleted,
     getCodeGraphFirstTurnPrewarmDone,
     setCodeGraphFirstTurnPrewarmDone,
-    getCloseRequested,
     getTranscriptWriter,
     getLastAppendedAssistant,
     setLastAppendedAssistant,
@@ -55,13 +54,11 @@ export function createSessionTurnApi(deps) {
     scheduleSearchRuntimeWarmup,
     createCurrentSession,
     ensureSessionTranscriptWriter,
-    channels,
     hooks,
     hookCommonPayload,
     mgr,
     notifyFnForSession,
     subscribeRuntimeNotification,
-    bootProfile,
     scheduleProviderWarmup,
     scheduleProviderModelWarmup,
     invalidateContextStatusCache,

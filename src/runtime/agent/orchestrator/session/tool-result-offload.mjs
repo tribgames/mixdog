@@ -12,7 +12,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'fs';
-import { lstat, open, readdir, readFile, rmdir, stat, unlink, writeFile } from 'fs/promises';
+import { lstat, open, readdir, readFile, stat, unlink, writeFile } from 'fs/promises';
 import { createHash } from 'crypto';
 import { join } from 'path';
 import { getPluginData } from '../config.mjs';
@@ -419,31 +419,6 @@ export async function maybeOffloadToolResultBatch(sessionId, entries, options = 
     }
   }
   return states;
-}
-
-// Delete artifacts only after the durable session itself has been deleted.
-// Normal close/detach keeps the transcript resumable, so it must not call this.
-async function clearOffloadSession(sessionId) {
-  if (!sessionId) return;
-  const dir = join(getPluginData(), 'tool-results', safeSessionSegment(sessionId));
-  if (!existsSync(dir)) return;
-  try {
-    const entries = await readdir(dir);
-    await Promise.all(
-      entries
-        .filter((name) => name.endsWith('.txt'))
-        .map((name) =>
-          unlink(join(dir, name)).catch(() => {
-            /* best-effort */
-          })
-        )
-    );
-    await rmdir(dir).catch(() => {
-      /* best-effort: non-empty / already gone */
-    });
-  } catch {
-    /* best-effort */
-  }
 }
 
 function clearOffloadSessionSync(sessionId) {

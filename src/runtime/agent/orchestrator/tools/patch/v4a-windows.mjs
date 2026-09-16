@@ -1,6 +1,6 @@
 // V4A fuzzy window-matching tiers: bounded context tolerance, bounded edit
 // distance, outer-context trimming, indent normalization, and opcode-prefix /
-// plus-as-context restoration. Moved verbatim from v4a-convert.mjs; every
+// plus-as-context restoration. Every
 // tier keeps its uniqueness guard so a rescue can never mis-anchor.
 import { longestCommonSubstringLen, boundedEditDistance, EDIT_DISTANCE_ALLOWANCE_PER_LINE } from './matcher.mjs';
 import { isV4AEndOfFileMarker } from './parsing.mjs';

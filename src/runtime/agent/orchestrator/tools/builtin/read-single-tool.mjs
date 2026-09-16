@@ -29,6 +29,7 @@ function _readWindowHistory(scope) {
 }
 const _WIDEN_GAP_MAX_LINES = 200;
 const _WIDEN_RESULT_MAX_LINES = 400;
+const READ_PREFIX_HASH_BYTES = 65536;
 
 export async function executeSingleReadTool(args, workDir, readStateScope, options = {}, helpers = {}) {
   const {
@@ -37,7 +38,6 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     extractIpynbText,
     extractPdfText,
     findSimilarFile,
-    isBinaryFile,
     isBlockedDevicePath,
     isUncPath,
     isWindowsDevicePath,
@@ -309,13 +309,13 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
   // close over fullPath and st without an extra arg.
   const _readPrefixHashForCacheGuard = async () => {
     try {
-      if (st.size <= 65536) {
+      if (st.size <= READ_PREFIX_HASH_BYTES) {
         return _hashText(await readFile(fullPath, 'utf-8'));
       }
       const _fh = await fsPromises.open(fullPath, 'r');
       try {
-        const _buf = Buffer.allocUnsafe(65536);
-        const { bytesRead: _n } = await _fh.read(_buf, 0, 65536, 0);
+        const _buf = Buffer.allocUnsafe(READ_PREFIX_HASH_BYTES);
+        const { bytesRead: _n } = await _fh.read(_buf, 0, READ_PREFIX_HASH_BYTES, 0);
         return _hashText(_buf.subarray(0, _n));
       } finally {
         try {
@@ -342,7 +342,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
     const _prefixHash = cachedEntry.contentPrefixHash;
     const _snapHash = cachedEntry.readSnapshotMeta?.contentHash;
     if (_prefixHash || _snapHash) {
-      if (st.size <= 65536) {
+      if (st.size <= READ_PREFIX_HASH_BYTES) {
         // ≤64KiB: one full-body read validates whichever hash the
         // entry carries — prefix == full at this size. Prefer the
         // exact full contentHash when present, else the prefix hash
@@ -424,7 +424,7 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
   // Path-snapshot fallback: exact cache-key hits above can still collapse
   // duplicate reads. Size-gate the fallback so a missing cache entry never
   // hashes a large file just to emit an unchanged stub.
-  if (!hasRangeArgs && st.size <= 65536) {
+  if (!hasRangeArgs && st.size <= READ_PREFIX_HASH_BYTES) {
     const _snap = getReadSnapshot(fullPath, readStateScope);
     if (
       _snap &&
@@ -555,11 +555,11 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
           _streamRes.prefixHash ||
           (await (async () => {
             try {
-              if (st.size <= 65536) return _hashText(await readFile(fullPath, 'utf-8'));
+              if (st.size <= READ_PREFIX_HASH_BYTES) return _hashText(await readFile(fullPath, 'utf-8'));
               const fh = await fsPromises.open(fullPath, 'r');
               try {
-                const _buf = Buffer.allocUnsafe(65536);
-                const _readRes = await fh.read(_buf, 0, 65536, 0);
+                const _buf = Buffer.allocUnsafe(READ_PREFIX_HASH_BYTES);
+                const _readRes = await fh.read(_buf, 0, READ_PREFIX_HASH_BYTES, 0);
                 return _hashText(_buf.subarray(0, _readRes.bytesRead));
               } finally {
                 await fh.close().catch(() => {});
@@ -624,11 +624,11 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
             _streamSmart.prefixHash ||
             (await (async () => {
               try {
-                if (st.size <= 65536) return _hashText(await readFile(fullPath, 'utf-8'));
+                if (st.size <= READ_PREFIX_HASH_BYTES) return _hashText(await readFile(fullPath, 'utf-8'));
                 const fh = await fsPromises.open(fullPath, 'r');
                 try {
-                  const _buf = Buffer.allocUnsafe(65536);
-                  const _readRes = await fh.read(_buf, 0, 65536, 0);
+                  const _buf = Buffer.allocUnsafe(READ_PREFIX_HASH_BYTES);
+                  const _readRes = await fh.read(_buf, 0, READ_PREFIX_HASH_BYTES, 0);
                   return _hashText(_buf.subarray(0, _readRes.bytesRead));
                 } finally {
                   await fh.close().catch(() => {});
@@ -677,11 +677,11 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
           _streamRes.prefixHash ||
           (await (async () => {
             try {
-              if (st.size <= 65536) return _hashText(await readFile(fullPath, 'utf-8'));
+              if (st.size <= READ_PREFIX_HASH_BYTES) return _hashText(await readFile(fullPath, 'utf-8'));
               const fh = await fsPromises.open(fullPath, 'r');
               try {
-                const _buf = Buffer.allocUnsafe(65536);
-                const _readRes = await fh.read(_buf, 0, 65536, 0);
+                const _buf = Buffer.allocUnsafe(READ_PREFIX_HASH_BYTES);
+                const _readRes = await fh.read(_buf, 0, READ_PREFIX_HASH_BYTES, 0);
                 return _hashText(_buf.subarray(0, _readRes.bytesRead));
               } finally {
                 await fh.close().catch(() => {});
@@ -869,9 +869,9 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
       // head (sufficient to detect a same-mtime / same-size rewrite of
       // any bytes within the first 64KiB — the common case).
       const _regPrefixHash =
-        content.length <= 65536 && _fullContentHash
+        content.length <= READ_PREFIX_HASH_BYTES && _fullContentHash
           ? _fullContentHash
-          : _hashText(content.length <= 65536 ? content : content.slice(0, 65536));
+          : _hashText(content.length <= READ_PREFIX_HASH_BYTES ? content : content.slice(0, READ_PREFIX_HASH_BYTES));
       _cacheSet(cacheKey, out, {
         paths: [fullPath],
         readSnapshotMeta: snapshotMeta,

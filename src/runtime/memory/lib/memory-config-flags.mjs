@@ -20,7 +20,7 @@ export function readMainConfig() {
 // worker, so it re-reads this section from disk each cycle tick (poll-on-use)
 // rather than relying on IPC.
 
-export function readRecapEnabled() {
+function readRecapEnabled() {
   try {
     const agent = readSection('agent');
     const recap = agent?.recap;
@@ -31,7 +31,7 @@ export function readRecapEnabled() {
   }
 }
 
-export function embeddingWarmupEnabled() {
+function embeddingWarmupEnabled() {
   return envFlag('MIXDOG_EMBED_WARMUP', true);
 }
 
@@ -66,7 +66,7 @@ export function memoryCyclesEnabled() {
   return !memorySecondaryMode() && !envFlag('MIXDOG_MEMORY_DISABLE_CYCLES') && readRecapEnabled();
 }
 
-export function secondaryPgAdvertised(dataDir) {
+function secondaryPgAdvertised(dataDir) {
   if (!memorySecondaryMode()) return true;
   try {
     const cur = readServiceAdvert('pg');

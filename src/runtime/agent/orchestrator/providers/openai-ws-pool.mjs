@@ -1,7 +1,7 @@
 /**
  * openai-ws-pool.mjs — WebSocket connection pool for the OpenAI OAuth provider.
  *
- * Extracted from openai-oauth-ws.mjs. Owns the socket pool singleton
+ * Owns the socket pool singleton
  * (_wsPool), handshake/open/acquire/release lifecycle, idle-close timers and
  * the process-exit drain fence. openai-oauth-ws.mjs imports acquire/release/
  * _sendFrame and re-exports the drain hooks for legacy import paths.

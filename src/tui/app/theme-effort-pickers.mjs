@@ -1,7 +1,7 @@
 /**
  * theme-effort-pickers.mjs — the Theme picker + Effort picker cluster.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory (these openers drive the panel surface + the prompt setters and read
  * live App state, so they can't be pure). Every function body is the original
  * App logic verbatim, with closure identifiers threaded through the factory

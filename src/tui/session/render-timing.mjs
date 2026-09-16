@@ -30,7 +30,7 @@ let pendingRenderAcks = [];
 let renderAckSeq = 0;
 let lastRenderFrameAt = 0;
 
-export const renderFrameDelay = (lastFrameAt, currentTime, frameMs = TUI_FRAME_MS) => {
+const renderFrameDelay = (lastFrameAt, currentTime, frameMs = TUI_FRAME_MS) => {
   if (!(lastFrameAt > 0)) return frameMs;
   return Math.max(0, frameMs - Math.max(0, currentTime - lastFrameAt));
 };

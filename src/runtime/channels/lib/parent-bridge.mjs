@@ -134,4 +134,4 @@ function createParentBridge({ getInstanceId, ipcProcess = process }) {
   };
 }
 
-export { createParentBridge, normalizeChannelNotifyParams, setChannelNotifySink };
+export { createParentBridge, setChannelNotifySink };

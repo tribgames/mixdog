@@ -10,8 +10,7 @@ import {
   refreshActiveInstance,
 } from './runtime-paths.mjs';
 import { startCliWorker } from './cli-worker-host.mjs';
-// Worker boot maintenance extracted from channels/index.mjs (behavior-
-// preserving): worker-log rotation + stale worker-log/session GC + plugin-data
+// Worker boot maintenance: worker-log rotation + stale worker-log/session GC + plugin-data
 // sibling prune, the SIGTERM drop-trace flush handler, runtime-dir init, and the
 // non-worker-mode owner-identity publish + CLI worker start.
 export function runWorkerBootstrap({

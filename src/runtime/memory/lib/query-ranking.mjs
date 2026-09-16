@@ -67,7 +67,7 @@ export function latestRecallSearchTerms(text) {
   return identifiers.length > 0 ? identifiers : topicTerms;
 }
 
-export function recallRowTopicText(row) {
+function recallRowTopicText(row) {
   const members = Array.isArray(row?.members) ? row.members : [];
   return [
     row?.content,

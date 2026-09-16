@@ -28,7 +28,6 @@ const MOUSE_TRACKING_OFF = '\x1b[?1006l\x1b[?1002l\x1b[?1000l';
 // is on, every wheel notch turns into prompt-history Up/Down. Off means a
 // degraded wheel is a no-op, never history navigation.
 const ALT_SCROLL_OFF = '\x1b[?1007l';
-const MOUSE_MODIFIER_MASK = 4 | 8 | 16;
 const MOUSE_CTRL_MASK = 16;
 // Wheel step / acceleration knobs live in transcript-window.mjs next to the
 // other MIXDOG_TUI_* scroll tunables (see the block around WHEEL_STEP_ROWS).
@@ -74,7 +73,7 @@ export function cancelPendingMouseTrackingRestores() {
   }
 }
 
-export function createMouseTrackingRestoreScheduler(
+function createMouseTrackingRestoreScheduler(
   stdout,
   { setTimeoutFn = setTimeout, clearTimeoutFn = clearTimeout } = {}
 ) {

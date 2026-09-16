@@ -117,7 +117,7 @@ async function runScenario({
   };
 }
 
-export async function runOfficePolishBenchmark({ keep = false } = {}) {
+async function runOfficePolishBenchmark({ keep = false } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-office-polish-'));
   try {
     const results = [];

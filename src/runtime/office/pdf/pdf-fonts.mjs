@@ -20,11 +20,11 @@ const SYSTEM_UNICODE_FONTS = Object.freeze([
   '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
 ]);
 
-export const PDF_FONT_HINT =
+const PDF_FONT_HINT =
   'pass fontPath pointing to a Unicode TrueType/OpenType font (Windows: C:\\Windows\\Fonts\\malgun.ttf) or set MIXDOG_OCR_FONT';
 
 /** Readable Unicode fonts in preference order: the explicit path, the MIXDOG_OCR_FONT override, then the platform list. */
-export async function unicodeFontCandidates(explicit = '') {
+async function unicodeFontCandidates(explicit = '') {
   const found = [];
   for (const candidate of [
     explicit ? resolve(String(explicit)) : '',
@@ -44,7 +44,7 @@ export async function unicodeFontPath(explicit = '') {
 }
 
 /** The characters of `text` the font has no glyph for, in first-seen order. */
-export function uncoveredCharacters(font, text, limit = 6) {
+function uncoveredCharacters(font, text, limit = 6) {
   const face = font?.embedder?.font;
   const missing = [];
   const seen = new Set();
@@ -71,7 +71,7 @@ export function uncoveredCharacters(font, text, limit = 6) {
 }
 
 /** `😀 (U+1F600)` for each character, for an error that names what blocks the file. */
-export function describeUncovered(characters = []) {
+function describeUncovered(characters = []) {
   return characters
     .map((char) => `${char} (U+${char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0')})`)
     .join(', ');

@@ -94,7 +94,6 @@ import {
   embeddingOnDemandCanStart,
   memoryLlmWorkerEnabled,
   memoryCyclesEnabled,
-  secondaryPgAdvertised as _secondaryPgAdvertised,
   assertSecondaryPgAttachable as _assertSecondaryPgAttachable,
 } from './lib/memory-config-flags.mjs';
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
@@ -241,10 +240,6 @@ const { ingestSessionMessages } = _sessionIngest;
 // DATA_DIR-bound wrappers over the extracted pure flag helpers (see
 // ./lib/memory-config-flags.mjs). The pg-attach check needs DATA_DIR, which is
 // module-local here.
-function secondaryPgAdvertised() {
-  return _secondaryPgAdvertised(DATA_DIR);
-}
-
 function assertSecondaryPgAttachable() {
   return _assertSecondaryPgAttachable(DATA_DIR);
 }
@@ -517,8 +512,7 @@ const __queryHandlers = createQueryHandlers({
   getBootTimestamp: () => _bootTimestamp,
   getTraceDb: () => _traceDb,
 });
-const { readRawRowsInWindow, recallSessionRows, recallCoreRows, handleSearch, dumpSessionRootChunks, entryStats } =
-  __queryHandlers;
+const { handleSearch, dumpSessionRootChunks, entryStats } = __queryHandlers;
 
 // ── Memory action + tool-call handlers (extracted to
 // lib/memory-action-handlers.mjs). The facade keeps db/scheduler ownership and

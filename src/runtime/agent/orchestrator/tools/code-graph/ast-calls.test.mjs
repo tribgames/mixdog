@@ -6,7 +6,7 @@
 // The cache half (sidecar) is exercised against a temp MIXDOG_DATA_DIR.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, writeFile, rm, readFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { mkdtempSync, existsSync, readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';

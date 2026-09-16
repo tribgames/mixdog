@@ -205,7 +205,7 @@ export const providerDisplayRank = (provider) => {
   return ranks[key] ?? 900;
 };
 
-export const titleCaseOption = (value) =>
+const titleCaseOption = (value) =>
   String(value || '')
     .split(/([\s_-]+)/)
     .map((part) => (/^[\s_-]+$/.test(part) ? part : `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`))
@@ -223,13 +223,11 @@ export const fastDisplayLabel = (enabled = true) => `Fast ${enabled ? 'On' : 'Of
 export const modelDescription = (m) =>
   [String(m?.description || '').trim(), m.fastCapable ? 'Fast Available' : ''].filter(Boolean).join(' · ');
 
-export const modelRecordDisplayName = (model) =>
-  displayModelName(model?.id, model?.provider, model?.display || model?.name);
+const modelRecordDisplayName = (model) => displayModelName(model?.id, model?.provider, model?.display || model?.name);
 
-export const routeModelDisplayName = (route) =>
-  displayModelName(route?.model, route?.provider, route?.modelDisplay || '');
+const routeModelDisplayName = (route) => displayModelName(route?.model, route?.provider, route?.modelDisplay || '');
 
-export const groupModelsByProvider = (models) => {
+const groupModelsByProvider = (models) => {
   const providers = new Map();
   for (const model of models) {
     if (!providers.has(model.provider)) providers.set(model.provider, []);
@@ -318,7 +316,7 @@ export const routeFromModel = (model, effort = null) => ({
   ...(effort && effort !== 'auto' ? { effort } : {}),
 });
 
-export const modelScore = (model, slot) => {
+const modelScore = (model, slot) => {
   const text = `${model.provider} ${model.id} ${model.display} ${model.family || ''} ${model.tier || ''}`.toLowerCase();
   let score = 0;
   if (model.latest) score += 6;
@@ -336,7 +334,7 @@ export const modelScore = (model, slot) => {
   return score;
 };
 
-export const chooseRecommendedModel = (models, slot, fallbackRoute) => {
+const chooseRecommendedModel = (models, slot, fallbackRoute) => {
   if (!Array.isArray(models) || models.length === 0) return null;
   const sorted = models.slice().sort((a, b) => modelScore(b, slot) - modelScore(a, slot));
   return sorted[0] ? routeFromModel(sorted[0]) : fallbackRoute || null;

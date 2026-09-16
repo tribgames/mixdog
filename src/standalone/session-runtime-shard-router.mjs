@@ -17,7 +17,7 @@
 //     input in the abandoned child.
 
 export const SESSION_RUNTIME_SHARD_ENV = 'MIXDOG_SESSION_RUNTIME_SHARDS';
-export const MAX_SESSION_RUNTIME_SHARDS = 16;
+const MAX_SESSION_RUNTIME_SHARDS = 16;
 
 /**
  * The external-host compatibility seam defaults to one shared runtime process.

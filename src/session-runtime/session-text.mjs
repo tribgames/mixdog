@@ -26,7 +26,7 @@ export function sessionMessageText(content) {
   }
 }
 
-export function messageContextText(message) {
+function messageContextText(message) {
   if (!message || typeof message !== 'object') return '';
   let text = sessionMessageText(message.content);
   if (message.role === 'assistant' && Array.isArray(message.toolCalls) && message.toolCalls.length) {
@@ -111,7 +111,7 @@ export function cleanSessionPreview(text, max = 160) {
 // src/session-runtime/tool-catalog.mjs. Detection keys on this exact string
 // (never fuzzy matching) so the raw announcement block can be hidden from
 // user-facing surfaces while the model context stays untouched.
-export const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session started';
+const LATE_TOOL_ANNOUNCEMENT_SENTINEL = 'connected after this session started';
 
 export function isLateToolAnnouncement(text) {
   const value = String(text || '');

@@ -1,7 +1,6 @@
 /**
  * runtime/shared/time-format.mjs — compact elapsed-time labels shared by every
- * surface (TUI, terminal, desktop renderer). Moved verbatim from
- * src/tui/time-format.mjs so tool-card detail rows ("Running · 12s") derive
+ * surface (TUI, terminal, desktop renderer). Tool-card detail rows ("Running · 12s") derive
  * from ONE formatter; the TUI module re-exports from here.
  *
  * Examples:

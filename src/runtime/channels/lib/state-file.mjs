@@ -58,4 +58,4 @@ class JsonStateFile {
     return this.write(draft);
   }
 }
-export { JsonStateFile, ensureDir, readJsonFile, removeFileIfExists, writeJsonFile, writeTextFile };
+export { JsonStateFile, ensureDir, readJsonFile, removeFileIfExists, writeJsonFile };

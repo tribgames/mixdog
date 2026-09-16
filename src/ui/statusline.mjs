@@ -123,7 +123,7 @@ function rememberNonEmptyQuotaSegments(key, segments) {
 //   - either side lacks a comparable asOf .... accept (preserves prior behavior)
 //   - displayed value is own live data ....... accept only a STRICTLY newer snapshot
 //   - both shared-cache snapshots ............ accept same-or-newer asOf
-export function acceptQuotaSnapshot(held, incoming) {
+function acceptQuotaSnapshot(held, incoming) {
   if (!held) return true;
   if (incoming && incoming.owned) return true;
   const incomingAsOf = num(incoming && incoming.asOf);
@@ -176,32 +176,6 @@ function l2SpinnerFrame(now = Date.now()) {
  */
 function activeContextNumerator(provider, stats) {
   return measuredContextUsage({ stats }).used;
-}
-
-function displayContextBoundary({
-  contextWindow = 0,
-  displayContextWindow = 0,
-  rawContextWindow = 0,
-  compactBoundaryTokens = 0,
-  autoCompactTokenLimit = 0,
-  compact = null,
-} = {}) {
-  const boundarySeed =
-    num(compactBoundaryTokens) > 0
-      ? num(compactBoundaryTokens)
-      : num(displayContextWindow) > 0
-        ? num(displayContextWindow)
-        : num(contextWindow);
-  const boundary = compactBoundaryForStatus(
-    {
-      contextWindow: boundarySeed,
-      rawContextWindow: num(rawContextWindow),
-      autoCompactTokenLimit: num(autoCompactTokenLimit),
-    },
-    compact
-  );
-  if (Number.isFinite(boundary) && boundary > 0) return boundary;
-  return modelContextWindow('', '', boundarySeed);
 }
 
 export function resolveContextUsedPct({

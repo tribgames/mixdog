@@ -1,4 +1,4 @@
-import { extname, join } from 'node:path';
+import { extname } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import {
   IMAGE_CONTENT_TYPES,
@@ -135,7 +135,7 @@ export function writeSectionPropertiesAt(documentXml, section, mutate) {
   return `${documentXml.slice(0, model.body.start)}${inner}${documentXml.slice(model.body.end)}`;
 }
 
-export function writeSectionProperties(documentXml, mutate) {
+function writeSectionProperties(documentXml, mutate) {
   const { model, match } = trailingSectionProperties(documentXml);
   const current = match ? match[0] : '<w:sectPr></w:sectPr>';
   const next = mutate(current);
@@ -170,7 +170,7 @@ const NOTE_PARTS = Object.freeze({
   }),
 });
 
-export function noteDefinition(kind) {
+function noteDefinition(kind) {
   const definition = NOTE_PARTS[String(kind || 'footnote').toLowerCase()];
   if (!definition) throw new Error(`Unsupported note kind: ${kind}. Use footnote or endnote.`);
   return definition;

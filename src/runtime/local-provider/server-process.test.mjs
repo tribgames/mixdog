@@ -153,7 +153,7 @@ test('stop interrupts loading and queued starts without waiting for readiness', 
 
 test('launch preparation chooses one GPU and a failed resource check never spawns a child', async () => {
   let environment;
-  const { manager, children, spec } = fixture({
+  const { manager, spec } = fixture({
     spawnFn(_file, _args, options) {
       environment = options.env;
       const child = new EventEmitter();

@@ -11,7 +11,7 @@ import { rgbToAnsi256 } from '../ui/ansi.mjs';
 const RESET = '\x1b[0m';
 
 /** Truecolor SGR sequences emitted by the shared statusline stack (not theme). */
-export const STATUSLINE_CANONICAL_TRUECOLOR = Object.freeze({
+const STATUSLINE_CANONICAL_TRUECOLOR = Object.freeze({
   statusText: [198, 198, 198],
   subtle: [136, 136, 136],
   success: [0, 170, 75],
@@ -148,7 +148,7 @@ function applyDefaultStatusForegroundAfterReset(text, STATUS, reset = RESET) {
  * @param {string} text
  * @param {{ STATUS: string, SUBTLE: string, SUCCESS: string, WARNING: string, ERROR: string }} colors
  */
-export function remapCanonicalStatuslineTruecolor(text, colors) {
+function remapCanonicalStatuslineTruecolor(text, colors) {
   const c = STATUSLINE_CANONICAL_TRUECOLOR;
   const pairs = [
     ...canonicalSgrVariants(c.statusText).map((from) => [from, colors.STATUS]),

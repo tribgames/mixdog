@@ -77,7 +77,7 @@ function compareModels(a, b) {
 }
 
 /** Keep official tiers and generations intact; never infer a quality ranking. */
-export function mediaModelLabel(lane, row, id) {
+function mediaModelLabel(lane, row, id) {
   let label = String(row.displayName || row.display || row.label || row.name || id).replace(/^models\//, '');
   if (lane === 'xai' || lane === 'grok-oauth') {
     label = id

@@ -454,7 +454,7 @@ function summarize(results) {
   };
 }
 
-export async function runOfficeBenchmark({
+async function runOfficeBenchmark({
   corpus,
   output,
   baseline = '',

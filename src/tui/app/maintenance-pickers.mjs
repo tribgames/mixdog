@@ -1,7 +1,7 @@
 /**
  * maintenance-pickers.mjs — Update / Auto-clear / Profile picker cluster.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory. These openers drive the panel surface + setSettingsPrompt and read
  * live store state, so they can't be pure. Every function body is the original
  * App logic verbatim, with closure identifiers threaded through the factory

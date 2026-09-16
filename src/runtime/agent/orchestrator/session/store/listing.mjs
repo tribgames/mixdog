@@ -625,7 +625,6 @@ function* sweepStaleSessionSteps(ttlMs, options = {}) {
       const effUpdatedAt = Number(actual?.updatedAt) > 0 ? Number(actual.updatedAt) : row.updatedAt || 0;
       const effLastHb = Number(actual?.lastHeartbeatAt) > 0 ? Number(actual.lastHeartbeatAt) : row.lastHeartbeatAt || 0;
       const effCreatedAt = Number(actual?.createdAt) > 0 ? Number(actual.createdAt) : row.createdAt || 0;
-      const effProvider = actual && typeof actual.provider === 'string' ? actual.provider : row.provider;
       // Sweep agent-owned and ownerless (legacy) sessions; skip explicit
       // user sessions before touching heartbeat sidecars. USER-owned
       // conversations are NEVER added to the retention-cap candidate set —

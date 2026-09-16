@@ -1,7 +1,7 @@
 /**
  * resume-picker.mjs — the /resume saved-chat session picker.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory: openResumePicker drives the panel surface and reads live store
  * state, so it can't be pure. The function body is the original App logic
  * verbatim, with closure identifiers (store, surface, and the two session

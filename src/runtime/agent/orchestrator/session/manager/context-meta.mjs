@@ -2,7 +2,6 @@
 // resolution.
 
 import { getModelMetadataSync } from '../../providers/model-catalog.mjs';
-import { resolveSessionCompactPolicy } from '../context-utils.mjs';
 import { CONTEXT_SHARE_RATIO, COMPACT_TARGET_MIN_TOKENS } from '../compact.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 
@@ -214,12 +213,6 @@ export function resolveSessionContextMeta(provider, model, seed = {}) {
     autoCompactTokenLimit: autoCompactTokenLimit || null,
     compactBoundaryTokens,
   };
-}
-function compactTriggerForSession(session, boundaryTokens) {
-  // Delegates to the shared session-compaction policy (context-utils):
-  // agent -> 90% (default buffer), main/user -> 100% (buffer 0),
-  // truly-explicit sub-boundary limit wins.
-  return resolveSessionCompactPolicy(session, boundaryTokens).triggerTokens;
 }
 export function compactTargetBudget(boundaryTokens, reserveTokens, _sourceTokens = null, _ratio = null) {
   const boundary = positiveInt(boundaryTokens);

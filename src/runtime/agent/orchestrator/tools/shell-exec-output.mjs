@@ -1,5 +1,4 @@
 // Shell exec output plumbing: inline/disk caps, ANSI strip, tree-kill, bounded capture, results.
-// Extracted from shell-command.mjs.
 
 // Output capture for the native shell process manager.
 import {

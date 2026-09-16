@@ -163,8 +163,7 @@ test('browser tool contract exposes generation-bound actions and bounded observa
   assert.equal(propertyFor('downloads', 'attach').description.includes('8 MiB'), true);
   assert.ok(propertyFor('drag', 'targetX'));
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('never replayed after dispatch'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('Batch independent pages'));
-  assert.ok(BROWSER_TOOL_DEFS[0].description.includes('order actions that depend on results or invalidate refs'));
+  // Parallel admission and same-page ordering are exercised by the command-queue behavior tests.
   // Method lives in the built-in browser-use skill; the description is contract only.
   assert.ok(BROWSER_TOOL_DEFS[0].description.includes('browser-use skill'));
   assert.ok(!BROWSER_TOOL_DEFS[0].description.includes('fill.fields'));

@@ -2,7 +2,7 @@
  * src/standalone/session-service/projection.mjs - wire projection and frame
  * publication for daemon-owned session entries: identity-cached snapshots,
  * revision steps with deltas, session-address indexing, and external (agent)
- * session views. Extracted from session-service.mjs.
+ * session views.
  */
 import { diffSessionState } from '../session-state-patch.mjs';
 import { projectSessionState } from '../session-state-projection.mjs';

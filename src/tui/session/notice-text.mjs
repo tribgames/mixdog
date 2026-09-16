@@ -1,6 +1,5 @@
 /**
  * src/tui/session/notice-text.mjs - polish user-facing failure/notice text.
- * Extracted from session-local.mjs.
  */
 const FAILED_NOTICE_ACTIONS = new Map([
   ['api key save', 'save API key'],

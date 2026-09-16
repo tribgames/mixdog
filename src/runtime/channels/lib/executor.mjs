@@ -195,4 +195,4 @@ function runScript(name, scriptName, onResult) {
   };
   trySpawn(0);
 }
-export { applyParser, applyTemplate, ensureNopluginDir, evaluateFilter, logEvent, runScript };
+export { applyParser, applyTemplate, ensureNopluginDir, evaluateFilter, logEvent };

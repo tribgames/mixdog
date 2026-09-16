@@ -1,7 +1,7 @@
 /**
  * components/TextEntryPanel.jsx — inline editor used inside picker workflows.
  */
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import stringWidth from 'string-width';
 import { theme, surfaceBackground } from '../theme.mjs';

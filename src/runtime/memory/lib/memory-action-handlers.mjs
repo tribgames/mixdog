@@ -9,12 +9,12 @@
 // scheduler, and lifecycle state. The whole-action backfill mutex lives here
 // (facade-local previously) since it only guards this module's backfill path.
 
-import { runCycle1, runCycle2, syncRootEmbedding } from './memory-cycle.mjs';
+import { runCycle2, syncRootEmbedding } from './memory-cycle.mjs';
 import { getInFlightCycle1 } from './memory-cycle1.mjs';
 import { pruneOldEntries } from './memory-maintenance-store.mjs';
 import { computeEntryScore } from './memory-score.mjs';
 import { runFullBackfill } from './memory-ops-policy.mjs';
-import { listCore, addCore, editCore, deleteCore, normalizeCoreInput, normalizeCoreOp } from './core-memory-store.mjs';
+import { addCore, editCore, deleteCore, normalizeCoreInput, normalizeCoreOp } from './core-memory-store.mjs';
 import { resolveProjectScope } from './project-id-resolver.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { getMetaValue, isBootstrapComplete } from './memory.mjs';

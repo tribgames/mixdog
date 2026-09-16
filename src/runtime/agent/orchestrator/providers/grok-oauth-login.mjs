@@ -16,8 +16,6 @@
  */
 import { createServer } from 'http';
 import { randomBytes } from 'crypto';
-import { resolve } from 'path';
-import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 
 // --- Constants ---

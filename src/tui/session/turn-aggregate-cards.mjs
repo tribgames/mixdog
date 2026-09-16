@@ -2,8 +2,7 @@
  * src/tui/session/turn-aggregate-cards.mjs - aggregate tool-card tracking for
  * one lead turn (createRunTurn). Consecutive same-bucket tool calls merge into
  * one transcript card whose header, counts, and merged result summary stay
- * current; assistant text and turn boundaries seal the block. Extracted from
- * turn.mjs.
+ * current; assistant text and turn boundaries seal the block.
  */
 import { aggregateDoneCategories } from '../../runtime/shared/tool-surface.mjs';
 import { toolResultText } from './tool-result-text.mjs';

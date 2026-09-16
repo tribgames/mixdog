@@ -4,7 +4,7 @@ import { clean, hasOwn } from './session-text.mjs';
 import { normalizeEffortInput, normalizeSavedEffort } from './effort.mjs';
 import { routeFastKey, fastPreferenceFor } from './model-capabilities.mjs';
 
-export const DEFAULT_PROVIDER = 'anthropic-oauth';
+const DEFAULT_PROVIDER = 'anthropic-oauth';
 export const DEFAULT_MODEL = '';
 
 // Resolve a provider-less MAIN selector against the selected Main preset.

@@ -114,7 +114,7 @@ export function compactParts(parts) {
     .join(STATUS_SEPARATOR);
 }
 
-export function compactSlash(left, right) {
+function compactSlash(left, right) {
   const a = String(left ?? '').trim();
   const b = String(right ?? '').trim();
   return a && b ? `${a}/${b}` : a || b;

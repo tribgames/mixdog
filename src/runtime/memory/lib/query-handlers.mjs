@@ -514,7 +514,6 @@ export function createQueryHandlers({
     const period = String(args.period ?? '').trim() || queryPeriod;
     const timelineMode = args.sort == null && hasTimelineIntent(query);
     const latestIntent = hasLatestRecallIntent(query) || queryPeriod === '3h';
-    const latestTopicTerms = latestIntent ? latestRecallTopicTerms(query) : [];
     const latestSearchTerms = latestIntent ? latestRecallSearchTerms(query) : [];
     const retrievalQuery = latestSearchTerms.length > 0 ? latestSearchTerms.join(' ') : query;
     const latestEntityMode = args.sort == null && latestIntent && hasRecallEntity(query);

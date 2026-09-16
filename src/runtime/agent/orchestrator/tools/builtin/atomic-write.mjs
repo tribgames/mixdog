@@ -206,7 +206,7 @@ export async function atomicWrite(
     try {
       excl = await fsPromises.open(writeTarget, 'wx');
       await excl.close();
-    } catch (exclErr) {
+    } catch {
       if (excl)
         try {
           await excl.close();

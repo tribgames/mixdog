@@ -18,7 +18,7 @@ import {
 } from '../stall-policy.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 import { resolveResponsesTransportPolicy, RESPONSES_TRANSPORT_CAPABILITIES } from './openai-transport-policy.mjs';
-import { summarizeTraceMessages, extractCompatCachedTokens } from './openai-compat-trace.mjs';
+import { extractCompatCachedTokens } from './openai-compat-trace.mjs';
 import {
   resolveCompatMaxOutputTokens,
   toOpenAIMessages,

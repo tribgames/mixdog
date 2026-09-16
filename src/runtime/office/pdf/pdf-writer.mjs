@@ -65,7 +65,7 @@ function blockType(block) {
   return String(block?.type || 'paragraph').toLowerCase();
 }
 
-export function assertPdfBlocks(blocks) {
+function assertPdfBlocks(blocks) {
   const faults = [];
   const kinds = Object.keys(BLOCK_FIELDS);
   (Array.isArray(blocks) ? blocks : []).forEach((block, index) => {

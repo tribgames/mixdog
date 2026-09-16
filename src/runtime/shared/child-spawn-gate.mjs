@@ -280,22 +280,3 @@ export function snapshot() {
     }),
   };
 }
-
-/**
- * Run `fn` while holding one child-spawn slot. Release is guaranteed in a
- * finally so a throw/return from `fn` cannot leak a slot or deadlock the gate.
- *
- * @template T
- * @param {(args: { signal: AbortSignal | null }) => Promise<T> | T} fn
- * @param {AbortSignal | null} [signal]
- * @param {string} [laneName]
- * @returns {Promise<T>}
- */
-async function withGate(fn, signal = null, laneName = 'search') {
-  const release = await acquire(signal, laneName);
-  try {
-    return await fn({ signal: signal || null });
-  } finally {
-    release();
-  }
-}

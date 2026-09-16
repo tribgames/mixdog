@@ -1,14 +1,11 @@
-import * as fs from 'fs';
 import { loadConfig, createProvider } from './config.mjs';
 import { WebhookServer } from './webhook.mjs';
 import { EventPipeline } from './event-pipeline.mjs';
 import { startSnapshotWriter, stopSnapshotWriter } from './status-snapshot.mjs';
-import { safeIpcSend } from '../../shared/safe-ipc-send.mjs';
 import { initProviders } from '../../agent/orchestrator/providers/registry.mjs';
 import { loadConfig as loadAgentConfig } from '../../agent/orchestrator/config.mjs';
 import { refreshActiveInstance, releaseOwnedChannelLocks, clearActiveInstance } from './runtime-paths.mjs';
-// Owned-runtime lifecycle extracted from channels/index.mjs (behavior-
-// preserving): bridge-ownership claim/refresh/loss, provider connect/disconnect,
+// Owned-runtime lifecycle: bridge-ownership claim/refresh/loss, provider connect/disconnect,
 // scheduler + webhook/event runtime, owner heartbeat gating, and config
 // hot-reload. Owns its own in-flight flags + timers; shares config / provider /
 // bridgeRuntimeConnected / webhookServer / eventPipeline with the worker via
@@ -395,19 +392,6 @@ export function createOwnedRuntime({
   // Daemon model: no ownership timer or takeover handler. Kept as a no-op so the
   // worker start() call site stays unchanged.
   function armBridgeOwnershipTimer() {}
-  // Guarded IPC send to the parent: no-ops when there is no channel or it is
-  // already disconnected, and swallows both the synchronous throw and the async
-  // error-callback path of ERR_IPC_CHANNEL_CLOSED (channel closing between the
-  // connected check and delivery). Log-and-continue — never crash the worker.
-  function sendToParent(message) {
-    safeIpcSend(process, message, {
-      onError: (err) => {
-        try {
-          process.stderr.write(`[channels] parent IPC send failed: ${err?.message || err}\n`);
-        } catch {}
-      },
-    });
-  }
   // Tell the parent session this worker ACQUIRED the bridge so it flips remote
   // mode ON (badge/transcript writer). Callers fire this only on a genuine
   // not-connected -> connected transition — never on a refresh — so the parent's

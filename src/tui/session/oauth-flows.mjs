@@ -3,7 +3,7 @@
 // expose only serializable status records to desktop clients.
 const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1_000;
 
-export function oauthFlowStatus(flow) {
+function oauthFlowStatus(flow) {
   return {
     flowId: flow.id,
     provider: flow.provider,

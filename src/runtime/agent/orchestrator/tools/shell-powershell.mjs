@@ -1,5 +1,4 @@
-// PowerShell inline-command normalization + policy-scan extraction. Extracted
-// verbatim from shell-command.mjs (behavior-preserving). shell-command.mjs
+// PowerShell inline-command normalization + policy-scan extraction. shell-command.mjs
 // re-exports _maybeEncodePowerShellCommand / extractPowerShellCommandInner so
 // the module's public export surface is unchanged.
 //

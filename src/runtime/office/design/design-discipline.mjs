@@ -66,7 +66,6 @@ const STATE_HUES = Object.freeze({ positive: 150, warning: 40, critical: 5, info
 const TEXT_CONTRAST_MINIMUM = 4.5;
 const LARGE_TEXT_CONTRAST_MINIMUM = 3;
 const LARGE_TEXT_POINT_SIZE = 24;
-const LARGE_BOLD_TEXT_POINT_SIZE = 18.66;
 
 export function fontFamilyKey(name) {
   return String(name || '')

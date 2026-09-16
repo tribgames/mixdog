@@ -2,7 +2,7 @@
 // INDEPENDENT greps (mirroring the path[] batching in grep-path-fanout.mjs):
 // each pattern keeps its own full head_limit budget and its own truncation
 // notice, and identical path:line match lines are de-duplicated across
-// patterns. Extracted from search-grep-tool.mjs; `executeGrepTool` is injected
+// patterns. `executeGrepTool` is injected
 // to avoid an import cycle.
 import { isAbsolute } from 'path';
 import { GREP_AUTO_CONTEXT_LINES, trueCasePath } from '../path-utils.mjs';
@@ -82,7 +82,7 @@ export async function runGrepPatternFanout({
         { offset: 0, limit: GREP_FANOUT_PREFILTER_FILE_CAP, summaryLimit: 0, bulkHint: true }
       );
       return pre.complete && !pre.partial ? pre.lines : null;
-    } catch (err) {
+    } catch {
       options.signal?.throwIfAborted();
       return null;
     }

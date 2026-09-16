@@ -296,8 +296,6 @@ function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }
 }
 
 function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
-  const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
-  const LEAD_DIR = path.join(RULES_DIR, 'lead');
   const parts = [];
 
   const profilePreferences = buildProfilePreferencesContent(DATA_DIR);

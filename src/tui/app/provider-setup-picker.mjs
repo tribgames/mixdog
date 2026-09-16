@@ -1,7 +1,7 @@
 /*
  * provider-setup-picker.mjs — the Provider setup picker cluster.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory. Every function body is the original App logic verbatim, with closure
  * identifiers threaded through the factory argument. The internal action openers
  * (openApiProviderActions/openOAuthProviderActions/openLocalProviderActions/

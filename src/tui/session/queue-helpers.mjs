@@ -1,8 +1,7 @@
 /**
  * src/tui/session/queue-helpers.mjs - pure helpers for the prompt/notification
  * queue: priority ordering, entry visibility/editability, prompt content
- * flattening, session activity timestamps, and batch merging. Extracted from
- * session-local.mjs.
+ * flattening, session activity timestamps, and batch merging.
  */
 import { agentJobResultText, parseAgentJob, parseSyntheticAgentMessage } from './agent-envelope.mjs';
 import { attachmentTextForPart, isAttachmentReference } from '../../runtime/attachments/store.mjs';

@@ -57,7 +57,7 @@ function markLatest(models) {
   for (const model of byFamily.values()) model.latest = true;
 }
 
-export function resolveLatestGeminiModel() {
+function resolveLatestGeminiModel() {
   const cached = geminiModelCache.loadSync();
   if (!Array.isArray(cached)) return null;
   let best = null;

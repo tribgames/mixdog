@@ -1,7 +1,7 @@
 /**
  * src/tui/session/notification-plan.mjs - pure runtime.onNotification delivery plan.
  *
- * Extracted from session-local.mjs (no behavior change). These are stateless helpers
+ * These are stateless helpers
  * that decide how a runtime notification envelope should be delivered to the
  * TUI store (dedupe key + display/model routing). No closures over session runtime state.
  */

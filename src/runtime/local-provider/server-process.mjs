@@ -173,7 +173,7 @@ export function createLocalServerProcess({
             lastError = null;
             return { baseURL: state.baseURL, apiKey };
           }
-        } catch (error) {
+        } catch {
           if (waitSignal.aborted) throw waitSignal.reason;
           // Connection refusal while loading is expected; the startup deadline
           // and child exit, not an HTTP probe, decide whether startup failed.

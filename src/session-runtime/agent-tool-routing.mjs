@@ -1,7 +1,7 @@
 /**
  * src/session-runtime/agent-tool-routing.mjs - routes the lead's agent tool
  * through an injected or remote agent-control executor and reads worker/job
- * status for the facade. Extracted from runtime-core.mjs.
+ * status for the facade.
  */
 import {
   executeRemoteAgentControl,

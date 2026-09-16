@@ -13,7 +13,7 @@ export const CODE_GRAPH_TOOL_DEFS = '../runtime/agent/orchestrator/tools/code-gr
 export const CODE_GRAPH_RUNTIME = '../runtime/agent/orchestrator/tools/code-graph.mjs';
 export const STATUSLINE_SESSION_ROUTES = '../vendor/statusline/src/gateway/session-routes.mjs';
 
-export const SESSION_RUNTIME_DIR = dirname(fileURLToPath(import.meta.url));
+const SESSION_RUNTIME_DIR = dirname(fileURLToPath(import.meta.url));
 export const STANDALONE_SOURCE_ROOT = dirname(SESSION_RUNTIME_DIR);
 export const STANDALONE_ROOT = STANDALONE_SOURCE_ROOT;
 const mixdogHome = process.env.MIXDOG_HOME || join(homedir(), '.mixdog');

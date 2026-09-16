@@ -20,7 +20,6 @@ import { join, resolve } from 'path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
-import { OpenAICompatProvider } from './openai-compat.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { decodeJwtPayload, expiryFromAccessToken, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';

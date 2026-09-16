@@ -7,7 +7,7 @@ import { normalizeContentForAnthropic } from '../media-normalization.mjs';
 import { createProviderReplay, providerReplayItems } from './provider-replay.mjs';
 import { anthropicFallbackProviderMetadata, parseAnthropicFallbackBlock } from '../anthropic-server-fallback.mjs';
 export const ANTHROPIC_CACHE_TTL_STABLE = { type: 'ephemeral', ttl: '1h' };
-export const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
+const ANTHROPIC_CACHE_TTL_VOLATILE = { type: 'ephemeral' };
 
 function appendAnthropicCacheControl(content, ttl = ANTHROPIC_CACHE_TTL_VOLATILE) {
   const withCacheControl = (block) => {

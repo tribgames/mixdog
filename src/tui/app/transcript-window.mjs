@@ -22,7 +22,7 @@ import { envPositiveInt as positiveIntEnv } from '../../runtime/shared/env.mjs';
 // rows. The window keeps a small ITEM floor (so a few items stay mounted for
 // stable scroll/overscan) but is otherwise driven by the viewport+overscan ROW
 // span, not a large fixed item count. All three are env-tunable for A/B / revert.
-export const TRANSCRIPT_WINDOW_MIN_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS', 12);
+const TRANSCRIPT_WINDOW_MIN_ITEMS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_WINDOW_MIN_ITEMS', 12);
 export const TRANSCRIPT_WINDOW_OVERSCAN_ROWS = positiveIntEnv('MIXDOG_TUI_TRANSCRIPT_OVERSCAN_ROWS', 16);
 
 // Hard cap on simultaneously MOUNTED transcript items. Every mounted child is
@@ -179,27 +179,6 @@ function fnv1a32(str) {
   return h >>> 0;
 }
 
-// Two INDEPENDENT 32-bit rolling-hash steps folded into a 64-bit signature.
-// fnvStepA is plain FNV-1a; fnvStepB uses a distinct seed/prime + xorshift
-// finalizer so the two chains are decorrelated (see the App.jsx history note).
-function fnvStepA(hash, str) {
-  let h = hash >>> 0;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h >>> 0;
-}
-
-function fnvStepB(hash, str) {
-  let h = hash >>> 0;
-  for (let i = 0; i < str.length; i++) {
-    h = Math.imul(h ^ str.charCodeAt(i), 0x85ebca77) >>> 0;
-    h = (h ^ (h >>> 13)) >>> 0;
-  }
-  return h >>> 0;
-}
-
 function textShapeFingerprint(value) {
   if (value == null) return 'z';
   const text = String(value);
@@ -265,7 +244,7 @@ export const transcriptMeasuredRowsCache = new WeakMap();
 // live re-slice growth. Key streaming measurements by item id instead — they
 // survive the per-token object swap. Cleared once the item stops streaming
 // (its final settled height is then captured by the normal WeakMap path).
-export const streamingMeasuredRowsById = new Map();
+const streamingMeasuredRowsById = new Map();
 
 // High-water clamp for the STREAMING row ESTIMATE, keyed by stream item id.
 // measureStreamingMarkdownRenderedRows (measure-rendered-rows.mjs) adds a +1
@@ -373,7 +352,7 @@ export function carryTranscriptMeasuredRowsCache(prevItem, nextItem) {
   transcriptMeasuredRowsCache.set(nextItem, entry);
 }
 
-export function measuredTranscriptRows(item, columns, toolOutputExpanded) {
+function measuredTranscriptRows(item, columns, toolOutputExpanded) {
   if (!TRANSCRIPT_MEASURED_ROWS || !item) return null;
   if (shouldSuppressFullyFailedToolItemCached(item)) return 0;
   // Assistant Markdown has an exact deterministic renderer measurement for
@@ -397,7 +376,7 @@ function assistantTextForStreamingRowEstimate(text) {
   return streamingLayoutText(text);
 }
 
-export function streamingEstimateRows(item, columns, toolOutputExpanded) {
+function streamingEstimateRows(item, columns, toolOutputExpanded) {
   const id = item?.id;
   const exactText = String(item?.text ?? '');
   const toolExpanded = toolOutputExpanded ? 1 : 0;

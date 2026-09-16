@@ -1,5 +1,4 @@
-import { join } from 'node:path';
-import { backgroundXml, shapeXml, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
+import { backgroundXml, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
 import { partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import {
   containerBody,
@@ -46,7 +45,7 @@ function coversBounds(entry, bounds) {
 }
 
 // The color a translucent fill shows: fg at alpha (0-1) over bg, per channel.
-export function blendHex(fg, bg, alpha) {
+function blendHex(fg, bg, alpha) {
   const channel = (hex, at) => Number.parseInt(hex.slice(at, at + 2), 16);
   return [0, 2, 4]
     .map((at) => Math.round(alpha * channel(fg, at) + (1 - alpha) * channel(bg, at)))

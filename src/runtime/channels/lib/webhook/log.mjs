@@ -40,4 +40,4 @@ function logWebhook(msg) {
   }
 }
 
-export { WEBHOOK_LOG, flushWebhookLog, logWebhook };
+export { logWebhook };

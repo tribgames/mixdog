@@ -1,7 +1,7 @@
 // Aggregate file-anchor resolution for code_graph: which project root a
 // `files:` batch selects, when an invalid cwd can be recovered from the
 // anchors, how relative anchors are re-rooted, and the federated fan-out
-// over registered roots. Extracted from dispatch.mjs.
+// over registered roots.
 import { resolve as pathResolve, isAbsolute, relative as pathRelative, dirname as pathDirname } from 'node:path';
 import { homedir as osHomedir } from 'node:os';
 import { existsSync, statSync } from 'node:fs';

@@ -86,4 +86,4 @@ function dropTrace(event, fields) {
   } catch {}
 }
 
-export { DROP_TRACE_ENABLED, dropTrace, preview, _dtIdxFlush };
+export { preview, _dtIdxFlush };

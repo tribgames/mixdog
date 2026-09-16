@@ -1,6 +1,6 @@
 /**
  * src/tui/session/labels.mjs - spinner verbs, elapsed formatting, and compact
- * event label/detail helpers. Extracted from session-local.mjs.
+ * event label/detail helpers.
  */
 import { SPINNER_VERBS } from '../spinner-verbs.mjs';
 
@@ -14,7 +14,7 @@ export function pickDoneVerb(turn) {
   return TURN_DONE_VERBS[(turn * 5 + 2) % TURN_DONE_VERBS.length];
 }
 
-export function formatElapsedSeconds(ms) {
+function formatElapsedSeconds(ms) {
   const value = Math.max(0, Number(ms) || 0);
   if (value <= 0) return '0s';
   return `${Math.max(1, Math.ceil(value / 1000))}s`;

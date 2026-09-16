@@ -99,7 +99,7 @@ export function readSafe(path) {
 
 const _CACHE_MAP_CAP = 16;
 
-export function capMapSize(map, max = _CACHE_MAP_CAP) {
+function capMapSize(map, max = _CACHE_MAP_CAP) {
   if (map.size > max) map.delete(map.keys().next().value);
 }
 

@@ -15,7 +15,7 @@
  * because it was computed a beat before the final layout. The fork computes it
  * at the exact moment of drawing, so it can never be stale.
  */
-import React, { useEffect, useLayoutEffect, useState, useRef } from 'react';
+import { useEffect, useLayoutEffect, useState, useRef } from 'react';
 import { Box, Text, useInput, usePaste, useStdin } from 'ink';
 import { displayWidth } from '../display-width.mjs';
 import { theme, surfaceBackground } from '../theme.mjs';
@@ -237,7 +237,6 @@ export function PromptInput({
           if (node.nodeName === 'ink-root') break;
           node = node.parentNode;
         }
-        const wNow = yogaNode?.getComputedWidth?.() ?? 0;
         const hNow = yogaNode?.getComputedHeight?.() ?? 1;
         boxRectRef.current = {
           top: absTop,

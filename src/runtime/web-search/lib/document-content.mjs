@@ -11,7 +11,7 @@ export function assertReadableContent(content) {
   }
 }
 
-export function buildContentPayload(url, title, content, extractor, extra = {}) {
+function buildContentPayload(url, title, content, extractor, extra = {}) {
   const text = String(content ?? '');
   assertReadableContent(text);
   return {

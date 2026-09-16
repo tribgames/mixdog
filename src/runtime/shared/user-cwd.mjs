@@ -13,9 +13,6 @@
  * Single-source-of-truth model:
  *   - captureOriginalUserCwd() reads the async session scope first, then
  *     MIXDOG_SESSION_CWD/user-cwd.txt fresh on every call.
- *   - rawUserCwd() reads ONLY user-cwd.txt (no env consult) — exposed
- *     for the cwd-tool auto-init path so the env-var fallback cannot
- *     become self-referential.
  *   - AsyncLocalStorage override (runWithCwdOverride) isolates concurrent worker cwds.
  *   - pwd() = override ?? originalCwd. Hot lookups short-circuit on the
  *     override, so the no-override fallback path is cold and per-call
@@ -149,20 +146,6 @@ function startRootCwd() {
  */
 export function captureOriginalUserCwd() {
   return explicitSessionCwd() ?? startRootCwd() ?? _safeProcessCwd();
-}
-
-/**
- * Read the user-cwd.txt sentinel directly, with NO env-var consult.
- * Used by the cwd-tool auto-init path to avoid self-reference when
- * deciding whether to seed MIXDOG_SESSION_CWD from disk.
- */
-function rawUserCwd() {
-  try {
-    const txt = readFileSync(_dataFile('user-cwd.txt'), 'utf8').trim();
-    return _normalizePlatformCwd(txt) || startRootCwd() || _safeProcessCwd();
-  } catch {
-    return startRootCwd() ?? _safeProcessCwd();
-  }
 }
 
 /**

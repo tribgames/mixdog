@@ -17,7 +17,7 @@
  *   - mode prop: 'responding' | 'thinking' | 'tool-use' | 'tool-input' |
  *     'requesting' | 'reconnecting' | 'compacting' | 'resuming' (default 'responding').
  */
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import { Box, Text } from 'ink';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import { theme } from '../theme.mjs';

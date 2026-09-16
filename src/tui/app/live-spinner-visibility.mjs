@@ -1,4 +1,4 @@
-export function isCompletedTranscriptTail(latestTranscriptItem) {
+function isCompletedTranscriptTail(latestTranscriptItem) {
   return latestTranscriptItem?.kind === 'turndone' || latestTranscriptItem?.kind === 'statusdone';
 }
 

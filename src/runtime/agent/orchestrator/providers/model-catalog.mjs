@@ -765,7 +765,7 @@ export function pricingCatalogRevisionSync() {
 }
 
 let lastAuditedRevision = null;
-export function auditCachedModelPricing() {
+function auditCachedModelPricing() {
   const revision = pricingCatalogRevisionSync();
   const rows = Object.entries(cachedProviderModelListsSync()).flatMap(([provider, models]) =>
     auditModelPricing(models, provider)

@@ -35,7 +35,7 @@ import {
 export { createPdf } from './pdf-writer.mjs';
 export { lintPdfFormFields } from './pdf-forms.mjs';
 
-export const PDF_ENCRYPTED_HINT =
+const PDF_ENCRYPTED_HINT =
   "PDF is encrypted: write an unencrypted copy first with action:'secure' security:'decrypt' path password output:<copy.pdf>, then open that copy";
 const NO_TEXT_MARKER = '(no extractable text on this page)';
 // How much page text one audit call reads: the bound on its work, not on the

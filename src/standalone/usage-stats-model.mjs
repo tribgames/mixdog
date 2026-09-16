@@ -25,8 +25,6 @@ import { billableInputTokensForProvider } from '../runtime/shared/llm/cost.mjs';
 import { hourlySeries } from './usage-stats-hours.mjs';
 import { isConversationUsageSource, usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 function num(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : 0;

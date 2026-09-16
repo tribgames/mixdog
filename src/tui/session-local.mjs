@@ -24,7 +24,6 @@ import { polishNoticeText } from './session/notice-text.mjs';
 import {
   buildExecutionResponseToolItem,
   completionCardFromExecution,
-  parseBackgroundTaskEnvelope,
   parseModelVisibleCompletionWrapper,
   parseSyntheticAgentMessage,
 } from './session/agent-envelope.mjs';
@@ -144,13 +143,10 @@ const TOOL_APPROVAL_TIMEOUT_MS = (() => {
 import {
   tuiDebug,
   nextId,
-  cleanupStaleTranscriptSpillDirs,
   createTranscriptSpillBuffer,
   refillTranscriptViewOverlap,
   replaceSessionItemsState,
   createSessionItemMutators,
-  TRANSCRIPT_LIVE_ITEM_CAP,
-  TRANSCRIPT_SPILL_CHUNK_ITEMS,
 } from './session/transcript-spill.mjs';
 export {
   cleanupStaleTranscriptSpillDirs,

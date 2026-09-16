@@ -1,7 +1,7 @@
 // Provider request boundary for one agent-loop iteration: normalize the
 // transcript, freeze exactly one tool snapshot for the whole request (pressure,
 // send, recovery, telemetry), and run the pre-send compact pass until the
-// transcript stops changing. Extracted from agentLoop; behavior identical to
+// transcript stops changing. Behavior identical to
 // the inline do/while it replaced.
 import { repairTranscriptBeforeProviderSend } from './transcript-repair.mjs';
 import { messagesArrayChanged } from './tool-helpers.mjs';

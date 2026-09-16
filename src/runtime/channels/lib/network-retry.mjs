@@ -1,5 +1,4 @@
-// Network-error detection + retry helper extracted from channels/index.mjs
-// (behavior-preserving).
+// Network-error detection + retry helper.
 const NETWORK_ERR_RE =
   /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|network|timeout|aborted|TimeoutError/i;
 function isNetworkError(err) {
@@ -23,4 +22,3 @@ async function retryOnNetwork(fn, { attempts = 3, baseDelayMs = 300, label = 'op
   }
   throw lastErr;
 }
-export { isNetworkError, retryOnNetwork };

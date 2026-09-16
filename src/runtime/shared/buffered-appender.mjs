@@ -189,7 +189,7 @@ export function getBufferedAppenderStats(path) {
  * Intended for process exit hooks only — best-effort, never throws.
  */
 function drainAllSync() {
-  for (const [path, q] of queues) {
+  for (const path of queues.keys()) {
     drainPathSync(path);
   }
 }

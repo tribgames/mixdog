@@ -16,7 +16,7 @@ export { formatElapsed };
 // Token window used to compute a fallback context% from our own session usage.
 // The live gateway (when up) overrides this with the real route's window. This
 // is only the last resort for unknown local models.
-export const FALLBACK_CONTEXT_WINDOW = 200000;
+const FALLBACK_CONTEXT_WINDOW = 200000;
 export const statusText = rgb(198, 198, 198);
 export const statusSubtle = rgb(136, 136, 136);
 

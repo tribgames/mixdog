@@ -114,4 +114,4 @@ function loadProfileConfig() {
     return {};
   }
 }
-export { DATA_DIR, createProvider, loadConfig, loadProfileConfig };
+export { DATA_DIR, createProvider, loadConfig };

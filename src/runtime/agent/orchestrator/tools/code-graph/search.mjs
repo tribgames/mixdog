@@ -511,7 +511,7 @@ function _resolveCalleeDeclaration(graph, name, { language = null, preferRel = n
 // declaration head and the export marker. Absent on a hit that no native
 // symbol backs (a pure reference), which is exactly when there is nothing to
 // report about a declaration.
-export function _symbolFacts(sym) {
+function _symbolFacts(sym) {
   if (!sym) return {};
   const out = { symbolKind: String(sym.kind || '') || 'symbol' };
   if (typeof sym.sig === 'string' && sym.sig.trim()) out.symbolSig = sym.sig.trim();

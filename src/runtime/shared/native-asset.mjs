@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { readJsonSafe } from './json-file.mjs';
 import { downloadToFileWithRetry, MAX_NATIVE_BINARY_DOWNLOAD_BYTES } from './bounded-download.mjs';
 
-export const RELEASE_DOWNLOAD_BASE = 'https://github.com/tribgames/mixdog/releases/download';
+const RELEASE_DOWNLOAD_BASE = 'https://github.com/tribgames/mixdog/releases/download';
 
 export function platformKey() {
   const os = process.platform === 'win32' ? 'win32' : process.platform;
@@ -48,7 +48,7 @@ export async function sha256File(filePath, signal) {
   return hash.digest('hex');
 }
 
-export function sha256FileSync(filePath) {
+function sha256FileSync(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
@@ -59,7 +59,7 @@ export async function verifySha256File(filePath, expected, label = '[native-asse
   }
 }
 
-export function releaseAssetUrl({ tag, name, pkey = platformKey() }) {
+function releaseAssetUrl({ tag, name, pkey = platformKey() }) {
   return `${RELEASE_DOWNLOAD_BASE}/${tag}/${name}-${pkey}${binSuffix()}`;
 }
 
@@ -99,7 +99,7 @@ export function createBinaryDownloader({ name, label }) {
 }
 
 // Remove stale binaries + tmp files sharing `prefix`, keeping the active one.
-export function gcBinaryDir(dir, { keep, prefix }) {
+function gcBinaryDir(dir, { keep, prefix }) {
   try {
     for (const name of readdirSync(dir)) {
       if (name === 'manifest.json' || name === keep) continue;

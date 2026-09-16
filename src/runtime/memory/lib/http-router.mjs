@@ -13,7 +13,6 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import fs from 'node:fs';
-import path from 'node:path';
 
 import { TOOL_DEFS } from '../tool-defs.mjs';
 import {

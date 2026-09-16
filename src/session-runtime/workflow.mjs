@@ -142,7 +142,7 @@ export function workflowIdFromName(value) {
   return internalIdFromName(value, 'workflow');
 }
 
-export function agentIdFromName(value) {
+function agentIdFromName(value) {
   return internalIdFromName(value, 'agent');
 }
 

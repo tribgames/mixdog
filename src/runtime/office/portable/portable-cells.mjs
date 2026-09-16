@@ -218,7 +218,7 @@ function cellXml(ref, value, formula = '', style = '') {
   return `<c r="${ref}"${styled} t="inlineStr"><is><t${/^\s|\s$/.test(String(value ?? '')) ? ' xml:space="preserve"' : ''}>${xmlEncode(value ?? '')}</t></is></c>`;
 }
 
-export function existingCellStyle(xml, ref) {
+function existingCellStyle(xml, ref) {
   const match = new RegExp(`<c\\b([^>]*\\br="${ref}"[^>]*?)(?:\\/>|>)`, 'i').exec(xml);
   return match ? /\bs="(\d+)"/.exec(match[1])?.[1] || '' : '';
 }

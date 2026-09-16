@@ -1,4 +1,4 @@
-import { basename, join, posix } from 'node:path';
+import { basename, posix } from 'node:path';
 import {
   booleanXmlAttribute,
   cellRecords,
@@ -181,7 +181,7 @@ function commentThread(threads, paraIds, idByParaId) {
 /** The pictures a Word story carries, as a Word session reports them: the name,
  *  the description a reader who cannot see it is given, and the placed size in
  *  points. One reading serves the snapshot and the accessibility audit. */
-export function docxPictures(xml) {
+function docxPictures(xml) {
   const pictures = [];
   for (const match of String(xml || '').matchAll(/<w:drawing\b[\s\S]*?<\/w:drawing>/g)) {
     if (!/<pic:pic[\s>]/.test(match[0])) continue;

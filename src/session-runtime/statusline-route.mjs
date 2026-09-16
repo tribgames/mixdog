@@ -1,7 +1,7 @@
 // Statusline route serialization. Pure helpers.
 import { clean, hasOwn } from './session-text.mjs';
 
-export function routeForStatusline(route) {
+function routeForStatusline(route) {
   const out = {
     mode: 'fixed',
     defaultProvider: route.provider,

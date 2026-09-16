@@ -4,7 +4,7 @@
 
 import { goalTaskProgress } from './goal-tasks.mjs';
 
-export function escapeGoalPromptText(value) {
+function escapeGoalPromptText(value) {
   return String(value ?? '')
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
@@ -41,7 +41,7 @@ export function durationLabel(milliseconds) {
 
 // Both recovery and idle continuation carry the same timing facts. Exact
 // milliseconds keep a rounded display from becoming a new duration estimate.
-export function goalTimeLines(goal) {
+function goalTimeLines(goal) {
   const limit = Math.max(0, Number(goal?.timeLimitMs) || 0);
   const elapsed = Math.max(0, Number(goal?.timeUsedMs) || 0);
   const label = (ms) => `${durationLabel(ms)} (${ms} ms)`;

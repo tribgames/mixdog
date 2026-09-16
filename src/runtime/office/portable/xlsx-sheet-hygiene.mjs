@@ -22,11 +22,11 @@ const LONG_SHEET_ROWS = 20;
 const NUMERIC_COLUMN_MIN = 3;
 const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 
-export function externalLinkReference(formula) {
+function externalLinkReference(formula) {
   return /\[\d+\]|\[[^\]]*\.xls[xmb]?\]/i.test(formulaBody(formula));
 }
 
-export function unquotedSheetReferences(formula, sheetNames = []) {
+function unquotedSheetReferences(formula, sheetNames = []) {
   const text = formulaBody(formula);
   return (sheetNames || [])
     .map((name) => String(name || ''))

@@ -8,7 +8,7 @@ import { compactToolCallsForHistory } from './stored-tool-args.mjs';
 
 // ask-session supplies a one-shot metadata taker per committed assistant turn;
 // absence (direct adapter callers, tests) leaves the message untouched.
-export function attachAssistantTranscriptMetadata(message, opts = {}) {
+function attachAssistantTranscriptMetadata(message, opts = {}) {
   const transcript =
     typeof opts.takeAssistantTranscriptMetadata === 'function' ? opts.takeAssistantTranscriptMetadata() : null;
   if (!transcript) return message;

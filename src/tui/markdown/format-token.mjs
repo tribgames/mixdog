@@ -775,7 +775,7 @@ function getListNumber(depth, orderedListNumber) {
  * marked token switch (minus table / hyperlink deps).
  */
 export function formatToken(token, listBaseIndent = 0, orderedListNumber = null, parent = null, width = 0, depth = 0) {
-  const { accent, codeBlock, hrLine, headingAccent } = colorizers();
+  const { accent, hrLine, headingAccent } = colorizers();
   const ex = extraColorizers();
   switch (token.type) {
     case 'blockquote': {

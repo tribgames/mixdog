@@ -2,7 +2,6 @@
  * components/tool-execution/ResultBody.jsx — the multi-line result body under
  * the ⎿ gutter (COLLAPSED fitted summary or EXPANDED raw).
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import { theme, RESULT_GUTTER, RESULT_GUTTER_CONT } from '../../theme.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../tool-output-format.mjs';

@@ -9,10 +9,10 @@
  */
 import { useCallback, useMemo } from 'react';
 
-export const MAX_SELECTABLE_MESSAGES = 20;
+const MAX_SELECTABLE_MESSAGES = 20;
 
 /** Newest-last list of rewindable user prompts, capped for the picker. */
-export function selectableUserItems(items, limit = MAX_SELECTABLE_MESSAGES) {
+function selectableUserItems(items, limit = MAX_SELECTABLE_MESSAGES) {
   const source = Array.isArray(items) ? items : [];
   const rows = [];
   for (let index = source.length - 1; index >= 0 && rows.length < limit; index -= 1) {
@@ -26,7 +26,7 @@ export function selectableUserItems(items, limit = MAX_SELECTABLE_MESSAGES) {
   return rows.reverse();
 }
 
-export function messageSelectorLabel(text, width = 56) {
+function messageSelectorLabel(text, width = 56) {
   const firstLine =
     String(text || '')
       .split('\n')

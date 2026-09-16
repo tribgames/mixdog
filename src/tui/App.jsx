@@ -16,74 +16,14 @@
  * layout, which <Static> collapses. The terminal handles scrollback itself as
  * the transcript column grows past the screen height.
  */
-import React, { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Box, Text, useApp, useInput, useStdin, useStdout } from 'ink';
-import { theme, surfaceBackground } from './theme.mjs';
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useApp, useStdin, useStdout } from 'ink';
 import { useSession } from './hooks/useSession.mjs';
-import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
-import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
-import { Spinner } from './components/Spinner.jsx';
-import { StatusLine } from './components/StatusLine.jsx';
-import { PromptInput } from './components/PromptInput.jsx';
-import { QueuedCommands } from './components/QueuedCommands.jsx';
-import { Picker } from './components/Picker.jsx';
-import { SlashCommandPalette } from './components/SlashCommandPalette.jsx';
-import { ContextPanel } from './components/ContextPanel.jsx';
-import { UsagePanel } from './components/UsagePanel.jsx';
-import { TextEntryPanel } from './components/TextEntryPanel.jsx';
-import {
-  buildPromptContentWithImages,
-  expandPastedTextTokens,
-  imageReferenceIds,
-  pastedTextReferenceIds,
-  readClipboardImageAttachment,
-  readImageAttachmentFromPath,
-  shouldFoldPastedText,
-  splitPastedImagePathCandidates,
-} from './paste-attachments.mjs';
-import { formatDuration } from './time-format.mjs';
 import { pickFolder } from '../standalone/folder-dialog.mjs';
-import {
-  formatHookDenialDetail,
-  isHookApprovalDenialToolItem,
-  shouldSuppressFullyFailedToolItem,
-  toolItemResultText,
-} from './transcript-tool-failures.mjs';
-
-import { displayModelName } from '../ui/model-display.mjs';
-import { supportsExtendedKeys, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
-import {
-  SLASH_COMMANDS,
-  slashQuery,
-  slashCommandMatches,
-  compareSlashCommands,
-  overlayBlocksGlobalTranscriptScroll,
-  normalizeSlashCommandName,
-  slashCommandTokenForPaletteAccept,
-  slashCommandForName,
-  slashArgumentHint,
-} from './app/slash-commands.mjs';
-import {
-  isCompletedTranscriptTailAppendedThisCommit,
-  isLiveSpinnerMetaVisible,
-} from './app/live-spinner-visibility.mjs';
-import {
-  parseMcpServerInput,
-  parseSkillInput,
-  parseMemoryCommand,
-  parseMemoryCoreRows,
-  memoryCoreResultErrorText,
-} from './app/input-parsers.mjs';
-import { copyToClipboard } from './app/clipboard.mjs';
+import { SLASH_COMMANDS, slashQuery, slashCommandMatches, compareSlashCommands } from './app/slash-commands.mjs';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './app/panel-epoch.mjs';
 import { createPanelSurface } from './app/panel-surface.mjs';
-import {
-  wrappedTextRows,
-  promptContentRows,
-  wrappedDetailRows,
-  textEntryReservedRows,
-  queuedBandRows,
-} from './app/text-layout.mjs';
+import { promptContentRows, textEntryReservedRows } from './app/text-layout.mjs';
 import stringWidth from 'string-width';
 import { useMouseInput } from './app/use-mouse-input.mjs';
 import { useTranscriptScroll } from './app/use-transcript-scroll.mjs';
@@ -103,92 +43,10 @@ import { usePromptQueueHistory } from './app/use-prompt-queue-history.mjs';
 import { useMessageSelector } from './app/message-selector.mjs';
 import { useTerminalChrome } from './app/use-terminal-chrome.mjs';
 import { useTranscriptWindow } from './app/use-transcript-window.mjs';
-import {
-  TRANSCRIPT_WINDOW_MIN_ITEMS,
-  TRANSCRIPT_WINDOW_OVERSCAN_ROWS,
-  TRANSCRIPT_WINDOW_MAX_ITEMS,
-  TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS,
-  SELECTION_PAINT_INTERVAL_MS,
-  SCROLL_COALESCE_MS,
-  PROMPT_HISTORY_LIMIT,
-  TRANSCRIPT_MEASURED_ROWS,
-  selectionRectsEqual,
-  shiftSelectionRectY,
-  compareCellOrder,
-  upperBound,
-  resolveAnchorScrollOffset,
-  transcriptItemVariantKey,
-  transcriptMeasuredRowsCache,
-  buildTranscriptRowIndex,
-  transcriptRenderWindow,
-  transcriptSwapReturnsToTail,
-} from './app/transcript-window.mjs';
-import {
-  WEB_SEARCH_DEFAULT_ROUTE,
-  isWebSearchDefaultRoute,
-  terminalSize,
-  clean,
-  projectNameFromPath,
-  workflowDisplayName,
-  workflowSwitchNotice,
-  modelSwitchNotice,
-  toolApprovalDescription,
-  providerStatusLabel,
-  providerDetailText,
-  providerKindLabel,
-  formatSessionUpdatedAt,
-  formatSessionMessageCount,
-  fitLine,
-  centerLine,
-  promptStatusColor,
-  promptHistoryKey,
-} from './app/app-format.mjs';
-import {
-  parsedModelVersion,
-  releaseTime,
-  isClaudeModel,
-  modelVersion,
-  compareModelVersion,
-  compareModelRecency,
-  modelFamily,
-  modelContextWindow,
-  formatContextWindow,
-  modelFamilyLimit,
-  normalizeModelOptions,
-  providerDisplayName,
-  providerDisplayRank,
-  titleCaseOption,
-  effortDisplayLabel,
-  fastDisplayLabel,
-  modelDescription,
-  modelRecordDisplayName,
-  routeModelDisplayName,
-  groupModelsByProvider,
-  buildModelProviderItems,
-  buildProviderModelItems,
-  routeLabel,
-  routeModelLabel,
-  agentModelProfile,
-  agentModelParts,
-  routeFromModel,
-  modelScore,
-  chooseRecommendedModel,
-  buildWorkflowDefaults,
-} from './app/model-options.mjs';
+import { transcriptSwapReturnsToTail } from './app/transcript-window.mjs';
+import { terminalSize, projectNameFromPath, workflowDisplayName, workflowSwitchNotice } from './app/app-format.mjs';
 import { createProjectPicker } from './app/project-picker.mjs';
-import { createThemeEffortPickers, themeNotice } from './app/theme-effort-pickers.mjs';
-import { createResumePicker } from './app/resume-picker.mjs';
-import { createCoreMemoryPicker } from './app/core-memory-picker.mjs';
-import { createExtensionPickers } from './app/extension-pickers.mjs';
-import { createMaintenancePickers } from './app/maintenance-pickers.mjs';
-import { createOnboardingSteps } from './app/onboarding-steps.mjs';
-import { createModelPicker } from './app/model-picker.mjs';
-import { createProviderSetupPicker } from './app/provider-setup-picker.mjs';
-import { createRoutePickers, outputStyleNotice } from './app/route-pickers.mjs';
-import { createSettingsPicker } from './app/settings-picker.mjs';
-import { createSlashDispatch } from './app/slash-dispatch.mjs';
 import { usePromptHandlers } from './app/use-prompt-handlers.mjs';
-import { Item } from './components/TranscriptItem.jsx';
 
 // Pure formatting helpers: extracted to app/app-format.mjs
 
@@ -277,7 +135,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // we subscribe to ink's 'input' events, which carry every parsed sequence —
   // including raw SGR mouse sequences (\x1b[<…M/m), since ink's input-parser
   // passes CSI sequences through untouched and emitInput forwards them verbatim.
-  const { isRawModeSupported, stdin, internal_eventEmitter: inkInput } = useStdin();
+  const { isRawModeSupported, internal_eventEmitter: inkInput } = useStdin();
   const { stdout } = useStdout();
   const [exiting, setExiting] = useState(false);
   // tuiReady stays false across the first render + commit. A setTimeout(0) in
@@ -338,7 +196,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // factory is instantiated: the factory's onSelect/onKey/onCancel closures
   // resolve `projectPicker.current` at call time, not at build time.
   const projectPickerRef = useRef(null);
-  const buildProjectPickerState = (opts) => projectPickerRef.current.buildProjectPickerState(opts);
   // NOTE: the initial project-picker state CANNOT be built inside this
   // useState initializer — it runs before projectPickerRef is populated
   // (createProjectPicker below), so buildProjectPickerState would deref null.
@@ -454,7 +311,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     if (livePickerRef.current?._projectInitialPending !== true) return;
     void projectPickerRef.current?.openProjectPicker({ initialEntry: true });
   }, [store]);
-  const { beginNewProject, registerProject, enterProject, beginRenameProject, openProjectPicker } = projectPicker;
+  const { registerProject, enterProject, openProjectPicker } = projectPicker;
   // getDisabledSkills is a remote call on a daemon-backed store, so it cannot
   // seed useState synchronously (the initializer used to capture a promise and
   // every skill looked enabled). Start empty and adopt the real set on mount.
@@ -631,30 +488,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   }, [store]);
   // Picker/panel factories + slash dispatch: app/create-app-pickers.mjs.
   const {
-    openThemePicker,
-    openEffortPicker,
-    openResumePicker,
     openMemoryCorePicker,
     openMcpServersPicker,
-    openMcpPicker,
     openProjectSkillsPicker,
-    openSkillsPicker,
-    openSkillDetailPicker,
-    beginAddPlugin,
-    openPluginDetailPicker,
-    openInstalledPluginsPicker,
     openPluginsPicker,
-    openUpdatePicker,
     openAutoClearPicker,
     openProfilePicker,
-    onboardingWarnReopen,
     openOnboardingAuthStep,
     openProviderSetupPicker,
-    openModelPicker,
-    openWebSearchPicker,
-    openAgentsPicker,
-    openWorkflowPicker,
-    openOutputStylePicker,
     openSettingsPicker,
     runSlashCommand,
   } = createAppPickers({
@@ -1119,7 +960,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   const resizeEpoch = resizeState.epoch;
   // Agent revision + active-tool signature + statusline stats:
   // app/use-transcript-activity.mjs.
-  const { agentRevision, activeToolsSignature, activeTools, statuslineStats } = useTranscriptActivity({ state });
+  const { agentRevision, activeTools, statuslineStats } = useTranscriptActivity({ state });
 
   // Transcript viewport + bottom-cluster row budget: app/shell-layout.mjs.
   const layout = computeShellLayout({
@@ -1160,14 +1001,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     PANEL_LAYOUT_SIG,
   });
   const {
-    inputBoxHidden,
     latestTranscriptItem,
-    promptBoxRows,
-    STATUSLINE_ROWS,
-    promptMetaRows,
     overlayHintRequested,
-    queuedRows,
-    WELCOME_ROWS,
     floatingPanelRows,
     bottomClusterRows,
     panelLayoutSignature,

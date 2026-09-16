@@ -13,7 +13,6 @@
  * preset wired for the Responses API — with the proxy URL + CLI headers
  * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
-import { resolve } from 'path';
 import { enrichModels, getModelMetadataSync } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { makeModelCache } from './model-cache.mjs';

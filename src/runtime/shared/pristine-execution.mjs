@@ -14,6 +14,24 @@ const PRISTINE_EXECUTION_CONTRACT = Object.freeze(JSON.parse(readFileSync(contra
 
 const EFFORTS = new Set(['low', 'medium', 'high', 'xhigh', 'max']);
 
+// A memory-runtime shutdown that timed out leaves this root's own postmaster
+// running, and it holds pg.log and pgdata open forever — the observed EBUSY /
+// ENOTEMPTY removal failures that stranded 87 roots (6.1GB) on disk. The
+// postmaster records its pid in the root's postmaster.pid, so exactly the one
+// server this boundary started is terminated; no other instance is reachable
+// through that file.
+function killRootPostmaster(rootDir) {
+  try {
+    const raw = readFileSync(join(rootDir, 'data', 'pgdata', 'postmaster.pid'), 'utf8');
+    const pid = Number(String(raw).split(/\r?\n/)[0]);
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    process.kill(pid);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function validateExplicitPristineRoute({ provider, model, effort, fast } = {}) {
   const selectedProvider = clean(provider);
   const selectedModel = clean(model);
@@ -226,6 +244,18 @@ export function createPristineExecutionBoundary({
       try {
         rmSync(rootDir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
       } catch (error) {
+        // Retry once past a surviving postmaster: without this the root stays
+        // on disk with a live PG attached to it, and only the periodic orphan
+        // sweep (30 min later, at the earliest) would ever reclaim either.
+        if (killRootPostmaster(rootDir)) {
+          try {
+            rmSync(rootDir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
+            return null;
+          } catch (retryError) {
+            if (tolerateRootRemovalFailure) return { rootRemovalError: retryError };
+            throw retryError;
+          }
+        }
         if (tolerateRootRemovalFailure) return { rootRemovalError: error };
         throw error;
       }

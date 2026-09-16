@@ -1,7 +1,7 @@
 /**
  * src/tui/session/agent-envelope.mjs - parse agent/background-task/shell
  * notification envelopes into synthetic tool-item shapes, and derive
- * status/result text. Extracted from session-local.mjs; parseBackgroundTaskEnvelope
+ * status/result text. parseBackgroundTaskEnvelope
  * remains part of session-local.mjs's public surface.
  */
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
@@ -252,7 +252,7 @@ function bracketField(text, name) {
   return re.exec(String(text ?? ''))?.[1]?.trim() || '';
 }
 
-export function toolResultStatus(text) {
+function toolResultStatus(text) {
   const value = String(text ?? '');
   const tagged = textBetweenTag(value, 'status');
   if (tagged) return tagged.trim();
@@ -262,7 +262,7 @@ export function toolResultStatus(text) {
   return inline ? inline[1].trim() : '';
 }
 
-export function isErrorToolStatus(status) {
+function isErrorToolStatus(status) {
   return /^(failed|error|timeout|cancelled|canceled|killed)$/i.test(String(status || '').trim());
 }
 

@@ -1,4 +1,4 @@
-import { dirname, join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { createPortableChartWorkbook } from './portable-package.mjs';
 import { toEmu } from './portable-slide-shapes.mjs';
 import {

@@ -9,7 +9,7 @@ import { dirname, join, resolve } from 'node:path';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 
 export const PROMPT_HISTORY_LIMIT = 50;
-export const PROMPT_HISTORY_CACHE_LIMIT = Math.max(8, Number(process.env.MIXDOG_PROMPT_HISTORY_CACHE_LIMIT) || 128);
+const PROMPT_HISTORY_CACHE_LIMIT = Math.max(8, Number(process.env.MIXDOG_PROMPT_HISTORY_CACHE_LIMIT) || 128);
 
 export function promptHistoryKey(value) {
   return String(value || '')

@@ -1,5 +1,4 @@
 // V4A anchor resolution, ambiguity notices, and context-miss hint formatting.
-// Moved verbatim from v4a-convert.mjs.
 import {
   nearestPatchLineHint,
   nearestPatchLineMatch,

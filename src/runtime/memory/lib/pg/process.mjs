@@ -9,7 +9,7 @@ import { sleep as delay } from '../../../shared/sleep.mjs';
 //   stopPg({ runtimeDir, pgdataDir })                   → void
 //   healthcheckPg({ port, host? })                      → boolean
 
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { spawn, spawnSync } from 'child_process';
 import { createConnection } from 'net';
@@ -616,13 +616,61 @@ function listPostmasterRows() {
     });
 }
 
-/** Best-effort machine hygiene, run once after our own PG is healthy. */
+const PRISTINE_ROOT_PREFIX = 'mixdog-headless-pristine-';
+
+/** The throwaway root a temp postmaster belongs to (normalized), or null. */
+function pristineRootForArgs(args, tempRoot) {
+  const match = String(args || '').match(/(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/);
+  if (!match) return null;
+  const dataDir = normalizePathForMatch(match[1]);
+  const root = normalizePathForMatch(tempRoot).replace(/\/+$/, '');
+  if (!root || !dataDir.startsWith(`${root}/`)) return null;
+  const first = dataDir.slice(root.length + 1).split('/')[0];
+  return first ? `${root}/${first}` : null;
+}
+
+// Reaping a postmaster frees its RAM, but the root it abandoned still holds a
+// complete PG cluster on disk — a force-killed harness leaves both behind
+// (observed: 87 roots, 6.1GB, alongside 57 live postmasters). Roots a live
+// postmaster still owns are kept, and the same uptime margin that protects a
+// running harness from the process sweep protects its directory here.
+function sweepAbandonedPristineRoots(tempRoot, liveRoots, minAgeMs) {
+  let removed = 0;
+  let entries;
+  try {
+    entries = readdirSync(tempRoot, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  const cutoff = Date.now() - minAgeMs;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(PRISTINE_ROOT_PREFIX)) continue;
+    const full = join(tempRoot, entry.name);
+    if (liveRoots.has(normalizePathForMatch(full))) continue;
+    try {
+      if (statSync(full).mtimeMs > cutoff) continue;
+    } catch {
+      continue;
+    }
+    try {
+      rmSync(full, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      removed += 1;
+    } catch {
+      /* a process this sweep did not reap still holds it */
+    }
+  }
+  return removed;
+}
+
+/** Best-effort machine hygiene: reap orphan temp postmasters, then drop the
+ *  throwaway roots no live postmaster owns. Runs periodically, not once. */
 export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
   let reaped = 0;
   try {
     // Lazy import keeps this module's top-level dependency-free for tests.
     const os = { tmpdir: () => process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp' };
     const root = tempRoot || os.tmpdir();
+    const liveRoots = new Set();
     for (const row of listPostmasterRows()) {
       if (!row.pid || row.pid === process.pid) continue;
       if (
@@ -632,8 +680,11 @@ export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
           ownerAlive: tempPostmasterOwnerAlive(row.args),
           minUptimeSec,
         })
-      )
+      ) {
+        const owned = pristineRootForArgs(row.args, root);
+        if (owned) liveRoots.add(owned);
         continue;
+      }
       try {
         process.kill(row.pid);
         reaped += 1;
@@ -642,6 +693,9 @@ export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
         /* already gone or foreign-owned */
       }
     }
+    const minAgeMs = Math.max(60, Number(minUptimeSec) || ORPHAN_TEMP_PG_MIN_UPTIME_SEC) * 1000;
+    const removed = sweepAbandonedPristineRoots(root, liveRoots, minAgeMs);
+    if (removed > 0) __mixdogMemoryLog(`[pg-process] removed ${removed} abandoned pristine root(s)\n`);
   } catch {
     /* hygiene is best-effort */
   }

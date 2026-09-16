@@ -146,8 +146,6 @@ function finalizeInterruptedTurn({
   }
   for (const callId of allToolCallIds) {
     if (representedToolResultIds.has(callId)) continue;
-    const observed = observedToolCalls.get(callId);
-    const executionStarted = phase === 'tools' || observed?.eagerStarted === true;
     messages.push({
       role: 'tool',
       content: INTERRUPTED_TOOL_RESULT,

@@ -1,7 +1,7 @@
 import { existsSync } from 'fs';
 import { normalizeInputPath, resolveAgainstCwd } from './path-utils.mjs';
 
-export function parseReadLineNumberArg(value) {
+function parseReadLineNumberArg(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
 }

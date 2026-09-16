@@ -1,7 +1,7 @@
 /**
  * slash-dispatch.mjs — the runSlashCommand slash-command dispatcher.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory: the switch body reads live store/state and drives many pickers +
  * openers, so it can't be pure. The switch body below is the original App
  * logic verbatim (case ordering + fallthrough semantics byte-identical), with
@@ -11,7 +11,7 @@
  */
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 
-export function compactFailureNotice(error) {
+function compactFailureNotice(error) {
   if (error == null || String(error).trim() === '') return 'Compact failed.';
   const reason = presentErrorText(error, { surface: 'compact', max: 320 });
   if (!reason || reason === 'Unknown error') return 'Compact failed.';

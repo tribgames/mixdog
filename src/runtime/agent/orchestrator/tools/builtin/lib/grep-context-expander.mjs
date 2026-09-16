@@ -7,7 +7,7 @@ import { relativePathPrefix } from '../search-path-diagnostics.mjs';
 import { GREP_OUTPUT_MAX_BYTES } from '../tool-output-limit.mjs';
 import { relativeGrepLine } from './search-input-helpers.mjs';
 
-export const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = GREP_OUTPUT_MAX_BYTES;
+const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = GREP_OUTPUT_MAX_BYTES;
 
 // Default grep result cap when head_limit is unspecified. 250 is the common
 // harness default; the tool-result offload layer still bounds oversized

@@ -45,8 +45,8 @@ const CAPTURE_SUFFIXES = ['.err.log', '.json'];
 // names its temp `.<basename>.<hex>.tmp`), never anyone else's file.
 const CAPTURE_TEMP_RE = /^\.daemon-\d{8}-\d{6}-(\d+)-[0-9a-f]{4}\.json\.[0-9a-f]+\.tmp$/;
 export const CRASH_CAPTURE_KEEP_BOOTS = 8;
-export const CRASH_CAPTURE_KEEP_BYTES = 2 * 1024 * 1024;
-export const CRASH_CAPTURE_TAIL_BYTES = 256 * 1024;
+const CRASH_CAPTURE_KEEP_BYTES = 2 * 1024 * 1024;
+const CRASH_CAPTURE_TAIL_BYTES = 256 * 1024;
 // Bounded search for an unused boot identity; the raw capture is created
 // exclusively, so an existing artifact can never be adopted or overwritten.
 const CAPTURE_ID_ATTEMPTS = 8;

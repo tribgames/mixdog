@@ -38,7 +38,7 @@ import {
 import { toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
 import { transcriptRouteMetadataFields } from '../../runtime/shared/transcript-metadata.mjs';
 
-export function restoredTranscriptMetadata(message) {
+function restoredTranscriptMetadata(message) {
   const value = message?.meta?.transcript;
   if (!value || typeof value !== 'object') return {};
   const completionValue = value.completion && typeof value.completion === 'object' ? value.completion : null;
@@ -60,7 +60,7 @@ export function restoredTranscriptMetadata(message) {
   };
 }
 
-export function restoredAssistantTranscriptItems(message, nextId) {
+function restoredAssistantTranscriptItems(message, nextId) {
   const text = (typeof message?.content === 'string' ? message.content : toolResultText(message?.content)).trim();
   if (!text) return [];
   const { completion, ...metadata } = restoredTranscriptMetadata(message);
@@ -452,7 +452,7 @@ const ROUTE_PREVIEW_KEYS = ['provider', 'model', 'effort', 'fast', 'modelParamet
  * The patch that publishes a requested route before the runtime write settles.
  * Returns null when the request carries nothing previewable.
  */
-export function optimisticRoutePatch(requested = {}, current = {}) {
+function optimisticRoutePatch(requested = {}, current = {}) {
   const route = requested && typeof requested === 'object' ? requested : {};
   const has = (key) => Object.hasOwn(route, key);
   const patch = {};
@@ -478,7 +478,6 @@ export function optimisticRoutePatch(requested = {}, current = {}) {
 export function createSessionApiB(bag) {
   const {
     runtime,
-    nextId,
     flags,
     lifecycle,
     listeners,

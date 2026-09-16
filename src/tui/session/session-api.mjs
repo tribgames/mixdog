@@ -70,8 +70,6 @@ export function createSessionApiA(bag) {
     replaceItems,
     restoreOlderTranscript,
     restoreNewerTranscript,
-    settleStreamingTail,
-    clearStreamingTail,
     pushNotice,
     autoClearState,
     agentStatusState,
@@ -86,7 +84,6 @@ export function createSessionApiA(bag) {
     prioritizeQueued,
     resetStatsAndSyncContext,
     drain,
-    flushDeferredExecutionPendingResumeKick,
     discardExecutionPendingResume,
   } = bag;
   // submitAsync may be awaiting auto-clear while the renderer already owns an

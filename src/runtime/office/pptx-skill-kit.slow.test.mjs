@@ -1679,7 +1679,7 @@ test('pictures composed through the picture kit author without measured review w
 // The relationship structures (kit.md §6), one per page, each inside a region the page chose and beside the
 // copy that reads it: a timeline, steps, a hub, a loop, a merge, tiers, lanes, quadrants, a venn, a quote,
 // brace groups. Every page passes the measured review, and the receipt reads each structure's kind back.
-export const STRUCTURES_DECK = `
+const STRUCTURES_DECK = `
 // BRIEF
 // subject/audience/action: 운영팀 · 도크 4 증설 계획의 구조를 본다
 // reading mode: balanced · argument mode: briefing

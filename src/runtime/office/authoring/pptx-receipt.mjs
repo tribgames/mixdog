@@ -7,9 +7,6 @@
 import { plannedCarrierGaps } from './pptx-brief.mjs';
 import { rectangleGap } from '../portable/pptx-relations.mjs';
 
-// Rectangles and lines are furniture; every other preset is a contour the
-// author reached for on purpose (a chevron, a brace, an arc, a trapezoid).
-const FURNITURE = new Set(['rect', 'line', 'straightConnector1']);
 const CANVAS_AREA = 960 * 540; // 13.33 × 7.5 in, in points
 
 function luminance(hex) {

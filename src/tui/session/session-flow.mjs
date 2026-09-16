@@ -1,5 +1,5 @@
 /**
- * src/tui/session/session-flow.mjs - prompt queue drain + session clear/reset. Extracted from session-local.mjs.
+ * src/tui/session/session-flow.mjs - prompt queue drain + session clear/reset.
  */
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 import { resetAllStreamingMarkdownStablePrefixes } from '../markdown/streaming-markdown.mjs';

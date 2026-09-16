@@ -1,7 +1,7 @@
 /**
  * anthropic-model-resolve.mjs — Anthropic OAuth model-catalog cache + resolvers.
  *
- * Extracted from anthropic-oauth.mjs. Owns the disk-backed catalog cache and
+ * Owns the disk-backed catalog cache and
  * its in-memory mirror (single instance; the provider imports every reader/
  * writer from here so there is exactly ONE catalog state in the process).
  */
@@ -144,7 +144,7 @@ function _compareVersion(a, b) {
 // highest version across opus + sonnet only — haiku is the cheap tier and is
 // never the flagship default. Returns null until listModels() populates the
 // mirror; callers must warm the catalog (ensureLatestAnthropicModel) when null.
-export function resolveLatestAnthropicModel() {
+function resolveLatestAnthropicModel() {
   if (!Array.isArray(_inMemoryCatalog)) return null;
   let best = null;
   for (const m of _inMemoryCatalog) {

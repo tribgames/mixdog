@@ -14,12 +14,9 @@ import {
 } from './path-utils.mjs';
 import {
   _suggestIndexedPaths,
-  basePathDiagnostic,
   buildNotFoundHint,
   finalizeReadFamilyEnoentTail,
   isUncOrSmbPath,
-  relativePathPrefix,
-  relativeSearchResultPath,
   resolveSearchScope,
   uncRefusalMessage,
 } from './search-path-diagnostics.mjs';

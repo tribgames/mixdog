@@ -32,7 +32,7 @@ function mergeAttributes(previous, patch, name) {
 }
 
 /** Patch only supplied properties; preserve unrelated settings and revision metadata. */
-export function patchWordFormat(xml, owner, tag, patch) {
+function patchWordFormat(xml, owner, tag, patch) {
   if (!patch) return xml;
   const open = new RegExp(`^<w:${owner}(?:\\s[^>]*)?>`).exec(xml)?.[0];
   if (!open) throw new Error(`Missing Word ${owner} element`);

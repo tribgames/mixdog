@@ -1,7 +1,7 @@
 /**
  * gemini-stream.mjs — Gemini stream consumption (REST + SDK) and stream guards.
  *
- * Extracted from gemini.mjs. Owns chunk aggregation, completion assertions,
+ * Owns chunk aggregation, completion assertions,
  * timeout/truncation error shapes and the text leak guard that recovers
  * tool calls emitted as plain text. gemini.mjs imports the consumer entry
  * points; parseToolCalls/emitGeminiToolCalls stay in gemini.mjs and are
@@ -17,7 +17,7 @@ import {
 } from '../stall-policy.mjs';
 import { scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
-import { parseToolCalls, emitGeminiToolCalls, parseGeminiTextPartMetadata } from './gemini-schema.mjs';
+import { parseGeminiTextPartMetadata } from './gemini-schema.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { runAbortable } from '../../../shared/abort-race.mjs';
 

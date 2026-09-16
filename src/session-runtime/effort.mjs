@@ -1,9 +1,9 @@
 // Reasoning-effort catalogs and coercion. Pure helpers.
 import { clean } from './session-text.mjs';
 
-export const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
-export const ALL_EFFORT_LEVELS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
-export const EFFORT_LABELS = {
+const TOOL_MODES = new Set(['full', 'readonly', 'lead']);
+const ALL_EFFORT_LEVELS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+const EFFORT_LABELS = {
   none: 'None',
   minimal: 'Minimal',
   low: 'Low',
@@ -14,7 +14,7 @@ export const EFFORT_LABELS = {
   ultra: 'Ultra',
 };
 
-export const EFFORT_OPTIONS_BY_PROVIDER = {
+const EFFORT_OPTIONS_BY_PROVIDER = {
   openai: ['none', 'low', 'medium', 'high', 'xhigh'],
   // gpt-5.6+ catalogs declare max/ultra; the openai-oauth transport folds
   // ultra -> max on the wire (openai-oauth.mjs _normalizeReasoningEffort).
@@ -29,7 +29,7 @@ export const EFFORT_OPTIONS_BY_PROVIDER = {
   'antigravity-oauth': [],
   'opencode-go': ['high', 'max'],
 };
-export const EFFORT_BY_FAMILY = {
+const EFFORT_BY_FAMILY = {
   opus: ['low', 'medium', 'high', 'xhigh', 'max'],
   fable: ['low', 'medium', 'high', 'xhigh', 'max'],
   sonnet: ['low', 'medium', 'high'],
@@ -43,7 +43,7 @@ export const EFFORT_BY_FAMILY = {
   'gpt-codex': ['none', 'low', 'medium', 'high'],
   grok: ['low', 'medium', 'high', 'xhigh'],
 };
-export const EFFORT_FALLBACKS = {
+const EFFORT_FALLBACKS = {
   ultra: ['ultra', 'max', 'xhigh', 'high', 'medium', 'low', 'minimal'],
   max: ['max', 'xhigh', 'high', 'medium', 'low', 'minimal'],
   xhigh: ['xhigh', 'high', 'medium', 'low', 'minimal'],

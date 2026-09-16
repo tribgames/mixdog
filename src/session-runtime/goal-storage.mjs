@@ -82,7 +82,7 @@ export function reportGoalStorageError(error) {
   process.emitWarning(error?.message || String(error), { code: 'GOAL_STORAGE_ERROR' });
 }
 
-export function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
+function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
   let text;
   try {
     text = readFileSync(path, 'utf8');

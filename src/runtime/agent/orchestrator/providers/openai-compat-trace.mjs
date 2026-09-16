@@ -2,7 +2,7 @@
  * openai-compat-trace.mjs — shared trace/token helpers for the OpenAI-compat
  * provider family.
  *
- * Extracted from openai-compat.mjs. Holds the two low-level helpers
+ * Holds the two low-level helpers
  * (summarizeTraceMessages, extractCompatCachedTokens) consumed by both
  * openai-compat.mjs and openai-compat-xai.mjs cache-trace writers. Isolating
  * them here breaks the former import cycle between those two modules.

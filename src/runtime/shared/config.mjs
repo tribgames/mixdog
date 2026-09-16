@@ -143,7 +143,7 @@ export function canonicalizeStoredChannelsConfig(value = {}) {
 // No migration: canonical locations are the only ones read, and stale keys
 // from old installs are DROPPED, not folded in. Reads use this shape
 // in-memory; every subsequent locked write persists it.
-export function canonicalizeUnifiedConfig(value = {}) {
+function canonicalizeUnifiedConfig(value = {}) {
   const next = isPlainObject(value) ? { ...value } : {};
   const hadAgent = isPlainObject(next.agent);
   const agent = hadAgent ? { ...next.agent } : {};

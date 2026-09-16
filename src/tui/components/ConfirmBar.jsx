@@ -9,7 +9,6 @@
  *   buttons:      [{ value, label }]  — button descriptors
  *   focusedIndex: number              — highlighted button (-1 = none/list focus)
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 

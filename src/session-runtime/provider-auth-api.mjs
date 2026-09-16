@@ -1,7 +1,6 @@
 import {
   beginOAuthProviderLogin,
   forgetProviderAuth,
-  isKnownProvider,
   loginOAuthProvider,
   renderProviderStatus,
   saveOpenAIUsageSessionKey,

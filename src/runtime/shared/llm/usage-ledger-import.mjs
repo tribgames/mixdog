@@ -158,7 +158,7 @@ export async function importUsageHistory(ledger, dataDir, { now = Date.now(), re
   return result;
 }
 
-export async function readOriginalTrace(dataDir, until) {
+async function readOriginalTrace(dataDir, until) {
   const pidFile = await optionalFile(join(dataDir, 'pgdata', 'postmaster.pid'));
   if (!pidFile) return [];
   const fields = pidFile.trimEnd().split(/\r?\n/);

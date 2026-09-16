@@ -115,7 +115,7 @@ export function formatSessionMessageCount(count) {
   return `${Number.isFinite(n) ? Math.max(0, Math.round(n)) : 0} msg${n === 1 ? '' : 's'}`;
 }
 
-export function fitLine(value, columns, reserve = 4) {
+function fitLine(value, columns, reserve = 4) {
   const text = String(value || '');
   const width = Math.max(1, Number(columns || 80) - reserve);
   if (stringWidth(text) <= width) return text;

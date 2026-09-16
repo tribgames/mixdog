@@ -16,7 +16,6 @@
  *
  * Renders nothing when the queue is empty.
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 

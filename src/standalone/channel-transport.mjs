@@ -30,7 +30,7 @@ import {
   readRemoteIntent,
 } from './channel-binding.mjs';
 
-export const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
+const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
 
 function readChannelBody(req) {
   return readBody(req, { maxBytes: CHANNEL_HTTP_BODY_MAX_BYTES });

@@ -558,17 +558,6 @@ export function isRetryableStreamErrorEvent(err) {
   return true;
 }
 
-/**
- * Convenience predicate: should this error be retried at the request level?
- * Wraps classifyError() with the standard "transient = retry, otherwise no"
- * policy. Callers that have provider-specific retry budgets (e.g. anthropic-
- * oauth's MAX_ATTEMPTS, openai-oauth-ws's mid-stream classifier) still gate
- * on attempt count separately; this helper only answers the kind question.
- */
-function isRetryable(err) {
-  return classifyError(err) === 'transient';
-}
-
 /** Anthropic request budget: 10 retries (11 attempts).
  * CLAUDE_CODE_MAX_RETRIES is intentionally read per request for reload/tests.
  * The upper bound prevents an accidental unbounded retry loop. */

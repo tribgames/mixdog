@@ -4,7 +4,6 @@
  * Creates the session runtime session (runs OUR agentLoop outside React) and ink-renders
  * <App store={...}/>. Resolves when the app exits (/exit or /quit).
  */
-import React from 'react';
 import { render } from 'ink';
 import { closeSync, constants as fsConstants, createWriteStream, mkdirSync, openSync, readSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -328,7 +327,6 @@ function ansiFg(rgb) {
 function paintBootSplash() {
   try {
     const cols = Math.max(1, Number(process.stdout.columns) || 80);
-    const rows = Math.max(1, Number(process.stdout.rows) || 24);
     const windowsLikeTerminal = process.platform === 'win32' || Boolean(process.env.WT_SESSION);
     const frameCols = Math.max(1, cols - (windowsLikeTerminal ? 1 : 0));
     const center = (s, reserve = 0) =>

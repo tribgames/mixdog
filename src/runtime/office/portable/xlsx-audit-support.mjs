@@ -10,7 +10,7 @@ export const MAX_ISSUES_PER_CODE = 100;
 
 // The General format under any Excel UI language (Korean G/표준, Japanese
 // G/標準, German Standard): a number that carries no format at all.
-export const GENERAL_FORMAT =
+const GENERAL_FORMAT =
   /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$/i;
 
 export function escapeRegExp(text) {
@@ -27,7 +27,7 @@ export function cellPath(sheet, cell) {
 
 // String literals never carry references or operators; blank them so a
 // quoted "Sheet Name!" or "1.05" cannot masquerade as one.
-export function stripFormulaStrings(formula) {
+function stripFormulaStrings(formula) {
   return String(formula || '').replace(/"(?:[^"]|"")*"/g, '""');
 }
 

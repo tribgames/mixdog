@@ -92,7 +92,7 @@ function isMemoryReadOnlyToolCall(name, args = {}) {
   return false;
 }
 
-export function prepareMemoryToolArgumentsForWire(name, args = {}) {
+function prepareMemoryToolArgumentsForWire(name, args = {}) {
   if (
     String(name || '').trim() !== 'memory' ||
     String(args?.action || '').trim() !== 'ingest_session' ||
@@ -114,7 +114,7 @@ function memoryAbortError(reason) {
   return error;
 }
 
-export function requestJson({
+function requestJson({
   port,
   method = 'GET',
   path = '/',
@@ -204,7 +204,7 @@ export function requestJson({
   });
 }
 
-export function createStandaloneMemoryRuntime({ entry, dataDir, cwd = process.cwd() } = {}) {
+function createStandaloneMemoryRuntime({ entry, dataDir, cwd = process.cwd() } = {}) {
   if (!entry) throw new Error('memory runtime entry is required');
   if (!dataDir) throw new Error('memory runtime dataDir is required');
 

@@ -20,7 +20,7 @@ import { isTerminalWorkerStatus } from './worker-rows.mjs';
 // runtime/shared/background-tasks.mjs; 'canceled' accepted defensively).
 const TERMINAL_JOB_STATUSES = new Set(['completed', 'failed', 'cancelled', 'canceled']);
 
-export function isTerminalJobStatus(status) {
+function isTerminalJobStatus(status) {
   return TERMINAL_JOB_STATUSES.has(
     String(status ?? '')
       .trim()
@@ -34,7 +34,7 @@ export function isTerminalJobStatus(status) {
 // stage ("20 completed rows all reporting streaming/model active"). Terminal
 // rows therefore report only their own recorded status: no live worker
 // snapshot, no silent_for/watchdog/queued_followups.
-export function terminalJobFrozenFields(status, now = Date.now()) {
+function terminalJobFrozenFields(status, now = Date.now()) {
   const stage =
     String(status ?? '')
       .trim()
@@ -51,7 +51,7 @@ export function terminalJobFrozenFields(status, now = Date.now()) {
 // Default /agents worker section = workers that can still do work. Idle,
 // closed, errored and reaped/unknown rows are history and stay reachable
 // through the task section (status/read keep their terminal result).
-export function isActiveWorkerRow(row = {}) {
+function isActiveWorkerRow(row = {}) {
   const stage = String(row.stage ?? '')
     .trim()
     .toLowerCase();

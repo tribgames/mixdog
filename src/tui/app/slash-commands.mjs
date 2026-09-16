@@ -127,7 +127,7 @@ export function slashCommandTokenForPaletteAccept(command, draftValue = '') {
   return command.name;
 }
 
-export function slashCommandForName(cmd) {
+function slashCommandForName(cmd) {
   const name = normalizeSlashCommandName(cmd);
   return SLASH_COMMANDS.find((item) => item.name === name) || null;
 }

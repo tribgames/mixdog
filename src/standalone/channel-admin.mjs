@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { basename, join } from 'node:path';
+import { basename } from 'node:path';
 import {
   canonicalizeStoredChannelsConfig,
   readSection,
@@ -427,25 +427,4 @@ export async function channelSetup(config = null) {
     schedules: await listSchedules(),
     webhooks: await listWebhooks(),
   };
-}
-
-async function renderChannelStatus(config = null) {
-  const setup = await channelSetup(config);
-  const lines = [];
-  lines.push(
-    `webhook  ${setup.webhook.enabled === false ? 'disabled' : 'enabled'} · port ${setup.webhook.port || 3333}${setup.webhook.publicUrl ? ` · ${setup.webhook.publicUrl}` : ''}`
-  );
-  lines.push('schedules');
-  if (setup.schedules.length === 0) lines.push('  (none)');
-  for (const item of setup.schedules) {
-    lines.push(`  ${item.name}  ${item.time || '(no cron)'}  ${item.route}${item.model ? `  ${item.model}` : ''}`);
-  }
-  lines.push('webhooks');
-  if (setup.webhooks.length === 0) lines.push('  (none)');
-  for (const item of setup.webhooks) {
-    lines.push(
-      `  ${item.name}  ${item.parser || 'github'}  ${item.route}${item.model ? `  ${item.model}` : ''}  secret:${item.secretSet ? 'set' : 'missing'}`
-    );
-  }
-  return lines.join('\n');
 }

@@ -36,7 +36,7 @@ const RUNTIME_METHODS = new Set([
   'dispose',
 ]);
 
-export function applyRuntimeStateFrame(previous, frame) {
+function applyRuntimeStateFrame(previous, frame) {
   if (frame?.full && typeof frame.full === 'object') return frame.full;
   const patch = frame?.patch;
   if (!patch || typeof patch !== 'object') return previous || {};
@@ -547,7 +547,7 @@ const WORKLOAD_MAX_FIELDS = new Set([
 const WORKLOAD_LIST_CAP = 64;
 
 /** Structural merge of two shard workload rows (exported for tests). */
-export function mergeShardWorkloadValues(left, right, key = '') {
+function mergeShardWorkloadValues(left, right, key = '') {
   if (right === undefined || right === null) return left;
   if (left === undefined || left === null) return right;
   if (typeof left === 'number' && typeof right === 'number') {
@@ -587,7 +587,7 @@ export function mergeShardWorkloadValues(left, right, key = '') {
 /** Aggregate EVERY live shard into the single-worker shape older status
  *  consumers still read (resources/toolIo/childSpawns included), keeping the
  *  per-shard rows alongside it. */
-export function aggregateShardWorkload(rows) {
+function aggregateShardWorkload(rows) {
   const list = Array.isArray(rows) ? rows.filter(Boolean) : [];
   if (list.length === 0) return null;
   let merged = {};

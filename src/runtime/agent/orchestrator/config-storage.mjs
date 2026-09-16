@@ -78,7 +78,7 @@ function nonEmptyConfigObject(value) {
   return Object.keys(value).length > 0 ? value : undefined;
 }
 
-export function canonicalizeAutoClearStorage(value) {
+function canonicalizeAutoClearStorage(value) {
   const raw = configObject(value);
   const next = { ...raw };
   const idleMs = Number(raw.idleMs ?? raw.thresholdMs ?? raw.idleMillis);
@@ -110,7 +110,7 @@ export function canonicalizeAutoClearStorage(value) {
   return nonEmptyConfigObject(next);
 }
 
-export function canonicalizeCompactionStorage(value) {
+function canonicalizeCompactionStorage(value) {
   const raw = configObject(value);
   const next = { ...raw };
   if (!next.summaryModel && raw.semanticModel) next.summaryModel = raw.semanticModel;
@@ -141,7 +141,7 @@ export function canonicalizeCompactionStorage(value) {
   return nonEmptyConfigObject(next);
 }
 
-export function canonicalizeShellStorage(value) {
+function canonicalizeShellStorage(value) {
   const raw = configObject(value);
   const next = { ...raw };
   const command = String(raw.command ?? raw.path ?? raw.executable ?? raw.shell ?? '').trim();

@@ -1,7 +1,7 @@
 /**
  * project-picker.mjs — the project selector / create / rename / enter cluster.
  *
- * Extracted from App.jsx behavior-preservingly. This cluster is ref/state
+ * This cluster is ref/state
  * coupled (it drives the panel surface + a fan of prompt setters), so it's
  * delivered as a dependency-injection factory rather than pure functions.
  * Project registry and path operations are daemon calls on `store`; the TUI

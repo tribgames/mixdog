@@ -11,7 +11,7 @@ function responseEntry(response = {}) {
   };
 }
 
-export function formatAgentResponseRaw(entries = []) {
+function formatAgentResponseRaw(entries = []) {
   return entries
     .map((entry, index) => {
       const raw = String(entry?.raw || '').trim();

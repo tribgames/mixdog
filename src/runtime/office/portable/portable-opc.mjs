@@ -1,4 +1,4 @@
-import { basename, dirname, join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { readFile, writeFile } from 'node:fs/promises';
@@ -326,7 +326,7 @@ const SHARED_ON_CLONE = /\/(image|media|video|audio|theme|slideLayout|slideMaste
 // Copy a part and the parts it owns inside the same package, always as new
 // parts: a duplicated slide that keeps pointing at the original chart makes an
 // edit to one page silently rewrite the other.
-export async function clonePartTree(zip, sourcePath, cache = new Map()) {
+async function clonePartTree(zip, sourcePath, cache = new Map()) {
   if (cache.has(sourcePath)) return cache.get(sourcePath);
   const file = zip.file(sourcePath);
   if (!file) return '';

@@ -1,6 +1,6 @@
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 
-export const _lastSaveError = new Map(); // id -> { message, at }
+const _lastSaveError = new Map(); // id -> { message, at }
 
 /** Same-process authoritative session snapshots (createSession → loadSession / askSession). */
 export const _liveSessions = new Map();

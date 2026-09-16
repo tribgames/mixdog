@@ -1,5 +1,4 @@
-// Result-rendering + finish-classification helpers extracted from the
-// agent-tool facade. Pure functions; behavior-preserving (bodies identical to
+// Result-rendering + finish-classification helpers. Pure functions (bodies identical to
 // the originals, only cross-module deps are now imported).
 import { appendAgentProgressKv } from '../agent-task-status.mjs';
 import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helpers.mjs';

@@ -8,8 +8,8 @@ import {
 } from './messages.mjs';
 
 export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
-export const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
-export const TOOL_HISTORY_MAX_TOKENS = 25_000;
+const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
+const TOOL_HISTORY_MAX_TOKENS = 25_000;
 
 export function toolHistoryBudget(contextWindow) {
   const window = Number(contextWindow);

@@ -204,7 +204,6 @@ export async function executeComputerTool(rawArgs, context = {}) {
     if (context.signal?.aborted) return cancelledComputerResult(sessionId, false);
     throw error;
   }
-  const action = String(command?.action || '');
   if (sessionId) hostBoundComputerSessions.add(sessionId);
   if (sessionId) activeComputerExecutions.add(sessionId);
   if (sessionId && !isReplaySafeComputerCommand(command) && command?.read_only !== true) {
@@ -313,7 +312,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
         },
         context.signal
       );
-    } catch (error) {
+    } catch {
       if (context.signal?.aborted && sessionId) await abortComputerSession(sessionId);
       return {
         content: [

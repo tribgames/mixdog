@@ -11,7 +11,7 @@ import { mergeXlsxFormulaAudit } from '../portable/xlsx-formula-audit.mjs';
 import { issuesTabular, validateTabular } from './tabular.mjs';
 import { evaluateOfficeSubmissionGate, normalizeOfficeReviewIssues } from '../quality/quality-pipeline.mjs';
 import { reviewOfficeStructure } from '../quality/assurance.mjs';
-import { OOXML_FORMATS, TABULAR_FORMATS, sessions } from './office-core.mjs';
+import { OOXML_FORMATS, TABULAR_FORMATS } from './office-core.mjs';
 import { snapshot } from './office-sessions.mjs';
 
 // One document read per document version for every review that needs the whole

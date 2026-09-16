@@ -26,7 +26,7 @@ import {
   trackForegroundShellJob,
 } from './builtin/shell-jobs.mjs';
 import { nativeSpawnFileCaptureReady, setNativeTaskStartedAt } from './lib/native-spawn-client.mjs';
-import { _maybeEncodePowerShellCommand, extractPowerShellCommandInner } from './shell-powershell.mjs';
+import { _maybeEncodePowerShellCommand } from './shell-powershell.mjs';
 import { spawnShellWithRetry as _spawnShellWithRetry } from './lib/shell-spawn-retry.mjs';
 import { takeWarmShellStandby } from './lib/shell-warm-standby.mjs';
 import { probeShellDescendants, STDIO_HELD_AFTER_EXIT_MS } from './lib/shell-descendants.mjs';
@@ -43,7 +43,6 @@ export {
 import {
   SHELL_OUTPUT_INLINE_CAP,
   SHELL_OUTPUT_DISK_CAP,
-  stripAnsi,
   treeKill,
   TaskOutput,
   ExecResult,

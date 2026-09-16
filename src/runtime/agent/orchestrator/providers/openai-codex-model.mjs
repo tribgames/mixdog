@@ -31,7 +31,7 @@ export function _codexMaxContextWindow(id, reportedMaxContextWindow) {
   return VALIDATED_CODEX_1M_MODELS.has(String(id || '').toLowerCase()) ? Math.max(reported || 0, 1_000_000) : reported;
 }
 
-export function _codexFamily(id) {
+function _codexFamily(id) {
   const s = String(id || '').toLowerCase();
   if (s.includes('nano')) return 'gpt-nano';
   if (s.includes('mini')) return 'gpt-mini';

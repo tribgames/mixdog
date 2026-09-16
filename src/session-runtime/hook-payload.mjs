@@ -1,7 +1,6 @@
 /**
  * src/session-runtime/hook-payload.mjs - common payload fields for hook
  * dispatch (session id, transcript path, cwd, permission mode, effort).
- * Extracted from runtime-core.mjs.
  */
 import { join } from 'node:path';
 import { clean } from './session-text.mjs';

@@ -140,7 +140,7 @@ async function registerFontWithOs(fontDef, targetPath) {
   }
 }
 
-export function registerFontInProcess(fontPath, family) {
+function registerFontInProcess(fontPath, family) {
   try {
     if (existsSync(fontPath)) {
       GlobalFonts.registerFromPath(fontPath, family);

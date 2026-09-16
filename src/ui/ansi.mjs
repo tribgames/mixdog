@@ -26,7 +26,7 @@ function computeColorEnabled() {
 }
 
 /** Recompute color support (e.g. after env changes in tests). */
-export function refreshColorSupport() {
+function refreshColorSupport() {
   COLOR_ENABLED = computeColorEnabled();
   return COLOR_ENABLED;
 }
@@ -46,7 +46,7 @@ const RESET = `${ESC}0m`;
  * xterm TERM while not implementing truecolor. Unknown terminals retain the
  * historical truecolor default.
  */
-export function supportsTruecolor(environment = env, platformName = platform) {
+function supportsTruecolor(environment = env, platformName = platform) {
   const termProgram = String(environment?.TERM_PROGRAM || '')
     .trim()
     .toLowerCase();
@@ -165,7 +165,7 @@ export function rgb(r, g, b) {
 }
 
 /** Background truecolor wrapper: `rgbBg(55,55,55)('x')`. */
-export function rgbBg(r, g, b) {
+function rgbBg(r, g, b) {
   return sgr(`48;2;${r};${g};${b}`);
 }
 

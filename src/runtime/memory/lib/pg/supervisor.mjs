@@ -452,18 +452,25 @@ async function _startFresh(dataDir, pgdata, port, runtimeDir) {
   __mixdogMemoryLog(
     `[supervisor-pg] ${proc?.attached ? 'attached to' : 'started'} PG port=${actualPort} pgdata=${pgdata}\n`
   );
-  scheduleOrphanTempPostmasterSweep();
   return { host: '127.0.0.1', port: actualPort, runtimeDir, pgdataDir };
 }
 
-// Once per process, off the critical path: reap force-kill debris — temp-root
-// mixdog postmasters whose owners died without a stop hook (they otherwise
-// hold 60-100MB each forever). Own-instance start above is already settled.
+// Off the critical path: reap force-kill debris — temp-root mixdog postmasters
+// whose owners died without a stop hook (they otherwise hold 60-100MB each
+// forever, plus a full cluster on disk).
+//
+// Scheduled from ensurePgInstance, NOT from the start/attach paths: a
+// long-lived daemon reaches PG through a reuse path that skipped the sweep
+// entirely, so the debris only ever grew (observed: 57 orphan postmasters,
+// 5.9GB RAM). And it REPEATS, because debris a session creates after the first
+// sweep would otherwise survive for that daemon's whole lifetime.
+const ORPHAN_SWEEP_FIRST_DELAY_MS = 30_000;
+const ORPHAN_SWEEP_INTERVAL_MS = 30 * 60_000;
 let _orphanSweepStarted = false;
 function scheduleOrphanTempPostmasterSweep() {
   if (_orphanSweepStarted) return;
   _orphanSweepStarted = true;
-  const timer = setTimeout(() => {
+  const runSweep = () => {
     void _getPgProc()
       .then(({ sweepOrphanTempPostmasters }) => {
         const reaped = sweepOrphanTempPostmasters?.() || 0;
@@ -472,8 +479,13 @@ function scheduleOrphanTempPostmasterSweep() {
       .catch(() => {
         /* hygiene is best-effort */
       });
-  }, 30_000);
-  timer.unref?.();
+  };
+  const first = setTimeout(() => {
+    runSweep();
+    const repeat = setInterval(runSweep, ORPHAN_SWEEP_INTERVAL_MS);
+    repeat.unref?.();
+  }, ORPHAN_SWEEP_FIRST_DELAY_MS);
+  first.unref?.();
 }
 
 async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 'reuse' }) {
@@ -501,7 +513,6 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
         // patchActiveInstance) so a concurrent restart/owner change is not
         // clobbered by this reuse-time snapshot.
         _restampReuseOwner({ pgdata, port: existingPort });
-        scheduleOrphanTempPostmasterSweep();
         return { host: '127.0.0.1', port: existingPort, runtimeDir: existingRtDir, pgdataDir: pgdata };
       }
     } catch {}
@@ -522,7 +533,6 @@ async function tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source = 
           },
           { timeoutMs: 1000, background: true }
         );
-        scheduleOrphanTempPostmasterSweep();
         return { host: '127.0.0.1', port: pm.port, runtimeDir, pgdataDir: pgdata };
       }
     } catch {}
@@ -695,6 +705,10 @@ async function _doEnsure(dataDir) {
  * @returns {Promise<{ host: string, port: number, runtimeDir: string, pgdataDir: string }>}
  */
 export function ensurePgInstance(dataDir) {
+  // Every route to a live PG passes here — start, attach, reuse and the
+  // in-process fast path — so this is the one place the sweep cannot be
+  // skipped. Latched internally, so repeated calls schedule it only once.
+  scheduleOrphanTempPostmasterSweep();
   if (!_ensureInFlight) {
     _ensureInFlight = _doEnsure(dataDir).finally(() => {
       _ensureInFlight = null;

@@ -26,7 +26,7 @@ function runtimeRoot() {
   return resolveRuntimeRoot();
 }
 
-export function sessionDiscoveryPath() {
+function sessionDiscoveryPath() {
   return path.join(runtimeRoot(), 'daemon.json');
 }
 

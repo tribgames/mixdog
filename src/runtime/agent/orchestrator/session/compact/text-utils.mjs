@@ -1,5 +1,4 @@
-// Text/token/message helpers and secret redaction for compaction. Extracted
-// verbatim from compact.mjs (behavior-preserving).
+// Text/token/message helpers and secret redaction for compaction.
 import { createHash } from 'node:crypto';
 import { estimateMessagesTokens } from '../context-utils.mjs';
 
@@ -46,7 +45,7 @@ const SENSITIVE_RAW_KEY_RES = [
 // pairs — so no secret fragment survives. Kept local to compact-core to avoid a
 // cross-module dependency on the memory lib; logic matches session-ingest's
 // redactRawArgString.
-export function redactRawSecretString(text) {
+function redactRawSecretString(text) {
   let value = String(text ?? '');
   if (!value) return value;
   for (const keyRe of SENSITIVE_RAW_KEY_RES) {
@@ -179,7 +178,7 @@ function toolCallArgsText(tc, maxChars = TOOL_CALL_ARGS_MAX_CHARS) {
   return text ? truncateMiddle(text, maxChars) : '';
 }
 
-export function summarizeToolCall(tc, maxArgChars = TOOL_CALL_ARGS_MAX_CHARS) {
+function summarizeToolCall(tc, maxArgChars = TOOL_CALL_ARGS_MAX_CHARS) {
   const name = tc?.name || tc?.function?.name || tc?.id || '?';
   const args = toolCallArgsText(tc, maxArgChars);
   return args ? `${name}(${args})` : name;

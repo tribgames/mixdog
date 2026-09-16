@@ -31,7 +31,7 @@ export function entryLifecycleToken(entry) {
   return typeof token === 'string' && token ? token : null;
 }
 
-export function carryLifecycleToken(target, source) {
+function carryLifecycleToken(target, source) {
   const token = entryLifecycleToken(source);
   return token ? stampLifecycleToken(target, token) : target;
 }

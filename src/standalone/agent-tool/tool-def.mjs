@@ -1,5 +1,4 @@
-// Static agent-tool descriptor + spawn/route constants. Extracted from the
-// agent-tool facade as a behavior-preserving split; values are byte-identical
+// Static agent-tool descriptor + spawn/route constants. Values are byte-identical
 // to the originals.
 
 export const PRESET_ALIASES = new Map([

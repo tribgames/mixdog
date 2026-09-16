@@ -1,4 +1,4 @@
-import { dirname, extname, join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   contrastRatio,
@@ -35,7 +35,6 @@ import { reviewDeadVectorChart, reviewTextFragmentation } from './review-editabi
 import { docxTables } from './portable-docx-xml.mjs';
 import { auditDocxRedliningStories, lintDocxRevisions } from './docx-revisions.mjs';
 import { inspectPptxTextBoxes } from './portable-pptx.mjs';
-import { slidePath } from './portable-pptx-package.mjs';
 import { FULL_READ_CELL_LIMIT, snapshotDocx, snapshotPptx, snapshotXlsx } from './portable-snapshot.mjs';
 import { reviewOfficeStructure } from '../quality/assurance-structure.mjs';
 import { auditXlsxFormulas } from './xlsx-formula-audit.mjs';

@@ -1,4 +1,4 @@
-import { dirname, extname, join, posix } from 'node:path';
+import { extname, posix } from 'node:path';
 import { textBodyXml } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
 import {

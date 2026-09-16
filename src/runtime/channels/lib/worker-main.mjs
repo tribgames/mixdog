@@ -114,7 +114,7 @@ const INSTRUCTIONS = '';
 // never `connect()`ed to any transport, so `.notification()` silently
 // threw 'Not connected' inside the SDK and every call was dropped by an
 // outer `.catch(() => {})`. That regression is what this path replaces.
-const { sendNotifyToParent, callMemoryAction, handleMemoryCallResponse } = createParentBridge({
+const { sendNotifyToParent, handleMemoryCallResponse } = createParentBridge({
   getInstanceId: () => INSTANCE_ID,
 });
 let channelBridgeActive = false;
@@ -169,7 +169,6 @@ const {
   startOwnedRuntime,
   stopOwnedRuntime,
   refreshBridgeOwnership,
-  refreshBridgeOwnershipSafe,
   reloadRuntimeConfig,
   armBridgeOwnershipTimer,
   clearBridgeOwnershipTimer,

@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-
 // A template placeholder: {{name}}, where the name is written in the document's
 // own script. A Latin-only name would leave {{계약명}} unrecognised — neither
 // filled nor reported as unresolved, so it would ship as written.

@@ -1,6 +1,6 @@
 /**
  * src/tui/session/turn-deferred-cards.mjs - ordered deferred tool-card push
- * registry for one lead turn (createRunTurn). Extracted from turn.mjs.
+ * registry for one lead turn (createRunTurn).
  *
  * Register entries first so sibling ordering and batched result handling
  * stay intact, then flush them synchronously once every header is ready.

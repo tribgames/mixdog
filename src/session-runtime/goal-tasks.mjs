@@ -72,7 +72,7 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
   });
 }
 
-export function taskInputRetains(entry, task) {
+function taskInputRetains(entry, task) {
   if (typeof entry === 'string') return clean(entry) === task.text;
   if (!entry || typeof entry !== 'object') return false;
   return clean(entry.id) ? clean(entry.id) === task.id : clean(entry.text) === task.text;

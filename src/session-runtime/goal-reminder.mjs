@@ -32,7 +32,7 @@ export function markPendingGoalReminder(session, reason = 'compaction') {
   return session.pendingGoalReminder;
 }
 
-export function clearPendingGoalReminder(session) {
+function clearPendingGoalReminder(session) {
   if (!session || typeof session !== 'object' || !session.pendingGoalReminder) return false;
   delete session.pendingGoalReminder;
   session.updatedAt = Date.now();

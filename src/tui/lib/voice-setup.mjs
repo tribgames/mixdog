@@ -115,7 +115,7 @@ function makeThrottledProgressNotice({ pushNotice, setProgressHint } = {}, inter
  * runtime descriptor (resolveVoiceRuntime shape) once `installed` is true;
  * throws on any ensure* failure (manifest fetch, sha256 mismatch, etc.).
  */
-export async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
+async function ensureVoiceRuntimeReady({ dataDir = resolvePluginData(), pushNotice, setProgressHint } = {}) {
   const fetcher = await loadVoiceRuntimeFetcher();
   // Every device installs the same standard multilingual Q8 model.
   const modelId = fetcher.selectVoiceModelId(readSection('voice'));

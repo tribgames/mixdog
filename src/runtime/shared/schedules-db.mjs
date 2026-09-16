@@ -286,24 +286,3 @@ export async function setSkippedUntil(name, ts, { dataDir } = {}) {
   );
   return rowToDef(rows[0]);
 }
-
-/**
- * Schedules that are eligible to fire at `now`: active, enabled, with a
- * next_fire_at at/before `now`, and not currently deferred or skipped past
- * `now`.
- */
-async function listDue(now = new Date(), { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `SELECT ${COLS} FROM scheduler.schedules
-      WHERE status = 'active'
-        AND enabled = true
-        AND next_fire_at IS NOT NULL
-        AND next_fire_at <= $1
-        AND (deferred_until IS NULL OR deferred_until <= $1)
-        AND (skipped_until  IS NULL OR skipped_until  <= $1)
-      ORDER BY next_fire_at`,
-    [now]
-  );
-  return rows.map(rowToDef);
-}

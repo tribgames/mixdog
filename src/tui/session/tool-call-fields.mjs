@@ -1,6 +1,6 @@
 /**
  * src/tui/session/tool-call-fields.mjs - accessors for the varied tool-call /
- * tool-result id/name/arg shapes across providers. Extracted from session-local.mjs.
+ * tool-result id/name/arg shapes across providers.
  */
 export function toolCallId(call) {
   return call?.id ?? call?.toolCallId ?? call?.tool_call_id ?? call?.call_id;

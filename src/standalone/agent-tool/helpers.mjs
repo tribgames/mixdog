@@ -34,7 +34,11 @@ export function registerExitFlush(flush) {
   exitFlushInstalled = true;
   process.on('exit', () => {
     for (const entry of exitFlushes) {
-      try { entry(); } catch { /* exit flush is best effort */ }
+      try {
+        entry();
+      } catch {
+        /* exit flush is best effort */
+      }
     }
   });
 }
@@ -72,7 +76,9 @@ export function stampMs(value) {
 }
 
 export function normalizeAgentName(value) {
-  const id = clean(value).toLowerCase().replace(/[\s_]+/g, '-');
+  const id = clean(value)
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
   if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
   if (id === 'heavy' || id === 'heavyworker') return 'heavy-worker';
   if (id === 'review') return 'reviewer';
@@ -154,7 +160,7 @@ function bridgeRouteForStatusline(preset = {}) {
 const pendingAgentStatuslineRoutes = new Map();
 let pendingAgentStatuslineRouteFlush = null;
 
-export function flushAgentStatuslineRoutes() {
+function flushAgentStatuslineRoutes() {
   if (pendingAgentStatuslineRouteFlush) {
     clearImmediate(pendingAgentStatuslineRouteFlush);
     pendingAgentStatuslineRouteFlush = null;
@@ -162,7 +168,11 @@ export function flushAgentStatuslineRoutes() {
   if (pendingAgentStatuslineRoutes.size === 0) return false;
   const entries = [...pendingAgentStatuslineRoutes.values()];
   pendingAgentStatuslineRoutes.clear();
-  try { return writeGatewaySessionRoutes(entries); } catch { return false; }
+  try {
+    return writeGatewaySessionRoutes(entries);
+  } catch {
+    return false;
+  }
 }
 
 export function writeAgentStatuslineRoute(sessionId, preset) {
@@ -178,16 +188,22 @@ export function writeAgentStatuslineRoute(sessionId, preset) {
 export function clearAgentStatuslineRoute(sessionId) {
   if (!sessionId) return false;
   pendingAgentStatuslineRoutes.delete(sessionId);
-  try { return clearGatewaySessionRoute(sessionId); } catch { return false; }
+  try {
+    return clearGatewaySessionRoute(sessionId);
+  } catch {
+    return false;
+  }
 }
 
 export function findPreset(config, key) {
   const wanted = clean(key).toLowerCase();
   if (!wanted) return null;
   const presets = Array.isArray(config?.presets) ? config.presets : [];
-  return presets.find((p) => {
-    return clean(p?.id).toLowerCase() === wanted || clean(p?.name).toLowerCase() === wanted;
-  }) || null;
+  return (
+    presets.find((p) => {
+      return clean(p?.id).toLowerCase() === wanted || clean(p?.name).toLowerCase() === wanted;
+    }) || null
+  );
 }
 
 export function synthesizePreset(config, key) {
@@ -303,7 +319,10 @@ export function readAgentFrontmatterPermission(agent, dataDir, standaloneSourceR
     if (!existsSync(file)) continue;
     const fm = parseMarkdownFrontmatter(readFileSync(file, 'utf8'));
     const permission = normalizeAgentPermissionOrNone(fm.permission);
-    if (permission) { resolved = permission; break; }
+    if (permission) {
+      resolved = permission;
+      break;
+    }
   }
   _frontmatterPermCache.set(cacheKey, { value: resolved, atMs: Date.now() });
   return resolved;

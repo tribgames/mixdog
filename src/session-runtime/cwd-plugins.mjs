@@ -5,7 +5,7 @@ import { saveSession } from '../runtime/agent/orchestrator/session/store.mjs';
 import { pluginMetadata } from '../runtime/shared/plugin-metadata.mjs';
 
 // cwd-plugins.mjs — cwd resolution/apply + plugins-status + core-memory context,
-// extracted from mixdog-session-runtime.mjs. Dependency-injected factory that
+// Dependency-injected factory that
 // closes over the facade's mutable cwd/config/session state via getter/setter
 // injection (getCurrentCwd/setCurrentCwd/getConfig/getSession/...) plus the MCP
 // glue + prewarm callbacks. The facade keeps ownership of the mutable locals;

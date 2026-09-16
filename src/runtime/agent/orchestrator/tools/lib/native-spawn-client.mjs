@@ -619,7 +619,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   server.pending.set(id, entry);
   try {
     server.child.stdin.write(`${JSON.stringify(request)}\n`);
-  } catch (error) {
+  } catch {
     server.pending.delete(id);
     return null;
   }

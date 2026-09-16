@@ -228,7 +228,7 @@ const OAUTH_PROBE_STATES = new Map([
 // Dev-only OAuth providers. Hidden and treated as "no credentials" unless the
 // MIXDOG_DEV_PROVIDERS flag (1 / true / yes / on) is set in the environment.
 // Default OFF for shipped installs; a developer machine opts in via the env.
-export const DEV_ONLY_OAUTH_PROVIDERS = Object.freeze(new Set(['cursor-oauth', 'antigravity-oauth']));
+const DEV_ONLY_OAUTH_PROVIDERS = Object.freeze(new Set(['cursor-oauth', 'antigravity-oauth']));
 
 function devProvidersFlagEnabled() {
   const raw = String(process.env.MIXDOG_DEV_PROVIDERS || '')

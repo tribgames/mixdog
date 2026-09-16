@@ -693,13 +693,7 @@ export function createSessionService({
 
   async function readSession(params = {}, ctx = null) {
     assertAvailable();
-    const {
-      sessionId,
-      open: openHints = {},
-      baseRevision = null,
-      baseSyncRevision = null,
-      baseProjectionStamp = null,
-    } = params;
+    const { sessionId, open: openHints = {}, baseRevision = null, baseProjectionStamp = null } = params;
     if (params.action != null) {
       void ctx;
       return runSessionAction(params, SESSION_READ_ACTION_SET);
@@ -835,7 +829,6 @@ export function createSessionService({
           }
         : intake.options;
     const accepted = await Promise.resolve(target.call(entry.runtime, intake.prompt, submissionOptions));
-    const firstSubmit = accepted === true && entry.reservedOnly;
     if (accepted === true) {
       entry.reservedOnly = false;
     }

@@ -67,7 +67,7 @@ const pacer = new HostPacer();
 const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
 const isChallengeResponse = (error) => error.code === 'BLOCKED_CONTENT' && ![401, 429].includes(error.status);
 
-export function fetchFailureKind(error) {
+function fetchFailureKind(error) {
   if (isFatalHttpPathPolicyError(error)) return 'POLICY_BLOCKED';
   if (error.code) return error.code;
   if (error.status === 429) return 'RATE_LIMITED';

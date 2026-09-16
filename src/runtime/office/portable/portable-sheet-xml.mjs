@@ -1,4 +1,3 @@
-import { join } from 'node:path';
 import { normalizeColor } from './portable-sheet-styles.mjs';
 import { columnLabel, columnNumber, parseCellRef } from './portable-cells.mjs';
 import { containerBody, elementSpans, setXmlAttribute, xmlAttribute } from './portable-xml.mjs';

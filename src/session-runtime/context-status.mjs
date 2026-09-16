@@ -22,12 +22,7 @@ import { sessionContextMeasurement } from '../ui/context-measurement.mjs';
 // Mirrors the tool-list portion of the Anthropic adapters without changing
 // their wire serialization. Other native-deferred providers expose the
 // catalog through BP2/system content, which is already metered there.
-export function requestSerializedToolsForContext(
-  session,
-  provider,
-  messages = session?.messages,
-  { nativeTools = [] } = {}
-) {
+function requestSerializedToolsForContext(session, provider, messages = session?.messages, { nativeTools = [] } = {}) {
   return (
     scopedProviderRequestTools(session, provider, messages)?.requestTools ||
     snapshotProviderRequestTools({

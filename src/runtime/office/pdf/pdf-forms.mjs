@@ -32,7 +32,7 @@ export function rectanglesOverlap(left, right) {
 // A caller places a field the way a PDF reader reports one — a rectangle and a
 // kind. Both spellings reach the box the writer draws, so the field lands
 // instead of failing as an empty one.
-export function adoptFormFieldShape(field) {
+function adoptFormFieldShape(field) {
   if (!field || typeof field !== 'object') return field;
   const rect = Array.isArray(field.rect) ? field.rect : Array.isArray(field.box) ? field.box : null;
   if (rect && rect.length >= 4 && field.x === undefined && field.y === undefined) {
@@ -210,7 +210,7 @@ export function fieldText(field) {
 }
 
 /** pdf-lib class name → the type vocabulary add_form_field and fill_form use. */
-export function formFieldKind(field) {
+function formFieldKind(field) {
   const type = field?.constructor?.name || '';
   if (type.includes('CheckBox')) return 'checkbox';
   if (type.includes('RadioGroup')) return 'radio';

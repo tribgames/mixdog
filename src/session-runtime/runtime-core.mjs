@@ -150,7 +150,6 @@ const {
   activeWorkflowSummary,
   loadAgentDefinition,
   listCustomAgentIds,
-  workflowContextBlock,
   activeWorkflowContext,
 } = createWorkflowHelpers({
   rootDir: STANDALONE_ROOT,
@@ -158,7 +157,7 @@ const {
   readMarkdownDocument,
   normalizeAgentPermissionOrNone,
 });
-const { summarizeWorkflowRoutes, routeFromPreset, agentRouteFromConfig } = createWorkflowRouteHelpers({ findPreset });
+const { summarizeWorkflowRoutes, agentRouteFromConfig } = createWorkflowRouteHelpers({ findPreset });
 
 export async function createMixdogSessionRuntime({
   provider,
@@ -363,25 +362,18 @@ export async function createMixdogSessionRuntime({
   };
   // MCP glue factory — config/currentCwd live-bound; connect state shared via
   // the caller-owned mcpState object above.
-  const {
-    mcpTransportLabel,
-    resolveEffectiveMcpServers,
-    mcpStatus,
-    getMcpServerConfig,
-    connectConfiguredMcp,
-    awaitInitialMcpConnect,
-    normalizeMcpServerInput,
-  } = createMcpGlue({
-    mcpClient,
-    getConfig: () => rt.config,
-    getCurrentCwd: () => rt.currentCwd,
-    getMcpScopeId: () => rt.mcpScopeId,
-    getDesktopSession: () => rt.desktopSession,
-    setDesktopSession: (v) => {
-      rt.desktopSession = v;
-    },
-    state: mcpState,
-  });
+  const { mcpStatus, getMcpServerConfig, connectConfiguredMcp, awaitInitialMcpConnect, normalizeMcpServerInput } =
+    createMcpGlue({
+      mcpClient,
+      getConfig: () => rt.config,
+      getCurrentCwd: () => rt.currentCwd,
+      getMcpScopeId: () => rt.mcpScopeId,
+      getDesktopSession: () => rt.desktopSession,
+      setDesktopSession: (v) => {
+        rt.desktopSession = v;
+      },
+      state: mcpState,
+    });
   const hooksStartedAt = performance.now();
   const hooks = createStandaloneHookBus({
     dataDir: cfgMod.getPluginData(),
@@ -885,7 +877,6 @@ export async function createMixdogSessionRuntime({
     configureEmbedding,
   });
   const {
-    resolveMissingRouteModelForFirstTurn,
     scheduleProviderWarmup,
     scheduleProviderSetupWarmup,
     scheduleProviderModelWarmup,
@@ -898,9 +889,6 @@ export async function createMixdogSessionRuntime({
     scheduleAutomationAutostart,
     scheduleChannelStart,
     refreshRouteEffort,
-    routeHasModel,
-    requireModelRoute,
-    recreateCurrentSessionIfReady,
     createCurrentSession,
     remoteTranscript,
   } = createSessionLifecycle({

@@ -1,5 +1,5 @@
 // Provider-model version parsing, recency comparison, sorting, and cache-row
-// construction. Extracted from mixdog-session-runtime.mjs. Pure except for the
+// construction. Pure except for the
 // injected route provider (for sort priority) and webSearchCapableFor predicate.
 import { clean } from './session-text.mjs';
 

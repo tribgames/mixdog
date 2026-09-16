@@ -16,7 +16,7 @@ import { frameAndParseSse } from '../../agent/orchestrator/providers/lib/sse-fra
 
 const REQUEST_TIMEOUT_MS = 180_000;
 
-export function antigravityImageRequestBody({ projectId, model, prompt, options = {}, references = [] }) {
+function antigravityImageRequestBody({ projectId, model, prompt, options = {}, references = [] }) {
   return {
     project: projectId,
     model,

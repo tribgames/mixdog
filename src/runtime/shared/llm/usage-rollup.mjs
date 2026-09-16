@@ -50,8 +50,8 @@ import { updateJsonAtomicSync } from '../atomic-file.mjs';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { billableInputTokensForProvider } from './cost.mjs';
 
-export const USAGE_ROLLUP_FILE = 'usage-rollup.local.json';
-export const USAGE_ROLLUP_VERSION = 2;
+const USAGE_ROLLUP_FILE = 'usage-rollup.local.json';
+const USAGE_ROLLUP_VERSION = 2;
 
 // A day costs well under a kilobyte, so a long retention stays cheap while
 // making "all time" mean something closer to the install date.
@@ -266,7 +266,7 @@ export function normalizeUsageRollup(raw) {
 }
 
 /** Retention + identifier aging. Both bounds are evaluated against `now`. */
-export function pruneUsageRollup(rollup, now = Date.now()) {
+function pruneUsageRollup(rollup, now = Date.now()) {
   const dropBefore = usageRollupDayKey(now - RETENTION_DAYS * DAY_MS);
   const anonymizeBefore = usageRollupDayKey(now - SESSION_DETAIL_DAYS * DAY_MS);
   for (const [key, day] of Object.entries(rollup.days)) {

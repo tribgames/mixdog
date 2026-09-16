@@ -6,7 +6,6 @@ import {
   addDocxRoadmap,
   addDocxSectionTable,
 } from './design-docx-components.mjs';
-import { plainObject } from '../../shared/values.mjs';
 import { composeTableRows } from '../design-table-input.mjs';
 import { documentTypography } from './document-typography.mjs';
 

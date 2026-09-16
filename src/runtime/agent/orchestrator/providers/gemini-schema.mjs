@@ -3,7 +3,7 @@
  * FunctionDeclarationSchema, tool/tool-config mapping, message → content
  * mapping, tool-call parsing/emission, and grounding-source collection.
  *
- * Extracted from gemini.mjs (no behavior change). Pure functions only — no
+ * Pure functions only — no
  * module state. gemini.mjs re-exports parseToolCalls / emitGeminiToolCalls /
  * collectGeminiGroundingSources so existing importers (tests, gemini-stream)
  * keep resolving through the facade.

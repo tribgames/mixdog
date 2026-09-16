@@ -125,10 +125,12 @@ test('repeat failure signatures normalize paths and detect alternating cycles', 
   assert.equal(_repeatFailurePatternWouldContinue(history, other, 3), 0);
 });
 
-test('Computer Use dispatches only the first call in one assistant turn', async () => {
+test('Computer Use limits its own calls without delaying independent tools', async () => {
   const executed = [];
+  const computerGate = gate();
   const executeToolFn = async (name, args) => {
     executed.push(`${name}:${args.value}`);
+    if (name === 'computer') await computerGate.promise;
     return 'ok';
   };
   const dispatcher = createEagerDispatcher({
@@ -151,8 +153,13 @@ test('Computer Use dispatches only the first call in one assistant turn', async 
   ];
 
   dispatcher.startEagerRun(calls, 0, new Set());
-  await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
-  assert.deepEqual(executed.sort(), ['computer:1', 'shell:3']);
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(executed.sort(), ['computer:1', 'shell:3']);
+  } finally {
+    computerGate.release();
+    await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
+  }
   assert.equal(dispatcher.pending.has('computer-2'), false);
 });
 

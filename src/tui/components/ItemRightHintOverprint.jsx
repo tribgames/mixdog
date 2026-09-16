@@ -2,7 +2,6 @@
  * Overprint a truncated right-side hint on the last row of a transcript item
  * without reserving an extra layout row (negative margin pulls the hint band up).
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 

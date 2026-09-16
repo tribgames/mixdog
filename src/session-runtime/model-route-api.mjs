@@ -40,7 +40,6 @@ export function createModelRouteApi(deps) {
     getWebSearchRouteState,
     setWebSearchRouteState,
     cfgMod,
-    reg,
     mgr,
     statusRoutes,
     resolveRoute,

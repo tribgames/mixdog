@@ -15,12 +15,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme, TURN_MARKER } from '../theme.mjs';
-import {
-  Markdown,
-  StreamingMarkdown,
-  resetStreamingMarkdownStablePrefix,
-  windowPlainStreamingText,
-} from './Markdown.jsx';
+import { StreamingMarkdown, resetStreamingMarkdownStablePrefix, windowPlainStreamingText } from './Markdown.jsx';
 import { assistantBodyWidth } from '../markdown/table-layout.mjs';
 
 // `themeEpoch` is a memo-busting prop (threaded from App): the active theme

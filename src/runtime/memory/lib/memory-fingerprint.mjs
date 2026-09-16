@@ -2,8 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-// Plugin version + memory runtime code fingerprint. Extracted from index.mjs
-// (behavior-preserving). Callers pass PLUGIN_ROOT so this stays free of any
+// Plugin version + memory runtime code fingerprint. Callers pass PLUGIN_ROOT so this stays free of any
 // entry-point path resolution.
 
 export function readPluginVersion(pluginRoot) {

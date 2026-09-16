@@ -569,7 +569,7 @@ function pendingIdStillQueued(sessionId, id) {
   return false;
 }
 
-export function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
+function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
   const entries = Array.isArray(deliveredEntries) ? deliveredEntries : [];
   // Expected lifecycle epoch of THIS acknowledgement: the immutable token of
   // the delivered entries (explicit option for spool-sourced entries that

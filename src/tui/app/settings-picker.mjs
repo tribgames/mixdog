@@ -1,7 +1,7 @@
 /**
  * settings-picker.mjs — the SETTINGS picker cluster.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory. The function body is the original App logic verbatim, with closure
  * identifiers threaded through the factory argument. openSettingsPicker
  * self-references (for light refresh) via the local const; all other openers it
@@ -70,7 +70,6 @@ export function createSettingsPicker({
     // destination synchronously before the daemon snapshot so the empty-chat
     // welcome logo cannot appear between the old panel and Settings.
     if (!light && !own.paint(settingsHandoffPanel())) return;
-    const overrides = opts.overrides || null;
     const heavyCache = light ? settingsHeavyCacheRef.current : null;
     // ONE round-trip for the whole panel: on a daemon-backed store each getter
     // below is a serialized remote call, and reading them synchronously handed

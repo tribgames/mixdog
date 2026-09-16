@@ -1,4 +1,4 @@
-export const INTERACTIVE_TOOL_PROFILE = 'interactive';
+const INTERACTIVE_TOOL_PROFILE = 'interactive';
 export const HEADLESS_TOOL_PROFILE = 'headless';
 
 export const HEADLESS_MODEL_TOOL_NAMES = Object.freeze([

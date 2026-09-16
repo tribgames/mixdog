@@ -1,5 +1,5 @@
 /**
- * src/tui/session/turn.mjs - lead TUI turn session runtime (createRunTurn). Extracted from session-local.mjs.
+ * src/tui/session/turn.mjs - lead TUI turn session runtime (createRunTurn).
  */
 import {
   aggregateToolCategoryEntries,
@@ -24,7 +24,7 @@ import {
 import { createDeferredCardRegistry } from './turn-deferred-cards.mjs';
 import { createAggregateCardTracker } from './turn-aggregate-cards.mjs';
 
-export const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
+const STREAM_BATCH_INTERVAL_MS = TUI_FRAME_MS;
 
 /**
  * `builtinSkillNames` (optional Set) lets a live turn hide a built-in skill
@@ -86,7 +86,6 @@ export function createRunTurn(bag) {
     getState,
     set,
     flushEmit,
-    flushEmitImmediate,
     pushItem,
     appendItems,
     patchItem,
@@ -105,7 +104,6 @@ export function createRunTurn(bag) {
     syncContextStats,
     denyAllToolApprovals,
     requestToolApproval,
-    patchToolCardResult,
     flushToolResults,
     flushDeferredExecutionPendingResumeKick,
     drainPendingSteering,

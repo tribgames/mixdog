@@ -212,14 +212,14 @@ export function aggregateBucketForCategory(category, { agentBatch = '' } = {}) {
   return key ? `category:${key}` : 'default';
 }
 
-export function aggregateSummaries(aggregate) {
+function aggregateSummaries(aggregate) {
   return [...(aggregate?.calls?.values?.() || [])]
     .filter((r) => r.summary)
     .sort((a, b) => Number(a.summarySeq ?? 0) - Number(b.summarySeq ?? 0))
     .map((r) => r.summary);
 }
 
-export function assignAggregateSummaryOrder(aggregate, callRec) {
+function assignAggregateSummaryOrder(aggregate, callRec) {
   if (!aggregate || !callRec?.summary || callRec.summarySeq != null) return;
   const next = Math.max(0, Number(aggregate.nextSummarySeq || 0));
   callRec.summarySeq = next;

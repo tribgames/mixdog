@@ -8,12 +8,10 @@
  *   - The result hangs under a single dim `  ⎿  ` gutter — the gutter is placed
  *     once, not repeated per wrapped line.
  */
-import React from 'react';
 import { Box, Text } from 'ink';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
 import stringWidth from 'string-width';
 import { theme, TURN_MARKER, AGENT_CALL_MARKER, AGENT_RESPONSE_MARKER } from '../theme.mjs';
-import { formatElapsed } from '../time-format.mjs';
 import { BULLET_OPERATOR } from '../figures.mjs';
 import {
   displayToolName as surfaceDisplayToolName,
@@ -81,7 +79,6 @@ export function ToolExecution({
   const rawRt = rawResult == null ? null : String(rawResult).replace(/\s+$/, '');
   const pending = doneCount < groupCount;
   const startedAtMs = Number(startedAt || 0);
-  const completedAtMs = Number(completedAt || 0);
   const nowMs = Date.now();
   // Single shared tick drives the blink + elapsed re-renders while pending; all
   // phase/elapsed values below are derived from nowMs, so no per-card timers.
@@ -118,8 +115,6 @@ export function ToolExecution({
   const headerPending = pending || headerFinalized === false;
   const hasResult = result != null && Boolean(String(rt || '').trim());
   const hasRawResult = rawResult != null && Boolean(String(rawRt || '').trim());
-  const elapsedMs = startedAtMs ? Math.max(0, (pending ? nowMs : completedAtMs || nowMs) - startedAtMs) : 0;
-  const elapsed = elapsedMs >= 1000 ? formatElapsed(elapsedMs) : '';
   const failedCount = clampFailureCount(errorCount, groupCount, isError);
   // Real tool-call failures only (provider isError / error toolKind). Drives the
   // ● dot color; command/result failures (shell exit, failed status) are counted

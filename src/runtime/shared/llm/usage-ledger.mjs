@@ -170,7 +170,7 @@ export function usageLedgerPath() {
   return join(resolvePluginData(), 'usage', 'ledger.sqlite');
 }
 
-export function usageRecordId(row) {
+function usageRecordId(row) {
   const identity = row.responseId
     ? ['response', row.provider, row.model, row.responseId]
     : [

@@ -2,7 +2,7 @@
  * src/session-runtime/internal-tool-executor.mjs - name-dispatched executor
  * for the lead runtime's internal (non-MCP) tools: bridges, office/media,
  * setup, web search, memory, code graph, tool search, cwd, skills, goals,
- * agents, and channels. Extracted from runtime-core.mjs.
+ * agents, and channels.
  */
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';

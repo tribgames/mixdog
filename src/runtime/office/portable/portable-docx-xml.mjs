@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-import { tableXml } from './portable-slide-shapes.mjs';
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
 import { containerInner, topLevelElements, xmlEncode } from './portable-xml.mjs';
 
@@ -52,7 +50,7 @@ export function wordTableProperties(properties = {}, { totalWidth = 0 } = {}) {
   ].join('');
 }
 
-export function wordCellProperties(properties = {}) {
+function wordCellProperties(properties = {}) {
   return [
     properties.width ? `<w:tcW w:w="${pointsToTwips(properties.width)}" w:type="dxa"/>` : '',
     properties.fillColor
@@ -297,7 +295,7 @@ function runPropertyElements(xml) {
   return [...matches].map((match) => ({ tag: match[1], xml: match[0] }));
 }
 
-export function mergeWordRunProperties(existing, overrides) {
+function mergeWordRunProperties(existing, overrides) {
   const merged = new Map();
   for (const element of [...runPropertyElements(existing), ...runPropertyElements(overrides)]) {
     merged.set(element.tag, element.xml);

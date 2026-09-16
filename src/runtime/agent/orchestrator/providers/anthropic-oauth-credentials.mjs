@@ -101,7 +101,7 @@ function _loadCredentialsFile(path) {
 // either the old or new file, never a half-written one. Used so refresh_token
 // rotation propagates to other Mixdog readers of the same credentials file
 // instead of leaving them stuck on the previous refresh_token.
-export function _saveCredentialsFile(path, raw) {
+function _saveCredentialsFile(path, raw) {
   // Secret file, not parent-dir ACL mutation. `secret: true` clamps the file
   // itself on Windows; it deliberately leaves the data dir inheritance alone.
   writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });

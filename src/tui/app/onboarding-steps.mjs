@@ -1,7 +1,7 @@
 /**
  * onboarding-steps.mjs — the first-run onboarding wizard step cluster.
  *
- * Extracted from App.jsx behavior-preservingly as a dependency-injection
+ * A dependency-injection
  * factory. Every function body is the original App logic verbatim, with closure
  * identifiers threaded through the factory argument. Cross-references between
  * steps stay inside this factory; deps pointing at later-defined App fns

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { extname, resolve } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
 import { resolveOfficeDesign } from '../design/design-system.mjs';
@@ -235,7 +235,7 @@ function officeArtifact(format, fileKind, path, operation) {
 // costs several times the audit it rides along with.
 const DESIGN_CATALOGUE_KEYS = Object.freeze(['layouts', 'recentCompositions']);
 
-export function officeDesignDigest(design) {
+function officeDesignDigest(design) {
   if (!design || typeof design !== 'object') return design;
   const digest = { ...design };
   for (const key of DESIGN_CATALOGUE_KEYS) delete digest[key];
