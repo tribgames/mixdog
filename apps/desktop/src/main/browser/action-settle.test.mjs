@@ -74,3 +74,47 @@ test('action settlement fails closed on cancellation and failed rendering', asyn
   await assert.rejects(broken.settleAfterAction(f.guest, undefined, undefined,
     { background: true }), /checkpoint failed/);
 });
+
+test('reload settlement waits for replacement frames before its rendering checkpoint', async () => {
+  let loading = true;
+  let checkpoints = 0;
+  const guest = Object.assign(new EventEmitter(), {
+    isLoading: () => loading, isDestroyed: () => false, stop: () => {},
+  });
+  const settle = createBrowserSettle({
+    diagnostics: () => ({ pendingDialog: null, network: new BrowserNetworkLedger() }),
+    renderCheckpoint: async () => {
+      assert.equal(loading, false, 'do not inspect contexts that reload is replacing');
+      checkpoints++;
+    },
+    quietMs: 20, domTimeoutMs: 200, loadTimeoutMs: 200,
+  });
+  const pending = settle.settleAfterAction(guest, undefined, undefined, { background: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(checkpoints, 0);
+  loading = false;
+  guest.emit('did-stop-loading');
+  await pending;
+  assert.equal(checkpoints, 1);
+  assert.equal(guest.listenerCount('did-stop-loading'), 0);
+});
+
+test('cancellation during reload settling removes the load listener without inspecting replaced frames', async () => {
+  const controller = new AbortController();
+  let checkpoints = 0;
+  let stopped = 0;
+  const guest = Object.assign(new EventEmitter(), {
+    isLoading: () => true, isDestroyed: () => false, stop: () => { stopped++; },
+  });
+  const settle = createBrowserSettle({
+    diagnostics: () => ({ pendingDialog: null, network: new BrowserNetworkLedger() }),
+    renderCheckpoint: async () => { checkpoints++; },
+    quietMs: 20, domTimeoutMs: 200, loadTimeoutMs: 200,
+  });
+  const pending = settle.settleAfterAction(guest, controller.signal);
+  controller.abort(new Error('reload cancelled'));
+  await assert.rejects(pending, /reload cancelled/);
+  assert.equal(checkpoints, 0);
+  assert.equal(stopped, 1);
+  assert.equal(guest.listenerCount('did-stop-loading'), 0);
+});

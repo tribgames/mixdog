@@ -59,6 +59,8 @@ export interface AccessibilityNode {
 
 export interface AccessibilityTargetSnapshot {
   sessionId?: string;
+  /** A same-process child document, addressed through its owning session. */
+  frameId?: string;
   nodes: AccessibilityNode[];
   bounds: Map<number, number[]>;
   fileInputs?: Map<number, FileInputFacts>;
@@ -172,7 +174,7 @@ export function buildAccessibilitySnapshot(options: {
       const name = String(node.name?.value || '').slice(0, 640)
         .replace(/\s+/g, ' ').trim().slice(0, 160);
       if (role === 'heading' && name && headings.length < 30) headings.push(`heading ${name}`);
-      if (target.sessionId
+      if ((target.sessionId || target.frameId)
         && CROSS_FRAME_TEXT_ROLES.has(role)
         && name
         && !seenCrossFrameText.has(name)
@@ -208,9 +210,9 @@ export function buildAccessibilitySnapshot(options: {
       const box = target.bounds.get(backendNodeId);
       const inViewport = box
         ? box[0] + box[2] > 0
-          && box[1] + box[3] > (target.sessionId ? 0 : options.pageInfo.scrollY)
+          && box[1] + box[3] > (target.sessionId || target.frameId ? 0 : options.pageInfo.scrollY)
           && box[0] < options.pageInfo.viewportWidth
-          && box[1] < (target.sessionId
+          && box[1] < (target.sessionId || target.frameId
             ? options.pageInfo.viewportHeight
             : options.pageInfo.scrollY + options.pageInfo.viewportHeight)
         : undefined;

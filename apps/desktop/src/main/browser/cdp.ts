@@ -330,7 +330,13 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     }
     const pausedRequestId = String(params.requestId || '');
     if (!pausedRequestId) return;
-    const rule = matchInterceptRule(guest, requestUrl, String(params.resourceType || ''));
+    // Fetch-domain pauses can classify fetch() as XHR. Match the same
+    // Network-domain identity used by the request report, without conflating
+    // real XMLHttpRequests with fetch requests or crossing target sessions.
+    const resourceType = diagnostics.network.inflightResourceType(
+      String(params.networkId || ''), sessionId,
+    ) ?? String(params.resourceType || '');
+    const rule = matchInterceptRule(guest, requestUrl, resourceType);
     // A pause carrying a status is already past the request stage, where
     // only continueResponse may release it.
     const atResponseStage = params.responseStatusCode !== undefined;

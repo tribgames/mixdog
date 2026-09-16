@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createBrowserCommandQueue } from './command-queue.ts';
+import { READ_ONLY_ACTIONS } from './command.ts';
 
 function takeoverFixture(run, options = {}) {
   return createBrowserCommandQueue({
@@ -30,6 +31,30 @@ function takeoverFixture(run, options = {}) {
     ...options,
   });
 }
+
+test('snapshots serialize on their page without delaying independent background pages', async () => {
+  const started = [];
+  let releaseFirst;
+  const firstSnapshot = new Promise((resolve) => { releaseFirst = resolve; });
+  const queue = takeoverFixture(async (command) => {
+    started.push(`${command.tab}:${command.query}`);
+    if (command.query === 'first') await firstSnapshot;
+    return { text: 'ok' };
+  }, { readOnlyActions: READ_ONLY_ACTIONS });
+  const commands = [
+    queue.executeSerialized({ action: 'snapshot', background: true, tab: 'a', query: 'first' }),
+    queue.executeSerialized({ action: 'snapshot', background: true, tab: 'a', query: 'second' }),
+    queue.executeSerialized({ action: 'snapshot', background: true, tab: 'b', query: 'independent' }),
+  ];
+  try {
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(started, ['a:first', 'b:independent']);
+  } finally {
+    releaseFirst();
+    await Promise.all(commands);
+  }
+  assert.deepEqual(started, ['a:first', 'b:independent', 'a:second']);
+});
 
 test('human takeover cancels active and queued foreground automation without interrupting independent pages', async () => {
   const events = [];

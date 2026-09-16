@@ -135,6 +135,11 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     );
     try {
       if (diagnosticsFor(guest).pendingDialog) return;
+      // reload() returns before navigation completes. Observing its old
+      // contexts first races the whole frame tree being replaced.
+      await waitForLoadSettle(guest, ACTION_SETTLE_LOAD_TIMEOUT_MS, settleSignal);
+      signal?.throwIfAborted();
+      if (diagnosticsFor(guest).pendingDialog) return;
       // Uniform for individual gestures and batches: flush queued rendering,
       // then wait only when actual load/network work remains. A future timer
       // has no knowable completion time; explicit expect/settleMs own that

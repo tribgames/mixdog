@@ -11,7 +11,7 @@ function deferred() {
   const promise = new Promise(yes => { resolve = yes; });
   return { promise, resolve };
 }
-function fixture(send = async () => ({})) {
+function fixture(send = async () => ({}), matchInterceptRule = () => undefined) {
   const state = new BrowserGuestStateStore();
   const calls = [];
   const guest = new EventEmitter();
@@ -36,7 +36,7 @@ function fixture(send = async () => ({})) {
     destroy: () => { destroyed = true; guest.emit('destroyed'); },
   });
   const cdp = createBrowserGuestCdp({
-    state, interceptFetchPatterns: () => [], matchInterceptRule: () => undefined,
+    state, interceptFetchPatterns: () => [], matchInterceptRule,
   });
   const attachChild = id => debug.emit('message', {}, 'Target.attachedToTarget', {
     sessionId: id, targetInfo: { type: 'iframe', targetId: id, url: 'https://frame.test' },
@@ -55,6 +55,27 @@ test('root observes frames without recursive auto-attach or forced excess-frame 
   assert.ok(f.calls.some(call => call.method === 'Fetch.enable' && call.sessionId === 'child-0'));
   await f.cdp.detach(f.guest);
   assert.equal(f.state.for(f.guest).cdpSessions.size, 0);
+});
+
+test('intercept types use the Network request identity without conflating XHR or child sessions', async () => {
+  const types = [];
+  const f = fixture(undefined, (_guest, _url, type) => { types.push(type); });
+  await f.cdp.guestDebugger(f.guest);
+  const request = (type, sessionId) => f.debug.emit('message', {}, 'Network.requestWillBeSent', {
+    requestId: 'request-1', type, request: { url: 'https://example.test/probe' },
+  }, sessionId);
+  const paused = (networkId, resourceType, sessionId) => f.debug.emit('message', {}, 'Fetch.requestPaused', {
+    requestId: 'pause-1', networkId, resourceType,
+    request: { url: 'https://example.test/probe' }, responseStatusCode: 200,
+  }, sessionId);
+  request('Fetch');
+  request('XHR', 'child-session');
+  paused('request-1', 'XHR');
+  paused('request-1', 'XHR', 'child-session');
+  paused('unrecorded', 'Document');
+  await tick();
+  assert.deepEqual(types, ['fetch', 'xhr', 'Document']);
+  await f.cdp.detach(f.guest);
 });
 
 test('detach during initialization prevents late auto-attach and permits a fresh connection', async () => {

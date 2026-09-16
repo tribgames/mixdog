@@ -283,6 +283,17 @@ async function run(): Promise<void> {
         <h1>Frame host</h1><iframe src="${frameOrigin}/frame"></iframe>`);
       return;
     }
+    if (path === '/same-process-frames') {
+      response.end(`<!doctype html><title>Same-process frame host</title>
+        <h1>Same-process host</h1><iframe src="/same-process-child"></iframe>`);
+      return;
+    }
+    if (path === '/same-process-child') {
+      response.end(`<!doctype html><p>Same-process evidence</p>
+        <label>Frame input <input></label>
+        <button onclick="document.querySelector('p').textContent = 'Frame value: ' + document.querySelector('input').value">Echo same-process frame</button>`);
+      return;
+    }
     if (path === '/recovered') {
       response.end('<!doctype html><title>Recovered fixture</title><p>Queue recovered</p>');
       return;
@@ -1178,6 +1189,7 @@ async function run(): Promise<void> {
       operation: 'add',
       url: '*/recovered*',
       body: 'fixture-mocked',
+      resourceTypes: ['fetch'],
       tab: 'beta',
     });
     const replacedResponse = await command({
@@ -1192,6 +1204,19 @@ async function run(): Promise<void> {
     // is exactly what a replaced body promises and all Chromium honours here.
     assert.match(replacedResponse.text, /fixture-mocked/);
     assert.match(replacedResponse.text, /"status": 200/);
+    const unmockedXhr = await command({
+      action: 'evaluate',
+      script: `new Promise((resolve, reject) => {
+        const request = new XMLHttpRequest();
+        request.open('GET', '/recovered');
+        request.onload = () => resolve(request.responseText);
+        request.onerror = reject;
+        request.send();
+      })`,
+      tab: 'beta',
+    });
+    assert.match(unmockedXhr.text, /Queue recovered/);
+    assert.doesNotMatch(unmockedXhr.text, /fixture-mocked/);
     const interceptList = await command({ action: 'intercept', tab: 'beta' });
     assert.match(interceptList.text, /\[i\d+\] replace body [\s\S]*— 1 hit/);
     await command({
@@ -1199,6 +1224,7 @@ async function run(): Promise<void> {
       operation: 'add',
       url: '*/api/submit*',
       abort: true,
+      resourceTypes: ['fetch'],
       tab: 'beta',
     });
     const abortedRequest = await command({
@@ -1463,6 +1489,31 @@ async function run(): Promise<void> {
     const afterCovered = await command({ action: 'read', tab: 'frames' });
     assert.doesNotMatch(afterCovered.text, /WRONG TARGET/);
     progress('cross-origin frame accessibility complete');
+
+    turnId = 411;
+    const sameProcess = await command({
+      action: 'navigate', url: `${origin}/same-process-frames`,
+      background: true, tab: 'same-process',
+    });
+    assert.match(sameProcess.text, /Same-process evidence/);
+    assert.ok(refNamed(sameProcess.text, 'Frame input'));
+    await command({
+      action: 'fill', tab: 'same-process',
+      target: { role: 'textbox', name: 'Frame input', exact: true }, text: 'same-process-ok',
+    });
+    const sameProcessClick = await command({
+      action: 'click', tab: 'same-process',
+      target: { role: 'button', name: 'Echo same-process frame', exact: true },
+      expect: { text: 'Frame value: same-process-ok', timeoutMs: 2_000 },
+    });
+    assert.match(sameProcessClick.text, /Frame value: same-process-ok/);
+    for (let iteration = 0; iteration < 3; iteration++) {
+      const reloaded = await command({ action: 'navigate', reload: true, tab: 'same-process' });
+      assert.match(reloaded.text, /Same-process evidence/);
+      assert.ok(refNamed(reloaded.text, 'Frame input'));
+    }
+    await command({ action: 'close_tab', tab: 'same-process' });
+    progress('same-process frame refs, input, fetch filtering and reload observation complete');
 
     turnId = 40;
     const downloadNavigation = await command({

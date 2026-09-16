@@ -27,6 +27,7 @@ import { createBrowserReadPool, settleBrowserReads } from './parallel-read';
 const MAX_ACCESSIBILITY_TARGETS = 32;
 
 interface DomSnapshotDocument {
+  frameId?: number;
   nodes?: {
     backendNodeId?: number[];
     nodeName?: number[];
@@ -148,9 +149,11 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
         ready: target.ready,
       })),
     ];
+    let omittedFrames = 0;
     const snapshotsPromise = (async (): Promise<AccessibilityTargetSnapshot[]> => {
       const read = createBrowserReadPool();
-      return await settleBrowserReads(targets.map(async ({ sessionId, ready }) => {
+      const readFrame = createBrowserReadPool();
+      return (await settleBrowserReads(targets.map(async ({ sessionId, ready }) => {
       try {
         await ready;
         return await read(async () => {
@@ -191,23 +194,45 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
             }
           });
         }
-        return {
+        const mainSnapshot: AccessibilityTargetSnapshot = {
           sessionId,
           nodes: axTree.nodes || [],
           bounds,
           fileInputs,
           ...(layoutError ? { layoutError } : {}),
         };
+        // getFullAXTree defaults to the target's main frame, not every
+        // same-process document included by DOMSnapshot.
+        const documents = domSnapshot.documents || [];
+        omittedFrames += Math.max(0, documents.length - 64);
+        const frameSnapshots = await settleBrowserReads(documents.slice(1, 64).map(
+          (document) => readFrame(async (): Promise<AccessibilityTargetSnapshot> => {
+            const frameId = domSnapshot.strings?.[document.frameId!];
+            try {
+              if (!frameId) throw new Error('frame document has no frame identity');
+              const tree = await cdp.call<{ nodes?: AccessibilityNode[] }>(
+                guest, 'Accessibility.getFullAXTree', { frameId }, signal, { sessionId },
+              );
+              return { sessionId, frameId, nodes: tree.nodes || [], bounds, fileInputs };
+            } catch (error) {
+              return {
+                sessionId, frameId, nodes: [], bounds,
+                error: redactBrowserText((error as Error).message || String(error)),
+              };
+            }
+          }),
+        ));
+        return [mainSnapshot, ...frameSnapshots];
         });
       } catch (error) {
-        return {
+        return [{
           sessionId,
           nodes: [],
           bounds: new Map<number, number[]>(),
           error: redactBrowserText((error as Error).message || String(error)),
-        };
+        }];
       }
-      }));
+      }))).flat();
     })();
     const [pageInfo, snapshots] = await Promise.all([pageInfoPromise, snapshotsPromise]);
     if (!snapshots.some((snapshot) => snapshot.nodes.length > 0)) {
@@ -232,6 +257,12 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
       built.payload.warnings = [
         ...(built.payload.warnings || []),
         `${omittedTargets} additional cross-origin frame target(s) were omitted from this snapshot.`,
+      ];
+    }
+    if (omittedFrames) {
+      built.payload.warnings = [
+        ...(built.payload.warnings || []),
+        `${omittedFrames} additional frame document(s) were omitted from this snapshot.`,
       ];
     }
     const refs = new Map<string, AccessibilityRef>();

@@ -476,6 +476,10 @@ export class BrowserNetworkLedger {
     return this.#requests.get(id);
   }
 
+  inflightResourceType(cdpRequestId: string, sessionId?: string): string | undefined {
+    return this.#inflight.get(scopedRequestId(sessionId, cdpRequestId))?.resourceType;
+  }
+
   list(options: {
     query?: string;
     resourceTypes?: string[];
