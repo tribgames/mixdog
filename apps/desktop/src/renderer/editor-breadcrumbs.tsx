@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleX,
+  ExternalLink,
   File as FileIcon,
   Folder,
   FolderOpen,
@@ -25,6 +26,8 @@ import {
   type FilePreview,
 } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
+import { openEditorFileExternally } from './editor-external-file';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 export function EditorBreadcrumbs({
   projectPath,
@@ -440,6 +443,16 @@ export function EditorBreadcrumbs({
           })}
         </span>
         <span className="editor-breadcrumb-actions">
+          {!isRemoteBrowserRenderer() && (preview || load?.binary || load?.tooLarge) && (
+            <button
+              type="button"
+              aria-label={t('Open in default app')}
+              data-tooltip={t('Open in default app')}
+              onClick={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
+            >
+              <ExternalLink size={16} aria-hidden="true" />
+            </button>
+          )}
           {editable && (
             <button
               type="button"

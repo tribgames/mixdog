@@ -1,5 +1,5 @@
-// Opening an Office document in the editor: which viewer a surface gets, and
-// what happens when the conversion behind it is unavailable.
+// Desktop documents use external apps; restored tabs stay inert, while
+// remote surfaces keep their page viewer and its conversion-failure escape.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -45,6 +45,18 @@ async function mountSession(api, relPath) {
   return { root, session };
 }
 
+function surface(t, electron = false) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  Object.defineProperty(globalThis, 'navigator', {
+    configurable: true,
+    value: { userAgent: electron ? 'Electron/41.0' : 'Mozilla/5.0' },
+  });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, 'navigator', previous);
+    else delete globalThis.navigator;
+  });
+}
+
 const renderedPage = (page) => ({
   page,
   width: 1200,
@@ -53,7 +65,8 @@ const renderedPage = (page) => ({
   base64: `page-${page}`,
 });
 
-test('a surface without a PDF viewer opens the document as pages and scrolls on', async () => {
+test('a remote surface opens the document as pages and scrolls on', async (t) => {
+  surface(t);
   const requested = [];
   const api = {
     previewDocumentPages: async (_projectPath, _relPath, _accessToken, options) => {
@@ -86,37 +99,39 @@ test('a surface without a PDF viewer opens the document as pages and scrolls on'
   }
 });
 
-test('Electron shows the same document through its own PDF viewer', async () => {
+test('restored desktop Office tabs offer a manual external open without conversion or auto-launch', async (t) => {
+  surface(t, true);
+  const unexpected = [];
   const api = {
-    previewDocumentFile: async () => ({
-      url: 'mixdog-media://preview/token/report.docx',
-      kind: 'pdf',
-      mime: 'application/pdf',
-      format: 'docx',
-      mtimeMs: 7,
-      size: 2048,
+    previewDocumentFile: async () => unexpected.push('pdf'),
+    previewDocumentPages: async () => unexpected.push('pages'),
+    openFilePath: async () => unexpected.push('launch'),
+    readProjectFile: async () => ({
+      content: '',
+      mtimeMs: 11,
+      binary: true,
+      tooLarge: false,
+      encoding: 'utf8',
     }),
-    previewDocumentPages: async () => {
-      throw new Error('a local surface must not pay for rasterized pages');
-    },
-    readProjectFile: async () => {
-      throw new Error('a converted document must not be read as text');
-    },
+    readEditorBackup: async () => null,
   };
   const { root, session } = await mountSession(api, 'docs/deck.pptx');
   try {
-    assert.equal(session.current.preview.kind, 'pdf');
-    assert.equal(session.current.preview.url, 'mixdog-media://preview/token/report.docx');
+    assert.deepEqual(unexpected, []);
+    assert.equal(session.current.preview, null);
     assert.equal(session.current.documentPreview, null);
     assert.equal(session.current.load.binary, true);
+    assert.equal(session.current.documentError, '');
+    assert.equal(session.current.error, '');
   } finally {
     await act(async () => root.unmount());
   }
 });
 
-test('a document that cannot be converted keeps the open-in-default-app escape', async () => {
+test('a remote document that cannot be converted keeps the binary notice', async (t) => {
+  surface(t);
   const api = {
-    previewDocumentFile: async () => {
+    previewDocumentPages: async () => {
       throw new Error('LibreOffice is not installed');
     },
     readProjectFile: async () => ({

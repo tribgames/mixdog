@@ -86,6 +86,21 @@ test('a draft that never chose a project adopts a catalog that lands later', asy
   assert.equal(drafts.project(), PROJECT);
 });
 
+test('orchestration mode is independent of workflow and survives draft reload', async (t) => {
+  window.localStorage.clear();
+  const first = await mountDrafts(PROJECT);
+  await act(async () => first.api().stageNewTaskWorkflow({ id: 'default', name: 'Default' }));
+  await act(async () => first.api().stageNewTaskOrchestrationMode('swarm'));
+  assert.equal(first.api().resolvedDraftPrefsFor('default').orchestrationMode, 'swarm');
+  await first.unmount();
+  const restored = await mountDrafts(PROJECT);
+  t.after(() => restored.unmount());
+  assert.equal(restored.api().newTaskOrchestrationMode, 'swarm');
+  await act(async () => restored.api().stageNewTaskOrchestrationMode('none'));
+  assert.deepEqual(restored.api().resolvedDraftPrefsFor('default').workflow, { id: 'default', name: 'Default' });
+  assert.equal(restored.api().newTaskOrchestrationMode, 'none');
+});
+
 test('the empty first paint does not survive as a stored choice', async (t) => {
   window.localStorage.clear();
   const first = await mountDrafts('');

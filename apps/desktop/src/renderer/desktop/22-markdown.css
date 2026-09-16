@@ -900,25 +900,22 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 /* Neutral link ink (user: no blue emphasis text) — the underline carries the
    affordance. Ink and underline live in ONE rule; they used to sit ~6k lines
    apart, so a later edit could retune half a link. */
-.markdown a {
+.markdown a,
+.markdown .markdown-link-pending {
   color: var(--mx-text);
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
 }
 .markdown a:hover { text-decoration-color: currentColor; }
-/* File links read like editor locations: Seti file glyph + name(:line) in the
-   inline-code ink; the underline says "opens", the full path lives in the
-   tooltip. Code ink, not link ink: most of these links are inline code that
-   named a file, and a white link beside blue code read as the less clickable
-   of the two (user: 링크 표기가 애매하다). Stays inline so it wraps with the
-   sentence. */
-.markdown a.markdown-path-link,
+/* Pending file mentions have the exact same icon, caption and wrapping as
+   verified links. Resolving a file must never reflow a finished line. */
+.markdown .markdown-path-link,
 .tool-path-link {
   color: var(--mx-md-code);
   white-space: nowrap;
 }
-.markdown a.markdown-path-link .seti-icon,
+.markdown .markdown-path-link .seti-icon,
 .tool-path-link .seti-icon {
   /* Keep the glyph atomic so the link underline stays on the file name. */
   display: inline-flex;
@@ -928,6 +925,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   font-size: 1.15em;
   vertical-align: middle;
   text-decoration: none;
+}
+.markdown .markdown-path-link .seti-icon {
+  /* Reserve glyph geometry even during the first Seti font load. */
+  width: 1em;
+  height: 1em;
+  justify-content: center;
 }
 /* Tool card subject that names a file: same affordance as a chat link, but a
    span (it sits inside the header button). */

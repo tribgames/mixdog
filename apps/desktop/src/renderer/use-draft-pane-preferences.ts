@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import type { DesktopModelSelection, DesktopWorkflowState } from '../shared/contract';
+import type { DesktopModelSelection, DesktopWorkflowState, DesktopOrchestrationMode } from '../shared/contract';
 import type { NavigationSelection } from './navigation';
 import type { Snapshot } from './desktop-types';
 import { mergeRoutePreference, routePreferenceStore } from './app-route-preference';
@@ -23,10 +23,24 @@ export type DraftPanePrefs = {
   projectPath: string | null;
   modelSelection: DesktopModelSelection | null;
   workflow: DesktopWorkflowState | null;
+  orchestrationMode?: DesktopOrchestrationMode | null;
 };
 
 /** What a draft actually paints and submits: the project is resolved. */
 export type ResolvedDraftPrefs = DraftPanePrefs & { projectPath: string };
+
+function storedWorkflowPreferences(value: Record<string, unknown>): Pick<DraftPanePrefs, 'workflow' | 'orchestrationMode'> {
+  const workflow = asRecord(value.workflow) as DesktopWorkflowState | null;
+  const solo = workflow?.id === 'solo';
+  const cowork = workflow?.id === 'default' && workflow?.name === 'Cowork';
+  const mode = value.orchestrationMode;
+  return {
+    workflow: solo || cowork ? { ...workflow, id: 'default', name: 'Default' } : workflow,
+    orchestrationMode: typeof mode === 'string' && ['none', 'focused', 'balanced', 'swarm'].includes(mode)
+      ? mode as DesktopOrchestrationMode
+      : solo ? 'none' : cowork ? 'swarm' : undefined,
+  };
+}
 
 /** A legacy entry cannot separate "never chosen" from "No project", so its
  *  empty path re-enters the inheritance chain; only a current entry may carry
@@ -133,6 +147,7 @@ export function useDraftPanePreferences({
       // loses fresh data.
       modelSelection: last?.modelSelection ?? newTaskModelSelectionRef.current ?? snapshotDraftModelSelection,
       workflow: last?.workflow ?? newTaskWorkflowRef.current ?? null,
+      orchestrationMode: last?.orchestrationMode ?? null,
     };
   }, [effectiveDraftProjectPath, preferredDraftProjectPath, snapshotDraftModelSelection]);
   // ONE display/restore rule for a draft's effective prefs (focused and
@@ -169,6 +184,7 @@ export function useDraftPanePreferences({
           (draftKey ? draftSnapshotModelSeeds.current.get(draftKey) : undefined) ??
           snapshotDraftModelSelection,
         workflow: entry?.workflow ?? last?.workflow ?? null,
+        orchestrationMode: entry?.orchestrationMode ?? last?.orchestrationMode ?? null,
       };
     },
     [effectiveDraftProjectPath, preferredDraftProjectPath, snapshotDraftModelSelection]
@@ -211,6 +227,7 @@ export function useDraftPanePreferences({
         ...(patch.projectPath === undefined ? {} : { projectPath: patch.projectPath }),
         ...(patch.modelSelection ? { modelSelection: patch.modelSelection } : {}),
         ...(patch.workflow ? { workflow: patch.workflow } : {}),
+        ...(patch.orchestrationMode ? { orchestrationMode: patch.orchestrationMode } : {}),
       };
       persistDraftPanePrefs();
       setDraftPrefsVersion((value) => value + 1);
@@ -231,7 +248,7 @@ export function useDraftPanePreferences({
           modelSelection: asRecord(lastValue.modelSelection)
             ? (lastValue.modelSelection as unknown as DesktopModelSelection)
             : null,
-          workflow: asRecord(lastValue.workflow) ? (lastValue.workflow as unknown as DesktopWorkflowState) : null,
+          ...storedWorkflowPreferences(lastValue),
         };
       }
       // v1 entries materialized inherited models; resolving them as explicit
@@ -253,7 +270,7 @@ export function useDraftPanePreferences({
           modelSelection: asRecord(value.modelSelection)
             ? (value.modelSelection as unknown as DesktopModelSelection)
             : null,
-          workflow: asRecord(value.workflow) ? (value.workflow as unknown as DesktopWorkflowState) : null,
+          ...storedWorkflowPreferences(value),
         });
         changed = true;
       }
@@ -315,6 +332,10 @@ export function useDraftPanePreferences({
       setNewTaskWorkflow(workflow);
       rememberDraftPanePrefs({ workflow });
     },
+    [rememberDraftPanePrefs]
+  );
+  const stageNewTaskOrchestrationMode = useCallback(
+    (orchestrationMode: DesktopOrchestrationMode) => rememberDraftPanePrefs({ orchestrationMode }),
     [rememberDraftPanePrefs]
   );
   const clearNewTaskPreferences = useCallback(
@@ -460,6 +481,7 @@ export function useDraftPanePreferences({
     newTaskModelSelection,
     newTaskProjectPath,
     newTaskWorkflow,
+    newTaskOrchestrationMode: activeDraftKey ? resolvedDraftPrefsFor(activeDraftKey).orchestrationMode : null,
     persistDraftPanePrefs,
     rememberSessionRouteForNextTask,
     resetNewTaskDraft,
@@ -469,5 +491,6 @@ export function useDraftPanePreferences({
     stageNewTaskModelSelection,
     stageNewTaskProject,
     stageNewTaskWorkflow,
+    stageNewTaskOrchestrationMode,
   };
 }

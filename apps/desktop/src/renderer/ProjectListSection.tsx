@@ -14,8 +14,9 @@ import { usePersistedListOrder } from './use-persisted-list-order';
 import {
   ProjectEditorCache,
   memoryResultError,
-  parseCoreMemoryEntries,
+  readProjectMemories,
   type CoreMemoryEntry,
+  type ProjectMemoryCatalog,
 } from './project-editor-data';
 
 function displayProjectFolder(path: string): string {
@@ -67,7 +68,7 @@ export function ProjectListSection({
   const [editError, setEditError] = useState('');
   const [editConfirmRemove, setEditConfirmRemove] = useState(false);
   const editOpenRequestRef = useRef(0);
-  const memoriesCache = useRef(new ProjectEditorCache<CoreMemoryEntry[]>()).current;
+  const memoriesCache = useRef(new ProjectEditorCache<ProjectMemoryCatalog>()).current;
   const [memories, setMemories] = useState<CoreMemoryEntry[]>([]);
   const [memoriesLoading, setMemoriesLoading] = useState(false);
   const [memoryBusy, setMemoryBusy] = useState(false);
@@ -85,75 +86,44 @@ export function ProjectListSection({
     publishSidebarProjects(projects);
   }, [projects]);
   const memoryScope = (path: string | null) => (path === null ? { project_id: 'common' } : { cwd: path });
-  const readMemories = async (path: string | null): Promise<CoreMemoryEntry[]> => {
+  const projectPathsKey = JSON.stringify(projects.map((project) => project.path));
+  const readMemories = async (path: string | null, refresh = false): Promise<CoreMemoryEntry[]> => {
     if (!onMemoryControl) return [];
-    const entries: CoreMemoryEntry[] = [];
-    let offset: number | null = 0;
-    while (offset !== null) {
-      const value = await onMemoryControl({
-        action: 'core',
-        op: 'list',
-        source: 'curated',
-        scope_only: true,
-        format: 'json',
-        limit: 100,
-        offset,
-        ...memoryScope(path),
-      });
-      if (value === null || value === undefined) throw new Error(t('Memory is temporarily unavailable.'));
-      const failure = memoryResultError(value);
-      if (failure) throw new Error(failure);
-      const nextEntries = parseCoreMemoryEntries(value);
-      if (entries.length && nextEntries.some((entry) => entry.indexRevision !== entries[0].indexRevision)) {
-        throw new Error(t('Memory changed. Refresh the list before editing.'));
-      }
-      entries.push(...nextEntries);
-      const page = typeof value === 'string' && value.trim().startsWith('{') ? JSON.parse(value) : value;
-      offset = page && typeof page === 'object' && 'nextOffset' in page ? page.nextOffset : null;
+    try {
+      const catalog = await memoriesCache.read(
+        projectPathsKey,
+        () => readProjectMemories(JSON.parse(projectPathsKey), onMemoryControl),
+        refresh
+      );
+      return catalog.get(path) ?? [];
+    } catch (reason) {
+      throw new Error(t(reason instanceof Error ? reason.message : String(reason)));
     }
-    return entries;
   };
   const refreshMemories = async (path: string | null) => {
+    const requestId = editOpenRequestRef.current;
+    // A completed write must not join a pre-write background read. Reload the
+    // whole catalog so moves also refresh their destination immediately.
+    memoriesCache.invalidate(projectPathsKey);
     const entries = await readMemories(path);
-    memoriesCache.set(path, entries);
+    if (editOpenRequestRef.current !== requestId) return;
     setMemories(entries);
     setMemoryDrafts(Object.fromEntries(entries.map((entry) => [entry.id, entry.summary])));
     setMoveTargets({});
     setConfirmDeleteMemory(null);
   };
-  // Warm the editor when the project list appears, not when a row is clicked.
-  // Callback props are supplied inline by the shell; keep their latest values
-  // without re-reading every project on unrelated shell renders.
-  const readersRef = useRef({ readMemories, selectedProjectPath });
-  readersRef.current = { readMemories, selectedProjectPath };
-  const projectPathsKey = JSON.stringify(projects.map((project) => project.path));
+  // One shared catalog request warms every row, including empty projects.
+  // Inline callback props must not restart it on unrelated shell renders.
+  const readersRef = useRef({ readMemories });
+  readersRef.current = { readMemories };
   const memoriesSupported = Boolean(onMemoryControl);
   useEffect(() => {
     if (!active || !memoriesSupported) return;
-    // One background read at a time, common memory and the open project
-    // first: a row clicked mid-warm-up then waits behind at most one read
-    // instead of the whole catalog (user: 프로젝트 들어갈 때 메모리 바로 안 뜸).
-    let cancelled = false;
-    const catalog: string[] = JSON.parse(projectPathsKey);
-    const selected = readersRef.current.selectedProjectPath;
-    const paths: Array<string | null> = [
-      null,
-      ...catalog.filter((path) => path === selected),
-      ...catalog.filter((path) => path !== selected),
-    ];
-    void (async () => {
-      for (const path of paths) {
-        if (cancelled) return;
-        await memoriesCache.read(path, () => readersRef.current.readMemories(path), true).catch(() => {});
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+    void readersRef.current.readMemories(null, true).catch(() => {});
   }, [active, projectPathsKey, memoriesSupported, memoriesCache]);
   const openEdit = (path: string | null, title: string) => {
     const requestId = ++editOpenRequestRef.current;
-    const cachedMemories = memoriesCache.peek(path);
+    const cachedMemories = memoriesCache.peek(projectPathsKey)?.get(path);
     setEditName(title);
     setEditError('');
     setEditConfirmRemove(false);
@@ -171,10 +141,8 @@ export function ProjectListSection({
     };
     setMemoriesLoading(memoriesSupported && cachedMemories === undefined);
     if (onMemoryControl) {
-      void memoriesCache
-        .read(path, () => readMemories(path))
+      void readMemories(path)
         .then((entries) => {
-          memoriesCache.set(path, entries);
           if (!current()) return;
           setMemories(entries);
           setMemoryDrafts(Object.fromEntries(entries.map((entry) => [entry.id, entry.summary])));
@@ -490,7 +458,6 @@ export function ProjectListSection({
                                 .then((value) => {
                                   const failure = memoryResultError(value);
                                   if (failure) throw new Error(failure);
-                                  if (target !== editTarget.path) memoriesCache.invalidate(target);
                                   return refreshMemories(editTarget.path);
                                 })
                                 .then(() => {
@@ -551,12 +518,13 @@ export function ProjectListSection({
                             value={memoryDrafts[entry.id] ?? entry.summary}
                             rows={3}
                             disabled={memoryBusy || memoriesLoading}
-                            onChange={(event) =>
+                            onChange={(event) => {
+                              const value = event.currentTarget.value;
                               setMemoryDrafts((current) => ({
                                 ...current,
-                                [entry.id]: event.currentTarget.value,
-                              }))
-                            }
+                                [entry.id]: value,
+                              }));
+                            }}
                           />
                           <div className="core-memory-actions">
                             <button
@@ -588,8 +556,6 @@ export function ProjectListSection({
                                   .then((value) => {
                                     const failure = memoryResultError(value);
                                     if (failure) throw new Error(failure);
-                                    const target = moveTargets[entry.id] ?? editTarget.path ?? '';
-                                    if (target !== (editTarget.path ?? '')) memoriesCache.invalidate(target || null);
                                     return refreshMemories(editTarget.path);
                                   })
                                   .catch((reason) =>

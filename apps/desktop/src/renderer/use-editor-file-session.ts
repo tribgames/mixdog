@@ -10,6 +10,7 @@ import {
 import { mergeDocumentPreviewPages, type DocumentPreview } from './editor-document-model';
 import type { EditorFileHandle, EditorRecovery, FilePreview } from './editor-pane-model';
 import { reportEditorLoadStage } from './renderer-load-metrics';
+import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 
@@ -194,9 +195,9 @@ export function useEditorFileSession({
         });
       return;
     }
-    // Office documents have no native viewer. Electron shows the converted
-    // PDF through the surface it already has; a paired phone cannot open that
-    // file at all, so it takes the same conversion as page images.
+    // Desktop document clicks use the default app. Restored tabs must not
+    // launch programs on mount or retry the PDF viewer: keep the manual escape.
+    // A paired phone cannot launch the desktop app, so retain its page viewer.
     const documentFormat = documentPreviewFormatForPath(relPath);
     const documentFailed = (reason: unknown): void => {
       setDocumentError(reason instanceof Error ? reason.message : String(reason));
@@ -218,23 +219,7 @@ export function useEditorFileSession({
       setDiskChanged(false);
       markDirty(false);
     };
-    if (documentFormat && api?.previewDocumentFile) {
-      void api
-        .previewDocumentFile(projectPath, relPath, accessToken)
-        .then((result) => {
-          setPreview({
-            url: result.url,
-            kind: 'pdf',
-            mime: result.mime,
-            mtimeMs: result.mtimeMs,
-            size: result.size,
-          });
-          documentOpened(result);
-        })
-        .catch(documentFailed);
-      return;
-    }
-    if (documentFormat && api?.previewDocumentPages) {
+    if (documentFormat && isRemoteBrowserRenderer() && api?.previewDocumentPages) {
       void api
         .previewDocumentPages(projectPath, relPath, accessToken, { pages: [1] })
         .then((result) => {

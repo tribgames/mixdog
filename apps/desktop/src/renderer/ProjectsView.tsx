@@ -16,9 +16,9 @@ const SECTIONS: ReadonlyArray<SidebarToolbarSection<ProjectsSection>> = [
 // behind the Extensions panel's section toolbar (user: 익스텐션처럼 하위 전환
 // 버튼). Project lists the registered folders with their instructions and
 // memories; Workflow carries the workflow packs, default agents, and agent
-// definitions that used to own their own rail icon. Only the visible section
-// mounts, so the header + follows the Project tab and a half-open editor
-// closes on switch, exactly like Extensions.
+// definitions that used to own their own rail icon. Keep the project catalog
+// mounted across section switches so its memory cache survives. Its inactive
+// state closes open dialogs and removes the Project tab's header action.
 export function ProjectsPane({
   active = true,
   section = 'projects',
@@ -46,7 +46,10 @@ export function ProjectsPane({
           active={section}
           onChange={(next) => onSectionChange?.(next)}
         />
-        {section === 'workflows' ? <WorkflowsPane active={active} /> : <ProjectListSection active={active} {...list} />}
+        <div hidden={section !== 'projects'}>
+          <ProjectListSection active={active && section === 'projects'} {...list} />
+        </div>
+        {section === 'workflows' && <WorkflowsPane active={active} />}
       </div>
     </div>
   );

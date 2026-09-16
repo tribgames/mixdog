@@ -78,7 +78,31 @@ test('TUI streaming: unfinished emphasis, code and links are healed', () => {
   assert.equal(balanceStreamingMarkdown('*part'), '*part*');
   assert.equal(balanceStreamingMarkdown('~~drop'), '~~drop~~');
   assert.equal(balanceStreamingMarkdown('`co'), '`co`');
-  assert.equal(balanceStreamingMarkdown('see [docs](https://exa'), 'see docs');
+  assert.equal(balanceStreamingMarkdown('see [docs](https://exa'), 'see [docs]()');
+});
+
+test('streaming links keep one inert caption through every incomplete boundary', () => {
+  for (const tail of ['[docs', '[docs]', '[docs](', '[docs](https://exa', '[docs](https://x/a_(b)']) {
+    const healed = balanceStreamingMarkdown(`see ${tail}`);
+    assert.equal(healed, 'see [docs]()', tail);
+    assert.equal(tuiText(healed), 'see docs', tail);
+    assert.equal(tui(healed).includes('\u001b]8;;'), false, tail);
+  }
+  assert.equal(balanceStreamingMarkdown('[**docs'), '[**docs**]()');
+  assert.equal(balanceStreamingMarkdown('[outer [inner'), '[outer [inner]]()');
+  assert.equal(balanceStreamingMarkdown('![alt](https://x/a'), 'alt');
+});
+
+test('streaming link healing respects escapes, code, destinations, footnotes and task boxes', () => {
+  for (const source of [
+    '\\[literal', '\\[literal]', '`[literal`', '```\n[literal\n```',
+    '[docs](https://x/a_(b))', '[docs](<https://x/a)b>)', '[docs](https://x "a)b")',
+    '[docs](https://x/a\\))', '[docs][ref]\n\n[ref]: https://x',
+    'body[^1]', 'body[^1]\n\n[^1]: note', '- [ ]', '- [x]', '- [ ] todo',
+  ]) {
+    const healed = balanceStreamingMarkdown(source);
+    assert.equal(healed, source, source);
+  }
 });
 
 test('TUI streaming: literal markers are not mistaken for emphasis', () => {

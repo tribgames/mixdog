@@ -61,9 +61,13 @@ export function localFileMimeTypeForPath(path: string): string {
 // own editor, which never executes anything.
 const OS_DOCUMENT_EXTENSIONS = new Set([
   'pptx',
+  'ppt',
   'pdf',
   'docx',
+  'doc',
+  'dotx',
   'xlsx',
+  'xls',
   'rtf',
   'odt',
   'ods',

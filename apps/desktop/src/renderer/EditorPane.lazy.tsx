@@ -49,6 +49,7 @@ import {
 import { ensureEditorLoad, reportEditorLoadStage } from './renderer-load-metrics';
 import { editorLanguageLabel, parseEditorQuickDiffStripes, type EditorFileHandle } from './editor-pane-model';
 import { useEditorFileSession } from './use-editor-file-session';
+import { openEditorFileExternally } from './editor-external-file';
 import { useEditorCommandWiring } from './use-editor-command-wiring';
 import { useEditorModelBinding } from './use-editor-model-binding';
 import { useEditorMountSession } from './use-editor-mount-session';
@@ -609,7 +610,7 @@ export default function EditorPane({
         mediaRef={mediaRef}
         onComplete={completePreview}
         onFail={failPreview}
-        onOpen={() => void api?.openFilePath?.(projectPath, relPath, accessToken)}
+        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
       />
     );
   }
@@ -631,7 +632,7 @@ export default function EditorPane({
         breadcrumbs={editorBreadcrumbs}
         load={load}
         note={documentError}
-        onOpen={() => void api?.openFilePath?.(projectPath, relPath, accessToken)}
+        onOpen={() => void openEditorFileExternally(projectPath, relPath, accessToken)}
       />
     );
   }

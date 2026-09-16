@@ -1,3 +1,5 @@
+import { localFileOpener } from './local-files';
+
 export type DesktopFilePreviewKind = 'image' | 'pdf' | 'audio' | 'video';
 
 interface DesktopFilePreviewType {
@@ -73,4 +75,10 @@ export function documentPreviewFormatForPath(path: string): string {
 export function filePreviewTypeForPath(path: string): DesktopFilePreviewType | null {
   const extension = fileExtension(path);
   return extension ? (FILE_PREVIEW_TYPES[extension] ?? null) : null;
+}
+
+/** Keep native previews inside; use the safe OS allowlist for everything else.
+ *  Unknown binaries, executables and macro-enabled documents never auto-launch. */
+export function editorFileOpener(path: string): 'editor' | 'os' {
+  return filePreviewTypeForPath(path) ? 'editor' : localFileOpener(path);
 }

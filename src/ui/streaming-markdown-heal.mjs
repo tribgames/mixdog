@@ -129,15 +129,66 @@ function closeEmphasis(text) {
   return healed;
 }
 
+function linkDestinationEnd(text, start) {
+  let depth = 1;
+  let delimiter = '';
+  for (let index = start + 1; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '\\') {
+      index += 1;
+      continue;
+    }
+    if (delimiter) {
+      if (character === delimiter) delimiter = '';
+      continue;
+    }
+    if (character === '<' && !text.slice(start + 1, index).trim()) delimiter = '>';
+    else if ((character === '"' || character === "'") && /\s/.test(text[index - 1])) delimiter = character;
+    else if (character === '(') depth += 1;
+    else if (character === ')' && --depth === 0) return index;
+  }
+  return -1;
+}
+
 function healIncompleteLink(text) {
   const masked = maskCode(text);
-  const open = masked.lastIndexOf('[');
+  let open = -1;
+  let depth = 0;
+  let label = -1;
+  for (let index = 0; index < masked.length; index += 1) {
+    if (masked[index] === '\\') {
+      index += 1;
+      continue;
+    }
+    if (masked[index] === '[') {
+      if (depth === 0) open = index;
+      depth += 1;
+    } else if (masked[index] === ']' && depth > 0 && --depth === 0) {
+      label = index;
+      if (masked[index + 1] === '(') {
+        const end = linkDestinationEnd(masked, index + 1);
+        if (end < 0) break;
+        index = end;
+      } else if (index === masked.length - 1) {
+        break;
+      }
+      open = -1;
+      label = -1;
+    }
+  }
   if (open < 0) return text;
-  const start = open > 0 && masked[open - 1] === '!' ? open - 1 : open;
-  const label = masked.indexOf(']', open);
-  if (label < 0) return `${text.slice(0, start)}${text.slice(open + 1)}`;
-  if (masked[label + 1] !== '(' || masked.indexOf(')', label + 1) >= 0) return text;
-  return `${text.slice(0, start)}${text.slice(open + 1, label)}`;
+  const caption = text.slice(open + 1, label < 0 ? undefined : label);
+  // Footnotes and task boxes are not unfinished inline links.
+  const linePrefix = text.slice(text.lastIndexOf('\n', open) + 1, open);
+  if (caption.startsWith('^') || caption.includes('\n\n')
+    || (/^ {0,3}(?:[-+*]|\d+[.)])\s+$/.test(linePrefix) && /^[ xX]?$/.test(caption))) return text;
+  const image = open > 0 && masked[open - 1] === '!';
+  const prefix = text.slice(0, image ? open - 1 : open);
+  if (image) return `${prefix}${caption}`;
+  // Keep link typography from the first label token, including the `]` → `(`
+  // boundary. An empty destination is inert in the renderer: a streamed URL
+  // must never become clickable before its closing parenthesis arrives.
+  return `${prefix}[${closeEmphasis(caption)}${']'.repeat(Math.max(0, depth - 1))}]()`;
 }
 
 export function healStreamingMarkdownTail(text) {

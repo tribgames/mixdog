@@ -285,6 +285,12 @@ function codeMention(text: string): (MentionLocation & { path: string; bare: boo
   return { path, bare: !hasSeparator, ...matchedLocation(match?.groups) };
 }
 
+/** Use the same path grammar for an unfinished explicit link's caption. */
+export function localPathMentionHref(text: string): string | null {
+  const mention = codeMention(text);
+  return mention ? locationHref(mention.bare ? `./${mention.path}` : mention.path, mention) : null;
+}
+
 function skipsPathLinks(node: HastLikeNode): boolean {
   if (node.type !== "element") return false;
   if (["a", "pre", "script", "style"].includes(String(node.tagName))) return true;

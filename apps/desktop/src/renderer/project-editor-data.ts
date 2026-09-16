@@ -44,6 +44,7 @@ export type CoreMemoryEntry = {
   summary: string;
   singleSentence: boolean;
   indexRevision?: string;
+  projectId?: string | null;
 };
 
 export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
@@ -60,6 +61,7 @@ export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
           summary?: string;
           source?: string;
           index_revision?: string;
+          project_id?: string | null;
         }>;
       }
     ).entries;
@@ -71,6 +73,7 @@ export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
         summary: row.summary || row.element || '',
         singleSentence: !row.element || row.element === row.summary,
         indexRevision: row.index_revision,
+        projectId: row.project_id ?? null,
       }))
       .sort((a, b) => a.id - b.id);
   }
@@ -100,4 +103,53 @@ export function memoryResultError(value: unknown): string {
   )
     ? text
     : '';
+}
+
+export type ProjectMemoryCatalog = Map<string | null, CoreMemoryEntry[]>;
+
+export async function readProjectMemories(
+  paths: string[],
+  control: (input: Record<string, unknown>) => Promise<unknown>
+): Promise<ProjectMemoryCatalog> {
+  const byScope = new Map<string | null, CoreMemoryEntry[]>();
+  let projectScopes: Array<{ path: string; projectId: string | null }> = [];
+  let offset: number | null = 0;
+  while (offset !== null) {
+    const value = await control({
+      action: 'core',
+      op: 'list',
+      source: 'curated',
+      scope_only: true,
+      format: 'json',
+      project_id: '*',
+      project_paths: paths,
+      limit: 100,
+      offset,
+    });
+    const failure = memoryResultError(value);
+    if (failure) throw new Error(failure);
+    const page = typeof value === 'string' ? JSON.parse(value) : value;
+    if (!page || !Array.isArray(page.entries) || !Array.isArray(page.projectScopes)) {
+      throw new Error('Memory is temporarily unavailable.');
+    }
+    projectScopes = page.projectScopes;
+    for (const entry of parseCoreMemoryEntries(page)) {
+      const scope = entry.projectId ?? null;
+      const entries = byScope.get(scope) ?? [];
+      if (entries.length && entry.indexRevision !== entries[0].indexRevision) {
+        throw new Error('Memory changed. Refresh the list before editing.');
+      }
+      entries.push(entry);
+      byScope.set(scope, entries);
+    }
+    offset = page.nextOffset ?? null;
+  }
+  for (const entries of byScope.values()) entries.sort((a, b) => a.id - b.id);
+  return new Map([
+    [null, byScope.get(null) ?? []],
+    ...projectScopes.map(({ path, projectId }): [string, CoreMemoryEntry[]] => [
+      path,
+      byScope.get(projectId) ?? [],
+    ]),
+  ]);
 }

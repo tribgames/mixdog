@@ -8,8 +8,15 @@ import MarkdownAstBody from './MarkdownAstBody';
 import { parseMarkdownToHast } from './markdown-ast';
 import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts';
+import { healStreamingMarkdownTail } from './streaming-markdown';
+import StreamingMarkdownBody from './StreamingMarkdownBody';
 
 const CopyControl = () => null;
+function readableText(element) {
+  const clone = element.cloneNode(true);
+  for (const icon of clone.querySelectorAll('.seti-icon')) icon.remove();
+  return clone.textContent;
+}
 const renderers = {
   settled: (text) => React.createElement(MarkdownBody, { text, copyControl: CopyControl }),
   worker: (text) => React.createElement(MarkdownAstBody, {
@@ -55,9 +62,7 @@ async function mount(t, render, text, project = 'C:/Project/conversation', confi
         { value: (...args) => { opened.push(args); } }, render(nextText))));
   });
   const links = () => [...dom.window.document.querySelectorAll('a')];
-  // Link text without the Seti glyph that file links carry.
-  const labels = () => links().map((a) => [...a.childNodes]
-    .filter((node) => !node.classList?.contains('seti-icon')).map((node) => node.textContent).join(''));
+  const labels = () => links().map(readableText);
   const click = async (index = 0, options = {}, type = 'click') => {
     const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...options });
     await act(async () => { links()[index].dispatchEvent(event); });
@@ -319,7 +324,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       'C:\\Project\\conversation\\docs\\notes.md:7',
       'https://example.com/docs/guide.md',
     ]);
-    // Every mention is shown the same way: icon + file name + :line.
+    // Every mention uses its final icon + filename + line from the first paint.
     assert.deepEqual(f.labels().slice(0, 4), [
       'agent.mjs:269', 'ipc.ts:12:4', 'retry-classifier.mjs:269', 'notes.md:7',
     ]);
@@ -375,7 +380,6 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       ],
     }));
     assert.equal(f.links().find((a) => a.querySelector('.seti-icon'))?.querySelector('.seti-icon')?.textContent.length, 1);
-    // Folder links carry no glyph, like folders in the explorer.
     assert.equal(f.links()[0].querySelector('.seti-icon'), null);
     assert.deepEqual(f.links().map((a) => a.getAttribute('href')), [
       'output/report-2026/', './Dockerfile', './.gitignore', 'src/app.ts:42', 'src/util.ts:269',
@@ -414,7 +418,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.deepEqual(f.opened, [[PROJECT, 'scripts/Dockerfile', undefined]]);
   });
 
-  test(`${pipeline}: planned, missing and ambiguous file/folder mentions retain their original text`, async (t) => {
+  test(`${pipeline}: planned, missing and ambiguous mentions stay inert without removing their first-paint icons`, async (t) => {
     const f = await mount(t, render, [
       '스펙 문서(`special_offer_server_spec.md`)를 작성하겠습니다.',
       'See docs/planned.md (line 12), `missing.ts`, `dup.ts`, missing/ and `missing-folder/`.',
@@ -422,26 +426,39 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       [PROJECT]: ['a/dup.ts', 'b/dup.ts'],
     }));
     assert.equal(f.links().length, 0);
-    assert.deepEqual([...f.dom.window.document.querySelectorAll('p')].map((p) => p.textContent), [
+    assert.deepEqual([...f.dom.window.document.querySelectorAll('p')].map(readableText), [
       '스펙 문서(special_offer_server_spec.md)를 작성하겠습니다.',
-      'See docs/planned.md (line 12), missing.ts, dup.ts, missing/ and missing-folder/.',
+      'See planned.md:12, missing.ts, dup.ts, missing/ and missing-folder/.',
     ]);
-    assert.deepEqual([...f.dom.window.document.querySelectorAll('code')].map((code) => code.textContent),
-      ['special_offer_server_spec.md', 'missing.ts', 'dup.ts', 'missing-folder/']);
+    const pending = [...f.dom.window.document.querySelectorAll('.markdown-link-pending')];
+    assert.deepEqual(pending.map(readableText),
+      ['special_offer_server_spec.md', 'planned.md:12', 'missing.ts', 'dup.ts', 'missing/', 'missing-folder/']);
+    assert.equal(pending.filter((item) => item.querySelector('.seti-icon')).length, 4);
+    for (const item of pending) {
+      assert.equal(item.getAttribute('aria-disabled'), 'true');
+      await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
+    }
     assert.equal(f.toasts.length + f.opened.length + f.local.length + f.popups.length, 0);
   });
 
-  test(`${pipeline}: automatic links stay plain until existence is confirmed`, async (t) => {
+  test(`${pipeline}: automatic links show their final icons immediately and enable clicking only after verification`, async (t) => {
     let release;
     const pending = new Promise((resolve) => { release = resolve; });
     const f = await mount(t, render, 'See `src/app.ts` (line 12, col 4).', PROJECT, (f) => {
       f.dom.window.mixdogDesktop.statProjectFile = () => pending;
     });
     assert.equal(f.links().length, 0);
-    assert.equal(f.dom.window.document.querySelector('p').textContent, 'See src/app.ts (line 12, col 4).');
-    assert.equal(f.dom.window.document.querySelector('code').textContent, 'src/app.ts');
+    const pendingLink = f.dom.window.document.querySelector('.markdown-link-pending');
+    assert.equal(readableText(pendingLink), 'app.ts:12:4');
+    assert.equal(pendingLink.getAttribute('aria-disabled'), 'true');
+    const initialIcon = pendingLink.querySelector('.seti-icon').outerHTML;
+    const initialText = f.dom.window.document.querySelector('p').textContent;
+    await act(async () => pendingLink.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
+    assert.equal(f.opened.length + f.local.length, 0);
     await act(async () => { release({ size: 10, mtimeMs: 1 }); });
     assert.deepEqual(f.labels(), ['app.ts:12:4']);
+    assert.equal(f.dom.window.document.querySelector('p').textContent, initialText);
+    assert.equal(f.links()[0].querySelector('.seti-icon').outerHTML, initialIcon);
     assert.equal(f.links()[0].title, `${PROJECT}/src/app.ts:12:4`);
     await f.click();
     assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', 12]]);
@@ -453,7 +470,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       f.files.push('found.ts');
     });
     assert.equal(f.links().length, 0);
-    assert.equal(f.dom.window.document.querySelector('p').textContent, 'src/app.ts, output/ and found.ts.');
+    assert.equal(readableText(f.dom.window.document.querySelector('p')), 'app.ts, output/ and found.ts.');
     assert.equal(f.toasts.length, 0);
   });
 
@@ -463,7 +480,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       f.dom.window.mixdogDesktop.searchProjectFiles = async () => ['src/stale.ts'];
     });
     assert.equal(f.links().length, 0);
-    assert.equal(f.dom.window.document.querySelector('code').textContent, 'stale.ts');
+    assert.equal(readableText(f.dom.window.document.querySelector('.markdown-link-pending')), 'stale.ts');
     assert.equal(f.toasts.length, 0);
   });
 
@@ -500,7 +517,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
       await f.update(nextProject, `\`${nextPath}\``);
       await act(async () => { release({ size: 10, mtimeMs: 1 }); });
       assert.equal(f.links().length, 0);
-      assert.equal(f.dom.window.document.querySelector('code').textContent, nextPath);
+      assert.equal(readableText(f.dom.window.document.querySelector('.markdown-link-pending')), nextPath.split('/').at(-1));
       assert.equal(f.toasts.length, 0);
     });
   }
@@ -511,7 +528,7 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     assert.equal(f.links().length, 1);
     await f.update(PROJECT, '`src/missing.ts`');
     assert.equal(f.links().length, 0);
-    assert.equal(f.dom.window.document.querySelector('code').textContent, 'src/missing.ts');
+    assert.equal(readableText(f.dom.window.document.querySelector('.markdown-link-pending')), 'missing.ts');
     assert.equal(f.toasts.length, 0);
   });
 
@@ -554,12 +571,77 @@ for (const [pipeline, render] of Object.entries(renderers)) {
     await f.click(1);
     assert.deepEqual(f.external, [['https://example.com/report'], ['https://www.example.com']]);
     assert.equal(f.local.length, 0);
-    assert.equal(f.links()[2].getAttribute('href'), '');
-    assert.equal(f.links()[3].getAttribute('href'), '');
+    const disabled = [...f.dom.window.document.querySelectorAll('.markdown-link-pending')];
+    assert.deepEqual(disabled.map(readableText), ['unsafe', 'data', 'secret.png']);
+    for (const item of disabled) {
+      assert.equal(item.getAttribute('href'), null);
+      assert.equal(item.getAttribute('aria-disabled'), 'true');
+      await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
+    }
+    assert.equal(f.external.length, 2);
+    assert.equal(f.popups.length, 0);
     assert.notEqual(f.dom.window.document.querySelector('img')?.getAttribute('src'),
       'file:///C:/private/secret.png');
     f.dom.window.mixdogDesktop.openExternal = async () => { throw new Error('browser unavailable'); };
     await f.click();
     assert.deepEqual(f.popups, [['https://example.com/report', '_blank', 'noopener']]);
+  });
+}
+
+const streamingRenderers = {
+  ...Object.fromEntries(Object.entries(renderers).map(([name, render]) => [
+    name, (text) => render(healStreamingMarkdownTail(text)),
+  ])),
+  live: (text) => React.createElement(StreamingMarkdownBody, {
+    text, parseText: healStreamingMarkdownTail(text), copyControl: CopyControl,
+  }),
+};
+
+for (const [pipeline, render] of Object.entries(streamingRenderers)) {
+  test(`${pipeline}: streamed link captions never flash brackets or a partial destination`, async (t) => {
+    const f = await mount(t, render, 'See [do');
+    for (const [source, caption, href] of [
+      ['See [do', 'do', null],
+      ['See [docs', 'docs', null],
+      ['See [docs]', 'docs', null],
+      ['See [docs](', 'docs', null],
+      ['See [docs](https://example.com/a_(b)', 'docs', null],
+      ['See [docs](https://example.com/a_(b))', 'docs', 'https://example.com/a_(b)'],
+      ['See [docs](https://example.com/a_(b)) next', 'docs', 'https://example.com/a_(b)'],
+    ]) {
+      await f.update(PROJECT, source);
+      const item = f.dom.window.document.querySelector('a, .markdown-link-pending');
+      assert.ok(item, source);
+      assert.equal(item.textContent, caption, source);
+      assert.equal(item.getAttribute('href'), href, source);
+      assert.equal(f.links().length, href ? 1 : 0, source);
+      assert.equal(f.dom.window.document.querySelector('p').textContent,
+        `See ${caption}${source.endsWith(' next') ? ' next' : ''}`, source);
+      if (!href) {
+        await act(async () => item.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
+        assert.equal(f.external.length + f.local.length + f.opened.length + f.popups.length, 0, source);
+      }
+    }
+    await f.click();
+    assert.deepEqual(f.external, [['https://example.com/a_(b)']]);
+  });
+
+  test(`${pipeline}: streamed path captions show the final icon before the destination arrives`, async (t) => {
+    const f = await mount(t, render, 'See [src/app.ts');
+    let initialIcon;
+    for (const source of [
+      'See [src/app.ts', 'See [src/app.ts]', 'See [src/app.ts](',
+      'See [src/app.ts](src/app.ts', 'See [src/app.ts](src/app.ts)',
+    ]) {
+      await f.update(PROJECT, source);
+      assert.equal(readableText(f.dom.window.document.querySelector('p')), 'See app.ts', source);
+      const icon = f.dom.window.document.querySelector('.seti-icon');
+      assert.ok(icon, source);
+      initialIcon ??= icon.outerHTML;
+      assert.equal(icon.outerHTML, initialIcon, source);
+      assert.equal(f.links().length, source.endsWith(')') ? 1 : 0, source);
+    }
+    await f.click();
+    assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', undefined]]);
   });
 }

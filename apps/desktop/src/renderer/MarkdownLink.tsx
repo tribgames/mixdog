@@ -3,7 +3,7 @@ import { showDesktopToast } from "./desktop-toasts";
 import { SetiFileIcon } from "./SetiFileIcon";
 import { errorMessageText } from "./ErrorNotice";
 import { t } from "./i18n";
-import { PATH_LINK_CLASS } from "./markdown-plugins";
+import { localPathMentionHref, PATH_LINK_CLASS } from "./markdown-plugins";
 import { isLocalMarkdownLink, projectRelativeFilePath } from "./markdown-url";
 import { resolveLocalLink } from "./local-link-resolver";
 import { localFileOpener, localLinkKind, parseLocalFileLocation } from "../shared/local-files";
@@ -71,8 +71,8 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
   const title = resolvedTitle
     || (rel && !bare && projectPath ? displayPath(projectPath, rel, suffix) : undefined);
 
-  // A filename-shaped mention is not an authored link. Keep its original
-  // children until the owning Project and actual file/folder are confirmed.
+  // A filename-shaped mention is not an authored link. Keep it noninteractive
+  // until the owning Project and actual file/folder are confirmed.
   // Search results may be stale; stat the resolved path as well. Do not use
   // the resolver's legacy no-stat fallback as evidence that a file exists.
   useEffect(() => {
@@ -165,20 +165,15 @@ export function MarkdownLink({ href, children, className, title }: {
   href?: string; children?: ReactNode; className?: string; title?: string;
 }) {
   const raw = String(href || "").trim();
-  const target = /^www\./i.test(raw) ? `https://${raw}` : raw;
+  const text = childrenText(children).trim();
+  const pendingTarget = !raw ? localPathMentionHref(text) : null;
+  const target = /^www\./i.test(raw) ? `https://${raw}` : raw || pendingTarget || "";
   const external = /^https?:\/\//i.test(target);
   const automatic = String(className || "").split(/\s+/).includes(PATH_LINK_CLASS);
   const verify = automatic && typeof window !== "undefined";
   const link = useLocalLinkTarget(target, verify);
   const local = link.local;
-  if (verify && local && !link.verified) return <>{children}</>;
-  if (!external && !local) return <a href={href} className={className} title={title}>{children}</a>;
-
-  // Every file mention reads like an editor location — icon, file name and
-  // `:line` — with the full path in the tooltip. Only a link whose text is an
-  // actual caption (`[수정 요약](output/report.md)`) keeps that caption.
-  const text = childrenText(children).trim();
-  const pathLike = local && (automatic
+  const pathLike = local && (automatic || Boolean(pendingTarget)
     || text === raw || text === link.path.replace(/^\.\//, "") || text === link.path);
   const linkClass = pathLike
     ? [...new Set([...String(className || "").split(/\s+/), PATH_LINK_CLASS])].filter(Boolean).join(" ")
@@ -186,6 +181,15 @@ export function MarkdownLink({ href, children, className, title }: {
   const label = pathLike
     ? <><LocalLinkIcon target={link} />{link.name}{link.suffix}</>
     : children;
+  // Paint the final icon and caption on the FIRST render. File verification
+  // only enables clicking; missing/planned files keep the same inert geometry.
+  // A healed explicit link may preview a path caption, never open its partial
+  // destination. Empty/sanitized hrefs remain noninteractive as well.
+  if (!raw || (verify && local && !link.verified)) {
+    return <span className={[linkClass, "markdown-link-pending"].filter(Boolean).join(" ")}
+      title={title || link.title} aria-disabled="true">{label}</span>;
+  }
+  if (!external && !local) return <a href={href} className={className} title={title}>{children}</a>;
   const openLocal = link.open;
 
   return <a href={target} className={linkClass} title={local ? title || link.title : title}
