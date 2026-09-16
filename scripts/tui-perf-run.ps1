@@ -6,16 +6,16 @@
 # /exit. The log is then read to pin the bottleneck.
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$log  = Join-Path $repo 'tui-perf.log'
+$log = Join-Path $repo 'tui-perf.log'
 
 # Probe gates. Thresholds lowered below the defaults (80ms stall / 120ms gap)
 # because the synthetic measurement put real stalls at ~40-60ms, under the
 # defaults, so they would never be logged.
-$env:MIXDOG_TUI_PERF               = '1'
-$env:MIXDOG_TUI_PERF_STALL_MS      = '40'
+$env:MIXDOG_TUI_PERF = '1'
+$env:MIXDOG_TUI_PERF_STALL_MS = '40'
 $env:MIXDOG_TUI_PERF_RENDER_GAP_MS = '50'
-$env:MIXDOG_TUI_LOOP_PROBE         = '1'
-$env:MIXDOG_TUI_STDERR_LOG         = $log
+$env:MIXDOG_TUI_LOOP_PROBE = '1'
+$env:MIXDOG_TUI_STDERR_LOG = $log
 
 # Start from a clean log so the read is unambiguous.
 if (Test-Path $log) { Remove-Item $log -Force }

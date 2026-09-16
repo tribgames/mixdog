@@ -22,10 +22,10 @@
 #>
 [CmdletBinding()]
 param(
-  [switch]$NoLaunch,
-  [switch]$KeepDaemon,
-  [switch]$CleanupOnly,
-  [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop')
+    [switch]$NoLaunch,
+    [switch]$KeepDaemon,
+    [switch]$CleanupOnly,
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -41,15 +41,15 @@ $timings = [ordered]@{}
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 function Save-Timing {
-  param([string]$Name, [Diagnostics.Stopwatch]$Stopwatch)
-  $timings[$Name] = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds)
+    param([string]$Name, [Diagnostics.Stopwatch]$Stopwatch)
+    $timings[$Name] = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds)
 }
 
 function New-DirectoryLink {
-  param([string]$Link, [string]$Target)
-  if (-not (Test-Path -LiteralPath $Target)) { return }
-  New-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null
-  [void]$linked.Add($Link)
+    param([string]$Link, [string]$Target)
+    if (-not (Test-Path -LiteralPath $Target)) { return }
+    New-Item -ItemType Junction -Path $Link -Target $Target -ErrorAction Stop | Out-Null
+    [void]$linked.Add($Link)
 }
 
 # The ONE way a snapshot worktree may be deleted. node_modules inside it is a
@@ -60,47 +60,53 @@ function New-DirectoryLink {
 # trusting a caller's bookkeeping, so a worktree orphaned by a crash (or by an
 # app restart that skipped `finally`) is just as safe to clean up.
 function Remove-SnapshotWorktree {
-  param([string]$Path)
-  if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return }
-  $leaf = Split-Path -Leaf $Path
-  if ($leaf -notlike 'mxsnap-*') { throw "Refusing to delete $Path : not a snapshot worktree" }
+    param([string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return }
+    $leaf = Split-Path -Leaf $Path
+    if ($leaf -notlike 'mxsnap-*') { throw "Refusing to delete $Path : not a snapshot worktree" }
 
-  foreach ($entry in Get-ChildItem -LiteralPath $Path -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
-    if ($entry.LinkType) { try { $entry.Delete() } catch {} }
-  }
-  # Both calls below are expected to fail sometimes — a directory that git never
-  # registered, a path it considers dirty. Under ErrorActionPreference='Stop' a
-  # native command's stderr becomes a terminating error, which would abandon the
-  # cleanup halfway and leave the tree behind, so they run detached from it.
-  try {
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    & git -C $repoRoot worktree remove --force $Path 2>&1 | Out-Null
-  } catch {
-  } finally { $ErrorActionPreference = $previous }
-  if (Test-Path -LiteralPath $Path) {
-    # git gave up on a long path; robocopy mirrors an empty directory over the
-    # tree, which uses the wide APIs and has no such limit. /XJ is belt and
-    # braces now that the links are already gone.
-    $empty = Join-Path $env:TEMP ("mxsnap-empty-" + [guid]::NewGuid().ToString('N').Substring(0, 6))
-    New-Item -ItemType Directory -Path $empty -Force | Out-Null
+    foreach ($entry in Get-ChildItem -LiteralPath $Path -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
+        if ($entry.LinkType) { try { $entry.Delete() } catch {} }
+    }
+    # Both calls below are expected to fail sometimes — a directory that git never
+    # registered, a path it considers dirty. Under ErrorActionPreference='Stop' a
+    # native command's stderr becomes a terminating error, which would abandon the
+    # cleanup halfway and leave the tree behind, so they run detached from it.
     try {
-      $previous = $ErrorActionPreference
-      $ErrorActionPreference = 'Continue'
-      # robocopy reports success with exit codes 0-7, which PowerShell would
-      # otherwise treat as failure.
-      & robocopy $empty $Path /MIR /XJ /NFL /NDL /NJH /NJS /NP 2>&1 | Out-Null
-    } catch {
-    } finally { $ErrorActionPreference = $previous }
-    Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
-  }
-  try {
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    & git -C $repoRoot worktree prune 2>&1 | Out-Null
-  } catch {
-  } finally { $ErrorActionPreference = $previous }
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & git -C $repoRoot worktree remove --force $Path 2>&1 | Out-Null
+    }
+    catch {
+    }
+    finally { $ErrorActionPreference = $previous }
+    if (Test-Path -LiteralPath $Path) {
+        # git gave up on a long path; robocopy mirrors an empty directory over the
+        # tree, which uses the wide APIs and has no such limit. /XJ is belt and
+        # braces now that the links are already gone.
+        $empty = Join-Path $env:TEMP ("mxsnap-empty-" + [guid]::NewGuid().ToString('N').Substring(0, 6))
+        New-Item -ItemType Directory -Path $empty -Force | Out-Null
+        try {
+            $previous = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            # robocopy reports success with exit codes 0-7, which PowerShell would
+            # otherwise treat as failure.
+            & robocopy $empty $Path /MIR /XJ /NFL /NDL /NJH /NJS /NP 2>&1 | Out-Null
+        }
+        catch {
+        }
+        finally { $ErrorActionPreference = $previous }
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $empty -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    try {
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & git -C $repoRoot worktree prune 2>&1 | Out-Null
+    }
+    catch {
+    }
+    finally { $ErrorActionPreference = $previous }
 }
 
 # A dependency tree can exist as a directory and still be useless: the junction
@@ -109,41 +115,42 @@ function Remove-SnapshotWorktree {
 # "the frozen copy does not compile" and burn three retries on a cause that has
 # nothing to do with a mid-save edit.
 function Test-DependencyTree {
-  param([string]$Root)
-  $modules = Join-Path $Root 'node_modules'
-  if (-not (Test-Path -LiteralPath $modules)) { return $false }
-  return @(Get-ChildItem -LiteralPath $modules -Force -ErrorAction SilentlyContinue).Count -gt 0
+    param([string]$Root)
+    $modules = Join-Path $Root 'node_modules'
+    if (-not (Test-Path -LiteralPath $modules)) { return $false }
+    return @(Get-ChildItem -LiteralPath $modules -Force -ErrorAction SilentlyContinue).Count -gt 0
 }
 
 function Restore-DependencyTree {
-  param([string]$Root, [string]$Label)
-  if (Test-DependencyTree $Root) { return }
-  Write-Step "$Label dependencies are missing; running npm ci"
-  Push-Location $Root
-  $code = 1
-  try {
-    $previous = $ErrorActionPreference
-    $ErrorActionPreference = 'Continue'
-    & npm.cmd ci --prefer-offline --no-audit --no-fund 2>&1 | Out-Null
-    $code = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previous
-    Pop-Location
-  }
-  if ($code -ne 0) { throw "npm ci failed in $Root (exit $code)" }
-  if (-not (Test-DependencyTree $Root)) { throw "npm ci left $Root without dependencies" }
-  Write-Host "  restored $Label dependencies"
+    param([string]$Root, [string]$Label)
+    if (Test-DependencyTree $Root) { return }
+    Write-Step "$Label dependencies are missing; running npm ci"
+    Push-Location $Root
+    $code = 1
+    try {
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & npm.cmd ci --prefer-offline --no-audit --no-fund 2>&1 | Out-Null
+        $code = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previous
+        Pop-Location
+    }
+    if ($code -ne 0) { throw "npm ci failed in $Root (exit $code)" }
+    if (-not (Test-DependencyTree $Root)) { throw "npm ci left $Root without dependencies" }
+    Write-Host "  restored $Label dependencies"
 }
 
 function Remove-StaleSnapshots {
-  param([string]$Except = '')
-  $stale = @(
-    Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue |
-      Where-Object { $_.FullName -ne $Except }
-  )
-  if (-not $stale) { return 0 }
-  foreach ($dir in $stale) { Remove-SnapshotWorktree $dir.FullName }
-  return $stale.Count
+    param([string]$Except = '')
+    $stale = @(
+        Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -ne $Except }
+    )
+    if (-not $stale) { return 0 }
+    foreach ($dir in $stale) { Remove-SnapshotWorktree $dir.FullName }
+    return $stale.Count
 }
 
 # This deploy ends by restarting the app, which kills the script before its
@@ -151,177 +158,182 @@ function Remove-StaleSnapshots {
 # Sweeping it here keeps the whole flow to one command: there is no separate
 # cleanup step to remember, and no way to reach for the unsafe manual one.
 if ($CleanupOnly) {
-  $removed = Remove-StaleSnapshots
-  Write-Step $(if ($removed) { "removed $removed snapshot worktree(s)" } else { 'no snapshot worktrees to remove' })
-  exit 0
+    $removed = Remove-StaleSnapshots
+    Write-Step $(if ($removed) { "removed $removed snapshot worktree(s)" } else { 'no snapshot worktrees to remove' })
+    exit 0
 }
 
 $failure = $null
 try {
-  Push-Location $repoRoot
+    Push-Location $repoRoot
 
-  $stepTimer = [Diagnostics.Stopwatch]::StartNew()
-  $swept = Remove-StaleSnapshots
-  Save-Timing 'staleSnapshotCleanupMs' $stepTimer
-  if ($swept) { Write-Step "swept $swept snapshot worktree(s) left by an earlier restart" }
-
-  Restore-DependencyTree $repoRoot 'root'
-  Restore-DependencyTree $desktopDir 'desktop'
-
-  # A commit object for the current tree, index included. It is unreachable
-  # until the worktree references it, and nothing in the real checkout moves.
-  #
-  # Freezing protects the build from edits that land while it runs, but it
-  # preserves the instant it was taken exactly — including a file caught
-  # half-written by an editor. So the frozen copy is type-checked before the
-  # deploy commits to it, and a broken instant is simply re-taken.
-  $attempt = 0
-  while ($true) {
-    $attempt += 1
-    Write-Step "freezing the working tree (attempt $attempt)"
-    # `git stash create` would be the obvious tool but it records only TRACKED
-    # changes: a module another session just added is untracked, so the snapshot
-    # would drop it and every import of it would fail to resolve. Staging into a
-    # throwaway index instead captures the tree as it actually is — .gitignore
-    # still applies, so node_modules and build output stay out — and neither the
-    # real index nor the working tree is touched.
-    $tempIndex = Join-Path $env:TEMP ("mxsnap-index-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
-    $snapshot = ''
     $stepTimer = [Diagnostics.Stopwatch]::StartNew()
-    try {
-      $env:GIT_INDEX_FILE = $tempIndex
-      & git read-tree HEAD
-      if ($LASTEXITCODE -ne 0) { throw "git read-tree exited with $LASTEXITCODE" }
-      $snapshotPaths = @(
-        '.npmignore', 'package.json', 'package-lock.json', 'README.md', 'NOTICE.md',
-        'LICENSE', 'LICENSES', 'scripts', 'src', 'vendor',
-        'native/mixdog-browser-import', 'apps/desktop', 'apps/relay'
-      )
-      # Optional package roots are not present in every checkout. Keep a path
-      # when it exists now or was tracked in HEAD (so deletions still enter the
-      # snapshot), and avoid making `git add` fail on an unknown pathspec.
-      $snapshotPaths = @($snapshotPaths | Where-Object {
-        (Test-Path -LiteralPath (Join-Path $repoRoot $_)) -or
-          @(& git ls-files -- $_).Count -gt 0
-      })
-      & git -c core.safecrlf=false add -A -- @snapshotPaths
-      if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
-      $tree = (& git write-tree).Trim()
-      if ($LASTEXITCODE -ne 0) { throw "git write-tree exited with $LASTEXITCODE" }
-      $snapshot = (& git commit-tree $tree -p HEAD -m 'fastdirect snapshot').Trim()
-      if ($LASTEXITCODE -ne 0) { throw "git commit-tree exited with $LASTEXITCODE" }
-    } finally {
-      $env:GIT_INDEX_FILE = $null
-      Remove-Item -LiteralPath $tempIndex -Force -ErrorAction SilentlyContinue
+    $swept = Remove-StaleSnapshots
+    Save-Timing 'staleSnapshotCleanupMs' $stepTimer
+    if ($swept) { Write-Step "swept $swept snapshot worktree(s) left by an earlier restart" }
+
+    Restore-DependencyTree $repoRoot 'root'
+    Restore-DependencyTree $desktopDir 'desktop'
+
+    # A commit object for the current tree, index included. It is unreachable
+    # until the worktree references it, and nothing in the real checkout moves.
+    #
+    # Freezing protects the build from edits that land while it runs, but it
+    # preserves the instant it was taken exactly — including a file caught
+    # half-written by an editor. So the frozen copy is type-checked before the
+    # deploy commits to it, and a broken instant is simply re-taken.
+    $attempt = 0
+    while ($true) {
+        $attempt += 1
+        Write-Step "freezing the working tree (attempt $attempt)"
+        # `git stash create` would be the obvious tool but it records only TRACKED
+        # changes: a module another session just added is untracked, so the snapshot
+        # would drop it and every import of it would fail to resolve. Staging into a
+        # throwaway index instead captures the tree as it actually is — .gitignore
+        # still applies, so node_modules and build output stay out — and neither the
+        # real index nor the working tree is touched.
+        $tempIndex = Join-Path $env:TEMP ("mxsnap-index-" + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $snapshot = ''
+        $stepTimer = [Diagnostics.Stopwatch]::StartNew()
+        try {
+            $env:GIT_INDEX_FILE = $tempIndex
+            & git read-tree HEAD
+            if ($LASTEXITCODE -ne 0) { throw "git read-tree exited with $LASTEXITCODE" }
+            $snapshotPaths = @(
+                '.npmignore', 'package.json', 'package-lock.json', 'README.md', 'NOTICE.md',
+                'LICENSE', 'LICENSES', 'scripts', 'src', 'vendor',
+                'native/mixdog-browser-import', 'apps/desktop', 'apps/relay'
+            )
+            # Optional package roots are not present in every checkout. Keep a path
+            # when it exists now or was tracked in HEAD (so deletions still enter the
+            # snapshot), and avoid making `git add` fail on an unknown pathspec.
+            $snapshotPaths = @($snapshotPaths | Where-Object {
+                    (Test-Path -LiteralPath (Join-Path $repoRoot $_)) -or
+                    @(& git ls-files -- $_).Count -gt 0
+                })
+            & git -c core.safecrlf=false add -A -- @snapshotPaths
+            if ($LASTEXITCODE -ne 0) { throw "git add exited with $LASTEXITCODE" }
+            $tree = (& git write-tree).Trim()
+            if ($LASTEXITCODE -ne 0) { throw "git write-tree exited with $LASTEXITCODE" }
+            $snapshot = (& git commit-tree $tree -p HEAD -m 'fastdirect snapshot').Trim()
+            if ($LASTEXITCODE -ne 0) { throw "git commit-tree exited with $LASTEXITCODE" }
+        }
+        finally {
+            $env:GIT_INDEX_FILE = $null
+            Remove-Item -LiteralPath $tempIndex -Force -ErrorAction SilentlyContinue
+        }
+        Save-Timing 'freezeMs' $stepTimer
+        Write-Host "  snapshot commit $($snapshot.Substring(0,8)) (uncommitted and untracked files included)"
+
+        Write-Step 'checking the snapshot out into a temporary worktree'
+        $stepTimer = [Diagnostics.Stopwatch]::StartNew()
+        & git worktree add --detach --no-checkout $snapshotRoot $snapshot | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "git worktree add exited with $LASTEXITCODE" }
+        & git -C $snapshotRoot sparse-checkout set --cone `
+            apps/desktop apps/relay src scripts vendor native/mixdog-browser-import LICENSES | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "git sparse-checkout exited with $LASTEXITCODE" }
+        # `worktree add --no-checkout` leaves the directory empty. Defining the
+        # sparse paths configures the index but does not materialize HEAD on every
+        # Git version, so explicitly populate the frozen tree before linking deps.
+        & git -C $snapshotRoot checkout --force HEAD | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "git checkout exited with $LASTEXITCODE" }
+        Save-Timing 'checkoutMs' $stepTimer
+
+        Write-Step 'linking dependency trees'
+        $stepTimer = [Diagnostics.Stopwatch]::StartNew()
+        $realDesktopCache = Join-Path $desktopDir '.cache'
+        New-Item -ItemType Directory -Path $realDesktopCache -Force | Out-Null
+        New-DirectoryLink (Join-Path $snapshotRoot 'node_modules') (Join-Path $repoRoot 'node_modules')
+        New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\node_modules') (Join-Path $desktopDir 'node_modules')
+        New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\.cache') $realDesktopCache
+        Save-Timing 'linkMs' $stepTimer
+        # `out/` is deliberately NOT linked here. electron-builder collects the app
+        # files itself and walks past a junction without descending into it, so a
+        # linked build directory produced an app.asar with no out/main/index.js in
+        # it. The snapshot starts with no build output at all, and the deploy's own
+        # missing-artifact rule (dev-update-windows.ps1) rebuilds whatever the
+        # incremental plan would otherwise have skipped.
+
+        Write-Step 'checking the frozen copy compiles'
+        $stepTimer = [Diagnostics.Stopwatch]::StartNew()
+        Push-Location (Join-Path $snapshotRoot 'apps\desktop')
+        try {
+            $typecheckOutput = @(& npm.cmd run typecheck:node 2>&1)
+            $compiles = $LASTEXITCODE -eq 0
+        }
+        finally { Pop-Location }
+        Save-Timing 'snapshotTypecheckMs' $stepTimer
+        if ($compiles) { break }
+        if ($attempt -ge 3) {
+            $typecheckOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
+            throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
+        }
+        Write-Host '  frozen copy does not compile (an edit was mid-save); retaking in 20s' -ForegroundColor Yellow
+        $linked.Clear()
+        Remove-SnapshotWorktree $snapshotRoot
+        Start-Sleep -Seconds 20
     }
-    Save-Timing 'freezeMs' $stepTimer
-    Write-Host "  snapshot commit $($snapshot.Substring(0,8)) (uncommitted and untracked files included)"
 
-    Write-Step 'checking the snapshot out into a temporary worktree'
-    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
-    & git worktree add --detach --no-checkout $snapshotRoot $snapshot | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "git worktree add exited with $LASTEXITCODE" }
-    & git -C $snapshotRoot sparse-checkout set --cone `
-      apps/desktop apps/relay src scripts vendor native/mixdog-browser-import LICENSES | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "git sparse-checkout exited with $LASTEXITCODE" }
-    # `worktree add --no-checkout` leaves the directory empty. Defining the
-    # sparse paths configures the index but does not materialize HEAD on every
-    # Git version, so explicitly populate the frozen tree before linking deps.
-    & git -C $snapshotRoot checkout --force HEAD | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "git checkout exited with $LASTEXITCODE" }
-    Save-Timing 'checkoutMs' $stepTimer
+    # Caches and the install target belong to the real checkout: the snapshot is
+    # thrown away, and a per-run cache would force a full rebuild every time.
+    $planPath = Join-Path $desktopDir '.cache\dev-fast-direct-plan.json'
+    $statePath = Join-Path $desktopDir '.cache\dev-fast-direct-state.json'
+    $artifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
 
-    Write-Step 'linking dependency trees'
-    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
-    $realDesktopCache = Join-Path $desktopDir '.cache'
-    New-Item -ItemType Directory -Path $realDesktopCache -Force | Out-Null
-    New-DirectoryLink (Join-Path $snapshotRoot 'node_modules') (Join-Path $repoRoot 'node_modules')
-    New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\node_modules') (Join-Path $desktopDir 'node_modules')
-    New-DirectoryLink (Join-Path $snapshotRoot 'apps\desktop\.cache') $realDesktopCache
-    Save-Timing 'linkMs' $stepTimer
-    # `out/` is deliberately NOT linked here. electron-builder collects the app
-    # files itself and walks past a junction without descending into it, so a
-    # linked build directory produced an app.asar with no out/main/index.js in
-    # it. The snapshot starts with no build output at all, and the deploy's own
-    # missing-artifact rule (dev-update-windows.ps1) rebuilds whatever the
-    # incremental plan would otherwise have skipped.
+    Write-Step 'deploying from the snapshot'
+    $deploy = Join-Path $snapshotRoot 'apps\desktop\scripts\dev-update-windows.ps1'
+    # -File passes each token verbatim, so a bound parameter needs its value as a
+    # separate argument; `-Name=value` arrives as one unknown parameter name.
+    $arguments = @(
+        '-FastDirect',
+        '-InstallDir', $InstallDir,
+        '-FastPlanPath', $planPath,
+        '-FastStatePath', $statePath,
+        '-FastArtifactDir', $artifactDir
+    )
+    if ($NoLaunch) { $arguments += '-NoLaunch' }
+    if ($KeepDaemon) { $arguments += '-KeepDaemon' }
+    # The deploy hands the install to a DETACHED worker and returns immediately.
+    # That worker still reads the snapshot, so the worktree may only be removed
+    # once it reports a terminal status — otherwise it loses its own source mid
+    # flight and fails the very assertion this wrapper exists to satisfy.
+    $receiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
+    Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
+    $timings['snapshotPreparationMs'] = [math]::Round(
+        ([DateTime]::UtcNow - $deployStartedAtUtc).TotalMilliseconds
+    )
+    $env:MIXDOG_FASTDIRECT_STARTED_AT = $deployStartedAtUtc.ToString('o')
+    $env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS = ($timings | ConvertTo-Json -Compress)
+    $env:MIXDOG_RUNTIME_DEPENDENCY_CACHE = Join-Path $realDesktopCache 'runtime-dependencies\win32-x64'
+    $env:MIXDOG_RUNTIME_NPM_CACHE = Join-Path $realDesktopCache 'runtime-npm-cache'
+    & powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $deploy @arguments
+    if ($LASTEXITCODE -ne 0) { throw "FastDirect deploy exited with $LASTEXITCODE" }
 
-    Write-Step 'checking the frozen copy compiles'
-    $stepTimer = [Diagnostics.Stopwatch]::StartNew()
-    Push-Location (Join-Path $snapshotRoot 'apps\desktop')
-    try {
-      $typecheckOutput = @(& npm.cmd run typecheck:node 2>&1)
-      $compiles = $LASTEXITCODE -eq 0
-    } finally { Pop-Location }
-    Save-Timing 'snapshotTypecheckMs' $stepTimer
-    if ($compiles) { break }
-    if ($attempt -ge 3) {
-      $typecheckOutput | ForEach-Object { Write-Host $_ -ForegroundColor Red }
-      throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
+    Write-Step 'waiting for the detached install worker'
+    $deadline = (Get-Date).AddMinutes(15)
+    $status = ''
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Seconds 2
+        if (-not (Test-Path -LiteralPath $receiptPath)) { continue }
+        try {
+            $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
+        }
+        catch { continue }
+        $status = [string]$receipt.status
+        if ($status -eq 'completed') { Write-Host '  worker completed'; break }
+        if ($status -eq 'failed') { throw "FastDirect worker failed: $($receipt.detail)" }
     }
-    Write-Host '  frozen copy does not compile (an edit was mid-save); retaking in 20s' -ForegroundColor Yellow
-    $linked.Clear()
+    if ($status -ne 'completed') { throw "FastDirect worker did not finish within 15 minutes (last status: $status)" }
+}
+catch {
+    $failure = $_
+}
+finally {
+    Pop-Location -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $snapshotRoot) { Write-Step 'removing the snapshot worktree' }
     Remove-SnapshotWorktree $snapshotRoot
-    Start-Sleep -Seconds 20
-  }
-
-  # Caches and the install target belong to the real checkout: the snapshot is
-  # thrown away, and a per-run cache would force a full rebuild every time.
-  $planPath = Join-Path $desktopDir '.cache\dev-fast-direct-plan.json'
-  $statePath = Join-Path $desktopDir '.cache\dev-fast-direct-state.json'
-  $artifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
-
-  Write-Step 'deploying from the snapshot'
-  $deploy = Join-Path $snapshotRoot 'apps\desktop\scripts\dev-update-windows.ps1'
-  # -File passes each token verbatim, so a bound parameter needs its value as a
-  # separate argument; `-Name=value` arrives as one unknown parameter name.
-  $arguments = @(
-    '-FastDirect',
-    '-InstallDir', $InstallDir,
-    '-FastPlanPath', $planPath,
-    '-FastStatePath', $statePath,
-    '-FastArtifactDir', $artifactDir
-  )
-  if ($NoLaunch) { $arguments += '-NoLaunch' }
-  if ($KeepDaemon) { $arguments += '-KeepDaemon' }
-  # The deploy hands the install to a DETACHED worker and returns immediately.
-  # That worker still reads the snapshot, so the worktree may only be removed
-  # once it reports a terminal status — otherwise it loses its own source mid
-  # flight and fails the very assertion this wrapper exists to satisfy.
-  $receiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
-  Remove-Item -LiteralPath $receiptPath -Force -ErrorAction SilentlyContinue
-  $timings['snapshotPreparationMs'] = [math]::Round(
-    ([DateTime]::UtcNow - $deployStartedAtUtc).TotalMilliseconds
-  )
-  $env:MIXDOG_FASTDIRECT_STARTED_AT = $deployStartedAtUtc.ToString('o')
-  $env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS = ($timings | ConvertTo-Json -Compress)
-  $env:MIXDOG_RUNTIME_DEPENDENCY_CACHE = Join-Path $realDesktopCache 'runtime-dependencies\win32-x64'
-  $env:MIXDOG_RUNTIME_NPM_CACHE = Join-Path $realDesktopCache 'runtime-npm-cache'
-  & powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File $deploy @arguments
-  if ($LASTEXITCODE -ne 0) { throw "FastDirect deploy exited with $LASTEXITCODE" }
-
-  Write-Step 'waiting for the detached install worker'
-  $deadline = (Get-Date).AddMinutes(15)
-  $status = ''
-  while ((Get-Date) -lt $deadline) {
-    Start-Sleep -Seconds 2
-    if (-not (Test-Path -LiteralPath $receiptPath)) { continue }
-    try {
-      $receipt = Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json
-    } catch { continue }
-    $status = [string]$receipt.status
-    if ($status -eq 'completed') { Write-Host '  worker completed'; break }
-    if ($status -eq 'failed') { throw "FastDirect worker failed: $($receipt.detail)" }
-  }
-  if ($status -ne 'completed') { throw "FastDirect worker did not finish within 15 minutes (last status: $status)" }
-} catch {
-  $failure = $_
-} finally {
-  Pop-Location -ErrorAction SilentlyContinue
-  if (Test-Path -LiteralPath $snapshotRoot) { Write-Step 'removing the snapshot worktree' }
-  Remove-SnapshotWorktree $snapshotRoot
 }
 if ($failure) {
-  Write-Error $failure -ErrorAction Continue
-  exit 1
+    Write-Error $failure -ErrorAction Continue
+    exit 1
 }

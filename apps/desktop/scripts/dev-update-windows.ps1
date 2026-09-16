@@ -25,39 +25,39 @@
 #>
 [CmdletBinding()]
 param(
-  [switch]$SkipBuild,
-  [switch]$ViaUpdater,
-  [switch]$FastDirect,
-  [switch]$FastDirectWorker,
-  # -ReuseBuild trusts a just-finished build:fast (out/ + daemon are fresh) and
-  # skips the second electron-vite/build-daemon pass. -BuildOnly stops after
-  # staging so a caller can overlap other work, then rerun with -SkipBuild.
-  [switch]$ReuseBuild,
-  [switch]$BuildOnly,
-  [switch]$RuntimeOnly,
-  [switch]$RuntimeOnlyWorker,
-  [switch]$NoLaunch,
-  [switch]$KeepDaemon,
-  [switch]$DryRun,
-  [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop'),
-  [string]$Version = '',
-  [string]$ReceiptPath = '',
-  [string]$FastPlanPath = '',
-  [string]$FastStatePath = '',
-  [string]$FastArtifactDir = '',
-  [int]$FeedPort = 9357
+    [switch]$SkipBuild,
+    [switch]$ViaUpdater,
+    [switch]$FastDirect,
+    [switch]$FastDirectWorker,
+    # -ReuseBuild trusts a just-finished build:fast (out/ + daemon are fresh) and
+    # skips the second electron-vite/build-daemon pass. -BuildOnly stops after
+    # staging so a caller can overlap other work, then rerun with -SkipBuild.
+    [switch]$ReuseBuild,
+    [switch]$BuildOnly,
+    [switch]$RuntimeOnly,
+    [switch]$RuntimeOnlyWorker,
+    [switch]$NoLaunch,
+    [switch]$KeepDaemon,
+    [switch]$DryRun,
+    [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'Programs\mixdog-desktop'),
+    [string]$Version = '',
+    [string]$ReceiptPath = '',
+    [string]$FastPlanPath = '',
+    [string]$FastStatePath = '',
+    [string]$FastArtifactDir = '',
+    [int]$FeedPort = 9357
 )
 
 $ErrorActionPreference = 'Stop'
 trap {
-  # Windows PowerShell can return exit 0 for an uncaught terminating error in
-  # a -File script. FastDirect callers must never report a failed build/swap as
-  # success, especially when the detached worker was never launched.
-  if (($RuntimeOnlyWorker -or $FastDirect) -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
-    try { Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message } catch {}
-  }
-  [Console]::Error.WriteLine(($_ | Out-String))
-  exit 1
+    # Windows PowerShell can return exit 0 for an uncaught terminating error in
+    # a -File script. FastDirect callers must never report a failed build/swap as
+    # success, especially when the detached worker was never launched.
+    if (($RuntimeOnlyWorker -or $FastDirect) -and -not [string]::IsNullOrWhiteSpace($ReceiptPath)) {
+        try { Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message } catch {}
+    }
+    [Console]::Error.WriteLine(($_ | Out-String))
+    exit 1
 }
 $desktopDir = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $repoRoot = (Resolve-Path (Join-Path $desktopDir '..\..')).Path
@@ -74,131 +74,133 @@ $fastRendererWatchState = Join-Path $desktopDir '.cache\dev-renderer-watch.json'
 $fastRendererWatchLog = Join-Path $desktopDir '.cache\dev-renderer-watch.log'
 $fastRendererWatchErrorLog = Join-Path $desktopDir '.cache\dev-renderer-watch.error.log'
 if ([string]::IsNullOrWhiteSpace($FastPlanPath)) {
-  $FastPlanPath = Join-Path $desktopDir '.cache\dev-fast-direct-plan.json'
+    $FastPlanPath = Join-Path $desktopDir '.cache\dev-fast-direct-plan.json'
 }
 if ([string]::IsNullOrWhiteSpace($FastStatePath)) {
-  $FastStatePath = Join-Path $desktopDir '.cache\dev-fast-direct-state.json'
+    $FastStatePath = Join-Path $desktopDir '.cache\dev-fast-direct-state.json'
 }
 if ([string]::IsNullOrWhiteSpace($FastArtifactDir)) {
-  $FastArtifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
+    $FastArtifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
 }
 if ($FastDirect -and -not $FastDirectWorker -and [string]::IsNullOrWhiteSpace($ReceiptPath)) {
-  $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
+    $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
 }
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
 
 function Assert-DesktopDaemonArtifact {
-  param([string]$ArtifactRoot)
-  $daemonArtifact = Join-Path $ArtifactRoot 'resources\app.asar.unpacked\out\main\daemon.cjs'
-  if (-not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)) {
-    throw "Desktop artifact is missing the unpacked daemon: $daemonArtifact"
-  }
-  & node $fastDirectHelper --action=assert-prod-deps "--install-dir=$ArtifactRoot"
-  if ($LASTEXITCODE -ne 0) {
-    throw "Desktop artifact app.asar is missing production dependencies: $(Join-Path $ArtifactRoot 'resources\app.asar')"
-  }
+    param([string]$ArtifactRoot)
+    $daemonArtifact = Join-Path $ArtifactRoot 'resources\app.asar.unpacked\out\main\daemon.cjs'
+    if (-not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)) {
+        throw "Desktop artifact is missing the unpacked daemon: $daemonArtifact"
+    }
+    & node $fastDirectHelper --action=assert-prod-deps "--install-dir=$ArtifactRoot"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Desktop artifact app.asar is missing production dependencies: $(Join-Path $ArtifactRoot 'resources\app.asar')"
+    }
 }
 
 function Write-FastDirectReceipt {
-  param(
-    [string]$Status,
-    [string]$Detail = ''
-  )
-  if ([string]::IsNullOrWhiteSpace($ReceiptPath)) { return }
-  $parent = Split-Path -Parent $ReceiptPath
-  New-Item -ItemType Directory -Path $parent -Force | Out-Null
-  $temporary = "$ReceiptPath.$PID.tmp"
-  $previous = $null
-  if (Test-Path -LiteralPath $ReceiptPath -PathType Leaf) {
-    try { $previous = Get-Content -LiteralPath $ReceiptPath -Raw | ConvertFrom-Json } catch {}
-  }
-  $now = [DateTime]::UtcNow
-  $startedAt = if ($previous -and $previous.startedAt) {
-    [DateTime]::Parse([string]$previous.startedAt).ToUniversalTime()
-  } elseif ($env:MIXDOG_FASTDIRECT_STARTED_AT) {
-    [DateTime]::Parse([string]$env:MIXDOG_FASTDIRECT_STARTED_AT).ToUniversalTime()
-  } else {
-    $now
-  }
-  $timeline = @()
-  if ($previous -and $previous.timeline) { $timeline += @($previous.timeline) }
-  $timeline += [ordered]@{ status = $Status; at = $now.ToString('o'); pid = $PID }
-  $snapshotTimings = $null
-  if ($env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS) {
-    try { $snapshotTimings = $env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS | ConvertFrom-Json } catch {}
-  }
-  $json = [ordered]@{
-    status = $Status
-    detail = $Detail
-    pid = $PID
-    at = $now.ToString('o')
-    startedAt = $startedAt.ToString('o')
-    elapsedMs = [math]::Round(($now - $startedAt).TotalMilliseconds)
-    snapshot = $snapshotTimings
-    timeline = $timeline
-  } | ConvertTo-Json -Depth 6 -Compress
-  [IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
-  Move-Item -LiteralPath $temporary -Destination $ReceiptPath -Force
+    param(
+        [string]$Status,
+        [string]$Detail = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) { return }
+    $parent = Split-Path -Parent $ReceiptPath
+    New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    $temporary = "$ReceiptPath.$PID.tmp"
+    $previous = $null
+    if (Test-Path -LiteralPath $ReceiptPath -PathType Leaf) {
+        try { $previous = Get-Content -LiteralPath $ReceiptPath -Raw | ConvertFrom-Json } catch {}
+    }
+    $now = [DateTime]::UtcNow
+    $startedAt = if ($previous -and $previous.startedAt) {
+        [DateTime]::Parse([string]$previous.startedAt).ToUniversalTime()
+    }
+    elseif ($env:MIXDOG_FASTDIRECT_STARTED_AT) {
+        [DateTime]::Parse([string]$env:MIXDOG_FASTDIRECT_STARTED_AT).ToUniversalTime()
+    }
+    else {
+        $now
+    }
+    $timeline = @()
+    if ($previous -and $previous.timeline) { $timeline += @($previous.timeline) }
+    $timeline += [ordered]@{ status = $Status; at = $now.ToString('o'); pid = $PID }
+    $snapshotTimings = $null
+    if ($env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS) {
+        try { $snapshotTimings = $env:MIXDOG_FASTDIRECT_SNAPSHOT_TIMINGS | ConvertFrom-Json } catch {}
+    }
+    $json = [ordered]@{
+        status    = $Status
+        detail    = $Detail
+        pid       = $PID
+        at        = $now.ToString('o')
+        startedAt = $startedAt.ToString('o')
+        elapsedMs = [math]::Round(($now - $startedAt).TotalMilliseconds)
+        snapshot  = $snapshotTimings
+        timeline  = $timeline
+    } | ConvertTo-Json -Depth 6 -Compress
+    [IO.File]::WriteAllText($temporary, $json, [Text.UTF8Encoding]::new($false))
+    Move-Item -LiteralPath $temporary -Destination $ReceiptPath -Force
 }
 
 function Start-FastDirectWorker {
-  if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-    throw 'FastDirect worker receipt path is required.'
-  }
-  $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
-  $scriptPath = $PSCommandPath
-  $quote = {
-    param([string]$Value)
-    return "'" + $Value.Replace("'", "''") + "'"
-  }
-  $workerCommand = "& $(& $quote $scriptPath) -FastDirect -FastDirectWorker -SkipBuild" `
-    + " -InstallDir $(& $quote $InstallDir) -Version $(& $quote $targetVersion)" `
-    + " -ReceiptPath $(& $quote $ReceiptPath)" `
-    + " -FastPlanPath $(& $quote $FastPlanPath)" `
-    + " -FastStatePath $(& $quote $FastStatePath)" `
-    + " -FastArtifactDir $(& $quote $FastArtifactDir)" `
-    + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
-  $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
-  # WMI owns the deployment worker, not Mixdog's shell process tree. Stopping
-  # the app/daemon therefore cannot kill the worker before the directory swap.
-  $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-    CommandLine = $commandLine
-  }
-  if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
-    throw "Failed to start detached fast deploy worker (WMI return $($created.ReturnValue))."
-  }
-  Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
-  return [int]$created.ProcessId
+    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
+        throw 'FastDirect worker receipt path is required.'
+    }
+    $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
+    $scriptPath = $PSCommandPath
+    $quote = {
+        param([string]$Value)
+        return "'" + $Value.Replace("'", "''") + "'"
+    }
+    $workerCommand = "& $(& $quote $scriptPath) -FastDirect -FastDirectWorker -SkipBuild" `
+        + " -InstallDir $(& $quote $InstallDir) -Version $(& $quote $targetVersion)" `
+        + " -ReceiptPath $(& $quote $ReceiptPath)" `
+        + " -FastPlanPath $(& $quote $FastPlanPath)" `
+        + " -FastStatePath $(& $quote $FastStatePath)" `
+        + " -FastArtifactDir $(& $quote $FastArtifactDir)" `
+        + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
+    $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
+    # WMI owns the deployment worker, not Mixdog's shell process tree. Stopping
+    # the app/daemon therefore cannot kill the worker before the directory swap.
+    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = $commandLine
+    }
+    if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
+        throw "Failed to start detached fast deploy worker (WMI return $($created.ReturnValue))."
+    }
+    Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
+    return [int]$created.ProcessId
 }
 
 function Start-RuntimeOnlyWorker {
-  if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-    throw 'RuntimeOnly worker receipt path is required.'
-  }
-  $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
-  $scriptPath = $PSCommandPath
-  $quote = {
-    param([string]$Value)
-    return "'" + $Value.Replace("'", "''") + "'"
-  }
-  $workerCommand = "& $(& $quote $scriptPath) -RuntimeOnly -RuntimeOnlyWorker -SkipBuild" `
-    + " -InstallDir $(& $quote $InstallDir)" `
-    + " -ReceiptPath $(& $quote $ReceiptPath)" `
-    + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
-  $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
-  $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
-  # WMI owns the worker so stopping the daemon cannot terminate the runtime
-  # archive swap that follows.
-  $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-    CommandLine = $commandLine
-  }
-  if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
-    throw "Failed to start detached runtime deploy worker (WMI return $($created.ReturnValue))."
-  }
-  Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
-  return [int]$created.ProcessId
+    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
+        throw 'RuntimeOnly worker receipt path is required.'
+    }
+    $pwsh = (Get-Command pwsh.exe -ErrorAction Stop).Source
+    $scriptPath = $PSCommandPath
+    $quote = {
+        param([string]$Value)
+        return "'" + $Value.Replace("'", "''") + "'"
+    }
+    $workerCommand = "& $(& $quote $scriptPath) -RuntimeOnly -RuntimeOnlyWorker -SkipBuild" `
+        + " -InstallDir $(& $quote $InstallDir)" `
+        + " -ReceiptPath $(& $quote $ReceiptPath)" `
+        + $(if ($NoLaunch) { ' -NoLaunch' } else { '' })
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($workerCommand))
+    $commandLine = "`"$pwsh`" -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand $encoded"
+    # WMI owns the worker so stopping the daemon cannot terminate the runtime
+    # archive swap that follows.
+    $created = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+        CommandLine = $commandLine
+    }
+    if ([int]$created.ReturnValue -ne 0 -or [int]$created.ProcessId -le 0) {
+        throw "Failed to start detached runtime deploy worker (WMI return $($created.ReturnValue))."
+    }
+    Write-FastDirectReceipt -Status 'launched' -Detail "workerPid=$($created.ProcessId)"
+    return [int]$created.ProcessId
 }
 
 # Windows stamps a shortcut's AppUserModelID onto the process it launches and
@@ -209,632 +211,653 @@ function Start-RuntimeOnlyWorker {
 $script:mixdogShortcutResolved = $false
 $script:mixdogShortcutPath = ''
 function Get-MixdogShortcutPath {
-  if ($script:mixdogShortcutResolved) { return $script:mixdogShortcutPath }
-  $script:mixdogShortcutResolved = $true
-  $candidates = @(
-    (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Mixdog.lnk'),
-    (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Mixdog.lnk'),
-    (Join-Path $env:PUBLIC 'Desktop\Mixdog.lnk'),
-    (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mixdog.lnk')
-  )
-  $shell = $null
-  try { $shell = New-Object -ComObject WScript.Shell } catch { return '' }
-  try {
-    $wanted = [System.IO.Path]::GetFullPath($installedExe)
-    foreach ($candidate in $candidates) {
-      if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-      $target = ''
-      try { $target = $shell.CreateShortcut($candidate).TargetPath } catch { continue }
-      if ([string]::IsNullOrWhiteSpace($target)) { continue }
-      # Only a shortcut pointing at THIS install carries the right identity; a
-      # stale one from another install dir would launch the wrong build.
-      if ([string]::Equals([System.IO.Path]::GetFullPath($target), $wanted, [StringComparison]::OrdinalIgnoreCase)) {
-        $script:mixdogShortcutPath = $candidate
-        break
-      }
+    if ($script:mixdogShortcutResolved) { return $script:mixdogShortcutPath }
+    $script:mixdogShortcutResolved = $true
+    $candidates = @(
+        (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Mixdog.lnk'),
+        (Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Mixdog.lnk'),
+        (Join-Path $env:PUBLIC 'Desktop\Mixdog.lnk'),
+        (Join-Path ([Environment]::GetFolderPath('Desktop')) 'Mixdog.lnk')
+    )
+    $shell = $null
+    try { $shell = New-Object -ComObject WScript.Shell } catch { return '' }
+    try {
+        $wanted = [System.IO.Path]::GetFullPath($installedExe)
+        foreach ($candidate in $candidates) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            $target = ''
+            try { $target = $shell.CreateShortcut($candidate).TargetPath } catch { continue }
+            if ([string]::IsNullOrWhiteSpace($target)) { continue }
+            # Only a shortcut pointing at THIS install carries the right identity; a
+            # stale one from another install dir would launch the wrong build.
+            if ([string]::Equals([System.IO.Path]::GetFullPath($target), $wanted, [StringComparison]::OrdinalIgnoreCase)) {
+                $script:mixdogShortcutPath = $candidate
+                break
+            }
+        }
     }
-  } catch {
-    $script:mixdogShortcutPath = ''
-  } finally {
-    if ($shell) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
-  }
-  return $script:mixdogShortcutPath
+    catch {
+        $script:mixdogShortcutPath = ''
+    }
+    finally {
+        if ($shell) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell) }
+    }
+    return $script:mixdogShortcutPath
 }
 
 function Start-InstalledMixdogApp {
-  param([string]$Exe = '')
-  if ([string]::IsNullOrWhiteSpace($Exe)) { $Exe = $installedExe }
-  $shortcut = Get-MixdogShortcutPath
-  # No shortcut (fresh dev box, uninstalled Start Menu entry) still has to
-  # launch; it only loses the Task Manager grouping.
-  if ($shortcut) { Start-Process -FilePath $shortcut | Out-Null }
-  else { Start-Process -FilePath $Exe | Out-Null }
+    param([string]$Exe = '')
+    if ([string]::IsNullOrWhiteSpace($Exe)) { $Exe = $installedExe }
+    $shortcut = Get-MixdogShortcutPath
+    # No shortcut (fresh dev box, uninstalled Start Menu entry) still has to
+    # launch; it only loses the Task Manager grouping.
+    if ($shortcut) { Start-Process -FilePath $shortcut | Out-Null }
+    else { Start-Process -FilePath $Exe | Out-Null }
 }
 
 function Start-DetachedMixdogApp {
-  if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
-    throw "Installed app is missing: $installedExe"
-  }
-  # Explorer performs the GUI launch outside the deployment worker's console
-  # and process tree. Closing that shell can no longer close the new app.
-  $launchTarget = Get-MixdogShortcutPath
-  if (-not $launchTarget) { $launchTarget = $installedExe }
-  Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') `
-    -ArgumentList @($launchTarget) | Out-Null
+    if (-not (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+        throw "Installed app is missing: $installedExe"
+    }
+    # Explorer performs the GUI launch outside the deployment worker's console
+    # and process tree. Closing that shell can no longer close the new app.
+    $launchTarget = Get-MixdogShortcutPath
+    if (-not $launchTarget) { $launchTarget = $installedExe }
+    Start-Process -FilePath (Join-Path $env:WINDIR 'explorer.exe') `
+        -ArgumentList @($launchTarget) | Out-Null
 }
 
 function Get-AppProcess {
-  # The desktop MAIN process only: Chromium children carry --type=, and the
-  # Daemon/memory forks run the same exe with a script argument.
-  return @(Get-CimInstance Win32_Process -Filter "Name='Mixdog.exe'" | Where-Object {
-    $_.ExecutablePath -eq $installedExe `
-      -and $_.CommandLine -notmatch '--type=' `
-      -and $_.CommandLine -notmatch '--eval' `
-      -and $_.CommandLine -notmatch '\.mjs'
-  })
+    # The desktop MAIN process only: Chromium children carry --type=, and the
+    # Daemon/memory forks run the same exe with a script argument.
+    return @(Get-CimInstance Win32_Process -Filter "Name='Mixdog.exe'" | Where-Object {
+            $_.ExecutablePath -eq $installedExe `
+                -and $_.CommandLine -notmatch '--type=' `
+                -and $_.CommandLine -notmatch '--eval' `
+                -and $_.CommandLine -notmatch '\.mjs'
+        })
 }
 
 function Get-InstalledMixdogProcess {
-  return @(Get-CimInstance Win32_Process -Filter "Name='Mixdog.exe'" | Where-Object {
-    $_.ExecutablePath -eq $installedExe
-  })
+    return @(Get-CimInstance Win32_Process -Filter "Name='Mixdog.exe'" | Where-Object {
+            $_.ExecutablePath -eq $installedExe
+        })
 }
 
 function Stop-InstalledMixdogProcess {
-  $deadline = [DateTime]::UtcNow.AddSeconds(10)
-  while (@(Get-InstalledMixdogProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
-    Start-Sleep -Milliseconds 200
-  }
-  foreach ($process in @(Get-InstalledMixdogProcess)) {
-    Write-Host "    force stopping installed Mixdog child pid=$($process.ProcessId)"
-    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-  }
-  $deadline = [DateTime]::UtcNow.AddSeconds(10)
-  while (@(Get-InstalledMixdogProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
-    Start-Sleep -Milliseconds 200
-  }
-  $remaining = @(Get-InstalledMixdogProcess)
-  if ($remaining.Count) {
-    throw "Installed Mixdog processes still hold the deployment directory: $($remaining.ProcessId -join ', ')"
-  }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (@(Get-InstalledMixdogProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    foreach ($process in @(Get-InstalledMixdogProcess)) {
+        Write-Host "    force stopping installed Mixdog child pid=$($process.ProcessId)"
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while (@(Get-InstalledMixdogProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    $remaining = @(Get-InstalledMixdogProcess)
+    if ($remaining.Count) {
+        throw "Installed Mixdog processes still hold the deployment directory: $($remaining.ProcessId -join ', ')"
+    }
 }
 
 function Get-DaemonProcess {
-  return @(Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -match 'daemon\.mjs' -or $_.CommandLine -match 'runtime\\memory\\index\.mjs'
-  })
+    return @(Get-CimInstance Win32_Process | Where-Object {
+            $_.CommandLine -match 'daemon\.mjs' -or $_.CommandLine -match 'runtime\\memory\\index\.mjs'
+        })
 }
 
 function Get-DaemonRecord {
-  if (-not (Test-Path -LiteralPath $daemonDiscovery)) { return $null }
-  try {
-    $record = Get-Content -LiteralPath $daemonDiscovery -Raw | ConvertFrom-Json
-    return [pscustomobject]@{
-      pid = $record.pid
-      port = $record.endpoints.session.port
-      token = $record.endpoints.session.token
+    if (-not (Test-Path -LiteralPath $daemonDiscovery)) { return $null }
+    try {
+        $record = Get-Content -LiteralPath $daemonDiscovery -Raw | ConvertFrom-Json
+        return [pscustomobject]@{
+            pid   = $record.pid
+            port  = $record.endpoints.session.port
+            token = $record.endpoints.session.token
+        }
     }
-  } catch { return $null }
+    catch { return $null }
 }
 
 function Get-InstalledVersion {
-  if (-not (Test-Path -LiteralPath $installedExe)) { return '' }
-  return [string](Get-Item -LiteralPath $installedExe).VersionInfo.ProductVersion
+    if (-not (Test-Path -LiteralPath $installedExe)) { return '' }
+    return [string](Get-Item -LiteralPath $installedExe).VersionInfo.ProductVersion
 }
 
 function Get-NextDevVersion {
-  $manifest = Get-Content -LiteralPath (Join-Path $desktopDir 'package.json') -Raw | ConvertFrom-Json
-  $baseVersion = [Version]([string]$manifest.version)
-  $installedVersionText = Get-InstalledVersion
-  if (-not [string]::IsNullOrWhiteSpace($installedVersionText)) {
-    $installedVersion = [Version]$installedVersionText
-    if ($installedVersion -gt $baseVersion) { $baseVersion = $installedVersion }
-  }
-  return "$($baseVersion.Major).$($baseVersion.Minor).$($baseVersion.Build + 1)"
+    $manifest = Get-Content -LiteralPath (Join-Path $desktopDir 'package.json') -Raw | ConvertFrom-Json
+    $baseVersion = [Version]([string]$manifest.version)
+    $installedVersionText = Get-InstalledVersion
+    if (-not [string]::IsNullOrWhiteSpace($installedVersionText)) {
+        $installedVersion = [Version]$installedVersionText
+        if ($installedVersion -gt $baseVersion) { $baseVersion = $installedVersion }
+    }
+    return "$($baseVersion.Major).$($baseVersion.Minor).$($baseVersion.Build + 1)"
 }
 
 function Get-InstalledSemVer {
-  $text = Get-InstalledVersion
-  if ([string]::IsNullOrWhiteSpace($text)) { return '' }
-  $value = [Version]$text
-  return "$($value.Major).$($value.Minor).$($value.Build)"
+    $text = Get-InstalledVersion
+    if ([string]::IsNullOrWhiteSpace($text)) { return '' }
+    $value = [Version]$text
+    return "$($value.Major).$($value.Minor).$($value.Build)"
 }
 
 function Stop-MixdogApp {
-  # @() at every call site: PowerShell unrolls a single-element return value,
-  # and a lone CimInstance has no usable .Count.
-  $apps = @(Get-AppProcess)
-  if (-not $apps.Count) { Write-Host '    app is not running'; return }
-  foreach ($app in $apps) {
-    Write-Host "    closing Mixdog.exe pid=$($app.ProcessId)"
-    $process = Get-Process -Id $app.ProcessId -ErrorAction SilentlyContinue
-    if (-not $process) { continue }
-    [void]$process.CloseMainWindow()
-    if (-not $process.WaitForExit(15000)) {
-      Write-Host "    forcing pid=$($app.ProcessId)"
-      Stop-Process -Id $app.ProcessId -Force -ErrorAction SilentlyContinue
+    # @() at every call site: PowerShell unrolls a single-element return value,
+    # and a lone CimInstance has no usable .Count.
+    $apps = @(Get-AppProcess)
+    if (-not $apps.Count) { Write-Host '    app is not running'; return }
+    foreach ($app in $apps) {
+        Write-Host "    closing Mixdog.exe pid=$($app.ProcessId)"
+        $process = Get-Process -Id $app.ProcessId -ErrorAction SilentlyContinue
+        if (-not $process) { continue }
+        [void]$process.CloseMainWindow()
+        if (-not $process.WaitForExit(15000)) {
+            Write-Host "    forcing pid=$($app.ProcessId)"
+            Stop-Process -Id $app.ProcessId -Force -ErrorAction SilentlyContinue
+        }
     }
-  }
 }
 
 function Stop-Daemon {
-  # Same /shutdown the client's shutdownDaemon() posts; the daemon owns
-  # both front doors, so one call ends channels + sessions + memory client.
-  $record = Get-DaemonRecord
-  if ($record -and $record.port -and $record.token) {
-    try {
-      Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($record.port)/shutdown" `
-        -Headers @{ 'X-Mixdog-Daemon-Token' = [string]$record.token } -Body '{}' `
-        -ContentType 'application/json' -TimeoutSec 5 | Out-Null
-      Write-Host "    asked daemon pid=$($record.pid) to exit"
-    } catch {
-      Write-Host "    daemon /shutdown failed: $($_.Exception.Message)"
+    # Same /shutdown the client's shutdownDaemon() posts; the daemon owns
+    # both front doors, so one call ends channels + sessions + memory client.
+    $record = Get-DaemonRecord
+    if ($record -and $record.port -and $record.token) {
+        try {
+            Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:$($record.port)/shutdown" `
+                -Headers @{ 'X-Mixdog-Daemon-Token' = [string]$record.token } -Body '{}' `
+                -ContentType 'application/json' -TimeoutSec 5 | Out-Null
+            Write-Host "    asked daemon pid=$($record.pid) to exit"
+        }
+        catch {
+            Write-Host "    daemon /shutdown failed: $($_.Exception.Message)"
+        }
     }
-  }
-  $deadline = [DateTime]::UtcNow.AddSeconds(15)
-  while (@(Get-DaemonProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
-    Start-Sleep -Milliseconds 200
-  }
-  foreach ($process in @(Get-DaemonProcess)) {
-    Write-Host "    force stopping daemon pid=$($process.ProcessId)"
-    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-  }
-  Remove-Item -LiteralPath $daemonDiscovery -Force -ErrorAction SilentlyContinue
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    while (@(Get-DaemonProcess).Count -gt 0 -and [DateTime]::UtcNow -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+    }
+    foreach ($process in @(Get-DaemonProcess)) {
+        Write-Host "    force stopping daemon pid=$($process.ProcessId)"
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+    Remove-Item -LiteralPath $daemonDiscovery -Force -ErrorAction SilentlyContinue
 }
 
 function Wait-ForApp {
-  param([int]$TimeoutSeconds = 30)
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-  while ([DateTime]::UtcNow -lt $deadline) {
-    if (@(Get-AppProcess).Count -gt 0) { return $true }
-    Start-Sleep -Milliseconds 500
-  }
-  return $false
+    param([int]$TimeoutSeconds = 30)
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if (@(Get-AppProcess).Count -gt 0) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
 }
 
 function Wait-ForVisibleAppWindow {
-  param([int]$TimeoutSeconds = 30)
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-  while ([DateTime]::UtcNow -lt $deadline) {
-    foreach ($app in @(Get-AppProcess)) {
-      $process = Get-Process -Id $app.ProcessId -ErrorAction SilentlyContinue
-      if ($process -and $process.MainWindowHandle -ne [IntPtr]::Zero) { return $true }
+    param([int]$TimeoutSeconds = 30)
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        foreach ($app in @(Get-AppProcess)) {
+            $process = Get-Process -Id $app.ProcessId -ErrorAction SilentlyContinue
+            if ($process -and $process.MainWindowHandle -ne [IntPtr]::Zero) { return $true }
+        }
+        Start-Sleep -Milliseconds 500
     }
-    Start-Sleep -Milliseconds 500
-  }
-  return $false
+    return $false
 }
 
 function Wait-ForFreshDaemon {
-  param(
-    $Previous,
-    [int]$TimeoutSeconds = 120,
-    [string]$RelaunchExe = '',
-    [switch]$DetachedRelaunch
-  )
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-  $relaunchAttempts = 0
-  $nextRelaunchAt = [DateTime]::UtcNow.AddSeconds(2)
-  while ([DateTime]::UtcNow -lt $deadline) {
-    $record = Get-DaemonRecord
-    if ($record -and $record.pid -and (-not $Previous -or [int]$record.pid -ne [int]$Previous.pid)) { return $record }
-    # A one-click NSIS install can briefly launch the app while its own
-    # single-instance mutex is still being released, then that launch exits
-    # before the daemon publishes discovery. Recover in the same command
-    # instead of waiting out the full daemon timeout with no desktop process.
-    if (
-      $RelaunchExe `
-        -and $relaunchAttempts -lt 2 `
-        -and [DateTime]::UtcNow -ge $nextRelaunchAt `
-        -and @(Get-AppProcess).Count -eq 0
-    ) {
-      $relaunchAttempts += 1
-      Write-Step "desktop exited before daemon readiness; relaunching (attempt $relaunchAttempts)"
-      if ($DetachedRelaunch) {
-        Start-DetachedMixdogApp
-      } else {
-        Start-InstalledMixdogApp -Exe $RelaunchExe
-      }
-      $nextRelaunchAt = [DateTime]::UtcNow.AddSeconds(15)
+    param(
+        $Previous,
+        [int]$TimeoutSeconds = 120,
+        [string]$RelaunchExe = '',
+        [switch]$DetachedRelaunch
+    )
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $relaunchAttempts = 0
+    $nextRelaunchAt = [DateTime]::UtcNow.AddSeconds(2)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $record = Get-DaemonRecord
+        if ($record -and $record.pid -and (-not $Previous -or [int]$record.pid -ne [int]$Previous.pid)) { return $record }
+        # A one-click NSIS install can briefly launch the app while its own
+        # single-instance mutex is still being released, then that launch exits
+        # before the daemon publishes discovery. Recover in the same command
+        # instead of waiting out the full daemon timeout with no desktop process.
+        if (
+            $RelaunchExe `
+                -and $relaunchAttempts -lt 2 `
+                -and [DateTime]::UtcNow -ge $nextRelaunchAt `
+                -and @(Get-AppProcess).Count -eq 0
+        ) {
+            $relaunchAttempts += 1
+            Write-Step "desktop exited before daemon readiness; relaunching (attempt $relaunchAttempts)"
+            if ($DetachedRelaunch) {
+                Start-DetachedMixdogApp
+            }
+            else {
+                Start-InstalledMixdogApp -Exe $RelaunchExe
+            }
+            $nextRelaunchAt = [DateTime]::UtcNow.AddSeconds(15)
+        }
+        Start-Sleep -Milliseconds 500
     }
-    Start-Sleep -Milliseconds 500
-  }
-  return $null
+    return $null
 }
 
 function Invoke-Build {
-  param(
-    [string]$OverrideVersion,
-    [switch]$DirectoryOnly,
-    [object]$Plan = $null
-  )
-  Push-Location $desktopDir
-  try {
-    if ($DirectoryOnly) {
-      # Fast local deployment still includes every current Desktop/runtime
-      # source file, but intentionally omits the release-only typecheck and
-      # NSIS compression stages.
-      Invoke-FastDirectChangedOutputs $Plan
-      & npm.cmd run brand:win
-      if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
-      $npx = (Get-Command npx.cmd -ErrorAction Stop).Source
-      $builder = Start-Process -FilePath $npx `
-        -ArgumentList @('electron-builder', '--dir', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$OverrideVersion") `
-        -WorkingDirectory $desktopDir -NoNewWindow -Wait -PassThru
-      if ($builder.ExitCode -ne 0) { throw "electron-builder --dir exited with $($builder.ExitCode)" }
-      Assert-DesktopDaemonArtifact $unpackedDir
-      Write-Step 'complete win-unpacked fallback ready'
-      return
+    param(
+        [string]$OverrideVersion,
+        [switch]$DirectoryOnly,
+        [object]$Plan = $null
+    )
+    Push-Location $desktopDir
+    try {
+        if ($DirectoryOnly) {
+            # Fast local deployment still includes every current Desktop/runtime
+            # source file, but intentionally omits the release-only typecheck and
+            # NSIS compression stages.
+            Invoke-FastDirectChangedOutputs $Plan
+            & npm.cmd run brand:win
+            if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
+            $npx = (Get-Command npx.cmd -ErrorAction Stop).Source
+            $builder = Start-Process -FilePath $npx `
+                -ArgumentList @('electron-builder', '--dir', '--win', '--x64', '--publish', 'never', "-c.extraMetadata.version=$OverrideVersion") `
+                -WorkingDirectory $desktopDir -NoNewWindow -Wait -PassThru
+            if ($builder.ExitCode -ne 0) { throw "electron-builder --dir exited with $($builder.ExitCode)" }
+            Assert-DesktopDaemonArtifact $unpackedDir
+            Write-Step 'complete win-unpacked fallback ready'
+            return
+        }
+        if ([string]::IsNullOrWhiteSpace($OverrideVersion)) {
+            & npm.cmd run build:win
+            if ($LASTEXITCODE -ne 0) { throw "build:win exited with $LASTEXITCODE" }
+            return
+        }
+        # Same steps as build:win, with the version the local feed will advertise.
+        & npm.cmd run build
+        if ($LASTEXITCODE -ne 0) { throw "build exited with $LASTEXITCODE" }
+        & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+        if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+        & npm.cmd run brand:win
+        if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
+        & npx.cmd electron-builder --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
+        if ($LASTEXITCODE -ne 0) { throw "electron-builder exited with $LASTEXITCODE" }
+        & npm.cmd run verify:update-metadata
+        if ($LASTEXITCODE -ne 0) { throw "verify:update-metadata exited with $LASTEXITCODE" }
     }
-    if ([string]::IsNullOrWhiteSpace($OverrideVersion)) {
-      & npm.cmd run build:win
-      if ($LASTEXITCODE -ne 0) { throw "build:win exited with $LASTEXITCODE" }
-      return
+    finally {
+        Pop-Location
     }
-    # Same steps as build:win, with the version the local feed will advertise.
-    & npm.cmd run build
-    if ($LASTEXITCODE -ne 0) { throw "build exited with $LASTEXITCODE" }
-    & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-    if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
-    & npm.cmd run brand:win
-    if ($LASTEXITCODE -ne 0) { throw "brand:win exited with $LASTEXITCODE" }
-    & npx.cmd electron-builder --win --x64 --publish never "-c.extraMetadata.version=$OverrideVersion"
-    if ($LASTEXITCODE -ne 0) { throw "electron-builder exited with $LASTEXITCODE" }
-    & npm.cmd run verify:update-metadata
-    if ($LASTEXITCODE -ne 0) { throw "verify:update-metadata exited with $LASTEXITCODE" }
-  } finally {
-    Pop-Location
-  }
 }
 
 function Get-FastDirectPlan {
-  param([switch]$ForceFull)
-  $output = & node $fastDirectHelper --action=plan "--install-dir=$InstallDir" `
-    "--state=$FastStatePath" "--plan=$FastPlanPath" "--force-full=$([bool]$ForceFull)"
-  if ($LASTEXITCODE -ne 0) { throw "FastDirect planning exited with $LASTEXITCODE" }
-  return ($output | Out-String | ConvertFrom-Json)
+    param([switch]$ForceFull)
+    $output = & node $fastDirectHelper --action=plan "--install-dir=$InstallDir" `
+        "--state=$FastStatePath" "--plan=$FastPlanPath" "--force-full=$([bool]$ForceFull)"
+    if ($LASTEXITCODE -ne 0) { throw "FastDirect planning exited with $LASTEXITCODE" }
+    return ($output | Out-String | ConvertFrom-Json)
 }
 
 function Assert-FastDirectPlanCurrent {
-  & node $fastDirectHelper --action=assert-current "--install-dir=$InstallDir" `
-    "--plan=$FastPlanPath"
-  if ($LASTEXITCODE -ne 0) {
-    throw 'FastDirect inputs changed after planning/build; rerun the deploy before installing artifacts.'
-  }
+    & node $fastDirectHelper --action=assert-current "--install-dir=$InstallDir" `
+        "--plan=$FastPlanPath"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'FastDirect inputs changed after planning/build; rerun the deploy before installing artifacts.'
+    }
 }
 
 function Test-FastDirectNoOp {
-  param([object]$Plan)
-  return (
-    -not [bool]$Plan.full -and
-    @($Plan.targets).Count -eq 0 -and
-    -not [bool]$Plan.daemon -and
-    -not [bool]$Plan.runtime
-  )
+    param([object]$Plan)
+    return (
+        -not [bool]$Plan.full -and
+        @($Plan.targets).Count -eq 0 -and
+        -not [bool]$Plan.daemon -and
+        -not [bool]$Plan.runtime
+    )
 }
 
 function Get-FastRendererWatchState {
-  if (-not (Test-Path -LiteralPath $fastRendererWatchState -PathType Leaf)) { return $null }
-  try {
-    return Get-Content -LiteralPath $fastRendererWatchState -Raw | ConvertFrom-Json
-  } catch {
-    return $null
-  }
+    if (-not (Test-Path -LiteralPath $fastRendererWatchState -PathType Leaf)) { return $null }
+    try {
+        return Get-Content -LiteralPath $fastRendererWatchState -Raw | ConvertFrom-Json
+    }
+    catch {
+        return $null
+    }
 }
 
 function Get-FastRendererWatchProcess {
-  $state = Get-FastRendererWatchState
-  if ($null -eq $state -or -not $state.pid) { return $null }
-  $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$state.pid)" `
-    -ErrorAction SilentlyContinue
-  if ($null -eq $process -or $process.CommandLine -notlike '*dev-renderer-watch.mjs*') {
-    return $null
-  }
-  return $process
+    $state = Get-FastRendererWatchState
+    if ($null -eq $state -or -not $state.pid) { return $null }
+    $process = Get-CimInstance Win32_Process -Filter "ProcessId = $([int]$state.pid)" `
+        -ErrorAction SilentlyContinue
+    if ($null -eq $process -or $process.CommandLine -notlike '*dev-renderer-watch.mjs*') {
+        return $null
+    }
+    return $process
 }
 
 function Stop-FastRendererWatch {
-  $process = Get-FastRendererWatchProcess
-  if ($process) {
-    Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-    try { Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue } catch {}
-  }
-  Remove-Item -LiteralPath $fastRendererWatchState -Force -ErrorAction SilentlyContinue
+    $process = Get-FastRendererWatchProcess
+    if ($process) {
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+        try { Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue } catch {}
+    }
+    Remove-Item -LiteralPath $fastRendererWatchState -Force -ErrorAction SilentlyContinue
 }
 
 function Start-FastRendererWatch {
-  $cacheDir = Split-Path -Parent $fastRendererWatchState
-  New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
-  Remove-Item -LiteralPath $fastRendererWatchState, $fastRendererWatchLog, `
-    $fastRendererWatchErrorLog -Force -ErrorAction SilentlyContinue
-  $node = (Get-Command node.exe -ErrorAction Stop).Source
-  $process = Start-Process -FilePath $node `
-    -ArgumentList @($fastRendererWatchHelper, "--state=$fastRendererWatchState") `
-    -WorkingDirectory $desktopDir -WindowStyle Hidden -PassThru `
-    -RedirectStandardOutput $fastRendererWatchLog `
-    -RedirectStandardError $fastRendererWatchErrorLog
-  Start-Sleep -Milliseconds 250
-  if ($process.HasExited) {
-    $detail = if (Test-Path -LiteralPath $fastRendererWatchErrorLog) {
-      Get-Content -LiteralPath $fastRendererWatchErrorLog -Raw
-    } else { 'no watcher error output' }
-    throw "renderer watcher exited during startup: $detail"
-  }
+    $cacheDir = Split-Path -Parent $fastRendererWatchState
+    New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+    Remove-Item -LiteralPath $fastRendererWatchState, $fastRendererWatchLog, `
+        $fastRendererWatchErrorLog -Force -ErrorAction SilentlyContinue
+    $node = (Get-Command node.exe -ErrorAction Stop).Source
+    $process = Start-Process -FilePath $node `
+        -ArgumentList @($fastRendererWatchHelper, "--state=$fastRendererWatchState") `
+        -WorkingDirectory $desktopDir -WindowStyle Hidden -PassThru `
+        -RedirectStandardOutput $fastRendererWatchLog `
+        -RedirectStandardError $fastRendererWatchErrorLog
+    Start-Sleep -Milliseconds 250
+    if ($process.HasExited) {
+        $detail = if (Test-Path -LiteralPath $fastRendererWatchErrorLog) {
+            Get-Content -LiteralPath $fastRendererWatchErrorLog -Raw
+        }
+        else { 'no watcher error output' }
+        throw "renderer watcher exited during startup: $detail"
+    }
 }
 
 function Test-FastRendererOutputFresh {
-  param([object]$Plan)
-  $output = Join-Path $desktopDir 'out\renderer\index.html'
-  if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { return $false }
-  $outputMtimeMs = ([DateTimeOffset](Get-Item -LiteralPath $output).LastWriteTimeUtc).ToUnixTimeMilliseconds()
-  $requiredMtimeMs = [Math]::Max(
-    [double]$Plan.groups.renderer.newestMtimeMs,
-    [double]$Plan.groups.package.newestMtimeMs
-  )
-  return $outputMtimeMs -ge $requiredMtimeMs
+    param([object]$Plan)
+    $output = Join-Path $desktopDir 'out\renderer\index.html'
+    if (-not (Test-Path -LiteralPath $output -PathType Leaf)) { return $false }
+    $outputMtimeMs = ([DateTimeOffset](Get-Item -LiteralPath $output).LastWriteTimeUtc).ToUnixTimeMilliseconds()
+    $requiredMtimeMs = [Math]::Max(
+        [double]$Plan.groups.renderer.newestMtimeMs,
+        [double]$Plan.groups.package.newestMtimeMs
+    )
+    return $outputMtimeMs -ge $requiredMtimeMs
 }
 
 function Complete-FastRendererWatchBuild {
-  param([object]$Plan)
-  try {
-    $state = Get-FastRendererWatchState
-    $process = Get-FastRendererWatchProcess
-    $configMtimeMs = ([DateTimeOffset](Get-Item -LiteralPath `
-      (Join-Path $desktopDir 'electron.vite.config.ts')).LastWriteTimeUtc).ToUnixTimeMilliseconds()
-    if ($process -and ([double]$state.configMtimeMs + 1) -lt $configMtimeMs) {
-      Write-Step 'restarting renderer watch cache for changed build config'
-      Stop-FastRendererWatch
-      $process = $null
-    }
-    if (-not $process) {
-      Write-Step 'starting persistent production renderer build cache'
-      Start-FastRendererWatch
-    } else {
-      Write-Step 'waiting for persistent renderer rebuild'
-    }
+    param([object]$Plan)
+    try {
+        $state = Get-FastRendererWatchState
+        $process = Get-FastRendererWatchProcess
+        $configMtimeMs = ([DateTimeOffset](Get-Item -LiteralPath `
+                (Join-Path $desktopDir 'electron.vite.config.ts')).LastWriteTimeUtc).ToUnixTimeMilliseconds()
+        if ($process -and ([double]$state.configMtimeMs + 1) -lt $configMtimeMs) {
+            Write-Step 'restarting renderer watch cache for changed build config'
+            Stop-FastRendererWatch
+            $process = $null
+        }
+        if (-not $process) {
+            Write-Step 'starting persistent production renderer build cache'
+            Start-FastRendererWatch
+        }
+        else {
+            Write-Step 'waiting for persistent renderer rebuild'
+        }
 
-    $deadline = [DateTime]::UtcNow.AddSeconds(90)
-    while ([DateTime]::UtcNow -lt $deadline) {
-      if (Test-FastRendererOutputFresh $Plan) {
-        Write-Step 'reusing warm renderer build'
-        return Get-FastDirectPlan
-      }
-      $state = Get-FastRendererWatchState
-      if ($state -and $state.status -eq 'error') {
-        throw "renderer watcher failed: $($state.detail)"
-      }
-      if (-not (Get-FastRendererWatchProcess)) {
-        throw 'renderer watcher stopped before producing a fresh build'
-      }
-      Start-Sleep -Milliseconds 200
+        $deadline = [DateTime]::UtcNow.AddSeconds(90)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if (Test-FastRendererOutputFresh $Plan) {
+                Write-Step 'reusing warm renderer build'
+                return Get-FastDirectPlan
+            }
+            $state = Get-FastRendererWatchState
+            if ($state -and $state.status -eq 'error') {
+                throw "renderer watcher failed: $($state.detail)"
+            }
+            if (-not (Get-FastRendererWatchProcess)) {
+                throw 'renderer watcher stopped before producing a fresh build'
+            }
+            Start-Sleep -Milliseconds 200
+        }
+        throw 'renderer watcher did not produce a fresh build within 90 seconds'
     }
-    throw 'renderer watcher did not produce a fresh build within 90 seconds'
-  } catch {
-    Write-Warning "$($_.Exception.Message); falling back to a one-shot renderer build"
-    Stop-FastRendererWatch
-    return $Plan
-  }
+    catch {
+        Write-Warning "$($_.Exception.Message); falling back to a one-shot renderer build"
+        Stop-FastRendererWatch
+        return $Plan
+    }
 }
 
 function Invoke-SelectedElectronBuild {
-  param([string[]]$Targets)
-  if (@($Targets).Count -eq 0) { return }
-  Push-Location $desktopDir
-  try {
-    $previousTargets = $env:MIXDOG_ELECTRON_BUILD_TARGETS
-    $env:MIXDOG_ELECTRON_BUILD_TARGETS = $Targets -join ','
-    & npx.cmd electron-vite build
-    if ($LASTEXITCODE -ne 0) { throw "electron-vite incremental build exited with $LASTEXITCODE" }
-  } finally {
-    if ($null -eq $previousTargets) {
-      Remove-Item Env:MIXDOG_ELECTRON_BUILD_TARGETS -ErrorAction SilentlyContinue
-    } else {
-      $env:MIXDOG_ELECTRON_BUILD_TARGETS = $previousTargets
+    param([string[]]$Targets)
+    if (@($Targets).Count -eq 0) { return }
+    Push-Location $desktopDir
+    try {
+        $previousTargets = $env:MIXDOG_ELECTRON_BUILD_TARGETS
+        $env:MIXDOG_ELECTRON_BUILD_TARGETS = $Targets -join ','
+        & npx.cmd electron-vite build
+        if ($LASTEXITCODE -ne 0) { throw "electron-vite incremental build exited with $LASTEXITCODE" }
     }
-    Pop-Location
-  }
+    finally {
+        if ($null -eq $previousTargets) {
+            Remove-Item Env:MIXDOG_ELECTRON_BUILD_TARGETS -ErrorAction SilentlyContinue
+        }
+        else {
+            $env:MIXDOG_ELECTRON_BUILD_TARGETS = $previousTargets
+        }
+        Pop-Location
+    }
 }
 
 function Invoke-FastDirectChangedOutputs {
-  param([object]$Plan)
-  if ($null -eq $Plan) { throw 'FastDirect build plan is required.' }
-  $targets = if ($Plan.full) {
-    @('main', 'preload', 'renderer')
-  } else {
-    @($Plan.targets)
-  }
-  # The same rule the daemon artifact follows below, applied to the Electron
-  # targets: freshness is a claim about SOURCES, and a target whose output is
-  # not on disk cannot be fresh no matter what the plan says. A snapshot deploy
-  # builds in a throwaway worktree that starts with no `out/`, so a
-  # renderer-only plan staged an asar without out/main/index.js and the install
-  # failed on the missing entry point.
-  $targetArtifacts = [ordered]@{
-    main = 'out\main\index.js'
-    preload = 'out\preload\index.js'
-    renderer = 'out\renderer\index.html'
-  }
-  $missingTargets = @($targetArtifacts.Keys | Where-Object {
-    -not (Test-Path -LiteralPath (Join-Path $desktopDir $targetArtifacts[$_]) -PathType Leaf)
-  })
-  if ($missingTargets.Count -gt 0) {
-    Write-Step "missing build output for: $($missingTargets -join ', ')"
-    $targets = @($targetArtifacts.Keys | Where-Object { $_ -in $targets -or $_ -in $missingTargets })
-  }
-  $reusedTargets = @($targets | Where-Object {
-    ($ReuseBuild -or [bool]$Plan.prebuilt.$_) -and $_ -notin $missingTargets
-  })
-  $buildTargets = @($targets | Where-Object { $_ -notin $reusedTargets })
-  if ($reusedTargets.Count -gt 0) {
-    Write-Step "reusing fresh Electron target(s): $($reusedTargets -join ', ')"
-  }
-  if ($buildTargets.Count -gt 0) {
-    Write-Step "building changed Electron target(s): $($buildTargets -join ', ')"
-    Invoke-SelectedElectronBuild $buildTargets
-  }
-
-  # An Electron build clears out/main before recreating ITS OWN targets, and
-  # daemon.cjs is emitted by a separate script — so rebuilding `main` deletes a
-  # daemon the plan still believes is fresh, and staging then fails on an
-  # archive with no daemon in it. Freshness is a claim about sources; the
-  # artifact's own absence outranks it.
-  $daemonArtifact = Join-Path $desktopDir 'out\main\daemon.cjs'
-  $daemonMissing = -not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)
-  $daemonChanged = [bool]$Plan.full -or [bool]$Plan.daemon -or $daemonMissing
-  $reuseDaemon = $daemonChanged -and -not $Plan.full -and -not $daemonMissing `
-    -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
-  if ($reuseDaemon) {
-    Write-Step 'reusing fresh desktop daemon'
-  } elseif ($daemonChanged) {
-    Write-Step 'building changed desktop daemon'
-    Push-Location $desktopDir
-    try {
-      & node scripts/build-daemon.mjs
-      if ($LASTEXITCODE -ne 0) { throw "build-daemon exited with $LASTEXITCODE" }
-    } finally {
-      Pop-Location
+    param([object]$Plan)
+    if ($null -eq $Plan) { throw 'FastDirect build plan is required.' }
+    $targets = if ($Plan.full) {
+        @('main', 'preload', 'renderer')
     }
-  }
-
-  $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
-  $runtimeChanged = if ($Plan.full) {
-    [bool]$Plan.changed.runtime -or -not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)
-  } else {
-    [bool]$Plan.runtime
-  }
-  if ($runtimeChanged) {
-    Push-Location $desktopDir
-    try {
-      if ($Plan.full) {
-        Write-Step 'preparing production runtime.asar for the complete fallback'
-        & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-        if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
-      } else {
-        $runtimeMode = [string]$Plan.runtimeMode
-        if ([string]::IsNullOrWhiteSpace($runtimeMode) -or $runtimeMode -eq 'none') {
-          $runtimeMode = 'full'
-        }
-        Write-Step "preparing changed FastDirect runtime ($runtimeMode)"
-        if ($runtimeMode -eq 'code') {
-          & node scripts/prepare-fast-runtime-code.mjs `
-            "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
-            "--runtime-hash=$($Plan.groups.runtime.hash)"
-          if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
-        } else {
-          & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64 --mode=fast-full `
-            "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
-            "--runtime-hash=$($Plan.groups.runtime.hash)"
-          if ($LASTEXITCODE -ne 0) { throw "prepare:runtime fast-full exited with $LASTEXITCODE" }
-        }
-      }
-    } finally {
-      Pop-Location
+    else {
+        @($Plan.targets)
     }
-  }
+    # The same rule the daemon artifact follows below, applied to the Electron
+    # targets: freshness is a claim about SOURCES, and a target whose output is
+    # not on disk cannot be fresh no matter what the plan says. A snapshot deploy
+    # builds in a throwaway worktree that starts with no `out/`, so a
+    # renderer-only plan staged an asar without out/main/index.js and the install
+    # failed on the missing entry point.
+    $targetArtifacts = [ordered]@{
+        main     = 'out\main\index.js'
+        preload  = 'out\preload\index.js'
+        renderer = 'out\renderer\index.html'
+    }
+    $missingTargets = @($targetArtifacts.Keys | Where-Object {
+            -not (Test-Path -LiteralPath (Join-Path $desktopDir $targetArtifacts[$_]) -PathType Leaf)
+        })
+    if ($missingTargets.Count -gt 0) {
+        Write-Step "missing build output for: $($missingTargets -join ', ')"
+        $targets = @($targetArtifacts.Keys | Where-Object { $_ -in $targets -or $_ -in $missingTargets })
+    }
+    $reusedTargets = @($targets | Where-Object {
+            ($ReuseBuild -or [bool]$Plan.prebuilt.$_) -and $_ -notin $missingTargets
+        })
+    $buildTargets = @($targets | Where-Object { $_ -notin $reusedTargets })
+    if ($reusedTargets.Count -gt 0) {
+        Write-Step "reusing fresh Electron target(s): $($reusedTargets -join ', ')"
+    }
+    if ($buildTargets.Count -gt 0) {
+        Write-Step "building changed Electron target(s): $($buildTargets -join ', ')"
+        Invoke-SelectedElectronBuild $buildTargets
+    }
+
+    # An Electron build clears out/main before recreating ITS OWN targets, and
+    # daemon.cjs is emitted by a separate script — so rebuilding `main` deletes a
+    # daemon the plan still believes is fresh, and staging then fails on an
+    # archive with no daemon in it. Freshness is a claim about sources; the
+    # artifact's own absence outranks it.
+    $daemonArtifact = Join-Path $desktopDir 'out\main\daemon.cjs'
+    $daemonMissing = -not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)
+    $daemonChanged = [bool]$Plan.full -or [bool]$Plan.daemon -or $daemonMissing
+    $reuseDaemon = $daemonChanged -and -not $Plan.full -and -not $daemonMissing `
+        -and ($ReuseBuild -or [bool]$Plan.prebuilt.daemon)
+    if ($reuseDaemon) {
+        Write-Step 'reusing fresh desktop daemon'
+    }
+    elseif ($daemonChanged) {
+        Write-Step 'building changed desktop daemon'
+        Push-Location $desktopDir
+        try {
+            & node scripts/build-daemon.mjs
+            if ($LASTEXITCODE -ne 0) { throw "build-daemon exited with $LASTEXITCODE" }
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
+    $runtimeChanged = if ($Plan.full) {
+        [bool]$Plan.changed.runtime -or -not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)
+    }
+    else {
+        [bool]$Plan.runtime
+    }
+    if ($runtimeChanged) {
+        Push-Location $desktopDir
+        try {
+            if ($Plan.full) {
+                Write-Step 'preparing production runtime.asar for the complete fallback'
+                & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+                if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+            }
+            else {
+                $runtimeMode = [string]$Plan.runtimeMode
+                if ([string]::IsNullOrWhiteSpace($runtimeMode) -or $runtimeMode -eq 'none') {
+                    $runtimeMode = 'full'
+                }
+                Write-Step "preparing changed FastDirect runtime ($runtimeMode)"
+                if ($runtimeMode -eq 'code') {
+                    & node scripts/prepare-fast-runtime-code.mjs `
+                        "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
+                        "--runtime-hash=$($Plan.groups.runtime.hash)"
+                    if ($LASTEXITCODE -ne 0) { throw "prepare-fast-runtime-code exited with $LASTEXITCODE" }
+                }
+                else {
+                    & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64 --mode=fast-full `
+                        "--dependency-hash=$($Plan.groups.runtimeDependencies.hash)" `
+                        "--runtime-hash=$($Plan.groups.runtime.hash)"
+                    if ($LASTEXITCODE -ne 0) { throw "prepare:runtime fast-full exited with $LASTEXITCODE" }
+                }
+            }
+        }
+        finally {
+            Pop-Location
+        }
+    }
 }
 
 function Invoke-FastDirectIncrementalBuild {
-  param([object]$Plan)
-  Invoke-FastDirectChangedOutputs $Plan
-  Assert-FastDirectPlanCurrent
-  $targets = @($Plan.targets)
-  if ($targets.Count -gt 0 -or $Plan.daemon) {
-    Write-Step 'staging incremental app.asar'
-    & node $fastDirectHelper --action=stage-shell "--install-dir=$InstallDir" `
-      "--plan=$FastPlanPath" "--artifact=$FastArtifactDir"
-    if ($LASTEXITCODE -ne 0) { throw "FastDirect shell staging exited with $LASTEXITCODE" }
-  }
+    param([object]$Plan)
+    Invoke-FastDirectChangedOutputs $Plan
+    Assert-FastDirectPlanCurrent
+    $targets = @($Plan.targets)
+    if ($targets.Count -gt 0 -or $Plan.daemon) {
+        Write-Step 'staging incremental app.asar'
+        & node $fastDirectHelper --action=stage-shell "--install-dir=$InstallDir" `
+            "--plan=$FastPlanPath" "--artifact=$FastArtifactDir"
+        if ($LASTEXITCODE -ne 0) { throw "FastDirect shell staging exited with $LASTEXITCODE" }
+    }
 }
 
 function Install-UnpackedBuild {
-  if (-not (Test-Path -LiteralPath (Join-Path $unpackedDir 'Mixdog.exe') -PathType Leaf)) {
-    throw "Unpacked desktop artifact missing: $unpackedDir"
-  }
-  Assert-DesktopDaemonArtifact $unpackedDir
-  $installParent = Split-Path -Parent $InstallDir
-  $installLeaf = Split-Path -Leaf $InstallDir
-  $backupDir = Join-Path $installParent ".$installLeaf.fast-backup-$PID"
-  if (Test-Path -LiteralPath $backupDir) {
-    throw "Fast deploy backup path already exists: $backupDir"
-  }
-  $sourceExe = Join-Path $unpackedDir 'Mixdog.exe'
-  $sourceResources = Join-Path $unpackedDir 'resources'
-  $installedResources = Join-Path $InstallDir 'resources'
-  $sourceUpdateMetadata = Join-Path $sourceResources 'app-update.yml'
-  $installedUpdateMetadata = Join-Path $installedResources 'app-update.yml'
-  if (-not (Test-Path -LiteralPath $sourceUpdateMetadata -PathType Leaf) -and
-      (Test-Path -LiteralPath $installedUpdateMetadata -PathType Leaf)) {
-    Copy-Item -LiteralPath $installedUpdateMetadata -Destination $sourceUpdateMetadata -Force
-  }
-  & node (Join-Path $PSScriptRoot 'verify-update-metadata.mjs') "--dist=$distDir"
-  if ($LASTEXITCODE -ne 0) { throw "verify-update-metadata exited with $LASTEXITCODE" }
-  $backupExe = Join-Path $backupDir 'Mixdog.exe'
-  $backupResources = Join-Path $backupDir 'resources'
-  $resourcesReplaced = $false
-  $exeReplaced = $false
-  function Move-WithRetry {
-    param(
-      [string]$Source,
-      [string]$Destination,
-      [string]$Stage
-    )
-    $deadline = [DateTime]::UtcNow.AddSeconds(15)
-    do {
-      try {
-        Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
-        return
-      } catch {
-        if ([DateTime]::UtcNow -ge $deadline) {
-          throw "$Stage failed: $($_.Exception.Message)"
+    if (-not (Test-Path -LiteralPath (Join-Path $unpackedDir 'Mixdog.exe') -PathType Leaf)) {
+        throw "Unpacked desktop artifact missing: $unpackedDir"
+    }
+    Assert-DesktopDaemonArtifact $unpackedDir
+    $installParent = Split-Path -Parent $InstallDir
+    $installLeaf = Split-Path -Leaf $InstallDir
+    $backupDir = Join-Path $installParent ".$installLeaf.fast-backup-$PID"
+    if (Test-Path -LiteralPath $backupDir) {
+        throw "Fast deploy backup path already exists: $backupDir"
+    }
+    $sourceExe = Join-Path $unpackedDir 'Mixdog.exe'
+    $sourceResources = Join-Path $unpackedDir 'resources'
+    $installedResources = Join-Path $InstallDir 'resources'
+    $sourceUpdateMetadata = Join-Path $sourceResources 'app-update.yml'
+    $installedUpdateMetadata = Join-Path $installedResources 'app-update.yml'
+    if (-not (Test-Path -LiteralPath $sourceUpdateMetadata -PathType Leaf) -and
+        (Test-Path -LiteralPath $installedUpdateMetadata -PathType Leaf)) {
+        Copy-Item -LiteralPath $installedUpdateMetadata -Destination $sourceUpdateMetadata -Force
+    }
+    & node (Join-Path $PSScriptRoot 'verify-update-metadata.mjs') "--dist=$distDir"
+    if ($LASTEXITCODE -ne 0) { throw "verify-update-metadata exited with $LASTEXITCODE" }
+    $backupExe = Join-Path $backupDir 'Mixdog.exe'
+    $backupResources = Join-Path $backupDir 'resources'
+    $resourcesReplaced = $false
+    $exeReplaced = $false
+    function Move-WithRetry {
+        param(
+            [string]$Source,
+            [string]$Destination,
+            [string]$Stage
+        )
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        do {
+            try {
+                Move-Item -LiteralPath $Source -Destination $Destination -ErrorAction Stop
+                return
+            }
+            catch {
+                if ([DateTime]::UtcNow -ge $deadline) {
+                    throw "$Stage failed: $($_.Exception.Message)"
+                }
+                Start-Sleep -Milliseconds 250
+            }
+        } while ($true)
+    }
+    try {
+        New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
+        # Only app-owned artifacts change during a source deploy. Leaving the
+        # installation directory itself in place avoids locks on debug.log and
+        # preserves the registered uninstaller and shortcuts.
+        Move-WithRetry $installedResources $backupResources 'backup resources'
+        Move-WithRetry $sourceResources $installedResources 'install resources'
+        $resourcesReplaced = $true
+        Move-WithRetry $installedExe $backupExe 'backup executable'
+        Move-WithRetry $sourceExe $installedExe 'install executable'
+        $exeReplaced = $true
+        if (-not $NoLaunch) {
+            Write-Step 'starting the fast-deployed app'
+            Start-DetachedMixdogApp
+            $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
+            if (-not $fresh) { throw 'Fast-deployed Mixdog did not publish a fresh daemon.' }
+            if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
+                throw 'Fast-deployed Mixdog did not open a visible application window.'
+            }
+            $script:daemonAfter = $fresh
         }
-        Start-Sleep -Milliseconds 250
-      }
-    } while ($true)
-  }
-  try {
-    New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
-    # Only app-owned artifacts change during a source deploy. Leaving the
-    # installation directory itself in place avoids locks on debug.log and
-    # preserves the registered uninstaller and shortcuts.
-    Move-WithRetry $installedResources $backupResources 'backup resources'
-    Move-WithRetry $sourceResources $installedResources 'install resources'
-    $resourcesReplaced = $true
-    Move-WithRetry $installedExe $backupExe 'backup executable'
-    Move-WithRetry $sourceExe $installedExe 'install executable'
-    $exeReplaced = $true
-    if (-not $NoLaunch) {
-      Write-Step 'starting the fast-deployed app'
-      Start-DetachedMixdogApp
-      $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
-      if (-not $fresh) { throw 'Fast-deployed Mixdog did not publish a fresh daemon.' }
-      if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
-        throw 'Fast-deployed Mixdog did not open a visible application window.'
-      }
-      $script:daemonAfter = $fresh
+        Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction Stop
     }
-    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction Stop
-  } catch {
-    $failure = $_
-    if ($resourcesReplaced -or $exeReplaced) {
-      Write-Step 'fast deploy failed; restoring the previous installation'
-      Stop-MixdogApp
-      Stop-Daemon
-      Stop-InstalledMixdogProcess
-      if ($exeReplaced -and (Test-Path -LiteralPath $backupExe -PathType Leaf)) {
-        Remove-Item -LiteralPath $installedExe -Force -ErrorAction SilentlyContinue
-        Move-WithRetry $backupExe $installedExe 'restore executable'
-      }
-      if ($resourcesReplaced -and (Test-Path -LiteralPath $backupResources -PathType Container)) {
-        Remove-Item -LiteralPath $installedResources -Recurse -Force -ErrorAction SilentlyContinue
-        Move-WithRetry $backupResources $installedResources 'restore resources'
-      }
+    catch {
+        $failure = $_
+        if ($resourcesReplaced -or $exeReplaced) {
+            Write-Step 'fast deploy failed; restoring the previous installation'
+            Stop-MixdogApp
+            Stop-Daemon
+            Stop-InstalledMixdogProcess
+            if ($exeReplaced -and (Test-Path -LiteralPath $backupExe -PathType Leaf)) {
+                Remove-Item -LiteralPath $installedExe -Force -ErrorAction SilentlyContinue
+                Move-WithRetry $backupExe $installedExe 'restore executable'
+            }
+            if ($resourcesReplaced -and (Test-Path -LiteralPath $backupResources -PathType Container)) {
+                Remove-Item -LiteralPath $installedResources -Recurse -Force -ErrorAction SilentlyContinue
+                Move-WithRetry $backupResources $installedResources 'restore resources'
+            }
+        }
+        Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+            Start-DetachedMixdogApp
+        }
+        throw $failure
     }
-    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-    if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
-      Start-DetachedMixdogApp
-    }
-    throw $failure
-  }
 }
 
 # The first open of a NEW file by Mixdog.exe pays a per-file antivirus scan
@@ -843,169 +866,177 @@ function Install-UnpackedBuild {
 # every lazily imported module. Warm the tree from the installed exe before
 # launch (see prewarm-fast-runtime.mjs); the scan cache is per file.
 function Invoke-FastRuntimePrewarm {
-  param([string]$Exe, [string]$RuntimeDir)
-  if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return }
-  if (-not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) { return }
-  $script = Join-Path $PSScriptRoot 'prewarm-fast-runtime.mjs'
-  $log = Join-Path $env:TEMP ("mixdog-fast-prewarm-" + [guid]::NewGuid().ToString('N') + '.log')
-  $previous = $env:ELECTRON_RUN_AS_NODE
-  try {
-    $env:ELECTRON_RUN_AS_NODE = '1'
-    Write-Step 'prewarming the FastDirect runtime files'
-    $process = Start-Process -FilePath $Exe -ArgumentList @("`"$script`"", "`"$RuntimeDir`"") `
-      -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $log
-    if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $log -PathType Leaf)) {
-      $line = (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
-      if ($line) { Write-Step $line }
-    } else {
-      Write-Step "prewarm skipped (exit $($process.ExitCode))"
+    param([string]$Exe, [string]$RuntimeDir)
+    if (-not (Test-Path -LiteralPath $Exe -PathType Leaf)) { return }
+    if (-not (Test-Path -LiteralPath $RuntimeDir -PathType Container)) { return }
+    $script = Join-Path $PSScriptRoot 'prewarm-fast-runtime.mjs'
+    $log = Join-Path $env:TEMP ("mixdog-fast-prewarm-" + [guid]::NewGuid().ToString('N') + '.log')
+    $previous = $env:ELECTRON_RUN_AS_NODE
+    try {
+        $env:ELECTRON_RUN_AS_NODE = '1'
+        Write-Step 'prewarming the FastDirect runtime files'
+        $process = Start-Process -FilePath $Exe -ArgumentList @("`"$script`"", "`"$RuntimeDir`"") `
+            -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $log
+        if ($process.ExitCode -eq 0 -and (Test-Path -LiteralPath $log -PathType Leaf)) {
+            $line = (Get-Content -LiteralPath $log -ErrorAction SilentlyContinue | Select-Object -Last 1)
+            if ($line) { Write-Step $line }
+        }
+        else {
+            Write-Step "prewarm skipped (exit $($process.ExitCode))"
+        }
     }
-  } catch {
-    Write-Step "prewarm skipped ($($_.Exception.Message))"
-  } finally {
-    if ($null -eq $previous) { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
-    else { $env:ELECTRON_RUN_AS_NODE = $previous }
-    Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
-  }
+    catch {
+        Write-Step "prewarm skipped ($($_.Exception.Message))"
+    }
+    finally {
+        if ($null -eq $previous) { Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
+        else { $env:ELECTRON_RUN_AS_NODE = $previous }
+        Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Install-IncrementalBuild {
-  param([object]$Plan)
-  $shellChanged = @($Plan.targets).Count -gt 0 -or $Plan.daemon
-  $runtimeChanged = [bool]$Plan.runtime
-  $runtimeMode = if ([string]::IsNullOrWhiteSpace([string]$Plan.runtimeMode)) {
-    'full'
-  } else {
-    [string]$Plan.runtimeMode
-  }
-  $appRestartRequired = $shellChanged -or $runtimeChanged
-  $installedResources = Join-Path $InstallDir 'resources'
-  $backupDir = Join-Path $env:TEMP ("mixdog-fast-incremental-backup-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-  $backedUp = [Collections.Generic.List[object]]::new()
-  function Backup-InstalledArtifact {
-    param([string]$Path, [string]$Name)
-    $backup = $null
-    if (Test-Path -LiteralPath $Path) {
-      $backup = Join-Path $backupDir $Name
-      Move-Item -LiteralPath $Path -Destination $backup -Force
+    param([object]$Plan)
+    $shellChanged = @($Plan.targets).Count -gt 0 -or $Plan.daemon
+    $runtimeChanged = [bool]$Plan.runtime
+    $runtimeMode = if ([string]::IsNullOrWhiteSpace([string]$Plan.runtimeMode)) {
+        'full'
     }
-    [void]$backedUp.Add([pscustomobject]@{ Path = $Path; Backup = $backup })
-  }
-  function Restore-IncrementalArtifacts {
-    foreach ($entry in @($backedUp)) {
-      Remove-Item -LiteralPath $entry.Path -Recurse -Force -ErrorAction SilentlyContinue
-      if ($entry.Backup -and (Test-Path -LiteralPath $entry.Backup)) {
-        Move-Item -LiteralPath $entry.Backup -Destination $entry.Path -Force
-      }
+    else {
+        [string]$Plan.runtimeMode
     }
-  }
-  function Install-PreparedArtifact {
-    param([string]$Source, [string]$Destination)
-    if (Test-Path -LiteralPath $Destination) {
-      throw "Prepared artifact destination already exists: $Destination"
-    }
-    $sourceRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Source))
-    $destinationRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Destination))
-    if ([string]::Equals($sourceRoot, $destinationRoot, [StringComparison]::OrdinalIgnoreCase)) {
-      Move-Item -LiteralPath $Source -Destination $Destination
-    } else {
-      Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
-    }
-  }
-
-  try {
-    if ($appRestartRequired) {
-      Write-Step 'stopping the installed app'
-      Stop-MixdogApp
-    }
-    if ($runtimeChanged) {
-      Write-Step 'stopping the session daemon'
-      Stop-Daemon
-    }
-    if ($appRestartRequired) {
-      Write-Step 'waiting for every installed Mixdog process to release files'
-      Stop-InstalledMixdogProcess
-    }
-    if ($shellChanged) {
-      Backup-InstalledArtifact (Join-Path $InstallDir 'Mixdog.exe') 'Mixdog.exe'
-      Backup-InstalledArtifact (Join-Path $installedResources 'app.asar') 'app.asar'
-      Backup-InstalledArtifact (Join-Path $installedResources 'app.asar.unpacked') 'app.asar.unpacked'
-      Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'Mixdog.exe') `
-        -Destination (Join-Path $InstallDir 'Mixdog.exe') -Force
-      Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'resources\app.asar') `
-        -Destination (Join-Path $installedResources 'app.asar') -Force
-      Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'resources\app.asar.unpacked') `
-        -Destination (Join-Path $installedResources 'app.asar.unpacked') -Recurse -Force
-    }
-    if ($runtimeChanged) {
-      $installedFastRuntime = Join-Path $installedResources 'fast-runtime'
-      if ($runtimeMode -eq 'code') {
-        $runtimeCode = Join-Path $desktopDir '.runtime\fast-runtime-code'
-        if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
-          throw "Prepared FastDirect runtime code is missing: $runtimeCode"
+    $appRestartRequired = $shellChanged -or $runtimeChanged
+    $installedResources = Join-Path $InstallDir 'resources'
+    $backupDir = Join-Path $env:TEMP ("mixdog-fast-incremental-backup-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    $backedUp = [Collections.Generic.List[object]]::new()
+    function Backup-InstalledArtifact {
+        param([string]$Path, [string]$Name)
+        $backup = $null
+        if (Test-Path -LiteralPath $Path) {
+            $backup = Join-Path $backupDir $Name
+            Move-Item -LiteralPath $Path -Destination $backup -Force
         }
-        if (-not (Test-Path -LiteralPath (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') -PathType Leaf)) {
-          throw "Installed FastDirect dependency runtime is missing: $installedFastRuntime"
+        [void]$backedUp.Add([pscustomobject]@{ Path = $Path; Backup = $backup })
+    }
+    function Restore-IncrementalArtifacts {
+        foreach ($entry in @($backedUp)) {
+            Remove-Item -LiteralPath $entry.Path -Recurse -Force -ErrorAction SilentlyContinue
+            if ($entry.Backup -and (Test-Path -LiteralPath $entry.Backup)) {
+                Move-Item -LiteralPath $entry.Backup -Destination $entry.Path -Force
+            }
         }
-        Backup-InstalledArtifact (Join-Path $installedFastRuntime 'node_modules\mixdog') 'fast-runtime-mixdog'
-        Backup-InstalledArtifact (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') 'fast-runtime-marker.json'
-        Install-PreparedArtifact (Join-Path $runtimeCode 'node_modules\mixdog') `
-          (Join-Path $installedFastRuntime 'node_modules\mixdog')
-        Install-PreparedArtifact (Join-Path $runtimeCode '.mixdog-fast-runtime.json') `
-          (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json')
-      } else {
-        $runtimeNativeTools = Join-Path $desktopDir '.runtime\native-tools'
-        $fastRuntime = Join-Path $desktopDir '.runtime\fast-runtime'
-        if (-not (Test-Path -LiteralPath $runtimeNativeTools -PathType Container)) {
-          throw "Prepared runtime native tools are missing: $runtimeNativeTools"
+    }
+    function Install-PreparedArtifact {
+        param([string]$Source, [string]$Destination)
+        if (Test-Path -LiteralPath $Destination) {
+            throw "Prepared artifact destination already exists: $Destination"
         }
-        if (-not (Test-Path -LiteralPath (Join-Path $fastRuntime 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
-          throw "Prepared FastDirect runtime is missing: $fastRuntime"
+        $sourceRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Source))
+        $destinationRoot = [IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Destination))
+        if ([string]::Equals($sourceRoot, $destinationRoot, [StringComparison]::OrdinalIgnoreCase)) {
+            Move-Item -LiteralPath $Source -Destination $Destination
         }
-        Backup-InstalledArtifact $installedFastRuntime 'fast-runtime'
-        Backup-InstalledArtifact (Join-Path $installedResources 'native-tools') 'native-tools'
-        Install-PreparedArtifact $fastRuntime $installedFastRuntime
-        Install-PreparedArtifact $runtimeNativeTools (Join-Path $installedResources 'native-tools')
-      }
-      Invoke-FastRuntimePrewarm -Exe $installedExe -RuntimeDir $installedFastRuntime
+        else {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
+        }
     }
 
-    if (-not $NoLaunch) {
-      if ($appRestartRequired -or $appBefore.Count -eq 0) {
-        Write-Step 'starting the incrementally deployed app'
-        Start-DetachedMixdogApp
-      }
-      if ($runtimeChanged) {
-        $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
-        if (-not $fresh) { throw 'Incrementally deployed Mixdog did not publish a fresh daemon.' }
-        $script:daemonAfter = $fresh
-      } else {
-        if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
-          throw 'Incrementally deployed Mixdog did not open a visible application window.'
+    try {
+        if ($appRestartRequired) {
+            Write-Step 'stopping the installed app'
+            Stop-MixdogApp
         }
-        $script:daemonAfter = Get-DaemonRecord
-      }
+        if ($runtimeChanged) {
+            Write-Step 'stopping the session daemon'
+            Stop-Daemon
+        }
+        if ($appRestartRequired) {
+            Write-Step 'waiting for every installed Mixdog process to release files'
+            Stop-InstalledMixdogProcess
+        }
+        if ($shellChanged) {
+            Backup-InstalledArtifact (Join-Path $InstallDir 'Mixdog.exe') 'Mixdog.exe'
+            Backup-InstalledArtifact (Join-Path $installedResources 'app.asar') 'app.asar'
+            Backup-InstalledArtifact (Join-Path $installedResources 'app.asar.unpacked') 'app.asar.unpacked'
+            Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'Mixdog.exe') `
+                -Destination (Join-Path $InstallDir 'Mixdog.exe') -Force
+            Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'resources\app.asar') `
+                -Destination (Join-Path $installedResources 'app.asar') -Force
+            Copy-Item -LiteralPath (Join-Path $FastArtifactDir 'resources\app.asar.unpacked') `
+                -Destination (Join-Path $installedResources 'app.asar.unpacked') -Recurse -Force
+        }
+        if ($runtimeChanged) {
+            $installedFastRuntime = Join-Path $installedResources 'fast-runtime'
+            if ($runtimeMode -eq 'code') {
+                $runtimeCode = Join-Path $desktopDir '.runtime\fast-runtime-code'
+                if (-not (Test-Path -LiteralPath (Join-Path $runtimeCode 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
+                    throw "Prepared FastDirect runtime code is missing: $runtimeCode"
+                }
+                if (-not (Test-Path -LiteralPath (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') -PathType Leaf)) {
+                    throw "Installed FastDirect dependency runtime is missing: $installedFastRuntime"
+                }
+                Backup-InstalledArtifact (Join-Path $installedFastRuntime 'node_modules\mixdog') 'fast-runtime-mixdog'
+                Backup-InstalledArtifact (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json') 'fast-runtime-marker.json'
+                Install-PreparedArtifact (Join-Path $runtimeCode 'node_modules\mixdog') `
+                (Join-Path $installedFastRuntime 'node_modules\mixdog')
+                Install-PreparedArtifact (Join-Path $runtimeCode '.mixdog-fast-runtime.json') `
+                (Join-Path $installedFastRuntime '.mixdog-fast-runtime.json')
+            }
+            else {
+                $runtimeNativeTools = Join-Path $desktopDir '.runtime\native-tools'
+                $fastRuntime = Join-Path $desktopDir '.runtime\fast-runtime'
+                if (-not (Test-Path -LiteralPath $runtimeNativeTools -PathType Container)) {
+                    throw "Prepared runtime native tools are missing: $runtimeNativeTools"
+                }
+                if (-not (Test-Path -LiteralPath (Join-Path $fastRuntime 'node_modules\mixdog\src\standalone\session-client.mjs') -PathType Leaf)) {
+                    throw "Prepared FastDirect runtime is missing: $fastRuntime"
+                }
+                Backup-InstalledArtifact $installedFastRuntime 'fast-runtime'
+                Backup-InstalledArtifact (Join-Path $installedResources 'native-tools') 'native-tools'
+                Install-PreparedArtifact $fastRuntime $installedFastRuntime
+                Install-PreparedArtifact $runtimeNativeTools (Join-Path $installedResources 'native-tools')
+            }
+            Invoke-FastRuntimePrewarm -Exe $installedExe -RuntimeDir $installedFastRuntime
+        }
+
+        if (-not $NoLaunch) {
+            if ($appRestartRequired -or $appBefore.Count -eq 0) {
+                Write-Step 'starting the incrementally deployed app'
+                Start-DetachedMixdogApp
+            }
+            if ($runtimeChanged) {
+                $fresh = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -DetachedRelaunch
+                if (-not $fresh) { throw 'Incrementally deployed Mixdog did not publish a fresh daemon.' }
+                $script:daemonAfter = $fresh
+            }
+            else {
+                if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
+                    throw 'Incrementally deployed Mixdog did not open a visible application window.'
+                }
+                $script:daemonAfter = Get-DaemonRecord
+            }
+        }
+        & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `
+            "--state=$FastStatePath" "--plan=$FastPlanPath"
+        if ($LASTEXITCODE -ne 0) { throw "FastDirect state commit exited with $LASTEXITCODE" }
+        Remove-Item -LiteralPath $backupDir -Recurse -Force
     }
-    & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `
-      "--state=$FastStatePath" "--plan=$FastPlanPath"
-    if ($LASTEXITCODE -ne 0) { throw "FastDirect state commit exited with $LASTEXITCODE" }
-    Remove-Item -LiteralPath $backupDir -Recurse -Force
-  } catch {
-    $failure = $_
-    Write-Step 'incremental deploy failed; restoring the previous installation'
-    if ($appRestartRequired) {
-      Stop-MixdogApp
-      Stop-InstalledMixdogProcess
+    catch {
+        $failure = $_
+        Write-Step 'incremental deploy failed; restoring the previous installation'
+        if ($appRestartRequired) {
+            Stop-MixdogApp
+            Stop-InstalledMixdogProcess
+        }
+        if ($runtimeChanged) { Stop-Daemon }
+        Restore-IncrementalArtifacts
+        Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
+            Start-DetachedMixdogApp
+        }
+        throw $failure
     }
-    if ($runtimeChanged) { Stop-Daemon }
-    Restore-IncrementalArtifacts
-    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-    if (-not $NoLaunch -and (Test-Path -LiteralPath $installedExe -PathType Leaf)) {
-      Start-DetachedMixdogApp
-    }
-    throw $failure
-  }
 }
 
 $appBefore = @(Get-AppProcess)
@@ -1013,16 +1044,18 @@ $daemonBefore = Get-DaemonRecord
 $daemonProcessesBefore = @(Get-DaemonProcess)
 $installedBefore = Get-InstalledVersion
 $targetVersion = if ($ViaUpdater) {
-  if ([string]::IsNullOrWhiteSpace($Version)) { Get-NextDevVersion } else { $Version }
-} elseif ($FastDirect) {
-  if ([string]::IsNullOrWhiteSpace($Version)) { Get-InstalledSemVer } else { $Version }
-} else { $Version }
+    if ([string]::IsNullOrWhiteSpace($Version)) { Get-NextDevVersion } else { $Version }
+}
+elseif ($FastDirect) {
+    if ([string]::IsNullOrWhiteSpace($Version)) { Get-InstalledSemVer } else { $Version }
+}
+else { $Version }
 
 if ($ViaUpdater -and $FastDirect) {
-  throw 'ViaUpdater and FastDirect are mutually exclusive.'
+    throw 'ViaUpdater and FastDirect are mutually exclusive.'
 }
 if ($RuntimeOnly -and ($ViaUpdater -or $FastDirect)) {
-  throw 'RuntimeOnly cannot be combined with ViaUpdater or FastDirect.'
+    throw 'RuntimeOnly cannot be combined with ViaUpdater or FastDirect.'
 }
 
 Write-Host ''
@@ -1039,273 +1072,284 @@ Write-Host "daemon record   : $(if ($daemonBefore) { "pid=$($daemonBefore.pid) p
 Write-Host ''
 
 if ($DryRun) {
-  Write-Host 'dry run - nothing was stopped, built, or installed.' -ForegroundColor Yellow
-  exit 0
+    Write-Host 'dry run - nothing was stopped, built, or installed.' -ForegroundColor Yellow
+    exit 0
 }
 
 if (-not (Test-Path -LiteralPath $InstallDir)) {
-  throw "No installed build at $InstallDir. Install one first (npm run build:win, then run the installer)."
+    throw "No installed build at $InstallDir. Install one first (npm run build:win, then run the installer)."
 }
 
 if ($RuntimeOnly) {
-  # runtime.asar-only swap: only the session daemon restarts; the app window,
-  # renderer, and native tools stay untouched. Valid ONLY while the installed
-  # desktop shell (app.asar) still matches this working tree — a runtime swap
-  # on top of shell drift would run new runtime code against an old shell.
-  $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
-  $runtimeSidecarArtifact = "$runtimeArtifact.unpacked"
-  $installedResources = Join-Path $InstallDir 'resources'
-  $installedAppAsar = Join-Path $installedResources 'app.asar'
-  if (-not (Test-Path -LiteralPath $installedAppAsar -PathType Leaf)) {
-    throw "No installed app.asar at $installedAppAsar - run a full FastDirect deploy first."
-  }
-  $shellBuiltAt = (Get-Item -LiteralPath $installedAppAsar).LastWriteTimeUtc
-  $shellInputs = @(
-    (Join-Path $desktopDir 'src'),
-    (Join-Path $desktopDir 'package.json'),
-    (Join-Path $desktopDir 'electron.vite.config.ts')
-  ) | Where-Object { Test-Path -LiteralPath $_ }
-  $newestShellChange = ($shellInputs | ForEach-Object {
-    Get-ChildItem -LiteralPath $_ -Recurse -File -ErrorAction SilentlyContinue
-  } | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
-  if ($newestShellChange -and $newestShellChange -gt $shellBuiltAt) {
-    throw "Desktop shell sources changed after the installed build ($newestShellChange > $shellBuiltAt). Run update:dev:fast instead."
-  }
+    # runtime.asar-only swap: only the session daemon restarts; the app window,
+    # renderer, and native tools stay untouched. Valid ONLY while the installed
+    # desktop shell (app.asar) still matches this working tree — a runtime swap
+    # on top of shell drift would run new runtime code against an old shell.
+    $runtimeArtifact = Join-Path $desktopDir '.runtime\runtime.asar'
+    $runtimeSidecarArtifact = "$runtimeArtifact.unpacked"
+    $installedResources = Join-Path $InstallDir 'resources'
+    $installedAppAsar = Join-Path $installedResources 'app.asar'
+    if (-not (Test-Path -LiteralPath $installedAppAsar -PathType Leaf)) {
+        throw "No installed app.asar at $installedAppAsar - run a full FastDirect deploy first."
+    }
+    $shellBuiltAt = (Get-Item -LiteralPath $installedAppAsar).LastWriteTimeUtc
+    $shellInputs = @(
+        (Join-Path $desktopDir 'src'),
+        (Join-Path $desktopDir 'package.json'),
+        (Join-Path $desktopDir 'electron.vite.config.ts')
+    ) | Where-Object { Test-Path -LiteralPath $_ }
+    $newestShellChange = ($shellInputs | ForEach-Object {
+            Get-ChildItem -LiteralPath $_ -Recurse -File -ErrorAction SilentlyContinue
+        } | Measure-Object -Property LastWriteTimeUtc -Maximum).Maximum
+    if ($newestShellChange -and $newestShellChange -gt $shellBuiltAt) {
+        throw "Desktop shell sources changed after the installed build ($newestShellChange > $shellBuiltAt). Run update:dev:fast instead."
+    }
 
-  if (-not $SkipBuild) {
-    Write-Step 'building runtime.asar only'
-    Push-Location $desktopDir
-    try {
-      & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
-      if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
-    } finally {
-      Pop-Location
+    if (-not $SkipBuild) {
+        Write-Step 'building runtime.asar only'
+        Push-Location $desktopDir
+        try {
+            & npm.cmd run prepare:runtime -- --platform=win32 --arch=x64
+            if ($LASTEXITCODE -ne 0) { throw "prepare:runtime exited with $LASTEXITCODE" }
+        }
+        finally {
+            Pop-Location
+        }
     }
-  }
-  if (-not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)) {
-    throw "Runtime artifact missing: $runtimeArtifact"
-  }
-  if (-not $RuntimeOnlyWorker) {
-    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-      $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-runtime-deploy.json'
+    if (-not (Test-Path -LiteralPath $runtimeArtifact -PathType Leaf)) {
+        throw "Runtime artifact missing: $runtimeArtifact"
     }
-    Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
-    $workerPid = Start-RuntimeOnlyWorker
-    Write-Step "runtime deploy handed to detached worker pid=$workerPid"
-    Write-Host "receipt         : $ReceiptPath"
-    exit 0
-  }
+    if (-not $RuntimeOnlyWorker) {
+        if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
+            $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-runtime-deploy.json'
+        }
+        Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
+        $workerPid = Start-RuntimeOnlyWorker
+        Write-Step "runtime deploy handed to detached worker pid=$workerPid"
+        Write-Host "receipt         : $ReceiptPath"
+        exit 0
+    }
 
-  Write-FastDirectReceipt -Status 'worker-started'
-  Start-Sleep -Seconds 2
-  Write-Step 'stopping the installed app'
-  Stop-MixdogApp
-  Write-Step 'stopping the session daemon'
-  Stop-Daemon
-  Write-Step 'waiting for installed Mixdog processes to release runtime.asar'
-  Stop-InstalledMixdogProcess
-  $installedRuntime = Join-Path $installedResources 'runtime.asar'
-  $installedRuntimeUnpacked = Join-Path $installedResources 'runtime.asar.unpacked'
-  $backupDir = Join-Path $env:TEMP ("mixdog-runtime-backup-" + [guid]::NewGuid().ToString('N'))
-  New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-  $swapped = $false
-  try {
-    Write-Step 'swapping resources\runtime.asar'
-    if (Test-Path -LiteralPath $installedRuntime -PathType Leaf) {
-      Move-Item -LiteralPath $installedRuntime -Destination (Join-Path $backupDir 'runtime.asar') -Force
-    }
-    if (Test-Path -LiteralPath $installedRuntimeUnpacked -PathType Container) {
-      Move-Item -LiteralPath $installedRuntimeUnpacked -Destination (Join-Path $backupDir 'runtime.asar.unpacked') -Force
-    }
-    Copy-Item -LiteralPath $runtimeArtifact -Destination $installedRuntime -Force
-    if (Test-Path -LiteralPath $runtimeSidecarArtifact -PathType Container) {
-      Copy-Item -LiteralPath $runtimeSidecarArtifact -Destination $installedRuntimeUnpacked -Recurse -Force
-    }
-    $swapped = $true
-  } catch {
-    $failure = $_
-    Write-Step 'runtime swap failed; restoring the previous runtime archive'
-    if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar') -PathType Leaf) {
-      Remove-Item -LiteralPath $installedRuntime -Force -ErrorAction SilentlyContinue
-      Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar') -Destination $installedRuntime -Force
-    }
-    if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -PathType Container) {
-      Remove-Item -LiteralPath $installedRuntimeUnpacked -Recurse -Force -ErrorAction SilentlyContinue
-      Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -Destination $installedRuntimeUnpacked -Force
-    }
-    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-    throw $failure
-  }
-
-  $daemonAfterSwap = $null
-  if (-not $NoLaunch) {
-    Write-Step 'starting the installed app'
-    Start-InstalledMixdogApp
-    Write-Step 'waiting for a fresh daemon'
-    $daemonAfterSwap = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -TimeoutSeconds 45
-  }
-  Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
-  Write-Host ''
-  Write-Host 'result' -ForegroundColor Green
-  Write-Host "  runtime.asar      : swapped ($([math]::Round((Get-Item -LiteralPath $installedRuntime).Length / 1MB, 1)) MB)"
-  Write-Host "  session daemon    : $(if ($daemonAfterSwap) { "pid=$($daemonAfterSwap.pid) port=$($daemonAfterSwap.port)" } elseif ($NoLaunch) { '(stopped)' } else { 'did not appear' })"
-  Write-FastDirectReceipt -Status 'completed'
-  exit 0
-}
-
-if ($FastDirect -and $SkipBuild) {
-  $fastPlan = Get-Content -LiteralPath $FastPlanPath -Raw | ConvertFrom-Json
-  Assert-FastDirectPlanCurrent
-}
-if ($FastDirect -and -not $FastDirectWorker -and -not $SkipBuild) {
-  Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
-  Write-FastDirectReceipt -Status 'building'
-}
-if (-not $SkipBuild) {
-  if ($FastDirect) {
-    Write-Step 'fingerprinting FastDirect inputs'
-    $forceFull = [bool]$targetVersion -and ((Get-InstalledSemVer) -ne $targetVersion)
-    $fastPlan = Get-FastDirectPlan -ForceFull:$forceFull
-    if (Test-FastDirectNoOp $fastPlan) {
-      Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
-      Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
-      exit 0
-    }
-    if ($fastPlan.full) {
-      Stop-FastRendererWatch
-      Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
-      Invoke-Build $targetVersion -DirectoryOnly -Plan $fastPlan
-      Assert-FastDirectPlanCurrent
-    } else {
-      if (-not $ReuseBuild -and [bool]$fastPlan.changed.renderer -and
-          -not [bool]$fastPlan.prebuilt.renderer) {
-        $fastPlan = Complete-FastRendererWatchBuild $fastPlan
-      }
-      Invoke-FastDirectIncrementalBuild $fastPlan
-    }
-  } else {
-    Write-Step 'building the installer from the dev root'
-    Invoke-Build $targetVersion
-  }
-  if ($FastDirect -and -not $FastDirectWorker) {
-    Write-FastDirectReceipt -Status 'build-completed'
-  }
-}
-if ($FastDirect -and $fastPlan.full) {
-  if (-not (Test-Path -LiteralPath $unpackedDir)) { throw "Unpacked artifact missing: $unpackedDir" }
-} elseif (-not (Test-Path -LiteralPath $installer)) {
-  if (-not $FastDirect) { throw "Installer artifact missing: $installer" }
-}
-if ($FastDirect -and (Test-FastDirectNoOp $fastPlan)) {
-  Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
-  Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
-  exit 0
-}
-
-if ($FastDirect -and $BuildOnly) {
-  Write-Step 'FastDirect build stage complete; rerun with -SkipBuild to swap'
-  exit 0
-}
-
-if ($FastDirect -and -not $FastDirectWorker) {
-  if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
-    $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
-  }
-  Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
-  $workerPid = Start-FastDirectWorker
-  Write-Step "fast deploy handed to detached worker pid=$workerPid"
-  Write-Host "receipt         : $ReceiptPath"
-  exit 0
-}
-
-if ($ViaUpdater) {
-  Write-Step "serving $distDir on http://127.0.0.1:$FeedPort"
-  $node = (Get-Command node.exe -ErrorAction Stop).Source
-  $feed = Start-Process -FilePath $node -ArgumentList @(
-    (Join-Path $PSScriptRoot 'dev-update-feed.mjs'), "--dir=$distDir", "--port=$FeedPort"
-  ) -PassThru -WindowStyle Hidden
-  try {
-    Write-Step 'restarting the installed app against the dev feed'
-    Stop-MixdogApp
-    if (-not $KeepDaemon) { Stop-Daemon }
-    $env:MIXDOG_UPDATER_DEV_FEED = "http://127.0.0.1:$FeedPort"
-    $env:MIXDOG_UPDATER_DEV_AUTO_INSTALL = '1'
-    Start-InstalledMixdogApp
-    Write-Step "waiting for the app's own updater to install $targetVersion"
-    $deadline = [DateTime]::UtcNow.AddMinutes(6)
-    while ((Get-InstalledVersion) -ne $targetVersion -and [DateTime]::UtcNow -lt $deadline) {
-      Start-Sleep -Seconds 2
-    }
-    if ((Get-InstalledVersion) -ne $targetVersion) {
-      throw "The updater did not install $targetVersion (installed: $(Get-InstalledVersion))."
-    }
-  } finally {
-    if ($feed -and -not $feed.HasExited) { Stop-Process -Id $feed.Id -Force -ErrorAction SilentlyContinue }
-    Remove-Item Env:MIXDOG_UPDATER_DEV_FEED -ErrorAction SilentlyContinue
-    Remove-Item Env:MIXDOG_UPDATER_DEV_AUTO_INSTALL -ErrorAction SilentlyContinue
-  }
-} elseif ($FastDirect) {
-  try {
     Write-FastDirectReceipt -Status 'worker-started'
-    # Let the launching Mixdog shell return before this independent worker
-    # terminates the app and daemon that owned it.
     Start-Sleep -Seconds 2
     Write-Step 'stopping the installed app'
     Stop-MixdogApp
     Write-Step 'stopping the session daemon'
     Stop-Daemon
-    Write-Step 'waiting for every installed Mixdog process to release files'
+    Write-Step 'waiting for installed Mixdog processes to release runtime.asar'
     Stop-InstalledMixdogProcess
-    if ($fastPlan.full) {
-      Write-Step 'atomically replacing the installed directory'
-      Install-UnpackedBuild
-      & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `
-        "--state=$FastStatePath" "--plan=$FastPlanPath"
-      if ($LASTEXITCODE -ne 0) { throw "FastDirect state commit exited with $LASTEXITCODE" }
-    } else {
-      Write-Step 'atomically replacing changed installed artifacts'
-      Install-IncrementalBuild $fastPlan
+    $installedRuntime = Join-Path $installedResources 'runtime.asar'
+    $installedRuntimeUnpacked = Join-Path $installedResources 'runtime.asar.unpacked'
+    $backupDir = Join-Path $env:TEMP ("mixdog-runtime-backup-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
+    $swapped = $false
+    try {
+        Write-Step 'swapping resources\runtime.asar'
+        if (Test-Path -LiteralPath $installedRuntime -PathType Leaf) {
+            Move-Item -LiteralPath $installedRuntime -Destination (Join-Path $backupDir 'runtime.asar') -Force
+        }
+        if (Test-Path -LiteralPath $installedRuntimeUnpacked -PathType Container) {
+            Move-Item -LiteralPath $installedRuntimeUnpacked -Destination (Join-Path $backupDir 'runtime.asar.unpacked') -Force
+        }
+        Copy-Item -LiteralPath $runtimeArtifact -Destination $installedRuntime -Force
+        if (Test-Path -LiteralPath $runtimeSidecarArtifact -PathType Container) {
+            Copy-Item -LiteralPath $runtimeSidecarArtifact -Destination $installedRuntimeUnpacked -Recurse -Force
+        }
+        $swapped = $true
     }
+    catch {
+        $failure = $_
+        Write-Step 'runtime swap failed; restoring the previous runtime archive'
+        if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar') -PathType Leaf) {
+            Remove-Item -LiteralPath $installedRuntime -Force -ErrorAction SilentlyContinue
+            Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar') -Destination $installedRuntime -Force
+        }
+        if (Test-Path -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -PathType Container) {
+            Remove-Item -LiteralPath $installedRuntimeUnpacked -Recurse -Force -ErrorAction SilentlyContinue
+            Move-Item -LiteralPath (Join-Path $backupDir 'runtime.asar.unpacked') -Destination $installedRuntimeUnpacked -Force
+        }
+        Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+        throw $failure
+    }
+
+    $daemonAfterSwap = $null
+    if (-not $NoLaunch) {
+        Write-Step 'starting the installed app'
+        Start-InstalledMixdogApp
+        Write-Step 'waiting for a fresh daemon'
+        $daemonAfterSwap = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe -TimeoutSeconds 45
+    }
+    Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host ''
+    Write-Host 'result' -ForegroundColor Green
+    Write-Host "  runtime.asar      : swapped ($([math]::Round((Get-Item -LiteralPath $installedRuntime).Length / 1MB, 1)) MB)"
+    Write-Host "  session daemon    : $(if ($daemonAfterSwap) { "pid=$($daemonAfterSwap.pid) port=$($daemonAfterSwap.port)" } elseif ($NoLaunch) { '(stopped)' } else { 'did not appear' })"
     Write-FastDirectReceipt -Status 'completed'
-  } catch {
-    Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message
-    throw
-  }
-} else {
-  Write-Step 'stopping the installed app'
-  Stop-MixdogApp
-  if (-not $KeepDaemon) {
-    Write-Step 'stopping the session daemon (a same-version rebuild never drains it on its own)'
-    Stop-Daemon
-  }
-  Write-Step 'reinstalling'
-  $install = Start-Process -FilePath $installer -ArgumentList @('/S', '/currentuser', "/D=$InstallDir") -Wait -PassThru
-  if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
-  # A one-click NSIS install relaunches the app itself; only start it when it
-  # did not, so a single-instance lock never turns into a second window.
-  if (-not (Wait-ForApp -TimeoutSeconds 20) -and -not $NoLaunch) {
-    Write-Step 'starting the installed app'
-    Start-InstalledMixdogApp
-  }
+    exit 0
+}
+
+if ($FastDirect -and $SkipBuild) {
+    $fastPlan = Get-Content -LiteralPath $FastPlanPath -Raw | ConvertFrom-Json
+    Assert-FastDirectPlanCurrent
+}
+if ($FastDirect -and -not $FastDirectWorker -and -not $SkipBuild) {
+    Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
+    Write-FastDirectReceipt -Status 'building'
+}
+if (-not $SkipBuild) {
+    if ($FastDirect) {
+        Write-Step 'fingerprinting FastDirect inputs'
+        $forceFull = [bool]$targetVersion -and ((Get-InstalledSemVer) -ne $targetVersion)
+        $fastPlan = Get-FastDirectPlan -ForceFull:$forceFull
+        if (Test-FastDirectNoOp $fastPlan) {
+            Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+            Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
+            exit 0
+        }
+        if ($fastPlan.full) {
+            Stop-FastRendererWatch
+            Write-Step 'native/package inputs changed; building complete win-unpacked fallback'
+            Invoke-Build $targetVersion -DirectoryOnly -Plan $fastPlan
+            Assert-FastDirectPlanCurrent
+        }
+        else {
+            if (-not $ReuseBuild -and [bool]$fastPlan.changed.renderer -and
+                -not [bool]$fastPlan.prebuilt.renderer) {
+                $fastPlan = Complete-FastRendererWatchBuild $fastPlan
+            }
+            Invoke-FastDirectIncrementalBuild $fastPlan
+        }
+    }
+    else {
+        Write-Step 'building the installer from the dev root'
+        Invoke-Build $targetVersion
+    }
+    if ($FastDirect -and -not $FastDirectWorker) {
+        Write-FastDirectReceipt -Status 'build-completed'
+    }
+}
+if ($FastDirect -and $fastPlan.full) {
+    if (-not (Test-Path -LiteralPath $unpackedDir)) { throw "Unpacked artifact missing: $unpackedDir" }
+}
+elseif (-not (Test-Path -LiteralPath $installer)) {
+    if (-not $FastDirect) { throw "Installer artifact missing: $installer" }
+}
+if ($FastDirect -and (Test-FastDirectNoOp $fastPlan)) {
+    Write-Host 'FastDirect inputs are unchanged; nothing to build, stop, or restart.' -ForegroundColor Green
+    Write-FastDirectReceipt -Status 'completed' -Detail 'no changes'
+    exit 0
+}
+
+if ($FastDirect -and $BuildOnly) {
+    Write-Step 'FastDirect build stage complete; rerun with -SkipBuild to swap'
+    exit 0
+}
+
+if ($FastDirect -and -not $FastDirectWorker) {
+    if ([string]::IsNullOrWhiteSpace($ReceiptPath)) {
+        $ReceiptPath = Join-Path $env:USERPROFILE '.mixdog\data\dev-fast-deploy.json'
+    }
+    Remove-Item -LiteralPath $ReceiptPath -Force -ErrorAction SilentlyContinue
+    $workerPid = Start-FastDirectWorker
+    Write-Step "fast deploy handed to detached worker pid=$workerPid"
+    Write-Host "receipt         : $ReceiptPath"
+    exit 0
+}
+
+if ($ViaUpdater) {
+    Write-Step "serving $distDir on http://127.0.0.1:$FeedPort"
+    $node = (Get-Command node.exe -ErrorAction Stop).Source
+    $feed = Start-Process -FilePath $node -ArgumentList @(
+        (Join-Path $PSScriptRoot 'dev-update-feed.mjs'), "--dir=$distDir", "--port=$FeedPort"
+    ) -PassThru -WindowStyle Hidden
+    try {
+        Write-Step 'restarting the installed app against the dev feed'
+        Stop-MixdogApp
+        if (-not $KeepDaemon) { Stop-Daemon }
+        $env:MIXDOG_UPDATER_DEV_FEED = "http://127.0.0.1:$FeedPort"
+        $env:MIXDOG_UPDATER_DEV_AUTO_INSTALL = '1'
+        Start-InstalledMixdogApp
+        Write-Step "waiting for the app's own updater to install $targetVersion"
+        $deadline = [DateTime]::UtcNow.AddMinutes(6)
+        while ((Get-InstalledVersion) -ne $targetVersion -and [DateTime]::UtcNow -lt $deadline) {
+            Start-Sleep -Seconds 2
+        }
+        if ((Get-InstalledVersion) -ne $targetVersion) {
+            throw "The updater did not install $targetVersion (installed: $(Get-InstalledVersion))."
+        }
+    }
+    finally {
+        if ($feed -and -not $feed.HasExited) { Stop-Process -Id $feed.Id -Force -ErrorAction SilentlyContinue }
+        Remove-Item Env:MIXDOG_UPDATER_DEV_FEED -ErrorAction SilentlyContinue
+        Remove-Item Env:MIXDOG_UPDATER_DEV_AUTO_INSTALL -ErrorAction SilentlyContinue
+    }
+}
+elseif ($FastDirect) {
+    try {
+        Write-FastDirectReceipt -Status 'worker-started'
+        # Let the launching Mixdog shell return before this independent worker
+        # terminates the app and daemon that owned it.
+        Start-Sleep -Seconds 2
+        Write-Step 'stopping the installed app'
+        Stop-MixdogApp
+        Write-Step 'stopping the session daemon'
+        Stop-Daemon
+        Write-Step 'waiting for every installed Mixdog process to release files'
+        Stop-InstalledMixdogProcess
+        if ($fastPlan.full) {
+            Write-Step 'atomically replacing the installed directory'
+            Install-UnpackedBuild
+            & node $fastDirectHelper --action=commit "--install-dir=$InstallDir" `
+                "--state=$FastStatePath" "--plan=$FastPlanPath"
+            if ($LASTEXITCODE -ne 0) { throw "FastDirect state commit exited with $LASTEXITCODE" }
+        }
+        else {
+            Write-Step 'atomically replacing changed installed artifacts'
+            Install-IncrementalBuild $fastPlan
+        }
+        Write-FastDirectReceipt -Status 'completed'
+    }
+    catch {
+        Write-FastDirectReceipt -Status 'failed' -Detail $_.Exception.Message
+        throw
+    }
+}
+else {
+    Write-Step 'stopping the installed app'
+    Stop-MixdogApp
+    if (-not $KeepDaemon) {
+        Write-Step 'stopping the session daemon (a same-version rebuild never drains it on its own)'
+        Stop-Daemon
+    }
+    Write-Step 'reinstalling'
+    $install = Start-Process -FilePath $installer -ArgumentList @('/S', '/currentuser', "/D=$InstallDir") -Wait -PassThru
+    if ($install.ExitCode -ne 0) { throw "Installer exited with $($install.ExitCode)" }
+    # A one-click NSIS install relaunches the app itself; only start it when it
+    # did not, so a single-instance lock never turns into a second window.
+    if (-not (Wait-ForApp -TimeoutSeconds 20) -and -not $NoLaunch) {
+        Write-Step 'starting the installed app'
+        Start-InstalledMixdogApp
+    }
 }
 
 if ($NoLaunch) {
-  Write-Step 'stopping the app again (-NoLaunch)'
-  Stop-MixdogApp
-  if (-not $KeepDaemon) { Stop-Daemon }
-} elseif (-not $FastDirect) {
-  Write-Step 'waiting for a fresh session daemon'
-  $daemonAfter = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe
-  if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 15)) {
-    # A live background process is not a successful relaunch. Starting the exe
-    # again either creates the missing app or activates the primary instance
-    # through Electron's second-instance handler.
-    Write-Step 'activating the installed app window'
-    Start-InstalledMixdogApp
-    if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
-      throw 'Mixdog restarted without a visible application window.'
+    Write-Step 'stopping the app again (-NoLaunch)'
+    Stop-MixdogApp
+    if (-not $KeepDaemon) { Stop-Daemon }
+}
+elseif (-not $FastDirect) {
+    Write-Step 'waiting for a fresh session daemon'
+    $daemonAfter = Wait-ForFreshDaemon -Previous $daemonBefore -RelaunchExe $installedExe
+    if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 15)) {
+        # A live background process is not a successful relaunch. Starting the exe
+        # again either creates the missing app or activates the primary instance
+        # through Electron's second-instance handler.
+        Write-Step 'activating the installed app window'
+        Start-InstalledMixdogApp
+        if (-not (Wait-ForVisibleAppWindow -TimeoutSeconds 30)) {
+            throw 'Mixdog restarted without a visible application window.'
+        }
     }
-  }
 }
 
 $appAfter = @(Get-AppProcess)
@@ -1315,5 +1359,5 @@ Write-Host "  installed version : $installedBefore -> $(Get-InstalledVersion)"
 Write-Host "  app pid(s)        : $(if ($appAfter.Count) { ($appAfter.ProcessId -join ', ') } else { '(none)' })"
 Write-Host "  session daemon    : $(if ($daemonBefore) { "pid=$($daemonBefore.pid)" } else { '(none)' }) -> $(if ($daemonAfter) { "pid=$($daemonAfter.pid) port=$($daemonAfter.port)" } elseif ($NoLaunch) { '(stopped)' } else { '(did not appear)' })"
 if (-not $NoLaunch -and -not $daemonAfter -and -not $KeepDaemon) {
-  throw 'The session daemon did not come back up — check the daemon log.'
+    throw 'The session daemon did not come back up — check the daemon log.'
 }

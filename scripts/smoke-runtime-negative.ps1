@@ -6,15 +6,15 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Tag         = if ($env:TAG)                { $env:TAG }  else { 'runtime-v0.4.1' }
-$Os          = if ($env:OS)                 { $env:OS }   else { 'win32' }
-$Arch        = if ($env:ARCH)               { $env:ARCH } else { 'x64' }
+$Tag = if ($env:TAG) { $env:TAG }  else { 'runtime-v0.4.1' }
+$Os = if ($env:OS) { $env:OS }   else { 'win32' }
+$Arch = if ($env:ARCH) { $env:ARCH } else { 'x64' }
 $ReleaseRepo = if ($env:RUNTIME_RELEASE_REPOSITORY) { $env:RUNTIME_RELEASE_REPOSITORY } else { 'tribgames/mixdog' }
-$PgVer       = '16.4'
+$PgVer = '16.4'
 $PgvectorVer = '0.8.2'
 
 $Asset = "mixdog-runtime-${Os}-${Arch}-pg${PgVer}-pgvector${PgvectorVer}.tar.gz"
-$Url   = "https://github.com/${ReleaseRepo}/releases/download/${Tag}/${Asset}"
+$Url = "https://github.com/${ReleaseRepo}/releases/download/${Tag}/${Asset}"
 
 $Work = New-Item -ItemType Directory -Force -Path "$env:TEMP\smoke-$([guid]::NewGuid().ToString('N'))" | Select-Object -ExpandProperty FullName
 
@@ -41,31 +41,33 @@ try {
     $stream.Close()
     $CorruptDir = "$Work\corrupt"
     New-Item -ItemType Directory -Force -Path $CorruptDir | Out-Null
-    $TarProc = Start-Process -FilePath tar -ArgumentList @('-xzf', $CorruptPath, '-C', $CorruptDir.Replace('\','/')) -Wait:$false -PassThru -WindowStyle Hidden
+    $TarProc = Start-Process -FilePath tar -ArgumentList @('-xzf', $CorruptPath, '-C', $CorruptDir.Replace('\', '/')) -Wait:$false -PassThru -WindowStyle Hidden
     if (-not $TarProc.WaitForExit(15000)) {
         Stop-Process -Id $TarProc.Id -Force -ErrorAction SilentlyContinue
         Write-Host "  PASS: corrupted tarball extraction timed out and was stopped"
-    } elseif ($TarProc.ExitCode -eq 0) {
+    }
+    elseif ($TarProc.ExitCode -eq 0) {
         Write-Host "  WARN: corrupted tarball extracted without error (tar gzip recovery)"
-    } else {
+    }
+    else {
         Write-Host "  PASS: corrupted tarball rejected by tar (exit $($TarProc.ExitCode))"
     }
 
     Write-Host "==> Test 4: fresh-extract boot (extension load + distance query)"
     $FreshDir = "$Work\fresh"
     New-Item -ItemType Directory -Force -Path $FreshDir | Out-Null
-    & tar -xzf $TarPath -C ($FreshDir.Replace('\','/'))
+    & tar -xzf $TarPath -C ($FreshDir.Replace('\', '/'))
     if ($LASTEXITCODE -ne 0) { throw "fresh extract failed" }
 
-    $PgBin   = "$FreshDir\bin"
-    $Data    = "$FreshDir\pgdata"
-    $Log     = "$FreshDir\pg.log"
-    $Port    = 55897
+    $PgBin = "$FreshDir\bin"
+    $Data = "$FreshDir\pgdata"
+    $Log = "$FreshDir\pg.log"
+    $Port = 55897
 
     # Hostile env: minimal PATH (System32 only), no PGROOT/PGDATA
     $SavedPath = $env:PATH
     $SavedPgRoot = $env:PGROOT
-    $env:PATH   = "$env:SystemRoot\System32;$env:SystemRoot"
+    $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
     $env:PGROOT = $null
     $env:PGDATA = $null
 
@@ -85,19 +87,22 @@ try {
             & "$PgBin\psql.exe" -h 127.0.0.1 -p $Port -U postgres -d postgres -c "CREATE EXTENSION pg_trgm;" | Out-Null
             if ($LASTEXITCODE -ne 0) { throw "FAIL: CREATE EXTENSION pg_trgm" }
             Write-Host "  PASS: fresh-extract boot + vector + pg_trgm extensions"
-        } finally {
+        }
+        finally {
             & "$PgBin\pg_ctl.exe" -D $Data -m fast stop 2>$null | Out-Null
         }
 
         Write-Host "==> Test 5: second initdb on initialized dir refused"
-        $rc = (Start-Process -FilePath "$PgBin\initdb.exe" -ArgumentList "-D",$Data,"-U","postgres" -Wait -PassThru -NoNewWindow).ExitCode
+        $rc = (Start-Process -FilePath "$PgBin\initdb.exe" -ArgumentList "-D", $Data, "-U", "postgres" -Wait -PassThru -NoNewWindow).ExitCode
         if ($rc -eq 0) {
             Write-Host "  WARN: second initdb succeeded (unexpected)"
-        } else {
+        }
+        else {
             Write-Host "  PASS: second initdb refused (exit $rc)"
         }
-    } finally {
-        $env:PATH   = $SavedPath
+    }
+    finally {
+        $env:PATH = $SavedPath
         $env:PGROOT = $SavedPgRoot
     }
 

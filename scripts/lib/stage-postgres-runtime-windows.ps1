@@ -152,9 +152,9 @@ function Stage-MixdogWindowsPgRuntime {
             Measure-Object -Property Length -Sum
     ).Sum
     return [pscustomobject]@{
-        ExecutableCount = $ExecutableNames.Count
+        ExecutableCount    = $ExecutableNames.Count
         DependencyDllCount = $RuntimeDllByName.Count
-        RuntimeMiB = [math]::Round($RuntimeBytes / 1MB, 1)
+        RuntimeMiB         = [math]::Round($RuntimeBytes / 1MB, 1)
     }
 }
 

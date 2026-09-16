@@ -9,10 +9,10 @@
 
 $ErrorActionPreference = 'Stop'
 
-$PG_VERSION       = '16.4'
+$PG_VERSION = '16.4'
 $PGVECTOR_VERSION = '0.8.2'
-$TARGET_OS        = $env:TARGET_OS   ?? 'win32'
-$TARGET_ARCH      = $env:TARGET_ARCH ?? 'x64'
+$TARGET_OS = $env:TARGET_OS ?? 'win32'
+$TARGET_ARCH = $env:TARGET_ARCH ?? 'x64'
 
 # Auto-detect highest preinstalled PG ≥ 16 OR install via chocolatey.
 $PgInstallRoot = 'C:\Program Files\PostgreSQL'
@@ -48,16 +48,16 @@ if (-not $PgRoot) {
     }
 }
 
-$ScriptDir  = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RootDir    = (Resolve-Path "$ScriptDir\..").Path
-$BuildDir   = "$RootDir\build\runtime-win32-$TARGET_ARCH"
-$DistDir    = "$RootDir\dist"
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RootDir = (Resolve-Path "$ScriptDir\..").Path
+$BuildDir = "$RootDir\build\runtime-win32-$TARGET_ARCH"
+$DistDir = "$RootDir\dist"
 $RuntimeDir = "$BuildDir\runtime"
 . "$ScriptDir\lib\stage-postgres-runtime-windows.ps1"
 
-$PgBin    = "$PgRoot\bin"
+$PgBin = "$PgRoot\bin"
 $PgConfig = "$PgBin\pg_config.exe"
-$VsWhere  = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+$VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 
 $OutputName = "mixdog-runtime-${TARGET_OS}-${TARGET_ARCH}-pg${PG_VERSION}-pgvector${PGVECTOR_VERSION}.tar.gz"
 
@@ -68,7 +68,7 @@ Write-Host "  pg_config reports version: $RealVersion"
 
 if (Test-Path $RuntimeDir) { Remove-Item -Recurse -Force $RuntimeDir }
 New-Item -ItemType Directory -Force -Path $BuildDir, $DistDir,
-  "$RuntimeDir\bin", "$RuntimeDir\lib", "$RuntimeDir\share" | Out-Null
+"$RuntimeDir\bin", "$RuntimeDir\lib", "$RuntimeDir\share" | Out-Null
 
 Write-Host "==> Cloning pgvector $PGVECTOR_VERSION"
 $PgVectorDir = "$BuildDir\pgvector"
@@ -76,7 +76,8 @@ $VectorDllBuilt = "$PgVectorDir\vector.dll"
 
 if (Test-Path $VectorDllBuilt) {
     Write-Host "  Cache hit: vector.dll already built at $VectorDllBuilt"
-} else {
+}
+else {
     if (Test-Path $PgVectorDir) { Remove-Item -Recurse -Force $PgVectorDir }
     git clone --branch "v$PGVECTOR_VERSION" --depth 1 `
         https://github.com/pgvector/pgvector.git $PgVectorDir
@@ -103,7 +104,8 @@ if (Test-Path $VectorDllBuilt) {
             Write-Error "pgvector nmake build failed (exit $LASTEXITCODE)"
             exit 1
         }
-    } finally {
+    }
+    finally {
         Pop-Location
     }
 }
@@ -126,7 +128,7 @@ Write-Host "==> Asserting runtime layout"
 $VectorControl = "$RuntimeDir\share\extension\vector.control"
 if (-not (Test-Path $VectorControl)) { Write-Error "ASSERT FAILED: $VectorControl not found"; exit 1 }
 $VectorSql = "$RuntimeDir\share\extension\vector--$PGVECTOR_VERSION.sql"
-if (-not (Test-Path $VectorSql))     { Write-Error "ASSERT FAILED: $VectorSql not found"; exit 1 }
+if (-not (Test-Path $VectorSql)) { Write-Error "ASSERT FAILED: $VectorSql not found"; exit 1 }
 if (-not (Test-Path "$RuntimeDir\lib\vector.dll")) {
     Write-Error "ASSERT FAILED: vector.dll not found in lib\"
     exit 1
@@ -139,7 +141,8 @@ Write-Host "  PASS runtime layout"
 # Licenses
 if (Test-Path "$PgRoot\doc\postgresql\COPYRIGHT") {
     Copy-Item "$PgRoot\doc\postgresql\COPYRIGHT" "$RuntimeDir\LICENSE.postgresql" -Force
-} elseif (Test-Path "$PgRoot\doc\COPYRIGHT") {
+}
+elseif (Test-Path "$PgRoot\doc\COPYRIGHT") {
     Copy-Item "$PgRoot\doc\COPYRIGHT" "$RuntimeDir\LICENSE.postgresql" -Force
 }
 if (Test-Path "$PgVectorDir\LICENSE") {
@@ -151,7 +154,7 @@ Write-Host "==> Self-contained smoke test (initdb + CREATE EXTENSION vector + di
 if ($LASTEXITCODE -ne 0) { Write-Error "FAIL: postgres.exe --version exit $LASTEXITCODE"; exit 1 }
 
 $SmokeData = "$BuildDir\smoke-pgdata"
-$SmokeLog  = "$BuildDir\smoke-pg.log"
+$SmokeLog = "$BuildDir\smoke-pg.log"
 $SmokePort = 55899
 if (Test-Path $SmokeData) { Remove-Item -Recurse -Force $SmokeData }
 
@@ -184,7 +187,7 @@ finally {
 }
 
 Write-Host "==> Creating tarball: $OutputName"
-$DistDirFwd    = $DistDir.Replace('\', '/')
+$DistDirFwd = $DistDir.Replace('\', '/')
 $RuntimeDirFwd = $RuntimeDir.Replace('\', '/')
 & tar -czf "$DistDirFwd/$OutputName" -C "$RuntimeDirFwd" .
 if ($LASTEXITCODE -ne 0) { Write-Error "tar failed (exit $LASTEXITCODE)"; exit 1 }
@@ -209,18 +212,18 @@ Write-Host "==> Re-smoke from extracted tarball (hostile env)"
 $ExtractDir = "$BuildDir\extract-smoke"
 if (Test-Path $ExtractDir) { Remove-Item -Recurse -Force $ExtractDir }
 New-Item -ItemType Directory -Force -Path $ExtractDir | Out-Null
-& tar -xzf "$DistDirFwd/$OutputName" -C ($ExtractDir.Replace('\','/'))
+& tar -xzf "$DistDirFwd/$OutputName" -C ($ExtractDir.Replace('\', '/'))
 if ($LASTEXITCODE -ne 0) { Write-Error "extract failed"; exit 1 }
 
 $ExtractData = "$ExtractDir\extract-pgdata"
-$ExtractLog  = "$ExtractDir\extract-pg.log"
+$ExtractLog = "$ExtractDir\extract-pg.log"
 $ExtractPort = 55898
 
 # Snapshot current env, then strip to minimal Windows PATH (no PG14/15/16
 # preinstalled bin, no chocolatey, no MSVC tools).
-$SavedPath  = $env:PATH
+$SavedPath = $env:PATH
 $SavedPgRoot = $env:PGROOT
-$env:PATH   = "$env:SystemRoot\System32;$env:SystemRoot"
+$env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
 $env:PGROOT = $null
 $env:PGDATA = $null
 
@@ -239,11 +242,13 @@ try {
         $ExtV2 = & "$ExtractDir\bin\psql.exe" -h 127.0.0.1 -p $ExtractPort -U postgres -d postgres -tAc "SELECT extversion FROM pg_extension WHERE extname='vector';"
         if ($ExtV2.Trim() -ne $PGVECTOR_VERSION) { throw "FAIL: extracted-smoke extversion='$ExtV2'" }
         Write-Host "  PASS extracted-tarball smoke (hostile env)"
-    } finally {
+    }
+    finally {
         & "$ExtractDir\bin\pg_ctl.exe" -D $ExtractData -m fast stop 2>$null | Out-Null
     }
-} finally {
-    $env:PATH   = $SavedPath
+}
+finally {
+    $env:PATH = $SavedPath
     $env:PGROOT = $SavedPgRoot
     Remove-Item -Recurse -Force $ExtractDir -ErrorAction SilentlyContinue
 }
