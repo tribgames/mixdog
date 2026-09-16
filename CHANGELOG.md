@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.169 - 2026-09-16
+
 - Code Tidy: Install now downloads the core engines (Biome, ruff, shfmt,
   shellcheck, PSScriptAnalyzer) with progress, and the built-in card lists
   every engine with its version, language, source and size; engines picked
