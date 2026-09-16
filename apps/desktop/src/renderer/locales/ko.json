@@ -12,7 +12,6 @@
   "({{count}} characters selected)_other": "({{count}}자 선택됨)",
   "({{count}} selected)": "({{count}}자 선택됨)",
   "(empty)": "(비어 있음)",
-  "(not used)": "(사용 안 함)",
   "[Ln": "[행",
   "{{action}} hunk": "{{action}} 헝크",
   "{{action}} hunk {{number}}": "{{action}} 헝크 {{number}}",

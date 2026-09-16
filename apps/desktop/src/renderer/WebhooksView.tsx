@@ -16,6 +16,7 @@ import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
+import { SidebarResourceTitle } from './sidebar-resource-row';
 import {
   AutomationAttachButton,
   AutomationAttachmentChips,
@@ -513,6 +514,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
           const running = runningNames?.has(name) === true;
           return <button type="button" key={name}
             className="schedules-row utilities-row sidebar-resource-row"
+            data-enabled={enabled ? 'true' : 'false'}
             disabled={busy} onClick={() => openEditor(name, webhookDraft(webhook))}>
             <span className="sidebar-resource-icon" aria-hidden="true">
               {running
@@ -520,13 +522,7 @@ export function WebhooksPane({ api = window.mixdogDesktop, active = true, runnin
                 : <Webhook size={16} />}
             </span>
             <span className="schedules-row-copy utilities-row-copy">
-              <span className="sidebar-resource-title">
-                <b>{name}</b>
-                <span
-                  className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
-                  {t(enabled ? 'Enabled' : 'Disabled')}
-                </span>
-              </span>
+              <SidebarResourceTitle label={name} tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null} />
               <small>{webhookMeta(webhook)}</small>
             </span>
             <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />

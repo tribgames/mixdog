@@ -146,7 +146,11 @@ test('Plugin combines built-in features and installed plugins', async () => {
     assert.doesNotMatch(document.body.textContent, /Agent tools|Input features/);
     assert.match(document.body.textContent, /Example plugin/);
     assert.equal(document.querySelector('[data-feature-id="memory"] .built-in-feature-state'), null);
-    assert.equal(document.querySelector('[data-extension-row="Example plugin"] .sidebar-resource-state'), null);
+    assert.equal(document.querySelector('[data-extension-row="Example plugin"] .sidebar-resource-tag'), null);
+    const voiceTag = document.querySelector('[data-built-in-feature="voice"] .sidebar-resource-tag');
+    assert.ok(voiceTag);
+    assert.equal(voiceTag.textContent, 'Not installed');
+    assert.equal(voiceTag.getAttribute('data-tone'), 'muted');
     // List rows carry no switch; the row is icon + title + one-line description.
     assert.equal(document.querySelector('[data-extension-row="Example plugin"] input'), null);
     assert.ok(document.querySelector('[data-extension-row="Example plugin"] .extensions-row-icon'));
@@ -444,10 +448,10 @@ test('project scope stays in the plugin detail and saves from its scope selector
   });
   try {
     assert.equal(
-      document.querySelector('[data-extension-row="Scoped plugin"] .extensions-row-badge'),
+      document.querySelector('[data-extension-row="Scoped plugin"] .sidebar-resource-tag'),
       null,
     );
-    assert.equal(document.querySelector('[data-extension-row="Open plugin"] .extensions-row-badge'), null);
+    assert.equal(document.querySelector('[data-extension-row="Open plugin"] .sidebar-resource-tag'), null);
 
     await act(async () => {
       document.querySelector('[data-extension-row="Open plugin"]').click();
@@ -540,6 +544,10 @@ test('Skill combines skills and MCP and lets the add action choose either kind',
     // Rows carry no switch; enabling happens inside each detail dialog.
     assert.equal(document.querySelector('[data-extension-row="example-skill"] input'), null);
     assert.equal(document.querySelector('[data-extension-row="example-mcp"] input'), null);
+    const mcpTag = document.querySelector('[data-extension-row="example-mcp"] .sidebar-resource-tag');
+    assert.ok(mcpTag);
+    assert.equal(mcpTag.textContent, 'Not connected');
+    assert.equal(mcpTag.getAttribute('data-tone'), 'warn');
     assert.equal(document.querySelector('#extensions-skill-dialog-title'), null);
 
     await act(async () => {
@@ -587,6 +595,80 @@ test('Skill and MCP rows acknowledge the card click before their detail payload 
     skillContent.resolve({ content: '# Example' });
     mcpConfig.resolve({ name: 'example-mcp', config: { type: 'stdio', command: 'example' } });
     await rendered.cleanup();
+  }
+});
+
+test('sidebar resource tags reflect disabled items and omit tags for connected MCP servers', async () => {
+  const rendered = await renderPanel('skills', {
+    data: {
+      toolModules: {},
+      voice: { enabled: false, installed: false },
+      plugins: {
+        plugins: [
+          { id: 'off-plugin', name: 'Off plugin', enabled: false },
+          { id: 'on-plugin', name: 'On plugin', enabled: true },
+        ],
+      },
+      skills: {
+        skills: [
+          { name: 'off-skill', description: 'Disabled skill' },
+          { name: 'on-skill', description: 'Active skill' },
+        ],
+      },
+      disabledSkills: { disabled: ['off-skill'] },
+      mcp: {
+        servers: [
+          { name: 'off-mcp', enabled: false, config: { type: 'stdio', command: 'x' } },
+          { name: 'connected-mcp', enabled: true, connected: true, config: { type: 'stdio', command: 'y' } },
+        ],
+      },
+    },
+  });
+  try {
+    const offSkillTag = document.querySelector('[data-extension-row="off-skill"] .sidebar-resource-tag');
+    assert.ok(offSkillTag);
+    assert.equal(offSkillTag.textContent, 'Disabled');
+    assert.equal(offSkillTag.getAttribute('data-tone'), 'muted');
+
+    const onSkillTag = document.querySelector('[data-extension-row="on-skill"] .sidebar-resource-tag');
+    assert.equal(onSkillTag, null);
+
+    const offMcpTag = document.querySelector('[data-extension-row="off-mcp"] .sidebar-resource-tag');
+    assert.ok(offMcpTag);
+    assert.equal(offMcpTag.textContent, 'Disabled');
+    assert.equal(offMcpTag.getAttribute('data-tone'), 'muted');
+
+    const connectedMcpTag = document.querySelector('[data-extension-row="connected-mcp"] .sidebar-resource-tag');
+    assert.equal(connectedMcpTag, null);
+  } finally {
+    await rendered.cleanup();
+  }
+
+  const renderedPlugins = await renderPanel('plugins', {
+    data: {
+      toolModules: {},
+      voice: { enabled: false, installed: false },
+      plugins: {
+        plugins: [
+          { id: 'off-plugin', name: 'Off plugin', enabled: false },
+          { id: 'on-plugin', name: 'On plugin', enabled: true },
+        ],
+      },
+      skills: { skills: [] },
+      disabledSkills: { disabled: [] },
+      mcp: { servers: [] },
+    },
+  });
+  try {
+    const offPluginTag = document.querySelector('[data-extension-row="Off plugin"] .sidebar-resource-tag');
+    assert.ok(offPluginTag);
+    assert.equal(offPluginTag.textContent, 'Disabled');
+    assert.equal(offPluginTag.getAttribute('data-tone'), 'muted');
+
+    const onPluginTag = document.querySelector('[data-extension-row="On plugin"] .sidebar-resource-tag');
+    assert.equal(onPluginTag, null);
+  } finally {
+    await renderedPlugins.cleanup();
   }
 });
 

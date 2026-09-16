@@ -16,6 +16,7 @@ import { showDesktopToast } from './notifications';
 import { OpenSelect } from './OpenSelect';
 import { ProgressSpinner } from './ProgressSpinner';
 import { record, rows } from './record-utils';
+import { SidebarResourceTitle } from './sidebar-resource-row';
 import {
   AutomationAttachButton,
   AutomationAttachmentChips,
@@ -534,18 +535,13 @@ export function SchedulesPane({ api = window.mixdogDesktop, active = true, runni
           const running = runningNames?.has(name) === true;
           return <button type="button" key={name}
             className="schedules-row utilities-row sidebar-resource-row"
+            data-enabled={enabled ? 'true' : 'false'}
             disabled={busy} onClick={() => {
               setError('');
               setEditor({ name, draft: scheduleDraft(schedule) });
             }} {...scheduleOrder.getReorderProps(name)}>
             <span className="schedules-row-copy utilities-row-copy">
-              <span className="sidebar-resource-title">
-                <b>{name}</b>
-                <span
-                  className={`sidebar-resource-state ${enabled ? 'is-enabled' : 'is-disabled'}`}>
-                  {t(enabled ? 'Enabled' : 'Disabled')}
-                </span>
-              </span>
+              <SidebarResourceTitle label={name} tag={!enabled ? { label: t('Disabled'), tone: 'muted' } : null} />
               <small>{scheduleMeta(schedule)}</small>
             </span>
             {running && <span className="sidebar-resource-running" role="status"

@@ -10,6 +10,7 @@ import type {
 import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
+import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { CompactSwitch, Group } from './capability-controls';
 import { sectionLoaded, type PanelContext, type RecordValue } from './capability-data';
 import {
@@ -75,16 +76,17 @@ type FeatureState = {
   info: RecordValue;
 };
 
-/** Short list badge for the state the row cannot show as a switch. */
-function featureBadge({ ready, installed, available, action, progressPercent }: FeatureState): string {
-  if (!available) return '';
-  if (!ready) return '';
+/** Short list tag for noteworthy states (not installed, installing, failed, disabled). */
+function featureStatus({ ready, installed, available, action, progressPercent, enabled }: FeatureState): SidebarResourceTag | null {
+  if (!available || !ready) return null;
   if (action?.status === 'installing') {
-    return progressPercent === null ? t('Installing…') : `${t('Installing…')} ${progressPercent}%`;
+    const label = progressPercent === null ? t('Installing…') : `${t('Installing…')} ${progressPercent}%`;
+    return { label, tone: 'muted' };
   }
-  if (action?.status === 'failed') return t('Failed');
-  if (!installed) return t('Not installed');
-  return '';
+  if (action?.status === 'failed') return { label: t('Failed'), tone: 'danger' };
+  if (!installed) return { label: t('Not installed'), tone: 'muted' };
+  if (!enabled) return { label: t('Disabled'), tone: 'muted' };
+  return null;
 }
 
 /** Header slot of the detail dialog: placeholder → progress → Install/Retry →
@@ -361,7 +363,7 @@ export function BuiltInFeaturesPanel({ data, snapshot, pending, run, api, initia
       const state = stateOf(feature);
       return <ExtensionRow key={feature.id} icon={<CapabilityIcon kind="builtin" name={feature.id} />}
         title={t(feature.title)} description={t(feature.description)}
-        badge={featureBadge(state)}
+        status={featureStatus(state)}
         enabled={state.installed && state.enabled}
         busy={false} onOpen={() => setOpenId(feature.id)}
         dataAttributes={{ 'data-built-in-feature': feature.id }} />;

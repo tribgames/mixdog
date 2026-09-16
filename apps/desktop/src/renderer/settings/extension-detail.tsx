@@ -7,6 +7,7 @@ import { OpenSelect } from '../OpenSelect';
 import { record } from '../record-utils';
 import { SidebarDialogLayer } from '../sidebar-dialog';
 import { useSidebarReferences } from '../sidebar-reference-cache';
+import { SidebarResourceTitle, type SidebarResourceTagTone } from '../sidebar-resource-row';
 import { CompactSwitch } from './capability-controls';
 import type { CapabilityApi, PanelContext, RecordValue } from './capability-data';
 
@@ -15,12 +16,12 @@ import type { CapabilityApi, PanelContext, RecordValue } from './capability-data
  *  enabling lives in the detail dialog (user: 아이템 레이아웃은 아이콘 제목줄
  *  설명줄 한줄로 가고 토글버튼 빼고). A disabled entry only dims its icon so
  *  the list still reads as one column. */
-export function ExtensionRow({ icon, title, description, badge, enabled, busy, onOpen, dataAttributes }: {
+export function ExtensionRow({ icon, title, description, status, enabled, busy, onOpen, dataAttributes }: {
   icon: ReactNode;
   title: string;
   description: string;
-  /** Short status note ("2 projects", "Not installed"); '' hides it. */
-  badge?: string;
+  /** Short status note next to the title line; absent when normal/enabled. */
+  status?: { label: string; tone?: SidebarResourceTagTone } | null;
   enabled: boolean;
   busy: boolean;
   onOpen(): void;
@@ -32,10 +33,7 @@ export function ExtensionRow({ icon, title, description, badge, enabled, busy, o
     aria-label={title} disabled={busy} onClick={onOpen} {...dataAttributes}>
     <span className="extensions-row-icon sidebar-resource-icon" aria-hidden="true">{icon}</span>
     <span className="schedules-row-copy utilities-row-copy">
-      <span className="sidebar-resource-title">
-        <b>{title}</b>
-        {badge ? <span className="extensions-row-badge">{badge}</span> : null}
-      </span>
+      <SidebarResourceTitle label={title} tag={status} />
       <small>{description}</small>
     </span>
     <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />

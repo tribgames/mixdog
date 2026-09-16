@@ -240,7 +240,7 @@
 .session-sidebar-panels .sidebar-resource-title {
   min-width: 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
 }
 .session-sidebar-panels .sidebar-resource-title > b {
@@ -259,21 +259,44 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.session-sidebar-panels .sidebar-resource-state {
+.session-sidebar-panels .sidebar-resource-tag {
   flex: 0 0 auto;
-  font-size: var(--mx-font-meta);
-  line-height: 16px;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 .5px var(--mx-border-muted);
+  font-size: var(--mx-font-micro);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
   white-space: nowrap;
 }
-.session-sidebar-panels .sidebar-resource-state.is-enabled {
-  color: var(--mx-success);
+.session-sidebar-panels .sidebar-resource-tag[data-tone="warn"] {
+  color: var(--mx-warning);
+  background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-warning) 35%, transparent);
 }
-.session-sidebar-panels .sidebar-resource-state.is-disabled {
-  color: var(--mx-text-muted);
+.session-sidebar-panels .sidebar-resource-tag[data-tone="danger"] {
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 35%, transparent);
+}
+.session-sidebar-panels .sidebar-resource-tag[data-tone="ok"] {
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
+  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-success) 35%, transparent);
 }
 .session-sidebar-panels .sidebar-resource-row {
   border: 0;
   font: inherit;
+}
+/* A disabled entry only dims its icon so the list still reads as one column
+   (user: 토글버튼 빼고, 비활성화 아이콘 딤). */
+.session-sidebar-panels .sidebar-resource-row[data-enabled="false"] .sidebar-resource-icon {
+  opacity: var(--mx-op-disabled);
 }
 .session-sidebar-panels .utilities-row-chevron {
   width: 16px;

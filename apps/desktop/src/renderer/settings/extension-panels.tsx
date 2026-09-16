@@ -15,6 +15,7 @@ import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
+import type { SidebarResourceTag } from '../sidebar-resource-row';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { PluginInfo } from './plugin-info';
 import { SkillEditorDialog, useSkillToolLinks } from './skill-editor';
@@ -330,6 +331,16 @@ function McpEditorDialog({
   </ExtensionDetailDialog>;
 }
 
+function mcpRowStatus(server: RecordValue): SidebarResourceTag | null {
+  const enabled = server.enabled !== false;
+  if (!enabled) return { label: t('Disabled'), tone: 'muted' };
+  const raw = String(server.status || '').trim();
+  const connected = server.connected === true || raw.toLowerCase() === 'connected';
+  if (connected) return null;
+  if (server.error) return { label: t('Failed'), tone: 'danger' };
+  return { label: t('Not connected'), tone: 'warn' };
+}
+
 /** Connection state for the title badge, with transport/endpoint or failure
  *  details kept in the editor body. */
 function mcpConnection(server: RecordValue): { description: string; status: string; tone: ExtensionItemTone } {
@@ -434,6 +445,7 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
       const enabled = server.enabled !== false;
       return <ExtensionRow key={name} icon={<Plug size={16} aria-hidden="true" />} title={name}
         description={mcpRowDescription(server)}
+        status={mcpRowStatus(server)}
         enabled={enabled} busy={busy}
         onOpen={() => openEditor(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'mcp')
@@ -513,6 +525,7 @@ function SkillsPanel({ api, data, pending, run, createOpen, closeCreate }: Panel
       const description = skillDisplayDescription(skill).trim() || t('Skill instructions');
       return <ExtensionRow key={name} icon={<CapabilityIcon name={name} />}
         title={name} description={description} enabled={!off}
+        status={off ? { label: t('Disabled'), tone: 'muted' } : null}
         busy={busy} onOpen={() => openDetail(name)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'skills')
       ? 'No skills found.' : 'Loading skills…'} />}
@@ -560,6 +573,7 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
         || t('Installed plugin');
       return <ExtensionRow key={id} icon={<Blocks size={16} aria-hidden="true" />} title={label(plugin)}
         description={description}
+        status={!enabled ? { label: t('Disabled'), tone: 'muted' } : null}
         enabled={enabled} busy={busy}
         onOpen={() => setOpenId(id)} />;
     }) : <ListEmpty text={sectionLoaded(data, 'plugins')

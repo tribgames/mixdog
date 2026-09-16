@@ -23,6 +23,7 @@ import {
 import { record } from './record-utils';
 import { SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
+import { SidebarResourceTitle } from './sidebar-resource-row';
 import {
   useSidebarReferences,
   type SidebarReferenceKey,
@@ -45,15 +46,7 @@ type AgentRouteSummary = {
   effortLabel: string;
 };
 
-function agentRouteSummary(route: RecordValue, models: DesktopModelOption[], disabled = false): AgentRouteSummary {
-  if (disabled) {
-    return {
-      model: t('(not used)'),
-      effort: '',
-      fast: false,
-      effortLabel: '',
-    };
-  }
+function agentRouteSummary(route: RecordValue, models: DesktopModelOption[]): AgentRouteSummary {
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
@@ -71,14 +64,6 @@ function agentRouteSummary(route: RecordValue, models: DesktopModelOption[], dis
     fast: fastCapable && fast,
     effortLabel: rawEffortLabel,
   };
-}
-
-function SidebarResourceTitle({ label }: {
-  label: string;
-}) {
-  return <span className="sidebar-resource-title">
-    <b>{label}</b>
-  </span>;
 }
 
 function AgentRouteSummaryView({ summary }: {
@@ -303,13 +288,14 @@ export function WorkflowsPane({
     const disabled = row?.disabled === true;
     return <button type="button" key={agent.id}
       className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
+      data-enabled={disabled ? 'false' : 'true'}
       title={agent.description || agent.label} disabled={busy}
       aria-label={t('Edit {{name}}', { name: agent.label })}
       onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
       {...agentOrder.getReorderProps(agent.id)}>
       <span className="schedules-row-copy utilities-row-copy">
-        <SidebarResourceTitle label={agent.label} />
-        <AgentRouteSummaryView summary={agentRouteSummary(route, models, disabled)} />
+        <SidebarResourceTitle label={agent.label} tag={disabled ? { label: t('Disabled'), tone: 'muted' } : null} />
+        <AgentRouteSummaryView summary={agentRouteSummary(route, models)} />
       </span>
       <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
     </button>;
@@ -410,6 +396,7 @@ export function WorkflowsPane({
           </button>
           {exploreAgent && <button type="button"
             className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            data-enabled={exploreRow?.disabled === true ? 'false' : 'true'}
             style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
             title={exploreAgent.description || exploreAgent.label} disabled={busy}
             aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
@@ -425,13 +412,15 @@ export function WorkflowsPane({
               })}
             {...defaultAgentOrder.getReorderProps(exploreAgent.id)}>
             <span className="schedules-row-copy utilities-row-copy">
-              <SidebarResourceTitle label={exploreAgent.label} />
-              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models, exploreRow?.disabled === true)} />
+              <SidebarResourceTitle label={exploreAgent.label}
+                tag={exploreRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(exploreRow?.route), models)} />
             </span>
             <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
           </button>}
           {maintainerAgent && <button type="button"
             className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
+            data-enabled={maintainerRow?.disabled === true ? 'false' : 'true'}
             style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
             title={maintainerAgent.description || maintainerAgent.label} disabled={busy}
             aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
@@ -447,8 +436,9 @@ export function WorkflowsPane({
               })}
             {...defaultAgentOrder.getReorderProps(maintainerAgent.id)}>
             <span className="schedules-row-copy utilities-row-copy">
-              <SidebarResourceTitle label={maintainerAgent.label} />
-              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models, maintainerRow?.disabled === true)} />
+              <SidebarResourceTitle label={maintainerAgent.label}
+                tag={maintainerRow?.disabled === true ? { label: t('Disabled'), tone: 'muted' } : null} />
+              <AgentRouteSummaryView summary={agentRouteSummary(record(maintainerRow?.route), models)} />
             </span>
             <ChevronRight className="utilities-row-chevron" size={16} aria-hidden="true" />
           </button>}
