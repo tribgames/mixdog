@@ -3,8 +3,9 @@
 // resolve/next/bind/forget, session-index refresh, terminal tombstones, and
 // the delayed reap timers. The maps are returned by reference so the
 // remaining agent-tool closure keeps its original direct reads.
-import { agentTagOf, clean, clearAgentStatuslineRoute, positiveInt, rowMatchesContext, sessionMatchesContext } from './helpers.mjs';
+import { agentTagOf, clean, clearAgentStatuslineRoute, positiveInt, rowMatchesContext, sessionMatchesContext, stampMs } from './helpers.mjs';
 import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, isTerminalWorkerStatus, tagTombstoneKey, workerRowTime, workerRowToSession } from './worker-rows.mjs';
+import { ACTIVE_STAGES } from './tool-def.mjs';
 import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
 import { createLeadWorkerIndex } from './lead-worker-index.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
@@ -18,6 +19,10 @@ export function createTagRegistry({
   const tagAgents = new Map();
   const tagCwds = new Map();
   const reapTimers = new Map();
+  // sessionId -> the reapAt a live timer was armed for. Lets a repeated session
+  // scan recognise an already-armed deadline instead of re-arming (and thus
+  // re-stamping) the same terminal lease on every list read.
+  const scheduledReapAt = new Map();
   // Worker-index persistence (row store, parse cache, batched atomic writer,
   // tag projection) lives in agent-tool/worker-index.mjs; the tag maps are
   // shared by reference so both sides see the same live state.
@@ -82,6 +87,120 @@ export function createTagRegistry({
     return null;
   }
 
+  /** Latest proof of life on the session record itself. createdAt is included
+   * as the last resort so a brand-new session that has not been stamped yet is
+   * never mistaken for the reaped one that used to own its tag. */
+  function sessionActivityAt(session) {
+    let latest = 0;
+    for (const value of [session?.updatedAt, session?.finishedAt, session?.lastUsedAt, session?.createdAt]) {
+      const parsed = stampMs(value);
+      if (parsed > latest) latest = parsed;
+    }
+    return latest;
+  }
+
+  function tagTombstoneIndex() {
+    const byKey = new Map();
+    for (const row of readAllTagTombstones()) byKey.set(tagTombstoneKey(row), row);
+    return byKey;
+  }
+
+  // Reaping expires only the tag/runtime lease: the session record stays open so
+  // the transcript remains visible from the parent task, which means every later
+  // session scan still sees it. Without this guard the scan re-binds the tag and
+  // re-stamps the row, handing the reaped worker a brand-new full reap lease on
+  // every list read — the agent list could then never clear.
+  function tombstoneBlocksScan(session, tag, tombstones) {
+    const value = clean(tag);
+    const sessionId = clean(session?.id);
+    if (!value || !sessionId) return false;
+    // A tag that currently maps to this session was re-bound by a real
+    // lifecycle write (spawn/send/index row); the tombstone is spent.
+    if (tags.get(value) === sessionId) return false;
+    const tombstone = tombstones.get(tagTombstoneKey({ tag: value, clientHostPid: session?.clientHostPid }));
+    const reapedAt = stampMs(tombstone?.reapedAt);
+    if (!reapedAt) return false;
+    // Activity after the reap means the session legitimately came back; only a
+    // session that has been idle since its own reap stays suppressed.
+    return reapedAt >= sessionActivityAt(session);
+  }
+
+  function scanSessionIsTerminal(session) {
+    if (!session) return false;
+    if (session.closed === true) return true;
+    if (!isTerminalWorkerStatus(clean(session.status) || 'idle')) return false;
+    const runtime = mgr.getSessionRuntime?.(clean(session.id)) || null;
+    if (runtime?.controller?.signal && !runtime.controller.signal.aborted) return false;
+    const stage = clean(runtime?.stage);
+    return !(stage && ACTIVE_STAGES.has(stage));
+  }
+
+  /** Extra fields for a scan/rebind upsert of an already-terminal session. The
+   * default row build stamps updatedAt = now and clears reapAt, which restarts
+   * the lease from the read instead of from the work: a terminal session owns
+   * its frozen stamps, and its deadline is derived from them. Returns null for
+   * running/active sessions so they keep the normal (now-based) behavior. */
+  function terminalScanExtra(session) {
+    if (!scanSessionIsTerminal(session)) return null;
+    const terminalAtMs = sessionActivityAt(session);
+    // A stamp-free session cannot prove when its grace started; leave it to the
+    // normal path rather than inventing an elapsed deadline.
+    if (!(terminalAtMs > 0)) return null;
+    const stamp = new Date(terminalAtMs).toISOString();
+    const sessionId = clean(session?.id);
+    const existing = readWorkerRows().find((row) => clean(row.sessionId) === sessionId) || null;
+    const reapMs = resolveAgentTerminalReapMs(
+      cfgMod.loadConfig(),
+      clean(existing?.provider) || clean(session?.provider),
+    );
+    // An existing lease is authoritative: a read must never extend or reset it.
+    const existingReapMs = stampMs(existing?.reapAt);
+    const reapAt = existingReapMs > 0
+      ? new Date(existingReapMs).toISOString()
+      : (reapMs == null ? null : new Date(terminalAtMs + reapMs).toISOString());
+    const finishedMs = stampMs(session?.finishedAt) || stampMs(existing?.finishedAt);
+    return {
+      // Stamps are re-emitted as ISO so a numeric session stamp cannot leak an
+      // unparseable value into the row store.
+      updatedAt: stamp,
+      finishedAt: finishedMs > 0 ? new Date(finishedMs).toISOString() : stamp,
+      reapAt,
+    };
+  }
+
+  // Shared session-scan admission: returns false when the scan must not
+  // resurrect this session, otherwise indexes it (terminal sessions with their
+  // own stamps) and records any terminal deadline for settlement.
+  function scanUpsertSession(session, tag, tombstones, pendingTerminal) {
+    if (tombstoneBlocksScan(session, tag, tombstones)) return false;
+    const extra = terminalScanExtra(session);
+    upsertWorkerSessionDeferred(session, tag, extra || {});
+    if (extra?.reapAt) {
+      pendingTerminal.push({
+        tag: agentTagOf(session) || clean(tag),
+        sessionId: clean(session.id),
+        reapAt: extra.reapAt,
+      });
+    }
+    return true;
+  }
+
+  /** Arm (or immediately run) the reap for rows a scan just (re)indexed. An
+   * already-elapsed deadline is reaped now instead of buying a new window. */
+  function settleScannedTerminalRows(pendingTerminal) {
+    if (!pendingTerminal.length) return;
+    const now = Date.now();
+    for (const row of pendingTerminal) {
+      const deadline = stampMs(row.reapAt);
+      if (!deadline) continue;
+      // reapTerminalRow -> tombstoneTerminalSession flushes the deferred upsert
+      // first, so the row it matches on is the one this scan just wrote.
+      if (deadline <= now) reapTerminalRow(row);
+      else if (!reapTimers.has(row.sessionId)
+        || scheduledReapAt.get(row.sessionId) !== row.reapAt) schedulePersistedReap(row);
+    }
+  }
+
   function agentSessionEntries({ scanSessions = false, context = {}, excludeTerminalTraces = false } = {}) {
     const rows = [];
     const seen = new Set();
@@ -115,11 +234,16 @@ export function createTagRegistry({
     };
     for (const row of readWorkerRows(context)) addIndexRow(row);
     if (scanSessions) {
+      const tombstones = tagTombstoneIndex();
+      const pendingTerminal = [];
       for (const session of mgr.listSessions({ includeClosed: false }) || []) {
+        if (session?.closed === true) continue;
         const tag = agentTagOf(session);
+        if (tag && tombstoneBlocksScan(session, tag, tombstones)) continue;
         add(session, tag);
-        if (tag) upsertWorkerSessionDeferred(session, tag);
+        if (tag) scanUpsertSession(session, tag, tombstones, pendingTerminal);
       }
+      settleScannedTerminalRows(pendingTerminal);
     }
     for (const [tag, sessionId] of tags.entries()) {
       add(getLiveSession(sessionId), tag);
@@ -164,16 +288,24 @@ export function createTagRegistry({
       }
     }
     if (!scanSessions) return;
+    // Tags missing from the index are exactly the ones a reap just removed, so
+    // the tombstone (not the still-open session record) decides whether this
+    // scan may re-bind them.
+    const tombstones = tagTombstoneIndex();
+    const pendingTerminal = [];
     for (const session of mgr.listSessions({ includeClosed: false }) || []) {
       if (isLeadPoolAgent(session?.agent)) continue;
+      if (session?.closed === true) continue;
       const tag = agentTagOf(session);
       if (!tag || tags.has(tag)) continue;
       if (!sessionMatchesContext(session, context)) continue;
+      if (tombstoneBlocksScan(session, tag, tombstones)) continue;
       tags.set(tag, session.id);
       if (session.agent) tagAgents.set(tag, session.agent);
       if (session.cwd) tagCwds.set(tag, session.cwd);
-      upsertWorkerSessionDeferred(session, tag);
+      scanUpsertSession(session, tag, tombstones, pendingTerminal);
     }
+    settleScannedTerminalRows(pendingTerminal);
   }
 
   function bindTag(tag, session, extra = {}) {
@@ -262,8 +394,15 @@ export function createTagRegistry({
     return true;
   }
 
+  /** closeAll() drops every timer wholesale; the armed-deadline bookkeeping
+   * must go with them or a later scan would trust a timer that no longer runs. */
+  function clearScheduledReaps() {
+    scheduledReapAt.clear();
+  }
+
   function cancelReap(sessionId) {
     const handle = reapTimers.get(sessionId);
+    scheduledReapAt.delete(sessionId);
     if (!handle) return false;
     clearTimeout(handle);
     reapTimers.delete(sessionId);
@@ -294,10 +433,12 @@ export function createTagRegistry({
     cancelReap(sessionId);
     const handle = setTimeout(() => {
       reapTimers.delete(sessionId);
+      scheduledReapAt.delete(sessionId);
       reapTerminalRow(row);
     }, Math.max(0, deadline - Date.now()));
     handle.unref?.();
     reapTimers.set(sessionId, handle);
+    scheduledReapAt.set(sessionId, reapAt);
     return true;
   }
 
@@ -432,6 +573,7 @@ export function createTagRegistry({
     tagTombstoneForTag,
     consumeTagTombstone,
     cancelReap,
+    clearScheduledReaps,
     scheduleReap,
     recoverTerminalReaps,
     transitionStaleNonterminalRows,

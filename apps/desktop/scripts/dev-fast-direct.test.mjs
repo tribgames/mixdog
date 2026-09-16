@@ -8,13 +8,16 @@ import { createPackageWithOptions, statFile } from '@electron/asar';
 
 import {
   asarPath,
+  assertPackagedProductionDependencyClosure,
   changedPlanGroups,
   decidePlan,
   fastDirectAsarOptions,
   fastDirectRuntimeArchive,
   hashBrowserImportNativeTools,
   installedFastRuntimeReady,
+  MissingProductionDependencyError,
   packagingManifestForFingerprint,
+  planForceFullForMissingProductionDependency,
   runtimePackageFileForFingerprint,
   targetInputs,
 } from './dev-fast-direct.mjs';
@@ -341,5 +344,167 @@ test('runtime fingerprint excludes developer-only package files but keeps build 
   assert.equal(
     runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'local-only.ps1')),
     false,
+  );
+});
+
+async function packProductionDependencyFixture(context, files) {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-prod-deps-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const staging = join(root, 'staging');
+  for (const [relative, contents] of Object.entries(files)) {
+    const target = join(staging, ...relative.split('/'));
+    await mkdir(join(target, '..'), { recursive: true });
+    await writeFile(
+      target,
+      typeof contents === 'string' ? contents : `${JSON.stringify(contents)}\n`,
+    );
+  }
+  const archive = join(root, 'app.asar');
+  await createPackageWithOptions(staging, archive, {});
+  return { root, archive };
+}
+
+test('packaged production dependency closure accepts a complete tree', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': {
+      name: 'app',
+      dependencies: { 'electron-updater': '1.0.0' },
+    },
+    'node_modules/electron-updater/package.json': {
+      name: 'electron-updater',
+      dependencies: { 'fs-extra': '1.0.0' },
+    },
+    'node_modules/fs-extra/package.json': {
+      name: 'fs-extra',
+      dependencies: { 'graceful-fs': '1.0.0' },
+    },
+    'node_modules/graceful-fs/package.json': { name: 'graceful-fs' },
+  });
+  await assertPackagedProductionDependencyClosure(archive);
+});
+
+test('packaged production dependency closure names a missing transitive chain', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': {
+      name: 'app',
+      dependencies: { 'electron-updater': '1.0.0' },
+    },
+    'node_modules/electron-updater/package.json': {
+      name: 'electron-updater',
+      dependencies: { 'fs-extra': '1.0.0' },
+    },
+    'node_modules/fs-extra/package.json': {
+      name: 'fs-extra',
+      dependencies: { 'graceful-fs': '1.0.0' },
+    },
+  });
+  await assert.rejects(
+    () => assertPackagedProductionDependencyClosure(archive),
+    (error) => {
+      assert.equal(error instanceof MissingProductionDependencyError, true);
+      assert.deepEqual(error.chain, ['electron-updater', 'fs-extra', 'graceful-fs']);
+      assert.equal(
+        error.message,
+        'Packaged app.asar is missing production dependency electron-updater > fs-extra > graceful-fs',
+      );
+      assert.equal(planForceFullForMissingProductionDependency(error), true);
+      return true;
+    },
+  );
+});
+
+test('packaged production dependency closure allows a missing optional dependency', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': {
+      name: 'app',
+      dependencies: { ws: '1.0.0' },
+      optionalDependencies: { 'optional-native': '1.0.0' },
+    },
+    'node_modules/ws/package.json': { name: 'ws' },
+  });
+  await assertPackagedProductionDependencyClosure(archive);
+});
+
+test('packaged production dependency closure resolves nested node_modules', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': {
+      name: 'app',
+      dependencies: { a: '1.0.0' },
+    },
+    'node_modules/a/package.json': {
+      name: 'a',
+      dependencies: { b: '1.0.0' },
+    },
+    'node_modules/a/node_modules/b/package.json': { name: 'b' },
+  });
+  await assertPackagedProductionDependencyClosure(archive);
+});
+
+test('packaged production dependency closure accepts asarUnpack packages from the sibling tree', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': {
+      name: 'app',
+      dependencies: {
+        ws: '1.0.0',
+        '@homebridge/node-pty-prebuilt-multiarch': '1.0.0',
+      },
+    },
+    'node_modules/ws/package.json': { name: 'ws' },
+  });
+  const unpackedJson = join(
+    `${archive}.unpacked`,
+    'node_modules',
+    '@homebridge',
+    'node-pty-prebuilt-multiarch',
+    'package.json',
+  );
+  await mkdir(join(unpackedJson, '..'), { recursive: true });
+  await writeFile(unpackedJson, `${JSON.stringify({
+    name: '@homebridge/node-pty-prebuilt-multiarch',
+  })}\n`);
+  await assertPackagedProductionDependencyClosure(archive);
+});
+
+test('packaged production dependency closure accepts an explicit unpacked allow-list', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': {
+      name: 'app',
+      dependencies: { '@homebridge/node-pty-prebuilt-multiarch': '1.0.0' },
+    },
+  });
+  await assertPackagedProductionDependencyClosure(archive, {
+    unpackedPackages: ['@homebridge/node-pty-prebuilt-multiarch'],
+  });
+});
+
+test('a packed package.json parse error does not fall through to the unpacked tree', async (context) => {
+  const { archive } = await packProductionDependencyFixture(context, {
+    'package.json': '{not-json',
+  });
+  const unpackedJson = join(`${archive}.unpacked`, 'package.json');
+  await mkdir(join(unpackedJson, '..'), { recursive: true });
+  await writeFile(unpackedJson, `${JSON.stringify({ name: 'app' })}\n`);
+  await assert.rejects(
+    () => assertPackagedProductionDependencyClosure(archive),
+    (error) => {
+      assert.equal(error instanceof MissingProductionDependencyError, false);
+      assert.equal(error instanceof SyntaxError, true);
+      return true;
+    },
+  );
+});
+
+test('a corrupt asar is not treated as a missing production dependency for planning', async (context) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-corrupt-asar-'));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const archive = join(root, 'app.asar');
+  await writeFile(archive, 'not an asar archive');
+  await assert.rejects(
+    () => assertPackagedProductionDependencyClosure(archive),
+    (error) => {
+      assert.equal(error instanceof MissingProductionDependencyError, false);
+      assert.throws(() => planForceFullForMissingProductionDependency(error));
+      return true;
+    },
   );
 });

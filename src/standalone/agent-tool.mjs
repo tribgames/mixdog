@@ -134,6 +134,7 @@ export function createStandaloneAgent({
       tagTombstoneForTag,
       consumeTagTombstone,
       cancelReap,
+      clearScheduledReaps,
       scheduleReap,
       transitionStaleNonterminalRows,
       readAllTagTombstones,
@@ -490,6 +491,7 @@ export function createStandaloneAgent({
     if (!ownerSessionId) {
       for (const timer of reapTimers.values()) clearTimeout(timer);
       reapTimers.clear();
+      clearScheduledReaps();
       tags.clear();
       tagAgents.clear();
       tagCwds.clear();

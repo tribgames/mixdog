@@ -94,6 +94,10 @@ function Assert-DesktopDaemonArtifact {
   if (-not (Test-Path -LiteralPath $daemonArtifact -PathType Leaf)) {
     throw "Desktop artifact is missing the unpacked daemon: $daemonArtifact"
   }
+  & node $fastDirectHelper --action=assert-prod-deps "--install-dir=$ArtifactRoot"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Desktop artifact app.asar is missing production dependencies: $(Join-Path $ArtifactRoot 'resources\app.asar')"
+  }
 }
 
 function Write-FastDirectReceipt {

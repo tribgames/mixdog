@@ -54,6 +54,135 @@ export function changedPlanGroups(planned = {}, current = {}) {
     (name) => planned?.[name]?.hash !== current?.[name]?.hash,
   );
 }
+
+function packagedAsarPosixPath(entry) {
+  return String(entry).replaceAll('\\', '/').replace(/^\//, '');
+}
+
+function packagedAsarFileSet(archivePath) {
+  const files = new Set();
+  for (const entry of listPackage(archivePath)) {
+    const posix = packagedAsarPosixPath(entry);
+    if (posix) files.add(posix);
+  }
+  return files;
+}
+
+function nodeModuleSearchDirs(fromDir) {
+  const dirs = [];
+  let current = fromDir;
+  while (true) {
+    dirs.push(current ? `${current}/node_modules` : 'node_modules');
+    if (!current) break;
+    const slash = current.lastIndexOf('/');
+    current = slash === -1 ? '' : current.slice(0, slash);
+  }
+  return dirs;
+}
+
+function productionDependencyEntries(manifest) {
+  const objectKeys = (value) => (
+    value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
+  );
+  const optional = new Set(objectKeys(manifest?.optionalDependencies));
+  return [...new Set([...objectKeys(manifest?.dependencies), ...optional])]
+    .sort()
+    .map((name) => ({ name, optional: optional.has(name) }));
+}
+
+async function readPackagedPackageJson(archivePath, asarFiles, unpackedRoot, packageDir) {
+  const posixPath = packageDir ? `${packageDir}/package.json` : 'package.json';
+  if (asarFiles.has(posixPath)) {
+    const filename = asarPath(posixPath);
+    const meta = statFile(archivePath, filename, false);
+    if (!meta.unpacked) {
+      return JSON.parse(extractFile(archivePath, filename).toString('utf8'));
+    }
+  }
+  if (!unpackedRoot) return null;
+  try {
+    return JSON.parse(await readFile(join(unpackedRoot, ...posixPath.split('/')), 'utf8'));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+    return null;
+  }
+}
+
+export class MissingProductionDependencyError extends Error {
+  constructor(chain) {
+    super(`Packaged app.asar is missing production dependency ${chain.join(' > ')}`);
+    this.name = 'MissingProductionDependencyError';
+    this.chain = chain;
+  }
+}
+
+export function planForceFullForMissingProductionDependency(error) {
+  if (!(error instanceof MissingProductionDependencyError)) throw error;
+  return true;
+}
+
+/**
+ * Verify that `archivePath` contains the recursive production dependency
+ * closure of its packaged package.json (`dependencies` + `optionalDependencies`).
+ * Packages listed in asarUnpack are satisfied from the sibling
+ * `app.asar.unpacked` tree, or from `unpackedPackages` when the caller will
+ * stage them there. Missing optional deps are allowed.
+ */
+export async function assertPackagedProductionDependencyClosure(archivePath, options = {}) {
+  const asarFiles = packagedAsarFileSet(archivePath);
+  const unpackedRoot = Object.hasOwn(options, 'unpackedDir')
+    ? options.unpackedDir
+    : `${archivePath}.unpacked`;
+  const unpackedPackages = new Set(options.unpackedPackages || []);
+  const unpackedAllowlist = Symbol('unpacked-allowlist');
+  const manifests = new Map();
+  const visited = new Set();
+
+  const readManifest = async (packageDir) => {
+    const key = packageDir || '.';
+    if (manifests.has(key)) return manifests.get(key);
+    const manifest = await readPackagedPackageJson(
+      archivePath,
+      asarFiles,
+      unpackedRoot,
+      packageDir,
+    );
+    manifests.set(key, manifest);
+    return manifest;
+  };
+
+  const resolvePackage = async (fromDir, name) => {
+    for (const modulesDir of nodeModuleSearchDirs(fromDir)) {
+      const candidate = `${modulesDir}/${name}`;
+      if (await readManifest(candidate)) return candidate;
+    }
+    if (unpackedPackages.has(name)) return unpackedAllowlist;
+    return null;
+  };
+
+  const walk = async (packageDir, chain) => {
+    const key = packageDir || '.';
+    if (visited.has(key)) return;
+    visited.add(key);
+    const manifest = await readManifest(packageDir);
+    if (!manifest) {
+      if (chain.length === 0) throw new Error('Packaged app.asar is missing package.json');
+      throw new MissingProductionDependencyError(chain);
+    }
+    for (const { name, optional } of productionDependencyEntries(manifest)) {
+      const resolved = await resolvePackage(packageDir, name);
+      if (resolved === unpackedAllowlist) continue;
+      if (resolved == null) {
+        if (optional) continue;
+        throw new MissingProductionDependencyError([...chain, name]);
+      }
+      await walk(resolved, [...chain, name]);
+    }
+  };
+
+  await walk('', []);
+}
+
 const repoPackageManifest = join(repoRoot, 'package.json');
 // electron-builder keeps this package unpacked (asarUnpack). The daemon runs
 // from app.asar.unpacked and resolves it through the real file system, and a
@@ -555,13 +684,23 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
     installDir,
     groups.runtimeDependencies.hash,
   );
+  let fullPlan = forceFull;
+  try {
+    await assertPackagedProductionDependencyClosure(join(installDir, 'resources', 'app.asar'));
+  } catch (error) {
+    planForceFullForMissingProductionDependency(error);
+    fullPlan = true;
+    process.stderr.write(
+      `[fastdirect] ${error.message}; forcing complete win-unpacked fallback\n`,
+    );
+  }
   const decision = decidePlan({
     previous,
     groups,
     installedMatches,
     bootstrapFresh: bootstrap,
     devRuntimeReady,
-    forceFull,
+    forceFull: fullPlan,
   });
   const plan = {
     schemaVersion,
@@ -685,6 +824,7 @@ async function stageShell({ installDir, artifactDir, plan }) {
   if (!(await stat(ptyBinding).catch(() => null))?.isFile()) {
     throw new Error(`FastDirect artifact is missing the unpacked PTY binding: ${ptyBinding}`);
   }
+  await assertPackagedProductionDependencyClosure(artifactArchive);
   const artifactExe = join(artifactDir, 'Mixdog.exe');
   await cp(join(installDir, 'Mixdog.exe'), artifactExe);
   // Incremental FastDirect runtime updates live in resources/fast-runtime.
@@ -719,6 +859,18 @@ async function commitState({ installDir, statePath, plan }) {
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const action = args.action;
+  if (action === 'assert-prod-deps') {
+    const archivePath = args.asar
+      ? resolve(args.asar)
+      : args['install-dir']
+        ? join(resolve(args['install-dir']), 'resources', 'app.asar')
+        : '';
+    if (!archivePath) {
+      throw new Error('--action=assert-prod-deps requires --asar=<path> or --install-dir=<dir>');
+    }
+    await assertPackagedProductionDependencyClosure(archivePath);
+    return;
+  }
   const installDir = resolve(args['install-dir'] || '');
   const statePath = resolve(args.state || join(desktopDir, '.cache', 'dev-fast-direct-state.json'));
   const planPath = resolve(args.plan || join(desktopDir, '.cache', 'dev-fast-direct-plan.json'));
