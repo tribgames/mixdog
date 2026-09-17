@@ -184,7 +184,7 @@ export function createNoToolTurnResolver({
     return true;
   };
 
-  // The agent contract (rules/agent/00-core.md) requires either a tool call
+  // The agent contract (rules/agent/AGENT.md) requires either a tool call
   // or final handoff text, so a public agent's empty turn is re-prompted with
   // a bounded contract nudge. Hidden roles are exempt: their own role rules
   // define a different output contract (pipe-separated chunker output, …) and

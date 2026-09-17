@@ -205,16 +205,16 @@ test('skill loader, envelope, and lead/GPT/agent skill surfaces', async () => {
           `agent Skill manifest must expose metadata only, never SKILL.md body: ${systemVisible.slice(0, 1200)}`
         );
       }
-      if (!/# General/i.test(systemVisible) || !/# Agent Constraints/i.test(systemVisible)) {
+      if (!/# Tool Calls/i.test(systemVisible) || !/^# Agent$/im.test(systemVisible)) {
         throw new Error(
           `agent system layers must carry BP1 tool policy and BP3 role rules: ${systemVisible.slice(0, 1200)}`
         );
       }
       if (
-        !/# General/i.test(systemLayers[0]?.content || '') ||
+        !/# Tool Calls/i.test(systemLayers[0]?.content || '') ||
         /available-skills/i.test(systemLayers[0]?.content || '') ||
         !/available-skills/i.test(systemLayers[1]?.content || '') ||
-        !/# Agent Constraints/i.test(systemLayers[2]?.content || '')
+        !/^# Agent$/im.test(systemLayers[2]?.content || '')
       ) {
         throw new Error(
           `agent prompt layers must place tool policy in BP1, skills in BP2, and role in BP3: ${JSON.stringify(systemLayers)}`

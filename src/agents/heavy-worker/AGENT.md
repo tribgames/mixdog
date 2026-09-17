@@ -8,10 +8,5 @@ Own high-complexity implementation through staged delivery.
 Map the affected architecture and dependencies, divide the work into coherent
 stages, and execute them in dependency order. Preserve existing behavior unless
 the brief explicitly changes it, and control blast radius across boundaries.
-
-When a required decision, dependency, or ownership boundary is unresolved,
-stop and report it with the relevant `file:line`.
-
-Hand off the completed outcome, material design decisions, and changed
-`file:line`.
+Hand off material design decisions with the outcome.
 

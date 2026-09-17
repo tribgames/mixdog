@@ -1,15 +1,21 @@
 import { traceAgentBatch } from '../agent-trace.mjs';
 import { randomUUID } from 'node:crypto';
 
-// Only documented array inputs count. Keep dimensions separate: grep patterns
-// and scopes, for example, are not interchangeable units of work.
-export const ARRAY_INPUTS = new Map([
-  ['read', ['file_path', 'path']],
-  ['git', ['command']],
-  ['grep', ['pattern', 'path']],
-  ['glob', ['pattern']],
-  ['code_graph', ['files', 'symbols']],
+// The one definition of the tools that take several targets in one call:
+// `fields` are the documented array inputs (aliases included) the batch trace
+// counts and the batching nudge merges on; `hint` is the public spelling every
+// model-facing reminder quotes, in the order rules/shared/05-parallel-calls.md
+// lists them. Keep dimensions separate: grep patterns and scopes, for
+// example, are not interchangeable units of work.
+export const ARRAY_SURFACE = new Map([
+  ['read', { fields: ['file_path', 'path'], hint: 'read.file_path[]' }],
+  ['grep', { fields: ['pattern', 'path'], hint: 'grep.pattern[]/path[]' }],
+  ['glob', { fields: ['pattern'], hint: 'glob.pattern[]' }],
+  ['git', { fields: ['command'], hint: 'git.command[]' }],
+  ['code_graph', { fields: ['files', 'symbols'], hint: 'code_graph.files[]/symbols[]' }],
 ]);
+
+export const ARRAY_INPUTS = new Map([...ARRAY_SURFACE].map(([name, surface]) => [name, surface.fields]));
 
 export function recordToolBatch(sessionId, calls, iteration) {
   const n = Array.isArray(calls) ? calls.length : Number(calls);

@@ -199,20 +199,23 @@ test('Grok normalizes nested array and map schemas without interpreting data-val
   };
   const original = structuredClone(schema);
   const [tool] = normalizeGrokToolSchemas([{ name: 'mcp_rows', inputSchema: schema }]);
+  // A "one or many" alternative keeps its array branch at every depth so the
+  // batching contract survives flattening; the dropped scalar is projected
+  // into the description.
   for (const field of [
     tool.inputSchema.properties.rows.items.properties.value,
     tool.inputSchema.properties.values.items,
     tool.inputSchema.properties.labels.additionalProperties,
   ]) {
-    assert.equal(field.type, 'string');
+    assert.equal(field.type, 'array');
     assert.equal(Object.hasOwn(field, 'anyOf'), false);
-    assert.equal(field.minLength, 1);
-    assert.match(field.description, /single value.*not an array/);
+    assert.deepEqual(field.items, { type: 'string' });
+    assert.match(field.description, /one or more values as an array/);
   }
   const validate = ajv.compile(tool.inputSchema);
-  assert.equal(validate({ rows: [{ value: 'one' }], values: ['two'], labels: { a: 'three' } }), true);
-  assert.equal(validate({ rows: [{ value: '' }], values: ['two'], labels: {} }), false);
-  assert.equal(validate({ rows: [], values: [['two']], labels: {} }), false);
+  assert.equal(validate({ rows: [{ value: ['one'] }], values: [['two']], labels: { a: ['three'] } }), true);
+  assert.equal(validate({ rows: [{ value: 'one' }], values: [['two']], labels: {} }), false);
+  assert.equal(validate({ rows: [], values: ['two'], labels: {} }), false);
   assert.deepEqual(tool.inputSchema.properties.literal.default, schema.properties.literal.default);
   assert.deepEqual(schema, original);
   assert.deepEqual(normalizeGrokToolSchemas([tool]), [tool], 'normalization is idempotent');

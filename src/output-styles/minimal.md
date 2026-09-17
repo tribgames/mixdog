@@ -5,7 +5,7 @@ description: Conclusion, core cause, and one decisive fact
 aliases: brief, short
 ---
 
-## Depth Variation
+## Depth
 
 - State the conclusion and determining cause, adding one decisive fact or
   immediate consequence when useful.

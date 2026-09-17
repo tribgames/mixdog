@@ -1,4 +1,6 @@
 ---
+name: Maintainer
+description: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.
 permission: read-write
 ---
 

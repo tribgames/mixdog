@@ -174,7 +174,7 @@ function runInjectionScaffold() {
     if (new Set(STYLES.map((id) => snippets[id])).size !== STYLES.length)
       throw new Error('injection bodies not distinct');
     const sharedBlocks = STYLES.map((id) =>
-      snippets[id].slice(snippets[id].indexOf(sharedMarker), snippets[id].indexOf('\n\n## Depth Variation'))
+      snippets[id].slice(snippets[id].indexOf(sharedMarker), snippets[id].indexOf('\n\n## Depth'))
     );
     if (sharedBlocks.some((block) => !block) || new Set(sharedBlocks).size !== 1) {
       throw new Error('built-in styles do not share the same core philosophy');
@@ -217,7 +217,7 @@ description: Custom alias fixture
 aliases: audit, review-note
 ---
 
-## Depth Variation
+## Depth
 
 Audit note — custom alias sentinel.`
     );
@@ -293,7 +293,7 @@ description: Custom opt-out fixture
 keep-shared-format: false
 ---
 
-## Depth Variation
+## Depth
 
 Standalone note — shared-format opt-out sentinel.`
     );

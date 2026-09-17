@@ -5,7 +5,7 @@ description: Final decision or direct answer in one or two sentences
 aliases: extreme, extreme-simple, one-line, mono
 ---
 
-## Depth Variation
+## Depth
 
 - Give the direct answer or result; for a cause question, give the
   determining cause.

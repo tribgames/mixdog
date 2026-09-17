@@ -48,7 +48,7 @@ export const BUILTIN_TOOLS = [
       compressible: false,
     },
     description:
-      'Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site (≤10 per call, 50 KB), never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex.',
+      'Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site (≤10 per call), never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -109,7 +109,7 @@ export const BUILTIN_TOOLS = [
       compressibleLossless: true,
     },
     description:
-      'Replace exact text in one file. old_string must match once unless replace_all is true. Every non-overlapping edit of the stage in one response, using existing text, not text another edit creates; many files → one apply_patch. Widened replacements keep intervening lines verbatim.',
+      'Replace exact text in one file. old_string must match once unless replace_all is true. Every non-overlapping edit of the stage in one response, using existing text, not text another edit creates; many files → one edit per file, all in that response. Widened replacements keep intervening lines verbatim.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -147,7 +147,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: true,
       compressible: true,
     },
-    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id; use task wait, not read polling.'}`,
+    description: `Run programs, builds, tests and computation. Never use shell commands or scripts for work covered by dedicated tools: cat/head/tail→read, ls→list, find→glob, filename lookup→find, grep/rg→grep, code structure→code_graph, file edits/writes (sed/awk/redirection)→edit/apply_patch, Git→git when that tool is on the surface. Tool names are not shell commands. ${_shellBackgroundDisabled ? 'Commands run in the foreground until completion.' : 'After a 10s foreground window (not a timeout), unfinished work continues under task_id; use task wait, not read polling.'}`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -229,7 +229,7 @@ export const BUILTIN_TOOLS = [
       compressible: true,
     },
     description:
-      'Search literal/regex file contents (single-line ripgrep, 10 KB cap); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.',
+      'Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.',
     inputSchema: {
       type: 'object',
       properties: {

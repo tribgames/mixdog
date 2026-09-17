@@ -29,16 +29,13 @@ const PLUGIN_ROOT = join(REPO_ROOT, 'src');
 const HEADLESS = pathToFileURL(resolve(__dir, '../src/headless-role.mjs')).href;
 
 const RULE_FILES = [
-  'rules/agent/00-core.md',
-  'rules/agent/00-common.md',
+  'rules/agent/AGENT.md',
   'agents/worker/AGENT.md',
   'agents/heavy-worker/AGENT.md',
   'agents/reviewer/AGENT.md',
   'workflows/default/WORKFLOW.md',
   'workflows/solo/WORKFLOW.md',
-  'rules/lead/01-general.md',
-  'rules/lead/02-persona.md',
-  'rules/lead/lead-brief.md',
+  'rules/lead/LEAD.md',
 ];
 
 const DEFAULT_WORKER_PROMPT =

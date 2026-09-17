@@ -49,7 +49,7 @@ function loadHiddenAgentSnippets(pluginRoot) {
     const agentRulesDir = join(pluginRoot, 'rules', 'agent');
     if (!existsSync(agentRulesDir)) return [];
     const files = readdirSync(agentRulesDir)
-      .filter((f) => f.endsWith('.md') && f !== '00-common.md' && f !== '00-core.md')
+      .filter((f) => f.endsWith('.md') && f !== 'AGENT.md')
       .sort();
     const pairs = [];
     for (const f of files) {

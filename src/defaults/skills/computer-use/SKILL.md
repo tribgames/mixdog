@@ -46,8 +46,10 @@ observed target, and leave windows where they were.
   messages, including clicks, scrolling, and value/text input. This avoids
   unnecessary window activation, physical pointer travel, and animation waits.
   Check the returned effect; message delivery alone is not success.
-  Background work uses activity status and result evidence, not a floating
-  cursor effect over other windows. Real-pointer effects are foreground-only.
+  Both delivery modes show cursor and input feedback. Background uses a
+  target-bound virtual pointer without moving the user's physical pointer;
+  its feedback must not float above unrelated foreground windows. Foreground
+  decorates the real pointer. Visual feedback is not proof of action success.
   A background semantic action may queue behind foreground work to protect
   focus; waiting for that guard never switches its delivery mode.
 - **Foreground (explicit):** use when the target/gesture requires real pointer

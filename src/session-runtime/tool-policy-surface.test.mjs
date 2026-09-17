@@ -95,7 +95,9 @@ test('omitToolRoutes drops web search and memory clauses independently', () => {
 test('shared tool rules omit disabled web search and memory routes', () => {
   const pluginRoot = join(process.cwd(), 'src');
   const full = buildSharedToolContent({ PLUGIN_ROOT: pluginRoot });
-  assert.match(full, /^# General\s+- The user's latest explicit request overrides any internal rule\./);
+  // Shared policy is tool policy only; precedence rules live with each role (Lead / agent common).
+  assert.match(full, /^# Tool Calls\s+- Order on files/);
+  assert.doesNotMatch(full, /# General|latest explicit request|Author model-facing/);
   assert.match(full, /`web_search`/);
   assert.match(full, /`memory`/);
   const omitted = buildSharedToolContent({
@@ -130,11 +132,11 @@ test('rule allowlists omit unavailable capabilities and explicit denies still wi
   assert.equal(omitToolRoutes(SAMPLE_ROUTES, [], []), '');
 });
 
-test('headless rules omit Skill and Goal guidance while interactive rules retain it', () => {
+test('headless rules omit Skill guidance while interactive rules retain it; goal policy lives in its tool and skill', () => {
   const PLUGIN_ROOT = join(process.cwd(), 'src');
   const interactive = buildSharedToolContent({ PLUGIN_ROOT });
   assert.match(interactive, /# Skills/);
-  assert.match(interactive, /# Goals/);
+  assert.doesNotMatch(interactive, /# Goals|`goal`/);
   const headless = buildSharedToolContent({
     PLUGIN_ROOT,
     allowTools: modelToolSchemaAllowlist('headless'),
@@ -142,7 +144,8 @@ test('headless rules omit Skill and Goal guidance while interactive rules retain
   });
   const role = buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief: false });
   assert.doesNotMatch(`${headless}\n${role}`, /\bSkills?\b|\bGoals?\b|`goal`|goal-management/);
-  assert.match(headless, /`load_tool`/);
+  // Loader guidance lives in the load_tool description, not the shared rules.
+  assert.doesNotMatch(headless, /`load_tool`/);
   assert.match(headless, /`read`/);
   assert.doesNotMatch(
     buildSharedToolContent({ PLUGIN_ROOT, omitTools: ['sKiLl', 'GOAL'] }),
@@ -154,28 +157,34 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Advisory drift check: update these anchors when the rule text
   // intentionally changes.
   const full = buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src') }).replace(/\s+/g, ' ');
-  assert.match(full, /Validate exact targets before destructive actions/i);
+  // Destructive-action policy lives once, in its own section.
+  assert.match(full, /# Destructive Actions/);
+  assert.match(full, /any irreversible action only on the\s+user's explicit request/i);
   assert.match(full, /never roots, `~` or\s+unresolved variables\/globs/i);
-  assert.match(full, /Report deletion recoverability/i);
-  assert.match(full, /Shortest route: cheapest decisive evidence first \(existing state, a diff, a\s+failing test\)/i);
+  assert.match(full, /Report what is recoverable/i);
+  assert.doesNotMatch(full, /Validate exact targets before destructive actions|deletion recoverability/i);
+  assert.match(full, /Cheapest decisive evidence first \(existing state, a diff, a failing test\)/i);
   assert.match(full, /Sequence\s+only on a real dependency/i);
   assert.match(full, /Order on files: enumerate only when the scope is unknown/i);
-  assert.match(full, /one read\s+stage: one `\{file_path, offset, limit\}` window per site, ≤10 per call/i);
+  // Read call shape lives in the read description; the rule names the stage only.
+  assert.match(full, /one read stage over every located\s+site/i);
+  assert.doesNotMatch(full, /window per site|≤10 per call/i);
   assert.match(full, /A search after a read that could have\s+run before it is a wasted round; content in context is never read again/i);
   assert.match(
     full,
-    /Trust documented guarantees; no availability checks or defensive branches,\s+in scripts included/i
+    /Trust documented guarantees; no availability checks or defensive branches —\s+in scripts too/i
   );
   assert.match(
     full,
-    /Only an input you\s+will mutate gets an unchanged backup — its copy command goes in the same\s+response as the first inspection, never a round of its own/i
+    /Back up only an input you will mutate — the copy command goes in the same\s+response as the first inspection/i
   );
-  assert.match(full, /no backups for reading/i);
   assert.match(full, /direct references, no surveys or history/i);
   assert.match(full, /Reuse content\s+already delivered; changed sources and omitted ranges are new evidence/i);
   assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
   assert.match(full, /Route by missing evidence: files\/ranges→`read`, text or regex→`grep`/i);
-  assert.match(full, /`shell` only runs\s+programs and computation\. Tool names are not shell commands/i);
+  // The shell boundary is stated once, in Execution.
+  assert.match(full, /Tool names are not shell commands/i);
+  assert.doesNotMatch(full, /`shell` only runs/i);
   assert.match(full, /Every independent call in the same response, never one per round/i);
   assert.match(full, /Several targets of one tool in its array argument/i);
   assert.match(
@@ -183,7 +192,8 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
     /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i
   );
   assert.match(full, /An open\s+shell is never a routing reason/i);
-  assert.match(full, /Git→`git`/i);
+  // Git routing lives in the shell tool description, not the shared rules.
+  assert.doesNotMatch(full, /Git→`git`/i);
   assert.match(full, /no read\/list\/diff to confirm writes/i);
   assert.doesNotMatch(full, /Verify once after all edits/i);
   assert.match(full, /Generated data is not evidence/i);
@@ -192,15 +202,12 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
     /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i
   );
   assert.match(full, /Supplied\/home\/environment paths need no locator/i);
-  assert.match(full, /Non-mutating readers directly/i);
   assert.match(full, /keep the backup\s+unless the user requires purging/i);
-  assert.match(full, /temp workspaces come from a\s+unique-directory allocator/i);
+  assert.match(full, /temp workspaces come from a unique-directory\s+allocator/i);
   assert.match(full, /files\/ranges→`read`, text or regex→`grep`,\s+declarations and relations→`code_graph`/i);
-  assert.match(
-    full,
-    /Structure questions \(exports, signatures, members, callers, importers\) go to\s+`code_graph`; its rows already carry export marker, signature and location/i
-  );
-  assert.match(full, /Source files are read by located windows/i);
+  // code_graph usage and the read stage live in their tool descriptions and Tool Calls.
+  assert.doesNotMatch(full, /Structure questions|located windows|no backups for reading/i);
+  assert.match(full, /a sample is not the input\s+domain/i);
   assert.match(full, /Retry only after a relevant change, at most one bounded transient retry/i);
   assert.match(full, /never bypass denial or cancellation/i);
   assert.match(full, /never hide errors, timeouts or cancellation\s+behind later success/i);
@@ -218,9 +225,10 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /no\s+stricter flags or unrequested suites/i);
   assert.match(full, /rerun only failed or invalidated checks/i);
   assert.doesNotMatch(full, /Collect failures, finish fixes/i);
-  assert.match(full, /Completion means the verified objective,\s+not a turn-ending response/i);
+  // Goal lifecycle and completion policy live in the goal tool description and skill.
+  assert.doesNotMatch(full, /Completion means the verified objective/i);
   assert.doesNotMatch(full, /affected failed checks once/i);
-  // Git routing lives once in Tool Workflow; Delivery no longer repeats it.
+  // Git routing lives in the shell/git tool descriptions; Delivery no longer repeats it.
   assert.doesNotMatch(full, /source-file edits stay with/i);
   assert.doesNotMatch(full, /Every repository mutation→`git`/i);
   assert.doesNotMatch(full, /always batch safely in parallel/i);
@@ -228,17 +236,25 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // separate from these shared-policy anchors.
   assert.match(full, /Target text comes from visible evidence, never reconstructed/i);
   assert.doesNotMatch(full, /Editing tool names are direct tool calls/i);
-  assert.match(full, /Fewest safe calls; write each file complete; defer only result-dependent changes/i);
-  assert.match(full, /Commit, push, release and deployment only on the user's explicit request/i);
-  assert.match(full, /Past sessions and decisions→`recall`/i);
-  assert.match(full, /show exact content and scope and ask/i);
-  assert.match(full, /Never store\s+inferred lessons as standing instructions/i);
+  // Call count and sequencing belong to Tool Calls; Editing keeps the per-file rule.
+  assert.match(full, /Write each file complete in one pass/i);
+  assert.doesNotMatch(full, /Fewest safe calls|result-dependent changes/i);
+  assert.match(full, /Commit, push, release, deployment and any irreversible action/i);
+  assert.match(full, /Stage selected diff changes with `git_stage`/i);
+  // Delivery is only the git_stage line; without that tool the section is gone.
+  assert.doesNotMatch(buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git_stage'] }), /# Delivery/);
+  assert.match(full, /`recall` only on request or for an open decision/i);
+  // The memory approval flow lives in the memory tool description.
+  assert.doesNotMatch(full, /show exact content and scope and ask/i);
+  assert.match(full, /nothing else; never\s+store inferred lessons as standing instructions/i);
   const headings = [
-    '# General',
+    // Batching comes first: every later rule assumes the calls it names are batched.
+    '# Tool Calls',
     '# Tool Workflow',
     '# Research',
     '# Exploration',
     '# Editing',
+    '# Destructive Actions',
     '# Execution',
     '# Verification',
     '# Delivery',
@@ -256,9 +272,13 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
 
 test('agent common policy delegates verification unless AGENT.md explicitly owns it', () => {
   const rules = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
-  assert.match(rules, /Unless an agent's own `AGENT\.md` explicitly assigns a review or verification/i);
-  assert.match(rules, /skip builds, tests, lint, runtime checks/i);
-  assert.match(rules, /Lead or an explicitly verification-assigned agent owns verification/i);
+  assert.match(rules, /^# Agent$/m);
+  assert.match(rules, /Do not review or verify unless your `AGENT\.md` assigns it; Lead owns\s+verification/i);
+  assert.match(rules, /Lead's latest brief is your request and overrides any internal rule/i);
+  // The retrieval profile shares the same contract plus its read-only line.
+  const retrieval = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), profile: 'retrieval' });
+  assert.match(retrieval, /^# Agent$/m);
+  assert.match(retrieval, /Read-only retrieval role/);
 });
 
 test('apply_patch descriptions keep creation and placement contracts on both surfaces', () => {

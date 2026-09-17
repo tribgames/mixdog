@@ -213,7 +213,7 @@ function buildSystemBlocks(systemMsgs, model, systemTtl, tier3Ttl) {
     }
     // Anthropic concatenates system text blocks byte-for-byte with no
     // separator, so a trimmed block would glue its last line onto the next
-    // block's heading (`...Claude.# General`, `...and b# Session`). Every
+    // block's heading (`...Claude.# Tool Calls`, `...and b# Session`). Every
     // block after the first opens with a paragraph break; the gating
     // prefix block itself stays byte-exact.
     blocks.push({ type: 'text', text: blocks.length ? `\n\n${body}` : body, _tier: items[i].tier });
@@ -390,7 +390,7 @@ export class AnthropicOAuthProvider {
   static inputExcludesCache = true;
   // Delivers the route's round-reminder itself, as a turn-scoped system
   // message (anthropic-turn-reminder.mjs); the runtime channel stays silent.
-  static turnScopedReminder = true;
+  static deliversRoundReminder = true;
   name = 'anthropic-oauth';
   credentials = null;
   config;

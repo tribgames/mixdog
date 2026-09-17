@@ -7,7 +7,7 @@
 // tool's array field (Grok 4.6: read×3, grep×2 … with 0/116 arrays). The
 // reminder repeats the contract only after the transcript shows it being
 // ignored, so a model that batches never reads it.
-import { ARRAY_INPUTS } from '../tools/tool-batch-trace.mjs';
+import { ARRAY_INPUTS, ARRAY_SURFACE } from '../tools/tool-batch-trace.mjs';
 import { _isMutationTool, _stripMcpPrefix } from './loop/tool-classify.mjs';
 
 // Three single-call rounds of the same tool in a row, each of which could
@@ -35,7 +35,9 @@ const SERIAL_BY_NATURE = new Set(['task', 'load_tool', 'tool_search', 'skill', '
 // prompt and the replayed history intact). The agent loop resolves it and
 // this channel appends it after every single-call round that neither batched
 // nor earned the serial reminder, unless the provider delivers it itself as
-// a turn-scoped system message.
+// a turn-scoped system message. A round whose arguments came out of the
+// round before it could not have joined it, so it stays silent there too —
+// the same exemption the serial streak already makes.
 const EDIT_TOOLS = new Set(['edit', 'apply_patch']);
 // Argument strings shorter than this ('a', 'ok') prove nothing about provenance.
 const PROVENANCE_MIN_LENGTH = 3;
@@ -66,14 +68,6 @@ const PATH_STRING_ONLY_PROVIDER = /grok|xai/i;
 // first round simply starts a new streak.
 const ROUNDS_REMEMBERED = 6;
 const roundHistory = new WeakMap();
-
-const ARRAY_HINTS = new Map([
-  ['read', 'read.file_path[]'],
-  ['grep', 'grep.pattern[]/path[]'],
-  ['glob', 'glob.pattern[]'],
-  ['git', 'git.command[]'],
-  ['code_graph', 'code_graph.files[]/symbols[]'],
-]);
 
 function toolName(call) {
   return String(_stripMcpPrefix(call?.name) || '');
@@ -122,16 +116,22 @@ function resultText(results) {
 // Strings an argument set could have taken from a tool result: every string
 // value and, for path-like tokens inside it, the file name (a read of
 // `src/b.mjs` after a result mentioning `./b.mjs` or `b.mjs` is provenance).
+// Separators are normalized so a Windows path a result printed with
+// backslashes still matches the argument the model wrote with slashes.
 function provenanceCandidates(args) {
   const out = new Set();
   const visit = (value) => {
     if (typeof value === 'string') {
-      const text = value.trim();
+      const text = value.trim().replace(/\\/g, '/');
       if (text.length >= PROVENANCE_MIN_LENGTH) out.add(text);
       for (const raw of text.split(/\s+/)) {
         const token = raw.replace(/^["'`(]+|["'`,;:)]+$/g, '');
-        if (!/[\\/]/.test(token) && !/\.[A-Za-z0-9]{1,6}$/.test(token)) continue;
-        const base = token.split(/[\\/]/).pop();
+        const isPath = token.includes('/');
+        if (!isPath && !/\.[A-Za-z0-9]{1,6}$/.test(token)) continue;
+        // A path inside a longer argument (`rg -l x C:/app/dir`) counts as a
+        // whole, and by its file name.
+        if (isPath && token.length >= PROVENANCE_MIN_LENGTH) out.add(token);
+        const base = token.split('/').pop();
         if (base.length >= PROVENANCE_MIN_LENGTH) out.add(base);
       }
     } else if (Array.isArray(value)) value.forEach(visit);
@@ -146,10 +146,16 @@ function escapeRegExp(text) {
 }
 
 // A result mentions a candidate only as a whole token: not inside a longer
-// word, and not as a directory prefix of a longer path (`src` in `src/x.mjs`
-// is the scope the call was given, not something the result revealed).
+// word, and — for a bare name — not as a directory prefix of a longer path
+// (`src` in `src/x.mjs` is the scope the call was given, not something the
+// result revealed). A candidate that is itself a path may continue into a
+// deeper one: a result that printed `…/Programs/mixdog-desktop/Mixdog.exe`
+// revealed `…/Programs/mixdog-desktop` too. Either separator matches.
 function mentions(text, candidate) {
-  return new RegExp(`(?<![\\w-])${escapeRegExp(candidate)}(?![\\w\\-\\\\/])`).test(text);
+  const isPath = candidate.includes('/');
+  const token = escapeRegExp(candidate).replace(/\//g, '[\\\\/]');
+  const trailing = isPath ? '(?![\\w-])' : '(?![\\w\\-\\\\/])';
+  return new RegExp(`(?<![\\w-])${token}${trailing}`).test(text);
 }
 
 // Did this call need the previous round? Provenance (an argument the previous
@@ -357,7 +363,7 @@ function mergeableGroups(calls) {
 
 function arrayHints(tools) {
   const names = new Set((Array.isArray(tools) ? tools : []).map((tool) => String(_stripMcpPrefix(tool?.name) || '')));
-  return [...ARRAY_HINTS].filter(([name]) => names.has(name)).map(([, hint]) => hint);
+  return [...ARRAY_SURFACE].filter(([name]) => names.has(name)).map(([, surface]) => surface.hint);
 }
 
 function serialText(names, hints) {
@@ -419,7 +425,7 @@ export function observeToolBatchForNudge({ sessionRef, calls, results, tools, re
     if (!nudge && !carriesArray(call)) nudge = locatedSitesNudge(call, history, sessionRef);
     if (!nudge) nudge = lateLocatingNudge(calls, history);
     const line = typeof reminder === 'string' ? reminder.trim() : '';
-    if (!nudge && line && countsAsSerialCall(call) && !carriesArray(call)) {
+    if (!nudge && line && countsAsSerialCall(call) && !carriesArray(call) && !dependsOnPrevious(call, history)) {
       // The streak is untouched: the serial reminder stays the stronger signal.
       state.perRound += 1;
       return { trigger: 'per_round', tools: [toolName(call)], text: line };

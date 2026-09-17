@@ -56,7 +56,7 @@ test('the code_graph contract advertises the direct outline path', () => {
   const def = CODE_GRAPH_TOOL_DEFS.find((tool) => tool.name === 'code_graph');
   assert.ok(def, 'code_graph tool definition must exist');
   const mode = def.inputSchema.properties.mode.description;
-  assert.match(mode, /symbols with files\[\] gives a direct file outline/);
+  assert.match(mode, /symbols with files\[\] gives the file outline/);
   // Absolute anchors are supported, so the schema must not claim otherwise.
   assert.match(def.inputSchema.properties.files.description, /project-relative or absolute/);
 });

@@ -22,6 +22,11 @@ export function orchestrationInstructions(value) {
 ${BATCHING[mode]}
 
 Dispatch all ready independent scopes in one turn. Only a scope that requires
-another's output waits. Brief each agent using the Lead Brief contract.
-Use only available agents; Lead handles work without a suitable agent.`;
+another's output waits. Brief each agent as the Lead rules describe.
+Use only available agents; Lead handles work without a suitable agent.
+
+If the reviewer is disabled or unavailable, Lead alone reviews the result
+against the approved scope and performs the required verification. Do not
+change settings, enable the reviewer, or delegate review to a substitute agent.
+Do not skip review or describe Lead's own review as independent review.`;
 }

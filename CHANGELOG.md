@@ -5,6 +5,49 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- System prompt consolidation. Every rule now has one owner: the shared
+  layer (`rules/shared/*.md`) is tool policy only and opens with
+  `# Tool Calls` (batching first; `05-parallel-calls.md`), the Lead role is
+  one file (`rules/lead/LEAD.md`: user communication, agent briefing and
+  completion notifications behind `<!-- tools: agent -->`, tone), and the
+  common agent contract is one file (`rules/agent/AGENT.md`: chain of
+  command, no self-verification, English, handoff shape). `00-general.md`,
+  `02-persona.md`, `lead-brief.md`, `00-core.md`, `00-common.md` and
+  `75-goal.md` are gone — their surviving sentences moved to the file that
+  owns them, and sentences a tool description already states (`load_tool`,
+  `Skill`, `goal`, `memory` approval, `task wait`, `code_graph` outline,
+  read call shape, Git routing, browser/computer routing) are stated there
+  only. Precedence is per role: the user's latest explicit request for Lead,
+  Lead's latest brief for agents. Lead's preamble rule now carries its
+  reason (the user sees only your text) and asks for one line, not a word
+  count; the briefing rule says an agent never sees the conversation, that
+  findings are synthesized into paths, lines and the exact change ("based
+  on your findings" never), and that an agent's result is never predicted.
+  Destructive-action rules that were spread over four sections sit in one
+  `# Destructive Actions` section. Role files (`agents/*/AGENT.md`) drop the
+  blocker/handoff sentences the contract owns; `maintainer` gains name and
+  description frontmatter. Output styles: the `## Depth` heading replaces
+  `## Depth Variation`, and progress-report wording lives in the Lead rules
+  only. The Default workflow no longer carries the reviewer-fallback
+  paragraph; it rides with the orchestration-mode block that delegating
+  modes inject. Tool descriptions: `edit` no longer points at `apply_patch`
+  on surfaces that filtered it out, `shell` says Git goes to `git` only when
+  that tool is present, `read`/`grep` drop byte caps the runtime reports
+  anyway, `code_graph` states that `symbols` is the outline. Providers that
+  deliver the round reminder themselves (`anthropic-oauth` as a turn-scoped
+  system message, `cursor` through its relay) declare `deliversRoundReminder`
+  so the runtime channel stays silent — Cursor sessions no longer receive the
+  batching reminder twice per round. The batching nudge's provenance check
+  normalizes path separators and accepts a directory shown as a prefix of a
+  deeper path in the previous result, so a follow-up call on a path the last
+  result revealed no longer reads as an unrelated single call (two
+  false positives per session before). The `setup` route schema states
+  `contextPercent` as bounded integer (the executor still requires a
+  multiple of 10) so Gemini stops receiving an unrepresentable-enum
+  placeholder. Stale test expectations left behind by the batching commit
+  are brought current, and two timing/environment-dependent tests are made
+  deterministic. Project skill `gamerscroll-article` is scoped to its
+  project.
 - GitHub releases now carry the version's CHANGELOG.md section as their
   notes, followed by the compare link; the draft previously relied on
   GitHub's generated notes, which list merged PRs only and left the page

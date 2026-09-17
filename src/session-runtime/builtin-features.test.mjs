@@ -60,12 +60,14 @@ test('headless basic tools omit the loader and its guidance without removing opt
     assert.ok(headless.session.tools.some((tool) => tool.name === 'shell'));
     assert.ok(headless.session.tools.some((tool) => tool.name === 'git'));
     assert.doesNotMatch(headless.rules, /load_tool|# Skills|# Goals/);
-    assert.match(headless.rules, /Tools own their work; shell never substitutes/);
+    assert.match(headless.rules, /Tool names are not shell commands/);
+    assert.match(headless.rules, /`shell` only for evidence or artifacts that require execution/);
 
     const interactive = surface(basic, 'interactive');
     assert.ok(interactive.session.tools.some((tool) => tool.name === 'load_tool'));
     assert.ok(interactive.session.tools.some((tool) => tool.name === 'Skill'));
-    assert.match(interactive.rules, /`load_tool`/);
+    // Loader guidance lives in the load_tool description, not the shared rules.
+    assert.doesNotMatch(interactive.rules, /`load_tool`/);
 
     for (const [name, config] of [
       ['web_search', { ...basic, modules: { webSearch: { enabled: true } } }],
@@ -81,7 +83,6 @@ test('headless basic tools omit the loader and its guidance without removing opt
         optional.session.deferredToolCatalog.some((tool) => tool.name === name),
         name
       );
-      assert.match(optional.rules, /`load_tool`/);
     }
   } finally {
     for (const [key, value] of previous) {

@@ -1623,7 +1623,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(Buffer.byteLength(JSON.stringify(COMPUTER_TOOL_DEFS[0])) <= 14_000);
   // Method lives in the built-in computer-use skill; the description is contract only.
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('computer-use skill'));
-  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('input requires a fresh observation from capture'));
+  assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Input requires a fresh observation from capture'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Never guess ids'));
   assert.ok(COMPUTER_TOOL_DEFS[0].description.includes('Browser Use'));
   // The desktop is the last rung: MCP, shell, and the browser come first, and

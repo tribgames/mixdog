@@ -19,14 +19,10 @@
  *
  * Source files (rules/):
  *   - shared/*.md                    — ordered universal policies (Lead + agent BP1, identical full set)
- *   - lead/lead-tool.md             — Lead-specific control-tower / delegation / ToolSearch guidance
- *   - lead/lead-brief.md            — Lead brief contract (delegating workflows only)
- *   - lead/01-general.md             — Lead general
- *   - lead/02-persona.md             — Lead communication personality
+ *   - lead/LEAD.md                   — Lead role: user communication, agent briefing (agent-gated), tone
  *   - output-styles/common.md        — shared built-in output composition policy
  *   - output-styles/<name>.md        — selected built-in depth variant or standalone user style
- *   - agent/00-core.md               — universal agent constraints (BP3, all profiles)
- *   - agent/00-common.md             — public-agent-only extras (BP3 full profile)
+ *   - agent/AGENT.md                 — common agent contract: chain of command, handoff (BP3, all profiles)
  *   - agent/10..50-*.md              — per-hidden-agent bodies (consumed by loadScopedRoleInstructions)
  *
  * Core memory snapshot is injected separately from the memory worker (pgdata)
@@ -381,23 +377,12 @@ function buildRouteTurnReminderContent({ PLUGIN_ROOT, provider = null, model = n
 
 function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
-  const LEAD_DIR = path.join(RULES_DIR, 'lead');
-  const general = readOptional(path.join(LEAD_DIR, '01-general.md'));
-  const persona = readOptional(path.join(LEAD_DIR, '02-persona.md'));
-  const parts = [];
-
-  if (includeLeadBrief) {
-    const briefLead = readOptional(path.join(LEAD_DIR, 'lead-brief.md'));
-    if (briefLead) parts.push(briefLead);
-  }
-
+  const lead = readOptional(path.join(RULES_DIR, 'lead', 'LEAD.md'));
+  if (!lead) return '';
   // Delegation-free workflows (Solo, headless) never expose the `agent` tool,
-  // so Lead guidance marked `<!-- tools: agent -->` is dropped there and kept
-  // verbatim for delegating workflows.
-  if (general) parts.push(omitToolRoutes(general, includeLeadBrief ? [] : ['agent']));
-  if (persona) parts.push(persona);
-
-  return parts.join('\n\n');
+  // so Lead guidance marked `<!-- tools: agent -->` (briefing, completion
+  // notifications) is dropped there and kept verbatim for delegating workflows.
+  return omitToolRoutes(lead, includeLeadBrief ? [] : ['agent']);
 }
 
 function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR }) {
@@ -476,9 +461,7 @@ function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
   if (String(profile || 'full') === 'retrieval') {
     return buildAgentRetrievalInjectionContent({ PLUGIN_ROOT });
   }
-  const core = readOptional(path.join(AGENT_DIR, '00-core.md'));
-  const common = readOptional(path.join(AGENT_DIR, '00-common.md'));
-  return [core, common].filter(Boolean).join('\n\n');
+  return readOptional(path.join(AGENT_DIR, 'AGENT.md')) || '';
 }
 
 /**
@@ -491,7 +474,7 @@ function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
  */
 function buildAgentRetrievalInjectionContent({ PLUGIN_ROOT }) {
   const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
-  const core = readOptional(path.join(AGENT_DIR, '00-core.md'));
+  const core = readOptional(path.join(AGENT_DIR, 'AGENT.md'));
   // Full ordered shared policy now ships via BP1 for retrieval
   // roles too; no compact duplicate here.
   const parts = [];

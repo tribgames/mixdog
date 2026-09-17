@@ -29,4 +29,4 @@ For `SECOND_LAYER`, output only a shorter narrative in the source language.
 This is intentionally lossy compression: about half the input length is a
 target, not a pass/fail threshold. Prioritize main flow, latest conclusions,
 corrections and conditions; omit secondary detail. Do not output JSON, indexes,
-search metadata, a verification report, fences or preamble. Make no tool calls.
+search metadata, a verification report, fences or preamble.

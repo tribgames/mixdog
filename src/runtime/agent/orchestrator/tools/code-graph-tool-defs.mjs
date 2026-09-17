@@ -12,7 +12,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
       compressibleLossless: true,
     },
     description:
-      'Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages (body opt-in); callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations; every row’s location is a read window.',
+      'Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages (body opt-in); callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations; every row’s location is a read window. symbols already outlines a file: never pair it with overview for one need.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -49,10 +49,11 @@ test('every rules layer detects edits hidden by newer sources and timestamp roll
   const { write, rules } = await fixture(t);
   write('plugin/rules/shared/00-anchor.md', 'shared anchor', '2032-01-01');
   write('plugin/rules/shared/01-policy.md', 'SHARED_BEFORE');
-  write('plugin/rules/agent/00-core.md', 'agent anchor', '2032-01-01');
-  write('plugin/rules/agent/00-common.md', 'AGENT_BEFORE');
-  write('plugin/rules/lead/01-general.md', 'lead anchor', '2032-01-01');
-  write('plugin/rules/lead/02-persona.md', 'LEAD_BEFORE');
+  // Anchors are unread siblings that pin the directory's newest mtime.
+  write('plugin/rules/agent/zz-anchor.md', 'agent anchor', '2032-01-01');
+  write('plugin/rules/agent/AGENT.md', 'AGENT_BEFORE');
+  write('plugin/rules/lead/zz-anchor.md', 'lead anchor', '2032-01-01');
+  write('plugin/rules/lead/LEAD.md', 'LEAD_BEFORE');
   const config = (title, language) => JSON.stringify({ agent: { profile: { title, language } } });
   write('data/mixdog-config.json', config('PROFILE_BEFORE', 'ko'), '2031-01-01');
   assert.match(rules._buildSharedRules(), /SHARED_BEFORE/);
@@ -62,8 +63,8 @@ test('every rules layer detects edits hidden by newer sources and timestamp roll
   assert.match(rules._buildLeadLanguageContext(), /Korean/);
 
   write('plugin/rules/shared/01-policy.md', 'SHARED_AFTER', '2029-01-01');
-  write('plugin/rules/agent/00-common.md', 'AGENT_AFTER', '2029-01-01');
-  write('plugin/rules/lead/02-persona.md', 'LEAD_AFTER', '2029-01-01');
+  write('plugin/rules/agent/AGENT.md', 'AGENT_AFTER', '2029-01-01');
+  write('plugin/rules/lead/LEAD.md', 'LEAD_AFTER', '2029-01-01');
   write('data/mixdog-config.json', config('PROFILE_AFTER', 'ja'), '2029-01-01');
   for (const [build, expected, stale] of [
     [rules._buildSharedRules, /SHARED_AFTER/, /SHARED_BEFORE/],

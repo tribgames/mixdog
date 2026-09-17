@@ -5,7 +5,7 @@ description: Concrete explanation with full requested depth
 aliases: verbose, full
 ---
 
-## Depth Variation
+## Depth
 
 - Explain the reasoning, mechanisms, evidence, trade-offs, and implications
   supporting the answer. Include relevant examples and edge cases.

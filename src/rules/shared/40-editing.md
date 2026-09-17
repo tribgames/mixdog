@@ -5,5 +5,5 @@
 <!-- tools: edit -->
 - Author files with `edit`.
 - Target text comes from visible evidence, never reconstructed.
-- Fewest safe calls; write each file complete; defer only result-dependent changes.
+- Write each file complete in one pass.
 

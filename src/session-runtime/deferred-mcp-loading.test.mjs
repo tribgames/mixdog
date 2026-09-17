@@ -308,7 +308,8 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
       sessionId: f.scopeId,
     });
     assert.equal(result.content, 'done');
-    assert.equal(messages.filter((message) => message.role === 'user').length, 1);
+    // Runtime-authored rows (batching reminders) share the user role; only the human turn counts.
+    assert.equal(messages.filter((message) => message.role === 'user' && !message.meta?.source).length, 1);
     assert.deepEqual(
       f.calls.map((call) => call.arguments),
       [{ path: 'Tools/Run' }, { menu_path: 'Tools/Run' }]

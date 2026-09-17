@@ -27,7 +27,8 @@ test('all modes share Default while only active modes inject instructions and ag
   const body = helpers.loadWorkflowPack(dataDir, 'default').body;
   assert.doesNotMatch(body, /Delegate maximally|Dispatch all ready/);
   assert.match(body, /user approves the latest plan/);
-  assert.match(body, /Lead alone reviews/);
+  // Reviewer fallback rides with the orchestration instructions, so mode none never sees it.
+  assert.doesNotMatch(body, /Lead alone reviews/);
   const expected = {
     focused: /Lead executes the main scope directly/,
     balanced: /coherent feature or module/,
@@ -41,10 +42,11 @@ test('all modes share Default while only active modes inject instructions and ag
     assert.equal(result.context.includes('# Available Agents'), mode !== 'none');
     if (mode === 'none') {
       assert.equal(orchestrationInstructions(mode), '');
-      assert.doesNotMatch(result.context, /# Orchestration Mode:/);
+      assert.doesNotMatch(result.context, /# Orchestration Mode:|Lead alone reviews/);
     } else {
       assert.match(result.context, expected[mode]);
       assert.match(result.context, /Dispatch all ready independent scopes in one turn/);
+      assert.match(result.context, /Lead alone reviews/);
     }
   }
 });

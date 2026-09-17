@@ -163,7 +163,8 @@ test('a route round-reminder is appended verbatim after every single-call round 
   assert.equal(first.trigger, 'per_round');
   assert.deepEqual(first.tools, ['grep']);
   assert.equal(first.text, REMINDER);
-  // A dependent step still gets the line; the serial streak restarts underneath.
+  // Another tool that took nothing from the previous result still gets the
+  // line; the serial streak restarts underneath.
   assert.equal(reminded(session, [call('read', { file_path: 'src/x.mjs' })], ['// x']).trigger, 'per_round');
   // Batched rounds and array calls get nothing.
   assert.equal(reminded(session, [call('read', { file_path: ['a.mjs', 'b.mjs'] })]), null);
@@ -183,6 +184,48 @@ test('a route round-reminder is appended verbatim after every single-call round 
     null,
   );
   assert.equal(round(other, [call('grep', { pattern: 'b' })]), null);
+});
+
+test('a single call whose argument came out of the previous round earns no route reminder', () => {
+  const REMINDER = 'Batching: every call the task still needs goes in your next response together.';
+  const session = {};
+  const reminded = (calls, results) =>
+    observeToolBatchForNudge({ sessionRef: session, calls, results: results ?? calls.map(() => 'ok'), tools, reminder: REMINDER });
+  const locating = reminded([call('grep', { pattern: 'carriesArray' })], ['src/dep.mjs:321: function carriesArray(call) {']);
+  assert.equal(locating.trigger, 'per_round');
+  // The read takes its window out of that result, so it could never have
+  // shared the round that produced it.
+  assert.equal(reminded([call('read', { file_path: 'src/dep.mjs', offset: 321, limit: 30 })], ['// body']), null);
+  assert.equal(session.batchingNudge.perRound, 1);
+});
+
+test('a path the previous result printed with backslashes or as a deeper path is provenance', () => {
+  const REMINDER = 'Batching: every call the task still needs goes in your next response together.';
+  const session = {};
+  const reminded = (calls, results) =>
+    observeToolBatchForNudge({ sessionRef: session, calls, results: results ?? calls.map(() => 'ok'), tools, reminder: REMINDER });
+  // A process list names the install directory only as the prefix of an exe
+  // path, with Windows separators; the next call inspects that directory.
+  reminded(
+    [call('shell', { command: 'Get-Process Mixdog' })],
+    ['20944 Mixdog C:\\Users\\tempe\\AppData\\Local\\Programs\\mixdog-desktop\\Mixdog.exe'],
+  );
+  assert.equal(
+    reminded([call('shell', { command: 'rg -l reminder C:/Users/tempe/AppData/Local/Programs/mixdog-desktop' })], ['']),
+    null,
+  );
+  // A file listed with backslashes, then opened with slashes.
+  reminded([call('shell', { command: 'rg -l pattern C:/data' })], ['C:\\data\\sessions\\sess_abc.json']);
+  assert.equal(reminded([call('read', { file_path: 'C:/data/sessions/sess_abc.json' })], ['{}']), null);
+  assert.equal(session.batchingNudge.perRound, 2);
+  // A bare name is still not revealed by a longer path it prefixes.
+  const scoped = {};
+  observeToolBatchForNudge({ sessionRef: scoped, calls: [call('glob', { pattern: '*.mjs' })], results: ['src/x.mjs'], tools, reminder: REMINDER });
+  assert.equal(
+    observeToolBatchForNudge({ sessionRef: scoped, calls: [call('grep', { pattern: 'x', path: 'src' })], results: [''], tools, reminder: REMINDER })
+      .trigger,
+    'per_round',
+  );
 });
 
 test('same-tool calls differing only in one array field are reported, other arguments must match', () => {

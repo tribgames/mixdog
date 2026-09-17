@@ -1581,11 +1581,11 @@ test('concurrent persists of one root leave a self-consistent entry/sidecar pair
   }
 });
 
-// Does the local build speak wire v2? `--langs` is the capability channel.
-async function localBinaryCallsFormat() {
-  if (!existsSync(graphBinary)) return null;
+// Does a build speak wire v2? `--langs` is the capability channel.
+async function binaryCallsFormat(binary) {
+  if (!existsSync(binary)) return null;
   try {
-    const { stdout } = await runNode(graphBinary, ['.', '--langs'], { maxBuffer: 8 * 1024 * 1024 });
+    const { stdout } = await runNode(binary, ['.', '--langs'], { maxBuffer: 8 * 1024 * 1024 });
     for (const line of String(stdout).split('\n')) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -1597,6 +1597,7 @@ async function localBinaryCallsFormat() {
     return null;
   }
 }
+const localBinaryCallsFormat = () => binaryCallsFormat(graphBinary);
 
 test('the calls-wire probe is memoized per BINARY, not per process', async (t) => {
   const format = await localBinaryCallsFormat();
@@ -1694,13 +1695,15 @@ test('real binary: an incremental rebuild from an un-hydrated cache answers from
   }
 });
 
-// The shipped pre-v2 build, used to prove the capability-change cache path.
+// The packaged build under native-tools/ proves the capability-change cache
+// path only while it still predates wire v2; prepare-native-assets refreshes it.
 const legacyGraphBinary = resolve('native-tools', process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph');
 
 test('a cache indexed by a pre-v2 binary re-indexes under a v2 binary instead of failing forever', async (t) => {
   const format = await localBinaryCallsFormat();
-  if (format !== 2 || !existsSync(legacyGraphBinary)) {
-    t.skip(`needs both binaries: local callsFormat=${format}, legacy present=${existsSync(legacyGraphBinary)}`);
+  const legacyFormat = await binaryCallsFormat(legacyGraphBinary);
+  if (format !== 2 || legacyFormat === null || legacyFormat === 2) {
+    t.skip(`needs a v2 local build and a pre-v2 packaged build: local callsFormat=${format}, packaged=${legacyFormat}`);
     return;
   }
   const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-capability-'));

@@ -447,6 +447,12 @@ function selectCursorVariant(group, { effort = null, fast = false } = {}) {
 
 class CursorProviderBase {
   static inputExcludesCache = false;
+  // The Cursor relay appends its own per-round batching reminder to every
+  // tool result before the model sees it (a `<system_reminder>` that never
+  // reaches our transcript). One reminder per round is the contract: the
+  // runtime channel (batching-nudge `per_round`) stays silent here so the
+  // route's line is not stacked on top of the relay's.
+  static deliversRoundReminder = true;
   name;
   config;
   _runtimeOverride;
@@ -469,8 +475,11 @@ class CursorProviderBase {
   async _loadCursorCatalog(runtime, accessToken) {
     if (this._cursorCatalog) return this._cursorCatalog;
     const raw = await runtime.getCursorModels(accessToken);
-    this._cursorCatalog = normalizeCursorCatalog(raw, this.name);
-    return this._cursorCatalog;
+    const catalog = normalizeCursorCatalog(raw, this.name);
+    // A fallback list is a stopgap for this call only; the next lookup must
+    // ask Cursor again instead of pinning the reduced list for the session.
+    if (raw?.fallback !== true) this._cursorCatalog = catalog;
+    return catalog;
   }
 
   getCachedModelInfo(model) {

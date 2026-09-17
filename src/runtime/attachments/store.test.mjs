@@ -177,11 +177,13 @@ test('attachment GC preserves durable refs and the safety window while deleting 
     join(dataDir, 'sessions', 'sess_attachment_gc.json'),
     JSON.stringify({ id: 'sess_attachment_gc', messages: [{ content: [referenced] }] })
   );
-  const old = new Date(Date.now() - 10_000);
+  // Blobs from the earlier tests in this file are orphans too; a wide safety
+  // window keeps them out of the count regardless of how slowly the file ran.
+  const old = new Date(Date.now() - 120_000);
   utimesSync(blobPath(referenced), old, old);
   utimesSync(blobPath(orphan), old, old);
 
-  const result = await collectPromptAttachments({ now: Date.now(), minAgeMs: 1_000 });
+  const result = await collectPromptAttachments({ now: Date.now(), minAgeMs: 60_000 });
   assert.equal(existsSync(blobPath(referenced)), true);
   assert.equal(existsSync(blobPath(fresh)), true);
   assert.equal(existsSync(blobPath(orphan)), false);

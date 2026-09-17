@@ -5,7 +5,7 @@ description: Concise summary with the essential explanation
 aliases: default, concise, handoff
 ---
 
-## Depth Variation
+## Depth
 
 - Give a self-contained summary: answer, core causal sequence, strongest
   evidence, and direct consequences.

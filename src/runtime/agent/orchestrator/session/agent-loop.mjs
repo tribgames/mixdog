@@ -267,12 +267,14 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     opts.iteration = nextIteration;
     opts.providerState = providerState;
     // The route policy's per-round batching reminder (rules/routes/*.md,
-    // `round-reminder:`). A provider that delivers it as a turn-scoped
-    // system message takes it from opts; for every other provider the tool
+    // `round-reminder:`). One reminder per round: a provider that delivers one
+    // itself declares `deliversRoundReminder` (Anthropic takes the text from
+    // opts as a turn-scoped system message; the Cursor relay appends its own)
+    // and the runtime channel stays silent; for every other provider the tool
     // batch appends it as a <system-reminder> after the round's results.
     opts.roundReminder =
       _buildRouteRoundReminder({ provider: sessionRef?.provider || provider?.name || null, model }) || null;
-    opts.roundReminderByProvider = provider?.constructor?.turnScopedReminder === true;
+    opts.roundReminderByProvider = provider?.constructor?.deliversRoundReminder === true;
     if (forcedFirstTool && toolCallsTotal === 0) {
       opts.toolChoice = 'required';
     } else {

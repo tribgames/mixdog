@@ -38,7 +38,7 @@ test('Lead prompt keeps the configured response language authoritative', () => {
   assert.match(korean, /the user's latest explicit language request takes precedence/);
   // The language block trails every rule block: no persona/general English
   // rule may follow it, and it is absent from the meta (BP2) layer.
-  assert.ok(korean.indexOf('# Language') > korean.indexOf('# Persona'));
+  assert.ok(korean.indexOf('# Language') > korean.indexOf('# Lead'));
   assert.equal(korean.indexOf('# Language'), korean.lastIndexOf('# Language'));
 
   const japanese = renderLeadPrompt('ja');

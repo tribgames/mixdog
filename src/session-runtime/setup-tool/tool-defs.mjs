@@ -111,7 +111,9 @@ const ROUTE_SCHEMA = {
     effort: { type: 'string' },
     fast: { type: 'boolean' },
     modelParameters: { type: 'object', additionalProperties: { type: 'string' } },
-    contextPercent: { type: 'integer', enum: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] },
+    // A typed enum is unrepresentable on Gemini; the bounds project everywhere
+    // and the executor rejects values that are not a multiple of 10.
+    contextPercent: { type: 'integer', minimum: 10, maximum: 100, description: 'A multiple of 10.' },
     disabled: { type: 'boolean', description: 'Agent routes only: true disables without losing the route; false re-enables.' },
   },
 };
