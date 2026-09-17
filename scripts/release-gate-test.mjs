@@ -603,7 +603,14 @@ test('application release overlaps gates and publishes one exact hidden draft', 
   assert.match(release, /name:\s*Stage npm package[\s\S]*actions\/upload-artifact/);
   assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
   assert.doesNotMatch(release, /name:\s*Download staged desktop packages/);
-  assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 1);
+  // Every platform uploads through the bounded script: `gh release upload
+  // --clobber` stalled past its step timeout on linux-arm64 once the draft
+  // already held the earlier attempt's AppImage.
+  assert.equal((desktopPackage.match(/^\s*gh release upload/gm) || []).length, 0);
+  assert.match(
+    desktopPackage,
+    /name:\s*Upload verified Linux asset to hidden draft[\s\S]*?upload-release-assets\.sh "\$asset"/
+  );
   assert.match(
     desktopPackage,
     /name:\s*Smoke and upload verified Windows assets in parallel[\s\S]*upload-release-assets\.sh "\$\{assets\[@\]\}" &[\s\S]*npm run verify:packaged-runtime[\s\S]*wait "\$upload_pid"/
