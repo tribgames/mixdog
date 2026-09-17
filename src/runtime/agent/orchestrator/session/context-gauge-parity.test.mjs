@@ -253,3 +253,26 @@ test('compaction and the gauge decide on the same number, and never on a contrad
     true
   );
 });
+
+test('Cursor checkpoint occupancy anchors the gauge when no prompt count is reported', () => {
+  const messages = [
+    { role: 'system', content: 'operating rules '.repeat(200) },
+    { role: 'user', content: 'work '.repeat(12_000) },
+    { role: 'assistant', content: 'done' },
+  ];
+  const session = sessionWith(messages, { provider: 'cursor-oauth', model: 'claude-opus-5-high' });
+  const usage = { inputTokens: null, cachedTokens: null, inputTokensKnown: false, outputTokens: 60, contextTokens: 7_000 };
+  assert.equal(
+    recordProviderContextBaseline(session, messages, usage, { boundary: 'complete', sendTools: session.tools }),
+    true
+  );
+  assert.equal(session.contextPressureBaselineTokens, 7_000);
+  assert.equal(session.contextPressureBaselineProvider, 'cursor-oauth');
+  session.lastContextTokens = 7_000;
+  session.lastContextTokensUpdatedAt = Date.now();
+  const status = statusOf(session);
+  assert.equal(status.usedSource, 'provider');
+  assert.equal(status.usedTokens, 7_000);
+  assert.equal(status.measurement.source, 'last_api_request');
+  assert.equal(status.measurement.tokens, 7_000);
+});

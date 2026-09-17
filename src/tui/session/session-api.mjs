@@ -794,8 +794,8 @@ export function createSessionApiA(bag) {
     hooksStatus: () => {
       return runtime.hooksStatus?.() || { enabled: false, events: [], recent: [] };
     },
-    contextStatus: () => {
-      return runtime.contextStatus?.() || null;
+    contextStatus: (options) => {
+      return runtime.contextStatus?.(options) || null;
     },
     readModelMessages: (messageStart = 0) => {
       return runtime.readModelMessages?.(messageStart) || { messageCount: 0, messages: [] };

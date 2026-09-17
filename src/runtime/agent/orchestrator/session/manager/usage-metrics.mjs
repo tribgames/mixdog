@@ -344,6 +344,26 @@ export function uncachedInputTokensForProvider(provider, inputTokens, cachedRead
 }
 
 /**
+ * Providers that report whole-context occupancy instead of a prompt count
+ * (Cursor checkpoint usedTokens) still produce a measured gauge reading. The
+ * prompt/cache split stays unknown (null), never zero, so billing lanes and
+ * cache-rate displays do not invent numbers.
+ */
+function applyMeasuredContextOccupancy(session, contextTokens, outputTokens, ts) {
+  const occupancy = Number(contextTokens);
+  if (!Number.isFinite(occupancy) || occupancy <= 0) return false;
+  session.lastInputTokens = null;
+  session.lastOutputTokens = Number(outputTokens) || 0;
+  session.lastCachedReadTokens = null;
+  session.lastCacheWriteTokens = null;
+  session.lastUncachedInputTokens = null;
+  session.lastContextTokens = Math.round(occupancy);
+  session.lastContextTokensUpdatedAt = ts || Date.now();
+  session.lastContextTokensStaleAfterCompact = false;
+  return true;
+}
+
+/**
  * Apply terminal ask usage to session totals. Skips lifetime totals when incremental
  * per-iteration persistence already counted this turn (askSession path).
  */
@@ -374,6 +394,13 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     ? (Number(_lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens) || 0) +
       (Number(_lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens) || 0)
     : 0;
+  if (
+    _lastTurn.mainUsageAvailable !== false &&
+    measuredInput + measuredCache <= 0 &&
+    applyMeasuredContextOccupancy(session, _lastTurn.contextTokens, _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens)
+  ) {
+    return;
+  }
   if (_lastTurn.mainUsageAvailable === false || measuredInput + measuredCache <= 0) {
     session.lastInputTokens = null;
     session.lastOutputTokens = null;
@@ -425,6 +452,7 @@ export async function persistIterationMetrics(delta) {
     contextCachedReadTokens = deltaCachedRead,
     contextCacheWriteTokens = deltaCacheWrite,
     contextUsageAvailable = true,
+    contextMeasuredTokens = null,
     ts,
   } = delta;
   const runtimeEntry = _getRuntimeEntry(sessionId);
@@ -466,7 +494,13 @@ export async function persistIterationMetrics(delta) {
       (providerInputExcludesCache(session.provider)
         ? (Number(contextCachedReadTokens) || 0) + (Number(contextCacheWriteTokens) || 0)
         : 0);
-    if (contextUsageAvailable === false || measuredPrompt <= 0) {
+    if (
+      contextUsageAvailable !== false &&
+      measuredPrompt <= 0 &&
+      applyMeasuredContextOccupancy(session, contextMeasuredTokens, contextOutputTokens, ts)
+    ) {
+      // Occupancy reading applied; no prompt split to record.
+    } else if (contextUsageAvailable === false || measuredPrompt <= 0) {
       session.lastInputTokens = null;
       session.lastOutputTokens = null;
       session.lastCachedReadTokens = null;

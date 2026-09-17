@@ -1,5 +1,6 @@
 export const FALLBACK_MODELS = [
   { id: 'composer-2.5', name: 'Composer 2.5', reasoning: false, contextWindow: 200_000 },
+  { id: 'claude-fable-5-1-high', name: 'Claude Fable 5.1', reasoning: true, contextWindow: 200_000 },
   { id: 'claude-opus-5-high', name: 'Claude Opus 5', reasoning: true, contextWindow: 200_000 },
   { id: 'claude-sonnet-5-medium', name: 'Claude Sonnet 5', reasoning: true, contextWindow: 200_000 },
   { id: 'gpt-5.6-sol-medium', name: 'GPT-5.6 Sol', reasoning: true, contextWindow: 272_000 },

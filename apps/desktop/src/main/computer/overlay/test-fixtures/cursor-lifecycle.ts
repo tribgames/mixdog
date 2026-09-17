@@ -14,33 +14,38 @@ void app
   .whenReady()
   .then(async () => {
     const overlay = createComputerUseCursorOverlay();
+    const target = new BrowserWindow({ show: false, focusable: false, skipTaskbar: true });
+    const windowId = `hwnd:0x${BigInt(target.getMediaSourceId().split(':')[1]).toString(16)}`;
+    const userPointer = screen.getCursorScreenPoint();
+    const userFocus = BrowserWindow.getFocusedWindow();
+    const effectWindows = () => BrowserWindow.getAllWindows().filter((window) => window !== target);
+    const rendered = async (effectWindow: BrowserWindow) => {
+      const deadline = Date.now() + 2000;
+      while (!effectWindow.isVisible() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      assert.equal(effectWindow.isVisible(), true);
+    };
     try {
-      coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode: 'background' });
-      coordinator.showCursor({
-        sessionId: 'fixture',
-        action: 'click',
-        mode: 'background',
-        effect: 'click',
-        x: 100,
-        y: 100,
-      });
-      assert.equal(await prepareCursorFeedback('fixture'), 'unavailable');
-      assert.equal(BrowserWindow.getAllWindows().length, 0, 'background work must not create a topmost effect window');
-      coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode: 'foreground' });
+      for (const mode of ['background', 'foreground'] as const) {
+      coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode });
       assert.equal(await prepareCursorFeedback('fixture', 2000), 'ready');
-      let window = BrowserWindow.getAllWindows()[0];
+      const window = effectWindows()[0];
       assert.ok(window);
-      assert.equal(window.isVisible(), false, 'preparation must not flash or steal focus');
+      assert.equal(window.isVisible(), false, 'preparation and mode changes must not replay old effects');
       assert.equal(window.isFocusable(), false);
       for (const display of screen.getAllDisplays()) {
+        target.setBounds({ x: display.workArea.x, y: display.workArea.y, width: 400, height: 300 });
+        target.showInactive();
         const point = screen.dipToScreenPoint({
           x: display.workArea.x + 100,
           y: display.workArea.y + 100,
         });
         coordinator.showCursor({
           sessionId: 'fixture',
+          windowId,
           action: 'move',
-          mode: 'foreground',
+          mode,
           effect: 'move',
           tracking: true,
           ...point,
@@ -58,26 +63,31 @@ void app
         const bounds = window.getBounds();
         assert.ok(Math.abs(bounds.x + CURSOR_HOTSPOT - expected.x) <= 1);
         assert.ok(Math.abs(bounds.y + CURSOR_HOTSPOT - expected.y) <= 1);
+        assert.equal(window.isAlwaysOnTop(), mode === 'foreground', 'background feedback must not be globally topmost');
+        assert.deepEqual(screen.getCursorScreenPoint(), userPointer, 'feedback must not move the user pointer');
+        assert.equal(BrowserWindow.getFocusedWindow(), userFocus, 'feedback must not take focus');
       }
+      }
+      let window = effectWindows()[0];
       coordinator.beginCommand({ sessionId: 'other', action: 'click', mode: 'background' });
+      assert.equal(await prepareCursorFeedback('other', 2000), 'ready');
       coordinator.showCursor({
         sessionId: 'other',
+        windowId,
         action: 'click',
         mode: 'background',
         effect: 'click',
         x: 100,
         y: 100,
       });
-      assert.equal(
-        BrowserWindow.getAllWindows().length,
-        1,
-        'another background session must not draw through foreground work'
-      );
+      const otherWindow = effectWindows().find((candidate) => candidate !== window)!;
+      await rendered(otherWindow);
+      assert.equal(otherWindow.isAlwaysOnTop(), false);
+      assert.equal(window.isVisible(), true, 'background feedback must not hide another active session');
       coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode: 'background' });
-      assert.equal(window.isDestroyed(), true, 'switching to background must drop the old foreground tail');
+      assert.equal(window.isVisible(), false, 'switching to background must not revive the old foreground trace');
       coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode: 'foreground' });
       assert.equal(await prepareCursorFeedback('fixture'), 'ready');
-      window = BrowserWindow.getAllWindows()[0];
       assert.equal(window.isVisible(), false, 'old cursor feedback must not reappear on a mode switch');
       coordinator.showCursor({
         sessionId: 'fixture',
@@ -87,17 +97,10 @@ void app
         x: 100,
         y: 100,
       });
-      const rendered = async (effectWindow: BrowserWindow) => {
-        const deadline = Date.now() + 2000;
-        while (!effectWindow.isVisible() && Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-        assert.equal(effectWindow.isVisible(), true);
-      };
       await rendered(window);
       coordinator.beginCommand({ sessionId: 'next', action: 'move', mode: 'foreground' });
       await prepareCursorFeedback('next', 2000);
-      const nextWindow = BrowserWindow.getAllWindows().find((candidate) => candidate !== window)!;
+      const nextWindow = effectWindows().find((candidate) => candidate !== window && candidate !== otherWindow)!;
       coordinator.showCursor({ sessionId: 'next', action: 'move', mode: 'foreground', effect: 'move', x: 200, y: 100 });
       await rendered(nextWindow);
       assert.equal(window.isVisible(), false, 'new physical pointer owner hides the old halo');
@@ -107,7 +110,7 @@ void app
       nextWindow.webContents.forcefullyCrashRenderer();
       await crashed;
       assert.equal(await prepareCursorFeedback('next', 2000), 'ready');
-      const replacement = BrowserWindow.getAllWindows().find((candidate) => candidate !== window)!;
+      const replacement = effectWindows().find((candidate) => candidate !== window && candidate !== otherWindow)!;
       assert.ok(replacement && replacement !== nextWindow, 'readiness must use a live replacement');
       assert.equal(replacement.isVisible(), false, 'a crash must not replay the previous effect');
       coordinator.showCursor({ sessionId: 'next', action: 'move', mode: 'foreground', effect: 'move', x: 300, y: 100 });
@@ -116,6 +119,9 @@ void app
       assert.equal(window.isDestroyed(), true, 'user takeover must remove the actual effect window');
       assert.equal(nextWindow.isDestroyed(), true);
       assert.equal(replacement.isDestroyed(), true);
+      assert.equal(otherWindow.isDestroyed(), true);
+      assert.deepEqual(screen.getCursorScreenPoint(), userPointer);
+      assert.equal(BrowserWindow.getFocusedWindow(), userFocus);
       overlay.dispose();
       assert.equal(await prepareCursorFeedback('fixture'), 'unavailable');
       coordinator.reset();
@@ -123,6 +129,7 @@ void app
     } finally {
       overlay.dispose();
       coordinator.reset();
+      target.destroy();
       app.quit();
     }
   })

@@ -2,9 +2,18 @@
 // Normalize a provider usage payload into the canonical token/cost shape and
 // fold successive deltas into a running total across loop iterations.
 
+// Provider-measured whole-context occupancy (Cursor checkpoint usedTokens).
+// It is not billable prompt usage and carries no cache split, so it only
+// feeds the context gauge when the provider reports no prompt count.
+export function measuredContextTokens(usage) {
+  const value = Number(usage?.contextTokens);
+  return Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
 export function normalizeUsage(usage) {
   if (!usage) return null;
   const costUsd = Number(usage.costUsd);
+  const contextTokens = measuredContextTokens(usage);
   return {
     inputTokens: usage.inputTokens || 0,
     outputTokens: usage.outputTokens || 0,
@@ -12,6 +21,7 @@ export function normalizeUsage(usage) {
     cacheWriteTokens: usage.cacheWriteTokens || 0,
     promptTokens: usage.promptTokens || 0,
     ...(Number.isFinite(costUsd) ? { costUsd } : {}),
+    ...(contextTokens ? { contextTokens } : {}),
     raw: usage.raw,
   };
 }
@@ -53,6 +63,7 @@ export function usageDeltaEvent({
     contextCachedReadTokens: usage.mainCachedTokens ?? usage.cachedTokens ?? 0,
     contextCacheWriteTokens: usage.mainCacheWriteTokens ?? usage.cacheWriteTokens ?? 0,
     contextUsageAvailable: usage.mainUsageAvailable !== false,
+    contextMeasuredTokens: measuredContextTokens(usage),
     sendTools,
     ts: Date.now(),
   };
@@ -73,5 +84,8 @@ export function addUsage(total, usage) {
   if (delta.costUsd != null || total.costUsd != null) {
     next.costUsd = (total.costUsd || 0) + (delta.costUsd || 0);
   }
+  // Occupancy is a latest reading, never a sum across iterations.
+  const contextTokens = delta.contextTokens ?? total.contextTokens ?? null;
+  if (contextTokens) next.contextTokens = contextTokens;
   return next;
 }

@@ -330,7 +330,7 @@ export function createCommandRouter(host: CommandRouterHost) {
       assertExecutionNotAborted();
     }
     if (isMutation) await claimComputerTargets(command, [logicalTargetWindowId, targetWindowId]);
-    if (command.delivery === 'foreground' && POINTER_ACTIONS.includes(action)) {
+    if (POINTER_ACTIONS.includes(action)) {
       const feedback = await prepareCursorFeedback(sessionIdFor(command));
       host.recordDiagnostic?.(sessionIdFor(command), {
         action,

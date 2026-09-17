@@ -145,10 +145,32 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     return $result
 }
 
-function Invoke-BackgroundSemantic($ref, [scriptblock]$operation) {
+function Show-ReferencePointer($ref, $phase) {
+    if ($null -eq [MixWin32]::PointerProgress) { return }
+    try {
+        $point = Get-ElPoint $ref $false
+        [MixWin32]::ReportPointer($point[0], $point[1], $false, $phase)
+        return $point
+    } catch {
+        # Missing visual bounds must not replay or block an otherwise valid semantic action.
+        [MixWin32]::PointerEventsFailed++
+    }
+}
+
+function Invoke-BackgroundSemantic($ref, [scriptblock]$operation, $effect = 'release') {
     $record = Get-RefRecord $ref
     $target = Get-RefTopHandle $record
-    return Invoke-BackgroundWindow $target $operation
+    $point = Show-ReferencePointer $ref 'prepare'
+    # The presented pointer travels to the announced target before the worker acts
+    # there (same wait as MixWin32.PointerGlideWaitMs), so the visible effect lands
+    # where and when the action really happens.
+    if ($null -ne $point) { Start-Sleep -Milliseconds 360 }
+    $result = Invoke-BackgroundWindow $target $operation
+    if ($null -ne $point -and $result.delivery_accepted -eq $true) {
+        # The action can close or relayout its element. Keep the point actually acted on.
+        [MixWin32]::ReportPointer($point[0], $point[1], $false, $effect)
+    }
+    return $result
 }
 
 function Native-BackgroundFailure($action, $exception, $windowId, [bool]$priorInput = $false) {
@@ -828,6 +850,7 @@ function Do-Scroll($req) {
             $pat = $null
             # Background path: ScrollPattern scrolls without touching mouse or focus.
             if ($el.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$pat)) {
+                [void](Show-ReferencePointer $req.ref 'scroll')
                 $before = if ($horizontal) { $pat.Current.HorizontalScrollPercent } else { $pat.Current.VerticalScrollPercent }
                 $dir = if ($amt -gt 0) { [System.Windows.Automation.ScrollAmount]::SmallIncrement } else { [System.Windows.Automation.ScrollAmount]::SmallDecrement }
                 $n = [math]::Min([math]::Abs($amt) * 3, 30)

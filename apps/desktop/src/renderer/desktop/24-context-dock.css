@@ -62,9 +62,16 @@
 }
 .context-main-bar span {
   height: 100%;
-  display: block;
+  display: flex;
+  overflow: hidden;
   border-radius: inherit;
   background: var(--mx-text-accent);
+}
+.context-main-bar b {
+  display: block;
+  flex-shrink: 0;
+  height: 100%;
+  background: var(--ctx-color, var(--mx-text-accent));
 }
 .context-runtime-lines > div {
   min-width: 0;
@@ -144,31 +151,31 @@
   font-variant-numeric: tabular-nums;
 }
 /* Category palette (muted mid-tones that hold up on both themes). */
-.context-mix [data-context-key="messages"] {
+.context-surface-view [data-context-key="messages"] {
   --ctx-color: #a091d6;
 }
-.context-mix [data-context-key="tools"] {
+.context-surface-view [data-context-key="tools"] {
   --ctx-color: #7fae7f;
 }
-.context-mix [data-context-key="mcp"] {
+.context-surface-view [data-context-key="mcp"] {
   --ctx-color: #c493b8;
 }
-.context-mix [data-context-key="agents"] {
+.context-surface-view [data-context-key="agents"] {
   --ctx-color: #b58bc3;
 }
-.context-mix [data-context-key="skills"] {
+.context-surface-view [data-context-key="skills"] {
   --ctx-color: #cfa963;
 }
-.context-mix [data-context-key="memory"] {
+.context-surface-view [data-context-key="memory"] {
   --ctx-color: #74a6bd;
 }
-.context-mix [data-context-key="system"] {
+.context-surface-view [data-context-key="system"] {
   --ctx-color: #8f8a81;
 }
-.context-mix [data-context-key="free"] {
+.context-surface-view [data-context-key="free"] {
   --ctx-color: #6f777d;
 }
-.context-mix [data-context-key="autocompact"] {
+.context-surface-view [data-context-key="autocompact"] {
   --ctx-color: #7a756c;
 }
 @media (max-width: 640px) {
@@ -180,6 +187,334 @@
     flex-direction: column;
     gap: 4px;
   }
+}
+
+/* Inspector = master/detail (user: 누르면 어디 나오는지 모르겠다). Categories
+   navigate on the left; the right pane always shows the outcome of the last
+   choice, so a click has one obvious destination. Both panes scroll on their
+   own inside the dialog's fixed frame. */
+.context-inspector {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 5fr) minmax(0, 7fr);
+  border-top: 0.5px solid var(--mx-border-muted);
+}
+.context-inspector-nav,
+.context-inspector-detail {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+/* The nav is a column whose card is the LAST, growing child: it runs to the
+   pane's bottom edge instead of stopping short and leaving an unframed band
+   under the rows (user: 아이템 프레임 아래 여백). Rows stay anchored at the top. */
+.context-inspector-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 16px 16px 22px;
+  border-right: 0.5px solid var(--mx-border-muted);
+}
+.context-inspector-nav > .context-mix-list {
+  flex: 1 0 auto;
+  align-content: start;
+}
+/* The detail pane is a column whose LAST child (list or preview) takes the
+   remaining height and scrolls; the bar above it stays put. */
+.context-inspector-detail {
+  display: flex;
+  flex-direction: column;
+  padding: 0 22px 16px 16px;
+}
+.context-inspector .context-block-map {
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 3px;
+}
+.context-inspector .context-block-map i {
+  min-height: 12px;
+}
+/* Category list rides the popup action plate (user: 왼쪽 아이템 프레임) — one
+   framed card with hairline-separated rows, the same plate the Compact
+   button uses, so it reads as a control group and not loose text. */
+.context-mix-list {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
+}
+.context-mix-list > .context-mix-row {
+  border-bottom: 0.5px solid var(--mx-border-muted);
+}
+.context-mix-remainder {
+  display: grid;
+  background: var(--mx-bg-layer-1);
+}
+.context-mix-remainder .context-mix-row + .context-mix-row {
+  border-top: 0.5px solid var(--mx-border-muted);
+}
+.context-mix-remainder .context-mix-row,
+.context-mix-remainder .context-mix-row strong {
+  color: var(--mx-text-faint);
+}
+.context-inspector .context-mix-row {
+  width: 100%;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.context-inspector button.context-mix-row:hover {
+  background: var(--mx-hover);
+}
+.context-inspector button.context-mix-row[aria-pressed="true"] {
+  background: var(--mx-hover);
+  outline: 0;
+  box-shadow: inset 2px 0 0 var(--ctx-color, var(--mx-text-accent));
+}
+.context-inspector button.context-mix-row[aria-pressed="true"] > span {
+  color: var(--mx-text);
+}
+.context-inspector button.context-mix-row:focus-visible {
+  outline: 0;
+  box-shadow: var(--mx-list-focus-ring);
+}
+/* Detail pane: a 48px bar in the dialog header's grammar (icon slot · title ·
+   meta · icon slot), then the scrolling list or preview under it. */
+.context-detail-empty {
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+  text-align: center;
+}
+.context-detail-empty p {
+  margin: 0;
+  max-width: 260px;
+}
+.context-detail-bar {
+  flex: 0 0 48px;
+  min-width: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 0.5px solid var(--mx-border-muted);
+}
+.context-detail-bar > i {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  margin: 0 4px 0 6px;
+  border-radius: var(--mx-radius-sm);
+  background: var(--ctx-color, var(--mx-text-accent));
+}
+.context-detail-bar h3 {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.context-detail-bar > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
+.context-inspector .context-detail-icon {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  background: transparent;
+  color: var(--mx-icon-muted);
+}
+.context-inspector .context-detail-icon svg {
+  width: var(--mx-icon-md);
+  height: var(--mx-icon-md);
+}
+.context-inspector .context-detail-icon:hover {
+  color: var(--mx-icon);
+  background: var(--mx-hover);
+}
+.context-detail-note {
+  flex: 0 0 auto;
+  padding: 8px 0 0;
+}
+.context-inspector .context-mix-row > span {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.context-inspector .context-mix-row > span small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-minor);
+  font-variant-numeric: tabular-nums;
+}
+.context-inspector .context-mix-row em {
+  min-width: 44px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.context-inspector .context-mix-row strong {
+  min-width: 72px;
+  margin-left: 0;
+  text-align: right;
+}
+.context-inspector .context-mix-row[data-empty="true"],
+.context-inspector .context-mix-row[data-empty="true"] strong {
+  color: var(--mx-text-faint);
+}
+.context-inspector .context-mix-row[data-empty="true"] i {
+  opacity: 0.35;
+}
+.context-block-map {
+  display: grid;
+  grid-template-columns: repeat(32, minmax(0, 1fr));
+  gap: 3px;
+}
+.context-block-map i {
+  min-height: 9px;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: var(--ctx-color, var(--mx-text-accent));
+}
+.context-block-map [data-context-key="free"] { opacity: 0.25; }
+.context-block-map [data-context-key="autocompact"] {
+  background: repeating-linear-gradient(45deg, var(--ctx-color) 0 2px, transparent 2px 4px);
+}
+.context-inspector-note {
+  margin: 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-minor);
+  overflow-wrap: anywhere;
+}
+.context-inspector button {
+  color: var(--mx-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border: 0.5px solid var(--mx-border-muted);
+  border-radius: var(--mx-radius-md);
+  padding: 6px 10px;
+  background: var(--mx-bg-base);
+}
+.context-inspector button[aria-pressed="true"],
+.context-inspector button:focus-visible {
+  outline: 2px solid var(--mx-text-accent);
+  outline-offset: -2px;
+}
+.context-entry-section {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.context-entry-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 0;
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.context-entry-list button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px;
+  padding: 6px 12px 6px 20px;
+  border: 0; border-bottom: 0.5px solid var(--mx-border-muted); border-radius: 0; background: transparent;
+}
+.context-entry-list button > span:first-child { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; }
+.context-entry-tools {
+  flex-basis: 100%;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.context-entry-list button:hover { background: var(--mx-hover); }
+.context-entry-list button:focus-visible { outline: 0; box-shadow: var(--mx-list-focus-ring); }
+.context-entry-list button[data-state="deferred"],
+.context-entry-list button[data-state="deferred"] strong { color: var(--mx-text-faint); }
+.context-entry-badge {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: var(--mx-radius-pill);
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  vertical-align: middle;
+}
+/* Group heads are the list's own section rows: chevron · name · count · sum,
+   in the same 36px rhythm as the rows they fold. */
+.context-entry-group { display: grid; }
+.context-entry-list .context-entry-group-head {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 8px;
+  padding: 6px 12px 6px 8px;
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-semibold);
+  background: var(--mx-bg-layer-1);
+}
+.context-entry-group-head svg { color: var(--mx-icon-muted); transition: transform var(--mx-motion-chrome, 120ms); }
+.context-entry-group[data-open="true"] .context-entry-group-head svg { transform: rotate(90deg); }
+.context-entry-group-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-entry-group-head small { color: var(--mx-text-faint); font-size: var(--mx-font-minor); font-variant-numeric: tabular-nums; }
+.context-entry-group-head strong { min-width: 72px; text-align: right; }
+.context-entry-list p { margin: 0; padding: 10px 12px; color: var(--mx-text-faint); font-size: var(--mx-font-minor); }
+.context-entry-list span { min-width: 0; overflow-wrap: anywhere; }
+.context-entry-list strong { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.context-entry-preview pre {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 12px 0 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+  padding: 12px;
+  background: var(--mx-bg-base);
+  color: var(--mx-text);
+  border-radius: var(--mx-radius-md);
+}
+@media (max-width: 640px) {
+  .context-block-map { grid-template-columns: repeat(16, minmax(0, 1fr)); }
+  .context-inspector { grid-template-columns: 1fr; }
+  .context-inspector-nav { padding: 14px 16px; border-right: 0; border-bottom: 0.5px solid var(--mx-border-muted); }
+  .context-inspector-detail { padding: 0 16px 14px; min-height: 240px; }
 }
 
 /* Round-2 polish: review bar, queue remove, popover, compact action. */

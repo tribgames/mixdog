@@ -105,7 +105,7 @@ export function renderAppView(ctx) {
   const promptInputControl = (
     <PromptInput
       onSubmit={onSubmit}
-      disabled={exiting || !!picker || !!toolApproval || !tuiReady}
+      disabled={exiting || !!picker || !!contextPanel || !!toolApproval || !tuiReady}
       onDraftChange={onPromptDraftChange}
       interruptActive={state.busy}
       onInterrupt={handlePromptInterrupt}
@@ -475,6 +475,9 @@ export function renderAppView(ctx) {
                 rows={contextPanel.rows}
                 title={contextPanel.title}
                 detail={contextPanel.detail}
+                onInspect={contextPanel.onInspect}
+                onRefresh={contextPanel.onRefresh}
+                panelRows={floatingPanelRows}
                 columns={frameColumns}
                 fillHeight={expandedOptionPanel}
               />

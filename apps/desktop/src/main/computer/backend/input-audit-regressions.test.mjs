@@ -293,6 +293,7 @@ public class ScrollElement {
 }
 '@
 . (Import-InputFunction 'Do-Scroll')
+function Show-ReferencePointer($ref,$phase) {}
 function Get-RefRecord($ref) { return @{Kind='uia';Element=[ScrollElement]::new()} }
 function Get-TopWindow($element) { return $element }
 function Assert-ExecutionAuthorization($request,$handle) {

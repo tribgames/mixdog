@@ -1002,7 +1002,12 @@ export function UsageStatsBody({
             const models = (Array.isArray(provider.models) ? (provider.models as unknown[]) : []).map(record);
             const open = !collapsed.has(id);
             const plan = statsPlan(id, String(provider.providerKind || ''));
-            const share = Math.round(statsNumber(provider.share) * 100);
+            // Share is suppressed per row, not for the whole table: the model
+            // already returns null only for a provider whose own turns went
+            // unmeasured. Reading the table-wide flag here blanked every share
+            // as soon as a single unmeasured route (Cursor) was present.
+            const shareValue = usageNumber(provider.share);
+            const share = shareValue === null ? null : Math.round(shareValue * 100);
             return (
               <tbody key={id} className="stats-provider" data-usage-provider={id} data-open={open ? 'true' : 'false'}>
                 <tr className="stats-provider-row">
@@ -1025,11 +1030,11 @@ export function UsageStatsBody({
                     </button>
                     <div className="stats-provider-share" aria-hidden="true">
                       <i className="stats-share">
-                        <i style={{ width: `${incomplete ? 0 : share}%` }} />
+                        <i style={{ width: `${share ?? 0}%` }} />
                       </i>
                     </div>
                   </td>
-                  <td className="stats-share-cell">{incomplete ? '—' : `${share}%`}</td>
+                  <td className="stats-share-cell">{share === null ? '—' : `${share}%`}</td>
                   <RouteCells route={provider} />
                 </tr>
                 {open &&

@@ -34,6 +34,7 @@ export interface ComputerUseActivity {
 
 export interface ComputerUseCursor {
   sessionId: string;
+  windowId?: string;
   tracking?: boolean;
   x: number;
   y: number;
@@ -240,7 +241,7 @@ export class ComputerUseCoordinator {
   beginCommand(input: { sessionId: string; action: string; target?: string; mode: 'background' | 'foreground' }): void {
     this.assertOperationAllowed(input.action);
     if (this.userControlActive && isComputerRecoveryRead(input.action)) return;
-    if (input.mode === 'background') this.cursors.delete(input.sessionId);
+    if (this.activities.get(input.sessionId)?.mode !== input.mode) this.cursors.delete(input.sessionId);
     const now = this.now();
     if (!this.attentionRequired?.sessionId || this.attentionRequired.sessionId === input.sessionId) {
       this.attentionRequired = null;
@@ -298,6 +299,7 @@ export class ComputerUseCoordinator {
 
   showCursor(input: {
     sessionId: string;
+    windowId?: string;
     tracking?: boolean;
     x: number;
     y: number;
@@ -313,6 +315,7 @@ export class ComputerUseCoordinator {
     const now = this.now();
     this.cursors.set(input.sessionId, {
       sessionId: input.sessionId,
+      ...(input.windowId ? { windowId: input.windowId } : {}),
       ...(input.tracking ? { tracking: true } : {}),
       x: Math.round(input.x),
       y: Math.round(input.y),
@@ -349,7 +352,8 @@ export class ComputerUseCoordinator {
     if (remaining > 0) this.activeCounts.set(sessionId, remaining);
     else this.activeCounts.delete(sessionId);
     if (remaining === 0) {
-      this.cursors.delete(sessionId);
+      // The pointer stays where the session last acted while it thinks; the
+      // overlay fades it on idle. Ending, pausing, or attention still removes it.
       const expiresAt = this.now() + this.targetLeaseGraceMs;
       for (const lease of this.targetLeases.values()) {
         if (lease.sessionId === sessionId) lease.expiresAt = expiresAt;

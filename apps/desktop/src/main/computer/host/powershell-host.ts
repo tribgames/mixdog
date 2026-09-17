@@ -125,7 +125,7 @@ export function createPowerShellComputerHost(
     onSessionRetired: (sessionId, child, interruptedInput) =>
       lifecycle.onSessionWorkerRetired(sessionId, child, interruptedInput),
     maxWorkers: options.maxWorkers,
-    onPointerProgress: (sessionId, x, y, held, mode, phase) => {
+    onPointerProgress: (sessionId, x, y, held, mode, phase, windowId) => {
       const state = computerUseCoordinator.snapshot();
       if (state.userControlActive) {
         recordCursorDiagnostic('ignored_user_control');
@@ -142,6 +142,7 @@ export function createPowerShellComputerHost(
       recordCursorDiagnostic('published');
       computerUseCoordinator.showCursor({
         sessionId,
+        windowId,
         x,
         y,
         tracking: true,

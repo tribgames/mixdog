@@ -885,6 +885,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
                       promptTokens: d.contextPromptTokens ?? d.deltaPrompt,
                       cachedTokens: d.contextCachedReadTokens ?? d.deltaCachedRead,
                       cacheWriteTokens: d.contextCacheWriteTokens ?? d.deltaCacheWrite,
+                      contextTokens: d.contextMeasuredTokens ?? null,
                     },
                     { boundary: 'request', sendTools: d.sendTools }
                   );

@@ -132,7 +132,7 @@ const CAPABILITY_ARITY = {
   setPluginEnabled: [2, 2],
   removePlugin: [1, 1],
   enablePluginMcp: [1, 1],
-  contextStatus: [0, 0],
+  contextStatus: [0, 1],
   inheritancePreflight: [0, 2],
   memoryControl: [0, 2],
   recall: [1, 2],
@@ -485,6 +485,21 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     throw new TypeError(`capability ${capability} received an invalid number of arguments.`);
   }
   validateStructuredValue(args);
+  if (capability === 'contextStatus' && args.length) {
+    const options = args[0];
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw new TypeError('context inspection options must be an object.');
+    }
+    const inspection = options as Record<string, unknown>;
+    requireAllowedKeys(inspection, new Set(['inspect', 'entryId', 'revision']), 'context inspection');
+    if (inspection.inspect !== true) throw new TypeError('context inspection requires inspect: true.');
+    if (inspection.entryId !== undefined) {
+      requiredString(inspection.entryId, 'context entry id', 128);
+      requiredString(inspection.revision, 'context revision', 64);
+    } else if (inspection.revision !== undefined) {
+      throw new TypeError('context revision requires an entry id.');
+    }
+  }
   if (BOOLEAN_FIRST_CAPABILITIES.has(capability) && typeof args[0] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
   }

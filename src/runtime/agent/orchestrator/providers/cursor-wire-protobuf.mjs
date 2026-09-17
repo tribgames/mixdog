@@ -784,7 +784,13 @@ export function rewriteConversationState(checkpoint, rootPromptMessagesJson, tur
       const tag = reader.varint();
       const no = Number(tag >> 3n);
       reader.skip(Number(tag & 7n));
-      if (no !== 1 && no !== 8) preserved.push(checkpoint.subarray(start, reader.offset));
+      // 1/8 carry the transcript this call replaces, and 5 (tokenDetails) is
+      // the server's token accounting FOR that replaced transcript. Cursor
+      // reports no prompt tokens, so its checkpoint occupancy is the only
+      // context reading we get — replaying a stale one makes a compacted
+      // conversation still measure as its pre-compaction size and re-triggers
+      // compaction on the very next turn.
+      if (no !== 1 && no !== 5 && no !== 8) preserved.push(checkpoint.subarray(start, reader.offset));
     }
   }
   const replacement = [

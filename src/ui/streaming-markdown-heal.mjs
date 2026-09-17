@@ -23,8 +23,9 @@ function hasOpenFence(text) {
   return Boolean(marker);
 }
 
-function closeInlineCode(text) {
+function closeInlineCode(text, isPendingLocalPath) {
   let open = 0;
+  let openIndex = -1;
   let index = 0;
   while (index < text.length) {
     const character = text[index];
@@ -39,9 +40,14 @@ function closeInlineCode(text) {
     let end = index + 1;
     while (end < text.length && text[end] === '`') end += 1;
     const run = end - index;
-    if (!open) open = run;
-    else if (run === open) open = 0;
+    if (!open) {
+      open = run;
+      openIndex = index;
+    } else if (run === open) open = 0;
     index = end;
+  }
+  if (open && isPendingLocalPath?.(text.slice(openIndex + open))) {
+    return text.slice(0, openIndex);
   }
   return open > 0 ? `${text}${'`'.repeat(open)}` : text;
 }
@@ -150,7 +156,7 @@ function linkDestinationEnd(text, start) {
   return -1;
 }
 
-function healIncompleteLink(text) {
+function healIncompleteLink(text, isPendingLocalPath) {
   const masked = maskCode(text);
   let open = -1;
   let depth = 0;
@@ -185,14 +191,22 @@ function healIncompleteLink(text) {
   const image = open > 0 && masked[open - 1] === '!';
   const prefix = text.slice(0, image ? open - 1 : open);
   if (image) return `${prefix}${caption}`;
+  if (label < 0 && isPendingLocalPath?.(caption)) return prefix;
   // Keep link typography from the first label token, including the `]` → `(`
   // boundary. An empty destination is inert in the renderer: a streamed URL
   // must never become clickable before its closing parenthesis arrives.
   return `${prefix}[${closeEmphasis(caption)}${']'.repeat(Math.max(0, depth - 1))}]()`;
 }
 
-export function healStreamingMarkdownTail(text) {
+export function healStreamingMarkdownTail(text, isPendingLocalPath) {
   const value = String(text ?? '');
-  if (!value || !HEALABLE_MARKDOWN_SYNTAX.test(value) || hasOpenFence(value)) return value;
-  return closeEmphasis(healIncompleteLink(closeInlineCode(value)));
+  const hasSyntax = HEALABLE_MARKDOWN_SYNTAX.test(value);
+  if (!value || (!hasSyntax && !isPendingLocalPath) || hasOpenFence(value)) return value;
+  const healed = hasSyntax
+    ? closeEmphasis(healIncompleteLink(closeInlineCode(value, isPendingLocalPath), isPendingLocalPath))
+    : value;
+  // Only an unfinished final token can still grow into a compact file link.
+  // Reuse the renderer's path grammar; code and completed links stay intact.
+  const tail = isPendingLocalPath ? /\S+$/.exec(maskCode(healed)) : null;
+  return tail && isPendingLocalPath(tail[0]) ? healed.slice(0, tail.index) : healed;
 }

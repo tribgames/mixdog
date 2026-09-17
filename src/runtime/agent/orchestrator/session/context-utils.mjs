@@ -375,14 +375,14 @@ function contextSummaryResult(state, count) {
   };
 }
 
-function stripSystemReminder(text) {
+export function stripSystemReminder(text) {
   return String(text || '')
     .replace(/^\s*<system-reminder>\s*/i, '')
     .replace(/\s*<\/system-reminder>\s*$/i, '')
     .trim();
 }
 
-function splitMarkdownSections(text) {
+export function splitMarkdownSections(text) {
   const sections = [];
   let current = [];
   for (const line of String(text || '').split(/\r?\n/)) {
@@ -399,7 +399,7 @@ function splitMarkdownSections(text) {
   return sections;
 }
 
-function reminderSectionBucket(section) {
+export function reminderSectionBucket(section) {
   const heading = String(section.match(/^#\s+([^\n]+)/)?.[1] || '')
     .trim()
     .toLowerCase();

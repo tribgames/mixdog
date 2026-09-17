@@ -292,7 +292,17 @@ public class MixWin32
     public static Action<int, int, bool, string> PointerProgress;
     public static int PointerEventsGenerated;
     public static int PointerEventsFailed;
-    static void ReportPointer(int x, int y, bool held, string phase = null)
+    /// Background input announces its target, then waits for the presented
+    /// pointer to travel there before acting; foreground input already sits
+    /// under the real pointer. No wait when nobody is presenting the pointer.
+    public const int PointerGlideWaitMs = 360;
+    static void AnnounceBackgroundTarget(int screenX, int screenY)
+    {
+        if (PointerProgress == null) return;
+        ReportPointer(screenX, screenY, false, "prepare");
+        System.Threading.Thread.Sleep(PointerGlideWaitMs);
+    }
+    public static void ReportPointer(int x, int y, bool held, string phase = null)
     {
         var report = PointerProgress;
         if (report != null)
@@ -306,6 +316,18 @@ public class MixWin32
     {
         POINT point = Cursor();
         ReportPointer(point.x, point.y, false, phase);
+    }
+    static void ReportWindowInput(IntPtr target, string phase)
+    {
+        if (PointerProgress == null) return;
+        RECT bounds;
+        if (!GetWindowRect(target, out bounds) || bounds.right <= bounds.left || bounds.bottom <= bounds.top)
+        {
+            PointerEventsFailed++;
+            return;
+        }
+        ReportPointer(bounds.left + (bounds.right - bounds.left) / 2,
+          bounds.top + (bounds.bottom - bounds.top) / 2, false, phase);
     }
     [StructLayout(LayoutKind.Sequential)] struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
     [DllImport("user32.dll")] static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
@@ -1044,15 +1066,22 @@ public class MixWin32
             throw new InvalidOperationException("background_unsupported|unknown background pointer action: " + kind);
         }
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), point);
-        if (action == "move") return WindowId(target);
+        if (action == "move")
+        {
+            ReportPointer(screenX, screenY, false, "move");
+            return WindowId(target);
+        }
+        AnnounceBackgroundTarget(screenX, screenY);
         if (action == "right")
         {
             MouseClick(target, point, flags, WM_RBUTTONDOWN, WM_RBUTTONUP, MK_RBUTTON);
+            ReportPointer(screenX, screenY, false, "release");
             return WindowId(target);
         }
         if (action == "middle")
         {
             MouseClick(target, point, flags, WM_MBUTTONDOWN, WM_MBUTTONUP, MK_MBUTTON);
+            ReportPointer(screenX, screenY, false, "release");
             return WindowId(target);
         }
         MouseClick(target, point, flags, WM_LBUTTONDOWN, WM_LBUTTONUP, MK_LBUTTON);
@@ -1066,6 +1095,7 @@ public class MixWin32
             System.Threading.Thread.Sleep(20);
             MouseClick(target, point, flags, WM_LBUTTONDOWN, WM_LBUTTONUP, MK_LBUTTON);
         }
+        ReportPointer(screenX, screenY, false, "release");
         return WindowId(target);
     }
     public static string BackgroundDrag(
@@ -1076,6 +1106,7 @@ public class MixWin32
         POINT start = ClientPoint(target, screenX1, screenY1);
         uint flags = PointerModifiers(modifiers);
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(start.x, start.y));
+        AnnounceBackgroundTarget(screenX1, screenY1);
         POINT last = start;
         int lastX = screenX1, lastY = screenY1;
         var release = BindBackgroundRelease(target, delegate
@@ -1112,9 +1143,11 @@ public class MixWin32
         uint flags = PointerModifiers(modifiers);
         POINT client = ClientPoint(target, screenX, screenY);
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(client.x, client.y));
+        AnnounceBackgroundTarget(screenX, screenY);
         int delta = Math.Max(-12000, Math.Min(12000, clicks * 120));
         uint packed = ((uint)(delta & 0xFFFF) << 16) | flags;
         SendMessageChecked(target, horizontal ? WM_MOUSEHWHEEL : WM_MOUSEWHEEL, new UIntPtr(packed), PointParam(screenX, screenY));
+        ReportPointer(screenX, screenY, false, "scroll");
         return WindowId(target);
     }
     public static bool SupportsBackgroundKeyboardClass(string name)
@@ -1268,6 +1301,7 @@ public class MixWin32
     {
         IntPtr target = KeyboardTarget(top, preferred);
         string value = text ?? "";
+        ReportWindowInput(target, "type");
         foreach (char ch in value)
         {
             if (ch == '\n') BackgroundVirtualKey(target, 0x0D);
@@ -1340,6 +1374,7 @@ public class MixWin32
     {
         var strokes = ParseBackgroundKeys(keys);
         IntPtr target = KeyboardTarget(top, preferred);
+        ReportWindowInput(target, "type");
         foreach (var stroke in strokes)
         {
             if (stroke.IsCharacter) BackgroundChar(target, stroke.Character);

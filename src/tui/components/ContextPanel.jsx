@@ -5,6 +5,7 @@ import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { contextPercent, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
+import { ContextInspector } from './ContextInspector.jsx';
 
 function truncateText(value, width) {
   const text = String(value || '');
@@ -150,7 +151,7 @@ function CategoryGrid({ categories, columns, total }) {
   );
 }
 
-function ContextUsageView({ detail, columns }) {
+function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) {
   const innerWidth = Math.max(24, Math.floor(columns || 80) - 4);
   const usage = detail?.usage || {};
   const compaction = detail?.compaction || {};
@@ -234,17 +235,35 @@ function ContextUsageView({ detail, columns }) {
           {truncateText(summaryText, Math.max(0, innerWidth - Math.min(10, innerWidth) - barWidth - 3))}
         </Text>
       </Box>
-      <Box marginTop={1} flexDirection="column" width="100%">
-        <DetailLine label="Source" value={sourceLine} columns={columns} />
-        <DetailLine label="Compaction" value={compactionLine} columns={columns} />
-        <DetailLine label="API/cache" value={apiLine} columns={columns} />
-      </Box>
-      <Box marginTop={1} flexDirection="column" width="100%">
-        <Text color={theme.subtle}>Estimated usage by category</Text>
+      {detail.inspection ? (
         <Box marginTop={1} flexDirection="column" width="100%">
-          <CategoryGrid categories={categories} columns={columns} total={categoryWindowTokens} />
+          <Text color={theme.subtle}>{truncateText(sourceLine, innerWidth)}</Text>
+          <ContextInspector
+            key={detail.inspection.revision}
+            inspection={detail.inspection}
+            columns={columns}
+            rows={Math.max(3, (panelRows || 26) - 10)}
+            windowTokens={windowTokens}
+            reserveTokens={autoCompactBufferTokens}
+            onInspect={onInspect}
+            onRefresh={onRefresh}
+          />
         </Box>
-      </Box>
+      ) : (
+        <>
+          <Box marginTop={1} flexDirection="column" width="100%">
+            <DetailLine label="Source" value={sourceLine} columns={columns} />
+            <DetailLine label="Compaction" value={compactionLine} columns={columns} />
+            <DetailLine label="API/cache" value={apiLine} columns={columns} />
+          </Box>
+          <Box marginTop={1} flexDirection="column" width="100%">
+            <Text color={theme.subtle}>Estimated usage by category</Text>
+            <Box marginTop={1} flexDirection="column" width="100%">
+              <CategoryGrid categories={categories} columns={columns} total={categoryWindowTokens} />
+            </Box>
+          </Box>
+        </>
+      )}
     </Box>
   );
 }
@@ -256,6 +275,9 @@ export function ContextPanel({
   fillHeight = false,
   detail = null,
   description = '',
+  panelRows,
+  onInspect,
+  onRefresh,
 }) {
   const safeRows = Array.isArray(rows) ? rows : [];
   const labelWidth = Math.min(
@@ -266,7 +288,7 @@ export function ContextPanel({
   const isContextUsage = detail?.type === 'context';
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
   const panelDescription = truncateText(
-    String(description || (isContextUsage ? 'Live context window usage by category.' : ''))
+    String(description || (detail?.inspection ? 'Current context snapshot. R refresh · Enter inspect.' : isContextUsage ? 'Live context window usage by category.' : ''))
       .replace(/\s+/g, ' ')
       .trim(),
     Math.max(0, columns - 4)
@@ -290,7 +312,7 @@ export function ContextPanel({
         <Text color={theme.subtle}>{panelDescription || ' '}</Text>
         <Text> </Text>
         {isContextUsage ? (
-          <ContextUsageView detail={detail} columns={columns} />
+          <ContextUsageView detail={detail} columns={columns} panelRows={panelRows} onInspect={onInspect} onRefresh={onRefresh} />
         ) : (
           safeRows.map((row) => (
             <Box key={row.value || row.label} flexDirection="row" width="100%">

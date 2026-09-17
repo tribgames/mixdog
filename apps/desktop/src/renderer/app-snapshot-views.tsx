@@ -284,8 +284,15 @@ export const PaneConversation = memo(function PaneConversation({
   // surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰) — the
   // phone's floating status capsule is retired with it.
   const contextIndicator = useMemo(
-    () => <PaneContextIndicator sessionId={presentedSessionId} hidden={hidden} onInherit={onInheritSession} />,
-    [hidden, onInheritSession, presentedSessionId]
+    () => (
+      <PaneContextIndicator
+        sessionId={presentedSessionId}
+        hidden={hidden}
+        onInherit={onInheritSession}
+        onViewDetails={() => props.onOpenCommandSurface('context')}
+      />
+    ),
+    [hidden, onInheritSession, presentedSessionId, props.onOpenCommandSurface]
   );
   return (
     <>
@@ -365,13 +372,15 @@ export function PaneContextIndicator({
   sessionId,
   hidden,
   onInherit,
+  onViewDetails,
 }: {
   sessionId: string;
   hidden: boolean;
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onViewDetails?: () => void;
 }) {
   const visibleSnapshot = usePaneIslandSnapshot(sessionId, hidden);
-  return <ContextUsageIndicator snapshot={visibleSnapshot} onInherit={onInherit} />;
+  return <ContextUsageIndicator snapshot={visibleSnapshot} onInherit={onInherit} onViewDetails={onViewDetails} />;
 }
 
 type SnapshotUtilityDockProps = Omit<

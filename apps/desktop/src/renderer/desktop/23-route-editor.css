@@ -708,16 +708,16 @@
   outline: 0;
 }
 .command-surface[data-surface="context"] {
-  width: min(680px, calc(100vw - 32px));
+  width: min(920px, calc(100vw - 32px));
   height: auto;
   /* Stable frame (user: 작은 프레임에서 튀며 생성): the loading state keeps
      the dialog at its settled height so content arrival never resizes it. */
   min-height: min(
-    380px,
+    560px,
     calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
   );
   max-height: min(
-    560px,
+    760px,
     calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
   );
   border-radius: var(--mx-radius-xl);
@@ -737,7 +737,7 @@
 }
 .command-surface[data-surface="context"] .mixdog-settings__panel {
   max-height: min(
-    560px,
+    760px,
     calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
   );
   background: transparent;
@@ -750,15 +750,41 @@
   border-bottom: 0.5px solid var(--mx-border-muted);
   background: transparent;
 }
+/* The body is a fixed frame; the inspector's two panes scroll inside it so the
+   category list and the entry list never share one long page scroll. Every
+   box between the body and the inspector must hand the height down — the
+   pane gate's unlayered display:block/min-height:100% (settings.css) sits in
+   that chain, so it is re-pinned to 100% height here. */
+.command-surface[data-surface="context"] {
+  height: min(
+    760px,
+    calc(var(--vvh, 100vh) - var(--settings-layer-safe-top, 16px) - var(--settings-layer-safe-bottom, 16px))
+  );
+}
 .command-surface[data-surface="context"] .mixdog-settings__body {
-  flex: 0 1 auto;
-  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
   padding: 0;
+}
+.command-surface[data-surface="context"] .mixdog-settings__body > .pane-surface-gate,
+.command-surface[data-surface="context"] .mixdog-settings__body > .pane-surface-gate > .pane-surface-gate-content,
+.command-surface[data-surface="context"] .command-surface-content,
+.command-surface[data-surface="context"] .context-surface-view,
+.command-surface[data-surface="context"] .context-card {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .command-surface[data-surface="context"] .context-card {
   border-radius: 0;
   background: none;
   box-shadow: none;
+}
+.command-surface[data-surface="context"] .context-usage-overview {
+  flex: 0 0 auto;
 }
 /* The body inset is gone, so the loading line brings its own. */
 .command-surface[data-surface="context"] .settings-loading {

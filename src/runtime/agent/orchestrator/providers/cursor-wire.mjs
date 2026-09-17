@@ -578,6 +578,7 @@ function getConversation(key) {
     conversation = {
       id: deterministicUuid(`cursor-conversation:${key}`),
       checkpoint: null,
+      historyBlobIds: null,
       blobs: new Map(),
       lastAccess: now,
     };
@@ -594,6 +595,12 @@ function storeBlob(conversation, bytes) {
   return id;
 }
 
+/** Does this history continue the prefix the stored checkpoint was measured against? */
+function historyExtendsMeasuredPrefix(measured, next) {
+  if (!Array.isArray(measured) || measured.length > next.length) return false;
+  return measured.every((id, index) => id === next[index]);
+}
+
 function buildRunRequest({
   model,
   modelParameters = [],
@@ -608,9 +615,19 @@ function buildRunRequest({
   assertCursorUserImages(userImages);
   const requestContext = buildRequestContext(tools, systems.join('\n\n') || undefined);
   const rootPromptMessagesJson = [];
+  const historyBlobIds = [];
   for (const entry of history) {
-    rootPromptMessagesJson.push(storeBlob(conversation, textEncoder.encode(JSON.stringify(entry))));
+    const id = storeBlob(conversation, textEncoder.encode(JSON.stringify(entry)));
+    rootPromptMessagesJson.push(id);
+    historyBlobIds.push(Buffer.from(id).toString('hex'));
   }
+  // The checkpoint is server state measured against the transcript it last
+  // saw. Compaction (and rewind/edit) replaces that prefix instead of
+  // extending it, so carrying the checkpoint over would describe a
+  // conversation this request no longer sends. Start from a clean state; the
+  // full history travels in rootPromptMessagesJson either way.
+  if (!historyExtendsMeasuredPrefix(conversation.historyBlobIds, historyBlobIds)) conversation.checkpoint = null;
+  conversation.historyBlobIds = historyBlobIds;
   const stateBytes = rewriteConversationState(conversation.checkpoint, rootPromptMessagesJson);
   const cursorModel = model === 'auto' ? 'default' : model;
   const action =
@@ -1574,13 +1591,15 @@ function unwrapUnaryBody(body) {
   return body;
 }
 
-export async function getCursorModels(accessToken) {
-  if (cachedModels) return cachedModels;
-  let discovered = [];
+const MODEL_CATALOG_TIMEOUT_MS = 15_000;
+const MODEL_CATALOG_RETRY_DELAYS_MS = [500, 1_500, 3_000];
+
+async function fetchCursorModelsOnce(accessToken) {
   try {
     const response = await callCursorUnary({
       accessToken,
       path: AVAILABLE_MODELS_PATH,
+      timeoutMs: MODEL_CATALOG_TIMEOUT_MS,
       body: encodeMessage('AvailableModelsRequest', {
         includeLongContextModels: true,
         useModelParameters: true,
@@ -1590,20 +1609,39 @@ export async function getCursorModels(accessToken) {
       }),
     });
     const decoded = decodeMessage('AvailableModelsResponse', unwrapUnaryBody(response));
-    discovered = decoded.useModelParameters === true ? normalizeParameterizedModels(decoded.models) : [];
+    const discovered = decoded.useModelParameters === true ? normalizeParameterizedModels(decoded.models) : [];
+    if (discovered.length) return discovered;
   } catch {}
-  if (!discovered.length) {
+  const response = await callCursorUnary({
+    accessToken,
+    path: MODELS_PATH,
+    timeoutMs: MODEL_CATALOG_TIMEOUT_MS,
+    body: new Uint8Array(),
+  });
+  return normalizeModels(decodeMessage('GetUsableModelsResponse', unwrapUnaryBody(response)).models);
+}
+
+// The live catalog is the only source that carries every model Cursor offers.
+// Retry with backoff before giving up, and never cache the static fallback:
+// a single slow start must not hide models until the next process restart.
+export async function getCursorModels(accessToken) {
+  if (cachedModels) return cachedModels;
+  let discovered = [];
+  for (let attempt = 0; attempt <= MODEL_CATALOG_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, MODEL_CATALOG_RETRY_DELAYS_MS[attempt - 1]));
     try {
-      const response = await callCursorUnary({
-        accessToken,
-        path: MODELS_PATH,
-        body: new Uint8Array(),
-      });
-      discovered = normalizeModels(decodeMessage('GetUsableModelsResponse', unwrapUnaryBody(response)).models);
-    } catch {}
+      discovered = await fetchCursorModelsOnce(accessToken);
+    } catch {
+      discovered = [];
+    }
+    if (discovered.length) break;
   }
-  const models = discovered.length ? discovered : FALLBACK_MODELS;
-  cachedModels = [AUTO_MODEL, ...models.filter((model) => model.id !== AUTO_MODEL.id)];
+  if (!discovered.length) {
+    return Object.assign([AUTO_MODEL, ...FALLBACK_MODELS.filter((model) => model.id !== AUTO_MODEL.id)], {
+      fallback: true,
+    });
+  }
+  cachedModels = [AUTO_MODEL, ...discovered.filter((model) => model.id !== AUTO_MODEL.id)];
   return cachedModels;
 }
 

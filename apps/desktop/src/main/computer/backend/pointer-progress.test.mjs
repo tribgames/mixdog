@@ -9,7 +9,12 @@ import { createWorkerPool } from './worker-pool.ts';
 import { RESPONSE_MARKER } from './program.ts';
 
 for (const command of [
-  { action: 'sequence_step', step: { action: 'drag' }, delivery: 'background' },
+  { action: 'sequence_step', step: { action: 'drag', window_id: 'hwnd:0x123' }, delivery: 'background' },
+  { action: 'click', ref: 's1:e0', delivery: 'background' },
+  { action: 'scroll', delivery: 'background' },
+  { action: 'type', delivery: 'background' },
+  { action: 'key', delivery: 'background' },
+  { action: 'set_value', delivery: 'background' },
   { action: 'drag', delivery: 'foreground' },
   { action: 'click', ref: 's1:e0', delivery: 'foreground' },
   { action: 'scroll', delivery: 'foreground' },
@@ -46,17 +51,16 @@ for (const command of [
     });
     try {
       let settled = false;
-      const pending = pool.callPowerShell({ ...command, session_id: 'a' }).then((value) => {
+      const pending = pool.callPowerShell({ ...command, window_id: 'hwnd:0x123', session_id: 'a' }).then((value) => {
         settled = true;
         return value;
       });
       const child = pool.powerShellBySession.get('a');
-      const expectedFeedback = command.delivery === 'foreground';
-      assert.equal(request.pointer_feedback, expectedFeedback);
+      assert.equal(request.pointer_feedback, true);
       const emit = (data) => child.stdout.write('@@MIXDOG_POINTER@@' + JSON.stringify(data) + '\n');
       emit({ id: request.id + 100, x: 1, y: 2, held: true });
       emit({ id: request.id, x: 'bad', y: 2, held: true });
-      emit({ id: request.id, x: 3100, y: 900, held: true });
+      emit({ id: request.id, x: 3100, y: 900, held: true, window_id: 'hwnd:0xBAD' });
       emit({ id: request.id, x: 3200, y: 1000, held: false });
       emit({ id: request.id, x: 3200, y: 1000, held: false, phase: 'prepare' });
       emit({ id: request.id, x: 3200, y: 1000, held: true, phase: 'press' });
@@ -68,22 +72,20 @@ for (const command of [
       assert.equal(settled, false);
       assert.deepEqual(
         events,
-        expectedFeedback
-          ? [
-              ['a', 3100, 900, true, command.delivery, 'drag'],
-              ['a', 3200, 1000, false, command.delivery, 'move'],
-              ['a', 3200, 1000, false, command.delivery, 'prepare'],
-              ['a', 3200, 1000, true, command.delivery, 'press'],
-              ['a', 3200, 1000, false, command.delivery, 'release'],
-              ['a', 3200, 1000, false, command.delivery, 'scroll'],
-              ['a', 3200, 1000, false, command.delivery, 'type'],
-            ]
-          : []
+        [
+          ['a', 3100, 900, true, command.delivery, 'drag', 'hwnd:0x123'],
+          ['a', 3200, 1000, false, command.delivery, 'move', 'hwnd:0x123'],
+          ['a', 3200, 1000, false, command.delivery, 'prepare', 'hwnd:0x123'],
+          ['a', 3200, 1000, true, command.delivery, 'press', 'hwnd:0x123'],
+          ['a', 3200, 1000, false, command.delivery, 'release', 'hwnd:0x123'],
+          ['a', 3200, 1000, false, command.delivery, 'scroll', 'hwnd:0x123'],
+          ['a', 3200, 1000, false, command.delivery, 'type', 'hwnd:0x123'],
+        ]
       );
       child.stdout.write(RESPONSE_MARKER + JSON.stringify({ id: request.id, ok: true, result: {} }) + '\n');
       await pending;
       emit({ id: request.id, x: 0, y: 0, held: true });
-      assert.equal(events.length, expectedFeedback ? 7 : 0);
+      assert.equal(events.length, 7);
     } finally {
       for (const child of children) pool.retirePowerShell(child, new Error('fixture cleanup'));
       pool.removeHostScript();

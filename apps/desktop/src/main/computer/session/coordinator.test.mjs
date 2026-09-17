@@ -204,7 +204,12 @@ test('execution stays visible between commands and disappears only on explicit e
   const coordinator = new ComputerUseCoordinator();
   try {
     begin(coordinator, 'session-lifecycle', 'background', 'capture');
+    coordinator.showCursor({
+      sessionId: 'session-lifecycle', windowId: 'hwnd:0x1', x: 10, y: 20,
+      action: 'click', effect: 'click', mode: 'background',
+    });
     coordinator.finishCommand('session-lifecycle');
+    assert.equal(coordinator.snapshot().cursors.length, 1, 'the pointer stays where the session last acted');
     const thinking = coordinator.snapshot();
     assert.equal(thinking.activities[0]?.phase, 'thinking');
     assert.equal(computerUseOverlayPresentation(thinking, 'ko-KR').visible, true);
@@ -269,7 +274,7 @@ test('session cursor state carries exact points and is removed by takeover clean
         badge: entry.badge,
         context: entry.context,
       })),
-      [],
+      [{ badge: 'Target app', context: '' }],
     );
 
     coordinator.pauseForUser('emergency_shortcut');

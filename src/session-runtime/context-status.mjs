@@ -11,6 +11,7 @@ import {
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import {
+  providerBaselineCoverage,
   resolveContextTokensWithSource,
   resolveContextUsageSnapshot,
   resolveWorkerCompactPolicy,
@@ -18,6 +19,7 @@ import {
 import { estimateToolSchemaBreakdown, snapshotProviderRequestTools } from './tool-catalog.mjs';
 import { scopedProviderRequestTools } from './provider-request-tools.mjs';
 import { sessionContextMeasurement } from '../ui/context-measurement.mjs';
+import { inspectContext } from './context-inspection.mjs';
 
 // Mirrors the tool-list portion of the Anthropic adapters without changing
 // their wire serialization. Other native-deferred providers expose the
@@ -174,7 +176,34 @@ export function createContextStatus({
     return requestTools;
   }
 
-  function contextStatus() {
+  function withInspection(status, messages, tools, options, session = getSession()) {
+    if (options?.inspect !== true) return status;
+    const deferredCatalogNames = new Set(
+      [
+        ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
+        ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
+      ]
+        .map((tool) => String(tool?.name || '').trim())
+        .filter(Boolean)
+    );
+    return {
+      ...status,
+      inspection: inspectContext({
+        sessionId: status.sessionId,
+        provider: status.provider,
+        model: status.model,
+        messages,
+        tools,
+        overheadTokens: status.request.requestOverheadTokens,
+        // The provider's own count for the prefix it measured lets the
+        // inspector reconcile its estimates with the gauge's headline.
+        coverage: providerBaselineCoverage(session, messages),
+        deferredCatalogNames,
+      }, options),
+    };
+  }
+
+  function contextStatus(options) {
     const session = getSession();
     const route = getRoute();
     const committedMessages = Array.isArray(session?.messages) ? session.messages : [];
@@ -198,7 +227,7 @@ export function createContextStatus({
         0,
         Number(session?.compactBoundaryTokens || session?.contextWindow || route?.contextWindow || 0)
       );
-      return {
+      return withInspection({
         sessionId: session?.id || null,
         provider: session?.provider || route.provider,
         model: session?.model || route.model,
@@ -248,7 +277,7 @@ export function createContextStatus({
           totalCachedReadTokens: 0,
           totalCacheWriteTokens: 0,
         },
-      };
+      }, [], [], options);
     }
     // Prefer the in-flight working transcript while a turn is running so the
     // context gauge reflects LIVE growth (user turn + tool calls/results) as
@@ -274,7 +303,7 @@ export function createContextStatus({
       requestToolsSignature,
     });
     if (contextStatusCacheValue && sameContextStatusCacheKey(cacheKey, contextStatusCacheKey)) {
-      return contextStatusCacheValue;
+      return withInspection(contextStatusCacheValue, messages, requestTools, options);
     }
 
     const messageSummary = summarizeContextMessagesAtRevision(messages, messagesRevision);
@@ -382,7 +411,7 @@ export function createContextStatus({
     };
     contextStatusCacheKey = cacheKey;
     contextStatusCacheValue = value;
-    return value;
+    return withInspection(value, messages, requestTools, options);
   }
 
   return { contextStatus, invalidateContextStatusCache };

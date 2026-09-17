@@ -1,7 +1,8 @@
-export const CURSOR_SIZE = 96;
-export const CURSOR_HOTSPOT = 40;
+/** Canvas is sized so the largest press ring (56px × 1.7) and its glow stay inside. */
+export const CURSOR_SIZE = 136;
+export const CURSOR_HOTSPOT = 60;
 
-/** Decorative halo and input feedback; the OS still owns the single physical pointer. */
+/** Background uses a virtual pointer; foreground decorates the OS-owned pointer. */
 export function cursorHtml(): string {
   return `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
@@ -9,9 +10,13 @@ export function cursorHtml(): string {
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;pointer-events:none}
 #surface{width:100%;height:100%;opacity:0;transition:opacity 100ms linear;--accent:#58a6ff;--hotspot:${CURSOR_HOTSPOT}px;--soft:color-mix(in srgb,var(--accent) 22%,transparent);--glow:color-mix(in srgb,var(--accent) 40%,transparent)}
 #surface.visible{opacity:1}
-#halo,#ring,#echo{position:absolute;left:calc(var(--hotspot) - 18px);top:calc(var(--hotspot) - 18px);width:36px;height:36px;box-sizing:border-box;border-radius:50%;opacity:0;transform-origin:center}
-#halo{border:1px solid color-mix(in srgb,var(--accent) 75%,white);background:radial-gradient(circle,transparent 38%,var(--soft) 70%,transparent 74%);box-shadow:0 0 0 1px #10203330,0 0 10px var(--soft),inset 0 0 5px #ffffff24}
-#ring,#echo{border:1.5px solid var(--accent);box-shadow:0 0 5px var(--glow)}
+#arrow{position:absolute;left:var(--hotspot);top:var(--hotspot);width:42px;height:54px;fill:var(--accent);stroke:#fff;stroke-width:1.8;stroke-linejoin:round;filter:drop-shadow(0 0 8px var(--glow)) drop-shadow(0 2px 3px #102033aa);display:none}
+#surface[data-mode="background"] #arrow{display:block}
+#typing{position:absolute;left:calc(var(--hotspot) + 22px);top:calc(var(--hotspot) + 40px);width:44px;height:28px;fill:#102033;stroke:var(--accent);stroke-width:1.8;filter:drop-shadow(0 0 6px var(--glow));display:none}
+#surface.type #typing{display:block}
+#halo,#ring,#echo{position:absolute;left:calc(var(--hotspot) - 28px);top:calc(var(--hotspot) - 28px);width:56px;height:56px;box-sizing:border-box;border-radius:50%;opacity:0;transform-origin:center}
+#halo{border:1.5px solid color-mix(in srgb,var(--accent) 75%,white);background:radial-gradient(circle,transparent 38%,var(--soft) 70%,transparent 74%);box-shadow:0 0 0 1px #10203330,0 0 16px var(--soft),inset 0 0 8px #ffffff24}
+#ring,#echo{border:3px solid var(--accent);box-shadow:0 0 10px var(--glow)}
 #echo{border-color:color-mix(in srgb,var(--accent) 55%,white)}
 .move #halo{opacity:.8;transform:scale(.8)}
 .move #ring{opacity:.45;transform:scale(.8);border-width:1px;box-shadow:none}
@@ -41,20 +46,20 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent
   #surface #echo{opacity:0}
 }
 </style></head><body><div id="surface" aria-hidden="true"><div id="halo"></div><div id="ring"></div><div id="echo"></div>
+<svg id="arrow" viewBox="0 0 22 28"><path d="M1 1L2 22L8 16L13 26L17 24L12 14L21 13Z"/></svg>
+<svg id="typing" viewBox="0 0 22 15"><rect x="1" y="1" width="20" height="13" rx="2"/><path d="M4 5H6M8 5H10M12 5H14M16 5H18M5 9H17"/></svg>
 </div></body></html>`;
 }
 
 export function cursorScript(): string {
   return `(() => {
-    let fade;
     const surface = document.getElementById('surface');
     window.mixdogAgentCursor = state => {
-      clearTimeout(fade);
       surface.style.setProperty('--accent', state.accent || '#58a6ff');
+      surface.dataset.mode = state.mode === 'background' ? 'background' : 'foreground';
       surface.className = 'visible';
       void surface.offsetWidth;
       surface.className = 'visible ' + (state.effect || 'move');
-      if (state.effect !== 'move') fade = setTimeout(() => { surface.className = ''; }, 1000);
     };
   })();`;
 }

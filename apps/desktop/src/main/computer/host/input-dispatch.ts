@@ -1,4 +1,5 @@
 /** Execute one authorized input without owning routing, leases, or reply policy. */
+import { screen } from 'electron';
 import { electronWindowForNativeId } from '../observation/window-handles';
 import { normalizeComputerKeySequence } from '../input/keyboard';
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
@@ -127,6 +128,19 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
         };
       await authorizeDispatch();
       assertObservationInputAllowed(command, host.isObserveOnly());
+      const bounds = electronTextTarget.getContentBounds();
+      const feedbackPoint = typingPoint ?? screen.dipToScreenPoint({
+        x: Math.round(bounds.x + bounds.width / 2),
+        y: Math.round(bounds.y + bounds.height / 2),
+      });
+      computerUseCoordinator.showCursor({
+        sessionId: sessionIdFor(command),
+        windowId: targetWindowId,
+        ...feedbackPoint,
+        action: 'type',
+        effect: 'type',
+        mode: 'background',
+      });
       await electronTextTarget.webContents.insertText(text);
       return {
         id: 0,

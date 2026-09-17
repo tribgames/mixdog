@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { powershellHostProgram } from './program.ts';
+import { RESPONSE_MARKER, powershellHostProgram } from './program.ts';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 import { PS_AUTHORIZATION } from './ps-authorization.ts';
 import { PS_INPUT } from './ps-input.ts';
@@ -396,6 +396,57 @@ public static class ReleaseFixture {
     }
   );
   assert.equal(output, 'BACKGROUND_RELEASE_OK');
+});
+
+test('response envelopes keep pointer accounting for failed requests and clear the progress hook', {
+  skip: process.platform !== 'win32',
+}, async () => {
+  const output = await isolatedProgram(
+    String.raw`
+$ErrorActionPreference='Stop'
+Add-Type @'
+using System;
+public static class MixWin32 {
+  public static int PointerEventsGenerated;
+  public static int PointerEventsFailed;
+  public static Action<int,int,bool,string> PointerProgress;
+}
+'@
+function Invalidate-RefsForRequest($req) {}
+function Handle($req) {
+  if ($null -eq [MixWin32]::PointerProgress -and $req.pointer_feedback -eq $true) { throw 'progress hook missing during handling' }
+  [MixWin32]::PointerEventsGenerated = 3
+  [MixWin32]::PointerEventsFailed = 1
+  if ($req.action -eq 'fail') { throw 'foreground_changed: fixture interruption' }
+  return @{ done = $true }
+}
+$tokens=$null; $errors=$null
+$ast=[System.Management.Automation.Language.Parser]::ParseFile(
+  (Join-Path $env:AUDIT_DIRECTORY 'runtime.ps1'), [ref]$tokens, [ref]$errors)
+$loop=$ast.Find({param($node) $node -is [System.Management.Automation.Language.WhileStatementAst]}, $false)
+$lines=@(
+  '{"id":1,"action":"fail","pointer_feedback":true}',
+  '{"id":2,"action":"ok","pointer_feedback":true}',
+  '{"id":3,"action":"fail"}'
+)
+$__stdin=New-Object System.IO.StringReader(($lines -join [Environment]::NewLine))
+. ([scriptblock]::Create($loop.Extent.Text))
+if ($null -ne [MixWin32]::PointerProgress) { throw 'progress hook leaked past the request' }
+`,
+    { 'runtime.ps1': PS_RUNTIME }
+  );
+  const rows = output
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith(RESPONSE_MARKER))
+    .map((line) => JSON.parse(line.slice(RESPONSE_MARKER.length)));
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].ok, false);
+  assert.match(rows[0].error, /^foreground_changed:/);
+  assert.deepEqual(rows[0].pointer_feedback, { generated: 3, failed: 1 });
+  assert.equal(rows[1].ok, true);
+  assert.deepEqual(rows[1].pointer_feedback, { generated: 3, failed: 1 });
+  assert.equal(rows[2].ok, false);
+  assert.equal('pointer_feedback' in rows[2], false);
 });
 
 test('background cleanup uncertainty reaches the safety guard instead of ordinary mode escalation', {

@@ -101,8 +101,8 @@ export function createRuntimeFacade({
     get session() {
       return state.session;
     },
-    contextStatus() {
-      return getContextStatus();
+    contextStatus(options) {
+      return getContextStatus(options);
     },
     contextStatusForSession(session) {
       return getContextStatusForSession(session);

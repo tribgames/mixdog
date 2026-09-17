@@ -73,7 +73,7 @@ export function createUsageContextPanels({
       Promise.resolve(store.mcpStatus?.()).catch(() => null),
       Promise.resolve(store.skillsStatus?.()).catch(() => null),
       Promise.resolve(store.pluginsStatus?.()).catch(() => null),
-      Promise.resolve(store.contextStatus?.()).catch(() => null),
+      Promise.resolve(store.contextStatus?.({ inspect: true })).catch(() => null),
     ]);
     const tools = toolsStatus || {
       activeCount: 0,
@@ -240,6 +240,7 @@ export function createUsageContextPanels({
       title: 'Context Usage',
       detail: {
         type: 'context',
+        inspection: context.inspection,
         usage: {
           usedTokens,
           windowTokens,
@@ -311,6 +312,11 @@ export function createUsageContextPanels({
           schemaTokens: mcpToolSchemaTokens,
         },
       },
+      onInspect: async (entryId, revision) => {
+        const status = await store.contextStatus({ inspect: true, entryId, revision });
+        return status?.inspection?.preview;
+      },
+      onRefresh: openContextPicker,
       rows: contextRows,
     });
   };

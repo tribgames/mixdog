@@ -281,6 +281,12 @@ function providerPressureTokens(sessionRef, usage) {
   const normalizedPrompt = providerInputExcludesCache(sessionRef?.provider) ? input + cachedRead + cacheWrite : input;
   const prompt = Math.max(explicitPrompt, normalizedPrompt);
   const output = Math.max(0, Number(usage.mainOutputTokens ?? usage.outputTokens) || 0);
+  if (prompt <= 0) {
+    // Cursor reports checkpoint occupancy (prompt and response together)
+    // instead of a prompt count; that reading already includes the output.
+    const occupancy = Number(usage.contextTokens);
+    if (Number.isFinite(occupancy) && occupancy > 0) return Math.round(occupancy);
+  }
   return Math.max(0, Math.round(prompt + output));
 }
 
@@ -381,7 +387,15 @@ function baselinePrefixMatchesTranscript(sessionRef, messages, count) {
   return count === messages.length;
 }
 
-function providerBaselinePressureTokens(messages, sessionRef, policy, { includeConfiguredReserve = true } = {}) {
+/**
+ * The provider reading that still describes this transcript: its billed total
+ * (prompt + output) and the message prefix it covers, with a request-boundary
+ * anchor extended over the assistant reply that output usage already paid for.
+ * Null when no reading exists or the transcript no longer matches its prefix.
+ * Shared by the pressure path below and the /context inspector, which uses it
+ * to reconcile its per-item estimates with what the provider actually counted.
+ */
+export function providerBaselineCoverage(sessionRef, messages) {
   if (!Array.isArray(messages) || !sessionRef || sessionRef.lastContextTokensStaleAfterCompact === true) return null;
   let tokens = positiveInt(sessionRef.contextPressureBaselineTokens);
   const outputTokens = Math.max(0, Number(sessionRef.contextPressureBaselineOutputTokens) || 0);
@@ -399,6 +413,26 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, { includeC
     !baselinePrefixMatchesTranscript(sessionRef, messages, count)
   )
     return null;
+  if (sessionRef.contextPressureBaselineBoundary === 'request') {
+    const assistantOffset = messages.slice(count).findIndex((message) => message?.role === 'assistant');
+    if (assistantOffset >= 0) {
+      // The represented assistant is covered by actual output usage.
+      count += assistantOffset + 1;
+    } else {
+      // Empty/thinking-only continuations append no assistant replay.
+      // Their output was billed but is absent from the next request, so
+      // remove it and estimate every genuinely later message (the nudge).
+      tokens = Math.max(0, tokens - outputTokens);
+    }
+  }
+  return { tokens, count, baselineAt, toolSignature: sessionRef.contextPressureBaselineToolSignature ?? null };
+}
+
+function providerBaselinePressureTokens(messages, sessionRef, policy, { includeConfiguredReserve = true } = {}) {
+  const aligned = providerBaselineCoverage(sessionRef, messages);
+  if (!aligned) return null;
+  let { tokens } = aligned;
+  const { count, baselineAt } = aligned;
   const calibration = Number(policy?.tokenCalibration) > 0 ? Number(policy.tokenCalibration) : 1;
   if (sessionRef.contextPressureBaselineToolSignature !== policy?.toolSchemaSignature) {
     const currentRequestReserve = Math.max(0, Math.round((Number(policy?.requestReserveTokens) || 0) * calibration));
@@ -411,18 +445,6 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, { includeC
       Number.isFinite(storedRequestReserve) && storedRequestReserve >= 0
         ? Math.max(0, tokens - Math.round(storedRequestReserve) + currentRequestReserve)
         : tokens + currentRequestReserve;
-  }
-  if (sessionRef.contextPressureBaselineBoundary === 'request') {
-    const assistantOffset = messages.slice(count).findIndex((message) => message?.role === 'assistant');
-    if (assistantOffset >= 0) {
-      // The represented assistant is covered by actual output usage.
-      count += assistantOffset + 1;
-    } else {
-      // Empty/thinking-only continuations append no assistant replay.
-      // Their output was billed but is absent from the next request, so
-      // remove it and estimate every genuinely later message (the nudge).
-      tokens = Math.max(0, tokens - outputTokens);
-    }
   }
   // Staleness means a baseline that stopped being refreshed WHILE the session
   // kept working — never age on the wall clock. Measured against `now`, this

@@ -1,8 +1,12 @@
 import remarkParse from 'remark-parse';
 import { unified } from 'unified';
+import { isPendingLocalPathMention } from './markdown-plugins';
 // @ts-expect-error Shared runtime ESM intentionally has no separate declaration file.
-import { healStreamingMarkdownTail } from '../../../../src/ui/streaming-markdown-heal.mjs';
-export { healStreamingMarkdownTail };
+import { healStreamingMarkdownTail as healMarkdownTail } from '../../../../src/ui/streaming-markdown-heal.mjs';
+
+export function healStreamingMarkdownTail(text: string): string {
+  return healMarkdownTail(text, isPendingLocalPathMention);
+}
 
 interface StreamingMarkdownCache {
   stableText: string;

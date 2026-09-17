@@ -261,7 +261,7 @@ function trailingLocation(text: string): (MentionLocation & { consumed: number }
 
 /** Inline code that names one path: `src/a.ts:12`, `Dockerfile`, `output/`,
  *  `output/제안서 최종.pptx` (spaces only in document names). */
-function codeMention(text: string): (MentionLocation & { path: string; bare: boolean }) | null {
+function codeMention(text: string, allowIncompletePath = false): (MentionLocation & { path: string; bare: boolean }) | null {
   const match = CODE_LOCATION.exec(text.trim());
   const path = match?.groups?.path?.trim() || "";
   const drive = /^[A-Za-z]:[\\/]/.test(path);
@@ -280,7 +280,7 @@ function codeMention(text: string): (MentionLocation & { path: string; bare: boo
   // Without an extension only well-known names count (`scripts/Dockerfile`,
   // `.gitignore`, `.env.local`): `owner/repo` and `@scope/package` are not files.
   const knownName = BARE_FILE_NAMES.has(name.toLowerCase()) || /^\.env\./i.test(name);
-  if (!extension && !knownName) return null;
+  if (!extension && !knownName && !(allowIncompletePath && hasSeparator)) return null;
   if (!hasSeparator && !knownName && !BARE_FILE_EXTENSIONS.has(extension)) return null;
   return { path, bare: !hasSeparator, ...matchedLocation(match?.groups) };
 }
@@ -289,6 +289,13 @@ function codeMention(text: string): (MentionLocation & { path: string; bare: boo
 export function localPathMentionHref(text: string): string | null {
   const mention = codeMention(text);
   return mention ? locationHref(mention.bare ? `./${mention.path}` : mention.path, mention) : null;
+}
+
+/** An unfinished qualified path may still gain its filename/extension.
+ * Display-only: incomplete paths must never become link targets. */
+export function isPendingLocalPathMention(text: string): boolean {
+  const mention = codeMention(text, true);
+  return Boolean(mention && (/[\\/]$/.test(mention.path) || !codeMention(text)));
 }
 
 function skipsPathLinks(node: HastLikeNode): boolean {

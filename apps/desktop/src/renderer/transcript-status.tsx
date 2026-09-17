@@ -1,4 +1,4 @@
-import { FoldVertical, GitFork, X } from 'lucide-react';
+import { FoldVertical, GitFork, ListTree, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopModelSelection } from '../shared/contract';
 import { resolveContextDisplayUsage } from './context-usage';
@@ -141,6 +141,7 @@ export function ContextUsageIndicator({
   open: controlledOpen,
   onOpenChange,
   onInherit,
+  onViewDetails,
 }: {
   snapshot: Snapshot;
   open?: boolean;
@@ -150,6 +151,7 @@ export function ContextUsageIndicator({
    *  button IS the decision; the old dialog only restated readings this card
    *  already shows. The host still owns opening the heir's tab. */
   onInherit?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
+  onViewDetails?: () => void;
 }) {
   // The card hangs 6px off the gauge, so the pointer heading for it leaves the
   // gauge first; the shared hover contract holds the card through that trip
@@ -269,7 +271,20 @@ export function ContextUsageIndicator({
               </div>
             ) : null;
           })()}
-          {/* One action at a time: a model switch offers inheritance;
+          {onViewDetails && (
+            <button
+              type="button"
+              className="context-action context-details"
+              onClick={() => {
+                popover.close();
+                onViewDetails();
+              }}
+            >
+              <ListTree size={14} aria-hidden="true" />
+              {t('View context details')}
+            </button>
+          )}
+          {/* One mutating action at a time: a model switch offers inheritance;
           a completed handover or matching model offers plain compaction. */}
           {offerInheritance ? (
             <button

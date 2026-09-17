@@ -105,7 +105,7 @@ export function computerUseCursorPresentations(
   return snapshot.cursors.flatMap((cursor) => {
     const activity = activityBySession.get(cursor.sessionId);
     if (!activity || activity.phase === 'paused_user_takeover'
-      || activity.mode !== 'foreground' || cursor.mode !== 'foreground') return [];
+      || activity.mode !== cursor.mode) return [];
     const ordinal = activityOrder.get(cursor.sessionId) || 1;
     const target = visibleTarget(activity.target);
     const multipleSessions = snapshot.activities.length > 1;
@@ -113,7 +113,7 @@ export function computerUseCursorPresentations(
       ...cursor,
       accent: sessionColor(cursor.sessionId),
       badge: `${multipleSessions ? `${ordinal} · ` : ''}${target || shortSessionId(cursor.sessionId)}`,
-      context: multipleSessions ? 'Foreground' : '',
+      context: multipleSessions ? (cursor.mode === 'foreground' ? 'Foreground' : 'Background') : '',
     }];
   });
 }

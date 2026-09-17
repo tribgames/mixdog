@@ -1,6 +1,7 @@
 import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
 import { record } from './record-utils';
+import { ContextInspector, type ContextInspection, type ContextRequest } from './ContextInspector';
 // @ts-expect-error Shared presentation contract has no separate declaration file.
 import { contextMeasurementStats, contextMeasurementLabel } from '../../../../src/ui/context-measurement.mjs';
 
@@ -25,7 +26,7 @@ function tokenBuckets(source: Row, names: string[]): number {
   return names.reduce((sum, name) => sum + nonNegativeNumber(record(source[name]).tokens), 0);
 }
 
-export function ContextBody({ status, snapshot }: { status: unknown; snapshot: unknown }) {
+export function ContextBody({ status, snapshot, request: inspectRequest }: { status: unknown; snapshot: unknown; request?: ContextRequest }) {
   const context = record(status);
   const state = record(snapshot);
   const messages = record(context.messages);
@@ -33,6 +34,7 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
   const request = record(context.request);
   const schema = record(request.toolSchemaBreakdown);
   const compaction = record(context.compaction);
+  const inspection = context.inspection as ContextInspection | undefined;
   // The headline is measured input. Category estimates stay separate and are
   // never rescaled to look like provider-measured per-category token counts.
   const usage = resolveContextDisplayUsage({
@@ -76,6 +78,11 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
     { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
   ];
   const categories = rawCategories;
+  const measuredCategories = (inspection?.categories ?? rawCategories).filter((category) => category.tokens > 0);
+  const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
+  const measuredBarDescription = used != null && measuredCategoryTotal > 0
+    ? t('Measured total; category colors show estimated proportions.')
+    : t(contextMeasurementLabel(usage.source));
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
   const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
   const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
@@ -99,13 +106,31 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
           <div
             className="context-main-bar"
             role="img"
-            aria-label={t('{{percent}}% context used', { percent: usage.percent })}
+            aria-label={usage.percent == null
+              ? measuredBarDescription
+              : `${t('{{percent}}% context used', { percent: usage.percent })} ${measuredBarDescription}`}
+            title={measuredBarDescription}
           >
-            <span style={{ width: `${usedPercent}%` }} />
+            <span style={{ width: `${usedPercent}%` }}>
+              {used != null && measuredCategoryTotal > 0 && measuredCategories.map((category) => (
+                <b
+                  key={category.key}
+                  data-context-key={category.key}
+                  style={{ width: `${(category.tokens / measuredCategoryTotal) * 100}%` }}
+                  title={`${t(category.label)} · ${t('Estimated share: {{percent}}%', {
+                    percent: Math.round((category.tokens / measuredCategoryTotal) * 1000) / 10,
+                  })}`}
+                />
+              ))}
+            </span>
           </div>
         </section>
-        <p>{t('Input includes cached tokens. Output appears in the next measured request.')}</p>
-        <section className="context-mix" aria-labelledby="context-mix-title">
+        {inspection ? <ContextInspector
+          inspection={inspection}
+          windowTokens={windowTokens}
+          reserveTokens={autoCompactBufferTokens}
+          request={inspectRequest}
+        /> : <section className="context-mix" aria-labelledby="context-mix-title">
           <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
           <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
             {categories
@@ -127,7 +152,7 @@ export function ContextBody({ status, snapshot }: { status: unknown; snapshot: u
               </div>
             ))}
           </div>
-        </section>
+        </section>}
       </div>
     </div>
   );

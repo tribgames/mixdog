@@ -38,7 +38,8 @@ void app
       const animations = ring.getAnimations();
       return { center: [box.x + box.width/2, box.y + box.height/2],
         text: document.body.innerText.trim(), movingAnimations, movingOpacity, preparation,
-        clickAnimation: animations.map(a => a.animationName), duplicatePointer: Boolean(document.querySelector('#arrow')) };
+        clickAnimation: animations.map(a => a.animationName),
+        duplicatePointer: getComputedStyle(document.querySelector('#arrow')).display !== 'none' };
     })()`);
       assert.ok(result.center.every((coordinate: number) => Math.abs(coordinate - CURSOR_HOTSPOT) < 0.01));
       assert.equal(result.text, '');
@@ -80,9 +81,10 @@ void app
         );
       }
       // Inspect actual renderer pixels, not just CSS declarations.
+      for (const mode of ['background', 'foreground']) {
       for (const effect of ['move', 'prepare', 'press', 'click', 'double_click', 'drag', 'scroll', 'type']) {
         await window.webContents.executeJavaScript(`(async () => {
-        window.mixdogAgentCursor({ effect: ${JSON.stringify(effect)} });
+        window.mixdogAgentCursor({ mode: ${JSON.stringify(mode)}, effect: ${JSON.stringify(effect)} });
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         for (const animation of document.getAnimations()) {
           animation.pause();
@@ -100,8 +102,12 @@ void app
         return { effect: surface.className, opacity: getComputedStyle(surface).opacity,
           accent: getComputedStyle(surface).getPropertyValue('--accent'),
           ring: getComputedStyle(document.getElementById('ring')).opacity,
-          visibility: document.visibilityState, scale: devicePixelRatio };
+          visibility: document.visibilityState, scale: devicePixelRatio,
+          pointer: getComputedStyle(document.getElementById('arrow')).display !== 'none',
+          typing: getComputedStyle(document.getElementById('typing')).display !== 'none' };
       })()`);
+        assert.equal(rendered.pointer, mode === 'background', 'background has its own pointer; foreground has no duplicate');
+        assert.equal(rendered.typing, effect === 'type', 'typing has a visible keyboard indicator');
         assert.ok(
           colored > 15,
           `${effect} did not produce visible colored pixels: ${JSON.stringify({
@@ -111,6 +117,7 @@ void app
             colored,
           })}`
         );
+      }
       }
       process.stdout.write(`CURSOR_ART_OK ${JSON.stringify(result)}\n`);
     } finally {

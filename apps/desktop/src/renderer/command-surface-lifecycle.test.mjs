@@ -89,8 +89,11 @@ test('usage getters omit snapshots while context, inheritance and commands retai
   await act(async () => current.requestCapability('getUsageStats', [{ view: 'day', anchor: '2026-09-01' }]));
   assert.deepEqual(reads[2], [{ capability: 'getUsageStats', args: [{ view: 'day', anchor: '2026-09-01' }] }]);
   await render({ surface: 'context', sessionId: 'session-test', api });
-  assert.deepEqual(invokes.at(-1), { capability: 'contextStatus', args: [], sessionId: 'session-test' });
+  assert.deepEqual(invokes.at(-1), { capability: 'contextStatus', args: [{ inspect: true }], sessionId: 'session-test' });
   assert.deepEqual(current.data.snapshot, snapshot);
+  const metadata = current.data.contextStatus;
+  await act(async () => current.requestCapability('contextStatus', [{ inspect: true, entryId: 'message:0', revision: 'first' }]));
+  assert.equal(current.data.contextStatus, metadata, 'preview reads must not replace cached dashboard metadata');
   await render({ surface: 'inherit', sessionId: 'session-test', api });
   assert.deepEqual(invokes.at(-1), { capability: 'contextStatus', args: [], sessionId: 'session-test' });
   assert.equal(reads.length, 3);

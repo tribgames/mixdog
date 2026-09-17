@@ -626,7 +626,7 @@ function Handle($req) {
       if ($req.delivery -eq 'foreground') { return Do-ClickFamily $req 'click' }
       return Invoke-BackgroundSemantic $req.ref { Do-Invoke $req.ref }
     }
-    'set_value'    { return Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $req.text } }
+    'set_value'    { return Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $req.text } 'type' }
     'toggle'       { return Invoke-BackgroundSemantic $req.ref { Do-Toggle $req.ref } }
     'click'        { return Do-ClickFamily $req 'click' }
     'double_click' { return Do-ClickFamily $req 'double' }
@@ -739,6 +739,15 @@ while ($true) {
       $failure = $failure.InnerException
     }
     $envelope = @{ id = $id; ok = $false; error = "$($failure.Message)" }
+    # A failed or interrupted input may already have moved the presented cursor;
+    # its accounting must survive the failure so the host never mistakes an
+    # aborted glide for a request that produced no cursor events.
+    if ($null -ne $req -and $req.pointer_feedback -eq $true) {
+      $envelope.pointer_feedback = @{
+        generated = [MixWin32]::PointerEventsGenerated
+        failed = [MixWin32]::PointerEventsFailed
+      }
+    }
     if ($req.action -eq 'window_capture' -and $failure.Data.Contains('CaptureCleanup')) {
       $cleanup = $failure.Data['CaptureCleanup']
       $envelope.result = @{ capture_cleanup = $cleanup }

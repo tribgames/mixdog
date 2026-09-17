@@ -119,7 +119,10 @@ export function useCommandSurfaceLifecycle({
       }
       const capabilities = LOADERS[surface];
       const results = await Promise.all(
-        capabilities.map((capability) => readSurfaceCapability(api, capabilityRequest(capability)))
+        capabilities.map((capability) => readSurfaceCapability(
+          api,
+          capabilityRequest(capability, surface === 'context' ? [{ inspect: true }] : [])
+        ))
       );
       if (loadSequence.current === request) {
         const next: Record<string, unknown> = {
@@ -177,7 +180,7 @@ export function useCommandSurfaceLifecycle({
       while (!disposed) {
         refreshQueued = false;
         try {
-          const result = await api.invokeCapability(capabilityRequest('contextStatus'));
+          const result = await api.invokeCapability(capabilityRequest('contextStatus', [{ inspect: true }]));
           if (disposed) break;
           // A newer state arrived while this request was in flight. Skip the
           // stale pair and immediately fetch once more for the latest snapshot.

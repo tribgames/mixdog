@@ -41,7 +41,8 @@ export interface WorkerPoolHost {
     y: number,
     held: boolean,
     mode: 'background' | 'foreground',
-    phase: string
+    phase: string,
+    windowId?: string
   ): void;
   /** Injectable process transport for isolated lifecycle tests. */
   spawnProcess?: typeof spawn;
@@ -62,6 +63,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       child: ChildProcessWithoutNullStreams;
       sessionId: string;
       pointerFeedback: boolean;
+      windowId?: string;
       mode: 'background' | 'foreground';
       input: boolean;
       backgroundPressRelease: boolean;
@@ -145,7 +147,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
             const phase = event.phase ?? (event.held ? 'drag' : 'move');
             if (['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'].includes(phase)) {
               recordCursorDiagnostic('validated');
-              host.onPointerProgress?.(entry.sessionId, event.x, event.y, event.held, entry.mode, phase);
+              host.onPointerProgress?.(entry.sessionId, event.x, event.y, event.held, entry.mode, phase, entry.windowId);
             } else recordCursorDiagnostic('invalid_phase');
           } else recordCursorDiagnostic('discarded_event');
         } catch {
@@ -281,10 +283,11 @@ export function createWorkerPool(host: WorkerPoolHost) {
       computerActionHas(String(inputAction), 'backgroundPressRelease') ||
       (inputAction === 'type' && ((input?.x != null && input?.y != null) || String(input?.text ?? '').includes('\n')));
     const pointerFeedback =
-      request.delivery === 'foreground' &&
       [
         'click',
         'invoke',
+        'set_value',
+        'toggle',
         'double_click',
         'right_click',
         'middle_click',
@@ -320,6 +323,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
         child,
         sessionId,
         pointerFeedback,
+        windowId: typeof input?.window_id === 'string' ? input.window_id : undefined,
         mode: request.delivery === 'foreground' ? 'foreground' : 'background',
         input: !computerActionHas(String(inputAction), 'nativeRead') && inputAction !== 'release_session',
         backgroundPressRelease,

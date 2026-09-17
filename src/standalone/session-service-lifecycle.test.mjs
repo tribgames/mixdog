@@ -323,6 +323,43 @@ test('a queued addressed action cannot start after service closure', async () =>
   assert.equal(calls, 0);
 });
 
+// A caller-only read/subscribe used to advance the entry's published revision
+// without a frame. When it landed between the last state change of a turn and
+// the publish clock, the following publish saw "unchanged" and every attached
+// view kept the previous frame — the pane stayed on the spinner/stop button
+// after the turn had finished (user: 턴 끝났는데 턴중단이 안되는 버그, 나갔다
+// 들어오니 끝나있긴 하네).
+for (const method of ['readSession', 'subscribeSession']) {
+  test(`${method} on a live session delivers the step it consumed to attached views`, async (t) => {
+    const frames = [];
+    let notify = () => {};
+    const live = runtime();
+    live.subscribe = (listener) => {
+      notify = listener;
+      return () => {};
+    };
+    const service = createSessionService({
+      createSessionRuntime: async () => live,
+      onFrame: (frame, subscribers) => frames.push({ frame, subscribers: [...(subscribers || [])] }),
+      publishIntervalMs: 0,
+    });
+    t.after(() => service.stop());
+    const id = `sess_live_${method}_step`;
+    await service.createSession({ sessionId: id }, { clientToken: 'viewer' });
+    const finished = { ...live.getState(), busy: false, items: [{ kind: 'assistant', text: 'done' }] };
+    live.getState = () => finished;
+    const reply = await service[method]({ sessionId: id }, { clientToken: 'reader' });
+    assert.equal(reply.full?.busy, false);
+    notify();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const delivered = frames.find(
+      ({ frame, subscribers }) =>
+        frame.type === 'session-state' && frame.revision === reply.revision && subscribers.includes('viewer')
+    );
+    assert.ok(delivered, 'the attached view receives the revision the caller consumed');
+  });
+}
+
 test('an action finishing after shutdown cannot republish its retired session', async () => {
   const entered = deferred();
   const finished = deferred();

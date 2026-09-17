@@ -640,6 +640,19 @@ export function createSessionService({
     };
   }
 
+  /** Advance for a caller-only reply (read/subscribe/create) AND deliver the
+   *  same step to the views already attached. `advance` moves the entry's
+   *  published baseline, so a step consumed only by the caller left every
+   *  subscriber one revision behind; when it was the turn's LAST change
+   *  (busy→false), the next publish saw "unchanged" and the pane kept its
+   *  spinner and stop button until it re-subscribed (user: 턴 끝났는데
+   *  턴중단이 안되는 버그, 나갔다 들어오니 끝나있긴 하네). */
+  function advanceForCaller(entry) {
+    const step = advance(entry);
+    if (step.changed) publishStep(entry, step);
+    return step;
+  }
+
   async function createSession(params = {}, ctx = null) {
     assertAvailable();
     const requestedId = String(params.sessionId || '').trim();
@@ -649,8 +662,9 @@ export function createSessionService({
       createReservedSession(params, ctx, reservedSessionId)
     );
     assertAvailable(entry);
+    const step = advanceForCaller(entry);
     addSubscriber(entry, ctx);
-    return sessionResult(entry, advance(entry));
+    return sessionResult(entry, step);
   }
 
   async function createReservedSession(params, ctx, reservedSessionId) {
@@ -684,7 +698,7 @@ export function createSessionService({
 
   async function liveSessionReadResult(entry, params, sessionId, baseRevision) {
     assertAvailable(entry);
-    const step = advance(entry);
+    const step = advanceForCaller(entry);
     retainUnwatched(entry, 'headless session read');
     const messages = await requestedMessageSlice(params, sessionId);
     assertAvailable(entry);
@@ -740,8 +754,10 @@ export function createSessionService({
     const live = liveEntryForView(id) || externalEntryForView(id) || (await bindExternalSessionView(id));
     assertAvailable(live);
     if (live) {
+      // Publish BEFORE attaching: the views already there get the frame, the
+      // new one gets the same revision once in its reply.
+      const step = advanceForCaller(live);
       addSubscriber(live, ctx);
-      const step = advance(live);
       return sessionResult(live, step, baseRevision, { subscribed: true });
     }
     if (typeof readStoredSession === 'function') {
@@ -754,8 +770,8 @@ export function createSessionService({
       const lateOwner = sessionOwner(id) || externalEntryForView(id);
       if (lateOwner) {
         dropPendingViewer(id, ctx);
+        const step = advanceForCaller(lateOwner);
         addSubscriber(lateOwner, ctx);
-        const step = advance(lateOwner);
         return sessionResult(lateOwner, step, baseRevision, { subscribed: true });
       }
       if (!projection) {
@@ -766,8 +782,8 @@ export function createSessionService({
     }
     const entry = await entryForSession(id, openHints || {});
     assertAvailable(entry);
+    const step = advanceForCaller(entry);
     addSubscriber(entry, ctx);
-    const step = advance(entry);
     return sessionResult(entry, step, baseRevision, { subscribed: true });
   }
 

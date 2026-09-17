@@ -598,6 +598,61 @@ const streamingRenderers = {
 };
 
 for (const [pipeline, render] of Object.entries(streamingRenderers)) {
+  for (const [notation, format] of [
+    ['prose', (path) => `See ${path}`],
+    ['inline code', (path) => `See \`${path}`],
+    ['link caption', (path) => `See [${path}`],
+  ]) {
+    test(`${pipeline}: incomplete ${notation} paths wait for the compact filename before painting`, async (t) => {
+      let release;
+      const pending = new Promise((resolve) => { release = resolve; });
+      const f = await mount(t, render, format('src/'), PROJECT, (f) => {
+        f.dom.window.mixdogDesktop.statProjectFile = () => pending;
+      });
+      for (const path of ['src/', 'src/app', 'src/app.', 'C:/Project/conversation/src/', 'C:/Project/conversation/src/app']) {
+        await f.update(PROJECT, format(path));
+        assert.equal(readableText(f.dom.window.document.querySelector('p')).trimEnd(), 'See', path);
+        assert.equal(f.links().length, 0, path);
+        assert.equal(f.dom.window.document.querySelector('.seti-icon'), null, path);
+      }
+      await f.update(PROJECT, format('src/app.ts'));
+      const preview = f.dom.window.document.querySelector('.markdown-link-pending');
+      assert.equal(readableText(preview), 'app.ts');
+      const icon = preview.querySelector('.seti-icon').outerHTML;
+      assert.equal(readableText(f.dom.window.document.querySelector('p')), 'See app.ts');
+      assert.equal(f.links().length, 0);
+      await act(async () => preview.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
+      assert.equal(f.opened.length + f.local.length, 0);
+
+      const complete = notation === 'inline code' ? `${format('src/app.ts')}\``
+        : notation === 'link caption' ? `${format('src/app.ts')}](src/app.ts)`
+        : `${format('src/app.ts')} `;
+      await f.update(PROJECT, complete);
+      await act(async () => { release({ size: 10, mtimeMs: 1 }); });
+      assert.deepEqual(f.labels(), ['app.ts']);
+      assert.equal(readableText(f.dom.window.document.querySelector('p')), 'See app.ts');
+      assert.equal(f.links()[0].querySelector('.seti-icon').outerHTML, icon);
+      await f.click();
+      assert.deepEqual(f.opened, [[PROJECT, 'src/app.ts', undefined]]);
+    });
+  }
+
+  test(`${pipeline}: completed non-file paths, ordinary code and web captions are not withheld`, async (t) => {
+    const f = await mount(t, render, 'See `owner/repo`');
+    for (const [source, expected] of [
+      ['See `owner/repo`', 'See owner/repo'],
+      ['See owner/repo ', 'See owner/repo'],
+      ['See `src/`', 'See src/'],
+      ['See `python src/app', 'See python src/app'],
+      ['See `value', 'See value'],
+      ['See [docs', 'See docs'],
+      ['See https://example.com/docs', 'See https://example.com/docs'],
+    ]) {
+      await f.update(PROJECT, source);
+      assert.equal(readableText(f.dom.window.document.querySelector('p')), expected, source);
+    }
+  });
+
   test(`${pipeline}: streamed link captions never flash brackets or a partial destination`, async (t) => {
     const f = await mount(t, render, 'See [do');
     for (const [source, caption, href] of [
