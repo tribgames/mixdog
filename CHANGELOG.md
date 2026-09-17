@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.170 - 2026-09-17
+
 - System prompt consolidation. Every rule now has one owner: the shared
   layer (`rules/shared/*.md`) is tool policy only and opens with
   `# Tool Calls` (batching first; `05-parallel-calls.md`), the Lead role is
