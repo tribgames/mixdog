@@ -2,6 +2,7 @@ import { cleanMemoryText } from './memory.mjs';
 import { formatRecallTimestamp, localTimestampParts } from '../../shared/time-format.mjs';
 import { compareRecallNewestFirst, compareRecallOldestFirst } from './recall-order.mjs';
 import { tokenizeRecallQuery } from './memory-text-utils.mjs';
+import { memberTsInWindow } from './recall-scoring.mjs';
 
 // Recall query/format helpers. Pure string/date logic plus row rendering.
 
@@ -206,11 +207,11 @@ function historicalEventMark(row, enabled = true) {
   return ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`;
 }
 
-function recallStandaloneBody(r) {
+function recallStandaloneBody(r, preserveSource) {
   const element = r?.element ?? '';
   const summary = r?.summary ?? '';
   if (element || summary) return `${element}${summary ? ' — ' + summary : ''}`;
-  return r?._compactRaw ? String(r.content ?? '') : cleanMemoryText(String(r.content ?? ''));
+  return preserveSource || r?._compactRaw ? String(r.content ?? '') : cleanMemoryText(String(r.content ?? ''));
 }
 
 export function interleaveRawRows(hybridRows, rawRows) {
@@ -237,6 +238,9 @@ export function renderEntryLines(
     pendingMarks = true,
     maxBodyChars = 8000,
     compactTimestamps = false,
+    preserveSource = false,
+    includeRootSource = false,
+    sourceWindow = null,
   } = {}
 ) {
   if (!rows || rows.length === 0) return '(no results)';
@@ -308,13 +312,24 @@ export function renderEntryLines(
       });
       continue;
     }
-    const hasMembers = Array.isArray(r.members) && r.members.length > 0;
-    if (hasMembers) {
+    let members = Array.isArray(r.members) ? r.members : [];
+    if (
+      includeRootSource &&
+      Number(r.is_root) === 1 &&
+      memberTsInWindow(r, sourceWindow?.startMs, sourceWindow?.endMs) &&
+      typeof r.content === 'string' &&
+      r.content.length > 0 &&
+      !members.some((member) => String(member.id) === String(r.id))
+    ) {
+      members = [r, ...members];
+    }
+    if (members.length > 0) {
       // Chunks present: emit each member as its own line. Root row is a
       // grouping artifact for retrieval — the caller wants the chunk
       // content (cycle1 raw), not the cycle2-compressed summary.
-      for (const [memberIndex, m] of r.members.entries()) {
-        const content = boundBody(cleanMemoryText(String(m.content ?? '')));
+      for (const [memberIndex, m] of members.entries()) {
+        const source = String(m.content ?? '');
+        const content = boundBody(preserveSource ? source : cleanMemoryText(source));
         units.push({
           id: m.id,
           ts: Number(m.ts) || 0,
@@ -332,7 +347,7 @@ export function renderEntryLines(
       // chunk members — surface it so the format stays consistent across
       // the two emission paths.
       const rolePrefix = r.is_root === 0 && r.role ? `${recallRoleTag(r.role)}: ` : '';
-      const body = recallStandaloneBody(r);
+      const body = recallStandaloneBody(r, preserveSource);
       // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
       // callers can tell fresh-but-unprocessed rows from chunked memory.
       const pendingMark = pendingMarks && r.is_root === 0 && r.chunk_root == null ? ' [pending]' : '';
@@ -523,8 +538,16 @@ function spanHeaderSuffix(minTs, maxTs, n) {
 // session (e.g. 04:33 rendered above 04:41).
 export function renderSessionGroupedLines(
   rows,
-  { currentSessionId, recencyOrder = false, spanHeaders = false, sessionMeta } = {}
+  {
+    currentSessionId,
+    recencyOrder = false,
+    spanHeaders = false,
+    sessionMeta,
+    preserveSource = false,
+    includeRootSource = false,
+  } = {}
 ) {
+  const renderOptions = { recencyOrder, preserveSource, includeRootSource };
   const hasSessionMeta = spanHeaders && Number(sessionMeta?.size) > 0;
   if ((!rows || rows.length === 0) && !hasSessionMeta) return '(no results)';
   const groups = new Map();
@@ -539,7 +562,7 @@ export function renderSessionGroupedLines(
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
   }
-  if (!spanHeaders && groups.size <= 1) return renderEntryLines(rows, { recencyOrder });
+  if (!spanHeaders && groups.size <= 1) return renderEntryLines(rows, renderOptions);
   const current = String(currentSessionId || '').trim();
   // period='last' session-grouped browse: activity-span headers over each
   // group's body. No line budget — the orchestrator's global tool-output KB
@@ -562,7 +585,7 @@ export function renderSessionGroupedLines(
           : ` (${groupRows.length} entries)`;
       const filterNote = meta?.queryFiltered ? ` · query-filtered ${meta.shownCount}/${meta.fetchedCount} rows` : '';
       parts.push(`## ${label}${mark}${suffix}${filterNote}`);
-      const bodyStr = renderEntryLines(groupRows, { recencyOrder });
+      const bodyStr = renderEntryLines(groupRows, renderOptions);
       const bodyLines = bodyStr === '(no results)' ? [] : bodyStr.split('\n');
       for (const l of bodyLines) parts.push(l);
     }
@@ -573,7 +596,7 @@ export function renderSessionGroupedLines(
     const mark = current && sid === current ? ' (current)' : '';
     const label = sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`;
     parts.push(`## ${label}${mark}`);
-    parts.push(renderEntryLines(groupRows, { recencyOrder }));
+    parts.push(renderEntryLines(groupRows, renderOptions));
   }
   return parts.join('\n');
 }

@@ -2,8 +2,14 @@
 
 - Route by missing evidence: files/ranges→`read`, text or regex→`grep`,
   declarations and relations→`code_graph`, path fragments→`find`, path
-  listings→`glob`, entries/metadata→`list`, Git→`git`; `shell` only runs
-  programs and computation. Tool names are not shell commands.
+  listings→`glob`, entries/metadata→`list`, Git→`git` (direct runner: no
+  pipes, redirects, or substitution; filter with shell or git flags);
+  `shell` only runs programs and computation. Tool names are not shell
+  commands.
+- Grep and code_graph outputs count as read. If target lines are visible in
+  their context blocks, proceed directly to edit or answer without calling
+  `read`; `read` is strictly a last resort when surrounding context is truly
+  missing. Content in context is never read again.
 - Shortest route: cheapest decisive evidence first (existing state, a diff, a
   failing test), then implement from it — a diff, a failing assertion or an
   error location is patched directly; read only the exact edit sites and their

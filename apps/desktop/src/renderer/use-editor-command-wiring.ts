@@ -1,6 +1,7 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import * as monaco from 'monaco-editor';
 import type { DesktopEditorSettings, DesktopLspCapabilities } from '../shared/contract';
+import { bindEditorCommand } from './editor-command-binding';
 import {
   ensureCallHierarchyMenu,
   focusedGraphEditor,
@@ -47,10 +48,13 @@ export function useEditorCommandWiring({
         })
       );
       if (activeRef.current && focusedRef.current) focusedGraphEditor.current = editor;
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      const addCommand = (keybinding: number, handler: () => void) => {
+        languageDisposables.current.push(bindEditorCommand(editor, keybinding, handler));
+      };
+      addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         void saveRef.current();
       });
-      editor.addAction({
+      languageDisposables.current.push(editor.addAction({
         id: 'editor.action.toggleWordWrap',
         label: 'View: Toggle Word Wrap',
         keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
@@ -59,18 +63,18 @@ export function useEditorCommandWiring({
           const configured = editorSettingsRef.current.wordWrap;
           setWordWrapOverride(wrapped ? 'off' : configured !== 'off' ? configured : 'on');
         },
-      });
+      }));
       const cycle = (offset: number) => window.dispatchEvent(new CustomEvent('mixdog:cycle-tab', { detail: offset }));
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.PageDown, () => cycle(1));
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.PageUp, () => cycle(-1));
+      addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.PageDown, () => cycle(1));
+      addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.PageUp, () => cycle(-1));
       const switchTab = (offset: number) =>
         window.dispatchEvent(new CustomEvent('mixdog:tab-switcher', { detail: offset }));
-      editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab, () => switchTab(1));
-      editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => switchTab(-1));
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () =>
+      addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.Tab, () => switchTab(1));
+      addCommand(monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.Tab, () => switchTab(-1));
+      addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyW, () =>
         window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'))
       );
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyQ, () =>
+      addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyQ, () =>
         window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'))
       );
       const onEditorAction = (event: Event) => {

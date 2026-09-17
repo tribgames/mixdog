@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import { freshContextCompactMessages, SUMMARY_PREFIX } from './compact.mjs';
 import { runFreshContextCompact } from './loop/fresh-context.mjs';
+import { withRuntimeUserContext } from './runtime-user-context.mjs';
 
 test('fresh Compact summarizes the live conversation without calling Memory', async () => {
   const messages = [{ role: 'system', content: 'system' }];
@@ -221,8 +222,9 @@ test('fresh layout keeps session injection and stable summary before the volatil
     },
     { role: 'assistant', content: '.' },
   ];
+  const staleGoal = '<system-reminder>\n<goal_state>\nSTALE_GOAL_STATE\n</goal_state>\n</system-reminder>\n\n';
   const latestInstruction =
-    '<system-reminder>\n<goal_state>\nSTALE_GOAL_STATE\n</goal_state>\n</system-reminder>\n\n<system-reminder>\n# Current Time\n2026-09-01\n</system-reminder>\n\nLATEST_REAL_USER_INSTRUCTION';
+    '<system-reminder>\n# Current Time\n2026-09-01\n</system-reminder>\n\nLATEST_REAL_USER_INSTRUCTION';
   const messages = [
     ...sessionPrefix,
     { role: 'user', content: 'older request' },
@@ -234,7 +236,7 @@ test('fresh layout keeps session injection and stable summary before the volatil
     },
     { role: 'tool', toolCallId: 'old-call', content: 'OLD_TOOL_RESULT' },
     { role: 'assistant', content: 'old final answer' },
-    { role: 'user', content: latestInstruction },
+    withRuntimeUserContext({ role: 'user', content: latestInstruction }, { prefix: staleGoal }),
     {
       role: 'user',
       content: 'background task\nTask_id: task-1\nstatus: completed\nsurface: shell',

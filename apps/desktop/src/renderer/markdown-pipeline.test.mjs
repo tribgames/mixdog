@@ -215,7 +215,8 @@ test('streaming markdown never exposes source while its first AST is pending', a
         })
       );
     });
-    assert.equal(dom.window.document.getElementById('root').innerHTML, '');
+    assert.equal(dom.window.document.getElementById('root').textContent, '');
+    assert.equal(dom.window.document.querySelector('[data-transcript-pending]'), null);
     assert.equal(measurements, 0);
 
     await act(async () => {
@@ -228,7 +229,7 @@ test('streaming markdown never exposes source while its first AST is pending', a
         })
       );
     });
-    assert.equal(dom.window.document.getElementById('root').innerHTML, '');
+    assert.equal(dom.window.document.getElementById('root').textContent, '');
     assert.equal(measurements, 0);
   } finally {
     await act(async () => root.unmount());

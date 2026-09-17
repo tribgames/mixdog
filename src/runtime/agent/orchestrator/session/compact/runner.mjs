@@ -14,9 +14,10 @@ import { activeTurnContinuationMessage } from './continuation.mjs';
 import { buildExecutionTail } from './execution-tail.mjs';
 import { latestSkillBodies } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
+import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
 import {
+  allTextContent,
   normalizeIngestRole,
-  sessionMessageContentForIngest,
   shouldExcludeIngestMessage,
 } from '../../../../memory/lib/session-ingest.mjs';
 import { codexWireSendOpts } from '../manager/session-id.mjs';
@@ -51,11 +52,17 @@ function splitFreshSource(messages) {
       break;
     }
   }
+  const latestUserIndex = latestActualUserInstructionIndex(conversation);
   return {
     protectedPrefix,
     previousSummary: previousSummaryMessage?.content || null,
     previousSummaryMessage,
-    live: conversation.filter((message) => !isSummaryMessage(message)),
+    // Budgeting, AI input and rule-only retention use this same projection.
+    // Keep current-turn reminders; remove only proven runtime additions from
+    // older requests. Unmarked legacy text remains part of the summary budget.
+    live: conversation
+      .map((message, index) => (index === latestUserIndex ? message : stripRuntimeUserContext(message)))
+      .filter((message) => !isSummaryMessage(message)),
     sanitized,
   };
 }
@@ -81,9 +88,7 @@ function pureConversationForHandoff(messages) {
     if (!message || typeof message !== 'object') continue;
     const role = normalizeIngestRole(message.role);
     if (!role || shouldExcludeIngestMessage(message)) continue;
-    const content = String(sessionMessageContentForIngest(message) || '')
-      .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, '')
-      .trim();
+    const content = allTextContent(message.content).trim();
     if (!content) continue;
     out.push(...chunkConversationMessage(role, content, message));
   }
@@ -271,26 +276,16 @@ function prependLatestUserContext(message, prefix) {
   const text = String(prefix || '').trim();
   if (!message || !text) return message;
   const replacesGoalState = text.includes('<goal_state>');
-  const stripPriorGoalState = (value) =>
-    replacesGoalState
-      ? String(value ?? '').replace(
-          /<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*/gi,
-          ''
-        )
-      : String(value ?? '');
-  const priorContent = Array.isArray(message.content)
-    ? message.content.map((block) => {
-        if (typeof block === 'string') return stripPriorGoalState(block);
-        if (block?.type === 'text' && typeof block.text === 'string') {
-          return { ...block, text: stripPriorGoalState(block.text) };
-        }
-        return block;
-      })
-    : stripPriorGoalState(message.content);
-  const content = Array.isArray(priorContent)
-    ? [{ type: 'text', text: `${text}\n\n` }, ...priorContent]
-    : `${text}\n\n${priorContent.trimStart()}`;
-  return { ...message, content };
+  const bare = stripRuntimeUserContext(message);
+  // Replacement is confined to producer-owned reminders, never human XML.
+  let suffix = bare !== message ? message.meta.runtimeUserContext.suffix : '';
+  if (replacesGoalState) {
+    suffix = suffix.replace(
+      /<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*/gi,
+      ''
+    );
+  }
+  return withRuntimeUserContext(bare, { prefix: `${text}\n\n`, suffix });
 }
 
 export function freshContextCompactMessages(messages, budgetTokens, opts = {}) {

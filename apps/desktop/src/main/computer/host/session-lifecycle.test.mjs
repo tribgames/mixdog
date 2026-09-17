@@ -7,16 +7,17 @@ import { ComputerUseCoordinator } from '../session/coordinator.ts';
 test('idle native workers retire through confirmed cleanup without cancelling active or queued work', async () => {
   const coordinator = new ComputerUseCoordinator();
   const execution = createExecutionState();
-  const children = new Map(['idle', 'busy', 'queued', 'recent'].map(id => [
+  const children = new Map(['idle', 'busy', 'queued', 'thinking', 'recent'].map(id => [
     id, { killed: false, exitCode: null, signalCode: null },
   ]));
   const live = new Map(children);
   const released = [];
   execution.activeExecutionsBySession.set('busy', { sessionId: 'busy', aborted: false });
   execution.commandChainsBySession.set('queued', new Promise(() => {}));
+  coordinator.beginCommand({ sessionId: 'thinking', action: 'type', mode: 'foreground' });
   const host = createSessionLifecycle({
     coordinator, execution, powerShellBySession: live,
-    workerLastUsedAt: new Map([['idle', 0], ['busy', 0], ['queued', 0], ['recent', 60_000]]),
+    workerLastUsedAt: new Map([['idle', 0], ['busy', 0], ['queued', 0], ['thinking', 0], ['recent', 60_000]]),
     retirePowerShell(child) {
       child.killed = true;
       child.exitCode = 0;
@@ -33,7 +34,7 @@ test('idle native workers retire through confirmed cleanup without cancelling ac
   host.reapIdleSessionWorkers(61_000);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(children.get('idle').killed, true);
-  for (const id of ['busy', 'queued', 'recent']) assert.equal(children.get(id).killed, false, id);
+  for (const id of ['busy', 'queued', 'thinking', 'recent']) assert.equal(children.get(id).killed, false, id);
   assert.deepEqual(released, ['idle']);
   assert.equal(coordinator.snapshot().cleanupState, 'ready');
   coordinator.reset();

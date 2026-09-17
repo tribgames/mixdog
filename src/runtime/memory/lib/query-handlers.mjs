@@ -298,6 +298,8 @@ export function createQueryHandlers({
         chronologicalOrder: compactHandoff,
         compactTimestamps: compactHandoff,
         maxBodyChars: compactHandoff ? null : 8000,
+        preserveSource: args.includeMembers === true || args.includeRaw === true,
+        includeRootSource: !compactHandoff && args.includeMembers === true,
       }),
     };
   }
@@ -443,7 +445,7 @@ export function createQueryHandlers({
         .map((id) => byId.get(id))
         .filter(Boolean)
         .filter((r) => !(r.is_root === 0 && memberLeafIds.has(Number(r.id))));
-      return { text: renderEntryLines(ordered) };
+      return { text: renderEntryLines(ordered, { preserveSource: true, includeRootSource: true }) };
     }
     // Array query — fan out in parallel, each query runs its own hybrid search
     // path, and results are grouped in the response so the caller sees one
@@ -863,7 +865,12 @@ export function createQueryHandlers({
           recallCapPrefix +
           latestEvidenceNote +
           semanticEvidenceNote +
-          renderEntryLines(sliced, { recencyOrder: sort === 'date' }),
+          renderEntryLines(sliced, {
+            recencyOrder: sort === 'date',
+            preserveSource: includeMembers || includeRaw,
+            includeRootSource: includeMembers,
+            sourceWindow: temporal,
+          }),
       };
       if (process.env.MIXDOG_DEBUG_MEMORY) {
         log(
@@ -1100,6 +1107,8 @@ export function createQueryHandlers({
             recencyOrder: true,
             spanHeaders: true,
             sessionMeta,
+            preserveSource: includeMembers || includeRaw,
+            includeRootSource: includeMembers,
           }),
         nextCursor,
       };
@@ -1145,7 +1154,12 @@ export function createQueryHandlers({
     return {
       text:
         recallCapPrefix +
-        renderSessionGroupedLines(sliced, { currentSessionId: _currentSessionHint, recencyOrder: sort === 'date' }),
+        renderSessionGroupedLines(sliced, {
+          currentSessionId: _currentSessionHint,
+          recencyOrder: sort === 'date',
+          preserveSource: includeMembers || includeRaw,
+          includeRootSource: includeMembers,
+        }),
     };
   }
 

@@ -113,7 +113,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   if (showFencedSourceFallback) {
     return <MarkdownSourceFallback text={text} copyControl={copyControl} />;
   }
-  return <span hidden data-transcript-pending />;
+  // A capped live tail has no pending parse to wait for.
+  return parse ? <span hidden data-transcript-pending /> : null;
 });
 
 const StreamingMarkdownBody = memo(function StreamingMarkdownBody({

@@ -5,6 +5,7 @@
 import { createHash, randomUUID } from 'crypto';
 import { getProvider } from '../../providers/registry.mjs';
 import { prepareExplicitSkills } from '../explicit-skills.mjs';
+import { withRuntimeUserContext } from '../runtime-user-context.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { readStreamOutcome } from '../../providers/lib/stream-outcome.mjs';
 import { cloneProviderReplay } from '../../providers/lib/provider-replay.mjs';
@@ -687,21 +688,22 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         const _baseUserTurnContent = prefixUserTurnContent(prompt, _contextBlock);
         // Reminders trail the human text (same order as the reference
         // CLI): the user's language stays the last signal before the reply.
-        const _userTurnContent = suffixUserTurnReminders(_baseUserTurnContent, _turnReminderBlock);
-        cancelledUserTurnContent = _userTurnContent;
         const _userTurnMeta = {
           ...(_transcriptMeta ? { transcript: _transcriptMeta } : {}),
           ...(_turnPromptSource || {}),
           ...(effortConfiguration ? { effortConfiguration } : {}),
         };
-        const outgoing = [
-          ...historyMessages,
+        const _userTurnMessage = withRuntimeUserContext(
           {
             role: 'user',
-            content: _userTurnContent,
+            content: _baseUserTurnContent,
             ...(Object.keys(_userTurnMeta).length ? { meta: _userTurnMeta } : {}),
           },
-        ];
+          { suffix: suffixUserTurnReminders('', _turnReminderBlock) }
+        );
+        const _userTurnContent = _userTurnMessage.content;
+        cancelledUserTurnContent = _userTurnContent;
+        const outgoing = [...historyMessages, _userTurnMessage];
         _turnOutgoing = outgoing;
         // Expose the in-flight working transcript so contextStatus() can
         // estimate the LIVE context footprint mid-turn. agentLoop mutates

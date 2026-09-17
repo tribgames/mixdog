@@ -48,7 +48,7 @@ export interface WorkerPoolHost {
 }
 
 export function createWorkerPool(host: WorkerPoolHost) {
-  const { dataDirectory, isBridgeEnabled, isDisposed, onSessionRetired } = host;
+  const { dataDirectory, onSessionRetired } = host;
 
   let hostScriptPath: string | null = null;
   let hostScriptBuild = '';

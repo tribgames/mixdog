@@ -48,7 +48,7 @@ export const BUILTIN_TOOLS = [
       compressible: false,
     },
     description:
-      'Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site (≤10 per call, 50 KB), never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex.',
+      'Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site (≤10 per call, 50 KB), never a whole large file. Content in context (including grep and code_graph blocks) is already read; never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -229,7 +229,7 @@ export const BUILTIN_TOOLS = [
       compressible: true,
     },
     description:
-      'Search literal/regex file contents (single-line ripgrep, 10 KB cap); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.',
+      'Search literal/regex file contents (single-line ripgrep, 10 KB cap); returns path:line blocks with context, patch-ready (counts as read). Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -294,7 +294,7 @@ export const BUILTIN_TOOLS = [
       compressible: true,
     },
     description:
-      'Wildcard file-path lookup under a known directory; directories never match. Omit path for the current Project; no preliminary listing. Unknown base: find first with a known path fragment. Gitignored paths need include_noise:true.',
+      'Wildcard file-path lookup under a known directory; directories never match. Batch patterns in pattern: [...]. Omit path for the current Project; no preliminary listing. Unknown base: find first with a known path fragment. Gitignored paths need include_noise:true.',
     inputSchema: {
       type: 'object',
       properties: {

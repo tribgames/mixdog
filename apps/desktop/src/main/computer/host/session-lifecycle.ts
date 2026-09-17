@@ -97,8 +97,10 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
   }
 
   function reapIdleSessionWorkers(now = Date.now()): void {
+    const activeSessions = new Set(computerUseCoordinator.snapshot().activities.map(activity => activity.sessionId));
     for (const [sessionId, child] of powerShellBySession) {
-      if (activeExecutionsBySession.has(sessionId) || commandChainsBySession.has(sessionId) || cleanupJobs.has(sessionId)) continue;
+      if (activeSessions.has(sessionId) || activeExecutionsBySession.has(sessionId) ||
+          commandChainsBySession.has(sessionId) || cleanupJobs.has(sessionId)) continue;
       if (now - (workerLastUsedAt.get(sessionId) || 0) < WORKER_IDLE_STALE_MS) continue;
       void abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, child)
         .catch(() => { /* cleanup remains blocked until the host is replaced */ });

@@ -36,7 +36,7 @@ function firstTextContent(content) {
   return '';
 }
 
-function allTextContent(content) {
+export function allTextContent(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content
