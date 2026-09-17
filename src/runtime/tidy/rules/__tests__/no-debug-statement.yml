@@ -1,0 +1,26 @@
+id: no-debug-statement
+valid:
+  - |
+    logger.info(x);
+    print(x)
+    println!("{x}");
+  - |
+    console.error(err);
+    log.debug(x)
+    let a = 1;
+  - |
+    console.warn(x);
+    debug = True
+invalid:
+  - |
+    dbg!(x);
+    console.log(x);
+    breakpoint()
+  - |
+    let y = dbg!(a + b);
+    console.debug(a, b);
+    pdb.set_trace()
+  - |
+    dbg!(&x);
+    console.trace();
+    ipdb.set_trace()

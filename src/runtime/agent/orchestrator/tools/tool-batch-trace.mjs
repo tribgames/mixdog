@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 // Only documented array inputs count. Keep dimensions separate: grep patterns
 // and scopes, for example, are not interchangeable units of work.
-const ARRAY_INPUTS = new Map([
+export const ARRAY_INPUTS = new Map([
   ['read', ['file_path', 'path']],
   ['git', ['command']],
   ['grep', ['pattern', 'path']],

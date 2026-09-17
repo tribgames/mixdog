@@ -6,7 +6,10 @@ agent-level cleanup that the engines do not cover.
 
 ## Skill workflow
 
-Load `code-tidy` before the first `tidy` call.
+Load `code-tidy` before the first `tidy` call. The skill's default scope is
+the recent change (untracked files plus `git diff --name-only HEAD`, falling
+back to the merge-base diff), passed as `paths` on every call; whole-tree
+cleanup runs only when the user asks for it.
 
 1. `tidy action:'scan'` — languages and engines (used / missing /
    `installHint`). Scan does not download and does not return
@@ -24,18 +27,27 @@ Load `code-tidy` before the first `tidy` call.
    - engine `fix` with `structural:false`
    - structural rules (`tidy action:'fix' structural:true`)
    Engine steps must pass `structural:false` because `structural` defaults
-   to true on check/fix.
-4. Agent-level structural cleanup last (split oversized files, extract deep
-   functions, drop history comments, and the rest of the skill checklist).
-   Public API and behavior stay unchanged.
+   to true on check/fix. Rules without a `fix` are diagnostics for the agent
+   layer.
+4. Agent-level cleanup last, behavior-locked: tests/typecheck green before
+   the first edit, then the deletion ladder (delete → reuse → platform →
+   simplify in place), four evidence-backed lenses (reuse, quality,
+   efficiency, altitude), and application by risk tier — SAFE applied as a
+   batch, CAREFUL one file at a time with tests after each, RISKY reported
+   only. The skill body carries the keep list (trust-boundary guards, public
+   contracts, intentional shims); the slop categories, risk tiers, and the
+   dead-code procedure live in its `references/`. Public API and behavior
+   stay unchanged.
 5. After every apply, run the project's tests/typecheck (from `package.json`,
-   `Cargo.toml`, or `pyproject.toml`) and stop on failure.
+   `Cargo.toml`, or `pyproject.toml`); a failure reverts that change.
 6. If the project already has formatter config or tools, tidy uses them. Do
    not add or rewrite `biome.json`, `.prettierrc`, `.clang-format`, or similar
    unless the user asks.
 
-Report: languages, engines used/missing, files changed, diagnostics remaining,
-structural matches applied/skipped, test results.
+Report: scope and mode, languages, engines used/missing, files changed,
+diagnostics remaining, structural matches applied/skipped, agent findings
+applied by lens and tier, findings noticed but not applied with the reason,
+test results.
 
 ## Rule packs
 
@@ -50,6 +62,21 @@ optional `fix`). Tests are `src/runtime/tidy/rules/__tests__/<rule-id>.yml`
 | `no-debugger` | error | delete the statement | javascript, typescript, tsx |
 | `no-empty-catch` | warning | none | javascript, typescript, tsx, java, csharp, php |
 | `todo-marker` | info | none | same as `no-history-comment` |
+| `no-nested-ternary` | warning | none | javascript, typescript, tsx, python, java, c, cpp, csharp |
+| `no-boolean-literal-compare` | info | none | javascript, typescript, tsx, python |
+| `no-any-cast` | warning | none | typescript, tsx |
+| `no-debug-statement` | info (js/ts/tsx), warning (python, rust) | none | javascript, typescript, tsx, python, rust |
+
+The slop rules (`no-nested-ternary` onwards) are diagnostics only: each one
+names a rewrite that needs judgement (a lookup table versus if/else, whether
+an operand is a proven boolean, whether a `console.log` is CLI output), so the
+agent layer decides. `no-nested-ternary` matches a ternary /
+conditional expression with another one anywhere inside it (`has` with
+`stopBy: end`), so a chain reports once per outer level. The comparison and
+cast rules are pattern lists so that `(a === b) + true` or a type named `Any`
+never matches. `no-debug-statement` covers `console.log/debug/trace`,
+`breakpoint()`, `pdb`/`ipdb.set_trace()`, and `dbg!`; `print` and
+`println!` are ordinary output and stay out.
 
 `id` is unique per language folder (ast-grep forbids duplicate ids in one
 scan). Validate with a temporary `sgconfig.yml` whose `ruleDirs` is one

@@ -21,7 +21,7 @@ test('worker capacity counts retiring children until exit without evicting anoth
   const children = [];
   const pool = createWorkerPool({
     dataDirectory: () => directory,
-    isBridgeEnabled: () => false,
+    isBridgeEnabled: () => true,
     isDisposed: () => false,
     maxWorkers: 2,
     spawnProcess: () => {
@@ -44,7 +44,10 @@ test('worker capacity counts retiring children until exit without evicting anoth
     },
   });
   try {
+    assert.equal(children.length, 0, 'an enabled bridge must not pre-spawn workers');
     const a = pool.ensurePowerShell('a');
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(children.length, 1, 'first use must not start a spare worker');
     const b = pool.ensurePowerShell('b');
     assert.equal(pool.ensurePowerShell('b'), b);
     assert.throws(() => pool.ensurePowerShell('c'), /computer_capacity_exhausted/);

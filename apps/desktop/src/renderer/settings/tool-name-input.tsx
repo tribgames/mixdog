@@ -1,5 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { t } from '../i18n';
 
 /** Editable tool names with a viewport-bounded suggestion list. Unknown
  * names remain valid input; the catalog is assistance, not validation. */
@@ -181,7 +182,8 @@ export function ToolNameInput({
                 role="option"
                 id={`${id}-${index}`}
                 className="mx-menu-item"
-                title={option.description}
+                data-tooltip={t('Select tool')}
+                aria-description={option.description}
                 tabIndex={-1}
                 aria-selected={option.value === value}
                 data-active={index === selectedIndex}

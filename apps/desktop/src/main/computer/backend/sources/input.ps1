@@ -245,6 +245,9 @@ function Complete-NativeAction($action, $messageTarget, $windowId, $before, $tar
 function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
     $record = Get-RefRecord $ref
     if ($record.Kind -eq 'msaa') {
+        if (-not $record.Msaa.Enabled) {
+            return Background-Unavailable 'invoke' "element $ref is disabled; no input was sent" $record.WindowId 'element_disabled'
+        }
         try {
             $defaultAction = [string]$record.Msaa.DefaultAction
             if ($allowNativeClick -and [string]::IsNullOrWhiteSpace($defaultAction)) { return $null }
@@ -258,6 +261,9 @@ function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
         }
     }
     $el = $record.Element
+    if (-not $el.Current.IsEnabled) {
+        return Background-Unavailable 'invoke' "element $ref is disabled; no input was sent" $record.WindowId 'element_disabled'
+    }
     $pat = $null
     if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) {
         $before = [string]$pat.Current.ToggleState
@@ -266,6 +272,18 @@ function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
         $after = [string]$pat.Current.ToggleState
         $verified = $before -ne $after
         return New-ActionResult 'invoke' 'uia_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "activated $ref through UIA toggle from $before to $after" $null 'background' ([MixWin32]::WindowId((New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle))))
+    }
+    $pat = $null
+    if ($el.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$pat)) {
+        $before = [string]$pat.Current.ExpandCollapseState
+        if ($before -in @('Collapsed', 'PartiallyExpanded', 'Expanded')) {
+            $expected = if ($before -eq 'Expanded') { 'Collapsed' } else { 'Expanded' }
+            Assert-ExecutionAuthorization $script:CurrentRequest
+            if ($expected -eq 'Expanded') { $pat.Expand() } else { $pat.Collapse() }
+            $after = [string]$pat.Current.ExpandCollapseState
+            $verified = $after -eq $expected
+            return New-ActionResult 'invoke' 'uia_expand_collapse' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "activated $ref through UIA expand/collapse from $before to $after" $null 'background' $record.WindowId
+        }
     }
     $pat = $null
     if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
@@ -1063,13 +1081,17 @@ function Get-MsaaMenuCandidates($info, $name) {
             $handle = [MixWin32]::ParseWindowId($windowId)
             if (-not [MixWin32]::IsWindowHandle($handle)) { continue }
             $targetInfo = [MixWin32]::Info($handle)
-            $nodes = @([MixMsaa]::Snapshot($handle, $targetInfo.Id, 5000))
+            # Win32 menu bars belong to OBJID_MENU, not the client tree.
+            $nodes = @([MixMsaa]::MenuSnapshot($handle, $targetInfo.Id, 5000))
+            if ($nodes.Count -eq 0) {
+                $nodes = @([MixMsaa]::Snapshot($handle, $targetInfo.Id, 5000))
+            }
         }
         catch {
             continue
         }
         foreach ($node in $nodes) {
-            if (-not $node.Refresh() -or -not $node.Enabled) { continue }
+            if (-not $node.Refresh() -or -not $node.Enabled -or $node.Offscreen) { continue }
             if ([string]$node.ControlType -notin @('MenuItem', 'Button', 'SplitButton', 'ListItem')) { continue }
             $label = (([string]$node.Name) -replace '&', '').Trim().ToLower()
             if ($label -ne $wanted) { continue }

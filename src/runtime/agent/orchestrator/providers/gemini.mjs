@@ -212,14 +212,9 @@ export class GeminiProvider {
     return aggregated;
   }
 
-  // Explicit cachedContents API. The implicit cache layer on Gemini 3.x
-  // does not surface cachedContentTokenCount in usageMetadata, so the only
-  // way to obtain measurable + billable cache savings is to register the
-  // stable prefix (system + tools) as a CachedContent and pass its name on
-  // every generateContent call. TTL is 1h so a single worker session keeps
-  // one cache slot warm without re-creation overhead; storage cost (~$0.5/M
-  // tokens/hour) is dwarfed by the 75% input-price discount on hits beyond
-  // a few iterations.
+  // Explicit cachedContents stores the reusable system/tools/history prefix.
+  // The default five-minute TTL bounds storage cost; periodic refresh includes
+  // newer history. Ineligible prefixes and create failures can proceed uncached.
   async _ensureGeminiCache({
     apiKey,
     model,
@@ -552,7 +547,7 @@ export class GeminiProvider {
         //     name almost certainly completes within a couple of minutes;
         //     a short grace window is enough for it to either finish or move
         //     on to a fresh cache attach.
-        //   - The server-side cache TTL (1h) already reclaims any cache we
+        //   - The server-side cache TTL (5m by default) reclaims any cache we
         //     fail to delete, so skipping/delaying deletion is safe — it
         //     only costs a little extra storage for at most the grace
         //     window, never correctness.

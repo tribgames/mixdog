@@ -16,6 +16,7 @@ const URGENT_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'queued',
   'toasts',
   'uiOpenRequest',
+  'setupUiRequest',
 ];
 
 /** Command admission, retry/approval state, and route changes stay immediate;
@@ -50,6 +51,7 @@ const CHROME_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'commandBusy',
   'toasts',
   'uiOpenRequest',
+  'setupUiRequest',
 ];
 
 const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [

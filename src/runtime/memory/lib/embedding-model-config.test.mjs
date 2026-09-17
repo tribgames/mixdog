@@ -26,7 +26,7 @@ test('multilingual E5-small is the fixed production default', () => {
   assert.equal(getKnownEmbeddingDims(E5_SMALL), 384);
   assert.equal(normalizeEmbeddingDtype(E5_SMALL, ''), 'q8');
   assert.equal(normalizeEmbeddingDtype(E5_SMALL, 'q4'), 'q8');
-  assert.deepEqual(getEmbeddingModelLoadOptions(E5_SMALL), {});
+  assert.deepEqual(getEmbeddingModelLoadOptions(E5_SMALL), { session_options: { enableMemPattern: false } });
   assert.equal(getEmbeddingOutputName(E5_SMALL), '');
   assert.equal(getEmbeddingPooling(E5_SMALL), 'mean');
 });
@@ -41,4 +41,15 @@ test('multilingual E5-small applies asymmetric retrieval prefixes', () => {
 
 test('Granite fallback keeps its official CLS pooling contract', () => {
   assert.equal(getEmbeddingPooling('ibm-granite/granite-embedding-97m-multilingual-r2'), 'cls');
+  assert.deepEqual(getEmbeddingModelLoadOptions('ibm-granite/granite-embedding-97m-multilingual-r2'), {
+    model_file_name: 'model_quint8_avx2',
+  });
+});
+
+test('E5 memory options are fresh per load and do not change other models', () => {
+  const options = getEmbeddingModelLoadOptions(E5_SMALL);
+  options.session_options.enableMemPattern = true;
+  assert.equal(getEmbeddingModelLoadOptions(E5_SMALL).session_options.enableMemPattern, false);
+  assert.deepEqual(getEmbeddingModelLoadOptions('Xenova/bge-m3'), {});
+  assert.deepEqual(getEmbeddingModelLoadOptions('custom/embedding'), {});
 });

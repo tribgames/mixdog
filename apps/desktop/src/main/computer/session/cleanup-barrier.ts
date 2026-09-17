@@ -22,7 +22,7 @@ export class ComputerCleanupBarrier {
   assertClear(): void {
     if (this.blocked) {
       throw new Error(
-        'computer_cleanup_pending: worker termination and input cleanup must be confirmed before new input or resume; ask the user to press Stop for verified cleanup recovery'
+        'computer_cleanup_pending: worker termination and input cleanup must be confirmed before new input or resume; ask the user to press Ctrl+Alt+Esc (emergency Stop) for verified cleanup recovery'
       );
     }
   }

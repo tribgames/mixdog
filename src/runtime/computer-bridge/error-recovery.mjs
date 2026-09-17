@@ -92,7 +92,7 @@ function recoveryForCode(code, args) {
       code,
       next: 'user',
       guidance:
-        'Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Stop: the host must verify worker exit and release of automation-owned input before recovery. If Stop cannot confirm cleanup, an explicitly approved host restart is required.',
+        'Worker exit and input release are not confirmed. Wait for cleanup; do not replay input or reset the guard. If cleanup remains failed, ask the user to press Ctrl+Alt+Esc (emergency Stop): the host must verify worker exit and release of automation-owned input before recovery. If emergency Stop cannot confirm cleanup, an explicitly approved host restart is required.',
     };
   }
   if (code === 'computer_command_timeout') {

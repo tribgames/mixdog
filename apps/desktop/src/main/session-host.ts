@@ -297,7 +297,13 @@ export class SessionHost implements DesktopService {
     const state = snapshot as Record<string, unknown>;
     const pid = Number(state.ownerClientHostPid || state.clientHostPid) || 0;
     if (pid > 0) this.engineClientHostPid = pid;
-    this.engineSnapshot = snapshot;
+    // The poller needs ownership and activity, never the full transcript.
+    this.engineSnapshot = {
+      ownerClientHostPid: state.ownerClientHostPid,
+      clientHostPid: state.clientHostPid,
+      busy: snapshot.busy,
+      commandBusy: snapshot.commandBusy,
+    };
     this.shellJobsPoller.onEngineEvent();
   }
 
@@ -786,32 +792,37 @@ export class SessionHost implements DesktopService {
   ): Promise<void> {
     const ids = [...new Set(sessionIds.map(sessionIdOf))];
     const gone = new Set<string>();
-    await Promise.all(
-      ids.map(async (id) => {
-        try {
-          await this.readSession(id, false, false);
-        } catch (error) {
-          if (!(error instanceof Error) || !error.message.includes(`session ${id} is not available`)) throw error;
-          gone.add(id);
-          this.publication.projections.delete(id);
-        }
-      })
-    );
-    if (this.disposed) throw new Error('Mixdog service host is disposed.');
-    // Capture and deliver in one synchronous turn. A live update that arrived
-    // during a read is already in this map and must outrank the earlier reply.
-    deliver(
-      ids.map((sessionId) => ({
-        sessionId,
-        snapshot: gone.has(sessionId)
-          ? null
-          : this.snapshotWithRemoteSession(
-              this.snapshotWithShellJobs(sessionId, this.publication.projections.get(sessionId)?.snapshot ?? null)
-            ),
-        frameSource: 'replay' as const,
-        ...(gone.has(sessionId) ? { laneEnd: 'gone' as const } : {}),
-      }))
-    );
+    const release = this.publication.retainProjections(ids);
+    try {
+      await Promise.all(
+        ids.map(async (id) => {
+          try {
+            await this.readSession(id, false, false);
+          } catch (error) {
+            if (!(error instanceof Error) || !error.message.includes(`session ${id} is not available`)) throw error;
+            gone.add(id);
+            this.publication.projections.delete(id);
+          }
+        })
+      );
+      if (this.disposed) throw new Error('Mixdog service host is disposed.');
+      // Capture and deliver in one synchronous turn. A live update that arrived
+      // during a read is already in this map and must outrank the earlier reply.
+      deliver(
+        ids.map((sessionId) => ({
+          sessionId,
+          snapshot: gone.has(sessionId)
+            ? null
+            : this.snapshotWithRemoteSession(
+                this.snapshotWithShellJobs(sessionId, this.publication.projections.get(sessionId)?.snapshot ?? null)
+              ),
+          frameSource: 'replay' as const,
+          ...(gone.has(sessionId) ? { laneEnd: 'gone' as const } : {}),
+        }))
+      );
+    } finally {
+      release();
+    }
   }
 
   async setVisibleSessions(sessionIds: string[]): Promise<boolean> {
@@ -822,14 +833,18 @@ export class SessionHost implements DesktopService {
     const source = String(sourceId || '').trim();
     if (!source) throw new TypeError('sourceId is required.');
     const requested = [...new Set(sessionIds.map(sessionIdOf))];
-    const accepted = await this.sessionViews.set(
-      source,
-      requested,
-      (sessionId, alreadyVisible) => this.attachVisibleSession(sessionId, alreadyVisible),
-      (sessionId) => this.sessionClient.unsubscribe({ sessionId }, this.callOptions())
-    );
-    this.ensureColdViewRefresh();
-    return accepted;
+    try {
+      const accepted = await this.sessionViews.set(
+        source,
+        requested,
+        (sessionId, alreadyVisible) => this.attachVisibleSession(sessionId, alreadyVisible),
+        (sessionId) => this.sessionClient.unsubscribe({ sessionId }, this.callOptions())
+      );
+      this.ensureColdViewRefresh();
+      return accepted;
+    } finally {
+      this.publication.pruneProjections();
+    }
   }
 
   private async attachVisibleSession(sessionId: string, alreadyVisible: boolean): Promise<boolean> {

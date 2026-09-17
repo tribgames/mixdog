@@ -4,7 +4,7 @@
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { executeInternalTool } from '../../internal-tools.mjs';
 import { classifyResultKind } from '../result-classification.mjs';
-import { tryPrefetchCached, setPrefetchCached } from '../read-dedup.mjs';
+import { tryPrefetchCached, setPrefetchCached, capturePrefetchCacheState } from '../read-dedup.mjs';
 import { _executeCodeGraphToolLazy } from './runtime-loaders.mjs';
 import { runAbortable, throwIfAborted } from '../../../../shared/abort-race.mjs';
 
@@ -82,6 +82,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch, sign
     // Disk read for misses (single batch call).
     const missFiles = fileMisses.map((m) => m.file);
     const missResults = {}; // file → content string
+    const readStates = new Map();
     if (missFiles.length > 0) {
       // Read each miss file individually so we can cache per-file.
       // The files list is small (typically 2-5), so N awaits is fine.
@@ -96,6 +97,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch, sign
               readArgs.mode = 'head';
               readArgs.n = Number.isFinite(opts.n) ? opts.n : 120;
             }
+            readStates.set(f, capturePrefetchCacheState(_pfAbsPath(f)));
             const out = await executeInternalTool('read', readArgs, {
               scopeId: session.mcpScopeId || null,
               callerSessionId: session.id,
@@ -117,7 +119,7 @@ export async function _tryBridgeExplicitPrefetch(session, explicitPrefetch, sign
         if (content && classifyResultKind(content) !== 'error') {
           // Only cache default-window reads; custom-window results
           // would poison the shared cross-dispatch cache.
-          if (!_readOptsByFile.has(file)) setPrefetchCached(abs, content);
+          if (!_readOptsByFile.has(file)) setPrefetchCached(abs, content, readStates.get(file));
         } else if (content === undefined || classifyResultKind(content) === 'error') {
           failed.push(file);
         }

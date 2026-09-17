@@ -12,7 +12,9 @@ export const ACCOUNT_PROVIDERS = Object.freeze([
   'antigravity-oauth',
 ]);
 const MAX_ACCOUNTS = 20;
-const file = () => join(resolvePluginData(), 'provider-accounts.json');
+// `dataDir` defaults to this process's data dir; an isolated runtime passes
+// the host's dir explicitly while its own MIXDOG_DATA_DIR points elsewhere.
+const file = (dataDir = resolvePluginData()) => join(dataDir, 'provider-accounts.json');
 
 function requireAccountProvider(provider) {
   if (!ACCOUNT_PROVIDERS.includes(provider)) throw new TypeError('Unknown OAuth provider.');
@@ -42,9 +44,9 @@ function validate(raw) {
   return raw;
 }
 
-function read() {
+function read(dataDir) {
   try {
-    return validate(JSON.parse(readFileSync(file(), 'utf8')));
+    return validate(JSON.parse(readFileSync(file(dataDir), 'utf8')));
   } catch (error) {
     if (error.code === 'ENOENT') return validate(null);
     throw error;
@@ -70,9 +72,9 @@ function normalizeLabels(pool) {
   return { ...pool, accounts };
 }
 
-export function readProviderAccountPool(provider) {
+export function readProviderAccountPool(provider, dataDir = resolvePluginData()) {
   requireAccountProvider(provider);
-  return normalizeLabels(read().providers[provider]) || { accounts: [], selectedId: null, auto: true };
+  return normalizeLabels(read(dataDir).providers[provider]) || { accounts: [], selectedId: null, auto: true };
 }
 
 function update(provider, mutate) {
@@ -93,10 +95,10 @@ function update(provider, mutate) {
   return normalizeLabels(result.providers[provider]);
 }
 
-export function providerAccountPath(provider, id) {
+export function providerAccountPath(provider, id, dataDir = resolvePluginData()) {
   requireAccountProvider(provider);
   requireAccountId(id);
-  return id === 'default' ? null : join(resolvePluginData(), 'provider-accounts', provider, `${id}.json`);
+  return id === 'default' ? null : join(dataDir, 'provider-accounts', provider, `${id}.json`);
 }
 
 export function newProviderAccountId() {

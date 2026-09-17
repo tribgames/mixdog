@@ -56,11 +56,14 @@ export function xaiCacheRouting(opts, params, rawTools, model) {
 
 export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
   // xAI documents prompt_cache_key as the Responses equivalent of a
-  // conversation id. Default to a per-session key so unrelated transcripts
-  // never contend for one server cache route. Explicit 'prefix' remains an
-  // opt-in for controlled cross-session probes; 'none' matches Grok Build's
-  // literal request body and leaves routing to the service.
-  const scope = String(opts?.xaiResponsesCacheScope || process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE || 'session')
+  // conversation id. The default omits it, matching Grok Build's literal
+  // request body: a per-session key split the service cache into lanes and
+  // measured worse (2026-09-17, 2+2 runs of one 3-round task through
+  // grok-oauth: 'none' $0.036/run with one cold round and a cross-session
+  // prefix hit, 'session' $0.052/run with two cold rounds). 'session'
+  // remains selectable, and 'prefix' stays an opt-in for controlled
+  // cross-session probes.
+  const scope = String(opts?.xaiResponsesCacheScope || process.env.MIXDOG_XAI_RESPONSES_CACHE_SCOPE || 'none')
     .trim()
     .toLowerCase();
   // 'none' omits prompt_cache_key entirely, matching xAI's own reference

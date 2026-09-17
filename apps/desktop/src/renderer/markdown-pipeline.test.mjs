@@ -14,6 +14,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 
 import { parseMarkdownToHast } from './markdown-ast';
+import { parseStreamingMarkdownAst } from './markdown-worker-client';
 import MarkdownBody from './MarkdownBody';
 import MarkdownAstBody from './MarkdownAstBody';
 import { MarkdownSourceFallback } from './MarkdownSourceFallback';
@@ -52,7 +53,7 @@ const strongRenderers = {
 };
 
 for (const [name, render] of Object.entries(strongRenderers)) {
-  test(`${name}: strong preserves mixed code and prose before Korean suffixes`, () => {
+  test(`${name}: strong preserves mixed code and prose before Korean suffixes`, async () => {
     const cases = [
       {
         source: '네, 재영님. **`src/workflows/default/`가 코워크(Cowork)**입니다.',
@@ -86,6 +87,7 @@ for (const [name, render] of Object.entries(strongRenderers)) {
       },
     ];
     for (const sample of cases) {
+      await parseStreamingMarkdownAst(sample.source);
       const dom = new JSDOM(renderToStaticMarkup(render(sample.source)));
       try {
         const { body } = dom.window.document;
@@ -108,16 +110,18 @@ for (const [name, render] of Object.entries(strongRenderers)) {
     }
   });
 
-  test(`${name}: repair leaves code literals, unfinished markers and normal emphasis intact`, () => {
+  test(`${name}: repair leaves code literals, unfinished markers and normal emphasis intact`, async () => {
     for (const source of [
       '`**문구(설명)**입니다`',
       '```text\n**문구(설명)**입니다\n```',
       '**앞 `코드` 뒤(설명)',
       '** `코드` **입니다.',
     ]) {
+      await parseStreamingMarkdownAst(source);
       const markup = renderToStaticMarkup(render(source));
       assert.equal(markup.includes('<strong>'), false, source);
     }
+    await parseStreamingMarkdownAst('**정상**입니다. *기울임*과 `코드`입니다.');
     const markup = renderToStaticMarkup(render('**정상**입니다. *기울임*과 `코드`입니다.'));
     assert.match(markup, /<strong>정상<\/strong>입니다\./);
     assert.match(markup, /<em>기울임<\/em>/);

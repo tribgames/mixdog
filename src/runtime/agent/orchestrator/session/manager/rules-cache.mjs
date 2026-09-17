@@ -65,6 +65,68 @@ export function _buildSharedRules({ omitTools = [], allowTools = null } = {}) {
   );
 }
 
+// Provider/model-bound rules (`rules/routes/*.md`, matched by frontmatter).
+// Cached per route so a model switch renders its own variant.
+export function _buildRouteRules({ provider = null, model = null, omitTools = [], allowTools = null } = {}) {
+  const PLUGIN_ROOT = mixdogRoot();
+  const RULES_DIR = join(PLUGIN_ROOT, 'rules');
+  const providerKey = String(provider || '')
+    .trim()
+    .toLowerCase();
+  const modelKey = String(model || '')
+    .trim()
+    .toLowerCase();
+  return buildCachedRules(
+    'buildRouteRulesContent',
+    'route rules',
+    [join(RULES_DIR, 'routes')],
+    { PLUGIN_ROOT, provider: providerKey, model: modelKey, omitTools, allowTools },
+    JSON.stringify([
+      providerKey,
+      modelKey,
+      omitToolsKey(omitTools),
+      Array.isArray(allowTools) ? omitToolsKey(allowTools) : null,
+    ])
+  );
+}
+
+function buildRouteLine(method, label, { provider = null, model = null } = {}) {
+  const PLUGIN_ROOT = mixdogRoot();
+  const providerKey = String(provider || '')
+    .trim()
+    .toLowerCase();
+  const modelKey = String(model || '')
+    .trim()
+    .toLowerCase();
+  return buildCachedRules(
+    method,
+    label,
+    [join(PLUGIN_ROOT, 'rules', 'routes')],
+    { PLUGIN_ROOT, provider: providerKey, model: modelKey },
+    JSON.stringify([providerKey, modelKey])
+  );
+}
+
+// The matching route's one-line runtime reminder (`round-reminder:`),
+// appended after every tool round by the provider or the tool batch.
+export function _buildRouteRoundReminder(route = {}) {
+  return buildRouteLine('buildRouteRoundReminderContent', 'route round reminder', route);
+}
+
+// The matching route's one-line turn reminder (`turn-reminder:`), part of
+// the user turn's trailing <system-reminder> block.
+export function _buildRouteTurnReminder(route = {}) {
+  return buildRouteLine('buildRouteTurnReminderContent', 'route turn reminder', route);
+}
+
+// BP1 = shared tool policy followed by this route's rules. Every site that
+// renders or re-identifies the BP1 block must use this one composition.
+export function _buildBaseRules({ provider = null, model = null, omitTools = [], allowTools = null } = {}) {
+  return [_buildSharedRules({ omitTools, allowTools }), _buildRouteRules({ provider, model, omitTools, allowTools })]
+    .filter(Boolean)
+    .join('\n\n---\n\n');
+}
+
 export function _buildAgentRules(profile = 'full') {
   const key = String(profile || 'full');
   const PLUGIN_ROOT = mixdogRoot();

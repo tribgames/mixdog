@@ -406,7 +406,7 @@ export function PullRequestsPane({
     if (raw === null) return;
     const match = /^#?(\d+)$/.exec(raw.trim());
     if (!match) {
-      setActionError('Enter a valid pull request number.');
+      setActionError(t('Enter a valid pull request number.'));
       return;
     }
     const number = Number(match[1]);
@@ -416,7 +416,7 @@ export function PullRequestsPane({
     <>
       <button
         type="button"
-        aria-label="Create pull request"
+        aria-label={t('Create pull request')}
         disabled={
           createOpen ||
           onDefaultBranch ||
@@ -425,9 +425,9 @@ export function PullRequestsPane({
           (!prUrl && !api?.gitPush) ||
           Boolean(busy)
         }
-        title={onDefaultBranch ? 'Create or check out a feature branch first.' : createHint || 'Create Pull Request'}
+        title={onDefaultBranch ? t('Create or check out a feature branch first.') : createHint ? t(createHint) : t('Create pull request')}
         data-tooltip={
-          onDefaultBranch ? 'Create or check out a feature branch first.' : createHint || 'Create Pull Request'
+          onDefaultBranch ? t('Create or check out a feature branch first.') : createHint ? t(createHint) : t('Create pull request')
         }
         onClick={beginCreatePullRequest}
       >
@@ -435,19 +435,19 @@ export function PullRequestsPane({
       </button>
       <button
         type="button"
-        aria-label="Refresh pull requests"
+        aria-label={t('Refresh pull requests')}
         disabled={loading || Boolean(busy)}
-        data-tooltip="Refresh Pull Requests"
+        data-tooltip={t('Refresh pull requests')}
         onClick={refreshAll}
       >
         <RefreshCw size={14} className={loading ? 'spin' : undefined} aria-hidden="true" />
       </button>
       <RowOverflowMenu
-        label="More pull request actions"
+        label={t('More pull request actions')}
         items={[
           {
             id: 'open-github',
-            label: 'Open Pull Requests on GitHub',
+            label: t('Open Pull Requests on GitHub'),
             disabled: !repositoryPullsUrl,
             onSelect: () => {
               if (repositoryPullsUrl) void api?.openExternal?.(repositoryPullsUrl);
@@ -455,7 +455,7 @@ export function PullRequestsPane({
           },
           {
             id: 'checkout',
-            label: 'Checkout Pull Request…',
+            label: t('Checkout Pull Request…'),
             disabled: Boolean(busy) || !api?.ghPrCheckout,
             onSelect: checkoutByNumber,
           },
@@ -466,29 +466,29 @@ export function PullRequestsPane({
   const headerPortal = headerSlot ? createPortal(renderHeaderActions(), headerSlot) : null;
   const inlineHeader = !headerSlot && <div className="dock-pr-toolbar">{renderHeaderActions()}</div>;
   const viewLabels: Record<PullRequestListView, string> = {
-    open: 'Open',
-    mine: 'Mine',
-    review: 'Review',
+    open: t('Open'),
+    mine: t('Mine'),
+    review: t('Review'),
   };
   const activeViewCount = pullRequestViews?.[listView].length ?? 0;
   const emptyTitle = filter
-    ? 'No matching pull requests'
+    ? t('No matching pull requests')
     : listView === 'open'
-      ? 'No open pull requests'
+      ? t('No open pull requests')
       : listView === 'mine'
-        ? 'No pull requests from you'
-        : 'No pull requests awaiting your review';
+        ? t('No pull requests from you')
+        : t('No pull requests awaiting your review');
   const emptyMessage = filter
-    ? 'Try a different search.'
+    ? t('Try a different search.')
     : listView === 'open'
       ? onDefaultBranch
-        ? 'Create or check out a feature branch to open a pull request.'
+        ? t('Create or check out a feature branch to open a pull request.')
         : prUrl
-          ? 'Create a pull request from the current branch.'
-          : createHint || 'This repository has no open pull requests.'
+          ? t('Create a pull request from the current branch.')
+          : createHint ? t(createHint) : t('This repository has no open pull requests.')
       : listView === 'mine'
-        ? 'Pull requests you create or check out will appear here.'
-        : 'Review requests assigned to you will appear here.';
+        ? t('Pull requests you create or check out will appear here.')
+        : t('Review requests assigned to you will appear here.');
   const scopeOptions = PULL_REQUEST_LIST_VIEWS.map((view) => ({
     value: view,
     label: `${viewLabels[view]} (${pullRequestViews?.[view].length ?? 0})`,
@@ -513,12 +513,12 @@ export function PullRequestsPane({
                 <input
                   type="search"
                   value={filter}
-                  aria-label="Filter pull requests"
-                  placeholder="Filter pull requests"
+                  aria-label={t('Filter pull requests')}
+                  placeholder={t('Filter pull requests')}
                   onInput={(event) => setFilter(event.currentTarget.value)}
                 />
                 {filter && (
-                  <button type="button" aria-label="Clear pull request filter" onClick={() => setFilter('')}>
+                  <button type="button" aria-label={t('Clear pull request filter')} onClick={() => setFilter('')}>
                     <X size={14} aria-hidden="true" />
                   </button>
                 )}
@@ -527,10 +527,10 @@ export function PullRequestsPane({
             <div className="dock-pr-list-header">
               <OpenSelect
                 className="dock-pr-scope-select"
-                ariaLabel="Pull request list"
+                ariaLabel={t('Pull request list')}
                 value={listView}
                 options={scopeOptions}
-                displayValue={`${viewLabels[listView]} pull requests · ${activeViewCount}`}
+                displayValue={`${viewLabels[listView]} ${t('pull requests')} · ${activeViewCount}`}
                 onChange={(value) => setListView(value as PullRequestListView)}
               />
             </div>
@@ -548,17 +548,17 @@ export function PullRequestsPane({
               <header>
                 <GitPullRequestArrow size={16} aria-hidden="true" />
                 <span>
-                  <b>New pull request</b>
+                  <b>{t('New pull request')}</b>
                   <small>
                     {currentBranch} → {createBase || 'base'}
                   </small>
                 </span>
               </header>
               <label>
-                <span>Title</span>
+                <span>{t('Title')}</span>
                 <input
                   type="text"
-                  aria-label="Pull request title"
+                  aria-label={t('Pull request title')}
                   value={createTitle}
                   maxLength={1024}
                   autoFocus
@@ -566,20 +566,20 @@ export function PullRequestsPane({
                 />
               </label>
               <label>
-                <span>Description</span>
+                <span>{t('Description')}</span>
                 <textarea
-                  aria-label="Pull request description"
+                  aria-label={t('Pull request description')}
                   rows={6}
                   value={createBody}
-                  placeholder="Description (optional)"
+                  placeholder={t('Description (optional)')}
                   onInput={(event) => setCreateBody(event.currentTarget.value)}
                 />
               </label>
               <div className="dock-pr-create-base">
-                <span>Base</span>
+                <span>{t('Base')}</span>
                 <OpenSelect
                   className="dock-pr-base-select"
-                  ariaLabel="Pull request base branch"
+                  ariaLabel={t('Pull request base branch')}
                   value={createBase}
                   options={baseBranchNames.map((branch) => ({ value: branch, label: branch }))}
                   onChange={setCreateBase}
@@ -591,10 +591,10 @@ export function PullRequestsPane({
                   checked={createDraft}
                   onChange={(event) => setCreateDraft(event.currentTarget.checked)}
                 />
-                <span>Create as draft</span>
+                <span>{t('Create as draft')}</span>
               </label>
               {!prUrl && (
-                <p className="dock-pr-create-note">{createHint || 'The branch will be pushed before creation.'}</p>
+                <p className="dock-pr-create-note">{createHint ? t(createHint) : t('The branch will be pushed before creation.')}</p>
               )}
               {createError && (
                 <SourceControlErrorNotice
@@ -607,17 +607,17 @@ export function PullRequestsPane({
               )}
               <footer>
                 <button type="button" onClick={cancelCreatePullRequest} disabled={busy === 'create'}>
-                  Cancel
+                  {t('Cancel')}
                 </button>
                 <button type="submit" disabled={createDisabled}>
                   {busy === 'create' && <ProgressSpinner size={14} aria-hidden="true" />}
                   {busy === 'create'
-                    ? 'Creating…'
+                    ? t('Creating…')
                     : !prUrl
-                      ? 'Push & Create PR'
+                      ? t('Push & Create PR')
                       : createDraft
-                        ? 'Create draft PR'
-                        : 'Create PR'}
+                        ? t('Create draft PR')
+                        : t('Create PR')}
                 </button>
               </footer>
             </form>
@@ -641,23 +641,23 @@ export function PullRequestsPane({
               )}
               {categories === null && !readError && (
                 <p className="utility-dock-empty">
-                  <ProgressSpinner size={14} aria-hidden="true" /> Loading pull requests…
+                  <ProgressSpinner size={14} aria-hidden="true" /> {t('Loading pull requests…')}
                 </p>
               )}
               {pullRequestViews && visiblePullRequests.length === 0 && (
                 <div className="dock-pr-empty" role="status">
                   <GitPullRequestArrow size={24} aria-hidden="true" />
-                  <b>{t(emptyTitle)}</b>
-                  <span>{t(emptyMessage)}</span>
+                  <b>{emptyTitle}</b>
+                  <span>{emptyMessage}</span>
                   {!filter && listView === 'open' && !onDefaultBranch && currentBranch && api?.ghPrCreate && (
                     <button type="button" onClick={beginCreatePullRequest}>
-                      Create pull request
+                      {t('Create pull request')}
                     </button>
                   )}
                 </div>
               )}
               {pullRequestViews && visiblePullRequests.length > 0 && (
-                <div className="dock-pr-results" role="list" aria-label={`${viewLabels[listView]} pull requests`}>
+                <div className="dock-pr-results" role="list" aria-label={t('{{view}} pull requests', { view: viewLabels[listView] })}>
                   {visiblePullRequests.map((pr) => {
                     const checkedOut = Boolean(currentBranch && pr.headRefName === currentBranch);
                     const checkoutKey = `checkout:${pr.number}`;
@@ -690,8 +690,8 @@ export function PullRequestsPane({
                         <span className="dock-pr-row-actions">
                           <button
                             type="button"
-                            aria-label={`Open changes for pull request ${pr.number}`}
-                            data-tooltip="Open Changes"
+                            aria-label={t('Open changes for pull request {{number}}', { number: pr.number })}
+                            data-tooltip={t('Open Changes')}
                             onClick={() => openPullRequest(pr, 'changes')}
                           >
                             <FileDiff size={14} aria-hidden="true" />
@@ -699,8 +699,8 @@ export function PullRequestsPane({
                           {!checkedOut && (
                             <button
                               type="button"
-                              aria-label={`Checkout pull request ${pr.number}`}
-                              data-tooltip="Checkout Pull Request"
+                              aria-label={t('Checkout pull request {{number}}', { number: pr.number })}
+                              data-tooltip={t('Checkout Pull Request')}
                               disabled={Boolean(busy) || !api?.ghPrCheckout}
                               onClick={() => void run(checkoutKey, () => api?.ghPrCheckout?.(projectPath, pr.number))}
                             >
@@ -712,33 +712,33 @@ export function PullRequestsPane({
                             </button>
                           )}
                           <RowOverflowMenu
-                            label={`Actions for pull request ${pr.number}`}
+                            label={t('Actions for pull request {{number}}', { number: pr.number })}
                             items={[
                               {
                                 id: 'overview',
-                                label: 'View Pull Request Description',
+                                label: t('View Pull Request Description'),
                                 onSelect: () => openPullRequest(pr),
                               },
                               {
                                 id: 'overview-side',
-                                label: 'Open Pull Request Description to the Side',
+                                label: t('Open Pull Request Description to the Side'),
                                 onSelect: () => openPullRequest(pr, 'overview', true),
                               },
                               {
                                 id: 'changes',
-                                label: 'Open Changes',
+                                label: t('Open Changes'),
                                 onSelect: () => openPullRequest(pr, 'changes'),
                               },
                               {
                                 id: 'checkout',
-                                label: checkedOut ? 'Pull Request Checked Out' : 'Checkout Pull Request',
+                                label: checkedOut ? t('Pull Request Checked Out') : t('Checkout Pull Request'),
                                 disabled: checkedOut || Boolean(busy) || !api?.ghPrCheckout,
                                 onSelect: () =>
                                   void run(checkoutKey, () => api?.ghPrCheckout?.(projectPath, pr.number)),
                               },
                               {
                                 id: 'open-github',
-                                label: 'Open on GitHub',
+                                label: t('Open on GitHub'),
                                 disabled: !pr.url,
                                 onSelect: () => {
                                   if (pr.url) void api?.openExternal?.(pr.url);
@@ -746,7 +746,7 @@ export function PullRequestsPane({
                               },
                               {
                                 id: 'refresh',
-                                label: 'Refresh Pull Request',
+                                label: t('Refresh Pull Request'),
                                 separatorBefore: true,
                                 onSelect: refreshAll,
                               },
@@ -854,18 +854,18 @@ export function PullRequestEditor({
           <span className="workspace-pr-editor-header-actions">
             <button
               type="button"
-              aria-label="Refresh pull request"
+              aria-label={t('Refresh pull request')}
               disabled={Boolean(busy)}
-              data-tooltip="Refresh Pull Request"
+              data-tooltip={t('Refresh pull request')}
               onClick={() => setRefresh((value) => value + 1)}
             >
               <RefreshCw size={14} className={!detail && !detailError ? 'spin' : undefined} aria-hidden="true" />
             </button>
             <button
               type="button"
-              aria-label="Open pull request on GitHub"
+              aria-label={t('Open pull request on GitHub')}
               disabled={!detail?.url}
-              data-tooltip="Open on GitHub"
+              data-tooltip={t('Open on GitHub')}
               onClick={() => {
                 if (detail?.url) void api?.openExternal?.(detail.url);
               }}
@@ -880,12 +880,12 @@ export function PullRequestEditor({
               <span className="dock-pr-badge" data-state={detail.isDraft ? 'DRAFT' : detail.state}>
                 <StateIcon pr={detail} />
                 {detail.isDraft
-                  ? 'Draft'
+                  ? t('Draft')
                   : detail.state === 'OPEN'
-                    ? 'Open'
+                    ? t('Open')
                     : detail.state === 'MERGED'
-                      ? 'Merged'
-                      : 'Closed'}
+                      ? t('Merged')
+                      : t('Closed')}
               </span>
               <span className="dock-pr-author">
                 <AuthorIcon login={detail.author} />
@@ -894,7 +894,7 @@ export function PullRequestEditor({
               <span className="dock-pr-refs">
                 <code>{detail.baseRefName}</code> ← <code>{detail.headRefName}</code>
               </span>
-              <span className="dock-pr-updated">updated {relativeAge(detail.updatedAt)} ago</span>
+              <span className="dock-pr-updated">{t('updated {{time}} ago', { time: relativeAge(detail.updatedAt) })}</span>
             </div>
             <div className="dock-pr-actions dock-pr-header-actions">
               <button
@@ -907,7 +907,7 @@ export function PullRequestEditor({
                 ) : (
                   <Check size={14} aria-hidden="true" />
                 )}
-                {checkedOut ? 'Checked Out' : 'Checkout'}
+                {checkedOut ? t('Checked Out') : t('Checkout')}
               </button>
               {detail.state === 'OPEN' && !detail.isDraft && (
                 <span className="dock-pr-merge">
@@ -917,13 +917,13 @@ export function PullRequestEditor({
                     onClick={() => {
                       const action =
                         mergeMethod === 'merge'
-                          ? 'Merge'
+                          ? t('Merge')
                           : mergeMethod === 'squash'
-                            ? 'Squash and merge'
-                            : 'Rebase and merge';
+                            ? t('Squash and merge')
+                            : t('Rebase and merge');
                       if (
                         !window.confirm(
-                          t('{{action}} pull request #{{number}}?', { action: t(action), number: detail.number })
+                          t('{{action}} pull request #{{number}}?', { action, number: detail.number })
                         )
                       )
                         return;
@@ -935,17 +935,17 @@ export function PullRequestEditor({
                     ) : (
                       <GitMerge size={14} aria-hidden="true" />
                     )}
-                    {mergeMethod === 'merge' ? 'Merge' : mergeMethod === 'squash' ? 'Squash' : 'Rebase'}
+                    {mergeMethod === 'merge' ? t('Merge') : mergeMethod === 'squash' ? t('Squash') : t('Rebase')}
                   </button>
                   <select
-                    aria-label="Merge method"
+                    aria-label={t('Merge method')}
                     value={mergeMethod}
                     disabled={Boolean(busy)}
                     onChange={(event) => setMergeMethod(event.currentTarget.value as typeof mergeMethod)}
                   >
-                    <option value="merge">Create a merge commit</option>
-                    <option value="squash">Squash and merge</option>
-                    <option value="rebase">Rebase and merge</option>
+                    <option value="merge">{t('Create a merge commit')}</option>
+                    <option value="squash">{t('Squash and merge')}</option>
+                    <option value="rebase">{t('Rebase and merge')}</option>
                   </select>
                 </span>
               )}
@@ -956,7 +956,7 @@ export function PullRequestEditor({
       <div
         className="dock-pr-detail-tabs"
         role="tablist"
-        aria-label="Pull request details"
+        aria-label={t('Pull request details')}
         onKeyDown={(event) => {
           if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
           event.preventDefault();
@@ -983,7 +983,7 @@ export function PullRequestEditor({
           tabIndex={detailTab === 'conversation' ? 0 : -1}
           onClick={() => setDetailTab('conversation')}
         >
-          <MessageSquare size={14} aria-hidden="true" /> Conversation
+          <MessageSquare size={14} aria-hidden="true" /> {t('Conversation')}
           {detail && <small>{detail.timeline.length}</small>}
         </button>
         <button
@@ -994,7 +994,7 @@ export function PullRequestEditor({
           tabIndex={detailTab === 'checks' ? 0 : -1}
           onClick={() => setDetailTab('checks')}
         >
-          <ListChecks size={14} aria-hidden="true" /> Checks
+          <ListChecks size={14} aria-hidden="true" /> {t('Checks')}
           {detail && <small>{detail.checks.total}</small>}
         </button>
         <button
@@ -1005,7 +1005,7 @@ export function PullRequestEditor({
           tabIndex={detailTab === 'files' ? 0 : -1}
           onClick={() => setDetailTab('files')}
         >
-          <FileText size={14} aria-hidden="true" /> Files changed
+          <FileText size={14} aria-hidden="true" /> {t('Files changed')}
           {detail && <small>{detail.changedFiles}</small>}
         </button>
       </div>
@@ -1013,7 +1013,7 @@ export function PullRequestEditor({
         {detailError && <ErrorNotice error={detailError} onRetry={() => setRefresh((value) => value + 1)} />}
         {!detail && !detailError && (
           <p className="utility-dock-empty">
-            <ProgressSpinner size={14} aria-hidden="true" /> Loading pull request…
+            <ProgressSpinner size={14} aria-hidden="true" /> {t('Loading pull request…')}
           </p>
         )}
         {detail && (
@@ -1028,12 +1028,12 @@ export function PullRequestEditor({
                   <header>
                     <AuthorIcon login={detail.author} />
                     <b>@{detail.author}</b>
-                    <span>opened this pull request {relativeAge(detail.createdAt)} ago</span>
+                    <span>{t('opened this pull request {{time}} ago', { time: relativeAge(detail.createdAt) })}</span>
                   </header>
-                  <div className="dock-pr-body">{detail.body.trim() || 'No description provided.'}</div>
+                  <div className="dock-pr-body">{detail.body.trim() || t('No description provided.')}</div>
                 </section>
                 {detail.labels.length > 0 && (
-                  <div className="dock-pr-labels" aria-label="Labels">
+                  <div className="dock-pr-labels" aria-label={t('Labels')}>
                     {detail.labels.map((label) => (
                       <span key={label}>{label}</span>
                     ))}
@@ -1042,7 +1042,7 @@ export function PullRequestEditor({
                 <section className="dock-pr-section">
                   <header>
                     <MessageSquare size={14} aria-hidden="true" />
-                    <b>Conversation</b>
+                    <b>{t('Conversation')}</b>
                     <span>{detail.timeline.length}</span>
                   </header>
                   {detail.timeline.length > 0 ? (
@@ -1053,12 +1053,12 @@ export function PullRequestEditor({
                           <div>
                             <header>
                               <b>{item.author}</b>
-                              {item.state === 'APPROVED' && <em data-state="APPROVED">approved</em>}
+                              {item.state === 'APPROVED' && <em data-state="APPROVED">{t('approved')}</em>}
                               {item.state === 'CHANGES_REQUESTED' && (
-                                <em data-state="CHANGES_REQUESTED">requested changes</em>
+                                <em data-state="CHANGES_REQUESTED">{t('requested changes')}</em>
                               )}
-                              {item.state === 'COMMENTED' && <em>commented</em>}
-                              <i>{relativeAge(item.createdAt)} ago</i>
+                              {item.state === 'COMMENTED' && <em>{t('commented')}</em>}
+                              <i>{t('{{time}} ago', { time: relativeAge(item.createdAt) })}</i>
                             </header>
                             {item.body && <p>{item.body}</p>}
                           </div>
@@ -1066,7 +1066,7 @@ export function PullRequestEditor({
                       ))}
                     </div>
                   ) : (
-                    <div className="dock-pr-empty-row">No conversation yet.</div>
+                    <div className="dock-pr-empty-row">{t('No conversation yet.')}</div>
                   )}
                 </section>
                 {detail.state === 'OPEN' && (
@@ -1090,33 +1090,36 @@ export function PullRequestEditor({
                       <b>{checksLabel}</b>
                       <small>
                         {detail.checks.total > 0
-                          ? `${detail.checks.passing} of ${detail.checks.total} completed successfully`
-                          : 'This pull request has no reported checks yet.'}
+                          ? t('{{passing}} of {{total}} completed successfully', {
+                              passing: detail.checks.passing,
+                              total: detail.checks.total,
+                            })
+                          : t('This pull request has no reported checks yet.')}
                       </small>
                     </div>
                   </header>
                   <div className="dock-pr-check-grid">
                     <span>
                       <b>{detail.checks.total}</b>
-                      <small>Total</small>
+                      <small>{t('Total')}</small>
                     </span>
                     <span>
                       <b>{detail.checks.passing}</b>
-                      <small>Passing</small>
+                      <small>{t('Passing')}</small>
                     </span>
                     <span>
                       <b>{detail.checks.pending}</b>
-                      <small>Pending</small>
+                      <small>{t('Pending')}</small>
                     </span>
                     <span>
                       <b>{detail.checks.failing}</b>
-                      <small>Failing</small>
+                      <small>{t('Failing')}</small>
                     </span>
                   </div>
                 </section>
                 <section className="dock-pr-section">
                   <header>
-                    <b>Reviewers</b>
+                    <b>{t('Reviewers')}</b>
                     <span>{detail.reviewers.length}</span>
                   </header>
                   {detail.reviewers.length > 0 ? (
@@ -1128,12 +1131,12 @@ export function PullRequestEditor({
                           key={reviewer.login}
                           title={
                             reviewer.state === 'APPROVED'
-                              ? 'Approved'
+                              ? t('Approved')
                               : reviewer.state === 'CHANGES_REQUESTED'
-                                ? 'Requested changes'
+                                ? t('Requested changes')
                                 : reviewer.state === 'COMMENTED'
-                                  ? 'Commented'
-                                  : 'Review pending'
+                                  ? t('Commented')
+                                  : t('Review pending')
                           }
                         >
                           <img src={`https://github.com/${encodeURIComponent(reviewer.login)}.png?size=32`} alt="" />
@@ -1145,7 +1148,7 @@ export function PullRequestEditor({
                       ))}
                     </div>
                   ) : (
-                    <div className="dock-pr-empty-row">No reviewers requested.</div>
+                    <div className="dock-pr-empty-row">{t('No reviewers requested.')}</div>
                   )}
                   {detail.reviewDecision && (
                     <p
@@ -1159,10 +1162,10 @@ export function PullRequestEditor({
                       }
                     >
                       {detail.reviewDecision === 'APPROVED'
-                        ? 'Approved'
+                        ? t('Approved')
                         : detail.reviewDecision === 'CHANGES_REQUESTED'
-                          ? 'Changes requested'
-                          : 'Review required'}
+                          ? t('Changes requested')
+                          : t('Review required')}
                     </p>
                   )}
                 </section>
@@ -1172,9 +1175,9 @@ export function PullRequestEditor({
               <div className="dock-pr-files-panel" role="tabpanel" data-pr-detail-panel="files">
                 <header className="dock-pr-files-summary">
                   <div>
-                    <b>Files changed</b>
+                    <b>{t('Files changed')}</b>
                     <small>
-                      {detail.changedFiles} {detail.changedFiles === 1 ? 'file' : 'files'}
+                      {t('{{count}} files', { count: detail.changedFiles })}
                     </small>
                   </div>
                   <span>
@@ -1209,13 +1212,13 @@ export function PullRequestEditor({
                         </button>
                         {open && (
                           <div className="dock-scm-commit-diff">
-                            {patch ? <GitFileDiff patch={patch} mode="unified" /> : <p>No textual diff.</p>}
+                            {patch ? <GitFileDiff patch={patch} mode="unified" /> : <p>{t('No textual diff.')}</p>}
                           </div>
                         )}
                       </section>
                     );
                   })}
-                  {detail.files.length === 0 && <div className="dock-pr-empty-row">0 changed files</div>}
+                  {detail.files.length === 0 && <div className="dock-pr-empty-row">{t('0 changed files')}</div>}
                 </section>
               </div>
             )}

@@ -1,3 +1,7 @@
+import {
+  SETUP_EXTENDED_ACTION_FIELDS, SETUP_EXTENDED_DOMAINS, SETUP_EXTENDED_PROPERTIES, SETUP_MCP_SCHEMA,
+} from './settings-contract.mjs';
+
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
  *  configuration. The description is a contract only; how to use each action
  *  (recipes, disk paths, UI routes) lives in the built-in `setup` skill. */
@@ -22,6 +26,7 @@ export const SETUP_STATUS_DOMAINS = Object.freeze([
   'plugins',
   'update',
   'onboarding',
+  ...SETUP_EXTENDED_DOMAINS,
 ]);
 
 /** Slash-command names shared by TUI (slash-commands.mjs) and Desktop
@@ -59,7 +64,7 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   set_output_style: 'style',
   set_profile: 'profile',
   set_autoclear: 'autoclear',
-  set_compaction: 'enabled',
+  set_compaction: 'enabled? compaction?',
   set_memory_enabled: 'enabled',
   set_recap_enabled: 'enabled',
   set_web_search_enabled: 'enabled',
@@ -90,11 +95,12 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
   update_plugin: 'name',
   set_plugin_enabled: 'name enabled',
   remove_plugin: 'name',
+  ...SETUP_EXTENDED_ACTION_FIELDS,
 });
 
 export const SETUP_ACTIONS = Object.freeze(Object.keys(SETUP_ACTION_FIELDS));
 
-export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze(['git', 'office', 'tidy', 'localProvider']);
+export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze(['git', 'office', 'tidy', 'localProvider', 'browser', 'computer', 'voice']);
 
 const ROUTE_SCHEMA = {
   type: 'object',
@@ -104,6 +110,9 @@ const ROUTE_SCHEMA = {
     model: { type: 'string' },
     effort: { type: 'string' },
     fast: { type: 'boolean' },
+    modelParameters: { type: 'object', additionalProperties: { type: 'string' } },
+    contextPercent: { type: 'integer', enum: [10, 20, 30, 40, 50, 60, 70, 80, 90, 100] },
+    disabled: { type: 'boolean', description: 'Agent routes only: true disables without losing the route; false re-enables.' },
   },
 };
 
@@ -140,7 +149,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         route: {
           ...ROUTE_SCHEMA,
           description:
-            'set_route / set_agent_route / set_web_search_route. set_agent_route with provider "" restores inheritance.',
+            'Partial route update; omitted fields are preserved. Agent or Web Search provider "" restores Main inheritance. contextPercent is Main-only.',
         },
         agent: { type: 'string', description: 'set_agent_route: agent id.' },
         workflow: { type: 'string', description: 'set_workflow: pack id.' },
@@ -158,7 +167,19 @@ export const SETUP_TOOL_DEFS = Object.freeze([
             enabled: { type: 'boolean' },
             duration: { type: 'string', description: 'Idle window such as "45m" or "2h"; minimum 1m.' },
             provider: { type: 'string', description: 'Scope the duration to one provider.' },
+            reset: { type: 'boolean', description: 'Restore the global idle duration default.' },
+            resetProvider: { type: 'boolean', description: 'Restore the given provider idle duration default.' },
+            minContextPercent: { type: 'number', minimum: 0, maximum: 100 },
           },
+        },
+        compaction: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            mainBufferTokens: { type: 'integer', minimum: 0 },
+            mainBufferPercent: { type: 'number', minimum: 0, maximum: 100 },
+          },
+          description: 'set_compaction: reserved Main context budget. Give tokens OR percent, not both.',
         },
         enabled: {
           type: 'boolean',
@@ -217,12 +238,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'string',
           description: 'set_system_shell: required shell command; "" restores automatic selection.',
         },
-        server: {
-          type: 'object',
-          additionalProperties: true,
-          description:
-            'add_mcp_server / save_mcp_server: {name, type, command, args, cwd, env} or {name, type, url, headers}.',
-        },
+        server: { ...SETUP_MCP_SCHEMA, description: 'Add: name plus command or url. Save: name (or originalName) plus changed fields; omitted settings and credentials are preserved.' },
         skills: {
           type: 'array',
           items: { type: 'string' },
@@ -239,6 +255,7 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           items: { type: 'string', minLength: 1, pattern: '\\S' },
           description: 'set_extension_scope: required project roots; [] = every project.',
         },
+        ...SETUP_EXTENDED_PROPERTIES,
       },
     },
   },

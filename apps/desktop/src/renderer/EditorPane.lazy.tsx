@@ -1,7 +1,7 @@
 // Monaco file editor with per-path models, persistent dirty buffers, Ctrl+S,
 // and guarded changed-on-disk handling.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import Editor from '@monaco-editor/react';
+import SharedEditorSurface from './SharedEditorSurface';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { createGitRefreshScheduler } from './git-refresh-scheduler';
@@ -61,6 +61,7 @@ export default function EditorPane({
   relPath,
   accessToken,
   workspaceFile,
+  surfaceKey,
   active,
   focused,
   onDirty,
@@ -75,6 +76,7 @@ export default function EditorPane({
   relPath: string;
   accessToken?: string;
   workspaceFile?: string;
+  surfaceKey?: string;
   active: boolean;
   focused: boolean;
   onDirty(dirty: boolean): void;
@@ -117,6 +119,8 @@ export default function EditorPane({
   const ansiStyleElement = useRef<HTMLStyleElement | null>(null);
   const ansiRenderTimer = useRef<number | null>(null);
   const editorRef = useRef<import('monaco-editor').editor.IStandaloneCodeEditor | null>(null);
+  const modelRef = useRef<import('monaco-editor').editor.ITextModel | null>(null);
+  const modelChangeListener = useRef<import('monaco-editor').IDisposable | null>(null);
   const editorLayoutSize = useRef<EditorLayoutDimension | null>(null);
   const activeRef = useRef(active);
   const focusedRef = useRef(focused);
@@ -184,35 +188,6 @@ export default function EditorPane({
       });
     }
   }, [editorSettings.detectIndentation, editorSettings.insertSpaces, editorSettings.tabSize]);
-  // Ready belongs to the concrete surface, after Monaco layout or preview load.
-  useEffect(
-    () => () => {
-      const editor = editorRef.current;
-      const model = editor?.getModel();
-      const viewState = editor?.saveViewState();
-      if (viewState) writeEditorViewState(viewStateKey, viewState);
-      if (model && graphContextsByModel.get(model.uri.toString()) === graphContextRef) {
-        graphContextsByModel.delete(model.uri.toString());
-      }
-      if (editor) graphContextsByEditor.delete(editor);
-      if (focusedGraphEditor.current === editor) focusedGraphEditor.current = null;
-      if (ansiRenderTimer.current !== null) window.clearTimeout(ansiRenderTimer.current);
-      disposeLsp(model);
-      diffDecorations.current?.clear();
-      diffDecorations.current = null;
-      ansiDecorations.current?.clear();
-      ansiDecorations.current = null;
-      ansiStyleElement.current?.remove();
-      ansiStyleElement.current = null;
-      editorLayoutObserver.current?.disconnect();
-      editorLayoutObserver.current = null;
-      editorLayoutSize.current = null;
-      if (editor) cancelLayoutFrame(editor);
-      editorRef.current = null;
-      model?.dispose();
-    },
-    [api, projectPath, relPath, viewStateKey]
-  );
   // Follow the app theme (default dark; :root[data-mixdog-theme="light"]).
   const [lightTheme, setLightTheme] = useState(() => document.documentElement.dataset.mixdogTheme === 'light');
   useEffect(() => {
@@ -302,6 +277,25 @@ export default function EditorPane({
     failPreview,
   } = useEditorFileSession({
     editorRef,
+    modelRef,
+    formatDocument: async () => {
+      const mounted = editorRef.current;
+      if (mounted) {
+        await mounted.getAction('editor.action.formatDocument')?.run();
+        return;
+      }
+      const model = modelRef.current;
+      if (!model) return;
+      // Saving a hidden tab can still request format-on-save. Its short-lived
+      // command surface must not steal the pane's visible editor or its model.
+      const temporary = monaco.editor.create(document.createElement('div'), { model });
+      try {
+        await temporary.getAction('editor.action.formatDocument')?.run();
+      } finally {
+        temporary.setModel(null);
+        temporary.dispose();
+      }
+    },
     projectPath,
     relPath,
     accessToken,
@@ -330,6 +324,7 @@ export default function EditorPane({
     disposeLsp,
   } = useEditorLspSession({
     editorRef,
+    modelRef,
     graphContextRef,
     callHierarchyContextKey,
     projectPath,
@@ -543,7 +538,7 @@ export default function EditorPane({
     setWordWrapOverride,
     startCallHierarchy,
   });
-  const onMonacoMount = useEditorMountSession({
+  const mountEditorSession = useEditorMountSession({
     editorRef,
     editorLayoutObserver,
     editorLayoutSize,
@@ -563,6 +558,41 @@ export default function EditorPane({
     renderAnsiOutput,
     notifyReady,
   });
+  const onMonacoMount = (editor: import('monaco-editor').editor.IStandaloneCodeEditor) => {
+    modelChangeListener.current?.dispose();
+    const model = editor.getModel();
+    modelRef.current = model;
+    modelChangeListener.current = model?.onDidChangeContent(() => onEditorChange(model.getValue())) ?? null;
+    mountEditorSession(editor);
+  };
+  const releaseEditorSurface = (editor: import('monaco-editor').editor.IStandaloneCodeEditor) => {
+    const model = editor.getModel();
+    const viewState = editor.saveViewState();
+    if (viewState) writeEditorViewState(viewStateKey, viewState);
+    graphContextsByEditor.delete(editor);
+    if (focusedGraphEditor.current === editor) focusedGraphEditor.current = null;
+    disposeLsp(model);
+    if (ansiRenderTimer.current !== null) window.clearTimeout(ansiRenderTimer.current);
+    diffDecorations.current?.clear();
+    diffDecorations.current = null;
+    ansiDecorations.current?.clear();
+    ansiDecorations.current = null;
+    ansiStyleElement.current?.remove();
+    ansiStyleElement.current = null;
+    editorLayoutObserver.current?.disconnect();
+    editorLayoutObserver.current = null;
+    editorLayoutSize.current = null;
+    cancelLayoutFrame(editor);
+    if (editorRef.current === editor) editorRef.current = null;
+  };
+  useEffect(() => () => {
+    modelChangeListener.current?.dispose();
+    const model = modelRef.current;
+    if (model && graphContextsByModel.get(model.uri.toString()) === graphContextRef) {
+      graphContextsByModel.delete(model.uri.toString());
+    }
+    disposeLsp(model);
+  }, [disposeLsp]);
   const editorBreadcrumbs = (
     <EditorBreadcrumbs
       projectPath={projectPath}
@@ -658,11 +688,13 @@ export default function EditorPane({
           }}
         />
         <div className="editor-pane-body stable-surface-preserved stable-editor-surface">
-          <Editor
+          <SharedEditorSurface
+            surfaceKey={surfaceKey ?? abs}
+            active={active}
             path={abs}
+            modelRef={modelRef}
             defaultLanguage={explicitEditorLanguageIdForPath(relPath)}
             defaultValue={load.content}
-            keepCurrentModel
             theme={lightTheme ? 'mixdog-light' : 'mixdog-dark'}
             options={{
               fontSize: editorSettings.fontSize,
@@ -709,7 +741,7 @@ export default function EditorPane({
               lightbulb: { enabled: monaco.editor.ShowLightbulbIconMode.OnCode },
             }}
             onMount={onMonacoMount}
-            onChange={onEditorChange}
+            onRelease={releaseEditorSurface}
           />
         </div>
         {/* ALWAYS mounted: gating on `focused` resized the editor body by 22px on
@@ -717,14 +749,14 @@ export default function EditorPane({
         자리를 못 잡고 튄다). Unfocused panes keep the reserved row, hidden. */}
         <footer
           className={`editor-statusbar${focused ? '' : ' editor-statusbar-idle'}`}
-          aria-label="Editor status"
+          aria-label={t('Editor status')}
           aria-hidden={focused ? undefined : true}
         >
           <div className="editor-statusbar-left">
             <button
               type="button"
-              aria-label="Show Problems"
-              data-tooltip={`${problemStatus.errors} Errors, ${problemStatus.warnings} Warnings`}
+              aria-label={t('Show Problems')}
+              data-tooltip={t('{{errors}} Errors, {{warnings}} Warnings', { errors: problemStatus.errors, warnings: problemStatus.warnings })}
               onClick={showProblems}
             >
               <span aria-hidden="true">×</span> {problemStatus.errors}
@@ -735,18 +767,18 @@ export default function EditorPane({
             {lspCapabilities.current?.formatting && (
               <button
                 type="button"
-                aria-label="Format Document"
-                data-tooltip="Format Document"
+                aria-label={t('Format Document')}
+                data-tooltip={t('Format Document')}
                 onClick={() => {
                   void editorRef.current?.getAction('editor.action.formatDocument')?.run();
                 }}
               >
-                Formatter
+                {t('Formatter')}
               </button>
             )}
             <button
               type="button"
-              aria-label="Go to Line/Column"
+              aria-label={t('Go to Line/Column')}
               data-tooltip={selectionLabel}
               onClick={() => {
                 void editorRef.current?.getAction('editor.action.gotoLine')?.run();

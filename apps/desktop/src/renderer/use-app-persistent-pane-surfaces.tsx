@@ -125,6 +125,7 @@ export function useAppPersistentPaneSurfaces({
               fallback={<DesktopLoadingSurface label="Loading editor…" />}
             >
               <ReadyEditorPane
+                surfaceKey={leaf.id}
                 projectPath={fileSelection.project}
                 relPath={fileSelection.rel}
                 accessToken={fileSelection.accessToken}

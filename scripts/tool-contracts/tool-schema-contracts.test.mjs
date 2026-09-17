@@ -61,7 +61,7 @@ test('shell, edit, and task keep their execution contracts', () => {
     editTool.inputSchema?.additionalProperties !== false ||
     !/^Replace exact text in one file\./i.test(editTool.description || '') ||
     !/old_string must match once unless replace_all is true/i.test(editTool.description || '') ||
-    !/Batch non-overlapping edits in call order/i.test(editTool.description || '') ||
+    !/Every non-overlapping edit of the stage in one response/i.test(editTool.description || '') ||
     !/not text another edit creates/i.test(editTool.description || '') ||
     !/intervening lines verbatim/i.test(editTool.description || '') ||
     !/Empty only to create/i.test(editProps.old_string?.description || '') ||
@@ -274,10 +274,10 @@ test('read schema exposes canonical scalar and batch windows', () => {
   const readDescription = readTool?.description || '';
   const readSchema = readTool?.inputSchema || {};
   const readProps = readSchema.properties || {};
-  if (!/Directories: use list/i.test(readDescription)) {
+  if (!/Directories: list/i.test(readDescription)) {
     throw new Error('read description must keep directory-vs-file guidance');
   }
-  if (/line\+context/i.test(readDescription) || !/Read known file ranges or images/i.test(readDescription)) {
+  if (/line\+context/i.test(readDescription) || !/Read file windows or images/i.test(readDescription)) {
     throw new Error('read description must stay compact and file-oriented');
   }
   if (
@@ -316,7 +316,7 @@ test('code_graph descriptions route structure lookups away from grep', () => {
   // find_symbol_noscope anti-patterns). It is allowed to be verbose enough to
   // enumerate modes, but must not drift into web-search territory.
   if (
-    !/Source-file structure/i.test(codeGraphDescription) ||
+    !/Code structure and relations/i.test(codeGraphDescription) ||
     !['find_symbol', 'symbol_search', 'references', 'callers', 'callees'].every((mode) =>
       codeGraphDescription.includes(mode)
     ) ||

@@ -7,7 +7,7 @@ import { OpenSelect } from '../OpenSelect';
 import { record } from '../record-utils';
 import { SidebarDialogLayer } from '../sidebar-dialog';
 import { useSidebarReferences } from '../sidebar-reference-cache';
-import { SidebarResourceTitle, type SidebarResourceTagTone } from '../sidebar-resource-row';
+import { SidebarResourceTitle, type SidebarResourceTag, type SidebarResourceTagTone } from '../sidebar-resource-row';
 import { CompactSwitch } from './capability-controls';
 import type { CapabilityApi, PanelContext, RecordValue } from './capability-data';
 
@@ -326,6 +326,18 @@ export function ExtensionAction({
     >
       {children}
     </button>
+  );
+}
+
+/** Read-only state on a row's trailing edge (engine not detected, install on
+ *  demand): a compact rectangular box, not a control, so the row reads as a
+ *  status box rather than a sidebar pill tag (user: 태그가 아니라 박스). */
+export function ExtensionItemBadge({ tag }: { tag?: SidebarResourceTag | null }) {
+  if (!tag?.label) return null;
+  return (
+    <span className="extensions-item-badge" data-tone={tag.tone || 'muted'}>
+      {tag.label}
+    </span>
   );
 }
 

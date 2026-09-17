@@ -29,7 +29,7 @@ import { normalizeAutoClearConfig, resolveAutoClearIdleMs } from '../../../../..
 import { toSessionWorkflowMeta, workflowDisallowsAgentTool } from '../../../../../session-runtime/workflow.mjs';
 import { sessionOrchestrationMode } from '../../../../shared/orchestration.mjs';
 import {
-  _buildSharedRules,
+  _buildBaseRules,
   _buildAgentRules,
   _buildLeadRules,
   _buildLeadMetaContext,
@@ -262,9 +262,11 @@ export function createSession(opts) {
   const ruleOmitTools = [...sessionDeny, ...schemaOmittedTools, unusedModelEditToolName(modelName)];
   const injectedRules = skipAgentRules
     ? ''
-    : _buildSharedRules({
+    : _buildBaseRules({
         omitTools: ruleOmitTools,
         allowTools: schemaAllowedTools,
+        provider: providerName,
+        model: modelName,
       });
   const delegationFree = !ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow));
   const roleRules = skipAgentRules
@@ -481,24 +483,35 @@ export function contextSeedForRouteUpdate(session, routeChanged, selectedContext
   return selectedContextWindowProvided ? { selectedContextWindow: session?.selectedContextWindow || null } : {};
 }
 
-// The shared-rules block (BP1) renders tool-conditional variants against the
-// edit dialect the model actually receives (edit vs apply_patch). An
-// empty-session route change swaps the tool surface, so this block must
-// re-render too — otherwise a session created on a GPT default route and
-// switched to Claude keeps apply_patch placement guidance for a tool it can
-// no longer call (and vice versa). The block is identified by EXACT previous
-// content: the old variant is rebuilt from the same inputs and matched, so
-// only the true BP1 block is ever replaced; custom-prompt or agent layouts
-// without that block are left untouched, and a same-dialect switch is a no-op.
-export function _refreshSessionRuleVariantsForModel(session, previousModel) {
+// The base-rules block (BP1) renders tool-conditional variants against the
+// edit dialect the model actually receives (edit vs apply_patch) plus the
+// route rules bound to the provider/model. An empty-session route change
+// swaps the tool surface, so this block must re-render too — otherwise a
+// session created on a GPT default route and switched to Claude keeps
+// apply_patch placement guidance for a tool it can no longer call (and vice
+// versa). The block is identified by EXACT previous content: the old variant
+// is rebuilt from the same inputs and matched, so only the true BP1 block is
+// ever replaced; custom-prompt or agent layouts without that block are left
+// untouched, and a same-variant switch is a no-op.
+export function _refreshSessionRuleVariantsForModel(session, previousModel, previousProvider = session?.provider) {
   const deny = [
     ...(Array.isArray(session?.disallowedTools) ? session.disallowedTools : []),
     ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
     ...(!isAgentOwner(session) && (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session?.workflow)) ? ['agent'] : []),
   ];
   const allowTools = isAgentOwner(session) ? null : session?.schemaAllowedTools;
-  const previousRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(previousModel)], allowTools });
-  const nextRules = _buildSharedRules({ omitTools: [...deny, unusedModelEditToolName(session?.model)], allowTools });
+  const previousRules = _buildBaseRules({
+    omitTools: [...deny, unusedModelEditToolName(previousModel)],
+    allowTools,
+    provider: previousProvider,
+    model: previousModel,
+  });
+  const nextRules = _buildBaseRules({
+    omitTools: [...deny, unusedModelEditToolName(session?.model)],
+    allowTools,
+    provider: session?.provider,
+    model: session?.model,
+  });
   if (!previousRules || previousRules === nextRules) return false;
   const messages = Array.isArray(session?.messages) ? session.messages : [];
   const index = messages.findIndex(
@@ -596,7 +609,7 @@ export function updateSessionRoute(id, route = {}) {
     ]) {
       if (Array.isArray(session[key])) session[key] = filterModelEditToolNames(session[key], session.model);
     }
-    _refreshSessionRuleVariantsForModel(session, previousModel);
+    _refreshSessionRuleVariantsForModel(session, previousModel, previousProvider);
     _preparedResumes.delete(id);
   }
   // Route fields feed the `# Session` prompt block (Model: … · EFFORT · FAST).

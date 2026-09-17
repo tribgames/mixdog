@@ -99,15 +99,17 @@ observed target, and leave windows where they were.
   report `pixel_unavailable`; do not substitute a screen grab.
 - If the user intervenes, preserve their cursor and focus. Worker termination
   and input cleanup must finish before resuming; a failed cleanup is not cleared
-  by a resume request. Ask the user to press Stop for verified cleanup recovery.
+  by a resume request. Ask the user to press `Ctrl+Alt+Esc` (emergency Stop)
+  for verified cleanup recovery.
   If target-local release remains unconfirmed, the user must inspect/recover
   that window; restarting the host alone does not prove release. Never operate
   recovery controls for the user. Obtain a new observation after an interruption.
   Use `wait_for_user` to keep the task waiting without sending input. The host
   may resume ordinary physical-input interruptions after its configured quiet
-  interval; renewed input resets that interval. Explicit stops and uncertain
-  observation/cleanup never auto-resume. The user can also use the overlay's
-  pause/resume icon. Never click it or change the idle policy on their behalf.
+  interval; renewed input resets that interval. Explicit pauses/stops and
+  uncertain observation/cleanup never auto-resume. The overlay has one
+  Pause/Resume toggle: Pause retains the task; emergency Stop cancels it.
+  Never operate these controls or change the idle policy on the user's behalf.
   While paused, only `list`, `diagnose` and `wait_for_user` are available.
   Chat text alone does not clear the host. After `resumed`, capture fresh state;
   after `timeout` or `cancelled`, no input is authorized. Never replay the
@@ -126,6 +128,8 @@ observed target, and leave windows where they were.
    `query` / `role` narrow the element list, `include_noninteractive` widens
    it to static text, and `continuation` pages a list cut at `max_elements`.
    Frame size and encoding are the host's; unreadable detail is a `zoom`.
+   For `zoom`, pass `frame_id` and `region` without `window_id`, `app`, or
+   `screen`: the frame already identifies the exact source window.
 3. `act` with 1–6 simple actions. The first is an input action (`click`,
    `double_click`, `move`, `drag`, `scroll`, `type`, or `key`), using a fresh
    `ref`, an `element` mark, or `x`/`y` in `act.input.frame_id` when a target

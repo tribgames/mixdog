@@ -17,7 +17,7 @@ test('native and host error separators preserve the same safe category', () => {
 test('cleanup recovery requires user Stop and verified cleanup, not an unconditional restart', () => {
   const recovery = computerToolErrorRecovery('computer_cleanup_pending: failed');
   assert.equal(recovery.next, 'user');
-  assert.match(recovery.guidance, /ask the user to press Stop/);
+  assert.match(recovery.guidance, /ask the user to press Ctrl\+Alt\+Esc/);
   assert.match(recovery.guidance, /verify worker exit/);
   assert.match(recovery.guidance, /do not replay input or reset the guard/i);
 });

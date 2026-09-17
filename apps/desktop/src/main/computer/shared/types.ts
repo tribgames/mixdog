@@ -196,6 +196,8 @@ export interface ScreenshotCapture {
   /** Only window-owned render surfaces are eligible for a window capture. */
   route?: 'app_owned' | 'window_surface' | 'composited';
   image?: { mimeType: string; data: string };
+  /** Lossless pixels for OCR; never included in the model-facing response. */
+  ocrImage?: { data: string; width: number; height: number };
   description: string;
   frameId?: string;
   windowId?: string;

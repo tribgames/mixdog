@@ -8,6 +8,58 @@ import { createLeadWorkerIndex } from '../../../../standalone/agent-tool/lead-wo
 import { createTagRegistry } from '../../../../standalone/agent-tool/tag-registry.mjs';
 import { listStoredAgentWorkers } from './store-summary-reader.mjs';
 
+test('cached pool metadata preserves routing and display fields without depending on tool catalogs', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-worker-header-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    mkdirSync(join(root, 'sessions'));
+    const id = 'header-child';
+    const stamp = '2026-01-01T00:00:00.000Z';
+    const session = {
+      id,
+      owner: 'agent',
+      ownerSessionId: 'header-root',
+      parentSessionId: 'header-parent',
+      agent: 'reviewer',
+      title: 'Preserve pool metadata',
+      provider: 'test-provider',
+      model: 'test-model',
+      effort: 'high',
+      fast: true,
+      createdAt: stamp,
+      updatedAt: stamp,
+      cwd: root,
+      clientHostPid: process.pid,
+      messages: [{ role: 'user', content: 'not pool metadata' }],
+      tools: [{ name: 'tool', description: 'not pool metadata'.repeat(1000) }],
+      deferredToolCatalog: [{ name: 'deferred', inputSchema: { type: 'object' } }],
+    };
+    writeFileSync(join(root, 'sessions', `${id}.json`), JSON.stringify(session));
+    writeFileSync(
+      join(root, 'agent-workers.json'),
+      JSON.stringify({ workers: [{ sessionId: id, tag: 'review', agent: 'reviewer', status: 'idle' }] }),
+    );
+    const first = listStoredAgentWorkers();
+    assert.equal(first.length, 1);
+    for (const field of [
+      'ownerSessionId', 'parentSessionId', 'agent', 'title', 'provider',
+      'model', 'effort', 'fast', 'createdAt', 'updatedAt', 'cwd', 'clientHostPid',
+    ]) {
+      assert.equal(first[0][field], session[field], field);
+    }
+    assert.deepEqual(listStoredAgentWorkers(), first);
+    delete session.tools;
+    delete session.deferredToolCatalog;
+    writeFileSync(join(root, 'sessions', `${id}.json`), JSON.stringify(session));
+    assert.deepEqual(listStoredAgentWorkers(), first);
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('agent pool lists living idle workers and drops dead ones', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-agent-pool-'));
   const previous = process.env.MIXDOG_DATA_DIR;

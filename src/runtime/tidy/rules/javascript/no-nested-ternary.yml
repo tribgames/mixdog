@@ -1,0 +1,10 @@
+id: no-nested-ternary
+language: JavaScript
+severity: warning
+message: Nested ternary expressions must be flattened.
+note: A ternary inside a ternary hides its branches. Rewrite as if/else, early returns, or a lookup table; this rule has no autofix.
+rule:
+  kind: ternary_expression
+  has:
+    kind: ternary_expression
+    stopBy: end

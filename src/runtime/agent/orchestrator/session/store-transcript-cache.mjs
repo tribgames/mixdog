@@ -7,13 +7,15 @@
  * the same commit) and a merely VISIBLE cold pane pays it again every second
  * on the refresh clock, so every other cold open queues behind it.
  *
- * Validity is content equality: equal text and sidecar fingerprint mean an
+ * Validity is content identity: equal text and sidecar fingerprints mean an
  * identical projection, so the cached object is returned as-is (callers never
  * mutate it — they spread or deep-clone). A file whose stat still matches and
  * whose last write is old enough that no same-stamp rewrite is possible is
  * accepted without re-reading its body, which is what keeps the once-a-second
  * cold-view refresh off the disk entirely.
  */
+
+import { createHash } from 'node:crypto';
 
 const DEFAULT_MAX_TEXT_CHARS = 64 * 1024 * 1024;
 // Coarse filesystems stamp mtime at whole seconds (FAT: two). A write landing
@@ -22,7 +24,12 @@ const DEFAULT_MAX_TEXT_CHARS = 64 * 1024 * 1024;
 const SETTLED_FILE_AGE_MS = 2_500;
 
 function sameFileStat(left, right) {
-  return Boolean(left && right) && left.mtimeMs === right.mtimeMs && left.size === right.size;
+  return (
+    Boolean(left && right) &&
+    ['mtimeMs', 'ctimeMs', 'size', 'ino', 'dev'].every(
+      (field) => Number.isFinite(left[field]) && left[field] === right[field]
+    )
+  );
 }
 
 let stampSequence = 0;
@@ -41,7 +48,9 @@ export function createStoredTranscriptCache({
   maxEntries = Number.POSITIVE_INFINITY,
   maxTextChars = DEFAULT_MAX_TEXT_CHARS,
 } = {}) {
-  /** key -> { text, fingerprint, value } (Map order doubles as LRU order). */
+  // Retain a content digest, not a second full transcript beside its projection.
+  // The original character count still bounds the amount of projected content.
+  /** key -> { textHash, textChars, fingerprint, value } (Map order is LRU order). */
   const entries = new Map();
   /** key -> { text, fingerprint, promise } for reads still parsing. */
   const inFlight = new Map();
@@ -50,7 +59,7 @@ export function createStoredTranscriptCache({
   const drop = (key) => {
     const entry = entries.get(key);
     if (!entry) return;
-    retainedChars -= entry.text.length;
+    retainedChars -= entry.textChars;
     entries.delete(key);
   };
   const prune = () => {
@@ -58,11 +67,11 @@ export function createStoredTranscriptCache({
       drop(entries.keys().next().value);
     }
   };
-  const remember = (key, text, fingerprint, fileStat, value) => {
+  const remember = (key, textChars, textHash, fingerprint, fileStat, value) => {
     drop(key);
-    if (text.length > maxTextChars) return;
-    entries.set(key, { text, fingerprint, fileStat, value });
-    retainedChars += text.length;
+    if (textChars > maxTextChars) return;
+    entries.set(key, { textChars, textHash, fingerprint, fileStat, value });
+    retainedChars += textChars;
     prune();
   };
   const touch = (key, entry) => {
@@ -80,14 +89,22 @@ export function createStoredTranscriptCache({
         cached &&
         cached.fingerprint === fingerprint &&
         sameFileStat(cached.fileStat, fileStat) &&
-        now - fileStat.mtimeMs > SETTLED_FILE_AGE_MS
+        now - Math.max(fileStat.mtimeMs, fileStat.ctimeMs) > SETTLED_FILE_AGE_MS
       ) {
         touch(key, cached);
         return { value: cached.value, hit: true, read: false };
       }
       const text = loadText();
       if (typeof text !== 'string') return { value: null, hit: false, read: true };
-      if (cached && cached.fingerprint === fingerprint && cached.text === text) {
+      // UTF-16 preserves exact JavaScript code units, including lone surrogates
+      // that UTF-8 would collapse into the same replacement character.
+      const textHash = createHash('sha256').update(text, 'utf16le').digest('hex');
+      if (
+        cached &&
+        cached.fingerprint === fingerprint &&
+        cached.textChars === text.length &&
+        cached.textHash === textHash
+      ) {
         cached.fileStat = fileStat;
         touch(key, cached);
         return { value: cached.value, hit: true, read: true };
@@ -100,7 +117,7 @@ export function createStoredTranscriptCache({
       const promise = (async () => {
         const value = await produce(text);
         if (inFlight.get(key) === record && value && typeof value === 'object') {
-          remember(key, text, fingerprint, fileStat, value);
+          remember(key, text.length, textHash, fingerprint, fileStat, value);
         }
         return value;
       })();

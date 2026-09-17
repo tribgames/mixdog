@@ -360,6 +360,10 @@ export function createAgentJobFeed({
         );
       if (terminalStatus) promoteExecutionDedupState(executionId);
       if (delivery.action === 'ignore') return;
+      if (delivery.action === 'setup-ui') {
+        set({ setupUiRequest: { id: delivery.id, at: Date.now() } });
+        return true;
+      }
       if (delivery.action === 'ui-open') {
         // Monotonic seq: the same command requested twice must fire twice, and
         // the consuming App effect keys on the object identity + seq.

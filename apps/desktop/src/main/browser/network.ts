@@ -67,12 +67,18 @@ export function isTextNetworkMimeType(mimeType: string): boolean {
     || /(?:json|javascript|xml|svg|x-www-form-urlencoded|graphql)/i.test(mimeType);
 }
 
+function retainedNetworkText(text: string, maxChars: number): string {
+  // A V8 substring can keep the entire CDP payload alive. Own only the bounded
+  // code units, preserving even a lone surrogate at the truncation boundary.
+  return Buffer.from(text.slice(0, maxChars), 'utf16le').toString('utf16le');
+}
+
 /** A body cut to the caller's budget, saying how much was left behind. */
 export function truncateNetworkBody(body: string, maxChars: number): string {
   const limit = Math.max(1, Math.trunc(maxChars) || 1);
   // Redaction is regex-heavy; never run it over an arbitrarily large response
   // merely to return the first few thousand characters.
-  const source = body.slice(0, limit + 1_024);
+  const source = retainedNetworkText(body, limit + 1_024);
   const redacted = redactBrowserText(source);
   if (body.length <= limit + 1_024 && redacted.length <= limit) return redacted;
   return `${redacted.slice(0, limit)}\n[truncated: at least ${Math.max(1, body.length - limit)} more characters]`;
@@ -259,8 +265,8 @@ function headers(value: unknown): Record<string, string> {
     Object.entries(value as Record<string, unknown>)
       .slice(0, LEDGER_HEADER_COUNT)
       .map(([name, entry]) => [
-        name.slice(0, LEDGER_HEADER_NAME_CHARS),
-        String(entry).slice(0, LEDGER_HEADER_VALUE_CHARS),
+        retainedNetworkText(name, LEDGER_HEADER_NAME_CHARS),
+        retainedNetworkText(String(entry), LEDGER_HEADER_VALUE_CHARS),
       ]),
   );
 }
@@ -294,7 +300,7 @@ export class BrowserNetworkLedger {
     const cdpRequestId = String(params.requestId || '');
     const request = responseData(params.request);
     if (!cdpRequestId || !request.url) return null;
-    const requestUrl = String(request.url).slice(0, LEDGER_URL_CHARS);
+    const requestUrl = retainedNetworkText(String(request.url), LEDGER_URL_CHARS);
     const scopedId = scopedRequestId(sessionId, cdpRequestId);
     const previous = this.#inflight.get(scopedId);
     const redirect = responseData(params.redirectResponse);
@@ -314,7 +320,7 @@ export class BrowserNetworkLedger {
       startedAt: now,
       requestHeaders: headers(request.headers),
       ...(typeof request.postData === 'string'
-        ? { requestBody: request.postData.slice(0, LEDGER_BODY_CHARS) }
+        ? { requestBody: retainedNetworkText(request.postData, LEDGER_BODY_CHARS) }
         : {}),
       hasPostData: request.hasPostData === true || typeof request.postData === 'string',
       responseHeaders: {},
@@ -437,7 +443,7 @@ export class BrowserNetworkLedger {
     frames.push({
       direction,
       opcode: Number(frame.opcode) || 0,
-      data: String(frame.payloadData || '').slice(0, LEDGER_WEBSOCKET_FRAME_CHARS),
+      data: retainedNetworkText(String(frame.payloadData || ''), LEDGER_WEBSOCKET_FRAME_CHARS),
       at: now,
     });
     let totalChars = frames.reduce((total, item) => total + item.data.length, 0);

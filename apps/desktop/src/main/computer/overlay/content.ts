@@ -3,8 +3,7 @@ import { overlayStyles } from './content-styles';
 export const OVERLAY_WIDTH = 220;
 export const OVERLAY_HEIGHT = 72;
 
-/** Stop is always available. Paused work also offers Resume and a display-only
- * dismissal; hiding the controls never grants permission to send input. */
+/** One Pause/Resume control preserves the task. Emergency Stop stays on Ctrl+Alt+Esc. */
 export function overlayHtml(locale: string): string {
   const ko = locale.toLowerCase().startsWith('ko');
   return `<!doctype html><html><head><meta charset="utf-8">
@@ -13,9 +12,7 @@ export function overlayHtml(locale: string): string {
 <svg id="outline" aria-hidden="true"><rect class="track"/><rect class="highlight" pathLength="100"/></svg>
 <span id="dot"></span>
 <div id="status" role="status"><div id="title">${ko ? 'Mixdog 사용 중' : 'Mixdog using'}</div></div>
-<button id="resume" type="button" hidden aria-label="${ko ? '재개' : 'Resume'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16l14-8z"/></svg></button>
-<button id="dismiss" type="button" hidden aria-label="${ko ? '표시창 닫기' : 'Close overlay'}" title="${ko ? '표시창만 닫습니다. 입력 차단은 유지됩니다.' : 'Close overlay only; input remains blocked.'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 4 6 6 6-6 2 2-6 6 6 6-2 2-6-6-6 6-2-2 6-6-6-6z"/></svg></button>
-<button id="stop" type="button" aria-label="${ko ? '중지' : 'Stop'}" title="${ko ? '중지' : 'Stop'} (Ctrl+Alt+Esc)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5z"/></svg></button>
+<button id="toggle" type="button" aria-label="${ko ? '중단' : 'Pause'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
 </div></body></html>`;
 }
 
@@ -24,22 +21,23 @@ export function overlayScript(locale = 'en'): string {
   return `(() => {
     let state = { paused:false, canResume:false, busy:false, generation:0 };
     let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
-    const resume = document.getElementById('resume');
-    const stop = document.getElementById('stop');
-    const dismiss = document.getElementById('dismiss');
+    const toggle = document.getElementById('toggle');
+    const action = () => armed?.action || (pending === 'resume' ? 'pause' : state.paused ? 'resume' : 'pause');
     const render = () => {
       document.body.dataset.paused = String(state.paused);
       document.body.dataset.error = String(failed || Boolean(state.attention));
       document.getElementById('title').textContent = failed
         ? ${JSON.stringify(ko ? '실패' : 'Failed')}
-        : pending === 'stop' ? ${JSON.stringify(ko ? '중지 중' : 'Stopping')}
+        : pending === 'pause' ? ${JSON.stringify(ko ? '중단 중' : 'Pausing')}
+        : pending === 'resume' ? ${JSON.stringify(ko ? '재개 중' : 'Resuming')}
         : state.title || ${JSON.stringify(ko ? 'Mixdog 사용 중' : 'Mixdog using')};
-      resume.hidden = !state.paused;
-      resume.disabled = !state.canResume || state.busy || Boolean(pending);
-      dismiss.hidden = !state.paused;
-      dismiss.disabled = !state.canDismiss;
-      resume.setAttribute('aria-busy', String(pending === 'resume'));
-      stop.setAttribute('aria-busy', String(pending === 'stop' || Boolean(state.busy && !pending)));
+      const resuming = action() === 'resume';
+      const label = resuming ? ${JSON.stringify(ko ? '재개' : 'Resume')} : ${JSON.stringify(ko ? '중단' : 'Pause')};
+      toggle.setAttribute('aria-label', label);
+      toggle.title = label + ${JSON.stringify(ko ? ' (비상 중지: Ctrl+Alt+Esc)' : ' (emergency Stop: Ctrl+Alt+Esc)')};
+      toggle.querySelector('path').setAttribute('d', resuming ? 'M7 4v16l14-8z' : 'M6 4h4v16H6zM14 4h4v16h-4z');
+      toggle.disabled = pending === 'pause' || (state.busy && pending !== 'resume') || (resuming && !state.canResume);
+      toggle.setAttribute('aria-busy', String(Boolean(pending) || Boolean(state.busy)));
     };
     const send = async (request) => {
       const sequence = ++requestSequence;
@@ -51,29 +49,28 @@ export function overlayScript(locale = 'en'): string {
           new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('timeout')), 20000); }),
         ]);
         if (sequence !== requestSequence) return;
-        // Stop moves the generation itself; only Resume is stale across generations.
-        if (request.action !== 'stop' && request.generation !== state.generation) return;
+        // Pause moves the generation itself; only Resume is stale across generations.
+        if (request.action === 'resume' && request.generation !== state.generation) return;
         if (!reply?.accepted || reply.error) throw new Error('not accepted');
       } catch {
         if (sequence === requestSequence
-          && (request.action === 'stop' || request.generation === state.generation)) failed = true;
+          && (request.action === 'pause' || request.generation === state.generation)) failed = true;
       } finally {
         clearTimeout(deadline);
         if (sequence === requestSequence) { pending = ''; render(); }
       }
     };
-    const arm = () => { armed = { action:'resume', generation:state.generation }; };
-    resume.onpointerdown = arm;
-    resume.onkeydown = (event) => {
+    const arm = () => { armed = { action:action(), generation:state.generation }; };
+    toggle.onpointerdown = arm;
+    toggle.onpointercancel = () => { armed = undefined; render(); };
+    toggle.onkeydown = (event) => {
       if (!event.repeat && (event.key === 'Enter' || event.key === ' ')) arm();
     };
-    resume.onclick = () => {
-      const request = armed || { action:'resume', generation:state.generation };
+    toggle.onclick = () => {
+      const request = armed || { action:action(), generation:state.generation };
       armed = undefined;
       void send(request);
     };
-    stop.onclick = () => { armed = undefined; void send({ action:'stop', generation:state.generation }); };
-    dismiss.onclick = () => { armed = undefined; void send({ action:'dismiss', generation:state.generation }); };
     window.mixdogComputerOverlay = (next) => {
       if (next.renderRevision < renderedRevision) return;
       renderedRevision = next.renderRevision;

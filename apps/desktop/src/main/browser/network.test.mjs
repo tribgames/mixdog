@@ -73,6 +73,36 @@ test('browser storage diagnostics classify opaque credential keys', () => {
   assert.equal(browserStorageKeyIsSensitive('theme'), false);
 });
 
+test('bounded network records preserve exact UTF-16 prefixes, including split surrogate pairs', () => {
+  const ledger = new BrowserNetworkLedger();
+  const body = `${'b'.repeat(63_999)}🙂\0tail`;
+  const name = `${'h'.repeat(255)}🙂tail`;
+  const value = `${'v'.repeat(8_191)}🙂\0tail`;
+  const url = `https://example.test/${'u'.repeat(16_363)}🙂tail`;
+  const request = ledger.requestWillBeSent({
+    requestId: 'unicode',
+    type: 'Fetch',
+    request: { method: 'POST', url, headers: { [name]: value }, postData: body },
+  });
+  assert.equal(request.url, url.slice(0, 16_384));
+  assert.equal(request.requestBody, body.slice(0, 64_000));
+  assert.equal(request.requestBody.charCodeAt(63_999), 0xd83d);
+  assert.deepEqual(request.requestHeaders, { [name.slice(0, 256)]: value.slice(0, 8_192) });
+  ledger.responseReceived({
+    requestId: 'unicode',
+    response: { status: 200, headers: { [name]: value } },
+  });
+  assert.deepEqual(request.responseHeaders, request.requestHeaders);
+  const socket = ledger.webSocketCreated({ requestId: 'unicode-socket', url: 'wss://example.test/socket' });
+  const frame = `${'f'.repeat(15_999)}🙂\0tail`;
+  ledger.webSocketFrame({
+    requestId: 'unicode-socket',
+    response: { opcode: 1, payloadData: frame },
+  }, 'received');
+  assert.equal(socket.webSocketFrames[0].data, frame.slice(0, 16_000));
+  assert.equal(socket.webSocketFrames[0].data.charCodeAt(15_999), 0xd83d);
+});
+
 test('browser network ledger keeps redirect hops distinct and records failures', () => {
   const ledger = new BrowserNetworkLedger();
   ledger.requestWillBeSent(

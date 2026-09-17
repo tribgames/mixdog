@@ -181,7 +181,7 @@ export function UsageBody({ data }: { data: Record<string, unknown> }) {
                 })}
                 {showCredit && (
                   <span className="usage-chip" data-tone="credit">
-                    <em>CREDIT</em>
+                    <em>{t('Credit')}</em>
                     <b>{usageMoney(credit)}</b>
                   </span>
                 )}

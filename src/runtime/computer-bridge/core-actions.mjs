@@ -58,6 +58,7 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
       type: 'string',
       minLength: 1,
       maxLength: 512,
+      description: 'Key name or chord. Keyboard chords with ctrl/shift/alt require explicit foreground delivery; background supports plain keys.',
       pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
     },
     duration: { type: 'number', minimum: 0, maximum: 5 },

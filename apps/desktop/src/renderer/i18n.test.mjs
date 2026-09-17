@@ -32,6 +32,7 @@ import { goalCompletedTimeLabel } from './session-goal-presentation';
 import { uiCurrency } from './ui-format';
 import { memoryCacheStorage } from './sw-test-harness.mjs';
 import { UI_LANGUAGE_ENTRY, APP_STATE_CACHE_NAME } from './push-notification-bridge';
+import { parseMarkdownFrontmatter } from '../../../../src/runtime/shared/markdown-frontmatter.mjs';
 
 const catalogs = new Map(
   SUPPORTED_UI_LANGUAGES.filter(({ value }) => value !== 'en').map(({ value }) => [
@@ -118,6 +119,33 @@ test('all selectable languages render source control and slash labels without a 
     }
   } finally {
     close();
+  }
+});
+
+test('default workflow metadata is translated in every supported UI language', async () => {
+  const { name, description } = parseMarkdownFrontmatter(
+    readFileSync(new URL('../../../../src/workflows/default/WORKFLOW.md', import.meta.url), 'utf8')
+  );
+  assert.equal(name, 'Default');
+  assert.equal(description, 'Handle tasks as requested.');
+  const previousLanguage = i18n.language;
+  try {
+    await i18n.changeLanguage('en');
+    assert.equal(t(name), name);
+    assert.equal(t(description), description);
+    for (const [language, catalog] of catalogs) {
+      await i18n.changeLanguage(language);
+      for (const key of [name, description]) {
+        const translated = t(key);
+        assert.equal(translated, catalog[key], `${language}: ${key}`);
+        assert.ok(translated.trim(), `${language}: ${key} must not be empty`);
+        assert.notEqual(translated, key, `${language}: ${key} must be translated`);
+      }
+    }
+    await i18n.changeLanguage('ko');
+    assert.equal(t(description), '요청에 맞춰 작업을 진행합니다.');
+  } finally {
+    await i18n.changeLanguage(previousLanguage);
   }
 });
 

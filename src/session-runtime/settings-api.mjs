@@ -239,6 +239,16 @@ export function createSettingsApi({
         'mainBufferRatio',
         'mainBufferFraction',
       ]) {
+        // A new budget representation replaces the previous one. Otherwise a
+        // saved token override silently outranks a later percentage edit.
+        if (hasOwn(input, key)) {
+          for (const old of ['mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction']) delete next[old];
+          break;
+        }
+      }
+      for (const key of [
+        'mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction',
+      ]) {
         if (hasOwn(input, key)) next[key] = input[key];
       }
       const nextConfig = { ...config };
@@ -265,6 +275,7 @@ export function createSettingsApi({
           'recallWindowSize',
           'recallConcurrency',
           'recallCycle1DeadlineMs',
+          'mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction',
         ]) {
           delete currentSessionCompaction[key];
         }

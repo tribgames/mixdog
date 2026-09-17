@@ -4,7 +4,7 @@
 // runtime creates provider-readiness state between them.
 import { performance } from 'node:perf_hooks';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
-import { initializeOfficeTransactions } from '../runtime/office/index.mjs';
+import { listOfficeJournals } from '../runtime/office/core/journal.mjs';
 import { bootProfile, profiledImport } from './boot-profile.mjs';
 import {
   RUNTIME,
@@ -29,7 +29,7 @@ export function prepareStandaloneEnvironment() {
   // every new session (agents included) re-announce unrelated leftovers for the
   // full 30-day retention window; recovery stays reachable on demand through
   // office action=transactions / action=recover.
-  initializeOfficeTransactions(STANDALONE_DATA_DIR).catch(() => {});
+  listOfficeJournals(STANDALONE_DATA_DIR).catch(() => {});
   bootProfile('standalone-env:ready', { ms: (performance.now() - startedAt).toFixed(1) });
 }
 

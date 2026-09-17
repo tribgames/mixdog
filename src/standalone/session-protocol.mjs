@@ -42,6 +42,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getUsageDashboard',
   'getUsageStats',
   'getVoiceStatus',
+  'isSetupRequestActive',
   'getWorkflowPack',
   'hooksStatus',
   'inheritancePreflight',
@@ -177,6 +178,8 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'taskControl',
   'toggleFast',
   'toggleVoice',
+  'claimSetupRequest',
+  'completeSetupRequest',
   'transcribeAudio',
   'updatePlugin',
 ]);

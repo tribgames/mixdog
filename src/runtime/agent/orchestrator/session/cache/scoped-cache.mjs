@@ -7,6 +7,7 @@ import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { _normalizeCacheKey } from './util.mjs';
 import { GREP_AUTO_CONTEXT_LINES } from '../../tools/builtin/path-utils.mjs';
 import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
+import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 
 const MAX_PER_SESSION = 100;
 export const SCOPED_CACHE_TTL_MS = 30_000;
@@ -346,22 +347,16 @@ export function setScopedToolCached({
     map = new Map();
     _scopedBySession.set(sessionId, map);
   }
-  if (map.size >= MAX_PER_SESSION) {
-    const firstKey = map.keys().next().value;
-    if (firstKey) {
-      map.delete(firstKey);
-      // Prune evicted key from reverse index entries.
-      const ridx = _scopedReverseIdx.get(sessionId);
-      if (ridx) {
-        for (const [absKey, keySet] of ridx) {
-          keySet.delete(firstKey);
-          if (keySet.size === 0) ridx.delete(absKey);
-        }
-      }
-    }
-  }
   const depRoots = _scopedDependencyRoots(toolName, args, cwd);
-  map.set(key, { content, ts: Date.now(), firstToolUseId: toolUseId || null, depRoots });
+  if (
+    !setBoundedTextCacheEntry(
+      map,
+      key,
+      { content, ts: Date.now(), firstToolUseId: toolUseId || null, depRoots },
+      { maxEntries: MAX_PER_SESSION, onEvict: (evictedKey) => _dropScopedEntry(sessionId, evictedKey) }
+    )
+  )
+    return;
   // Register key in reverse index for dependency roots. Exact root hits use
   // O(1) lookup; touched files under a root are caught by the small prefix scan
   // in clearScopedToolsForSessionPaths (MAX_PER_SESSION is 100).

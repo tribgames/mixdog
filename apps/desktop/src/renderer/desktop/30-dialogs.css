@@ -242,8 +242,10 @@
 /* Close affordance: the same 28px ghost square on every card. The panel
    editors group it with a status switch, so the close box is matched by
    DESCENT — a child-only selector skipped every card that has that group and
-   left those buttons on the platform default. */
-.schedules-dialog > header button,
+   left those buttons on the platform default. The built-in feature card's
+   Install/Retry (.extensions-action) shares that group and keeps its own
+   plate; the 28px square would clip its label. */
+.schedules-dialog > header button:not(.extensions-action),
 .settings-confirm-dialog > header > button,
 .settings-oauth-dialog > header > button,
 .mx-dialog > header > button,
@@ -260,7 +262,7 @@
   background: transparent;
   cursor: pointer;
 }
-.schedules-dialog > header button:hover:not(:disabled),
+.schedules-dialog > header button:not(.extensions-action):hover:not(:disabled),
 .settings-confirm-dialog > header > button:hover:not(:disabled),
 .settings-oauth-dialog > header > button:hover:not(:disabled),
 .mx-dialog > header > button:hover:not(:disabled),
@@ -540,6 +542,15 @@
   --mx-rail-gap: 8px;
   --mx-rail-trailing-center: 20px;
   --mx-rail-row-padding: 10px;
+}
+/* Desktop left rail: the trailing glyph CENTER sits on the card's inner text
+   line (12px in from the box line), the axis the Agents dock's "…" already
+   uses — its 24px trigger closes flush on the 12px gutter. The 20px line put
+   every "+", "…", chevron, dot and spinner 8px further inboard than the dock
+   (user: 에이전트탭처럼 맞춰줘 — + 버튼, > 버튼 같은 것들). Phone boxes are
+   44px and cannot center that close to the 8px rail inset, so they keep 20. */
+html:not([data-mixdog-mobile-tabs]) :is(.session-sidebar, .session-sidebar-panels) {
+  --mx-rail-trailing-center: 12px;
 }
 /* ── Left-rail BOX LINE ──────────────────────────────────────────────────
    ONE 12px inset from the panel edge is THE line (user: 아이템까지의

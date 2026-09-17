@@ -52,8 +52,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
 
   let hostScriptPath: string | null = null;
   let hostScriptBuild = '';
-  // One warm worker waiting to be adopted by the next session that needs one.
-  let spareHostWorker: ChildProcessWithoutNullStreams | null = null;
   let nextId = 1;
   const pending = new Map<
     number,
@@ -174,24 +172,13 @@ export function createWorkerPool(host: WorkerPoolHost) {
     });
     child.once('error', (error) => {
       if (!child.pid) hostWorkers.delete(child);
-      if (spareHostWorker === child) spareHostWorker = null;
       retirePowerShell(child, new Error(`computer host failed to start: ${error.message}`));
     });
     child.once('exit', () => {
       hostWorkers.delete(child);
-      if (spareHostWorker === child) spareHostWorker = null;
       retirePowerShell(child, new Error('computer host exited'));
     });
     return child;
-  }
-
-  function ensureSpareHostWorker(): void {
-    if (isDisposed() || !isBridgeEnabled() || (spareHostWorker && !spareHostWorker.killed)) return;
-    try {
-      spareHostWorker = spawnHostWorker();
-    } catch {
-      spareHostWorker = null;
-    }
   }
 
   function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
@@ -201,11 +188,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       workerLastUsedAt.set(sessionId, Date.now());
       return existing;
     }
-    let child = spareHostWorker && !spareHostWorker.killed ? spareHostWorker : null;
-    if (child) spareHostWorker = null;
-    else child = spawnHostWorker();
-    const refill = setTimeout(() => ensureSpareHostWorker(), 0);
-    refill.unref?.();
+    const child = spawnHostWorker();
     powerShellBySession.set(sessionId, child);
     workerLastUsedAt.set(sessionId, Date.now());
     return child;
@@ -527,28 +510,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
     }
   }
 
-  /** Hand the warm-up worker to the spare slot instead of reaping it: it has
-   *  already paid startup, and the next session would otherwise pay it again. */
-  function adoptWarmedWorker(sessionId: string): void {
-    const warmed = powerShellBySession.get(sessionId);
-    if (warmed && !warmed.killed) {
-      const duplicateSpare = spareHostWorker;
-      spareHostWorker = null;
-      if (duplicateSpare && duplicateSpare !== warmed && !duplicateSpare.killed) {
-        try {
-          duplicateSpare.kill();
-        } catch {
-          /* already gone */
-        }
-      }
-      powerShellBySession.delete(sessionId);
-      workerLastUsedAt.delete(sessionId);
-      spareHostWorker = warmed;
-      return;
-    }
-    ensureSpareHostWorker();
-  }
-
   /** The published script is a temp artifact; it goes when the host does. */
   function removeHostScript(): void {
     if (hostScriptPath) {
@@ -559,18 +520,6 @@ export function createWorkerPool(host: WorkerPoolHost) {
       }
     }
     hostScriptPath = null;
-  }
-
-  /** An idle spare has no reason to outlive the bridge that would use it. */
-  function releaseSpareWorker(): void {
-    if (spareHostWorker && !spareHostWorker.killed) {
-      try {
-        spareHostWorker.kill();
-      } catch {
-        /* already gone */
-      }
-    }
-    spareHostWorker = null;
   }
 
   function residentWorkerPids(): number[] {
@@ -603,13 +552,10 @@ export function createWorkerPool(host: WorkerPoolHost) {
     inputMarker,
     powerShellBySession,
     workerLastUsedAt,
-    adoptWarmedWorker,
-    releaseSpareWorker,
     residentWorkerPids,
     waitForResidentWorkersExit,
     removeHostScript,
     ensureHostScript,
-    ensureSpareHostWorker,
     ensurePowerShell,
     retirePowerShell,
     hasUnconfirmedBackgroundInput: (sessionId?: string) =>

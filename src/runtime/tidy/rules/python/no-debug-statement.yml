@@ -1,0 +1,10 @@
+id: no-debug-statement
+language: Python
+severity: warning
+message: Debugger breakpoint left in code.
+note: breakpoint() and pdb/ipdb.set_trace() stop the process in production. Delete the statement; this rule has no autofix so surrounding code is reviewed first.
+rule:
+  any:
+    - pattern: breakpoint($$$)
+    - pattern: pdb.set_trace($$$)
+    - pattern: ipdb.set_trace($$$)

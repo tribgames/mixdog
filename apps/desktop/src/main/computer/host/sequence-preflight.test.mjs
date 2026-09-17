@@ -62,8 +62,7 @@ test('canonical modifier aliases fail preflight before the sequence can click', 
     },
     captureAfterAction: async () => ({ metadata: { ok: true } }),
   });
-  await assert.rejects(
-    runner.runBoundedSequence({
+  const refused = JSON.parse((await runner.runBoundedSequence({
       action: 'sequence',
       window_id: 'hwnd:0x1',
       delivery: 'background',
@@ -71,9 +70,12 @@ test('canonical modifier aliases fail preflight before the sequence can click', 
         { action: 'click', ref: 's1:e1' },
         { action: 'key', keys: 'ctrl-s' },
       ],
-    }),
-    /background_unsupported/
-  );
+    })).text);
+  assert.equal(refused.code, 'background_unsupported');
+  assert.equal(refused.completed_steps, 0);
+  assert.equal(refused.delivery_accepted, false);
+  assert.equal(refused.input_may_have_executed, false);
+  assert.ok(refused.steps.every(step => step.status === 'skipped'));
   assert.equal(clicks, 0);
 });
 
@@ -104,8 +106,7 @@ test('all sequence steps are preflighted before any input, without changing deli
       return { metadata: { ok: true } };
     },
   });
-  await assert.rejects(
-    runner.runBoundedSequence({
+  const refused = JSON.parse((await runner.runBoundedSequence({
       action: 'sequence',
       window_id: 'hwnd:0x1',
       delivery: 'background',
@@ -113,8 +114,9 @@ test('all sequence steps are preflighted before any input, without changing deli
         { action: 'click', ref: 's1:e1' },
         { action: 'key', keys: '^s' },
       ],
-    }),
-    /background_unsupported/
-  );
+    })).text);
+  assert.equal(refused.verdict.recommended, 'select_delivery');
+  assert.equal(refused.completed_steps, 0);
+  assert.equal(refused.total_steps, 2);
   assert.deepEqual(events, [{ kind: 'preflight', delivery: 'background', actions: ['click', 'key'], keys: '^s' }]);
 });

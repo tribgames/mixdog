@@ -582,7 +582,7 @@ function UsageTrend({
                         option.key === 'tokens'
                           ? t('Cache excluded')
                           : option.key === 'costUsd' && active.costUnpricedTurns > 0
-                            ? t('Some usage has no known price; the displayed cost is incomplete.')
+                            ? t('Partial cost')
                             : undefined
                       }
                     >
@@ -660,7 +660,7 @@ function RouteCells({ route }: { route: Row }) {
       <td
         className="stats-cost-cell"
         title={
-          unpricedTurns(route) > 0 ? t('Some usage has no known price; the displayed cost is incomplete.') : undefined
+          unpricedTurns(route) > 0 ? t('Partial cost') : undefined
         }
       >
         {statsMoney(route)}
@@ -971,6 +971,9 @@ export function UsageStatsBody({
           <thead>
             <tr>
               <th scope="col">{t('Provider')}</th>
+              <th scope="col" className="stats-share-col">
+                {t('Usage share')}
+              </th>
               <SortHeader label={t('Usage records')} column="turns" sort={sort} onSort={setSort} />
               <th scope="col" className="stats-breakdown" title={t('Fresh input plus cache writes')}>
                 {t('Input')}
@@ -1020,13 +1023,13 @@ export function UsageStatsBody({
                         </span>
                       )}
                     </button>
-                    <div className="stats-provider-share">
+                    <div className="stats-provider-share" aria-hidden="true">
                       <i className="stats-share">
                         <i style={{ width: `${incomplete ? 0 : share}%` }} />
                       </i>
-                      <small>{incomplete ? '—' : `${share}%`}</small>
                     </div>
                   </td>
+                  <td className="stats-share-cell">{incomplete ? '—' : `${share}%`}</td>
                   <RouteCells route={provider} />
                 </tr>
                 {open &&
@@ -1037,6 +1040,7 @@ export function UsageStatsBody({
                         <td className="stats-model-cell" title={modelDisplayName(name, id)}>
                           {modelDisplayName(name, id)}
                         </td>
+                        <td className="stats-share-cell" />
                         <RouteCells route={model} />
                       </tr>
                     );
@@ -1048,7 +1052,7 @@ export function UsageStatsBody({
             <tbody aria-hidden="true">
               {[0, 1, 2].map((row) => (
                 <tr className="usage-skeleton-row" key={row}>
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <span className="usage-skeleton" style={{ width: '35%' }} />
                   </td>
                 </tr>
@@ -1058,7 +1062,7 @@ export function UsageStatsBody({
           {!loading && !providers.length && (
             <tbody>
               <tr>
-                <td className="usage-empty" colSpan={8}>
+                <td className="usage-empty" colSpan={9}>
                   {t('No usage recorded yet.')}
                 </td>
               </tr>

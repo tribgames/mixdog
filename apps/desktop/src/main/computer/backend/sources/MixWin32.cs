@@ -118,6 +118,8 @@ public class MixMsaaSnapshot
 public static class MixMsaa
 {
     const uint OBJID_CLIENT = unchecked((uint)-4);
+    const uint OBJID_MENU = unchecked((uint)-3);
+    [DllImport("user32.dll")] static extern IntPtr GetMenu(IntPtr hwnd);
     static readonly Guid IID_IAccessible = new Guid("618736E0-3C3D-11CF-810C-00AA00389B71");
     [DllImport("oleacc.dll")]
     static extern int AccessibleObjectFromWindow(
@@ -205,11 +207,22 @@ public static class MixMsaa
 
     public static MixMsaaSnapshot SnapshotWithStatus(IntPtr hwnd, string windowId, int maximum)
     {
+        return SnapshotObject(hwnd, windowId, maximum, OBJID_CLIENT);
+    }
+
+    public static MixMsaaNode[] MenuSnapshot(IntPtr hwnd, string windowId, int maximum)
+    {
+        if (GetMenu(hwnd) == IntPtr.Zero) return new MixMsaaNode[0];
+        return SnapshotObject(hwnd, windowId, maximum, OBJID_MENU).Nodes;
+    }
+
+    static MixMsaaSnapshot SnapshotObject(IntPtr hwnd, string windowId, int maximum, uint objectId)
+    {
         if (hwnd == IntPtr.Zero) throw new ArgumentException("MSAA window handle is required");
         if (maximum < 1 || maximum > 5000) throw new ArgumentOutOfRangeException("maximum");
         object raw;
         Guid iid = IID_IAccessible;
-        int hr = AccessibleObjectFromWindow(hwnd, OBJID_CLIENT, ref iid, out raw);
+        int hr = AccessibleObjectFromWindow(hwnd, objectId, ref iid, out raw);
         if (hr < 0) Marshal.ThrowExceptionForHR(hr);
         IAccessible root = raw as IAccessible;
         if (root == null) return new MixMsaaSnapshot { Nodes = new MixMsaaNode[0], Complete = false };
@@ -371,6 +384,56 @@ public class MixWin32
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern bool GetProcessTimes(
+      IntPtr process, out long created, out long exited, out long kernel, out long user);
+    [StructLayout(LayoutKind.Sequential)]
+    struct PROCESS_BASIC_INFORMATION
+    {
+        public IntPtr Reserved1, PebBaseAddress, Reserved2a, Reserved2b, UniqueProcessId, ParentProcessId;
+    }
+    [DllImport("ntdll.dll")]
+    static extern int NtQueryInformationProcess(
+      IntPtr process, int informationClass, out PROCESS_BASIC_INFORMATION information, int length, out int returned);
+    static uint ParentProcessId(IntPtr process)
+    {
+        PROCESS_BASIC_INFORMATION information;
+        int returned;
+        return process != IntPtr.Zero &&
+          NtQueryInformationProcess(process, 0, out information, Marshal.SizeOf(typeof(PROCESS_BASIC_INFORMATION)), out returned) == 0
+          ? unchecked((uint)information.ParentProcessId.ToInt64()) : 0;
+    }
+    static uint ParentProcessId(uint pid)
+    {
+        IntPtr process = OpenProcess(0x1000, false, pid);
+        try { return ParentProcessId(process); }
+        finally { if (process != IntPtr.Zero) CloseHandle(process); }
+    }
+    public static bool IsChildProcessWindow(IntPtr window, IntPtr parent)
+    {
+        if (!IsWindowHandle(window) || !IsWindowHandle(parent)) return false;
+        uint pid, parentPid;
+        GetWindowThreadProcessId(window, out pid);
+        GetWindowThreadProcessId(parent, out parentPid);
+        if (pid == 0 || parentPid == 0 || pid == parentPid) return false;
+        IntPtr childProcess = OpenProcess(0x1000, false, pid);
+        IntPtr parentProcess = OpenProcess(0x1000, false, parentPid);
+        try
+        {
+            long childCreated, parentCreated, exited, kernel, user;
+            // A PID alone may have been reused. The live parent must predate
+            // the child and the kernel must name it as the direct parent.
+            return childProcess != IntPtr.Zero && parentProcess != IntPtr.Zero &&
+              ParentProcessId(childProcess) == parentPid &&
+              GetProcessTimes(childProcess, out childCreated, out exited, out kernel, out user) &&
+              GetProcessTimes(parentProcess, out parentCreated, out exited, out kernel, out user) &&
+              childCreated >= parentCreated;
+        }
+        finally
+        {
+            if (childProcess != IntPtr.Zero) CloseHandle(childProcess);
+            if (parentProcess != IntPtr.Zero) CloseHandle(parentProcess);
+        }
+    }
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError = true)]
     static extern bool GetTokenInformation(
@@ -413,6 +476,7 @@ public class MixWin32
         public string ClassName = "";
         public string App = "";
         public uint Pid;
+        public uint ParentPid;
         public string OwnerId = "";
         public bool Visible;
         public bool Cloaked;
@@ -671,13 +735,27 @@ public class MixWin32
     {
         if (!IsWindowHandle(h)) return null;
         uint pid;
-        GetWindowThreadProcessId(h, out pid);
+        uint threadId = GetWindowThreadProcessId(h, out pid);
         RECT r;
         GetWindowRect(h, out r);
         RECT client;
         POINT clientOrigin = new POINT();
         bool hasClient = GetClientRect(h, out client) && ClientToScreen(h, ref clientOrigin);
         IntPtr owner = GetWindow(h, 4);
+        string className = ClassNameOf(h);
+        // Native popup menus can have no GW_OWNER. The owning GUI thread
+        // still identifies the window whose menu loop is active.
+        if (owner == IntPtr.Zero && className == "#32768")
+        {
+            GUITHREADINFO gui = new GUITHREADINFO();
+            gui.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+            if (GetGUIThreadInfo(threadId, ref gui) && gui.hwndMenuOwner != h && IsWindowHandle(gui.hwndMenuOwner))
+            {
+                uint ownerPid;
+                GetWindowThreadProcessId(gui.hwndMenuOwner, out ownerPid);
+                if (ownerPid == pid) owner = gui.hwndMenuOwner;
+            }
+        }
         string app = "";
         if (includeApp)
         {
@@ -688,9 +766,10 @@ public class MixWin32
             Handle = h,
             Id = WindowId(h),
             Title = Text(h),
-            ClassName = ClassNameOf(h),
+            ClassName = className,
             App = app,
             Pid = pid,
+            ParentPid = ParentProcessId(pid),
             OwnerId = owner == IntPtr.Zero ? "" : WindowId(owner),
             Visible = IsWindowVisible(h),
             Cloaked = IsCloaked(h),

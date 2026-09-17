@@ -239,7 +239,9 @@ jobs:
           target_commitish: ${{ inputs.ref || github.sha }}
           draft: true
           prerelease: false
-          generate_release_notes: true
+          # The body comes from CHANGELOG.md at publish time. GitHub's generated
+          # notes list merged PRs only, and Deploy commits straight to main, so
+          # they would leave just a compare link.
 
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
@@ -409,8 +411,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Release notes are the CHANGELOG.md section Deploy stamped with this
+          # version, followed by the compare link to the previous version.
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const tag = process.env.RELEASE_TAG;
+          const sections = readFileSync('CHANGELOG.md', 'utf8').split(/^## /m);
+          const headingOf = section => section.split('\n')[0].trim();
+          const isVersion = section => /^v\d/.test(section);
+          const index = sections.findIndex(section => {
+            const heading = headingOf(section);
+            return heading === tag || heading.startsWith(`${tag} `);
+          });
+          if (index === -1) throw new Error(`CHANGELOG.md has no "## ${tag}" section`);
+          const body = sections[index].replace(/^[^\n]*\n?/, '').trim();
+          if (!body) throw new Error(`CHANGELOG.md: the ${tag} section is empty`);
+          const previous = sections.slice(index + 1).find(isVersion);
+          const compare = previous
+            ? `\n\n**Full Changelog**: https://github.com/${process.env.GITHUB_REPOSITORY}/compare/${headingOf(previous).split(' ')[0]}...${tag}`
+            : '';
+          writeFileSync('/tmp/release-notes.md', `${body}${compare}\n`);
+          NODE
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
-            -F draft=false -f make_latest=true > /tmp/published.json
+            -F draft=false -f make_latest=true -F body=@/tmp/release-notes.md > /tmp/published.json
           node --input-type=module <<'NODE'
           import { readFileSync } from 'node:fs';
           const release = JSON.parse(readFileSync('/tmp/published.json', 'utf8'));

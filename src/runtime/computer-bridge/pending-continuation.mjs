@@ -37,6 +37,17 @@ export async function continuePendingComputerWork(initial, command, send, signal
           }),
         };
       }
+      const resumed = {
+        ...progress,
+        code: undefined,
+        error: undefined,
+        status: 'resumed',
+        reason: '',
+        completed:
+          typeof progress.total_steps === 'number' &&
+          progress.completed_steps === progress.total_steps &&
+          progress.pending_work?.uncertain_step === undefined,
+      };
       const target = command.window_id
         ? { window_id: command.window_id }
         : command.app
@@ -47,9 +58,9 @@ export async function continuePendingComputerWork(initial, command, send, signal
       if (!target) {
         return {
           text: JSON.stringify({
-            ...progress,
-            status: 'resumed',
+            ...resumed,
             fresh_capture_required: true,
+            verdict: { decision: 'escalate', recommended: 'recapture' },
             recovery: {
               next: 'capture',
               guidance:
@@ -61,20 +72,24 @@ export async function continuePendingComputerWork(initial, command, send, signal
       const captured = await send({ action: 'capture', ...target });
       if (isPendingComputerWork(captured)) continue;
       const observation = payload(captured);
+      const fresh = observation.ok === true;
       return {
         ...captured,
         text: JSON.stringify({
-          ...progress,
-          ok: observation.ok === true,
-          status: 'resumed',
-          reason: '',
+          ...resumed,
+          ok: fresh,
           observation,
           input_replayed: false,
-          fresh_capture_required: observation.ok !== true,
+          fresh_capture_required: !fresh,
+          verdict: {
+            decision: fresh ? 'verify_fresh_state' : 'escalate',
+            recommended: fresh ? 'continue_pending_work' : 'recapture',
+          },
           recovery: {
-            next: observation.ok === true ? 'continue_pending_work' : 'capture',
-            guidance:
-              'Continue the remaining intent from this fresh observation. Completed or uncertain input must not be replayed blindly.',
+            next: fresh ? 'continue_pending_work' : 'capture',
+            guidance: fresh
+              ? 'Continue the remaining intent from this fresh observation. Completed or uncertain input must not be replayed blindly.'
+              : 'User control ended, but fresh observation is unavailable. Capture the target before continuing; never replay completed or uncertain input blindly.',
           },
         }),
       };

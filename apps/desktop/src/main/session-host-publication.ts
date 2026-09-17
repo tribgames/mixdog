@@ -8,6 +8,10 @@ import type {
 } from '../shared/contract';
 import { isSessionId } from './desktop-state';
 import { reconcileSessionProjection } from './state-delta';
+import { estimateRetainedChars } from '../shared/retained-value-weight';
+
+const UNWATCHED_PROJECTION_MAX_BYTES = 16 * 1024 * 1024;
+const UNWATCHED_PROJECTION_MAX_ENTRIES = 64;
 
 type SessionProjection = {
   revision: number;
@@ -70,6 +74,10 @@ function emitIsolated<T>(listeners: Set<(value: T) => void>, value: T): void {
  *  remains the service facade; this object owns publication side effects. */
 export class SessionHostPublication {
   readonly projections = new Map<string, SessionProjection>();
+  private readonly projectionWeights = new WeakMap<SessionProjection, number>();
+  private readonly projectionHolds = new Map<string, number>();
+  private readonly maxUnwatchedBytes: number;
+  private readonly maxUnwatchedEntries: number;
   private readonly recoveringSessionIds = new Set<string>();
   private readonly listeners = new Set<(snapshot: SessionSnapshot) => void>();
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
@@ -78,7 +86,67 @@ export class SessionHostPublication {
   private remoteSessionId = '';
   shellSnapshot: SessionSnapshot = null;
 
-  constructor(private readonly owner: SessionHostPublicationOwner) {}
+  constructor(
+    private readonly owner: SessionHostPublicationOwner,
+    {
+      maxUnwatchedBytes = UNWATCHED_PROJECTION_MAX_BYTES,
+      maxUnwatchedEntries = UNWATCHED_PROJECTION_MAX_ENTRIES,
+    }: { maxUnwatchedBytes?: number; maxUnwatchedEntries?: number } = {},
+  ) {
+    this.maxUnwatchedBytes = maxUnwatchedBytes;
+    this.maxUnwatchedEntries = maxUnwatchedEntries;
+  }
+
+  /** A replay must retain every requested baseline until its atomic delivery. */
+  retainProjections(sessionIds: readonly string[]): () => void {
+    const held = new Set(sessionIds);
+    for (const id of held) this.projectionHolds.set(id, (this.projectionHolds.get(id) || 0) + 1);
+    return () => {
+      for (const id of held) {
+        const remaining = (this.projectionHolds.get(id) || 0) - 1;
+        if (remaining > 0) this.projectionHolds.set(id, remaining);
+        else this.projectionHolds.delete(id);
+      }
+      held.clear();
+      this.pruneProjections();
+    };
+  }
+
+  /** Bound only reproducible, unwatched views; never evict active work or a
+   * visible desktop/remote pane, and never publish a synthetic empty frame. */
+  pruneProjections(): void {
+    const visible = this.owner.visibleSessionIds();
+    const control = this.owner.controlSessionId();
+    const candidates: Array<{ id: string; bytes: number }> = [];
+    let totalBytes = 0;
+    for (const [id, projection] of this.projections) {
+      const snapshot = projection.snapshot;
+      if (
+        visible.has(id) || id === control || this.projectionHolds.has(id)
+        || snapshot?.busy === true || snapshot?.commandBusy === true
+        || snapshot?.toolApproval != null
+        || (Array.isArray(snapshot?.queued) && snapshot.queued.length > 0)
+      ) continue;
+      let bytes = this.projectionWeights.get(projection);
+      if (bytes === undefined) {
+        bytes = estimateRetainedChars(projection, this.maxUnwatchedBytes / 2) * 2;
+        this.projectionWeights.set(projection, bytes);
+      }
+      if (bytes > this.maxUnwatchedBytes) {
+        this.projections.delete(id);
+        continue;
+      }
+      totalBytes += bytes;
+      candidates.push({ id, bytes });
+    }
+    let entries = candidates.length;
+    for (const candidate of candidates) {
+      if (entries <= this.maxUnwatchedEntries && totalBytes <= this.maxUnwatchedBytes) break;
+      this.projections.delete(candidate.id);
+      totalBytes -= candidate.bytes;
+      entries -= 1;
+    }
+  }
 
   subscribe(listener: (snapshot: SessionSnapshot) => void): () => void {
     this.listeners.add(listener);
@@ -227,6 +295,7 @@ export class SessionHostPublication {
         : value?.unchanged === true
           ? prior?.projectionStamp
           : undefined;
+    this.projections.delete(id);
     this.projections.set(id, {
       revision: nextRevision,
       snapshot,
@@ -234,6 +303,7 @@ export class SessionHostPublication {
       cold: value?.projection === true || nextRevision === 0,
       ...(projectionStamp ? { projectionStamp } : {}),
     });
+    this.pruneProjections();
     this.owner.trackShellJobsEngineState(snapshot);
     if (publish && !unmoved && id !== this.owner.controlSessionId()) {
       this.publishSession(id, snapshot);

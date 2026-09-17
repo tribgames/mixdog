@@ -4,6 +4,7 @@ export interface ComputerWindowRecord {
   className: string;
   app: string;
   pid: number;
+  parentPid?: number;
   ownerId: string;
   focused: boolean;
   minimized: boolean;
@@ -24,6 +25,8 @@ export interface ComputerWindowTransition {
   next_target?: ComputerWindowRecord;
   next_target_reason?:
     | 'owned_window_opened'
+    | 'owner_window_restored'
+    | 'child_process_window_opened'
     | 'single_same_process_window_opened'
     | 'launched_process_window'
     | 'launched_app_opened'
@@ -93,6 +96,7 @@ export function normalizeComputerWindowRecords(value: unknown): ComputerWindowRe
       className: text(row.class_name ?? row.className),
       app: text(row.app),
       pid: finiteNumber(row.pid),
+      parentPid: finiteNumber(row.parent_pid ?? row.parentPid),
       ownerId: text(row.owner_id ?? row.ownerId),
       focused: row.focused === true,
       minimized: row.minimized === true,
@@ -164,7 +168,7 @@ export function computeComputerWindowTransition(
   const contextApp = normalizedAppName(targetApp);
   const belongsToTarget = (window: ComputerWindowRecord, windowsById: Map<string, ComputerWindowRecord>): boolean =>
     window.id === targetWindowId ||
-    (contextPid > 0 && window.pid === contextPid) ||
+    (contextPid > 0 && (window.pid === contextPid || window.parentPid === contextPid)) ||
     (!targetWindowId && Boolean(contextApp) && normalizedAppName(window.app) === contextApp) ||
     (Boolean(targetWindowId) && ownerChainContains(window.id, targetWindowId, windowsById));
   const allOpened = after.filter((window) => !beforeById.has(window.id));
@@ -184,7 +188,9 @@ export function computeComputerWindowTransition(
   };
 
   if (!targetWindowId && (targetPid > 0 || Boolean(contextApp))) {
-    const launchedProcessTarget = uniquePreferred(opened.filter((window) => targetPid > 0 && window.pid === targetPid));
+    const launchedProcessTarget = uniquePreferred(opened.filter(
+      (window) => targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid)
+    ));
     if (launchedProcessTarget) {
       transition.next_target = launchedProcessTarget;
       transition.next_target_reason = 'launched_process_window';
@@ -221,7 +227,23 @@ export function computeComputerWindowTransition(
     }
     return transition;
   }
-  if (opened.length === 0) return transition;
+  if (opened.length === 0) {
+    if (targetWindowId && !afterById.has(targetWindowId)) {
+      const visited = new Set<string>([targetWindowId]);
+      let ownerId = beforeById.get(targetWindowId)?.ownerId;
+      while (ownerId && !visited.has(ownerId)) {
+        visited.add(ownerId);
+        const owner = afterById.get(ownerId);
+        if (owner) {
+          transition.next_target = owner;
+          transition.next_target_reason = 'owner_window_restored';
+          break;
+        }
+        ownerId = beforeById.get(ownerId)?.ownerId;
+      }
+    }
+    return transition;
+  }
   if (!targetWindowId) return transition;
   const targetStillPresent = afterById.has(targetWindowId);
   const owned = opened.filter((window) => ownerChainContains(window.id, targetWindowId, afterById));
@@ -234,6 +256,12 @@ export function computeComputerWindowTransition(
 
   const targetBefore = beforeById.get(targetWindowId);
   if (!targetBefore?.pid) return transition;
+  const childProcessTarget = uniquePreferred(opened.filter(window => window.parentPid === targetBefore.pid));
+  if (childProcessTarget) {
+    transition.next_target = childProcessTarget;
+    transition.next_target_reason = 'child_process_window_opened';
+    return transition;
+  }
   const sameProcess = opened.filter(
     (window) => window.pid === targetBefore.pid && !ownerChainContains(window.id, targetWindowId, afterById)
   );

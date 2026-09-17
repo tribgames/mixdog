@@ -280,6 +280,23 @@ try {
     $statePath = Join-Path $desktopDir '.cache\dev-fast-direct-state.json'
     $artifactDir = Join-Path $desktopDir '.cache\dev-fast-direct-artifact'
 
+    # electron-builder 26 collects production modules through `npm list`, and
+    # npm's Arborist reports hoisted transitive packages (node-addon-api,
+    # prebuild-install, graceful-fs, …) as missing/extraneous when node_modules
+    # is a junction — which the snapshot's is. The complete win-unpacked
+    # fallback then packs an app.asar without them and the closure guard
+    # refuses it. electron-builder honours a `packageManager` field ahead of
+    # lock-file detection, and `traversal` selects its file-system collector,
+    # which resolves straight through the junction. Only the frozen manifest is
+    # patched; it is thrown away with the snapshot and npm ignores the field.
+    Write-Step 'selecting the traversal module collector for the frozen manifest'
+    $frozenManifest = Join-Path $snapshotRoot 'apps\desktop\package.json'
+    $manifestText = [IO.File]::ReadAllText($frozenManifest)
+    if ($manifestText -notmatch '"packageManager"') {
+        $manifestText = $manifestText -replace '^\{', "{`n  `"packageManager`": `"traversal@0.0.0`","
+        [IO.File]::WriteAllText($frozenManifest, $manifestText, [Text.UTF8Encoding]::new($false))
+    }
+
     Write-Step 'deploying from the snapshot'
     $deploy = Join-Path $snapshotRoot 'apps\desktop\scripts\dev-update-windows.ps1'
     # -File passes each token verbatim, so a bound parameter needs its value as a

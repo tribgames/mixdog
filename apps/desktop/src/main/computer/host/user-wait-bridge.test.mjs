@@ -50,8 +50,6 @@ test('user wait bypasses execution queues, permits concurrent discovery and rele
     powerShellBySession: new Map(),
     elevatedSessionIds: () => [],
     callPowerShell: async () => ({ ok: true }),
-    adoptWarmedWorker() {},
-    releaseSpareWorker() {},
     reapIdleSessionWorkers() {},
     abortComputerSession: async () => {
       aborts++;

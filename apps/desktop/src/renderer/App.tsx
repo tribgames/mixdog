@@ -140,6 +140,8 @@ import { SessionBrowserParkingHost } from './session-browser-surfaces';
 import { useAgentBrowserSurfaceRequests } from './use-agent-browser-surface-requests';
 import { useAppSessionOpen } from './app-shell-session-open';
 import { useAppUiOpenRequest } from './app-shell-ui-open-request';
+import { useSetupDesktopRequest } from './use-setup-desktop-request';
+import { t } from './i18n';
 import { useAppSessionTitle } from './app-shell-session-title';
 import { useAppToolProject, LAST_PROJECT_KEY } from './app-shell-tool-project';
 import { useAppMobileBack, useAppMobileInitialClose } from './app-shell-mobile-back';
@@ -827,6 +829,7 @@ export function App() {
     openConversationCommandSurface,
     openSettings,
   });
+  useSetupDesktopRequest(snapshot.setupUiRequest, snapshot.sessionId, window.mixdogDesktop);
   /** /clear · /new replaces the tab with a New Task draft in the same position,
    *  carrying forward that session's project/model/workflow and remote-seat
    *  settings. The original transcript remains available in sidebar history. */
@@ -1871,7 +1874,7 @@ export function App() {
             aria-hidden={!sidebarOpen}
             tabIndex={sidebarOpen ? 0 : -1}
             onClick={() => applySidebarOpen(false)}
-            aria-label="Close session sidebar"
+            aria-label={t('Close session sidebar')}
           />
           <main className="main-panel" ref={mainPanelRef}>
             {/* Split-pane workspace: with one pane the classic markup renders
@@ -1881,7 +1884,7 @@ export function App() {
             {(() => {
               const workspaceSurface = (
                 <div className="workspace">
-                  <header className="session-header" aria-label="Current task">
+                  <header className="session-header" aria-label={t('Current task')}>
                     <div className="session-header-content">
                       <h1 data-tooltip={visibleSessionTitle}>
                         {selectedSession ? (
@@ -1973,7 +1976,7 @@ export function App() {
             aria-hidden={!bottomPanel.open}
             tabIndex={bottomPanel.open ? 0 : -1}
             onClick={() => bottomPanel.setOpen(false)}
-            aria-label="Close panel"
+            aria-label={t('Close panel')}
           />
         </div>
         {paneUtilitySurfacePortals}
@@ -1991,7 +1994,7 @@ export function App() {
           />
         )}
         {tabSwitcher && (
-          <div className="workspace-tab-switcher" role="listbox" aria-label="Open tabs, most recent first">
+          <div className="workspace-tab-switcher" role="listbox" aria-label={t('Open tabs, most recent first')}>
             {tabSwitcher.keys.map((key, index) => {
               const selection = focusedLeafForShortcuts?.tabs.find((entry) => navigationKey(entry) === key);
               if (!selection) return null;

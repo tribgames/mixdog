@@ -105,6 +105,30 @@ test('a failed post does not strand pending work during idle reclaim', async () 
   assert.equal(worker.terminated, 1);
 });
 
+test('unused parsers are never started and settled parsers retire without losing delivered ASTs', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const workers = [];
+  const host = new MarkdownWorkerHost(() => {
+    const worker = new FakeWorker();
+    workers.push(worker);
+    return worker;
+  });
+  t.mock.timers.tick(120_000);
+  assert.equal(workers.length, 0);
+  const first = host.parse('retained output');
+  t.mock.timers.tick(120_000);
+  assert.equal(workers[0].terminated, 0, 'pending work must survive idle time');
+  workers[0].reply();
+  const root = await first;
+  t.mock.timers.tick(60_000);
+  assert.equal(workers[0].terminated, 1);
+  assert.equal(root.children[0].value, 'retained output');
+  const next = host.parse('next');
+  workers[1].reply();
+  await next;
+  host.reclaim();
+});
+
 test('client shares concurrent parses, releases idle workers and preserves fallback recovery', async () => {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'Worker');
   const workers = [];

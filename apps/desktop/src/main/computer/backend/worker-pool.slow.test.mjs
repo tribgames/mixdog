@@ -35,7 +35,6 @@ test('retiring a host worker releases its session and process', { skip: process.
       clearTimeout(timeout);
     }
   } finally {
-    pool.releaseSpareWorker();
     pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }
@@ -65,30 +64,29 @@ test('a per-command timeout retires a stuck provider instead of waiting for the 
     );
     assert.equal(pool.powerShellBySession.has('provider-timeout'), false);
   } finally {
-    pool.releaseSpareWorker();
     pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }
 });
 
-test('the completed warm-up worker replaces a duplicate refill worker', {
+test('first use starts one native worker and never refills an unused spare', {
   skip: process.platform !== 'win32',
 }, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-adoption-'));
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-worker-demand-'));
   const pool = createWorkerPool({
     dataDirectory: () => directory,
     isBridgeEnabled: () => true,
     isDisposed: () => false,
   });
   try {
-    const warmed = pool.ensurePowerShell('warm-up-adoption');
+    assert.deepEqual(pool.residentWorkerPids(), []);
+    const warmed = pool.ensurePowerShell('first-use');
     await new Promise((resolve) => setTimeout(resolve, 50));
-    pool.adoptWarmedWorker('warm-up-adoption');
-    assert.equal(pool.powerShellBySession.has('warm-up-adoption'), false);
+    assert.equal(pool.ensurePowerShell('first-use'), warmed);
+    assert.deepEqual(pool.residentWorkerPids(), [warmed.pid]);
     assert.equal(warmed.killed, false);
   } finally {
     for (const child of pool.powerShellBySession.values()) pool.retirePowerShell(child, new Error('test cleanup'));
-    pool.releaseSpareWorker();
     pool.removeHostScript();
     await rm(directory, { recursive: true, force: true });
   }

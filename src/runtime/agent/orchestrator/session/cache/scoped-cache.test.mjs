@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { resolve } from 'node:path';
 import { invalidateBuiltinResultCache } from '../../tools/builtin/cache-layers.mjs';
+import { TEXT_CACHE_MAX_BYTES } from './text-cache-budget.mjs';
 import {
   clearScopedToolsForSession,
   clearScopedToolsForSessionPaths,
@@ -19,6 +20,15 @@ const request = (sessionId, path = 'src') => ({
   args: { path, pattern: 'needle' },
 });
 test.afterEach(() => invalidateBuiltinResultCache());
+
+test('scoped caches bound retained text without losing other successful results', () => {
+  const keep = request('byte-budget', 'keep');
+  const oversized = request('byte-budget', 'oversized');
+  setScopedToolCached({ ...keep, content: 'retained' });
+  setScopedToolCached({ ...oversized, content: 'x'.repeat(TEXT_CACHE_MAX_BYTES / 2) });
+  assert.equal(tryScopedToolCached(oversized), null);
+  assert.equal(tryScopedToolCached(keep)?.content, 'retained');
+});
 
 test('builtin path invalidation reaches all matching sessions, preserving other roots', () => {
   const requests = [request('first'), request('second'), request('unrelated', 'other')];

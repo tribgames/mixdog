@@ -50,7 +50,6 @@ export function createComputerUseOverlay(
   let latestPresentation = computerUseOverlayPresentation(latestSnapshot, locale);
   let hideTimer: NodeJS.Timeout | null = null;
   let renderRevision = 0;
-  let dismissedGeneration: number | undefined;
   const controller = createComputerOverlayController(controls, () => {
     if (!disposed) void render().catch(() => {});
   });
@@ -102,7 +101,7 @@ export function createComputerUseOverlay(
     const retireUnavailableWindow = (): void => {
       if (disposed || next.isDestroyed()) return;
       rendererFailures.set(display.id, (rendererFailures.get(display.id) || 0) + 1);
-      // A hung renderer cannot handle Dismiss, navigation, or another render.
+      // A hung renderer cannot handle controls, navigation, or another render.
       // Retire only this control window; the host retains the input interlock.
       // Release its creation slot even if loadURL/executeJavaScript never settles.
       creatingWindows.delete(display.id);
@@ -111,10 +110,7 @@ export function createComputerUseOverlay(
     };
     next.on('unresponsive', retireUnavailableWindow);
     next.webContents.on('render-process-gone', retireUnavailableWindow);
-    bindComputerOverlayControls(next.webContents, controller, controls, () => latestPresentation, () => {
-      dismissedGeneration = latestPresentation.generation;
-      void render().catch(() => {});
-    });
+    bindComputerOverlayControls(next.webContents, controller, controls, () => latestPresentation);
     next.on('closed', () => {
       unregisterInternalWindow();
       if (windows.get(display.id)?.window === next) windows.delete(display.id);
@@ -203,7 +199,6 @@ export function createComputerUseOverlay(
     const revision = latestSnapshot.revision;
     const presentation = computerUseOverlayPresentation(latestSnapshot, locale,
       controller.state(latestSnapshot.takeoverGeneration ?? 0));
-    if (presentation.paused && dismissedGeneration === presentation.generation) presentation.visible = false;
     latestPresentation = presentation;
     if (!presentation.visible) {
       for (const entry of windows.values()) entry.lastRenderedPresentation = '';
@@ -232,7 +227,6 @@ export function createComputerUseOverlay(
   };
 
   const unsubscribe = computerUseCoordinator.subscribe((snapshot) => {
-    if (!snapshot.userControlActive) dismissedGeneration = undefined;
     if (latestSnapshot.userControlActive && !snapshot.userControlActive) rendererFailures.clear();
     latestSnapshot = snapshot;
     void render().catch(() => {});

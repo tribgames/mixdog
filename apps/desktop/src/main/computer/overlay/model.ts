@@ -13,7 +13,6 @@ export interface ComputerUseOverlayPresentation {
   accent: string;
   paused: boolean;
   canResume: boolean;
-  canDismiss: boolean;
   generation: number;
   busy: boolean;
   idleResumeSeconds: number;
@@ -87,7 +86,6 @@ export function computerUseOverlayPresentation(
       : (ko ? 'Mixdog 사용 중' : 'Mixdog using'),
     accent: activity ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
     paused, canResume: paused && !pending && !failed && control.error !== 'stop',
-    canDismiss: paused,
     generation: snapshot.takeoverGeneration ?? 0, busy: control.busy === true,
     idleResumeSeconds: snapshot.idleResumeSeconds ?? 5,
     attention: confirmation,

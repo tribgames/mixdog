@@ -13,6 +13,7 @@ const { captureReadCacheState, tryReadCached, setReadCached, invalidatePathForSe
   './read-cache.mjs'
 );
 const { _statTuple } = await import('./util.mjs');
+const { TEXT_CACHE_MAX_BYTES } = await import('./text-cache-budget.mjs');
 const { setScopedToolCached } = await import('./scoped-cache.mjs');
 const { executeBuiltinTool } = await import('../../tools/builtin.mjs');
 const { BUILTIN_TOOLS } = await import('../../tools/builtin/builtin-tools.mjs');
@@ -89,6 +90,17 @@ test('unchanged scalar reads retain exact cached content and source identity', a
   setReadCached({ ...fx, args, content, toolUseId: 'original', readState });
   assert.equal(tryReadCached({ ...fx, args })?.content, content);
   assert.equal(tryReadCached({ ...fx, args })?.firstToolUseId, 'original');
+});
+
+test('scalar and array read caches bypass oversized results without evicting other reads', () => {
+  const fx = fixture();
+  const keep = { file_path: fx.file, offset: 1, limit: 1 };
+  setReadCached({ ...fx, args: keep, content: 'retained' });
+  for (const args of [{ file_path: fx.file }, { file_path: [fx.file] }]) {
+    setReadCached({ ...fx, args, content: 'x'.repeat(TEXT_CACHE_MAX_BYTES / 2) });
+    assert.equal(tryReadCached({ ...fx, args }), null);
+    assert.equal(tryReadCached({ ...fx, args: keep })?.content, 'retained');
+  }
 });
 
 for (const firstPublic of [true, false]) {

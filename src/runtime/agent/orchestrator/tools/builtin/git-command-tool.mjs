@@ -86,7 +86,7 @@ export const GIT_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Run Git here, never through shell; commands run in order and arrays stop on failure. Batch needed read-only commands in one array (max 10). diff for known changes, status to discover them; history only when needed. Mutations are serialized; output is compacted.',
+    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. Output is compacted.',
   inputSchema: {
     type: 'object',
     properties: {

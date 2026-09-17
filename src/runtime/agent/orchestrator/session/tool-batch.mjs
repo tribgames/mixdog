@@ -62,6 +62,7 @@ import {
 } from './loop/tool-helpers.mjs';
 import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
 import { scopedCacheGeneration } from './cache/scoped-cache.mjs';
+import { observeToolBatchForNudge, batchingNudgeMessage } from './batching-nudge.mjs';
 
 function classifyToolReturn(value, toolName = '') {
   const normalized = normalizeToolEnvelope(value);
@@ -1009,6 +1010,30 @@ export async function processToolBatch(ctx) {
     // boundary too, without dropping changed bodies or tool outcomes.
     if (isInjectedSkillBodyMessage(_nm) && skillBodyPresentInSession({ messages }, _nm.content.trimStart())) continue;
     messages.push({ role: 'user', content: _nm.content, ...(_nm.meta ? { meta: _nm.meta } : {}) });
+  }
+  // Tool-batching reminder, only once the transcript shows serial calls that
+  // did not need each other's results, or same-tool scalar calls
+  // (batching-nudge.mjs). Rides the channel the flush above just used, so
+  // tool_result pairing stays valid.
+  {
+    const _nudge = observeToolBatchForNudge({
+      sessionRef,
+      calls,
+      results: calls.map((call) => _batchToolResultByCallId.get(call.id) ?? null),
+      tools,
+      reminder: opts.roundReminderByProvider ? null : opts.roundReminder || null,
+    });
+    if (_nudge) {
+      messages.push(batchingNudgeMessage(_nudge));
+      try {
+        appendAgentTrace({
+          sessionId,
+          iteration: iterations,
+          kind: 'batching_nudge',
+          payload: { trigger: _nudge.trigger, tools: _nudge.tools },
+        });
+      } catch {}
+    }
   }
   // PostToolBatch: the full parallel batch of tool calls for this
   // assistant turn has resolved and all tool_results are pushed. Fire the

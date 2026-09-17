@@ -9,6 +9,7 @@ import {
 } from './runtime/shared/pristine-execution.mjs';
 import { hasActiveBackgroundTasks } from './runtime/shared/background-tasks.mjs';
 import { installProcessSignalCleanup } from './runtime/shared/process-shutdown.mjs';
+import { closeUsageLedgers } from './runtime/shared/llm/usage-ledger.mjs';
 import { stopStandaloneMemoryRuntimesForProcess } from './standalone/memory-runtime-proxy.mjs';
 import { shutdownDaemonForRuntimeRoot } from './standalone/session-client.mjs';
 import { applyUsageDelta, createSessionStats } from './ui/session-stats.mjs';
@@ -563,6 +564,7 @@ export async function runHeadlessExec({
   runtimeFactory = null,
   memoryRuntimeCleanup = stopStandaloneMemoryRuntimesForProcess,
   daemonRuntimeCleanup = shutdownDaemonForRuntimeRoot,
+  usageLedgerCleanup = closeUsageLedgers,
   hasActiveTasks = hasActiveBackgroundTasks,
   installSignalCleanupFn = installProcessSignalCleanup,
 } = {}) {
@@ -629,6 +631,14 @@ export async function runHeadlessExec({
       } catch (error) {
         errors.push(error);
       }
+      try {
+        // The usage ledger lives inside the pristine root. Its open SQLite
+        // handle blocks the root removal below on Windows (EBUSY) for the whole
+        // rmSync retry budget, so release it once the last usage row is in.
+        usageLedgerCleanup();
+      } catch (error) {
+        errors.push(error);
+      }
       let resourceCleanupFailed = false;
       if (boundary?.runtimeRoot) {
         try {
@@ -650,8 +660,14 @@ export async function runHeadlessExec({
         }
       }
       try {
+        // The answer is already final here. A root whose memory daemon is still
+        // winding down (its pg.log stays open for a while) must not hold the
+        // exit for the default ≈128s retry budget; 10 linear retries ≈ 5.5s,
+        // and the periodic orphan sweep reclaims whatever is left.
         const cleanupResult = boundary?.cleanup(
-          resourceCleanupFailed ? { preserveRoot: true } : { tolerateRootRemovalFailure: true }
+          resourceCleanupFailed
+            ? { preserveRoot: true }
+            : { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 }
         );
         if (cleanupResult?.rootRemovalError) {
           writeErr(

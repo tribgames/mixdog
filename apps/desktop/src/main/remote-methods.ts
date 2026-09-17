@@ -693,11 +693,12 @@ export function createRemoteMethods({
       const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
       return invokeDesktopOperation('readInstructions', [file, legacy]);
     },
-    writeInstructions: async ([projectPath, content]) => {
+    writeInstructions: async ([projectPath, content, expectedContent]) => {
       const text = requiredInstructionsContent(content);
       const file = await instructionsFilePath(projectPath);
-      await invokeDesktopOperation('writeInstructions', [file, text]);
-      return null;
+      const expected = expectedContent === undefined ? undefined : requiredInstructionsContent(expectedContent);
+      const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
+      return invokeDesktopOperation('writeInstructions', [file, text, expected, legacy]);
     },
     saveWorkspace: ([workspaceFile, rawFolders]) => {
       const folders = requiredWorkspaceFolders(rawFolders);

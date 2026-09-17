@@ -3,7 +3,11 @@
  *  reconnects, and the empty-session tool-policy refresh all apply exactly as
  *  they do for a UI click. The facade is read lazily because runtime-core
  *  registers the tool executor before it finishes assembling the API object. */
-import { builtinFeatureActive } from '../builtin-features.mjs';
+import { builtinFeatureActive, builtinFirstUseApproval } from '../builtin-features.mjs';
+import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
+import { SETUP_DESKTOP_DOMAINS, SETUP_HANDOFFS } from './settings-contract.mjs';
+import { executeExtendedSetupAction, publicAutomation, validateMcpInput } from './extended-actions.mjs';
+import { createSetupUiRequests } from './ui-requests.mjs';
 import {
   SETUP_ACTIONS,
   SETUP_ACTION_FIELDS,
@@ -15,6 +19,15 @@ import {
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 
 const clean = (value) => String(value ?? '').trim();
+const ACTION_APPLIES_TO = {
+  set_recap_enabled: 'background Memory cycles; no restart required',
+  set_auto_update: 'subsequent automatic update checks',
+  set_system_shell: 'subsequent shell calls',
+  save_automation: 'the automation worker; scheduled runs follow the saved timing',
+  delete_automation: 'future automation runs',
+  set_automation_enabled: 'future automation runs',
+  set_webhook_config: 'the webhook worker after configuration reload',
+};
 
 const OPEN_TARGET_HINTS = Object.freeze({
   settings: 'Desktop: Settings (Ctrl+,) · TUI: /setting',
@@ -63,6 +76,9 @@ function routeInput(source) {
   if (clean(source.model)) next.model = clean(source.model);
   if (clean(source.effort)) next.effort = clean(source.effort);
   if (typeof source.fast === 'boolean') next.fast = source.fast;
+  if (Object.hasOwn(source, 'modelParameters')) next.modelParameters = { ...source.modelParameters };
+  if (Object.hasOwn(source, 'contextPercent')) next.contextPercent = source.contextPercent;
+  if (Object.hasOwn(source, 'disabled')) next.disabled = source.disabled;
   return next;
 }
 
@@ -118,7 +134,8 @@ function mcpRows(status) {
   };
 }
 
-export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, getSessionId }) {
+export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, getSessionId, flushSettings }) {
+  const desktop = createSetupUiRequests({ notifySessionUi, getSessionId });
   const api = () => {
     const facade = getApi?.();
     if (!facade) throw new Error('setup: runtime facade is not ready');
@@ -130,11 +147,21 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     effort: rt.effort || null,
     fast: rt.fast === true,
     fastCapable: rt.fastCapable === true,
+    modelParameters: rt.modelParameters || {},
+    contextPercent: rt.contextPercent ?? null,
   });
 
-  async function readStatus(domain) {
+  async function readStatus(domain, requestDesktop) {
     const rt = api();
+    if (SETUP_DESKTOP_DOMAINS.includes(domain)) return requestDesktop({ action: 'status', domain });
     switch (domain) {
+      case 'capabilities':
+        return {
+          actions: SETUP_ACTION_FIELDS,
+          domains: SETUP_STATUS_DOMAINS,
+          desktopScope: 'desktop-host; requires this conversation open in the local Desktop window',
+          handoffs: SETUP_HANDOFFS,
+        };
       case 'summary': {
         const config = getConfig?.() || {};
         return {
@@ -155,7 +182,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'model':
         return { route: mainRoute(rt), effortOptions: rt.effortOptions || [] };
       case 'agents':
-        return { agents: rt.listAgents?.() || [] };
+        return { agents: rt.listAgents?.() || [], orchestrationMode: rt.getOrchestrationMode(), orchestrationModes: ORCHESTRATION_MODES };
       case 'workflow':
         return { workflows: rt.listWorkflows?.() || [] };
       case 'websearch':
@@ -187,8 +214,8 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const config = getConfig?.() || {};
         return {
           ...(rt.getToolModuleSettings?.() || {}),
-          browser: { active: builtinFeatureActive(config, 'browser') },
-          computer: { active: builtinFeatureActive(config, 'computer') },
+          browser: { active: builtinFeatureActive(config, 'browser'), firstUseApproval: builtinFirstUseApproval(config, 'browser') },
+          computer: { active: builtinFeatureActive(config, 'computer'), firstUseApproval: builtinFirstUseApproval(config, 'computer') },
         };
       }
       case 'shell':
@@ -205,6 +232,20 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         return rt.getUpdateSettings?.() || {};
       case 'onboarding':
         return rt.getOnboardingStatus?.() || {};
+      case 'schedules':
+      case 'webhooks': {
+        const status = await rt.getChannelSetup();
+        return {
+          entries: status[domain].map(publicAutomation),
+          ...(domain === 'webhooks' ? {
+            listener: {
+              enabled: status.webhook?.enabled === true,
+              port: status.webhook?.port,
+              domain: status.webhook?.domain || '',
+            },
+          } : {}),
+        };
+      }
       default:
         throw new Error(`setup: unknown status domain "${domain}"`);
     }
@@ -226,7 +267,9 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     };
   }
 
-  async function execute(args = {}) {
+  async function execute(args = {}, { signal } = {}) {
+    signal?.throwIfAborted();
+    const requestDesktop = (request) => desktop.request(request, { signal });
     const action = requireEnum(args?.action, SETUP_ACTIONS, 'action');
     const validationError = schemaValueError({ ...args, action }, SETUP_TOOL_DEFS[0].inputSchema, 'setup');
     if (validationError) throw new Error(`[tool-input-validation] ${validationError}`);
@@ -237,20 +280,29 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       throw new Error(`[tool-input-validation] setup.${action} does not accept field(s): ${extras.join(', ')}`);
     const missing = fields.find((field) => !field.endsWith('?') && !Object.hasOwn(args, field));
     if (missing) throw new Error(`[tool-input-validation] ${missing} is required for setup.${action}`);
+    if (args.route) {
+      if (!Object.keys(args.route).length) throw new Error('route with at least one of the supported settings is required');
+      if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
+        throw new Error('route.disabled is only accepted by set_agent_route');
+      }
+      if (action !== 'set_route' && Object.hasOwn(args.route, 'contextPercent')) {
+        throw new Error('route.contextPercent is only accepted by set_route');
+      }
+    }
+    for (const field of ['desktop', 'appearance', 'webhook', 'compaction']) {
+      if (args[field] && !Object.keys(args[field]).length) throw new Error(`${field} requires at least one setting`);
+    }
     const rt = action === 'status' || action === 'open' ? null : api();
     switch (action) {
       case 'status': {
         const domain = clean(args.domain) || 'summary';
         requireEnum(domain, SETUP_STATUS_DOMAINS, 'domain');
-        return { domain, ...(await readStatus(domain)) };
+        return { domain, ...(await readStatus(domain, requestDesktop)) };
       }
       case 'open':
         return openSurface(args.target);
       case 'set_route': {
         const route = routeInput(args.route);
-        if (!route.provider && !route.model && !route.effort && route.fast === undefined) {
-          throw new Error('route with at least one of provider, model, effort, fast is required');
-        }
         const next = await rt.setRoute(route);
         return { route: next, appliesTo: 'next session (a conversation keeps its frozen route)' };
       }
@@ -285,10 +337,22 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const input = args.autoclear && typeof args.autoclear === 'object' ? args.autoclear : null;
         if (!input || !Object.keys(input).length)
           throw new Error('autoclear with enabled, duration, or provider is required');
+        if (input.resetProvider && !clean(input.provider)) throw new Error('resetProvider requires provider');
+        if (input.reset && input.provider) throw new Error('Use resetProvider for a provider override');
+        if (input.duration && (input.reset || input.resetProvider)) throw new Error('Cannot reset and set a duration together');
         return rt.setAutoClear(input);
       }
-      case 'set_compaction':
-        return rt.setCompactionSettings({ auto: requireBoolean(args.enabled) });
+      case 'set_compaction': {
+        const compaction = args.compaction || {};
+        if (args.enabled === undefined && !Object.keys(compaction).length) throw new Error('enabled or compaction is required');
+        if (Object.hasOwn(compaction, 'mainBufferTokens') && Object.hasOwn(compaction, 'mainBufferPercent')) {
+          throw new Error('Choose mainBufferTokens or mainBufferPercent, not both');
+        }
+        return {
+          ...rt.setCompactionSettings({ ...compaction, ...(args.enabled === undefined ? {} : { auto: args.enabled }) }),
+          appliedToCurrentSession: true,
+        };
+      }
       case 'set_memory_enabled':
         return await rt.setMemoryToolsEnabled(requireBoolean(args.enabled));
       case 'set_recap_enabled':
@@ -297,6 +361,7 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         return await rt.setWebSearchEnabled(requireBoolean(args.enabled));
       case 'set_builtin_enabled': {
         const name = requireEnum(args.name, SETUP_BUILTIN_TOGGLE_FEATURES, 'name');
+        if (['browser', 'computer', 'voice'].includes(name)) return requestDesktop(args);
         return await rt.setBuiltinToolEnabled(name, requireBoolean(args.enabled));
       }
       case 'set_first_use_approval': {
@@ -304,7 +369,8 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         return await rt.setBridgeFirstUseApproval(name, requireBoolean(args.enabled));
       }
       case 'install_builtin': {
-        const name = requireEnum(args.name, ['git', 'memory', 'office', 'tidy', 'localProvider'], 'name');
+        const name = requireEnum(args.name, ['git', 'memory', 'office', 'tidy', 'localProvider', 'browser', 'computer', 'voice'], 'name');
+        if (['browser', 'computer', 'voice'].includes(name)) return requestDesktop(args);
         return await rt.installBuiltinFeature(name);
       }
       case 'install_local_model': {
@@ -358,12 +424,17 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'add_mcp_server': {
         const server = args.server && typeof args.server === 'object' ? args.server : null;
         if (!server) throw new Error('server object is required');
+        validateMcpInput(server);
+        requireText(server.name, 'server.name');
+        if (!clean(server.command) && !clean(server.url)) throw new Error('server.command or server.url is required');
         const result = await rt.addMcpServer(server);
         return { name: result?.name, mcp: mcpRows(result?.status) };
       }
       case 'save_mcp_server': {
         const server = args.server && typeof args.server === 'object' ? args.server : null;
         if (!server) throw new Error('server object is required');
+        validateMcpInput(server);
+        requireText(server.originalName || server.name, 'server.name or server.originalName');
         const result = await rt.saveMcpServer(server);
         return { name: result?.name, mcp: mcpRows(result?.status) };
       }
@@ -398,14 +469,27 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'remove_plugin':
         return { plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null };
       default:
-        throw new Error(`setup: unhandled action "${action}"`);
+        return executeExtendedSetupAction(rt, args, requestDesktop);
     }
   }
 
   return {
-    async execute(args = {}) {
-      const result = await execute(args);
-      return JSON.stringify(result ?? {}, null, 2);
+    claimSetupRequest: desktop.claimSetupRequest,
+    isSetupRequestActive: desktop.isSetupRequestActive,
+    completeSetupRequest: desktop.completeSetupRequest,
+    dispose: desktop.dispose,
+    async execute(args = {}, options = {}) {
+      const result = await execute(args, options);
+      const readOnly = ['status', 'open', 'list_models', 'get_mcp_server', 'read_definition', 'get_instructions',
+        'search_local_models', 'inspect_hf_model', 'local_model_details'].includes(args.action);
+      if (!readOnly) await flushSettings?.();
+      return JSON.stringify(readOnly ? result ?? {} : {
+        ...(['start_local_installation', 'maintain_local_model', 'cancel_local_installation', 'reconnect_mcp'].includes(args.action)
+          ? {} : { saved: true }),
+        scope: 'installation',
+        appliesTo: ACTION_APPLIES_TO[args.action] || 'new sessions unless appliedToCurrentSession is true',
+        ...result,
+      }, null, 2);
     },
   };
 }

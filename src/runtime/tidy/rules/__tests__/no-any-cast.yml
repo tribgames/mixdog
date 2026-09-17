@@ -1,0 +1,12 @@
+id: no-any-cast
+valid:
+  - const a = b as string;
+  - const c = d as unknown as string;
+  - const e = f as Any;
+  - const g = h as unknown;
+invalid:
+  - const a = b as any;
+  - (foo as any).bar();
+  - |
+    const c = d as any;
+    const a = <any>b;

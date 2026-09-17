@@ -380,7 +380,7 @@ export const TranscriptRow = memo(
         </article>
         {announceSettled && !completion && (
           <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-            Mixdog response complete.
+            {t('Mixdog response complete.')}
           </p>
         )}
       </>

@@ -4,6 +4,41 @@ import { createSessionLifecycle } from './session-lifecycle.ts';
 import { createExecutionState } from './execution-state.ts';
 import { ComputerUseCoordinator } from '../session/coordinator.ts';
 
+test('idle native workers retire through confirmed cleanup without cancelling active or queued work', async () => {
+  const coordinator = new ComputerUseCoordinator();
+  const execution = createExecutionState();
+  const children = new Map(['idle', 'busy', 'queued', 'recent'].map(id => [
+    id, { killed: false, exitCode: null, signalCode: null },
+  ]));
+  const live = new Map(children);
+  const released = [];
+  execution.activeExecutionsBySession.set('busy', { sessionId: 'busy', aborted: false });
+  execution.commandChainsBySession.set('queued', new Promise(() => {}));
+  const host = createSessionLifecycle({
+    coordinator, execution, powerShellBySession: live,
+    workerLastUsedAt: new Map([['idle', 0], ['busy', 0], ['queued', 0], ['recent', 60_000]]),
+    retirePowerShell(child) {
+      child.killed = true;
+      child.exitCode = 0;
+      for (const [id, value] of live) if (value === child) live.delete(id);
+    },
+    callPowerShell: async () => { throw new Error('idle cleanup must not start a new worker'); },
+    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
+    sessionIdFor: command => command.session_id,
+    releaseSessionState: id => released.push(id),
+    invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    cleanupInput: async () => true,
+    runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+  });
+  host.reapIdleSessionWorkers(61_000);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(children.get('idle').killed, true);
+  for (const id of ['busy', 'queued', 'recent']) assert.equal(children.get(id).killed, false, id);
+  assert.deepEqual(released, ['idle']);
+  assert.equal(coordinator.snapshot().cleanupState, 'ready');
+  coordinator.reset();
+});
+
 for (const turnFailure of [false, true]) {
   test(`Stop cleans native input before the daemon replies and keeps failures paused (${turnFailure})`, async () => {
     const coordinator = new ComputerUseCoordinator();

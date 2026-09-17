@@ -1,7 +1,7 @@
 ---
 id: default
 name: Default
-description: "Plan together, then execute."
+description: "Handle tasks as requested."
 ---
 
 # Default

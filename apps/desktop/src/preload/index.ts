@@ -76,7 +76,7 @@ const api: DesktopApi = {
   renameProject: (projectPath, alias) => ipcRenderer.invoke(DESKTOP_IPC.renameProject, projectPath, alias),
   removeProject: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.removeProject, projectPath),
   readInstructions: (projectPath) => ipcRenderer.invoke(DESKTOP_IPC.readInstructions, projectPath),
-  writeInstructions: (projectPath, content) => ipcRenderer.invoke(DESKTOP_IPC.writeInstructions, projectPath, content),
+  writeInstructions: (projectPath, content, expectedContent) => ipcRenderer.invoke(DESKTOP_IPC.writeInstructions, projectPath, content, expectedContent),
   listProjectDir: (projectPath, relDir) => ipcRenderer.invoke(DESKTOP_IPC.listProjectDir, projectPath, relDir),
   // File.path was removed in modern Electron; webUtils resolves native drops.
   folderPathForFile: (file) => {

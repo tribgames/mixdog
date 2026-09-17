@@ -16,6 +16,7 @@ type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 
 export function useEditorLspSession({
   editorRef,
+  modelRef,
   graphContextRef,
   callHierarchyContextKey,
   projectPath,
@@ -26,6 +27,7 @@ export function useEditorLspSession({
   onLanguageError,
 }: {
   editorRef: RefObject<EditorInstance | null>;
+  modelRef?: RefObject<import('monaco-editor').editor.ITextModel | null>;
   graphContextRef: RefObject<EditorGraphContext>;
   callHierarchyContextKey: RefObject<import('monaco-editor').editor.IContextKey<boolean> | null>;
   projectPath: string;
@@ -36,6 +38,10 @@ export function useEditorLspSession({
   onLanguageError(message: string): void;
 }) {
   const api = window.mixdogDesktop;
+  const readModel = useCallback(
+    () => editorRef.current?.getModel() ?? modelRef?.current ?? null,
+    [editorRef, modelRef]
+  );
   const [modelUri, setModelUri] = useState('');
   const [, setFeatureRevision] = useState(0);
   const lspReady = useRef(false);
@@ -81,7 +87,7 @@ export function useEditorLspSession({
 
   const syncLsp = useCallback(
     async (kind: 'change' | 'save' = 'change'): Promise<boolean> => {
-      const model = editorRef.current?.getModel();
+      const model = readModel();
       if (!model || !api?.lspDocument) return false;
       if (lspOpenPromise.current) await lspOpenPromise.current.catch(() => undefined);
       if (!lspReady.current) {
@@ -122,12 +128,12 @@ export function useEditorLspSession({
       if (state.available) lspLastVersion.current = version;
       return state.available;
     },
-    [acceptLspState, api, editorRef, projectPath, relPath]
+    [acceptLspState, api, readModel, projectPath, relPath]
   );
 
   const requestLsp = useCallback(
     async (method: DesktopLspRequestMethod, params: Record<string, unknown> = {}): Promise<unknown> => {
-      const model = editorRef.current?.getModel();
+      const model = readModel();
       if (!model || !api?.lspRequest || !(await syncLsp('change'))) return undefined;
       const response = await api.lspRequest({
         projectPath,
@@ -138,7 +144,7 @@ export function useEditorLspSession({
       });
       return response.available && response.status !== 'error' ? response.result : undefined;
     },
-    [api, editorRef, projectPath, relPath, syncLsp]
+    [api, readModel, projectPath, relPath, syncLsp]
   );
 
   const applyWorkspaceEdit = useCallback(
@@ -155,7 +161,7 @@ export function useEditorLspSession({
   );
 
   const updateOutline = useCallback(async (): Promise<void> => {
-    const model = editorRef.current?.getModel();
+    const model = readModel();
     if (!model) return;
     const raw = await requestLsp('textDocument/documentSymbol');
     const converted = lspDocumentSymbols(model, raw, graphContextRef.current);
@@ -173,10 +179,10 @@ export function useEditorLspSession({
     } catch {
       publishOutline(model.uri.toString(), []);
     }
-  }, [codeGraph, editorRef, graphContextRef, publishOutline, relPath, requestLsp]);
+  }, [codeGraph, readModel, graphContextRef, publishOutline, relPath, requestLsp]);
 
   useEffect(() => {
-    const model = editorRef.current?.getModel();
+    const model = readModel();
     if (!model || !api?.lspDocument) return;
     const languageId = model.getLanguageId();
     if (active) {
@@ -224,7 +230,7 @@ export function useEditorLspSession({
         })
       )
       .catch(() => undefined);
-  }, [acceptLspState, active, api, editorRef, modelUri, projectPath, relPath, updateOutline]);
+  }, [acceptLspState, active, api, readModel, modelUri, projectPath, relPath, updateOutline]);
 
   const disposeLsp = useCallback(
     (model: import('monaco-editor').editor.ITextModel | null | undefined) => {

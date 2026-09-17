@@ -157,24 +157,27 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Validate exact targets before destructive actions/i);
   assert.match(full, /never roots, `~` or\s+unresolved variables\/globs/i);
   assert.match(full, /Report deletion recoverability/i);
-  assert.match(full, /Shortest route: missing evidence → implement → verify once → deliver/i);
-  assert.match(full, /Wait only for true data dependencies or safety ordering/i);
-  assert.match(full, /issue every known independent action in the same turn/i);
-  assert.match(full, /Cheapest decisive evidence first: existing state, diff or a failing test\s+before any search/i);
+  assert.match(full, /Shortest route: cheapest decisive evidence first \(existing state, a diff, a\s+failing test\)/i);
+  assert.match(full, /Sequence\s+only on a real dependency/i);
+  assert.match(full, /Order on files: enumerate only when the scope is unknown/i);
+  assert.match(full, /one read\s+stage: one `\{file_path, offset, limit\}` window per site, ≤10 per call/i);
+  assert.match(full, /A search after a read that could have\s+run before it is a wasted round; content in context is never read again/i);
   assert.match(
     full,
-    /Trust documented\s+guarantees; no availability checks or defensive branches, in scripts included/i
+    /Trust documented guarantees; no availability checks or defensive branches,\s+in scripts included/i
   );
-  assert.match(full, /take the backup\s+inside the first inspection call, never as a separate step/i);
-  assert.match(full, /Reuse unchanged content already delivered; changed sources and omitted ranges are new evidence/i);
+  assert.match(
+    full,
+    /Only an input you\s+will mutate gets an unchanged backup — its copy command goes in the same\s+response as the first inspection, never a round of its own/i
+  );
+  assert.match(full, /no backups for reading/i);
+  assert.match(full, /direct references, no surveys or history/i);
+  assert.match(full, /Reuse content\s+already delivered; changed sources and omitted ranges are new evidence/i);
   assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
-  assert.match(full, /Tools own their work; shell never substitutes\. Route by missing evidence:/i);
-  assert.match(full, /Tool names are not shell commands; `shell` only runs programs and computation/i);
-  assert.match(full, /Never issue one lookup and wait when several targets are already known; no serial wait-and-see/i);
-  assert.match(
-    full,
-    /batch arguments \(path\/URL arrays\) where the tool supports them and options, query combinations and required outputs are preserved; concurrent calls across tools or targets otherwise/i
-  );
+  assert.match(full, /Route by missing evidence: files\/ranges→`read`, text or regex→`grep`/i);
+  assert.match(full, /`shell` only runs\s+programs and computation\. Tool names are not shell commands/i);
+  assert.match(full, /Every independent call in the same response, never one per round/i);
+  assert.match(full, /Several targets of one tool in its array argument/i);
   assert.match(
     full,
     /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i
@@ -189,22 +192,25 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
     /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i
   );
   assert.match(full, /Supplied\/home\/environment paths need no locator/i);
-  assert.match(full, /Use non-mutating readers directly/i);
-  assert.match(full, /keep an unchanged\s+backup of every source artifact and work on a separate copy/i);
-  assert.match(full, /Keep it after\s+replacing originals unless the user requires purging/i);
+  assert.match(full, /Non-mutating readers directly/i);
+  assert.match(full, /keep the backup\s+unless the user requires purging/i);
+  assert.match(full, /temp workspaces come from a\s+unique-directory allocator/i);
+  assert.match(full, /files\/ranges→`read`, text or regex→`grep`,\s+declarations and relations→`code_graph`/i);
   assert.match(
     full,
-    /known files\/ranges→`read`, literal text or regex→`grep`, declarations, signatures, exports, members and relations→`code_graph`/i
+    /Structure questions \(exports, signatures, members, callers, importers\) go to\s+`code_graph`; its rows already carry export marker, signature and location/i
   );
-  assert.match(
-    full,
-    /Structure questions \(a file's exports, API or signatures, a class's or object's members, who calls or imports something\) go to `code_graph` first/i
-  );
+  assert.match(full, /Source files are read by located windows/i);
   assert.match(full, /Retry only after a relevant change, at most one bounded transient retry/i);
   assert.match(full, /never bypass denial or cancellation/i);
   assert.match(full, /never hide errors, timeouts or cancellation\s+behind later success/i);
   assert.doesNotMatch(full, /fallback/i);
-  assert.match(full, /UI\/edit sites: use `grep` to locate unknown regions/i);
+  assert.match(
+    full,
+    /locate every site \(`grep` `context:0`\/`mode:files`, `code_graph`; known\s+locations skip straight to the read\)/i
+  );
+  assert.match(full, /where each target keeps\s+its own options/i);
+  assert.doesNotMatch(full, /UI\/edit sites/i);
   assert.match(
     full,
     /After all edits, cover each required check once: one runner per runtime,\s+independent checks in parallel/i

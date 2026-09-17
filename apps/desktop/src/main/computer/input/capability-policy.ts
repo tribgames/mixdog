@@ -26,6 +26,8 @@ export function shouldRunCaptureOcr(
 export interface VisualOnlyCapability {
   misses: number;
   expiresAt: number;
+  /** A bounded retry delay, not evidence that the provider is empty. */
+  error?: string;
 }
 
 export function createVisualOnlyCapabilityStore(maxEntries = 128) {

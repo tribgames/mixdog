@@ -1,5 +1,5 @@
 import { ArrowLeft, Check, Copy } from 'lucide-react';
-import { uiFormatLocale } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 import type { DesktopGitCommitDetails, DesktopGitCommitFile } from '../shared/contract';
 import { GitFileDiff } from './ReviewPane';
 import { ScmPathText } from './ScmPathText';
@@ -84,8 +84,8 @@ export function SourceControlCommitDetail({
             <button
               type="button"
               className="dock-scm-commit-action"
-              aria-label="Copy the full SHA"
-              title={copyState ? (copyState.ok ? 'Copied' : 'Copy failed') : 'Copy the full SHA'}
+              aria-label={t('Copy the full SHA')}
+              title={copyState ? (copyState.ok ? t('Copied') : t('Copy failed')) : t('Copy the full SHA')}
               onClick={() => void onCopySha(detail.hash)}
             >
               {copyState?.ok ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
@@ -94,8 +94,8 @@ export function SourceControlCommitDetail({
           <button
             type="button"
             className="dock-scm-commit-action dock-scm-commit-back"
-            aria-label="Back to commit history"
-            title="Back to commit history"
+            aria-label={t('Back to commit history')}
+            title={t('Back to commit history')}
             onClick={onBack}
           >
             <ArrowLeft size={14} aria-hidden="true" />
@@ -136,20 +136,20 @@ export function SourceControlCommitDetail({
             {open && (
               <div className="dock-scm-commit-diff">
                 {patch === undefined || patch === null ? (
-                  <p>Loading diff…</p>
+                  <p>{t('Loading diff…')}</p>
                 ) : patch.startsWith('Error:') ? (
                   <p>{patch}</p>
                 ) : patch ? (
                   <GitFileDiff patch={patch} mode="unified" />
                 ) : (
-                  <p>No textual diff.</p>
+                  <p>{t('No textual diff.')}</p>
                 )}
               </div>
             )}
           </section>
         );
       })}
-      {detail && detailFiles.length === 0 && <p className="utility-dock-empty">No file changes in this commit.</p>}
+      {detail && detailFiles.length === 0 && <p className="utility-dock-empty">{t('No file changes in this commit.')}</p>}
     </div>
   );
 }

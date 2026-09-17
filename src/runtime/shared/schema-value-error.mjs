@@ -10,6 +10,11 @@ export function schemaValueError(value, schema, path) {
   if (schema.enum && !schema.enum.includes(value)) {
     return `${path} must be one of: ${schema.enum.join(', ')}`;
   }
+  if (Array.isArray(schema.type)) {
+    const errors = schema.type.map((type) => schemaValueError(value, { ...schema, type }, path));
+    return errors.includes(null) ? null : errors.join(' or ');
+  }
+  if (schema.type === 'null' && value !== null) return `${path} must be null`;
   if (schema.type === 'string') {
     if (typeof value !== 'string') return `${path} must be a string`;
     const length = schemaStringLength(value);

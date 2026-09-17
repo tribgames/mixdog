@@ -113,7 +113,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   if (showFencedSourceFallback) {
     return <MarkdownSourceFallback text={text} copyControl={copyControl} />;
   }
-  return null;
+  return <span hidden data-transcript-pending />;
 });
 
 const StreamingMarkdownBody = memo(function StreamingMarkdownBody({

@@ -618,6 +618,9 @@ export const DESKTOP_CAPABILITIES = [
   'deleteLocalProviderModel',
   'getVoiceStatus',
   'toggleVoice',
+  'claimSetupRequest',
+  'isSetupRequestActive',
+  'completeSetupRequest',
   'agentControl',
   'taskControl',
   'goalControl',
@@ -734,6 +737,7 @@ export const DESKTOP_CAPABILITIES = [
 export type DesktopCapability = (typeof DESKTOP_CAPABILITIES)[number];
 
 export const DESKTOP_READ_CAPABILITIES = [
+  'isSetupRequestActive',
   'getLocalProviderModelDetails',
   'getAutoClear',
   'getUpdateSettings',
@@ -1786,7 +1790,7 @@ export interface DesktopApi {
    *  ("# Project Instructions", injected at session start). Optional: the
    *  remote shim omits both and the UI hides the editor. */
   readInstructions?(projectPath: string | null): Promise<string>;
-  writeInstructions?(projectPath: string | null, content: string): Promise<void>;
+  writeInstructions?(projectPath: string | null, content: string, expectedContent?: string): Promise<{ backupPath: string } | void>;
   /** Dock Files tab: lazy per-directory listing. */
   listProjectDir?(projectPath: string, relDir: string): Promise<DesktopDirEntry[]>;
   /** Editor tab: project file IO (traversal-guarded in main). */

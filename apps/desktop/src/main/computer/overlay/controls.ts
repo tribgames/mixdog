@@ -1,6 +1,6 @@
 export interface ComputerUseOverlayControls {
   stop(sessionIds: string[]): Promise<void>;
-  /** Safety pause when the control surface itself is lost; never a user button. */
+  /** Pause input without ending the task, including when the control surface is lost. */
   pause?(): Promise<void>;
   resume(generation: number, signal?: AbortSignal): Promise<void>;
   configureIdleResume?(seconds: number): void;
@@ -15,7 +15,7 @@ export function createComputerOverlayController(
 ) {
   let busy = false;
   let error: ComputerOverlayControlError = '';
-  // Stop changes the takeover generation itself, so its failure must outlive
+  // Pause and Stop change the takeover generation themselves, so failure must outlive
   // the generation it was requested under or the user sees nothing.
   let errorGeneration: number | 'any' | undefined;
   let pending: AbortController | undefined;
@@ -28,7 +28,7 @@ export function createComputerOverlayController(
     const request = new AbortController();
     pending = request;
     pendingAction = action;
-    busy = true; error = ''; errorGeneration = action === 'stop' ? 'any' : generation; changed();
+    busy = true; error = ''; errorGeneration = action === 'resume' ? generation : 'any'; changed();
     try {
       if (action === 'resume') await controls.resume(generation, request.signal);
       else if (action === 'pause') {
@@ -47,9 +47,6 @@ export function createComputerOverlayController(
     }
   };
   return {
-    cancelResume(): void {
-      if (pendingAction === 'resume') pending?.abort();
-    },
     state(generation: number) {
       return { busy, error: errorGeneration === 'any' || errorGeneration === generation ? error : '' };
     },

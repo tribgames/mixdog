@@ -9,6 +9,9 @@ import { EFFORT_CONFIGURATION_BETA, prepareTurnEffortConfiguration } from './eff
 import { TURN_SCOPED_SYSTEM_BETA_HEADER } from './anthropic-betas.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 
+const ROUND_REMINDER =
+  "First privately list what you need next; then request every item that doesn't depend on another's result in this one response.";
+
 function restoreEnv(name, value) {
   if (value === undefined) delete process.env[name];
   else process.env[name] = value;
@@ -258,6 +261,7 @@ test('Fable carries scoped-reminder headers and replay context through every res
         };
         const send = () =>
           provider.send(history, model, [], {
+            roundReminder: ROUND_REMINDER,
             onTextReset: async () => true,
             _parseSSEFn: async (...args) => {
               if (transport === 'non-streaming') return exposedThenTerminated(args);
@@ -283,10 +287,11 @@ test('Fable carries scoped-reminder headers and replay context through every res
           replay = (await send()).providerReplay;
         }
         assert.deepEqual(
-          replay.requestContext.fable51Batching,
+          replay.requestContext.turnReminder,
           {
-            version: 1,
+            version: 2,
             toolResultIds: ['toolu_before'],
+            text: ROUND_REMINDER,
           },
           transport
         );

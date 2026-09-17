@@ -1,6 +1,8 @@
 import type { MarkdownAstRoot } from './markdown-ast';
 import { rememberMarkdownAstWeight } from './markdown-ast-weight';
 
+const PARSER_IDLE_MS = 60_000;
+
 interface MarkdownWorkerResponse {
   id: number;
   root?: MarkdownAstRoot;
@@ -21,6 +23,7 @@ export class MarkdownWorkerHost {
   private sequence = 0;
   private readonly pending = new Map<number, PendingMarkdownRequest>();
   private reclaimWhenIdle = false;
+  private idleTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly createWorker: () => Worker = () => {
@@ -33,6 +36,7 @@ export class MarkdownWorkerHost {
   ) {}
 
   parse(text: string): Promise<MarkdownAstRoot> {
+    this.cancelIdleRelease();
     this.reclaimWhenIdle = false;
     return new Promise((resolve, reject) => {
       const worker = this.getWorker();
@@ -43,11 +47,13 @@ export class MarkdownWorkerHost {
       } catch (error) {
         this.pending.delete(id);
         reject(error instanceof Error ? error : new Error(String(error)));
+        this.scheduleIdleRelease();
       }
     });
   }
 
   reclaim(): void {
+    this.cancelIdleRelease();
     this.reclaimWhenIdle = true;
     this.releaseIfIdle();
   }
@@ -59,9 +65,22 @@ export class MarkdownWorkerHost {
     this.reclaimWhenIdle = false;
   }
 
+  private cancelIdleRelease(): void {
+    if (this.idleTimer !== null) clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+  }
+
+  private scheduleIdleRelease(): void {
+    this.cancelIdleRelease();
+    if (this.worker && this.pending.size === 0) {
+      this.idleTimer = setTimeout(() => this.reclaim(), PARSER_IDLE_MS);
+    }
+  }
+
   private fail(worker: Worker, error: Error): void {
     // Events already queued by a retired worker cannot poison its replacement.
     if (this.worker !== worker) return;
+    this.cancelIdleRelease();
     this.failure = error;
     this.worker = null;
     worker.terminate();
@@ -88,6 +107,7 @@ export class MarkdownWorkerHost {
         request.resolve(event.data.root);
       }
       this.releaseIfIdle();
+      this.scheduleIdleRelease();
     });
     worker.addEventListener('error', (event) => {
       // Suppress the duplicate window error; the client recovers via its

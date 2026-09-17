@@ -271,7 +271,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
         key={agent.id}
         className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row"
         data-enabled={disabled ? 'false' : 'true'}
-        title={agent.description || agent.label}
+        data-tooltip={t('Agent settings')}
         disabled={busy}
         aria-label={t('Edit {{name}}', { name: agent.label })}
         onClick={() => void openAgentEditor(agent.id, agent.label, agent.custom)}
@@ -438,7 +438,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                   className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
                   data-enabled={exploreRow?.disabled === true ? 'false' : 'true'}
                   style={{ order: defaultAgentOrder.orderedIds.indexOf(exploreAgent.id) }}
-                  title={exploreAgent.description || exploreAgent.label}
+                  data-tooltip={t('Agent settings')}
                   disabled={busy}
                   aria-label={t('Edit {{name}}', { name: exploreAgent.label })}
                   onClick={() =>
@@ -471,7 +471,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                   className="schedules-row utilities-row sidebar-resource-row workflows-agent-summary-row workflows-default-agent-summary-row"
                   data-enabled={maintainerRow?.disabled === true ? 'false' : 'true'}
                   style={{ order: defaultAgentOrder.orderedIds.indexOf(maintainerAgent.id) }}
-                  title={maintainerAgent.description || maintainerAgent.label}
+                  data-tooltip={t('Agent settings')}
                   disabled={busy}
                   aria-label={t('Edit {{name}}', { name: maintainerAgent.label })}
                   onClick={() =>

@@ -6,10 +6,15 @@ import {
   TURN_SCOPED_SYSTEM_BETA_HEADER,
   buildAnthropicBetaHeaders,
 } from './anthropic-betas.mjs';
-import { _buildRequestBodyForCacheSmoke, _test as oauthTest } from './anthropic-oauth.mjs';
+import { _buildRequestBodyForCacheSmoke as smoke, _test as oauthTest } from './anthropic-oauth.mjs';
 import { cloneProviderReplay, createProviderReplay } from './lib/provider-replay.mjs';
-import { withFable51BatchingContext } from './anthropic-fable-history.mjs';
+import { withTurnReminderContext, LEGACY_FABLE_51_REMINDER } from './anthropic-turn-reminder.mjs';
 import { _sessionForDisk } from '../session/store/serialize.mjs';
+
+// The route's reminder as the agent loop hands it over (opts.roundReminder).
+const REMINDER =
+  "First privately list what you need next; then request every item that doesn't depend on another's result in this one response.";
+const build = (messages, model, opts = {}) => smoke(messages, model, [], { roundReminder: REMINDER, ...opts });
 
 function toolContinuation() {
   return [
@@ -35,7 +40,7 @@ function toolContinuation() {
 test('Fable 5.1 projects a system boundary after a tool result without mutating history', () => {
   const source = toolContinuation();
   const sourceSnapshot = structuredClone(source);
-  const body = _buildRequestBodyForCacheSmoke(source, 'claude-fable-5-1');
+  const body = build(source, 'claude-fable-5-1');
 
   assert.deepEqual(source, sourceSnapshot);
   assert.equal(body.messages.at(-2).role, 'user');
@@ -48,7 +53,7 @@ test('Fable 5.1 projects a system boundary after a tool result without mutating 
 
 test('Fable 5.1 keeps the prefix before signed thinking unchanged across tool continuations and resume', () => {
   const history = [{ role: 'user', content: 'Inspect the files.' }, ...toolContinuation()];
-  const first = _buildRequestBodyForCacheSmoke(history, 'claude-fable-5-1');
+  const first = build(history, 'claude-fable-5-1');
   const signed = [
     { type: 'thinking', thinking: 'Continue.', signature: 'opaque-prefix-bound-signature' },
     { type: 'tool_use', id: 'toolu_second', name: 'read', input: { file_path: 'b.txt' } },
@@ -57,7 +62,7 @@ test('Fable 5.1 keeps the prefix before signed thinking unchanged across tool co
     {
       role: 'assistant',
       content: '',
-      providerReplay: withFable51BatchingContext(createProviderReplay('anthropic', signed), first),
+      providerReplay: withTurnReminderContext(createProviderReplay('anthropic', signed), first),
       toolCalls: [{ id: 'toolu_second', name: 'read', arguments: { file_path: 'b.txt' } }],
     },
     { role: 'tool', toolCallId: 'toolu_second', content: 'second result' }
@@ -78,7 +83,7 @@ test('Fable 5.1 keeps the prefix before signed thinking unchanged across tool co
     ...(message.providerReplay ? { providerReplay: cloneProviderReplay(message.providerReplay) } : {}),
   }));
   for (const source of [history, resumed]) {
-    const next = _buildRequestBodyForCacheSmoke(source, 'claude-fable-5-1');
+    const next = build(source, 'claude-fable-5-1');
     const signedIndex = next.messages.findIndex(
       (message) =>
         Array.isArray(message.content) && message.content.some((block) => block.signature === signed[0].signature)
@@ -92,7 +97,7 @@ test('Fable 5.1 keeps the prefix before signed thinking unchanged across tool co
     assert.ok(reminders.every((message) => message.clear_at === 'next_user_message'));
   }
   history.push({ role: 'user', content: 'Stop and explain.', meta: { source: 'steering' } });
-  const steered = _buildRequestBodyForCacheSmoke(history, 'claude-fable-5-1');
+  const steered = build(history, 'claude-fable-5-1');
   assert.equal(steered.messages.at(-1).role, 'user');
   assert.equal(steered.messages.filter((message) => message.role === 'system').length, 1);
 });
@@ -113,10 +118,11 @@ test('legacy signed boundaries keep their old scope while new continuations expi
     },
     { role: 'tool', toolCallId: 'toolu_legacy', content: 'legacy result' },
   ];
-  const body = _buildRequestBodyForCacheSmoke(history, 'claude-fable-5-1');
+  const body = build(history, 'claude-fable-5-1');
   const reminders = body.messages.filter((message) => message.role === 'system');
   assert.equal(reminders.length, 2);
-  assert.deepEqual(reminders[0], { role: 'system', content: reminders[1].content });
+  assert.deepEqual(reminders[0], { role: 'system', content: LEGACY_FABLE_51_REMINDER });
+  assert.equal(reminders[1].content, REMINDER);
   assert.equal(reminders[1].clear_at, 'next_user_message');
   const replayed = body.messages.find(
     (message) => Array.isArray(message.content) && message.content.some((block) => block.signature === 'legacy-prefix')
@@ -124,21 +130,44 @@ test('legacy signed boundaries keep their old scope while new continuations expi
   assert.deepEqual(replayed.content, signed);
 });
 
-test('the prompt bundle follows Fable 5.1 aliases but leaves other models unchanged', () => {
-  assert.equal(oauthTest.usesFable51PromptBundle('claude-fable-5.1'), true);
-  assert.equal(oauthTest.usesFable51PromptBundle('claude-fable-5-1-20260901'), true);
-  assert.equal(oauthTest.usesFable51PromptBundle('claude-fable-5-0'), false);
-  assert.equal(oauthTest.usesFable51PromptBundle('claude-opus-5-1'), false);
+test('no boundary precedes the first response, and a route without a reminder emits none', () => {
 
-  const firstTurn = _buildRequestBodyForCacheSmoke([{ role: 'user', content: '첫 요청입니다.' }], 'claude-fable-5-1');
+  const firstTurn = build([{ role: 'user', content: '첫 요청입니다.' }], 'claude-fable-5-1');
   assert.equal(
     firstTurn.messages.some((message) => message.role === 'system'),
     false
   );
 
-  const body = _buildRequestBodyForCacheSmoke(toolContinuation(), 'claude-opus-5-1');
+  const body = build(toolContinuation(), 'claude-opus-5-1', { roundReminder: null });
   assert.equal(
     body.messages.some((message) => message.role === 'system'),
+    false
+  );
+});
+
+test('a changed route text leaves recorded boundaries byte-identical; only the newest follows it', () => {
+  const history = [{ role: 'user', content: 'Inspect the files.' }, ...toolContinuation()];
+  const first = build(history, 'claude-fable-5-1');
+  const signed = [
+    { type: 'thinking', thinking: 'Continue.', signature: 'route-text-signature' },
+    { type: 'tool_use', id: 'toolu_next', name: 'read', input: { file_path: 'c.txt' } },
+  ];
+  history.push(
+    {
+      role: 'assistant',
+      content: '',
+      providerReplay: withTurnReminderContext(createProviderReplay('anthropic', signed), first),
+      toolCalls: [{ id: 'toolu_next', name: 'read', arguments: { file_path: 'c.txt' } }],
+    },
+    { role: 'tool', toolCallId: 'toolu_next', content: 'next result' }
+  );
+  const changed = build(history, 'claude-fable-5-1', { roundReminder: 'Changed reminder.' });
+  const reminders = changed.messages.filter((message) => message.role === 'system');
+  assert.equal(reminders.length, 2);
+  assert.deepEqual(reminders[0], { role: 'system', content: REMINDER, clear_at: 'next_user_message' });
+  assert.deepEqual(reminders[1], { role: 'system', content: 'Changed reminder.', clear_at: 'next_user_message' });
+  assert.equal(
+    build(history, 'claude-fable-5-1', { roundReminder: null }).messages.some((message) => message.role === 'system'),
     false
   );
 });
@@ -152,7 +181,7 @@ test('a steering user turn remains the final instruction and suppresses batching
       meta: { source: 'steering' },
     },
   ];
-  const body = _buildRequestBodyForCacheSmoke(messages, 'claude-fable-5-1');
+  const body = build(messages, 'claude-fable-5-1');
 
   assert.equal(body.messages.at(-1).role, 'user');
   assert.equal(
@@ -177,7 +206,7 @@ test('the mid-conversation system beta is request-gated and deduplicated', () =>
     !buildAnthropicBetaHeaders({ base: '', midConversationSystem: true }).includes(TURN_SCOPED_SYSTEM_BETA_HEADER)
   );
 
-  const continuationBody = _buildRequestBodyForCacheSmoke(toolContinuation(), 'claude-fable-5-1');
+  const continuationBody = build(toolContinuation(), 'claude-fable-5-1');
   assert.equal(
     oauthTest
       .buildOAuthBetaHeaders(continuationBody, {
@@ -193,7 +222,7 @@ test('the mid-conversation system beta is request-gated and deduplicated', () =>
       .buildOAuthBetaHeaders(continuationBody, { model: 'claude-fable-5-1' })
       .includes(TURN_SCOPED_SYSTEM_BETA_HEADER)
   );
-  const firstTurnBody = _buildRequestBodyForCacheSmoke(
+  const firstTurnBody = build(
     [{ role: 'user', content: '첫 요청입니다.' }],
     'claude-fable-5-1'
   );

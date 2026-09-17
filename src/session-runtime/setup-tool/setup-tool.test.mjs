@@ -251,6 +251,7 @@ test('mutations go through the runtime facade with validated input', async () =>
   const installed = await run(executor, { action: 'install_builtin', name: 'tidy' });
   assert.deepEqual(calls.at(-1), ['installBuiltinFeature', 'tidy']);
   assert.deepEqual(installed.tidy, { enabled: true, installed: true });
+  assert.equal(installed.saved, true);
   await run(executor, { action: 'set_builtin_enabled', name: 'tidy', enabled: false });
   assert.deepEqual(calls.at(-1), ['setBuiltinToolEnabled', 'tidy', false]);
   await assert.rejects(

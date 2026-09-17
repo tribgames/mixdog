@@ -7,6 +7,7 @@ import {
   AGENT_PROVIDER_ENV,
 } from '../../shared/config.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
+import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
 import { DEFAULT_DISABLED_AGENT_IDS, canonicalizeAgentRouteStorage } from '../../shared/agent-route-config.mjs';
 import profileConfig from '../../shared/profile-config.cjs';
@@ -179,7 +180,13 @@ export function loadConfig(options = {}) {
       if (includeSecrets) {
         for (const name of new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)])) {
           const kc = getAgentApiKey(name);
-          if (kc) mergedProviders[name] = { ...(mergedProviders[name] || {}), apiKey: kc, enabled: true };
+          if (kc) {
+            mergedProviders[name] = {
+              ...(mergedProviders[name] || {}),
+              apiKey: kc,
+              enabled: raw.providers?.[name]?.enabled !== false,
+            };
+          }
         }
       }
       // Cursor account access is OAuth-only. The dashboard's "API"
@@ -410,13 +417,29 @@ function buildAgentSaveBuilder(config) {
     return removeRetiredAgentFields(next);
   };
 }
-// Managed fields are replaced from the caller's fresh snapshot; unmanaged
-// fields rebase on the in-lock current. Provider keys remain keychain-only.
-// Use an in-lock field patch rather than a whole-section save for isolated edits.
-export function saveConfig(config) {
+// Diff the persisted schema, not runtime defaults, aliases, or secret overlays.
+export function createConfigPatch(before, after) {
+  return diffConfig(buildAgentSaveBuilder(before)({}), buildAgentSaveBuilder(after)({}));
+}
+
+export function saveConfigPatch(changes) {
+  if (!changes.length) return;
+  persistAgentConfig((current) => applyConfigPatch(current, changes));
+}
+
+export async function saveConfigPatchAsync(changes) {
+  if (!changes.length) return;
+  await persistAgentConfigAsync((current) => applyConfigPatch(current, changes));
+}
+
+// Whole-section replacement is reserved for explicit full saves. Read/edit/save
+// callers supply their baseline so unrelated in-lock current fields survive.
+export function saveConfig(config, { baseConfig } = {}) {
+  if (baseConfig) return saveConfigPatch(createConfigPatch(baseConfig, config));
   persistAgentConfig(buildAgentSaveBuilder(config));
 }
 // Async twin used by the debounced config-save flush timer.
-export async function saveConfigAsync(config) {
+export async function saveConfigAsync(config, { baseConfig } = {}) {
+  if (baseConfig) return saveConfigPatchAsync(createConfigPatch(baseConfig, config));
   await persistAgentConfigAsync(buildAgentSaveBuilder(config));
 }

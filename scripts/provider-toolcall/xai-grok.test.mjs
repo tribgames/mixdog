@@ -26,10 +26,12 @@ test('Grok schema flatten keeps grep pattern required', () => {
   assert.equal(grep?.inputSchema?.properties?.pattern?.anyOf?.[0]?.type, 'string');
   assert.equal(grep?.inputSchema?.properties?.pattern?.anyOf?.[1]?.type, 'array');
   const [normalized] = normalizeGrokToolSchemas([grep]);
-  for (const key of ['pattern', 'path', 'glob']) {
-    assert.equal(normalized.inputSchema.properties[key]?.type, 'string');
+  for (const key of ['pattern', 'path']) {
+    assert.equal(normalized.inputSchema.properties[key]?.type, 'array');
+    assert.equal(normalized.inputSchema.properties[key]?.items?.type, 'string');
     assert.equal(normalized.inputSchema.properties[key]?.anyOf, undefined);
   }
+  assert.equal(normalized.inputSchema.properties.glob?.type, 'string');
   assert.equal(normalized.inputSchema.anyOf, undefined);
   assert.equal(normalized.inputSchema.oneOf, undefined);
   assert.deepEqual(normalized.inputSchema.required, ['pattern']);
@@ -93,15 +95,32 @@ test('xAI keeps generate:false in the property guard and falls back to a full fr
   }
 });
 
-test('xai Responses cache defaults to conversation-scoped routing and traces stateless mid-turn misses', () => {
+test('xai Responses cache defaults to automatic routing and preserves explicit session and prefix scopes', () => {
   const params = { messages: [{ role: 'system', content: 'stable system' }] };
   const first = xaiResponsesCacheRouting({ sessionId: 'session-a' }, params, [], 'grok-4.6');
   const same = xaiResponsesCacheRouting({ sessionId: 'session-a' }, params, [], 'grok-4.6');
   const other = xaiResponsesCacheRouting({ sessionId: 'session-b' }, params, [], 'grok-4.6');
-  assert.equal(first.mode, 'session');
+  assert.equal(first.mode, 'none');
+  assert.equal(first.key, null);
   assert.equal(first.key, same.key);
-  assert.notEqual(first.key, other.key);
+  assert.equal(other.key, null);
   assert.equal(first.prefixHash, other.prefixHash);
+
+  const sessionA = xaiResponsesCacheRouting(
+    { sessionId: 'session-a', xaiResponsesCacheScope: 'session' },
+    params, [], 'grok-4.6'
+  );
+  const sessionAgain = xaiResponsesCacheRouting(
+    { sessionId: 'session-a', xaiResponsesCacheScope: 'session' },
+    params, [], 'grok-4.6'
+  );
+  const sessionB = xaiResponsesCacheRouting(
+    { sessionId: 'session-b', xaiResponsesCacheScope: 'session' },
+    params, [], 'grok-4.6'
+  );
+  assert.equal(sessionA.mode, 'session');
+  assert.equal(sessionA.key, sessionAgain.key);
+  assert.notEqual(sessionA.key, sessionB.key);
 
   const sharedA = xaiResponsesCacheRouting(
     { sessionId: 'session-a', xaiResponsesCacheScope: 'prefix' },

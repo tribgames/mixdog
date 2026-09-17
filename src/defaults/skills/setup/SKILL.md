@@ -24,8 +24,8 @@ supported `setup` action, and read its result as the change receipt.
 - API keys, OAuth credentials, tokens, and usage sign-ins stay out of tool
   arguments and the transcript. Open the Providers surface and let the user
   enter them.
-- A mutation follows the active workflow's approval rules. `open` and `status`
-  are read-only.
+- A mutation follows the active workflow's approval rules. Status, catalog,
+  definition, MCP-config and Instructions reads do not change persisted settings.
 - Most changes affect new sessions. Report `appliedToCurrentSession` and
   `appliesTo` exactly when the result supplies them.
 - This skill does not own source edits, builds, installation deployment,
@@ -41,8 +41,11 @@ supported `setup` action, and read its result as the change receipt.
    or is not exposed.
 3. For a supported mutation, send only the fields the user intends to change.
    Partial route and profile updates preserve omitted fields.
-4. Read the mutation result. Call the narrow `status` domain afterward only
-   when the result does not already prove the persisted value.
+4. Read the mutation result, including `saved`, `scope`, `appliesTo`,
+   `appliedToCurrentSession`, and `requiresReload` when present. Background
+   installation receipts are not evidence of completed installation.
+   Call the narrow `status` domain afterward only when the receipt does not
+   already prove the persisted value.
 5. Report what changed and whether it applies now or in a new session.
 
 Completion means the persisted state or UI handoff is evidenced, not merely
@@ -57,15 +60,26 @@ that a call returned without transport error.
 
 ## High-signal distinctions
 
-- Main model, agent models, and Web Search model are separate routes. An agent
-  override with an empty provider restores Main inheritance.
+- Main model, agent models, and Web Search model are separate routes. Omitted
+  fields preserve the selected route. An explicitly empty agent or Web Search
+  provider restores Main inheritance; omission never resets it. Disabling an
+  agent preserves its route for re-enabling.
 - Web Search model selection and Web Search tool exposure are separate.
 - Memory master state controls the capability; recap controls background
   cycles only. Core Memory content is managed by the `memory` tool.
-- Git, Memory, and Office have installation state separate from enabled state.
-  Browser Use, Computer Use, and voice are managed through Built-in UI cards;
-  `set_first_use_approval` controls once-per-session first-use approval for
+- Built-ins have installation state separate from enabled state. Browser Use,
+  Computer Use, and voice actions require this conversation open in the local
+  Desktop window. `set_first_use_approval` controls first-use approval for
   Browser Use and Computer Use only, not voice.
+- Desktop appearance changes affect the Desktop host, not a paired phone.
+  Display language is independent of profile response language. A required
+  reload is reported, never performed automatically.
+- Read definitions before editing them; use skill-creator when authoring a
+  skill. Setup persists the supported definition fields. Workflow and agent
+  ids are stable identities, distinct from their display names.
+- Read Instructions before replacing them and pass the returned text as
+  `expectedContent`. `projectPath:null` means Common Instructions; otherwise
+  use an exact registered Project root. Keep the returned backup.
 - MCP servers and plugins are machine-global integrations whose visibility may
   be scoped to selected Projects.
 - User skills are machine-global. Enabled plugin skills and built-in skills are
@@ -80,10 +94,16 @@ that a call returned without transport error.
   pretending a window opened.
 - For an MCP failure, inspect the reported transport error before changing
   command, arguments, directory, environment, URL, headers, or enabled state.
+- MCP reads intentionally omit raw connection values that may contain secrets.
+  Partial edits preserve those values. Use environment-variable names for
+  credentials; never request or echo their values.
 - For an unavailable built-in, distinguish not installed, installed but
   disabled, and bridge inactive.
-- If a requested setting is UI-only, navigate there when possible and hand
-  control to the user. Do not imitate the missing action by editing storage.
+- Desktop requests require a single live claimant and a confirmed receipt.
+  A timeout or cancelled request is not success. If execution already started,
+  inspect state before retrying; do not resubmit a possibly completed mutation.
+- Notification permission/subscription, pairing credentials, and authentication
+  remain user-operated UI handoffs. Do not imitate them by editing storage.
 - Unknown keys and retired configuration are diagnostics, not permission for
   direct cleanup.
 

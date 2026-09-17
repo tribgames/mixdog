@@ -798,7 +798,7 @@ export function toolWorkUnit(name, args = {}, category = '') {
         mode === 'callers' ||
         mode === 'callees';
       return unitDescriptor(searching ? 'Search' : 'Read', {
-        count: queryCount(a, 'symbols', 'symbol', 'query', 'file', 'path') || 1,
+        count: queryCount(a, 'symbols', 'symbol', 'query', 'files', 'file', 'path') || 1,
         active: searching ? 'Mapping' : 'Reading',
         done: searching ? 'Mapped' : 'Read',
         // "code map", not "file": an overview/imports/impact pass reads

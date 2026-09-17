@@ -27,6 +27,7 @@ export interface InputRecoveryState {
   inputUserSequence?: number;
   syntheticInput?: boolean;
   foregroundWithinTarget?: boolean;
+  foregroundChildProcess?: boolean;
 }
 
 export interface ActiveExecution {

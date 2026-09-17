@@ -1,0 +1,9 @@
+id: no-any-cast
+language: TypeScript
+severity: warning
+message: Cast to any bypasses the type checker.
+note: "`as any` silences the checker instead of fixing the type. Narrow with a type guard, a precise type, or `unknown` plus a check; this rule has no autofix."
+rule:
+  any:
+    - pattern: $A as any
+    - pattern: <any>$A

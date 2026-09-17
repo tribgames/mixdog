@@ -9,6 +9,7 @@ import type { ComputerCommand, ComputerCommandResult, ObservedWindowScope } from
 import { assertSafeComputerInput } from '../input/guards';
 import { classifyComputerSequenceObservation, executeComputerSequenceSteps } from '../input/sequence';
 import type { createCaptureEngine } from '../observation/capture';
+import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 
 type CaptureEngine = ReturnType<typeof createCaptureEngine>;
 
@@ -146,7 +147,38 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
       );
     }
     const stepCommands = validateSteps(command, windowId);
-    await host.preflightSteps?.(command, stepCommands);
+    try {
+      await host.preflightSteps?.(command, stepCommands);
+    } catch (error) {
+      // A grammar refusal happens before the first step, not after a possibly
+      // completed prefix. Keep that evidence so the caller need not guess.
+      const code = computerErrorCode(error);
+      if (code !== 'background_unsupported') throw error;
+      return {
+        text: JSON.stringify({
+          ok: false,
+          action: 'sequence',
+          window_id: windowId,
+          completed: false,
+          completed_steps: 0,
+          total_steps: steps.length,
+          steps: stepCommands.map((step, index) => ({
+            index: index + 1,
+            action: step.action,
+            status: 'skipped',
+            reason: 'preflight_refused',
+          })),
+          code,
+          stopped_reason: 'preflight_refused',
+          message: (error as Error).message || String(error),
+          delivery_accepted: false,
+          input_may_have_executed: false,
+          goal_verified: false,
+          verdict: { decision: 'escalate', recommended: 'select_delivery' },
+          timings_ms: { total_ms: elapsedMs(startedAt) },
+        }),
+      };
+    }
     host.recordProgress?.(0);
     const stepsStartedAt = performance.now();
     const sequence = await executeComputerSequenceSteps(

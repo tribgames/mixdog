@@ -10,6 +10,17 @@ export function isAntigravityClaude(model) {
   return /^claude-/i.test(String(model || ''));
 }
 
+// Default function-calling mode when the caller sets no toolChoice. VALIDATED
+// (schema-constrained function calls) is what the Antigravity client sends;
+// MIXDOG_ANTIGRAVITY_FC_MODE=AUTO|ANY|VALIDATED overrides it for A/B runs.
+const FUNCTION_CALLING_MODES = new Set(['AUTO', 'ANY', 'VALIDATED']);
+export function antigravityFunctionCallingMode(env = process.env) {
+  const raw = String(env?.MIXDOG_ANTIGRAVITY_FC_MODE || '')
+    .trim()
+    .toUpperCase();
+  return FUNCTION_CALLING_MODES.has(raw) ? raw : 'VALIDATED';
+}
+
 // A replay recorded by the other model family (Claude vs Gemini) carries
 // signatures the target model rejects; rebuild it from the plain history
 // with the recovery sentinel instead.
@@ -89,7 +100,9 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
   if (systemText) request.systemInstruction = { role: 'user', parts: [{ text: systemText }] };
   if (tools?.length) {
     request.tools = [toGeminiTools(tools)];
-    request.toolConfig = toGeminiToolConfig(opts.toolChoice) || { functionCallingConfig: { mode: 'VALIDATED' } };
+    request.toolConfig = toGeminiToolConfig(opts.toolChoice) || {
+      functionCallingConfig: { mode: antigravityFunctionCallingMode() },
+    };
   }
   if (Object.keys(generationConfig).length) request.generationConfig = generationConfig;
   request.sessionId = sessionId(contents);

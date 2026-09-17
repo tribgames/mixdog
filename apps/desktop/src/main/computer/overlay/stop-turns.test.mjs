@@ -51,7 +51,7 @@ test('repeated Stop shares one completion and a failed Stop can be retried', asy
   }, 'ko', controller.state(3));
   assert.equal(presentation.canResume, false);
   assert.equal(presentation.attention, true);
-  assert.equal(presentation.canDismiss, true);
+  assert.equal(presentation.visible, true);
   await controller.invoke('stop', 3, ['fixture']);
   assert.equal(calls, 2);
   assert.deepEqual(controller.state(4), { busy: false, error: '' });
@@ -63,5 +63,15 @@ test('target-local cleanup failure remains a cleanup error across Stop generatio
     stop: async () => { throw new Error('computer_background_cleanup_unconfirmed'); },
   }, () => {});
   await controller.invoke('stop', 1, []);
+  assert.equal(controller.state(2).error, 'cleanup');
+});
+
+test('Pause failure survives its generation change without calling task-ending Stop', async () => {
+  const controller = createComputerOverlayController({
+    resume: async () => {},
+    stop: async () => { assert.fail('Pause must not cancel the task'); },
+    pause: async () => { throw new Error('computer_cleanup_pending'); },
+  }, () => {});
+  await controller.invoke('pause', 1, ['fixture']);
   assert.equal(controller.state(2).error, 'cleanup');
 });

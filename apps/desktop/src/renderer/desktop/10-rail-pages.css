@@ -192,11 +192,13 @@
     inset 0 -2px 0 var(--mx-focus),
     inset 0 0 0 0.5px var(--mx-rail-item-outline);
 }
-/* No extra section break in the rail (user: 간격이 어색하다): the page's own
-   6px gap already separates the blocks, so the added margin doubled the gap
-   between Common Instructions and the first project card (12px vs 6px). */
+/* One rail gap between Common Memory and the first project card — the same
+   rhythm the cards keep among themselves (user: 간격이 어색하다). The page's
+   own gap no longer reaches here: the Projects/Workflows section wrapper is
+   a plain block, so without this margin the two cards touched (user: 공통
+   메모리 아래 패딩이 적용 안 됨). */
 .session-sidebar-panels .projects-common-instructions {
-  margin-bottom: 0;
+  margin-bottom: var(--mx-rail-gap);
 }
 .session-sidebar-panels .schedules-row {
   gap: 8px;
@@ -339,6 +341,9 @@
   flex: 0 0 16px;
   align-self: center;
   margin-left: auto;
+  /* The 16px chevron centers on the shared trailing line, not on the card's
+     12px gutter edge (which left it 20px in). */
+  margin-right: calc(var(--mx-rail-trailing-center) - var(--mx-rail-gutter) - 8px);
   color: var(--mx-text-faint);
 }
 .session-sidebar-panels .sidebar-resource-running {
@@ -716,10 +721,9 @@
   z-index: 3;
   top: 50%;
   transform: translateY(-50%);
-  /* The hover action replaces the unread dot on the shared 20px trailing
-     centerline. Keeping the 24px button 8px inboard also leaves a safer gap
-     from the scrollbar than the old edge-hugging placement. */
-  right: 8px;
+  /* The hover action replaces the unread dot on the shared trailing
+     centerline: the 24px button's center lands exactly where the dot sat. */
+  right: calc(var(--mx-rail-trailing-center, 20px) - 12px);
   height: 24px;
   padding-left: 12px;
   display: flex;

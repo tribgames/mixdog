@@ -659,6 +659,7 @@ export async function createMixdogSessionRuntime({
     getConfig: () => rt.config,
     notifySessionUi,
     getSessionId: () => rt.session?.id || rt.reservedSessionId || null,
+    flushSettings: () => flushAllConfigSavesAsync({ requireSaved: true }),
   });
   const disposeInternalTools = internalTools.setInternalToolsProvider({
     scopeId: rt.mcpScopeId,
@@ -1161,7 +1162,10 @@ export async function createMixdogSessionRuntime({
     clearRuntimeNotifications,
     goalRuntime,
     disposeSessionTitles: () => sessionTitles.disposeAll(),
-    disposeInternalTools,
+    disposeInternalTools: () => {
+      setupTool.dispose();
+      disposeInternalTools();
+    },
     disposeGlobalExtensionSubscription: () => disposeGlobalExtensionSubscription(),
   });
   const resourceApi = createResourceApi({
@@ -1345,6 +1349,9 @@ export async function createMixdogSessionRuntime({
       ...modelRouteApi,
       ...workflowAgentsApi,
       ...sessionTurnApi,
+      claimSetupRequest: setupTool.claimSetupRequest,
+      isSetupRequestActive: setupTool.isSetupRequestActive,
+      completeSetupRequest: setupTool.completeSetupRequest,
     },
     deliverToolCompletion: notifySessionCompletion,
     reserveSessionId: (id) => {

@@ -30,7 +30,7 @@ export const TASK_WAIT_TIMEOUT_MIN_MS = 10_000;
 export const TASK_WAIT_TIMEOUT_MAX_MS = 600_000;
 const _shellSyntaxCheat =
   process.platform === 'win32'
-    ? ' PowerShell: use ; between independent commands; use if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent commands; single-quote inline scripts, avoid nested double quotes; /c/→C:\\; $PID is reserved. For multiline program input, use a literal here-string.'
+    ? ' PowerShell: ; between independent commands, if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } between dependent ones; single-quote inline scripts (no nested double quotes); a literal here-string for multiline input; /c/→C:\\; $PID is reserved.'
     : ' Bash: chain dependent commands with &&; multiline input via a quoted heredoc delimiter, not extra quoting/escape layers.';
 // Process-stable switch used to describe foreground-only execution accurately.
 const _shellBackgroundDisabled = envFlag('MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS');
@@ -48,7 +48,7 @@ export const BUILTIN_TOOLS = [
       compressible: false,
     },
     description:
-      'Read known file ranges or images. Batch independent files or windows, including several windows of one file, in one file_path array; if the shared output cap forces separate calls, issue them together. Missing exact paths are reported, never replaced. Reuse unchanged content already in context. Directories: use list. Binaries return bounded hex.',
+      'Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site (≤10 per call, 50 KB), never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -77,7 +77,7 @@ export const BUILTIN_TOOLS = [
             },
           ],
           description:
-            'Path(s) or {file_path, offset, limit} entries; repeat a path for several ranges. Entry windows override batch defaults; overlapping windows of one file merge. A glob fans out to at most 10 newest files, 25 lines each, sharing 10 KB. Call output caps at 50 KB.',
+            'Path(s) or {file_path, offset, limit} entries; overlapping windows of one file merge. A glob fans out to ≤10 newest files, 25 lines each.',
         },
         offset: {
           type: 'integer',
@@ -109,7 +109,7 @@ export const BUILTIN_TOOLS = [
       compressibleLossless: true,
     },
     description:
-      'Replace exact text in one file. old_string must match once unless replace_all is true. Batch non-overlapping edits in call order using existing text, not text another edit creates. Widened replacements must keep intervening lines verbatim. Call this tool directly, not as a shell command.',
+      'Replace exact text in one file. old_string must match once unless replace_all is true. Every non-overlapping edit of the stage in one response, using existing text, not text another edit creates; many files → one apply_patch. Widened replacements keep intervening lines verbatim.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -156,7 +156,7 @@ export const BUILTIN_TOOLS = [
           type: 'number',
           minimum: 0,
           description:
-            'Hard kill deadline in ms, separate from the 10s foreground window; omit or 0 = none. Set one for throwaway checks and probes so a slow check fails fast instead of being waited on.',
+            'Hard kill deadline in ms (omit or 0 = none), separate from the 10s foreground window; set one for throwaway probes so a slow check fails fast.',
         },
       },
       required: ['command'],
@@ -229,7 +229,7 @@ export const BUILTIN_TOOLS = [
       compressible: true,
     },
     description:
-      'Search literal/regex file contents; returns path:line blocks with context. Single-line ripgrep; 10 KB cap. Batch independent patterns and scopes; defer a search only when a pending result decides its need or inputs. Broad reconnaissance: mode:files; locations only: context:0. Symbol relations: code_graph.',
+      'Search literal/regex file contents (single-line ripgrep, 10 KB cap); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -244,7 +244,7 @@ export const BUILTIN_TOOLS = [
             { type: 'array', minItems: 1, maxItems: PUBLIC_PATH_BATCH_LIMIT, items: { type: 'string' } },
           ],
           description:
-            'Plain file/directory scopes; omit for Project root. Every pattern searches every path (not zipped); specific pattern/path pairs need separate calls. Missing scopes are reported, never widened or replaced.',
+            'Plain file/directory scopes; omit for Project root. Every pattern searches every path; pattern/path pairs need separate calls. Missing scopes are reported, never widened.',
         },
         glob: {
           type: 'string',
@@ -271,11 +271,11 @@ export const BUILTIN_TOOLS = [
         },
         include_noise: {
           type: 'boolean',
-          description: 'Also search gitignored/dependency trees; explicit exclusions still apply.',
+          description: 'Also search gitignored trees.',
         },
         text: {
           type: 'boolean',
-          description: 'Search binary data as text past NUL bytes; archives and Git objects are not decoded.',
+          description: 'Search binary data as text (archives/Git objects not decoded).',
         },
       },
       required: ['pattern'],
@@ -315,7 +315,7 @@ export const BUILTIN_TOOLS = [
         offset: { type: 'integer', minimum: 0, description: 'Entry offset.' },
         include_noise: {
           type: 'boolean',
-          description: 'Also search gitignored/dependency trees; explicit exclusions still apply.',
+          description: 'Also search gitignored trees.',
         },
       },
       required: ['pattern'],
@@ -334,7 +334,7 @@ export const BUILTIN_TOOLS = [
       compressible: true,
     },
     description:
-      'Fuzzy filename/directory path lookup; returns paths only. Use only when the target path is unknown and cannot be directly resolved and a filename/path fragment is known. General discovery in the current Project: glob. Never send an empty query.',
+      'Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob. Never send an empty query.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -346,7 +346,7 @@ export const BUILTIN_TOOLS = [
         },
         path: { type: 'string', description: 'Base directory; omit for the current Project.' },
         limit: { type: 'integer', minimum: 0, description: 'Max paths; default 25; 0 unlimited.' },
-        include_noise: { type: 'boolean', description: 'Also search gitignored/dependency trees.' },
+        include_noise: { type: 'boolean', description: 'Also search gitignored trees.' },
       },
       required: ['query'],
       additionalProperties: false,

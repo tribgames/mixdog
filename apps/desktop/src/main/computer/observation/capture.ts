@@ -7,6 +7,7 @@
 import { createPixelCapture } from './capture-pixels';
 import { mergeCaptureOcr } from './capture-ocr';
 import { captureResultPayload } from './capture-result';
+import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
 import { createCaptureAfter } from './capture-after';
 
 import { DEFAULT_CAPTURE_MAX_ELEMENTS, DEFAULT_SCREENSHOT_QUALITY, elapsedMs } from '../shared/common';
@@ -210,6 +211,8 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       const { capability: visualOnlyCapability, cacheHit: visualOnlyCacheHit } = visualOnlyEligible
         ? visualOnlyCapabilities.resolve(visualOnlyCapabilityKey, Date.now())
         : { capability: undefined, cacheHit: false };
+      const cachedAccessibilityError = visualOnlyCacheHit ? visualOnlyCapability?.error || '' : '';
+      let accessibilityRetryAt = cachedAccessibilityError ? visualOnlyCapability?.expiresAt || 0 : 0;
       timings.target_resolution_ms = elapsedMs(captureStartedAt);
       const totalElementBudget = screenshotInteger(
         command.max_elements,
@@ -237,6 +240,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         const capture = await captureScreenshot({
           ...command,
           action: 'screenshot',
+          mode,
           window: undefined,
           window_id: windowId || undefined,
           ...(explicitScreen ? {} : { screen: undefined }),
@@ -247,7 +251,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       const runAccessibilityTask = async () => {
         if (mode === 'vision' || replacementRead) return null;
         if (visualOnlyCacheHit) {
-          return { response: null, error: '', elapsed: 0, visualOnlyCacheHit: true };
+          return { response: null, error: cachedAccessibilityError, elapsed: 0, visualOnlyCacheHit: true };
         }
         const startedAt = performance.now();
         try {
@@ -278,7 +282,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         }
       };
       const accessibilityTask = await runAccessibilityTask();
-      if (accessibilityTask?.error || accessibilityTask?.response?.ok === false) {
+      if (!visualOnlyCacheHit && (accessibilityTask?.error || accessibilityTask?.response?.ok === false)) {
         inputObservation = await readInputObservation();
       }
       const captureResults = [accessibilityTask, await runScreenshotTask()] as const;
@@ -287,7 +291,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       if (accessibilityResult) {
         const snapshot = accessibilityResult.response;
         timings.accessibility_ms = accessibilityResult.elapsed;
-        accessibilityError = captureAccessibilityError(
+        accessibilityError = cachedAccessibilityError || captureAccessibilityError(
           visualOnlyCacheHit,
           snapshot?.ok === true,
           accessibilityResult.error,
@@ -322,6 +326,15 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       if (visualOnlyEligible && !visualOnlyCacheHit) {
         if (semanticAccessibilityAvailable) {
           visualOnlyCapabilities.delete(visualOnlyCapabilityKey);
+        } else if (computerErrorCode(accessibilityError) === 'computer_command_timeout') {
+          // Do not restart the same stalled provider after every input. Keep
+          // its error visible while fresh pixels/OCR remain available.
+          accessibilityRetryAt = Date.now() + VISUAL_ONLY_CACHE_TTL_MS;
+          visualOnlyCapabilities.remember(visualOnlyCapabilityKey, {
+            misses: 0,
+            expiresAt: accessibilityRetryAt,
+            error: accessibilityError,
+          });
         } else if (shouldRecordVisualOnlyCapabilityMiss(semanticAccessibilityAvailable, accessibilityError)) {
           const priorMisses = visualOnlyCapability?.misses || 0;
           const misses = priorMisses + 1;
@@ -362,6 +375,11 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         inputAfter?.ready === true &&
         inputObservation.monitor === inputAfter.monitor &&
         inputObservation.sequence === inputAfter.sequence;
+      const foregroundInputReason = foregroundReady
+        ? undefined
+        : inputObservation?.ready !== true || inputAfter?.ready !== true
+          ? 'input_observer_unavailable'
+          : 'user_input_during_capture';
       if (inputObservation) inputObservation = { ...inputObservation, ready: foregroundReady };
       if (mode !== 'vision') {
         rememberElementTargets(command, [...rawElements, ...ocrElements]);
@@ -417,7 +435,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         ocrElementCount: ocrElements.length,
         returnedAccessibilityElements,
         elements,
-        visualOnlyCacheHit,
+        visualOnlyCacheHit: visualOnlyCacheHit && !cachedAccessibilityError,
         accessibilityError,
         semanticAccessibilityAvailable,
         changes,
@@ -425,6 +443,11 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         ocrPayload,
       });
       payload.foreground_input_ready = foregroundReady;
+      if (foregroundInputReason) payload.foreground_input_reason = foregroundInputReason;
+      if (accessibilityRetryAt) {
+        payload.accessibility_cache = 'timed_out_provider';
+        payload.accessibility_retry_after_ms = Math.max(0, accessibilityRetryAt - Date.now());
+      }
       if (replacementRead) payload.observation_fallback = 'replacement_worker_pixels';
       let image = screenshot?.image;
       if (screenshot?.frame && screenshot.frameId) {

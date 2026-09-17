@@ -59,7 +59,7 @@ export async function mergeCaptureOcr(
       const ocr = await host.callPowerShell(
         {
           action: 'ocr_image',
-          image_base64: screenshot.image.data,
+          image_base64: screenshot.ocrImage?.data || screenshot.image.data,
           ocr_language: command.ocr_language ?? null,
           max_ocr_words: Math.min(requestedOcrLimit, remainingElementBudget),
           session_id: host.sessionIdFor(command),
@@ -68,7 +68,23 @@ export async function mergeCaptureOcr(
         5_000
       );
       if (!ocr.ok) throw new Error(ocr.error || 'Windows OCR failed');
-      ocrWords = dedupeOcrWords(normalizeOcrWords(ocr.result?.words), elements).slice(0, remainingElementBudget);
+      const scaleX = screenshot.frame.captureWidth /
+        Number(ocr.result?.image_width || screenshot.ocrImage?.width || screenshot.frame.captureWidth);
+      const scaleY = screenshot.frame.captureHeight /
+        Number(ocr.result?.image_height || screenshot.ocrImage?.height || screenshot.frame.captureHeight);
+      const frameBounds = (rect: { x: number; y: number; width: number; height: number }) => ({
+        x: Math.round(rect.x * scaleX),
+        y: Math.round(rect.y * scaleY),
+        width: Math.max(1, Math.round(rect.width * scaleX)),
+        height: Math.max(1, Math.round(rect.height * scaleY)),
+      });
+      const projectedWords = normalizeOcrWords(ocr.result?.words).map(word => ({
+        ...word,
+        ...frameBounds(word),
+        center_x: Math.round(word.center_x * scaleX),
+        center_y: Math.round(word.center_y * scaleY),
+      }));
+      ocrWords = dedupeOcrWords(projectedWords, elements).slice(0, remainingElementBudget);
       if (mode === 'som' || mode === 'state') {
         let nextMark = rawElements.reduce((maximumMark, element) => Math.max(maximumMark, element.mark), 0) + 1;
         ocrElements = ocrWords.map((word) => {
@@ -95,11 +111,6 @@ export async function mergeCaptureOcr(
         });
         for (const element of ocrElements) {
           const topLeft = framePoint(screenshot.frame, element.x, element.y);
-          const bottomRight = framePoint(
-            screenshot.frame,
-            Math.min(screenshot.frame.captureWidth - 1, element.x + element.width - 1),
-            Math.min(screenshot.frame.captureHeight - 1, element.y + element.height - 1)
-          );
           const bounds: [number, number, number, number] = [element.x, element.y, element.width, element.height];
           elements.push(
             mode === 'state'
@@ -121,8 +132,8 @@ export async function mergeCaptureOcr(
                   screen_bounds: [
                     topLeft.x,
                     topLeft.y,
-                    Math.max(1, bottomRight.x - topLeft.x + 1),
-                    Math.max(1, bottomRight.y - topLeft.y + 1),
+                    Math.max(1, Math.round(element.width * screenshot.frame.physicalWidth / screenshot.frame.captureWidth)),
+                    Math.max(1, Math.round(element.height * screenshot.frame.physicalHeight / screenshot.frame.captureHeight)),
                   ],
                 }
           );
@@ -137,7 +148,9 @@ export async function mergeCaptureOcr(
         mode: 'fallback',
         automatic: command.include_ocr !== true,
         language: String(ocr.result?.language || ''),
-        lines: Array.isArray(ocr.result?.lines) ? ocr.result?.lines : [],
+        lines: Array.isArray(ocr.result?.lines)
+          ? ocr.result.lines.map(line => ({ ...line, ...frameBounds(line) }))
+          : [],
         words: markedWords,
         total_words: Number(ocr.result?.total_words) || 0,
         truncated_words: Number(ocr.result?.truncated_words) || 0,

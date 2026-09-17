@@ -39,7 +39,7 @@ export const CWD_TOOL = {
     agentHidden: true,
   },
   description:
-    'Show or switch the working directory (active Project). action=list returns the registered projects (name, path); when the user gives a project name instead of a path, list first, then set with the matching path and ask only if several candidates match. path must be an existing directory. A shell-local cd does not change the Project.',
+    'Show or switch the active Project. list returns the registered projects (name, path); a project name instead of a path → list first, then set the matching path, ask only if several match. path must be an existing directory. A shell-local cd does not change the Project.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -67,7 +67,7 @@ export const SKILL_TOOL = {
     agentHidden: false,
   },
   description:
-    'Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update. Reuse a body already in context for matching requests; a later turn or repeated mention is not a reason to call Skill again.',
+    'Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update.',
   inputSchema: {
     type: 'object',
     properties: {

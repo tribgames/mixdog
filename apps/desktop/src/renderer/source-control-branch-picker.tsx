@@ -3,6 +3,7 @@ import type { CSSProperties, HTMLAttributes, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useMobileBack } from './mobile-back';
+import { t } from './i18n';
 
 import type { DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
 import { commitImmediateOverlay } from './immediate-overlay';
@@ -126,8 +127,8 @@ export function SourceControlBranchPicker({
                 type="search"
                 value={query}
                 autoFocus={!touchPrimaryPointer()}
-                aria-label="Filter branches"
-                placeholder="Filter"
+                aria-label={t('Filter branches')}
+                placeholder={t('Filter')}
                 onInput={(event) => onQueryChange(event.currentTarget.value)}
               />
               <button
@@ -138,12 +139,12 @@ export function SourceControlBranchPicker({
                 onClick={onCreate}
               >
                 <Plus size={12} aria-hidden="true" />
-                <span>New branch</span>
+                <span>{t('New branch')}</span>
               </button>
             </header>
             <div className="dock-scm-branch-list">
-              {loading && <p>Loading branches…</p>}
-              {!loading && visibleBranches.length === 0 && <p>No matching branches.</p>}
+              {loading && <p>{t('Loading branches…')}</p>}
+              {!loading && visibleBranches.length === 0 && <p>{t('No matching branches.')}</p>}
               {(
                 [
                   ['Default branch', defaultBranch ? [defaultBranch] : []],
@@ -239,7 +240,7 @@ export function SourceControlBranchPicker({
                                 disabled={Boolean(busy)}
                                 onClick={() => onRename(branch)}
                               >
-                                Rename
+                                {t('Rename')}
                               </button>
                               {!branch.current && (
                                 <button
@@ -249,7 +250,7 @@ export function SourceControlBranchPicker({
                                   disabled={Boolean(busy)}
                                   onClick={() => onDelete(branch)}
                                 >
-                                  Delete
+                                  {t('Delete')}
                                 </button>
                               )}
                             </>
@@ -266,12 +267,12 @@ export function SourceControlBranchPicker({
                 className="dock-scm-merge-row"
                 aria-pressed={mergeMode}
                 disabled={Boolean(busy) || !capabilities.merge || Boolean(status.operation)}
-                title={operationReason || `Choose a branch to merge into ${status.branch}`}
+                title={operationReason || t('Choose a branch to merge into {{branch}}', { branch: status.branch })}
                 onClick={onToggleMergeMode}
               >
                 <GitMerge size={14} aria-hidden="true" />
                 <span>
-                  Choose a branch to merge into <strong>{status.branch}</strong>
+                  {t('Choose a branch to merge into')} <strong>{status.branch}</strong>
                 </span>
               </button>
             )}

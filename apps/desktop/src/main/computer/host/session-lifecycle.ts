@@ -30,7 +30,7 @@ const STOP_WORKER_EXIT_TIMEOUT_MS = 5_000;
 // Resident workers remain warm longer than target leases. A window lease is
 // deliberately short-lived in the coordinator so an abandoned session
 // cannot reserve a user's app for this whole worker-idle period.
-const WORKER_IDLE_STALE_MS = 10 * 60_000;
+const WORKER_IDLE_STALE_MS = 60_000;
 
 type WorkerPool = ReturnType<typeof createWorkerPool>;
 type SessionState = ReturnType<typeof createSessionState>;
@@ -98,7 +98,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
 
   function reapIdleSessionWorkers(now = Date.now()): void {
     for (const [sessionId, child] of powerShellBySession) {
-      if (activeExecutionsBySession.has(sessionId)) continue;
+      if (activeExecutionsBySession.has(sessionId) || commandChainsBySession.has(sessionId) || cleanupJobs.has(sessionId)) continue;
       if (now - (workerLastUsedAt.get(sessionId) || 0) < WORKER_IDLE_STALE_MS) continue;
       void abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, child)
         .catch(() => { /* cleanup remains blocked until the host is replaced */ });
@@ -316,7 +316,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
       ? await host.waitForResidentWorkersExit(STOP_WORKER_EXIT_TIMEOUT_MS)
       : true;
     if (!workersExited || elevatedSessionIds().length > 0) {
-      throw new Error('computer_abort_cleanup_unconfirmed: input workers are still running; press Stop again once they exit');
+      throw new Error('computer_abort_cleanup_unconfirmed: input workers are still running; press Ctrl+Alt+Esc (emergency Stop) again once they exit');
     }
     if (!await cleanupAbortedInput(undefined, false, true)) {
       throw new Error('computer_abort_cleanup_unconfirmed: held input could not be released');
@@ -327,7 +327,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
       throw new Error('computer_background_cleanup_unconfirmed: target-local input release is unconfirmed; user recovery of the affected window is required before an approved host restart');
     }
     if (!computerUseCoordinator.clearFailedCleanup()) {
-      throw new Error('computer_cleanup_pending: a session cleanup is still running; press Stop again');
+      throw new Error('computer_cleanup_pending: a session cleanup is still running; press Ctrl+Alt+Esc (emergency Stop) again');
     }
   }
 

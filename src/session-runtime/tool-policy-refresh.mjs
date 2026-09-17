@@ -11,7 +11,7 @@ import {
   composeSystemPrompt,
 } from '../runtime/agent/orchestrator/context/collect.mjs';
 import {
-  _buildSharedRules,
+  _buildBaseRules,
   _buildLeadRules,
   _buildLeadLanguageContext,
 } from '../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
@@ -107,9 +107,11 @@ export function createToolPolicyRefresh({
     applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true });
 
     const allowsAgents = workflow?.delegatesAgents !== false;
-    const baseRules = _buildSharedRules({
+    const baseRules = _buildBaseRules({
       omitTools: [...denied, unusedModelEditToolName(getRoute()?.model)],
       allowTools: session.schemaAllowedTools,
+      provider: getRoute()?.provider,
+      model: getRoute()?.model,
     });
     const roleRules = _buildLeadRules({ includeLeadBrief: allowsAgents });
     let coreMemoryContext = '';

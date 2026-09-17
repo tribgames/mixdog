@@ -337,7 +337,7 @@ export function ModelCatalog({
               )}
               {recentModels.length > 0 && (
                 <section className="model-group model-group--recent">
-                  <h3>RECENT</h3>
+                  <h3>{t('Recent')}</h3>
                   <div className="model-items">
                     {recentModels.map((option) => renderModelOption(option, 'recent:'))}
                   </div>

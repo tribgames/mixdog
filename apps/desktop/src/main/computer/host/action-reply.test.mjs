@@ -105,6 +105,57 @@ test('confirmed close does not capture a different window after its target disap
   assert.equal(payload.capture_after.target_reason, 'target_closed');
 });
 
+test('an accepted brokered launch with no proven window requests resolution, not relaunch or arbitrary capture', async () => {
+  const reply = await buildActionReply(
+    async () => { throw new Error('must not capture an unbound foreground window'); },
+    context({
+      command: { action: 'launch', app: 'calc.exe', capture_after: true },
+      action: 'launch',
+      result: {
+        action: 'launch', text: 'launched calc.exe', pid: 74676, app_hint: 'calc',
+        delivery_accepted: true, effect: 'unverifiable', verified: false,
+      },
+      logicalTargetWindowId: undefined,
+      targetWindowId: undefined,
+    })
+  );
+  const payload = JSON.parse(reply.text);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.delivery_accepted, true);
+  assert.equal(payload.goal_verified, false);
+  assert.equal(payload.verified, false);
+  assert.equal(payload.capture_after.skipped, true);
+  assert.equal(payload.capture_after.target_reason, 'launch_target_unresolved');
+  assert.equal(payload.verdict.recommended, 'list_windows');
+  assert.match(payload.message, /do not launch again/);
+});
+
+test('a proven launch successor is still captured, and capture failure is not hidden', async () => {
+  const calls = [];
+  const reply = await buildActionReply(
+    async (_command, target) => {
+      calls.push(target);
+      return { metadata: { ok: false, error: 'fixture capture failed' } };
+    },
+    context({
+      command: { action: 'launch', app: 'fixture.exe', capture_after: true },
+      action: 'launch',
+      result: { action: 'launch', delivery_accepted: true },
+      logicalTargetWindowId: undefined,
+      targetWindowId: undefined,
+      windowTransition: {
+        observed: true, next_target: { id: 'hwnd:0x2' },
+        next_target_reason: 'launched_process_window',
+      },
+    })
+  );
+  const payload = JSON.parse(reply.text);
+  assert.deepEqual(calls, ['hwnd:0x2']);
+  assert.equal(payload.ok, false);
+  assert.equal(payload.code, 'observation_unavailable');
+  assert.equal(payload.delivery_accepted, true);
+});
+
 for (const structured of [true, false]) {
   test(`failed requested observation cannot finish a ${structured ? 'structured' : 'text'} action reply`, async () => {
     const result = await buildActionReply(

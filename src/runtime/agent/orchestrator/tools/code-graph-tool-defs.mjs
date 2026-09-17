@@ -12,7 +12,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
       compressibleLossless: true,
     },
     description:
-      'Source-file structure and relations from the parsed code graph, no text matching. Prefer it over read/grep whenever the question is about declarations or relations rather than literal text. A file’s API or shape (exported functions, classes, methods, signatures) → symbols: rows are `[export ]kind name (Lstart-end)  signature`, members indented under their container, so one call answers "what does this file export / what methods does X have" without reading the file. Who calls X / what X calls → callers/callees (exact call sites from the AST, never text false positives). Who imports a file / what its change touches → dependents/impact. Where X is declared and used → find_symbol/references. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. find_symbol returns declaration/body; references adds usages (body opt-in); callers/callees return locations.',
+      'Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages (body opt-in); callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations; every row’s location is a read window.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -33,7 +33,7 @@ export const CODE_GRAPH_TOOL_DEFS = [
             'callees',
           ],
           description:
-            'File modes: overview, imports, dependents, related, impact. symbols with files[] gives a direct file outline (declarations/lines): one unified kind vocabulary for every language, signature and export marker per row, members indented under their container; other modes use symbols[].',
+            'File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[].',
         },
         files: {
           anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],

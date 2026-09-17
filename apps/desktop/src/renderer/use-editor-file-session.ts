@@ -11,11 +11,14 @@ import { mergeDocumentPreviewPages, type DocumentPreview } from './editor-docume
 import type { EditorFileHandle, EditorRecovery, FilePreview } from './editor-pane-model';
 import { reportEditorLoadStage } from './renderer-load-metrics';
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
+import { t } from './i18n';
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 
 export function useEditorFileSession({
   editorRef,
+  modelRef,
+  formatDocument,
   projectPath,
   relPath,
   accessToken,
@@ -27,6 +30,8 @@ export function useEditorFileSession({
   syncLspRef,
 }: {
   editorRef: RefObject<EditorInstance | null>;
+  modelRef?: RefObject<import('monaco-editor').editor.ITextModel | null>;
+  formatDocument?(): Promise<void>;
   projectPath: string;
   relPath: string;
   accessToken?: string;
@@ -38,6 +43,10 @@ export function useEditorFileSession({
   syncLspRef: RefObject<(kind?: 'change' | 'save') => Promise<boolean>>;
 }) {
   const api = window.mixdogDesktop;
+  const readModel = useCallback(
+    () => editorRef.current?.getModel() ?? modelRef?.current ?? null,
+    [editorRef, modelRef]
+  );
   const [load, setLoad] = useState<EditorFileLoad | null>(null);
   const [preview, setPreview] = useState<FilePreview | null>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
@@ -116,12 +125,12 @@ export function useEditorFileSession({
   useEffect(
     () => () => {
       if (backupTimer.current !== null) window.clearTimeout(backupTimer.current);
-      const model = editorRef.current?.getModel();
+      const model = readModel();
       if (model && !skipUnmountBackup.current && model.getValue() !== savedText.current) {
         void writeBackupNow(model.getValue()).catch(() => undefined);
       }
     },
-    [editorRef, writeBackupNow]
+    [readModel, writeBackupNow]
   );
 
   // The ordinary text/binary read, extracted so a document whose conversion
@@ -129,7 +138,7 @@ export function useEditorFileSession({
   // app" escape — instead of a dead-end error screen.
   const readFileContents = useCallback(() => {
     if (!api?.readProjectFile) {
-      setError('Desktop file access is unavailable.');
+      setError(t('Desktop file access is unavailable.'));
       return;
     }
     void takeEditorFileLoad(api, projectPath, relPath, accessToken, !loadedRef.current, true)
@@ -150,7 +159,7 @@ export function useEditorFileSession({
         setLoad({ ...result, content });
         setRecovery(nextRecovery);
         setDiskChanged(false);
-        const model = editorRef.current?.getModel();
+        const model = readModel();
         if (model && model.getValue() !== content) model.setValue(content);
         markDirty(content !== resolution.savedContent);
       })
@@ -158,7 +167,7 @@ export function useEditorFileSession({
         setError(reason instanceof Error ? reason.message : String(reason));
         if (loadedRef.current) setDiskChanged(true);
       });
-  }, [accessToken, api, deleteBackup, editorRef, markDirty, projectPath, relPath]);
+  }, [accessToken, api, deleteBackup, readModel, markDirty, projectPath, relPath]);
 
   const reload = useCallback(() => {
     setError('');
@@ -251,13 +260,14 @@ export function useEditorFileSession({
   const saveNow = useCallback(
     async (encoding?: DesktopTextFileEncoding): Promise<boolean> => {
       const editor = editorRef.current;
-      const model = editor?.getModel();
+      const model = readModel();
       const writer = api?.writeProjectFile;
-      if (!editor || !model || !writer) return false;
+      if (!model || !writer) return false;
       if (!encoding && model.getValue() === savedText.current) return true;
       if (editorSettings.formatOnSave) {
         try {
-          await editor.getAction('editor.action.formatDocument')?.run();
+          if (formatDocument) await formatDocument();
+          else await editor?.getAction('editor.action.formatDocument')?.run();
         } catch (reason) {
           setSaveError(`Format on save failed: ${reason instanceof Error ? reason.message : String(reason)}`);
           return false;
@@ -280,7 +290,7 @@ export function useEditorFileSession({
         if (encoding) {
           setLoad((current) => (current ? { ...current, encoding } : current));
         }
-        const currentContent = editorRef.current?.getModel()?.getValue() ?? content;
+        const currentContent = readModel()?.getValue() ?? content;
         const changedAfterSave = currentContent !== content;
         markDirty(changedAfterSave);
         setDiffTick((tick) => tick + 1);
@@ -307,6 +317,8 @@ export function useEditorFileSession({
       api,
       deleteBackup,
       editorRef,
+      readModel,
+      formatDocument,
       editorSettings.formatOnSave,
       markDirty,
       projectPath,
@@ -349,23 +361,23 @@ export function useEditorFileSession({
         ?.statProjectFile?.(projectPath, relPath, accessToken)
         .then((info) => {
           if (!info || info.mtimeMs <= savedMtime.current) return;
-          const model = editorRef.current?.getModel();
+          const model = readModel();
           const isDirty = model ? model.getValue() !== savedText.current : false;
           if (isDirty) setDiskChanged(true);
           else reload();
         })
         .catch((reason) => {
-          if (!editorRef.current?.getModel()) return;
+          if (!readModel()) return;
           setDiskChanged(true);
           setSaveError(reason instanceof Error ? reason.message : 'File was deleted or renamed on disk.');
         });
     }, 2_500);
     return () => window.clearInterval(timer);
-  }, [accessToken, active, api, editorRef, load, projectPath, relPath, reload]);
+  }, [accessToken, active, api, readModel, load, projectPath, relPath, reload]);
 
   const revertFromDisk = useCallback(async (): Promise<boolean> => {
     const reader = api?.readProjectFile;
-    const model = editorRef.current?.getModel();
+    const model = readModel();
     if (!reader || !model || reverting || savingRef.current) return false;
     setReverting(true);
     setRevertError('');
@@ -395,17 +407,17 @@ export function useEditorFileSession({
     } finally {
       setReverting(false);
     }
-  }, [accessToken, api, deleteBackup, editorRef, markDirty, projectPath, relPath, reverting]);
+  }, [accessToken, api, deleteBackup, editorRef, readModel, markDirty, projectPath, relPath, reverting]);
 
   const restoreConflictingBackup = useCallback(() => {
-    const model = editorRef.current?.getModel();
+    const model = readModel();
     if (!model || !recovery) return;
     model.setValue(recovery.content);
     setRecovery({ ...recovery, restored: true });
     markDirty(true);
     scheduleBackup(recovery.content);
     editorRef.current?.focus();
-  }, [editorRef, markDirty, recovery, scheduleBackup]);
+  }, [editorRef, readModel, markDirty, recovery, scheduleBackup]);
 
   const discardPendingBackup = useCallback(() => {
     setRecovery(null);
@@ -413,7 +425,7 @@ export function useEditorFileSession({
   }, [deleteBackup]);
 
   const keepEdits = useCallback(() => {
-    const model = editorRef.current?.getModel();
+    const model = readModel();
     const reader = api?.readProjectFile;
     if (!model || !reader) return;
     setSaveError('');
@@ -438,7 +450,7 @@ export function useEditorFileSession({
         setDiskChanged(true);
         setSaveError(reason instanceof Error ? reason.message : String(reason));
       });
-  }, [accessToken, api, deleteBackup, editorRef, markDirty, projectPath, relPath, writeBackupNow]);
+  }, [accessToken, api, deleteBackup, readModel, markDirty, projectPath, relPath, writeBackupNow]);
 
   const onEditorChange = useCallback(
     (value: string | undefined) => {

@@ -48,25 +48,32 @@ execution returns `opened:false` with guidance to relay to the user.
 Provider authentication is intentionally hidden from the remote web app; guide
 the user to Desktop.
 
-## UI-owned settings
+## Desktop-backed settings
+
+Setup can read and change Desktop appearance, keep-awake, usage pin,
+Computer observe-only, Browser/Computer/voice installation and toggles,
+Projects, Instructions, and linked-device revocation through the attached
+Desktop. A receipt identifies `scope:desktop-host`; appearance is not applied
+to the paired browser. No Desktop claimant means no confirmed change.
+
+Schedules/webhooks and workflow/agent/skill definitions use their runtime
+actions directly. These do not require clicking their Desktop rails.
+
+## User-operated UI handoffs
 
 The setup tool does not mutate:
 
-- Desktop display language, theme, side panels, notifications, or keep-awake;
-- GitHub CLI connection;
-- web-app pairing and linked devices;
-- Project registration, naming, or Project/Common Instructions;
-- workflow-pack and agent-definition authoring;
-- Browser Use, Computer Use, or voice install/toggle state;
-- schedules and webhooks.
+- API keys, OAuth, usage sign-in, and GitHub CLI connection;
+- notification permission and subscription on the receiving device;
+- web-app pairing credentials and OS permission dialogs;
+- TUI-local theme palettes (use `/theme`; Desktop themes are separate).
 
-Use `open` where a target exists, then let the user act. Schedules and webhooks
-live on their Desktop rails and have no setup action. Never simulate a missing
-action by editing local storage, configuration files, or database rows.
+Use `open` where a target exists, then let the user act. Never simulate a
+missing or denied operation by editing storage or switching surfaces.
 
 ## TUI notes
 
-The TUI settings hub exposes system shell and Memory cycle controls in addition
-to common settings. A visible control does not imply a setup mutation exists;
-use the tool schema as the API boundary.
+The TUI settings hub exposes system shell in addition to common settings.
+Desktop-host actions need the Desktop app; opening the TUI is not a substitute.
+Use the schema and `status capabilities` as the supported API boundary.
 

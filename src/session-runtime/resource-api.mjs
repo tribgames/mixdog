@@ -205,6 +205,7 @@ export function createResourceApi(deps) {
     async addMcpServer(input = {}) {
       const { name, config: serverConfig } = normalizeMcpServerInput(input);
       const nextConfig = { ...getConfig() };
+      if (Object.hasOwn(nextConfig.mcpServers || {}, name)) throw new Error(`MCP server already exists: ${name}`);
       delete nextConfig.mcpProjectOverrides;
       nextConfig.mcpServers = {
         ...(nextConfig.mcpServers || {}),
@@ -217,21 +218,37 @@ export function createResourceApi(deps) {
       return { name, status };
     },
     async saveMcpServer(input = {}) {
-      const originalName = clean(input.originalName);
-      const normalizedInput = normalizeMcpServerInput(input);
-      const name = originalName && clean(input.name) === originalName ? originalName : normalizedInput.name;
-      const normalized = normalizedInput.config;
       const nextConfig = { ...getConfig() };
       delete nextConfig.mcpProjectOverrides;
       const servers =
         nextConfig.mcpServers && typeof nextConfig.mcpServers === 'object' ? { ...nextConfig.mcpServers } : {};
+      const originalName = clean(input.originalName) || clean(input.name);
       if (originalName && !Object.hasOwn(servers, originalName)) {
         throw new Error(`MCP server not configured: ${originalName}`);
       }
+      const existing = originalName ? servers[originalName] : {};
+      // UI editors send complete transports; setup may send a partial patch.
+      // Keep omitted fields, including credentials, without returning them.
+      const transportType = (type) => type === 'streamable-http' ? 'http' : type;
+      const transportChanged = (input.type && transportType(input.type) !== transportType(existing.type || (existing.url ? 'http' : 'stdio')))
+        || (input.command && existing.url) || (input.url && !existing.url);
+      const maps = {};
+      if (!transportChanged) {
+        for (const key of ['env', 'headers', 'env_http_headers']) {
+          if (Object.hasOwn(input, key)) maps[key] = { ...(existing[key] || {}), ...input[key] };
+        }
+      }
+      const normalizedInput = normalizeMcpServerInput({
+        ...(transportChanged ? {} : existing),
+        ...input,
+        ...maps,
+        name: clean(input.name) || originalName,
+      });
+      const name = originalName && clean(input.name) === originalName ? originalName : normalizedInput.name;
+      const normalized = normalizedInput.config;
       if (name !== originalName && Object.hasOwn(servers, name)) {
         throw new Error(`MCP server already exists: ${name}`);
       }
-      const existing = originalName ? servers[originalName] : {};
       if (originalName && originalName !== name) delete servers[originalName];
       servers[name] = mergeMcpServerConfig(existing, normalized);
       nextConfig.mcpServers = servers;

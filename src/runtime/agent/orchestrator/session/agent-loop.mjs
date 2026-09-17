@@ -27,6 +27,7 @@ import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { sendWithRecovery } from './send-with-recovery.mjs';
 import { stripInlineImages } from './image-strip-recovery.mjs';
 import { processToolBatch } from './tool-batch.mjs';
+import { _buildRouteRoundReminder } from './manager/rules-cache.mjs';
 import { runWithProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
 
 // Facade re-exports: these symbols moved to split modules under ./loop/ but
@@ -265,6 +266,13 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     const nextIteration = iterations + 1;
     opts.iteration = nextIteration;
     opts.providerState = providerState;
+    // The route policy's per-round batching reminder (rules/routes/*.md,
+    // `round-reminder:`). A provider that delivers it as a turn-scoped
+    // system message takes it from opts; for every other provider the tool
+    // batch appends it as a <system-reminder> after the round's results.
+    opts.roundReminder =
+      _buildRouteRoundReminder({ provider: sessionRef?.provider || provider?.name || null, model }) || null;
+    opts.roundReminderByProvider = provider?.constructor?.turnScopedReminder === true;
     if (forcedFirstTool && toolCallsTotal === 0) {
       opts.toolChoice = 'required';
     } else {

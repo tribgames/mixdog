@@ -33,7 +33,11 @@ export async function sharedProviderCatalog(registry) {
     })
   )
     .then((entries) => {
-      if (sharedCatalogPromise === request && catalogRevision(registry) === revision) {
+      if (
+        sharedCatalogPromise === request &&
+        catalogRevision(registry) === revision &&
+        entries.every((entry) => !Object.hasOwn(entry, 'error'))
+      ) {
         sharedCatalogRevision = revision;
         sharedCatalogEntries = entries;
       }

@@ -359,10 +359,12 @@ export function registerDesktopIpc(
     const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
     return invokeDesktopOperation('readInstructions', [file, legacy]);
   });
-  handle(DESKTOP_IPC.writeInstructions, async (_event, projectPath, content) => {
+  handle(DESKTOP_IPC.writeInstructions, async (_event, projectPath, content, expectedContent) => {
     const text = requiredInstructionsContent(content);
     const file = await instructionsFilePath(projectPath);
-    await invokeDesktopOperation('writeInstructions', [file, text]);
+    const expected = expectedContent === undefined ? undefined : requiredInstructionsContent(expectedContent);
+    const legacy = projectPath == null || projectPath === '' ? legacyCommonInstructionsFile() : '';
+    return invokeDesktopOperation('writeInstructions', [file, text, expected, legacy]);
   });
   registerProjectFileIpc({
     app,

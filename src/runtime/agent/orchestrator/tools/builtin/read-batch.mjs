@@ -78,9 +78,12 @@ export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase
   const emittedLast = keptLast !== null ? Math.min(requestedLast, keptLast) : requestedLast;
   const totalPart = haveTotal ? ` of ${totalNum}` : '';
   const moreToRead = haveTotal ? emittedLast < totalNum : finiteLast;
-  // Report the next caller coordinate without prescribing another read.
+  // Report the next caller coordinate without prescribing another read;
+  // whatever remains fits one wider read, not a walk window by window.
   const continuationPart =
-    moreToRead && Number.isFinite(emittedLast) ? `; pass offset:${emittedLast + readOffsetBase} to continue` : '';
+    moreToRead && Number.isFinite(emittedLast)
+      ? `; ${haveTotal ? `${totalNum - emittedLast} more lines` : 'more lines'} — pass offset:${emittedLast + readOffsetBase} with a limit wide enough to read them in one call`
+      : '';
   const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
   return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;
 }

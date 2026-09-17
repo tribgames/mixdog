@@ -31,7 +31,7 @@ export const LINE_NO_SEP = '→';
 
 export function buildSmartReadTruncationMarker(totalLines, fileBytes, _filePath = '') {
   const kb = Math.max(1, Math.round((Number(fileBytes) || 0) / 1024));
-  return `... [TRUNCATED - ${totalLines} lines / ${kb} KB] ...`;
+  return `... [TRUNCATED - ${totalLines} lines / ${kb} KB; read located windows with {file_path, offset, limit}] ...`;
 }
 
 function rangeFromRenderedReadRows(rows, fallbackStartLine = 1) {

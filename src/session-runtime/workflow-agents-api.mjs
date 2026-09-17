@@ -459,8 +459,17 @@ export function createWorkflowAgentsApi(deps) {
         saveConfigAndAdopt(canonicalizeAgentRouteStorage(withAgentDisabled(getConfig(), id, true)));
         return { ...(stored || {}), id, disabled: true };
       }
-      // No provider means no explicit override. Remove the stored route so the
-      // agent follows Main dynamically; never synthesize a provider.
+      if (requested.disabled === false && Object.keys(requested).length === 1) {
+        saveConfigAndAdopt(canonicalizeAgentRouteStorage(withAgentDisabled(getConfig(), id, false)));
+        return { ...stored, id, disabled: false, inherited: !stored.provider };
+      }
+      // Only an explicitly empty provider removes an override. Tuning-only
+      // edits must preserve the selected agent model, not silently inherit Main.
+      const current = stored.provider ? stored : normalizeWorkflowRoute(resolveRoute(getConfig(), {})) || {};
+      if (!hasOwn(requested, 'provider')) requested.provider = current.provider;
+      if (!hasOwn(requested, 'model') && clean(requested.provider) === clean(current.provider)) {
+        requested.model = current.model;
+      }
       if (!clean(requested.provider)) {
         const nextConfig = { ...getConfig() };
         const agents = { ...(nextConfig.agents || {}) };

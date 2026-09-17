@@ -36,6 +36,7 @@ import {
 import { recordStandaloneStatusTelemetry } from './status-telemetry.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
 import { resolveSessionContextMeta } from './context-meta.mjs';
+import { _buildRouteTurnReminder } from './rules-cache.mjs';
 import {
   promptContentText,
   hasModelVisiblePromptContent,
@@ -671,10 +672,15 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         // input intake: either can precede the previous turn's pause.
         // This supplies context only; it never resumes the Goal.
         _turnGoalReminder = snapshotPendingGoalReminder(session, { includePaused: true });
+        // Route policy's per-turn line (rules/routes/*.md, `turn-reminder:`):
+        // read once before the turn's first response, part of the user turn
+        // so it stays inside the cached transcript prefix.
+        const _turnRouteReminder = _buildRouteTurnReminder({ provider: session.provider, model: session.model });
         const _turnReminderBlock = [
           _currentTimeBlock ? `<system-reminder>\n# Current Time\n${_currentTimeBlock}\n</system-reminder>` : '',
           _turnDeferredToolDelta?.content || '',
           _turnGoalReminder?.content || '',
+          _turnRouteReminder ? `<system-reminder>\n${_turnRouteReminder}\n</system-reminder>` : '',
         ]
           .filter(Boolean)
           .join('\n\n');

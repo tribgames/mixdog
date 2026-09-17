@@ -45,7 +45,15 @@ export function probePath(path) {
   try {
     _probeFault(path, 'stat');
     const info = statSync(path);
-    return { state: PROBE_PRESENT, mtimeMs: info.mtimeMs || 0, size: info.size, code: null };
+    return {
+      state: PROBE_PRESENT,
+      mtimeMs: info.mtimeMs || 0,
+      ctimeMs: info.ctimeMs,
+      size: info.size,
+      ino: info.ino,
+      dev: info.dev,
+      code: null,
+    };
   } catch (err) {
     const code = err?.code || 'EUNKNOWN';
     if (ABSENT_CODES.has(code)) return { state: PROBE_ABSENT, mtimeMs: 0, size: 0, code };

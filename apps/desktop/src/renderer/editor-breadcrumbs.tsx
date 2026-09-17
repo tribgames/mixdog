@@ -309,7 +309,7 @@ export function EditorBreadcrumbs({
             <div className="editor-breadcrumb-picker-header">
               <button
                 type="button"
-                aria-label="Parent Folder"
+                aria-label={t('Parent Folder')}
                 disabled={!picker.directory}
                 onClick={() => {
                   const parent = picker.directory.split('/').slice(0, -1).join('/');
@@ -324,14 +324,14 @@ export function EditorBreadcrumbs({
           <div className="editor-breadcrumb-picker-tree" role="tree">
             {picker.kind === 'files' && picker.loading && (
               <p>
-                <ProgressSpinner size={14} className="editor-pane-spinner" /> Loading…
+                <ProgressSpinner size={14} className="editor-pane-spinner" /> {t('Loading…')}
               </p>
             )}
             {picker.kind === 'files' && !picker.loading && picker.error && <p>{picker.error}</p>}
             {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
-              <p>No files found.</p>
+              <p>{t('No files found.')}</p>
             )}
-            {picker.kind === 'symbols' && !picker.rows.length && <p>No symbols found.</p>}
+            {picker.kind === 'symbols' && !picker.rows.length && <p>{t('No symbols found.')}</p>}
             {picker.rows.map((item, index) => {
               const fileItem = picker.kind === 'files' ? (item as BreadcrumbFileItem) : null;
               const symbolItem = picker.kind === 'symbols' ? (item as EditorOutlineItem) : null;
@@ -389,7 +389,7 @@ export function EditorBreadcrumbs({
 
   return (
     <>
-      <nav className="editor-breadcrumbs" aria-label="Breadcrumbs" onKeyDown={handleKeyDown}>
+      <nav className="editor-breadcrumbs" aria-label={t('Breadcrumbs')} onKeyDown={handleKeyDown}>
         <span className="editor-breadcrumb-path">
           {segments.map((segment, index) => (
             <React.Fragment key={`${index}:${segment}`}>
@@ -476,8 +476,8 @@ export function EditorBreadcrumbs({
               type="button"
               disabled={!dirty || saving || reverting}
               onClick={onSave}
-              aria-label="Save"
-              data-tooltip="Save (Ctrl+S)"
+              aria-label={t('Save')}
+              data-tooltip={t('Save (Ctrl+S)')}
             >
               <Save size={16} aria-hidden="true" />
             </button>
@@ -488,16 +488,16 @@ export function EditorBreadcrumbs({
               className="editor-revert-action"
               disabled={saving || reverting}
               onClick={onRevert}
-              aria-label="Revert"
-              data-tooltip="Revert File"
+              aria-label={t('Revert')}
+              data-tooltip={t('Revert File')}
             >
               <Undo2 size={18} aria-hidden="true" />
             </button>
           )}
           <button
             type="button"
-            aria-label="Reveal in Explorer"
-            data-tooltip="Reveal in Explorer"
+            aria-label={t('Reveal in Explorer')}
+            data-tooltip={t('Reveal in Explorer')}
             onClick={() => void api?.revealFile?.(projectPath, relPath, accessToken)}
           >
             <FolderOpen size={16} aria-hidden="true" />

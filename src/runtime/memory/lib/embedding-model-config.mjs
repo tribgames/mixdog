@@ -67,7 +67,11 @@ export function getDefaultEmbeddingDevice(modelId = getConfiguredEmbeddingModelI
 
 export function getEmbeddingModelLoadOptions(modelId = getConfiguredEmbeddingModelId()) {
   const profile = getEmbeddingModelProfile(modelId);
-  return profile?.modelFileName ? { model_file_name: profile.modelFileName } : {};
+  const options = profile?.modelFileName ? { model_file_name: profile.modelFileName } : {};
+  // E5 sees variable-length queries and batches. Shape-specific ORT memory
+  // plans retain large native buffers; keep arena reuse without those plans.
+  if (clean(modelId) === DEFAULT_MODEL_ID) options.session_options = { enableMemPattern: false };
+  return options;
 }
 
 export function getEmbeddingPooling(modelId = getConfiguredEmbeddingModelId()) {

@@ -1,29 +1,25 @@
 # Mixdog
 
 [![npm](https://img.shields.io/npm/v/mixdog)](https://www.npmjs.com/package/mixdog)
-![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
+![Node.js ^22.19.0 || >=24.0.0](https://img.shields.io/badge/node-%5E22.19.0%20%7C%7C%20%3E%3D24.0.0-brightgreen)
 ![license](https://img.shields.io/badge/license-Apache--2.0-blue)
 
-## The most efficient harness. The easiest way to use it.
+## More work. Less cost. Less complexity.
 
-Mixdog's goal is simple: make the most efficient AI coding harness the
-easiest to use. Get more work done with the same model and budget, without
-needing to become an expert in agent infrastructure.
+Get more from your models and budget with an efficient AI coding
+harness—and intuitive controls for managing sessions, agents, and your
+entire workflow.
 
-That means more than an easy first run. Advanced capabilities should be easy
-to access, configure, and manage as your work grows—from choosing a model
-to coordinating agents and shaping your own workflows.
-
-- **Efficiency that turns into more work.** Cache-aware context, focused
+- **More work for your budget.** Cache-aware context, focused
   tools, and compaction reduce overhead so more of your budget goes toward
-  the task. The same-model Terminal-Bench comparisons below show comparable
+  the task. The published same-model Terminal-Bench comparisons below show comparable
   or better results with smaller contexts and lower costs at the same API rates.
-- **Advanced capabilities, within easy reach.** Guided setup and visual
-  controls help you assign models by role, configure workflows, and work
-  with parallel agent sessions without building your own agent stack.
-- **Simple to manage. Flexible when you need it.** Manage providers, agents,
-  workflows, and extensions in one app. Customize agent definitions and
-  operating rules, or add skills, MCP servers, hooks, and plugins as needed.
+- **Easy to start. Simple to manage.** Guided setup and visual controls
+  help you choose models, assign agent roles, and configure workflows without
+  becoming an expert in agent infrastructure or building your own stack.
+- **One workspace, your way.** In Desktop, organize parallel sessions with
+  tabs and split panes, customize agents and workflows, and keep token
+  statistics and supported provider limits in view.
 
 Use supported subscription accounts, API keys, or Mixdog's built-in Local Provider.
 Take the same agent beyond code into browsers, Windows apps, documents,
@@ -58,6 +54,37 @@ mixdog
 
 First run guides you through provider authentication, model selection, and
 workflow setup.
+
+## One workspace for your sessions and agents
+
+Run multiple AI sessions side by side and manage your agents in Desktop.
+Combine tabs and split panes, customize how you work, and keep token usage
+and supported provider limits in view.
+
+- **Multiple sessions, manageable agents.** Keep separate tasks in separate
+  sessions and work on them in parallel. Manage agent definitions, assign
+  models by role, and configure workflows in one app instead of assembling
+  your own agent stack.
+- **Tabs and split panes—together.** Use tabs to organize sessions and split
+  panes to follow several side by side. Each pane can hold its own tabs, so
+  you do not have to choose between quick switching and a simultaneous view.
+- **Make the workspace your own.** Visual controls put layout, providers,
+  models, agent rules, workflows, and extensions within easy reach. The model
+  picker shows pricing, context limits, and capability metadata to help you
+  choose—not just a list of model names.
+- **See where your tokens go.** Usage statistics break down token totals by
+  provider and model, including input, output, cache hits, and cache hit rate,
+  with trends and cost figures. Subscription values use list prices; API
+  costs may be estimates. Neither is an invoice.
+- **Keep remaining usage in sight.** The usage panel brings supported
+  providers' quota windows and reset times together, reducing trips to
+  separate account dashboards. Available figures depend on the provider.
+- **Less window switching.** Chat, a Monaco code editor, Git, terminals, and
+  a file explorer share one workspace, keeping the conversation close to the
+  files and changes you are working on.
+- **Pick up on another screen.** Continue the same live session from Desktop,
+  TUI, or a paired browser on your computer or phone, without starting a
+  separate conversation.
 
 ## Benchmarks
 
@@ -99,6 +126,26 @@ its raw artifacts instead — Harbor verdicts, official verifier output, pinned
 task checksums, and the usage snapshots behind every cost figure — alongside
 the harness, presets, and metric scripts that recompute each number above:
 [`benchmarks/terminal-bench-2.1/`](benchmarks/terminal-bench-2.1/).
+
+## Less overhead. More budget for the work.
+
+Mixdog reduces the overhead of repeatedly sending context, re-explaining
+requirements, and rediscovering prior work. Focused tools keep unnecessary
+text out of the prompt, while provider-aware caching reuses stable input.
+
+Compaction keeps long conversations manageable with a handoff for continuing
+the task. Optional idle-time compaction reduces the history resent after
+long breaks, when provider caches may have expired. Approved memory and
+past-work retrieval help carry earlier decisions and requirements forward
+without loading the entire conversation archive into every prompt.
+
+You do not have to use the same high-cost model for every role. Choose models
+by role and workflow to focus your budget on the work that needs them.
+
+The benchmarks above measure single-model, single-session runs without
+personal memory, sub-agent delegation, or helper-model lookups. Their cost
+figures already account for cache usage; savings in ongoing work depend on
+the provider, workload, and configuration.
 
 ## How Mixdog keeps context lean
 

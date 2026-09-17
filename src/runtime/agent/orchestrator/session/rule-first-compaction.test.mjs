@@ -9,7 +9,7 @@ import { estimateMessagesTokens } from './context-utils.mjs';
 import { runPreSendCompactPass } from './pre-send-compact.mjs';
 import { runSessionCompaction } from './manager/compaction-runner.mjs';
 import { agentLoop } from './agent-loop.mjs';
-import { SUMMARY_PREFIX } from './compact.mjs';
+import { conversationCompactionInput, SUMMARY_PREFIX } from './compact.mjs';
 
 const summary = [
   '## Goal',
@@ -89,13 +89,57 @@ test('ordinary Compact preserves all dialogue without resolving or calling an AI
   assert.equal(result.handoffSource, 'rules');
   assert.equal(result.usage, null);
   assert.equal(result.summaryProvider, null);
-  assert.equal(result.diagnostics.pipeline.conversationThresholdTokens, 10_000);
+  assert.equal(result.diagnostics.pipeline.conversationThresholdTokens, 4_000);
   assert.equal(result.diagnostics.pipeline.summaryTriggered, false);
   const repeat = await compact({ ...session, messages: result.messages });
   assert.deepEqual(repeat.messages, result.messages);
 });
 
-test('AI is called only above the conversation threshold and never receives the latest request or system rules', async () => {
+test('conversation summary uses 10% with the existing minimum without changing compact triggers or targets', async () => {
+  for (const [contextWindow, thresholdTokens] of [
+    [20_000, 4_000],
+    [40_000, 4_000],
+    [200_000, 20_000],
+    [1_000_000, 100_000],
+  ]) {
+    const session = { ...fixture(), contextWindow };
+    const result = await compact(session);
+    assert.equal(result.diagnostics.pipeline.conversationThresholdTokens, thresholdTokens);
+    assert.equal(result.diagnostics.pipeline.summaryTriggered, false);
+    const policy = resolveWorkerCompactPolicy(session, []);
+    assert.equal(policy.triggerTokens, contextWindow);
+    assert.equal(policy.compactTargetTokens, contextWindow * 0.25);
+  }
+});
+
+test('default conversation summary triggers at or above 10%, never below it', async () => {
+  const session = fixture();
+  session.messages[2].content = 'Older discussion facts. '.repeat(1_000);
+  const sourceTokens = estimateMessagesTokens(conversationCompactionInput(session.messages));
+  assert.ok(sourceTokens > 4_000);
+  let calls = 0;
+  const provider = {
+    name: session.provider,
+    async send() {
+      calls += 1;
+      return { content: summary };
+    },
+  };
+  for (const [contextWindow, expectedCalls, summaryTriggered] of [
+    [sourceTokens * 10 + 1, 0, false],
+    [sourceTokens * 10, 1, true],
+    [(sourceTokens - 1) * 10, 2, true],
+  ]) {
+    const result = await compact({ ...session, contextWindow }, { provider });
+    assert.equal(result.diagnostics.pipeline.conversationTokens, sourceTokens);
+    assert.equal(result.diagnostics.pipeline.summaryTriggered, summaryTriggered);
+    assert.equal(calls, expectedCalls);
+    assert.equal(result.messages.at(-1).content, 'LATEST_REQUEST');
+    assert.equal(result.messages[0].content, 'SYSTEM_RULES');
+  }
+});
+
+test('AI is called at the explicit conversation threshold and never receives the latest request or system rules', async () => {
   const session = fixture();
   const sourceTokens = estimateMessagesTokens(session.messages.slice(1, 3));
   let calls = 0;
@@ -110,18 +154,19 @@ test('AI is called only above the conversation threshold and never receives the 
       return { content: summary, usage: { inputTokens: 20, outputTokens: 10 } };
     },
   };
+  session.compaction.conversationThresholdTokens = sourceTokens + 1;
+  const below = await compact(session, { provider });
+  assert.equal(calls, 0);
+  assert.equal(below.diagnostics.pipeline.summaryTriggered, false);
   session.compaction.conversationThresholdTokens = sourceTokens;
   const exact = await compact(session, { provider });
-  assert.equal(calls, 0);
   assert.equal(exact.diagnostics.pipeline.conversationTokens, sourceTokens);
-  session.compaction.conversationThresholdTokens = sourceTokens - 1;
-  const exceeded = await compact(session, { provider });
   assert.equal(calls, 1);
-  assert.equal(exceeded.diagnostics.pipeline.summaryTriggered, true);
-  assert.equal(exceeded.messages.at(-1).content, 'LATEST_REQUEST');
-  assert.equal(exceeded.messages[0].content, 'SYSTEM_RULES');
-  assert.equal(exceeded.messages.filter((m) => m.meta?.source === 'compact-summary').length, 1);
-  assert.equal(exceeded.usage.outputTokens, 10);
+  assert.equal(exact.diagnostics.pipeline.summaryTriggered, true);
+  assert.equal(exact.messages.at(-1).content, 'LATEST_REQUEST');
+  assert.equal(exact.messages[0].content, 'SYSTEM_RULES');
+  assert.equal(exact.messages.filter((m) => m.meta?.source === 'compact-summary').length, 1);
+  assert.equal(exact.usage.outputTokens, 10);
 });
 
 test('tool pressure alone uses rules and preserves an exact recoverable archive, without AI', async (t) => {

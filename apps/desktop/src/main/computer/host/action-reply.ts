@@ -126,7 +126,22 @@ export async function buildActionReply(
         action === 'close_window' &&
         result.verified === true &&
         windowTransition?.closed_windows.some((window) => window.id === originalWindowId);
-      if (targetClosed) {
+      const launchTargetUnresolved =
+        action === 'launch' && result.delivery_accepted === true && !code &&
+        !originalWindowId && !windowTransition?.next_target;
+      if (launchTargetUnresolved) {
+        // Shell brokers can launch a different process (for example a packaged
+        // app hosted by ApplicationFrameHost). No proven successor is not a
+        // failed launch, and it never authorizes capturing the foreground app.
+        payload.capture_after = {
+          ok: true,
+          action: 'capture',
+          skipped: true,
+          target_reason: 'launch_target_unresolved',
+        };
+        payload.verdict = { decision: 'verify_fresh_state', recommended: 'list_windows' };
+        payload.message = `${payload.message}; the shell accepted the launch, but its window is unresolved. List windows and capture the exact target; do not launch again.`;
+      } else if (targetClosed) {
         payload.capture_after = {
           ok: true,
           action: 'capture',

@@ -292,7 +292,7 @@ export function ProviderAccountsList({
             {!listOnly && pool && pool.accounts.length > 1 && (
               <label
                 className="provider-accounts-auto"
-                title={t('Move to the next account in this order when the current one is unavailable.')}
+                title={t('Switch accounts automatically')}
               >
                 <span>{t('Auto-switch')}</span>
                 <span className="mixdog-settings__switch compact-switch">

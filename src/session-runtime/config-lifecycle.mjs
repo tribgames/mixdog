@@ -10,7 +10,7 @@
 // temp+rename, win32 icacls owner-only ACL). Adopt in-memory IMMEDIATELY so
 // same-tick readers see fresh state, and DEBOUNCE the disk write so a burst of
 // toggles collapses into one persist. Three independent debounce channels:
-//   - config save  (cfgMod.saveConfig, agent-section serialize)
+//   - config save  (field patches rebased onto the locked agent section)
 //   - outputStyle  (sharedCfgMod.updateConfig whole-root RMW — cfgMod.saveConfig
 //                   only serializes agent-section fields, so a top-level
 //                   outputStyle would never reach disk via that path)
@@ -30,6 +30,7 @@ export async function flushPendingSessionConfigWrites() {
 import { withGrandfatheredBuiltins } from './builtin-features.mjs';
 import { webSearchRouteOrDefault } from './workflow.mjs';
 import { createDebouncedWriter } from '../runtime/shared/debounced-writer.mjs';
+import { applyConfigPatch } from '../runtime/shared/config-patch.mjs';
 
 /**
  * Boot-time config/route state for one runtime. Caller overrides are applied
@@ -134,11 +135,21 @@ export function createConfigLifecycle({
     return config;
   }
 
+  // Track accepted edits, not whole stale runtime snapshots. Keep the baseline
+  // separate from adoptConfig: model tuning is adopted before its route save.
+  let configSaveBaseline = structuredClone(getConfig());
+  let pendingConfigChanges = [];
   // Synchronous reload remains a synchronous API. It may flush an idle writer,
-  // but must retain its in-memory overlay while an asynchronous write is active.
+  // but must retain its pending field overlay while an async write is active.
   const configWriter = createDebouncedWriter({
     delayMs: CONFIG_SAVE_DEBOUNCE_MS,
-    write: (snapshot) => cfgMod.saveConfigAsync(snapshot),
+    write: async () => {
+      const changes = pendingConfigChanges;
+      await cfgMod.saveConfigPatchAsync(changes);
+      // New edits accepted during this write remain queued; a successful prefix
+      // must never be replayed over another runtime's subsequent changes.
+      pendingConfigChanges = pendingConfigChanges.slice(changes.length);
+    },
     onError: (error, sync) =>
       process.stderr.write(`[config] ${sync ? 'debounced' : 'async'} saveConfig failed: ${error?.message || error}\n`),
   });
@@ -164,7 +175,7 @@ export function createConfigLifecycle({
   }
 
   async function runConfigFlushAsync() {
-    // Whole-config snapshots precede the more specific skills.disabled patch.
+    // Config edits precede the dedicated skills.disabled patch.
     do {
       if (!(await configWriter.flush())) return false;
       if (!(await skillsWriter.flush())) return false;
@@ -185,7 +196,11 @@ export function createConfigLifecycle({
   }
 
   function flushConfigSave() {
-    if (configWriter.flushSyncIfIdle((snapshot) => cfgMod.saveConfig(snapshot))) {
+    if (configWriter.flushSyncIfIdle(() => {
+      const changes = pendingConfigChanges;
+      cfgMod.saveConfigPatch(changes);
+      pendingConfigChanges = pendingConfigChanges.slice(changes.length);
+    })) {
       skillsWriter.flushSyncIfIdle((names) => cfgMod.patchSkillsDisabled(names));
     }
     releaseSavedWriter();
@@ -195,14 +210,19 @@ export function createConfigLifecycle({
     // In-memory adopt is synchronous and first so callers that read back the
     // value immediately (e.g. setProfile -> getProfile) see the new state.
     const adopted = adoptConfig(nextConfig, { hasSecrets });
-    // Persist the adopted object; coalesce rapid successive changes into one
-    // disk write after CONFIG_SAVE_DEBOUNCE_MS of quiet.
-    configWriter.schedule(getConfig(), flushConfigSaveAsync);
-    pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
+    const changes = cfgMod.createConfigPatch(configSaveBaseline, adopted);
+    configSaveBaseline = structuredClone(adopted);
+    if (changes.length) {
+      pendingConfigChanges = [...pendingConfigChanges, ...changes];
+      configWriter.schedule(pendingConfigChanges, flushConfigSaveAsync);
+      pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
+    }
     return adopted;
   }
 
   function scheduleSkillsSave(names) {
+    // This field belongs to its dedicated writer, not a later unrelated save.
+    configSaveBaseline.skills = structuredClone(getConfig().skills);
     skillsWriter.schedule(names, flushConfigSaveAsync);
     pendingSessionConfigWriters.add(flushAllConfigSavesAsync);
   }
@@ -254,32 +274,17 @@ export function createConfigLifecycle({
     const loaded = cfgMod.loadConfig();
     let next = loaded;
     if (configWriter.hasPending()) {
-      // The debounced write could not land (e.g. lock timeout), so on-disk is
-      // stale. Prefer the freshest in-memory state and re-overlay the keychain
-      // provider secrets that only the disk load carries, so a failed flush
-      // never reverts the user's latest change.
-      const current = getConfig();
-      const merged = { ...loaded, ...current, providers: { ...(current.providers || {}) } };
-      for (const [name, val] of Object.entries(loaded.providers || {})) {
-        if (val && val.apiKey) {
-          // Match loadConfig's keychain overlay: apiKey ⇒ enabled:true, UNLESS
-          // the in-memory pending state EXPLICITLY disabled this provider (a
-          // genuine newer user change that must not be reverted).
-          const explicitlyDisabled = current.providers?.[name]?.enabled === false;
-          merged.providers[name] = {
-            ...(merged.providers[name] || {}),
-            apiKey: val.apiKey,
-            enabled: explicitlyDisabled ? false : true,
-          };
-        }
-      }
-      next = merged;
+      // Preserve only our pending edits. Peer changes and fresh secret overlays
+      // from the disk load must not be replaced by the rest of our old snapshot.
+      next = applyConfigPatch(loaded, pendingConfigChanges);
     }
     const pendingSkills = skillsWriter.getPending();
     if (pendingSkills !== null) {
       next = { ...next, skills: { ...(next.skills || {}), disabled: pendingSkills } };
     }
-    return adoptConfig(next, { hasSecrets: true });
+    const adopted = adoptConfig(next, { hasSecrets: true });
+    configSaveBaseline = structuredClone(adopted);
+    return adopted;
   }
 
   function ensureFullConfig() {
@@ -309,7 +314,7 @@ export function createConfigLifecycle({
     // adopt / save
     adoptConfig,
     saveConfigAndAdopt,
-    // Skills publication also drains older whole-config snapshots first.
+    // Skills publication also drains older config edits first.
     flushSkillsSave: flushConfigSaveAsync,
     scheduleSkillsSave,
     scheduleOutputStyleSave,

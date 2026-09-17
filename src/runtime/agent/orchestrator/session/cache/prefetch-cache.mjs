@@ -12,6 +12,7 @@ import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
+import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 
 // I: cap is configurable via MIXDOG_PREFETCH_CACHE_MAX env var; default 200.
 const _envCap = Number(process.env.MIXDOG_PREFETCH_CACHE_MAX);
@@ -104,6 +105,17 @@ function _deleteDiskEntry(absPath) {
   }
 }
 
+function rememberPrefetch(absPath, entry) {
+  return setBoundedTextCacheEntry(_prefetchCache, absPath, entry, {
+    maxEntries: PREFETCH_CACHE_MAX,
+    onEvict: _deleteDiskEntry,
+  });
+}
+
+export function capturePrefetchCacheState(absPath) {
+  return _statTuple(_normalizeCacheKey(absPath));
+}
+
 /**
  * Look up a cached prefetch result for `absPath`. Stat-validates the file on
  * every hit. Returns null on miss, TTL expiry, or stat mismatch. Returns
@@ -119,7 +131,6 @@ export function tryPrefetchCached(absPath) {
     const disk = _readDiskEntry(absPath);
     if (!disk) return null;
     entry = disk;
-    _prefetchCache.set(absPath, entry);
   }
   if (Date.now() - entry.ts > _prefetchTtlMs) {
     _prefetchCache.delete(absPath);
@@ -133,32 +144,33 @@ export function tryPrefetchCached(absPath) {
     return null;
   }
   // LRU touch: move to end of insertion-order sequence.
-  _prefetchCache.delete(absPath);
-  _prefetchCache.set(absPath, entry);
+  if (_prefetchCache.has(absPath)) {
+    _prefetchCache.delete(absPath);
+    _prefetchCache.set(absPath, entry);
+  } else {
+    rememberPrefetch(absPath, entry);
+  }
   return { content: entry.content, ts: entry.ts };
 }
 
 /**
  * Store a per-file prefetch result. Silently skips empty or error-prefixed
  * content so only clean read output enters the cache.
+ * Async callers must pass the state captured before reading; null disables
+ * insertion. Omission is reserved for synchronous current-body insertion.
  */
-export function setPrefetchCached(absPath, content) {
+export function setPrefetchCached(absPath, content, readState) {
   if (typeof absPath !== 'string' || absPath.length === 0) return;
   if (typeof content !== 'string' || content.length === 0) return;
   if (classifyResultKind(content) === 'error') return;
   absPath = _normalizeCacheKey(absPath);
   const stat = _statTuple(absPath);
   if (!stat) return;
-  if (_prefetchCache.size >= PREFETCH_CACHE_MAX) {
-    const firstKey = _prefetchCache.keys().next().value;
-    if (firstKey !== undefined) {
-      _prefetchCache.delete(firstKey);
-      _deleteDiskEntry(firstKey);
-    }
-  }
+  // Async readers supply the version observed before execution. Never label
+  // an older body with the version that happens to exist at insertion time.
+  if (readState !== undefined && !_statEqual(readState, stat)) return;
   const entry = { content, stat, ts: Date.now() };
-  _prefetchCache.set(absPath, entry);
-  _scheduleDiskWrite(absPath, entry);
+  if (rememberPrefetch(absPath, entry)) _scheduleDiskWrite(absPath, entry);
 }
 
 /**

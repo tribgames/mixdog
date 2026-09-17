@@ -16,6 +16,7 @@ import {
   FULL_RESPONSES_TRANSPORT_CAPS,
 } from './openai-transport-policy.mjs';
 import { createHash } from 'node:crypto';
+import { cloneJsonWithSharedStrings } from '../../../shared/json-snapshot.mjs';
 
 // If the cached request (sans input) matches the current one and the current
 // input starts with the cached input, return only the tail. Otherwise return
@@ -45,7 +46,7 @@ export function _stableStringify(obj) {
 export function _cloneJson(value) {
   if (value == null) return value;
   try {
-    return JSON.parse(JSON.stringify(value));
+    return cloneJsonWithSharedStrings(value);
   } catch {
     return value;
   }

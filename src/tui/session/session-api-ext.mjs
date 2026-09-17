@@ -717,6 +717,9 @@ export function createSessionApiB(bag) {
         metadataText: attachment.metadataText || '',
       };
     },
+    claimSetupRequest: (id, owner) => runtime.claimSetupRequest(id, owner),
+    isSetupRequestActive: (id, owner) => runtime.isSetupRequestActive(id, owner),
+    completeSetupRequest: (id, owner, receipt) => runtime.completeSetupRequest(id, owner, receipt),
     toggleVoice: async (enabled) => {
       const result = await toggleVoice({
         pushNotice,

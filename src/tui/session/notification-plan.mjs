@@ -85,6 +85,9 @@ export function resolveTuiRuntimeNotificationDelivery(event, text) {
   // Setup tool `open`: the attached UI navigates to a settings surface. The
   // command is the shared slash-command name (TUI runSlashCommand / Desktop
   // resolveDesktopSlashCommand), so both surfaces route with their own tables.
+  if (meta.kind === 'setup-ui') {
+    return meta.id ? { action: 'setup-ui', id: String(meta.id) } : { action: 'ignore' };
+  }
   if (meta.kind === 'ui-open') {
     const command = String(meta.command || '')
       .trim()

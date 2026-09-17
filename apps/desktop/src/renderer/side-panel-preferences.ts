@@ -21,10 +21,12 @@ export function getSidePanelMode(): SidePanelMode {
   return fallbackMode;
 }
 
-export function setSidePanelMode(mode: SidePanelMode): void {
+export function setSidePanelMode(mode: SidePanelMode): boolean {
   fallbackMode = isSidePanelMode(mode) ? mode : DEFAULT_MODE;
+  let persisted = false;
   try {
     window.localStorage.setItem(SIDE_PANEL_MODE_KEY, fallbackMode);
+    persisted = true;
   } catch {
     // The current renderer still applies the in-memory preference.
   }
@@ -33,6 +35,7 @@ export function setSidePanelMode(mode: SidePanelMode): void {
   } catch {
     // Non-browser imports keep the in-memory preference only.
   }
+  return persisted;
 }
 
 export function subscribeSidePanelMode(listener: () => void): () => void {

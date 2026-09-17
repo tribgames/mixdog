@@ -66,7 +66,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                 aria-label={`${providerLabel(provider)} API key`}
                 required
               />
-              <button disabled={busy}>Save</button>
+              <button disabled={busy}>{t('Save')}</button>
             </form>
           )}
           {Boolean(provider.stored || (!provider.env && provider.authenticated)) && (
@@ -233,7 +233,7 @@ export function OAuthControl({
         if (completedFlowRef.current !== flowId) return;
         if (!next) {
           completedFlowRef.current = '';
-          setError('Connected, but provider status could not be refreshed.');
+          setError(t('Connected, but provider status could not be refreshed.'));
           return;
         }
         setFlow((current) => (String(current?.flowId || '') === flowId ? null : current));
@@ -359,7 +359,7 @@ export function OAuthControl({
                     )
                       .then((next) => {
                         if (next) setFlow(record(next));
-                        else setError('The authorization code could not be completed.');
+                        else setError(t('The authorization code could not be completed.'));
                       })
                       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
                   }}

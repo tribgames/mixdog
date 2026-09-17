@@ -274,6 +274,111 @@ function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [], allowTools = null
   return omitToolRoutes(readMarkdownDirectory(SHARED_DIR), omitTools, allowTools);
 }
 
+// Route policy: `rules/routes/*.md` files bound to a provider and/or model
+// family through frontmatter (`providers: a, b` exact ids; `models: gemini-*`
+// lowercase globs tested against the model id and its `/`-leaf). A listed key
+// restricts; an unlisted key is unrestricted, so a file without frontmatter
+// applies to every route. The body is static rules appended to BP1;
+// `turn-reminder: <one line>` rides the user turn's trailing <system-reminder>
+// block (read once before the turn's first response); `round-reminder: <one
+// line>` is appended after every tool round (delivered as the provider's
+// turn-scoped system message where it supports one, else as the runtime
+// <system-reminder>). Frontmatter never reaches the model.
+function parseRouteFrontmatter(markdown) {
+  const match = String(markdown || '').match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
+  const meta = {};
+  if (!match) return meta;
+  for (const line of match[1].split(/\r?\n/)) {
+    const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*?)\s*$/);
+    if (kv) meta[kv[1].toLowerCase()] = kv[2];
+  }
+  return meta;
+}
+
+function routeList(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim().replace(/^['"]|['"]$/g, '').toLowerCase())
+    .filter(Boolean);
+}
+
+function routePatternMatches(pattern, value) {
+  const source = pattern
+    .split('*')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+  return new RegExp(`^${source}$`).test(value);
+}
+
+function routeRulesApply(meta, provider, model) {
+  const providers = routeList(meta.providers);
+  const models = routeList(meta.models);
+  const providerId = String(provider || '')
+    .trim()
+    .toLowerCase();
+  const modelId = String(model || '')
+    .trim()
+    .toLowerCase();
+  const modelLeaf = modelId.split('/').pop() || '';
+  if (providers.length && !providers.includes(providerId)) return false;
+  if (models.length && !models.some((p) => routePatternMatches(p, modelId) || routePatternMatches(p, modelLeaf))) {
+    return false;
+  }
+  return true;
+}
+
+// The route files that apply to this provider/model, in name order.
+function matchingRouteFiles({ PLUGIN_ROOT, provider, model }) {
+  const ROUTES_DIR = path.join(PLUGIN_ROOT, 'rules', 'routes');
+  let names;
+  try {
+    names = fs
+      .readdirSync(ROUTES_DIR)
+      .filter((name) => name.endsWith('.md'))
+      .sort();
+  } catch {
+    return [];
+  }
+  const files = [];
+  for (const name of names) {
+    const raw = readOptional(path.join(ROUTES_DIR, name));
+    if (!raw) continue;
+    const meta = parseRouteFrontmatter(raw);
+    if (routeRulesApply(meta, provider, model)) files.push({ raw, meta });
+  }
+  return files;
+}
+
+function buildRouteRulesContent({ PLUGIN_ROOT, provider = null, model = null, omitTools = [], allowTools = null } = {}) {
+  const parts = [];
+  for (const { raw } of matchingRouteFiles({ PLUGIN_ROOT, provider, model })) {
+    const body = stripFrontmatter(raw);
+    if (body) parts.push(body);
+  }
+  return omitToolRoutes(parts.join('\n'), omitTools, allowTools);
+}
+
+// One frontmatter line for the route: the unrestricted files (`common.md`)
+// come first, then whatever a file naming `models:` or `providers:` adds for
+// that key — additions extend the common line, they never replace it.
+function routeFrontmatterLine({ PLUGIN_ROOT, provider, model }, key) {
+  const lines = { general: [], specific: [] };
+  for (const { meta } of matchingRouteFiles({ PLUGIN_ROOT, provider, model })) {
+    const line = String(meta[key] || '').trim();
+    if (!line) continue;
+    lines[routeList(meta.models).length || routeList(meta.providers).length ? 'specific' : 'general'].push(line);
+  }
+  return [...lines.general, ...lines.specific].join(' ');
+}
+
+function buildRouteRoundReminderContent({ PLUGIN_ROOT, provider = null, model = null } = {}) {
+  return routeFrontmatterLine({ PLUGIN_ROOT, provider, model }, 'round-reminder');
+}
+
+function buildRouteTurnReminderContent({ PLUGIN_ROOT, provider = null, model = null } = {}) {
+  return routeFrontmatterLine({ PLUGIN_ROOT, provider, model }, 'turn-reminder');
+}
+
 function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
   const LEAD_DIR = path.join(RULES_DIR, 'lead');
@@ -397,6 +502,9 @@ function buildAgentRetrievalInjectionContent({ PLUGIN_ROOT }) {
 
 module.exports = {
   buildSharedToolContent,
+  buildRouteRulesContent,
+  buildRouteRoundReminderContent,
+  buildRouteTurnReminderContent,
   buildLeadRoleContent,
   buildLeadMetaContent,
   buildLeadLanguageContent,

@@ -467,7 +467,8 @@
 .session-row-status {
   position: absolute;
   z-index: 2;
-  right: 14px;
+  /* 12px glyph centered on the rail's trailing line. */
+  right: calc(var(--mx-rail-trailing-center, 20px) - 6px);
   top: 50%;
   width: 12px;
   height: 12px;

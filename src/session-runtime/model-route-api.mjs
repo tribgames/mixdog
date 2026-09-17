@@ -95,13 +95,14 @@ export function createModelRouteApi(deps) {
       return await collectWebSearchProviderModels({ force: options.force === true || options.refresh === true });
     },
     async setWebSearchRoute(next) {
-      let selectedRoute = clean(next?.provider)
-        ? normalizeWebSearchRouteConfig(next)
-        : normalizeWebSearchRouteConfig({
+      const reset = hasOwn(next || {}, 'provider') && !clean(next.provider);
+      let selectedRoute = reset
+        ? normalizeWebSearchRouteConfig({
             provider: WEB_SEARCH_DEFAULT_PROVIDER,
             model: WEB_SEARCH_DEFAULT_MODEL,
             ...(next?.toolType ? { toolType: next.toolType } : {}),
-          });
+          })
+        : normalizeWebSearchRouteConfig(next, this.getWebSearchRoute());
       if (!selectedRoute) throw new Error('web search route requires provider and model');
       if (isDefaultWebSearchRouteConfig(selectedRoute)) {
         await awaitKeychainPrewarm();

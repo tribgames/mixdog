@@ -4,6 +4,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { replaceProviderAuthBindings } from './provider-auth-binding.mjs';
+import { ACCOUNT_PROVIDERS, providerAccountPath, readProviderAccountPool } from './provider-accounts.mjs';
 import { AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
 import { clean } from './clean.mjs';
 
@@ -230,7 +231,10 @@ export function createPristineExecutionBoundary({
   mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 });
   let cleaned = false;
   let restoreAuthBindings = () => {};
-  const cleanup = ({ preserveRoot = false, tolerateRootRemovalFailure = false } = {}) => {
+  // rmSync backs off linearly (retryDelay × attempt), so 50 retries at 100ms
+  // is a ≈128s budget per attempt. Callers whose result is already complete
+  // (headless exec) pass a smaller budget and leave stragglers to the sweep.
+  const cleanup = ({ preserveRoot = false, tolerateRootRemovalFailure = false, rootRemovalRetries = 50 } = {}) => {
     if (cleaned) return;
     cleaned = true;
     for (const [name, value] of originalEnv) {
@@ -238,18 +242,19 @@ export function createPristineExecutionBoundary({
       else env[name] = value;
     }
     restoreAuthBindings();
+    const removal = { recursive: true, force: true, maxRetries: rootRemovalRetries, retryDelay: 100 };
     // Windows releases file handles (pg.log, sockets) a beat after the owning
     // process exits; rmSync retries absorb that EBUSY/EPERM window.
     if (!preserveRoot) {
       try {
-        rmSync(rootDir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
+        rmSync(rootDir, removal);
       } catch (error) {
         // Retry once past a surviving postmaster: without this the root stays
         // on disk with a live PG attached to it, and only the periodic orphan
         // sweep (30 min later, at the earliest) would ever reclaim either.
         if (killRootPostmaster(rootDir)) {
           try {
-            rmSync(rootDir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
+            rmSync(rootDir, removal);
             return null;
           } catch (retryError) {
             if (tolerateRootRemovalFailure) return { rootRemovalError: retryError };
@@ -311,9 +316,25 @@ export function createPristineExecutionBoundary({
     let authMode = 'provider-managed';
     let catalogCount = 0;
     if (oauth) {
-      const sourceCredential = clean(hostEnv[oauth.credentialPathEnv])
+      // Sign-in writes the selected account of the host's provider-accounts
+      // pool; the single legacy file remains for hosts that predate the pool.
+      // An explicit credential path still overrides both. Read the pool from
+      // the host data dir: MIXDOG_DATA_DIR already points at the pristine one.
+      const explicitCredential = clean(hostEnv[oauth.credentialPathEnv])
         ? resolve(hostEnv[oauth.credentialPathEnv])
-        : join(sourceDataDir, oauth.credentialFile);
+        : null;
+      const legacyCredential = join(sourceDataDir, oauth.credentialFile);
+      const poolCredential = ACCOUNT_PROVIDERS.includes(selectedProvider)
+        ? providerAccountPath(
+            selectedProvider,
+            readProviderAccountPool(selectedProvider, sourceDataDir).selectedId || 'default',
+            sourceDataDir
+          )
+        : null;
+      const sourceCredential =
+        explicitCredential ||
+        [poolCredential, legacyCredential].find((path) => path && existsSync(path)) ||
+        legacyCredential;
       if (!existsSync(sourceCredential)) {
         throw new Error(`required ${clean(provider)} credentials are unavailable; sign in before using mixdog exec`);
       }

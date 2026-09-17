@@ -1,7 +1,5 @@
 import { execFile } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
 
 import { childEnvironment } from './child-environment';
 import * as editorBackups from './editor-backups';
@@ -254,26 +252,14 @@ export function createDesktopOperations({
     }
     if (name === 'readInstructions') {
       const [file, legacyFile] = args.map((value) => String(value || ''));
-      try {
-        return await readFile(file, 'utf8');
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
-      }
-      if (legacyFile) {
-        try {
-          return await readFile(legacyFile, 'utf8');
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') throw error;
-        }
-      }
-      return '';
+      return (await import('./instructions-file')).readInstructionsText(file, legacyFile);
     }
     if (name === 'writeInstructions') {
-      const [file, content] = args;
-      const path = resolve(String(file || ''));
-      await mkdir(dirname(path), { recursive: true });
-      await writeFile(path, String(content ?? ''), 'utf8');
-      return null;
+      const [file, content, expected, legacyFile] = args;
+      return (await import('./instructions-file')).writeInstructionsText(
+        String(file || ''), String(content ?? ''),
+        typeof expected === 'string' ? expected : undefined, String(legacyFile || ''),
+      );
     }
     if (name === 'lspDocument') {
       return languageServers.document(

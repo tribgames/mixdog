@@ -1,12 +1,15 @@
 import { statSync, readFileSync } from 'fs';
 import { getPluginData } from '../../config.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
+import { shareJsonStrings } from '../../../../shared/json-snapshot.mjs';
 
 // Recent full-session reads are much hotter than writes while a user hops
 // between conversations. Verify the file identity on every access, but reuse
-// the parsed object while the atomic file has not changed.
+// the parsed object while the atomic file has not changed. When the caller
+// already owns a preferred live snapshot, retain only its disk validation
+// header, not another full transcript.
 const SESSION_LOAD_CACHE_LIMIT = 8;
-const _sessionLoadCache = new Map(); // path → { signature, session }
+const _sessionLoadCache = new Map(); // path → { signature, header, session|null }
 let _sessionLoadCacheDataDir = null;
 
 // A session file is only ever replaced atomically (write tmp → rename over
@@ -92,14 +95,31 @@ function _ownedSession(id, text) {
   return record.id === id ? record.doc : null;
 }
 
-function _cacheStable(path, signature, session) {
+function _selectCachedSession(entry, preferInMemory) {
+  const preferred = preferInMemory?.(entry.header);
+  if (preferred) {
+    entry.session = null;
+    return preferred;
+  }
+  return entry.session;
+}
+
+function _cacheStable(path, signature, session, preferInMemory) {
+  const entry = {
+    signature,
+    header: { id: session.id, generation: typeof session.generation === 'number' ? session.generation : 0 },
+    session,
+  };
+  const selected = _selectCachedSession(entry, preferInMemory);
+  if (Array.isArray(entry.session?.messages)) shareJsonStrings(entry.session.messages);
   _sessionLoadCache.delete(path);
-  _sessionLoadCache.set(path, { signature, session });
+  _sessionLoadCache.set(path, entry);
   while (_sessionLoadCache.size > SESSION_LOAD_CACHE_LIMIT) {
     const oldest = _sessionLoadCache.keys().next().value;
     if (oldest === undefined) break;
     _sessionLoadCache.delete(oldest);
   }
+  return selected;
 }
 
 // The inode we stat'ed vanished under the read on the LAST attempt: no retry
@@ -123,7 +143,7 @@ function _decisiveReplacementSnapshot(id, path, attempt) {
   return { exists: true, session: _ownedSession(id, text) };
 }
 
-export function _readStoredSessionCached(id, path) {
+export function _readStoredSessionCached(id, path, { preferInMemory = null } = {}) {
   const dataDir = getPluginData();
   if (_sessionLoadCacheDataDir !== dataDir) {
     _sessionLoadCacheDataDir = dataDir;
@@ -149,9 +169,14 @@ export function _readStoredSessionCached(id, path) {
     if (cached?.signature === before.signature) {
       // The cached object was stored under a verified-stable signature,
       // and dev/ino/size/mtimeNs still describe that same file.
-      _sessionLoadCache.delete(path);
-      _sessionLoadCache.set(path, cached);
-      return { exists: true, session: cached.session };
+      const selected = _selectCachedSession(cached, preferInMemory);
+      if (selected) {
+        _sessionLoadCache.delete(path);
+        _sessionLoadCache.set(path, cached);
+        return { exists: true, session: selected };
+      }
+      // The live owner went away or disk now outranks it. A validation header
+      // is not a transcript: re-read the complete record before returning it.
     }
     let text = null;
     let readCode = null;
@@ -201,8 +226,7 @@ export function _readStoredSessionCached(id, path) {
       _sessionLoadCache.delete(path);
       return { exists: true, session: null };
     }
-    _cacheStable(path, before.signature, stored);
-    return { exists: true, session: stored };
+    return { exists: true, session: _cacheStable(path, before.signature, stored, preferInMemory) };
   }
   // Bounded retries exhausted. `last` is the most recent observation we
   // actually made, so the answer needs no further syscall: ENOENT-class ⇒

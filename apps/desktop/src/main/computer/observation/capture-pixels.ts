@@ -132,6 +132,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
       }
       await host.authorizeCapture?.(command, targetWindowId);
       assertExecutionNotAborted();
+      const preserveOcrPixels = command.mode === 'state' || command.mode === 'som' || command.include_ocr === true;
       const selected = await sources.select({
         command,
         sourceType,
@@ -143,6 +144,7 @@ export function createPixelCapture(host: PixelCaptureHost) {
         clientWidth,
         clientHeight,
         maxWidth,
+        preserveResolution: preserveOcrPixels,
         attempts: captureAttempts,
       });
       if (!selected.surface) {
@@ -275,6 +277,9 @@ export function createPixelCapture(host: PixelCaptureHost) {
         route: surface.route,
         captureAttempts,
         image: { mimeType: 'image/jpeg', data: jpeg.toString('base64') },
+        ...(preserveOcrPixels
+          ? { ocrImage: { data: surface.image.toPNG().toString('base64'), ...surface.image.getSize() } }
+          : {}),
         description:
           `Screenshot of ${sourceType === 'window' ? `window "${capturedSourceName}"` : sourceTitle}` +
           ` (${thumbnailSize.width}x${thumbnailSize.height}, ${jpeg.length} bytes, JPEG quality ${quality});` +

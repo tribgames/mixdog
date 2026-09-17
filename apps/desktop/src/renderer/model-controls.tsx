@@ -189,6 +189,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
         variant="route"
         className="workflow-context-select"
         ariaLabel="Workflow"
+        tooltip={t('Select workflow')}
         disabled={disabled || switching || !optionsSettled}
         value={selectedId}
         displayValue={String(workflow?.name || selected?.label || selectedId)}
@@ -252,15 +253,33 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
       {selected ? (
         <OpenSelect
           variant="route"
+          className="context-pill-select"
           ariaLabel={t('Orchestration Mode')}
+          tooltip={t('Delegation mode')}
           disabled={disabled || switching}
           value={selected}
           onChange={(value) => void change(value)}
           options={[
-            { value: 'none', label: t('Not applicable') },
-            { value: 'focused', label: t('Focused') },
-            { value: 'balanced', label: t('Balanced') },
-            { value: 'swarm', label: t('Swarm') },
+            {
+              value: 'none',
+              label: t('Solo'),
+              description: t('No delegation'),
+            },
+            {
+              value: 'focused',
+              label: t('Assisted'),
+              description: t('Supporting delegation'),
+            },
+            {
+              value: 'balanced',
+              label: t('Collaborative'),
+              description: t('Balanced delegation'),
+            },
+            {
+              value: 'swarm',
+              label: t('Swarm'),
+              description: t('Maximum delegation'),
+            },
           ]}
         />
       ) : <InitialSurface variant="control" />}

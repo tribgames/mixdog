@@ -93,6 +93,7 @@ export function createInputResolution(host: InputResolutionHost) {
       inputUserSequence: Number(result.input_user_sequence),
       syntheticInput: result.synthetic_input === true,
       foregroundWithinTarget: result.foreground_within_target === true,
+      foregroundChildProcess: result.foreground_child_process === true,
     };
     if (!recovery.targetWindowId || !Number.isFinite(recovery.cursorX) || !Number.isFinite(recovery.cursorY)) {
       throw new Error('foreground input recovery state is incomplete; no input was sent');
@@ -302,7 +303,8 @@ export function createInputResolution(host: InputResolutionHost) {
           && inputRecovery.restoreOwnerWindowId !== ''
           && current.foregroundWindowId === inputRecovery.restoreOwnerWindowId);
       const focusPreservedForFollowup = preserveFocusForFollowup
-        && (current.foregroundWindowId === targetWindowId || current.foregroundWithinTarget === true)
+        && (current.foregroundWindowId === targetWindowId || current.foregroundWithinTarget === true
+          || (command.delivery === 'foreground' && current.foregroundChildProcess === true))
         && !focusRestored;
       const cursorRestored = current.cursorX === inputRecovery.cursorX
         && current.cursorY === inputRecovery.cursorY;
@@ -311,6 +313,7 @@ export function createInputResolution(host: InputResolutionHost) {
         cursor_preserved: preserveCursor,
         focus_restored: focusRestored,
         focus_preserved_for_followup: focusPreservedForFollowup,
+        focus_transition_to_child: focusPreservedForFollowup && current.foregroundChildProcess === true,
         focus_recovery: focusPreservedForFollowup ? 'session_release' : 'immediate',
         cursor_restored: cursorRestored,
         expected_focus_window_id: inputRecovery.restoreWindowId,

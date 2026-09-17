@@ -4,6 +4,7 @@ import { _normalizeAbs, _statTuple, _statEqual } from './util.mjs';
 import { clearScopedToolsForSession, clearScopedCounters } from './scoped-cache.mjs';
 import { registerSessionPurgeHook } from '../store.mjs';
 import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs';
+import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 
 const MAX_PER_SESSION = 100;
 
@@ -183,6 +184,7 @@ export function tryReadCached({ sessionId, args, cwd }) {
     if (!entry || entry.kind !== 'array') return null;
     if (!_arrayStatsValid(entry.statsByAbs)) {
       map.delete(parsed.key);
+      _ridxPruneKey(sessionId, parsed.key);
       return null;
     }
     map.delete(parsed.key);
@@ -197,6 +199,7 @@ export function tryReadCached({ sessionId, args, cwd }) {
   const fresh = _statTuple(_absFromKey(key));
   if (!_statEqual(entry.stat, fresh)) {
     map.delete(key);
+    _ridxPruneKey(sessionId, key);
     return null;
   }
   map.delete(key);
@@ -224,38 +227,29 @@ export function setReadCached({ sessionId, args, cwd, content, toolUseId, readSt
   )
     return;
   const key = parsed.key;
+  const map = _getOrCreate(sessionId);
+  const entry = {
+    content,
+    ts: Date.now(),
+    firstToolUseId: toolUseId || null,
+    ...(parsed.kind === 'array'
+      ? { kind: 'array', statsByAbs: parsed.statsByAbs }
+      : { stat: parsed.statsByAbs[_absFromKey(key)] }),
+  };
+  if (
+    !setBoundedTextCacheEntry(map, key, entry, {
+      maxEntries: MAX_PER_SESSION,
+      onEvict: (evictedKey) => _ridxPruneKey(sessionId, evictedKey),
+    })
+  )
+    return;
   if (parsed.kind === 'array') {
-    const map = _getOrCreate(sessionId);
-    if (map.size >= MAX_PER_SESSION) {
-      const firstKey = map.keys().next().value;
-      if (firstKey) {
-        map.delete(firstKey);
-        _ridxPruneKey(sessionId, firstKey);
-      }
-    }
-    map.set(parsed.key, {
-      kind: 'array',
-      content,
-      statsByAbs: parsed.statsByAbs,
-      ts: Date.now(),
-      firstToolUseId: toolUseId || null,
-    });
     // Register every constituent abs path in the reverse index.
     for (const absPath of Object.keys(parsed.statsByAbs)) {
       _ridxRegister(sessionId, absPath, parsed.key);
     }
     return;
   }
-  const fresh = parsed.statsByAbs[_absFromKey(key)];
-  const map = _getOrCreate(sessionId);
-  if (map.size >= MAX_PER_SESSION) {
-    const firstKey = map.keys().next().value;
-    if (firstKey) {
-      map.delete(firstKey);
-      _ridxPruneKey(sessionId, firstKey);
-    }
-  }
-  map.set(key, { content, stat: fresh, ts: Date.now(), firstToolUseId: toolUseId || null });
   _ridxRegister(sessionId, _absFromKey(key), key);
 }
 

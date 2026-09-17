@@ -370,6 +370,32 @@ export function listStoredAgentWorkerLinks() {
 // every catalog publish). Cache the header per file fingerprint instead.
 const WORKER_HEADER_CACHE_MAX = 256;
 const workerSessionHeaderCache = new Map();
+// Pool rows need identity, routing, and lifecycle metadata only. Keeping the
+// rest of a session here also retained its tool catalogs and provider state.
+const WORKER_HEADER_FIELDS = [
+  'owner',
+  'agent',
+  'sourceType',
+  'ownerSessionId',
+  'parentSessionId',
+  'title',
+  'provider',
+  'model',
+  'effort',
+  'fast',
+  'createdAt',
+  'updatedAt',
+  'cwd',
+  'clientHostPid',
+  'agentTag',
+  'task_id',
+  'taskId',
+  'turnStartedAt',
+  'startedAt',
+  'cancelledAt',
+  'finishedAt',
+  ...SESSION_CANCEL_FIELDS,
+];
 
 function readWorkerSessionHeader(sessionId) {
   const path = join(dataDir(), 'sessions', `${sessionId}.json`);
@@ -389,9 +415,10 @@ function readWorkerSessionHeader(sessionId) {
     return null;
   }
   if (!session || typeof session !== 'object') return null;
-  const header = { ...session };
-  delete header.messages;
-  delete header.liveTurnMessages;
+  const header = {};
+  for (const field of WORKER_HEADER_FIELDS) {
+    if (Object.hasOwn(session, field)) header[field] = session[field];
+  }
   workerSessionHeaderCache.set(path, { mtimeMs: probe.mtimeMs, size: probe.size, header });
   if (workerSessionHeaderCache.size > WORKER_HEADER_CACHE_MAX) {
     workerSessionHeaderCache.delete(workerSessionHeaderCache.keys().next().value);
@@ -983,8 +1010,15 @@ export async function readStoredSessionTranscript(id, options = {}) {
   // large share of a cold read, so it only runs when the content is new.
   const { value, hit, read } = await storedTranscriptCache.read({
     key: `${sessionId}|${itemLimit}|${options.includeMessages === true ? 'messages' : 'items'}`,
-    fingerprint: `${checkpoint.state}:${checkpoint.mtimeMs}:${checkpoint.size}`,
-    fileStat: { mtimeMs: recordStat.mtimeMs, size: recordStat.size },
+    fingerprint: [
+      checkpoint.state,
+      checkpoint.mtimeMs,
+      checkpoint.ctimeMs,
+      checkpoint.size,
+      checkpoint.ino,
+      checkpoint.dev,
+    ].join(':'),
+    fileStat: recordStat,
     loadText: () => {
       const body = readTextFile(recordPath);
       readState = body.state;

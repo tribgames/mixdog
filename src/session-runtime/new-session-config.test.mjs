@@ -10,6 +10,7 @@ import {
 import { createNewSessionConfig } from './new-session-config.mjs';
 import { createSessionLifecycle } from './session-lifecycle.mjs';
 import { makeResolveRoute } from './config-helpers.mjs';
+import { applyConfigPatch, diffConfig } from '../runtime/shared/config-patch.mjs';
 
 const resolveRoute = makeResolveRoute(() => 'test-provider');
 function configFor(model) {
@@ -40,11 +41,12 @@ function fixture() {
   };
   const cfgMod = {
     loadConfig: () => structuredClone(root.agent),
-    saveConfig: (next) => {
-      root.agent = structuredClone(next);
+    createConfigPatch: diffConfig,
+    saveConfigPatch: (changes) => {
+      root.agent = applyConfigPatch(root.agent, changes);
     },
-    saveConfigAsync: async (next) => {
-      root.agent = structuredClone(next);
+    saveConfigPatchAsync: async (changes) => {
+      root.agent = applyConfigPatch(root.agent, changes);
     },
     patchSkillsDisabled: (names) => {
       root.agent.skills = { disabled: [...names] };
@@ -202,8 +204,8 @@ test('new-session preparation waits for a write in flight and the latest coalesc
   const gate = new Promise((resolve) => {
     finish = resolve;
   });
-  const save = f.cfgMod.saveConfigAsync;
-  f.cfgMod.saveConfigAsync = async (snapshot) => {
+  const save = f.cfgMod.saveConfigPatchAsync;
+  f.cfgMod.saveConfigPatchAsync = async (snapshot) => {
     await gate;
     await save(snapshot);
   };
@@ -226,7 +228,7 @@ for (const channel of ['config', 'skills', 'outputStyle']) {
     const writer = f.runtime();
     const next = f.runtime();
     const module = channel === 'outputStyle' ? f.sharedCfgMod : f.cfgMod;
-    const method = { config: 'saveConfigAsync', skills: 'patchSkillsDisabledAsync', outputStyle: 'updateConfigAsync' }[
+    const method = { config: 'saveConfigPatchAsync', skills: 'patchSkillsDisabledAsync', outputStyle: 'updateConfigAsync' }[
       channel
     ];
     const save = module[method];

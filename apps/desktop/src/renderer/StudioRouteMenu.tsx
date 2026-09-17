@@ -455,7 +455,7 @@ export function StudioRouteMenu({
                         className="model-option-row"
                         role="menuitemradio"
                         aria-checked={active}
-                        title={entry.description}
+                        data-tooltip={t('Select model')}
                         onClick={() => {
                           onSelect(entry);
                           closeAll();

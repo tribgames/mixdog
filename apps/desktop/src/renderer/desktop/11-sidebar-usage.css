@@ -386,7 +386,7 @@
 .sidebar-heading-dot {
   position: absolute;
   z-index: 2;
-  right: 16.5px;
+  right: calc(var(--mx-rail-trailing-center, 20px) - 3.5px);
   top: 50%;
   transform: translateY(-50%);
   width: 7px;
@@ -451,11 +451,11 @@
 /* Unread activity dot: the session gained messages while it
    was not the viewed conversation. */
 .session-row-unread-dot {
-  /* The 7px dot and 12px spinner share the 20px trailing centerline used by
+  /* The 7px dot and 12px spinner share the rail's trailing centerline with
      the header "+", section "…", and framed resource chevrons. */
   position: absolute;
   z-index: 2;
-  right: 16.5px;
+  right: calc(var(--mx-rail-trailing-center, 20px) - 3.5px);
   top: 50%;
   transform: translateY(-50%);
   width: 7px;

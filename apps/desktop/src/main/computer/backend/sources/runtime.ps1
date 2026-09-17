@@ -89,6 +89,7 @@ function Get-InputRecoveryState($req) {
     input_tick = [MixWin32]::InputTick()
     synthetic_input = (Get-PhysicalInputIdleMs) -eq [int]::MaxValue
     foreground_within_target = ($foreground -eq $target -or [MixWin32]::IsOwnedBy($foreground, $target))
+    foreground_child_process = ($targetExists -and [MixWin32]::IsChildProcessWindow($foreground, $target))
   }
 }
 
@@ -331,9 +332,26 @@ function Do-OcrImage($req) {
     $decoder = Await-WinRt (
       [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
     ) ([Windows.Graphics.Imaging.BitmapDecoder])
-    $bitmap = Await-WinRt (
-      $decoder.GetSoftwareBitmapAsync()
-    ) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    $maximumDimension = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
+    if ([math]::Max($decoder.PixelWidth, $decoder.PixelHeight) -gt $maximumDimension) {
+      [Windows.Graphics.Imaging.BitmapTransform, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
+      $scale = $maximumDimension / [double][math]::Max($decoder.PixelWidth, $decoder.PixelHeight)
+      $transform = [Windows.Graphics.Imaging.BitmapTransform]::new()
+      $transform.ScaledWidth = [uint32][math]::Max(1, [math]::Floor($decoder.PixelWidth * $scale))
+      $transform.ScaledHeight = [uint32][math]::Max(1, [math]::Floor($decoder.PixelHeight * $scale))
+      $bitmap = Await-WinRt (
+        $decoder.GetSoftwareBitmapAsync(
+          [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
+          [Windows.Graphics.Imaging.BitmapAlphaMode]::Ignore,
+          $transform,
+          [Windows.Graphics.Imaging.ExifOrientationMode]::IgnoreExifOrientation,
+          [Windows.Graphics.Imaging.ColorManagementMode]::DoNotColorManage)
+      ) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    } else {
+      $bitmap = Await-WinRt (
+        $decoder.GetSoftwareBitmapAsync()
+      ) ([Windows.Graphics.Imaging.SoftwareBitmap])
+    }
     $language = ([string]$req.ocr_language).Trim()
     $engine = if ($language) {
       [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage(
@@ -387,6 +405,8 @@ function Do-OcrImage($req) {
     return @{
       text = ('OCR: ' + $lineIndex + ' lines, ' + $totalWords + ' words')
       language = [string]$engine.RecognizerLanguage.LanguageTag
+      image_width = [int]$bitmap.PixelWidth
+      image_height = [int]$bitmap.PixelHeight
       lines = @($lines)
       words = @($words)
       total_words = [int]$totalWords

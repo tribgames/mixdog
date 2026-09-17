@@ -31,6 +31,7 @@ export interface InspectHost {
   readComputerWindows(command: ComputerCommand, includeApp?: boolean): Promise<ComputerWindowRecord[] | null>;
   readDisplays(): Array<Record<string, unknown>>;
   isObserveOnly(): boolean;
+  readInputState?(): { userControlActive: boolean; cleanupState?: string; takeoverReason?: string };
 }
 
 export function createInspection(host: InspectHost) {
@@ -122,10 +123,39 @@ export function createInspection(host: InspectHost) {
     } catch (error) {
       ocr = { available: false, reason: (error as Error).message || String(error) };
     }
+    let inputObservation: Record<string, unknown>;
+    try {
+      const probe = await callPowerShell({
+        action: 'input_idle_state',
+        session_id: sessionIdFor(command),
+        read_only: true,
+      }, DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS);
+      inputObservation = {
+        ready: probe.ok === true && probe.result?.observer_ready === true &&
+          probe.result?.ready === true && probe.result?.held === false,
+        observer_ready: probe.result?.observer_ready === true,
+        desktop_ready: probe.result?.ready === true,
+        input_held: typeof probe.result?.held === 'boolean' ? probe.result.held : null,
+        ...(typeof probe.result?.idleMs === 'number' ? { idle_ms: probe.result.idleMs } : {}),
+        ...(!probe.ok ? { error: probe.error || 'input observation probe failed' } : {}),
+      };
+    } catch (error) {
+      inputObservation = { ready: false, error: (error as Error).message || String(error) };
+    }
     const displays = readDisplays();
+    const inputState = host.readInputState?.();
+    const inputBlocked = Boolean(
+      inputState?.userControlActive || (inputState?.cleanupState && inputState.cleanupState !== 'ready')
+    );
     const issues: string[] = [];
     if (!windows) issues.push('window enumeration failed');
     if (requestedWindowId && !target) issues.push(`requested window is unavailable: ${requestedWindowId}`);
+    if (inputBlocked) issues.push(`input blocked: ${inputState?.takeoverReason || inputState?.cleanupState}`);
+    if (inputObservation.ready !== true) {
+      issues.push(inputObservation.input_held === true
+        ? 'foreground input is unavailable while physical input is held'
+        : String(inputObservation.error || 'foreground input observation is unavailable'));
+    }
     if (accessibility.available === false) issues.push(String(accessibility.reason || 'accessibility unavailable'));
     if (command.ocr_language && ocr.available !== true) {
       issues.push(`Windows OCR language is unavailable: ${command.ocr_language}`);
@@ -135,7 +165,8 @@ export function createInspection(host: InspectHost) {
         ok: windows !== null,
         action: 'diagnose',
         platform: 'win32',
-        ready: windows !== null,
+        ready: windows !== null && (!requestedWindowId || Boolean(target)) &&
+          !inputBlocked && inputObservation.ready === true,
         backend: 'win32_uia_powershell_electron',
         windows: {
           available: windows !== null,
@@ -147,7 +178,15 @@ export function createInspection(host: InspectHost) {
           semantic_accessibility: accessibility,
           ocr,
           delivery_modes: ['background', 'foreground'],
-          input_mode: isObserveOnly() ? 'observation_only' : 'enabled',
+          input_mode: isObserveOnly() ? 'observation_only' : inputBlocked ? 'blocked' : 'enabled',
+          input_observation: inputObservation,
+          ...(inputState ? {
+            input_state: {
+              user_control_active: inputState.userControlActive,
+              cleanup_state: inputState.cleanupState,
+              reason: inputState.takeoverReason || '',
+            },
+          } : {}),
           focus_cursor_restore: false,
           focus_recovery: 'session_release',
           cursor_recovery: 'preserve_position_restore_appearance',
@@ -204,7 +243,10 @@ export function createInspection(host: InspectHost) {
     );
     for (;;) {
       assertExecutionNotAborted();
-      const remainingMs = Math.max(1, deadline - performance.now());
+      // The polling deadline is not a provider-health deadline. Even a one-shot
+      // read needs its normal bounded budget; a final 1ms request would retire a
+      // healthy worker and discard the evidence from earlier samples.
+      if (samples > 0 && performance.now() >= deadline) break;
       let response;
       try {
         response = await callPowerShell(
@@ -217,7 +259,7 @@ export function createInspection(host: InspectHost) {
             session_id: sessionIdFor(command),
             read_only: true,
           },
-          Math.min(VERIFY_PROVIDER_TIMEOUT_MS, remainingMs)
+          VERIFY_PROVIDER_TIMEOUT_MS
         );
       } catch (error) {
         providerError = (error as Error).message || String(error);

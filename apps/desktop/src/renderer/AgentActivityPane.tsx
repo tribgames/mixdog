@@ -694,7 +694,7 @@ function AgentPoolRow({
           aria-label={elapsed}
           title={
             state === 'cancel-unconfirmed'
-              ? t('Cancel was delivered, but the process could not be confirmed stopped.')
+              ? t('Cancel unconfirmed')
               : undefined
           }
           data-state={state}

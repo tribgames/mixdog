@@ -96,7 +96,6 @@ export function createProviderModels({
       return meta;
     } catch {
       const fallback = { id: modelId, provider: providerId };
-      if (modelSnapshotIsCurrent(revision, seq)) modelMetaByRoute.set(key, fallback);
       return fallback;
     }
   }
@@ -224,6 +223,7 @@ export function createProviderModels({
     if (ownsLoad) request.seq = caches.providerModelsLoadSeq;
     const seq = request?.seq ?? caches.providerModelsLoadSeq;
     const catalogEntries = await sharedProviderCatalog(reg());
+    if (request) request.complete = catalogEntries.every((entry) => !Object.hasOwn(entry, 'error'));
     const providerResults = catalogEntries.map(({ name, models, error, ms }) => {
       const rows = [];
       for (const m of models) {
@@ -258,11 +258,11 @@ export function createProviderModels({
     return results;
   }
 
-  function adoptProviderModelCache(models, seq, loadSecrets = true) {
+  function adoptProviderModelCache(models, request, loadSecrets = true) {
     const revision = syncCatalogRevision();
-    // No-secrets prefetches may be partial; only authoritative loads populate
-    // the picker cache, including an authoritative empty result.
-    if (seq === caches.providerModelsLoadSeq && loadSecrets) {
+    // No-secrets and failed loads may be partial. Keep them retryable rather
+    // than turning a transient failure into an authoritative empty catalog.
+    if (request.seq === caches.providerModelsLoadSeq && loadSecrets && request.complete) {
       caches.providerModelsCache = { models, at: Date.now(), revision };
     }
   }
@@ -308,14 +308,14 @@ export function createProviderModels({
     if (force) {
       const request = { seq: ++caches.providerModelsLoadSeq };
       const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true, request });
-      adoptProviderModelCache(models, request.seq);
+      adoptProviderModelCache(models, request);
       return providerModelsFromCacheRows(models);
     }
     if (!caches.providerModelsPromise) {
       const request = { seq: ++caches.providerModelsLoadSeq };
       const promise = loadProviderModelsFresh({ loadSecrets: true, request })
         .then((models) => {
-          adoptProviderModelCache(models, request.seq);
+          adoptProviderModelCache(models, request);
           return models;
         })
         .finally(() => {
@@ -334,7 +334,7 @@ export function createProviderModels({
     const request = { seq: ++caches.providerModelsLoadSeq };
     const promise = loadProviderModelsFresh({ loadSecrets, request })
       .then((models) => {
-        adoptProviderModelCache(models, request.seq, loadSecrets);
+        adoptProviderModelCache(models, request, loadSecrets);
         bootProfile('provider-models:warm-ready', { count: models.length });
         return models;
       })

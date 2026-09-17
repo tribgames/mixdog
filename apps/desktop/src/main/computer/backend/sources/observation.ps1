@@ -16,6 +16,7 @@ function Do-ListWindows {
                 class_name = [string]$info.ClassName
                 app        = [string]$info.App
                 pid        = [long]$info.Pid
+                parent_pid = [long]$info.ParentPid
                 owner_id   = [string]$info.OwnerId
                 focused    = [bool]$info.Focused
                 minimized  = [bool]$info.Minimized
@@ -42,6 +43,7 @@ function Do-WindowSnapshot {
                 class_name = [string]$info.ClassName
                 app        = ''
                 pid        = [long]$info.Pid
+                parent_pid = [long]$info.ParentPid
                 owner_id   = [string]$info.OwnerId
                 focused    = [bool]$info.Focused
                 minimized  = [bool]$info.Minimized

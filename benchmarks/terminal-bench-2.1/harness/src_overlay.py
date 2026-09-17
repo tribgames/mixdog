@@ -23,9 +23,10 @@ SPAWN_MEMBER = f"{NATIVE_ROOT}/mixdog-spawn"
 GRAPH_BINARY_ENV = "MIXDOG_TB_GRAPH_BIN"
 GRAPH_MEMBER = f"{ARCHIVE_ROOT}/.bench-graph"
 REQUIRED_SPAWN_CAPS = ("trackedForeground", "promoteTask", "cancelOwner", "fileCapture")
-SPAWN_BUILD_IMAGE = "rust:1.89-alpine3.22"
+SPAWN_BUILD_IMAGE = "rust:1.90-alpine3.22"
 SPAWN_PROBE_IMAGE = "alpine:3.20"
-GRAPH_BUILD_IMAGE = "rust:1.89-alpine3.22"
+# native/mixdog-graph's lock resolves tree-sitter 0.27 (rustc ≥ 1.90).
+GRAPH_BUILD_IMAGE = "rust:1.90-alpine3.22"
 GRAPH_PROBE_IMAGE = "alpine:3.20"
 
 

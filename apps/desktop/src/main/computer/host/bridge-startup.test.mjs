@@ -46,10 +46,9 @@ const settle = () => new Promise((resolve) => setImmediate(resolve));
 test('a stopped discovery continuation cannot publish readiness or own the next heartbeat', async (t) => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   let enabled = true;
+  let nativeCalls = 0;
   const bridge = createBridgeServer({
-    callPowerShell: async () => ({ ok: true }),
-    adoptWarmedWorker() {},
-    releaseSpareWorker() {},
+    callPowerShell: async () => { nativeCalls++; return { ok: true }; },
     powerShellBySession: new Map(),
     elevatedSessionIds: () => [],
     abortComputerSession: async () => ({ text: '' }),
@@ -62,6 +61,7 @@ test('a stopped discovery continuation cannot publish readiness or own the next 
   });
   bridge.startBridge();
   await settle();
+  assert.equal(nativeCalls, 0, 'publishing the bridge must not start a native worker');
   enabled = false;
   await bridge.stopBridge();
   enabled = true;

@@ -42,19 +42,20 @@ async function runFixture(name) {
 }
 
 // The overlay belongs to Computer Use, which ships on Windows only; the Linux CI lanes also have no display server.
-test('sandboxed overlay preserves native Stop hit-testing, non-activation and preload IPC', { timeout: 45000, skip: process.platform !== 'win32' }, async () => {
+test('one sandboxed Pause/Resume toggle preserves native hit-testing, non-activation and preload IPC', { timeout: 45000, skip: process.platform !== 'win32' }, async () => {
   const { result, clickMode } = await runFixture('electron-resume');
-  assert.equal(result.resumed, 1);
-  assert.equal(result.stopped, 2);
+  assert.equal(result.resumed, 2);
+  assert.equal(result.paused, 2);
+  assert.equal(result.stopped, 0);
   assert.equal(result.visible, false);
   // The native click must have run; a locked desktop session can only weaken its hit test.
   assert.ok(['desktop-hit-test', 'locked-session'].includes(clickMode), `native click mode ${clickMode}`);
   console.log('overlay IPC evidence', { ...result, clickMode });
 });
 
-test('a frozen real renderer is retired and native Dismiss closes its replacement without enabling input', { timeout: 45000, skip: process.platform !== 'win32' }, async () => {
+test('a frozen real renderer is retired and its replacement remains paused until native Resume', { timeout: 45000, skip: process.platform !== 'win32' }, async () => {
   const { result, clickMode } = await runFixture('electron-recovery');
-  assert.deepEqual(result, { retired: true, visible: false, inputBlocked: true, resumed: 0 });
+  assert.deepEqual(result, { retired: true, visible: true, inputBlocked: false, resumed: 1 });
   assert.ok(['desktop-hit-test', 'locked-session'].includes(clickMode), `native click mode ${clickMode}`);
   console.log('overlay renderer recovery evidence', { ...result, clickMode });
 });

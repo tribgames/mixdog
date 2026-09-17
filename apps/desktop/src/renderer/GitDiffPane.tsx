@@ -223,7 +223,7 @@ export function GitDiffPane({
       <div className="workspace-git-diff-body">
         {patch === null ? (
           <p className="workspace-git-diff-state">
-            <ProgressSpinner size={16} /> Loading diff…
+            <ProgressSpinner size={16} /> {t('Loading diff…')}
           </p>
         ) : error ? (
           <ErrorNotice error={error} />

@@ -179,6 +179,7 @@ export function createPowerShellComputerHost(
     sessionIdFor,
     assertExecutionNotAborted,
     readComputerWindows,
+    readInputState: () => computerUseCoordinator.snapshot(),
     readDisplays: () => {
       const primaryId = screen.getPrimaryDisplay().id;
       return screen.getAllDisplays().map((display, index) => ({

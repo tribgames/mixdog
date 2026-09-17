@@ -1,0 +1,10 @@
+id: no-nested-ternary
+language: Python
+severity: warning
+message: Nested conditional expressions must be flattened.
+note: An `a if c else b` inside another one hides its branches. Rewrite as if/elif/else, early returns, or a dict lookup; this rule has no autofix.
+rule:
+  kind: conditional_expression
+  has:
+    kind: conditional_expression
+    stopBy: end

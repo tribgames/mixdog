@@ -224,3 +224,77 @@ test('resyncRequired and empty session ids do not apply a live frame', () => {
   assert.deepEqual(lane.reads, ['lead']);
   assert.equal(publication.projections.size, 0);
 });
+
+function applySnapshot(publication, id, fields = {}, revision = 1) {
+  return publication.applySessionResult(id, {
+    sessionId: id, revision, projection: true,
+    full: { sessionId: id, items: [], queued: [], ...fields },
+  });
+}
+
+test('unwatched projections obey LRU count and byte budgets without truncating a reply', () => {
+  const lane = owner();
+  const publication = new SessionHostPublication(lane, {
+    maxUnwatchedEntries: 2, maxUnwatchedBytes: 4_096,
+  });
+  applySnapshot(publication, 'a');
+  applySnapshot(publication, 'b');
+  publication.applySessionResult('a', { sessionId: 'a', revision: 1, unchanged: true });
+  applySnapshot(publication, 'c');
+  assert.deepEqual([...publication.projections.keys()], ['a', 'c']);
+  const largeText = 'complete reply '.repeat(1_000);
+  const reply = applySnapshot(publication, 'large', { items: [{ kind: 'assistant', text: largeText }] });
+  assert.equal(reply.items[0].text, largeText);
+  assert.equal(publication.projections.has('large'), false);
+  assert.deepEqual([...publication.projections.keys()], ['a', 'c']);
+});
+
+test('visible, control, running, queued, and approval projections stay pinned above the cache budget', () => {
+  const lane = owner();
+  lane.visible.add('visible');
+  lane.setControlSessionId('control');
+  const publication = new SessionHostPublication(lane, { maxUnwatchedBytes: 0, maxUnwatchedEntries: 0 });
+  applySnapshot(publication, 'visible');
+  applySnapshot(publication, 'control');
+  applySnapshot(publication, 'running', { busy: true });
+  applySnapshot(publication, 'command', { commandBusy: true });
+  applySnapshot(publication, 'queued', { queued: [{ id: 'pending' }] });
+  applySnapshot(publication, 'approval', { toolApproval: { id: 'approve' } });
+  applySnapshot(publication, 'cold');
+  assert.deepEqual([...publication.projections.keys()], ['visible', 'control', 'running', 'command', 'queued', 'approval']);
+  lane.visible.clear();
+  publication.pruneProjections();
+  assert.equal(publication.projections.has('visible'), false);
+  applySnapshot(publication, 'running', { busy: false }, 2);
+  assert.equal(publication.projections.has('running'), false);
+  assert.equal(publication.projections.has('approval'), true);
+});
+
+test('overlapping replays retain their full baselines until the last delivery releases them', () => {
+  const publication = new SessionHostPublication(owner(), { maxUnwatchedBytes: 0 });
+  const releaseFirst = publication.retainProjections(['replay', 'replay']);
+  const releaseSecond = publication.retainProjections(['replay']);
+  const snapshot = applySnapshot(publication, 'replay', { items: [{ kind: 'assistant', text: 'complete' }] });
+  releaseFirst();
+  releaseFirst();
+  assert.equal(publication.projections.get('replay').snapshot.items[0].text, snapshot.items[0].text);
+  releaseSecond();
+  assert.equal(publication.projections.has('replay'), false);
+});
+
+test('a patch after cache eviction re-reads its baseline without publishing an empty frame', async () => {
+  const lane = owner();
+  const publication = new SessionHostPublication(lane, { maxUnwatchedBytes: 0 });
+  const seen = [];
+  publication.subscribeSessionStates((update) => seen.push(update.snapshot));
+  applySnapshot(publication, 'cold', { items: [{ kind: 'assistant', text: 'original' }] });
+  assert.equal(publication.projections.has('cold'), false);
+  publication.handleSessionFrame({
+    type: 'session-state', sessionId: 'cold', revision: 2, baseRevision: 1,
+    patch: { set: { model: 'updated' } },
+  });
+  await Promise.resolve();
+  assert.deepEqual(lane.reads, ['cold']);
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].items[0].text, 'original');
+});

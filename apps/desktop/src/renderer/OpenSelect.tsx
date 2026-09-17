@@ -9,6 +9,7 @@ import { useSurfaceActive } from './surface-activity';
 interface OpenSelectOption {
   value: string;
   label: string;
+  description?: string;
   disabled?: boolean;
 }
 
@@ -23,6 +24,7 @@ interface OpenSelectProps {
   className?: string;
   variant?: 'default' | 'route';
   displayValue?: string;
+  tooltip?: string;
   leading?: React.ReactNode;
   onChange?: (value: string) => void;
   /** Catalog labels (effort levels) stay in English; generic keys like Medium collide. */
@@ -46,6 +48,7 @@ export function OpenSelect({
   className = '',
   variant = 'default',
   displayValue,
+  tooltip,
   leading,
   menuMinWidth = 160,
   onChange,
@@ -366,6 +369,9 @@ export function OpenSelect({
         className="mx-select-trigger"
         role="combobox"
         aria-label={ariaLabel}
+        aria-description={tooltip ? t(tooltip) : undefined}
+        data-tooltip={tooltip ? t(tooltip) : undefined}
+        data-tooltip-side={contextPillStyle ? 'top' : undefined}
         aria-haspopup="listbox"
         aria-expanded={menuOpen}
         aria-controls={listboxId}
@@ -419,6 +425,9 @@ export function OpenSelect({
                 id={`${listboxId}-option-${index}`}
                 disabled={option.disabled}
                 aria-selected={option.value === current}
+                aria-description={option.description ? t(option.description) : undefined}
+                data-tooltip={option.description ? t(option.description) : undefined}
+                data-tooltip-side={option.description ? 'right' : undefined}
                 data-active={index === active}
                 tabIndex={index === active ? 0 : -1}
                 key={option.value}

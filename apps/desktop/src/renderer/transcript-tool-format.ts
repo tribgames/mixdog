@@ -186,7 +186,16 @@ export function toolActivityFirstText(args: Record<string, unknown>, ...keys: st
 
 function toolActivityStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return value.map((entry) => (typeof entry === 'string' ? entry.trim() : '')).filter(Boolean);
+  return value
+    .map((entry) => {
+      if (typeof entry === 'string') return entry.trim();
+      // `read` accepts `{file_path, offset, limit}` entries; name them by path.
+      if (entry && typeof entry === 'object') {
+        return toolActivityFirstText(entry as Record<string, unknown>, 'file_path', 'filePath', 'path');
+      }
+      return '';
+    })
+    .filter(Boolean);
 }
 
 export function toolActivityCompact(parts: Array<string | undefined>): string {
@@ -217,7 +226,7 @@ export function toolActivitySubject(normalizedName: string, args: Record<string,
   switch (normalizedName) {
     case 'read': {
       const paths = toolActivityStringList(args.file_path ?? args.path);
-      const target = paths.length > 1 ? `${paths.length} files` : path;
+      const target = paths.length > 1 ? `${paths.length} files` : paths[0] || path;
       const offset = Number(args.offset);
       const limit = Number(args.limit);
       const window =

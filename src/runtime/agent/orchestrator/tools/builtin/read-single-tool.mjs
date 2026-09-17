@@ -811,8 +811,12 @@ export async function executeSingleReadTool(args, workDir, readStateScope, optio
           const emittedStart = offset + 1;
           const emittedEnd = offset + sliced.length;
           // Continuation uses the originating caller's coordinate base.
-          // Remaining content is not automatically required evidence.
-          const _cont = emittedEnd < lineCount ? `; pass offset:${emittedEnd + readOffsetBase} to continue` : '';
+          // Remaining content is not automatically required evidence; when
+          // it is, it fits one wider read, not a walk window by window.
+          const _cont =
+            emittedEnd < lineCount
+              ? `; ${lineCount - emittedEnd} more lines — pass offset:${emittedEnd + readOffsetBase} with a limit wide enough to read them in one call`
+              : '';
           const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${_cont}]`;
           out += `${out ? '\n' : ''}${footer}`;
           if (_widenNote) out += `\n${_widenNote}`;

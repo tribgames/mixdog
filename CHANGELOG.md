@@ -5,6 +5,113 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- GitHub releases now carry the version's CHANGELOG.md section as their
+  notes, followed by the compare link; the draft previously relied on
+  GitHub's generated notes, which list merged PRs only and left the page
+  with a bare `Full Changelog` link because Deploy commits straight to main.
+- Tool batching: after three single-call rounds of one tool in a row whose
+  calls did not need each other (no argument taken from the previous result,
+  no step ordered behind a mutation; a different tool restarts the streak, so
+  read → shell → apply_patch is never reported; task waits, Computer Use,
+  browser steps and schema/skill loads never count), or one
+  round of same-tool calls that differ only in an array field, the runtime appends one
+  short `<system-reminder>` naming the array arguments on the session's tool
+  surface; it repeats whenever the pattern recurs and only a batched round
+  clears it (traced as `batching_nudge`). A single-file `read` right after
+  a grep/code_graph/glob/find round that located several files gets the
+  located set back in the shape one `read` call takes
+  (`[{file_path, offset, limit}, …]`; one read per file in the same response
+  on providers whose read schema takes path strings only), traced as
+  `located_sites`: a recorded Gemini 3.8 Flash session located files with
+  grep 13 times and still read them one window at a time (63 reads, 20 of
+  28 files read twice or more). The `read` and `grep` descriptions now say
+  what the batch is — every file and range you will touch, before editing,
+  in one call — and the windowed-read footer asks for one wider read instead
+  of the next window. The shared rules now state the order of work on files
+  once (`# Tool Calls`: enumerate only when the scope is unknown → locate
+  every site → one read stage of `{file_path, offset, limit}` windows, ≤10 per
+  call → every edit in one response → one verification) and drop the
+  sentences that used to say parts of it in three places; the `read`,
+  `grep`, `edit`, `apply_patch` and `code_graph` descriptions shrink to that
+  contract (code_graph from ~150 to ~90 words), and a windowed read's
+  smart-cap marker names the located-window form; a further pass trims
+  parameter prose that repeated the rules or internal detail (`Skill`,
+  `find`, `cwd`, `git`, `code_graph.mode`, `grep.path`/`text`,
+  `include_noise`, shell's PowerShell cheat and `timeout_ms`) — the lead
+  tool surface drops from 13.4 KB to 12.7 KB. Eight-task GPT-5.6 runs before
+  and after stay at 8/8 with the same round, time and cost envelope; the
+  one regression found on the way (a backup round for read-only inputs and
+  `git log` surveys after two guarding clauses were cut) is restored. The
+  backup rule now says where the copy goes — the same response as the first
+  inspection, never a round of its own — because "inside the first inspection
+  call" made GPT-5.6 open 2.8 backup-only rounds per eight-task run when the
+  first inspection was a `read` or `git` call; with the wording fixed it
+  opened none and batched every backup with that inspection. The serial
+  reminder no longer treats an array inside a single call as a batch: a
+  recorded Gemini 3.8 Flash review ran fifteen one-call rounds, alternating
+  one- and two-command `git` calls, and never earned it because every array
+  round reset the streak. The provenance check also remembers six rounds
+  instead of two, so a file list from `git diff --name-only` walked one item
+  per round no longer passes each item off as something the previous diff
+  revealed. Two more runtime
+  reminders: `late_locating` (a search after a read that took nothing from
+  it) and `located_sites` handing over one window per located site —
+  code_graph `(Lstart-end)` rows included — split into several read calls
+  past ten. Route policy files
+  (`rules/routes/*.md`) now also declare a one-line `turn-reminder:` (read
+  once in the user turn's trailing `<system-reminder>` block, before the
+  turn's first response) and a one-line `round-reminder:` next to their
+  static rules; the agent loop resolves the latter per provider/model and it
+  reaches the model after every tool round — as Anthropic's turn-scoped
+  system message (`clear_at: next_user_message`) on `anthropic-oauth`, the
+  pattern Anthropic documents for Claude Fable 5.1, or as a runtime
+  `<system-reminder>` after single-call rounds elsewhere (`per_round`). The
+  Fable 5.1 reminder moves from a hard-coded provider constant to the
+  route files; histories recorded under the earlier sentence replay it
+  byte-for-byte. One file, `routes/common.md`, carries the batching
+  reminders for every route (an unrestricted file is the base; a file naming
+  `models:` or `providers:` adds to that line for its routes rather than
+  replacing it) —
+  Gemini goes one call per round once tool results arrive, Grok
+  batches calls but never used array arguments: its flattened tool schemas
+  kept only the scalar branch of every one-or-many field
+  (`read.file_path`, `grep.pattern`, `git.command`, …). The Grok flattening
+  now keeps the array branch of such fields (one value travels as a
+  one-element array) and says so in the field description, so the batching
+  contract holds on that provider too. The shared rules gain a
+  `# Parallel Tool Calls` section that states the contract plainly (recorded
+  Gemini 3.8 Flash sessions issued one call per round in 105/105 rounds;
+  with the section in place a headless run batched four files and git in
+  one response). Provider/model-bound rules load from `rules/routes/*.md`
+  through `providers:` / `models:` frontmatter and render after the shared
+  rules in BP1.
+  `MIXDOG_ANTIGRAVITY_DUMP_DIR=<dir>` writes every Antigravity request body
+  (contents, tools, config; never headers or tokens) for wire inspection,
+  the Gemini counterpart of `MIXDOG_OAI_WS_DUMP_DIR`; `mixdog exec` also
+  passes `MIXDOG_XAI_CACHE_TRACE` and `MIXDOG_XAI_RESPONSES_CACHE_SCOPE`
+  through for xAI cache probes.
+- xAI Responses requests no longer send a per-session `prompt_cache_key` by
+  default (`MIXDOG_XAI_RESPONSES_CACHE_SCOPE` now defaults to `none`, Grok
+  Build's literal body): the session key split the service cache into lanes
+  and measured two cold rounds per run against one, and no cross-session
+  prefix reuse. `session` and `prefix` remain selectable.
+  `MIXDOG_ANTIGRAVITY_FC_MODE=AUTO|ANY|VALIDATED` overrides the Antigravity
+  function-calling mode for A/B runs, and
+  `benchmarks/terminal-bench-2.1/analysis/tool-batching-by-model.mjs` reports
+  multi-call and array-argument rates per model from `agent-trace.jsonl`.
+- `mixdog exec` binds the OAuth account selected in the host's
+  provider-accounts pool (the credential sign-in writes today), falling back to
+  the single legacy credential file; previously only the legacy file or an
+  explicit `*_CREDENTIALS_PATH` was accepted, so pool-only hosts failed with
+  "credentials are unavailable". `mixdog exec` also no longer sits 2–4 minutes
+  past its answer before emitting `result`: the pristine-root removal retried
+  on Windows for the full rmSync budget (50 linear retries ≈ 128s, twice when
+  the postmaster path re-ran it) while the usage ledger's SQLite handle and a
+  winding-down memory daemon's `pg.log` were still open. The ledger is closed
+  before removal and exec passes a 10-retry (≈5.5s) budget
+  (`cleanup({ rootRemovalRetries })`); a straggling root is left to the
+  periodic orphan sweep instead of the caller.
+
 ## v0.9.169 - 2026-09-16
 
 - Code Tidy: Install now downloads the core engines (Biome, ruff, shfmt,

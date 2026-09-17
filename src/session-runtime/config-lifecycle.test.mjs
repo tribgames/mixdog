@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { setImmediate, setTimeout } from 'node:timers/promises';
 import test from 'node:test';
 import { createConfigLifecycle, resolveInitialConfigState } from './config-lifecycle.mjs';
+import { applyConfigPatch, diffConfig } from '../runtime/shared/config-patch.mjs';
 
 function deferred() {
   let resolve;
@@ -20,13 +21,14 @@ function fixture() {
   const writes = [];
   const cfgMod = {
     loadConfig: () => structuredClone(root.agent),
-    saveConfig: (snapshot) => {
+    createConfigPatch: diffConfig,
+    saveConfigPatch: (changes) => {
       writes.push('config:sync');
-      root.agent = structuredClone(snapshot);
+      root.agent = applyConfigPatch(root.agent, changes);
     },
-    saveConfigAsync: async (snapshot) => {
+    saveConfigPatchAsync: async (changes) => {
       writes.push('config');
-      root.agent = structuredClone(snapshot);
+      root.agent = applyConfigPatch(root.agent, changes);
     },
     patchSkillsDisabled: (names) => {
       writes.push('skills:sync');
@@ -75,9 +77,9 @@ function fixture() {
 test('synchronous reload cannot overtake an older asynchronous config write', async () => {
   const f = fixture();
   const gate = deferred();
-  const save = f.cfgMod.saveConfigAsync;
+  const save = f.cfgMod.saveConfigPatchAsync;
   let calls = 0;
-  f.cfgMod.saveConfigAsync = async (snapshot) => {
+  f.cfgMod.saveConfigPatchAsync = async (snapshot) => {
     if (++calls === 1) await gate.promise;
     await save(snapshot);
   };
@@ -97,7 +99,7 @@ test('synchronous reload cannot overtake an older asynchronous config write', as
 
 test('failed synchronous reload preserves an explicitly disabled provider when overlaying secrets', async () => {
   const f = fixture();
-  f.cfgMod.saveConfig = () => {
+  f.cfgMod.saveConfigPatch = () => {
     throw new Error('fixture lock busy');
   };
   f.disk().agent.providers.demo.apiKey = 'from-keychain';
@@ -152,7 +154,7 @@ test('failed output-style writes retain their value and remove only the obsolete
   assert.equal(f.disk().agent.theme, 'old');
 });
 
-test('automatic skills debounce drains the older whole-config snapshot first', async () => {
+test('automatic skills debounce drains older config edits first', async () => {
   const f = fixture();
   // Schedule the skills timer first to exercise ordering rather than relying
   // on timer registration order to protect its more specific patch.
@@ -226,19 +228,103 @@ test('an unset web-search route resolves to the follow-the-main-model default', 
   );
 });
 
-test('a failed whole-config write cannot consume the pending skills patch', async () => {
+test('a failed config write cannot consume the pending skills patch', async () => {
   const f = fixture();
-  const save = f.cfgMod.saveConfigAsync;
-  f.cfgMod.saveConfigAsync = async () => {
+  const save = f.cfgMod.saveConfigPatchAsync;
+  f.cfgMod.saveConfigPatchAsync = async () => {
     throw new Error('fixture write failed');
   };
   f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'latest' });
   f.lifecycle.scheduleSkillsSave(['demo']);
   await f.lifecycle.flushAllConfigSavesAsync();
   assert.deepEqual(f.writes, []);
-  f.cfgMod.saveConfigAsync = save;
+  f.cfgMod.saveConfigPatchAsync = save;
   await f.lifecycle.flushAllConfigSavesAsync();
   assert.deepEqual(f.writes, ['config', 'skills']);
   assert.equal(f.disk().agent.theme, 'latest');
   assert.deepEqual(f.disk().agent.skills.disabled, ['demo']);
+});
+
+test('an unchanged save does not write or undo a peer setting', async () => {
+  const f = fixture();
+  f.disk().agent.theme = 'peer';
+  f.lifecycle.saveConfigAndAdopt(structuredClone(f.config()));
+  await f.lifecycle.flushAllConfigSavesAsync();
+  assert.deepEqual(f.writes, []);
+  assert.equal(f.disk().agent.theme, 'peer');
+});
+
+test('a pending reload overlays only local edits and preserves fresh peer settings', async () => {
+  const f = fixture();
+  const save = f.cfgMod.saveConfigPatch;
+  f.cfgMod.saveConfigPatch = () => {
+    throw new Error('fixture lock busy');
+  };
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'local' });
+  f.disk().agent.profile = { language: 'en' };
+  assert.equal(f.lifecycle.reloadFullConfig().profile.language, 'en');
+  assert.equal(f.config().theme, 'local');
+  f.cfgMod.saveConfigPatch = save;
+  await f.lifecycle.flushAllConfigSavesAsync();
+  f.disk().agent.profile.language = 'ja';
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'later' });
+  await f.lifecycle.flushAllConfigSavesAsync();
+  assert.equal(f.disk().agent.profile.language, 'ja');
+  assert.equal(f.disk().agent.theme, 'later');
+});
+
+test('an in-flight success is not replayed over a newer peer change by the next local write', async () => {
+  const f = fixture();
+  const gate = deferred();
+  const started = deferred();
+  const save = f.cfgMod.saveConfigPatchAsync;
+  let writes = 0;
+  f.cfgMod.saveConfigPatchAsync = async (changes) => {
+    await save(changes);
+    if (++writes === 1) {
+      started.resolve();
+      await gate.promise;
+    }
+  };
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'first-local' });
+  const flushed = f.lifecycle.flushAllConfigSavesAsync();
+  await started.promise;
+  f.disk().agent.theme = 'newer-peer';
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), profile: { title: 'second-local' } });
+  gate.resolve();
+  await flushed;
+  assert.equal(f.disk().agent.theme, 'newer-peer');
+  assert.equal(f.disk().agent.profile.title, 'second-local');
+});
+
+test('a debounce burst keeps the last explicit edit even when it returns to the starting value', async () => {
+  const f = fixture();
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'temporary' });
+  f.disk().agent.theme = 'peer';
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'old' });
+  await f.lifecycle.flushAllConfigSavesAsync();
+  assert.equal(f.disk().agent.theme, 'old');
+  assert.deepEqual(f.writes, ['config']);
+});
+
+test('model settings adopted before the route save are persisted without unrelated stale fields', async () => {
+  const f = fixture();
+  f.disk().agent.profile = { language: 'en' };
+  f.lifecycle.adoptConfig({ ...f.config(), modelSettings: { 'demo/model': { effort: 'high', fast: true } } });
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), default: 'lead' });
+  await f.lifecycle.flushAllConfigSavesAsync();
+  assert.deepEqual(f.disk().agent.modelSettings, { 'demo/model': { effort: 'high', fast: true } });
+  assert.equal(f.disk().agent.default, 'lead');
+  assert.equal(f.disk().agent.profile.language, 'en');
+});
+
+test('an unrelated save does not replay a completed skills toggle', async () => {
+  const f = fixture();
+  f.lifecycle.adoptConfig({ ...f.config(), skills: { disabled: ['local'] } });
+  f.lifecycle.scheduleSkillsSave(['local']);
+  await f.lifecycle.flushSkillsSave();
+  f.disk().agent.skills.disabled = ['peer'];
+  f.lifecycle.saveConfigAndAdopt({ ...f.config(), theme: 'local' });
+  await f.lifecycle.flushAllConfigSavesAsync();
+  assert.deepEqual(f.disk().agent.skills.disabled, ['peer']);
 });

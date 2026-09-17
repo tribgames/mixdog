@@ -9,7 +9,6 @@ import { resolve } from 'node:path';
 import { executeBrowserTool } from '../runtime/browser-bridge/client.mjs';
 import { createBridgeFirstUseGate } from './bridge-first-use-gate.mjs';
 import { executeComputerTool } from '../runtime/computer-bridge/client.mjs';
-import { executeOfficeTool } from '../runtime/office/index.mjs';
 import { executeMediaTool } from '../runtime/media/tool.mjs';
 import { executeTidyTool } from '../runtime/tidy/tool.mjs';
 import { featureEnvOverride } from './config-helpers.mjs';
@@ -101,6 +100,7 @@ export function createInternalToolExecutor({
       if (callerCtx?.invocationSource === 'model-tool' && !officeToolsEnabled()) {
         throw new Error('office is disabled in settings; start a new session to refresh the tool list');
       }
+      const { executeOfficeTool } = await import('../runtime/office/index.mjs');
       return await executeOfficeTool(args, {
         cwd: callerCwd,
         dataDir: STANDALONE_DATA_DIR,
@@ -130,7 +130,9 @@ export function createInternalToolExecutor({
       });
     }
     if (name === 'setup') {
-      return await setupTool.execute(args || {});
+      return await setupTool.execute(args || {}, {
+        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
+      });
     }
     if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
       return dispatchWebSearchRuntimeTool(name, args, callerCtx, {

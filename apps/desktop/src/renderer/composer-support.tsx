@@ -168,7 +168,8 @@ export function ProjectContextSelector({
       <Folder size={14} />
       <OpenSelect
         className="context-pill-select project-context-select"
-        ariaLabel="Project context"
+        ariaLabel={t('Project context')}
+        tooltip={t('Select project')}
         value={value}
         displayValue={activeProject ? activeLabel || 'Project' : fallbackActiveLabel || 'Project'}
         disabled={disabled}

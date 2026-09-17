@@ -27,6 +27,7 @@ import {
 } from './editor-monaco-providers';
 import { readCallHierarchyLayout, type CallHierarchyPreview } from './editor-pane-model';
 import { monaco, resolveThemeColor } from './monaco-setup';
+import { t } from './i18n';
 
 type EditorInstance = import('monaco-editor').editor.IStandaloneCodeEditor;
 type RequestLsp = (
@@ -420,7 +421,7 @@ export function useEditorCallHierarchy({
           <section
             className="editor-call-hierarchy"
             role="dialog"
-            aria-label="Call Hierarchy"
+            aria-label={t('Call Hierarchy')}
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
                 event.preventDefault();
@@ -478,8 +479,8 @@ export function useEditorCallHierarchy({
                 <button
                   type="button"
                   disabled={!state.stack.length}
-                  aria-label="Back"
-                  data-tooltip="Back"
+                  aria-label={t('Back')}
+                  data-tooltip={t('Back')}
                   onClick={() => {
                     const root = state.stack.at(-1);
                     if (root) void load(root, state.direction, state.stack.slice(0, -1));
@@ -489,17 +490,17 @@ export function useEditorCallHierarchy({
                 </button>
                 <button
                   type="button"
-                  aria-label={state.direction === 'incoming' ? 'Show Outgoing Calls' : 'Show Incoming Calls'}
+                  aria-label={state.direction === 'incoming' ? t('Show Outgoing Calls') : t('Show Incoming Calls')}
                   data-tooltip={
                     state.direction === 'incoming'
-                      ? 'Show Outgoing Calls (Shift+Alt+H)'
-                      : 'Show Incoming Calls (Shift+Alt+H)'
+                      ? t('Show Outgoing Calls (Shift+Alt+H)')
+                      : t('Show Incoming Calls (Shift+Alt+H)')
                   }
                   onClick={() => switchDirection()}
                 >
                   {state.direction === 'incoming' ? '⇥' : '⇤'}
                 </button>
-                <button type="button" aria-label="Close" data-tooltip="Close (Escape)" onClick={close}>
+                <button type="button" aria-label={t('Close')} data-tooltip={t('Close (Escape)')} onClick={close}>
                   <X size={14} />
                 </button>
               </div>
@@ -512,7 +513,7 @@ export function useEditorCallHierarchy({
             >
               <div className="editor-call-hierarchy-preview">
                 {preview?.loading ? (
-                  <p>Loading…</p>
+                  <p>{t('Loading…')}</p>
                 ) : preview?.error ? (
                   <p>{preview.error}</p>
                 ) : preview ? (
@@ -571,7 +572,7 @@ export function useEditorCallHierarchy({
                     }}
                   />
                 ) : (
-                  <p>{state.error || (state.loading ? 'Loading…' : 'No results')}</p>
+                  <p>{state.error || (state.loading ? t('Loading…') : t('No results'))}</p>
                 )}
               </div>
               <div
@@ -584,16 +585,16 @@ export function useEditorCallHierarchy({
                 ref={treeRef}
                 className="editor-call-hierarchy-tree"
                 role="tree"
-                aria-label={state.direction === 'incoming' ? 'Incoming Calls' : 'Outgoing Calls'}
+                aria-label={state.direction === 'incoming' ? t('Incoming Calls') : t('Outgoing Calls')}
                 tabIndex={0}
               >
-                {state.loading && <p>Loading…</p>}
+                {state.loading && <p>{t('Loading…')}</p>}
                 {!state.loading && state.error && <p>{state.error}</p>}
                 {!state.loading && !state.error && !state.rows.length && (
                   <p>
                     {state.direction === 'incoming'
-                      ? `No callers of '${state.root?.name || ''}'`
-                      : `No calls from '${state.root?.name || ''}'`}
+                      ? t("No callers of '{{name}}'", { name: state.root?.name || '' })
+                      : t("No calls from '{{name}}'", { name: state.root?.name || '' })}
                   </p>
                 )}
                 {state.rows.map((item, index) => (

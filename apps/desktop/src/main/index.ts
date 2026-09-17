@@ -907,8 +907,7 @@ async function createWindow(): Promise<void> {
     computerUseOverlay = createComputerUseOverlay(
       {
         resume: (generation, signal) => overlayComputerHost.resumeAfterTakeover(generation, signal),
-        // Not a button: the overlay pauses input itself when its control
-        // renderer is lost, so the desktop never runs without a Stop control.
+        // The toggle and control-renderer recovery pause input without cancelling the task.
         pause: async () => overlayComputerHost.takeOver('user_pause'),
         configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
         // Stop native input immediately, independently of the daemon's turn

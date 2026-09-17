@@ -61,6 +61,7 @@ public static class MixWin32 {
   public static Point Cursor() { return new Point(); }
   public static int InputTick() { return 100; }
   public static bool IsOwnedBy(IntPtr a, IntPtr b) { return false; }
+  public static bool IsChildProcessWindow(IntPtr candidate, IntPtr parent) { return false; }
 }
 public static class MixInputObservation { public static Evidence Read() { return new Evidence(); } }
 '@
@@ -328,7 +329,7 @@ public static class MixWin32 {
 foreach ($name in @('Do-ClickFamily','Do-Invoke')) { . (Import-InputFunction $name) }
 function Invoke-BackgroundSemantic($ref,$body) { & $body }
 function Get-RefRecord($ref) {
-  $element=[pscustomobject]@{Current=@{NativeWindowHandle=1}}
+  $element=[pscustomobject]@{Current=@{NativeWindowHandle=1;IsEnabled=$true}}
   $element | Add-Member ScriptMethod TryGetCurrentPattern {param($pattern,$value) return $false}
   return @{Kind='uia';Element=$element}
 }
@@ -350,4 +351,82 @@ $rows | ConvertTo-Json -Compress
     { path: 'native', clicks: 1 },
     { path: 'uncertain', clicks: 1, action: 'click' },
   ]);
+});
+
+test('ref clicks expand and collapse through UIA and reject disabled UIA/MSAA controls before input', windows, async () => {
+  const rows = await nativeFixture(String.raw`
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
+Add-Type -ReferencedAssemblies @('System.dll',
+  [System.Windows.Automation.AutomationElement].Assembly.Location,
+  [System.Windows.Automation.ControlType].Assembly.Location) -TypeDefinition @'
+using System;
+using System.Windows.Automation;
+public sealed class ExpandFixture {
+  public ExpandFixture Current { get { return this; } }
+  public ExpandCollapseState ExpandCollapseState = ExpandCollapseState.Collapsed;
+  public bool Changes = true;
+  public int Calls;
+  public void Expand() { Calls++; if (Changes) ExpandCollapseState = ExpandCollapseState.Expanded; }
+  public void Collapse() { Calls++; if (Changes) ExpandCollapseState = ExpandCollapseState.Collapsed; }
+}
+public sealed class ElementFixture {
+  public ElementFixture Current { get { return this; } }
+  public bool IsEnabled = true;
+  public ExpandFixture Pattern = new ExpandFixture();
+  public int PatternQueries;
+  public bool TryGetCurrentPattern(AutomationPattern pattern, out object value) {
+    PatternQueries++;
+    value = pattern == ExpandCollapsePattern.Pattern ? Pattern : null;
+    return value != null;
+  }
+}
+'@
+foreach ($name in @('Do-Invoke','Do-ClickFamily','New-ActionResult','Background-Unavailable')) {
+  . (Import-InputFunction $name)
+}
+function Invoke-BackgroundSemantic($ref,$body) { & $body }
+function Get-RefRecord($ref) { return $script:record }
+function Assert-ExecutionAuthorization($request,$handle) { $script:authorizations++ }
+function Get-PointArg($request) { throw 'unexpected native fallback' }
+$rows = @()
+foreach ($mode in @('collapsed','expanded','partial','unchanged','disabled-uia','disabled-msaa')) {
+  $script:authorizations = 0
+  $element = [ElementFixture]::new()
+  switch ($mode) {
+    'expanded' { $element.Pattern.ExpandCollapseState = 'Expanded' }
+    'partial' { $element.Pattern.ExpandCollapseState = 'PartiallyExpanded' }
+    'unchanged' { $element.Pattern.Changes = $false }
+    'disabled-uia' { $element.IsEnabled = $false }
+  }
+  $script:record = @{Kind='uia';Element=$element;WindowId='hwnd:0x1'}
+  if ($mode -eq 'disabled-msaa') {
+    $script:record = @{Kind='msaa';Msaa=@{Enabled=$false};WindowId='hwnd:0x1'}
+  }
+  $reply = Do-ClickFamily @{action='click';ref='r'} 'click'
+  $rows += @{mode=$mode;reply=$reply;calls=$element.Pattern.Calls;
+    state=[string]$element.Pattern.ExpandCollapseState;queries=$element.PatternQueries;
+    authorizations=$script:authorizations}
+}
+$rows | ConvertTo-Json -Compress -Depth 6
+`);
+  const cases = Object.fromEntries(rows.map(row => [row.mode, row]));
+  for (const mode of ['collapsed', 'expanded', 'partial']) {
+    assert.equal(cases[mode].reply.action, 'click');
+    assert.equal(cases[mode].reply.path, 'uia_expand_collapse');
+    assert.equal(cases[mode].reply.verified, true);
+    assert.equal(cases[mode].calls, 1);
+    assert.equal(cases[mode].authorizations, 1);
+    assert.equal(cases[mode].state, mode === 'expanded' ? 'Collapsed' : 'Expanded');
+  }
+  assert.equal(cases.unchanged.reply.verified, false);
+  assert.equal(cases.unchanged.reply.effect, 'unverifiable');
+  assert.equal(cases.unchanged.calls, 1);
+  for (const mode of ['disabled-uia', 'disabled-msaa']) {
+    assert.equal(cases[mode].reply.code, 'element_disabled');
+    assert.equal(cases[mode].reply.delivery_accepted, false);
+    assert.equal(cases[mode].calls, 0);
+    assert.equal(cases[mode].queries, 0);
+    assert.equal(cases[mode].authorizations, 0);
+  }
 });

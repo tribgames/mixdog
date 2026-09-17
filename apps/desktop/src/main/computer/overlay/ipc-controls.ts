@@ -5,8 +5,7 @@ export function bindComputerOverlayControls(
   contents: WebContents,
   controller: ReturnType<typeof createComputerOverlayController>,
   controls: ComputerUseOverlayControls,
-  presentation: () => { sessionIds: string[]; generation: number; canDismiss?: boolean },
-  dismiss?: () => void,
+  presentation: () => { sessionIds: string[]; generation: number },
 ): void {
   contents.ipc.handle('computer-overlay-control', async (event, request) => {
     if (event.sender !== contents || event.senderFrame !== contents.mainFrame
@@ -19,20 +18,14 @@ export function bindComputerOverlayControls(
       controls.configureIdleResume(request.seconds);
       return { accepted: true };
     }
-    if (!['resume', 'stop', 'dismiss'].includes(request.action)
+    if (!['resume', 'pause'].includes(request.action)
       || Object.keys(request).some((key) => !['action', 'generation'].includes(key))
       || !Number.isSafeInteger(request.generation) || request.generation < 0) {
       throw new Error('Invalid overlay request');
     }
     const current = presentation();
-    if (request.action !== 'stop' && request.generation !== current.generation) {
+    if (request.action === 'resume' && request.generation !== current.generation) {
       return { accepted: false, error: 'stale' };
-    }
-    if (request.action === 'dismiss') {
-      if (!current.canDismiss || !dismiss) return { accepted: false, error: 'unavailable' };
-      controller.cancelResume();
-      dismiss();
-      return { accepted: true };
     }
     await controller.invoke(request.action, request.generation, current.sessionIds);
     return { accepted: true, ...controller.state(request.generation) };

@@ -84,23 +84,49 @@ function firstExclusiveRequired(branches) {
 }
 
 const ARRAY_DROP_NOTE = 'This provider accepts a single value here, not an array.';
+const ARRAY_ONLY_NOTE = 'Pass one or more values as an array.';
 
 function describesArray(schema) {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
   return schema.type === 'array' || (Array.isArray(schema.type) && schema.type.includes('array'));
 }
 
+function describesScalar(schema) {
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return false;
+  if (describesArray(schema) || schema.type === 'object' || schema.properties) return false;
+  return typeof schema.type === 'string' || Array.isArray(schema.type) || Array.isArray(schema.enum);
+}
+
 // Flattening keeps one branch, so a description that still promises the dropped
 // shape would advertise more than the wire schema accepts. Project the loss
 // into the text the model actually reads.
 function projectDroppedBranches(schema, dropped) {
-  if (describesArray(schema) || !dropped.some(describesArray)) return schema;
+  const note = describesArray(schema)
+    ? dropped.some(describesScalar)
+      ? ARRAY_ONLY_NOTE
+      : null
+    : dropped.some(describesArray)
+      ? ARRAY_DROP_NOTE
+      : null;
+  if (!note) return schema;
   const description = String(schema.description || '').trim();
-  if (description.includes(ARRAY_DROP_NOTE)) return schema;
+  if (description.includes(note)) return schema;
   return {
     ...schema,
-    description: description ? `${description} ${ARRAY_DROP_NOTE}` : ARRAY_DROP_NOTE,
+    description: description ? `${description} ${note}` : note,
   };
+}
+
+// A "one or many" field (a scalar or an array of it) keeps its array branch:
+// one value still fits as a one-element array, while the scalar branch alone
+// would take the batching contract away from this provider.
+function preferredBranch(branches) {
+  const objects = branches.filter((branch) => branch && typeof branch === 'object' && !Array.isArray(branch));
+  const arrays = objects.filter(describesArray);
+  if (arrays.length === 1 && objects.length > 1 && objects.every((branch) => branch === arrays[0] || describesScalar(branch))) {
+    return arrays[0];
+  }
+  return objects[0] || null;
 }
 
 function normalizeGrokPropertySchema(schema) {
@@ -110,11 +136,11 @@ function normalizeGrokPropertySchema(schema) {
     ...(Array.isArray(schema.oneOf) ? schema.oneOf : []),
   ];
   if (branches.length) {
-    const first = branches.find((branch) => branch && typeof branch === 'object' && !Array.isArray(branch));
-    if (first) {
+    const kept = preferredBranch(branches);
+    if (kept) {
       const { anyOf: _anyOf, oneOf: _oneOf, ...siblings } = schema;
-      const dropped = branches.filter((branch) => branch !== first);
-      return normalizeGrokPropertySchema(projectDroppedBranches({ ...first, ...siblings }, dropped));
+      const dropped = branches.filter((branch) => branch !== kept);
+      return normalizeGrokPropertySchema(projectDroppedBranches({ ...kept, ...siblings }, dropped));
     }
   }
   let result = schema;

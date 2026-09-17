@@ -213,3 +213,28 @@ test('closed-dialog recovery still rejects observer loss and intervening user in
     assert.equal(result.code, expected);
   }
 });
+
+test('a foreground launcher click may hand focus to its OS-confirmed child process without declaring cleanup failure', async () => {
+  for (const [change, expected, code] of [
+    [{ foreground_child_process: true }, true, undefined],
+    [{ foreground_child_process: false }, false, undefined],
+    [{ foreground_child_process: true, input_user_sequence: 1 }, false, 'user_input_active'],
+    [{ foreground_child_process: true, input_monitor_id: 'replacement' }, false, 'input_observation_unavailable'],
+  ]) {
+    const calls = [];
+    const resolver = createInputResolution({
+      sessionIdFor: () => 'launcher',
+      callPowerShell: async request => {
+        calls.push(request.action);
+        return { ok: true, result: {
+          ...state, foreground_window_id: 'hwnd:0xchild', foreground_within_target: false, ...change,
+        } };
+      },
+    });
+    const result = await resolver.verifyInputRecovery(
+      { action: 'click', delivery: 'foreground' }, 'hwnd:0x1', original, {});
+    assert.equal(result.ok, expected);
+    assert.equal(result.code, code);
+    assert.deepEqual(calls, ['input_recovery_state']);
+  }
+});

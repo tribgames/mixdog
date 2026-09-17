@@ -7,7 +7,8 @@ authority for required fields and accepted values.
 
 - `status` reads one domain: summary, model, agents, workflow, websearch,
   output-style, profile, autoclear, compaction, memory, features, local-provider, shell,
-  providers, mcp, skills, plugins, update, or onboarding.
+  providers, mcp, skills, plugins, update, onboarding, capabilities, desktop,
+  appearance, projects, connection, schedules, or webhooks.
 - `open` navigates to a supported UI surface. Read `surfaces.md` for targets and
   UI-only settings.
 
@@ -26,9 +27,9 @@ authority for required fields and accepted values.
 | Memory capability | `set_memory_enabled` |
 | Background memory cycles | `set_recap_enabled` |
 | Web Search tool exposure | `set_web_search_enabled` |
-| Git, Office, or Local Provider enabled state | `set_builtin_enabled` |
+| Git, Office, Code Tidy, Local Provider, Browser, Computer, or voice enabled state | `set_builtin_enabled` |
 | One approval per session before the first Browser Use or Computer Use call (`name`: browser or computer; on by default) | `set_first_use_approval` |
-| Git, Memory, Office, or Local Provider runtime preparation | `install_builtin` |
+| Git, Memory, Office, Code Tidy, Local Provider, Browser, Computer, or voice preparation | `install_builtin` |
 | Managed local model installation (use the local-provider skill) | `install_local_model` |
 | Start or resume a background runtime/model download | `start_local_installation` |
 | Pause a shared local download, retaining partial files | `cancel_local_installation` |
@@ -53,19 +54,43 @@ authority for required fields and accepted values.
 | Refresh a plugin checkout | `update_plugin` |
 | Enable or disable a plugin | `set_plugin_enabled` |
 | Remove a plugin | `remove_plugin` |
+| Available hosted models and their options; optionally native-search capable only | `list_models` |
+| Agent orchestration, independent of workflow instructions | `set_orchestration_mode` |
+| Safe MCP edit metadata, excluding raw connection/credential values | `get_mcp_server` |
+| Read a workflow, agent, or skill definition | `read_definition` |
+| Create a workflow, agent, or machine-global user skill | `create_definition` |
+| Partially edit a workflow, agent, or machine-global user skill | `save_definition` |
+| Delete a user workflow/agent definition or override | `delete_definition` |
+| Save a schedule/webhook; explicitly overwrite to edit | `save_automation` |
+| Delete an existing schedule/webhook | `delete_automation` |
+| Enable/disable a schedule/webhook | `set_automation_enabled` |
+| Webhook listener enabled state, port, or domain | `set_webhook_config` |
+| Desktop keep-awake, usage pin, or Computer observe-only state | `set_desktop_settings` |
+| Desktop theme, display language, side panels, or zoom | `set_appearance` |
+| Register a Project and optionally set its display alias | `save_project` |
+| Unregister a Project without deleting its files | `remove_project` |
+| Read Project/Common Instructions before editing | `get_instructions` |
+| Replace unchanged Project/Common Instructions and retain a backup | `set_instructions` |
+| Revoke one linked device; re-pairing restores access | `revoke_linked_device` |
+| Managed local model context allocation; null restores automatic | `set_local_context` |
 
 ## Routes and workflow
 
 Inspect `status model`, `status agents`, `status websearch`, or `status
 workflow` before changing the corresponding domain.
 
-- A partial route preserves omitted values.
+- A partial route preserves omitted values. Main routes also accept
+  `modelParameters` and `contextPercent`; agent routes accept `disabled`.
+  Use the model catalog for actual available options, not remembered model ids.
 - Setting an agent route provider to an empty string removes the override and
   restores Main inheritance.
 - A Web Search route must support native web search; tool exposure is changed
   separately.
-- Workflow definitions and custom agent definitions are edited through their
-  supported UI or file workflow, not through undocumented setup keys.
+- Definition actions use `definitionKind` (workflow, agent, skill). Read first,
+  then supply only changed fields. Workflow/agent ids cannot be renamed through
+  a save; change their display name instead. User skills may be renamed with
+  `originalName` and `name`. Skill deletion is not exposed; disable it instead.
+- Changing orchestration does not rewrite workflow instructions or agents.
 
 ## Providers and authentication
 
@@ -86,7 +111,11 @@ values through chat.
 
 - Output style changes do not rewrite the current answer already in progress.
 - Profile response language and Desktop display language are separate.
-- Auto-clear supports a global or provider-specific idle duration.
+- Auto-clear supports global/provider idle durations, `minContextPercent`,
+  `reset`, and `resetProvider`. A reset and a duration are mutually exclusive;
+  provider reset requires a provider.
+- Compaction supports `enabled` and either `mainBufferTokens` or
+  `mainBufferPercent`. Changing representation replaces the previous budget.
 - Memory master state controls tools, core injection, and background cycles.
   `set_recap_enabled` changes only the background cycles.
 - Core Memory entries are read and changed with the `memory` tool, not setup.
@@ -102,8 +131,10 @@ bridge state.
 - Git installation may prepare system Git.
 - Office installation may prepare LibreOffice dependencies and global Noto
   fonts as well as the runtime component.
-- Browser Use, Computer Use, and voice installation/toggles are UI-owned.
-  Computer Use is Windows-only.
+- Browser Use, Computer Use, and voice installation/toggles use the same
+  `install_builtin` and `set_builtin_enabled` actions through a live Desktop
+  receipt. Computer Use is Windows-only. These actions do not approve OS
+  permission dialogs or first-use tool approval on the user's behalf.
 - Environment feature overrides are diagnostics for headless or benchmark
   environments, not ordinary user settings.
 
@@ -118,7 +149,34 @@ bridge state.
   skills and MCP integrations it contributes.
 - MCP mutation results include reconnection state. Diagnose the returned error
   before making another change.
+- MCP add requires name plus command or URL. Save uses `originalName` (defaults
+  to name), so changing `name` with `originalName` renames the existing server.
+  Omitted fields remain unchanged. Switching transport requires a complete new
+  transport. Raw credential fields are not accepted; `env_vars`,
+  `bearer_token_env_var`, and `env_http_headers` reference existing environment
+  variables without exposing their values.
+- Environment/header maps are partial patches. Omitted keys are preserved;
+  `null` explicitly removes one key, including a stored credential.
 - Plugin enablement moves its contributed skills and MCP integrations together.
+
+## Desktop, Projects, and automation
+
+- `status capabilities` lists supported actions and deliberate handoffs.
+- Desktop-only operations require the owning conversation visible in the local
+  Desktop app. They affect the Desktop host, not a paired phone. Never claim a
+  persisted change from merely delivering a request.
+- A display-language change returns `requiresReload`; setup does not reload,
+  quit, deploy, or restart the app.
+- A Project removal unregisters it only. Instruction edits require the exact
+  previous content and return a retained backup path.
+- Inspect schedules/webhooks before editing. `overwrite:true` updates an
+  existing named entry and preserves omitted fields; a new schedule needs
+  instructions plus exactly one of cron `time` or one-shot `at`.
+- Attachment contents and webhook signing secrets are not returned by setup.
+  Omitted attachments and existing webhook secrets are preserved. Copy a
+  signing secret through the Webhooks UI, never chat.
+- Enabling or creating automation may start its background worker. This is a
+  persisted automation change, not permission to run an unrelated task now.
 
 ## Update
 

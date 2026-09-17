@@ -1,7 +1,7 @@
 /**
  * The loopback bridge the session runtime's `computer` tool talks to. It is
- * published through a heartbeated discovery file only once the resident
- * backend is warm, and a dropped connection is treated as the caller's abort.
+ * published through a heartbeated discovery file. Native workers start on
+ * demand, and a dropped connection is treated as the caller's abort.
  */
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -16,7 +16,7 @@ import {
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
 import { computerUseCoordinator } from '../session/coordinator';
 import type { createWorkerPool } from '../backend/worker-pool';
-import { HOST_WARMUP_SESSION_ID, isComputerLifecycleControl } from './action-sets';
+import { isComputerLifecycleControl } from './action-sets';
 import type { SessionLifecycle } from './session-lifecycle';
 import { assertPublicComputerRequest } from './request-policy';
 import {
@@ -32,7 +32,7 @@ type WorkerPool = ReturnType<typeof createWorkerPool>;
 export interface BridgeServerHost
   extends Pick<
       WorkerPool,
-      'callPowerShell' | 'adoptWarmedWorker' | 'releaseSpareWorker' | 'powerShellBySession' | 'elevatedSessionIds'
+      'powerShellBySession' | 'elevatedSessionIds'
     >,
     Pick<SessionLifecycle, 'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers'> {
   dataDirectory(): string;
@@ -45,9 +45,6 @@ export interface BridgeServerHost
 
 export function createBridgeServer(host: BridgeServerHost) {
   const {
-    callPowerShell,
-    adoptWarmedWorker,
-    releaseSpareWorker,
     powerShellBySession,
     elevatedSessionIds,
     abortComputerSession,
@@ -100,7 +97,6 @@ export function createBridgeServer(host: BridgeServerHost) {
           setTimeout(resolve, 250).unref?.();
         });
       }
-      releaseSpareWorker();
       const stopped = await Promise.allSettled(
         [...new Set([...powerShellBySession.keys(), ...elevatedSessionIds()])]
           .filter((sessionId) => sessionId !== CHROME_SETUP_SESSION_ID)
@@ -244,23 +240,12 @@ export function createBridgeServer(host: BridgeServerHost) {
         generation,
         startedAt,
       });
-      // Publish only after the native backend is warm. Disabling Computer Use
-      // closes this listener and revokes its token without affecting Browser
-      // Use's narrowly scoped internal UIA route.
-      void callPowerShell({
-        action: 'wait',
-        duration: 0,
-        session_id: HOST_WARMUP_SESSION_ID,
-        read_only: true,
-      })
-        .then(async () => {
+      // Discovery describes the authenticated bridge, not a pre-spawned worker.
+      // The first command still passes through the normal admission and safety gates.
+      bridgeDiscoveryRecord = discoveryRecord;
+      void writeDiscovery(discoveryRecord)
+        .then((ownership) => {
           if (!stillCurrent()) return;
-          // The warm-up worker already paid startup, so it becomes the spare the
-          // first real session adopts instead of being reaped and respawned.
-          adoptWarmedWorker(HOST_WARMUP_SESSION_ID);
-          bridgeDiscoveryRecord = discoveryRecord;
-          try {
-            const ownership = await writeDiscovery(discoveryRecord);
             if (!stillCurrent() || !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)) return;
             if (ownership !== 'owned') {
               console.warn(`computer bridge discovery ${ownership}; heartbeat will retry`);
@@ -290,23 +275,14 @@ export function createBridgeServer(host: BridgeServerHost) {
               durationMs: Date.now() - startedAt,
               ownership,
             });
-          } catch (error) {
-            console.error('computer bridge discovery write failed:', error);
-            diagnose('computer-bridge-failed', {
-              generation,
-              durationMs: Date.now() - startedAt,
-              phase: 'discovery',
-              errorName: error instanceof Error ? error.name : typeof error,
-            });
-          }
         })
         .catch((error) => {
           if (!stillCurrent()) return;
-          console.error('computer resident backend warm-up failed:', error);
+          console.error('computer bridge discovery write failed:', error);
           diagnose('computer-bridge-failed', {
             generation,
             durationMs: Date.now() - startedAt,
-            phase: 'backend-warmup',
+            phase: 'discovery',
             errorName: error instanceof Error ? error.name : typeof error,
           });
         });

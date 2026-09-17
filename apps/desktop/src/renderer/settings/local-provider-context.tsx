@@ -33,7 +33,7 @@ export function LocalProviderContext({
           aria-invalid={!valid}
           value={draft}
           disabled={actions.busy}
-          title={`${t('Context size')} · ${t('Up to {{maximum}} tokens.', { maximum })} ${t('Automatic (recommended)')}: ${String(model.defaultContextWindow || model.contextWindow)}`}
+          title={t('Up to {{maximum}} tokens.', { maximum })}
           placeholder={String(model.defaultContextWindow || model.contextWindow)}
           style={{ width: 120 }}
           onChange={(event) => setDraft(event.target.value)}

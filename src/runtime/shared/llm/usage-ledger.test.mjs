@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Worker } from 'node:worker_threads';
-import { UsageLedger, makeUsageRecord, getUsageLedger } from './usage-ledger.mjs';
+import { UsageLedger, makeUsageRecord, getUsageLedger, closeUsageLedgers } from './usage-ledger.mjs';
 import { priceUsage } from './cost.mjs';
 import { accountProviderSend } from './usage-accounting.mjs';
 import { importUsageHistory, importTraceRow } from './usage-ledger-import.mjs';
@@ -131,6 +131,29 @@ test('concurrent processes share one idempotent ledger without lost totals', asy
   } finally {
     ledger.close();
   }
+});
+
+test('closeUsageLedgers releases the file so its directory can be removed, and later access reopens', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-usage-close-'));
+  const priorPath = process.env.MIXDOG_USAGE_LEDGER_PATH;
+  process.env.MIXDOG_USAGE_LEDGER_PATH = join(dir, 'ledger.sqlite');
+  t.after(() => {
+    closeUsageLedgers();
+    if (priorPath === undefined) delete process.env.MIXDOG_USAGE_LEDGER_PATH;
+    else process.env.MIXDOG_USAGE_LEDGER_PATH = priorPath;
+  });
+  const first = getUsageLedger();
+  first.set('marker', 'open');
+  assert.equal(getUsageLedger(), first, 'the store is shared while open');
+
+  closeUsageLedgers();
+  assert.throws(() => first.get('marker'), /closed|not open/i, 'the handle is really closed');
+  // No retries: an open SQLite handle would make this EBUSY on Windows.
+  rmSync(dir, { recursive: true, force: true, maxRetries: 0 });
+
+  const reopened = getUsageLedger();
+  assert.notEqual(reopened, first, 'access after close reopens a fresh store');
+  assert.equal(reopened.get('marker'), null);
 });
 
 test('live provider accounting works with diagnostics disabled and retains cancellation', async (t) => {

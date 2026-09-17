@@ -6,10 +6,12 @@ import { createProviderReadiness } from './provider-readiness.mjs';
 
 function deferred() {
   let resolve;
-  const promise = new Promise((yes) => {
+  let reject;
+  const promise = new Promise((yes, no) => {
     resolve = yes;
+    reject = no;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 let nextRevision = 100;
@@ -69,6 +71,57 @@ function catalogFixture() {
 function model(label) {
   return [{ id: 'chat-model', display: label }];
 }
+
+for (const mode of ['foreground', 'forced', 'warmup']) {
+  test(`a failed ${mode} catalog remains retryable in both shared and session caches`, async () => {
+    const f = catalogFixture();
+    const api = f.consumer();
+    const first =
+      mode === 'warmup'
+        ? api.warmProviderModelCache({ loadSecrets: true })
+        : api.collectProviderModels({ force: mode === 'forced' });
+    await setImmediate();
+    f.requests[0].reject(new Error('temporary catalog failure'));
+    assert.deepEqual(await first, []);
+    const next = api.collectProviderModels();
+    await setImmediate();
+    assert.equal(f.requests.length, 2);
+    f.requests[1].resolve(model('recovered'));
+    assert.equal((await next)[0].display, 'recovered');
+    assert.equal((await f.consumer().collectProviderModels())[0].display, 'recovered');
+    assert.equal((await api.collectProviderModels())[0].display, 'recovered');
+    assert.equal(f.requests.length, 2);
+  });
+}
+
+test('partial catalogs expose healthy providers without caching a failed provider as absent', async () => {
+  const f = catalogFixture();
+  const getProviders = f.registry.getAllProviders;
+  f.registry.getAllProviders = () =>
+    new Map([...getProviders(), ['healthy', { listModels: async () => [{ id: 'healthy-model' }] }]]);
+  const api = f.consumer();
+  const first = api.collectProviderModels();
+  await setImmediate();
+  f.requests[0].reject(new Error('temporary catalog failure'));
+  assert.deepEqual((await first).map((row) => row.id), ['healthy-model']);
+  const next = api.collectProviderModels();
+  await setImmediate();
+  assert.equal(f.requests.length, 2);
+  f.requests[1].resolve(model('recovered'));
+  assert.deepEqual((await next).map((row) => row.id).sort(), ['chat-model', 'healthy-model']);
+});
+
+test('a failed metadata lookup does not pin its fallback as authoritative', async () => {
+  const f = catalogFixture();
+  const api = f.consumer();
+  const first = api.lookupModelMeta('fixture', 'chat-model', { allowFetch: true });
+  f.requests[0].reject(new Error('temporary metadata failure'));
+  assert.deepEqual(await first, { id: 'chat-model', provider: 'fixture' });
+  const next = api.lookupModelMeta('fixture', 'chat-model', { allowFetch: true });
+  assert.equal(f.requests.length, 2);
+  f.requests[1].resolve(model('recovered'));
+  assert.equal((await next).display, 'recovered');
+});
 
 for (const mode of ['catalog', 'metadata']) {
   test(`late ${mode} completion cannot overwrite newer shared rows or route metadata`, async () => {

@@ -4,6 +4,7 @@ import type { ReactNode, RefObject } from 'react';
 import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorRecovery, FilePreview } from './editor-pane-model';
 import { ProgressSpinner } from './ProgressSpinner';
+import { t } from './i18n';
 
 export function EditorPaneNoticeSurface({ breadcrumbs, children }: { breadcrumbs: ReactNode; children: ReactNode }) {
   return (
@@ -18,7 +19,7 @@ export function EditorPaneLoadingSurface({ breadcrumbs }: { breadcrumbs: ReactNo
   return (
     <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
       <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
-      <p>Loading…</p>
+      <p>{t('Loading…')}</p>
     </EditorPaneNoticeSurface>
   );
 }
@@ -40,10 +41,10 @@ export function EditorPaneFileFallback({
     <EditorPaneNoticeSurface breadcrumbs={breadcrumbs}>
       {note && <ErrorNotice error={note} role="status" />}
       <p>
-        {load.binary ? 'Binary file — in-app editing is unavailable.' : 'File exceeds the 1 MB in-app editing cap.'}
+        {load.binary ? t('Binary file — in-app editing is unavailable.') : t('File exceeds the 1 MB in-app editing cap.')}
       </p>
       <button type="button" onClick={onOpen}>
-        <ExternalLink size={14} aria-hidden="true" /> Open in default app
+        <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
       </button>
     </EditorPaneNoticeSurface>
   );
@@ -80,7 +81,7 @@ export function EditorPanePreviewSurface({
         {!loaded && !error && (
           <div className="editor-pane-preview-loading" role="status">
             <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
-            <p>Loading preview…</p>
+            <p>{t('Loading preview…')}</p>
           </div>
         )}
         {preview.kind === 'image' ? (
@@ -118,7 +119,7 @@ export function EditorPanePreviewSurface({
             className="editor-pane-preview-error"
             action={
               <button type="button" onClick={onOpen}>
-                <ExternalLink size={14} aria-hidden="true" /> Open in default app
+                <ExternalLink size={14} aria-hidden="true" /> {t('Open in default app')}
               </button>
             }
           />
@@ -157,16 +158,16 @@ export function EditorPaneAlerts({
         <div className="editor-pane-recovery" role="status">
           <span>
             {recovery.diskChanged && !recovery.restored
-              ? 'Unsaved backup conflicts with the current disk version.'
-              : 'Unsaved changes were restored from the previous session.'}
+              ? t('Unsaved backup conflicts with the current disk version.')
+              : t('Unsaved changes were restored from the previous session.')}
           </span>
           {recovery.diskChanged && !recovery.restored ? (
             <>
               <button type="button" onClick={onRestoreBackup}>
-                Restore Backup
+                {t('Restore Backup')}
               </button>
               <button type="button" onClick={onDiscardBackup}>
-                Discard Backup
+                {t('Discard Backup')}
               </button>
             </>
           ) : null}
@@ -174,14 +175,14 @@ export function EditorPaneAlerts({
       )}
       {diskChanged && (
         <ErrorNotice
-          error={saveError || error || 'File changed on disk.'}
+          error={saveError || error || t('File changed on disk.')}
           action={
             <>
               <button type="button" onClick={onReload}>
-                Reload
+                {t('Reload')}
               </button>
               <button type="button" onClick={onKeepEdits}>
-                Keep my edits
+                {t('Keep my edits')}
               </button>
             </>
           }

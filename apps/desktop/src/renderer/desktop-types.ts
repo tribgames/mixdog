@@ -101,6 +101,7 @@ export type Snapshot = RecordValue & {
    *  command. `seq` increases per request so a repeat of the same command
    *  still fires. */
   uiOpenRequest?: { command: string; seq: number; at?: number } | null;
+  setupUiRequest?: { id: string; at: number } | null;
   failedTurnKeys?: string[];
   sessionId?: string;
   provider?: string;

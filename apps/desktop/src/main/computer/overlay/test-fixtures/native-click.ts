@@ -26,6 +26,8 @@ public static class OverlayClickFixture {
   [DllImport("user32.dll")] static extern bool ScreenToClient(IntPtr window, ref Point point);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
   [DllImport("user32.dll")] static extern bool PostMessage(IntPtr window, uint message, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", SetLastError = true)] static extern IntPtr SendMessageTimeout(
+    IntPtr window, uint message, UIntPtr w, IntPtr l, uint flags, uint timeout, out UIntPtr result);
   [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
   [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int cx, int cy, uint flags);
@@ -81,6 +83,14 @@ public static class OverlayClickFixture {
     }
     if (!ScreenToClient(target, ref point)) throw new Exception("fixture coordinate conversion failed");
     IntPtr foreground = GetForegroundWindow();
+    // Windows asks this before delivering a real click to an inactive window.
+    // Posting button messages alone would miss a control that eats activation clicks.
+    UIntPtr activation;
+    if (SendMessageTimeout(target, 0x0021, new UIntPtr(unchecked((ulong)root.ToInt64())),
+        new IntPtr(0x02010001), 3, 1000, out activation) == IntPtr.Zero)
+      throw new Exception("fixture mouse activation check timed out");
+    if (activation.ToUInt64() != 3)
+      throw new Exception("fixture must accept a click without activation: WM_MOUSEACTIVATE=" + activation.ToUInt64());
     IntPtr packed = new IntPtr((point.Y << 16) | (point.X & 65535));
     if (!PostMessage(target, 0x0200, IntPtr.Zero, packed)
         || !PostMessage(target, 0x0201, new IntPtr(1), packed)

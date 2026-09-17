@@ -428,7 +428,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                           })}
                         </span>
                         <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
-                          Render anyway
+                          {t('Render anyway')}
                         </button>
                       </div>
                     ) : patch === undefined || patch === null ? (

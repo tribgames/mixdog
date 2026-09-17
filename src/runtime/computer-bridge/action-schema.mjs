@@ -100,13 +100,13 @@ const captureProperties = {
     type: 'string',
     enum: ['state', 'som', 'vision', 'ax', 'zoom'],
     description:
-      'state (default) is structured UI plus image; som adds marks; vision is image only; ax is accessibility only; zoom crops a prior frame.',
+      'state (default) is structured UI plus image; som adds marks; vision is image only; ax is accessibility only. zoom uses frame_id and region only; omit window_id, app and screen.',
   },
   frame_id: {
     type: 'string',
     minLength: 1,
     maxLength: MAX_TARGET_TOKEN_LENGTH,
-    description: 'Latest unexpired frame id; required with mode="zoom".',
+    description: 'Latest unexpired frame id; required with mode="zoom" and supplies its exact target window.',
   },
   region: {
     type: 'array',

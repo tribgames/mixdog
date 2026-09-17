@@ -28,9 +28,14 @@ const shown = (window: BrowserWindow) => window.isVisible() ? Promise.resolve()
 void app.whenReady().then(async () => {
   const initialWindow = nextWindow();
   let resumed = 0;
+  let resumeReceived: (() => void) | undefined;
   const overlay = createComputerUseOverlay({
     stop: async () => {},
-    resume: async () => { resumed++; },
+    resume: async generation => {
+      resumed++;
+      coordinator.resumeAfterUserTakeover(generation);
+      resumeReceived?.();
+    },
     pause: async () => { coordinator.pauseForUser('user_pause'); },
   }, 'ko');
   try {
@@ -58,24 +63,23 @@ void app.whenReady().then(async () => {
     assert.equal(replacement.isFocused(), false);
 
     const point = await replacement.webContents.executeJavaScript(`(() => {
-      const button = document.getElementById('dismiss');
-      if (button.hidden || button.disabled) throw new Error('replacement Dismiss unavailable');
+      const button = document.getElementById('toggle');
+      if (button.disabled || button.getAttribute('aria-label') !== '재개') throw new Error('replacement Resume unavailable');
       const rect = button.getBoundingClientRect();
       return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + 4) };
     })()`);
     const [x, y] = replacement.getPosition();
     const handle = replacement.getNativeWindowHandle();
-    const hidden = new Promise<void>(resolve => replacement.once('hide', () => resolve()));
+    const acknowledged = new Promise<void>(resolve => { resumeReceived = resolve; });
     const clickMode = await nativeOverlayClick(
       handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE()),
       screen.dipToScreenPoint({ x: x + point.x, y: y + point.y }),
     );
     await emit(process.stderr, `OVERLAY_CLICK_MODE ${clickMode}\n`);
-    await hidden;
-    assert.equal(replacement.isVisible(), false);
-    assert.equal(coordinator.snapshot().userControlActive, true);
-    assert.throws(() => coordinator.assertAutomationAllowed());
-    assert.equal(resumed, 0);
+    await acknowledged;
+    assert.equal(replacement.isVisible(), true);
+    assert.equal(coordinator.snapshot().userControlActive, false);
+    assert.equal(resumed, 1);
     await emit(process.stdout, `OVERLAY_RESULT ${JSON.stringify({
       retired: hung.isDestroyed(), visible: replacement.isVisible(),
       inputBlocked: coordinator.snapshot().userControlActive, resumed,

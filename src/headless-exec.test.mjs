@@ -8,6 +8,8 @@ import { classifyCliInvocation } from './headless-command.mjs';
 import { prewarmHeadlessSearch, runHeadlessExec } from './headless-exec.mjs';
 import { resolveCursorOAuthAccessToken } from './runtime/agent/orchestrator/providers/cursor-auth.mjs';
 import { createPristineExecutionBoundary } from './runtime/shared/pristine-execution.mjs';
+import { boundProviderAuthPath } from './runtime/shared/provider-auth-binding.mjs';
+import { newProviderAccountId } from './runtime/shared/provider-accounts.mjs';
 import { withGrandfatheredBuiltins, featureDisallowedToolsFor } from './session-runtime/builtin-features.mjs';
 import {
   applyDeferredToolSurface,
@@ -81,6 +83,53 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
   }
 });
 
+test('pristine headless execution binds the selected provider-accounts credential', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-pool-auth-test-'));
+  const dataDir = join(root, 'data');
+  const id = newProviderAccountId();
+  const poolPath = join(dataDir, 'provider-accounts', 'antigravity-oauth', `${id}.json`);
+  mkdirSync(join(dataDir, 'provider-accounts', 'antigravity-oauth'), { recursive: true });
+  writeFileSync(
+    join(dataDir, 'provider-accounts.json'),
+    JSON.stringify({
+      version: 1,
+      providers: { 'antigravity-oauth': { accounts: [{ id, label: 'Account 1' }], selectedId: id, auto: true } },
+    })
+  );
+  writeFileSync(
+    poolPath,
+    JSON.stringify({ access_token: 'pool-token', refresh_token: 'refresh', expires_at: Date.now() + 3600_000 })
+  );
+  const boundary = createPristineExecutionBoundary({
+    provider: 'antigravity-oauth',
+    model: 'gemini-3.8-flash',
+    env: { MIXDOG_HOME: root },
+  });
+  try {
+    assert.equal(boundary.audit.authMode, 'in-process-host-oauth-binding');
+    assert.equal(boundProviderAuthPath('antigravity-oauth'), poolPath);
+  } finally {
+    boundary.cleanup();
+    rmSync(root, { recursive: true, force: true });
+  }
+  // No selected account and no legacy file: the boundary still fails closed.
+  const emptyRoot = mkdtempSync(join(tmpdir(), 'mixdog-headless-no-auth-test-'));
+  mkdirSync(join(emptyRoot, 'data'), { recursive: true });
+  try {
+    assert.throws(
+      () =>
+        createPristineExecutionBoundary({
+          provider: 'antigravity-oauth',
+          model: 'gemini-3.8-flash',
+          env: { MIXDOG_HOME: emptyRoot },
+        }),
+      /credentials are unavailable/
+    );
+  } finally {
+    rmSync(emptyRoot, { recursive: true, force: true });
+  }
+});
+
 test('headless exec runs one implicit-approval session and waits for tracked tasks', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-headless-exec-test-'));
   const usageLogPath = join(root, 'usage.json');
@@ -90,6 +139,7 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   const activeScopes = [];
   let activeChecks = 0;
   let boundaryCleaned = false;
+  let boundaryCleanupOptions = null;
   let runtimeClosed = false;
   const daemonCleanupCalls = [];
   const cleanupOrder = [];
@@ -107,8 +157,9 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       boundaryFactory: () => ({
         runtimeRoot: join(root, 'runtime-root'),
         loadConfig: () => ({ providers: { 'openai-oauth': { enabled: true } } }),
-        cleanup: () => {
+        cleanup: (options) => {
           boundaryCleaned = true;
+          boundaryCleanupOptions = options;
           cleanupOrder.push('boundary');
         },
       }),
@@ -141,6 +192,9 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
         daemonCleanupCalls.push({ runtimeRoot, options });
         cleanupOrder.push('daemon');
       },
+      usageLedgerCleanup: () => {
+        cleanupOrder.push('ledger');
+      },
       hasActiveTasks: (scope) => {
         activeScopes.push(scope);
         activeChecks += 1;
@@ -164,7 +218,11 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
     });
     assert.equal(boundaryCleaned, true);
     assert.equal(runtimeClosed, true);
-    assert.deepEqual(cleanupOrder, ['runtime', 'daemon', 'memory', 'boundary']);
+    // The ledger handle must be gone before the pristine root is removed:
+    // an open SQLite file turns that rmSync into a ~128s EBUSY retry loop on Windows.
+    assert.deepEqual(cleanupOrder, ['runtime', 'ledger', 'daemon', 'memory', 'boundary']);
+    // A finished answer never waits the default removal budget on a straggling root.
+    assert.deepEqual(boundaryCleanupOptions, { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 });
     assert.deepEqual(daemonCleanupCalls, [
       {
         runtimeRoot: join(root, 'runtime-root'),

@@ -1,8 +1,13 @@
 import type { DesktopTidyEngineStatus, DesktopTidyInstallStatus } from '../../shared/contract';
 import { CapabilityIcon } from '../CapabilityIcon';
 import { t } from '../i18n';
-import { SidebarResourceTagBadge } from '../sidebar-resource-row';
-import { ExtensionItemList, ExtensionItemRow, ExtensionNote, ExtensionSection } from './extension-detail';
+import {
+  ExtensionItemBadge,
+  ExtensionItemList,
+  ExtensionItemRow,
+  ExtensionNote,
+  ExtensionSection,
+} from './extension-detail';
 import { engineRowState } from './tidy-status';
 
 export function TidyEngines({
@@ -45,7 +50,7 @@ export function TidyEngines({
               title={engine.title}
               description={description}
               tone={tone}
-              control={<SidebarResourceTagBadge tag={tag} />}
+              control={<ExtensionItemBadge tag={tag} />}
               dataAttributes={{ 'data-tidy-engine': engine.id }}
             />
           );

@@ -834,8 +834,11 @@ export function Conversation({
               if (event.key.length !== 1 && event.key !== 'Process') return;
               if (!target || typeof target.closest !== 'function') return;
               if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
+              // Structural hook, not the accessible name: the aria-label is
+              // localized, so matching its English copy never found the
+              // textarea outside the English UI.
               event.currentTarget
-                .querySelector<HTMLTextAreaElement>('textarea[aria-label="Message Mixdog"]')
+                .querySelector<HTMLTextAreaElement>('.composer-input-row textarea')
                 ?.focus({ preventScroll: true });
             }
       }

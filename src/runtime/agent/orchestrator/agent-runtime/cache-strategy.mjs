@@ -28,12 +28,13 @@
  * task/event data while isolating volatile text from stable prefix BPs.
  *
  * Non-breakpoint providers:
- *   - OpenAI (public): prompt_cache_key + prompt_cache_retention=24h
+ *   - OpenAI (public): prompt_cache_key plus model-specific retention when
+ *     response storage is enabled (30m cache options or 24h retention).
  *   - OpenAI OAuth: prompt_cache_key only (server in-memory 5-10min)
- *   - Gemini: provider-managed explicit cachedContents with 1h TTL, plus
+ *   - Gemini: provider-managed explicit cachedContents with 5m default TTL, plus
  *     implicit caching as a fallback when the prefix is below cache minimums.
- *   - xAI: x-grok-conv-id (server routing pin) + prompt_cache_key on
- *     Responses API. Treat as key-prefix, not implicit.
+ *   - xAI: conversation routing for chat; Responses omits prompt_cache_key
+ *     by default, with explicit session/prefix routing available.
  *   - DeepSeek / OpenCode Go: automatic KV/prefix cache; observe provider
  *     cached token fields when returned
  *   - Groq: auto 50% cache (gpt-oss-120b) — no knob
@@ -183,12 +184,9 @@ export function shouldRecordObservedForProvider(provider) {
   return cacheCapabilityForProvider(provider) === 'implicit-observed';
 }
 
-// Stable per-provider shared prompt-cache key. key-prefix providers MUST land on
-// a cross-session shard, so the resolver below NEVER falls back to sessionId
-// (which isolates each session into its own bucket and forces a cold start).
-// Generalizes the xai pattern ('mixdog-xai') that already defaulted to a shared
-// key. Anthropic/Gemini use content-keyed cache_control / explicit CachedContent
-// and do not consult this map.
+// Stable provider namespaces, not final wire cache keys. The request builders
+// add session identity by default; explicit overrides can enable shared routing.
+// Anthropic/Gemini use content-keyed breakpoints / explicit cache objects instead.
 const PROVIDER_CACHE_KEY_DEFAULT = Object.freeze({
   openai: 'mixdog-openai',
   'openai-oauth': 'mixdog-codex',
@@ -197,13 +195,13 @@ const PROVIDER_CACHE_KEY_DEFAULT = Object.freeze({
 });
 
 /**
- * Resolve the server-side prompt-cache grouping key (prompt_cache_key) for a
+ * Resolve the prompt-cache namespace for a
  * key-prefix provider. Precedence: explicit provider key > prompt key >
  * session-scoped prompt key > stable shared default. Invariant: always returns a
- * non-empty stable key, and deliberately EXCLUDES sessionId so a fresh session
- * reuses the warm shard instead of cold-starting its own bucket.
+ * non-empty stable namespace. Final session isolation is applied by the
+ * provider's request-key builder, not by this namespace resolver.
  *
- * This is the CACHE key only. The socket poolKey stays sessionId-scoped at each
+ * The socket poolKey stays sessionId-scoped at each
  * call site to avoid cross-session socket/delta-state reuse.
  */
 export function resolveProviderCacheKey(opts, provider) {

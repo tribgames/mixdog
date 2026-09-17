@@ -180,7 +180,8 @@ test('inspection reports empty target semantics and bounds each provider call', 
   );
   assert.equal(verification.decision, 'satisfied');
   const predicateCall = calls.find((call) => call.action === 'window_predicates');
-  assert.ok(predicateCall.timeoutMs > 0 && predicateCall.timeoutMs <= 100);
+  // A short polling window must not become a false provider-health timeout.
+  assert.ok(predicateCall.timeoutMs > 0 && predicateCall.timeoutMs <= 2_000);
 });
 
 test('focus recovery falls back to the owner when the action closed its window', () => {

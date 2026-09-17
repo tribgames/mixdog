@@ -36,13 +36,34 @@ interface TooltipPosition {
 
 const VIEWPORT_PADDING = 8;
 const TARGET_GAP = 6;
+/* Hover hints are opt-in (`data-tooltip`). The only automatic fallback is an
+   ICON-ONLY button or link, whose aria-label is the one name it has. The old
+   fallback covered every labelled control — rows, cards, tabs, text links,
+   inputs, textareas, selects — so ~500 screen-reader labels surfaced as
+   bubbles that merely repeated the visible text (user: 모든 버튼에 다 붙어서
+   개판). Those controls now stay silent unless a screen opts in. */
+const ICON_CONTROLS = ['button[aria-label]', 'a[href][aria-label]', '[role="button"][aria-label]'].join(',');
+/* Hover waits a beat longer than the OS default so a pointer merely passing
+   over a control never summons a bubble; keyboard focus stays quick because
+   it is a deliberate landing. */
+const HOVER_DELAY_MS = 600;
+const FOCUS_DELAY_MS = 150;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
 function tooltipTarget(value: EventTarget | null): HTMLElement | null {
-  return value instanceof HTMLElement ? value.closest<HTMLElement>('[data-tooltip]') : null;
+  if (!(value instanceof Element)) return null;
+  // Explicit copy wins, including an empty value used to suppress a tooltip.
+  // Never duplicate native titles, and never turn section headings or
+  // arbitrary content into hover targets.
+  const explicit = value.closest<HTMLElement>('[data-tooltip]');
+  const target = explicit || (value.closest('[title]') ? null : value.closest<HTMLElement>(ICON_CONTROLS));
+  if (!target) return null;
+  // A control that already shows text must not echo its accessible name.
+  if (!explicit && (target.textContent ?? '').trim()) return null;
+  return target.closest('[inert], [aria-hidden="true"]') ? null : target;
 }
 
 export function TooltipLayer() {
@@ -133,7 +154,9 @@ export function TooltipLayer() {
       active.current = target;
       timer.current = window.setTimeout(() => {
         if (!target.isConnected || active.current !== target) return;
-        const text = target.dataset.tooltip?.trim();
+        const text = (
+          target.hasAttribute('data-tooltip') ? target.dataset.tooltip : target.getAttribute('aria-label')
+        )?.trim();
         if (!text) return;
         const parts = tooltipParts(text);
         const rect = target.getBoundingClientRect();
@@ -168,7 +191,7 @@ export function TooltipLayer() {
     };
     const onPointerOver = (event: PointerEvent) => {
       const target = tooltipTarget(event.target);
-      if (target) reveal(target, 420);
+      if (target) reveal(target, HOVER_DELAY_MS);
     };
     const onPointerOut = (event: PointerEvent) => {
       const target = tooltipTarget(event.target);
@@ -181,7 +204,7 @@ export function TooltipLayer() {
       // pointerdown dismissal, leaving it floating once the button moved or
       // re-rendered (user: lingering description bubbles). Only keyboard
       // focus reveals tooltips.
-      if (target && target.matches(':focus-visible')) reveal(target, 150);
+      if (target && target.matches(':focus-visible')) reveal(target, FOCUS_DELAY_MS);
     };
     const onFocusOut = (event: FocusEvent) => {
       if (tooltipTarget(event.target)) cancel();

@@ -657,7 +657,7 @@ export function SourceControlDock({
     );
     if (name === null) return;
     if (!name.trim()) {
-      setError('A tag name is required to create a tag.');
+      setError(t('A tag name is required to create a tag.'));
       return;
     }
     void run(`tag:${entry.hash}`, () => api?.gitCreateTag?.(projectPath, name.trim(), entry.hash));
@@ -696,7 +696,7 @@ export function SourceControlDock({
     );
     if (name === null) return;
     if (!name.trim()) {
-      setError('A branch name is required to create a branch.');
+      setError(t('A branch name is required to create a branch.'));
       return;
     }
     void run(`branch-create-at:${entry.hash}`, () =>
@@ -738,7 +738,7 @@ export function SourceControlDock({
     const clipboard = window.navigator?.clipboard;
     if (!clipboard?.writeText) {
       setShaCopy({ hash, ok: false });
-      setError('Could not copy the SHA: this environment has no clipboard access.');
+      setError(t('Could not copy the SHA: this environment has no clipboard access.'));
       return;
     }
     try {
@@ -930,7 +930,7 @@ export function SourceControlDock({
   const popStash = () => void run('stash-pop', () => api?.gitStashPop?.(projectPath));
 
   if (!projectPath) {
-    return <p className="utility-dock-empty">Open a project to use Source Control.</p>;
+    return <p className="utility-dock-empty">{t('Open a project to use Source Control.')}</p>;
   }
   if (!statusReady && !prOnly) {
     return <InitialSurface />;
@@ -946,7 +946,7 @@ export function SourceControlDock({
     );
   }
   if (status && !status.repository && !prOnly) {
-    return <p className="utility-dock-empty">The selected project is not a Git repository.</p>;
+    return <p className="utility-dock-empty">{t('The selected project is not a Git repository.')}</p>;
   }
 
   return (
@@ -1062,11 +1062,11 @@ export function SourceControlDock({
         {!prOnly && status?.operation && (
           <div className="dock-scm-operation" role="status">
             <div>
-              <b>{status.operation.replace('-', ' ')} in progress</b>
+              <b>{t('{{operation}} in progress', { operation: status.operation.replace('-', ' ') })}</b>
               <small>
                 {conflicts.length
-                  ? `${conflicts.length} unresolved conflict${conflicts.length === 1 ? '' : 's'}`
-                  : 'All conflicts resolved'}
+                  ? t('{{count}} unresolved conflicts', { count: conflicts.length })
+                  : t('All conflicts resolved')}
               </small>
             </div>
             <button
@@ -1074,7 +1074,7 @@ export function SourceControlDock({
               disabled={Boolean(busy) || conflicts.length > 0}
               onClick={() => void run('continue', () => api?.gitContinue?.(projectPath))}
             >
-              Continue
+              {t('Continue')}
             </button>
             <button
               type="button"
@@ -1089,7 +1089,7 @@ export function SourceControlDock({
                 void run('abort-operation', () => api?.gitAbortOperation?.(projectPath));
               }}
             >
-              Abort
+              {t('Abort')}
             </button>
           </div>
         )}
@@ -1142,9 +1142,9 @@ export function SourceControlDock({
                   <span className="dock-scm-list-actions">
                     <button
                       type="button"
-                      aria-label="Stage All"
-                      title="Stage All"
-                      data-tooltip="Stage All"
+                      aria-label={t('Stage All')}
+                      title={t('Stage All')}
+                      data-tooltip={t('Stage All')}
                       disabled={Boolean(busy) || files.length === 0}
                       onClick={() => setAllIncluded(true, files)}
                     >
@@ -1152,9 +1152,9 @@ export function SourceControlDock({
                     </button>
                     <button
                       type="button"
-                      aria-label="Unstage All"
-                      title="Unstage All"
-                      data-tooltip="Unstage All"
+                      aria-label={t('Unstage All')}
+                      title={t('Unstage All')}
+                      data-tooltip={t('Unstage All')}
                       disabled={Boolean(busy) || files.length === 0}
                       onClick={() => setAllIncluded(false, files)}
                     >
@@ -1163,9 +1163,9 @@ export function SourceControlDock({
                     <button
                       type="button"
                       className="danger"
-                      aria-label="Discard All"
-                      title="Discard All"
-                      data-tooltip="Discard All"
+                      aria-label={t('Discard All')}
+                      title={t('Discard All')}
+                      data-tooltip={t('Discard All')}
                       disabled={Boolean(busy) || files.length === 0}
                       onClick={discardAllChanges}
                     >
@@ -1176,9 +1176,9 @@ export function SourceControlDock({
                 where they landed when the commit split menu was deleted. */}
                     <button
                       type="button"
-                      aria-label="Stash Changes"
-                      title={stashReason || 'Stash Changes'}
-                      data-tooltip={stashReason || 'Stash Changes'}
+                      aria-label={t('Stash Changes')}
+                      title={stashReason ? t(stashReason) : t('Stash Changes')}
+                      data-tooltip={stashReason ? t(stashReason) : t('Stash Changes')}
                       disabled={Boolean(stashReason)}
                       onClick={stashChanges}
                     >
@@ -1186,9 +1186,9 @@ export function SourceControlDock({
                     </button>
                     <button
                       type="button"
-                      aria-label="Pop Stash"
-                      title={popStashReason || 'Pop Stash'}
-                      data-tooltip={popStashReason || 'Pop Stash'}
+                      aria-label={t('Pop Stash')}
+                      title={popStashReason ? t(popStashReason) : t('Pop Stash')}
+                      data-tooltip={popStashReason ? t(popStashReason) : t('Pop Stash')}
                       disabled={Boolean(popStashReason)}
                       onClick={popStash}
                     >
@@ -1199,9 +1199,9 @@ export function SourceControlDock({
                     <button
                       type="button"
                       className="dock-scm-sort"
-                      aria-label="View & Sort"
-                      title="View & Sort"
-                      data-tooltip="View & Sort"
+                      aria-label={t('View & Sort')}
+                      title={t('View & Sort')}
+                      data-tooltip={t('View & Sort')}
                       aria-haspopup="menu"
                       aria-expanded={visibleContextMenu?.label === 'View & Sort'}
                       onPointerEnter={(event) => {
@@ -1304,9 +1304,9 @@ export function SourceControlDock({
                 <RowSpacer edge="leading" height={fileWindow.leading} />
                 {visibleFiles.map((file) => fileRow(file))}
                 <RowSpacer edge="trailing" height={fileWindow.trailing} />
-                {files.length === 0 && <p className="dock-scm-clean">No changes in this project.</p>}
+                {files.length === 0 && <p className="dock-scm-clean">{t('No changes in this project.')}</p>}
                 {files.length > 0 && filteredFiles.length === 0 && (
-                  <p className="dock-scm-clean">No changed files match the filter.</p>
+                  <p className="dock-scm-clean">{t('No changed files match the filter.')}</p>
                 )}
               </div>
               <SourceControlCommitForm
@@ -1484,8 +1484,8 @@ export function SourceControlDock({
                 );
               })}
               <RowSpacer edge="trailing" height={historyWindow.trailing} />
-              {historyLoading && <p className="utility-dock-empty">Loading history…</p>}
-              {!historyLoading && history.length === 0 && <p className="utility-dock-empty">No commits found.</p>}
+              {historyLoading && <p className="utility-dock-empty">{t('Loading history…')}</p>}
+              {!historyLoading && history.length === 0 && <p className="utility-dock-empty">{t('No commits found.')}</p>}
             </div>
           )}
         </>

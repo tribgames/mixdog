@@ -86,7 +86,6 @@ for (const command of [
       assert.equal(events.length, expectedFeedback ? 7 : 0);
     } finally {
       for (const child of children) pool.retirePowerShell(child, new Error('fixture cleanup'));
-      pool.releaseSpareWorker();
       pool.removeHostScript();
       await rm(directory, { recursive: true, force: true });
     }

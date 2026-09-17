@@ -34,6 +34,7 @@ function image(width, height, crops = []) {
     isEmpty: () => false,
     toBitmap: () => Buffer.alloc(width * height * 4, 128),
     toJPEG: () => Buffer.from('fixture pixels'),
+    toPNG: () => Buffer.from(`lossless ${width}x${height}`),
     resize: ({ width: next, height: nextHeight }) =>
       image(next, nextHeight ?? Math.round((height * next) / width), crops),
     crop: (region) => {
@@ -87,6 +88,52 @@ function fixture(overrides = {}) {
   const run = (operation) => execution.executionContext.run(active, operation);
   return { state, execution, active, host, capture, run, requests, bounds };
 }
+
+test('a timed-out provider stays an error while later captures use fresh pixels without repeated worker restarts', async t => {
+  let now = 10_000;
+  t.mock.method(Date, 'now', () => now);
+  let snapshots = 0;
+  const failure = 'computer_command_timeout: snapshot exceeded 2500ms';
+  const f = fixture({
+    native: request => {
+      if (request.action !== 'snapshot') return;
+      snapshots++;
+      throw new Error(failure);
+    },
+  });
+  const command = { action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode: 'state' };
+  for (let index = 0; index < 3; index++) {
+    const result = await f.run(() => f.capture.captureComputer(command));
+    assert.equal(result.payload.accessibility_status, 'error');
+    assert.equal(result.payload.accessibility_error, failure);
+    assert.equal(result.payload.accessibility_cache, 'timed_out_provider');
+    assert.equal(result.payload.accessibility_retry_after_ms, 30_000);
+    assert.equal(result.payload.pixel_status, 'available');
+    assert.equal(result.payload.foreground_input_ready, true);
+  }
+  assert.equal(snapshots, 1);
+  await assert.rejects(f.run(() => f.capture.captureComputer({ ...command, mode: 'ax' })), /computer_command_timeout/);
+  assert.equal(snapshots, 2, 'explicit semantic inspection is never replaced by cached absence');
+  now += 30_001;
+  await f.run(() => f.capture.captureComputer(command));
+  assert.equal(snapshots, 3, 'the provider may recover after the bounded retry delay');
+});
+
+test('state capture retains lossless source pixels for OCR while keeping the model image compact', async () => {
+  const f = fixture();
+  Object.assign(f.bounds, {
+    width: 2000, height: 1000, client_width: 2000, client_height: 1000,
+  });
+  globalThis.captureFixture.sources = async () => [{ id: 'window:1:0', name: 'fixture', thumbnail: image(2000, 1000) }];
+  const result = await f.run(() => f.capture.captureComputer({
+    action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode: 'state',
+  }));
+  const ocr = f.requests.find(request => request.action === 'ocr_image');
+  assert.equal(Buffer.from(ocr.image_base64, 'base64').toString(), 'lossless 2000x1000');
+  assert.ok(result.payload.width < 2000);
+  assert.equal(result.image.mimeType, 'image/jpeg');
+  assert.equal(result.payload.ocrImage, undefined);
+});
 
 test('missing compositor sources use an exact window-owned surface, including zoom', async () => {
   const nativeBounds = { x: -8, y: -31, width: 816, height: 631 };
@@ -442,6 +489,7 @@ test('external input during capture disables foreground input, while stable capt
     const command = { action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a' };
     const observation = await f.run(() => f.capture.captureComputer(command));
     assert.equal(observation.payload.foreground_input_ready, !changed);
+    assert.equal(observation.payload.foreground_input_reason, changed ? 'user_input_during_capture' : undefined);
     let sent;
     const dispatch = createInputDispatch(
       {
@@ -469,6 +517,24 @@ test('external input during capture disables foreground input, while stable capt
       assert.equal(sent.observed_input_monitor_id, 'worker-a');
       assert.equal(sent.observed_input_user_sequence, 3);
     }
+  }
+});
+
+test('unavailable input observers remain distinguishable from user intervention in usable captures', async () => {
+  for (const failed of [false, true]) {
+    const f = fixture({
+      native: request => {
+        if (request.action !== 'input_idle_state') return;
+        if (failed) throw new Error('input observer probe failed');
+        return { ok: true, result: { observer_ready: false, monitor: 'worker-a', sequence: 3 } };
+      },
+    });
+    const result = await f.run(() => f.capture.captureComputer({
+      action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a',
+    }));
+    assert.equal(result.payload.ok, true);
+    assert.equal(result.payload.foreground_input_ready, false);
+    assert.equal(result.payload.foreground_input_reason, 'input_observer_unavailable');
   }
 });
 

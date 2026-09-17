@@ -156,7 +156,7 @@ function updateConfigProvider(cfgMod, providerId, patch) {
   const config = cfgMod.loadConfig();
   const providers = { ...(config.providers || {}) };
   providers[providerId] = { ...(providers[providerId] || {}), ...patch };
-  cfgMod.saveConfig({ ...config, providers });
+  cfgMod.saveConfig({ ...config, providers }, { baseConfig: config });
   return cfgMod.loadConfig();
 }
 

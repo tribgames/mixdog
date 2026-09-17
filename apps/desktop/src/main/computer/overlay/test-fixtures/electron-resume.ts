@@ -32,29 +32,30 @@ void app.whenReady().then(async () => {
     // Windows Server (the CI runner) turns system animations off, which Chromium reads as reduced
     // motion. The checks read the stylesheet's own motion states, so pin the media feature.
     window.webContents.debugger.attach('1.3');
-    let resumed = 0, stopped = 0, seconds = 5;
-    let stopReceived: (() => void) | undefined;
+    let resumed = 0, paused = 0, stopped = 0, seconds = 5;
+    let pauseReceived: (() => void) | undefined;
     const controls = {
       async resume(generation: number) {
         if (generation !== 7) throw new Error('computer_resume_stale');
         resumed++;
       },
-      async stop() { stopped++; stopReceived?.(); },
+      async pause() { paused++; pauseReceived?.(); },
+      async stop() { stopped++; },
       configureIdleResume(value: number) { seconds = value; },
     };
     const controller = createComputerOverlayController(controls, () => {});
     bindComputerOverlayControls(window.webContents, controller, controls,
-      () => ({ sessionIds: ['fixture'], generation: 7, canDismiss: true }), () => window.hide());
+      () => ({ sessionIds: ['fixture'], generation: 7 }));
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     window.webContents.on('will-navigate', (event) => event.preventDefault());
     await window.loadURL(`data:text/html;base64,${Buffer.from(overlayHtml('ko')).toString('base64')}`);
     await emulateMotionPreference(window.webContents, 'no-preference');
     await window.webContents.executeJavaScript(overlayScript('ko'));
-    const click = async (isPaused: boolean, revision: number, id = 'resume') => window.webContents.executeJavaScript(`
+    const click = async (isPaused: boolean, revision: number) => window.webContents.executeJavaScript(`
       window.mixdogComputerOverlay({paused:${isPaused},canResume:true,generation:7,renderRevision:${revision}});
       new Promise((resolve,reject) => {
         const timeout=setTimeout(()=>reject(new Error('control acknowledgement missing')),3000);
-        const button=document.getElementById(${JSON.stringify(id)});
+        const button=document.getElementById('toggle');
         const observer=new MutationObserver(()=>{
           if(button.getAttribute('aria-busy')==='false'){
             clearTimeout(timeout);observer.disconnect();resolve(true);
@@ -66,12 +67,12 @@ void app.whenReady().then(async () => {
     `);
     await click(true, 1);
     assert.equal(resumed, 1);
-    // Running state: Resume is not on the surface at all.
+    // Running and paused states share one stable control.
     const running = await window.webContents.executeJavaScript(`
       window.mixdogComputerOverlay({paused:false,canResume:false,generation:7,renderRevision:2});
-      ({ resumeHidden: document.getElementById('resume').hidden,
+      ({ label: document.getElementById('toggle').getAttribute('aria-label'),
          buttons: [...document.querySelectorAll('button')].filter((b) => !b.hidden).length })`);
-    assert.deepEqual(running, { resumeHidden: true, buttons: 1 });
+    assert.deepEqual(running, { label: '중단', buttons: 1 });
     await checkOverlayOutline(window.webContents);
     // Unlike button.click(), native hit-testing exercises a non-activating
     // transparent window and mouse down/up while takeover changes its layout.
@@ -80,11 +81,11 @@ void app.whenReady().then(async () => {
     window.showInactive();
     const point = await window.webContents.executeJavaScript(`
       new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
-        const button = document.getElementById('stop');
+        const button = document.getElementById('toggle');
         button.addEventListener('pointerdown', () => {
           window.mixdogComputerOverlay({
-            paused:true,canResume:true,generation:7,renderRevision:3,
-            title:'일시정지',canDismiss:true
+            paused:true,canResume:false,generation:7,renderRevision:3,
+            title:'일시정지'
           });
           button.getBoundingClientRect();
         }, {once:true});
@@ -96,8 +97,8 @@ void app.whenReady().then(async () => {
     const handle = window.getNativeWindowHandle();
     let nativeDeadline: NodeJS.Timeout | undefined;
     const nativeAck = new Promise<void>((resolve, reject) => {
-      stopReceived = resolve;
-      nativeDeadline = setTimeout(() => reject(new Error('native Stop acknowledgement missing')),10_000);
+      pauseReceived = resolve;
+      nativeDeadline = setTimeout(() => reject(new Error('native Pause acknowledgement missing')),10_000);
     });
     try {
       const [clickMode] = await Promise.all([
@@ -110,10 +111,12 @@ void app.whenReady().then(async () => {
       await emit(process.stderr, `OVERLAY_CLICK_MODE ${clickMode}\n`);
     } finally {
       clearTimeout(nativeDeadline);
-      stopReceived = undefined;
+      pauseReceived = undefined;
     }
-    assert.equal(stopped, 1, 'native mouse click must survive the takeover layout change');
-    assert.equal(window.isFocused(), false, 'the Stop control must not activate its window');
+    assert.equal(paused, 1, 'native Pause click must survive the takeover state change');
+    assert.equal(resumed, 1, 'a Pause click must never turn into Resume mid-gesture');
+    assert.equal(stopped, 0, 'Pause must not end the task');
+    assert.equal(window.isFocused(), false, 'the toggle must not activate its window');
     window.hide();
     const layout = [];
     let revision = 4;
@@ -121,7 +124,7 @@ void app.whenReady().then(async () => {
       await window.loadURL(`data:text/html;base64,${Buffer.from(overlayHtml(locale)).toString('base64')}`);
       await emulateMotionPreference(window.webContents, 'no-preference');
       await window.webContents.executeJavaScript(overlayScript(locale));
-      let stopBounds: unknown;
+      let toggleBounds: unknown;
       for (const reason of ['', 'user_input_active', 'user_stop', 'input_cleanup_unconfirmed', 'turn_stop']) {
         const presentation = computerUseOverlayPresentation({
           revision: 0, userControlActive: Boolean(reason), takeoverReason: reason,
@@ -133,8 +136,11 @@ void app.whenReady().then(async () => {
           ({
             title:document.getElementById('title').textContent,
             pillWidth:document.getElementById('pill').getBoundingClientRect().width,
-            stopBounds:(() => { const r=document.getElementById('stop').getBoundingClientRect();
+            toggleBounds:(() => { const r=document.getElementById('toggle').getBoundingClientRect();
               return {x:r.x,y:r.y,width:r.width,height:r.height}; })(),
+            buttons:document.querySelectorAll('button').length,
+            label:document.getElementById('toggle').getAttribute('aria-label'),
+            disabled:document.getElementById('toggle').disabled,
             text:document.body.innerText.trim(),
             moving:document.getElementById('outline').getAnimations({subtree:true})
               .some(animation=>animation.playState==='running'),
@@ -151,8 +157,11 @@ void app.whenReady().then(async () => {
         assert.equal(observed.fits, true, `${locale}/${reason} overflows`);
         assert.equal(observed.pillWidth, OVERLAY_WIDTH - 20,
           `${locale}/${reason} must keep the same compact width`);
-        stopBounds ??= observed.stopBounds;
-        assert.deepEqual(observed.stopBounds, stopBounds, `${locale}/${reason} moved the Stop hit target`);
+        assert.equal(observed.buttons, 1);
+        assert.equal(observed.label, presentation.paused ? (locale === 'ko' ? '재개' : 'Resume') : (locale === 'ko' ? '중단' : 'Pause'));
+        assert.equal(observed.disabled, presentation.paused && !presentation.canResume);
+        toggleBounds ??= observed.toggleBounds;
+        assert.deepEqual(observed.toggleBounds, toggleBounds, `${locale}/${reason} moved the toggle hit target`);
         layout.push({ locale, reason, ...observed });
       }
     }
@@ -162,15 +171,18 @@ void app.whenReady().then(async () => {
     assert.equal(seconds, 10);
     assert.equal(await window.webContents.executeJavaScript(
       `window.mixdogComputerControl({action:'configure',seconds:-1}).then(()=>false,()=>true)`), true);
-    await click(true, revision++, 'stop');
-    assert.equal(stopped, 2);
-    window.showInactive();
-    const dismissed = await window.webContents.executeJavaScript(
-      `window.mixdogComputerControl({action:'dismiss',generation:7})`);
-    assert.equal(dismissed.accepted, true);
+    for (const action of ['stop', 'dismiss']) {
+      assert.equal(await window.webContents.executeJavaScript(
+        `window.mixdogComputerControl({action:${JSON.stringify(action)},generation:7}).then(()=>false,()=>true)`), true);
+    }
+    await click(false, revision++);
+    await click(true, revision++);
+    assert.equal(paused, 2);
+    assert.equal(resumed, 2);
+    assert.equal(stopped, 0);
     assert.equal(window.isVisible(), false);
     await emit(process.stdout,
-      `OVERLAY_RESULT ${JSON.stringify({ resumed, stopped, seconds, layout, visible: false })}\n`);
+      `OVERLAY_RESULT ${JSON.stringify({ resumed, paused, stopped, seconds, layout, visible: false })}\n`);
   } finally {
     window.destroy();
   }

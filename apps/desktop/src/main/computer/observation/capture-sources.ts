@@ -174,6 +174,7 @@ export function createCaptureSources(
     clientWidth: number;
     clientHeight: number;
     maxWidth: number;
+    preserveResolution?: boolean;
     attempts: CaptureAttempt[];
   }): Promise<{ surface?: Surface; unavailable?: PixelUnavailable; terminal: boolean }> {
     const {
@@ -187,6 +188,7 @@ export function createCaptureSources(
       clientWidth,
       clientHeight,
       maxWidth,
+      preserveResolution = false,
       attempts,
     } = input;
     const owned = windowId ? electronWindowForNativeId(windowId) : null;
@@ -200,15 +202,15 @@ export function createCaptureSources(
     if (owned && !owned.isDestroyed() && !owned.webContents.isDestroyed()) {
       plan.push({
         backend: 'app_owned',
-        acquire: async () => ({
-          image: fitCaptureImage(
-            await withTimeout(owned.capturePage(), OWNED_CAPTURE_TIMEOUT_MS, 'capture_timeout: app-owned capture'),
-            maxWidth
-          ),
-          sourceId: `browser-window:${windowId}`,
-          sourceName: sourceTitle,
-          route: 'app_owned',
-        }),
+        acquire: async () => {
+          const image = await withTimeout(owned.capturePage(), OWNED_CAPTURE_TIMEOUT_MS, 'capture_timeout: app-owned capture');
+          return {
+            image: preserveResolution ? image : fitCaptureImage(image, maxWidth),
+            sourceId: `browser-window:${windowId}`,
+            sourceName: sourceTitle,
+            route: 'app_owned',
+          };
+        },
       });
     }
     plan.push({
@@ -217,7 +219,7 @@ export function createCaptureSources(
         const sources = await withTimeout(
           desktopCapturer.getSources({
             types: [sourceType],
-            thumbnailSize: computerCaptureSize(width, height, maxWidth),
+            thumbnailSize: preserveResolution ? { width, height } : computerCaptureSize(width, height, maxWidth),
           }),
           DESKTOP_CAPTURE_TIMEOUT_MS,
           'capture_timeout: desktop capture'

@@ -345,8 +345,8 @@ test('git and deferred git_stage expose separate compact contracts', () => {
   // Advisory wording anchors; update when the public description changes.
   assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
   assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
-  assert.match(GIT_TOOL_DEF.description, /commands run in order and arrays stop on failure/i);
-  assert.match(GIT_TOOL_DEF.description, /Mutations are serialized/i);
+  assert.match(GIT_TOOL_DEF.description, /An array \(max 10\) runs in order and stops on failure/i);
+  assert.match(GIT_TOOL_DEF.description, /history only when needed/i);
   assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
   assert.match(properties.command.description, /&& chain runs as the array/i);
 });

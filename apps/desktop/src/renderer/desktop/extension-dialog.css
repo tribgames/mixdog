@@ -336,6 +336,39 @@
   background: var(--mx-flat-press-danger);
   box-shadow: none;
 }
+/* Read-only state box on a row's trailing edge: a compact 22px rectangle on
+   the base plate with a hairline, tinted by tone (user: 태그가 아니라 박스 —
+   but not the action button's 28px, that read too tall). No hover, no
+   press — it is not a control. */
+.extensions-item-badge {
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text-muted);
+  background: var(--mx-bg-base);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: 1;
+  white-space: nowrap;
+}
+.extensions-item-badge[data-tone="warn"] {
+  color: var(--mx-warning);
+  background: color-mix(in srgb, var(--mx-warning) 8%, var(--mx-bg-base));
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-warning) 35%, transparent);
+}
+.extensions-item-badge[data-tone="danger"] {
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 8%, var(--mx-bg-base));
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 35%, transparent);
+}
+.extensions-item-badge[data-tone="ok"] {
+  color: var(--mx-success);
+  background: color-mix(in srgb, var(--mx-success) 8%, var(--mx-bg-base));
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-success) 35%, transparent);
+}
 
 /* ── Facts ────────────────────────────────────────────────────────────── */
 /* Same card as the rows: label column left, selectable value right. */

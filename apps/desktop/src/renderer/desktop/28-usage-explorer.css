@@ -236,20 +236,10 @@
    provider rows expand in place into their models. */
 .mixdog-settings-layer:has(> .command-surface[data-surface="stats"]) {
   --stats-dialog-height: min(760px, calc(100dvh - 48px));
-  /* Keep the top anchored when an empty result trims only the unused bottom. */
-  align-items: start;
-  padding-top: max(
-    var(--settings-layer-safe-top),
-    calc(
-      (
-        var(--vvh, 100dvh) -
-        var(--stats-dialog-height) +
-        var(--settings-layer-safe-top) -
-        var(--settings-layer-safe-bottom)
-      ) /
-      2
-    )
-  );
+  /* Equal safe insets keep both full-height and empty dialogs centered. */
+  padding-block: max(var(--settings-layer-safe-top), var(--settings-layer-safe-bottom));
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
 }
 .command-surface[data-surface="stats"] {
   width: min(980px, calc(100vw - 32px));
@@ -436,17 +426,28 @@
   min-width: 760px;
   table-layout: auto;
 }
+.stats-table th {
+  text-align: center;
+}
 .stats-table th:first-child,
 .stats-table td:first-child {
-  width: 26%;
+  width: 20%;
 }
 .stats-table th:not(:first-child),
 .stats-table td:not(:first-child) {
   width: auto;
-  text-align: right;
   font-variant-numeric: tabular-nums;
   /* "963만" split across two lines once the column tightened on a phone. */
   white-space: nowrap;
+}
+/* Share hugs the provider column: content width only, so the slack goes to
+   the numeric columns instead of opening a gap after the provider name. */
+.stats-table th.stats-share-col,
+.stats-table td.stats-share-cell {
+  width: 1%;
+}
+.stats-table td:not(:first-child) {
+  text-align: right;
 }
 .stats-sort {
   padding: 0;
@@ -455,6 +456,10 @@
   background: none;
   font: inherit;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
 }
 .stats-sort:hover {
   color: var(--mx-text);
@@ -532,19 +537,20 @@
   line-height: var(--mx-line-minor);
 }
 /* Share of total tokens: aligned under the provider name (after chevron + icon),
-   with the percentage at the right end of the bar. */
+   constrained to a neat compact bar width. */
 .stats-provider-share {
   display: flex;
   align-items: center;
-  gap: 8px;
   margin-inline-start: calc(26px + var(--mx-icon-sm));
-  margin-top: 4px;
+  margin-top: 5px;
 }
 .stats-share {
-  flex: 1;
+  width: 90px;
+  max-width: 90px;
+  flex: none;
   min-width: 0;
   display: block;
-  height: 2px;
+  height: 3px;
   border-radius: var(--mx-radius-pill);
   background: var(--mx-bg-layer-2);
   overflow: hidden;

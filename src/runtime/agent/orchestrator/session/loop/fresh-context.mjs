@@ -12,9 +12,11 @@ import {
   freshContextCompactMessages,
   generateFreshHandoffSummary,
   SUMMARY_OUTPUT_TOKENS,
-  CONTEXT_SHARE_RATIO,
   COMPACT_TARGET_MIN_TOKENS,
 } from '../compact.mjs';
+
+// Conversation summarization triggers independently of the post-compact target.
+const CONVERSATION_COMPACT_TRIGGER_RATIO = 0.1;
 
 // Select an explicitly configured, enabled maintenance route only. An absent
 // or disabled maintenance role falls back to the conversation's own model,
@@ -90,8 +92,11 @@ export async function runFreshContextCompact({
   const conversationTokens = Math.ceil(estimateMessagesTokens(conversationInput) * calibration);
   const conversationThresholdTokens =
     positiveInt(sessionRef?.compaction?.conversationThresholdTokens) ||
-    Math.max(Math.min(contextWindow, COMPACT_TARGET_MIN_TOKENS), Math.floor(contextWindow * CONTEXT_SHARE_RATIO));
-  const summaryTriggered = conversationTokens > conversationThresholdTokens;
+    Math.max(
+      Math.min(contextWindow, COMPACT_TARGET_MIN_TOKENS),
+      Math.ceil(contextWindow * CONVERSATION_COMPACT_TRIGGER_RATIO)
+    );
+  const summaryTriggered = conversationTokens >= conversationThresholdTokens;
   const build = (handoffText) =>
     freshContextCompactMessages(messages, compactBudgetTokens, {
       reserveTokens: compactPolicy.reserveTokens,

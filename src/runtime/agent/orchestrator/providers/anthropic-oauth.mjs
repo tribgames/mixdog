@@ -142,11 +142,7 @@ const ANTHROPIC_VERSION = '2023-06-01';
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA_HEADERS =
   'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
-import {
-  usesFable51PromptBundle,
-  appendFable51BatchingGuidance,
-  withFable51BatchingContext,
-} from './anthropic-fable-history.mjs';
+import { appendTurnReminders, withTurnReminderContext } from './anthropic-turn-reminder.mjs';
 import {
   EFFORT_CONFIGURATION_BETA,
   projectEffortConfiguration,
@@ -331,10 +327,12 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     lowerAnthropicEffortHistory(chatMsgs, (segment) => toAnthropicMessages(segment, requestTools), effortProjection),
     messageCacheSlots
   );
-  // Keep historical prompt-bundle boundaries in place before replaying
-  // signed responses. A newer tool result adds a boundary rather than moving
-  // the old one. User interjections remain distinct and take precedence.
-  appendFable51BatchingGuidance(anthropicMessages, model, chatMsgs);
+  // Route round-reminder as a turn-scoped system message after each tool
+  // result (anthropic-turn-reminder.mjs). Historical boundaries stay in place
+  // with their original text before replaying signed responses; a newer tool
+  // result adds a boundary rather than moving the old one. User interjections
+  // remain distinct and take precedence.
+  appendTurnReminders(anthropicMessages, opts.roundReminder, chatMsgs);
 
   const body = {
     model,
@@ -390,6 +388,9 @@ export class AnthropicOAuthProvider {
   // input_tokens EXCLUDES cache_read_input_tokens (separate field) — add the
   // cache back for the real context footprint. See registry.mjs.
   static inputExcludesCache = true;
+  // Delivers the route's round-reminder itself, as a turn-scoped system
+  // message (anthropic-turn-reminder.mjs); the runtime channel stays silent.
+  static turnScopedReminder = true;
   name = 'anthropic-oauth';
   credentials = null;
   config;
@@ -892,7 +893,7 @@ export class AnthropicOAuthProvider {
         }
         const message = await fallback.response.json();
         const result = normalizeAnthropicNonStreamingResponse(message, useModel);
-        result.providerReplay = withFable51BatchingContext(result.providerReplay, body);
+        result.providerReplay = withTurnReminderContext(result.providerReplay, body);
         return result;
       } catch (err) {
         const failure =
@@ -1082,7 +1083,7 @@ export class AnthropicOAuthProvider {
             onTextDelta,
             knownToolNames
           );
-          result.providerReplay = withFable51BatchingContext(result.providerReplay, body);
+          result.providerReplay = withTurnReminderContext(result.providerReplay, body);
           try {
             controller?.abort?.('Anthropic SSE complete');
           } catch {}
@@ -1162,7 +1163,7 @@ export class AnthropicOAuthProvider {
           // overwrite an idempotent pending-input truncation — while
           // genuinely new wrapper-observed exposure is still merged.
           if (err?.partialProviderReplay) {
-            err.partialProviderReplay = withFable51BatchingContext(err.partialProviderReplay, body);
+            err.partialProviderReplay = withTurnReminderContext(err.partialProviderReplay, body);
           }
           let _outcome = null;
           try {
@@ -1483,8 +1484,7 @@ export const _test = {
   resolveMaxTokens,
   deferredAnthropicTools,
   requestAnthropicTools,
-  usesFable51PromptBundle,
-  appendFable51BatchingGuidance,
+  appendTurnReminders,
   buildOAuthBetaHeaders,
   sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic-oauth'),
 };

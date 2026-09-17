@@ -354,7 +354,7 @@ html[data-mixdog-mobile-tabs] .composer-model-aside .session-context-popover {
 html[data-mixdog-mobile-tabs] .dock-scm-commit-back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__back,
 html[data-mixdog-mobile-tabs] .mixdog-settings__close,
-html[data-mixdog-mobile-tabs] .schedules-dialog > header button,
+html[data-mixdog-mobile-tabs] .schedules-dialog > header button:not(.extensions-action),
 html[data-mixdog-mobile-tabs] .settings-confirm-dialog > header > button,
 html[data-mixdog-mobile-tabs] .settings-oauth-dialog > header > button,
 html[data-mixdog-mobile-tabs] .mx-dialog > header > button {
@@ -1205,8 +1205,9 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-row {
 html[data-mixdog-mobile-tabs] .session-sidebar .session-row-actions {
   top: 50%;
 }
-/* Desktop and phone now share one 20px trailing centerline; touch targets grow
-   around that center instead of pulling their glyphs toward the edge. */
+/* Phone keeps the 20px trailing centerline (desktop moved to 12px, which a
+   44px touch box cannot center on); touch targets grow around that center
+   instead of pulling their glyphs toward the edge. */
 html[data-mixdog-mobile-tabs] .session-row-unread-dot {
   right: 16.5px;
 }

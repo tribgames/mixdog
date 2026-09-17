@@ -1,4 +1,5 @@
 import { Component, useLayoutEffect, useRef, type ReactNode } from 'react';
+import { t } from './i18n';
 
 /**
  * Shared lifecycle helpers for the rail destinations hosted in the session
@@ -68,9 +69,9 @@ export class SidebarPanelBoundary extends Component<
       >
         <div className="schedules-page">
           <div className="schedules-empty" role="status">
-            <p>{label} could not be loaded.</p>
+            <p>{t('{{label}} could not be loaded.', { label: t(label) })}</p>
             <button type="button" className="sidebar-panel-retry" onClick={this.retry}>
-              Retry
+              {t('Retry')}
             </button>
           </div>
         </div>

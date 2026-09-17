@@ -632,3 +632,14 @@ export function getUsageLedger() {
   if (!stores.has(path)) stores.set(path, new UsageLedger(path));
   return stores.get(path);
 }
+
+// Release every open ledger handle. An open SQLite file cannot be unlinked on
+// Windows, so a pristine runtime root that still owns a ledger spends the whole
+// rmSync retry budget (50 linear retries ≈ 128s) on EBUSY before giving up.
+// Later getUsageLedger() calls reopen lazily.
+export function closeUsageLedgers() {
+  for (const [path, ledger] of stores) {
+    stores.delete(path);
+    ledger.close();
+  }
+}

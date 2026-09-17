@@ -11,7 +11,26 @@
  *
  * Auth, endpoints, and headers live in antigravity-oauth-tokens.mjs.
  */
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { buildAntigravityRequest, isAntigravityClaude as isClaudeModel } from './antigravity-request.mjs';
+
+// Opt-in request capture, the Gemini counterpart of MIXDOG_OAI_WS_DUMP_DIR:
+// when MIXDOG_ANTIGRAVITY_DUMP_DIR names a directory every serialized
+// request body (contents, tools, config — never headers or tokens) is
+// written there, so the replayed history can be inspected as sent. Unset
+// means no-op.
+let _dumpSequence = 0;
+function dumpAntigravityRequest(body) {
+  const dir = String(process.env.MIXDOG_ANTIGRAVITY_DUMP_DIR || '').trim();
+  if (!dir) return;
+  try {
+    mkdirSync(dir, { recursive: true });
+    _dumpSequence += 1;
+    const name = `antigravity-${Date.now()}-${String(_dumpSequence).padStart(3, '0')}.json`;
+    writeFileSync(join(dir, name), JSON.stringify(body, null, 2));
+  } catch {}
+}
 import { withRetry } from './retry-classifier.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
@@ -138,7 +157,9 @@ export class AntigravityOAuthProvider {
   }
 
   _buildBody(messages, model, tools, opts) {
-    return buildAntigravityRequest(messages, model, tools, opts, this._projectId);
+    const body = buildAntigravityRequest(messages, model, tools, opts, this._projectId);
+    dumpAntigravityRequest(body);
+    return body;
   }
 
   async send(messages, model, tools, sendOpts = {}) {

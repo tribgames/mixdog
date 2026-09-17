@@ -1223,14 +1223,26 @@ export function bumpSessionGeneration(id, reason = 'detach') {
 
 export function loadSession(id) {
   const path = sessionPath(id);
-  // An existing file owns this identity. Its contents must validate before
-  // fresher in-memory state is allowed to shadow it. Unchanged atomic files
-  // reuse their recent parsed object instead of reparsing the full transcript.
-  const disk = _readStoredSessionCached(id, path);
-  // Read-your-writes: if a save is pending (debouncing, scheduled, or queued
-  // behind an in-flight write) return that payload instead of stale disk state.
-  // The most-recently-queued slot is checked first (queued > payload).
   const pending = _savePending.get(id);
+  const live = _liveSessions.get(id);
+  const preferInMemory = (stored) => {
+    // Read-your-writes: queued state is newer than the payload being written.
+    const inMemory = (pending?.queued || pending?.payload)?.session;
+    if (inMemory?.id === id) return inMemory;
+    if (live?.id !== id) return null;
+    // A higher disk generation means another process took ownership. A
+    // dropped save is the exception: the live copy still contains unsaved
+    // content, so a generation bump must not discard the only complete copy.
+    const liveGen = typeof live.generation === 'number' ? live.generation : 0;
+    const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
+    if (stored && storedGen > liveGen && !_droppedSaveIds.has(id)) return null;
+    return live;
+  };
+  // An existing file owns this identity. Its contents must validate before
+  // fresher in-memory state is allowed to shadow it. The cache retains a
+  // validated disk header, rather than a second transcript, when that header
+  // proves the live/pending snapshot will be served.
+  const disk = _readStoredSessionCached(id, path, { preferInMemory });
   if (disk.exists && !disk.session) {
     // An existing-but-unreadable file OWNS the identity: an externally
     // corrupted, foreign, ambiguous or half-written file from another
@@ -1252,31 +1264,10 @@ export function loadSession(id) {
     if (recovered?.id === id) return _ensureLifecycleFields(recovered);
     return null;
   }
-  const stored = disk.session;
-  if (pending) {
-    const inMemory = (pending.queued || pending.payload)?.session;
-    if (inMemory?.id === id) return _ensureLifecycleFields(inMemory);
-  }
-  const live = _liveSessions.get(id);
-  if (live?.id === id) {
-    // Terminal ↔ desktop interop: `generation` only moves on close/detach
-    // (markSessionClosed / bumpSessionGeneration). A disk record with a
-    // HIGHER generation means another process took ownership of this
-    // session after our snapshot was cached — the local copy is stale and
-    // must not shadow the newer on-disk transcript (its late saves would
-    // be dropped by _shouldDrop's ownership rule anyway).
-    const liveGen = typeof live.generation === 'number' ? live.generation : 0;
-    const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
-    // A flagged dropped save means the generation moved WITHOUT newer
-    // content landing (detach re-persists stale content) — the local
-    // snapshot is the only complete transcript, so it keeps winning.
-    if (stored && storedGen > liveGen && !_droppedSaveIds.has(id)) {
-      _liveSessions.delete(id);
-    } else {
-      return _ensureLifecycleFields(live);
-    }
-  }
-  return stored ? _ensureLifecycleFields(stored) : null;
+  const inMemory = preferInMemory(disk.session);
+  if (inMemory) return _ensureLifecycleFields(inMemory);
+  if (live?.id === id) _liveSessions.delete(id);
+  return disk.session ? _ensureLifecycleFields(disk.session) : null;
 }
 
 /** Strictly enumerate child-agent session files linked to one visible parent.
