@@ -216,13 +216,17 @@ jobs:
           bash .github/scripts/upload-release-assets.sh "${assets[@]}"
       - name: Upload verified Linux asset to hidden draft
         if: inputs.platform == 'linux'
-        timeout-minutes: 6
+        timeout-minutes: 7
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_ID: ${{ inputs.release_id }}
         shell: bash
         run: |
           set -euo pipefail
           asset="apps/desktop/dist/mixdog-desktop-linux-${{ inputs.artifact_arch }}.AppImage"
           test -f "$asset"
-          gh release upload "$RELEASE_TAG" "$asset" --clobber
+          # Same bounded uploader as macOS and Windows: `gh release upload
+          # --clobber` stalled past the step timeout twice on arm64 (v0.9.170)
+          # once the draft already held the earlier attempt's asset.
+          bash .github/scripts/upload-release-assets.sh "$asset"
