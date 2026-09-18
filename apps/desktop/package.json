@@ -1,6 +1,6 @@
 {
   "name": "@mixdog/desktop",
-  "version": "0.9.170",
+  "version": "0.9.171",
   "private": true,
   "license": "Apache-2.0",
   "description": "Mixdog desktop host for Windows, macOS, and Linux",

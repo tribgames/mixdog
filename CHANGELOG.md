@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.171 - 2026-09-18
+
 - Release recovery: the staged production relay artifact is keyed to the run
   alone (`production-relay-<run_id>`) and uploads with `overwrite: true`. The
   name carried the run attempt, but a partial re-run preserves the successful
