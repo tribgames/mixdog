@@ -5,6 +5,18 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- Release recovery: the staged production relay artifact is keyed to the run
+  alone (`production-relay-<run_id>`) and uploads with `overwrite: true`. The
+  name carried the run attempt, but a partial re-run preserves the successful
+  `stage-production-web-relay` job while re-running
+  `deploy-production-web-relay` as a dependent of the failed job, so the
+  attempt-scoped artifact never existed and the deploy died on "Artifact not
+  found" before it could reach production. That is exactly how v0.9.170
+  published its GitHub release and npm package without deploying the web
+  relay. `overwrite: true` keeps a full re-run, where the stage job does
+  execute again, from colliding with the earlier attempt's artifact, and the
+  release gate asserts both the name and the overwrite.
+
 ## v0.9.170 - 2026-09-17
 
 - System prompt consolidation. Every rule now has one owner: the shared

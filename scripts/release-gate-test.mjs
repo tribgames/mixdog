@@ -650,6 +650,12 @@ test('application release overlaps gates and publishes one exact hidden draft', 
     release,
     /deploy-relay:[\s\S]*needs:\s*\[publish,\s*stage-relay\][\s\S]*Download staged production relay/
   );
+  // A partial re-run preserves stage-relay and re-runs deploy-relay as a
+  // dependent of the failed job, so an attempt-scoped artifact name would
+  // resolve to an artifact that attempt never uploaded.
+  assert.equal((release.match(/production-relay-\$\{\{ github\.run_id \}\}/g) || []).length, 2);
+  assert.doesNotMatch(release, /production-relay-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}/);
+  assert.match(release, /Stage production relay artifact[\s\S]*overwrite:\s*true/);
   assert.match(
     release,
     /publish:[\s\S]*Publish staged npm package[\s\S]*Publish one complete GitHub release[\s\S]*deploy-relay:/

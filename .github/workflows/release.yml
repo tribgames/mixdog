@@ -469,7 +469,14 @@ jobs:
       - name: Stage production relay artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: production-relay-${{ github.run_id }}-${{ github.run_attempt }}
+          # The name is keyed to the run alone. A partial re-run preserves this
+          # successful job and still re-runs deploy-relay as a dependent of the
+          # failed one, so an attempt-scoped name would point at an artifact
+          # that was never uploaded for that attempt. `overwrite` keeps a full
+          # re-run, where this job does execute again, from colliding with the
+          # earlier attempt's artifact.
+          name: production-relay-${{ github.run_id }}
+          overwrite: true
           path: |
             apps/relay/server.mjs
             apps/relay/package.json
@@ -489,7 +496,7 @@ jobs:
       - name: Download staged production relay
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: production-relay-${{ github.run_id }}-${{ github.run_attempt }}
+          name: production-relay-${{ github.run_id }}
           path: apps/relay
       - name: Configure pinned production SSH identity
         env:
