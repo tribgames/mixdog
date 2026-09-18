@@ -211,13 +211,16 @@ test('crossing 20 images preserves earlier renditions, signatures, cache markers
   assert.equal(first[0].content[0], thinking);
   assert.equal(imagesIn(second).length, 21);
   for (const part of imagesIn(first)) assert.deepEqual(part.cache_control, marker);
-  assert.match(first[1].content[0].text, /2400x1200, displayed at 2000x1000/);
+  assert.match(first[1].content[0].text, /2400x1200, displayed at 1568x784/);
   assert.equal(history[1].content[0].source.data, original);
   assert.equal(await prepareAnthropicImages(first), first, 'preparation is idempotent');
 });
 
 test('valid boundary pixels, remote references, PDF bytes and opaque tool input are not rewritten', async () => {
-  const original = await png(2000, 1);
+  // Exactly on the edge ceiling, and its 56x1 patches stay inside the budget:
+  // a boundary image must pass through untouched. The short edge sits below the
+  // sub-patch floor, which must not enlarge it past that same ceiling.
+  const original = await png(1568, 1);
   const history = freeze([
     {
       role: 'user',

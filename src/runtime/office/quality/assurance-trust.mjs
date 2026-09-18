@@ -10,6 +10,13 @@ const OFFICE_XML_PARTS = Object.freeze({
   pptx: /^ppt\/(?:presentation|slides\/slide\d+|notesSlides\/notesSlide\d+|comments\/comment\d+)\.xml$/i,
 });
 
+// Korean writes an order and a description with the same words: "명령을
+// 실행하라" tells the reader to act, while "설치 명령과 실행 명령은 별도 줄로
+// 실행한다" documents what the product does. Only the verb ending separates
+// them, so the Korean branches ask for one — a plain 한다/합니다 sentence in a
+// speaker note is not an instruction aimed at the agent.
+const KOREAN_IMPERATIVE = '(?:하라|해라|해|하세요|해\\s*줘|해\\s*주세요|하십시오|하시오|할\\s*것|바랍니다)';
+
 const INJECTION_PATTERNS = Object.freeze([
   {
     category: 'instruction-override',
@@ -26,14 +33,20 @@ const INJECTION_PATTERNS = Object.freeze([
   {
     category: 'tool-coercion',
     severity: 'high',
-    pattern:
-      /(?:run|execute|invoke|call|use).{0,30}(?:tool|command|powershell|shell|terminal|connector)|(?:도구|명령|파워셸|셸|터미널|커넥터).{0,20}(?:실행|호출|사용)/i,
+    pattern: new RegExp(
+      '(?:run|execute|invoke|call|use).{0,30}(?:tool|command|powershell|shell|terminal|connector)' +
+        `|(?:도구|명령|파워셸|셸|터미널|커넥터).{0,20}(?:실행|호출|사용)${KOREAN_IMPERATIVE}`,
+      'i'
+    ),
   },
   {
     category: 'secret-exfiltration',
     severity: 'high',
-    pattern:
-      /(?:send|upload|exfiltrate|reveal|print|return|collect).{0,60}(?:secret|password|token|credential|api\s*key|environment\s*variable)|(?:비밀|암호|비밀번호|토큰|자격\s*증명|api\s*키|환경\s*변수).{0,40}(?:전송|업로드|공개|출력|반환|수집)/i,
+    pattern: new RegExp(
+      '(?:send|upload|exfiltrate|reveal|print|return|collect).{0,60}(?:secret|password|token|credential|api\\s*key|environment\\s*variable)' +
+        `|(?:비밀|암호|비밀번호|토큰|자격\\s*증명|api\\s*키|환경\\s*변수).{0,40}(?:전송|업로드|공개|출력|반환|수집)${KOREAN_IMPERATIVE}`,
+      'i'
+    ),
   },
   {
     category: 'external-action',

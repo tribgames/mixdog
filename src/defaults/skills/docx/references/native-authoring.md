@@ -7,7 +7,11 @@ file is a Word document.
 ## Control map
 
 - Page: `set_page properties:{ orientation, topMargin, bottomMargin, leftMargin,
-  rightMargin }`. Margins are points; together they determine the body width.
+  rightMargin, columns, columnSpacing }`. Margins and `columnSpacing` are points;
+  the margins together determine the body width. `columns:<n>` lays the section
+  out in that many even columns and the prose flows through them — a newsletter
+  or brochure page is a section property, never a row of text boxes — and
+  `columns:1` returns the section to a single column.
   Without `section` the edit lands on the section being written into (the last);
   `section:<n>` revisits an earlier one.
 - Notes: `add_note find:<phrase>|paragraph:<n> text:<note>` marks the phrase with
@@ -67,7 +71,8 @@ for an existing paragraph). Use a carrier when the content has that job, never a
   touch; the alignment is explicit because a Korean Word's Normal style justifies, and justified Hangul
   opens gaps between words that the portable file, set left, never shows) · caption
   9 pt muted (`color:'6B7280'`). One Latin face and one East Asian face for the whole document
-  (`name` + `nameEastAsia`, set on every paragraph and on every table); an essay takes a serif pairing
+  (`name` + `nameEastAsia` on a paragraph, `fontName` + `fontNameEastAsia` on `add_table` — the table names its
+  own type and refuses the paragraph's field names); an essay takes a serif pairing
   (Cambria + 바탕/Noto Serif KR), a brief a sans one (Calibri + 맑은 고딕/Noto Sans KR).
 - **Cover group**: eyebrow (`size:9.5, bold:true, color:<accent>, spacingAfter:4`) → `Title` with
   `alignment:'left'` (Word's own Title style centers it and the portable file does not; say which) → subtitle

@@ -116,6 +116,7 @@ function localizedToolActivityCategory(category: string): string {
   if (category === 'Computer') return t('Computer Use');
   if (category === 'Office') return t('Document work');
   if (category === 'Media') return t('Media generation');
+  if (category === 'Tidy') return t('Code Tidy');
   return t('External tools');
 }
 
@@ -233,7 +234,7 @@ function namedToolActivityUnit(
   if (category === 'Media') {
     return { unitKey: 'Media', label: localizedToolActivityCategory(category) };
   }
-  if (category === 'Browser' || category === 'Computer' || category === 'Office') {
+  if (category === 'Browser' || category === 'Computer' || category === 'Office' || category === 'Tidy') {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
   }
   if (category === 'Other') {
@@ -288,6 +289,7 @@ export function desktopToolActivityCategory(name: unknown, args: unknown): strin
   if (surface.normalizedName === 'computer') return 'Computer';
   if (surface.normalizedName === 'office') return 'Office';
   if (surface.normalizedName === 'media') return 'Media';
+  if (surface.normalizedName === 'tidy') return 'Tidy';
   return String(classifyToolCategory(modeledName, surface.args) || 'Other');
 }
 

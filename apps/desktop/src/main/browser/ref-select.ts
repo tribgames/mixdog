@@ -22,7 +22,14 @@ const SELECT_NATIVE = `function(values) {
   for (const value of values) {
     const matches = options.filter(option =>
       String(option.value) === value || String(option.label || option.text) === value);
-    if (!matches.length) return { error: 'no option matched the requested value: ' + value };
+    if (!matches.length) {
+      // A caller that cannot see the control needs its options in the error,
+      // or the only recovery left is another snapshot of the same select.
+      const listed = options.filter(option => !option.disabled)
+        .slice(0, 8).map(option => String(option.label || option.text || option.value).slice(0, 40)).join(' | ');
+      return { error: 'no option matched the requested value: ' + value
+        + (listed ? '; options include: ' + listed : '') };
+    }
     if (matches.length !== 1) return { error: 'requested option is ambiguous: ' + value };
     const option = matches[0];
     if (option.disabled || option.parentElement?.disabled) {

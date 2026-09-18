@@ -102,14 +102,16 @@ function withoutLegacyCompactFields(value) {
   return next;
 }
 // Handoff-summary timeout scales with transcript size (clear/manual path):
-// default max(30s, ~10s per 25k estimated message tokens) capped at 120s, so a
-// large (~100k-token) transcript no longer dies on a fixed 30s bound.
+// default max(60s, ~10s per 25k estimated message tokens) capped at 300s.
+// The summary may run on a slow reasoning model — the session's own model is
+// used whenever the maintenance route is unavailable — where even a small
+// transcript outlives the old 30s floor and a large one the old 120s cap.
 // session.compaction.timeoutMs still overrides.
 function handoffSummaryTimeoutMs(session, messageTokens) {
   const override = positiveInt(session?.compaction?.timeoutMs);
   if (override) return override;
   const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
-  return Math.min(120_000, Math.max(30_000, scaled));
+  return Math.min(300_000, Math.max(60_000, scaled));
 }
 /**
  * ONE wiring for the fresh-context handoff pass: provider, summary model,

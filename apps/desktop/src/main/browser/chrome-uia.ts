@@ -19,6 +19,9 @@ export interface ChromeUiaElement {
   width: number;
   height: number;
   actions: string[];
+  /** The shortcut the app advertises for this control, e.g. "Ctrl+L". */
+  accelerator?: string;
+  access_key?: string;
   runtime_id?: string;
   parent_runtime_id?: string;
   class_name?: string;

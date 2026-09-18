@@ -354,30 +354,30 @@
 .stats-range:disabled {
   cursor: default;
 }
+.stats-custom {
+  position: relative;
+  display: inline-flex;
+}
+/* The editor hangs off its own chip instead of pushing the cards down a row.
+   It opens toward the start edge because that chip closes the range row. */
 .stats-custom-range {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 6px);
+  inset-inline-end: 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
-  align-items: end;
-  gap: 8px;
-}
-.stats-custom-range label {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  font-size: var(--mx-font-meta);
-}
-.stats-custom-range input {
-  min-width: 0;
-  width: 100%;
-  height: 30px;
-  padding: 4px 8px;
-  border: 0.5px solid var(--mx-border);
-  border-radius: var(--mx-radius-sm);
-  color: var(--mx-text);
-  background: var(--mx-bg-layer-1);
-  font: inherit;
+  /* An absolute panel shrink-to-fits its CHIP, which is far narrower than the
+     calendar it holds. Sizing by the content is what keeps the grid whole. */
+  width: max-content;
+  gap: 10px;
+  padding: 10px;
+  border: 0.5px solid var(--mx-border-strong);
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-popup-bg);
+  box-shadow: var(--mx-popup-shadow);
 }
 .stats-custom-range > button {
+  justify-self: end;
   height: 30px;
 }
 .stats-cards {
@@ -425,9 +425,18 @@
 .stats-table {
   min-width: 760px;
   table-layout: auto;
+  /* Where a label starts inside the first column: chevron (10px) + gap (8px)
+     + provider icon + gap (8px). The header, the nested model names and the
+     share bar all read from here so the label column keeps one left edge. */
+  --stats-label-indent: calc(26px + var(--mx-icon-sm));
 }
+/* Numeric columns: the header sits on the same right edge as its values. */
 .stats-table th {
-  text-align: center;
+  text-align: right;
+}
+.stats-table th:first-child {
+  text-align: left;
+  padding-left: calc(12px + var(--stats-label-indent));
 }
 .stats-table th:first-child,
 .stats-table td:first-child {
@@ -458,8 +467,6 @@
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  margin: 0 auto;
 }
 .stats-sort:hover {
   color: var(--mx-text);
@@ -541,7 +548,7 @@
 .stats-provider-share {
   display: flex;
   align-items: center;
-  margin-inline-start: calc(26px + var(--mx-icon-sm));
+  margin-inline-start: var(--stats-label-indent);
   margin-top: 5px;
 }
 .stats-share {
@@ -580,7 +587,8 @@
   font-weight: var(--mx-weight-regular);
 }
 .stats-model-cell {
-  padding-left: 32px !important;
+  /* Model names start on the provider name's left edge, not on the chevron. */
+  padding-left: calc(12px + var(--stats-label-indent)) !important;
   color: var(--mx-text);
   overflow-wrap: anywhere;
   white-space: normal;
@@ -986,9 +994,6 @@
   .stats-table th:first-child,
   .stats-table td:first-child {
     width: 38%;
-  }
-  .stats-model-cell {
-    padding-left: 22px !important;
   }
 }
 

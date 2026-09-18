@@ -604,16 +604,19 @@ const anthropicState = () => ({
 });
 
 test('anthropic SSE: comment and named ping keepalives refresh transport activity', async () => {
+  // Each gap stays under the idle timeout while the three together exceed it,
+  // so a keepalive that failed to count as activity still stalls the stream.
+  // The margins are wide enough to survive a loaded suite's timer slippage.
   const state = {
     ...anthropicState(),
-    firstMessageTimeoutMs: 200,
-    transportIdleTimeoutMs: 25,
+    firstMessageTimeoutMs: 1_000,
+    transportIdleTimeoutMs: 150,
   };
   const response = delayedResponse([
     { value: frame({ type: 'message_start', message: { model: 'claude-x', usage: { input_tokens: 1 } } }) },
-    { delayMs: 15, value: encoder.encode(': ping\n\n') },
-    { delayMs: 15, value: frame({ type: 'ping' }) },
-    { delayMs: 15, value: frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) },
+    { delayMs: 60, value: encoder.encode(': ping\n\n') },
+    { delayMs: 60, value: frame({ type: 'ping' }) },
+    { delayMs: 60, value: frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) },
     { value: frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'done' } }) },
     { value: frame({ type: 'content_block_stop', index: 0 }) },
     { value: frame({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 1 } }) },

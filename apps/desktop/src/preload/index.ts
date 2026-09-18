@@ -552,6 +552,7 @@ const api: DesktopApi = {
     return () => ipcRenderer.removeListener(DESKTOP_IPC.browserProfileImportProgress, receive);
   },
   browserHistorySearch: (query) => ipcRenderer.invoke(DESKTOP_IPC.browserHistorySearch, query),
+  browserClearData: (scopes) => ipcRenderer.invoke(DESKTOP_IPC.browserClearData, scopes),
   browserCredentialSuggestions: (sessionId) => ipcRenderer.invoke(DESKTOP_IPC.browserCredentialSuggestions, sessionId),
   browserCredentialFill: (sessionId, credentialId) =>
     ipcRenderer.invoke(DESKTOP_IPC.browserCredentialFill, sessionId, credentialId),

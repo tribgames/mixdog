@@ -28,6 +28,10 @@ export interface ComputerCommand {
   /** drag destination in frame pixels. */
   to_x?: number;
   to_y?: number;
+  /** drag along several frame-pixel points instead of one straight line. */
+  waypoints?: Array<{ x: number; y: number }>;
+  /** terminate_process: repeated intent for an action with nothing to undo. */
+  confirm?: string;
   /** move_window size in physical pixels. */
   width?: number;
   height?: number;

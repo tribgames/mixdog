@@ -19,6 +19,14 @@ import { modelContextWindow, modelDisplayName, modelFastAvailable, modelMaxConte
 import { shouldShowFastControl } from './renderer-logic.mjs';
 import type { SettingsSection } from './slash-commands';
 import { asRecord } from './text-format';
+import {
+  freshWorkflowOptions,
+  seededWorkflowOptions,
+  storeWorkflowOptions,
+  subscribeWorkflowOptions,
+  workflowOptions,
+  type WorkflowOption,
+} from './workflow-options-cache';
 
 // @ts-expect-error -- shared TUI source has no declaration file.
 import { normalizeModelOptions as normalizeTuiModelOptions } from '../../../../src/tui/app/model-options.mjs';
@@ -47,12 +55,6 @@ export function providerSetupState(value: unknown, provider: string) {
   };
 }
 
-// Workflow packs change rarely; share one fetched option list across composer
-// remounts (session/tab switches) with a short TTL.
-type WorkflowOption = { value: string; label: string; active: boolean };
-export let workflowOptionsCache: { at: number; options: WorkflowOption[] } | null = null;
-// Workflow pack edits (and tests) must not serve a stale option list for the
-// remaining TTL window.
 // Model-style trigger for changing the active session workflow.
 export const WorkflowSelect = memo(function WorkflowSelect({
   workflow,
@@ -67,22 +69,24 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   applySnapshot: (snapshot: SessionSnapshot | null) => void;
   onDraftChange?: (workflow: { id: string; name: string }) => void;
 }) {
-  const [options, setOptions] = useState<WorkflowOption[]>(workflowOptionsCache?.options || []);
-  const [optionsSettled, setOptionsSettled] = useState(Boolean(workflowOptionsCache));
+  const [options, setOptions] = useState<WorkflowOption[]>(seededWorkflowOptions);
+  const [optionsSettled, setOptionsSettled] = useState(() => freshWorkflowOptions() !== null);
   const [switching, setSwitching] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
   const switchGuard = useRef(false);
   beginBootSurface('workflow-controls', 'catalog');
-  const workflowReady = optionsSettled || Boolean(workflow?.id);
-  // A known inherited label can paint immediately. An unknown cold catalog
-  // reserves the control instead of adding it to an already visible row.
+  // The seeded list already answers whether this control belongs in the row, so
+  // a workspace that has loaded one before is ready on its first frame.
+  const workflowReady = optionsSettled || options.length > 0;
   useEffect(() => {
     reportBootSurfaceStage('workflow-controls', 'catalog', 'module');
     if (!workflowReady) return;
     reportBootSurfaceReady('workflow-controls', 'catalog', 'shell');
   }, [workflowReady]);
   useEffect(() => {
-    if (workflowOptionsCache && Date.now() - workflowOptionsCache.at < 300_000) {
+    const shared = freshWorkflowOptions();
+    if (shared) {
+      setOptions(shared);
       setOptionsSettled(true);
       return;
     }
@@ -93,16 +97,9 @@ export const WorkflowSelect = memo(function WorkflowSelect({
           capability: 'listWorkflows',
           args: [],
         });
-        const rows = Array.isArray(result?.value) ? result.value : [];
-        const loaded = rows
-          .map((row) => ({
-            value: String(row?.id || ''),
-            label: String(row?.name || row?.label || row?.id || ''),
-            active: row?.active === true,
-          }))
-          .filter((option) => option.value);
+        const loaded = workflowOptions(result?.value);
         if (!cancelled && loaded.length) {
-          workflowOptionsCache = { at: Date.now(), options: loaded };
+          storeWorkflowOptions(loaded);
           setOptions(loaded);
         }
       } catch {
@@ -120,15 +117,19 @@ export const WorkflowSelect = memo(function WorkflowSelect({
   // until a remount (user: 모바일에서 오래 비어 있다). An empty catalog is
   // never cached, so re-running the read on a recovered connection is the
   // whole repair. The guard keeps a healthy session from re-reading on every
-  // resync.
+  // resync. A pack edit reloads unconditionally — the new pack may be the
+  // second one, which is what brings this control into the row.
   useEffect(() => {
+    const reload = () => setReloadNonce((nonce) => nonce + 1);
     const retry = () => {
-      if (workflowOptionsCache?.options.length) return;
-      setReloadNonce((nonce) => nonce + 1);
+      if (freshWorkflowOptions()?.length) return;
+      reload();
     };
+    const unsubscribe = subscribeWorkflowOptions(reload);
     window.addEventListener('mixdog:remote-state-gap', retry);
     window.addEventListener('mixdog:remote-reconnected', retry);
     return () => {
+      unsubscribe();
       window.removeEventListener('mixdog:remote-state-gap', retry);
       window.removeEventListener('mixdog:remote-reconnected', retry);
     };
@@ -168,21 +169,10 @@ export const WorkflowSelect = memo(function WorkflowSelect({
       setSwitching(false);
     }
   };
-  if (options.length === 0 && !workflow?.id) {
-    return optionsSettled ? null : (
-      <div className="composer-route-workflow">
-        <InitialSurface variant="control" />
-      </div>
-    );
-  }
-  const displayOptions = options.length
-    ? options
-    : [
-        {
-          value: String(workflow?.id),
-          label: String(workflow?.name || workflow?.id),
-        },
-      ];
+  // A workspace with one pack has nothing to choose, so the control leaves the
+  // context row entirely instead of opening a menu with a single row. It never
+  // reserves a slot either: appearing and then vanishing would shift the row.
+  if (options.length < 2) return null;
   return (
     <div className="composer-route-workflow">
       <OpenSelect
@@ -194,7 +184,7 @@ export const WorkflowSelect = memo(function WorkflowSelect({
         value={selectedId}
         displayValue={String(workflow?.name || selected?.label || selectedId)}
         onChange={(value) => void changeWorkflow(value)}
-        options={displayOptions}
+        options={options}
       />
     </div>
   );

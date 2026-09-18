@@ -33,6 +33,7 @@ export async function runGrepPatternFanout({
   beforeN,
   afterN,
   contextN,
+  autoContext = false,
   multilineMode,
   pcre2Mode,
   fileType,
@@ -176,7 +177,7 @@ export async function runGrepPatternFanout({
     if (combinedPartial && options?.scopedCacheOutcome) {
       markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
-    const adaptive = contextN > 0 && !(beforeN > 0) && !(afterN > 0);
+    const adaptive = autoContext || (contextN > 0 && !(beforeN > 0) && !(afterN > 0));
     const byPattern = patterns.map(() => []);
     const residual = [];
     // `path:line:text` is ambiguous exactly when the PATH itself contains

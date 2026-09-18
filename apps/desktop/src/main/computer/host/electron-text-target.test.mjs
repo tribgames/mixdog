@@ -15,12 +15,15 @@ registerHooks({
 });
 const { typingTargetProbe, waitForElectronTypingTarget } = await import('./electron-text-target.ts');
 
-test('typing requires an editable focus matching the requested point, including shadow DOM', () => {
+test('typing requires an editable focus and refuses a different editable target, including shadow DOM', () => {
   const field = { tagName: 'INPUT', type: 'text', contains: () => false };
   const document = { activeElement: field, elementFromPoint: () => field };
   const probe = () => runInNewContext(typingTargetProbe({ x: 1, y: 2 }), { document });
   assert.equal(probe(), true);
+  // Canvas-hosted editors delegate focus away from the element under the pointer.
   document.elementFromPoint = () => ({});
+  assert.equal(probe(), true);
+  document.elementFromPoint = () => ({ tagName: 'TEXTAREA' });
   assert.equal(probe(), false);
   document.elementFromPoint = () => field;
   for (const property of ['disabled', 'readOnly']) {

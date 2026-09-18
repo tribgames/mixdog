@@ -14,6 +14,16 @@ const bad = (action, input, pattern) => {
   assert.match(result.error, pattern);
 };
 
+test('drag addresses both ends the same way: two refs, two targets, or two points', () => {
+  ok('drag', { ref: 'p1-s1-e1', targetRef: 'p1-s1-e2' });
+  ok('drag', { target: { selector: '#card' }, dropTarget: { selector: '#done' } });
+  ok('drag', { snapshotId: 'p1-s1', x: 10, y: 20, targetX: 30, targetY: 40 });
+  // A drop zone with no accessible name is still an element spec, not a ref.
+  bad('drag', { target: { selector: '#card' } }, /requires/);
+  bad('drag', { target: { selector: '#card' }, dropTarget: 'p1-s1-e2' }, /input\.dropTarget must be an object/);
+  bad('drag', { target: { selector: '#card' }, dropTarget: { css: '#done' } }, /input\.dropTarget does not accept/);
+});
+
 test('a snapshot-free target replaces ref on gestures and is validated as one element spec', () => {
   ok('click', { target: { role: 'button', name: 'Save' } });
   ok('fill', { target: { name: 'Email' }, text: 'ada@example.test' });
@@ -30,6 +40,21 @@ test('a snapshot-free target replaces ref on gestures and is validated as one el
   bad('click', { target: { name: 'Save' }, ref: 'p1-s1-e1' }, /only one input target form/);
   bad('click', { ref: 'p1-s1-e1', x: 1 }, /only one input target form/);
   bad('press', { target: { name: 'Save' }, key: 'Enter' }, /does not accept input field\(s\): target/);
+});
+
+test('a snapshot target crops the visual image and refuses the forms with nothing to crop', () => {
+  ok('snapshot', { mode: 'visual', ref: 'p1-s1-e1' });
+  ok('snapshot', { mode: 'visual', ref: 'p1-s1-e1', format: 'png' });
+  ok('snapshot', { mode: 'visual', target: { role: 'table', name: 'Invoices' } });
+  bad('snapshot', { ref: 'p1-s1-e1' }, /requires input.mode=visual/);
+  bad('snapshot', { mode: 'both', target: { name: 'Chart' } }, /requires input.mode=visual/);
+  bad('snapshot', { mode: 'visual', ref: 'p1-s1-e1', fullPage: true }, /cannot be combined with fullPage/);
+  bad('snapshot', { mode: 'visual', ref: 'p1-s1-e1', format: 'pdf' }, /prints the whole page/);
+  bad(
+    'snapshot',
+    { mode: 'visual', ref: 'p1-s1-e1', target: { name: 'Chart' } },
+    /only one input target form/
+  );
 });
 
 test('ref forms that share a field with the target form still validate', () => {

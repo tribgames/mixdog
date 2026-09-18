@@ -4,8 +4,26 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { ContextBody } from './ContextBody.tsx';
+import { toolResultLine } from './ContextInspector.tsx';
 import { t } from './i18n.ts';
 import { requiredDesktopCapabilityRequest } from '../main/ipc-validation.ts';
+
+test('a turn traces which tools it called without growing with the call count', () => {
+  // Sizes live on the tool rows; this line only names the tools, most-used
+  // first, so the row cannot grow with how many times the turn called them.
+  assert.equal(
+    toolResultLine({
+      toolResults: [
+        { name: 'edit', tokens: 70 }, { name: 'read', tokens: 621 }, { name: 'edit', tokens: 71 },
+        { name: 'task', tokens: 42 }, { name: 'edit', tokens: 73 }, { name: 'grep', tokens: 213 },
+        { name: 'shell', tokens: 19 },
+      ],
+    }),
+    'edit ×3 · grep · read · +2'
+  );
+  assert.equal(toolResultLine({ toolResults: [{ name: 'read', tokens: 12 }] }), 'read');
+  assert.equal(toolResultLine({}), '');
+});
 
 test('inspection capability validates opt-in and preview revision without changing ordinary reads', () => {
   assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'contextStatus' }).args, []);
@@ -127,8 +145,8 @@ test('category rows rank by size, mark empty rows, and close the entry list', as
   const heads = [...document.querySelectorAll('.context-entry-group-head > span')].map((node) => node.textContent);
   assert.deepEqual(heads, [t('User'), t('Assistant')]);
   const labels = [...document.querySelectorAll('.context-entry-list button:not(.context-entry-group-head) > span')].map((node) => node.textContent);
-  assert.deepEqual(labels, [`${t('User')} 1`, `${t('Assistant')} 1read ≈12`]);
-  assert.equal(document.querySelector('.context-entry-tools').textContent, 'read ≈12');
+  assert.deepEqual(labels, [`${t('User')} 1`, `${t('Assistant')} 1read`]);
+  assert.equal(document.querySelector('.context-entry-tools').textContent, 'read');
   assert.equal(
     document.querySelector('.context-entry-list button:not(.context-entry-group-head)').title,
     t('Raw estimate: ≈{{tokens}}', { tokens: '40' })

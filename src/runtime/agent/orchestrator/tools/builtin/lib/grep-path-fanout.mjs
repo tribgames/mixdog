@@ -83,9 +83,10 @@ export async function runGrepPathFanout({
       if (!Number.isFinite(n) || n < 0) break combinedPaths;
       contextN = Math.min(Math.floor(n), GREP_CONTEXT_MAX);
     }
-    if (outMode === 'content' && contextN === null && (rawMode === '' || rawMode === 'content_with_context')) {
-      contextN = GREP_AUTO_CONTEXT_LINES;
-    }
+    // Leave contextN null for the automatic window: the expander reads that as
+    // "no caller-requested radius" and applies the asymmetric default.
+    const autoContext =
+      outMode === 'content' && contextN === null && (rawMode === '' || rawMode === 'content_with_context');
     const caseInsensitive = args['-i'] === true;
     const roots = [];
     for (const p of capped) {
@@ -169,7 +170,7 @@ export async function runGrepPathFanout({
       if (linesFor.length === 0) {
         noMatchRoots.push(r.arg);
         continue;
-      } else if (outMode === 'content' && contextN > 0) {
+      } else if (outMode === 'content' && (autoContext || contextN > 0)) {
         const ctx = await expandGrepAnchorContextOutput({
           allLines: linesFor,
           workDir,

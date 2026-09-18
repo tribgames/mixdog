@@ -4,6 +4,7 @@ import { extname } from 'node:path';
 // its own fit. Only these block a submission.
 const CRITICAL_CODES = new Set([
   'accent_hue_overuse',
+  'blank_image',
   'blank_page',
   'broken_chart',
   'chart_axis_undeclared',
@@ -15,7 +16,13 @@ const CRITICAL_CODES = new Set([
   'missing_relationship',
   'package_corrupt',
   'render_failed',
+  // Two blocks in each other's space, and words the box cannot hold, are
+  // measured collisions rather than layout taste: the page is wrong at delivery
+  // whatever the author meant by it. They sat among the warnings, where a deck
+  // went out with the overlap its own audit had already named.
+  'shape_overlap',
   'text_outside_slide',
+  'text_overflow',
   'unsafe_font_family',
 ]);
 
@@ -49,7 +56,9 @@ const ADVISORY_CODES = new Set([
   'native_evidence_too_weak',
   'opening_closing_grammar_repeat',
   'plan_count_mismatch',
-  'plan_promise_missing',
+  // `plan_promise_missing` is deliberately absent: the page was designed for the
+  // carrier its own plan line named, so a page without it is a defect the author
+  // gate already refuses.
   'raw_table_slide',
   'recent_composition_repeat',
   'reference_genome_missing',
@@ -109,6 +118,8 @@ const POLISH_GUIDANCE = Object.freeze({
   input_cells_unmarked:
     'Mark input cells (blue font, or a fill where the reader edits) and add a short legend naming the convention.',
   chart_includes_total_row: 'Separate comparison rows from total or subtotal rows and narrow the chart source range.',
+  chart_stops_short_of_data:
+    'Widen the series range to the last data row, or move the rows the chart leaves out if they do not belong to it.',
   worksheet_print_too_small:
     'Recompose the sheet for one-page-wide reading; move support data off the dashboard if needed.',
   worksheet_print_fit_missing:
@@ -123,6 +134,10 @@ const POLISH_GUIDANCE = Object.freeze({
     'Unlock the entry range (set_style with properties { locked: false }) before protect_sheet; a protected sheet locks every cell by default, so the form cannot be filled in.',
   heading_hierarchy_missing: 'Create a clear title and heading hierarchy that matches the document reading path.',
   orphan_heading: 'Keep the heading with the paragraph or table it introduces.',
+  heading_not_distinct:
+    'Set the heading above the body size, or give it its own weight; a heading the reader cannot see is not a heading.',
+  heading_style_inconsistent:
+    'Set every heading of one level in the same type; a level that changes size mid-document reads as two levels.',
   short_table_split: 'Keep the short table together or move it intact to the next page.',
   shape_overlap: 'Move or resize the reported shapes while preserving a consistent alignment grid.',
   text_overflow: 'Shorten the copy or enlarge the text area before reducing type size.',
@@ -135,6 +150,12 @@ const POLISH_GUIDANCE = Object.freeze({
   flat_visual_rhythm:
     'Vary background roles, density, focal scale, and evidence treatment while preserving the selected art direction.',
   font_family_overuse: 'Restyle the slide with fontRole display, body, and data only; drop every extra typeface.',
+  slide_hierarchy_flat:
+    'Give the page one voice the eye reaches first — set its claim above the rest of the type — or carry it with a chart, table, or picture.',
+  slide_text_dense:
+    'Split the page or cut it to its claim and its evidence; a page of prose is read, not presented, and shrinking the type only hides it.',
+  peer_style_inconsistent:
+    'Set the boxes of one row in the same size and face; make an odd one deliberate by changing what it says, never by a stray size.',
   unsafe_font_family:
     'Replace the reported typefaces with the deck typography roles; Aptos, Segoe UI, Consolas, and similar faces substitute unpredictably.',
   accent_hue_overuse:
@@ -143,6 +164,8 @@ const POLISH_GUIDANCE = Object.freeze({
     'Enlarge the evidence or thesis the brief names as primary and shrink the element that currently outweighs it.',
   low_visual_contrast: 'Increase figure-ground contrast without adding decoration; verify the rendered page again.',
   repeated_layout_grammar: 'Replace repeated spatial grammar with a different evidence-led composition.',
+  repeated_decoration:
+    "Draw the next device of the deck's set on the later page (`motif(slide, '', …)` takes it), or leave that page undecorated; one drawing on consecutive pages reads as the same page twice.",
   consecutive_composition_repeat:
     'Change the structure where the meaning changes (a different relationship takes a different kit structure), or merge the pages that say the same thing; a deliberate series declares design.review.allowRepetition.',
   repeated_render_composition:
@@ -183,8 +206,14 @@ const POLISH_GUIDANCE = Object.freeze({
   facts_illustrative:
     'Advisory: the brief declares the figures illustrative (facts: sample); say so in the delivery and never present them as measured.',
   plan_promise_missing:
-    'Advisory: the slide does not seem to carry what its plan line names; keep it if the composition is deliberate, else update the plan line or the slide.',
+    'Draw the carrier the plan line names, or change the line to what the page carries; author refuses a deck whose page does not carry what its own plan named.',
   plan_count_mismatch: 'Advisory: the slide plan and the deck disagree on the slide count; update whichever is stale.',
+  plan_missing:
+    'Write the brief slide plan before authoring again: one line per slide, each naming the job the page does and what carries it.',
+  plan_slide_unplanned:
+    'Give every slide in the deck its own plan line, or drop the slides the plan does not want; a page nobody planned is a page nobody designed.',
+  plan_incomplete:
+    'Name the job and the carriers on every plan line, so the page is decided before it is drawn.',
   // Package faults PowerPoint refuses (script-authored charts).
   chart_stacked_label_position:
     'Set dataLabelPosition to ctr, inEnd, or inBase on the stacked chart; outEnd makes PowerPoint refuse the file.',
@@ -195,6 +224,16 @@ const POLISH_GUIDANCE = Object.freeze({
     'Merge the stacked single-line text boxes into one text box with paragraphs (breakLine between items) so the copy reflows and edits as a unit.',
   dead_vector_chart:
     'Replace the rectangles with a native chart (addChart / the kit chart()) so the values stay editable and re-sortable.',
+  number_format_inconsistent:
+    'Give the whole table column one number format (set_style numberFormat over the column) so every row shows the quantity the same way.',
+  table_header_not_repeated:
+    'Mark the header row to repeat (add_table properties.repeatHeader) so a table that crosses a page keeps its column labels.',
+  subtotal_double_counted:
+    'Sum the detail rows only (=SUM(B2:B9) beside the subtotal, not over it), or exclude the subtotal cell from the range.',
+  chart_data_unlinked:
+    'Write the chart with add_chart / set_chart_data so its embedded workbook stays in the package and Edit Data opens the numbers.',
+  chart_series_unnamed:
+    "Name the series where the reader looks: turn the chart's legend on, label the series names, or write the names on the page beside the colours they stand for.",
   // Text fit and placement (portable review).
   text_clipped: 'Enlarge the box or shorten the copy; text cut at a box edge is always visible to the reader.',
   text_box_too_narrow: 'Widen the text box so lines wrap at a readable measure instead of one or two words per line.',
@@ -213,6 +252,10 @@ const POLISH_GUIDANCE = Object.freeze({
   newline_in_text:
     'Split the text at the newline into separate paragraphs; a newline inside a paragraph renders as a space.',
   image_aspect_distorted: 'Crop the picture to the frame ratio (the kit picture() does) instead of stretching it.',
+  blank_image:
+    'Replace the picture with the artwork it was meant to carry, or remove the frame and its caption; an empty circle reads as a page that failed to finish.',
+  image_low_resolution:
+    'Use a picture with about 150 pixels per inch at the size it is placed, or place it smaller; enlarging a small raster only softens it.',
   // Structure and render review (pptx).
   content_touches_page_edge:
     'Pull the content inside the safe margin; nothing sits against the canvas edge unless it bleeds on purpose (a picture, a band).',

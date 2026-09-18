@@ -34,6 +34,13 @@ window.mixdogDesktop = {
 };
 
 const { OrchestrationModeSelect, WorkflowSelect } = await import('./model-controls.tsx');
+const { storeWorkflowOptions } = await import('./workflow-options-cache.ts');
+// The workflow picker only exists where the workspace has a real choice, so the
+// shared list is seeded with two packs: this file tests the OPEN menu.
+storeWorkflowOptions([
+  { value: 'default', label: 'Default', active: true },
+  { value: 'solo', label: 'Solo', active: false },
+]);
 const { ProjectContextSelector } = await import('./composer-support.tsx');
 const { OpenSelect } = await import('./OpenSelect.tsx');
 const { TooltipLayer } = await import('./TooltipLayer.tsx');

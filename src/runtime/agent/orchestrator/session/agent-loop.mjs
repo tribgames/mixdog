@@ -25,6 +25,7 @@ import { buildToolCallAssistantMessage, commitAssistantMessage } from './loop/as
 import { traceProviderSend, traceOutputTruncation, traceLoopPhaseTiming } from './loop/diagnostics.mjs';
 import { createEagerDispatcher } from './eager-dispatch.mjs';
 import { sendWithRecovery } from './send-with-recovery.mjs';
+import { resetAccountProbePacing } from '../providers/account-pool.mjs';
 import { stripInlineImages } from './image-strip-recovery.mjs';
 import { processToolBatch } from './tool-batch.mjs';
 import { _buildRouteRoundReminder } from './manager/rules-cache.mjs';
@@ -78,6 +79,10 @@ export function shouldSuppressAgentMidTurnText(sessionRef, opts = {}) {
 }
 
 export async function agentLoop(provider, messages, model, tools, onToolCall, cwd, sendOpts) {
+  // An explicit request asks for a current answer. Let the account pool
+  // re-measure quota it recorded as exhausted instead of refusing from the old
+  // reading — once per loop entry, not per provider round inside the turn.
+  resetAccountProbePacing();
   let iterations = 0;
   let toolCallsTotal = 0;
   let lastUsage;
@@ -189,6 +194,10 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
   // A per-ask budget instead let one early blip in
   // a long turn leave every later iteration with zero replays.
   let _transportRetriesUsed = 0;
+  // Size of the ladder the LAST failure earned (a lost uplink gets a far
+  // longer one than an ordinary fault). 0 means "not chosen yet": the send
+  // path falls back to its default budget for display.
+  let _transportRetryMax = 0;
   let _imageStripUsed = false;
   // One-shot repair of an assistant turn whose stored reasoning replay the
   // API refuses to take back (see thinking-replay-recovery.mjs). Without it
@@ -350,6 +359,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
         nextIteration,
         contextOverflowRetryUsed,
         transportRetriesUsed: _transportRetriesUsed,
+        transportRetryMax: _transportRetryMax,
         imageStripUsed: _imageStripUsed,
         thinkingReplayRepairUsed: _thinkingReplayRepairUsed,
         signal,
@@ -367,6 +377,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     }
     if (_sendResult.action === 'retry_transport') {
       _transportRetriesUsed += 1;
+      _transportRetryMax = Number(_sendResult.transportRetryMax) || 0;
       continue;
     }
     if (_sendResult.action === 'retry_replay_repair') {
@@ -419,6 +430,7 @@ export async function agentLoop(provider, messages, model, tools, onToolCall, cw
     // iteration is a fresh request and must get the full replay budget
     // again (mirrors contextOverflowRetryUsed above).
     _transportRetriesUsed = 0;
+    _transportRetryMax = 0;
     delete opts._stallRetryBudget;
     _imageStripUsed = false;
     _sendMessages = null;

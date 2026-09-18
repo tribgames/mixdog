@@ -26,6 +26,44 @@ export function isAccountQuotaError(error) {
 // limit the usage endpoint attributes it to.
 const QUOTA_WINDOW_RETRY_AFTER_MS = 60_000;
 
+// A refused account is never dispatched to again, so no ordinary success can
+// prove its quota came back: the roster only shrinks until the window expires.
+// Before the pool gives up, it re-measures EVERY account it is about to refuse
+// for — including one the server scheduled with Retry-After, because a
+// re-created subscription invalidates that schedule as surely as it
+// invalidates our own inference. The usage endpoint costs no model tokens, and
+// a reading below 100% releases the account. Paced per account so repeated
+// refusals inside one turn cannot turn recovery into polling; a new user
+// request clears that pacing (`resetAccountProbePacing`).
+const PROBE_INTERVAL_MS = 5 * 60_000;
+const lastProbeAt = new Map();
+
+// Sending a request is the user asking for a current answer, so the refusal it
+// may run into must be re-measured rather than repeated from a stored reading.
+// Called once per agent loop entry — never per in-turn provider round, which
+// is what keeps the pacing meaningful.
+export function resetAccountProbePacing() {
+  lastProbeAt.clear();
+}
+
+async function probeRefusedAccounts(providerName, pool, model, account) {
+  const now = Date.now();
+  const due = pool.accounts
+    .filter((row) => providerAccountExhausted(row, now, model))
+    .filter((row) => now - (lastProbeAt.get(`${providerName}:${row.id}`) || 0) >= PROBE_INTERVAL_MS)
+    .sort((a, b) => (a.usage?.checkedAt || 0) - (b.usage?.checkedAt || 0));
+  if (!due.length) return false;
+  await Promise.all(
+    due.map((row) => {
+      lastProbeAt.set(`${providerName}:${row.id}`, now);
+      return fetchOAuthUsageSnapshot({ provider: providerName, accountId: row.id }, account(row.id), () => {}, {
+        force: true,
+      }).catch(() => null);
+    })
+  );
+  return true;
+}
+
 export function createAccountPoolProvider(providerName, create) {
   if (!ACCOUNT_PROVIDERS.includes(providerName) || hasExplicitProviderAuthBinding(providerName)) return create();
   const instances = new Map();
@@ -50,12 +88,20 @@ export function createAccountPoolProvider(providerName, create) {
   async function send(messages, model, tools, options = {}) {
     const attempted = new Set();
     let lastError;
+    let probed = false;
     while (attempted.size < 20) {
       options.signal?.throwIfAborted();
       const pool = readProviderAccountPool(providerName);
       if (!pool.accounts.length) return account('default').send(messages, model, tools, options);
-      const row = chooseProviderAccount(pool, attempted);
+      const row = chooseProviderAccount(pool, attempted, Date.now(), model);
       if (!row) {
+        // Once per send: a refusal built on a stale meter must not outlive the
+        // meter. Re-measuring can only widen the roster, so it is tried before
+        // the failure is reported, never in place of reporting it.
+        if (!probed) {
+          probed = true;
+          if (await probeRefusedAccounts(providerName, pool, model, account)) continue;
+        }
         if (lastError) throw lastError;
         const error = new Error(
           'All connected accounts have exhausted their quota. Check account usage and reset times.'
@@ -110,11 +156,19 @@ export function createAccountPoolProvider(providerName, create) {
             force: true,
           });
           exhausted = providerAccountExhausted(
-            readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id)
+            readProviderAccountPool(providerName).accounts.find((entry) => entry.id === row.id),
+            Date.now(),
+            model
           );
         }
         if (options.signal?.aborted || !exhausted) throw error;
-        blockProviderAccount(providerName, row.id, Date.now() + (delay > 0 ? delay : 5 * 60_000));
+        blockProviderAccount(
+          providerName,
+          row.id,
+          Date.now() + (delay > 0 ? delay : 5 * 60_000),
+          model,
+          delay > 0 ? 'retry-after' : 'inferred'
+        );
         if (pool.auto === false || emitted || error.unsafeToRetry || error.liveTextEmitted || error.emittedToolCall)
           throw error;
         lastError = error;

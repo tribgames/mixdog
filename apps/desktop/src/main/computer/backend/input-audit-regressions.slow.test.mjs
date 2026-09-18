@@ -33,19 +33,262 @@ function Import-InputFunction([string]$name) {
 }
 ${body}
 `;
-  const { stdout } = await execute('powershell.exe', [
-    '-NoProfile', '-NonInteractive', '-EncodedCommand',
-    Buffer.from(script, 'utf16le').toString('base64'),
-  ], {
-    windowsHide: true, timeout: 15_000,
-    env: { ...process.env,
-      MIXDOG_FIXTURE_INPUT_SOURCE: sourcePath },
-  });
+  const { stdout } = await execute(
+    'powershell.exe',
+    ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')],
+    {
+      windowsHide: true,
+      timeout: 15_000,
+      env: { ...process.env, MIXDOG_FIXTURE_INPUT_SOURCE: sourcePath },
+    }
+  );
   return JSON.parse(stdout.trim());
 }
 
-test('native post-input observation survives a closed dialog without weakening pre-dispatch checks', windows, async () => {
+test('terminating a process needs repeated intent and spares a window that still answers', windows, async () => {
   const result = await nativeFixture(String.raw`
+Add-Type -TypeDefinition @'
+using System;
+public static class MixWin32 {
+  public static bool Responding = true;
+  public static bool IsWindowResponding(IntPtr handle) { return Responding; }
+  public static bool IsWindowHandle(IntPtr handle) { return true; }
+}
+'@
+function Assert-ExecutionAuthorization($request, $target) { throw 'a refused terminate must stop before authorization' }
+function Resolve-WindowInfo($window, $windowId) { return @{ Id = 'hwnd:0x1'; Handle = [IntPtr]1; Pid = 4242 } }
+foreach ($name in @('New-ActionResult','Do-TerminateProcess')) { . (Import-InputFunction $name) }
+$rows = @()
+foreach ($request in @(@{ window_id = 'hwnd:0x1' }, @{ window_id = 'hwnd:0x1'; confirm = 'terminate' })) {
+  $reply = Do-TerminateProcess $request
+  $rows += @{ message = [string]$reply.text; code = [string]$reply.code; effect = [string]$reply.effect; verified = [bool]$reply.verified }
+}
+@{ rows = @($rows) } | ConvertTo-Json -Depth 4 -Compress
+`);
+  // Killing a process has nothing to undo, so both gates refuse before any authorization runs.
+  assert.match(result.rows[0].message, /confirm=terminate is required/);
+  assert.match(result.rows[1].message, /still answers messages/);
+  assert.deepEqual(
+    result.rows.map((row) => row.code),
+    ['confirmation_required', 'window_still_responding']
+  );
+  assert.deepEqual(
+    result.rows.map((row) => [row.effect, row.verified]),
+    [
+      ['suspected_noop', false],
+      ['suspected_noop', false],
+    ]
+  );
+});
+
+/** A packaged app has only a stub executable, so the name has to reach the
+ *  activation route; an unpackaged Start entry goes through its catalogue id, and
+ *  anything that names a file or a URL stays with the plain shell. */
+async function launchRouting() {
+  const routed = await nativeFixture(String.raw`
+Add-Type -TypeDefinition @'
+using System;
+public static class MixWin32 {
+  public static string Activated = "";
+  public static string Shelled = "";
+  public static int ActivateAppId(string appId) { Activated = appId; return 4242; }
+  public static int LaunchWithoutActivation(string target) { Shelled = target; return 7; }
+}
+'@
+function Assert-ExecutionAuthorization($request, $target) { }
+function Get-StartApps {
+  # ASCII names only: the fixture reads this back through the console code page.
+  return @(
+    [pscustomobject]@{ Name = 'Calculator'; AppID = 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App' },
+    [pscustomobject]@{ Name = 'Settings hub'; AppID = 'windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel' },
+    [pscustomobject]@{ Name = 'Settings helper'; AppID = 'Microsoft.SettingsHelper_8wekyb3d8bbwe!App' },
+    [pscustomobject]@{ Name = 'Notepad++'; AppID = '{6D809377-6AF0-444B-8957-A3773F02200E}\Notepad++\notepad++.exe' }
+  )
+}
+function Import-Module { param([string]$Name, $ErrorAction) }
+foreach ($name in @('New-ActionResult','Get-InstalledApps','Find-InstalledApp','Do-Launch','Do-ListInstalledApps')) {
+  . (Import-InputFunction $name)
+}
+$rows = @()
+foreach ($target in @('Calculator', 'Microsoft.WindowsNotepad_8wekyb3d8bbwe!App', 'Notepad++', 'Calc', 'C:\tools\editor.exe', 'https://example.invalid/')) {
+  [MixWin32]::Activated = ''; [MixWin32]::Shelled = ''
+  $failure = ''
+  $result = $null
+  try { $result = Do-Launch $target } catch { $failure = [string]$_.Exception.Message }
+  $rows += @{
+    target = $target
+    failure = $failure
+    path = [string]$result.path
+    launched = [int]$result.pid
+    app_id = [string]$result.app_id
+    activated = [MixWin32]::Activated
+    shelled = [MixWin32]::Shelled
+  }
+}
+$ambiguous = ''
+try { [void](Do-Launch 'Settings') } catch { $ambiguous = [string]$_.Exception.Message }
+$catalogue = Do-ListInstalledApps @{ query = 'Calc' }
+@{ rows = @($rows); ambiguous = $ambiguous; catalogue = $catalogue.text } | ConvertTo-Json -Depth 5 -Compress
+`);
+  const byTarget = Object.fromEntries(routed.rows.map((row) => [row.target, row]));
+  assert.deepEqual(
+    routed.rows.map((row) => row.failure),
+    ['', '', '', '', '', '']
+  );
+  // An unpackaged Start entry has no plain path to run, so its catalogue id is
+  // what makes the name a user says launchable at all.
+  const unpackaged = byTarget['Notepad++'];
+  assert.equal(unpackaged.path, 'apps_folder');
+  assert.equal(unpackaged.shelled, 'shell:AppsFolder\\{6D809377-6AF0-444B-8957-A3773F02200E}\\Notepad++\\notepad++.exe');
+  assert.equal(unpackaged.activated, '');
+  // "Calc" matches the packaged calculator and nothing else, so it still resolves.
+  assert.equal(byTarget.Calc.path, 'app_activation');
+  const packaged = byTarget.Calculator;
+  assert.equal(packaged.path, 'app_activation');
+  // The broker owns the process, so this is the only route that reports the real pid.
+  assert.equal(packaged.launched, 4242);
+  assert.equal(packaged.app_id, 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App');
+  assert.equal(packaged.shelled, '');
+  assert.equal(byTarget['Microsoft.WindowsNotepad_8wekyb3d8bbwe!App'].path, 'app_activation');
+  for (const target of ['C:\\tools\\editor.exe', 'https://example.invalid/']) {
+    assert.equal(byTarget[target].path, 'windows_shell');
+    assert.equal(byTarget[target].activated, '');
+    assert.equal(byTarget[target].shelled, target);
+  }
+  // Two installed apps matching one word is a guess, so nothing launches.
+  assert.match(routed.ambiguous, /launch failed \[ambiguous_app\/0\]/);
+  const catalogue = JSON.parse(routed.catalogue);
+  assert.equal(catalogue.catalogue_total, 4);
+  assert.deepEqual(
+    catalogue.installed.map((entry) => entry.name),
+    ['Calculator']
+  );
+}
+
+test('a launch failure keeps its shell error category through the native wrapper', windows, async () => {
+  const result = await nativeFixture(String.raw`
+Add-Type -TypeDefinition @'
+using System;
+public static class MixWin32 {
+  public static int Code = 2;
+  public static int LaunchWithoutActivation(string target) {
+    throw new System.ComponentModel.Win32Exception(Code);
+  }
+}
+'@
+function Assert-ExecutionAuthorization($request, $target) { }
+. (Import-InputFunction 'New-ActionResult')
+. (Import-InputFunction 'Find-InstalledApp')
+. (Import-InputFunction 'Do-Launch')
+$messages = New-Object System.Collections.ArrayList
+foreach ($code in 2, 5, 31, 1223, 87) {
+  [MixWin32]::Code = $code
+  try { [void](Do-Launch 'C:\mixdog-missing-fixture.exe') }
+  catch { [void]$messages.Add([string]$_.Exception.Message) }
+}
+@{ messages = @($messages) } | ConvertTo-Json -Depth 3 -Compress
+`);
+  // A native call arrives wrapped, so the category depends on unwrapping it.
+  assert.equal(result.messages.length, 5);
+  assert.match(result.messages[0], /launch failed \[target_not_found\/2\]/);
+  await launchRouting();
+  assert.match(result.messages[1], /launch failed \[access_denied\/5\]/);
+  assert.match(result.messages[2], /launch failed \[no_file_association\/31\]/);
+  assert.match(result.messages[3], /launch failed \[launch_cancelled\/1223\]/);
+  assert.match(result.messages[4], /launch failed \[shell_launch_failed\/87\]/);
+});
+
+test('background value input skips a browser tab that only echoes the write', windows, async () => {
+  const result = await nativeFixture(String.raw`
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -TypeDefinition @'
+using System;
+public static class MixWin32 {
+  public static bool WebContent = false;
+  public static bool IsWebContentHost(IntPtr window) { return WebContent; }
+}
+'@
+$script:HasValuePattern = $true
+$element = New-Object psobject
+Add-Member -InputObject $element -MemberType ScriptMethod -Name TryGetCurrentPattern -Value {
+  param($pattern, $target)
+  return $script:HasValuePattern
+}
+function Get-TopWindow($el) { return @{ Current = @{ NativeWindowHandle = 1 } } }
+. (Import-InputFunction 'Test-BackgroundValueTarget')
+$record = @{ Kind = 'uia'; Element = $element }
+$native = Test-BackgroundValueTarget $record
+[MixWin32]::WebContent = $true
+$web = Test-BackgroundValueTarget $record
+[MixWin32]::WebContent = $false
+$script:HasValuePattern = $false
+$plain = Test-BackgroundValueTarget $record
+$msaa = Test-BackgroundValueTarget @{ Kind = 'msaa' }
+@{ native = $native; web = $web; plain = $plain; msaa = $msaa } | ConvertTo-Json -Compress
+`);
+  assert.equal(result.native, true);
+  assert.equal(result.web, false);
+  assert.equal(result.plain, false);
+  assert.equal(result.msaa, true);
+});
+
+test('background type reaches a value-settable element without a native keyboard target', windows, async () => {
+  const result = await nativeFixture(String.raw`
+Add-Type -TypeDefinition @'
+using System;
+public static class MixWin32 {
+  public static string WindowId(IntPtr h) { return "hwnd:0x" + h.ToInt64().ToString("x"); }
+}
+'@
+$script:ValueWrites = New-Object System.Collections.ArrayList
+$script:Settable = $true
+$script:NativeTarget = [IntPtr]::Zero
+$script:PostRoute = $false
+function Get-RefRecord($ref) { return @{ Kind = 'uia'; Element = 'element'; WindowId = 'hwnd:0x1' } }
+function Get-RefTopHandle($record) { return [IntPtr]1 }
+function Get-ExactNativeElementHandle($element) { return $script:NativeTarget }
+function Test-BackgroundValueTarget($record) { return $script:Settable }
+function Test-BackgroundKeyboardRoute($top, $preferred) { return $script:PostRoute }
+function Invoke-BackgroundSemantic($ref, [scriptblock]$operation, $effect = 'release') { return & $operation }
+function Do-SetValue($ref, $text) {
+  [void]$script:ValueWrites.Add($text)
+  return New-ActionResult 'set_value' 'uia_value' 'confirmed' $true "set $ref value through UIA; readback=True" $null 'background' 'hwnd:0x1'
+}
+. (Import-InputFunction 'New-ActionResult')
+. (Import-InputFunction 'Background-Unavailable')
+. (Import-InputFunction 'Do-Type')
+$valued = Do-Type @{ delivery = 'background'; ref = 's1:e1'; text = 'parity' }
+$script:NativeTarget = [IntPtr]2
+$xamlHost = Do-Type @{ delivery = 'background'; ref = 's1:e1'; text = 'parity' }
+$script:NativeTarget = [IntPtr]::Zero
+$script:Settable = $false
+$refused = Do-Type @{ delivery = 'background'; ref = 's1:e1'; text = 'parity' }
+@{
+  valued = $valued
+  xaml_host = $xamlHost
+  refused = $refused
+  write_count = $script:ValueWrites.Count
+  write_first = [string]$script:ValueWrites[0]
+} | ConvertTo-Json -Depth 5 -Compress
+`);
+  assert.equal(result.valued.action, 'type');
+  assert.equal(result.valued.path, 'uia_value');
+  assert.equal(result.valued.delivery_accepted, true);
+  // A XAML/WinUI host has a native child but drops posted characters.
+  assert.equal(result.xaml_host.action, 'type');
+  assert.equal(result.xaml_host.path, 'uia_value');
+  assert.equal(result.write_count, 2);
+  assert.equal(result.write_first, 'parity');
+  assert.equal(result.refused.code, 'background_unsupported');
+  assert.equal(result.refused.delivery_accepted, false);
+  assert.match(result.refused.text, /no settable value/);
+});
+
+test(
+  'native post-input observation survives a closed dialog without weakening pre-dispatch checks',
+  windows,
+  async () => {
+    const result = await nativeFixture(String.raw`
 Add-Type -TypeDefinition @'
 using System;
 public class Info { public string OwnerId = "hwnd:0x2"; }
@@ -79,13 +322,14 @@ try { Get-InputRecoveryState @{ window_id = 'hwnd:0x1' } | Out-Null } catch { $r
 $after = Get-InputRecoveryState @{ window_id = 'hwnd:0x1'; after_input = $true }
 @{ before = $before; after = $after; rejected = $rejected } | ConvertTo-Json -Depth 5 -Compress
 `);
-  assert.equal(result.before.target_owner_window_id, 'hwnd:0x2');
-  assert.equal(result.rejected, true);
-  assert.equal(result.after.target_exists, false);
-  assert.equal(result.after.target_window_id, 'hwnd:0x1');
-  assert.equal(result.after.input_observer_ready, true);
-  assert.equal(result.after.input_monitor_id, result.before.input_monitor_id);
-});
+    assert.equal(result.before.target_owner_window_id, 'hwnd:0x2');
+    assert.equal(result.rejected, true);
+    assert.equal(result.after.target_exists, false);
+    assert.equal(result.after.target_window_id, 'hwnd:0x1');
+    assert.equal(result.after.input_observer_ready, true);
+    assert.equal(result.after.input_monitor_id, result.before.input_monitor_id);
+  }
+);
 
 test('menu dispatch stays in its live branch or an owned popup, never another app', windows, async () => {
   const rows = await nativeFixture(String.raw`
@@ -136,7 +380,7 @@ public static class MenuAutomation {
   public static MenuElement RootElement { get { return Windows[2]; } }
   public static MenuElement FromHandle(IntPtr handle) { return Windows[handle.ToInt32()]; }
   public static void Configure(string mode) {
-    Windows.Clear(); Invoked.Clear();
+    Windows.Clear(); Invoked.Clear(); MixWin32.Keys.Clear();
     var root = new MenuElement("target", 1);
     var file = new MenuElement("File", 1) { Expands = true };
     root.Children.Add(file); Windows[1] = root;
@@ -154,6 +398,8 @@ public static class MenuAutomation {
   }
 }
 public static class MixWin32 {
+  public static List<string> Keys = new List<string>();
+  public static string BackgroundKeys(IntPtr top, IntPtr preferred, string keys) { Keys.Add(keys); return "sent"; }
   public static string[] RelatedWindowIds(IntPtr owner) {
     return MenuAutomation.Windows.ContainsKey(3) ? new [] {"hwnd:0x1","hwnd:0x3"} : new [] {"hwnd:0x1"};
   }
@@ -178,18 +424,26 @@ foreach ($mode in @('missing','valid','owned','ambiguous','disabled')) {
   $script:CurrentRequest = @{action='invoke_menu';window_id='hwnd:0x1';path=@('File','Save')}
   $errorText = ''
   try { $null = Do-InvokeMenu $script:CurrentRequest } catch { $errorText = $_.Exception.Message }
-  $rows += @{mode=$mode; invoked=@([MenuAutomation]::Invoked.ToArray()); error=$errorText}
+  $rows += @{mode=$mode; invoked=@([MenuAutomation]::Invoked.ToArray()); error=$errorText; keys=@([MixWin32]::Keys.ToArray())}
 }
 $rows | ConvertTo-Json -Compress -Depth 5
 `);
-  const byMode = Object.fromEntries(rows.map(row => [row.mode, row]));
+  const byMode = Object.fromEntries(rows.map((row) => [row.mode, row]));
   assert.deepEqual(byMode.missing.invoked, []);
   assert.match(byMode.missing.error, /menu_path_not_found/);
+  // A walk that opened a level and then failed leaves no menu on screen.
+  assert.deepEqual(byMode.missing.keys, ['{ESC}']);
   assert.deepEqual(byMode.valid.invoked, [1]);
+  assert.deepEqual(byMode.valid.keys, []);
   assert.deepEqual(byMode.owned.invoked, [3]);
-  for (const [mode, error] of [['ambiguous', 'menu_path_ambiguous'], ['disabled', 'menu_item_disabled']]) {
+  assert.deepEqual(byMode.owned.keys, []);
+  for (const [mode, error] of [
+    ['ambiguous', 'menu_path_ambiguous'],
+    ['disabled', 'menu_item_disabled'],
+  ]) {
     assert.deepEqual(byMode[mode].invoked, []);
     assert.match(byMode[mode].error, new RegExp(error));
+    assert.deepEqual(byMode[mode].keys, ['{ESC}']);
   }
 });
 
@@ -267,8 +521,11 @@ try {
   assert.match(result.error, /foreground_changed/);
 });
 
-test('accessibility scrolling checks authorization again after provider lookup and before every increment', windows, async () => {
-  const result = await nativeFixture(String.raw`
+test(
+  'accessibility scrolling checks authorization again after provider lookup and before every increment',
+  windows,
+  async () => {
+    const result = await nativeFixture(String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll',
@@ -310,13 +567,17 @@ function Get-RefRecord($ref) {
 try { Do-Scroll @{ref='r';direction='down';amount=2} } catch { $errors += $_.Exception.Message }
 @{calls=[ScrollFixture]::Calls;errors=$errors} | ConvertTo-Json -Compress
 `);
-  assert.equal(result.calls, 1);
-  assert.equal(result.errors.length, 2);
-  for (const error of result.errors) assert.match(error, /computer_policy_expired/);
-});
+    assert.equal(result.calls, 1);
+    assert.equal(result.errors.length, 2);
+    for (const error of result.errors) assert.match(error, /computer_policy_expired/);
+  }
+);
 
-test('ref click uses native messages only when no semantic pattern exists, never after an uncertain semantic attempt', windows, async () => {
-  const rows = await nativeFixture(String.raw`
+test(
+  'ref click uses native messages only when no semantic pattern exists, never after an uncertain semantic attempt',
+  windows,
+  async () => {
+    const rows = await nativeFixture(String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
@@ -348,14 +609,18 @@ $result=Do-ClickFamily @{action='click';ref='r'} 'click'
 $rows+=@{path=$result.path;clicks=[MixWin32]::Clicks;action=$result.action}
 $rows | ConvertTo-Json -Compress
 `);
-  assert.deepEqual(rows, [
-    { path: 'native', clicks: 1 },
-    { path: 'uncertain', clicks: 1, action: 'click' },
-  ]);
-});
+    assert.deepEqual(rows, [
+      { path: 'native', clicks: 1 },
+      { path: 'uncertain', clicks: 1, action: 'click' },
+    ]);
+  }
+);
 
-test('ref clicks expand and collapse through UIA and reject disabled UIA/MSAA controls before input', windows, async () => {
-  const rows = await nativeFixture(String.raw`
+test(
+  'ref clicks expand and collapse through UIA and reject disabled UIA/MSAA controls before input',
+  windows,
+  async () => {
+    const rows = await nativeFixture(String.raw`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -ReferencedAssemblies @('System.dll',
@@ -411,23 +676,24 @@ foreach ($mode in @('collapsed','expanded','partial','unchanged','disabled-uia',
 }
 $rows | ConvertTo-Json -Compress -Depth 6
 `);
-  const cases = Object.fromEntries(rows.map(row => [row.mode, row]));
-  for (const mode of ['collapsed', 'expanded', 'partial']) {
-    assert.equal(cases[mode].reply.action, 'click');
-    assert.equal(cases[mode].reply.path, 'uia_expand_collapse');
-    assert.equal(cases[mode].reply.verified, true);
-    assert.equal(cases[mode].calls, 1);
-    assert.equal(cases[mode].authorizations, 1);
-    assert.equal(cases[mode].state, mode === 'expanded' ? 'Collapsed' : 'Expanded');
+    const cases = Object.fromEntries(rows.map((row) => [row.mode, row]));
+    for (const mode of ['collapsed', 'expanded', 'partial']) {
+      assert.equal(cases[mode].reply.action, 'click');
+      assert.equal(cases[mode].reply.path, 'uia_expand_collapse');
+      assert.equal(cases[mode].reply.verified, true);
+      assert.equal(cases[mode].calls, 1);
+      assert.equal(cases[mode].authorizations, 1);
+      assert.equal(cases[mode].state, mode === 'expanded' ? 'Collapsed' : 'Expanded');
+    }
+    assert.equal(cases.unchanged.reply.verified, false);
+    assert.equal(cases.unchanged.reply.effect, 'unverifiable');
+    assert.equal(cases.unchanged.calls, 1);
+    for (const mode of ['disabled-uia', 'disabled-msaa']) {
+      assert.equal(cases[mode].reply.code, 'element_disabled');
+      assert.equal(cases[mode].reply.delivery_accepted, false);
+      assert.equal(cases[mode].calls, 0);
+      assert.equal(cases[mode].queries, 0);
+      assert.equal(cases[mode].authorizations, 0);
+    }
   }
-  assert.equal(cases.unchanged.reply.verified, false);
-  assert.equal(cases.unchanged.reply.effect, 'unverifiable');
-  assert.equal(cases.unchanged.calls, 1);
-  for (const mode of ['disabled-uia', 'disabled-msaa']) {
-    assert.equal(cases[mode].reply.code, 'element_disabled');
-    assert.equal(cases[mode].reply.delivery_accepted, false);
-    assert.equal(cases[mode].calls, 0);
-    assert.equal(cases[mode].queries, 0);
-    assert.equal(cases[mode].authorizations, 0);
-  }
-});
+);

@@ -23,7 +23,10 @@ import {
   reviewOfficeDesign,
   reviewPptxVisualCritique,
 } from './quality/design-review.mjs';
-import { workspace } from './office-test-support.mjs';
+import { annotatePptxSnapshotRoles, inducePptxSampleRoles } from './design/library/design-template-induct.mjs';
+import { selectTemplatePage, templatePageFill } from './design/library/design-template-fill.mjs';
+import { value, workspace } from './office-test-support.mjs';
+import { executeOfficeTool } from './index.mjs';
 import { assertOfficeOperationContracts } from './capabilities.mjs';
 import { finalizeOfficeResult, serializedToolValue } from './core/office-core.mjs';
 
@@ -960,6 +963,297 @@ test('signed Office design packs hot-update model tokens while existing bindings
   assert.equal(rejected.ok, false);
   assert.match(rejected.warning, /signature verification failed/);
   assert.equal(rejected.active.version, '2.0.0');
+});
+
+// A deck someone brings carries no {{TOKEN}} slots and no placeholders: its
+// pages are drawn boxes, so the placeholder rules find no title on them and
+// never a column. The page's own geometry is what says which box is which.
+test('PPTX page roles are induced from the geometry of a deck that has no placeholders', () => {
+  const box = (shape, left, top, width, height, text, fontSize) => ({
+    shape,
+    type: 'text',
+    text,
+    placeholderType: '',
+    geometry: { left, top, width, height },
+    fontSize,
+  });
+  const columns = inducePptxSampleRoles({
+    shapes: [
+      box(1, 600_000, 400_000, 8_000_000, 900_000, '분기별 처리량 비교', 32),
+      box(2, 600_000, 1_800_000, 3_400_000, 600_000, '기존 방식', 18),
+      box(3, 4_400_000, 1_800_000, 3_400_000, 600_000, '개선 후', 18),
+      box(4, 600_000, 2_600_000, 3_400_000, 1_200_000, '평균 3.4초가 걸렸다', 14),
+      box(5, 4_400_000, 2_600_000, 3_400_000, 1_200_000, '평균 1.3초로 줄었다', 14),
+    ],
+  });
+  assert.equal(columns.get(1), 'title');
+  assert.equal(columns.get(2), 'column-title-1');
+  assert.equal(columns.get(3), 'column-title-2');
+  assert.equal(columns.get(4), 'column-body-1');
+  assert.equal(columns.get(5), 'column-body-2');
+
+  const metrics = inducePptxSampleRoles({
+    shapes: [
+      box(1, 600_000, 2_000_000, 2_400_000, 800_000, '38%', 40),
+      box(2, 3_400_000, 2_000_000, 2_400_000, 800_000, '12건', 40),
+      box(3, 600_000, 2_900_000, 2_400_000, 500_000, '재작업 비율', 12),
+      box(4, 3_400_000, 2_900_000, 2_400_000, 500_000, '지연 건수', 12),
+    ],
+  });
+  assert.equal(metrics.get(1), 'metric-value-1');
+  assert.equal(metrics.get(3), 'metric-label-1');
+  assert.equal(metrics.get(4), 'metric-label-2');
+
+  // A chevron flow sizes every marker to the word it carries, so the row is
+  // peers by band and height and never by width; the markers name the structure
+  // and the labels drawn on them fill the slots.
+  const marker = (shape, left, width) => ({
+    shape,
+    type: 'text',
+    text: '',
+    geometry: { left, top: 148, width, height: 101 },
+    preset: 'chevron',
+  });
+  const steps = inducePptxSampleRoles(
+    {
+      shapes: [
+        marker(1, 43, 221),
+        box(2, 68, 148, 170, 101, '초안', 12),
+        marker(3, 239, 231),
+        box(4, 264, 148, 181, 101, '검토', 12),
+        marker(5, 445, 282),
+        box(6, 470, 148, 231, 101, '승인', 12),
+      ],
+    },
+    { width: 960, height: 540 }
+  );
+  assert.equal(steps.get(2), 'step-title-1');
+  assert.equal(steps.get(4), 'step-title-2');
+  assert.equal(steps.get(6), 'step-title-3');
+
+  // Two stacked rows of equal boxes are a grid, not six columns: a role names
+  // exactly one box to fill, so only the page's strongest row speaks.
+  const grid = inducePptxSampleRoles({
+    shapes: [
+      box(1, 600_000, 1_000_000, 2_000_000, 700_000, '가', 14),
+      box(2, 3_000_000, 1_000_000, 2_000_000, 700_000, '나', 14),
+      box(3, 5_400_000, 1_000_000, 2_000_000, 700_000, '다', 14),
+      box(4, 600_000, 4_000_000, 2_000_000, 700_000, '라', 14),
+      box(5, 3_000_000, 4_000_000, 2_000_000, 700_000, '마', 14),
+      box(6, 5_400_000, 4_000_000, 2_000_000, 700_000, '바', 14),
+    ],
+  });
+  assert.equal(grid.size, 3);
+  assert.equal(new Set(grid.values()).size, 3);
+});
+
+// Reading a deck to reuse it: the page answers with the job it does and each
+// box with the slot it fills, on either backend, so the page the user already
+// owns can be chosen and filled instead of composed again.
+test('a PPTX snapshot reports each page job and the slot every box fills', () => {
+  const box = (index, left, top, width, height, text, size) => ({
+    index,
+    left,
+    top,
+    width,
+    height,
+    text,
+    font: { size },
+  });
+  const document = annotatePptxSnapshotRoles({
+    format: 'pptx',
+    slideCount: 2,
+    slideWidth: 13.333,
+    slideHeight: 7.5,
+    slides: [
+      {
+        index: 1,
+        shapes: [box(1, 0.8, 2.6, 9, 1.4, '야간 출고 개선 보고', 40), box(2, 0.8, 4.2, 6, 0.5, '운영지원팀', 14)],
+      },
+      {
+        index: 2,
+        shapes: [
+          box(1, 0.7, 0.5, 11.9, 0.9, '도입 전후 비교', 30),
+          box(2, 0.7, 2, 5.6, 0.6, '도입 전', 20),
+          box(3, 6.9, 2, 5.6, 0.6, '도입 후', 20),
+          box(4, 0.7, 2.8, 5.6, 1.6, '평균 3.4초가 걸렸다', 14),
+          box(5, 6.9, 2.8, 5.6, 1.6, '평균 1.3초로 줄었다', 14),
+        ],
+      },
+    ],
+  });
+  assert.equal(document.slides[0].role, 'cover');
+  assert.equal(document.slides[0].shapes[0].slot, 'title');
+  assert.equal(document.slides[1].role, 'comparison');
+  assert.equal(document.slides[1].shapes[1].slot, 'column-title-1');
+  assert.equal(document.slides[1].shapes[4].slot, 'column-body-2');
+
+  // The first page is the cover only when it carries nothing a cover never has:
+  // a deck that opens on its comparison page answers with that job.
+  const single = annotatePptxSnapshotRoles({
+    format: 'pptx',
+    slideCount: 1,
+    slideWidth: 13.333,
+    slideHeight: 7.5,
+    slides: [
+      {
+        index: 1,
+        shapes: [
+          box(1, 0.7, 0.5, 11.9, 0.9, '도입 전후 비교', 30),
+          box(2, 0.7, 2, 5.6, 0.6, '도입 전', 20),
+          box(3, 6.9, 2, 5.6, 0.6, '도입 후', 20),
+          box(4, 0.7, 2.8, 5.6, 1.6, '묶음으로 실어 대기가 길었다', 14),
+          box(5, 6.9, 2.8, 5.6, 1.6, '도크별로 나눠 대기가 사라졌다', 14),
+        ],
+      },
+    ],
+  });
+  assert.equal(single.slides[0].role, 'comparison');
+});
+
+// Capacity decides which page answers and whether it can answer at all: a page
+// takes another item by being replaced, never by shrinking its type.
+test('a template page refuses more items than it holds and the closest fitting page answers', () => {
+  const page = (index, columns) => ({
+    index,
+    role: 'comparison',
+    shapes: [
+      { index: 1, slot: 'title', text: '' },
+      ...Array.from({ length: columns }, (_, position) => [
+        { index: 2 + position * 2, slot: `column-title-${position + 1}`, text: '' },
+        { index: 3 + position * 2, slot: `column-body-${position + 1}`, text: '' },
+      ]).flat(),
+    ],
+  });
+  const document = { slides: [page(1, 4), page(2, 2)] };
+  assert.equal(selectTemplatePage(document, { role: 'comparison', items: [{}, {}] }).index, 2);
+  assert.equal(selectTemplatePage(document, { role: 'comparison', items: [{}, {}, {}] }).index, 1);
+  assert.throws(
+    () => templatePageFill(page(1, 2), { items: [{}, {}, {}] }),
+    /holds 2 column slots and 3 items were given/
+  );
+  const fill = templatePageFill(page(1, 3), { title: '비교', items: [{ title: '가', body: '가 설명' }] });
+  assert.deepEqual(
+    fill.sets.map((entry) => entry.shape),
+    [1, 2, 3]
+  );
+  assert.deepEqual(fill.deletes, [7, 6, 5, 4]);
+});
+
+// Reuse, end to end: the page is chosen by the job it does, its slots take the
+// words, and the slots no item claimed are emptied rather than left carrying the
+// template's own words.
+test('use_template_page takes the page whose job matches and fills its slots', async (t) => {
+  const cwd = await workspace(t);
+  const office = async (args) => {
+    const raw = await executeOfficeTool(args, { cwd });
+    if (raw.isError) throw new Error(raw.content[0].text);
+    return value(raw);
+  };
+  const template = join(cwd, 'template.pptx');
+  const built = await office({
+    action: 'author',
+    path: template,
+    mode: 'portable',
+    render: false,
+    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+      const cover = p.addSlide();
+      cover.addText('브랜드 덱', {x:0.8,y:2.6,w:9,h:1.4,fontSize:40});
+      cover.addText('디자인팀', {x:0.8,y:4.2,w:6,h:0.5,fontSize:14});
+      const compare = p.addSlide();
+      compare.addText('세 방식 비교', {x:0.7,y:0.5,w:11.9,h:0.9,fontSize:30});
+      compare.addText('가 방식', {x:0.7,y:2,w:3.8,h:0.6,fontSize:20});
+      compare.addText('나 방식', {x:4.8,y:2,w:3.8,h:0.6,fontSize:20});
+      compare.addText('다 방식', {x:8.9,y:2,w:3.8,h:0.6,fontSize:20});
+      compare.addText('가 설명', {x:0.7,y:2.8,w:3.8,h:1.6,fontSize:14});
+      compare.addText('나 설명', {x:4.8,y:2.8,w:3.8,h:1.6,fontSize:14});
+      compare.addText('다 설명', {x:8.9,y:2.8,w:3.8,h:1.6,fontSize:14});
+      await p.writeFile({fileName:OUTPUT});`,
+  });
+  await office({ action: 'close', session: built.session });
+  const deck = join(cwd, 'deck.pptx');
+  const created = await office({
+    action: 'author',
+    path: deck,
+    mode: 'portable',
+    render: false,
+    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+      const s = p.addSlide();
+      s.addText('야간 출고 보고', {x:0.8,y:2.6,w:9,h:1.4,fontSize:40});
+      await p.writeFile({fileName:OUTPUT});`,
+  });
+  await office({ action: 'close', session: created.session });
+  const opened = await office({ action: 'open', path: deck, mode: 'portable' });
+  t.after(async () => {
+    await office({ action: 'close', session: opened.session }).catch(() => {});
+  });
+  await office({
+    action: 'batch',
+    session: opened.session,
+    operations: [
+      {
+        op: 'use_template_page',
+        path: template,
+        role: 'comparison',
+        after: 1,
+        title: '출고 방식 비교',
+        items: [
+          { title: '기존', body: '묶음으로 실어 대기가 길었다' },
+          { title: '개선', body: '도크별로 나눠 대기가 사라졌다' },
+        ],
+      },
+    ],
+  });
+  const snapshot = await office({ action: 'snapshot', session: opened.session });
+  assert.equal(snapshot.document.slides.length, 2);
+  const page = snapshot.document.slides[1];
+  const texts = page.shapes.map((shape) => shape.text);
+  assert.equal(page.role, 'comparison');
+  assert.ok(texts.includes('출고 방식 비교'), texts.join(' | '));
+  assert.ok(texts.includes('기존'), texts.join(' | '));
+  assert.ok(texts.includes('도크별로 나눠 대기가 사라졌다'), texts.join(' | '));
+  // The third column claimed no item, so its boxes left with it.
+  assert.equal(page.shapes.length, 5);
+  assert.ok(!texts.includes('다 방식'), texts.join(' | '));
+  assert.ok(!texts.includes('다 설명'), texts.join(' | '));
+});
+
+// The same reading through the session a user actually opens: an authored deck
+// carries no placeholder at all, so every role here is induced from geometry.
+test('a session snapshot answers with the page job and the slots of a drawn deck', async (t) => {
+  const cwd = await workspace(t);
+  const office = async (args) => {
+    const raw = await executeOfficeTool(args, { cwd });
+    if (raw.isError) throw new Error(raw.content[0].text);
+    return value(raw);
+  };
+  const authored = await office({
+    action: 'author',
+    path: join(cwd, 'roles.pptx'),
+    mode: 'portable',
+    render: false,
+    script: `const P = require('pptxgenjs'); const p = new P(); p.layout = 'LAYOUT_WIDE';
+      const cover = p.addSlide();
+      cover.addText('야간 출고 개선 보고', {x:0.8,y:2.6,w:9,h:1.4,fontSize:40});
+      cover.addText('운영지원팀', {x:0.8,y:4.2,w:6,h:0.5,fontSize:14});
+      const compare = p.addSlide();
+      compare.addText('도입 전후 비교', {x:0.7,y:0.5,w:11.9,h:0.9,fontSize:30});
+      compare.addText('도입 전', {x:0.7,y:2,w:5.6,h:0.6,fontSize:20});
+      compare.addText('도입 후', {x:6.9,y:2,w:5.6,h:0.6,fontSize:20});
+      compare.addText('묶음 단위로 실어 대기가 길었다', {x:0.7,y:2.8,w:5.6,h:1.6,fontSize:14});
+      compare.addText('도크별로 나눠 대기가 사라졌다', {x:6.9,y:2.8,w:5.6,h:1.6,fontSize:14});
+      await p.writeFile({fileName:OUTPUT});`,
+  });
+  t.after(async () => {
+    await office({ action: 'close', session: authored.session }).catch(() => {});
+  });
+  const snapshot = await office({ action: 'snapshot', session: authored.session });
+  const [cover, compare] = snapshot.document.slides;
+  assert.equal(cover.role, 'cover');
+  assert.equal(compare.role, 'comparison');
+  assert.equal(compare.shapes[0].slot, 'title');
+  assert.equal(compare.shapes[1].slot, 'column-title-1');
+  assert.equal(compare.shapes[4].slot, 'column-body-2');
 });
 
 test('local Office template indexing detects changes without rebinding existing documents', async (t) => {

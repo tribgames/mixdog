@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { webContents } from 'electron';
 import type { BrowserHost } from './host';
 import type { BrowserCommand } from './command';
+import { readyBrowserFrame } from './harness-frame';
 import { pause } from './settle';
 
 export async function runBrowserActionabilityScenarios(
@@ -20,7 +21,7 @@ export async function runBrowserActionabilityScenarios(
   try {
     await command({ action: 'navigate', url: `${origin}/root`, background: true, tab: 'stability' });
     await command({ action: 'open', tab: 'stability' });
-    const frame = await host.browserPageFrame(sessionId);
+    const frame = await readyBrowserFrame(host, sessionId);
     const guest = webContents.fromId(frame.webContentsId);
     assert.ok(guest);
 

@@ -3,7 +3,7 @@
 Owns selected pictures — supplied, accessible authorized product assets, or generated: picture families, crop and tone, generation, and placement. Loaded on that trigger (`SKILL.md` §1); a deck without pictures never reads this file. Canvas and rule strength as in `composition.md`.
 
 ## 0. Generated pictures (when the user supplied none)
-The `image` skill makes the picture; this file only decides where it goes. Load `image`, follow its call order (`list` → `generate kind:'image'` → inspect), and pass what the deck knows: `path:<beside the deck>.png` and `aspect:<the frame ratio from §2>`. No signed-in lane means no generated pictures, and the deck says so instead of substituting a photo library it does not have.
+The `image` skill makes the picture; this file only decides where it goes. Load `image`, follow its call order (`list` → `generate kind:'image'` → inspect), and pass what the deck knows: `path:<beside the deck>.png` and `aspect:<the frame ratio from §2>`. The `list` comes before the picture is planned (`SKILL.md` §2 step 1), so a page is never designed around a picture that cannot be made. A signed-in lane is permission, never a reason: generate only where the user asked for a picture or the claim needs the artifact itself. No signed-in lane means no generated pictures — the picture is omitted, the page anchors on the drawn devices instead (`spot()`, `orb()`, `poster()`, `motif()`), and the delivery says so, rather than substituting a photo library the runtime does not have.
 
 The cover decision follows the subject and available authorized assets (`direction.md` §4), not whether generation is signed in. This file starts after asset selection. Content pages take a picture when it explains or demonstrates the claim; the deck never fills pages to reach a picture count.
 
@@ -16,6 +16,8 @@ The cover decision follows the subject and available authorized assets (`directi
 
 ## 1. Placing a picture (contract)
 **Hard rule — a picture is cropped to its frame before it is placed, never stretched**: `picture()` crops with sharp; `addImage` with a file path and a frame of another ratio is a defect. → runtime `image_aspect_distorted`
+
+**Hard rule — the picture carries the pixels its frame asks for**: about 150 per inch at the placed size (a full-bleed 13.3in page wants roughly 2000 px across). A thumbnail enlarged to a half-page draws soft on the wall, and no crop or sharpen recovers detail the file never had. → runtime `image_low_resolution`
 **Hard rule — text over a picture sits on a scrim**: a `scrim()` or `spotlight()` goes between the picture and any text on it; text straight on a picture fails the readability check at finalize. → runtime `low_visual_contrast` (render); scrim presence → manual
 **Default — preserve useful detail**: use only treatments that support the asset's job. Multiple treatments are allowed when they improve integration without obscuring evidence.
 **Default — presence follows the job**: a cover or atmosphere picture recedes (`transparency: 55-70` or `wash()`); an evidence picture keeps full presence and gets annotation instead.
@@ -73,6 +75,13 @@ async function picture(slide, path, x, y, w, h, { round = false, transparency = 
 async function tiles(slide, x, y, w, items, { h = 3.4, frame = 'plain', gap = GUTTER, captionRole = 'body', captions } = {}) {
   captions ??= frame === 'phone' ? 'beside' : 'under';
   const cols = spans(x, w, items.map((it) => it.weight || 1), { gap });
+  // The phone row writes its label beside the narrow screen, which works while the column beside it is a column. On a
+  // narrow body (a rail chrome, four devices) the screen leaves a sliver, and a caption set in it breaks to one or two
+  // words a line (audit: text_box_too_narrow). Under the floor the captions stack under the frames instead.
+  if (captions === 'beside' && frame === 'phone') {
+    const beside = Math.min(...cols.map((c) => c.w - Math.min(c.w - 0.2, ((h - 0.2) * 9) / 19.5) - 0.2 - GAP.within));
+    if (beside < 1.8) captions = 'under';
+  }
   const roleH = (str, cw, name, lh) => { const r = role(name); const face = r.bold && r.font === T.light ? T.sans : r.font; return fitH(wrapKo(str, cw, r.size, face, r.bold), cw, r.size, face, { bold: r.bold, lh: lh ?? r.lh }); };
   const stack = captions === 'under'
     ? Math.max(0, ...items.map((it, i) => (it.label || it.caption ? GAP.within : 0) + (it.label ? roleH(it.label, cols[i].w, 'strong') + GAP.within : 0) + (it.caption ? roleH(it.caption, cols[i].w, captionRole, 1.35) : 0)))

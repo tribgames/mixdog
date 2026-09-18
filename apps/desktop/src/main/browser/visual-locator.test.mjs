@@ -66,3 +66,39 @@ test('browser visual locator ranks color, label, and position in screenshot coor
     dom.window.close();
   }
 });
+
+test('the visual locator still offers the aria-hidden widgets a person sees and clicks', () => {
+  const dom = new JSDOM(
+    '<!doctype html><div aria-hidden="true"><button id="ghost">Save</button></div>' + '<button id="real">Save</button>',
+    { runScripts: 'outside-only', pretendToBeVisual: true }
+  );
+  const { window } = dom;
+  try {
+    const rect = (left, top) => () => ({
+      left,
+      top,
+      width: 120,
+      height: 40,
+      right: left + 120,
+      bottom: top + 40,
+      x: left,
+      y: top,
+      toJSON() {
+        return this;
+      },
+    });
+    window.document.querySelector('#ghost').getBoundingClientRect = rect(20, 20);
+    window.document.querySelector('#real').getBoundingClientRect = rect(20, 120);
+    window.document.documentElement.getBoundingClientRect = rect(0, 0);
+    window.document.body.getBoundingClientRect = rect(0, 0);
+
+    const result = window.eval(browserVisualLocatorExpression('Save 버튼', 10));
+    assert.equal(result.total, 2);
+    assert.deepEqual(
+      Array.from(result.candidates, (candidate) => candidate.y).sort((left, right) => left - right),
+      [40, 140]
+    );
+  } finally {
+    dom.window.close();
+  }
+});

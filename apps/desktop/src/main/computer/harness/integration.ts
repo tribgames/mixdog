@@ -136,11 +136,16 @@ const fixtureHtml = `<!doctype html>
     canvas.height = Math.round(innerHeight * ratio);
     draw();
   }
+  window.pointerCounts = { pressed: 0, released: 0 };
   canvas.addEventListener('pointerdown', (event) => {
+    window.pointerCounts.pressed += 1;
     const point = { x: event.offsetX, y: event.offsetY };
     if (inside(point, send)) clickCount += 1;
     if (inside(point, input)) setTimeout(() => sink.focus(), 0);
     draw();
+  });
+  canvas.addEventListener('pointerup', () => {
+    window.pointerCounts.released += 1;
   });
   sink.addEventListener('input', () => {
     typed = sink.value.toUpperCase();
@@ -419,6 +424,59 @@ async function run(): Promise<void> {
     await command({ action: 'session_release' });
     progress('session cleanup verified');
 
+    // The sequence path validates step actions on its own, so a newly exposed
+    // action has to be accepted there too, not only by direct dispatch.
+    const sequenceMark = ocrMark(
+      capturePayload(
+        await command({ action: 'capture', window_id: windowId, mode: 'som', include_ocr: true, max_ocr_words: 100 })
+      ),
+      'SEND'
+    );
+    // The sequence path carries its own action list. A pointer action missing from
+    // it fails closed as sequence_step_invalid before any delivery contract runs,
+    // so the step must be refused for a delivery reason instead.
+    const sequenced = actionPayload(
+      await command({
+        action: 'sequence',
+        window_id: windowId,
+        steps: [{ action: 'triple_click', element: sequenceMark }],
+      })
+    );
+    const sequenceStep = (sequenced.steps as Array<Record<string, unknown>>)[0];
+    assert.equal(sequenceStep.action, 'triple_click');
+    assert.equal(
+      sequenceStep.code,
+      'background_unsupported',
+      `sequence rejected triple_click: ${JSON.stringify(sequenceStep).slice(0, 300)}`
+    );
+    assert.equal(sequenceStep.delivery_accepted, false);
+    progress('sequence step recognised the triple_click action');
+    progress('sequence accepts a newly exposed pointer action');
+
+    // A held button must reach the target and must not survive its own session.
+    await fixture.webContents.executeJavaScript('window.pointerCounts = { pressed: 0, released: 0 }');
+    const heldMark = ocrMark(
+      capturePayload(
+        await command({ action: 'capture', window_id: windowId, mode: 'som', include_ocr: true, max_ocr_words: 100 })
+      ),
+      'SEND'
+    );
+    const held = actionPayload(await command({ action: 'mouse_down', element: heldMark, delivery: 'background' }));
+    assert.equal(held.ok, true, JSON.stringify(held).slice(0, 400));
+    const whileHeld = (await fixture.webContents.executeJavaScript('window.pointerCounts')) as {
+      pressed: number;
+      released: number;
+    };
+    assert.equal(whileHeld.pressed, 1);
+    assert.equal(whileHeld.released, 0);
+    await command({ action: 'session_release' });
+    const afterHeld = (await fixture.webContents.executeJavaScript('window.pointerCounts')) as {
+      pressed: number;
+      released: number;
+    };
+    assert.equal(afterHeld.released, 1);
+    progress('held pointer button reached the target and was released by session cleanup');
+
     const leftSession = 'computer-parallel-left';
     const rightSession = 'computer-parallel-right';
     await Promise.all([
@@ -474,8 +532,8 @@ async function run(): Promise<void> {
     assert.equal(rightValue, 'RIGHT42');
 
     await command({ action: 'snapshot', window_id: windowId, max_elements: 20 }, rightSession);
-    await assert.rejects(
-      command(
+    const crossPayload = actionPayload(
+      await command(
         {
           action: 'type',
           window_id: windowId,
@@ -483,9 +541,16 @@ async function run(): Promise<void> {
           delivery: 'background',
         },
         rightSession
-      ),
-      /computer_target_in_use:.*reserved by another agent/
+      )
     );
+    // A window reserved by another agent is never typed into from a stale
+    // observation: either the claim is refused outright, or the lease is only
+    // handed over once its holder goes idle and the stale action is discarded.
+    assert.equal(crossPayload.ok, false);
+    assert.match(String(crossPayload.code), /^computer_target_(in_use|available_recapture_required)$/);
+    const sinkAfterCross = await fixture.webContents.executeJavaScript(`document.querySelector('#sink').value`);
+    assert.equal(sinkAfterCross, 'LEFT42');
+    progress(`cross-session claim refused with ${crossPayload.code}; the stale mutation was not dispatched`);
     await Promise.all([
       command({ action: 'session_release' }, leftSession),
       command({ action: 'session_release' }, rightSession),
@@ -584,16 +649,28 @@ async function run(): Promise<void> {
   }
 }
 
+// Losing every fixture window ends this process with exit 0, which would hide a
+// mid-run failure behind nothing but a missing success marker. Keep the quit, and
+// say why it happened.
+app.on('window-all-closed', () => {
+  // run() owns the exit code. Quitting here races ahead of a failing assertion
+  // and ends the process with exit 0, hiding the real error.
+  console.error('computer host integration lost every window before its success marker');
+});
 void app
   .whenReady()
   .then(async () => {
     await run();
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true }).catch(() => {
+      /* a worker may still hold a file; the temp profile is disposable */
+    });
     app.exit(0);
   })
   .catch(async (error) => {
     console.error(error);
-    await rm(profile, { recursive: true, force: true });
+    await rm(profile, { recursive: true, force: true }).catch(() => {
+      /* a worker may still hold a file; the temp profile is disposable */
+    });
     process.exitCode = 1;
     app.exit(1);
   });

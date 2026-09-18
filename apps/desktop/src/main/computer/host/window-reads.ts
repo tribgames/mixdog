@@ -11,6 +11,18 @@ export interface WindowReadsHost {
   sessionIdFor(command: ComputerCommand): string;
 }
 
+/** An app Windows knows how to start, whether or not it is running. */
+export interface InstalledAppRecord {
+  name: string;
+  app_id: string;
+  packaged: boolean;
+}
+
+export interface InstalledApps {
+  matches: InstalledAppRecord[];
+  total: number;
+}
+
 export interface WindowIntegrity {
   known: boolean;
   higher: boolean;
@@ -55,7 +67,32 @@ export function createWindowReads(host: WindowReadsHost) {
     }
   }
 
-  return { readWindowIntegrity, readComputerWindows };
+  async function readInstalledApps(command: ComputerCommand): Promise<InstalledApps | null> {
+    try {
+      const response = await callPowerShell({
+        action: 'list_installed_apps',
+        session_id: sessionIdFor(command),
+        query: String(command.query || ''),
+        read_only: true,
+      });
+      if (!response.ok) return null;
+      const rows = (Array.isArray(response.result?.installed) ? response.result.installed : []) as Array<
+        Record<string, unknown>
+      >;
+      return {
+        matches: rows.map((row) => ({
+          name: String(row.name || ''),
+          app_id: String(row.app_id || ''),
+          packaged: row.packaged === true,
+        })),
+        total: Number(response.result?.catalogue_total || 0),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  return { readWindowIntegrity, readComputerWindows, readInstalledApps };
 }
 
 export type WindowReads = ReturnType<typeof createWindowReads>;

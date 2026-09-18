@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MutableRefObject, type RefObject } from 'react';
+import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 
 /**
  * Transcript auto-scroll + session scroll-gesture grammar.
@@ -31,6 +32,16 @@ const SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'
 // virtualize (user: 병렬 작업 중 타이핑하면 스크롤이 계속 풀린다).
 const RELEASE_MOVE_PX = 1;
 const POINTER_DRAG_PX = 4;
+// Touch ownership cannot be a timer. A phone keeps flinging for a second or
+// more after the finger leaves, and a single slow markdown/tool frame on that
+// phone outlives the 250ms gesture window and the 180ms motion window. The
+// corrections that were being deferred then land in the middle of Chromium's
+// momentum, which re-bases the fling and shakes the transcript up and down
+// (user: 모바일에서 위로 스크롤하면 덜덜거린다). Ownership therefore latches
+// on the touch itself, is held while the finger is down, and is closed by the
+// browser's own scrollend — this idle is only the fallback for engines that do
+// not fire it.
+const TOUCH_FLING_IDLE_MS = 700;
 // Programmatic writes arrive in BURSTS: one measurement commit can move the
 // offset several times (core adjustment, spacer growth, end re-pin) before a
 // single scroll event lands. Remembering only the last one made every earlier
@@ -127,6 +138,27 @@ export function touchMoveShouldReleaseFollow({
 }): boolean {
   if (!Number.isFinite(delta) || !transcriptReached) return false;
   return -delta > RELEASE_MOVE_PX;
+}
+
+/** Is a touch scroll still in flight? A finger on the glass owns the viewport
+ *  outright; once it lifts, the fling keeps that ownership until scrollend
+ *  closes the latch or the scroll stream itself goes quiet. */
+export function touchScrollLatchOpen({
+  latched,
+  touchDown,
+  sinceScrollMs,
+  idleMs = TOUCH_FLING_IDLE_MS,
+}: {
+  /** A touch drag that actually moved the transcript has been seen. */
+  latched: boolean;
+  touchDown: boolean;
+  /** Time since the last scroll frame of this touch scroll. */
+  sinceScrollMs: number;
+  idleMs?: number;
+}): boolean {
+  if (!latched) return false;
+  if (touchDown) return true;
+  return Number.isFinite(sinceScrollMs) && sinceScrollMs < idleMs;
 }
 
 /** A wheel notch toward older history releases follow as soon as the gesture
@@ -292,6 +324,12 @@ export function useTranscriptFollow({
   const gestureAt = useRef(0);
   const readerMotionAt = useRef(0);
   const touchGesture = useRef<number | undefined>(undefined);
+  // Touch scroll ownership: armed by a drag that actually moves the transcript,
+  // held for as long as the finger is down, and closed by scrollend (or the
+  // idle fallback) once the fling is over.
+  const touchLatched = useRef(false);
+  const touchDown = useRef(false);
+  const touchScrollAt = useRef(0);
   const pointerGesture = useRef<{ x: number; y: number } | undefined>(undefined);
   const chromeScroll = useRef(false);
   // A content press is not a scroll gesture. A drag that has moved far enough
@@ -351,6 +389,9 @@ export function useTranscriptFollow({
     gestureAt.current = 0;
     readerMotionAt.current = 0;
     touchGesture.current = undefined;
+    touchLatched.current = false;
+    touchDown.current = false;
+    touchScrollAt.current = 0;
     pointerGesture.current = undefined;
     pointerDragging.current = false;
     chromeScroll.current = false;
@@ -383,6 +424,9 @@ export function useTranscriptFollow({
     gestureAt.current = 0;
     readerMotionAt.current = 0;
     touchGesture.current = undefined;
+    touchLatched.current = false;
+    touchDown.current = false;
+    touchScrollAt.current = 0;
     pointerGesture.current = undefined;
     pointerDragging.current = false;
     chromeScroll.current = false;
@@ -391,9 +435,18 @@ export function useTranscriptFollow({
   const markReaderMotion = useCallback(() => {
     readerMotionAt.current = Date.now();
   }, []);
+  const hasTouchScroll = useCallback(
+    () =>
+      touchScrollLatchOpen({
+        latched: touchLatched.current,
+        touchDown: touchDown.current,
+        sinceScrollMs: Date.now() - touchScrollAt.current,
+      }),
+    []
+  );
   const hasReaderScroll = useCallback(
-    () => hasGesture() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
-    [hasGesture]
+    () => hasGesture() || hasTouchScroll() || Date.now() - readerMotionAt.current < READER_SCROLL_IDLE_MS,
+    [hasGesture, hasTouchScroll]
   );
   const markProgrammaticScroll = useCallback((top: number, intended?: number) => {
     const time = Date.now();
@@ -420,6 +473,13 @@ export function useTranscriptFollow({
       if (force && !followingRef.current) publish(true);
       if (!force && !followingRef.current) return;
       if (distanceFromBottom(element) < 2) return;
+      if (transcriptScrollDiagnosticsEnabled()) {
+        logTranscriptScroll('follow-request', {
+          force,
+          top: element.scrollTop,
+          distance: distanceFromBottom(element),
+        });
+      }
       scrollToEndRef?.current?.('auto');
     },
     [publish, scrollToEndRef, viewport]
@@ -468,9 +528,22 @@ export function useTranscriptFollow({
     const element = viewport.current;
     if (!element) return;
     scheduleScrollState(element);
+    // Every frame of a touch scroll — finger-driven or inertial — keeps the
+    // latch alive, so the idle fallback can only close it once the native
+    // stream has actually stopped delivering.
+    if (touchLatched.current) touchScrollAt.current = Date.now();
     const previousTop = lastTop.current;
     lastTop.current = element.scrollTop;
     const programmaticScroll = isProgrammatic(element);
+    if (transcriptScrollDiagnosticsEnabled() && Math.abs(element.scrollTop - previousTop) >= 8) {
+      logTranscriptScroll('viewport-move', {
+        from: previousTop,
+        to: element.scrollTop,
+        delta: element.scrollTop - previousTop,
+        programmatic: programmaticScroll,
+        following: followingRef.current,
+      });
+    }
     // A native reader ramp may outlive the initial 250ms gesture window.
     // Extend ownership only from real movement, never from a virtual-core
     // correction, so compensation resumes once wheel/inertia actually stops.
@@ -607,6 +680,8 @@ export function useTranscriptFollow({
 
   const handleTouchStart = useCallback((event: TouchLike) => {
     touchGesture.current = event.touches[0]?.clientY;
+    touchDown.current = true;
+    touchScrollAt.current = Date.now();
   }, []);
 
   const handleTouchMove = useCallback(
@@ -621,6 +696,10 @@ export function useTranscriptFollow({
       const transcriptReached = target === event.currentTarget || shouldMarkBoundaryGesture(target, delta);
       if (transcriptReached) {
         markGesture();
+        // This drag is moving the transcript itself: ownership now belongs to
+        // the touch, not to a window that expires while the phone is busy.
+        touchLatched.current = true;
+        touchScrollAt.current = Date.now();
         // Wheel intent releases synchronously before Chromium's first scroll
         // frame; touch must do the same. Keeping the end anchor alive until the
         // later scroll event lets row measurement and followOnAppend reverse the
@@ -635,7 +714,26 @@ export function useTranscriptFollow({
 
   const handleTouchEnd = useCallback(() => {
     touchGesture.current = undefined;
+    touchDown.current = false;
+    // The fling outlives the finger. The latch stays open; scrollend or the
+    // idle fallback is what closes it.
+    touchScrollAt.current = Date.now();
   }, []);
+
+  // Chromium — Android included — reports the true end of a touch scroll,
+  // momentum and all, with scrollend. It is the only precise "native motion is
+  // over" signal available, so it closes the touch latch directly instead of
+  // waiting out the idle fallback.
+  useEffect(() => {
+    const element = viewport.current;
+    if (!element) return undefined;
+    const closeLatch = () => {
+      if (touchDown.current) return;
+      touchLatched.current = false;
+    };
+    element.addEventListener('scrollend', closeLatch);
+    return () => element.removeEventListener('scrollend', closeLatch);
+  }, [viewport]);
 
   const handleInteraction = useCallback(() => {
     // Click and in-place selection are not scroll intent. Releasing here

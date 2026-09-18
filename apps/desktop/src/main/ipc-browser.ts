@@ -2,6 +2,7 @@ import type { IpcMainInvokeEvent } from 'electron';
 import { DESKTOP_IPC, type DesktopBrowserViewportConfig } from '../shared/contract';
 import { requiredSessionId } from './desktop-state';
 import type { BrowserHost } from './browser/host';
+import type { BrowserDataScope } from './browser/browsing-data';
 import { normalizeBrowserPageControl } from '../shared/browser-page-control';
 
 type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
@@ -13,6 +14,7 @@ interface BrowserIpcOptions {
     | 'browserImportSources'
     | 'browserImport'
     | 'browserHistorySearch'
+    | 'browserClearData'
     | 'setGuestActive'
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
@@ -127,6 +129,18 @@ export function registerBrowserIpc({ handle, browserHost }: BrowserIpcOptions): 
       items: items as Array<'passwords' | 'cookies' | 'history'>,
       administratorApproved: request.administratorApproved === true,
     });
+  });
+  handle(DESKTOP_IPC.browserClearData, (_event, scopes) => {
+    if (!browserHost) throw new Error('Browser data is unavailable in this app surface.');
+    if (
+      !Array.isArray(scopes) ||
+      !scopes.length ||
+      scopes.length > 3 ||
+      scopes.some((scope) => !['cache', 'siteData', 'cookies'].includes(scope as string))
+    ) {
+      throw new TypeError('Browser data scopes are invalid.');
+    }
+    return browserHost.browserClearData(scopes as BrowserDataScope[]);
   });
   handle(DESKTOP_IPC.browserHistorySearch, (_event, query) => {
     if (!browserHost) throw new Error('Browser history is unavailable in this app surface.');

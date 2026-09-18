@@ -147,7 +147,11 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
       ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
       : null,
     autoCompactTokenLimit: explicitAutoCompactTokenLimit,
-    handoffTimeoutMs: positiveInt(cfg.timeoutMs) || envPositiveInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 30_000,
+    // One summary call can run on a slow reasoning model — the session's own
+    // model is used whenever the maintenance route is unavailable — and a large
+    // transcript takes minutes there. At 30s the call was aborted mid-flight and
+    // a recoverable compaction became a failed turn.
+    handoffTimeoutMs: positiveInt(cfg.timeoutMs) || envPositiveInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 300_000,
     reserveTokens,
     requestReserveTokens: requestReserve,
     configuredReserveTokens: configuredReserve,

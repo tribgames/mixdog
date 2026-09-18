@@ -1,4 +1,5 @@
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame, DesktopBrowserTab } from '../shared/contract';
+import { browserPageResample } from '../shared/browser-page-frame';
 import { browserPageTransition } from './browser-page-recovery';
 import {
   BROWSER_INPUT_BUSY,
@@ -118,13 +119,19 @@ export function createBrowserPageClient(options: {
   async function poll(): Promise<void> {
     if (disposed || !options.api.browserPageFrame) return;
     if (pendingRead) return pendingRead;
-    const capture = async () => {
+    const capture = async (): Promise<DesktopBrowserPageFrame> => {
+      // A discarded frame is safe to recapture; never publish its old pixels.
+      const resample = async () => {
+        const fresh = await options.api.browserPageFrame!(options.sessionId);
+        if (browserPageResample(fresh)) throw new Error('Browser page changed during capture.');
+        return fresh;
+      };
       try {
-        return await options.api.browserPageFrame!(options.sessionId, current?.frameId);
+        const frame = await options.api.browserPageFrame!(options.sessionId, current?.frameId);
+        return browserPageResample(frame) ? await resample() : frame;
       } catch (error) {
         if (disposed || !browserPageTransition(error, 'capture')) throw error;
-        // A discarded frame is safe to recapture; never publish its old pixels.
-        return options.api.browserPageFrame!(options.sessionId);
+        return await resample();
       }
     };
     pendingRead = capture()

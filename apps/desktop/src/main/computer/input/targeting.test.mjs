@@ -22,8 +22,11 @@ function windowRecord(id, overrides = {}) {
   };
 }
 
-function targeting(windows) {
-  return createWindowTargeting({ readComputerWindows: async () => windows });
+function targeting(windows, installed = null) {
+  return createWindowTargeting({
+    readComputerWindows: async () => windows,
+    readInstalledApps: async () => installed,
+  });
 }
 
 test('an app label resolves when it names exactly one window', async () => {
@@ -143,4 +146,29 @@ test('app listing groups windows per process and puts the focused app first', as
     apps[1].windows.map((window) => window.window_id),
     ['hwnd:0x1', 'hwnd:0x2']
   );
+});
+
+test('installed apps answer a query and otherwise only report how large the catalogue is', async () => {
+  const installed = {
+    matches: [{ name: '계산기', app_id: 'Microsoft.WindowsCalculator_8wekyb3d8bbwe!App', packaged: true }],
+    total: 231,
+  };
+  const { listComputerApps } = targeting([windowRecord('hwnd:0x1')], installed);
+  const unfiltered = JSON.parse((await listComputerApps({})).text);
+  // Hundreds of entries would drown the running windows the caller asked about.
+  assert.equal(unfiltered.installed, undefined);
+  assert.equal(unfiltered.installed_total, 231);
+  const filtered = JSON.parse((await listComputerApps({ query: '계산' })).text);
+  assert.deepEqual(
+    filtered.installed.map((app) => app.app_id),
+    ['Microsoft.WindowsCalculator_8wekyb3d8bbwe!App']
+  );
+  assert.equal(filtered.installed_matched, 1);
+});
+
+test('an app listing still works when the installed catalogue is unavailable', async () => {
+  const { listComputerApps } = targeting([windowRecord('hwnd:0x1')]);
+  const payload = JSON.parse((await listComputerApps({ query: 'notepad' })).text);
+  assert.equal(payload.apps.length, 1);
+  assert.equal(payload.installed_total, undefined);
 });

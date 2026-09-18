@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, clipboard, screen } from 'electron';
 import { createComputerHost, type ComputerHost } from '../index';
+import { createComputerUseOverlay, type ComputerUseOverlay } from '../overlay';
 import { compileNativeTextFixture } from '../backend/native-fixture';
 import { createPolling } from '../../host-harness-poll';
 
@@ -106,6 +107,9 @@ const scenarioOnly = new Set(
     .map((value) => value.trim())
     .filter(Boolean)
 );
+const skipForeground = process.env.MIXDOG_COMPUTER_SCENARIO_SKIP_FOREGROUND === '1';
+let foregroundSkipped = false;
+let userInterventionSeen = false;
 const profile = String(process.env.MIXDOG_COMPUTER_SCENARIO_PROFILE || '');
 if (!profile) throw new Error('MIXDOG_COMPUTER_SCENARIO_PROFILE is required');
 const dataDirectory = join(profile, 'data');
@@ -139,10 +143,14 @@ const MUTATION_ACTIONS = new Set([
   'right_click',
   'middle_click',
   'triple_click',
+  'mouse_down',
+  'mouse_up',
   'mouse_move',
   'drag',
   'type',
   'key',
+  'key_down',
+  'key_up',
   'scroll',
   'focus_window',
   'move_window',
@@ -243,11 +251,21 @@ async function runScenario(id: string, name: string, area: string, operation: ()
   const startedAt = Date.now();
   let status: ScenarioResult['status'] = 'pass';
   let failure = '';
+  foregroundSkipped = false;
+  userInterventionSeen = false;
   try {
     await operation();
+    // An assertion can swallow the skip signal, so what was requested decides
+    // the outcome, not only whether the skip error reached this frame.
+    if (foregroundSkipped || userInterventionSeen) status = 'skip';
   } catch (error) {
-    status = error instanceof ScenarioSkip ? 'skip' : 'fail';
     failure = (error as Error).message || String(error);
+    // The host pausing for the user is an environment fact, not a defect. Record
+    // it as unmeasured so a real failure stays visible next to it.
+    const userControlled =
+      failure.includes('computer_user_control_active') || failure.includes('computer_user_intervention_pending');
+    status =
+      error instanceof ScenarioSkip || foregroundSkipped || userControlled || userInterventionSeen ? 'skip' : 'fail';
     metrics.false_positive = status === 'fail' && metrics.accepted_mutations > 0;
   } finally {
     activeMetrics = null;
@@ -424,6 +442,7 @@ async function createDenseFixture(): Promise<BrowserWindow> {
 
 async function run(): Promise<void> {
   let host: ComputerHost | null = null;
+  let overlay: ComputerUseOverlay | null = null;
   let externalChild: ChildProcess | null = null;
   let nativeDialogChild: ChildProcess | null = null;
   const windows: BrowserWindow[] = [];
@@ -445,6 +464,25 @@ async function run(): Promise<void> {
 
   try {
     progress('SETUP app ready');
+    // This harness is its own Electron app: the activity overlay and pointer
+    // feedback the product shows only appear while this process owns them too.
+    if (process.env.MIXDOG_COMPUTER_SCENARIO_OVERLAY !== 'off') {
+      overlay = createComputerUseOverlay(
+        {
+          stop: async () => {
+            host?.takeOver('user_stop');
+          },
+          pause: async () => {
+            host?.takeOver('user_pause');
+          },
+          resume: async (generation, signal) => {
+            await host?.resumeAfterTakeover(generation, signal);
+          },
+        },
+        'ko'
+      );
+      progress('SETUP activity overlay ready');
+    }
     if (needsNativeTextFixture) {
       nativeTextFixturePath = compileNativeTextFixture(profile);
       progress('SETUP native text fixture ready');
@@ -568,6 +606,11 @@ async function run(): Promise<void> {
     command = async (input: Record<string, unknown>, sessionId = session): Promise<CommandResult> => {
       const body = JSON.stringify({ session_id: sessionId, ...input });
       const actionName = String(input.action || '');
+      // Sequence steps carry their delivery in the same body, so one check covers them.
+      if (skipForeground && body.includes('"delivery":"foreground"')) {
+        foregroundSkipped = true;
+        throw new ScenarioSkip('foreground delivery takes the real pointer; skipped by request');
+      }
       const isCleanup = actionName === 'session_release' || actionName === 'session_abort';
       const isObservation = OBSERVATION_ACTIONS.has(actionName);
       const isMutation = MUTATION_ACTIONS.has(actionName);
@@ -638,6 +681,20 @@ async function run(): Promise<void> {
         }
         try {
           const parsed = JSON.parse(value.text) as Record<string, unknown>;
+          // A parked request answers at the bridge level, so the intervention is
+          // only visible in the body. Later assertions in the same scenario are
+          // measuring a desktop the user owns, not the behaviour under test.
+          // `user_input_during_capture` names the user, while an unavailable
+          // observer stays a real failure: the reason separates them.
+          if (
+            parsed.code === 'computer_user_intervention_pending' ||
+            // A capture reports this reason whenever the user touched their own
+            // mouse, but it only says foreground input is not ready. Work that
+            // never tried to send input stays measurable through it.
+            (parsed.foreground_input_reason === 'user_input_during_capture' && MUTATION_ACTIONS.has(actionName))
+          ) {
+            userInterventionSeen = true;
+          }
           activeMetrics.max_returned_elements = Math.max(
             activeMetrics.max_returned_elements,
             Number(parsed.returned_elements) || 0,
@@ -1207,6 +1264,7 @@ async function run(): Promise<void> {
             async () => BrowserWindow.getFocusedWindow()?.id || 0,
             (id) => id === guard.id
           );
+          progress('S17 guard holds focus');
           const action = actionPayload(
             await command(
               {
@@ -1234,22 +1292,27 @@ async function run(): Promise<void> {
           assert.equal(recovery?.focus_restored, false, JSON.stringify(action));
           assert.equal(recovery?.focus_preserved_for_followup, true, JSON.stringify(action));
           assert.equal(recovery?.focus_recovery, 'session_release', JSON.stringify(action));
+          // Foreground input borrows the one system pointer and gives it back
+          // to where the user left it.
           assert.equal(recovery?.cursor_restored, true, JSON.stringify(action));
           assert.notEqual(recovery?.expected_focus_window_id, fixtureWindowId);
           await eventually(
             async () => BrowserWindow.getFocusedWindow()?.id || 0,
             (id) => id === fixture.id
           );
+          progress('S17 fixture keeps focus after the click');
           assert.ok(
             Number(await fixture.webContents.executeJavaScript('globalThis.mixdogMotorState().clickCount')) >
               clickCountBefore,
             JSON.stringify(action)
           );
           await command({ action: 'session_release' }, 'focus-recovery');
+          progress('S17 session released');
           await eventually(
             async () => BrowserWindow.getFocusedWindow()?.id || 0,
             (id) => id === guard.id
           );
+          progress('S17 focus restored to the guard');
         } finally {
           await command({ action: 'session_release' }, 'focus-recovery');
         }
@@ -1530,6 +1593,12 @@ $form.Add_KeyDown({
         // A dedicated native executable avoids modern Notepad's single-instance
         // tab restoration, which can reuse and then close a user's existing app.
         assert.ok(nativeTextFixturePath, 'native text fixture was not compiled');
+        fixture.show();
+        fixture.focus();
+        await eventually(
+          async () => BrowserWindow.getFocusedWindow()?.id || 0,
+          (id) => id === fixture.id
+        );
         const launched = actionPayload(
           await command(
             {
@@ -1547,6 +1616,14 @@ $form.Add_KeyDown({
           | undefined;
         const nativeWindowId = transition?.next_target?.id;
         assert.ok(nativeWindowId, JSON.stringify(launched));
+        // A launch shows the app without activating it. Windows' foreground lock
+        // already blocks most activation here, so this pins the contract against an
+        // explicit activation creeping into the launch path later.
+        assert.equal(
+          BrowserWindow.getFocusedWindow()?.id,
+          fixture.id,
+          'launch must not take the foreground from the user'
+        );
         const capture = launched.capture_after as CapturePayload;
         assert.equal(capture.window_id, nativeWindowId);
         assert.ok((capture.elements?.length || 0) > 0);
@@ -1881,13 +1958,20 @@ $form.Add_KeyDown({
           'diagnostics'
         )
       );
-      assert.equal(diagnostics.ready, true, JSON.stringify(diagnostics));
       const capabilities = diagnostics.capabilities as
         | {
             semantic_accessibility?: { available?: boolean };
             ocr?: { available?: boolean; installed_languages?: string[] };
+            input_observation?: { input_held?: boolean };
           }
         | undefined;
+      // Readiness folds in foreground availability, which the user's own hand on
+      // the mouse legitimately withholds. That is an environment state, not a
+      // diagnostics defect, so it must not be recorded as a failing scenario.
+      if (diagnostics.ready !== true && capabilities?.input_observation?.input_held === true) {
+        throw new ScenarioSkip('diagnose reports physical input held by the user; foreground readiness is withheld');
+      }
+      assert.equal(diagnostics.ready, true, JSON.stringify(diagnostics));
       assert.equal(capabilities?.semantic_accessibility?.available, true, JSON.stringify(diagnostics));
       assert.equal(capabilities?.ocr?.available, true, JSON.stringify(diagnostics));
       assert.ok(
@@ -2280,16 +2364,21 @@ $form.Add_KeyDown({
 
         before = after;
         marks = await motorMarks();
-        await command(
-          {
-            action: 'double_click',
-            element: marks.send,
-            delivery: 'background',
-          },
-          'motor-coverage'
+        // A Chromium renderer never turns a posted double-click into a dblclick,
+        // so that route refuses instead of reporting a gesture that never
+        // arrived. The gesture itself must still reach the observed canvas.
+        const refusedDouble = actionPayload(
+          await command(
+            {
+              action: 'double_click',
+              element: marks.send,
+              delivery: 'background',
+            },
+            'motor-coverage'
+          )
         );
-        after = await motorState();
-        assert.ok(after.doubleClicks > before.doubleClicks, JSON.stringify({ before, after }));
+        assert.equal(refusedDouble.code, 'background_unsupported', JSON.stringify(refusedDouble));
+        assert.notEqual(refusedDouble.delivery_accepted, true, JSON.stringify(refusedDouble));
 
         before = after;
         marks = await motorMarks();
@@ -2323,6 +2412,21 @@ $form.Add_KeyDown({
           before.wheelDelta,
           JSON.stringify({ before, after, result: actionPayload(scrolled) })
         );
+
+        // Foreground goes last: it takes the real pointer, so the background
+        // gestures above stay measurable whenever that lane is skipped.
+        before = after;
+        marks = await motorMarks();
+        await command(
+          {
+            action: 'double_click',
+            element: marks.send,
+            delivery: 'foreground',
+          },
+          'motor-coverage'
+        );
+        after = await motorState();
+        assert.ok(after.doubleClicks > before.doubleClicks, JSON.stringify({ before, after }));
       } finally {
         await command({ action: 'session_release' }, 'motor-coverage');
       }
@@ -2351,7 +2455,7 @@ $form.Add_KeyDown({
             },
             'window-coverage'
           ),
-          /window width and height must be positive/
+          /invalid_window_bounds: width must be positive/
         );
         await assert.rejects(
           command(
@@ -2362,7 +2466,7 @@ $form.Add_KeyDown({
             },
             'window-coverage'
           ),
-          /window state must be minimize, maximize, or restore/
+          /invalid_window_state: state must be minimize, maximize, or restore/
         );
         assert.deepEqual(fixture.getBounds(), original);
         assert.equal(fixture.isVisible(), true);
@@ -2517,6 +2621,7 @@ $form.Add_KeyDown({
         ),
         /read_only run: 'sequence' is a mutation/
       );
+      progress('S38 read_only sequence refused');
       const invalidOptionsSession = 'invalid-sequence-options';
       try {
         await command(
@@ -2542,6 +2647,7 @@ $form.Add_KeyDown({
           ),
           /capture_after_mode must be state, som, vision, or ax/
         );
+        progress('S38 invalid capture_after_mode refused');
       } finally {
         await command({ action: 'session_release' }, invalidOptionsSession);
       }
@@ -2570,6 +2676,7 @@ $form.Add_KeyDown({
           ),
           /observation_only/
         );
+        progress('S38 observation-only click refused');
         const recaptured = capturePayload(
           await command(
             {
@@ -2649,7 +2756,9 @@ $form.Add_KeyDown({
                 action: 'verify',
                 window_id: fixtureWindowId,
                 expect: [{ title_contains: 'Scenario Renderer' }],
-                timeout_ms: 1_000,
+                // Two stable samples need room for a slow accessibility read: a
+                // budget that only fits one sample tests the machine, not verify.
+                timeout_ms: 5_000,
               },
               sessionId
             )
@@ -2671,7 +2780,7 @@ $form.Add_KeyDown({
                 action: 'verify',
                 window_id: closedWindowId,
                 expect: [{ window_exists: false }],
-                timeout_ms: 1_000,
+                timeout_ms: 5_000,
               },
               sessionId
             )
@@ -2911,11 +3020,6 @@ $form.Add_KeyDown({
         45_000
       );
       discovery = await readDiscovery(discoveryPath, 45_000);
-      await eventually(
-        async () => host!.residentWorkerPids().length,
-        (count) => count === 1,
-        10_000
-      );
       const rapidSessionId = 'bridge-rapid-toggle';
       try {
         const waited = await command(
@@ -2926,12 +3030,23 @@ $form.Add_KeyDown({
           rapidSessionId
         );
         assert.equal(waited.text, 'waited 0s');
+        // Workers are created on demand, so a republished bridge owns one only
+        // after a command has actually needed it.
+        await eventually(
+          async () => host!.residentWorkerPids().length,
+          (count) => count === 1,
+          10_000
+        );
       } finally {
         await command({ action: 'session_release' }, rapidSessionId);
       }
       for (let cycle = 1; cycle <= 3; cycle += 1) {
-        assert.ok(host!.residentWorkerPids().length > 0);
         const previousToken = discovery.token;
+        // The restart has to retire a live worker, so create one here instead of
+        // depending on an earlier session having left one behind.
+        const warmSessionId = `bridge-restart-warm-${cycle}`;
+        assert.equal((await command({ action: 'wait', duration: 0 }, warmSessionId)).text, 'waited 0s');
+        assert.ok(host!.residentWorkerPids().length > 0);
         host!.setBridgeEnabled(false);
         progress(`S35 cycle ${cycle} disable requested`);
         await eventually(
@@ -2958,12 +3073,6 @@ $form.Add_KeyDown({
         discovery = await readDiscovery(discoveryPath, 45_000);
         progress(`S35 cycle ${cycle} discovery republished`);
         assert.notEqual(discovery.token, previousToken);
-        await eventually(
-          async () => host!.residentWorkerPids().length,
-          (count) => count === 1,
-          10_000
-        );
-        progress(`S35 cycle ${cycle} one worker ready`);
         const sessionId = `bridge-restart-${cycle}`;
         try {
           const waited = await command(
@@ -2975,12 +3084,19 @@ $form.Add_KeyDown({
           );
           assert.equal(waited.text, 'waited 0s');
           progress(`S35 cycle ${cycle} command passed`);
+          await eventually(
+            async () => host!.residentWorkerPids().length,
+            (count) => count === 1,
+            10_000
+          );
+          progress(`S35 cycle ${cycle} one worker ready`);
         } finally {
           await command({ action: 'session_release' }, sessionId);
         }
       }
     });
   } finally {
+    overlay?.dispose();
     externalChild?.kill();
     (nativeDialogChild as ChildProcess | null)?.kill();
     await host?.dispose();

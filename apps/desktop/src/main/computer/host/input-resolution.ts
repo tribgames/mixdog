@@ -4,27 +4,15 @@
  * hand back, and a mutation waits for the desktop to settle before the window
  * transition is read.
  */
-import {
-  DEFAULT_CAPTURE_AFTER_DELAY_MS,
-  MAX_CAPTURE_AFTER_DELAY_MS,
-  elapsedMs,
-} from '../shared/common';
-import type {
-  CaptureFrame,
-  ComputerCommand,
-  ObservedWindowScope,
-  PowerShellResponse,
-} from '../shared/types';
+import { DEFAULT_CAPTURE_AFTER_DELAY_MS, MAX_CAPTURE_AFTER_DELAY_MS, elapsedMs } from '../shared/common';
+import type { CaptureFrame, ComputerCommand, ObservedWindowScope, PowerShellResponse } from '../shared/types';
 import {
   computeComputerWindowTransition,
   type ComputerWindowRecord,
   type ComputerWindowTransition,
 } from '../shared/window-transition';
 import { framePoint, screenshotInteger } from '../observation/analysis';
-import {
-  FOCUS_CONTINUATION_ACTIONS,
-  OBSERVATION_BOUND_INPUT_ACTIONS,
-} from './action-sets';
+import { FOCUS_CONTINUATION_ACTIONS, OBSERVATION_BOUND_INPUT_ACTIONS } from './action-sets';
 import type { InputRecoveryState } from './execution-state';
 
 const LAUNCH_SUCCESSOR_TIMEOUT_MS = 4_000;
@@ -36,10 +24,7 @@ export interface InputResolutionHost {
   assertExecutionNotAborted(): void;
   requireValidFrame(command: ComputerCommand): Promise<CaptureFrame>;
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
-  readComputerWindows(
-    command: ComputerCommand,
-    includeApp?: boolean,
-  ): Promise<ComputerWindowRecord[] | null>;
+  readComputerWindows(command: ComputerCommand, includeApp?: boolean): Promise<ComputerWindowRecord[] | null>;
 }
 
 export interface ResolvedInputTarget {
@@ -47,6 +32,7 @@ export interface ResolvedInputTarget {
   physicalY?: number;
   physicalToX?: number;
   physicalToY?: number;
+  physicalPath?: Array<{ x: number; y: number }>;
   targetWindowId?: string;
   allowedWindowIds: string[];
   observedScope?: ObservedWindowScope;
@@ -65,13 +51,13 @@ export function createInputResolution(host: InputResolutionHost) {
   async function readInputRecovery(
     command: ComputerCommand,
     targetWindowId: string | undefined,
-    includeRef = true,
+    includeRef = true
   ): Promise<InputRecoveryState> {
     const response = await callPowerShell({
       action: 'input_recovery_state',
       window: command.window ?? null,
       window_id: targetWindowId ?? null,
-      ref: includeRef ? command.ref ?? null : null,
+      ref: includeRef ? (command.ref ?? null) : null,
       after_input: !includeRef,
       session_id: sessionIdFor(command),
       read_only: true,
@@ -107,19 +93,30 @@ export function createInputResolution(host: InputResolutionHost) {
   async function resolveInputTarget(
     command: ComputerCommand,
     action: string,
-    trustedSequenceContinuation: boolean,
+    trustedSequenceContinuation: boolean
   ): Promise<ResolvedInputTarget> {
     let physicalX = command.x;
     let physicalY = command.y;
     let physicalToX = command.to_x;
     let physicalToY = command.to_y;
+    let physicalPath: Array<{ x: number; y: number }> | undefined;
     let targetWindowId = command.window_id;
     let allowedWindowIds: string[] = [];
     let observedScope: ObservedWindowScope | undefined;
-    const pixelActions = new Set(['click', 'double_click', 'right_click', 'middle_click', 'triple_click', 'mouse_move']);
-    if ((pixelActions.has(action)
-        || (action === 'type' && command.x !== undefined && command.y !== undefined))
-      && !command.ref) {
+    const pixelActions = new Set([
+      'click',
+      'double_click',
+      'right_click',
+      'middle_click',
+      'triple_click',
+      'mouse_down',
+      'mouse_up',
+      'mouse_move',
+    ]);
+    if (
+      (pixelActions.has(action) || (action === 'type' && command.x !== undefined && command.y !== undefined)) &&
+      !command.ref
+    ) {
       if (command.x === undefined || command.y === undefined) {
         throw new Error(`${action} requires ref or frame-bound x/y coordinates`);
       }
@@ -130,9 +127,13 @@ export function createInputResolution(host: InputResolutionHost) {
       targetWindowId = frame.windowId || targetWindowId;
       allowedWindowIds = frame.relatedWindowIds || (targetWindowId ? [targetWindowId] : []);
     }
-    if (action === 'drag' && !command.ref) {
-      if (command.x === undefined || command.y === undefined
-        || command.to_x === undefined || command.to_y === undefined) {
+    if (action === 'drag' && !command.ref && !Array.isArray(command.waypoints)) {
+      if (
+        command.x === undefined ||
+        command.y === undefined ||
+        command.to_x === undefined ||
+        command.to_y === undefined
+      ) {
         throw new Error('drag requires ref/to or frame-bound x/y/to_x/to_y coordinates');
       }
       const frame = await requireValidFrame(command);
@@ -146,8 +147,16 @@ export function createInputResolution(host: InputResolutionHost) {
       if (!targetWindowId) throw new Error('coordinate drag requires a window capture frame');
       allowedWindowIds = frame.relatedWindowIds || [targetWindowId];
     }
-    if (action === 'scroll' && !command.ref
-      && (command.x !== undefined || command.y !== undefined)) {
+    if (action === 'drag' && Array.isArray(command.waypoints)) {
+      // Every waypoint belongs to the same frame, so one frame lookup maps the
+      // whole gesture and keeps the points from drifting across windows.
+      const frame = await requireValidFrame(command);
+      physicalPath = command.waypoints.map((point) => framePoint(frame, point.x, point.y));
+      targetWindowId = frame.windowId || targetWindowId;
+      if (!targetWindowId) throw new Error('waypoint drag requires a window capture frame');
+      allowedWindowIds = frame.relatedWindowIds || [targetWindowId];
+    }
+    if (action === 'scroll' && !command.ref && (command.x !== undefined || command.y !== undefined)) {
       if (command.x === undefined || command.y === undefined) {
         throw new Error('coordinate scroll requires frame-bound x and y');
       }
@@ -164,12 +173,10 @@ export function createInputResolution(host: InputResolutionHost) {
       if (!observedScope && !(trustedSequenceContinuation && targetWindowId)) {
         throw new Error(`${action} requires a fresh capture/snapshot/find of the exact target window first`);
       }
-      if (observedScope
-        && targetWindowId
-        && !observedScope.relatedWindowIds.includes(targetWindowId)) {
+      if (observedScope && targetWindowId && !observedScope.relatedWindowIds.includes(targetWindowId)) {
         throw new Error(
-          `stale_target: ${action} targets ${targetWindowId}, but the latest observation is `
-            + observedScope.primaryWindowId,
+          `stale_target: ${action} targets ${targetWindowId}, but the latest observation is ` +
+            observedScope.primaryWindowId
         );
       }
       targetWindowId = targetWindowId || observedScope?.primaryWindowId;
@@ -179,6 +186,7 @@ export function createInputResolution(host: InputResolutionHost) {
       physicalY,
       physicalToX,
       physicalToY,
+      physicalPath,
       targetWindowId,
       allowedWindowIds,
       observedScope,
@@ -192,34 +200,42 @@ export function createInputResolution(host: InputResolutionHost) {
     targetWindowId: string | undefined,
     inputRecovery: InputRecoveryState,
     timings: Record<string, number>,
-    nativeResult: Record<string, unknown> = {},
+    nativeResult: Record<string, unknown> = {}
   ): Promise<Record<string, unknown>> {
     let current: InputRecoveryState | undefined;
     let reasserted = false;
     let restoredTarget = '';
     let readbackError = '';
-    const preserveCursor = command.delivery === 'foreground';
-    const preserveFocusForFollowup = command.action === 'focus_window' || FOCUS_CONTINUATION_ACTIONS.has(
-      String(command.action || ''),
-    ) || (command.delivery === 'foreground' && ['key', 'type'].includes(command.action));
+    const preserveFocusForFollowup =
+      command.action === 'focus_window' ||
+      FOCUS_CONTINUATION_ACTIONS.has(String(command.action || '')) ||
+      (command.delivery === 'foreground' && ['key', 'key_down', 'key_up', 'type'].includes(command.action));
     try {
       current = await readInputRecovery(command, targetWindowId, false);
     } catch (error) {
       readbackError = (error as Error).message || String(error);
     }
     try {
-      const inputKnown = current?.inputObserverReady === true && inputRecovery.inputObserverReady === true
-        && Boolean(current.inputMonitorId) && current.inputMonitorId === inputRecovery.inputMonitorId
-        && Number.isSafeInteger(current.inputUserSequence) && Number.isSafeInteger(inputRecovery.inputUserSequence);
+      const inputKnown =
+        current?.inputObserverReady === true &&
+        inputRecovery.inputObserverReady === true &&
+        Boolean(current.inputMonitorId) &&
+        current.inputMonitorId === inputRecovery.inputMonitorId &&
+        Number.isSafeInteger(current.inputUserSequence) &&
+        Number.isSafeInteger(inputRecovery.inputUserSequence);
       if (!current || !inputKnown) {
         return {
-          ok: false, recovery_skipped: true, code: 'input_observation_unavailable',
+          ok: false,
+          recovery_skipped: true,
+          code: 'input_observation_unavailable',
           ...(readbackError ? { readback_error: readbackError } : {}),
         };
       }
       if (current.inputUserSequence !== inputRecovery.inputUserSequence) {
         return {
-          ok: false, recovery_skipped: true, user_control: true,
+          ok: false,
+          recovery_skipped: true,
+          user_control: true,
           code: 'user_input_active',
           ...(readbackError ? { readback_error: readbackError } : {}),
         };
@@ -227,15 +243,14 @@ export function createInputResolution(host: InputResolutionHost) {
       if (current.targetExists === false) {
         // The owner was recorded before dispatch, not inferred from the new
         // foreground. A missing observer or intervening user input still fails above.
-        const returnedToOwner = Boolean(inputRecovery.targetOwnerWindowId)
-          && current.foregroundWindowId === inputRecovery.targetOwnerWindowId;
-        const cursorUnchanged = current.cursorX === inputRecovery.cursorX
-          && current.cursorY === inputRecovery.cursorY;
+        const returnedToOwner =
+          Boolean(inputRecovery.targetOwnerWindowId) &&
+          current.foregroundWindowId === inputRecovery.targetOwnerWindowId;
+        const cursorUnchanged = current.cursorX === inputRecovery.cursorX && current.cursorY === inputRecovery.cursorY;
         return {
-          ok: returnedToOwner && (preserveCursor || cursorUnchanged),
+          ok: returnedToOwner && cursorUnchanged,
           target_closed: true,
           focus_preserved_for_followup: returnedToOwner,
-          cursor_preserved: preserveCursor,
           cursor_restored: cursorUnchanged,
           reasserted: false,
         };
@@ -243,17 +258,27 @@ export function createInputResolution(host: InputResolutionHost) {
       // An explicitly refused input that left focus where it was needs no
       // restoration to an older session focus. The action's own refusal is
       // still returned by the reply builder; this only closes cleanup.
-      if (nativeResult.delivery_accepted === false
-        && current.foregroundWindowId === inputRecovery.foregroundWindowId
-        && current.cursorX === inputRecovery.cursorX && current.cursorY === inputRecovery.cursorY) {
-        return { ok: true, recovery_skipped: true, focus_unchanged: true,
-          input_not_dispatched: true, cursor_restored: true, reasserted: false };
+      if (
+        nativeResult.delivery_accepted === false &&
+        current.foregroundWindowId === inputRecovery.foregroundWindowId &&
+        current.cursorX === inputRecovery.cursorX &&
+        current.cursorY === inputRecovery.cursorY
+      ) {
+        return {
+          ok: true,
+          recovery_skipped: true,
+          focus_unchanged: true,
+          input_not_dispatched: true,
+          cursor_restored: true,
+          reasserted: false,
+        };
       }
-      const focusDrifted = !current
-        || current.foregroundWindowId !== inputRecovery.restoreWindowId;
-      const cursorDrifted = !preserveCursor && (!current
-        || current.cursorX !== inputRecovery.cursorX
-        || current.cursorY !== inputRecovery.cursorY);
+      const focusDrifted = !current || current.foregroundWindowId !== inputRecovery.restoreWindowId;
+      // Foreground input borrows the one system pointer, so every delivery mode
+      // gives the cursor back. The recovery call itself refuses to move a cursor
+      // the user touched in the meantime.
+      const cursorDrifted =
+        !current || current.cursorX !== inputRecovery.cursorX || current.cursorY !== inputRecovery.cursorY;
       if (!current || cursorDrifted || (focusDrifted && !preserveFocusForFollowup)) {
         const recoveryStartedAt = performance.now();
         const restored = await callPowerShell({
@@ -261,8 +286,8 @@ export function createInputResolution(host: InputResolutionHost) {
           window_id: targetWindowId,
           restore_window_id: inputRecovery.restoreWindowId,
           restore_owner_window_id: inputRecovery.restoreOwnerWindowId,
-          cursor_x: preserveCursor ? current.cursorX : inputRecovery.cursorX,
-          cursor_y: preserveCursor ? current.cursorY : inputRecovery.cursorY,
+          cursor_x: inputRecovery.cursorX,
+          cursor_y: inputRecovery.cursorY,
           restore_focus: !preserveFocusForFollowup,
           expected_input_tick: current.inputTick,
           expected_input_monitor_id: current.inputMonitorId,
@@ -289,8 +314,11 @@ export function createInputResolution(host: InputResolutionHost) {
         };
         reasserted = true;
       }
-      if (current.inputObserverReady !== true || current.inputMonitorId !== inputRecovery.inputMonitorId
-        || !Number.isSafeInteger(current.inputUserSequence)) {
+      if (
+        current.inputObserverReady !== true ||
+        current.inputMonitorId !== inputRecovery.inputMonitorId ||
+        !Number.isSafeInteger(current.inputUserSequence)
+      ) {
         return { ok: false, recovery_skipped: true, code: 'input_observation_unavailable' };
       }
       if (current.inputUserSequence !== inputRecovery.inputUserSequence) {
@@ -298,19 +326,20 @@ export function createInputResolution(host: InputResolutionHost) {
       }
       // Landing on the owner is the honest outcome when the action closed the
       // window that held focus; any other destination is still a miss.
-      const focusRestored = current.foregroundWindowId === inputRecovery.restoreWindowId
-        || (restoredTarget === 'owner'
-          && inputRecovery.restoreOwnerWindowId !== ''
-          && current.foregroundWindowId === inputRecovery.restoreOwnerWindowId);
-      const focusPreservedForFollowup = preserveFocusForFollowup
-        && (current.foregroundWindowId === targetWindowId || current.foregroundWithinTarget === true
-          || (command.delivery === 'foreground' && current.foregroundChildProcess === true))
-        && !focusRestored;
-      const cursorRestored = current.cursorX === inputRecovery.cursorX
-        && current.cursorY === inputRecovery.cursorY;
+      const focusRestored =
+        current.foregroundWindowId === inputRecovery.restoreWindowId ||
+        (restoredTarget === 'owner' &&
+          inputRecovery.restoreOwnerWindowId !== '' &&
+          current.foregroundWindowId === inputRecovery.restoreOwnerWindowId);
+      const focusPreservedForFollowup =
+        preserveFocusForFollowup &&
+        (current.foregroundWindowId === targetWindowId ||
+          current.foregroundWithinTarget === true ||
+          (command.delivery === 'foreground' && current.foregroundChildProcess === true)) &&
+        !focusRestored;
+      const cursorRestored = current.cursorX === inputRecovery.cursorX && current.cursorY === inputRecovery.cursorY;
       return {
-        ok: (focusRestored || focusPreservedForFollowup) && (cursorRestored || preserveCursor),
-        cursor_preserved: preserveCursor,
+        ok: (focusRestored || focusPreservedForFollowup) && cursorRestored,
         focus_restored: focusRestored,
         focus_preserved_for_followup: focusPreservedForFollowup,
         focus_transition_to_child: focusPreservedForFollowup && current.foregroundChildProcess === true,
@@ -355,19 +384,13 @@ export function createInputResolution(host: InputResolutionHost) {
       DEFAULT_CAPTURE_AFTER_DELAY_MS,
       0,
       MAX_CAPTURE_AFTER_DELAY_MS,
-      'capture_delay_ms',
+      'capture_delay_ms'
     );
     let transition: ComputerWindowTransition | null = null;
     let windowScanMs = 0;
     const transitionFor = (windowsAfter: ComputerWindowRecord[] | null) =>
       windowsBefore && windowsAfter
-        ? computeComputerWindowTransition(
-            windowsBefore,
-            windowsAfter,
-            input.targetWindowId,
-            input.pid,
-            input.appHint,
-          )
+        ? computeComputerWindowTransition(windowsBefore, windowsAfter, input.targetWindowId, input.pid, input.appHint)
         : null;
     if (action === 'launch') {
       const deadline = settleStartedAt + Math.max(settleDelayMs, LAUNCH_SUCCESSOR_TIMEOUT_MS);
@@ -376,18 +399,16 @@ export function createInputResolution(host: InputResolutionHost) {
       do {
         const remainingMs = Math.max(0, deadline - performance.now());
         if (remainingMs > 0) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, Math.min(LAUNCH_POLL_INTERVAL_MS, remainingMs)));
+          await new Promise((resolve) => setTimeout(resolve, Math.min(LAUNCH_POLL_INTERVAL_MS, remainingMs)));
         }
         assertExecutionNotAborted();
         const transitionStartedAt = performance.now();
-        const includeAppMetadata =
-          performance.now() - settleStartedAt >= minimumLaunchSettleMs;
+        const includeAppMetadata = performance.now() - settleStartedAt >= minimumLaunchSettleMs;
         const windowsAfter = await readComputerWindows(command, includeAppMetadata);
         windowScanMs += elapsedMs(transitionStartedAt);
         transition = transitionFor(windowsAfter);
-        launchSuccessorReady = Boolean(transition?.next_target)
-          && performance.now() - settleStartedAt >= minimumLaunchSettleMs;
+        launchSuccessorReady =
+          Boolean(transition?.next_target) && performance.now() - settleStartedAt >= minimumLaunchSettleMs;
       } while (!launchSuccessorReady && performance.now() < deadline);
       settleDelayMs = Math.round(performance.now() - settleStartedAt);
     } else {

@@ -2,11 +2,12 @@ import crypto, { createHash } from 'node:crypto';
 import http2 from 'node:http2';
 import { isDeepStrictEqual } from 'node:util';
 import {
-  AUTO_MODEL,
   FALLBACK_MODELS,
+  isCursorAutoModelId,
   normalizeCursorUsage,
   normalizeModels,
   normalizeParameterizedModels,
+  withCanonicalAutoModels,
 } from './cursor-wire-normalization.mjs';
 import {
   decodeJsonValue,
@@ -629,7 +630,7 @@ function buildRunRequest({
   if (!historyExtendsMeasuredPrefix(conversation.historyBlobIds, historyBlobIds)) conversation.checkpoint = null;
   conversation.historyBlobIds = historyBlobIds;
   const stateBytes = rewriteConversationState(conversation.checkpoint, rootPromptMessagesJson);
-  const cursorModel = model === 'auto' ? 'default' : model;
+  const cursorModel = isCursorAutoModelId(model) ? 'default' : model;
   const action =
     userText || userImages.length
       ? {
@@ -1637,11 +1638,11 @@ export async function getCursorModels(accessToken) {
     if (discovered.length) break;
   }
   if (!discovered.length) {
-    return Object.assign([AUTO_MODEL, ...FALLBACK_MODELS.filter((model) => model.id !== AUTO_MODEL.id)], {
+    return Object.assign(withCanonicalAutoModels(FALLBACK_MODELS), {
       fallback: true,
     });
   }
-  cachedModels = [AUTO_MODEL, ...discovered.filter((model) => model.id !== AUTO_MODEL.id)];
+  cachedModels = withCanonicalAutoModels(discovered);
   return cachedModels;
 }
 
@@ -1681,4 +1682,5 @@ export const __cursorWireInternals = Object.freeze({
   activeRunPendingCount: (key) => activeRuns.get(key)?.pending?.length || 0,
   normalizeCursorUsage,
   normalizeParameterizedModels,
+  withCanonicalAutoModels,
 });

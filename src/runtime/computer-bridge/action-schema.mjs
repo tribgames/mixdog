@@ -184,7 +184,19 @@ export const COMPUTER_INPUT_SCHEMA = {
       'list',
       input(
         {
-          kind: { type: 'string', enum: ['windows', 'apps'] },
+          kind: {
+            type: 'string',
+            enum: ['windows', 'apps', 'history'],
+            description:
+              'history returns this session\'s own executed commands with their verdicts, for reviewing what a run already did.',
+          },
+          query: {
+            type: 'string',
+            minLength: 1,
+            maxLength: MAX_TARGET_TOKEN_LENGTH,
+            description:
+              'With kind="apps", also lists installed apps whose name or id matches, including apps that are not running.',
+          },
         },
         ['kind']
       )
@@ -234,7 +246,13 @@ export const COMPUTER_INPUT_SCHEMA = {
           ...appTarget,
           operation: {
             type: 'string',
-            enum: ['focus', 'move', 'minimize', 'maximize', 'restore', 'close'],
+            enum: ['focus', 'move', 'minimize', 'maximize', 'restore', 'close', 'terminate'],
+          },
+          confirm: {
+            type: 'string',
+            enum: ['terminate'],
+            description:
+              'terminate only, and required for it: kills the process behind the window, losing unsaved work. Ask the user first.',
           },
           x: {
             type: 'integer',
@@ -530,7 +548,8 @@ export function toComputerHostCommand(rawArgs) {
   const command = { ...inputValue };
   switch (args.action) {
     case 'list':
-      command.action = inputValue.kind === 'apps' ? 'list_apps' : 'list_windows';
+      command.action =
+        inputValue.kind === 'apps' ? 'list_apps' : inputValue.kind === 'history' ? 'list_history' : 'list_windows';
       delete command.kind;
       break;
     case 'capture':
@@ -552,7 +571,7 @@ export function toComputerHostCommand(rawArgs) {
           delete translated.button;
         }
         if (step.type === 'move') translated.action = 'mouse_move';
-        if (inputValue.frame_id && ['x', 'y', 'to_x', 'to_y'].some((field) => hasOwn(step, field))) {
+        if (inputValue.frame_id && ['x', 'y', 'to_x', 'to_y', 'waypoints'].some((field) => hasOwn(step, field))) {
           translated.frame_id = inputValue.frame_id;
         }
         return translated;
@@ -568,7 +587,9 @@ export function toComputerHostCommand(rawArgs) {
             ? 'move_window'
             : inputValue.operation === 'close'
               ? 'close_window'
-              : 'window_state';
+              : inputValue.operation === 'terminate'
+                ? 'terminate_process'
+                : 'window_state';
       if (command.action === 'window_state') command.state = inputValue.operation;
       delete command.operation;
       break;

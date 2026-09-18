@@ -41,6 +41,12 @@ public static class MixWin32 {
   public static bool Focus(IntPtr value) { FocusCalls++; Current = value; return true; }
   public static bool IsContainedSameProcess(IntPtr child, IntPtr parent) { return false; }
   public static bool IsOwnedBy(IntPtr child, IntPtr parent) { return false; }
+  public static System.Collections.Generic.List<string> Released = new System.Collections.Generic.List<string>();
+  public static IntPtr ParseWindowId(string value) { return new IntPtr(Convert.ToInt32(value.Substring(7), 16)); }
+  public static string WindowId(IntPtr value) { return "hwnd:0x" + value.ToInt64().ToString("X"); }
+  public static string BackgroundPointer(IntPtr top, int x, int y, string kind, string modifiers) {
+    Released.Add(kind + "@" + x + "," + y); return WindowId(top);
+  }
 }
 '@
 $tokens=$null; $errors=$null
@@ -48,6 +54,12 @@ $ast=[Management.Automation.Language.Parser]::ParseFile(
   (Join-Path $env:FIXTURE_DIRECTORY 'runtime.ps1'),[ref]$tokens,[ref]$errors)
 $function=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Release-SessionState'},$true)
 . ([scriptblock]::Create($function.Extent.Text))
+$inputAst=[Management.Automation.Language.Parser]::ParseFile(
+  (Join-Path $env:FIXTURE_DIRECTORY 'input.ps1'),[ref]$tokens,[ref]$errors)
+$held=$inputAst.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Release-HeldPointerButtons'},$true)
+. ([scriptblock]::Create($held.Extent.Text))
+$heldKeys=$inputAst.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Release-HeldKeys'},$true)
+. ([scriptblock]::Create($heldKeys.Extent.Text))
 function Get-CurrentSession { return $script:state }
 $results=@()
 foreach($scenario in @('unchanged','user_input','observer_lost','different_window','new_monitor')) {
@@ -83,6 +95,12 @@ foreach($scenario in @('background_unchanged','background_user_input','backgroun
   }
   $results+=@{scenario=$scenario; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls}
 }
+$script:state=@{Map=@{}; Generation=0; LastFocus=[IntPtr]1; OriginalFocus=[IntPtr]::Zero;
+  OriginalFocusMonitor=''; OriginalFocusSequence=$null; HeldPointerTargets=@{'hwnd:0x5'=@(11,22)}}
+[MixWin32]::Released.Clear()
+$null=Release-SessionState
+$results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32]::Released.Count;
+  held=$script:state.HeldPointerTargets.Count}
 [Console]::WriteLine(($results | ConvertTo-Json -Compress))
 `
     );
@@ -94,12 +112,15 @@ foreach($scenario in @('background_unchanged','background_user_input','backgroun
     const rows = JSON.parse(result.stdout.trim());
     assert.deepEqual(
       rows.map((row) => row.calls),
-      [1, 0, 0, 0, 0, 1, 0, 0, 0]
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0]
     );
     assert.deepEqual(
       rows.map((row) => row.restored),
-      [true, false, false, false, false, true, false, false, false]
+      [true, false, false, false, false, true, false, false, false, false]
     );
+    // Releasing the session also releases every button it held down.
+    assert.equal(rows.at(-1).released, 1);
+    assert.equal(rows.at(-1).held, 0);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

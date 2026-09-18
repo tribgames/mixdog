@@ -93,6 +93,41 @@ test('browser ref clicks accept the target tree, reject overlays, and never alia
   }
 });
 
+test('a snapshot resolves a shadow-root label in its own root and marks aria-hidden controls', () => {
+  const dom = new JSDOM('<!doctype html><div id="host"></div><button id="ghost" aria-hidden="true">Ghost</button>', {
+    runScripts: 'outside-only',
+    url: 'https://example.test/',
+  });
+  const { window } = dom;
+  try {
+    window.HTMLElement.prototype.getBoundingClientRect = () => ({
+      left: 10,
+      top: 10,
+      right: 110,
+      bottom: 40,
+      width: 100,
+      height: 30,
+      x: 10,
+      y: 10,
+      toJSON() {
+        return this;
+      },
+    });
+    window.document.querySelector('#host').attachShadow({ mode: 'open' }).innerHTML =
+      '<span id="caption">Save changes</span><button aria-labelledby="caption">·</button>';
+
+    const snapshot = window.eval(browserSnapshotExpression({ snapshotId: 'p1-s1' }));
+    assert.ok(
+      snapshot.elements.some((element) => element.role === 'button' && element.name === 'Save changes'),
+      'a shadow-root label must resolve inside its own root'
+    );
+    const ghost = snapshot.elements.find((element) => element.name === 'Ghost');
+    assert.ok(ghost.states.includes('aria-hidden'));
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('DOM fallback semantic query ignores URL search parameters and reports the matched field', () => {
   const dom = new JSDOM(
     `<!doctype html>

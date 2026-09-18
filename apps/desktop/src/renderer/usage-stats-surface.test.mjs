@@ -46,6 +46,7 @@ function snapshot(view = 'hour', tokens = 1200, anchor, dates = {}) {
     models: [],
   };
   return {
+    generatedAt: now,
     period,
     range: { days: period.days, firstDay: period.startDay || '2025-01-01' },
     totals: { ...route, sessions: 1 },
@@ -649,17 +650,27 @@ test('seven-day and custom controls submit explicit date bounds without paginati
   assert.equal(calls.length, 1);
   await act(async () => button('Custom').click());
   assert.deepEqual(
-    [...document.querySelectorAll('input[type="date"]')].map((input) => input.value),
+    ['start', 'end'].map((edge) => document.querySelector(`.mx-daterange-day[data-range="${edge}"]`).dataset.day),
     ['2026-09-07', '2026-09-13']
+  );
+  assert.deepEqual(
+    [...document.querySelectorAll('.mx-daterange-clock .mx-select-value')].map((node) => node.textContent),
+    [t('All day'), '00', t('All day'), '00'],
+    'clock times stay optional; a range without them keeps whole days'
   );
   await act(async () => button('Apply').click());
   assert.deepEqual(calls.at(-1), { view: 'custom', startDay: '2026-09-07', endDay: '2026-09-13' });
   assert.equal(button('Custom').getAttribute('aria-pressed'), 'true');
-  assert.equal(document.querySelector('.stats-period-arrow'), null);
   assert.deepEqual(
     [...document.querySelectorAll('.stats-trend footer span')].map((node) => node.textContent),
     ['2026-09-07', '2026-09-13']
   );
+  // A custom range pages by its own length instead of losing the arrows.
+  const arrows = [...document.querySelectorAll('.stats-period-arrow')];
+  assert.equal(arrows.length, 2);
+  assert.equal(arrows[1].disabled, true, 'the newest page has no future to step into');
+  await act(async () => arrows[0].click());
+  assert.deepEqual(calls.at(-1), { view: 'custom', startDay: '2026-08-31', endDay: '2026-09-06' });
 });
 
 test('custom ranges pick the finest calendar unit that keeps the chart within thirty bars', async (context) => {
@@ -694,10 +705,9 @@ test('custom ranges pick the finest calendar unit that keeps the chart within th
   await act(async () => button('All').click());
   await act(async () => button('Custom').click());
   const endDay = '2026-09-13'; // the snapshot clock's today
-  assert.deepEqual(
-    [...document.querySelectorAll('input[type="date"]')].map((input) => input.value),
-    ['2024-11-06', endDay]
-  );
+  // The calendar opens on the month holding the end of the seeded range; its
+  // 2024 start is kept in state, not on screen.
+  assert.equal(document.querySelector('.mx-daterange-day[data-range="end"]').dataset.day, endDay);
   await act(async () => button('Apply').click());
   assert.deepEqual(calls.at(-1), { view: 'custom', startDay: '2024-11-06', endDay });
   const bars = [...document.querySelectorAll('.stats-trend-bar')];
@@ -778,6 +788,51 @@ test('chart hover and click expose compact token totals and provider splits, wit
     [...document.querySelectorAll('.stats-trend-detail li > b')].map((node) => node.textContent),
     ['1', '1']
   );
+});
+
+test('a rolling-window refresh keeps the hovered bucket instead of renaming it', async (context) => {
+  const render = harness(context);
+  const stats = snapshot();
+  // The server keys 24-hour buckets by absolute start time, so a read taken a
+  // few minutes later carries the same 24 slots under brand-new keys.
+  const rolled = (offsetMs) => ({
+    ...stats,
+    hourly: stats.hourly.map((bucket, hour) => ({
+      ...bucket,
+      key: String(new Date(2026, 8, 13, hour).getTime() + offsetMs),
+      label: `${String(hour).padStart(2, '0')}:${String(offsetMs / 60000).padStart(2, '0')}`,
+    })),
+  });
+  await render({ data: { getUsageStats: rolled(0) }, request: async () => stats });
+  const bar = document.querySelectorAll('.stats-trend-bar')[9];
+  await act(async () => bar.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
+  assert.ok(document.querySelector('.stats-trend-detail'));
+  await render({ data: { getUsageStats: rolled(5 * 60 * 1000) }, request: async () => stats });
+  assert.equal(document.querySelectorAll('.stats-trend-bar')[9], bar, 'the bars are reused, not rebuilt');
+  assert.ok(document.querySelector('.stats-trend-detail'), 'the hovered bucket survives a background refresh');
+  assert.equal(document.querySelector('.stats-trend-detail dd').textContent, '1.2K');
+  assert.equal(document.querySelectorAll('.stats-trend-bar')[9].getAttribute('aria-label'), '09:05 · 1.2K');
+});
+
+test('a scroller that does not carry the chart never dismisses the hover card', async (context) => {
+  const render = harness(context);
+  const stats = snapshot();
+  await render({ data: { getUsageStats: stats }, request: async () => stats });
+  const bar = document.querySelectorAll('.stats-trend-bar')[9];
+  await act(async () => bar.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })));
+  assert.ok(document.querySelector('.stats-trend-detail'));
+  const elsewhere = document.createElement('div');
+  document.body.append(elsewhere);
+  context.after(() => elsewhere.remove());
+  // A background transcript scrolls on every streamed token and cannot move
+  // the bar the card hangs off.
+  await act(async () => elsewhere.dispatchEvent(new window.Event('scroll')));
+  assert.ok(document.querySelector('.stats-trend-detail'), 'an unrelated scroller leaves the card open');
+  await act(async () => document.querySelector('.stats-trend-detail').dispatchEvent(new window.Event('scroll')));
+  assert.ok(document.querySelector('.stats-trend-detail'), 'scrolling the card itself leaves it open');
+  // The scroller around the chart moves the anchor, so the card still goes.
+  await act(async () => document.querySelector('.stats-trend').dispatchEvent(new window.Event('scroll')));
+  assert.equal(document.querySelector('.stats-trend-detail'), null);
 });
 
 test('chart hover detail cannot capture the pointer outside the bars, but pinned detail stays interactive', async (context) => {

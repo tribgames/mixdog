@@ -96,6 +96,10 @@ function Get-ElementObservation($el) {
     $observation = @{
         Name         = [string]$el.Cached.Name
         AutomationId = [string]$el.Cached.AutomationId
+        # The shortcut the app itself advertises: reaching a command by its own
+        # accelerator beats travelling to the control that carries it.
+        Accelerator  = [string]$el.Cached.AcceleratorKey
+        AccessKey    = [string]$el.Cached.AccessKey
         Value        = ''
         Toggle       = ''
         Selected     = ''
@@ -165,6 +169,8 @@ function Get-MsaaObservation($node) {
     return [pscustomobject]@{
         Name          = [string]$node.Name
         AutomationId  = ''
+        Accelerator   = ''
+        AccessKey     = ''
         Value         = [string]$node.Value
         Toggle        = ''
         Selected      = ''
@@ -292,6 +298,8 @@ function Snapshot-Window($req) {
     $cr = New-Object System.Windows.Automation.CacheRequest
     [void]$cr.Add($AE::NameProperty)
     [void]$cr.Add($AE::AutomationIdProperty)
+    [void]$cr.Add($AE::AcceleratorKeyProperty)
+    [void]$cr.Add($AE::AccessKeyProperty)
     [void]$cr.Add($AE::ControlTypeProperty)
     [void]$cr.Add($AE::BoundingRectangleProperty)
     [void]$cr.Add($AE::IsEnabledProperty)
@@ -449,6 +457,8 @@ function Snapshot-Window($req) {
         $details = New-Object System.Collections.ArrayList
         if ($record.Kind -eq 'msaa') { [void]$details.Add('source=msaa') }
         if ($observation.AutomationId) { [void]$details.Add('id="' + (Format-ObservationValue $observation.AutomationId 80) + '"') }
+        if ($observation.Accelerator) { [void]$details.Add('accelerator="' + (Format-ObservationValue $observation.Accelerator 40) + '"') }
+        if ($observation.AccessKey) { [void]$details.Add('access_key="' + (Format-ObservationValue $observation.AccessKey 40) + '"') }
         if ($observation.Value) { [void]$details.Add('value="' + (Format-ObservationValue $observation.Value 120) + '"') }
         if ($observation.Toggle) { [void]$details.Add('toggle=' + $observation.Toggle) }
         if ($observation.Selected) { [void]$details.Add('selected=' + $observation.Selected) }
@@ -486,6 +496,8 @@ function Snapshot-Window($req) {
             center_y = [int]$cy
             actions  = @($actions)
         }
+        if ($observation.Accelerator) { $elementOut.accelerator = (Format-ObservationValue $observation.Accelerator 40) }
+        if ($observation.AccessKey) { $elementOut.access_key = (Format-ObservationValue $observation.AccessKey 40) }
         if ($includeStructure -and $record.Kind -eq 'uia') {
             $structure = Get-ElementStructure $record.Element
             $elementOut.runtime_id = $structure.runtime_id

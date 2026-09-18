@@ -40,8 +40,10 @@ test('a native browser refusal preserves the selected browser session', async ()
   );
   const payload = JSON.parse(reply.text);
   assert.equal(payload.window_id, 'hwnd:0x1');
-  assert.equal(payload.verdict.recommended, 'recapture');
-  assert.equal(payload.escalation, 'recapture');
+  // The refusal routes to foreground delivery on the same user-selected window
+  // instead of handing the session to the app's separate browser.
+  assert.equal(payload.verdict.recommended, 'foreground');
+  assert.equal(payload.escalation, 'foreground');
 });
 
 test('input recovery failure takes precedence over a successful native action', async () => {
@@ -107,13 +109,20 @@ test('confirmed close does not capture a different window after its target disap
 
 test('an accepted brokered launch with no proven window requests resolution, not relaunch or arbitrary capture', async () => {
   const reply = await buildActionReply(
-    async () => { throw new Error('must not capture an unbound foreground window'); },
+    async () => {
+      throw new Error('must not capture an unbound foreground window');
+    },
     context({
       command: { action: 'launch', app: 'calc.exe', capture_after: true },
       action: 'launch',
       result: {
-        action: 'launch', text: 'launched calc.exe', pid: 74676, app_hint: 'calc',
-        delivery_accepted: true, effect: 'unverifiable', verified: false,
+        action: 'launch',
+        text: 'launched calc.exe',
+        pid: 74676,
+        app_hint: 'calc',
+        delivery_accepted: true,
+        effect: 'unverifiable',
+        verified: false,
       },
       logicalTargetWindowId: undefined,
       targetWindowId: undefined,
@@ -144,7 +153,8 @@ test('a proven launch successor is still captured, and capture failure is not hi
       logicalTargetWindowId: undefined,
       targetWindowId: undefined,
       windowTransition: {
-        observed: true, next_target: { id: 'hwnd:0x2' },
+        observed: true,
+        next_target: { id: 'hwnd:0x2' },
         next_target_reason: 'launched_process_window',
       },
     })

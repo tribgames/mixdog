@@ -53,6 +53,23 @@ const before = payload('p1-s1', [
 ]);
 const baseline = () => ({ ...createBrowserRefSet(before), revision: revision(4) });
 
+test('a gesture that opened a page says so instead of claiming the page ignored it', async () => {
+  const same = payload(
+    'p1-s2',
+    before.elements.map((el) => ({ ...el, ref: el.ref.replace('s1', 's2') }))
+  );
+  const f = fixture(revision(4), same);
+  // A target="_blank" click leaves this document exactly as it was.
+  f.state.for(f.guest).openedPopups.push('popup-1');
+  const result = await f.reply.snapshotResult(f.guest, { action: 'click' }, undefined, {
+    settleAction: true,
+    baseline: baseline(),
+  });
+  assert.match(result.text, /Opened "popup-1" as a new page; act on it with that tab name/);
+  assert.doesNotMatch(result.text, /No observable change/);
+  assert.deepEqual(f.state.for(f.guest).openedPopups, [], 'a page is announced once, not on every reply');
+});
+
 test('a gesture the page ignored is reported as no observable change; scroll is judged by position', async () => {
   const same = payload(
     'p1-s2',

@@ -9,9 +9,10 @@
  * real traffic by orders of magnitude, so cache sits beside the token figure
  * instead of inside it.
  */
-import { useId, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from 'react';
 import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { DesktopCapability } from '../shared/contract';
+import { DateRangePicker, type DayRange } from './DateRangePicker';
 import { t, uiFormatLocale } from './i18n';
 import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
 import { record } from './record-utils';
@@ -180,6 +181,27 @@ function localDayKey(time: number): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
+function localClockKey(time: number): string {
+  const date = new Date(time);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
+/** Step a custom range by its own length, the way the preset arrows page.
+ *  A range without clock times keeps landing on whole days. */
+function shiftCustomRange(range: DayRange, direction: 1 | -1): DayRange {
+  const from = new Date(`${range.startDay}T${range.startTime || '00:00'}:00`).getTime();
+  const to = new Date(`${range.endDay}T${range.endTime || '23:59'}:59.999`).getTime();
+  const span = to - from + 1;
+  const nextFrom = from + direction * span;
+  const nextTo = to + direction * span;
+  return {
+    startDay: localDayKey(nextFrom),
+    endDay: localDayKey(nextTo),
+    ...(range.startTime ? { startTime: localClockKey(nextFrom) } : {}),
+    ...(range.endTime ? { endTime: localClockKey(nextTo) } : {}),
+  };
+}
+
 /** Monday of the week a `YYYY-MM-DD` day belongs to. */
 function weekBucketKey(day: string): string {
   const date = new Date(`${day}T00:00:00`);
@@ -244,17 +266,26 @@ function addTrendTotals(target: TrendTotals, row: Row) {
 function groupTrend(daily: Row[], grouping: TrendGrouping): TrendBucket[] {
   const { grain, step, firstYear, lastYear } = grouping;
   const buckets = new Map<string, TrendBucket>();
-  for (const entry of daily) {
+  // The 24-hour view is a ROLLING window, and the server keys its buckets by
+  // absolute start time (19:48, 20:48 …). A background refresh lands seconds
+  // after every streamed turn, so all 24 buckets arrived under brand-new keys:
+  // React rebuilt every bar and the hovered bucket was no longer in the series,
+  // which closed the detail card mid-hover (user: 트랜스크립트 갱신될 때 자동
+  // 으로 닫힌다). A rolling slot is identified by its POSITION, padded so the
+  // key sort below stays positional.
+  for (const [index, entry] of daily.entries()) {
     const day = String(grain === 'hour' ? entry.key || '' : entry.day || '');
     if (!day) continue;
     let key =
-      grain === 'year'
-        ? day.slice(0, 4)
-        : grain === 'month'
-          ? day.slice(0, 7)
-          : grain === 'week'
-            ? weekBucketKey(day)
-            : day;
+      grain === 'hour'
+        ? String(index).padStart(3, '0')
+        : grain === 'year'
+          ? day.slice(0, 4)
+          : grain === 'month'
+            ? day.slice(0, 7)
+            : grain === 'week'
+              ? weekBucketKey(day)
+              : day;
     if (grain === 'year' && step > 1) {
       key = String(firstYear + Math.floor((Number(key) - firstYear) / step) * step);
     }
@@ -449,8 +480,16 @@ function UsageTrend({
       left: Math.max(left, Math.min(right - size.width, (trigger.left + trigger.right - size.width) / 2)) - owner.left,
       top: Math.max(top, above >= top ? above : Math.min(owner.bottom + 8, bottom - size.height)) - owner.top,
     });
+    // A capture listener on window sees EVERY scroller in the document, and a
+    // transcript pinned to its end scrolls on each streamed token — a session
+    // running BEHIND the popup kept closing this card while the pointer still
+    // sat on the bar (user: 바 위에 호버를 했는데 왜 팝업이 자동으로 사라지냐).
+    // Only a scroller that CARRIES the chart moves the anchor the card is
+    // placed against, so nothing else may dismiss it; the card scrolls inside
+    // the host and is excluded by the same containment test.
     const dismissOnScroll = (event: Event) => {
-      if (event.target instanceof Node && card.contains(event.target)) return;
+      const target = event.target;
+      if (target instanceof Node && !target.contains(host)) return;
       popover.close();
     };
     window.addEventListener('scroll', dismissOnScroll, true);
@@ -698,14 +737,22 @@ function SortHeader({
 }
 
 function periodLabel(view: StatsView, period: Row, firstDay?: string): string {
-  if (view === 'hour') {
-    if (!period.fromMs || !period.toMs) return t('Last 24 hours');
-    return new Intl.DateTimeFormat(uiFormatLocale(), {
+  // A range cut by the clock reads like the rolling window: only the exact
+  // instants tell the reader where a partial day was cut.
+  const clocked = view === 'custom' && Boolean(period.startTime || period.endTime);
+  if (view === 'hour' || clocked) {
+    if (!period.fromMs || !period.toMs) return clocked ? '—' : t('Last 24 hours');
+    const options: Intl.DateTimeFormatOptions = {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    }).formatRange(new Date(Number(period.fromMs)), new Date(Number(period.toMs)));
+    };
+    if (clocked) options.year = 'numeric';
+    return new Intl.DateTimeFormat(uiFormatLocale(), options).formatRange(
+      new Date(Number(period.fromMs)),
+      new Date(Number(period.toMs))
+    );
   }
   const startDay = view === 'year' ? firstDay : period.startDay;
   if (!startDay || !period.endDay) return view === 'year' ? t('All') : '—';
@@ -741,6 +788,29 @@ export function UsageStatsBody({
   const activeView = customOpen ? 'custom' : view;
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  // Clock times stay optional: empty fields keep the whole selected days.
+  const [customStartTime, setCustomStartTime] = useState('');
+  const [customEndTime, setCustomEndTime] = useState('');
+  const [applied, setApplied] = useState<DayRange | null>(null);
+  const customHost = useRef<HTMLDivElement>(null);
+  // The editor hangs off its chip as a popover, so it dismisses like one.
+  useEffect(() => {
+    if (!customOpen) return undefined;
+    const dismiss = (event: globalThis.PointerEvent) => {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && customHost.current?.contains(target)) return;
+      setCustomOpen(false);
+    };
+    const keydown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setCustomOpen(false);
+    };
+    document.addEventListener('pointerdown', dismiss, true);
+    document.addEventListener('keydown', keydown, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss, true);
+      document.removeEventListener('keydown', keydown, true);
+    };
+  }, [customOpen]);
   // Models start visible, including providers arriving with a new period.
   // Only explicit collapses are retained.
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
@@ -814,6 +884,54 @@ export function UsageStatsBody({
     .filter(Boolean)
     .join('\n');
   const waiting = busy || loading;
+  const applyCustom = (range: DayRange) => {
+    setApplied(range);
+    setCustomStart(range.startDay);
+    setCustomEnd(range.endDay);
+    setCustomStartTime(range.startTime || '');
+    setCustomEndTime(range.endTime || '');
+    setCustomOpen(false);
+    reload('custom', undefined, range);
+  };
+  // The server's clock, not this renderer's: a served period already knows
+  // where "now" is, and tests pin it.
+  const today = localDayKey(statsNumber(stats.generatedAt) || Date.now());
+  // A page step measures the SELECTION, never the served period: a range
+  // reaching into the present day is served clamped back to "now".
+  const customApplied = view === 'custom' ? applied : null;
+  const previousRange = customApplied ? shiftCustomRange(customApplied, -1) : null;
+  const nextRange = customApplied ? shiftCustomRange(customApplied, 1) : null;
+  const paged = view !== 'hour' && view !== 'year';
+  const canPrevious = customApplied
+    ? Boolean(previousRange && previousRange.startDay >= '1970-01-01')
+    : Boolean(period.previousAnchor);
+  const canNext = customApplied ? Boolean(nextRange && nextRange.endDay <= today) : Boolean(period.nextAnchor);
+  const page = (direction: 1 | -1) => {
+    const target = direction === -1 ? previousRange : nextRange;
+    if (target) applyCustom(target);
+    else reload(view, String(direction === -1 ? period.previousAnchor : period.nextAnchor));
+  };
+  const openCustom = () => {
+    const seed = customApplied || {
+      startDay: String(period.startDay || record(stats.range).firstDay || localDayKey(initialPeriod.fromMs)),
+      endDay: String(period.endDay || localDayKey(initialPeriod.toMs)),
+    };
+    setCustomStart(seed.startDay);
+    setCustomEnd(seed.endDay);
+    setCustomStartTime(seed.startTime || '');
+    setCustomEndTime(seed.endTime || '');
+    setCustomOpen(true);
+  };
+  // Times only ever narrow a range, so a reversed clock can only appear when
+  // both ends name the same day.
+  const customInvalid =
+    !customStart ||
+    !customEnd ||
+    customStart > customEnd ||
+    (customStart === customEnd &&
+      Boolean(customStartTime) &&
+      Boolean(customEndTime) &&
+      customStartTime > customEndTime);
   const views: ReadonlyArray<{ key: StatsView; label: string }> = [
     { key: 'hour', label: t('Last 24 hours') },
     { key: '7d', label: t('Last 7 days') },
@@ -837,40 +955,80 @@ export function UsageStatsBody({
       )}
       <div className="stats-controls">
         <div className="stats-ranges" role="group" aria-label={t('Period')}>
-          {views.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`stats-range ${option.key === activeView ? 'is-active' : ''}`}
-              aria-pressed={option.key === activeView}
-              disabled={waiting}
-              aria-expanded={option.key === 'custom' ? customOpen : undefined}
-              onClick={() => {
-                if (option.key === 'custom') {
-                  setCustomStart(
-                    String(period.startDay || record(stats.range).firstDay || localDayKey(initialPeriod.fromMs))
-                  );
-                  setCustomEnd(String(period.endDay || localDayKey(initialPeriod.toMs)));
-                  setCustomOpen(true);
-                } else {
-                  setCustomOpen(false);
-                  if (option.key !== view) reload(option.key);
-                }
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
+          {views.map((option) => {
+            const chip = (
+              <button
+                key={option.key}
+                type="button"
+                className={`stats-range ${option.key === activeView ? 'is-active' : ''}`}
+                aria-pressed={option.key === activeView}
+                disabled={waiting}
+                aria-expanded={option.key === 'custom' ? customOpen : undefined}
+                onClick={() => {
+                  if (option.key === 'custom') {
+                    if (customOpen) setCustomOpen(false);
+                    else openCustom();
+                  } else {
+                    setCustomOpen(false);
+                    if (option.key !== view) reload(option.key);
+                  }
+                }}
+              >
+                {option.label}
+              </button>
+            );
+            if (option.key !== 'custom') return chip;
+            return (
+              <div className="stats-custom" key={option.key} ref={customHost}>
+                {chip}
+                {customOpen && (
+                  <form
+                    className="stats-custom-range"
+                    aria-label={t('Custom')}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      applyCustom({
+                        startDay: customStart,
+                        endDay: customEnd,
+                        ...(customStartTime ? { startTime: customStartTime } : {}),
+                        ...(customEndTime ? { endTime: customEndTime } : {}),
+                      });
+                    }}
+                  >
+                    <DateRangePicker
+                      value={{
+                        startDay: customStart,
+                        endDay: customEnd,
+                        ...(customStartTime ? { startTime: customStartTime } : {}),
+                        ...(customEndTime ? { endTime: customEndTime } : {}),
+                      }}
+                      maxDay={today}
+                      disabled={waiting}
+                      onChange={(next) => {
+                        setCustomStart(next.startDay);
+                        setCustomEnd(next.endDay);
+                        setCustomStartTime(next.startTime || '');
+                        setCustomEndTime(next.endTime || '');
+                      }}
+                    />
+                    <button className="stats-range" type="submit" disabled={waiting || customInvalid}>
+                      {t('Apply')}
+                    </button>
+                  </form>
+                )}
+              </div>
+            );
+          })}
         </div>
         <div className="stats-period">
-          {view !== 'hour' && view !== 'year' && view !== 'custom' && (
+          {paged && (
             <button
               type="button"
               className="stats-period-arrow"
               aria-label={t('Previous period')}
               title={t('Previous period')}
-              disabled={waiting || !period.previousAnchor}
-              onClick={() => reload(view, String(period.previousAnchor))}
+              disabled={waiting || !canPrevious}
+              onClick={() => page(-1)}
             >
               <ChevronLeft aria-hidden="true" />
             </button>
@@ -878,61 +1036,20 @@ export function UsageStatsBody({
           <span className="stats-period-label">
             {periodLabel(view, period, String(record(stats.range).firstDay || ''))}
           </span>
-          {view !== 'hour' && view !== 'year' && view !== 'custom' && (
+          {paged && (
             <button
               type="button"
               className="stats-period-arrow"
               aria-label={t('Next period')}
               title={t('Next period')}
-              disabled={waiting || !period.nextAnchor}
-              onClick={() => reload(view, String(period.nextAnchor))}
+              disabled={waiting || !canNext}
+              onClick={() => page(1)}
             >
               <ChevronRight aria-hidden="true" />
             </button>
           )}
         </div>
       </div>
-      {customOpen && (
-        <form
-          className="stats-custom-range"
-          onSubmit={(event) => {
-            event.preventDefault();
-            reload('custom', undefined, { startDay: customStart, endDay: customEnd });
-          }}
-        >
-          <label>
-            {t('Start date')}
-            <input
-              type="date"
-              required
-              disabled={waiting}
-              min="1970-01-01"
-              max={customEnd || localDayKey(Date.now())}
-              value={customStart}
-              onChange={(event) => setCustomStart(event.target.value)}
-            />
-          </label>
-          <label>
-            {t('End date')}
-            <input
-              type="date"
-              required
-              disabled={waiting}
-              min={customStart || '1970-01-01'}
-              max={localDayKey(Date.now())}
-              value={customEnd}
-              onChange={(event) => setCustomEnd(event.target.value)}
-            />
-          </label>
-          <button
-            className="stats-range"
-            type="submit"
-            disabled={waiting || !customStart || !customEnd || customStart > customEnd}
-          >
-            {t('Apply')}
-          </button>
-        </form>
-      )}
       <div className="stats-cards">
         <StatCard
           label={t('Subscription list-price value')}

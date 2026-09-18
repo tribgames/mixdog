@@ -43,10 +43,15 @@ try {
   $menu.Dispose()
 }
 `;
-    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      windowsHide: true, timeout: 20_000,
-      env: { ...process.env, METADATA_FIXTURE: directory },
-    });
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        windowsHide: true,
+        timeout: 20_000,
+        env: { ...process.env, METADATA_FIXTURE: directory },
+      }
+    );
     const result = JSON.parse(stdout.trim());
     assert.equal(result.pid, result.ownPid);
     assert.equal(result.parentPid, process.pid);

@@ -3,18 +3,25 @@
  * when it names a single window; two matches are refused with their candidates
  * rather than guessed, because acting on the wrong window is not recoverable.
  */
+import type { InstalledApps } from '../host/window-reads';
 import type { ComputerWindowRecord } from '../shared/window-transition';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 
 export interface WindowTargetingHost {
   readComputerWindows(command: ComputerCommand, includeApp?: boolean): Promise<ComputerWindowRecord[] | null>;
+  readInstalledApps(command: ComputerCommand): Promise<InstalledApps | null>;
 }
+
+/** The installed catalogue runs to hundreds of entries, so a listing answers a
+ *  query and otherwise only says how much more is there. */
+const MAX_INSTALLED_APP_MATCHES = 40;
 
 const EXACT_WINDOW_COMMAND_ACTIONS = new Set([
   'focus_window',
   'move_window',
   'window_state',
   'close_window',
+  'terminate_process',
   'invoke_menu',
 ]);
 
@@ -26,7 +33,7 @@ export function assertExactWindowCommandTarget(command: ComputerCommand): void {
 }
 
 export function createWindowTargeting(host: WindowTargetingHost) {
-  const { readComputerWindows } = host;
+  const { readComputerWindows, readInstalledApps } = host;
 
   async function resolveAppWindowId(command: ComputerCommand): Promise<string> {
     const requested = String(command.app || '')
@@ -140,7 +147,21 @@ export function createWindowTargeting(host: WindowTargetingHost) {
         window_count: group.windows.length,
       }))
       .sort((left, right) => Number(right.focused) - Number(left.focused) || left.name.localeCompare(right.name));
-    return { text: JSON.stringify({ apps }) };
+    const installed = await readInstalledApps(command);
+    if (!installed) return { text: JSON.stringify({ apps }) };
+    const query = String(command.query || '').trim();
+    return {
+      text: JSON.stringify(
+        query
+          ? {
+              apps,
+              installed: installed.matches.slice(0, MAX_INSTALLED_APP_MATCHES),
+              installed_matched: installed.matches.length,
+              installed_total: installed.total,
+            }
+          : { apps, installed_total: installed.total }
+      ),
+    };
   }
 
   return {

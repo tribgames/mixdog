@@ -33,7 +33,8 @@ export const formActions = defineBrowserActions({
       if (!filled.passwordFilled) {
         throw new Error(
           filled.reason === 'no-password-field'
-            ? 'no visible password field on this page; open the sign-in form (or its password step) first'
+            ? 'no visible password field in this page (a sign-in form inside an embedded frame is never filled); ' +
+                'open the sign-in form or its password step first'
             : 'the password field did not accept the stored login'
         );
       }

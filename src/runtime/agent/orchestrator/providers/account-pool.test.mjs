@@ -106,7 +106,12 @@ test('a 429 whose Retry-After spans a quota window switches accounts without a u
   assert.notEqual(calls[1], ids[0]);
   const pool = readProviderAccountPool(provider);
   assert.equal(pool.selectedId, calls[1]);
-  assert.ok(pool.accounts.find((row) => row.id === ids[0]).blockedUntil >= before + 363_064_000);
+  // The header asks for four days. A refusal window is roster avoidance, not a
+  // retry schedule, so it is capped at six hours and marked as server-scheduled.
+  const blocked = pool.accounts.find((row) => row.id === ids[0]);
+  assert.equal(blocked.blockedSource, 'retry-after');
+  assert.ok(blocked.blockedUntil >= before + 6 * 60 * 60_000 - 5_000);
+  assert.ok(blocked.blockedUntil <= Date.now() + 6 * 60 * 60_000);
 
   // A burst throttle answers in seconds; without a usage-endpoint confirmation
   // it keeps the account and surfaces the error.
@@ -171,6 +176,53 @@ test('quota snapshots skip exhausted windows, and an elapsed reset becomes eligi
   assert.equal(chooseProviderAccount(pool, new Set(), now).id, ids[2]);
   assert.equal(chooseProviderAccount(pool, new Set(), now + 60_001).id, ids[0]);
   assert.equal(pool.accounts[2].usage, undefined);
+});
+
+test('a full Fable weekly window only exhausts Fable-series models', async () => {
+  const provider = 'anthropic-oauth';
+  const ids = setup(provider);
+  const now = Date.now();
+  const stamp = (quotaWindows) => {
+    for (const row of readProviderAccountPool(provider).accounts) {
+      recordProviderAccountUsage(provider, row.id, { quotaWindows });
+    }
+  };
+  stamp([
+    { label: '5H', usedPct: 2, resetAt: now + 60_000 },
+    { label: '7D', usedPct: 53, resetAt: now + 120_000 },
+    { label: '7D Fable', usedPct: 100, resetAt: now + 120_000 },
+  ]);
+  changeProviderAccounts(provider, { selectedId: ids[0] });
+  let pool = readProviderAccountPool(provider);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5').id, ids[0]);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-sonnet-4-6').id, ids[0]);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-fable-5-1'), null);
+  const calls = [];
+  const gateway = createAccountPoolProvider(provider, () => ({
+    async send(_messages, model) {
+      calls.push(model);
+      return { content: 'ok' };
+    },
+  }));
+  assert.equal((await gateway.send([], 'claude-opus-5', [])).content, 'ok');
+  assert.deepEqual(calls, ['claude-opus-5']);
+  await assert.rejects(gateway.send([], 'claude-fable-5-1', []), /All connected accounts/);
+  assert.deepEqual(calls, ['claude-opus-5']);
+
+  stamp([
+    { label: '5H', usedPct: 2, resetAt: now + 60_000 },
+    { label: '7D Opus', usedPct: 100, resetAt: now + 120_000 },
+  ]);
+  pool = readProviderAccountPool(provider);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-fable-5-1').id, ids[0]);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5'), null);
+
+  stamp([{ label: '7D', usedPct: 100, resetAt: now + 120_000 }]);
+  pool = readProviderAccountPool(provider);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5'), null);
+  stamp([{ label: '7D OAuth apps', usedPct: 100, resetAt: now + 120_000 }]);
+  pool = readProviderAccountPool(provider);
+  assert.equal(chooseProviderAccount(pool, new Set(), now, 'claude-opus-5'), null);
 });
 
 test('no replay after emitted output, cancellation, auth failure, or disabled automatic switching', async () => {
@@ -305,6 +357,56 @@ test('usage caches never return a different account quota after selection change
   assert.equal(readCachedOAuthUsageSnapshot({ provider }).quotaWindows[0].usedPct, 14);
   changeProviderAccounts(provider, { selectedId: b });
   assert.equal(readCachedOAuthUsageSnapshot({ provider }).quotaWindows[0].usedPct, 87);
+});
+
+test('fallback prefers the most headroom, and an exhausted roster re-measures before refusing', async () => {
+  const provider = 'cursor-oauth';
+  for (const row of readProviderAccountPool(provider).accounts) removeProviderAccount(provider, row.id);
+  const ids = setup(provider);
+  changeProviderAccounts(provider, { auto: true });
+  const [first, second, third] = ids;
+  const now = Date.now();
+  const stamp = (id, usedPct) =>
+    recordProviderAccountUsage(provider, id, { quotaWindows: [{ label: '5H', usedPct, resetAt: now + 3_600_000 }] });
+  stamp(first, 100);
+  stamp(second, 96);
+  stamp(third, 12);
+  const calls = [];
+  const gateway = createAccountPoolProvider(provider, () => ({
+    async send() {
+      calls.push(currentProviderAccountId(provider));
+      return { content: 'done' };
+    },
+  }));
+  assert.equal((await gateway.send([], 'model', [])).content, 'done');
+  // Roster order would have landed on the account with 4% left.
+  assert.deepEqual(calls, [third]);
+
+  let probes = 0;
+  const measured = createAccountPoolProvider(provider, () => ({
+    async send() {
+      calls.push(currentProviderAccountId(provider));
+      return { content: 'recovered' };
+    },
+    async getUsageSnapshot() {
+      probes++;
+      const id = currentProviderAccountId(provider);
+      return { quotaWindows: [{ label: '5H', usedPct: id === third ? 4 : 100, resetAt: now + 3_600_000 }] };
+    },
+  }));
+  for (const id of ids) stamp(id, 100);
+  calls.length = 0;
+  assert.equal((await measured.send([], 'model', [])).content, 'recovered');
+  assert.deepEqual(calls, [third]);
+  assert.equal(probes, 3);
+
+  // Pacing: a second refusal inside the same window measures nothing again.
+  for (const id of ids) stamp(id, 100);
+  probes = 0;
+  calls.length = 0;
+  await assert.rejects(measured.send([], 'model', []), /All connected accounts/);
+  assert.equal(probes, 0);
+  assert.deepEqual(calls, []);
 });
 
 test('failed free-account fallback retains the paid selection; successful fallback respects manual selection', async () => {

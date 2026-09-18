@@ -56,6 +56,82 @@ test('browser network ledger records request, response, timing, and filters', ()
   assert.equal(ledger.list({ resourceTypes: ['image'] }).total, 0);
 });
 
+test('a request reports the headers actually sent, not only the provisional ones', () => {
+  const ledger = new BrowserNetworkLedger();
+  ledger.requestWillBeSent(
+    {
+      requestId: '11.1',
+      type: 'Document',
+      request: { method: 'GET', url: 'https://example.test/', headers: { 'User-Agent': 'probe' } },
+    },
+    undefined,
+    1_000
+  );
+  ledger.requestWillBeSentExtraInfo({
+    requestId: '11.1',
+    headers: { 'Accept-Language': 'ko-KR,ko;q=0.9', Cookie: 'session=secret-value' },
+  });
+
+  const entry = ledger.get('r1');
+  assert.equal(entry.requestHeaders['Accept-Language'], 'ko-KR,ko;q=0.9', 'the network stack adds these later');
+  assert.equal(entry.requestHeaders['User-Agent'], 'probe', 'the provisional headers stay');
+  const report = formatNetworkHeaders(entry.requestHeaders).join('\n');
+  assert.match(report, /- Cookie: \[REDACTED\]/, 'merging headers must not start showing credentials');
+  assert.doesNotMatch(report, /secret-value/);
+});
+
+test('a WebSocket reports the upgrade request it sent, with credentials still hidden', () => {
+  const ledger = new BrowserNetworkLedger();
+  ledger.webSocketCreated({ requestId: 'ws-1', url: 'wss://example.test/socket' });
+  ledger.webSocketWillSendHandshakeRequest({
+    requestId: 'ws-1',
+    request: {
+      headers: {
+        Origin: 'https://example.test',
+        'Sec-WebSocket-Protocol': 'chat',
+        Cookie: 'session=secret-value',
+      },
+    },
+  });
+
+  const report = formatNetworkHeaders(ledger.get('r1').requestHeaders).join('\n');
+  assert.match(report, /- Origin: https:\/\/example\.test/);
+  assert.match(report, /- Sec-WebSocket-Protocol: chat/);
+  assert.match(report, /- Cookie: \[REDACTED\]/);
+  assert.doesNotMatch(report, /secret-value/);
+});
+
+test('a header both events report is listed once, spelled as it went on the wire', () => {
+  const ledger = new BrowserNetworkLedger();
+  ledger.requestWillBeSent(
+    {
+      requestId: '12.1',
+      type: 'Document',
+      request: {
+        method: 'GET',
+        url: 'https://example.test/',
+        headers: { 'User-Agent': 'provisional', 'Upgrade-Insecure-Requests': '1' },
+      },
+    },
+    undefined,
+    1_000
+  );
+  ledger.requestWillBeSentExtraInfo({
+    requestId: '12.1',
+    headers: { 'user-agent': 'sent', 'upgrade-insecure-requests': '1', 'accept-language': 'ko' },
+  });
+
+  const entry = ledger.get('r1');
+  assert.deepEqual(Object.keys(entry.requestHeaders).sort(), [
+    'accept-language',
+    'upgrade-insecure-requests',
+    'user-agent',
+  ]);
+  assert.equal(entry.requestHeaders['user-agent'], 'sent', 'the value that went on the wire wins');
+  const report = formatNetworkHeaders(entry.requestHeaders).join('\n');
+  assert.doesNotMatch(report, /User-Agent/, 'a reader must not see the same header twice');
+});
+
 test('browser network reports redact custom credential headers', () => {
   assert.deepEqual(
     formatNetworkHeaders({
@@ -95,10 +171,13 @@ test('bounded network records preserve exact UTF-16 prefixes, including split su
   assert.deepEqual(request.responseHeaders, request.requestHeaders);
   const socket = ledger.webSocketCreated({ requestId: 'unicode-socket', url: 'wss://example.test/socket' });
   const frame = `${'f'.repeat(15_999)}🙂\0tail`;
-  ledger.webSocketFrame({
-    requestId: 'unicode-socket',
-    response: { opcode: 1, payloadData: frame },
-  }, 'received');
+  ledger.webSocketFrame(
+    {
+      requestId: 'unicode-socket',
+      response: { opcode: 1, payloadData: frame },
+    },
+    'received'
+  );
   assert.equal(socket.webSocketFrames[0].data, frame.slice(0, 16_000));
   assert.equal(socket.webSocketFrames[0].data.charCodeAt(15_999), 0xd83d);
 });
@@ -203,6 +282,7 @@ test('browser network ledger reports the newest document status for a URL', () =
   assert.deepEqual(ledger.documentStatus('https://example.test/missing#section'), {
     status: 404,
     statusText: 'Not Found',
+    mimeType: 'text/html',
   });
   assert.equal(ledger.documentStatus('https://example.test/other'), null);
   assert.equal(ledger.documentStatus(''), null);

@@ -663,12 +663,11 @@ test('context session and stats API isolation through lifecycle hook', async (co
   clearSurfaceDataCache();
 });
 
-test('context subscribeState coalesces multiple notifications and handles queued refresh disposal', async (context) => {
+test('an open context surface keeps the reading it opened with while the session keeps moving', async (context) => {
   clearSurfaceDataCache();
   const render = setupDomHarness(context, CommandSurface);
 
-  let subscriberCallback = null;
-  let unsubscribed = false;
+  const listeners = new Set();
   let capabilityInvocations = 0;
   const resolvers = [];
 
@@ -680,50 +679,27 @@ test('context subscribeState coalesces multiple notifications and handles queued
       });
     },
     subscribeState: (listener) => {
-      subscriberCallback = listener;
-      return () => {
-        unsubscribed = true;
-      };
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
   };
 
-  // Initial render: initial contextStatus load begins
   await render({ surface: 'context', open: true, sessionId: 'sess-sub', api, onClose() {} });
   assert.equal(capabilityInvocations, 1);
-
-  // Resolve initial load so subscribeState effect becomes active
   await act(async () => {
     resolvers[0]({ value: { initial: true }, snapshot: { sessionId: 'sess-sub' } });
   });
-  assert.ok(subscriberCallback !== null, 'subscriber registered');
 
-  // Trigger background refresh 1 via subscribeState
+  // A streaming turn pushes state frames continuously. The dialog must not
+  // re-read the gauge under the reader; reopening is what takes a new reading.
   await act(async () => {
-    subscriberCallback();
+    for (const listener of listeners) {
+      listener();
+      listener();
+    }
   });
-  assert.equal(capabilityInvocations, 2);
+  assert.equal(capabilityInvocations, 1);
 
-  // While request 2 is in flight, trigger 3 more state events (must coalesce into 1 follow-up)
-  await act(async () => {
-    subscriberCallback();
-    subscriberCallback();
-    subscriberCallback();
-  });
-  // Invocations should still be 2 because refreshRunning is true
-  assert.equal(capabilityInvocations, 2);
-
-  // Resolve request 2. The coalesced queued refresh will now execute request 3.
-  await act(async () => {
-    resolvers[1]({ value: { intermediate: true }, snapshot: { sessionId: 'sess-sub' } });
-  });
-  assert.equal(capabilityInvocations, 3);
-
-  // Unmount / close before request 3 finishes to exercise disposal cleanup
   await render({ surface: 'context', open: false, sessionId: 'sess-sub', api, onClose() {} });
-  assert.equal(unsubscribed, true);
-
-  // Resolve request 3 after unmount — disposed guard prevents crash or state update
-  await act(async () => {
-    resolvers[2]({ value: { final: true }, snapshot: { sessionId: 'sess-sub' } });
-  });
+  clearSurfaceDataCache();
 });

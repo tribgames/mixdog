@@ -265,6 +265,7 @@ export async function runPageQc(
     polished: 0,
     discarded: 0,
     skipped: 0,
+    failed: 0,
   };
   await withChildFeatures(async () => {
     for (const page of selected) {
@@ -352,6 +353,14 @@ export async function runPageQc(
         }
         entry.kept = decision.keep;
         entry.reason = decision.reason;
+        // A page whose run never produced a reply was not reviewed. Counting it
+        // as kept made an unreviewed page read exactly like a clean one, so a
+        // report on which most pages had failed still said ok, and the deck went
+        // out with the defects the first measurement had already named.
+        if (decision.reason === 'execution_failed') {
+          report.failed += 1;
+          report.ok = false;
+        }
         if (!decision.keep) {
           entry.after = entry.before;
           report.discarded += 1;
@@ -364,6 +373,7 @@ export async function runPageQc(
         entry.kept = true;
         entry.reason = 'error';
         entry.error = error?.message || String(error);
+        report.failed += 1;
         report.ok = false;
       } finally {
         await rm(copy, { force: true }).catch(() => {});
@@ -409,6 +419,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
         polished: report.polished,
         discarded: report.discarded,
         skipped: report.skipped,
+        failed: report.failed,
         skippedPages: report.skippedPages,
         pages: report.pages.map((entry) => `${entry.page}:${entry.reason}`),
       })

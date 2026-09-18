@@ -215,12 +215,8 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
     { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant', 'toolResults']) },
   ];
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
-  const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
-  const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens + autoCompactBufferTokens);
-  categories.push(
-    { label: 'Free space', tokens: Math.max(0, windowTokens - categorizedTokens) },
-    { label: 'Autocompact buffer', tokens: autoCompactBufferTokens }
-  );
+  const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens);
+  categories.push({ label: 'Free space', tokens: Math.max(0, windowTokens - categorizedTokens) });
 
   return (
     <Box flexDirection="column" width="100%">
@@ -244,7 +240,6 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
             columns={columns}
             rows={Math.max(3, (panelRows || 26) - 10)}
             windowTokens={windowTokens}
-            reserveTokens={autoCompactBufferTokens}
             onInspect={onInspect}
             onRefresh={onRefresh}
           />

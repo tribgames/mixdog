@@ -256,3 +256,58 @@ test('a hollow band between the body and the footer is reported; a filled one is
   // it as a target, unlike the monotony and plan read-back advisories.
   assert.equal(isAdvisoryOfficeIssue(issues[0]), false);
 });
+
+// A table, chart or picture is the page's carrier and the few boxes around it
+// are its labels, so the page measures as type and air to the text-only
+// reading and took the statement exemption — which is how a comparison table
+// with three inches of empty canvas under it passed the audit untouched.
+test('a page carried by a table is measured for balance, not exempted as a statement', () => {
+  const textBox = (shape, top, height, fontSize, text) => ({
+    slide: 7,
+    shape,
+    left: 43,
+    top,
+    width: 700,
+    height,
+    paragraphs: [{ text, fontSize }],
+  });
+  const boxes = [
+    textBox(1, 61, 16, 10, '선택지'),
+    textBox(2, 72, 43, 27, '세 안 중 전사 확대가 조건을 모두 만족한다'),
+    textBox(4, 310, 14, 11, '출처: 플랫폼팀 추정'),
+  ];
+  const bounds = boxes.map(({ slide, shape, left, top, width, height }) => ({
+    slide,
+    shape,
+    kind: 'p:sp',
+    left,
+    top,
+    width,
+    height,
+  }));
+  const table = { slide: 7, shape: 3, kind: 'p:graphicFrame', left: 43, top: 148, width: 873, height: 130 };
+  const measured = { slideWidth: 960, slideHeight: 540, boxes };
+  const carried = reviewVerticalBalance([...bounds, table], measured);
+  assert.deepEqual(
+    carried.map((issue) => issue.code),
+    ['vertical_imbalance']
+  );
+  assert.equal(carried[0].emptyBottom, 216);
+  assert.match(carried[0].message, /Content ends/);
+  // The same three boxes with no carrier are a statement page: type and air,
+  // balanced by the air rather than by filling the canvas.
+  assert.deepEqual(reviewVerticalBalance(bounds, measured), []);
+  // A device the kit drew — the deck's motif, the cover's sphere, an icon — is placed as a picture but carries
+  // nothing: counting it as the page's object took the exemption from every cover the recipes ask for (a claim at
+  // poster scale, its device, and half the canvas deliberately empty). The writer's own names say which is which.
+  for (const name of ['mixdog-svg:<svg/>', 'mixdog-device:orb', 'Icon']) {
+    const device = { ...table, kind: 'p:pic', name };
+    assert.deepEqual(reviewVerticalBalance([...bounds, device], measured), [], name);
+  }
+  // A picture the deck shows is still the page's object, and the page is still balanced against it.
+  const picture = { ...table, kind: 'p:pic', name: 'Picture 3' };
+  assert.deepEqual(
+    reviewVerticalBalance([...bounds, picture], measured).map((issue) => issue.code),
+    ['vertical_imbalance']
+  );
+});

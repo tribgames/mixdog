@@ -5,7 +5,7 @@ import { renderComputerOverlayWindows } from './render-windows.ts';
 const presentation = {
   visible: true,
   sessionIds: ['session-a'],
-  title: 'Mixdog using',
+  title: 'Computer in use',
   accent: '#58a6ff',
   paused: false,
   canResume: false,

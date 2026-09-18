@@ -129,7 +129,7 @@ test('computer action ordering is visible before composing a multi-action call',
   accepts(COMPUTER_INPUT_SCHEMA, args);
   assert.equal(validateComputerToolArgs(args), null);
   args.input.actions[1] = { type: 'click', ref: 'ref:2' };
-  assert.match(validateComputerToolArgs(args), /after the first must be type, key, or wait/);
+  assert.match(validateComputerToolArgs(args), /after the first must be type, key, key_down, key_up, or wait/);
 });
 
 test('screenshot and select-sequence descriptions give the accepted first-call combinations', () => {

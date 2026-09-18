@@ -1,6 +1,6 @@
 import { overlayStyles } from './content-styles';
 
-export const OVERLAY_WIDTH = 220;
+export const OVERLAY_WIDTH = 280;
 export const OVERLAY_HEIGHT = 72;
 
 /** One Pause/Resume control preserves the task. Emergency Stop stays on Ctrl+Alt+Esc. */
@@ -10,8 +10,7 @@ export function overlayHtml(locale: string): string {
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'none'">
 <style>${overlayStyles}</style></head><body><div id="pill">
 <svg id="outline" aria-hidden="true"><rect class="track"/><rect class="highlight" pathLength="100"/></svg>
-<span id="dot"></span>
-<div id="status" role="status"><div id="title">${ko ? 'Mixdog 사용 중' : 'Mixdog using'}</div></div>
+<div id="status" role="status"><div id="title">${ko ? '컴퓨터 사용 중' : 'Computer in use'}</div></div>
 <button id="toggle" type="button" aria-label="${ko ? '중단' : 'Pause'}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg></button>
 </div></body></html>`;
 }
@@ -30,7 +29,7 @@ export function overlayScript(locale = 'en'): string {
         ? ${JSON.stringify(ko ? '실패' : 'Failed')}
         : pending === 'pause' ? ${JSON.stringify(ko ? '중단 중' : 'Pausing')}
         : pending === 'resume' ? ${JSON.stringify(ko ? '재개 중' : 'Resuming')}
-        : state.title || ${JSON.stringify(ko ? 'Mixdog 사용 중' : 'Mixdog using')};
+        : state.title || ${JSON.stringify(ko ? '컴퓨터 사용 중' : 'Computer in use')};
       const resuming = action() === 'resume';
       const label = resuming ? ${JSON.stringify(ko ? '재개' : 'Resume')} : ${JSON.stringify(ko ? '중단' : 'Pause')};
       toggle.setAttribute('aria-label', label);

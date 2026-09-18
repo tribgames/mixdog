@@ -57,11 +57,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     loadTimeoutMs: ACTION_SETTLE_LOAD_TIMEOUT_MS,
   } = host;
 
-  async function waitForLoadSettle(
-    guest: WebContents,
-    timeoutMs: number,
-    signal?: AbortSignal,
-  ): Promise<void> {
+  async function waitForLoadSettle(guest: WebContents, timeoutMs: number, signal?: AbortSignal): Promise<void> {
     if (signal?.aborted || !guest.isLoading() || diagnosticsFor(guest).pendingDialog) return;
     await new Promise<void>((resolve) => {
       let timer: NodeJS.Timeout | null = null;
@@ -117,21 +113,33 @@ export function createBrowserSettle(host: BrowserSettleHost) {
     guest: WebContents,
     signal?: AbortSignal,
     until?: Promise<unknown>,
-    options: { background?: boolean; requireQuiet?: boolean } = {},
+    options: { background?: boolean; requireQuiet?: boolean; previousUrl?: string } = {}
   ): Promise<void> {
     const stopOnAbort = () => {
       if (!guest.isDestroyed() && guest.isLoading()) {
-        try { guest.stop(); } catch { /* teardown can race cancellation */ }
+        try {
+          guest.stop();
+        } catch {
+          /* teardown can race cancellation */
+        }
       }
     };
     signal?.addEventListener('abort', stopOnAbort, { once: true });
     // Real cancellation stops the page; a cutoff only stops WAITING for it, so
     // the two signals must never share the stop-page listener above.
+    // A client-side route change swaps the view without loading a document:
+    // nothing is loading, the network can already be quiet, and a url
+    // postcondition is satisfied by history.pushState before the new screen
+    // renders. Returning then reports the screen the caller just left, so this
+    // one case waits for the page to go quiet and refuses the early exit.
+    const routeChanged =
+      options.previousUrl !== undefined && !guest.isLoading() && guest.getURL() !== options.previousUrl;
+    const earlyExit = routeChanged ? undefined : until;
     const cutoff = new AbortController();
     const settleSignal = signal ? AbortSignal.any([signal, cutoff.signal]) : cutoff.signal;
-    void until?.then(
+    void earlyExit?.then(
       () => cutoff.abort(new Error('postcondition satisfied')),
-      () => undefined,
+      () => undefined
     );
     try {
       if (diagnosticsFor(guest).pendingDialog) return;
@@ -147,17 +155,22 @@ export function createBrowserSettle(host: BrowserSettleHost) {
       const checkpoint = await stepSettleResult(guest, signal, options.background);
       if (checkpoint.outcome === 'blocked') return;
       if (checkpoint.outcome !== 'completed') throw new Error(checkpoint.text);
-      if (!options.requireQuiet && !guest.isLoading()
-        && diagnosticsFor(guest).network.recentInflight().length === 0) return;
+      if (
+        !options.requireQuiet &&
+        !routeChanged &&
+        !guest.isLoading() &&
+        diagnosticsFor(guest).network.recentInflight().length === 0
+      )
+        return;
       const observed = Promise.allSettled([
         waitForLoadSettle(guest, ACTION_SETTLE_LOAD_TIMEOUT_MS, settleSignal),
-        waitForDomQuiet(guest, signal, until),
+        waitForDomQuiet(guest, signal, earlyExit),
         waitForNetworkQuiet(guest, settleSignal),
       ]);
       // Racing the group, not just aborting it: allSettled still waits for any
       // observer that does not watch the cutoff signal, which made the early
       // exit worth only ~200ms instead of the full quiet window.
-      await (until ? Promise.race([observed, until]) : observed);
+      await (earlyExit ? Promise.race([observed, earlyExit]) : observed);
       if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
     } finally {
       cutoff.abort();
@@ -172,7 +185,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
   async function stepSettleResult(
     guest: WebContents,
     signal?: AbortSignal,
-    background = false,
+    background = false
   ): Promise<BrowserCommandResult> {
     if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
     if (!diagnosticsFor(guest).pendingDialog) {
@@ -182,8 +195,12 @@ export function createBrowserSettle(host: BrowserSettleHost) {
         if (signal?.aborted) throw signal.reason || error;
         return {
           outcome: 'inconclusive',
-          text: 'The browser input executed, but its rendering checkpoint failed; input was not replayed.'
-            + ` ${error instanceof Error ? error.message : String(error)}`,
+          // The page itself is loaded and the gesture landed; only this reading
+          // of it failed. Say so, or the caller abandons a page that is fine.
+          text:
+            'The browser input executed, but its rendering checkpoint failed; input was not replayed.' +
+            ' The page is still there — observe it again instead of repeating the action.' +
+            ` ${error instanceof Error ? error.message : String(error)}`,
         };
       }
     }
@@ -197,7 +214,7 @@ export function createBrowserSettle(host: BrowserSettleHost) {
   async function postconditionMatchesGuest(
     guest: WebContents,
     expected: BrowserPostcondition,
-    signal?: AbortSignal,
+    signal?: AbortSignal
   ): Promise<boolean> {
     signal?.throwIfAborted();
     const url = guest.getURL();

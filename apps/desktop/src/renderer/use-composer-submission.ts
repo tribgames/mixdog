@@ -94,13 +94,16 @@ export function useComposerSubmission({
       const submittedDraft = textarea.current?.value ?? draftRef.current;
       const submittedAttachments = [...attachmentsRef.current];
       const text = (slashOverride || submittedDraft).trim();
-      const serializedSubmit = Boolean(draftMode || text.startsWith('/'));
+      // Draft materialization and slash commands own the submit indicator;
+      // only slash commands still serialize. Blocking a draft's follow-up here
+      // just dropped it — the submit router joins the session the first submit
+      // is minting instead of creating a second one.
+      const showsSubmitProgress = Boolean(draftMode || text.startsWith('/'));
       if (
         !hasSendablePromptContent({ text, attachments: submittedAttachments }) ||
         transitioningRef.current ||
         shouldBlockPromptSubmit({
           submitting: submittingRef.current,
-          draftMode,
           slashCommand: text.startsWith('/'),
         })
       )
@@ -115,7 +118,7 @@ export function useComposerSubmission({
         composing: composingRef.current,
         uptimeMs: performance.now(),
       });
-      if (serializedSubmit) {
+      if (showsSubmitProgress) {
         submittingRef.current = true;
         setSubmitting(true);
       }
@@ -255,7 +258,7 @@ export function useComposerSubmission({
             : 'The connection was interrupted. Your message has been kept for retry.'
         );
       } finally {
-        if (serializedSubmit) {
+        if (showsSubmitProgress) {
           submittingRef.current = false;
           setSubmitting(false);
         }

@@ -5,7 +5,7 @@ import stringWidth from 'string-width';
 import { buildContextMap } from '../../ui/context-inspection.mjs';
 import { theme } from '../theme.mjs';
 
-const COLORS = { system: 'gray', tools: 'green', mcp: 'magenta', agents: 'magenta', memory: 'cyan', skills: 'yellow', messages: 'blue', free: 'gray', autocompact: 'gray' };
+const COLORS = { system: 'gray', tools: 'green', mcp: 'magenta', agents: 'magenta', memory: 'cyan', skills: 'yellow', user: 'blue', assistant: 'blueBright', toolResults: 'greenBright', attachments: 'redBright', free: 'gray' };
 
 function fitLine(text, width) {
   let result = '';
@@ -16,7 +16,7 @@ function fitLine(text, width) {
   return result;
 }
 
-export function ContextInspector({ inspection, columns, rows = 16, windowTokens, reserveTokens, onInspect, onRefresh }) {
+export function ContextInspector({ inspection, columns, rows = 16, windowTokens, onInspect, onRefresh }) {
   const [category, setCategory] = useState('');
   const [index, setIndex] = useState(0);
   const [preview, setPreview] = useState(null);
@@ -66,7 +66,7 @@ export function ContextInspector({ inspection, columns, rows = 16, windowTokens,
     else setIndex((value) => Math.max(0, Math.min(choices.length - 1, value + delta)));
   });
   const mapColumns = Math.max(4, Math.min(32, width));
-  const map = buildContextMap(inspection.categories, { windowTokens, reserveTokens, cells: mapColumns * 3, fit });
+  const map = buildContextMap(inspection.categories, { windowTokens, cells: mapColumns * 3, fit });
   const start = Math.max(0, index - visibleRows + 1);
   return (
     <Box flexDirection="column" height={Math.max(1, rows)} overflow="hidden">
@@ -84,11 +84,11 @@ export function ContextInspector({ inspection, columns, rows = 16, windowTokens,
               {[0, 1, 2].map((row) => (
                 <Text key={row}>
                   {map.cells.slice(row * mapColumns, (row + 1) * mapColumns).map((key, cell) =>
-                    <Text key={cell} color={COLORS[key]}>{key === 'free' ? '·' : key === 'autocompact' ? '░' : '■'}</Text>
+                    <Text key={cell} color={COLORS[key]}>{key === 'free' ? '·' : '■'}</Text>
                   )}
                 </Text>
               ))}
-              <Text color={theme.subtle}>{fitLine('· free   ░ auto-compact reserve', width)}</Text>
+              <Text color={theme.subtle}>{fitLine('· free', width)}</Text>
               <Text color={theme.subtle}>
                 {fitLine(
                   inspection.calibration?.source === 'provider'

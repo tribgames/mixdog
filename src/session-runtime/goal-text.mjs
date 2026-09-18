@@ -54,7 +54,7 @@ function goalTimeLines(goal) {
   ];
 }
 
-export function continuationPrompt(goal) {
+export function continuationPrompt(goal, { idleReview = false } = {}) {
   const taskList = goalTaskLines(goal.tasks).join('\n');
   return [
     '<system-reminder>',
@@ -86,6 +86,13 @@ export function continuationPrompt(goal) {
     goal.timeMode === 'max'
       ? '- This is a maximum time budget, not a minimum work duration. Complete once the full objective is verified; do not invent extra work to fill the remaining time.'
       : '- A requested duration is a full-period work commitment: continue approved implementation, verification, and improvement; do not complete early unless the user allows it.',
+    // Delivered once per settled task list: the runtime waits out the rest of
+    // the duration on the deadline timer if this turn records nothing new.
+    ...(idleReview
+      ? [
+          '- Every recorded task is settled while the requested duration still has time left. Record the next concrete work for that time with set_tasks and carry it out, or, when only a user response can unblock the objective, park the dependent work as awaiting_approval and pause. A status report or a repeated plan is not an answer to this turn.',
+        ]
+      : []),
     '- Before completing, audit each user condition on its own: name the evidence that would prove it, inspect current state for it, and match the check to the claim. The audit must prove completion, not merely fail to find remaining work.',
     '- Missing or insufficient evidence means incomplete; keep working. Complete only when every user condition is proven met and no required work remains. Existing checks need not be repeated and verification need not be a separate task row.',
     '- Only the user retires a condition: drop a task because the user changed the objective, never to reach completion — a task dropped this turn blocks completion.',
@@ -170,7 +177,9 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
       ? [
           goal.pauseReason === 'waiting'
             ? 'Waiting for a user answer. Resume with task changes only when that answer permits approved work to continue.'
-            : 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
+            : goal.pauseReason === 'cancelled'
+              ? 'A cancelled turn paused this Goal: the user stopped that turn, not the objective. Judge the newest instruction — resume and carry the work forward when it continues or redirects this objective, and leave the Goal paused when it is unrelated or asks you to stay stopped.'
+              : 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
         ]
       : []),
     '',

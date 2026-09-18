@@ -43,7 +43,7 @@ function contract(actions, fields = [], required = []) {
 
 const CONTRACT_ROWS = [
   contract('navigate', ['url', 'reload', ...POST_ACTION_SNAPSHOT], [['url'], ['reload']]),
-  contract('snapshot', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'mode', ...SCREENSHOT_OPTIONS, 'settleMs']),
+  contract('snapshot', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'mode', 'ref', 'target', ...SCREENSHOT_OPTIONS, 'settleMs']),
   contract('locate', [...PAGE_TARGET, 'query', 'limit'], ['query']),
   contract('evaluate', [...POST_ACTION_SNAPSHOT, 'script', 'ref', 'timeoutMs', 'maxChars'], ['script']),
   contract('emulate', [
@@ -110,11 +110,25 @@ const CONTRACT_ROWS = [
     [...POST_ACTION_SNAPSHOT, 'ref', 'target', 'snapshotId', 'x', 'y'],
     [['ref'], ['target'], ['snapshotId', 'x', 'y']]
   ),
+  // Both ends are addressed the same way: two refs, two targets, or two points.
   contract(
     'drag',
-    [...POST_ACTION_SNAPSHOT, 'ref', 'targetRef', 'snapshotId', 'x', 'y', 'targetX', 'targetY', 'pointer'],
+    [
+      ...POST_ACTION_SNAPSHOT,
+      'ref',
+      'target',
+      'targetRef',
+      'dropTarget',
+      'snapshotId',
+      'x',
+      'y',
+      'targetX',
+      'targetY',
+      'pointer',
+    ],
     [
       ['ref', 'targetRef'],
+      ['target', 'dropTarget'],
       ['snapshotId', 'x', 'y', 'targetX', 'targetY'],
     ]
   ),
@@ -328,7 +342,7 @@ export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
       action: { ...action, enum: [...actions] },
       input: {
         type: 'object',
-        description: `Fields for the selected action. Required: ${requiredSummary(actions)}. Omit input when no fields are needed.`,
+        description: `Fields for the selected action. Required: ${requiredSummary(actions)}. Omit input when none are needed.`,
         properties: scoped,
       },
     },
@@ -417,8 +431,9 @@ export function validateBrowserToolArgs(args, options = {}) {
     if (error) return { ok: false, error };
   }
   const hasValue = (name) => Object.hasOwn(input, name) && input[name] !== undefined && input[name] !== null;
-  if (Object.hasOwn(input, 'target')) {
-    const targetError = validateTargetSpec(input.target, `browser action "${action}" input.target`);
+  for (const field of ['target', 'dropTarget']) {
+    if (!Object.hasOwn(input, field)) continue;
+    const targetError = validateTargetSpec(input[field], `browser action "${action}" input.${field}`);
     if (targetError) return { ok: false, error: targetError };
   }
   if (QUERY_SYNTAX_ACTIONS.has(action) && Object.hasOwn(input, 'query')) {
@@ -538,6 +553,31 @@ export function validateBrowserToolArgs(args, options = {}) {
     }
   } else if (screenshotOptionsTouched && input.includeScreenshot !== true) {
     return { ok: false, error: `browser action "${action}" screenshot options require input.includeScreenshot=true` };
+  }
+  // A snapshot target crops the image to that element; the document-sized and
+  // printed forms have no element to crop, so they are refused here.
+  if (action === 'snapshot' && (Object.hasOwn(input, 'ref') || Object.hasOwn(input, 'target'))) {
+    if (Object.hasOwn(input, 'ref') && Object.hasOwn(input, 'target')) {
+      return { ok: false, error: 'browser action "snapshot" accepts only one input target form' };
+    }
+    if (String(input.mode || 'semantic') !== 'visual') {
+      return {
+        ok: false,
+        error: 'browser action "snapshot" input.ref or input.target crops the image and requires input.mode=visual',
+      };
+    }
+    if (input.fullPage === true) {
+      return {
+        ok: false,
+        error: 'browser action "snapshot" input.ref or input.target cannot be combined with fullPage',
+      };
+    }
+    if (input.format === 'pdf') {
+      return {
+        ok: false,
+        error: 'browser action "snapshot" format=pdf prints the whole page; drop input.ref or input.target',
+      };
+    }
   }
   if (input.format !== 'jpeg' && Object.hasOwn(input, 'quality')) {
     return { ok: false, error: 'browser screenshot input.quality is supported only with input.format=jpeg' };

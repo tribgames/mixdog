@@ -78,6 +78,10 @@ export interface BrowserPerformanceCommandHost {
   pause(ms: number, signal?: AbortSignal): Promise<void>;
   traceDirectory?: () => string;
   redactText?: (guest: WebContents, value: string) => string;
+  /** Resident memory of the process painting this page. The JS heap counts
+   *  only script objects, so a page whose images and layers hold the memory
+   *  looks small without it. */
+  processMemoryMb?: (guest: WebContents) => number | undefined;
 }
 
 const TRACE_COMPLETION_TIMEOUT_MS = 10_000;
@@ -99,7 +103,7 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
         {},
         signal
       );
-      return { text: formatPerformanceMetrics(result.metrics || []) };
+      return { text: formatPerformanceMetrics(result.metrics || [], host.processMemoryMb?.(guest)) };
     }
     if (operation === 'start') {
       if (tracesByGuest.has(guest)) {
@@ -187,7 +191,10 @@ export function createBrowserPerformanceCommands(host: BrowserPerformanceCommand
   return { performanceResult };
 }
 
-export function formatPerformanceMetrics(metrics: Array<{ name?: string; value?: number }>): string {
+export function formatPerformanceMetrics(
+  metrics: Array<{ name?: string; value?: number }>,
+  processMemoryMb?: number
+): string {
   const preferred = [
     'Timestamp',
     'Documents',
@@ -211,5 +218,10 @@ export function formatPerformanceMetrics(metrics: Array<{ name?: string; value?:
     if (/Duration$/.test(name)) return [`- ${name}: ${(value * 1000).toFixed(2)} ms`];
     return [`- ${name}: ${value}`];
   });
+  if (Number.isFinite(Number(processMemoryMb))) {
+    // Named for what it measures: one renderer process can paint several pages
+    // of the same site, so this is not "this page alone".
+    lines.push(`- RendererProcessMemory: ${Number(processMemoryMb).toFixed(2)} MB (shared by this page's process)`);
+  }
   return lines.length ? `Performance metrics:\n${lines.join('\n')}` : 'No performance metrics were returned.';
 }

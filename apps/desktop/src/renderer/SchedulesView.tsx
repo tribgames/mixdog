@@ -365,17 +365,21 @@ function ScheduleEditor({
                 }}
               />
               {/* Same flat, right-aligned workflow control as the chat
-                composer (effort-control/workflow-control skin). */}
-              <div className="effort-control workflow-control">
-                <OpenSelect
-                  variant="route"
-                  ariaLabel={t('Schedule workflow')}
-                  value={workflow}
-                  disabled={busy}
-                  options={workflows.length ? workflows : [{ value: 'default', label: 'Default' }]}
-                  onChange={setWorkflow}
-                />
-              </div>
+                composer (effort-control/workflow-control skin) — including its
+                rule: a single pack is not a choice, so the control is omitted
+                and the draft keeps the workflow it already carries. */}
+              {workflows.length > 1 && (
+                <div className="effort-control workflow-control">
+                  <OpenSelect
+                    variant="route"
+                    ariaLabel={t('Schedule workflow')}
+                    value={workflow}
+                    disabled={busy}
+                    options={workflows}
+                    onChange={setWorkflow}
+                  />
+                </div>
+              )}
             </div>
           </div>
           <div className="schedules-field">

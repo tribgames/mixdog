@@ -8,7 +8,7 @@ import { ErrorNotice, errorSummary } from '../ErrorNotice';
 import { showDesktopToast } from '../notifications';
 import { record } from '../record-utils';
 import { SidebarLoadingDialog } from '../sidebar-dialog';
-import type { SidebarResourceTag } from '../sidebar-resource-row';
+import type { SidebarResourceTagTone } from '../sidebar-resource-row';
 import { BuiltInFeaturesPanel } from './built-in-features-panel';
 import { PluginInfo } from './plugin-info';
 import { SkillEditorDialog, useSkillToolLinks } from './skill-editor';
@@ -26,7 +26,6 @@ import {
   ExtensionScopeField,
   ExtensionSection,
   scopeOf,
-  type ExtensionItemTone,
 } from './extension-detail';
 
 function mcpTransport(config: RecordValue): string {
@@ -235,7 +234,7 @@ function McpEditorDialog({
   const [envHeaders, setEnvHeaders] = useState(() => mcpPairValues(config.env_http_headers));
   const [formError, setFormError] = useState('');
   const autoDetect = initialTransport === 'autoDetect';
-  const connection = editing && server ? mcpConnection(server) : null;
+  const connection = editing && server ? mcpStatus(server) : null;
   return (
     <ExtensionDetailDialog
       width="editor"
@@ -244,7 +243,7 @@ function McpEditorDialog({
       icon={<Plug size={16} aria-hidden="true" />}
       title={editing ? name : t('Add MCP server')}
       onClose={onClose}
-      titleStatus={connection ? { label: connection.status, tone: connection.tone } : undefined}
+      titleStatus={connection ? { label: connection.label, tone: connection.tone } : undefined}
       headerControl={
         editing && onToggle ? (
           <CompactSwitch
@@ -302,12 +301,12 @@ function McpEditorDialog({
         </>
       }
     >
-      {connection && (
+      {connection && server && (
         <ExtensionItemList>
           <ExtensionItemRow
             icon={<Plug size={15} aria-hidden="true" />}
             title={t('Connection')}
-            description={connection.description}
+            description={server.error ? errorSummary(server.error) : mcpRowDescription(server)}
             tone={connection.tone}
           />
         </ExtensionItemList>
@@ -456,36 +455,21 @@ function McpEditorDialog({
   );
 }
 
-function mcpRowStatus(server: RecordValue): SidebarResourceTag | null {
-  const enabled = server.enabled !== false;
-  if (!enabled) return { label: t('Disabled'), tone: 'muted' };
+/** THE connection state for one MCP server: the list row's tag, the editor's
+ *  title badge, and a plugin card's bundled-server row all read it, so the same
+ *  server can never show two different labels or tones (user: 실패태그 바깥쪽
+ *  이랑 팝업안쪽이랑 다르네 — a failure was `danger` in the list and `warn` in
+ *  the editor). `connected` lets the list drop the tag on the normal case while
+ *  the editor still states it. Transport/endpoint or failure details stay in
+ *  the editor body. */
+function mcpStatus(server: RecordValue): { label: string; tone: SidebarResourceTagTone; connected: boolean } {
   const raw = String(server.status || '').trim();
   const connected = server.connected === true || raw.toLowerCase() === 'connected';
-  if (connected) return null;
-  if (server.error) return { label: t('Failed'), tone: 'danger' };
-  return { label: t('Not connected'), tone: 'warn' };
-}
-
-/** Connection state for the title badge, with transport/endpoint or failure
- *  details kept in the editor body. */
-function mcpConnection(server: RecordValue): { description: string; status: string; tone: ExtensionItemTone } {
-  const enabled = server.enabled !== false;
-  const raw = String(server.status || '').trim();
-  const connected = server.connected === true || raw.toLowerCase() === 'connected';
-  const failed = Boolean(server.error);
-  return {
-    description: server.error ? errorSummary(server.error) : mcpRowDescription(server),
-    status: !enabled
-      ? t('Off')
-      : connected
-        ? t('Connected')
-        : failed
-          ? t('Failed')
-          : raw
-            ? `${raw.charAt(0).toUpperCase()}${raw.slice(1)}`
-            : t('Not connected'),
-    tone: !enabled ? 'off' : connected ? 'ok' : failed ? 'warn' : 'muted',
-  };
+  if (server.enabled === false) return { label: t('Disabled'), tone: 'muted', connected: false };
+  if (connected) return { label: t('Connected'), tone: 'ok', connected: true };
+  if (server.error) return { label: t('Failed'), tone: 'danger', connected: false };
+  if (raw) return { label: `${raw.charAt(0).toUpperCase()}${raw.slice(1)}`, tone: 'muted', connected: false };
+  return { label: t('Not connected'), tone: 'warn', connected: false };
 }
 
 function PluginInstallDialog({
@@ -613,13 +597,14 @@ export function McpPanel({ api, data, pending, run, confirm, createOpen, closeCr
         servers.map((server) => {
           const name = String(server.name);
           const enabled = server.enabled !== false;
+          const status = mcpStatus(server);
           return (
             <ExtensionRow
               key={name}
               icon={<Plug size={16} aria-hidden="true" />}
               title={name}
               description={mcpRowDescription(server)}
-              status={mcpRowStatus(server)}
+              status={status.connected ? null : { label: status.label, tone: status.tone }}
               enabled={enabled}
               busy={busy}
               onOpen={() => openEditor(name)}
@@ -953,21 +938,15 @@ function PluginsPanel({ api, data, pending, run, confirm, createOpen, closeCreat
                     {servers.map((server) => {
                       const name = String(server.name);
                       const enabled = server.enabled !== false;
-                      const connected = server.connected === true;
+                      const status = mcpStatus(server);
                       return (
                         <ExtensionItemRow
                           key={`mcp:${name}`}
                           icon={<Plug size={15} aria-hidden="true" />}
                           title={name}
                           description={mcpRowDescription(server)}
-                          status={
-                            !enabled
-                              ? ''
-                              : connected
-                                ? t('Connected')
-                                : String(server.error ? t('Failed') : t('Not connected'))
-                          }
-                          tone={!enabled ? 'off' : connected ? 'ok' : 'warn'}
+                          status={status.label}
+                          tone={status.tone}
                           control={
                             <CompactSwitch
                               label={`${name} · ${t('Enabled')}`}

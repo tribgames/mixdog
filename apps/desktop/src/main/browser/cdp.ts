@@ -6,11 +6,7 @@
  */
 import type { WebContents } from 'electron';
 
-import {
-  CDP_REQUEST_TIMEOUT_MS,
-  MAX_CHILD_CDP_SESSIONS,
-  OPEN_SURFACE_TIMEOUT_MS,
-} from './command';
+import { CDP_REQUEST_TIMEOUT_MS, MAX_CHILD_CDP_SESSIONS, OPEN_SURFACE_TIMEOUT_MS } from './command';
 import {
   DIALOG_BRIDGE_PATTERN,
   DIALOG_BRIDGE_SCRIPT,
@@ -18,24 +14,27 @@ import {
   parseDialogBridgeRequest,
 } from './dialog-bridge';
 import { type BrowserGuestStateStore, pushBounded } from './guest-state';
-import {
-  type BrowserFetchPattern,
-  type BrowserInterceptRule,
-  interceptFulfillParams,
-} from './intercept';
+import { type BrowserFetchPattern, type BrowserInterceptRule, interceptFulfillParams } from './intercept';
+import { type BrowserConsoleArgument, formatConsoleArguments, formatConsoleSource } from './console-format';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
 import { pause } from './settle';
 import { createBrowserCdpExecution } from './cdp-execution';
+
+/** Resources Chromium's own bundled components ask for, such as the PDF
+ *  viewer's stylesheet. This guest grants no extensions, so those failures
+ *  belong to the browser rather than the page and nobody can act on them. */
+function isBrowserComponentUrl(url: unknown): boolean {
+  return typeof url === 'string' && url.startsWith('chrome-extension://');
+}
 
 export interface BrowserGuestCdpHost {
   state: BrowserGuestStateStore;
   /** Extra Fetch patterns interception wants paused on this guest. */
   interceptFetchPatterns(guest: WebContents): BrowserFetchPattern[];
-  matchInterceptRule(
-    guest: WebContents,
-    url: string,
-    resourceType: string,
-  ): BrowserInterceptRule | undefined;
+  matchInterceptRule(guest: WebContents, url: string, resourceType: string): BrowserInterceptRule | undefined;
+  /** Policy-driven guards installed into every document and child frame,
+   *  alongside the dialog bridge. Empty unless an operator restricts the page. */
+  pageGuardScripts?(): string[];
 }
 
 export interface BrowserCdpCallOptions {
@@ -46,10 +45,7 @@ export interface BrowserCdpCallOptions {
 }
 
 /** The narrow CDP surface a page service depends on; tests fake this shape. */
-export type BrowserCdpPort = Pick<
-  BrowserGuestCdp,
-  'call' | 'sendCdp' | 'sendCdpInput' | 'guestDebugger'
->;
+export type BrowserCdpPort = Pick<BrowserGuestCdp, 'call' | 'sendCdp' | 'sendCdpInput' | 'guestDebugger'>;
 
 export interface BrowserGuestCdp {
   /** Do not reuse a page while a cancelled dispatch is still executing. */
@@ -60,7 +56,7 @@ export interface BrowserGuestCdp {
     timeoutMs: number,
     label: string,
     signal?: AbortSignal,
-    onTimeout?: () => void,
+    onTimeout?: () => void
   ): Promise<T>;
   sendCdp<T>(
     guest: WebContents,
@@ -70,7 +66,7 @@ export interface BrowserGuestCdp {
     timeoutMs?: number,
     signal?: AbortSignal,
     sessionId?: string,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<T>;
   /** One command against a guest: resolves the attached debugger and applies
    *  the default request timeout. Page services reach CDP through this. */
@@ -79,7 +75,7 @@ export interface BrowserGuestCdp {
     method: string,
     params?: Record<string, unknown>,
     signal?: AbortSignal,
-    options?: BrowserCdpCallOptions,
+    options?: BrowserCdpCallOptions
   ): Promise<T>;
   /** Input commands can remain pending while a JavaScript dialog blocks its
    *  event handler. Return control as soon as the dialog event arrives so the
@@ -91,14 +87,9 @@ export interface BrowserGuestCdp {
     params: Record<string, unknown>,
     signal?: AbortSignal,
     sessionId?: string,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<'completed' | 'dialog'>;
-  evaluate<T>(
-    guest: WebContents,
-    expression: string,
-    signal?: AbortSignal,
-    timeoutMs?: number,
-  ): Promise<T>;
+  evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal, timeoutMs?: number): Promise<T>;
   /** The attached debugger for a guest, initialised once per document. */
   guestDebugger(guest: WebContents): Promise<Electron.Debugger>;
   waitForInitialDocument(guest: WebContents): Promise<void>;
@@ -120,7 +111,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     timeoutMs: number,
     label: string,
     signal?: AbortSignal,
-    onTimeout?: () => void,
+    onTimeout?: () => void
   ): Promise<T> {
     if (signal?.aborted) throw signal.reason || new Error(`${label} cancelled`);
     let timer: NodeJS.Timeout | null = null;
@@ -134,9 +125,9 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       });
       const cancellation = signal
         ? new Promise<never>((_resolve, reject) => {
-          abortListener = () => reject(signal.reason || new Error(`${label} cancelled`));
-          signal.addEventListener('abort', abortListener, { once: true });
-        })
+            abortListener = () => reject(signal.reason || new Error(`${label} cancelled`));
+            signal.addEventListener('abort', abortListener, { once: true });
+          })
         : new Promise<never>(() => undefined);
       return await Promise.race([promise, timeout, cancellation]);
     } finally {
@@ -147,26 +138,43 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
 
   const { sendCdp, waitForIdle } = createBrowserCdpExecution({
     bounded,
-    diagnostic: (guest, message) => state.for(guest).console.recordError(message),
+    diagnostic: (guest, message) => state.for(guest).console.recordInternal(message),
   });
+
+  /** An open alert, confirm or prompt freezes the page's main thread, so every
+   *  later call dies on its deadline with a message that explains nothing and
+   *  invites a retry that will time out again. Name the dialog instead: it has
+   *  to be answered before anything else on this page can run. */
+  function explainPendingDialog(guest: WebContents, error: unknown): unknown {
+    const dialog = state.peek(guest)?.pendingDialog;
+    if (!dialog || !(error instanceof Error) || !/ timed out after \d+ms$/.test(error.message)) return error;
+    return new Error(
+      `${error.message} — an open ${dialog.type} dialog is blocking this page: ${JSON.stringify(dialog.message)}. ` +
+        'Answer it with handle_dialog; the page cannot run anything else until then.'
+    );
+  }
 
   async function call<T>(
     guest: WebContents,
     method: string,
     params: Record<string, unknown> = {},
     signal?: AbortSignal,
-    options: BrowserCdpCallOptions = {},
+    options: BrowserCdpCallOptions = {}
   ): Promise<T> {
-    return await sendCdp<T>(
-      guest,
-      await guestDebugger(guest),
-      method,
-      params,
-      options.timeoutMs ?? CDP_REQUEST_TIMEOUT_MS,
-      signal,
-      options.sessionId,
-      options.beforeDispatch,
-    );
+    try {
+      return await sendCdp<T>(
+        guest,
+        await guestDebugger(guest),
+        method,
+        params,
+        options.timeoutMs ?? CDP_REQUEST_TIMEOUT_MS,
+        signal,
+        options.sessionId,
+        options.beforeDispatch
+      );
+    } catch (error) {
+      throw explainPendingDialog(guest, error);
+    }
   }
 
   async function sendCdpInput(
@@ -176,18 +184,24 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     params: Record<string, unknown>,
     signal?: AbortSignal,
     sessionId?: string,
-    beforeDispatch?: () => void,
+    beforeDispatch?: () => void
   ): Promise<'completed' | 'dialog'> {
-    const dispatch = sendCdp<void>(guest, cdp, method, params, CDP_REQUEST_TIMEOUT_MS, signal, sessionId, beforeDispatch);
+    const dispatch = sendCdp<void>(
+      guest,
+      cdp,
+      method,
+      params,
+      CDP_REQUEST_TIMEOUT_MS,
+      signal,
+      sessionId,
+      beforeDispatch
+    );
     const outcome = dispatch.then(
       () => ({ done: true as const, error: null }),
-      (error: unknown) => ({ done: true as const, error }),
+      (error: unknown) => ({ done: true as const, error })
     );
     for (;;) {
-      const next = await Promise.race([
-        outcome,
-        pause(25, signal).then(() => ({ done: false as const, error: null })),
-      ]);
+      const next = await Promise.race([outcome, pause(25, signal).then(() => ({ done: false as const, error: null }))]);
       if (next.done) {
         if (next.error) throw next.error;
         return 'completed';
@@ -201,20 +215,13 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     if (guest.getURL()) return;
     // A newly constructed hidden BrowserWindow has no committed document and
     // will not emit dom-ready until its first explicit load.
-    await bounded(
-      guest.loadURL('about:blank'),
-      OPEN_SURFACE_TIMEOUT_MS,
-      'browser page initialization',
-    );
+    await bounded(guest.loadURL('about:blank'), OPEN_SURFACE_TIMEOUT_MS, 'browser page initialization');
   }
 
   /** Chromium pauses exactly what these patterns name. The dialog bridge is
    *  always one of them; interception contributes the rest. */
   function fetchPatternsFor(guest: WebContents) {
-    return [
-      { urlPattern: DIALOG_BRIDGE_PATTERN, requestStage: 'Request' as const },
-      ...interceptFetchPatterns(guest),
-    ];
+    return [{ urlPattern: DIALOG_BRIDGE_PATTERN, requestStage: 'Request' as const }, ...interceptFetchPatterns(guest)];
   }
 
   /** A rule change has to reach every attached session, not just the root one:
@@ -223,20 +230,11 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
   async function applyFetchPatterns(guest: WebContents, signal?: AbortSignal): Promise<void> {
     const cdp = await guestDebugger(guest);
     const patterns = fetchPatternsFor(guest);
-    const sessionIds: Array<string | undefined> = [
-      undefined,
-      ...state.for(guest).cdpSessions.keys(),
-    ];
+    const sessionIds: Array<string | undefined> = [undefined, ...state.for(guest).cdpSessions.keys()];
     for (const sessionId of sessionIds) {
-      await sendCdp(
-        guest,
-        cdp,
-        'Fetch.enable',
-        { patterns },
-        CDP_REQUEST_TIMEOUT_MS,
-        signal,
-        sessionId,
-      ).catch(() => undefined);
+      await sendCdp(guest, cdp, 'Fetch.enable', { patterns }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId).catch(
+        () => undefined
+      );
     }
   }
 
@@ -244,25 +242,63 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     guest: WebContents,
     cdp: Electron.Debugger,
     signal: AbortSignal,
-    sessionId?: string,
+    sessionId?: string
   ): Promise<void> {
     // Dialog interception is the startup safety boundary. Do not make first
     // navigation wait for unrelated observability domains or child targets.
     await Promise.all([
       sendCdp(guest, cdp, 'Page.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
       sendCdp(guest, cdp, 'Runtime.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
-      ...(!sessionId ? [
-        sendCdp(guest, cdp, 'Emulation.setFocusEmulationEnabled', {
-          enabled: true,
-        }, CDP_REQUEST_TIMEOUT_MS, signal),
-      ] : []),
-      sendCdp(guest, cdp, 'Page.addScriptToEvaluateOnNewDocument', {
-        source: DIALOG_BRIDGE_SCRIPT,
-        runImmediately: true,
-      }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
-      sendCdp(guest, cdp, 'Fetch.enable', {
-        patterns: fetchPatternsFor(guest),
-      }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      ...(!sessionId
+        ? [
+            sendCdp(
+              guest,
+              cdp,
+              'Emulation.setFocusEmulationEnabled',
+              {
+                enabled: true,
+              },
+              CDP_REQUEST_TIMEOUT_MS,
+              signal
+            ),
+          ]
+        : []),
+      sendCdp(
+        guest,
+        cdp,
+        'Page.addScriptToEvaluateOnNewDocument',
+        {
+          source: DIALOG_BRIDGE_SCRIPT,
+          runImmediately: true,
+        },
+        CDP_REQUEST_TIMEOUT_MS,
+        signal,
+        sessionId
+      ),
+      // Child frames run their own realm, so a guard installed only on the root
+      // leaves an iframe free to do what the policy refuses.
+      ...(host.pageGuardScripts?.() || []).map((source) =>
+        sendCdp(
+          guest,
+          cdp,
+          'Page.addScriptToEvaluateOnNewDocument',
+          { source, runImmediately: true },
+          CDP_REQUEST_TIMEOUT_MS,
+          signal,
+          sessionId
+        )
+      ),
+      sendCdp(
+        guest,
+        cdp,
+        'Fetch.enable',
+        {
+          patterns: fetchPatternsFor(guest),
+        },
+        CDP_REQUEST_TIMEOUT_MS,
+        signal,
+        sessionId
+      ),
     ]);
     signal.throwIfAborted();
     if (sessionId && !state.for(guest).cdpSessions.has(sessionId)) return;
@@ -272,19 +308,36 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       sendCdp(guest, cdp, 'Accessibility.enable', {}, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
       // A native file picker would block the window; Chromium reports it as
       // an event instead and `upload` answers it with approved paths.
-      sendCdp(guest, cdp, 'Page.setInterceptFileChooserDialog', {
-        enabled: true,
-      }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId),
+      sendCdp(
+        guest,
+        cdp,
+        'Page.setInterceptFileChooserDialog',
+        {
+          enabled: true,
+        },
+        CDP_REQUEST_TIMEOUT_MS,
+        signal,
+        sessionId
+      ),
       // Mitigate the observed TargetHandler::AutoAttach native crash by not
       // recursively registering auto-attach on child sessions. Flatten only
       // changes session routing; nested OOPIF coverage is not guaranteed.
-      ...(!sessionId ? [
-        sendCdp(guest, cdp, 'Target.setAutoAttach', {
-          autoAttach: true,
-          waitForDebuggerOnStart: false,
-          flatten: true,
-        }, CDP_REQUEST_TIMEOUT_MS, signal),
-      ] : []),
+      ...(!sessionId
+        ? [
+            sendCdp(
+              guest,
+              cdp,
+              'Target.setAutoAttach',
+              {
+                autoAttach: true,
+                waitForDebuggerOnStart: false,
+                flatten: true,
+              },
+              CDP_REQUEST_TIMEOUT_MS,
+              signal
+            ),
+          ]
+        : []),
     ]);
   }
 
@@ -295,12 +348,10 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     guest: WebContents,
     cdp: Electron.Debugger,
     params: Record<string, unknown>,
-    sessionId: string | undefined,
+    sessionId: string | undefined
   ): void {
     const diagnostics = state.for(guest);
-    const request = (params.request && typeof params.request === 'object'
-      ? params.request
-      : {}) as { url?: string };
+    const request = (params.request && typeof params.request === 'object' ? params.request : {}) as { url?: string };
     const requestUrl = String(request.url || '');
     const bridgeDialog = parseDialogBridgeRequest(requestUrl);
     if (bridgeDialog) {
@@ -314,7 +365,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
           dialogBridgeFulfillParams(requestId, false, ''),
           CDP_REQUEST_TIMEOUT_MS,
           undefined,
-          sessionId,
+          sessionId
         ).catch(() => undefined);
         return;
       }
@@ -333,55 +384,68 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     // Fetch-domain pauses can classify fetch() as XHR. Match the same
     // Network-domain identity used by the request report, without conflating
     // real XMLHttpRequests with fetch requests or crossing target sessions.
-    const resourceType = diagnostics.network.inflightResourceType(
-      String(params.networkId || ''), sessionId,
-    ) ?? String(params.resourceType || '');
+    const resourceType =
+      diagnostics.network.inflightResourceType(String(params.networkId || ''), sessionId) ??
+      String(params.resourceType || '');
     const rule = matchInterceptRule(guest, requestUrl, resourceType);
     // A pause carrying a status is already past the request stage, where
     // only continueResponse may release it.
     const atResponseStage = params.responseStatusCode !== undefined;
     const answered = !rule
       ? sendCdp(
-        guest,
-        cdp,
-        atResponseStage ? 'Fetch.continueResponse' : 'Fetch.continueRequest',
-        { requestId: pausedRequestId },
-        CDP_REQUEST_TIMEOUT_MS,
-        undefined,
-        sessionId,
-      )
-      : rule.abort
-        ? sendCdp(guest, cdp, 'Fetch.failRequest', {
-          requestId: pausedRequestId,
-          errorReason: 'Aborted',
-        }, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId)
-        : sendCdp(
           guest,
           cdp,
-          'Fetch.fulfillRequest',
-          interceptFulfillParams(rule, pausedRequestId),
+          atResponseStage ? 'Fetch.continueResponse' : 'Fetch.continueRequest',
+          { requestId: pausedRequestId },
           CDP_REQUEST_TIMEOUT_MS,
           undefined,
-          sessionId,
-        );
+          sessionId
+        )
+      : rule.abort
+        ? sendCdp(
+            guest,
+            cdp,
+            'Fetch.failRequest',
+            {
+              requestId: pausedRequestId,
+              errorReason: 'Aborted',
+            },
+            CDP_REQUEST_TIMEOUT_MS,
+            undefined,
+            sessionId
+          )
+        : sendCdp(
+            guest,
+            cdp,
+            'Fetch.fulfillRequest',
+            interceptFulfillParams(rule, pausedRequestId),
+            CDP_REQUEST_TIMEOUT_MS,
+            undefined,
+            sessionId
+          );
     // A request that could not be answered would otherwise fail silently
-    // and look like a hung page, so the reason joins the page console.
-    void answered.catch((error) => diagnostics.console.recordError(
-      `intercept could not answer ${redactBrowserUrl(requestUrl)}: ${(error as Error).message}`,
-    ));
+    // and look like a hung page, so the reason stays in the console — as the
+    // browser's own fault, since the interception is ours, not the page's.
+    void answered.catch((error) =>
+      diagnostics.console.recordInternal(
+        `intercept could not answer ${redactBrowserUrl(requestUrl)}: ${(error as Error).message}`
+      )
+    );
   }
 
   function onAttachedToTarget(
     guest: WebContents,
     cdp: Electron.Debugger,
     params: Record<string, unknown>,
-    parentSessionId: string | undefined,
+    parentSessionId: string | undefined
   ): void {
     const diagnostics = state.for(guest);
     const attachedSessionId = String(params.sessionId || '');
-    const targetInfo = (params.targetInfo && typeof params.targetInfo === 'object'
-      ? params.targetInfo
-      : {}) as { targetId?: string; type?: string; url?: string };
+    const targetInfo = (params.targetInfo && typeof params.targetInfo === 'object' ? params.targetInfo : {}) as {
+      targetId?: string;
+      type?: string;
+      url?: string;
+    };
     const lifetime = debuggerLifetime.get(guest);
     if (!lifetime || lifetime.signal.aborted || !attachedSessionId || targetInfo.type !== 'iframe') return;
     if (diagnostics.cdpSessions.has(attachedSessionId)) return;
@@ -389,8 +453,8 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       // Leave the excess session attached but uninitialized: detaching it
       // mid-navigation could exercise the native crash path. Chromium drops
       // the session by itself when the frame goes away.
-      diagnostics.console.recordError(
-        `CDP child target limit reached (${MAX_CHILD_CDP_SESSIONS}); excess iframe left unobserved`,
+      diagnostics.console.recordInternal(
+        `CDP child target limit reached (${MAX_CHILD_CDP_SESSIONS}); excess iframe left unobserved`
       );
       return;
     }
@@ -402,9 +466,9 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       parentSessionId,
       ready,
     });
-    ready.catch((error) => diagnostics.console.recordError(
-      `CDP child target initialization failed: ${(error as Error).message}`,
-    ));
+    ready.catch((error) =>
+      diagnostics.console.recordInternal(`CDP child target initialization failed: ${(error as Error).message}`)
+    );
   }
 
   /** Route one CDP event into the guest's state record. */
@@ -413,7 +477,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     cdp: Electron.Debugger,
     name: string,
     params: Record<string, unknown>,
-    sessionId: string | undefined,
+    sessionId: string | undefined
   ): void {
     const diagnostics = state.for(guest);
     switch (name) {
@@ -425,6 +489,12 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
         return;
       case 'Fetch.requestPaused':
         onRequestPaused(guest, cdp, params, sessionId);
+        return;
+      case 'Input.dragIntercepted':
+        // The page answered a press-and-move with its own HTML5 drag, so
+        // Chromium hands the payload over rather than running the drag. The
+        // input driver picks it up and finishes the gesture as a drop.
+        diagnostics.interceptedDrag = (params.data ?? undefined) as typeof diagnostics.interceptedDrag;
         return;
       case 'Page.javascriptDialogOpening':
         diagnostics.pendingDialog = {
@@ -450,31 +520,52 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
         return;
       }
       case 'Runtime.exceptionThrown': {
-        const detail = params.exceptionDetails as { text?: string; exception?: { description?: string } } | undefined;
+        const detail = params.exceptionDetails as
+          | {
+              text?: string;
+              url?: string;
+              lineNumber?: number;
+              exception?: { description?: string };
+              stackTrace?: { callFrames?: Array<{ url?: string; lineNumber?: number }> };
+            }
+          | undefined;
+        const described = detail?.exception?.description || detail?.text || 'page exception';
+        const frame = detail?.stackTrace?.callFrames?.find((candidate) => candidate.url);
+        const thrownUrl = frame?.url || detail?.url;
+        // A thrown Error already prints its own stack; only a bare value, such
+        // as `throw 'boom'`, needs the script and line spelled out.
         diagnostics.console.recordError(
-          detail?.exception?.description || detail?.text || 'page exception',
+          thrownUrl && !described.includes(thrownUrl)
+            ? `${described}${formatConsoleSource(redactBrowserUrl(thrownUrl), frame?.url ? frame.lineNumber : detail?.lineNumber)}`
+            : described
         );
         return;
       }
       case 'Runtime.consoleAPICalled': {
         const type = String(params.type || '');
-        const args = Array.isArray(params.args) ? params.args as Array<{ value?: unknown; description?: string }> : [];
-        diagnostics.console.record(
-          type,
-          `${type}: ${args.map((arg) => arg.value ?? arg.description ?? '').join(' ')}`,
-        );
+        const args = Array.isArray(params.args) ? (params.args as BrowserConsoleArgument[]) : [];
+        // The first frame that names a script is the line a reader opens.
+        const frame = (
+          params.stackTrace as { callFrames?: Array<{ url?: string; lineNumber?: number }> } | undefined
+        )?.callFrames?.find((candidate) => candidate.url);
+        const source = frame?.url ? formatConsoleSource(redactBrowserUrl(frame.url), frame.lineNumber) : '';
+        diagnostics.console.record(type, `${type}: ${formatConsoleArguments(args)}${source}`);
         return;
       }
       case 'Log.entryAdded': {
         const entry = params.entry as { level?: string; text?: string; url?: string; lineNumber?: number } | undefined;
-        if (entry) diagnostics.console.record(
-          entry.level,
-          `${entry.level}: ${entry.text || ''}${entry.url ? ` (${redactBrowserUrl(entry.url)}:${entry.lineNumber || 0})` : ''}`,
-        );
+        if (entry && !isBrowserComponentUrl(entry.url))
+          diagnostics.console.record(
+            entry.level,
+            `${entry.level}: ${entry.text || ''}${entry.url ? formatConsoleSource(redactBrowserUrl(entry.url), entry.lineNumber) : ''}`
+          );
         return;
       }
       case 'Network.requestWillBeSent':
         diagnostics.network.requestWillBeSent(params, sessionId);
+        return;
+      case 'Network.requestWillBeSentExtraInfo':
+        diagnostics.network.requestWillBeSentExtraInfo(params, sessionId);
         return;
       case 'Network.responseReceived':
         diagnostics.network.responseReceived(params, sessionId);
@@ -484,16 +575,24 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
         return;
       case 'Network.loadingFailed': {
         const request = diagnostics.network.loadingFailed(params, sessionId);
-        if (request) {
+        // Chromium cancels a request when the address turns into a download,
+        // when the page abandons a fetch, and when a navigation replaces it.
+        // None of those is a fault of the page, so a cancelled request stays in
+        // the network ledger but never joins the failures a reply volunteers —
+        // a saved file used to be announced as a failed request.
+        if (request && !request.canceled && !isBrowserComponentUrl(request.url)) {
           pushBounded(
             diagnostics.networkFailures,
-            `${request.method} ${redactBrowserUrl(request.url)} — ${request.failure || 'failed'}`,
+            `${request.method} ${redactBrowserUrl(request.url)} — ${request.failure || 'failed'}`
           );
         }
         return;
       }
       case 'Network.webSocketCreated':
         diagnostics.network.webSocketCreated(params, sessionId);
+        return;
+      case 'Network.webSocketWillSendHandshakeRequest':
+        diagnostics.network.webSocketWillSendHandshakeRequest(params, sessionId);
         return;
       case 'Network.webSocketHandshakeResponseReceived':
         diagnostics.network.webSocketHandshakeResponse(params, sessionId);
@@ -508,10 +607,13 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
         diagnostics.network.webSocketClosed(params, sessionId);
         return;
       case 'Network.webSocketFrameError':
-        diagnostics.network.loadingFailed({
-          requestId: params.requestId,
-          errorText: params.errorMessage || 'WebSocket frame error',
-        }, sessionId);
+        diagnostics.network.loadingFailed(
+          {
+            requestId: params.requestId,
+            errorText: params.errorMessage || 'WebSocket frame error',
+          },
+          sessionId
+        );
         return;
       case 'Tracing.dataCollected':
         diagnostics.performanceTrace?.trace.add(params.value);
@@ -540,12 +642,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       lifetime.signal.throwIfAborted();
       const cdp = guest.debugger;
       if (!cdp.isAttached()) cdp.attach('1.3');
-      const onMessage = (
-        _event: unknown,
-        method: unknown,
-        rawParams: unknown,
-        rawSessionId?: unknown,
-      ): void => {
+      const onMessage = (_event: unknown, method: unknown, rawParams: unknown, rawSessionId?: unknown): void => {
         const params = (rawParams && typeof rawParams === 'object' ? rawParams : {}) as Record<string, unknown>;
         onCdpEvent(guest, cdp, String(method || ''), params, String(rawSessionId || '') || undefined);
       };
@@ -576,7 +673,11 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       if (debuggerLifetime.get(guest) !== lifetime) return;
       lifetime.abort(new Error('CDP initialization failed'));
       if (!guest.isDestroyed() && guest.debugger.isAttached()) {
-        try { guest.debugger.detach(); } catch { /* already detached */ }
+        try {
+          guest.debugger.detach();
+        } catch {
+          /* already detached */
+        }
       }
       if (debuggerLifetime.get(guest) === lifetime) debuggerLifetime.delete(guest);
     });
@@ -587,31 +688,39 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     guest: WebContents,
     expression: string,
     signal?: AbortSignal,
-    timeoutMs = CDP_REQUEST_TIMEOUT_MS,
+    timeoutMs = CDP_REQUEST_TIMEOUT_MS
   ): Promise<T> {
     const cdp = await guestDebugger(guest);
     const response = await sendCdp<{
       result?: { value?: T; description?: string };
       exceptionDetails?: { text?: string; exception?: { description?: string } };
-    }>(guest, cdp, 'Runtime.evaluate', {
-      expression,
-      returnByValue: true,
-      awaitPromise: true,
-      includeCommandLineAPI: true,
-      userGesture: true,
-    }, timeoutMs, signal);
+    }>(
+      guest,
+      cdp,
+      'Runtime.evaluate',
+      {
+        expression,
+        returnByValue: true,
+        awaitPromise: true,
+        includeCommandLineAPI: true,
+        userGesture: true,
+      },
+      timeoutMs,
+      signal
+    );
     if (response.exceptionDetails) {
-      const detail = response.exceptionDetails.exception?.description
-        || response.exceptionDetails.text || 'page script failed';
-      throw new Error(redactBrowserText(detail.split('\n')[0]));
+      const detail =
+        response.exceptionDetails.exception?.description || response.exceptionDetails.text || 'page script failed';
+      // The message alone does not say which line of the caller's script threw,
+      // so keep the innermost stack frame with it on the same line.
+      const [message, ...stack] = detail.split('\n');
+      const frame = stack.map((line) => line.trim()).find((line) => line.startsWith('at '));
+      throw new Error(redactBrowserText(frame ? `${message} (${frame.slice(3)})` : message));
     }
     return response.result?.value as T;
   }
 
-  async function detach(
-    guest: WebContents,
-    options: { uninstallScript?: string } = {},
-  ): Promise<void> {
+  async function detach(guest: WebContents, options: { uninstallScript?: string } = {}): Promise<void> {
     if (detaching.has(guest)) return;
     detaching.add(guest);
     debuggerLifetime.get(guest)?.abort(new Error('CDP detaching'));
@@ -620,13 +729,23 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
       if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
       if (options.uninstallScript) {
         try {
-          await bounded(guest.debugger.sendCommand('Runtime.evaluate', {
-            expression: options.uninstallScript,
-            awaitPromise: true,
-          }), CDP_REQUEST_TIMEOUT_MS, 'browser bridge uninstall');
-        } catch { /* page may be gone or blocked by a native dialog */ }
+          await bounded(
+            guest.debugger.sendCommand('Runtime.evaluate', {
+              expression: options.uninstallScript,
+              awaitPromise: true,
+            }),
+            CDP_REQUEST_TIMEOUT_MS,
+            'browser bridge uninstall'
+          );
+        } catch {
+          /* page may be gone or blocked by a native dialog */
+        }
       }
-      try { guest.debugger.detach(); } catch { /* already detached */ }
+      try {
+        guest.debugger.detach();
+      } catch {
+        /* already detached */
+      }
     } finally {
       detaching.delete(guest);
     }

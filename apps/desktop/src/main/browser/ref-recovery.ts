@@ -19,6 +19,12 @@ export interface BrowserRefSet {
   viewportWidth: number;
   viewportHeight: number;
   refs: Map<string, BrowserRefFingerprint>;
+  /** How much of the page this observation actually reported. A capped or
+   *  filtered snapshot is not the whole page, so a later comparison against it
+   *  has to say that what it never covered is unseen, not newly arrived. */
+  coveredElements?: number;
+  totalElements?: number;
+  query?: string;
 }
 
 export interface BrowserRefRecoveryResult {
@@ -67,6 +73,9 @@ export function createBrowserRefSet(payload: BrowserSnapshotPayload): BrowserRef
     viewportWidth: payload.viewportWidth,
     viewportHeight: payload.viewportHeight,
     refs: new Map(payload.elements.map((element) => [element.ref, fingerprint(payload, element)])),
+    coveredElements: payload.elements.length,
+    totalElements: payload.totalElements,
+    ...(payload.query ? { query: payload.query } : {}),
   };
 }
 

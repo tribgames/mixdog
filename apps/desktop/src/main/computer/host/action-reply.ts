@@ -127,8 +127,11 @@ export async function buildActionReply(
         result.verified === true &&
         windowTransition?.closed_windows.some((window) => window.id === originalWindowId);
       const launchTargetUnresolved =
-        action === 'launch' && result.delivery_accepted === true && !code &&
-        !originalWindowId && !windowTransition?.next_target;
+        action === 'launch' &&
+        result.delivery_accepted === true &&
+        !code &&
+        !originalWindowId &&
+        !windowTransition?.next_target;
       if (launchTargetUnresolved) {
         // Shell brokers can launch a different process (for example a packaged
         // app hosted by ApplicationFrameHost). No proven successor is not a

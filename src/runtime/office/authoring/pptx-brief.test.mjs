@@ -66,7 +66,7 @@ test('the review reads the carriers each plan line named back as information', (
   const issues = reviewBriefPromises(document, brief);
   assert.deepEqual(
     issues.map((issue) => [issue.code, issue.path, issue.severity]),
-    [['plan_promise_missing', '/slide[2]', 'info']]
+    [['plan_promise_missing', '/slide[2]', 'warning']]
   );
   assert.match(issues[0].message, /chart/);
   assert.equal(
@@ -115,7 +115,10 @@ test('geometry-based promises stay silent when the snapshot has no geometry', ()
     },
     brief
   );
-  assert.ok(withGeometry.every((issue) => issue.severity === 'info'));
+  assert.deepEqual(
+    withGeometry.map((issue) => [issue.code, issue.severity]),
+    [['plan_promise_missing', 'warning']]
+  );
   // The Office COM snapshot reports shape kinds without preset geometry: a diagram cannot be seen there, a chart can.
   const comSnapshot = reviewBriefPromises(
     { slides: [1, 2, 3, 4].map((index) => ({ index, shapes: [{ type: 1, text: 'x', font: { size: 14 } }] })) },

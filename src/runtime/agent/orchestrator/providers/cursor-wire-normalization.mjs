@@ -15,6 +15,55 @@ export const AUTO_MODEL = {
   contextWindow: 200_000,
 };
 
+export function isCursorAutoModelId(id) {
+  const value = String(id || '')
+    .trim()
+    .toLowerCase();
+  return value === 'auto' || value === 'default';
+}
+
+export function canonicalCursorModelId(id) {
+  const value = String(id || '').trim();
+  return isCursorAutoModelId(value) ? 'auto' : value;
+}
+
+function autoModelRank(model) {
+  return (
+    (Array.isArray(model?.parameterDefinitions) && model.parameterDefinitions.length ? 2 : 0) +
+    (model?.supportsMaxMode === true || model?.supportsNonMaxMode === true || Number(model?.maxContextWindow) > 0
+      ? 1
+      : 0)
+  );
+}
+
+// Cursor still ships Auto as both `auto` and `default`. The picker shows the
+// display name, so those two rows look identical unless we fold them first.
+export function withCanonicalAutoModels(models) {
+  const others = [];
+  let auto = null;
+  for (const model of models || []) {
+    if (isCursorAutoModelId(model?.id)) {
+      const aliases = [
+        ...new Set(
+          [...(Array.isArray(model.aliases) ? model.aliases : []), model.id]
+            .map((value) => String(value || '').trim())
+            .filter((value) => value && value !== 'auto')
+        ),
+      ];
+      const next = {
+        ...model,
+        id: 'auto',
+        name: model.name || AUTO_MODEL.name,
+        ...(aliases.length ? { aliases } : {}),
+      };
+      if (!auto || autoModelRank(next) >= autoModelRank(auto)) auto = next;
+      continue;
+    }
+    others.push(model);
+  }
+  return [auto || AUTO_MODEL, ...others];
+}
+
 export function isCursorEffortParameterId(id) {
   const key = String(id || '')
     .trim()
@@ -25,12 +74,15 @@ export function isCursorEffortParameterId(id) {
 export function normalizeModels(models) {
   const byId = new Map();
   for (const model of models || []) {
-    const id = String(model.modelId || '').trim();
-    if (!id) continue;
+    const rawId = String(model.modelId || '').trim();
+    if (!rawId) continue;
+    const id = canonicalCursorModelId(rawId);
     const aliases = Array.isArray(model.aliases) ? model.aliases : [];
     byId.set(id, {
       id,
-      name: model.displayName || model.displayNameShort || model.displayModelId || aliases[0] || id,
+      name: isCursorAutoModelId(rawId)
+        ? 'Auto'
+        : model.displayName || model.displayNameShort || model.displayModelId || aliases[0] || id,
       reasoning: Boolean(model.thinkingDetails),
       contextWindow: 200_000,
     });
@@ -41,8 +93,9 @@ export function normalizeModels(models) {
 export function normalizeParameterizedModels(models) {
   const byId = new Map();
   for (const model of models || []) {
-    const id = String(model.name || model.serverModelName || '').trim();
-    if (!id || model.isHidden === true) continue;
+    const rawId = String(model.name || model.serverModelName || '').trim();
+    if (!rawId || model.isHidden === true) continue;
+    const id = canonicalCursorModelId(rawId);
     const parameterDefinitions = (model.parameterDefinitions || [])
       .map((definition) => {
         const booleanValues = definition.parameterType?.booleanParameter?.values || [];
@@ -86,9 +139,9 @@ export function normalizeParameterizedModels(models) {
       legacySlug: String(variant.legacySlug || '').trim(),
     }));
     const tooltip = model.tooltipData || {};
-    byId.set(id, {
+    const next = {
       id,
-      name: model.clientDisplayName || model.inputboxShortModelName || id,
+      name: isCursorAutoModelId(rawId) ? 'Auto' : model.clientDisplayName || model.inputboxShortModelName || id,
       description: model.tagline || tooltip.markdownContent || tooltip.secondaryText || '',
       contextWindow: Number(model.contextTokenLimit || model.autoContextMaxTokens || 0) || undefined,
       maxContextWindow:
@@ -107,12 +160,15 @@ export function normalizeParameterizedModels(models) {
             ...(model.legacySlugs || []),
             ...(model.idAliases || []),
             ...variants.flatMap((variant) => (variant.legacySlug ? [variant.legacySlug] : [])),
+            ...(rawId !== id ? [rawId] : []),
           ]
             .map((value) => String(value || '').trim())
-            .filter(Boolean)
+            .filter((value) => value && value !== id)
         ),
       ],
-    });
+    };
+    const current = byId.get(id);
+    if (!current || autoModelRank(next) >= autoModelRank(current)) byId.set(id, next);
   }
   return [...byId.values()];
 }

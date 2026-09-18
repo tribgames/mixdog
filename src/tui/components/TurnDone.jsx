@@ -31,6 +31,7 @@ export function TurnDone({
   elapsedMs = 0,
   status = 'done',
   verb = 'Thought',
+  toolCount = 0,
   rightMessage = '',
   rightTone = 'info',
   rightMessageWidth = 24,
@@ -39,13 +40,18 @@ export function TurnDone({
   const elapsed = formatDuration(elapsedMs);
   const cancelled = status === 'cancelled';
   const doneVerb = String(verb || 'Thought').trim() || 'Thought';
-  const copy = cancelled
-    ? elapsed
-      ? `Cancelled after ${elapsed}`
-      : 'Cancelled'
-    : elapsed
-      ? `${doneVerb} for ${elapsed}`
-      : doneVerb;
+  const elapsedNum = Math.max(0, Number(elapsedMs) || 0);
+  const hasTools = Number(toolCount || 0) > 0;
+  let copy;
+  if (cancelled) {
+    copy = elapsed ? `Cancelled after ${elapsed}` : 'Cancelled';
+  } else if (hasTools) {
+    copy = elapsed ? `Work complete in ${elapsed}` : 'Work complete';
+  } else if (elapsedNum > 0 && elapsedNum < 10_000) {
+    copy = 'Response complete';
+  } else {
+    copy = elapsed ? `${doneVerb} for ${elapsed}` : doneVerb;
+  }
   const rightText = cleanRightMessage(rightMessage);
   const rightWidth = Math.max(1, Number(rightMessageWidth) || 24);
 

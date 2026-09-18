@@ -367,6 +367,28 @@ export function evaluatePowerPointCategorySpacing(layout, categories = []) {
   };
 }
 
+// A PDF reports the runs it drew, not cells: a cell whose words were drawn as
+// separate runs would count as several columns and break its row against the
+// rows around it. Runs closer than half a line height are the same cell — the
+// gap a column boundary leaves is several times that.
+const INTRA_CELL_GAP_RATIO = 0.5;
+
+function mergeRowRuns(items) {
+  const cells = [];
+  for (const item of items) {
+    const last = cells[cells.length - 1];
+    const gap = last ? item.x - (last.x + last.width) : Number.POSITIVE_INFINITY;
+    if (last && gap <= INTRA_CELL_GAP_RATIO * Math.max(last.height, item.height)) {
+      last.text += `${gap > 0.5 ? ' ' : ''}${item.text}`;
+      last.width = item.x + item.width - last.x;
+      last.height = Math.max(last.height, item.height);
+      continue;
+    }
+    cells.push({ text: item.text, x: item.x, width: item.width, height: item.height });
+  }
+  return cells;
+}
+
 function clusterRows(items, tolerance = 3) {
   const rows = [];
   for (const item of [...items].sort((left, right) => left.top - right.top || left.x - right.x)) {
@@ -381,13 +403,14 @@ function clusterRows(items, tolerance = 3) {
   }
   return rows.map((row) => ({
     top: Number(row.top.toFixed(2)),
-    cells: row.cells
-      .sort((left, right) => left.x - right.x)
-      .map((item) => ({
-        text: item.text,
-        x: item.x,
-        width: item.width,
-      })),
+    cells: mergeRowRuns(row.cells.sort((left, right) => left.x - right.x)).map((cell) => ({
+      text: cell.text.replace(/\s+/g, ' ').trim(),
+      x: cell.x,
+      width: cell.width,
+      // The line height travels with the cell: the rows of an unruled table are
+      // read as one table by how far apart they sit, which is measured in lines.
+      height: cell.height,
+    })),
   }));
 }
 
@@ -417,9 +440,89 @@ function textInBox(items, box) {
     .join('\n');
 }
 
+const TABLE_SNAP_TOLERANCE = 2;
+
+// How far apart two rows of an unruled table may sit and still belong to it,
+// in multiples of the row's own line height: a table steps by about a line,
+// and a page's separate blocks sit further apart than that.
+const ALIGNMENT_ROW_GAP = 2.5;
+
+// The same column edge drawn on two rows can differ by a fraction of a point,
+// and comparing raw coordinates splits one table into several. Near-identical
+// positions collapse to the average of their cluster.
+function snapPositions(values) {
+  const clusters = [];
+  for (const value of [...values].sort((left, right) => left - right)) {
+    const last = clusters[clusters.length - 1];
+    if (last && value - last[last.length - 1] <= TABLE_SNAP_TOLERANCE) last.push(value);
+    else clusters.push([value]);
+  }
+  return clusters.map((cluster) => cluster.reduce((total, value) => total + value, 0) / cluster.length);
+}
+
+/** The index of the edge `value` sits on, or -1 when it sits on none of them. */
+function snapTo(edges, value) {
+  let best = -1;
+  let distance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < edges.length; index += 1) {
+    const gap = Math.abs(edges[index] - value);
+    if (gap < distance) {
+      distance = gap;
+      best = index;
+    }
+  }
+  return distance <= TABLE_SNAP_TOLERANCE ? best : -1;
+}
+
+// A row belongs to the table when its edges sit on the table's grid (a merged
+// cell simply omits the edges it spans) or when the grid sits on the row's
+// edges (the row is finer, so the grid grows instead of a second table
+// starting). Anything else is a different table.
+function fitsGrid(grid, starts) {
+  return starts.every((value) => snapTo(grid, value) >= 0) || grid.every((value) => snapTo(starts, value) >= 0);
+}
+
+function ruledTable(page, table) {
+  const grid = table.grid;
+  const columns = grid.length;
+  const merges = [];
+  const rows = [];
+  for (const [rowIndex, row] of table.rows.entries()) {
+    const values = new Array(columns).fill('');
+    for (const cell of row.cells) {
+      const start = snapTo(grid, cell.x);
+      if (start < 0) continue;
+      const end = snapTo(grid, cell.x + cell.width);
+      // A cell ending past the last edge closes the row, so it spans the rest.
+      const span = Math.max(1, (end < 0 ? columns : end) - start);
+      values[start] = textInBox(page.items || [], cell);
+      if (span > 1) merges.push({ row: rowIndex, column: start, span });
+    }
+    rows.push(values);
+  }
+  // A shaded first row over unshaded body rows is the header the document drew.
+  const header =
+    table.rows[0].cells.every((cell) => cell.filled) &&
+    table.rows.slice(1).some((row) => row.cells.some((cell) => !cell.filled));
+  return {
+    page: page.page,
+    columns,
+    confidence: 1,
+    source: 'ruled',
+    ...(header ? { header: true } : {}),
+    ...(merges.length ? { merges } : {}),
+    rows,
+    geometry: table.rows.map((row) => ({
+      top: row.top,
+      cells: row.cells.map((cell) => ({ x: cell.x, width: cell.width, height: cell.height })),
+    })),
+  };
+}
+
 // A bordered table is its cell rectangles: rows are boxes sharing a top edge,
-// and consecutive rows with the same column edges form one table. Text is
-// assigned by containment, so wrapped cells and blank cells come out right.
+// and consecutive rows sharing a column grid form one table. Text is assigned
+// by containment, so wrapped cells and blank cells come out right, and a row
+// stays as wide as the grid even where cells are merged.
 function ruledTables(page) {
   const cells = (page.boxes || []).filter(
     (box) =>
@@ -432,7 +535,7 @@ function ruledTables(page) {
   if (cells.length < 4) return [];
   const rows = [];
   for (const cell of [...cells].sort((left, right) => left.top - right.top || left.x - right.x)) {
-    let row = rows.find((entry) => Math.abs(entry.top - cell.top) <= 2);
+    let row = rows.find((entry) => Math.abs(entry.top - cell.top) <= TABLE_SNAP_TOLERANCE);
     if (!row) {
       row = { top: cell.top, cells: [] };
       rows.push(row);
@@ -443,29 +546,20 @@ function ruledTables(page) {
   let current = null;
   for (const row of rows) {
     row.cells.sort((left, right) => left.x - right.x);
-    const key = row.cells.map((cell) => Math.round(cell.x)).join('|');
+    const starts = row.cells.map((cell) => cell.x);
     const bottom = row.top + Math.max(...row.cells.map((cell) => cell.height));
-    if (current && current.key === key && Math.abs(current.bottom - row.top) <= 2) {
+    if (current && Math.abs(current.bottom - row.top) <= TABLE_SNAP_TOLERANCE && fitsGrid(current.grid, starts)) {
+      current.grid = snapPositions([...current.grid, ...starts]);
       current.rows.push(row);
       current.bottom = bottom;
     } else {
-      current = { key, rows: [row], bottom };
+      current = { grid: snapPositions(starts), rows: [row], bottom };
       tables.push(current);
     }
   }
   return tables
-    .filter((table) => table.rows.length >= 2 && table.rows[0].cells.length >= 2)
-    .map((table) => ({
-      page: page.page,
-      columns: table.rows[0].cells.length,
-      confidence: 1,
-      source: 'ruled',
-      rows: table.rows.map((row) => row.cells.map((cell) => textInBox(page.items || [], cell))),
-      geometry: table.rows.map((row) => ({
-        top: row.top,
-        cells: row.cells.map((cell) => ({ x: cell.x, width: cell.width, height: cell.height })),
-      })),
-    }));
+    .filter((table) => table.rows.length >= 2 && table.grid.length >= 2)
+    .map((table) => ruledTable(page, table));
 }
 
 export function inferPdfTables(layout) {
@@ -478,19 +572,36 @@ export function inferPdfTables(layout) {
     }
     const rows = clusterRows(page.items || []).filter((row) => row.cells.length >= 2);
     if (rows.length < 2) continue;
-    const counts = new Map();
-    for (const row of rows) counts.set(row.cells.length, (counts.get(row.cells.length) || 0) + 1);
-    const [columns, repeated] = [...counts.entries()].sort((left, right) => right[1] - left[1])[0] || [0, 0];
-    const selected = rows.filter((row) => Math.abs(row.cells.length - columns) <= 1);
-    if (columns < 2 || selected.length < 2) continue;
-    tables.push({
-      page: page.page,
-      columns,
-      confidence: Number((repeated / rows.length).toFixed(3)),
-      source: 'alignment',
-      rows: selected.map((row) => row.cells.map((cell) => cell.text)),
-      geometry: selected,
-    });
+    // Rows far apart on the page are not a table. A form's field labels and the
+    // footer under them line up in two columns, and taken together by position
+    // alone they came back as a two-row table of a label and a page number. A
+    // table's rows follow each other by about a line, so the block ends where
+    // that stops being true.
+    const blocks = [];
+    for (const row of rows) {
+      const height = Math.max(1, ...row.cells.map((cell) => cell.height || 0));
+      const current = blocks.at(-1);
+      if (current && row.top - current.bottom <= height * ALIGNMENT_ROW_GAP) {
+        current.rows.push(row);
+        current.bottom = row.top + height;
+      } else blocks.push({ rows: [row], bottom: row.top + height });
+    }
+    for (const block of blocks) {
+      if (block.rows.length < 2) continue;
+      const counts = new Map();
+      for (const row of block.rows) counts.set(row.cells.length, (counts.get(row.cells.length) || 0) + 1);
+      const [columns, repeated] = [...counts.entries()].sort((left, right) => right[1] - left[1])[0] || [0, 0];
+      const selected = block.rows.filter((row) => Math.abs(row.cells.length - columns) <= 1);
+      if (columns < 2 || selected.length < 2) continue;
+      tables.push({
+        page: page.page,
+        columns,
+        confidence: Number((repeated / block.rows.length).toFixed(3)),
+        source: 'alignment',
+        rows: selected.map((row) => row.cells.map((cell) => cell.text)),
+        geometry: selected,
+      });
+    }
   }
   return {
     pageCount: layout.pageCount,
@@ -711,14 +822,30 @@ export function ocrTextLines(value, plainText = '') {
     .map((line) => line.trim())
     .filter(Boolean);
   const compact = (line) => line.replace(/\s+/g, '');
-  return [...groups.values()].map((group, index) => {
+  // A line whose boxes were all discarded leaves its reading without a group,
+  // and pairing by position then hands every later line the text of its
+  // predecessor — one dropped line makes the rest of the page fall back to its
+  // word boxes. A reading is therefore taken from the next line that carries
+  // exactly these characters, never from one that differs.
+  let spokenAt = 0;
+  const spokenReading = (joined) => {
+    const target = compact(joined);
+    if (!target) return '';
+    for (let at = spokenAt; at < spoken.length; at += 1) {
+      if (compact(spoken[at]) !== target) continue;
+      spokenAt = at + 1;
+      return spoken[at];
+    }
+    return '';
+  };
+  return [...groups.values()].map((group) => {
     const words = group.words.slice().sort((left, right) => left.left - right.left);
     const left = Math.min(...words.map((word) => word.left));
     const top = Math.min(...words.map((word) => word.top));
     const width = Math.max(...words.map((word) => word.left + word.width)) - left;
     const height = Math.max(...words.map((word) => word.top + word.height)) - top;
-    const engine = spoken[index] || '';
     const joined = words.map((word) => word.text).join(' ');
+    const engine = spokenReading(joined);
     // The widest space between two boxes on this row. A column gap means the
     // row is really two, and one stretched run would put every character in it
     // at the wrong place.
@@ -727,8 +854,8 @@ export function ocrTextLines(value, plainText = '') {
       return Math.max(widest, word.left - (previous.left + previous.width));
     }, 0);
     return {
-      text: compact(engine) === compact(joined) && engine ? engine : joined,
-      fromEngine: Boolean(engine) && compact(engine) === compact(joined),
+      text: engine || joined,
+      fromEngine: Boolean(engine),
       words,
       left,
       top,

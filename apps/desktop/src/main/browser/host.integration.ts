@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { app, BrowserWindow, nativeImage, webContents, type WebContents } from 'electron';
 import { BROWSER_ACTIONS } from '../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
 import { createBrowserHost, type BrowserHost } from './host';
+import { readyBrowserFrame } from './harness-frame';
 import type { BrowserCommandTiming } from './timing';
 import { runBrowserLatencyScenarios } from './latency-scenarios';
 import { runBrowserActionabilityScenarios } from './actionability.integration';
@@ -58,9 +59,9 @@ app.disableHardwareAcceleration();
 progress('module loaded; profile configured');
 
 function refNamed(snapshot: string, name: string): string {
-  const line = snapshot.split('\n').find(
-    (entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry),
-  );
+  const line = snapshot
+    .split('\n')
+    .find((entry) => entry.includes(JSON.stringify(name)) && /\[p\d+-s\d+-e\d+\]/.test(entry));
   const ref = line?.match(/\[(p\d+-s\d+-e\d+)\]/)?.[1];
   assert.ok(ref, `snapshot did not contain ${JSON.stringify(name)}:\n${snapshot}`);
   return ref;
@@ -73,9 +74,7 @@ function visualGrounding(snapshot: string): {
   viewportWidth: number;
   viewportHeight: number;
 } {
-  const match = snapshot.match(
-    /Visual screenshot: (p\d+-s\d+) is (\d+)x(\d+) image px; viewport (\d+)x(\d+) CSS px/,
-  );
+  const match = snapshot.match(/Visual screenshot: (p\d+-s\d+) is (\d+)x(\d+) image px; viewport (\d+)x(\d+) CSS px/);
   assert.ok(match, `visual snapshot result did not contain grounding metadata:\n${snapshot}`);
   return {
     snapshotId: match[1],
@@ -99,11 +98,7 @@ function contentsWithUrl(urlPart: string): WebContents {
   return found;
 }
 
-function imagePixel(
-  data: string,
-  xRatio: number,
-  yRatio: number,
-): [number, number, number] {
+function imagePixel(data: string, xRatio: number, yRatio: number): [number, number, number] {
   const image = nativeImage.createFromBuffer(Buffer.from(data, 'base64'));
   const { width, height } = image.getSize();
   const x = Math.min(width - 1, Math.max(0, Math.round((width - 1) * xRatio)));
@@ -120,14 +115,12 @@ async function run(): Promise<void> {
   const socketFixture = createServer();
   socketFixture.on('upgrade', (request, socket) => {
     const key = String(request.headers['sec-websocket-key'] || '');
-    const accept = createHash('sha1')
-      .update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-      .digest('base64');
+    const accept = createHash('sha1').update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
     socket.write(
-      'HTTP/1.1 101 Switching Protocols\r\n'
-      + 'Upgrade: websocket\r\n'
-      + 'Connection: Upgrade\r\n'
-      + `Sec-WebSocket-Accept: ${accept}\r\n\r\n`,
+      'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
     );
     socket.on('data', (frame) => {
       if (frame.length < 6) return;
@@ -162,6 +155,19 @@ async function run(): Promise<void> {
     const origin = `http://${request.headers.host}`;
     const path = new URL(request.url || '/', origin).pathname;
     response.setHeader('content-type', 'text/html; charset=utf-8');
+    if (path === '/unsaved') {
+      response.end(`<!doctype html><title>Unsaved fixture</title>
+        <p id="state">Unsaved work</p>
+        <button id="arm" onclick="window.onbeforeunload = (event) => { event.preventDefault(); return 'stay'; };
+          document.querySelector('#state').textContent = 'Guard armed';">Arm guard</button>`);
+      return;
+    }
+    if (path === '/tall') {
+      response.end(`<!doctype html><title>Tall fixture</title>
+        <section id="tall-report" aria-label="Tall report"
+          style="height:1400px;background:linear-gradient(#fff,#468)">Tall report</section>`);
+      return;
+    }
     if (path === '/root') {
       response.end(`<!doctype html><title>Root fixture</title>
         <p id="state">Waiting</p>
@@ -176,13 +182,20 @@ async function run(): Promise<void> {
         <label>Preferred role <select aria-label="Preferred role" onchange="document.querySelector('#state').textContent = 'Role ' + this.value"><option value="designer">Designer</option><option value="engineer">Engineer</option></select></label>
         <button id="mouse-options" onmousedown="document.querySelector('#state').textContent = 'Mouse ' + event.button + ' ctrl=' + event.ctrlKey + ' shift=' + event.shiftKey">Mouse options</button>
         <label>Default checkbox <input type="checkbox" onchange="document.querySelector('#state').textContent = this.checked ? 'Checkbox checked' : 'Checkbox unchecked'"></label>
-        <label>Type probe <input aria-label="Type probe" oninput="document.querySelector('#state').textContent = 'Typed ' + this.value"></label>
+        <label>Type probe <input aria-label="Type probe" onkeydown="window.typeKeys = (window.typeKeys || '') + event.key" oninput="document.querySelector('#state').textContent = 'Typed ' + this.value"></label>
         <label>Upload fixture <input type="file" aria-label="Upload fixture" onchange="document.querySelector('#state').textContent = 'Uploaded ' + (this.files[0]?.name || 'none')"></label>
         <button id="proxy-upload" onclick="document.querySelector('#hidden-upload').click()">Choose attachment</button>
         <input id="hidden-upload" type="file" style="display:none" onchange="document.querySelector('#state').textContent = 'Proxy uploaded ' + (this.files[0]?.name || 'none')">
+        <button id="drop-zone" ondragover="event.preventDefault()"
+          ondrop="event.preventDefault(); document.querySelector('#state').textContent = 'Dropped ' + (event.dataTransfer.files[0]?.name || 'none')">Drop zone</button>
         <button id="hover-target" onmouseenter="document.querySelector('#state').textContent = 'Semantic hovered'">Hover target</button>
         <button id="drag-source" style="position:fixed;left:600px;top:200px" onmousedown="window.fixtureDragging=true">Drag source</button>
         <button id="drag-target" style="position:fixed;left:820px;top:200px" onmousemove="if (event.buttons === 1 && window.fixtureDragging) document.querySelector('#state').textContent = 'Mouse dragged'" onmouseup="window.fixtureDragging=false">Drag target</button>
+        <div id="card-source" draggable="true" style="position:fixed;left:600px;top:300px;width:120px;height:40px;background:#cde"
+          ondragstart="event.dataTransfer.setData('text/plain', 'card-42')">Card source</div>
+        <div id="card-target" style="position:fixed;left:820px;top:300px;width:120px;height:40px;background:#dec"
+          ondragover="event.preventDefault()"
+          ondrop="event.preventDefault(); document.querySelector('#state').textContent = 'Card dropped ' + event.dataTransfer.getData('text/plain')">Card target</div>
         <div id="city-combo">
           <button id="city-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="city-list"
             onclick="const open = this.getAttribute('aria-expanded') === 'true'; this.setAttribute('aria-expanded', String(!open)); document.querySelector('#city-list').style.display = open ? 'none' : 'block'">Choose city</button>
@@ -209,10 +222,11 @@ async function run(): Promise<void> {
         <div aria-hidden="true">
           <input id="first" data-key="a  b"><input id="second" data-key="a b">
         </div>
-        ${Array.from({ length: 51 }, (_, index) => (
-          `<button data-many aria-label="${index === 0 || index === 50 ? 'Duplicate' : `Other ${index}`}"
+        ${Array.from(
+          { length: 51 },
+          (_, index) => `<button data-many aria-label="${index === 0 || index === 50 ? 'Duplicate' : `Other ${index}`}"
             onclick="window.fixtureClicks++">Item ${index}</button>`
-        )).join('')}
+        ).join('')}
         <script>window.fixtureClicks = 0;</script>`);
       return;
     }
@@ -258,7 +272,9 @@ async function run(): Promise<void> {
     }
     if (path === '/api/submit') {
       let body = '';
-      request.on('data', (chunk) => { body += String(chunk); });
+      request.on('data', (chunk) => {
+        body += String(chunk);
+      });
       request.on('end', () => {
         response.setHeader('content-type', 'application/json');
         response.setHeader('x-fixture', 'network-detail');
@@ -270,6 +286,26 @@ async function run(): Promise<void> {
       response.setHeader('content-type', 'text/plain; charset=utf-8');
       response.setHeader('content-disposition', 'attachment; filename="browser-fixture.txt"');
       response.end('download attachment ready');
+      return;
+    }
+    if (path === '/long-text') {
+      response.end(
+        `<!doctype html><title>Long text fixture</title><h1>Long text</h1><p>${'a long paragraph of page text. '.repeat(3_000)}</p>`
+      );
+      return;
+    }
+    if (path === '/protected') {
+      response.statusCode = 401;
+      response.setHeader('www-authenticate', 'Basic realm="fixture"');
+      response.end('<!doctype html><title>Protected fixture</title><p>Sign in required</p>');
+      return;
+    }
+    if (path === '/paper.pdf') {
+      // Served for display rather than as an attachment: the guest carries no
+      // PDF viewer, so the browser has to turn the link into something the
+      // caller can still read instead of an empty page.
+      response.setHeader('content-type', 'application/pdf');
+      response.end('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
       return;
     }
     if (path === '/initial-dialog') {
@@ -363,19 +399,15 @@ async function run(): Promise<void> {
       }
       sendToRenderer(channel, ...args);
     }) as typeof parentWebContents.send;
-    await parent.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`
+    await parent.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(`
       <!doctype html>
       <textarea id="composer">Independent shell input</textarea>
-    `)}`);
+    `)}`
+    );
     // The first compositor paint can still have the pre-resize geometry.
     // Re-sample this read-only readiness condition, just as the pane does.
-    const primaryFrame = await eventually(
-      () => host!.browserPageFrame('browser-integration-session').catch(error => {
-        if (error?.message === 'Browser page changed during capture.') return null;
-        throw error;
-      }),
-      frame => frame !== null,
-    );
+    const primaryFrame = await readyBrowserFrame(host!, 'browser-integration-session');
     assert.ok(primaryFrame);
     const visibleGuest = webContents.fromId(primaryFrame.webContentsId)!;
     await visibleGuest.loadURL(`${origin}/root`);
@@ -390,7 +422,7 @@ async function run(): Promise<void> {
 
     const command = async (
       input: Record<string, unknown>,
-      signal?: AbortSignal,
+      signal?: AbortSignal
     ): Promise<{
       text: string;
       image?: { mimeType?: string; data?: string };
@@ -413,8 +445,9 @@ async function run(): Promise<void> {
           }),
           signal,
         });
-        const payload = await response.json() as CommandResponse;
-        if (!payload.ok) throw Object.assign(new Error(payload.error || 'browser command failed'), { timing: payload.timing });
+        const payload = (await response.json()) as CommandResponse;
+        if (!payload.ok)
+          throw Object.assign(new Error(payload.error || 'browser command failed'), { timing: payload.timing });
         completedActions.add(action);
         return {
           text: String(payload.value?.text || ''),
@@ -433,7 +466,9 @@ async function run(): Promise<void> {
             String(input.tab || 'visible'),
             input.expect ? 'expect' : '',
             input.includeScreenshot ? 'screenshot' : '',
-          ].filter(Boolean).join('+'),
+          ]
+            .filter(Boolean)
+            .join('+'),
           duration,
         });
         commandDurationDetails.set(action, details);
@@ -442,26 +477,52 @@ async function run(): Promise<void> {
 
     const taskSession = 'browser-task-lifecycle';
     const hiddenStart = browserSurfaceRequests.length;
-    await command({ action: 'navigate', url: `${origin}/root?task=hidden`, background: true,
-      tab: 'scratch', session_id: taskSession, turn_id: 1 });
-    await command({ action: 'click', target: { role: 'button', name: 'Update SPA' },
-      tab: 'scratch', session_id: taskSession, turn_id: 1 });
+    await command({
+      action: 'navigate',
+      url: `${origin}/root?task=hidden`,
+      background: true,
+      tab: 'scratch',
+      session_id: taskSession,
+      turn_id: 1,
+    });
+    await command({
+      action: 'click',
+      target: { role: 'button', name: 'Update SPA' },
+      tab: 'scratch',
+      session_id: taskSession,
+      turn_id: 1,
+    });
     await command({ action: 'read', tab: 'scratch', session_id: taskSession, turn_id: 1 });
     assert.equal(browserSurfaceRequests.length, hiddenStart, 'follow-up background work never reveals the dock');
     await command({ action: 'finish_turn', session_id: taskSession, turn_id: 1 });
-    assert.equal((await command({ action: 'list_tabs', session_id: taskSession })).text, 
-      'No tabs are open. navigate opens the visible tab; background:true opens a hidden page.');
+    assert.equal(
+      (await command({ action: 'list_tabs', session_id: taskSession })).text,
+      'No tabs are open. navigate opens the visible tab; background:true opens a hidden page.'
+    );
     assert.equal(browserSurfaceRequests.length, hiddenStart, 'cleanup never creates an empty foreground page');
 
-    await command({ action: 'navigate', url: `${origin}/root?task=temporary`, background: true,
-      tab: 'scratch', session_id: taskSession, turn_id: 2 });
+    await command({
+      action: 'navigate',
+      url: `${origin}/root?task=temporary`,
+      background: true,
+      tab: 'scratch',
+      session_id: taskSession,
+      turn_id: 2,
+    });
     await command({ action: 'read', background: false, tab: 'scratch', session_id: taskSession, turn_id: 2 });
     await command({ action: 'finish_turn', session_id: taskSession, turn_id: 2 });
     assert.deepEqual(browserSurfaceRequests.splice(hiddenStart), [
-      { sessionId: taskSession, temporaryTurnId: 2 }, { sessionId: taskSession, restoreTurnId: 2 },
+      { sessionId: taskSession, temporaryTurnId: 2 },
+      { sessionId: taskSession, restoreTurnId: 2 },
     ]);
-    await command({ action: 'navigate', url: `${origin}/root?task=handoff`, background: true,
-      tab: 'result', session_id: taskSession, turn_id: 3 });
+    await command({
+      action: 'navigate',
+      url: `${origin}/root?task=handoff`,
+      background: true,
+      tab: 'result',
+      session_id: taskSession,
+      turn_id: 3,
+    });
     await command({ action: 'open', tab: 'result', session_id: taskSession, turn_id: 3 });
     await command({ action: 'finish_turn', session_id: taskSession, turn_id: 3 });
     assert.match((await command({ action: 'list_tabs', session_id: taskSession })).text, /task=handoff/);
@@ -523,13 +584,12 @@ async function run(): Promise<void> {
     `);
     const foregroundUrlBeforeHide = visibleGuest.getURL();
     await command({ action: 'hide' });
-    assert.deepEqual(browserSurfaceRequests.splice(0), [
-      { sessionId: 'browser-integration-session', hide: true },
-    ]);
+    assert.deepEqual(browserSurfaceRequests.splice(0), [{ sessionId: 'browser-integration-session', hide: true }]);
     assert.equal(visibleGuest.getURL(), foregroundUrlBeforeHide);
-    assert.equal(await visibleGuest.executeJavaScript(
-      `document.getElementById('completion-draft').value`,
-    ), 'unsaved user draft');
+    assert.equal(
+      await visibleGuest.executeJavaScript(`document.getElementById('completion-draft').value`),
+      'unsaved user draft'
+    );
     assert.equal(alphaGuest.isDestroyed(), false);
     progress('panel hide preserves foreground drafts and support pages');
     if (process.env.MIXDOG_BROWSER_MOUSE_PROBE_ONLY === '1') {
@@ -556,7 +616,7 @@ async function run(): Promise<void> {
         expect: { text: 'condition that never appears', timeoutMs: 600 },
         tab: 'alpha',
       }),
-      /Postcondition failed[\s\S]*executed once and was not retried[\s\S]*SPA done 2/,
+      /Postcondition failed[\s\S]*executed once and was not retried[\s\S]*SPA done 2/
     );
     alpha = await command({ action: 'snapshot', settleMs: 150, tab: 'alpha' });
     assert.match(alpha.text, /Explicit settle completed/);
@@ -585,7 +645,7 @@ async function run(): Promise<void> {
         timeoutMs: 500,
         tab: 'alpha',
       }),
-      /Wait timed out[\s\S]*Root fixture/,
+      /Wait timed out[\s\S]*Root fixture/
     );
 
     const observed = await command({ action: 'snapshot', mode: 'both', tab: 'alpha' });
@@ -594,6 +654,49 @@ async function run(): Promise<void> {
     assert.ok((observed.image?.data?.length || 0) > 100);
     alpha = { text: observed.text };
     progress('combined visual snapshot complete');
+
+    const croppedRef = refNamed(alpha.text, 'Update SPA');
+    const cropped = await command({ action: 'snapshot', mode: 'visual', ref: croppedRef, tab: 'alpha' });
+    assert.match(cropped.text, new RegExp(`Screenshot of ${croppedRef} on .*\\(\\d+x\\d+ px\\)`));
+    assert.equal(cropped.image?.mimeType, 'image/jpeg');
+    assert.ok((cropped.image?.data?.length || 0) > 100);
+    assert.ok(
+      (cropped.image?.data?.length || 0) < (observed.image?.data?.length || 0),
+      'an element crop carries fewer bytes than the whole viewport'
+    );
+    await assert.rejects(
+      command({ action: 'snapshot', mode: 'visual', ref: croppedRef, fullPage: true, tab: 'alpha' }),
+      /cannot be combined with fullPage/
+    );
+
+    // A section taller than the window still yields a usable image on a
+    // background page, where Chromium paints only the window surface.
+    await command({ action: 'navigate', url: `${origin}/tall`, background: true, tab: 'crop-check' });
+    const tallBackground = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      target: { selector: '#tall-report' },
+      tab: 'crop-check',
+    });
+    const backgroundSize = /\((\d+)x(\d+) px\)/.exec(tallBackground.text);
+    assert.ok(backgroundSize, `element screenshot did not report its size: ${tallBackground.text}`);
+    assert.doesNotMatch(tallBackground.text, /visible part/);
+    assert.ok(
+      Number(backgroundSize[2]) > 1_000,
+      `a 1400px section should arrive whole on a background page, got ${backgroundSize[0]}`
+    );
+    const storedCrop = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      target: { selector: '#tall-report' },
+      format: 'png',
+      image_output: 'file',
+      tab: 'crop-check',
+    });
+    assert.match(storedCrop.text, /Frame written to .*\.png \(\d+ bytes\)/);
+    assert.equal(storedCrop.image, undefined, 'image_output=file keeps pixels out of the reply');
+    await command({ action: 'close_tab', tab: 'crop-check' });
+    progress('element screenshot crop complete');
 
     turnId = 41;
     const readResult = await command({ action: 'read', query: 'SPA done 3', tab: 'alpha' });
@@ -607,6 +710,32 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(alpha.text, /Typed bridge/);
+    // Typed text must arrive as real keystrokes: a control that only listens
+    // for keys (autocomplete, combobox) sees nothing from a bulk insertion.
+    const typedKeys = await command({ action: 'evaluate', script: 'window.typeKeys', tab: 'alpha' });
+    assert.match(typedKeys.text, /bridge/);
+    // Text outside the US layout has no physical key of its own; it must still
+    // reach the control.
+    alpha = await command({
+      action: 'type',
+      ref: refNamed(typedKeys.text, 'Type probe'),
+      text: '한글 입력',
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Typed 한글 입력/);
+    // One key event per character must stay affordable on a long value.
+    const longTyping = await command({
+      action: 'type',
+      ref: refNamed(alpha.text, 'Type probe'),
+      text: 'x'.repeat(200),
+      tab: 'alpha',
+    });
+    progress(`type 200 characters: inputMs=${(longTyping.timing?.inputMs || 0).toFixed(1)}`);
+    assert.ok(
+      (longTyping.timing?.inputMs || 0) < 5_000,
+      `typing 200 characters should stay responsive, took ${longTyping.timing?.inputMs}ms`
+    );
+    alpha = longTyping;
     alpha = await command({ action: 'press', key: 'Tab', tab: 'alpha' });
     alpha = await command({
       action: 'upload',
@@ -615,6 +744,15 @@ async function run(): Promise<void> {
       tab: 'alpha',
     });
     assert.match(alpha.text, /Uploaded browser-upload-fixture\.txt/);
+    // A target that never opens a chooser still takes the files as a drop,
+    // the way a person delivers them to a drop zone.
+    alpha = await command({
+      action: 'upload',
+      ref: refNamed(alpha.text, 'Drop zone'),
+      paths: [uploadFixturePath],
+      tab: 'alpha',
+    });
+    assert.match(alpha.text, /Dropped browser-upload-fixture\.txt/);
     progress('read, wait, type, press, and upload dispatch complete');
 
     // A styled button over a hidden input: the click opens a native picker
@@ -712,7 +850,10 @@ async function run(): Promise<void> {
     assert.ok(sequenced.timing);
     assert.ok(sequenced.timing.commandMs >= sequenced.timing.waitMs);
     assert.equal(sequenced.timing.snapshots, 1);
-    assert.deepEqual(sequenced.timing.steps?.map((step) => step.index), [1, 2, 3]);
+    assert.deepEqual(
+      sequenced.timing.steps?.map((step) => step.index),
+      [1, 2, 3]
+    );
     progress(`sequence timing ${JSON.stringify(sequenced.timing)}`);
     await assert.rejects(
       command({
@@ -723,13 +864,16 @@ async function run(): Promise<void> {
         ],
         tab: 'alpha',
       }),
-      /Sequence stopped at step 2 \(click\)[\s\S]*completed 1:fill/,
+      /Sequence stopped at step 2 \(click\)[\s\S]*completed 1:fill/
     );
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
     assert.match(alpha.text, /value="Ada"/);
     const polished = await command({
-      action: 'fill', target: { name: 'First name', exact: true }, text: 'Polished',
-      brief: true, tab: 'alpha',
+      action: 'fill',
+      target: { name: 'First name', exact: true },
+      text: 'Polished',
+      brief: true,
+      tab: 'alpha',
     });
     assert.match(polished.text, /value="Polished"/);
     assert.match(polished.text, /[1-9]\d* unchanged omitted/);
@@ -739,30 +883,45 @@ async function run(): Promise<void> {
     await assert.rejects(
       command({
         action: 'sequence',
-        steps: [{ action: 'navigate', url: `${origin}/secondary` }, { action: 'press', key: 'Enter' }],
+        steps: [
+          { action: 'navigate', url: `${origin}/secondary` },
+          { action: 'press', key: 'Enter' },
+        ],
         tab: 'alpha',
       }),
-      /action must be one of/,
+      /action must be one of/
     );
     progress('sequence chaining complete');
     const targetPage = await command({
-      action: 'navigate', url: `${origin}/target-regressions`, tab: 'target-regressions', background: true,
+      action: 'navigate',
+      url: `${origin}/target-regressions`,
+      tab: 'target-regressions',
+      background: true,
     });
     assert.doesNotMatch(targetPage.text, /textbox/, 'CSS-only fields must require minted refs');
     await command({
-      action: 'fill', tab: 'target-regressions',
+      action: 'fill',
+      tab: 'target-regressions',
       fields: [
         { target: { selector: '[data-key="a  b"]' }, text: 'First value' },
         { target: { selector: '[data-key="a b"]' }, text: 'Second value' },
       ],
     });
     const targetGuest = contentsWithUrl('/target-regressions');
-    assert.deepEqual(await targetGuest.executeJavaScript(
-      '[document.querySelector("#first").value, document.querySelector("#second").value]',
-    ), ['First value', 'Second value']);
-    await assert.rejects(command({
-      action: 'click', tab: 'target-regressions', target: { selector: '[data-many]', name: 'Duplicate', exact: true },
-    }), /matched 51 elements, exceeding the limit of 50/);
+    assert.deepEqual(
+      await targetGuest.executeJavaScript(
+        '[document.querySelector("#first").value, document.querySelector("#second").value]'
+      ),
+      ['First value', 'Second value']
+    );
+    await assert.rejects(
+      command({
+        action: 'click',
+        tab: 'target-regressions',
+        target: { selector: '[data-many]', name: 'Duplicate', exact: true },
+      }),
+      /matched 51 elements, exceeding the limit of 50/
+    );
     assert.equal(await targetGuest.executeJavaScript('window.fixtureClicks'), 0, 'overflow must dispatch no click');
     await command({ action: 'close_tab', tab: 'target-regressions' });
     progress('CSS literal preservation, distinct batch targets and selector overflow refusal complete');
@@ -792,7 +951,7 @@ async function run(): Promise<void> {
         values: ['Atlantis'],
         tab: 'alpha',
       }),
-      /no open option matched[\s\S]*Seoul/,
+      /no open option matched[\s\S]*Seoul/
     );
 
     const products = await command({
@@ -813,7 +972,7 @@ async function run(): Promise<void> {
     assert.match(limitedProducts.text, /showing 1 of 3 matches/);
     await assert.rejects(
       command({ action: 'extract', selector: 'li..broken', tab: 'alpha' }),
-      /not a valid CSS selector/,
+      /not a valid CSS selector/
     );
     progress('custom dropdown and extraction complete');
 
@@ -837,7 +996,7 @@ async function run(): Promise<void> {
     assert.match(scrolledToText.text, /Snapshot: /);
     await assert.rejects(
       command({ action: 'scroll', text: 'no such phrase on this fixture', tab: 'alpha' }),
-      /was not found on this page/,
+      /was not found on this page/
     );
     progress('option read and text scroll complete');
 
@@ -939,8 +1098,8 @@ async function run(): Promise<void> {
     const visualHovered = await command({
       action: 'hover',
       snapshotId: grounding.snapshotId,
-      x: 660 * grounding.imageWidth / grounding.viewportWidth,
-      y: 130 * grounding.imageHeight / grounding.viewportHeight,
+      x: (660 * grounding.imageWidth) / grounding.viewportWidth,
+      y: (130 * grounding.imageHeight) / grounding.viewportHeight,
       tab: 'alpha',
     });
     assert.match(visualHovered.text, /Visual hovered/);
@@ -949,8 +1108,8 @@ async function run(): Promise<void> {
     const visualClicked = await command({
       action: 'click',
       snapshotId: grounding.snapshotId,
-      x: 660 * grounding.imageWidth / grounding.viewportWidth,
-      y: 130 * grounding.imageHeight / grounding.viewportHeight,
+      x: (660 * grounding.imageWidth) / grounding.viewportWidth,
+      y: (130 * grounding.imageHeight) / grounding.viewportHeight,
       tab: 'alpha',
     });
     assert.match(visualClicked.text, /Visual clicked 1/);
@@ -958,11 +1117,11 @@ async function run(): Promise<void> {
       command({
         action: 'click',
         snapshotId: grounding.snapshotId,
-        x: 660 * grounding.imageWidth / grounding.viewportWidth,
-        y: 130 * grounding.imageHeight / grounding.viewportHeight,
+        x: (660 * grounding.imageWidth) / grounding.viewportWidth,
+        y: (130 * grounding.imageHeight) / grounding.viewportHeight,
         tab: 'alpha',
       }),
-      /latest snapshot\(mode=both\) or locate result/,
+      /latest snapshot\(mode=both\) or locate result/
     );
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
     assert.match(alpha.text, /Visual clicked 1/);
@@ -971,13 +1130,28 @@ async function run(): Promise<void> {
     const coordinateDragged = await command({
       action: 'drag',
       snapshotId: grounding.snapshotId,
-      x: 640 * grounding.imageWidth / grounding.viewportWidth,
-      y: 225 * grounding.imageHeight / grounding.viewportHeight,
-      targetX: 850 * grounding.imageWidth / grounding.viewportWidth,
-      targetY: 225 * grounding.imageHeight / grounding.viewportHeight,
+      x: (640 * grounding.imageWidth) / grounding.viewportWidth,
+      y: (225 * grounding.imageHeight) / grounding.viewportHeight,
+      targetX: (850 * grounding.imageWidth) / grounding.viewportWidth,
+      targetY: (225 * grounding.imageHeight) / grounding.viewportHeight,
       tab: 'alpha',
     });
     assert.match(coordinateDragged.text, /Mouse dragged/);
+    // A page that answers the press-and-move with its own HTML5 drag is
+    // finished through drag events; raw mouse events alone never drop.
+    const cardVisual = await command({ action: 'snapshot', mode: 'both', tab: 'alpha' });
+    const cardGrounding = visualGrounding(cardVisual.text);
+    const cardDropped = await command({
+      action: 'drag',
+      snapshotId: cardGrounding.snapshotId,
+      x: (660 * cardGrounding.imageWidth) / cardGrounding.viewportWidth,
+      y: (320 * cardGrounding.imageHeight) / cardGrounding.viewportHeight,
+      targetX: (880 * cardGrounding.imageWidth) / cardGrounding.viewportWidth,
+      targetY: (320 * cardGrounding.imageHeight) / cardGrounding.viewportHeight,
+      tab: 'alpha',
+    });
+    assert.match(cardDropped.text, /Card dropped card-42/);
+    progress('HTML5 drag and drop complete');
     turnId = 22;
     const located = await command({ action: 'locate', query: 'yellow', tab: 'alpha' });
     assert.equal(located.image?.mimeType, 'image/jpeg');
@@ -989,7 +1163,7 @@ async function run(): Promise<void> {
     await command({ action: 'click', ref: popupRef, tab: 'alpha' });
     const tabs = await eventually(
       () => command({ action: 'list_tabs' }),
-      (result) => result.text.includes('popup-1') && result.text.includes('Popup fixture'),
+      (result) => result.text.includes('popup-1') && result.text.includes('Popup fixture')
     );
     assert.match(tabs.text, /p\d+ \["popup-1"\] \(popup from p\d+\)/);
     progress('popup tracking complete');
@@ -1004,6 +1178,15 @@ async function run(): Promise<void> {
     assert.match(wentBack.text, /Cannot go back: no earlier history entry/);
     const closedHistory = await command({ action: 'close_tab', tab: 'history' });
     assert.match(closedHistory.text, /Closed background tab "history"/);
+    // The id a caller reads off list_tabs may belong to the visible tab, and
+    // that page belongs to the panel; the refusal has to say so rather than
+    // point back at the listing it came from.
+    const openTabs = await command({ action: 'list_tabs' });
+    const visiblePageId = /- (p\d+) \[v1\]/.exec(openTabs.text)?.[1];
+    assert.ok(visiblePageId, 'list_tabs prints a page id for the visible tab');
+    await assert.rejects(command({ action: 'close_tab', tab: visiblePageId }), /is the visible tab/);
+    await assert.rejects(command({ action: 'close_tab', tab: 'v1' }), /is the visible tab/);
+    await assert.rejects(command({ action: 'close_tab', tab: 'never-opened' }), /unknown background tab/);
     progress('history navigation and tab closure complete');
 
     turnId = 3;
@@ -1036,6 +1219,10 @@ async function run(): Promise<void> {
     });
     assert.doesNotMatch(betaDocument.text, /still pending/);
     assert.match(betaDocument.text, /Status: 200 OK/);
+    // Chromium announces a provisional header set and adds the rest as the
+    // request leaves. A detail built from the provisional set alone reads as
+    // if the page never negotiated encoding or fetch metadata.
+    assert.match(betaDocument.text, /- (?:Accept-Encoding|accept-encoding|Sec-Fetch-Mode|sec-fetch-mode):/);
     turnId = 23;
     const scrollInsideRef = refNamed(betaSnapshot.text, 'Scroll inside');
     await command({
@@ -1110,10 +1297,7 @@ async function run(): Promise<void> {
     progress(`screenshot encoding comparison: ${JSON.stringify(measureScreenshotReuse(fullPage.image!.data!))}`);
     const topPixel = imagePixel(fullPage.image?.data || '', 0.9, 0.1);
     const bottomPixel = imagePixel(fullPage.image?.data || '', 0.9, 0.9);
-    const colorDistance = topPixel.reduce(
-      (total, channel, index) => total + Math.abs(channel - bottomPixel[index]),
-      0,
-    );
+    const colorDistance = topPixel.reduce((total, channel, index) => total + Math.abs(channel - bottomPixel[index]), 0);
     assert.ok(colorDistance > 150, `full-page capture repeated vertically: ${topPixel} vs ${bottomPixel}`);
     turnId = 24;
     await command({
@@ -1158,6 +1342,25 @@ async function run(): Promise<void> {
     assert.doesNotMatch(cookies.text, /cookie-ready/);
     assert.match(cookies.text, /\[REDACTED\]/);
     assert.match(cookies.text, /"httpOnly": true/);
+
+    // The client hints this partition sends name Chromium alone. An agent
+    // string that also names the embedding app contradicts them, and sites
+    // answer that mismatch with a login wall or an unsupported-browser page.
+    const agent = await command({ action: 'evaluate', script: 'navigator.userAgent', tab: 'beta' });
+    assert.doesNotMatch(agent.text, /Electron|mixdog-desktop/i);
+    assert.match(agent.text, /Chrome\/\d+/);
+    // Normalising the agent string must not take the session's language
+    // negotiation with it: a request that carries no Accept-Language asks
+    // sites that pick content by language for somebody else's page.
+    const defaultLanguage = await command({
+      action: 'evaluate',
+      script: `fetch(${JSON.stringify(`${origin}/api/echo-headers`)})
+        .then((response) => response.json())
+        .then((payload) => payload.headers['accept-language'] || 'missing')`,
+      tab: 'beta',
+    });
+    assert.doesNotMatch(defaultLanguage.text, /missing/, 'the browser still negotiates a language by default');
+    progress('pages are told the Chrome build that renders them');
     await command({
       action: 'storage',
       operation: 'set',
@@ -1263,6 +1466,16 @@ async function run(): Promise<void> {
       tab: 'beta',
     });
     assert.match(echoedHeaders.text, /header-ready/);
+    // An emulated locale must reach the server, not just navigator.language.
+    await command({ action: 'emulate', locale: 'ko-KR', tab: 'beta' });
+    const echoedLanguage = await command({
+      action: 'evaluate',
+      script: `fetch(${JSON.stringify(`${origin}/api/echo-headers`)})
+        .then((response) => response.json())
+        .then((payload) => payload.headers['accept-language'] || 'missing')`,
+      tab: 'beta',
+    });
+    assert.match(echoedLanguage.text, /ko-KR/);
     const registered = await command({
       action: 'init_script',
       operation: 'add',
@@ -1329,7 +1542,11 @@ async function run(): Promise<void> {
     await command({ action: 'emulate', width: 1024, height: 768 });
     await command({ action: 'emulate', reset: true });
     assert.deepEqual(viewportChanges.splice(0), [
-      { sessionId: 'browser-integration-session', webContentsId: visibleGuest.id, viewport: { width: 1024, height: 768 } },
+      {
+        sessionId: 'browser-integration-session',
+        webContentsId: visibleGuest.id,
+        viewport: { width: 1024, height: 768 },
+      },
       { sessionId: 'browser-integration-session', webContentsId: visibleGuest.id, viewport: null },
     ]);
     browserSurfaceRequests.splice(0);
@@ -1339,8 +1556,8 @@ async function run(): Promise<void> {
       action: 'click',
       pointer: 'touch',
       snapshotId: touchGrounding.snapshotId,
-      x: 160 * touchGrounding.imageWidth / touchGrounding.viewportWidth,
-      y: 125 * touchGrounding.imageHeight / touchGrounding.viewportHeight,
+      x: (160 * touchGrounding.imageWidth) / touchGrounding.viewportWidth,
+      y: (125 * touchGrounding.imageHeight) / touchGrounding.viewportHeight,
       tab: 'beta',
     });
     assert.match(touched.text, /Touched/);
@@ -1363,13 +1580,29 @@ async function run(): Promise<void> {
       action: 'drag',
       pointer: 'touch',
       snapshotId: touchDragGrounding.snapshotId,
-      x: 140 * touchDragGrounding.imageWidth / touchDragGrounding.viewportWidth,
-      y: 225 * touchDragGrounding.imageHeight / touchDragGrounding.viewportHeight,
-      targetX: 350 * touchDragGrounding.imageWidth / touchDragGrounding.viewportWidth,
-      targetY: 225 * touchDragGrounding.imageHeight / touchDragGrounding.viewportHeight,
+      x: (140 * touchDragGrounding.imageWidth) / touchDragGrounding.viewportWidth,
+      y: (225 * touchDragGrounding.imageHeight) / touchDragGrounding.viewportHeight,
+      targetX: (350 * touchDragGrounding.imageWidth) / touchDragGrounding.viewportWidth,
+      targetY: (225 * touchDragGrounding.imageHeight) / touchDragGrounding.viewportHeight,
       tab: 'beta',
     });
     assert.match(touchDragged.text, /Touch dragged/);
+    // Under device emulation the image and the page count pixels differently;
+    // an element image must still be exactly that element.
+    const emulatedCrop = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      target: { selector: '#touch-target' },
+      tab: 'beta',
+    });
+    const emulatedSize = /\((\d+)x(\d+) px\)/.exec(emulatedCrop.text);
+    assert.ok(emulatedSize, `emulated element screenshot did not report its size: ${emulatedCrop.text}`);
+    const emulatedScale = touchDragGrounding.imageWidth / touchDragGrounding.viewportWidth;
+    assert.ok(
+      Math.abs(Number(emulatedSize[1]) - 120 * emulatedScale) <= 2 &&
+        Math.abs(Number(emulatedSize[2]) - 50 * emulatedScale) <= 2,
+      `a 120x50 control at ${emulatedScale}x should crop to that size, got ${emulatedSize[0]}`
+    );
     progress('mobile emulation and touch complete');
 
     turnId = 32;
@@ -1431,7 +1664,25 @@ async function run(): Promise<void> {
     });
     assert.match(frameSnapshot.text, /Cross-frame evidence/);
     assert.doesNotMatch(frameSnapshot.text, /rootwebarea/);
+    // Shadow text is rendered inside its host, so reading both must not say it twice.
+    const shadowRead = await command({ action: 'read', tab: 'frames' });
+    const shadowMentions = shadowRead.text.split('Shadow frame evidence').length - 1;
+    assert.equal(shadowMentions, 1, `shadow text should be read once, saw ${shadowMentions}`);
     const frameRef = refNamed(frameSnapshot.text, 'Frame action');
+    // A ref in a cross-origin frame is measured through the accessibility
+    // path, so its image must still be the control and not the parent page.
+    const crossFrameShot = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      ref: frameRef,
+      tab: 'frames',
+    });
+    const crossFrameSize = /\((\d+)x(\d+) px\)/.exec(crossFrameShot.text);
+    assert.ok(crossFrameSize, `cross-origin element screenshot did not report its size: ${crossFrameShot.text}`);
+    assert.ok(
+      Number(crossFrameSize[1]) < 600 && Number(crossFrameSize[2]) < 120,
+      `a framed button should crop to the control, got ${crossFrameSize[0]}`
+    );
     const frameEvaluated = await command({
       action: 'evaluate',
       ref: frameRef,
@@ -1442,7 +1693,9 @@ async function run(): Promise<void> {
     assert.match(frameEvaluated.text, new RegExp(frameOrigin.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     const evaluatedFrameRef = refNamed(frameEvaluated.text, 'Frame action');
     const frameClicked = await command({
-      action: 'click', ref: evaluatedFrameRef, tab: 'frames',
+      action: 'click',
+      ref: evaluatedFrameRef,
+      tab: 'frames',
       expect: { text: 'Frame clicked', timeoutMs: 2_000 },
     });
     assert.match(frameClicked.text, /Frame clicked/);
@@ -1453,15 +1706,16 @@ async function run(): Promise<void> {
     assert.match(frameExtract.text, /Shadow frame evidence/);
     await command({ action: 'wait', text: 'Shadow frame evidence', tab: 'frames' });
     turnId = 410;
-    const delayedFrame = contentsWithUrl('/frames').mainFrame.framesInSubtree
-      .find(frame => frame.url.startsWith(frameOrigin));
+    const delayedFrame = contentsWithUrl('/frames').mainFrame.framesInSubtree.find((frame) =>
+      frame.url.startsWith(frameOrigin)
+    );
     assert.ok(delayedFrame);
     // Trigger fixture work independently of the action queue: an evaluate
     // action would settle first and could satisfy the condition before wait.
     const [delayedWait] = await Promise.all([
       command({ action: 'wait', text: 'Delayed frame wait evidence', tab: 'frames' }),
       (async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
         await delayedFrame.executeJavaScript(`(() => {
           const marker = document.createElement('p');
           marker.textContent = 'Delayed frame wait evidence';
@@ -1474,7 +1728,8 @@ async function run(): Promise<void> {
     progress(`event-driven iframe wait: ${JSON.stringify(delayedWait.timing)}`);
     turnId = 41;
     const coveredFrame = await command({
-      action: 'evaluate', tab: 'frames',
+      action: 'evaluate',
+      tab: 'frames',
       script: `(() => {
         const overlay = document.createElement('button');
         overlay.textContent = 'Parent blocker';
@@ -1483,26 +1738,36 @@ async function run(): Promise<void> {
         document.body.append(overlay);
       })()`,
     });
-    await assert.rejects(command({
-      action: 'click', ref: refNamed(coveredFrame.text, 'Frame clicked'), tab: 'frames',
-    }), /parent frame.*covered|covered.*parent frame|input target changed/);
+    await assert.rejects(
+      command({
+        action: 'click',
+        ref: refNamed(coveredFrame.text, 'Frame clicked'),
+        tab: 'frames',
+      }),
+      /parent frame.*covered|covered.*parent frame|input target changed/
+    );
     const afterCovered = await command({ action: 'read', tab: 'frames' });
     assert.doesNotMatch(afterCovered.text, /WRONG TARGET/);
     progress('cross-origin frame accessibility complete');
 
     turnId = 411;
     const sameProcess = await command({
-      action: 'navigate', url: `${origin}/same-process-frames`,
-      background: true, tab: 'same-process',
+      action: 'navigate',
+      url: `${origin}/same-process-frames`,
+      background: true,
+      tab: 'same-process',
     });
     assert.match(sameProcess.text, /Same-process evidence/);
     assert.ok(refNamed(sameProcess.text, 'Frame input'));
     await command({
-      action: 'fill', tab: 'same-process',
-      target: { role: 'textbox', name: 'Frame input', exact: true }, text: 'same-process-ok',
+      action: 'fill',
+      tab: 'same-process',
+      target: { role: 'textbox', name: 'Frame input', exact: true },
+      text: 'same-process-ok',
     });
     const sameProcessClick = await command({
-      action: 'click', tab: 'same-process',
+      action: 'click',
+      tab: 'same-process',
       target: { role: 'button', name: 'Echo same-process frame', exact: true },
       expect: { text: 'Frame value: same-process-ok', timeoutMs: 2_000 },
     });
@@ -1512,6 +1777,20 @@ async function run(): Promise<void> {
       assert.match(reloaded.text, /Same-process evidence/);
       assert.ok(refNamed(reloaded.text, 'Frame input'));
     }
+    // A ref inside a frame carries the frame's offset, so its image must be
+    // the control itself rather than a slice of the parent document.
+    const frameShot = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      tab: 'same-process',
+      target: { role: 'textbox', name: 'Frame input', exact: true },
+    });
+    const frameShotSize = /\((\d+)x(\d+) px\)/.exec(frameShot.text);
+    assert.ok(frameShotSize, `frame element screenshot did not report its size: ${frameShot.text}`);
+    assert.ok(
+      Number(frameShotSize[1]) < 600 && Number(frameShotSize[2]) < 120,
+      `a framed text box should crop to the control, got ${frameShotSize[0]}`
+    );
     await command({ action: 'close_tab', tab: 'same-process' });
     progress('same-process frame refs, input, fetch filtering and reload observation complete');
 
@@ -1530,18 +1809,90 @@ async function run(): Promise<void> {
     });
     assert.equal(download.file?.name, 'browser-fixture.txt');
     assert.equal(download.file?.mimeType, 'text/plain');
-    assert.equal(
-      Buffer.from(download.file?.data || '', 'base64').toString('utf8'),
-      'download attachment ready',
-    );
+    assert.equal(Buffer.from(download.file?.data || '', 'base64').toString('utf8'), 'download attachment ready');
     // The page report mentions the download once, on whichever snapshot
     // first follows its start or completion.
     const downloadSnapshot = await command({ action: 'snapshot', tab: 'download' });
     assert.match(
       `${downloadNavigation.text}\n${downloadSnapshot.text}`,
-      /Downloads since last report:\n- \[d\d+\] browser-fixture\.txt/,
+      /Downloads since last report:\n- \[d\d+\] browser-fixture\.txt/
     );
     progress('download inline attachment and snapshot report complete');
+
+    // A PDF link commits its address but renders nothing here, so the report
+    // has to name the document instead of handing back an empty page.
+    const pdfNavigation = await command({
+      action: 'navigate',
+      url: `${origin}/paper.pdf`,
+      background: true,
+      tab: 'paper',
+    });
+    assert.match(pdfNavigation.text, /This document is a PDF, which this browser cannot display/);
+    // The viewer Chromium tries to load is its own component, so its blocked
+    // resources must not surface as the page's console or network failures.
+    assert.doesNotMatch(pdfNavigation.text, /chrome-extension:/);
+    assert.match((await command({ action: 'snapshot', tab: 'paper' })).text, /This document is a PDF/);
+    await command({ action: 'close_tab', tab: 'paper' });
+    progress('pdf document report complete');
+
+    // A page whose text exceeds the excerpt cap must say so; read as the whole
+    // page, a silent excerpt turns a long document into a wrong answer.
+    const longText = await command({
+      action: 'navigate',
+      url: `${origin}/long-text`,
+      background: true,
+      tab: 'long-text',
+    });
+    assert.match(longText.text, /the page holds more, so scroll or search it for the rest/);
+    assert.doesNotMatch((await command({ action: 'read', tab: 'download' })).text, /the page holds more/);
+    await command({ action: 'close_tab', tab: 'long-text' });
+    progress('clipped page text is reported as clipped complete');
+
+    // Twelve failures must not arrive looking like three: the capped list says
+    // how many it stands for and where the rest are.
+    await command({ action: 'navigate', url: `${origin}/root`, background: true, tab: 'console-cap' });
+    // Every reply carries a page report, so the errors are said once, on the
+    // first report after they were logged.
+    const cappedErrors = await command({
+      action: 'evaluate',
+      script: 'for (let index = 0; index < 12; index += 1) console.error("bulk failure " + index); "logged"',
+      tab: 'console-cap',
+    });
+    assert.match(cappedErrors.text, /New console errors \(3 of 1[0-9]; call console for the rest\)/);
+    await command({ action: 'close_tab', tab: 'console-cap' });
+    progress('capped console report names its total complete');
+
+    // A server that demands credentials must answer as a page status; parking
+    // the command behind a hidden credential prompt would strand the caller.
+    const protectedStartedAt = Date.now();
+    const protectedPage = await command({
+      action: 'navigate',
+      url: `${origin}/protected`,
+      background: true,
+      tab: 'protected',
+    });
+    assert.match(protectedPage.text, /^Status: HTTP 401 Unauthorized/m);
+    assert.ok(Date.now() - protectedStartedAt < 5_000, 'a credential challenge must not hold the command');
+    await command({ action: 'close_tab', tab: 'protected' });
+    progress('basic auth challenge reports as a status complete');
+
+    // An address the browser refuses must come back as a named failure rather
+    // than a command that hangs on a page which never commits.
+    const refusedStartedAt = Date.now();
+    await assert.rejects(
+      command({ action: 'navigate', url: 'http://127.0.0.1:1/unreachable', background: true, tab: 'refused' }),
+      /ERR_UNSAFE_PORT/
+    );
+    assert.ok(Date.now() - refusedStartedAt < 5_000, 'a refused navigation returns without hanging');
+    progress('refused navigation reports its failure complete');
+
+    // A failing script must say where it failed; the message alone leaves the
+    // caller guessing which line of their own script threw.
+    await assert.rejects(
+      command({ action: 'evaluate', script: '\n\nnull.missingProperty;\n', tab: 'alpha' }),
+      /<anonymous>:\d+:\d+/
+    );
+    progress('evaluate failure carries its position complete');
 
     const missing = await command({
       action: 'navigate',
@@ -1555,30 +1906,28 @@ async function run(): Promise<void> {
 
     turnId = 5;
     const abort = new AbortController();
-    const stalled = command({
-      action: 'navigate',
-      url: `${origin}/stall`,
-      tab: 'alpha',
-    }, abort.signal);
+    const stalled = command(
+      {
+        action: 'navigate',
+        url: `${origin}/stall`,
+        tab: 'alpha',
+      },
+      abort.signal
+    );
     setTimeout(() => abort.abort(), 250);
     await assert.rejects(stalled, /abort/i);
     const recovered = await Promise.race([
       command({ action: 'navigate', url: `${origin}/recovered`, tab: 'alpha' }),
-      new Promise<never>((_resolve, reject) => setTimeout(
-        () => reject(new Error('queue recovery timed out')),
-        5_000,
-      )),
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('queue recovery timed out')), 5_000)),
     ]);
     assert.match(recovered.text, /Queue recovered/);
     progress('queue recovery complete');
 
     turnId = 98;
-    for (const removed of [
-      'observe', 'screenshot', 'click_at', 'tap', 'hover_at', 'drag_at', 'swipe', 'fill_form',
-    ]) {
+    for (const removed of ['observe', 'screenshot', 'click_at', 'tap', 'hover_at', 'drag_at', 'swipe', 'fill_form']) {
       await assert.rejects(
         command({ action: removed, tab: 'alpha' }),
-        new RegExp(`unknown browser action "${removed}"`),
+        new RegExp(`unknown browser action "${removed}"`)
       );
     }
 
@@ -1594,9 +1943,52 @@ async function run(): Promise<void> {
         x: 10,
         y: 10,
       }),
-      /frame is stale/,
+      /frame is stale/
     );
     progress('remote Browser Use frame binding complete');
+
+    // The visible page is where Chromium can paint past the window, so this
+    // is where a section taller than the viewport must arrive whole.
+    await command({ action: 'navigate', url: `${origin}/tall`, tab: 'alpha' });
+    const tallForeground = await command({
+      action: 'snapshot',
+      mode: 'visual',
+      target: { selector: '#tall-report' },
+      tab: 'alpha',
+    });
+    const foregroundSize = /\((\d+)x(\d+) px\)/.exec(tallForeground.text);
+    assert.ok(foregroundSize, `element screenshot did not report its size: ${tallForeground.text}`);
+    assert.doesNotMatch(tallForeground.text, /visible part/);
+    assert.ok(
+      Number(foregroundSize[2]) > 1_000,
+      `a 1400px section should be captured past the window, got ${foregroundSize[0]}`
+    );
+    progress('element screenshot past the window complete');
+
+    // Leaving a page that guards unsaved work asks first, and the answer is
+    // the caller's: staying must keep the page, accepting must leave it.
+    await command({ action: 'navigate', url: `${origin}/unsaved`, tab: 'alpha' });
+    const guardArmed = await command({
+      action: 'click',
+      target: { role: 'button', name: 'Arm guard' },
+      tab: 'alpha',
+    });
+    assert.match(guardArmed.text, /Guard armed/);
+    const leaving = await command({ action: 'navigate', url: `${origin}/popup`, tab: 'alpha' });
+    assert.match(leaving.text, /refused to be left/);
+    assert.match(leaving.text, /handle_dialog has nothing left to answer/);
+    const afterFirst = await command({ action: 'snapshot', tab: 'alpha' });
+    assert.match(afterFirst.text, /Unsaved fixture/);
+    // The same navigation is refused the same way, so the reply must not send
+    // the caller round a loop it cannot leave.
+    const leavingAgain = await command({ action: 'navigate', url: `${origin}/popup`, tab: 'alpha' });
+    assert.match(leavingAgain.text, /refused to be left/);
+    assert.match((await command({ action: 'snapshot', tab: 'alpha' })).text, /Unsaved fixture/);
+    // Once the page stops guarding, the very same navigation goes through.
+    await command({ action: 'evaluate', script: 'window.onbeforeunload = null; "cleared"', tab: 'alpha' });
+    const left = await command({ action: 'navigate', url: `${origin}/popup`, tab: 'alpha' });
+    assert.match(left.text, /Popup fixture|Popup ready/);
+    progress('beforeunload guard refuses navigation and releases once cleared');
 
     await command({ action: 'hide' });
 
@@ -1608,14 +2000,14 @@ async function run(): Promise<void> {
     for (const action of ['navigate', 'snapshot', 'click']) {
       const samples = commandDurations.get(action) || [];
       progress(
-        `latency ${action}: n=${samples.length} p50=${percentile(samples, 0.5).toFixed(1)}ms `
-        + `p95=${percentile(samples, 0.95).toFixed(1)}ms`,
+        `latency ${action}: n=${samples.length} p50=${percentile(samples, 0.5).toFixed(1)}ms ` +
+          `p95=${percentile(samples, 0.95).toFixed(1)}ms`
       );
       if (action === 'click' || action === 'navigate') {
         progress(
           `latency samples ${action}: ${(commandDurationDetails.get(action) || [])
             .map((sample) => `${sample.label}=${sample.duration.toFixed(1)}ms`)
-            .join(', ')}`,
+            .join(', ')}`
         );
       }
     }
@@ -1624,10 +2016,33 @@ async function run(): Promise<void> {
     assert.deepEqual(
       BROWSER_ACTIONS.filter((action) => !completedActions.has(action)),
       [],
-      'every public Browser Use action must complete through the live bridge',
+      'every public Browser Use action must complete through the live bridge'
     );
+
+    // Reclaiming disk is only real if the data is gone after a reload: clearing
+    // a live page's storage says nothing about what survived on disk.
+    await command({ action: 'navigate', url: `${origin}/root`, background: true, tab: 'clear-probe' });
+    await command({
+      action: 'evaluate',
+      script: 'localStorage.setItem("mixdog-clear-probe", "kept"); localStorage.getItem("mixdog-clear-probe")',
+      tab: 'clear-probe',
+    });
+    const cleared = await host!.browserClearData(['cache', 'siteData', 'cookies']);
+    assert.deepEqual(cleared.errors, {}, JSON.stringify(cleared));
+    assert.deepEqual([...cleared.cleared].sort(), ['cache', 'cookies', 'siteData']);
+    await command({ action: 'navigate', reload: true, tab: 'clear-probe' });
+    const probe = await command({
+      action: 'evaluate',
+      script: 'String(localStorage.getItem("mixdog-clear-probe"))',
+      tab: 'clear-probe',
+    });
+    assert.match(probe.text, /null/, 'site data must not survive a clear');
+    progress('browsing data clear removes stored site data');
+
     progress('integration passed');
-    console.log('Browser host integration passed: device emulation and touch, geolocation and extra headers, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, request interception, init scripts, performance tracing, download attachment and reporting, document error status, recovery, dialogs and blocked-gesture refusal, intercepted file chooser upload, popup tracking, isolation, and queue recovery.');
+    console.log(
+      'Browser host integration passed: device emulation and touch, geolocation and extra headers, cookies/storage, visual locate, AX/OOPIF refs and script execution, request/response/WebSocket inspection, request interception, init scripts, performance tracing, download attachment and reporting, document error status, PDF documents, credential challenges and refused addresses, script failure positions, recovery, dialogs, leave guards and blocked-gesture refusal, intercepted file chooser upload, popup tracking, isolation, and queue recovery.'
+    );
   } finally {
     for (const response of stalledResponses) response.destroy();
     await host?.dispose();
@@ -1639,14 +2054,17 @@ async function run(): Promise<void> {
 }
 
 progress('waiting for Electron ready');
-void app.whenReady().then(async () => {
-  progress('Electron ready');
-  await run();
-  await rm(profile, { recursive: true, force: true });
-  app.exit(0);
-}).catch(async (error) => {
-  console.error(error);
-  await rm(profile, { recursive: true, force: true });
-  process.exitCode = 1;
-  app.exit(1);
-});
+void app
+  .whenReady()
+  .then(async () => {
+    progress('Electron ready');
+    await run();
+    await rm(profile, { recursive: true, force: true });
+    app.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await rm(profile, { recursive: true, force: true });
+    process.exitCode = 1;
+    app.exit(1);
+  });

@@ -61,6 +61,17 @@ test('a route round-reminder is resolved per provider/model and never enters the
   assert.doesNotMatch(fable, /round-reminder|turn-reminder|FABLE_REMINDER/);
 });
 
+test('MIXDOG_TURN_REMINDER=0 drops the turn line and leaves the round line alone', async (t) => {
+  const { write, rules } = await fixture(t);
+  write('plugin/rules/routes/common.md', '---\nturn-reminder: COMMON_TURN\nround-reminder: COMMON_ROUND\n---\n');
+  process.env.MIXDOG_TURN_REMINDER = '0';
+  t.after(() => {
+    delete process.env.MIXDOG_TURN_REMINDER;
+  });
+  assert.equal(rules._buildRouteTurnReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), '');
+  assert.equal(rules._buildRouteRoundReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), 'COMMON_ROUND');
+});
+
 test('route rules bind to provider and model family through frontmatter', async (t) => {
   const { write, rules } = await fixture(t);
   write('plugin/rules/shared/00-general.md', '# General\n\n- Shared policy.');

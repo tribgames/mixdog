@@ -167,14 +167,19 @@ function dumbbell(slide, x, y, w, rows, { min, max, labelW = 2.2, rowH = 0.6, fo
   });
   return y + rows.length * rowH;
 }
-// Small multiples: n identical charts on one row, one label above each, shared axis range.
-function smallMultiples(slide, x, y, w, h, panels, { type = 'col', max, gap = GUTTER, format = '#,##0' } = {}) {
+// Small multiples: n identical charts on one row, one label above each, shared axis range. The panels are the same
+// shape across groups, so the categories are usually one row-wide `labels` — a panel may still carry its own.
+// A panel names itself with `label` (or `title`); without categories the row is refused here, with the fix named,
+// instead of failing inside the chart call on a missing array.
+function smallMultiples(slide, x, y, w, h, panels, { type = 'col', max, gap = GUTTER, format = '#,##0', labels = null } = {}) {
   const pw = (w - gap * (panels.length - 1)) / panels.length, th = lineH(DIAG.label, T.sans, 1.2), cy = y + th + GAP.within;
   const top = max ?? Math.max(...panels.flatMap((p) => p.series.flatMap((s) => s.values))) * 1.15;
   panels.forEach((p, i) => {
-    const px = x + i * (pw + gap);
-    text(slide, p.title, px, y, pw, 'label', { h: th });
-    chart(slide, px, cy, pw, h - (cy - y), { type, labels: p.labels, series: p.series, max: top, accent: p.accent ?? -1, format });
+    const px = x + i * (pw + gap), cats = p.labels ?? labels;
+    if (!Array.isArray(cats) || !cats.length)
+      throw new Error(`smallMultiples: panel ${i + 1} has no categories — pass one labels: [...] for the row, or labels on each panel`);
+    text(slide, p.label ?? p.title ?? '', px, y, pw, 'label', { h: th });
+    chart(slide, px, cy, pw, h - (cy - y), { type, labels: cats, series: p.series, max: top, accent: p.accent ?? -1, format });
   });
 }
 // The table's pitch: the type and the row height one table takes — dense sets the caption step (never under 12 pt) at

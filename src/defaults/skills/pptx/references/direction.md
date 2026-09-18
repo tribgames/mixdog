@@ -29,7 +29,7 @@ A presentation deck and a text deck from the same source differ in grammar, coun
 **Hard rule — a user-supplied outline keeps its facts and relationships**; the mode may regroup and retitle unless the user presented the outline as the final plan. → runtime `number_without_fact` for figures; relationships → manual
 
 ## 3. Visual style — how it looks (no colors, no fonts)
-A style is shape language, composition geometry, decoration density, whitespace, texture. It governs treatment and coherence; it never decides which carriers a slide may use, and it carries no HEX and no typeface (those come from §5 and §6).
+A style is shape language, composition geometry, decoration density, whitespace, texture. It governs treatment and coherence; it never decides which carriers a slide may use, and it carries no HEX and no typeface (those come from §5 and §6). **The id is mechanical**: `deck({ style: '<row>' })` sets the page chrome, the corner radius, the rule stroke, the motif, the theme, and the accent policy from the row, so two decks of the same content open on different pages; the moves in the third column are what the author then composes on that frame.
 **Default — one coherent visual language**: keep compatible type roles, color meanings, and treatments across the deck. The rows below are vocabulary, not exclusive categories; choose a different composition when the evidence calls for it, not a new decorative theme.
 
 | Style | Shape language | Composition geometry (moves it reaches for) | Decoration | Texture / elevation |

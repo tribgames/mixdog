@@ -2,17 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildContextMap, contextShares } from './context-inspection.mjs';
 
-test('block allocation conserves cells and reports free space and reserve separately', () => {
+test('block allocation conserves cells and reports free space as the rest of the window', () => {
   assert.deepEqual(contextShares([1, 1, 1], 10), [4, 3, 3]);
   const map = buildContextMap([{ key: 'system', tokens: 100 }, { key: 'messages', tokens: 300 }], {
-    windowTokens: 800, reserveTokens: 200, cells: 100,
+    windowTokens: 800, cells: 100,
   });
   assert.equal(map.cells.length, 100);
-  assert.equal(map.cells.filter((key) => key === 'system').length, 10);
-  assert.equal(map.cells.filter((key) => key === 'messages').length, 30);
-  assert.equal(map.cells.filter((key) => key === 'free').length, 40);
-  assert.equal(map.cells.filter((key) => key === 'autocompact').length, 20);
-  assert.equal(map.blockTokens, 10);
+  assert.equal(map.cells.filter((key) => key === 'system').length, 13);
+  assert.equal(map.cells.filter((key) => key === 'messages').length, 37);
+  assert.equal(map.cells.filter((key) => key === 'free').length, 50);
+  assert.equal(map.blockTokens, 8);
   assert.equal(map.overflow, false);
 });
 

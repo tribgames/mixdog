@@ -279,6 +279,19 @@ function tokenSlotRole(text) {
   return token.toLowerCase().replaceAll('_', '-');
 }
 
+export function pptxSlot(metadata, role) {
+  if (!role) return null;
+  return {
+    role,
+    type: metadata.type,
+    shape: metadata.shape,
+    ...(metadata.placeholderType ? { placeholderType: metadata.placeholderType } : {}),
+    ...(Number.isInteger(metadata.placeholderIndex) ? { placeholderIndex: metadata.placeholderIndex } : {}),
+    geometry: metadata.geometry,
+    required: role === 'title',
+  };
+}
+
 export function pptxShapeMetadata(block, shape) {
   const cNvPr = /<p:cNvPr\b[^>]*>/i.exec(block.xml)?.[0] || '';
   const placeholder = /<p:ph\b[^>]*\/?>/i.exec(block.xml)?.[0] || '';
@@ -299,6 +312,24 @@ export function pptxShapeMetadata(block, shape) {
   else if (block.type === 'graphicFrame' && /<c:chart\b/i.test(block.xml)) type = 'chart';
   else if (block.type === 'graphicFrame' && /<a:tbl\b/i.test(block.xml)) type = 'table';
   else if (block.type === 'graphicFrame' || block.type === 'grpSp') type = 'diagram';
+  // A page someone drew carries no placeholder and no token, so the only
+  // evidence of which box is the title and which row reads as steps is the
+  // type size it was set in and the outline it was drawn with.
+  const fontSizes = [...block.xml.matchAll(/<a:rPr\b[^>]*\bsz="(\d+)"/gi)]
+    .map((match) => Number(match[1]) / 100)
+    .filter((size) => size > 0);
+  const preset = block.type === 'sp' ? /<a:prstGeom\b[^>]*\bprst="([^"]+)"/i.exec(block.xml)?.[1] || '' : '';
+  const metadata = {
+    shape,
+    name: xmlAttribute(cNvPr, 'name'),
+    type,
+    text,
+    placeholderType,
+    ...(Number.isInteger(placeholderIndex) ? { placeholderIndex } : {}),
+    geometry,
+    ...(fontSizes.length ? { fontSize: Math.max(...fontSizes) } : {}),
+    ...(preset ? { preset } : {}),
+  };
   let role = tokenSlotRole(text);
   if (!role) {
     if (['title', 'ctrTitle'].includes(placeholderType)) role = 'title';
@@ -308,34 +339,18 @@ export function pptxShapeMetadata(block, shape) {
     else if (type === 'table') role = 'table';
     else if (placeholderType) role = `body-${shape}`;
   }
-  return {
-    shape,
-    name: xmlAttribute(cNvPr, 'name'),
-    type,
-    text,
-    placeholderType,
-    ...(Number.isInteger(placeholderIndex) ? { placeholderIndex } : {}),
-    geometry,
-    ...(role
-      ? {
-          slot: {
-            role,
-            type,
-            shape,
-            ...(placeholderType ? { placeholderType } : {}),
-            ...(Number.isInteger(placeholderIndex) ? { placeholderIndex } : {}),
-            geometry,
-            required: ['title'].includes(role),
-          },
-        }
-      : {}),
-  };
+  const slot = pptxSlot(metadata, role);
+  return slot ? { ...metadata, slot } : metadata;
 }
 
 export function inferPptxSampleKind(sample, total) {
   const roles = new Set(sample.slots.map((slot) => slot.role));
   const title = String(sample.title || '').toLowerCase();
-  if (sample.slide === 1) return 'cover';
+  // The first page is the cover unless it carries a structure no cover has: a
+  // flow of steps, or columns with their bodies under them. A deck that opens on
+  // its comparison page says so instead of being read as a title page.
+  const structured = [...roles].some((role) => role.startsWith('step-') || role.startsWith('column-body-'));
+  if (sample.slide === 1 && !structured) return 'cover';
   if (sample.slide === total && /(thank|next|close|감사|다음)/i.test(title)) return 'closing';
   if ([...roles].some((role) => role.startsWith('step-'))) return 'process';
   if ([...roles].some((role) => role.startsWith('column-'))) return 'comparison';

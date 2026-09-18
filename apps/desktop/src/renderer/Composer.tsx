@@ -1486,7 +1486,6 @@ export const Composer = memo(function Composer({
                   ? false
                   : (!draft.trim() &&
                       !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
-                    (submitting && Boolean(draftMode)) ||
                     transitioning ||
                     dictationState !== 'idle'
               }
@@ -1544,5 +1543,4 @@ export {
   OrchestrationModeSelect,
   providerSetupEntries,
   providerSetupState,
-  workflowOptionsCache,
 } from './model-controls';

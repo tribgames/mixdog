@@ -5,6 +5,8 @@ import {
   canonicalizeGlobSlashes,
   coerceReadFamilyPathArg,
   extractGlobBaseDirectory,
+  GREP_AUTO_CONTEXT_AFTER,
+  GREP_AUTO_CONTEXT_BEFORE,
   GREP_AUTO_CONTEXT_LINES,
   hasGlobMagic,
   normalizeGrepArgs,
@@ -263,11 +265,16 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
     args['-C'] !== undefined && args['-C'] !== null && args['-C'] !== ''
       ? coerceContext(args['-C'])
       : coerceContext(args.context);
-  // content_with_context: if no explicit context flag was supplied, apply a
-  // generous default so the match arrives with enough surrounding code to
-  // understand it (function-sized) without a separate read.
+  // content_with_context: with no explicit context flag, apply the automatic
+  // window so the match arrives with enough surrounding code to understand it
+  // without a separate read. It is asymmetric, so it travels as -B/-A and
+  // leaves contextN null — that null is what tells the expander the window is
+  // automatic rather than a caller-requested radius.
+  let autoContext = false;
   if (wantAutoContext && afterN === null && beforeN === null && contextN === null) {
-    contextN = GREP_AUTO_CONTEXT_LINES;
+    beforeN = GREP_AUTO_CONTEXT_BEFORE;
+    afterN = GREP_AUTO_CONTEXT_AFTER;
+    autoContext = true;
   }
   if (contextN !== null && contextN > 0) {
     if (afterN === 0) afterN = null;
@@ -336,6 +343,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
       beforeN,
       afterN,
       contextN,
+      autoContext,
       multilineMode,
       pcre2Mode,
       fileType,
@@ -549,8 +557,13 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
           // searches to patch-ready source. Broad results expand up to three
           // priority spans and retain compact range anchors, all within the
           // whole-call character budget. Explicit context:0 remains bare.
+          // The automatic window is asymmetric and travels as -B/-A, so it
+          // qualifies here on the flag rather than on a symmetric contextN.
           const adaptiveContextMode =
-            contextN > 0 && !(beforeN > 0) && !(afterN > 0) && showLineNumbers && !multilineMode && args['-o'] !== true;
+            (autoContext || (contextN > 0 && !(beforeN > 0) && !(afterN > 0))) &&
+            showLineNumbers &&
+            !multilineMode &&
+            args['-o'] !== true;
           if (adaptiveContextMode) {
             const anchorArgs = buildGrepRgArgs({
               patterns,

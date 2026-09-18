@@ -7,32 +7,48 @@ import { ComputerUseCoordinator } from '../session/coordinator.ts';
 test('idle native workers retire through confirmed cleanup without cancelling active or queued work', async () => {
   const coordinator = new ComputerUseCoordinator();
   const execution = createExecutionState();
-  const children = new Map(['idle', 'busy', 'queued', 'thinking', 'recent'].map(id => [
-    id, { killed: false, exitCode: null, signalCode: null },
-  ]));
+  const children = new Map(
+    ['idle', 'busy', 'queued', 'thinking', 'recent'].map((id) => [
+      id,
+      { killed: false, exitCode: null, signalCode: null },
+    ])
+  );
   const live = new Map(children);
   const released = [];
   execution.activeExecutionsBySession.set('busy', { sessionId: 'busy', aborted: false });
   execution.commandChainsBySession.set('queued', new Promise(() => {}));
   coordinator.beginCommand({ sessionId: 'thinking', action: 'type', mode: 'foreground' });
   const host = createSessionLifecycle({
-    coordinator, execution, powerShellBySession: live,
-    workerLastUsedAt: new Map([['idle', 0], ['busy', 0], ['queued', 0], ['thinking', 0], ['recent', 60_000]]),
+    coordinator,
+    execution,
+    powerShellBySession: live,
+    workerLastUsedAt: new Map([
+      ['idle', 0],
+      ['busy', 0],
+      ['queued', 0],
+      ['thinking', 0],
+      ['recent', 60_000],
+    ]),
     retirePowerShell(child) {
       child.killed = true;
       child.exitCode = 0;
       for (const [id, value] of live) if (value === child) live.delete(id);
     },
-    callPowerShell: async () => { throw new Error('idle cleanup must not start a new worker'); },
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
-    sessionIdFor: command => command.session_id,
-    releaseSessionState: id => released.push(id),
-    invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    callPowerShell: async () => {
+      throw new Error('idle cleanup must not start a new worker');
+    },
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
+    sessionIdFor: (command) => command.session_id,
+    releaseSessionState: (id) => released.push(id),
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
     cleanupInput: async () => true,
-    runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+    runCommand: async () => ({ text: '' }),
+    recaptureRequiredReply: async () => null,
   });
   host.reapIdleSessionWorkers(61_000);
-  await new Promise(resolve => setImmediate(resolve));
+  await new Promise((resolve) => setImmediate(resolve));
   assert.equal(children.get('idle').killed, true);
   for (const id of ['busy', 'queued', 'thinking', 'recent']) assert.equal(children.get(id).killed, false, id);
   assert.deepEqual(released, ['idle']);
@@ -47,19 +63,33 @@ for (const turnFailure of [false, true]) {
     execution.activeExecutionsBySession.set('fixture', { sessionId: 'fixture', aborted: false });
     let nativeStopped = false;
     const host = createSessionLifecycle({
-      coordinator, execution, powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-      retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-      cancelElevatedSession: async () => { nativeStopped = true; return true; },
-      elevatedSessionIds: () => ['fixture'], sessionIdFor: command => command.session_id,
-      releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+      coordinator,
+      execution,
+      powerShellBySession: new Map(),
+      workerLastUsedAt: new Map(),
+      retirePowerShell() {},
+      callPowerShell: async () => ({ ok: true }),
+      cancelElevatedSession: async () => {
+        nativeStopped = true;
+        return true;
+      },
+      elevatedSessionIds: () => ['fixture'],
+      sessionIdFor: (command) => command.session_id,
+      releaseSessionState() {},
+      invalidateWorkerGeneration() {},
+      releaseCaptureSession() {},
       cleanupInput: async () => true,
-      runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+      runCommand: async () => ({ text: '' }),
+      recaptureRequiredReply: async () => null,
     });
     let confirm, fail;
-    const turns = new Promise((resolve, reject) => { confirm = resolve; fail = reject; });
+    const turns = new Promise((resolve, reject) => {
+      confirm = resolve;
+      fail = reject;
+    });
     coordinator.pauseForUser('user_stop', ['fixture']);
     const stopping = host.stopAllComputerSessions(true, turns);
-    await new Promise(resolve => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
     assert.equal(nativeStopped, true, 'daemon latency must not delay native input cancellation');
     assert.equal(coordinator.snapshot().cleanupState, 'ready');
     assert.equal(coordinator.snapshot().userControlActive, true);
@@ -68,7 +98,7 @@ for (const turnFailure of [false, true]) {
       fail(new Error('computer_stop_unconfirmed'));
       await rejected;
       confirm();
-      await new Promise(resolve => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
       assert.equal(coordinator.snapshot().userControlActive, true);
       assert.throws(() => coordinator.assertAutomationAllowed());
     } else {
@@ -86,7 +116,9 @@ test('abort does not report cleanup success before elevated termination is confi
     const computerUseCoordinator = new ComputerUseCoordinator();
     let confirm;
     let cancellationRequested = false;
-    const stopped = new Promise((resolve) => { confirm = resolve; });
+    const stopped = new Promise((resolve) => {
+      confirm = resolve;
+    });
     const execution = createExecutionState();
     const active = { sessionId: 'test', aborted: false };
     execution.activeExecutionsBySession.set('test', active);
@@ -96,7 +128,10 @@ test('abort does not report cleanup success before elevated termination is confi
       workerLastUsedAt: new Map(),
       retirePowerShell() {},
       callPowerShell: async () => ({ ok: true }),
-      cancelElevatedSession: () => { cancellationRequested = true; return stopped; },
+      cancelElevatedSession: () => {
+        cancellationRequested = true;
+        return stopped;
+      },
       elevatedSessionIds: () => ['test'],
       sessionIdFor: () => 'test',
       releaseSessionState() {},
@@ -107,8 +142,9 @@ test('abort does not report cleanup success before elevated termination is confi
       recaptureRequiredReply: async () => null,
     });
     let finished = false;
-    const abort = host.abortComputerSession({ action: 'session_abort', session_id: 'test' })
-      .finally(() => { finished = true; });
+    const abort = host.abortComputerSession({ action: 'session_abort', session_id: 'test' }).finally(() => {
+      finished = true;
+    });
     await Promise.resolve();
     assert.equal(cancellationRequested, true);
     assert.equal(active.aborted, true);
@@ -126,14 +162,24 @@ test('Stop clears a paused session even after its worker and activity have alrea
   const coordinator = new ComputerUseCoordinator();
   const stopped = [];
   const host = createSessionLifecycle({
-    coordinator, execution: createExecutionState(),
-    powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: async id => { stopped.push(id); return true; },
-    elevatedSessionIds: () => [], sessionIdFor: command => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    coordinator,
+    execution: createExecutionState(),
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async (id) => {
+      stopped.push(id);
+      return true;
+    },
+    elevatedSessionIds: () => [],
+    sessionIdFor: (command) => command.session_id,
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
     cleanupInput: async () => true,
-    runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+    runCommand: async () => ({ text: '' }),
+    recaptureRequiredReply: async () => null,
   });
   coordinator.pauseForUser('input_observation_unavailable', ['retired-fixture']);
   coordinator.cancelSession('retired-fixture');
@@ -150,19 +196,32 @@ test('Stop clears a latched cleanup failure only after every worker exited and h
   let releaseOk = true;
   let sweeps = 0;
   const host = createSessionLifecycle({
-    coordinator, execution: createExecutionState(),
-    powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
+    coordinator,
+    execution: createExecutionState(),
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
     sessionIdFor: (command) => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
-    cleanupInput: async (recovery) => { if (!recovery) sweeps++; return releaseOk; },
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
+    cleanupInput: async (recovery) => {
+      if (!recovery) sweeps++;
+      return releaseOk;
+    },
     waitForResidentWorkersExit: async () => !workersAlive,
-    runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+    runCommand: async () => ({ text: '' }),
+    recaptureRequiredReply: async () => null,
   });
   coordinator.beginCleanup('a')(false);
   assert.equal(coordinator.snapshot().cleanupState, 'failed');
-  await assert.rejects(host.stopAllComputerSessions(), /computer_abort_cleanup_unconfirmed: input workers are still running/);
+  await assert.rejects(
+    host.stopAllComputerSessions(),
+    /computer_abort_cleanup_unconfirmed: input workers are still running/
+  );
   assert.equal(coordinator.snapshot().cleanupState, 'failed');
   assert.equal(sweeps, 0);
   workersAlive = false;
@@ -180,16 +239,26 @@ test('Stop cannot use global key release as proof of target-local message cleanu
   const coordinator = new ComputerUseCoordinator();
   let released = 0;
   const host = createSessionLifecycle({
-    coordinator, execution: createExecutionState(),
-    powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: async () => true, elevatedSessionIds: () => [],
-    sessionIdFor: command => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
+    coordinator,
+    execution: createExecutionState(),
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: async () => true,
+    elevatedSessionIds: () => [],
+    sessionIdFor: (command) => command.session_id,
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
     waitForResidentWorkersExit: async () => true,
-    cleanupInput: async () => { released++; return true; },
+    cleanupInput: async () => {
+      released++;
+      return true;
+    },
     hasUnconfirmedBackgroundInput: () => true,
-    runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+    runCommand: async () => ({ text: '' }),
+    recaptureRequiredReply: async () => null,
   });
   coordinator.beginCleanup('background')(false);
   await assert.rejects(host.stopAllComputerSessions(), /computer_background_cleanup_unconfirmed/);
@@ -204,15 +273,28 @@ test('abort keeps target acquisition and resume blocked until worker exit AND in
   execution.activeExecutionsBySession.set('a', { sessionId: 'a', aborted: false });
   let exitWorker;
   let cleanInput;
-  const stopped = new Promise((resolve) => { exitWorker = resolve; });
-  const cleaned = new Promise((resolve) => { cleanInput = resolve; });
+  const stopped = new Promise((resolve) => {
+    exitWorker = resolve;
+  });
+  const cleaned = new Promise((resolve) => {
+    cleanInput = resolve;
+  });
   const host = createSessionLifecycle({
-    coordinator, execution, powerShellBySession: new Map(), workerLastUsedAt: new Map(),
-    retirePowerShell() {}, callPowerShell: async () => ({ ok: true }),
-    cancelElevatedSession: () => stopped, elevatedSessionIds: () => ['a'],
+    coordinator,
+    execution,
+    powerShellBySession: new Map(),
+    workerLastUsedAt: new Map(),
+    retirePowerShell() {},
+    callPowerShell: async () => ({ ok: true }),
+    cancelElevatedSession: () => stopped,
+    elevatedSessionIds: () => ['a'],
     sessionIdFor: (command) => command.session_id,
-    releaseSessionState() {}, invalidateWorkerGeneration() {}, releaseCaptureSession() {},
-    cleanupInput: () => cleaned, runCommand: async () => ({ text: '' }), recaptureRequiredReply: async () => null,
+    releaseSessionState() {},
+    invalidateWorkerGeneration() {},
+    releaseCaptureSession() {},
+    cleanupInput: () => cleaned,
+    runCommand: async () => ({ text: '' }),
+    recaptureRequiredReply: async () => null,
   });
   await host.claimComputerTargets({ session_id: 'a' }, ['hwnd:0x1']);
   const aborted = host.abortComputerSession({ action: 'session_abort', session_id: 'a' });

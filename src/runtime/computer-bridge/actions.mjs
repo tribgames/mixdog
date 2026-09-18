@@ -30,6 +30,8 @@ action('ocr_image', nativeRead);
 action('ocr_status', nativeRead);
 action('release_session', { retainNativeRefs: true });
 action('list_apps', { ...hostRead, ...replay, policy: 'list' });
+action('list_installed_apps', { ...nativeRead, ...replay, policy: 'list' });
+action('list_history', { ...hostRead, ...replay, policy: 'list' });
 action('capture', { ...hostRead, ...replay });
 action('screenshot', { ...hostRead, policy: 'capture' });
 action('zoom', { ...hostRead, ...replay, policy: 'capture' });
@@ -45,10 +47,14 @@ for (const name of [
   'right_click',
   'middle_click',
   'triple_click',
+  'mouse_down',
+  'mouse_up',
   'mouse_move',
   'drag',
   'type',
   'key',
+  'key_down',
+  'key_up',
   'scroll',
 ]) {
   action(name, {
@@ -71,6 +77,8 @@ for (const name of [
       'right_click',
       'middle_click',
       'triple_click',
+      'mouse_down',
+      'mouse_up',
       'mouse_move',
       'drag',
       'scroll',
@@ -78,7 +86,15 @@ for (const name of [
     policy: 'act',
   });
 }
-for (const name of ['focus_window', 'move_window', 'window_state', 'close_window', 'launch', 'invoke_menu']) {
+for (const name of [
+  'focus_window',
+  'move_window',
+  'window_state',
+  'close_window',
+  'terminate_process',
+  'launch',
+  'invoke_menu',
+]) {
   action(name, {
     autoCapture: true,
     foreground: true,

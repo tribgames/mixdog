@@ -15,8 +15,17 @@ import { createHash } from 'node:crypto';
 // that stays under that cap after the 4/3 base64 inflation.
 export const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024; // 5 MB
 export const IMAGE_TARGET_RAW_SIZE = (API_IMAGE_MAX_BASE64_SIZE * 3) / 4; // 3.75 MB
-export const IMAGE_MAX_WIDTH = 2000;
-export const IMAGE_MAX_HEIGHT = 2000;
+// Vision billing counts 28x28 patches, not bytes: a lossless recompression
+// saves upload but not one token. Dimensions are the only lever, and standard
+// models cap an image at 1568px on its longest edge before processing — pixels
+// sent beyond that are downscaled away server-side, so they cost upload and
+// (until now) an inflated local estimate while the model saw the same picture.
+export const IMAGE_MAX_WIDTH = 1568;
+export const IMAGE_MAX_HEIGHT = 1568;
+// Floor for the shortest edge. Patch tiling rejects a degenerate sub-patch
+// image (the 1x1 PNG an empty render emits) with a hard 400 that fails the
+// whole request, so such an image is scaled UP instead of passed through.
+export const IMAGE_MIN_DIMENSION = 200;
 // Token budget for a single image. est tokens = base64.length * 0.125 (the
 // common per-image heuristic). Default aligns to the 5MB base64 API ceiling so the
 // dimension/raw-size resize governs the common case and the token gate only
@@ -25,6 +34,13 @@ const DEFAULT_IMAGE_MAX_TOKENS = Math.ceil(API_IMAGE_MAX_BASE64_SIZE * 0.125);
 const OPENAI_IMAGE_MAX_DIMENSION = 2048;
 const OPENAI_IMAGE_PATCH_SIZE = 32;
 const OPENAI_IMAGE_MAX_PATCHES = 1536;
+// Anthropic bills 28x28 patches and a standard-tier image may spend 1568 of
+// them, so the patch budget usually binds before the edge ceiling does:
+// 1568x882 clears 1568px on both edges yet still needs 1792 patches. That is
+// why the documented rendition of a 1080p frame lands near 1456x819 rather
+// than at the edge limit.
+const ANTHROPIC_IMAGE_PATCH_SIZE = 28;
+const ANTHROPIC_IMAGE_MAX_PATCHES = 1568;
 const IMAGE_RESIZE_CACHE_MAX_BYTES = 64 * 1024 * 1024;
 const imageResizeCache = new Map();
 let imageResizeCacheBytes = 0;
@@ -48,11 +64,14 @@ export function imageProfileForProvider(provider) {
   return /^(?:openai|xai|grok|deepseek|opencode-go|mixdog-local)(?:-|$)/.test(value) ? 'openai' : 'anthropic';
 }
 
-export function openAIImagePatchCount(width, height) {
+function imagePatchCount(width, height, patchSize) {
   return (
-    Math.ceil(Math.max(1, Number(width) || 1) / OPENAI_IMAGE_PATCH_SIZE) *
-    Math.ceil(Math.max(1, Number(height) || 1) / OPENAI_IMAGE_PATCH_SIZE)
+    Math.ceil(Math.max(1, Number(width) || 1) / patchSize) * Math.ceil(Math.max(1, Number(height) || 1) / patchSize)
   );
+}
+
+export function openAIImagePatchCount(width, height) {
+  return imagePatchCount(width, height, OPENAI_IMAGE_PATCH_SIZE);
 }
 
 function resizeCacheKey(buffer, ext, maxTokens, profile) {
@@ -219,24 +238,51 @@ export async function resizeImageBuffer(
       let height = originalHeight;
       const maxWidth = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_WIDTH;
       const maxHeight = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_HEIGHT;
-      let scale = Math.min(1, maxWidth / width, maxHeight / height);
-      if (normalizedProfile === 'openai') {
-        scale = Math.min(
-          scale,
-          Math.sqrt((OPENAI_IMAGE_MAX_PATCHES * OPENAI_IMAGE_PATCH_SIZE ** 2) / (width * height))
-        );
-      }
+      const patchSize = normalizedProfile === 'openai' ? OPENAI_IMAGE_PATCH_SIZE : ANTHROPIC_IMAGE_PATCH_SIZE;
+      const maxPatches = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_PATCHES : ANTHROPIC_IMAGE_MAX_PATCHES;
+      // Both limits bind, and either one can be the tighter: the per-edge
+      // ceiling governs an elongated image, the patch budget a wide one.
+      const scale = Math.min(
+        1,
+        maxWidth / width,
+        maxHeight / height,
+        Math.sqrt((maxPatches * patchSize ** 2) / (width * height))
+      );
       width = Math.max(1, Math.floor(width * scale));
       height = Math.max(1, Math.floor(height * scale));
-      while (normalizedProfile === 'openai' && openAIImagePatchCount(width, height) > OPENAI_IMAGE_MAX_PATCHES) {
+      // Lift a sub-patch image to the floor, but never past the profile's own
+      // ceiling: an extreme aspect ratio keeps its shape rather than being
+      // blown up to satisfy its short edge.
+      let allowEnlargement = false;
+      const shortestEdge = Math.min(width, height);
+      if (shortestEdge < IMAGE_MIN_DIMENSION) {
+        const ceiling = Math.min(maxWidth, maxHeight);
+        const upscale = Math.min(IMAGE_MIN_DIMENSION / shortestEdge, ceiling / Math.max(width, height));
+        if (upscale > 1) {
+          width = Math.max(1, Math.round(width * upscale));
+          height = Math.max(1, Math.round(height * upscale));
+          allowEnlargement = true;
+        }
+      }
+      // Area scaling is exact, but rounding a partial patch up can still leave
+      // one row or column over budget; trim the longer edge until it fits.
+      while (imagePatchCount(width, height, patchSize) > maxPatches && (width > 1 || height > 1)) {
         if (width >= height) width -= 1;
         else height -= 1;
       }
       const needsResize = width !== originalWidth || height !== originalHeight;
       if (needsResize || originalSize > IMAGE_TARGET_RAW_SIZE) {
-        outBuf = await sharp(buffer).resize(width, height, { fit: 'inside', withoutEnlargement: true }).toBuffer();
-        displayWidth = width;
-        displayHeight = height;
+        // Trimming the edges separately can leave a box the picture does not
+        // fill: fit:'inside' keeps the aspect ratio, so the rendition is
+        // smaller than the box that was asked for. Report what came out —
+        // the metadata line and its coordinate scale are read as the truth
+        // about this image.
+        const resized = await sharp(buffer)
+          .resize(width, height, { fit: 'inside', withoutEnlargement: !allowEnlargement })
+          .toBuffer({ resolveWithObject: true });
+        outBuf = resized.data;
+        displayWidth = resized.info.width || width;
+        displayHeight = resized.info.height || height;
       }
     }
 
@@ -251,10 +297,12 @@ export async function resizeImageBuffer(
         if (displayWidth && displayHeight) {
           s = s.resize(displayWidth, displayHeight, { fit: 'inside', withoutEnlargement: true });
         }
-        const jpeg = await s.jpeg({ quality: 50 }).toBuffer();
-        outBuf = jpeg;
+        const jpeg = await s.jpeg({ quality: 50 }).toBuffer({ resolveWithObject: true });
+        outBuf = jpeg.data;
         mediaType = 'jpeg';
-        base64 = jpeg.toString('base64');
+        base64 = jpeg.data.toString('base64');
+        displayWidth = jpeg.info.width || displayWidth;
+        displayHeight = jpeg.info.height || displayHeight;
       } catch {
         /* keep the q-pre buffer; the 400x400 fallback runs next */
       }

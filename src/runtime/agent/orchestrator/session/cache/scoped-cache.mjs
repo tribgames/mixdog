@@ -5,7 +5,7 @@
 import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _pathNorm } from 'node:path';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { _normalizeCacheKey } from './util.mjs';
-import { GREP_AUTO_CONTEXT_LINES } from '../../tools/builtin/path-utils.mjs';
+import { GREP_AUTO_CONTEXT_AFTER, GREP_AUTO_CONTEXT_BEFORE } from '../../tools/builtin/path-utils.mjs';
 import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';
 
@@ -144,7 +144,8 @@ function _canonicalToolArgs(toolName, args) {
     delete next.mode;
 
     // Canonicalize by execution semantics, not caller spelling:
-    // omitted/content_with_context => content + automatic 25-line context;
+    // omitted/content_with_context => content + the automatic asymmetric
+    // window, spelled as the -B/-A pair it actually runs as;
     // context:0 => bare content; context flags are ignored in count/files.
     const requestedMode = typeof next.output_mode === 'string' ? next.output_mode.trim() : '';
     if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
@@ -156,7 +157,8 @@ function _canonicalToolArgs(toolName, args) {
       const hasExplicitContext = ['-A', '-B', 'context'].some((key) => Object.hasOwn(next, key));
       next.output_mode = 'content';
       if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
-        next.context = GREP_AUTO_CONTEXT_LINES;
+        next['-B'] = GREP_AUTO_CONTEXT_BEFORE;
+        next['-A'] = GREP_AUTO_CONTEXT_AFTER;
       }
       if (next.context === 0 && !Object.hasOwn(next, '-A') && !Object.hasOwn(next, '-B')) {
         delete next.context;

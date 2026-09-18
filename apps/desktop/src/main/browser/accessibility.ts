@@ -1,7 +1,4 @@
-import {
-  rankBrowserSemanticMatch,
-  type BrowserSemanticMatchField,
-} from './semantic-query';
+import { rankBrowserSemanticMatch, type BrowserSemanticMatchField } from './semantic-query';
 
 export interface BrowserSnapshotElement {
   ref: string;
@@ -32,6 +29,8 @@ export interface BrowserSnapshotPayload {
   crossOriginFrames: number;
   headings: string[];
   text: string;
+  /** The page holds more text than this excerpt carries. */
+  textClipped?: boolean;
   query: string;
   /** Interactive elements on the page before the query filter, so a filter
    *  that matched nothing can say what it was filtering. */
@@ -85,6 +84,8 @@ export interface AccessibilityPageInfo {
   viewportHeight: number;
   viewportWidth: number;
   text: string;
+  /** The body holds more text than this excerpt carries. */
+  textClipped?: boolean;
 }
 
 export interface AccessibilitySnapshotRef {
@@ -94,17 +95,44 @@ export interface AccessibilitySnapshotRef {
 }
 
 const INTERACTIVE_ROLES = new Set([
-  'button', 'link', 'tab', 'checkbox', 'radio', 'combobox', 'listbox',
-  'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'searchbox',
-  'slider', 'spinbutton', 'switch', 'textbox', 'treeitem',
+  'button',
+  'link',
+  'tab',
+  'checkbox',
+  'radio',
+  'combobox',
+  'listbox',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'searchbox',
+  'slider',
+  'spinbutton',
+  'switch',
+  'textbox',
+  'treeitem',
 ]);
 
 const NON_ACTIONABLE_FOCUSABLE_ROLES = new Set([
-  'rootwebarea', 'webarea', 'document', 'generic', 'group', 'main', 'navigation',
+  'rootwebarea',
+  'webarea',
+  'document',
+  'generic',
+  'group',
+  'main',
+  'navigation',
 ]);
 
 const CROSS_FRAME_TEXT_ROLES = new Set([
-  'statictext', 'paragraph', 'heading', 'listitem', 'cell', 'rowheader', 'columnheader', 'note',
+  'statictext',
+  'paragraph',
+  'heading',
+  'listitem',
+  'cell',
+  'rowheader',
+  'columnheader',
+  'note',
 ]);
 const MAX_ACCESSIBILITY_SCAN = 20_000;
 
@@ -157,7 +185,7 @@ export function buildAccessibilitySnapshot(options: {
   }> = [];
   let scanned = 0;
 
-  targetLoop: for (const target of options.targets) {
+  for (const target of options.targets) {
     if (target.error) warnings.push(`Accessibility target unavailable: ${target.error.slice(0, 500)}`);
     if (target.layoutError) {
       warnings.push(`Layout metadata unavailable: ${target.layoutError.slice(0, 500)}`);
@@ -170,38 +198,55 @@ export function buildAccessibilitySnapshot(options: {
     for (const node of nodes) {
       scanned += 1;
       if (node.ignored) continue;
-      const role = String(node.role?.value || '').trim().toLowerCase();
-      const name = String(node.name?.value || '').slice(0, 640)
-        .replace(/\s+/g, ' ').trim().slice(0, 160);
+      const role = String(node.role?.value || '')
+        .trim()
+        .toLowerCase();
+      const name = String(node.name?.value || '')
+        .slice(0, 640)
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 160);
       if (role === 'heading' && name && headings.length < 30) headings.push(`heading ${name}`);
-      if ((target.sessionId || target.frameId)
-        && CROSS_FRAME_TEXT_ROLES.has(role)
-        && name
-        && !seenCrossFrameText.has(name)
-        && crossFrameTextChars < options.textChars * 2) {
+      if (
+        (target.sessionId || target.frameId) &&
+        CROSS_FRAME_TEXT_ROLES.has(role) &&
+        name &&
+        !seenCrossFrameText.has(name) &&
+        crossFrameTextChars < options.textChars * 2
+      ) {
         seenCrossFrameText.add(name);
         crossFrameText.push(name);
         crossFrameTextChars += name.length;
       }
       const backendNodeId = Number(node.backendDOMNodeId);
       const focusable = axProperty(node, 'focusable') === true;
-      const actionable = INTERACTIVE_ROLES.has(role)
-        || (focusable && !NON_ACTIONABLE_FOCUSABLE_ROLES.has(role));
+      const actionable = INTERACTIVE_ROLES.has(role) || (focusable && !NON_ACTIONABLE_FOCUSABLE_ROLES.has(role));
       if (!Number.isFinite(backendNodeId) || !actionable) continue;
       const sensitive = axProperty(node, 'protected') === true;
       const value = sensitive
         ? ''
-        : String(node.value?.value ?? '').slice(0, 480)
-          .replace(/\s+/g, ' ').trim().slice(0, 120);
+        : String(node.value?.value ?? '')
+            .slice(0, 480)
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 120);
       const href = String(axProperty(node, 'url') || '').slice(0, 240);
       const states: string[] = [];
-      for (const property of ['disabled', 'checked', 'selected', 'expanded', 'pressed', 'required', 'readonly', 'focused']) {
+      for (const property of [
+        'disabled',
+        'checked',
+        'selected',
+        'expanded',
+        'pressed',
+        'required',
+        'readonly',
+        'focused',
+      ]) {
         const state = axProperty(node, property);
         if (state === true) states.push(property);
         else if (state === false && property === 'checked') states.push('unchecked');
         else if (state !== undefined && state !== false && state !== '') {
-          const compactState = String(state).slice(0, 320)
-            .replace(/\s+/g, ' ').trim().slice(0, 80);
+          const compactState = String(state).slice(0, 320).replace(/\s+/g, ' ').trim().slice(0, 80);
           states.push(`${property}=${compactState}`);
         }
       }
@@ -209,12 +254,13 @@ export function buildAccessibilitySnapshot(options: {
       unfilteredElements += 1;
       const box = target.bounds.get(backendNodeId);
       const inViewport = box
-        ? box[0] + box[2] > 0
-          && box[1] + box[3] > (target.sessionId || target.frameId ? 0 : options.pageInfo.scrollY)
-          && box[0] < options.pageInfo.viewportWidth
-          && box[1] < (target.sessionId || target.frameId
-            ? options.pageInfo.viewportHeight
-            : options.pageInfo.scrollY + options.pageInfo.viewportHeight)
+        ? box[0] + box[2] > 0 &&
+          box[1] + box[3] > (target.sessionId || target.frameId ? 0 : options.pageInfo.scrollY) &&
+          box[0] < options.pageInfo.viewportWidth &&
+          box[1] <
+            (target.sessionId || target.frameId
+              ? options.pageInfo.viewportHeight
+              : options.pageInfo.scrollY + options.pageInfo.viewportHeight)
         : undefined;
       const match = rankBrowserSemanticMatch(query, { role, name, value, href });
       if (query && !match) continue;
@@ -235,13 +281,14 @@ export function buildAccessibilitySnapshot(options: {
         matchScore: match?.score || 0,
       });
     }
-    if (scanned >= MAX_ACCESSIBILITY_SCAN) break targetLoop;
+    if (scanned >= MAX_ACCESSIBILITY_SCAN) break;
   }
 
   candidates.sort(
-    (left, right) => right.matchScore - left.matchScore
-      || Number(right.inViewport === true) - Number(left.inViewport === true)
-      || left.order - right.order,
+    (left, right) =>
+      right.matchScore - left.matchScore ||
+      Number(right.inViewport === true) - Number(left.inViewport === true) ||
+      left.order - right.order
   );
   const selected = candidates.slice(0, options.maxElements);
   const refs: AccessibilitySnapshotRef[] = [];
@@ -277,6 +324,7 @@ export function buildAccessibilitySnapshot(options: {
       snapshotId: options.snapshotId,
       url: options.pageInfo.url,
       title: options.pageInfo.title,
+      textClipped: options.pageInfo.textClipped === true,
       scrollY: options.pageInfo.scrollY,
       scrollHeight: options.pageInfo.scrollHeight,
       viewportWidth: options.pageInfo.viewportWidth,
@@ -284,8 +332,9 @@ export function buildAccessibilitySnapshot(options: {
       elements,
       totalElements: candidates.length,
       scanned,
-      scanCapped: options.targets.some((target) => target.nodes.length > 0)
-        && options.targets.reduce((total, target) => total + target.nodes.length, 0) > scanned,
+      scanCapped:
+        options.targets.some((target) => target.nodes.length > 0) &&
+        options.targets.reduce((total, target) => total + target.nodes.length, 0) > scanned,
       crossOriginFrames: Math.max(0, options.targets.filter((target) => target.sessionId).length),
       headings,
       text,

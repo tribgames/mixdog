@@ -25,6 +25,10 @@ const SKIP = [
   '.dock-pr-row-label b',
   '.dock-scm-commit-info',
   '.queue-item-text',
+  // Context inspector lists raw prompt section headings, tool schemas and
+  // message previews: these are user/model content and must not be translated.
+  '.context-entry-list',
+  '.context-entry-preview',
 ].join(',');
 
 function translatedText(value: string): string {

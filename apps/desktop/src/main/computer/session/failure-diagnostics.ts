@@ -43,7 +43,6 @@ export function diagnosticRecord(input: Record<string, unknown>): Record<string,
       'focus_restored',
       'focus_unchanged',
       'input_not_dispatched',
-      'cursor_preserved',
       'cursor_restored',
       'reasserted',
     ]

@@ -60,3 +60,18 @@ test('an unobserved document cannot satisfy text absence, while URL-only checks 
   );
   assert.equal(browserPostconditionMatches({ text: 'SAVED', textGone: 'LOADING' }, { text: 'Saved', url: '' }), true);
 });
+
+test('a text condition reads a phrase through page spacing, but never across separate lines', () => {
+  assert.equal(
+    browserPostconditionMatches(
+      { text: 'Order placed successfully' },
+      { text: 'Order placed\u00a0  successfully', url: '' }
+    ),
+    true
+  );
+  assert.equal(
+    browserPostconditionMatches({ text: 'Role designer' }, { text: 'Preferred role\nDesigner', url: '' }),
+    false
+  );
+  assert.equal(browserPostconditionMatches({ textGone: 'Still  saving' }, { text: 'Still saving', url: '' }), false);
+});

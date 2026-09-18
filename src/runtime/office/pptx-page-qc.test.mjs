@@ -269,6 +269,10 @@ test('an edit outside the page, a grown defect count, or an unreadable deck is r
     failed.pages.map((entry) => [entry.reason, entry.kept, entry.edited]),
     [['execution_failed', true, false]]
   );
+  // A page the run never reviewed is not a page that passed: the report says so,
+  // and the command exits on it.
+  assert.equal(failed.ok, false);
+  assert.equal(failed.failed, 1);
   assert.match(failed.pages[0].errors[0], /provider unavailable/);
   assert.equal(await sha256(deck), pristine);
 });

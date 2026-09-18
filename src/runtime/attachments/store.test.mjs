@@ -137,7 +137,24 @@ test('OpenAI image profile respects the 2048px and 1536-patch budget', async () 
     .toBuffer();
   const anthropic = await resizeImageBuffer(source, 'png', { profile: 'anthropic' });
   const openai = await resizeImageBuffer(source, 'png', { profile: 'openai' });
-  assert.equal(anthropic.dimensions.displayWidth, 1600);
+  // Each profile answers to its own vision billing: Anthropic tiles 28px
+  // patches under a 1568-patch budget with a 1568px edge ceiling, OpenAI tiles
+  // 32px patches under 1536. Both keep the picture's shape.
+  const anthropicPatches =
+    Math.ceil(anthropic.dimensions.displayWidth / 28) * Math.ceil(anthropic.dimensions.displayHeight / 28);
+  assert.ok(anthropicPatches <= 1568, `anthropic spent ${anthropicPatches} patches`);
+  assert.ok(anthropic.dimensions.displayWidth <= 1568 && anthropic.dimensions.displayHeight <= 1568);
+  assert.equal(
+    (anthropic.dimensions.displayWidth / anthropic.dimensions.displayHeight).toFixed(2),
+    (1600 / 1200).toFixed(2)
+  );
+  // The reported size is what the caller maps coordinates through, so it has
+  // to be the size of the image that was actually produced.
+  for (const rendition of [anthropic, openai]) {
+    const rendered = await sharp(Buffer.from(rendition.data, 'base64')).metadata();
+    assert.equal(rendered.width, rendition.dimensions.displayWidth);
+    assert.equal(rendered.height, rendition.dimensions.displayHeight);
+  }
   assert.ok(openAIImagePatchCount(openai.dimensions.displayWidth, openai.dimensions.displayHeight) <= 1536);
 });
 

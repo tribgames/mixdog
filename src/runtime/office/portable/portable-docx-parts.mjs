@@ -17,6 +17,7 @@ import {
   TRAILING_SECTION_PATTERN,
   XML_HEADER,
   settingsTrackChanges,
+  upsertOrderedChild,
   xmlEncode,
 } from './portable-xml.mjs';
 
@@ -379,6 +380,10 @@ export async function writeHeaderFooterPart(zip, { header, body, documentXml = '
   const prefix = header ? 'header' : 'footer';
   const document = (content) =>
     `${XML_HEADER}<w:${tag} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">${content}</w:${tag}>`;
+  // `body` may be a function. It receives the story already in the package
+  // (empty for a new part) and returns what to write, so an operation can add
+  // to a header or footer the author wrote instead of erasing their words.
+  const compose = typeof body === 'function' ? body : () => body;
   // A story this section already references is rewritten where it lives.
   // Writing a new part for every call left the previous one orphaned in the
   // package while the section pointed at whichever was written last.
@@ -397,14 +402,16 @@ export async function writeHeaderFooterPart(zip, { header, body, documentXml = '
     const path = target ? /\bTarget="([^"]+)"/.exec(target)?.[1] || '' : '';
     const existing = path ? `word/${path.replace(/^\.?\//, '')}` : '';
     if (existing && zip.file(existing)) {
-      zip.file(existing, document(body));
+      const story = await zipText(zip, existing);
+      const inner = new RegExp(`<w:${tag}\\b[^>]*>([\\s\\S]*)</w:${tag}>`).exec(story)?.[1] ?? '';
+      zip.file(existing, document(compose(inner)));
       return { part: existing, relationshipId: referencedId, replaced: true };
     }
   }
   let ordinal = 1;
   while (zip.file(`word/${prefix}${ordinal}.xml`)) ordinal += 1;
   const part = `word/${prefix}${ordinal}.xml`;
-  zip.file(part, document(body));
+  zip.file(part, document(compose('')));
   await ensureContentTypeOverride(zip, `/${part}`, header ? HEADER_CONTENT_TYPE : FOOTER_CONTENT_TYPE);
   const relationshipId = await addPackageRelationship(
     zip,
@@ -413,6 +420,28 @@ export async function writeHeaderFooterPart(zip, { header, body, documentXml = '
     `${prefix}${ordinal}.xml`
   );
   return { part, relationshipId };
+}
+
+// A TOC field carries the entries we cached, and Word draws exactly those until
+// something asks it to rebuild the field: the recipient opened a table of
+// contents that was three lines of plain text with no leaders and no page
+// numbers. `updateFields` is the package asking for that rebuild on open, which
+// is when Word writes the real thing (verified against Word, 2026-09-18).
+export async function ensureDocxUpdateFields(zip) {
+  const part = 'word/settings.xml';
+  let settings = await zipText(zip, part);
+  if (!settings) {
+    settings = `${XML_HEADER}<w:settings xmlns:w="${WORD_MAIN_NS}"></w:settings>`;
+    await ensureContentTypeOverride(zip, `/${part}`, SETTINGS_CONTENT_TYPE);
+    await addPackageRelationship(
+      zip,
+      partRelationshipPath('word/document.xml'),
+      `${OFFICE_RELATIONSHIP_BASE}/settings`,
+      'settings.xml'
+    );
+  }
+  zip.file(part, upsertOrderedChild(settings, SETTINGS_ORDER, 'w:updateFields', '<w:updateFields w:val="true"/>'));
+  return { part };
 }
 
 export function upsertSectionReference(sectionXml, tag, kind, relationshipId) {
@@ -450,6 +479,7 @@ export const SETTINGS_ORDER = Object.freeze([
   'w:defaultTabStop',
   'w:autoHyphenation',
   'w:characterSpacingControl',
+  'w:updateFields',
   'w:compat',
   'w:rsids',
   'w:themeFontLang',

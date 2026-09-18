@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import sharp from 'sharp';
 import { describeOfficeCapabilities } from './capabilities.mjs';
 import { expandOfficeDesignOperations } from './design/design-system.mjs';
 import { executeOfficeTool } from './index.mjs';
@@ -320,6 +321,24 @@ test('portable charts write a chart part with an embedded workbook', async (t) =
   assert.equal(packaged.has('ppt/embeddings/chartData1.xlsx'), true);
   const slide = await packaged.text('ppt/slides/slide1.xml');
   assert.match(slide, /<p:graphicFrame>/);
+
+  // A chart frame holds only a relationship to its part, and the slide read alone
+  // said a chart was there and nothing about what it draws: every review that asks
+  // what the chart carries — its series, its legend, its labels — read an empty
+  // object on a portable deck.
+  const read = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  const frame = read.document.slides[0].shapes.find((shape) => shape.chart);
+  assert.equal(frame.chart.part, 'ppt/charts/chart1.xml');
+  assert.equal(frame.chart.chartType, 'column');
+  assert.equal(frame.chart.title, 'Revenue');
+  assert.equal(frame.chart.seriesCount, 1);
+  assert.deepEqual(
+    frame.chart.series.map((entry) => entry.name),
+    ['2026']
+  );
+  // What tells one series from another: a legend, or labels carrying the name.
+  assert.equal(frame.chart.legend, false, 'one series needs no legend');
+  assert.equal(frame.chart.seriesNamesShown, false);
 
   const updated = value(
     await executeOfficeTool(
@@ -2399,7 +2418,7 @@ test('portable workbook flags percentages stored as whole numbers', async (t) =>
   );
   assert.equal(created.batch.results.length, 2);
   const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
-  const scaled = (issues.issues || []).filter((entry) => entry.code === 'percent_stored_as_whole');
+  const scaled = (issues.issues || []).filter((entry) => entry.code === 'percentage_stored_as_whole');
   assert.equal(scaled.length, 1, 'only the whole-number percentage is reported');
   assert.match(scaled[0].path, /cell\[B2\]$/);
 });
@@ -3032,6 +3051,89 @@ test('portable slides flag stretched images but pass proportional ones', async (
   assert.equal(outcomes[3].length, 0, 'cover crops the image without stretching');
 });
 
+test('portable slides report a picture enlarged past its own pixels', async (t) => {
+  const cwd = await workspace(t);
+  const square = async (pixels, name) => {
+    const path = join(cwd, name);
+    await writeFile(
+      path,
+      await sharp({ create: { width: pixels, height: pixels, channels: 3, background: '#4472C4' } })
+        .png()
+        .toBuffer()
+    );
+    return path;
+  };
+  const outcomes = [];
+  for (const [label, pixels] of [
+    ['thumbnail', 16],
+    ['full', 480],
+  ]) {
+    const created = value(
+      await executeOfficeTool(
+        {
+          action: 'create',
+          path: join(cwd, `${label}.pptx`),
+          mode: 'portable',
+          operations: [
+            { op: 'add_slide' },
+            {
+              op: 'add_image',
+              slide: 1,
+              path: await square(pixels, `${label}.png`),
+              left: 40,
+              top: 40,
+              width: 240,
+              height: 240,
+              altText: 'A blue square',
+            },
+          ],
+        },
+        { cwd }
+      )
+    );
+    const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+    outcomes.push((issues.issues || []).filter((issue) => issue.code === 'image_low_resolution'));
+  }
+  assert.equal(outcomes[0].length, 1, JSON.stringify(outcomes[0]));
+  assert.equal(outcomes[0][0].severity, 'warning');
+  assert.equal(outcomes[0][0].path, '/slide[1]/picture[1]');
+  assert.match(outcomes[0][0].message, /16x16 px .* 3\.3x3\.3 in frame/);
+  assert.deepEqual(outcomes[1], [], 'a picture with pixels for its frame stays clean');
+});
+
+// A deck shipped an icon whose PNG was 126 bytes of nothing: the circle behind
+// it drew, the caption under it read, and the icon never arrived.
+test('a picture whose raster draws nothing is reported as a blank image', async (t) => {
+  const cwd = await workspace(t);
+  const blank = join(cwd, 'blank.png');
+  await writeFile(
+    blank,
+    await sharp({ create: { width: 64, height: 64, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .png()
+      .toBuffer()
+  );
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'blank-icon.pptx'),
+        mode: 'portable',
+        operations: [
+          { op: 'add_slide' },
+          { op: 'add_image', slide: 1, path: blank, left: 40, top: 40, width: 36, height: 36, altText: 'An icon' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const reported = (
+    value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || []
+  ).filter((issue) => issue.code === 'blank_image');
+  assert.equal(reported.length, 1, JSON.stringify(reported));
+  assert.equal(reported[0].severity, 'error');
+  assert.equal(reported[0].path, '/slide[1]/picture[1]');
+});
+
 test('portable slides number shapes the same way for snapshot and set_text', async (t) => {
   const cwd = await workspace(t);
   const created = value(
@@ -3344,7 +3446,7 @@ test('portable workbook audits see cells that follow a style-only cell', async (
   );
   const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
   const codes = new Map((issues.issues || []).map((issue) => [issue.code, issue.path]));
-  assert.equal(codes.get('percent_stored_as_whole'), '/sheet[Sheet1]/cell[A4]');
+  assert.equal(codes.get('percentage_stored_as_whole'), '/sheet[Sheet1]/cell[A4]');
   assert.equal(codes.get('column_too_narrow'), '/sheet[Sheet1]/cell[B4]');
   assert.equal(codes.get('formula_inconsistency'), '/sheet[Sheet1]/cell[D6]');
 });

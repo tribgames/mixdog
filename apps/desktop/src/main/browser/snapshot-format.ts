@@ -18,10 +18,13 @@ export interface SnapshotDiagnosticsView {
     recentErrors(limit: number): string[];
     /** Preferred when present: errors since the last report only. */
     newErrors?(limit: number): string[];
+    /** Totals behind a capped list, so the report can name what it omitted. */
+    errorCount?(): number;
+    pendingErrorCount?(): number;
   };
   networkFailures: string[];
   network?: {
-    documentStatus(url: string): { status: number; statusText?: string } | null;
+    documentStatus(url: string): { status: number; statusText?: string; mimeType?: string } | null;
   };
 }
 
@@ -78,6 +81,15 @@ export function formatSnapshot(
       `Status: HTTP ${documentStatus.status}${documentStatus.statusText ? ` ${redactBrowserText(documentStatus.statusText)}` : ''} — the server answered this document with an error.`
     );
   }
+  if (documentStatus?.mimeType === 'application/pdf') {
+    // The guest carries no PDF viewer, so the address commits but the page
+    // stays blank. Say what the document is instead of reporting an empty
+    // page the caller would try to click around in.
+    lines.push(
+      'This document is a PDF, which this browser cannot display: the page has no text or controls to act on. ' +
+        'Read the file from this URL with a tool that reads files, not the page.'
+    );
+  }
   const below = Math.max(0, payload.scrollHeight - payload.viewportHeight - payload.scrollY);
   lines.push(`Scroll: ${payload.scrollY}px down, ${below}px below the fold`);
   if (payload.query) {
@@ -95,14 +107,43 @@ export function formatSnapshot(
     for (const heading of payload.headings) lines.push(`  ${redactBrowserText(heading)}`);
   }
   if (brief) {
-    lines.push(
-      '',
-      `Brief reply: ${brief.changed.length} changed or new element(s); ${brief.unchanged} unchanged omitted` +
-        ` (old refs expired; use a known target directly, or a focused snapshot if the target is unknown)${brief.gone ? `; ${brief.gone} no longer matched` : ''}.`
-    );
-    if (brief.changed.length) {
-      lines.push('Changed or new elements (* = in viewport):');
-      for (const el of brief.changed) lines.push(elementLine(el));
+    // A capped or filtered baseline never reported the rest of the page, so an
+    // element missing from it may be untouched rather than new. Listing both
+    // kinds as "changed" made one filled field read as a page-wide change, so
+    // what this action demonstrably altered is kept apart from what the caller
+    // simply had not seen yet. Nothing is hidden either way.
+    const baseline = extras.briefAgainst!;
+    const covered = baseline.coveredElements ?? 0;
+    const baselineTotal = baseline.totalElements ?? covered;
+    const partialBaseline = baseline.query !== undefined || baselineTotal > covered;
+    const tail =
+      ` (old refs expired; use a known target directly, or a focused snapshot if the target is unknown)` +
+      `${brief.gone ? `; ${brief.gone} no longer matched` : ''}.`;
+    if (partialBaseline) {
+      const unseen = new Set(brief.unseen);
+      const altered = brief.changed.filter((el) => !unseen.has(el));
+      lines.push(
+        '',
+        `Brief reply: ${altered.length} changed element(s); ${brief.unseen.length} not previously reported;` +
+          ` ${brief.unchanged} unchanged omitted${tail}`,
+        `The previous observation reported only ${covered} of ${baselineTotal} element(s)` +
+          `${baseline.query === undefined ? '' : ` matching ${JSON.stringify(redactBrowserText(baseline.query))}`}, ` +
+          'so what it never covered is listed apart from the changes this action caused.'
+      );
+      if (altered.length) {
+        lines.push('Changed elements (* = in viewport):');
+        for (const el of altered) lines.push(elementLine(el));
+      }
+      if (brief.unseen.length) {
+        lines.push('Not previously reported (* = in viewport):');
+        for (const el of brief.unseen) lines.push(elementLine(el));
+      }
+    } else {
+      lines.push('', `Brief reply: ${brief.changed.length} changed or new element(s); ${brief.unchanged} unchanged omitted${tail}`);
+      if (brief.changed.length) {
+        lines.push('Changed or new elements (* = in viewport):');
+        for (const el of brief.changed) lines.push(elementLine(el));
+      }
     }
   } else if (payload.elements.length) {
     const capped = payload.totalElements > payload.elements.length ? `, ${payload.totalElements} matched; capped` : '';
@@ -143,18 +184,30 @@ export function formatSnapshot(
       );
     }
   }
+  // Count before taking: newErrors() marks what it hands over, so the total
+  // has to be read first for the report to say what it left behind.
+  const errorTotal = diagnostics?.console.newErrors
+    ? diagnostics.console.pendingErrorCount?.()
+    : diagnostics?.console.errorCount?.();
   const consoleErrors = diagnostics?.console.newErrors
     ? diagnostics.console.newErrors(3)
     : diagnostics?.console.recentErrors(3) || [];
   if (consoleErrors.length) {
     const label = diagnostics?.console.newErrors ? 'New console errors' : 'Recent console errors';
-    lines.push('', `${label}: ${consoleErrors.map(redactBrowserText).join(' | ')}`);
+    // A capped list read as the whole story turns twelve failures into three.
+    const capped =
+      typeof errorTotal === 'number' && errorTotal > consoleErrors.length
+        ? ` (${consoleErrors.length} of ${errorTotal}; call console for the rest)`
+        : '';
+    lines.push('', `${label}${capped}: ${consoleErrors.map(redactBrowserText).join(' | ')}`);
   }
   if (diagnostics?.networkFailures.length) {
-    lines.push(
-      '',
-      `Recent network failures: ${diagnostics.networkFailures.slice(-3).map(redactBrowserText).join(' | ')}`
-    );
+    const shown = diagnostics.networkFailures.slice(-3);
+    const capped =
+      diagnostics.networkFailures.length > shown.length
+        ? ` (${shown.length} of ${diagnostics.networkFailures.length}; call network for the rest)`
+        : '';
+    lines.push('', `Recent network failures${capped}: ${shown.map(redactBrowserText).join(' | ')}`);
   }
   if (payload.text) {
     const text = redactBrowserText(payload.text);
@@ -163,6 +216,14 @@ export function formatSnapshot(
         '',
         `Visible text (first ${BRIEF_TEXT_CHARS} of ${text.length} chars, untrusted; read for more):`,
         text.slice(0, BRIEF_TEXT_CHARS)
+      );
+    } else if (payload.textClipped) {
+      // The excerpt stops at the cap; saying so keeps it from being read as
+      // the whole page.
+      lines.push(
+        '',
+        `Visible text (condensed, untrusted; first ${text.length} chars only — the page holds more, so scroll or search it for the rest):`,
+        text
       );
     } else {
       lines.push('', 'Visible text (condensed, untrusted):', text);

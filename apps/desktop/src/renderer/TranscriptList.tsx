@@ -22,6 +22,7 @@ import { scheduleConnectedMeasure, TRANSCRIPT_ROW_MEASURE_EVENT } from './transc
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 import { isMobileRemoteSurface } from './mobile-surface';
 import { createTranscriptEndPin } from './transcript-end-pin';
+import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 import {
   attachTranscriptSelectionDrag,
   type TranscriptSelectionEndpoint,
@@ -58,7 +59,20 @@ function logicalScrollOffset(instance: Virtualizer<HTMLDivElement, HTMLDivElemen
   return (instance.scrollOffset ?? 0) + adjustments;
 }
 
-/** Native reader motion is the only scroll authority until it becomes idle. */
+/** Native reader motion is the only scroll authority until it becomes idle.
+ *
+ *  Ownership means READER ownership, never "the core happens to be moving".
+ *  The core sets isScrolling for its OWN corrective writes too, and those can
+ *  carry a backward direction with nobody touching the transcript, so deferring
+ *  on that flag withheld compensation from an idle reader: rows above the
+ *  viewport grew uncompensated, their deltas queued, and the flush then landed
+ *  the whole batch in one step — the desktop transcript bounced while no one
+ *  was scrolling (user: 가만히 있는데 위아래로 투둑 튄다).
+ *
+ *  An Android fling that outlives the gesture window is held by the touch latch
+ *  in use-transcript-follow (touchScrollLatchOpen). That IS reader ownership and
+ *  already arrives through this argument, so no core-direction probe is needed
+ *  for the "items jump while scrolling up" shake it was added for. */
 export function shouldDeferTranscriptScrollAdjustment(hasReaderGesture: boolean): boolean {
   return hasReaderGesture;
 }
@@ -230,7 +244,21 @@ export function TranscriptList({
         return;
       }
       if (spacer.current) spacer.current.style.height = `${instance.getTotalSize()}px`;
+      // Reading scrollTop right after the spacer write — and again after the
+      // core write — forces a synchronous layout of the whole virtual list on
+      // every programmatic scroll. Resolve those reads only when diagnostics
+      // are on, so the probe keeps its "free while off" contract.
+      const diagnose = transcriptScrollDiagnosticsEnabled();
+      const beforeCoreWrite = diagnose ? (viewport.current?.scrollTop ?? 0) : 0;
       elementScroll(offset, options, instance);
+      if (diagnose) {
+        logTranscriptScroll('core-scroll', {
+          offset,
+          adjust: options?.adjustments ?? 0,
+          from: beforeCoreWrite,
+          to: viewport.current?.scrollTop ?? 0,
+        });
+      }
       // Report the offset that actually landed (and the requested one, which a
       // smooth write only reaches later) so the follow hook can tell this
       // write apart from a reader scroll.
@@ -331,6 +359,16 @@ export function TranscriptList({
       }
       pendingResizes.current.delete(measured?.key ?? index);
       const previous = measured ? (virtualizer.itemSizeCache.get(measured.key) ?? measured.size) : undefined;
+      if (transcriptScrollDiagnosticsEnabled() && previous !== undefined && Math.abs(size - previous) >= 4) {
+        logTranscriptScroll('row-resize', {
+          index,
+          prev: previous,
+          next: size,
+          delta: size - previous,
+          above: measured ? measured.end <= logicalScrollOffset(virtualizer) : false,
+          top: element ? element.scrollTop : -1,
+        });
+      }
       if (element && previous !== undefined && Math.abs(size - previous) > element.clientHeight) {
         const view = element.getBoundingClientRect();
         resizePinned.current = [...element.querySelectorAll<HTMLElement>('.transcript-virtual-row')]

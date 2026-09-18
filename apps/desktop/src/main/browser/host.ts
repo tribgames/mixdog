@@ -25,6 +25,7 @@ import {
   DESKTOP_IPC,
   type DesktopBrowserViewportConfig,
   type DesktopBrowserPageFrame,
+  type DesktopBrowserPageResample,
   type DesktopBrowserPageControl,
   type DesktopRemoteBrowserControl,
   type DesktopRemoteBrowserFrame,
@@ -80,6 +81,7 @@ import { BROWSER_INPUT_WAIT_MS, browserInputImmediate, browserTypingInput } from
 import { createBrowserDisplayCapture } from './display-capture';
 import { createBrowserDisplayTextures } from './display-textures';
 import { createBrowserPartition } from './partition';
+import type { BrowserDataClearResult, BrowserDataScope } from './browsing-data';
 import { createBrowserPerformanceCommands } from './performance';
 import { normalizeBrowserPostcondition, normalizeBrowserSettleMs } from './postcondition';
 import {
@@ -104,6 +106,7 @@ import { createBrowserSnapshotCapture } from './snapshot-capture';
 import { createBrowserTabs } from './tabs';
 import { createBrowserTargetResolver } from './target-resolve';
 import { createBrowserUrlAdmission } from './url-admission';
+import { browserPageGuardScripts } from './webrtc-guard';
 import type { BrowserUrlPolicy } from './url-policy';
 import { createBrowserInputDispatch } from './input-dispatch';
 
@@ -114,7 +117,11 @@ export type {
 } from './command';
 
 export interface BrowserHost {
-  browserPageFrame(sessionId: string, previousFrameId?: string, texture?: boolean): Promise<DesktopBrowserPageFrame>;
+  browserPageFrame(
+    sessionId: string,
+    previousFrameId?: string,
+    texture?: boolean
+  ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample>;
   browserPageControl(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
   /** Opt-in agent bridge: on serves the runtime's `browser` tool, off tears
    *  it down (server, discovery file, agent offscreen pages). The browser
@@ -126,6 +133,7 @@ export interface BrowserHost {
   browserImportSources(): Promise<BrowserImportSource[]>;
   browserImport(request: BrowserImportRequest): Promise<BrowserImportResult>;
   browserHistorySearch(query: string): Promise<BrowserHistoryEntry[]>;
+  browserClearData(scopes: readonly BrowserDataScope[]): Promise<BrowserDataClearResult>;
   browserCredentialSuggestions(sessionId: string): Promise<BrowserCredentialSuggestion[]>;
   browserCredentialFill(sessionId: string, credentialId: string): Promise<BrowserCredentialFillResult>;
   remoteBrowserFrame(sessionId: string, previousFrameId?: string): Promise<DesktopRemoteBrowserFrame>;
@@ -214,6 +222,7 @@ export function createBrowserHost(
     state,
     interceptFetchPatterns: intercept.interceptFetchPatterns,
     matchInterceptRule: intercept.matchInterceptRule,
+    pageGuardScripts: () => browserPageGuardScripts(browserUrlPolicy),
   });
   const diagnosticsFor = (guest: WebContents) => state.for(guest);
   const documents = createBrowserDocuments({
@@ -278,7 +287,18 @@ export function createBrowserHost(
     frames: (guest) => state.for(guest).cdpSessions,
     frameOffset: (guest, sessionId, signal) => snapshots.frameOffsetForSession(guest, sessionId, signal),
   });
-  const input = createBrowserInputDriver(dispatchInput);
+  const input = createBrowserInputDriver(dispatchInput, {
+    drags: {
+      reset: (guest) => {
+        state.for(guest).interceptedDrag = undefined;
+      },
+      take: (guest) => {
+        const pending = state.peek(guest)?.interceptedDrag;
+        if (pending) state.for(guest).interceptedDrag = undefined;
+        return pending ?? null;
+      },
+    },
+  });
   const screenshots = createBrowserScreenshotService(cdp, SCREENSHOT_TIMEOUT_MS, SCREENSHOT_FALLBACK_TIMEOUT_MS);
   const snapshots = createBrowserSnapshotCapture({
     evaluate: cdp.evaluate,
@@ -322,6 +342,7 @@ export function createBrowserHost(
     accessibilityRefs: (guest) => state.peek(guest)?.accessibilityRefs,
     callAccessibilityRef: snapshots.callAccessibilityRef,
     evaluate: cdp.evaluate,
+    evaluateInFrames: documents.collect,
     cdp,
     resolveRefPoint: refPoints.resolveRefPoint,
     input,
@@ -355,6 +376,13 @@ export function createBrowserHost(
     pause,
     traceDirectory: () => join(app.getPath('userData'), 'browser-traces'),
     redactText: (guest, value) => state.redactText(guest, value),
+    processMemoryMb: (guest) => {
+      if (guest.isDestroyed()) return undefined;
+      const pid = guest.getOSProcessId();
+      const metrics = app.getAppMetrics().find((entry) => entry.pid === pid);
+      const workingSetKb = metrics?.memory?.workingSetSize;
+      return Number.isFinite(Number(workingSetKb)) ? Number(workingSetKb) / 1024 : undefined;
+    },
   });
   const initScripts = createBrowserInitScripts({ cdp });
   const emulation = createBrowserEmulation({
@@ -829,6 +857,13 @@ export function createBrowserHost(
               orientation: config.width! > config.height! ? 'landscape' : 'portrait',
             }
           : {}),
+      });
+    },
+    browserClearData(scopes: readonly BrowserDataScope[]): Promise<BrowserDataClearResult> {
+      return partition.clearBrowsingData(scopes, {
+        // Session sign-ins are carried across restarts by this store; leaving
+        // its file untouched would restore what the user just cleared.
+        persistCookieState: () => sessionStore.save().then(() => undefined),
       });
     },
     async browserImportSources(): Promise<BrowserImportSource[]> {

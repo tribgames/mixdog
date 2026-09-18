@@ -1248,6 +1248,7 @@ export function createRunTurn(bag) {
             status: turnStatus,
             outputTokens: finalOutputTokens,
             thinkingElapsedMs,
+            toolCount: toolCards.length,
             verb: completionVerb,
             at: Date.now(),
             ...(turnFailureDetail ? { detail: turnFailureDetail } : {}),

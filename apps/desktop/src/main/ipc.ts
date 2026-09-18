@@ -139,6 +139,7 @@ interface DesktopIpcDependencies {
     | 'configureGuestViewport'
     | 'browserCredentialSuggestions'
     | 'browserCredentialFill'
+    | 'browserClearData'
     | 'browserPageFrame'
     | 'browserPageControl'
   >;

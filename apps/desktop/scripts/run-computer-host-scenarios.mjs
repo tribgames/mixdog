@@ -15,6 +15,9 @@ const reportPath = resolve(
   argument('output') || join(initialDirectory, 'artifacts', 'computer-use', `scenario-${label}.json`)
 );
 const requirePass = process.argv.includes('--require-pass');
+// Foreground delivery takes the real pointer, so this lane lets the rest of the
+// matrix run while someone is using the machine.
+const skipForeground = process.argv.includes('--skip-foreground');
 const only = argument('only');
 const timeoutMs = Number(argument('timeout-ms')) || 900_000;
 const staging = await mkdtemp(join(tmpdir(), 'mixdog-computer-host-scenarios-'));
@@ -36,6 +39,7 @@ try {
     MIXDOG_COMPUTER_SCENARIO_LABEL: label,
     MIXDOG_COMPUTER_SCENARIO_REPORT_DIR: dirname(reportPath),
     MIXDOG_COMPUTER_SCENARIO_ONLY: only,
+    MIXDOG_COMPUTER_SCENARIO_SKIP_FOREGROUND: skipForeground ? '1' : '',
     MIXDOG_COMPUTER_SCENARIO_PROFILE: profile,
   });
   // --display=primary keeps every fixture on the primary display, so a failure

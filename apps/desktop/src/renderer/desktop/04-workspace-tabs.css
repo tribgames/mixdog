@@ -252,6 +252,17 @@
 .pane-native-drag-image {
   transform: translate(-10000px, -10000px);
 }
+/* A frame drag image is a clone of the dragged row itself. It must leave the
+   list's flow, or the one frame the browser needs to snapshot it would shift
+   the live rows beside it. */
+.pane-drag-frame-image {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  margin: 0;
+  pointer-events: none;
+}
 .workspace-tab::before {
   content: "";
   position: absolute;

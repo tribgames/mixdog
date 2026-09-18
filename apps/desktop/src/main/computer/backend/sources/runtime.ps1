@@ -202,7 +202,7 @@ function Do-Key($req) {
       $refRecord = Get-RefRecord $req.ref
       $target = Get-RefTopHandle $refRecord
       if ($refRecord.Kind -eq 'msaa') {
-        return Background-Unavailable 'key' 'MSAA ref does not expose an exact native keyboard target; use set_value or explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+        return Background-Unavailable 'key' 'MSAA ref does not expose an exact native keyboard target; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
       }
       $preferred = Get-ExactNativeElementHandle $refRecord.Element
       if ($preferred -eq [IntPtr]::Zero) {
@@ -243,6 +243,37 @@ function Do-Key($req) {
   }
 }
 
+# Holding a key past the end of its command needs the real keyboard: a window
+# message cannot leave a key physically down for the next command to build on.
+function Do-KeyHold($req, $direction) {
+  $action = "key_$direction"
+  if ($req.delivery -ne 'foreground') {
+    return Background-Unavailable $action 'a held key requires the real keyboard; use explicit foreground delivery' $null 'background_unsupported'
+  }
+  $keys = [string]$req.keys
+  $target = [IntPtr]::Zero
+  $focusPoint = $null
+  if ($req.ref) {
+    $focusPoint = Get-ElPoint $req.ref $false
+    $target = $focusPoint[2]
+  } elseif ($req.window_id -or $req.window) {
+    $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
+  } else {
+    $target = (Get-CurrentSession).LastFocus
+  }
+  if (-not [MixWin32]::IsWindowHandle($target)) {
+    return New-ActionResult $action 'none' 'suspected_noop' $false "$action requires window_id/window or a prior focus_window in this session" 'target_required' 'foreground' $null
+  }
+  $state = Get-CurrentSession
+  return Invoke-ForegroundInput $target $action {
+    Focus-TypingPoint $req $target $focusPoint
+    [MixWin32]::ReportCurrentPointer('type')
+    [MixTaggedKeys]::Hold($keys, ($direction -eq 'down'))
+    if ($direction -eq 'down') { $state.HeldKeys[$keys] = $true }
+    else { $state.HeldKeys.Remove($keys) }
+  }
+}
+
 function Do-Type($req) {
   $text = if ($null -eq $req.text) { '' } else { [string]$req.text }
   if ($req.delivery -eq 'foreground' -and $text.Length -gt $script:MaximumForegroundTextCharacters) {
@@ -255,12 +286,20 @@ function Do-Type($req) {
     if ($req.ref) {
       $refRecord = Get-RefRecord $req.ref
       $target = Get-RefTopHandle $refRecord
-      if ($refRecord.Kind -eq 'msaa') {
-        return Background-Unavailable 'type' 'MSAA ref does not expose an exact native keyboard target; use set_value or explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
-      }
-      $preferred = Get-ExactNativeElementHandle $refRecord.Element
-      if ($preferred -eq [IntPtr]::Zero) {
-        return Background-Unavailable 'type' 'element has no exact native keyboard target; use set_value or explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+      if ($refRecord.Kind -ne 'msaa') { $preferred = Get-ExactNativeElementHandle $refRecord.Element }
+      # Either there is no exact native keyboard target, or the host drops posted
+      # characters (XAML/WinUI/UWP). The element's own value pattern carries the
+      # text on this same background delivery, so it is a transport choice inside
+      # background rather than an escalation to foreground.
+      if ($preferred -eq [IntPtr]::Zero -or -not (Test-BackgroundKeyboardRoute $target $preferred)) {
+        if (Test-BackgroundValueTarget $refRecord) {
+          $valued = Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $text } 'type'
+          $valued.action = 'type'
+          return $valued
+        }
+        if ($preferred -eq [IntPtr]::Zero) {
+          return Background-Unavailable 'type' 'element exposes no native keyboard target and no settable value; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+        }
       }
     } elseif ($req.window_id -or $req.window) {
       $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
@@ -529,34 +568,154 @@ function Do-CloseWindow($req) {
   return New-ActionResult 'close_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
 }
 
+# Killing a process is the one window action with nothing to undo: unsaved work
+# is gone and no dialog gets to ask. So it is refused unless the caller repeats
+# the intent, and refused again while the window still answers messages, because
+# a responding window can still be closed the ordinary way.
+function Do-TerminateProcess($req) {
+  $info = Resolve-WindowInfo $req.window $req.window_id
+  if ([string]$req.confirm -ne 'terminate') {
+    return New-ActionResult 'terminate_process' 'none' 'suspected_noop' $false "terminating $($info.Id) discards unsaved work; confirm=terminate is required and the user has to agree first" 'confirmation_required' 'background' $info.Id
+  }
+  if ([MixWin32]::IsWindowResponding($info.Handle)) {
+    return New-ActionResult 'terminate_process' 'none' 'suspected_noop' $false "window $($info.Id) still answers messages; close it the ordinary way instead of killing its process" 'window_still_responding' 'background' $info.Id
+  }
+  Assert-ExecutionAuthorization $req $info.Handle
+  $processId = [int]$info.Pid
+  try {
+    $process = [System.Diagnostics.Process]::GetProcessById($processId)
+    $process.Kill()
+    [void]$process.WaitForExit(2000)
+  } catch {
+    return New-ActionResult 'terminate_process' 'win32' 'suspected_noop' $false "could not terminate pid $($processId): $($_.Exception.Message)" 'terminate_failed' 'background' $info.Id
+  }
+  $verified = -not [MixWin32]::IsWindowHandle($info.Handle)
+  return New-ActionResult 'terminate_process' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "terminated pid $processId behind $($info.Id)" $null 'background' $info.Id
+}
+
+function Get-InstalledApps {
+  # The Start menu catalogue is the only list that pairs the name a user says with
+  # the id Windows can activate; a packaged app has no executable worth launching.
+  if ($null -eq $script:InstalledApps) {
+    $catalogue = New-Object System.Collections.ArrayList
+    try {
+      Import-Module StartLayout -ErrorAction Stop
+      foreach ($entry in Get-StartApps) {
+        $id = [string]$entry.AppID
+        if ([string]::IsNullOrWhiteSpace($id)) { continue }
+        [void]$catalogue.Add([pscustomobject]@{
+            Name     = [string]$entry.Name
+            AppId    = $id
+            Packaged = $id.Contains('!')
+          })
+      }
+      $script:InstalledAppsError = ''
+    } catch {
+      $script:InstalledAppsError = [string]$_.Exception.Message
+    }
+    $script:InstalledApps = $catalogue
+  }
+  return $script:InstalledApps
+}
+
+function Find-InstalledApp($target) {
+  # A path, a URL or an executable belongs to the shell; only a bare name can mean
+  # a catalogue entry. Several matches stay unlaunched rather than becoming a guess.
+  if ($target -match '[\\/]' -or $target -match '^[A-Za-z][A-Za-z0-9+.-]*:') { return $null }
+  $installed = @(Get-InstalledApps)
+  if ($installed.Count -eq 0) { return $null }
+  $found = @($installed | Where-Object { $_.Name -eq $target })
+  if ($found.Count -eq 0) {
+    $found = @($installed | Where-Object { $_.Name -like "*$target*" -or $_.AppId -like "*$target*" })
+  }
+  if ($found.Count -eq 1) { return $found[0] }
+  if ($found.Count -gt 1) {
+    # A packaged app is the one Windows itself would open for a bare name like
+    # "notepad", so it wins over a partial match on some other product's name.
+    $packaged = @($found | Where-Object { $_.Packaged })
+    if ($packaged.Count -eq 1) { return $packaged[0] }
+    $names = (($found | Select-Object -First 6) | ForEach-Object { $_.Name }) -join ', '
+    throw "launch failed [ambiguous_app/0] for '$target': $($found.Count) installed apps match ($names)"
+  }
+  return $null
+}
+
 function Do-Launch($app) {
   $target = [string]$app
   if ([string]::IsNullOrWhiteSpace($target)) { throw 'launch requires app' }
-  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $startInfo.FileName = $target
-  $startInfo.UseShellExecute = $true
+  $launchedPid = 0
+  $route = 'windows_shell'
+  $appId = ''
   try {
     Assert-ExecutionAuthorization $script:CurrentRequest
-    $process = [System.Diagnostics.Process]::Start($startInfo)
-  } catch [System.ComponentModel.Win32Exception] {
-    $nativeCode = [int]$_.Exception.NativeErrorCode
+    $installed = if ($target.Contains('!')) {
+      [pscustomobject]@{ Name = $target; AppId = $target; Packaged = $true }
+    } else { Find-InstalledApp $target }
+    if ($null -ne $installed -and $installed.Packaged) {
+      # Windows leaves only a stub at a packaged app's executable path and hands the
+      # work to the activation broker, so this is the one route that can report the
+      # process that owns the new window.
+      $appId = [string]$installed.AppId
+      $route = 'app_activation'
+      $launchedPid = [MixWin32]::ActivateAppId($appId)
+    } elseif ($null -ne $installed) {
+      # An unpackaged Start entry keeps its install path in the catalogue id, which
+      # the shell resolves, so the name a user says works without knowing that path.
+      $appId = [string]$installed.AppId
+      $route = 'apps_folder'
+      $launchedPid = [MixWin32]::LaunchWithoutActivation("shell:AppsFolder\$appId")
+    } else {
+      # The user's foreground window survives a launch: the app is shown without
+      # activation, the same promise background input makes.
+      $launchedPid = [MixWin32]::LaunchWithoutActivation($target)
+    }
+  } catch {
+    # A native call arrives wrapped, so the original Win32 code decides the category.
+    $failure = $_.Exception
+    while ($failure.InnerException) { $failure = $failure.InnerException }
+    if ($failure.Message -like 'launch failed *') { throw $failure.Message }
+    $nativeCode = 0
+    if ($failure -is [System.ComponentModel.Win32Exception]) {
+      $nativeCode = [int]$failure.NativeErrorCode
+    } elseif (($failure.HResult -band -65536) -eq -2147024896) {
+      # An activation failure arrives as an HRESULT that wraps the same Win32 code.
+      $nativeCode = $failure.HResult -band 0xFFFF
+    }
     $category = switch ($nativeCode) {
       { $_ -in 2, 3 } { 'target_not_found'; break }
       5 { 'access_denied'; break }
       { $_ -in 31, 1155 } { 'no_file_association'; break }
       1223 { 'launch_cancelled'; break }
-      default { 'shell_launch_failed' }
+      default { if ($route -eq 'app_activation') { 'app_activation_failed' } else { 'shell_launch_failed' } }
     }
-    throw "launch failed [$category/$nativeCode] for '$target': $($_.Exception.Message)"
-  } catch {
-    throw "launch failed [shell_launch_failed] for '$target': $($_.Exception.Message)"
+    throw "launch failed [$category/$nativeCode] for '$target': $($failure.Message)"
   }
-  $result = New-ActionResult 'launch' 'windows_shell' 'unverifiable' $false ('launched ' + $target) $null 'background' $null
-  if ($null -ne $process) {
-    $result.pid = [int]$process.Id
-    try { $result.app_hint = [string]$process.ProcessName } catch {}
+  $result = New-ActionResult 'launch' $route 'unverifiable' $false ('launched ' + $target) $null 'background' $null
+  if ($appId) { $result.app_id = $appId }
+  if ($launchedPid -gt 0) {
+    $result.pid = $launchedPid
+    try { $result.app_hint = [string]([System.Diagnostics.Process]::GetProcessById($launchedPid).ProcessName) } catch {}
   }
   return $result
+}
+
+function Do-ListInstalledApps($req) {
+  $query = [string]$req.query
+  $apps = @(Get-InstalledApps)
+  if (-not [string]::IsNullOrWhiteSpace($query)) {
+    $apps = @($apps | Where-Object { $_.Name -like "*$query*" -or $_.AppId -like "*$query*" })
+  }
+  $rows = @($apps | ForEach-Object {
+      [ordered]@{ name = $_.Name; app_id = $_.AppId; packaged = [bool]$_.Packaged }
+    })
+  $catalogueTotal = @(Get-InstalledApps).Count
+  $payload = [ordered]@{ installed = $rows; matched = $rows.Count; catalogue_total = $catalogueTotal }
+  if ($script:InstalledAppsError) { $payload.catalogue_error = [string]$script:InstalledAppsError }
+  return @{
+    text            = ($payload | ConvertTo-Json -Depth 4 -Compress)
+    installed       = $rows
+    catalogue_total = $catalogueTotal
+  }
 }
 
 function Release-SessionState {
@@ -580,12 +739,18 @@ function Release-SessionState {
       if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
     }
   }
+  # Both releases run even when the first one fails: the second holds input the
+  # user would otherwise keep receiving.
+  $releaseFailure = $null
+  try { Release-HeldPointerButtons $state } catch { $releaseFailure = $_ }
+  try { Release-HeldKeys $state } catch { if ($null -eq $releaseFailure) { $releaseFailure = $_ } }
   $state.Map.Clear()
   $state.Generation = [int]$state.Generation + 1
   $state.LastFocus = [IntPtr]::Zero
   $state.OriginalFocus = [IntPtr]::Zero
   $state.OriginalFocusMonitor = ''
   $state.OriginalFocusSequence = $null
+  if ($null -ne $releaseFailure) { throw $releaseFailure }
   return @{ text = 'computer session released'; focus_restored = $restored }
 }
 
@@ -634,6 +799,8 @@ function Handle($req) {
     'middle_click' { return Do-ClickFamily $req 'middle' }
     'triple_click' { return Do-ClickFamily $req 'triple' }
     'mouse_move'   { return Do-MouseMove $req }
+    'mouse_down'   { return Do-ClickFamily $req 'press' }
+    'mouse_up'     { return Do-ClickFamily $req 'release' }
     'wait'         { return Do-Wait $req }
     'drag'         { return Do-Drag $req }
     'scroll'       { return Do-Scroll $req }
@@ -648,6 +815,8 @@ function Handle($req) {
           $preferred = [IntPtr]::Zero
           if ($step.ref) {
             $record = Get-RefRecord $step.ref
+            # A type step still lands through the element's own value pattern.
+            if ([string]$step.action -eq 'type' -and (Test-BackgroundValueTarget $record)) { continue }
             if ($record.Kind -ne 'uia') {
               throw 'background_unsupported|semantic ref exposes no exact native keyboard target; no input sent'
             }
@@ -680,14 +849,18 @@ function Handle($req) {
     'restore_input_state' { return Restore-InputRecoveryState $req }
     'move_window'  { return Do-MoveWindow $req }
     'key'          { return Do-Key $req }
+    'key_down'     { return Do-KeyHold $req 'down' }
+    'key_up'       { return Do-KeyHold $req 'up' }
     'type'         { return Do-Type $req }
     'window_state' { return Do-WindowState $req }
     'close_window' { return Do-CloseWindow $req }
+    'terminate_process' { return Do-TerminateProcess $req }
     'ocr_image'    { return Do-OcrImage $req }
     'ocr_status'   { return Do-OcrStatus $req }
     'clipboard_read'  { return Do-ClipboardRead }
     'clipboard_write' { return Do-ClipboardWrite $req.text }
     'launch'       { return Do-Launch $req.app }
+    'list_installed_apps' { return Do-ListInstalledApps $req }
     'release_session' { return Release-SessionState }
     default        { throw "unknown action: $($req.action)" }
   }

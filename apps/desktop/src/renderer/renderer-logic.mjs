@@ -174,11 +174,11 @@ export function shouldInterruptPrompt({ turnBusy = false, pendingSubmissionId = 
   return Boolean(turnBusy || (!draftMode && String(pendingSubmissionId || '').trim()));
 }
 
-export function shouldBlockPromptSubmit({ submitting = false, draftMode = false, slashCommand = false } = {}) {
-  // An existing session accepts another prompt into the same engine queue
-  // immediately. Only draft materialization and slash commands need a single
-  // acknowledgement owner.
-  return Boolean(submitting && (draftMode || slashCommand));
+export function shouldBlockPromptSubmit({ submitting = false, slashCommand = false } = {}) {
+  // Sessions and drafts both take another prompt into the same engine queue
+  // immediately: a draft's follow-up joins the session its first submit is
+  // minting. Only slash commands need a single acknowledgement owner.
+  return Boolean(submitting && slashCommand);
 }
 
 export function hasSendablePromptContent({ text = '', attachments = [] } = {}) {

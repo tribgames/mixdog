@@ -20,6 +20,10 @@ import {
 
 const LONG_SHEET_ROWS = 20;
 const NUMERIC_COLUMN_MIN = 3;
+// One column of a table holds one quantity, and its format is what the reader
+// compares the rows by: where nearly every row agrees, the odd one out is a
+// cell that missed the format, not a decision about that row.
+const FORMAT_MAJORITY = 0.75;
 const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 
 function externalLinkReference(formula) {
@@ -57,12 +61,30 @@ function numericText(cell) {
   return !/^(?:19|20)\d{2}$/.test(text);
 }
 
+function formatKey(style) {
+  return generalFormat(style) ? 'General' : String(style?.numberFormat || '').trim();
+}
+
 function yearLike(values) {
   return values.every((value) => Number.isInteger(value) && value >= 1900 && value <= 2100);
 }
 
 export function auditSheetHygiene(list, sheet, cells, sheetNames) {
   const display = mergedAreas(sheet);
+  // A quantity that happens to land between 1900 and 2100 is not a year, and a
+  // column of figures under #,##0 will hold one sooner or later (2,096 건). The
+  // column tells them apart: the numbers beside it under the same format. Every
+  // one of them in the year range is a year column; one outside it is a
+  // quantity column that happens to pass through those four digits.
+  const byColumnFormat = new Map();
+  for (const cell of cells) {
+    if (cell.formula) continue;
+    const value = numericValue(cell);
+    const at = position(cell);
+    if (value === null || !at) continue;
+    const key = `${at.column}|${formatKey(cell.style)}`;
+    byColumnFormat.set(key, [...(byColumnFormat.get(key) || []), value]);
+  }
   for (const cell of cells) {
     const path = cellPath(sheet, cell);
     // A figure typed as text in a merged banner or metric tile is the label it
@@ -105,7 +127,13 @@ export function auditSheetHygiene(list, sheet, cells, sheetNames) {
         `Cell shows ${value}% × 100: a percentage is stored as a fraction (0.15 renders 15.0%), so ${value} renders ${value * 100}%.`
       );
     }
-    if (thousandsFormat(cell.style) && Number.isInteger(value) && value >= 1900 && value <= 2100) {
+    if (
+      thousandsFormat(cell.style) &&
+      Number.isInteger(value) &&
+      value >= 1900 &&
+      value <= 2100 &&
+      yearLike(byColumnFormat.get(`${position(cell)?.column}|${formatKey(cell.style)}`) || [value])
+    ) {
       list.push(
         'warning',
         'year_with_thousands_separator',
@@ -135,15 +163,42 @@ export function auditSheetLayout(list, sheet, cells) {
   }
   tableAreas(sheet).forEach((area, index) => {
     const unformatted = [];
+    const drifted = [];
     for (let column = area.startCol; column <= area.endCol; column += 1) {
       const body = located.filter(
         (entry) => entry.at.column === column && entry.at.row > area.startRow && entry.at.row <= area.endRow
       );
       const numbers = body.filter((entry) => entry.cell.dataType !== 'text' && numericValue(entry.cell) !== null);
       if (numbers.length < NUMERIC_COLUMN_MIN || numbers.length < body.length) continue;
+      const tally = new Map();
+      for (const entry of numbers) {
+        const key = formatKey(entry.cell.style);
+        tally.set(key, (tally.get(key) || 0) + 1);
+      }
+      if (tally.size > 1) {
+        const [dominant, count] = [...tally].sort((left, right) => right[1] - left[1])[0];
+        if (count / numbers.length >= FORMAT_MAJORITY) {
+          drifted.push({
+            column: columnLabel(column),
+            dominant,
+            refs: numbers
+              .filter((entry) => formatKey(entry.cell.style) !== dominant)
+              .map((entry) => String(entry.cell.ref).toUpperCase()),
+          });
+        }
+      }
       if (!numbers.every((entry) => generalFormat(entry.cell.style))) continue;
       if (yearLike(numbers.map((entry) => numericValue(entry.cell)))) continue;
       unformatted.push(columnLabel(column));
+    }
+    const tablePath = area.table.path || `${sheetPath(sheet)}/table[${index + 1}]`;
+    for (const drift of drifted) {
+      list.push(
+        'warning',
+        'number_format_inconsistent',
+        tablePath,
+        `Column ${drift.column} of ${area.table.name || 'the table'} carries ${drift.refs.slice(0, 3).join(', ')} under a format its other rows do not use (${drift.dominant}); one column shows one quantity one way, or the same figure reads two ways down the page.`
+      );
     }
     // One table, one finding: repeating it per column produced entries a
     // reader cannot tell apart, since they all carry the table's own path.

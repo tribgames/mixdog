@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { executeOfficeTool } from './index.mjs';
 import { renderPdfPages } from './pdf/pdf-render.mjs';
-import { ocrTextLines, parseOcrBlocks, parseOcrTsv } from './pdf/pdf-analysis.mjs';
+import { inferPdfTables, ocrTextLines, parseOcrBlocks, parseOcrTsv } from './pdf/pdf-analysis.mjs';
 import { wrapText } from './pdf/pdf-draw.mjs';
 import {
   classifyOoxmlValidationErrors,
@@ -344,6 +344,115 @@ test('detect reports which OCR languages this machine can already read', async (
   assert.equal(detected.portable.pdfOcr.cachePath, cache);
 });
 
+// A quote is the words and the person they belong to. The page break was
+// decided on the words alone, so a quote that reached the foot of a page left
+// "— Reviewer" by itself at the top of the next one, attributing nothing.
+test('a quote that reaches the page foot moves whole, attribution included', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'quote.pdf');
+  // Eight body lines on a 300 pt page leave room for the quote's own line but
+  // not for the attribution under it: the boundary the split happened on.
+  const filler = Array.from({ length: 8 }, (_, index) => ({
+    type: 'paragraph',
+    text: `Line ${index + 1}`,
+    size: 10,
+  }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'pdf',
+        path,
+        properties: { pageSize: [300, 300], margin: 54, pageNumbers: false },
+        blocks: [...filler, { type: 'quote', text: 'Only content now.', attribution: 'Reviewer' }],
+      },
+      { cwd }
+    )
+  );
+  const pages = created.document.pages.map((page) => page.text);
+  assert.equal(pages.length, 2);
+  const attributed = pages.findIndex((text) => text.includes('— Reviewer'));
+  assert.ok(attributed >= 0, 'the attribution is written');
+  assert.ok(pages[attributed].includes('Only content now.'), 'the quote stands with its attribution');
+  assert.ok(!pages[0].includes('Only content now.'), 'the quote moved whole rather than leaving its source behind');
+});
+
+// A bullet introduces its item. Broken line by line, an item that met the foot
+// of a page left its marker and first line behind and carried the rest to the
+// next page, where the sentence starts under no bullet at all.
+test('a wrapped list item moves to the next page whole, not line by line', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'list.pdf');
+  const filler = Array.from({ length: 8 }, (_, index) => ({
+    type: 'paragraph',
+    text: `Line ${index + 1}`,
+    size: 10,
+  }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'pdf',
+        path,
+        properties: { pageSize: [300, 300], margin: 54, pageNumbers: false },
+        blocks: [
+          ...filler,
+          { type: 'list', items: ['Approval waiting is the longest step, and tools do not shorten it.'] },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const pages = created.document.pages.map((page) => page.text);
+  assert.equal(pages.length, 2);
+  const head = pages.findIndex((text) => text.includes('Approval'));
+  const tail = pages.findIndex((text) => text.includes('shorten'));
+  assert.equal(head, tail, 'the item is on one page');
+  assert.equal(head, 1, 'the item moved whole instead of leaving its first line at the foot');
+});
+
+// A caption cites the table above it. Flowed on its own, it crossed the page
+// break alone and named a table the reader can no longer see.
+test('a caption crosses the page break with its table, not without it', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'caption.pdf');
+  const filler = Array.from({ length: 6 }, (_, index) => ({
+    type: 'paragraph',
+    text: `Line ${index + 1}`,
+    size: 10,
+  }));
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'pdf',
+        path,
+        properties: { pageSize: [300, 300], margin: 54, pageNumbers: false },
+        blocks: [
+          ...filler,
+          {
+            type: 'table',
+            headers: ['Name', 'Count'],
+            rows: [
+              ['Alpha', '1'],
+              ['Beta', '2'],
+            ],
+            rowHeight: 20,
+            fontSize: 9,
+          },
+          { type: 'caption', text: 'Source: internal log.' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const pages = created.document.pages.map((page) => page.text);
+  const captioned = pages.findIndex((text) => text.includes('Source: internal log.'));
+  assert.equal(captioned, 1, 'the caption did not fit under the table on the first page');
+  assert.ok(pages[captioned].includes('Beta'), 'the caption sits on the page its table ends on');
+  assert.ok(pages[captioned].includes('Name'), 'the header repeats over the row that moved with it');
+});
+
 // A PDF can only carry characters some embedded face has a glyph for. Refusing
 // is right — a dropped character would ship silently — but the refusal has to
 // name what blocks the file, or the caller hunts for a font that cannot exist.
@@ -404,6 +513,24 @@ test('the OCR text layer keeps the line the engine read, not its word boxes', ()
   // Two columns the engine read as one row: stretching a single run across the
   // gap would put every character in it far from the word it belongs to.
   assert.ok(lines[1].columnGap > lines[1].height * 1.5, JSON.stringify(lines[1]));
+});
+
+// A line whose boxes are all discarded leaves the engine's reading without a
+// group. Pairing readings to groups by position then shifts every later line
+// onto the wrong text, and a Korean line drops back to its syllable boxes —
+// "출 고 율" again, which no search for 출고율 finds.
+test('the OCR text layer keeps its reading when an earlier line leaves no boxes', () => {
+  const rows = [
+    '5\t1\t1\t1\t1\t1\t153\t300\t0\t0\t61.0\t머리글',
+    '5\t1\t1\t1\t2\t1\t231\t378\t34\t26\t91.3\t출',
+    '5\t1\t1\t1\t2\t2\t281\t378\t17\t26\t93.0\t고',
+    '5\t1\t1\t1\t2\t3\t297\t374\t23\t44\t92.7\t율',
+    '5\t1\t1\t1\t2\t4\t321\t381\t77\t21\t92.4\t92.8%',
+  ].join('\n');
+  const lines = ocrTextLines(rows, '머리글\n출고율 92.8%\n');
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0].text, '출고율 92.8%');
+  assert.equal(lines[0].fromEngine, true);
 });
 
 test('OCR TSV parsing and on-demand OOXML validator manifest stay deterministic', async (t) => {
@@ -1416,6 +1543,127 @@ test('PDF tables read bordered cells by geometry and ignore the prose around the
   const csv = await readFile(table.path, 'utf8');
   assert.ok(csv.startsWith('Item,Description,Value\r\nA,"'), csv.slice(0, 40));
   assert.ok(csv.endsWith('B,,7\r\n'));
+});
+
+test('a merged cell keeps one table, its row as wide as the grid, and names the shaded header', () => {
+  const cell = (x, top, width, filled) => ({ x, top, width, height: 20, filled, stroked: true, checkbox: false });
+  const item = (text, x, top) => ({ text, x, top, width: 40, height: 10 });
+  const tables = inferPdfTables({
+    pageCount: 1,
+    pages: [
+      {
+        page: 1,
+        width: 595.28,
+        height: 841.89,
+        items: [
+          item('Quarterly results', 60, 105),
+          item('Item', 60, 125),
+          item('Q1', 160, 125),
+          item('Q2', 260, 125),
+          item('A', 60, 145),
+          item('1', 160, 145),
+          item('2', 260, 145),
+        ],
+        boxes: [
+          cell(50, 100, 300, true),
+          cell(50, 120, 100, false),
+          cell(150, 120, 100, false),
+          cell(250, 120, 100, false),
+          cell(50, 140, 100, false),
+          cell(150, 140, 100, false),
+          cell(250, 140, 100, false),
+        ],
+      },
+    ],
+  });
+  assert.equal(tables.tableCount, 1);
+  const [table] = tables.tables;
+  assert.equal(table.source, 'ruled');
+  assert.equal(table.columns, 3);
+  assert.equal(table.header, true);
+  assert.deepEqual(table.merges, [{ row: 0, column: 0, span: 3 }]);
+  assert.deepEqual(table.rows, [
+    ['Quarterly results', '', ''],
+    ['Item', 'Q1', 'Q2'],
+    ['A', '1', '2'],
+  ]);
+});
+
+test('runs drawn apart inside one cell stay one column in an unruled table', () => {
+  const item = (text, x, top, width) => ({ text, x, top, width, height: 12 });
+  const tables = inferPdfTables({
+    pageCount: 1,
+    pages: [
+      {
+        page: 1,
+        width: 595.28,
+        height: 841.89,
+        items: [
+          item('Metric', 40, 100, 45),
+          item('Value', 220, 100, 32),
+          item('Revenue', 40, 130, 47),
+          item('growth', 90, 130, 40),
+          item('120', 220, 130, 20),
+        ],
+        boxes: [],
+      },
+    ],
+  });
+  assert.equal(tables.tableCount, 1);
+  const [table] = tables.tables;
+  assert.equal(table.source, 'alignment');
+  assert.equal(table.columns, 2);
+  assert.deepEqual(table.rows, [
+    ['Metric', 'Value'],
+    ['Revenue growth', '120'],
+  ]);
+});
+
+// Two rows that line up in columns are not a table when they sit a third of the page apart: a form's field labels
+// and the footer under them came back joined as a two-row table of a label and a page number.
+test('an unruled table ends where its rows stop following each other', () => {
+  const item = (text, x, top, width) => ({ text, x, top, width, height: 12 });
+  const tables = inferPdfTables({
+    pageCount: 1,
+    pages: [
+      {
+        page: 1,
+        width: 595.28,
+        height: 841.89,
+        items: [
+          item('승인자', 72, 600, 40),
+          item('부서', 300, 600, 30),
+          item('내부 문서', 72, 800, 50),
+          item('2 / 2', 300, 800, 24),
+        ],
+        boxes: [],
+      },
+    ],
+  });
+  assert.equal(tables.tableCount, 0, JSON.stringify(tables.tables));
+  // The same four cells a line apart are the table they look like.
+  const near = inferPdfTables({
+    pageCount: 1,
+    pages: [
+      {
+        page: 1,
+        width: 595.28,
+        height: 841.89,
+        items: [
+          item('승인자', 72, 600, 40),
+          item('부서', 300, 600, 30),
+          item('김운영', 72, 618, 40),
+          item('운영팀', 300, 618, 40),
+        ],
+        boxes: [],
+      },
+    ],
+  });
+  assert.equal(near.tableCount, 1);
+  assert.deepEqual(near.tables[0].rows, [
+    ['승인자', '부서'],
+    ['김운영', '운영팀'],
+  ]);
 });
 
 test('PDF text wrapping keeps line breaks, wraps at spaces, and breaks unspaced runs by character', () => {

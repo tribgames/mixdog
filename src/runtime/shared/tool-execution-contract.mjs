@@ -246,7 +246,11 @@ export function isTranscriptCancelledStatusText(text) {
 // consume them; they are never human-authored chat and must not be rendered.
 // The flexible Result separator covers legacy rows and command bodies whose
 // embedded newlines lost their quote prefix during persistence.
-export function isInternalTranscriptDisplayText(text) {
+// `lenientWrapper: false` drops the shape-only wrapper guess, matching the TUI
+// rule in session-local.mjs: a directly typed or pasted prompt that merely
+// LOOKS like "instruction + Result: + quoted body" is real chat and must stay
+// visible. Only runtime-injected rows may be hidden on the loose shape.
+export function isInternalTranscriptDisplayText(text, { lenientWrapper = true } = {}) {
   const value = String(text ?? '').trim();
   if (!value) return false;
   if (
@@ -255,7 +259,7 @@ export function isInternalTranscriptDisplayText(text) {
     INTERNAL_TRANSCRIPT_INTERRUPT_RE.test(value) ||
     isInternalRuntimeNotificationText(value) ||
     isModelVisibleToolCompletionWrapper(value) ||
-    isLikelyToolCompletionWrapper(value)
+    (lenientWrapper && isLikelyToolCompletionWrapper(value))
   ) {
     return true;
   }

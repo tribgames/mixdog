@@ -88,8 +88,11 @@ export function buildAntigravityRequest(messages, model, tools, opts = {}, proje
     // Tiered wire ids (gemini-3.8-flash-high) already encode the thinking
     // level; the provider resolves them from the catalog and clears the
     // effort, so only bare ids reach this field.
+    // Thought summaries on by default for every Gemini family, matching the
+    // API-key provider. The gateway also serves GPT-OSS, which rejects the
+    // thinking fields outright, so the flag stays Gemini-only.
     thinkingConfig = geminiThinkingConfig(model, opts, {
-      includeThoughts: /^gemini-3/i.test(model) ? true : undefined,
+      includeThoughts: /^gemini-/i.test(model) ? true : undefined,
     });
   }
   const generationConfig = {

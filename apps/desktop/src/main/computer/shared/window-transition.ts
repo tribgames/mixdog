@@ -188,9 +188,9 @@ export function computeComputerWindowTransition(
   };
 
   if (!targetWindowId && (targetPid > 0 || Boolean(contextApp))) {
-    const launchedProcessTarget = uniquePreferred(opened.filter(
-      (window) => targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid)
-    ));
+    const launchedProcessTarget = uniquePreferred(
+      opened.filter((window) => targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid))
+    );
     if (launchedProcessTarget) {
       transition.next_target = launchedProcessTarget;
       transition.next_target_reason = 'launched_process_window';
@@ -256,7 +256,7 @@ export function computeComputerWindowTransition(
 
   const targetBefore = beforeById.get(targetWindowId);
   if (!targetBefore?.pid) return transition;
-  const childProcessTarget = uniquePreferred(opened.filter(window => window.parentPid === targetBefore.pid));
+  const childProcessTarget = uniquePreferred(opened.filter((window) => window.parentPid === targetBefore.pid));
   if (childProcessTarget) {
     transition.next_target = childProcessTarget;
     transition.next_target_reason = 'child_process_window_opened';

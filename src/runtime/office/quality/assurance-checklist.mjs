@@ -14,6 +14,11 @@ const CHECKLIST_RULES = Object.freeze({
       codes: ['orphan_heading', 'heading_table_separation'],
     },
     {
+      id: 'heading-type',
+      label: 'Headings lead the body type, and one level carries one type.',
+      codes: ['heading_not_distinct', 'heading_style_inconsistent'],
+    },
+    {
       id: 'table-integrity',
       label: 'Short tables are not split and fit inside page margins.',
       codes: ['short_table_split', 'table_width'],
@@ -38,7 +43,7 @@ const CHECKLIST_RULES = Object.freeze({
     {
       id: 'chart-scope',
       label: 'Charts contain valid series and exclude total or subtotal rows.',
-      codes: ['empty_chart', 'broken_chart', 'chart_includes_total_row'],
+      codes: ['empty_chart', 'broken_chart', 'chart_includes_total_row', 'chart_stops_short_of_data'],
     },
     {
       id: 'worksheet-hierarchy',
@@ -76,6 +81,11 @@ const CHECKLIST_RULES = Object.freeze({
       id: 'slide-legibility',
       label: 'Text fits, meets minimum size, and has sufficient contrast.',
       codes: ['text_overflow', 'small_font', 'low_contrast'],
+    },
+    {
+      id: 'slide-type-discipline',
+      label: 'Peers of one row share their type, and no page projects a wall of prose.',
+      codes: ['peer_style_inconsistent', 'slide_text_dense', 'slide_hierarchy_flat'],
     },
     {
       id: 'visual-evidence',

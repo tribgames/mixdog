@@ -150,6 +150,7 @@ export const Item = React.memo(function Item({
           status={item.status}
           outputTokens={item.outputTokens}
           thinkingElapsedMs={item.thinkingElapsedMs}
+          toolCount={item.toolCount}
           verb={item.verb}
           rightMessage={rightMessage}
           rightTone={rightTone}

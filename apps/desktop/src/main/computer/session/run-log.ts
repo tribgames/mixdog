@@ -4,7 +4,7 @@
  * only — typed text, clipboard contents, and pixels never reach this file, and
  * a history write never decides whether a command succeeds.
  */
-import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { elapsedMs, mixdogDataDirectory } from '../shared/common';
@@ -70,6 +70,29 @@ export function appendComputerRunRecord(sessionId: string, record: Record<string
     if (newFile) pruneComputerRunLogs(directory);
   } catch {
     // History is diagnostic only: a command never fails because of it.
+  }
+}
+
+/** The history a caller can read back: the most recent records of one session,
+ *  newest last, so a run can be reviewed without reopening the file by hand. */
+export function readComputerRunRecords(sessionId: string, limit: number): Array<Record<string, unknown>> {
+  const id = String(sessionId || '').trim();
+  if (!id) return [];
+  try {
+    const path = join(mixdogDataDirectory(), RUN_LOG_DIRECTORY, runLogFileName(id));
+    const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
+    const records: Array<Record<string, unknown>> = [];
+    for (const line of lines.slice(-Math.max(1, limit))) {
+      try {
+        const parsed = JSON.parse(line) as Record<string, unknown>;
+        records.push(parsed);
+      } catch {
+        // A truncated final line is history, not a reason to fail the read.
+      }
+    }
+    return records;
+  } catch {
+    return [];
   }
 }
 

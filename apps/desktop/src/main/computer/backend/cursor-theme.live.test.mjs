@@ -10,7 +10,7 @@ import { MIXDOG_HOST_CSHARP } from './native-source.ts';
 test('real Windows cursor changes and restores after normal completion and worker-tree termination', {
   skip: process.platform !== 'win32' || process.env.MIXDOG_CURSOR_LIVE_TEST !== '1',
   timeout: 45000,
-}, async () => {
+}, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-cursor-live-'));
   try {
     await writeFile(
@@ -84,11 +84,23 @@ try {
 [Console]::WriteLine('CURSOR_REAL_RESTORATION_OK')
 `
     );
-    const result = await promisify(execFile)(
-      'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
-      { timeout: 35000, windowsHide: true, env: { ...process.env, CURSOR_TEST_DIRECTORY: directory } }
-    );
+    let result;
+    try {
+      result = await promisify(execFile)(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-File', join(directory, 'test.ps1')],
+        { timeout: 35000, windowsHide: true, env: { ...process.env, CURSOR_TEST_DIRECTORY: directory } }
+      );
+    } catch (error) {
+      // A live desktop refuses the cursor theme lease while its owner is typing
+      // or moving the pointer. That refusal is the product protecting the user,
+      // so the run is unmeasured rather than a failed restoration.
+      if (String(error?.stderr || '').includes('user_input_active')) {
+        t.skip('live user input refused the cursor theme lease');
+        return;
+      }
+      throw error;
+    }
     assert.match(result.stdout, /CURSOR_REAL_RESTORATION_OK/);
   } finally {
     await rm(directory, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 }).catch((error) =>

@@ -271,25 +271,33 @@ test('Projects distinguishes an unknown catalog from a confirmed empty result an
   assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
 });
 
-test('Workflow reserves its slot, can show the inherited value, then enables the loaded choices', async (t) => {
+test('Workflow stays out of the row for a single pack, without reserving a slot, and returns when a choice exists', async (t) => {
   const view = harness(t);
   const request = Promise.withResolvers();
   window.mixdogDesktop.invokeCapability = () => request.promise;
   const { WorkflowSelect } = await import('./model-controls.tsx');
+  const { invalidateWorkflowOptions } = await import('./workflow-options-cache.ts');
   const props = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
   await view.render(React.createElement(WorkflowSelect, props));
-  assert.ok(view.host.querySelector('[aria-busy="true"]'));
-  await view.render(
-    React.createElement(WorkflowSelect, {
-      ...props,
-      workflow: { id: 'solo', name: 'Solo' },
+  // No reserved slot: a placeholder that resolves to a single pack would shift
+  // the whole context row, which is what removing the control avoids.
+  assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
+  await view.settle(() => request.resolve({ value: [{ id: 'solo', name: 'Solo', active: true }] }));
+  assert.equal(view.host.querySelector('button'), null);
+  // A pack edit retires the shared list; a second pack makes it a real choice.
+  const reloaded = Promise.withResolvers();
+  window.mixdogDesktop.invokeCapability = () => reloaded.promise;
+  await view.settle(() => invalidateWorkflowOptions());
+  await view.settle(() =>
+    reloaded.resolve({
+      value: [
+        { id: 'solo', name: 'Solo', active: true },
+        { id: 'default', name: 'Default' },
+      ],
     })
   );
   assert.match(view.host.textContent, /Solo/);
-  assert.equal(view.host.querySelector('button').disabled, true);
-  await view.settle(() => request.resolve({ value: [{ id: 'solo', name: 'Solo', active: true }] }));
   assert.equal(view.host.querySelector('button').disabled, false);
-  assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
 });
 
 test('agent data arriving before the session catalog cannot announce no running agents', async (t) => {

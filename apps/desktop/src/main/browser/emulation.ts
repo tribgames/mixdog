@@ -247,6 +247,20 @@ export function createBrowserEmulation(host: BrowserEmulationHost) {
           },
           signal
         );
+        // A locale only JavaScript reports leaves requests asking for the old
+        // language, so the page negotiates content the emulation contradicts.
+        // A caller-supplied user agent already carried it in its own call.
+        if (command.userAgent === undefined) {
+          await cdp.call(
+            guest,
+            'Network.setUserAgentOverride',
+            {
+              userAgent: guest.getUserAgent(),
+              ...(command.locale ? { acceptLanguage: command.locale } : {}),
+            },
+            signal
+          );
+        }
         applied.push(`locale=${command.locale || 'default'}`);
       }
       if (command.timezone !== undefined) {

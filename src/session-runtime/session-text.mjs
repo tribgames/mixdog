@@ -1,5 +1,6 @@
 // Session message/preview text helpers. Pure, no runtime-closure deps.
 import { clean } from '../runtime/shared/clean.mjs';
+import { stripInjectedBlocks } from '../runtime/shared/injected-display-text.mjs';
 
 export function sessionMessageText(content) {
   if (content == null) return '';
@@ -40,14 +41,6 @@ function messageContextText(message) {
   return text;
 }
 
-const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
-  'system-reminder',
-  'available-deferred-tools',
-  'mcp-instructions',
-  'memory-context',
-  'event',
-]);
-
 const SYNTHETIC_SESSION_TEXT_PATTERNS = Object.freeze([
   /^\[mixdog-runtime\]/i,
   // User-cancel + process-restart control rows must never title/preview a session.
@@ -66,16 +59,6 @@ function stripSessionDisplayEnvelope(value) {
     .replace(/^# Session\r?\n(?:(?:Cwd|Model|Workflow):[^\r\n]*(?:\r?\n|$))+(?:\r?\n)?/i, '')
     .replace(/^#\s*Session\s+Cwd:\s+.*?\s+Model:\s+.*?\s+Workflow:\s+\S+\s*/i, '')
     .replace(/^#\s*Session\s+Cwd:\s+\S+(?:\s+Model:\s+\S*)?(?:\s+Workflow:\s+\S*)?\s*/i, '');
-}
-
-function stripInjectedSessionText(value) {
-  let text = String(value ?? '');
-  for (const tag of INJECTED_DISPLAY_BLOCK_TAGS) {
-    const block = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi');
-    const closing = new RegExp(`<\\/${tag}\\s*>`, 'gi');
-    text = text.replace(block, ' ').replace(closing, ' ');
-  }
-  return text;
 }
 
 function isSyntheticSessionText(text) {
@@ -98,7 +81,9 @@ export function isSessionPreviewNoise(text) {
 
 export function cleanSessionPreview(text, max = 160) {
   const limit = Math.max(16, Number(max) || 160);
-  return stripInjectedSessionText(stripSessionDisplayEnvelope(text))
+  // Previews run on truncated source: an injected block that lost its closing
+  // tag still must not become the preview.
+  return stripInjectedBlocks(stripSessionDisplayEnvelope(text), { dropUnterminated: true })
     .replace(/\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
     .replace(/^Reference files:\s*/i, '')
     .replace(/\s+/g, ' ')

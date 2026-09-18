@@ -291,14 +291,18 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       if (accessibilityResult) {
         const snapshot = accessibilityResult.response;
         timings.accessibility_ms = accessibilityResult.elapsed;
-        accessibilityError = cachedAccessibilityError || captureAccessibilityError(
-          visualOnlyCacheHit,
-          snapshot?.ok === true,
-          accessibilityResult.error,
-          snapshot?.error || ''
-        );
+        accessibilityError =
+          cachedAccessibilityError ||
+          captureAccessibilityError(
+            visualOnlyCacheHit,
+            snapshot?.ok === true,
+            accessibilityResult.error,
+            snapshot?.error || ''
+          );
         if (accessibilityError) {
-          if (mode === 'ax') throw new Error(accessibilityError);
+          // Paging depends on the accessibility read: swallowing its error would
+          // answer a stale token with page one instead of refusing it.
+          if (mode === 'ax' || command.continuation) throw new Error(accessibilityError);
         } else if (snapshot?.ok) {
           rawElements = normalizeElementRecords(snapshot.result?.elements);
           totalElements = Number(snapshot.result?.total_elements) || rawElements.length;

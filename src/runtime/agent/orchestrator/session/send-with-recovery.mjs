@@ -7,6 +7,7 @@
 import { appendAgentTrace } from '../agent-trace.mjs';
 import {
   classifyError,
+  isConnectionFailure,
   isContextOverflowError,
   isCursorTransientTransportError,
   isNonTerminalStreamClose,
@@ -73,39 +74,64 @@ function normalizedIncompleteUsage(raw) {
 // real waits and an operator can widen the window for a flaky uplink; the
 // LENGTH of the list is the retry budget, like a conventional
 // stream-max-retries + backoff table.
-const TRANSPORT_RETRY_BACKOFF_MS = Object.freeze(
-  (() => {
-    const raw = process.env.MIXDOG_TRANSPORT_RETRY_BACKOFF_MS;
-    if (typeof raw === 'string' && raw.trim()) {
-      const parsed = raw
-        .split(',')
-        .map((value) => Number(value.trim()))
-        .filter((value) => Number.isFinite(value) && value >= 0);
-      if (parsed.length) return parsed;
-    }
-    // Three steps (~50s of outage) instead of two: the provider envelope
-    // already covers short blips, so this ladder exists for the long ones.
-    // Comparable runtimes allow 5-10 retries for this outage class.
-    return [5_000, 15_000, 30_000];
-  })()
-);
+function retryLadderFromEnv(envName, fallback) {
+  const raw = process.env[envName];
+  if (typeof raw === 'string' && raw.trim()) {
+    const parsed = raw
+      .split(',')
+      .map((value) => Number(value.trim()))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    if (parsed.length) return Object.freeze(parsed);
+  }
+  return Object.freeze(fallback);
+}
+
+// Three steps (~50s of outage) instead of two: the provider envelope
+// already covers short blips, so this ladder exists for the long ones.
+const TRANSPORT_RETRY_BACKOFF_MS = retryLadderFromEnv('MIXDOG_TRANSPORT_RETRY_BACKOFF_MS', [5_000, 15_000, 30_000]);
 export const TRANSPORT_RETRY_MAX = TRANSPORT_RETRY_BACKOFF_MS.length;
+
+// A lost NETWORK is not a provider fault, so it gets its own far longer
+// ladder: exponential to a one-minute ceiling, ~10 minutes of total cover.
+// Failing the turn after ~50s discarded real work for an outage the user
+// often never noticed (a lift, a sleeping laptop, a router reboot), while the
+// identical request succeeds the moment the link returns. Comparable runtimes
+// retry this class until the network comes back; the cap is what keeps a
+// parked background session from waiting forever with nobody watching.
+const CONNECTION_RETRY_BACKOFF_MS = retryLadderFromEnv('MIXDOG_CONNECTION_RETRY_BACKOFF_MS', [
+  5_000,
+  10_000,
+  20_000,
+  40_000,
+  ...Array(9).fill(60_000),
+]);
+export const CONNECTION_RETRY_MAX = CONNECTION_RETRY_BACKOFF_MS.length;
 
 // Jittering every backoff by 0.9–1.1 keeps parallel workers that lose the
 // same uplink do not resume in lockstep; our provider layers already jitter
 // (10% WS / 20% shared), this brings the loop ladder in line.
 const TRANSPORT_RETRY_JITTER_RATIO = 0.1;
 
-function transportRetryWaitMs(attemptIndex) {
-  const base = TRANSPORT_RETRY_BACKOFF_MS[attemptIndex];
+/** The ladder this failure class is entitled to: lost uplink vs ordinary fault. */
+function retryLadderFor(error) {
+  return isConnectionFailure(error) ? CONNECTION_RETRY_BACKOFF_MS : TRANSPORT_RETRY_BACKOFF_MS;
+}
+
+function retryBudgetFor(error) {
+  return retryLadderFor(error).length;
+}
+
+function transportRetryWaitMs(attemptIndex, error) {
+  const ladder = retryLadderFor(error);
+  const base = ladder[Math.min(Math.max(attemptIndex, 0), ladder.length - 1)];
   return jitterDelayMs(base, TRANSPORT_RETRY_JITTER_RATIO);
 }
 
 // Every loop-level replay is a NEW request, so it opens a new stall window.
 // Inheriting the spent one aborted healthy replacement responses mid-flight.
-function beginFreshTransportAttempt(opts) {
+function beginFreshTransportAttempt(opts, retryMax) {
   resetStallRetryBudget(opts);
-  return { action: 'retry_transport' };
+  return { action: 'retry_transport', transportRetryMax: retryMax };
 }
 
 export async function sendWithRecovery(ctx) {
@@ -122,6 +148,7 @@ export async function sendWithRecovery(ctx) {
     nextIteration,
     contextOverflowRetryUsed,
     transportRetriesUsed = 0,
+    transportRetryMax = 0,
     imageStripUsed = false,
     thinkingReplayRepairUsed = false,
     signal,
@@ -130,6 +157,11 @@ export async function sendWithRecovery(ctx) {
   // opts. A fresh replay below resets it: the loop's own TRANSPORT_RETRY_MAX
   // is what bounds replays, not a window already spent detecting the stall.
   resolveStallRetryBudget(opts);
+  // Reconnect chrome for THIS attempt. The ladder that actually bounds the
+  // replays is picked per failure class below and carried back through the
+  // loop, so "Reconnecting... n/max" reports the budget the outage is really
+  // getting instead of the default one.
+  const retryMaxForDisplay = Number(transportRetryMax) > 0 ? Math.floor(Number(transportRetryMax)) : TRANSPORT_RETRY_MAX;
   let response;
   // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
   // provider request — TTFT (first visible model progress) and total stream
@@ -176,18 +208,18 @@ export async function sendWithRecovery(ctx) {
   // 5s/15s wait rendered as a frozen turn with no explanation, so the
   // stage change surfaces "Reconnecting... n/max" instead of leaving
   // the user staring at a stalled stream.
-  const emitLoopReconnectProgress = (attempt, waitMs, classifier, error) => {
+  const emitLoopReconnectProgress = (attempt, waitMs, classifier, error, maxAttempts = retryMaxForDisplay) => {
     try {
       opts?.onStageChange?.('reconnecting', {
         attempt,
-        max: TRANSPORT_RETRY_MAX,
+        max: maxAttempts,
         classifier: classifier || null,
         waitMs,
         wsCloseCode: error?.wsCloseCode ?? null,
         httpStatus: error?.httpStatus ?? error?.status ?? null,
         message: providerRetryStatusText(error, {
           attempt,
-          maxAttempts: TRANSPORT_RETRY_MAX,
+          maxAttempts,
           delayMs: waitMs,
         }),
       });
@@ -214,8 +246,8 @@ export async function sendWithRecovery(ctx) {
           return prevOnStageChange('reconnecting', {
             ...(detail && typeof detail === 'object' ? detail : {}),
             attempt: retryAttemptNumber,
-            max: TRANSPORT_RETRY_MAX,
-            message: `Reconnecting... ${retryAttemptNumber}/${TRANSPORT_RETRY_MAX}`,
+            max: retryMaxForDisplay,
+            message: `Reconnecting... ${retryAttemptNumber}/${retryMaxForDisplay}`,
           });
         }
         return prevOnStageChange(stage, detail);
@@ -383,17 +415,18 @@ export async function sendWithRecovery(ctx) {
         // terminal, but that unsafety is exactly what the retraction
         // removes (observed live: make-mips-interpreter failed twice
         // because this guard demanded 'transient' and never fired).
+        const exposedRetryBudget = retryBudgetFor(sendErr);
         if (
-          transportRetriesUsed < TRANSPORT_RETRY_MAX &&
+          transportRetriesUsed < exposedRetryBudget &&
           !isProviderRecoveryExhausted(sendErr) &&
           (await retractExposedTextForReplay())
         ) {
-          const waitMs = transportRetryWaitMs(transportRetriesUsed);
+          const waitMs = transportRetryWaitMs(transportRetriesUsed, sendErr);
           try {
             process.stderr.write(
               `[loop] exposed-text stall retracted (sess=${sessionId || 'unknown'} ` +
                 `iter=${nextIteration} len=${sendErr.partialContent.length}); ` +
-                `transport retry ${transportRetriesUsed + 1}/${TRANSPORT_RETRY_MAX} after ${waitMs}ms\n`
+                `transport retry ${transportRetriesUsed + 1}/${exposedRetryBudget} after ${waitMs}ms\n`
             );
           } catch {
             /* best-effort */
@@ -414,10 +447,11 @@ export async function sendWithRecovery(ctx) {
             transportRetriesUsed + 1,
             waitMs,
             outcome.stallObserved ? 'stream_stalled' : 'stream_closed',
-            sendErr
+            sendErr,
+            exposedRetryBudget
           );
           await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
-          return beginFreshTransportAttempt(opts);
+          return beginFreshTransportAttempt(opts, exposedRetryBudget);
         }
         try {
           process.stderr.write(
@@ -457,7 +491,22 @@ export async function sendWithRecovery(ctx) {
       // once. providerState stays undefined so the next iteration resends
       // a full frame on a fresh stream.
       else if (
-        outcome.stallObserved === true &&
+        // ANY non-terminal end qualifies, not just a watchdog stall. A socket
+        // that drops after the model finished dictating its tool calls used to
+        // fail the whole turn: replaying the request would double-run tools
+        // that were already dispatched, so the loop gave up. But continuing is
+        // not replaying — the parsed calls resolve from the pending map without
+        // re-running, their results commit to history, and the NEXT request
+        // carries them forward. pendingToolInput stays the hard guard:
+        // half-streamed arguments are not a tool call.
+        // Named TRANSPORT symptoms only. A typed refusal (context overflow,
+        // policy, quota) also arrives without a terminal frame, but nothing
+        // was generated there and continuing would paper over the refusal.
+        outcome.terminalObserved !== true &&
+        (outcome.stallObserved === true ||
+          outcome.truncatedStream === true ||
+          isNonTerminalStreamClose(sendErr) ||
+          isConnectionFailure(sendErr)) &&
         outcome.pendingToolInput !== true &&
         outcome.toolCallsComplete > 0 &&
         Array.isArray(sendErr.partialToolCalls) &&
@@ -465,7 +514,7 @@ export async function sendWithRecovery(ctx) {
       ) {
         try {
           process.stderr.write(
-            `[loop] stream stalled after ${sendErr.partialToolCalls.length} complete tool call(s) ` +
+            `[loop] stream ended after ${sendErr.partialToolCalls.length} complete tool call(s) ` +
               `(sess=${sessionId || 'unknown'} iter=${nextIteration}); ` +
               `recovering as tool-call turn instead of failing\n`
           );
@@ -474,7 +523,7 @@ export async function sendWithRecovery(ctx) {
         }
         try {
           appendAgentTrace({
-            kind: 'stall_tool_recovery',
+            kind: 'partial_tool_recovery',
             sessionId: sessionId || null,
             iteration: nextIteration,
             toolCalls: sendErr.partialToolCalls.length,
@@ -516,7 +565,7 @@ export async function sendWithRecovery(ctx) {
       // Clean transient transport failure with zero exposure: replay the
       // send after a bounded wait instead of failing the turn.
       else if (
-        transportRetriesUsed < TRANSPORT_RETRY_MAX &&
+        transportRetriesUsed < retryBudgetFor(sendErr) &&
         !isProviderRecoveryExhausted(sendErr) &&
         ((outcome.replaySafe === true && classifyError(sendErr) === 'transient') ||
           // classifyError reports 'permanent' the moment anything
@@ -542,14 +591,15 @@ export async function sendWithRecovery(ctx) {
             isNonTerminalStreamClose(sendErr)) &&
             (await retractExposedTextForReplay())))
       ) {
-        const waitMs = transportRetryWaitMs(transportRetriesUsed);
+        const retryBudget = retryBudgetFor(sendErr);
+        const waitMs = transportRetryWaitMs(transportRetriesUsed, sendErr);
         try {
           process.stderr.write(
             `[loop] transient send failure with no dispatched tools (sess=${sessionId || 'unknown'} ` +
               `iter=${nextIteration} code=${sendErr?.code ?? 'n/a'} ` +
               `wsCloseCode=${sendErr?.wsCloseCode ?? 'n/a'} ` +
               `httpStatus=${sendErr?.httpStatus ?? sendErr?.status ?? 'n/a'}); ` +
-              `transport retry ${transportRetriesUsed + 1}/${TRANSPORT_RETRY_MAX} after ${waitMs}ms\n`
+              `transport retry ${transportRetriesUsed + 1}/${retryBudget} after ${waitMs}ms\n`
           );
         } catch {
           /* best-effort */
@@ -573,10 +623,11 @@ export async function sendWithRecovery(ctx) {
           transportRetriesUsed + 1,
           waitMs,
           sendErr?.retryClassifier || sendErr?.midstreamClassifier || sendErr?.code || null,
-          sendErr
+          sendErr,
+          retryBudget
         );
         await sleepMs(waitMs, undefined, signal ? { signal } : undefined);
-        return beginFreshTransportAttempt(opts);
+        return beginFreshTransportAttempt(opts, retryBudget);
       }
       // Anthropic replay-shape refusal: the latest assistant turn carries
       // thinking blocks the API will not accept back (a thinking run it
@@ -662,7 +713,7 @@ export async function sendWithRecovery(ctx) {
           } catch {
             /* best-effort */
           }
-          emitLoopReconnectProgress(transportRetriesUsed + 1, 0, 'image_strip');
+          emitLoopReconnectProgress(transportRetriesUsed + 1, 0, 'image_strip', null, TRANSPORT_RETRY_MAX);
           return {
             action: 'retry_image_strip',
             messages: stripped.messages,

@@ -169,6 +169,31 @@ test('routing reuse keeps text fresh and discards contexts on navigation, detach
   assert.equal(port.listenerCount('detach'), 0);
 });
 
+test('a page that keeps attaching frames still produces one complete observation', async () => {
+  const port = new EventEmitter();
+  let bursts = 2;
+  let reads = 0;
+  const collect = createBrowserFrameCollector({
+    sessions: () => new Map(),
+    cdp: {
+      guestDebugger: async () => port,
+      call: async (_guest, method) => {
+        if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'root' } } };
+        if (method === 'Page.createIsolatedWorld') return { executionContextId: reads };
+        reads++;
+        if (bursts > 0) {
+          bursts--;
+          port.emit('message', {}, 'Page.frameAttached', {});
+          return { result: { value: 'read during a frame burst' } };
+        }
+        return { result: { value: 'settled document' } };
+      },
+    },
+  });
+  assert.deepEqual(await collect(new EventEmitter(), 'read'), ['settled document']);
+  assert.equal(reads, 3, 'a busy page is waited out instead of failing the observation');
+});
+
 test('a navigation during a read discards the old result and observes the new document once', async () => {
   const port = new EventEmitter();
   let generation = 1;

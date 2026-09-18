@@ -67,12 +67,102 @@ const DECK = `
 { const s = light(); kicker(s, '비교'); const top = title(s, '전과 후: 달라진 쪽이 더 넓다') + GAP.between; const seam = splitAt(M, W - 2 * M, 40, 70); const ph = H - M - 1.2 - top; field(s, seam.left.x, top, seam.left.w, ph); lift(s, seam.right.x, top, seam.right.w, ph, 'FFFFFF'); badge(s, seam.left.x + 0.3, top + 0.3, 1.2, 0.32, '전'); badge(s, seam.right.x + 0.3, top + 0.3, 1.2, 0.32, '후', { tone: 'accent' }); bullets(s, seam.left.x + 0.3, top + 0.85, seam.left.w - 0.6, ph - 1.1, ['교차 동선, 근접 경보 주 31건', '수작업 분류', '주간 중심 출고']); bullets(s, seam.right.x + 0.3, top + 0.85, seam.right.w - 0.6, ph - 1.1, ['일방향 동선, 근접 경보 주 4건', '분류기 시간당 4,200건', '야간 출고가 기본'], TYPE.body, T.ink, { font: T.sans }); takeaway(s, '차이 표시는 바뀐 쪽 하나에만 둔다.'); }
 { const s = light(); kicker(s, '구조'); const top = title(s, '증설이 만든 변화는 세 갈래다') + GAP.between; let y = top; [['처리량', ['야간 셔틀 두 대 추가', '피크 시간대가 22시로 이동', '분기 처리량 1.6배']], ['품질', ['분류기 도입', '라벨 손상만 남았다', '오류율 0.3%']], ['안전', ['일방향 동선', '근접 경보 주 4건', '교차 동선 사고 0건']]].forEach(([name, items]) => { const sz = Math.min(TYPE.body, 15), h = fitH(items.join('\\n'), 6, sz, T.light, { lh: 1.5 }); text(s, name, M, y, 1.7, Math.min(TYPE.lead, 18), { color: T.accent, bold: true, align: 'right' }); brace(s, M + 1.85, y, h); s.addText(items.map((t, i) => ({ text: t, options: { breakLine: i < items.length - 1 } })), { ...box(M + 2.3, y, 6, h), fontFace: T.light, fontSize: sz, color: T.body, valign: 'top', margin: 0, lineSpacingMultiple: 1.5 }); y += h + GAP.between; }); const rx = 9.4; rule(s, rx - 0.3, top, y - top - GAP.between, T.line); prose(s, '세 갈래 모두 야간 운영에서 나왔다. 도크 4를 야간 전용으로 설계하면 세 효과가 그대로 이어진다.', rx, top, W - M - rx, y - top - GAP.between, TYPE.body, T.body); }
 { const s = light(); kicker(s, '순환'); const top = title(s, '점검 주기는 닫힌 고리로 돈다') + GAP.between; const cx = 4.2, cy = top + (H - M - top) / 2, r = 1.4, labels = ['계획', '실행', '점검', '조정']; labels.forEach((l, i) => { const span = 360 / labels.length, on = i === 2; arc(s, cx, cy, r, 270 + i * span + 3, 270 + (i + 1) * span - 3, { color: on ? T.accent : T.paperAlt }); const mid = (270 + (i + 0.5) * span) * Math.PI / 180; text(s, l, cx + (r + 0.7) * Math.cos(mid) - 1.0, cy + (r + 0.7) * Math.sin(mid) - 0.25, 2.0, DIAG.label, { color: on ? T.accent : T.ink, bold: on, align: 'center', h: 0.5, valign: 'middle' }); }); const inner = r * 0.72 * 2 - 0.12; s.addShape(S.ellipse, { ...box(cx - inner / 2, cy - inner / 2, inner, inner), fill: { color: T.paper }, line: { color: T.paper } }); text(s, '점검', cx - 0.8, cy - 0.3, 1.6, TYPE.lead, { color: T.ink, bold: true, align: 'center', h: 0.6, valign: 'middle' }); prose(s, '점검 단계가 고리를 닫는다. 주간 점검에서 나온 근접 경보가 다음 계획의 입력이 된다.', 8.4, top + 0.6, W - M - 8.4, 2.6, TYPE.body); }
-{ const s = light(); kicker(s, '선택지'); const top = title(s, '세 안 중 야간 전용이 유일하게 조건을 모두 만족한다') + GAP.between; const b = table(s, M, top, W - 2 * M, ['안', '비용', '야간 대응', '판정'], [['주간 전용', '낮음', '불가', '보류'], ['혼합', '중간', '부분', '보류'], ['야간 전용', '중간', '가능', '채택']], { colW: [3.2, 2.6, 3.3, 3.03], verdict: 3, tones: ['warning', 'warning', 'positive'] }); caption(s, '출처: 운영팀 비용 추정, 2026년 9월', M, b + GAP.between, 8); }
+{ const s = light(); kicker(s, '선택지'); const top = title(s, '세 안 중 야간 전용이 유일하게 조건을 모두 만족한다') + GAP.between; const options = [['주간 전용', '낮음', '불가', '보류'], ['혼합', '중간', '부분', '보류'], ['야간 전용', '중간', '가능', '채택']]; const rowH = Math.min(0.9, (Z.body.bottom - top - GAP.between) / (options.length + 1)); const b = table(s, M, top, W - 2 * M, ['안', '비용', '야간 대응', '판정'], options, { colW: [3.2, 2.6, 3.3, 3.03], verdict: 3, tones: ['warning', 'warning', 'positive'], rowH }); caption(s, '출처: 운영팀 비용 추정, 2026년 9월', M, b + GAP.between, 8); }
 { const s = quiet(); kicker(s, '02 · 요청', M + 0.4, 1.0, T.onDarkAccent); agenda(s, ['증설 결과', '요청 사항', '부록'], 1); }
 { const s = light(); kicker(s, '비율'); const top = title(s, '야간이 전체 처리량의 열 중 여섯을 차지한다') + GAP.between; const avail = H - M - top, r = Math.min(1.6, avail / 2 - 0.3); gauge(s, 3.4, top + avail / 2, r, 0.6, '60%', '야간 비중'); emphasis(s, [[['야간 처리량이 ', {}], ['60%', { bold: true, color: T.accent }], ['를 넘었다. 도크 4를 야간 전용으로 설계할 근거다.', {}]]], 6.6, top + 0.6, 6, avail - 0.8, TYPE.lead); }
 { const s = quiet(); await gradientField(s, 0, 0, W, H, [[0, T.darkAlt], [100, T.dark]], 215); ghost(s, '04', 9.4, 2.4, 180, 3.4); kicker(s, '요청', M, 2.15, T.onDarkAccent); const b = title(s, '도크 4 증설 예산을 승인해 주십시오', { y: 2.55, w: 9, size: TYPE.title, color: 'FFFFFF' }); text(s, '야간 전용 설계안은 10월 운영 회의에 올린다.', M, Math.max(b + 0.4, 4.6), 8, TYPE.lead, { color: T.onDarkAccent, bold: true, font: T.sans }); text(s, '운영팀 · 2026년 9월', M, H - 1.0, 8, TYPE.caption, { color: T.onDarkMuted, font: T.data }); }
 await pres.writeFile({ fileName: OUTPUT });
 `;
+
+// The brief named a visual style and the kit heard none of it: every deck opened on the same frame — the kicker over
+// a title at the top left, the body under it, the source at the foot — because the style lived in the reference prose
+// while the geometry lived in the code. deck({ style }) is the frame now: the chrome, the corner radius, the stroke a
+// rule takes, and whether the accent stays on the seed hue all follow the style the brief already chose.
+test('kit styles are mechanical: the style moves the page frame, not only the palette', () => {
+  const MEASURE = (text, { size = 15 } = {}) => ({
+    lines: 1,
+    height: (size / 72) * 1.35,
+    width: String(text).length * (size / 72) * 0.6,
+  });
+  const kit = new Function(
+    'require',
+    'MEASURE',
+    'ICON',
+    `${kitPrelude().source}\nreturn { deck, head, T, M, W, H, Z: () => Z, STYLES: () => STYLES, RADIUS: () => RADIUS, LINE: () => LINE, TYPE: () => TYPE, display: () => T.display, accent: () => T.accent, MOTIFS: () => MOTIFS, nextMotif };`
+  )(createRequire(import.meta.url), MEASURE, { names: [], svg: () => '' });
+  const draw = (style) => {
+    kit.deck({ style, hue: 205, mode: 'balanced', script: 'ko' });
+    const texts = [], shapes = [];
+    const slide = { addText: (_runs, options) => texts.push(options), addShape: (_kind, options) => shapes.push(options), addImage() {} };
+    const bodyTop = kit.head(slide, '섹션', '같은 제목, 다른 틀');
+    return { texts, shapes, bodyTop, zones: kit.Z(), radius: kit.RADIUS(), line: kit.LINE(), accent: kit.accent() };
+  };
+  const bare = draw('custom');
+  const rail = draw('editorial');
+  const plane = draw('photo-editorial');
+  const masthead = draw('brutalist');
+  const rounded = draw('soft-rounded');
+
+  // The title's left edge moves with the chrome: the margin on the open canvas, the main column beside an editorial
+  // rail, and the plane's own inset when the head sits on a plane.
+  assert.equal(bare.texts[0].x, kit.M, 'the bare frame keeps the title at the page margin');
+  assert.ok(rail.texts[0].x > bare.texts[0].x + 2, `the rail frame indents the title (${rail.texts[0].x})`);
+  assert.ok(plane.zones.body.x > plane.zones.plane.w, 'the body column starts past the plane the head sits on');
+  assert.ok(
+    plane.shapes.some((sh) => sh.x === 0 && Math.abs(sh.h - kit.H) < 1e-9 && Math.abs(sh.w - plane.zones.plane.w) < 1e-9),
+    'the plane chrome draws its full-height field'
+  );
+  assert.ok(
+    masthead.shapes.some((sh) => sh.x === 0 && Math.abs(sh.w - kit.W) < 1e-9 && sh.h > 0 && sh.h < 0.2),
+    'the masthead closes its head with one heavy full-bleed bar'
+  );
+  assert.ok(masthead.texts[0].y < bare.texts[0].y, 'the masthead title sits flush to the page top');
+  assert.ok(masthead.bodyTop > masthead.texts[0].y, 'the masthead body starts under its bar');
+  assert.equal(plane.bodyTop, plane.zones.body.top, 'a title on the plane never pushes the body column down');
+
+  // A band chrome hangs its kicker at the right edge, and the title box ran the full width under it: every deck on
+  // the two band styles landed with the title and its running mark crossing each other (audit: shape_overlap).
+  for (const style of ['data-journalism', 'blueprint']) {
+    const banded = draw(style);
+    const title = banded.texts[0];
+    const mark = banded.texts.find((box) => box !== title && box.x > title.x + 1);
+    assert.ok(mark, `${style} draws its kicker beside the title`);
+    assert.ok(
+      title.x + title.w <= mark.x + 1e-9,
+      `${style}: the title box ends before its kicker (${(title.x + title.w).toFixed(2)} vs ${mark.x.toFixed(2)})`
+    );
+  }
+
+  // The style also owns the corner radius, the stroke, and the accent policy.
+  assert.equal(rounded.radius, 0.16);
+  assert.equal(masthead.radius, 0);
+  assert.equal(masthead.line, 3);
+  assert.equal(rounded.line, 0.75);
+  assert.notEqual(draw('swiss-minimal').accent, bare.accent, 'a single-hue style keeps the accent on the seed hue');
+
+  // The faces and the display scale are the style's too: an editorial page pairs a serif display, and a masthead sets
+  // its title larger than an analyst page at the same reading mode.
+  kit.deck({ style: 'editorial', hue: 205, mode: 'balanced', script: 'ko' });
+  const editorialFace = kit.display(), editorialTitle = kit.TYPE().title;
+  kit.deck({ style: 'brutalist', hue: 205, mode: 'balanced', script: 'ko' });
+  assert.match(editorialFace, /Serif/, 'the editorial style pairs a serif display face');
+  assert.ok(kit.TYPE().title > editorialTitle, `the masthead title runs larger (${kit.TYPE().title} vs ${editorialTitle})`);
+  kit.deck({ style: 'editorial', hue: 205, mode: 'balanced', script: 'ko', pairing: 'weight' });
+  assert.doesNotMatch(kit.display(), /Serif/, 'a pairing named in the call still wins over the style');
+  assert.throws(() => kit.deck({ style: 'neo-brutalist' }), /unknown style/);
+
+  // The style carries a decoration set, not one device: an anchor that names no kind takes the next of the set,
+  // so the cover, the section marks, and the closing of one deck are not the same drawing three times.
+  kit.deck({ style: 'editorial', hue: 205, mode: 'balanced', script: 'ko' });
+  const set = kit.MOTIFS();
+  assert.ok(set.length >= 2, `a style runs a decoration set (${set.join(', ')})`);
+  assert.deepEqual([kit.nextMotif(), kit.nextMotif()], set.slice(0, 2), 'successive anchors take successive devices');
+  assert.equal(kit.nextMotif(), set[0], 'the set cycles once it is spent');
+  kit.deck({ style: 'editorial', hue: 205, mode: 'balanced', script: 'ko' });
+  assert.equal(kit.nextMotif(), set[0], 'a new deck starts its set over');
+  // Every style id the direction reference lists resolves, so a brief line can be passed straight through.
+  for (const name of Object.keys(kit.STYLES())) assert.doesNotThrow(() => kit.deck({ style: name, hue: 205 }), name);
+});
 
 test('kit layout by weight: equal weights divide equally, unequal weights do not, and the seam never sits in the middle by default', async () => {
   const kit = await kitBlocks('kit.md');
@@ -1938,6 +2028,162 @@ test("kit specimen returns the last row's bottom edge, not the gap after it", ()
     `the awaited value is the last row's bottom edge (${bottom.toFixed(2)} vs ${last.toFixed(2)})`
   );
   assert.equal(kit.specimen(slide, 0.6, 2, 12, []), 2, 'no rows: the top is the bottom');
+});
+
+// The beat is usually a dark field, and its colours were written for only that page: called on paper it drew a white
+// numeral and a white claim on white paper (measured 1.1:1 — invisible, reported three times as low_contrast).
+test('kit numeral beat takes its colours from the field the page stands on', () => {
+  const MEASURE = (text, { size = 15 } = {}) => ({
+    lines: 1,
+    height: (size / 72) * 1.35,
+    width: String(text).length * (size / 72) * 0.6,
+  });
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { deck, numeralBeat, T };`)(
+    createRequire(import.meta.url),
+    MEASURE,
+    { names: [], svg: () => '' }
+  );
+  kit.deck({ hue: 205, theme: 'light', mode: 'balanced', script: 'ko' });
+  const run = (options) => {
+    const texts = [];
+    const slide = { addText: (runs, opts) => texts.push({ runs, color: opts.color }), addShape() {}, addImage() {} };
+    kit.numeralBeat(slide, '0', '남은 오탐', options);
+    return texts.map((entry) => entry.color);
+  };
+  const paper = run({ line: '실산출물 45덱 기준' });
+  assert.ok(
+    paper.every((color) => color && color.toUpperCase() !== 'FFFFFF'),
+    `a beat on paper never draws white type: ${JSON.stringify(paper)}`
+  );
+  assert.equal(paper[0], kit.T.accent, 'the numeral takes the accent on paper');
+  assert.equal(paper[1], kit.T.ink, 'the claim takes the ink on paper');
+  // A colour named in the call still wins, on either field.
+  assert.equal(run({ color: 'FFFFFF' })[0], 'FFFFFF');
+});
+
+// The panels of a small-multiples row are the same shape across groups, so their categories are one shared list —
+// and the helper read `p.title` while every reference writes `label`, then handed the chart an undefined `labels`.
+// A row written the documented way crashed inside the chart call with "Cannot read properties of undefined".
+test('kit small multiples name their panels and share one category list', () => {
+  const MEASURE = (text, { size = 15 } = {}) => ({
+    lines: 1,
+    height: (size / 72) * 1.35,
+    width: String(text).length * (size / 72) * 0.6,
+  });
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { deck, smallMultiples };`)(
+    createRequire(import.meta.url),
+    MEASURE,
+    { names: [], svg: () => '' }
+  );
+  kit.deck({ hue: 205, theme: 'light', mode: 'balanced', script: 'ko' });
+  const drawn = () => {
+    const texts = [], charts = [];
+    return {
+      texts,
+      charts,
+      slide: {
+        addText: (runs, options) => texts.push({ runs, options }),
+        addShape() {},
+        addImage() {},
+        addChart: (_type, series, options) => charts.push({ series, options }),
+      },
+    };
+  };
+  const panels = [
+    { label: '검출', series: [{ name: '건', values: [12, 18, 24] }] },
+    { label: '오탐', series: [{ name: '건', values: [9, 6, 3] }] },
+  ];
+  const row = drawn();
+  kit.smallMultiples(row.slide, 0.6, 2, 12, 3, panels, { labels: ['1분기', '2분기', '3분기'] });
+  assert.equal(row.charts.length, 2, 'one chart per panel');
+  assert.deepEqual(row.charts[0].series[0].labels, ['1분기', '2분기', '3분기'], 'the row shares its categories');
+  assert.ok(
+    row.texts.some((entry) => JSON.stringify(entry.runs).includes('검출')),
+    'the panel names itself with label'
+  );
+  // `title` keeps working for a script written against the old reading, and a panel may carry its own categories.
+  const legacy = drawn();
+  kit.smallMultiples(legacy.slide, 0.6, 2, 12, 3, [{ title: '수정', labels: ['1분기'], series: [{ name: '건', values: [3] }] }]);
+  assert.ok(legacy.texts.some((entry) => JSON.stringify(entry.runs).includes('수정')));
+  // Without categories the row is refused before the chart call, with the fix named.
+  assert.throws(
+    () => kit.smallMultiples(drawn().slide, 0.6, 2, 12, 3, panels),
+    /smallMultiples: panel 1 has no categories/
+  );
+});
+
+// The phone row writes its label beside the narrow screen. On a narrow body the screen leaves a sliver of measure, and
+// the captions set in it broke to one or two words a line (audit: text_box_too_narrow on every column).
+test('kit phone tiles stack their captions when the column beside the screen is a sliver', async () => {
+  const MEASURE = (text, { size = 15, width = 4 } = {}) => {
+    const perLine = Math.max(1, Math.floor(width / ((size / 72) * 0.6)));
+    const lines = Math.max(1, Math.ceil(String(text).length / perLine));
+    return { lines, height: lines * (size / 72) * 1.35, width: Math.min(width, String(text).length * (size / 72) * 0.6) };
+  };
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { deck, tiles, Z };`)(
+    createRequire(import.meta.url),
+    MEASURE,
+    { names: [], svg: () => '' }
+  );
+  kit.deck({ hue: 205, mode: 'balanced', script: 'ko' });
+  const run = async (width) => {
+    const texts = [];
+    const slide = {
+      addText: (runs, options) => texts.push({ text: JSON.stringify(runs), x: options.x, y: options.y, w: options.w }),
+      addShape() {},
+      addImage() {},
+    };
+    const items = ['첫 화면', '목록', '상세'].map((label) => ({
+      data: 'image/png;base64,iVBORw0KGgo=',
+      label,
+      caption: '이 칸이 무엇을 보여주는지 한 줄로 적는다.',
+      alt: label,
+    }));
+    await kit.tiles(slide, 0.6, 2, width, items, { h: 2.8, frame: 'phone' });
+    return texts;
+  };
+  const narrow = await run(8.2);
+  assert.ok(
+    narrow.every((box) => box.w >= 1.8),
+    `a narrow row stacks its captions under the frames: ${JSON.stringify(narrow.map((box) => box.w.toFixed(2)))}`
+  );
+  // A wide row keeps the beside composition the phone frame is drawn for.
+  const wide = await run(12.1);
+  assert.ok(
+    wide.some((box) => box.y < 2.8),
+    'a wide row writes the label beside the screen, level with its top'
+  );
+});
+
+// Two sets sit side by side on one centre line, and the shared meaning was written on that same line: the three
+// labels ran through each other and every two-set venn landed with a collision (audit: shape_overlap, 25%+).
+test('kit venn keeps the shared label clear of the sets it names', () => {
+  const MEASURE = (text, { size = 15 } = {}) => ({
+    lines: 1,
+    height: (size / 72) * 1.35,
+    width: String(text).length * (size / 72) * 0.6,
+  });
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { deck, venn };`)(
+    createRequire(import.meta.url),
+    MEASURE,
+    { names: [], svg: () => '' }
+  );
+  kit.deck({ hue: 205, theme: 'light', mode: 'balanced', script: 'ko' });
+  for (const sets of [['런타임', '스킬'], ['운영', '시설', '안전']]) {
+    const boxes = [];
+    const slide = { addText: (_runs, options) => boxes.push(options), addShape() {}, addImage() {} };
+    kit.venn(slide, 6.6, 3.6, sets, { shared: '감사' });
+    assert.equal(boxes.length, sets.length + 1, `${sets.length} sets and their shared label`);
+    const shared = boxes[boxes.length - 1];
+    for (const label of boxes.slice(0, -1)) {
+      const overlapX = Math.min(label.x + label.w, shared.x + shared.w) - Math.max(label.x, shared.x);
+      const overlapY = Math.min(label.y + label.h, shared.y + shared.h) - Math.max(label.y, shared.y);
+      assert.ok(
+        overlapX <= 0 || overlapY <= 0,
+        `${sets.length} sets: the shared label clears "${label.x.toFixed(2)},${label.y.toFixed(2)}" (${overlapX.toFixed(2)} × ${overlapY.toFixed(2)} in)`
+      );
+    }
+  }
 });
 
 // The structure-beside-its-rail recipe as composition.md §4 and §6 write it — head() → avail(top) → stage on the

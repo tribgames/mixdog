@@ -40,45 +40,83 @@ export {
 // context gauge), never inside the provider-agnostic per-message memo.
 // ---------------------------------------------------------------------------
 
-// Billed-prompt / estimate ratio per provider family, measured against
-// prefix-signature-verified provider baselines from real sessions (opaque
-// signature/encrypted payloads excluded from the projection — see
-// stripOpaquePayloads). Env overrides let a deployment recalibrate without a
-// code change; values are clamped to a plausible band.
+// Billed-prompt / estimate ratio per provider family. Env overrides let a
+// deployment recalibrate without a code change; values are clamped to a
+// plausible band.
+//
+// The Anthropic factor was 1.9 while opaque replay blobs were projected as a
+// fixed marker — that is, while a transcript's entire reasoning stream (15-35%
+// of it) was priced at zero, and the multiplier was silently covering the gap.
+// Now that those blobs carry their measured cost, the ratio was re-measured
+// against the provider's own token counter on twenty real transcripts:
+// 1.23-1.40, median 1.32 (previously 1.72-2.48 — a fifth of the spread, since
+// the multiplier no longer has to absorb a variable amount of reasoning).
+// 1.4 covers the measured maximum without double counting.
+//
+// Only Anthropic-style providers can be calibrated against reported usage at
+// all, because only they resend the whole transcript every turn. OpenAI/xAI
+// chain requests through previous_response_id and send just the tail, so their
+// reported input is a fraction of the conversation (measured at 0.59-0.77 of
+// the local estimate) while the context the model actually reasons over is the
+// full chain. Their factor stays neutral: the estimate is already the right
+// answer for the gauge, and scaling it to reported input would understate the
+// window.
 function calibrationEnv(name) {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n > 0 ? Math.min(3, Math.max(0.25, n)) : null;
 }
 export function providerTokenCalibration(provider) {
   const p = String(provider || '').toLowerCase();
-  if (p.startsWith('anthropic')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_ANTHROPIC') ?? 1.9;
+  if (p.startsWith('anthropic')) return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_ANTHROPIC') ?? 1.4;
   if (p.startsWith('gemini') || p.startsWith('google'))
     return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_GEMINI') ?? 1.15;
   return calibrationEnv('MIXDOG_TOKEN_CALIBRATION_DEFAULT') ?? 1.0;
 }
-// Images/documents count a flat 2000 tokens when dimensions are unknown —
-// the conservative constant also used by the micro-compaction path. Known
-// dimensions may only RAISE the allowance via Anthropic's real vision
-// formula (w*h/750), capped at the 2000x2000 resize ceiling (5333 tokens).
-const IMAGE_VISUAL_TOKEN_ALLOWANCE = 2_000;
-const IMAGE_MAX_TOKEN_ALLOWANCE = 5_333;
+// Standard vision models cap an image at 1568px on the longest edge AND at
+// 1568 visual tokens, downscaling anything larger before it is processed. No
+// image can therefore be billed above that ceiling, which makes it both the
+// maximum and the honest flat allowance for an image whose dimensions we never
+// learned. Known dimensions are billed exactly, through the real vision
+// formula (w*h/750, i.e. 28x28 patches).
+const IMAGE_VISUAL_TOKEN_ALLOWANCE = 1_568;
+const IMAGE_MAX_TOKEN_ALLOWANCE = 1_568;
 
 export { estimateTokens };
 
 // Opaque replay payloads (Anthropic thinking signatures, OpenAI encrypted
-// reasoning blobs, redacted data) are long base64-ish strings that are NOT
-// billed proportionally to their serialized length — including them made
-// estimates swing wildly per turn. Replace them with a fixed marker before
-// token counting; calibration factors were measured against this projection.
-// Stripping is KEY-SCOPED: only fields that structurally carry opaque replay
+// reasoning blobs, redacted data) are long base64-ish strings that ARE billed
+// proportionally to their serialized length — see the measurement below. They
+// were previously replaced with a fixed marker, which priced a provider's
+// entire reasoning stream at nearly zero. Project them at their measured cost
+// instead. Projection is KEY-SCOPED: only fields that structurally carry
+// opaque replay
 // material (signatures / encrypted / redacted / raw data blobs) are eligible,
 // so genuine long model text (e.g. Gemini thought text) keeps its real cost.
 const OPAQUE_PAYLOAD_KEY_RE = /signature|encrypted|redacted|^data$|^blob$/i;
 const OPAQUE_PAYLOAD_RE = /^[A-Za-z0-9+/_=-]{64,}$/;
+
+// An opaque blob is billed like the base64 it is — proportional to its length.
+// Measured on five real transcripts against the provider's own token counter
+// (thinking blocks removed, difference taken): 3.43-4.04 bytes per token,
+// median 3.67. Both earlier treatments were wrong in opposite directions: the
+// estimator's dense-run floor prices a 64+ char run at 0.65/char (~2.4x the
+// measured cost), while replacing the blob with a fixed marker priced it at
+// nearly zero — and reasoning is 15-35% of a long transcript.
+//
+// So project the blob onto a string the estimator reads at its measured cost:
+// plain lowercase words on one line, which trips none of the dense/structured
+// floors and therefore estimates at exactly chars/4. The conservative end of
+// the measured band keeps the estimator's never-read-low contract.
+const OPAQUE_BYTES_PER_TOKEN = 3.43;
+function opaquePayloadProjection(length) {
+  const tokens = Math.ceil(length / OPAQUE_BYTES_PER_TOKEN);
+  return 'opaque '.repeat(Math.ceil(tokens / 1.75)).slice(0, tokens * 4);
+}
+
 function stripOpaquePayloads(value, depth = 0, keyHint = '') {
   if (typeof value === 'string') {
     return OPAQUE_PAYLOAD_KEY_RE.test(keyHint) && value.length >= 64 && OPAQUE_PAYLOAD_RE.test(value)
-      ? '[opaque]'
+      ? opaquePayloadProjection(value.length)
       : value;
   }
   if (depth >= 8 || !value || typeof value !== 'object') return value;
@@ -176,12 +214,13 @@ function messageTextTokens(m, precomputedText = null) {
 function imageDescriptorAllowance(descriptor) {
   if (descriptor.width && descriptor.height) {
     // Anthropic vision cost: tokens = (width * height) / 750, with images
-    // resized down to at most 2000x2000 (5333 tokens). Caller-supplied
-    // dimensions may RAISE the
-    // allowance above the unknown-image floor but never lower it (the
-    // provider normalizer may not preserve caller metadata).
+    // resized down to at most 2000x2000 (5333 tokens). Real pixel dimensions
+    // ARE the billed quantity, so they replace the unknown-image floor in
+    // both directions. Holding a 1280x720 screenshot at the 2000 floor
+    // overstated its true 1229-token cost by 63% and pulled compaction
+    // forward against a budget that was never actually spent.
     const formula = Math.ceil((descriptor.width * descriptor.height) / 750);
-    return Math.min(IMAGE_MAX_TOKEN_ALLOWANCE, Math.max(IMAGE_VISUAL_TOKEN_ALLOWANCE, formula));
+    return Math.min(IMAGE_MAX_TOKEN_ALLOWANCE, formula);
   }
   // Unknown-size images: flat conservative allowance.
   return IMAGE_VISUAL_TOKEN_ALLOWANCE;
@@ -204,17 +243,38 @@ function messageImageAllowance(m) {
 // jsonFallbackFromPart), so this allowance is the document's entire cost.
 const FILE_TOKEN_ALLOWANCE_FLOOR = 1_500;
 const FILE_MAX_TOKEN_ALLOWANCE = 300_000;
+function fileDescriptorAllowance(descriptor) {
+  return Math.min(
+    FILE_MAX_TOKEN_ALLOWANCE,
+    Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16))
+  );
+}
 function messageFileAllowance(m) {
   if (!m || typeof m !== 'object') return 0;
-  return contentFileDescriptors(m.content).reduce(
-    (sum, descriptor) =>
-      sum +
-      Math.min(
-        FILE_MAX_TOKEN_ALLOWANCE,
-        Math.max(FILE_TOKEN_ALLOWANCE_FLOOR, Math.ceil((descriptor.sizeBytes || 0) / 16))
-      ),
-    0
-  );
+  return contentFileDescriptors(m.content).reduce((sum, descriptor) => sum + fileDescriptorAllowance(descriptor), 0);
+}
+// An attachment is billed on its own terms — an image on its pixels, a document
+// on its bytes — and those allowances are exactly what estimateMessageTokens()
+// adds on top of the text. Expose them per item so the context inspector can
+// price a pasted screenshot as its own row instead of letting it hide inside
+// the message that carried it.
+export function messageAttachmentBreakdown(m) {
+  if (!m || typeof m !== 'object') return { tokens: 0, items: [] };
+  const items = [
+    ...messageImageDescriptors(m).map((descriptor) => ({
+      kind: 'image',
+      // Pixels when the wire carried them; an unsized image has no detail to
+      // add beyond its kind, so it says nothing rather than repeating itself.
+      label: descriptor.width && descriptor.height ? `${descriptor.width}×${descriptor.height}` : '',
+      tokens: imageDescriptorAllowance(descriptor),
+    })),
+    ...contentFileDescriptors(m.content).map((descriptor) => ({
+      kind: 'file',
+      label: String(descriptor.mimeType || 'file'),
+      tokens: fileDescriptorAllowance(descriptor),
+    })),
+  ];
+  return { tokens: items.reduce((sum, item) => sum + item.tokens, 0), items };
 }
 export function estimateMessageTokens(m) {
   return messageTextTokens(m) + messageImageAllowance(m) + messageFileAllowance(m) + 4;

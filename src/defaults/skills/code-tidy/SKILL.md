@@ -38,7 +38,9 @@ Default scope is the recent change, not the tree:
    (staged and unstaged). Empty → the merge-base diff against the default
    branch. Still empty → the files the user named or edited this session.
    Nothing at all → say there is nothing to tidy and stop.
-2. Drop deleted, binary, generated, vendored files and lockfiles.
+2. Drop deleted, binary, generated, vendored files and lockfiles. Add the test
+   file covering each changed source even when that test was not itself
+   changed: suite bloat accumulates where the change never landed.
 3. Widen only when the user asks ("the whole tree", a directory, a branch).
 4. Pass the list as `paths` on every `tidy` call so engines, rules, and the
    agent layer see the same files. Result: the report names the scope.
@@ -64,7 +66,9 @@ Default scope is the recent change, not the tree:
    (`no-empty-catch`, `no-nested-ternary`, `no-any-cast`,
    `no-boolean-literal-compare`, `no-debug-statement`, `todo-marker`) are
    diagnostics for the agent layer, not changes. Skip a layer the scan shows
-   has nothing to do.
+   has nothing to do. Keep the engine pass separable from the agent edits: a
+   reformat folded into semantic changes makes the diff unreviewable, so
+   report them as distinct change sets.
 
 ## 4. Agent-level cleanup
 Read `references/agent-cleanup.md` first: it owns the deletion ladder, the
@@ -91,7 +95,10 @@ template. This section owns the order.
    RISKY reported, never auto-applied. Within a tier: comments → dead code →
    defensive code → duplication → complexity → abstraction → performance.
    Structural items from the table below are CAREFUL; dead code follows
-   `references/dead-code.md`.
+   `references/dead-code.md`. After the last tier lands, re-run `tidy check`
+   over the same paths once: removals leave new unused imports and newly
+   orphaned helpers behind. Apply only SAFE findings from that cascade pass
+   and report the rest — one pass, never a loop.
 4. **Stop rules.** Three failed attempts on one file → stop and escalate with
    what was tried. A deeper fix larger than the cleanup → report it as its own
    task. Principles cannot pick between two rewrites → apply neither, record
@@ -104,7 +111,6 @@ template. This section owns the order.
 | Duplicated small helpers across files | Consolidate into a shared module |
 | Comments describing history (`extracted verbatim`, `moved from`, `behavior-preserving move`) | Delete |
 | Underscore-prefixed names exported across modules | Rename |
-| Magic numbers | Name them |
 | Dead code / unused exports | Remove |
 
 Do not "improve" names, control flow, or types beyond the ladder, the lenses,

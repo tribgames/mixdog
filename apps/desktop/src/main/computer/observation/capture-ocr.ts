@@ -68,9 +68,11 @@ export async function mergeCaptureOcr(
         5_000
       );
       if (!ocr.ok) throw new Error(ocr.error || 'Windows OCR failed');
-      const scaleX = screenshot.frame.captureWidth /
+      const scaleX =
+        screenshot.frame.captureWidth /
         Number(ocr.result?.image_width || screenshot.ocrImage?.width || screenshot.frame.captureWidth);
-      const scaleY = screenshot.frame.captureHeight /
+      const scaleY =
+        screenshot.frame.captureHeight /
         Number(ocr.result?.image_height || screenshot.ocrImage?.height || screenshot.frame.captureHeight);
       const frameBounds = (rect: { x: number; y: number; width: number; height: number }) => ({
         x: Math.round(rect.x * scaleX),
@@ -78,7 +80,7 @@ export async function mergeCaptureOcr(
         width: Math.max(1, Math.round(rect.width * scaleX)),
         height: Math.max(1, Math.round(rect.height * scaleY)),
       });
-      const projectedWords = normalizeOcrWords(ocr.result?.words).map(word => ({
+      const projectedWords = normalizeOcrWords(ocr.result?.words).map((word) => ({
         ...word,
         ...frameBounds(word),
         center_x: Math.round(word.center_x * scaleX),
@@ -132,8 +134,14 @@ export async function mergeCaptureOcr(
                   screen_bounds: [
                     topLeft.x,
                     topLeft.y,
-                    Math.max(1, Math.round(element.width * screenshot.frame.physicalWidth / screenshot.frame.captureWidth)),
-                    Math.max(1, Math.round(element.height * screenshot.frame.physicalHeight / screenshot.frame.captureHeight)),
+                    Math.max(
+                      1,
+                      Math.round((element.width * screenshot.frame.physicalWidth) / screenshot.frame.captureWidth)
+                    ),
+                    Math.max(
+                      1,
+                      Math.round((element.height * screenshot.frame.physicalHeight) / screenshot.frame.captureHeight)
+                    ),
                   ],
                 }
           );
@@ -149,7 +157,7 @@ export async function mergeCaptureOcr(
         automatic: command.include_ocr !== true,
         language: String(ocr.result?.language || ''),
         lines: Array.isArray(ocr.result?.lines)
-          ? ocr.result.lines.map(line => ({ ...line, ...frameBounds(line) }))
+          ? ocr.result.lines.map((line) => ({ ...line, ...frameBounds(line) }))
           : [],
         words: markedWords,
         total_words: Number(ocr.result?.total_words) || 0,

@@ -56,7 +56,10 @@ test('summarizeOfficeAudit ranks touched locations first, drops advisories from 
   ];
   const audit = summarizeOfficeAudit(issueList, { touched: ['/slide[3]'] });
   assert.equal(audit.status, 'fail');
-  assert.deepEqual(audit.counts, { error: 1, warning: INLINE_AUDIT_TOP + 5, info: 1 });
+  // Words a box cannot hold are a measured defect, so every text_overflow here
+  // counts as an error beside the broken relationship; only the contrast call
+  // stays a warning and the advisory stays out of the targets.
+  assert.deepEqual(audit.counts, { error: INLINE_AUDIT_TOP + 5, warning: 1, info: 1 });
   assert.equal(audit.top.length, INLINE_AUDIT_TOP);
   assert.equal(audit.top[0].path, '/slide[3]/shape[2]');
   assert.equal(audit.top[1].code, 'missing_relationship');

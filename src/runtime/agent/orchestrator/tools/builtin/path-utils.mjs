@@ -112,10 +112,19 @@ function firstPresentArg(args, names) {
   return undefined;
 }
 
-// Shared semantic default for grep calls that omit output_mode/context.
-// Scoped-cache canonicalization imports this so omitted context and an
-// explicit context:25 resolve to the same cache key.
-export const GREP_AUTO_CONTEXT_LINES = 25;
+// Automatic context for grep calls that omit output_mode/context. The window
+// leans downward: a match needs little room above it (the declaration it sits
+// in) but the rest of its block below. Session telemetry over 36.5k grep calls
+// showed a symmetric 25-line window paid for lines nobody read — follow-up
+// reads landed a median 33 lines above / 83 lines below the rendered block,
+// beyond any affordable radius, while callers that set `context` themselves
+// chose a median of 3.
+// GREP_AUTO_CONTEXT_LINES stays the scalar ceiling: rg fallbacks, the
+// expander's maximum window, and scoped-cache canonicalization import it so
+// omitted context and the equivalent explicit flags share one cache key.
+export const GREP_AUTO_CONTEXT_BEFORE = 8;
+export const GREP_AUTO_CONTEXT_AFTER = 12;
+export const GREP_AUTO_CONTEXT_LINES = GREP_AUTO_CONTEXT_AFTER;
 
 export function normalizeGrepArgs(args) {
   if (!args || typeof args !== 'object') return args;

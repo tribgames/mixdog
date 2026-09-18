@@ -65,6 +65,24 @@ test('releasing or disposing a display rejects late pixels without cancelling a 
   await assert.rejects(display.read('owner'), /closed/);
 });
 
+test('a capture that loses its race asks for a resample instead of failing the display', async () => {
+  let attempt = 0;
+  const display = createBrowserPresentationReads({
+    bounded: (work) => work,
+    capture: async () => {
+      attempt += 1;
+      if (attempt === 1) throw new Error('Browser page changed during capture.');
+      if (attempt === 2) return frame('live');
+      throw new Error('Browser display frame timed out.');
+    },
+  });
+  assert.deepEqual(await display.read('owner'), { resample: true });
+  assert.equal((await display.read('owner')).image.data, 'pixels');
+  // Only the race is ordinary; every other failure still reaches the caller.
+  await assert.rejects(display.read('owner'), /timed out/);
+  assert.equal(attempt, 3, 'a resample is reported, never captured again here');
+});
+
 test('release at the delivery boundary refuses a completed capture and leaves a reopened read independent', async () => {
   for (const mode of ['release', 'dispose']) {
     let display;

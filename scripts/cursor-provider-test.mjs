@@ -114,6 +114,74 @@ test('Cursor catalog folds raw effort, Fast, and duplicate Auto variants', () =>
   );
 });
 
+test('Cursor catalog folds parameterized default Auto into a single Auto', () => {
+  const raw = [
+    {
+      id: 'default',
+      name: 'Auto',
+      contextWindow: 200_000,
+      maxContextWindow: 1_000_000,
+      supportsMaxMode: true,
+      supportsNonMaxMode: true,
+      parameterDefinitions: [
+        {
+          id: 'effort',
+          name: 'Effort',
+          kind: 'enum',
+          values: [
+            { value: 'low', label: 'Low' },
+            { value: 'high', label: 'High' },
+          ],
+        },
+      ],
+      variants: [
+        { parameters: { effort: 'high' }, defaultNonMax: true },
+        { parameters: { effort: 'low' } },
+      ],
+    },
+    { id: 'auto', name: 'Auto' },
+    { id: 'gpt-5.6-sol-high', name: 'GPT-5.6 Sol High' },
+  ];
+  const catalog = __cursorModelInternals.normalizeCursorCatalog(raw, 'cursor-oauth');
+  assert.deepEqual(
+    catalog.models.filter((model) => model.display === 'Auto' || model.id === 'auto').map((model) => model.id),
+    ['auto']
+  );
+  const auto = catalog.models.find((model) => model.id === 'auto');
+  assert.deepEqual(auto.reasoningLevels, ['low', 'high']);
+  assert.equal(auto.supportsMaxMode, true);
+  assert.equal(auto.maxContextWindow, 1_000_000);
+  const selection = __cursorModelInternals.selectParameterizedCursorVariant(
+    catalog.parameterGroups.get('auto'),
+    { baseId: 'auto' },
+    { effort: 'low' }
+  );
+  assert.deepEqual(selection, {
+    modelId: 'auto',
+    parameters: [{ id: 'effort', value: 'low' }],
+    maxMode: false,
+  });
+});
+
+test('Cursor live Auto is not replaced by the synthetic Auto row', () => {
+  const merged = __cursorWireInternals.withCanonicalAutoModels([
+    {
+      id: 'default',
+      name: 'Auto',
+      parameterDefinitions: [{ id: 'effort', values: [{ value: 'high', label: 'High' }] }],
+      supportsMaxMode: true,
+    },
+    { id: 'claude-opus-5', name: 'Claude Opus 5' },
+  ]);
+  assert.deepEqual(
+    merged.map((model) => model.id),
+    ['auto', 'claude-opus-5']
+  );
+  assert.equal(merged[0].supportsMaxMode, true);
+  assert.equal(merged[0].parameterDefinitions.length, 1);
+  assert.deepEqual(merged[0].aliases, ['default']);
+});
+
 test('Cursor catalog rejects a Fast combination absent from the native catalog', () => {
   const catalog = __cursorModelInternals.normalizeCursorCatalog(
     [

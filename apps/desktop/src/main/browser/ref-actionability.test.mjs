@@ -8,6 +8,36 @@ import { BrowserGuestStateStore } from './guest-state.ts';
 import { createBrowserRefSet } from './ref-recovery.ts';
 import { formActions } from './actions/forms.ts';
 
+test('a framed element rect adds the frame offset without the hit test that guards input', async () => {
+  const dom = new JSDOM('<button>Framed</button>', { runScripts: 'outside-only', pretendToBeVisual: true });
+  try {
+    const button = dom.window.document.querySelector('button');
+    button.scrollIntoView = () => {};
+    button.getBoundingClientRect = () => ({ left: 10, top: 20, width: 80, height: 24, right: 90, bottom: 44 });
+    const guest = {};
+    const offsetCalls = [];
+    const points = createBrowserRefPoints({
+      accessibilityRefs: new Map([[guest, { refs: new Map([['ref', { backendNodeId: 1, sessionId: 'frame-1' }]]) }]]),
+      visualGrounding: new Map(),
+      diagnostics: () => ({ pendingDialog: null }),
+      callAccessibilityRef: async (_guest, _ref, source, args) => ({
+        handled: true,
+        value: await dom.window.eval(`(${source})`).apply(button, args),
+      }),
+      cdp: { call: async () => ({}) },
+      frameOffsetForSession: async (_guest, sessionId, _signal, localPoint) => {
+        offsetCalls.push({ sessionId, localPoint });
+        return { x: 200, y: 100 };
+      },
+      captureSnapshotPayload: async () => assert.fail('measuring a box must not retire the ref'),
+    });
+    assert.deepEqual(await points.resolveRefRect(guest, 'ref'), { x: 210, y: 120, width: 80, height: 24 });
+    assert.deepEqual(offsetCalls, [{ sessionId: 'frame-1', localPoint: undefined }]);
+  } finally {
+    dom.window.close();
+  }
+});
+
 for (const blocker of ['disabled', 'covered', 'moving', 'not-visible', 'not-actionable']) {
   test(`ref click preflight waits through a temporary ${blocker} state without input or ref invalidation`, async () => {
     const dom = new JSDOM('<button>Continue</button><div>Loading</div>', {

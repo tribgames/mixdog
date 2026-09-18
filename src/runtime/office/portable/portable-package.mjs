@@ -114,7 +114,14 @@ function wordStyles() {
       // Normal style writes wordWrap="0" (its "한글 단어 잘림 허용" default) and
       // breaks 내려갔다 as 내려/갔다 at the margin; verified in Word 2026-09-12:
       // val="1" (or the element absent) wraps by word.
-      '<w:pPrDefault><w:pPr><w:wordWrap w:val="1"/><w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>' +
+      // Word's own defaults open a gap between Hangul and the Latin text or
+      // digits beside it, so a document the preview renders as "2026년 9월" and
+      // "14개 팀" reaches the recipient as "2026 년 9 월" and "14 개 팀" — the
+      // spacing lands inside the word, and the widened lines rewrap the
+      // paragraph the review already approved. Off, both renderers set the same
+      // text: the author spaces Hangul and Latin with real spaces.
+      '<w:pPrDefault><w:pPr><w:wordWrap w:val="1"/><w:autoSpaceDE w:val="0"/><w:autoSpaceDN w:val="0"/>' +
+      '<w:spacing w:after="160" w:line="259" w:lineRule="auto"/></w:pPr></w:pPrDefault>' +
       '</w:docDefaults>' +
       '<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>' +
       '<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/>' +

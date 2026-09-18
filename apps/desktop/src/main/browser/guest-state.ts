@@ -9,6 +9,7 @@ import type { WebContents } from 'electron';
 
 import { BrowserConsoleLedger } from './console';
 import type { PendingBrowserDialog } from './dialog-report';
+import type { BrowserDragData } from './input';
 import { BrowserNetworkLedger } from './network';
 import type { ActiveBrowserPerformanceTrace } from './performance';
 import { redactBrowserKnownSecrets, redactBrowserText } from './redaction';
@@ -62,6 +63,10 @@ export interface BrowserGuestState extends BrowserDiagnostics {
   documentGeneration: number;
   /** When a snapshot last told the caller about this page's downloads. */
   downloadsReportedAt: number;
+  /** Names of pages this one opened that the caller has not been told about.
+   *  A gesture that spawns a tab leaves this document untouched, so without
+   *  this the reply would claim the gesture did nothing at all. */
+  openedPopups: string[];
   /** Renderer death leaves a live WebContents whose document is gone: CDP
    *  calls and every ref bound to that document fail until the page reloads. */
   crashed: boolean;
@@ -72,6 +77,9 @@ export interface BrowserGuestState extends BrowserDiagnostics {
   /** Secrets typed into this document; redacted from every reply. */
   sensitiveValues?: Set<string>;
   remoteFrame?: RemoteBrowserFrameCache;
+  /** The payload Chromium handed over instead of running the page's own
+   *  HTML5 drag, so the driver can finish that gesture as drag events. */
+  interceptedDrag?: BrowserDragData;
 }
 
 /** A WeakMap-shaped window onto one field of every guest's state, so modules
@@ -99,7 +107,11 @@ export class BrowserGuestStateStore {
       pageId: `p${++this.nextPageId}`,
       snapshotGeneration: 0,
       documentGeneration: 0,
-      downloadsReportedAt: 0,
+      // Downloads are shared by the session, so a page that opens with this at
+      // zero announces every file the session ever saved — including ones saved
+      // before it existed. A new page has already heard about all of them.
+      downloadsReportedAt: Date.now(),
+      openedPopups: [],
       crashed: false,
       pendingDialog: null,
       pendingFileChooser: null,
@@ -169,13 +181,20 @@ export class BrowserGuestStateStore {
 
   /** Retire the old document's interaction state and picker. Known secrets
    *  remain redacted across redirects. */
-  beginDocument(guest: WebContents): void {
+  beginDocument(guest: WebContents, sameDocument = false): void {
     const state = this.states.get(guest);
     if (!state) return;
     state.documentGeneration += 1;
     this.invalidateInteraction(guest);
     // Secrets remain sensitive after redirects, including echoed form values.
     state.pendingFileChooser = null;
+    // A fresh document answers for its own requests only. Carrying the last
+    // page's failures forward reports them as faults of the page now loaded;
+    // an in-document navigation keeps them, because nothing reloaded.
+    if (!sameDocument) {
+      state.networkFailures.length = 0;
+      state.console.clearDocument();
+    }
   }
 
   /** Text bound for the caller, minus the page's known secrets. */

@@ -142,7 +142,10 @@ test('combined pattern context reads each selected file once', async (t) => {
   );
   assert.match(result, /# grep pattern:"alpha"/);
   assert.match(result, /# grep pattern:"beta"/);
-  assert.match(result, /before\nalpha\nmiddle\nbeta\nafter/);
+  // An explicit context is honoured exactly: each pattern renders its own
+  // +-2 window rather than being widened to the automatic one.
+  assert.match(result, /# combined\.txt:2 \[lines 1-4\]\nbefore\nalpha\nmiddle\nbeta/);
+  assert.match(result, /# combined\.txt:4 \[lines 2-5\]\nalpha\nmiddle\nbeta\nafter/);
   assert.equal(opens, 1);
 });
 

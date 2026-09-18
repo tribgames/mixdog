@@ -151,8 +151,18 @@
   font-variant-numeric: tabular-nums;
 }
 /* Category palette (muted mid-tones that hold up on both themes). */
-.context-surface-view [data-context-key="messages"] {
+.context-surface-view [data-context-key="messages"],
+.context-surface-view [data-context-key="user"] {
   --ctx-color: #a091d6;
+}
+.context-surface-view [data-context-key="assistant"] {
+  --ctx-color: #7f93c9;
+}
+.context-surface-view [data-context-key="toolResults"] {
+  --ctx-color: #6fa8a0;
+}
+.context-surface-view [data-context-key="attachments"] {
+  --ctx-color: #c98f77;
 }
 .context-surface-view [data-context-key="tools"] {
   --ctx-color: #7fae7f;
@@ -174,9 +184,6 @@
 }
 .context-surface-view [data-context-key="free"] {
   --ctx-color: #6f777d;
-}
-.context-surface-view [data-context-key="autocompact"] {
-  --ctx-color: #7a756c;
 }
 @media (max-width: 640px) {
   .context-mix-grid {
@@ -407,9 +414,30 @@
   background: var(--ctx-color, var(--mx-text-accent));
 }
 .context-block-map [data-context-key="free"] { opacity: 0.25; }
-.context-block-map [data-context-key="autocompact"] {
-  background: repeating-linear-gradient(45deg, var(--ctx-color) 0 2px, transparent 2px 4px);
+/* Hovering a block names its share in a bubble; the map answers at the same
+   time by dimming every OTHER category, so the colour run under the pointer
+   reads as one contiguous share and its row in the list lights up with it.
+   Free space is already faint, so under a hover it brightens instead. */
+.context-block-map { position: relative; }
+.context-block-bubble {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, calc(-100% - 8px));
+  padding: 5px 9px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-popup-action-bg);
+  box-shadow: var(--mx-popup-action-ring);
+  color: var(--mx-text);
+  font-size: var(--mx-font-minor);
+  white-space: nowrap;
+  pointer-events: none;
 }
+.context-block-bubble[data-flip="true"] { transform: translate(-50%, 8px); }
+.context-block-map i { transition: opacity 90ms linear; cursor: pointer; }
+.context-block-map i[data-context-key="free"] { cursor: default; }
+.context-block-map[data-hover="true"] i[data-muted="true"] { opacity: 0.1; }
+.context-block-map[data-hover="true"] i[data-context-key="free"]:not([data-muted="true"]) { opacity: 0.6; }
+.context-inspector .context-mix-row[data-hot="true"] { background: var(--mx-hover); }
 .context-inspector-note {
   margin: 0;
   color: var(--mx-text-muted);
@@ -448,7 +476,14 @@
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
+/* One bounded column at every level. An auto track takes the width of its
+   widest row, so a turn with a long tool summary pushed the whole list wider
+   than the pane and added a sideways scrollbar; now that row ellipsizes and
+   every row keeps the same width. */
+.context-entry-list,
+.context-entry-group { grid-template-columns: minmax(0, 1fr); }
 .context-entry-list button {
+  min-width: 0;
   display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px;
   padding: 6px 12px 6px 20px;
   border: 0; border-bottom: 0.5px solid var(--mx-border-muted); border-radius: 0; background: transparent;

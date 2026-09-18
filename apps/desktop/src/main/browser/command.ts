@@ -82,6 +82,8 @@ export interface BrowserCommand {
   /** Snapshot-free element target; an alternative to ref. */
   target?: BrowserTargetSpec;
   targetRef?: string;
+  /** Snapshot-free drag destination; an alternative to targetRef. */
+  dropTarget?: BrowserTargetSpec;
   snapshotId?: string;
   x?: number;
   y?: number;

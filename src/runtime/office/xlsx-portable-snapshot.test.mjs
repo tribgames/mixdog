@@ -559,7 +559,7 @@ test('a percent-formatted header is not a percent stored as a whole', async (t) 
     )
   );
   const audited = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
-  const scaled = audited.issues.filter((issue) => issue.code === 'percent_stored_as_whole');
+  const scaled = audited.issues.filter((issue) => issue.code === 'percentage_stored_as_whole');
   assert.deepEqual(
     scaled.map((issue) => issue.path),
     ['/sheet[Sheet1]/cell[B3]'],

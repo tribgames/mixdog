@@ -1,0 +1,112 @@
+/* Our own calendar: the native date/time popups came from Chromium and matched
+   nothing around them. Metrics here follow the surface tokens. */
+.mx-daterange {
+  display: grid;
+  gap: 8px;
+  width: max-content;
+}
+.mx-daterange-head {
+  display: grid;
+  grid-template-columns: 24px 1fr 24px;
+  align-items: center;
+  gap: 4px;
+}
+.mx-daterange-head strong {
+  color: var(--mx-text);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-semibold);
+  text-align: center;
+}
+.mx-daterange-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  color: var(--mx-text-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.mx-daterange-step svg {
+  width: 14px;
+  height: 14px;
+}
+.mx-daterange-step:hover:not(:disabled) {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.mx-daterange-step:disabled {
+  opacity: var(--mx-op-dim);
+  cursor: default;
+}
+.mx-daterange-weekdays,
+.mx-daterange-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 30px);
+  gap: 2px 0;
+}
+.mx-daterange-weekdays span {
+  display: grid;
+  place-items: center;
+  height: 20px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.mx-daterange-day {
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-sm);
+  color: var(--mx-text);
+  background: transparent;
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.mx-daterange-day[data-outside] {
+  color: var(--mx-text-muted);
+}
+.mx-daterange-day:hover:not(:disabled) {
+  background: var(--mx-hover);
+}
+.mx-daterange-day:disabled {
+  opacity: var(--mx-op-dim);
+  cursor: default;
+}
+/* The band is continuous, so only its ends round off. */
+.mx-daterange-day[data-range] {
+  border-radius: 0;
+  background: var(--mx-bg-layer-2);
+}
+.mx-daterange-day[data-range="start"] {
+  border-start-start-radius: var(--mx-radius-sm);
+  border-end-start-radius: var(--mx-radius-sm);
+}
+.mx-daterange-day[data-range="end"] {
+  border-start-end-radius: var(--mx-radius-sm);
+  border-end-end-radius: var(--mx-radius-sm);
+}
+.mx-daterange-day[data-range="only"] {
+  border-radius: var(--mx-radius-sm);
+}
+.mx-daterange-day[data-range="start"],
+.mx-daterange-day[data-range="end"],
+.mx-daterange-day[data-range="only"] {
+  color: var(--mx-grey-50);
+  background: var(--mx-accent-bg);
+}
+.mx-daterange-clock {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.mx-daterange-unit .mx-select-trigger {
+  min-width: 64px;
+  height: 26px;
+}

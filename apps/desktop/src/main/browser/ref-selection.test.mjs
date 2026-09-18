@@ -169,3 +169,13 @@ test('custom selection waits for its associated list to render without opening i
     f.dom.window.close();
   }
 });
+
+test('a native selection miss names the options the control actually offers', async () => {
+  const f = fixture('<select><option value="a">Alpha</option><option value="b">Beta</option></select>');
+  try {
+    f.refs.set('ref', f.dom.window.document.querySelector('select'));
+    await assert.rejects(f.actions.selectRef(f.guest, 'ref', ['Gamma']), /options include: Alpha \| Beta/);
+  } finally {
+    f.dom.window.close();
+  }
+});

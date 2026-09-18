@@ -14,6 +14,10 @@ export type PaneDragSession = {
   sourceLeafId?: string;
 };
 
+/** What follows the pointer: 'tab' paints the compact tab ghost, 'frame'
+ *  carries a clone of the dragged item's own frame. */
+export type PaneDragImage = 'tab' | 'frame';
+
 export type PaneDragFrame = PaneDragSession & {
   phase: 'move' | 'drop' | 'cancel';
   x: number;
@@ -70,7 +74,8 @@ export function beginPaneDrag(
   event: DragEvent,
   session: PaneDragSession,
   dragImageContainer: HTMLElement,
-  onFinish?: () => void
+  onFinish?: () => void,
+  dragImage: PaneDragImage = 'tab'
 ): void {
   if (activeSession) finishPaneDrag();
   activeSession = session;
@@ -83,12 +88,26 @@ export function beginPaneDrag(
   event.dataTransfer.setData(PANE_DRAG_MIME, session.key);
   event.dataTransfer.setData('text/plain', session.title);
 
-  const dragImage = document.createElement('div');
-  dragImage.className = 'workspace-tab-ghost pane-native-drag-image';
-  dragImage.textContent = session.title;
-  (dragImageContainer.closest('.app-shell') ?? document.body).appendChild(dragImage);
-  event.dataTransfer.setDragImage(dragImage, -10, -10);
-  window.setTimeout(() => dragImage.remove(), 0);
+  const sourceRect = dragImageContainer.getBoundingClientRect();
+  if (dragImage === 'frame' && sourceRect.width > 0 && sourceRect.height > 0) {
+    // The dragged item's own frame travels with the pointer. The clone stays in
+    // the source's parent so every ancestor-scoped rule still paints it, and it
+    // is grabbed at the exact point that picked it up.
+    const frame = dragImageContainer.cloneNode(true) as HTMLElement;
+    frame.classList.add('pane-native-drag-image', 'pane-drag-frame-image');
+    frame.style.width = `${sourceRect.width}px`;
+    frame.style.height = `${sourceRect.height}px`;
+    (dragImageContainer.parentElement ?? document.body).appendChild(frame);
+    event.dataTransfer.setDragImage(frame, event.clientX - sourceRect.left, event.clientY - sourceRect.top);
+    window.setTimeout(() => frame.remove(), 0);
+    return;
+  }
+  const ghost = document.createElement('div');
+  ghost.className = 'workspace-tab-ghost pane-native-drag-image';
+  ghost.textContent = session.title;
+  (dragImageContainer.closest('.app-shell') ?? document.body).appendChild(ghost);
+  event.dataTransfer.setDragImage(ghost, -10, -10);
+  window.setTimeout(() => ghost.remove(), 0);
 }
 
 export function currentPaneDrag(): PaneDragSession | null {

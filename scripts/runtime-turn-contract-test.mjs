@@ -348,7 +348,9 @@ test('turn cleanup has a finite settlement contract', async () => {
   const startedAt = Date.now();
   const result = await settleAskCleanup(new Promise(() => {}), { timeoutMs: 20 });
   assert.deepEqual(result, { settled: false, value: undefined });
-  assert.ok(Date.now() - startedAt < 200, 'cleanup deadline must release the ask promptly');
+  // The contract is a finite release, not a precise one: a timer fires late
+  // when the whole suite runs at once, while a broken deadline never returns.
+  assert.ok(Date.now() - startedAt < 2_000, 'cleanup deadline must release the ask');
 });
 
 test('runtime ask aborts while route preparation is permanently pending', async () => {

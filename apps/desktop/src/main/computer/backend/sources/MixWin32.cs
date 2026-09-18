@@ -393,6 +393,73 @@ public class MixWin32
     [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr h);
     [DllImport("user32.dll")] static extern IntPtr SetFocus(IntPtr h);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    struct SHELLEXECUTEINFO
+    {
+        public int cbSize;
+        public uint fMask;
+        public IntPtr hwnd;
+        public string lpVerb;
+        public string lpFile;
+        public string lpParameters;
+        public string lpDirectory;
+        public int nShow;
+        public IntPtr hInstApp;
+        public IntPtr lpIDList;
+        public string lpClass;
+        public IntPtr hkeyClass;
+        public uint dwHotKey;
+        public IntPtr hIcon;
+        public IntPtr hProcess;
+    }
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern bool ShellExecuteExW(ref SHELLEXECUTEINFO info);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint GetProcessId(IntPtr process);
+    [ComImport, Guid("2e941141-7f97-4756-ba1d-9decde894a3d"),
+      InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    interface ApplicationActivation
+    {
+        [PreserveSig] int ActivateApplication(
+          [MarshalAs(UnmanagedType.LPWStr)] string appId,
+          [MarshalAs(UnmanagedType.LPWStr)] string arguments,
+          int options,
+          out uint processId);
+    }
+    /// A packaged app cannot be started from its executable path: Windows keeps a
+    /// stub there and hands the real work to the activation broker, so a shell
+    /// launch reports a process that owns no window. Activating the app id returns
+    /// the process that actually hosts it.
+    public static int ActivateAppId(string appId)
+    {
+        const int ACTIVATE_NO_ERROR_UI = 0x2;
+        var manager = (ApplicationActivation)Activator.CreateInstance(
+          Type.GetTypeFromCLSID(new Guid("45BA127D-10A8-46EA-8AB7-56EA9078943C")));
+        uint launched;
+        int code = manager.ActivateApplication(appId, null, ACTIVATE_NO_ERROR_UI, out launched);
+        if (code < 0) Marshal.ThrowExceptionForHR(code);
+        return (int)launched;
+    }
+    /// A launch keeps the user's foreground window: the app is shown without being
+    /// activated, the same promise every background input path makes. Returns the
+    /// launched process id, or 0 when the shell reports no process.
+    public static int LaunchWithoutActivation(string target)
+    {
+        const uint SEE_MASK_NOCLOSEPROCESS = 0x00000040;
+        const uint SEE_MASK_FLAG_NO_UI = 0x00000400;
+        const int SW_SHOWNOACTIVATE = 4;
+        var request = new SHELLEXECUTEINFO();
+        request.cbSize = Marshal.SizeOf(typeof(SHELLEXECUTEINFO));
+        request.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+        request.lpFile = target;
+        request.nShow = SW_SHOWNOACTIVATE;
+        if (!ShellExecuteExW(ref request))
+        {
+            throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+        }
+        if (request.hProcess == IntPtr.Zero) return 0;
+        try { return (int)GetProcessId(request.hProcess); }
+        finally { CloseHandle(request.hProcess); }
+    }
     [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hwnd, int x, int y, int w, int height, bool repaint);
     [DllImport("user32.dll", SetLastError = true)] static extern bool SystemParametersInfo(uint action, uint param, IntPtr value, uint winIni);
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
@@ -865,6 +932,13 @@ public class MixWin32
         SendMessageChecked(h, 0x0010, UIntPtr.Zero, IntPtr.Zero);
         return true;
     }
+    [DllImport("user32.dll")] static extern bool IsHungAppWindow(IntPtr hwnd);
+    /// A window that still answers messages can be asked to close and save; only a
+    /// window that stopped answering has nothing left to ask.
+    public static bool IsWindowResponding(IntPtr h)
+    {
+        return IsWindowHandle(h) && !IsHungAppWindow(h);
+    }
     public static IntPtr[] ChildHandles(IntPtr parent)
     {
         List<IntPtr> result = new List<IntPtr>();
@@ -1061,9 +1135,19 @@ public class MixWin32
         uint flags = PointerModifiers(modifiers);
         string action = (kind ?? "").ToLowerInvariant();
         if (action != "move" && action != "right" && action != "middle"
-          && action != "click" && action != "double" && action != "triple")
+          && action != "click" && action != "double" && action != "triple"
+          && action != "press" && action != "release")
         {
             throw new InvalidOperationException("background_unsupported|unknown background pointer action: " + kind);
+        }
+        // The message target is often a renderer child whose own class says
+        // nothing about the host, so the top-level window decides too.
+        if ((action == "double" || action == "triple")
+          && (!SupportsBackgroundDoubleClickClass(ClassNameOf(target))
+            || !SupportsBackgroundDoubleClickClass(ClassNameOf(top))))
+        {
+            throw new InvalidOperationException(
+              "background_unsupported|target renderer ignores a posted double-click; use explicit foreground delivery; no input sent");
         }
         SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), point);
         if (action == "move")
@@ -1072,6 +1156,16 @@ public class MixWin32
             return WindowId(target);
         }
         AnnounceBackgroundTarget(screenX, screenY);
+        if (action == "press" || action == "release")
+        {
+            // A held button outlives this command, so its paired release belongs to
+            // the session's cleanup instead of the release guard used above.
+            bool pressing = action == "press";
+            SendMessageChecked(target, pressing ? WM_LBUTTONDOWN : WM_LBUTTONUP,
+              new UIntPtr(pressing ? (flags | MK_LBUTTON) : flags), point);
+            ReportPointer(screenX, screenY, false, pressing ? "prepare" : "release");
+            return WindowId(target);
+        }
         if (action == "right")
         {
             MouseClick(target, point, flags, WM_RBUTTONDOWN, WM_RBUTTONUP, MK_RBUTTON);
@@ -1096,6 +1190,49 @@ public class MixWin32
             MouseClick(target, point, flags, WM_LBUTTONDOWN, WM_LBUTTONUP, MK_LBUTTON);
         }
         ReportPointer(screenX, screenY, false, "release");
+        return WindowId(target);
+    }
+    /// A gesture that is not a straight line (a signature, a lasso, a slider that
+    /// follows a curve) is one press with several waypoints, so the path is the
+    /// general form and a two-point drag is its shortest case.
+    public static string BackgroundDragPath(IntPtr top, int[] screenX, int[] screenY, string modifiers)
+    {
+        if (screenX == null || screenY == null || screenX.Length != screenY.Length || screenX.Length < 2)
+        {
+            throw new InvalidOperationException("drag path requires at least two points");
+        }
+        IntPtr target = MessageTargetAtPoint(top, screenX[0], screenY[0]);
+        for (int index = 1; index < screenX.Length; index++) MessageTargetAtPoint(top, screenX[index], screenY[index]);
+        POINT start = ClientPoint(target, screenX[0], screenY[0]);
+        uint flags = PointerModifiers(modifiers);
+        SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags), PointParam(start.x, start.y));
+        AnnounceBackgroundTarget(screenX[0], screenY[0]);
+        POINT last = start;
+        int lastX = screenX[0], lastY = screenY[0];
+        var release = BindBackgroundRelease(target, delegate
+        {
+            SendMessageChecked(target, WM_LBUTTONUP, new UIntPtr(flags), PointParam(last.x, last.y));
+            ReportPointer(lastX, lastY, false);
+        });
+        WithBackgroundRelease(
+          delegate { SendMessageChecked(target, WM_LBUTTONDOWN, new UIntPtr(flags | MK_LBUTTON), PointParam(start.x, start.y)); },
+          delegate
+          {
+              ReportPointer(screenX[0], screenY[0], true);
+              for (int leg = 1; leg < screenX.Length; leg++)
+              {
+                  int fromX = screenX[leg - 1], fromY = screenY[leg - 1];
+                  for (int step = 1; step <= 12; step++)
+                  {
+                      lastX = fromX + (screenX[leg] - fromX) * step / 12;
+                      lastY = fromY + (screenY[leg] - fromY) * step / 12;
+                      last = ClientPoint(target, lastX, lastY);
+                      SendMessageChecked(target, WM_MOUSEMOVE, new UIntPtr(flags | MK_LBUTTON), PointParam(last.x, last.y));
+                      ReportPointer(lastX, lastY, true);
+                      System.Threading.Thread.Sleep(20);
+                  }
+              }
+          }, release);
         return WindowId(target);
     }
     public static string BackgroundDrag(
@@ -1158,6 +1295,25 @@ public class MixWin32
           && !String.Equals(name, "Microsoft.UI.Content.DesktopChildSiteBridge", StringComparison.OrdinalIgnoreCase)
           && !String.Equals(name, "Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase)
           && !(name ?? "").StartsWith("Chrome_WidgetWin_", StringComparison.OrdinalIgnoreCase);
+    }
+    /// A Chromium renderer rebuilds its own click count from the events its
+    /// input thread accepts, so a delivered double-click message arrives as two
+    /// ordinary clicks and the gesture never happens. A route that cannot land
+    /// must refuse before delivery rather than report input it did not make.
+    static bool IsChromiumClass(string name)
+    {
+        return String.Equals(name, "Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase)
+          || (name ?? "").StartsWith("Chrome_WidgetWin_", StringComparison.OrdinalIgnoreCase);
+    }
+    public static bool SupportsBackgroundDoubleClickClass(string name)
+    {
+        return !IsChromiumClass(name);
+    }
+    /// A browser or Electron tab can echo an accessibility value write its renderer
+    /// never applied, so a value read back there proves nothing about the document.
+    public static bool IsWebContentHost(IntPtr window)
+    {
+        return IsChromiumClass(ClassNameOf(window));
     }
     public static void ValidateBackgroundInput(IntPtr top, IntPtr preferred, string action, string keys)
     {
@@ -1606,6 +1762,44 @@ public class MixWin32
           || (hit != target && !IsContainedSameProcess(hit, target)))
         {
             throw new InvalidOperationException("target_mismatch|drag target changed; observe fresh state before retrying");
+        }
+    }
+    /// The foreground twin of BackgroundDragPath: one physical press that travels
+    /// through every waypoint, checking the target still owns each one.
+    public static void DragPath(int[] x, int[] y, IntPtr target)
+    {
+        if (x == null || y == null || x.Length != y.Length || x.Length < 2)
+        {
+            throw new InvalidOperationException("drag path requires at least two points");
+        }
+        for (int index = 0; index < x.Length; index++) AssertDragTarget(target, x[index], y[index]);
+        GlideCursor(target, x[0], y[0]); System.Threading.Thread.Sleep(60);
+        AssertDragTarget(target, x[0], y[0]);
+        mouse_event(LDOWN, 0, 0, 0, IntPtr.Zero);
+        try
+        {
+            ReportPointer(x[0], y[0], true);
+            System.Threading.Thread.Sleep(150);
+            for (int leg = 1; leg < x.Length; leg++)
+            {
+                int fromX = x[leg - 1], fromY = y[leg - 1];
+                for (int step = 1; step <= 12; step++)
+                {
+                    int pointX = fromX + (x[leg] - fromX) * step / 12;
+                    int pointY = fromY + (y[leg] - fromY) * step / 12;
+                    AssertDragTarget(target, pointX, pointY);
+                    SetCursorPos(pointX, pointY);
+                    ReportPointer(pointX, pointY, true);
+                    System.Threading.Thread.Sleep(20);
+                    AssertCursorPosition(pointX, pointY);
+                }
+            }
+            System.Threading.Thread.Sleep(80);
+            AssertDragTarget(target, x[x.Length - 1], y[y.Length - 1]);
+        }
+        finally
+        {
+            mouse_event(LUP, 0, 0, 0, IntPtr.Zero);
         }
     }
     public static void Drag(int x1, int y1, int x2, int y2, IntPtr target)

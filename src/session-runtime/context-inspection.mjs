@@ -4,6 +4,7 @@ import {
   contextMessagesSignature,
   estimateMessageTokens,
   estimateToolSchemaTokens,
+  messageAttachmentBreakdown,
   reminderSectionBucket,
   splitMarkdownSections,
   stripSystemReminder,
@@ -12,6 +13,7 @@ import {
 import { estimateTokens } from '../runtime/agent/orchestrator/session/token-estimate.mjs';
 import { latestSkillBodies } from '../runtime/agent/orchestrator/context/skill-state.mjs';
 import {
+  classifySyntheticUserMessage,
   SYNTHETIC_USER_ENVELOPE_TAG,
   SYNTHETIC_USER_KINDS,
 } from '../runtime/agent/orchestrator/session/synthetic-user-envelope.mjs';
@@ -46,14 +48,63 @@ const SKILL_SECTION_LABELS = new Map([
   ['available-skills', 'Available skills'],
 ]);
 
-function runtimeAuthored(text) {
-  return text.trimStart().startsWith('<system-reminder>') || RUNTIME_CONTROL_OPEN.test(text);
+function runtimeAuthored(message, text) {
+  if (!text.trim()) return false;
+  if (text.trimStart().startsWith('<system-reminder>') || RUNTIME_CONTROL_OPEN.test(text)) return true;
+  // The envelope exists only on the provider-bound copy; the transcript this
+  // inspector reads is the STORED one, where an async task notification or a
+  // recovery row is a bare role:'user' string and was counted as the person's
+  // own words (user: 이건뭐지 잘못된건가). Ask the same classifier the wire
+  // projection uses, so both agree with or without the envelope.
+  return classifySyntheticUserMessage(message) === SYNTHETIC_USER_KINDS.RUNTIME_CONTROL;
+}
+
+// Prompt-head manifests arrive as XML blocks with no markdown heading, so the
+// section split glued each one onto whatever ran before it and it read as a
+// nameless slice of the system prompt (user: available-deferred-tools도 애매하게
+// 지금 따로분류되어있고). Carve them out first and give each its own name.
+const NAMED_PROMPT_BLOCKS = [
+  { tag: 'available-deferred-tools', label: 'Deferred tool list' },
+  { tag: 'mcp-instructions', label: 'MCP instructions' },
+];
+const ATTACHMENT_LABEL_LIMIT = 3;
+
+function markdownSections(text) {
+  return splitMarkdownSections(text).map((section) => ({ text: section, label: '' }));
+}
+
+function promptSections(text) {
+  const named = [];
+  let rest = String(text || '');
+  for (const block of NAMED_PROMPT_BLOCKS) {
+    rest = rest.replace(new RegExp(`<${block.tag}>[\\s\\S]*?</${block.tag}>`, 'gi'), (match) => {
+      named.push({ text: match, label: block.label });
+      return '';
+    });
+  }
+  return [...markdownSections(rest), ...named];
 }
 
 function reminderSections(text) {
-  return splitMarkdownSections(
+  return markdownSections(
     stripSystemReminder(text.replace(RUNTIME_CONTROL_OPEN, '').replace(RUNTIME_CONTROL_CLOSE, ''))
   );
+}
+
+// An attachment row names what it carries — image dimensions, document types —
+// and stops before the label itself becomes the widest thing in the list.
+function attachmentLabel(items) {
+  const shown = items.slice(0, ATTACHMENT_LABEL_LIMIT).map((item) => item.label || item.kind);
+  if (items.length > ATTACHMENT_LABEL_LIMIT) shown.push(`+${items.length - ATTACHMENT_LABEL_LIMIT}`);
+  return label(shown.join(' · '));
+}
+
+// One line per attachment: what it is, what the wire said about it, and the
+// allowance it costs. Never "image image 2000".
+function attachmentPreview(items) {
+  return items
+    .map((item) => [item.kind, item.label, `≈${item.tokens.toLocaleString()}`].filter(Boolean).join(' · '))
+    .join('\n');
 }
 
 function terminalText(value) {
@@ -174,33 +225,48 @@ export function inspectContext(
   const callNames = toolCallNames(messages);
   // Ordinals count turns per role, not transcript positions: an assistant row
   // reads "Assistant 3" whether or not reminders and tool results sit between
-  // it and "Assistant 2". Tool results are not turns of their own — they are
-  // the answer half of the assistant turn that issued the call, so they fold
-  // into that row and count toward it.
+  // it and "Assistant 2". Tool results are numbered per tool instead, so one
+  // tool's whole cost reads off a single group.
   const ordinals = new Map();
   let openTurn = null;
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
-    const tokens = estimateMessageTokens(message);
+    // An attachment is priced on its pixels or its bytes, not on the text it
+    // travels with, so it leaves the carrier row and becomes its own. The two
+    // halves still sum to what the message costs.
+    const attachments = messageAttachmentBreakdown(message);
+    const tokens = estimateMessageTokens(message) - attachments.tokens;
+    const pushAttachment = (role = '', ordinal = 0, name = '') => {
+      if (!attachments.tokens) return;
+      drafts.push({
+        id: `message:${index}:attachment`, category: 'attachments', group: role || 'instruction',
+        label: attachmentLabel(attachments.items), tokens: attachments.tokens, kind: 'attachment',
+        messageIndex: index, ...(role ? { role } : {}), ...(ordinal ? { ordinal } : {}), ...(name ? { name } : {}),
+        preview: () => attachmentPreview(attachments.items),
+      });
+    };
     const skill = latestSkillBodies([message])[0];
     const text = typeof message.content === 'string' ? message.content : '';
-    const reminder = message.role === 'user' && runtimeAuthored(text);
+    const reminder = message.role === 'user' && runtimeAuthored(message, text);
     const sections = reminder
       ? reminderSections(text)
-      : message.role === 'system' ? splitMarkdownSections(text) : [];
+      : message.role === 'system' ? promptSections(text) : [];
     if (sections.length) {
-      const shares = contextShares(sections.map(estimateTokens), tokens);
+      const shares = contextShares(sections.map((section) => estimateTokens(section.text)), tokens);
       sections.forEach((section, sectionIndex) => {
-        const heading = section.match(/^#\s+([^\n]+)/)?.[1] || (reminder ? 'System reminder' : 'System prompt');
-        const bucket = reminderSectionBucket(section);
+        const heading = section.text.match(/^#\s+([^\n]+)/)?.[1] || (reminder ? 'System reminder' : 'System prompt');
+        const bucket = reminderSectionBucket(section.text);
         const skillLabel = SKILL_SECTION_LABELS.get(heading.trim().toLowerCase());
+        // A reminder is the system speaking inside a user-role row: it belongs
+        // to the system messages, marked by its own group.
         const category = bucket === 'memory' ? 'memory' : skillLabel ? 'skills' : 'system';
         drafts.push({
           id: `message:${index}:section:${sectionIndex}`, category, group: reminder ? 'reminder' : 'instruction',
-          label: label(skillLabel || heading), tokens: shares[sectionIndex], kind: 'instruction', messageIndex: index,
-          preview: () => section,
+          label: label(section.label || skillLabel || heading), tokens: shares[sectionIndex], kind: 'instruction',
+          messageIndex: index, preview: () => section.text,
         });
       });
+      pushAttachment();
       continue;
     }
     if (skill) {
@@ -208,19 +274,27 @@ export function inspectContext(
         id: `message:${index}`, category: 'skills', group: 'instruction', label: label(skill.name),
         tokens, kind: 'instruction', messageIndex: index, preview: () => messagePreview(message),
       });
+      pushAttachment();
       continue;
     }
     const role = String(message.role || 'message');
-    if (role === 'tool' && openTurn) {
-      const toolName = callNames.get(String(message.toolCallId || '')) || (message.name ? String(message.name) : '');
-      openTurn.tokens += tokens;
-      openTurn.results.push({ index, name: toolName, tokens, message });
-      // The turn's coverage is the last message it spans, so calibration
-      // treats a turn with one uncovered tool result as appended, not measured.
-      openTurn.messageIndex = index;
+    // A tool result answers the turn that called it, but its size is the
+    // tool's doing, not the model's. It rides as its own row grouped under the
+    // producing tool, so the group head reads as that tool's whole share.
+    if (role === 'tool') {
+      const toolName = label(callNames.get(String(message.toolCallId || '')) || message.name || 'tool');
+      const ordinal = (ordinals.get(`tool:${toolName}`) || 0) + 1;
+      ordinals.set(`tool:${toolName}`, ordinal);
+      drafts.push({
+        id: `message:${index}`, category: 'toolResults', group: toolName, name: toolName, ordinal,
+        label: label(`${toolName} · ${ordinal}`), tokens, kind: 'toolResult', messageIndex: index,
+        preview: () => messagePreview(message),
+      });
+      if (openTurn) openTurn.results.push({ name: toolName, tokens });
+      pushAttachment('tool', ordinal, toolName);
       continue;
     }
-    if (role !== 'tool') openTurn = null;
+    openTurn = null;
     const summary = role === 'user' && text.startsWith(SUMMARY_PREFIX);
     const group = summary ? 'summary' : role;
     const ordinal = (ordinals.get(group) || 0) + 1;
@@ -228,25 +302,21 @@ export function inspectContext(
     const name = message.name ? String(message.name) : '';
     const results = [];
     const draft = {
-      id: `message:${index}`, category: role === 'system' ? 'system' : 'messages', group,
+      id: `message:${index}`, category: role === 'system' ? 'system' : role === 'user' ? 'user' : 'assistant', group,
       label: label(`${role} · ${ordinal}${name ? ` · ${name}` : ''}`),
       role, ordinal, ...(name ? { name: label(name) } : {}),
       tokens, kind: 'message', messageIndex: index, results,
-      preview: () => [
-        messagePreview(message),
-        ...results.map((result) => `── ${result.name || 'tool'} ──\n${messagePreview(result.message)}`),
-      ].filter(Boolean).join('\n\n'),
+      preview: () => messagePreview(message),
     };
     drafts.push(draft);
+    pushAttachment(role, ordinal, name ? label(name) : '');
     if (role === 'assistant') openTurn = draft;
   }
-  // Tool results ride out as names + sizes only; the messages themselves stay
-  // behind the preview boundary like every other payload.
+  // The turn keeps a name-only trace of the tools it called, so the pair still
+  // reads as one turn while the sizes live on the tool rows themselves.
   for (const draft of drafts) {
     if (!draft.results) continue;
-    if (draft.results.length) {
-      draft.toolResults = draft.results.map(({ name, tokens }) => ({ name: label(name || 'tool'), tokens }));
-    }
+    if (draft.results.length) draft.toolResults = draft.results.map(({ name, tokens }) => ({ name, tokens }));
     delete draft.results;
   }
   const nativeCount = providerNativeToolPrefixCount(tools);

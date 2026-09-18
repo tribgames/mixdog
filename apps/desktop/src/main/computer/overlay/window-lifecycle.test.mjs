@@ -13,8 +13,13 @@ class WindowFixture extends EventEmitter {
     super();
     windows.push(this);
     this.webContents = Object.assign(new EventEmitter(), {
-      ipc: { handle: (_channel, handler) => { this.control = handler; } },
-      mainFrame: {}, setWindowOpenHandler() {},
+      ipc: {
+        handle: (_channel, handler) => {
+          this.control = handler;
+        },
+      },
+      mainFrame: {},
+      setWindowOpenHandler() {},
       executeJavaScript: async () => {
         if (fault === 'script') throw new Error('fixture script failure');
       },
@@ -25,21 +30,46 @@ class WindowFixture extends EventEmitter {
     handle.writeBigUInt64LE(BigInt(windows.indexOf(this) + 1));
     return handle;
   }
-  setTitle() {} setAlwaysOnTop() {} setContentProtection() {} setVisibleOnAllWorkspaces() {}
+  setTitle() {}
+  setAlwaysOnTop() {}
+  setContentProtection() {}
+  setVisibleOnAllWorkspaces() {}
   async loadURL() {
     if (fault === 'load') throw new Error('fixture load failure');
-    if (fault === 'load-hang') await new Promise(resolve => { this.finishLoading = resolve; });
+    if (fault === 'load-hang')
+      await new Promise((resolve) => {
+        this.finishLoading = resolve;
+      });
   }
-  isDestroyed() { return this.destroyed === true; }
-  destroy() { this.destroyed = true; this.emit('closed'); }
-  isVisible() { return this.visible === true; }
-  showInactive() { this.visible = true; }
-  hide() { this.visible = false; }
+  isDestroyed() {
+    return this.destroyed === true;
+  }
+  destroy() {
+    this.destroyed = true;
+    this.emit('closed');
+  }
+  isVisible() {
+    return this.visible === true;
+  }
+  showInactive() {
+    this.visible = true;
+  }
+  hide() {
+    this.visible = false;
+  }
   setBounds() {}
 }
 globalThis.overlayLifecycleElectron = {
+  // Loaded as ESM, so the overlay resolves its preload from the app path.
+  app: { getAppPath: () => process.cwd() },
   BrowserWindow: WindowFixture,
-  globalShortcut: { register: (_key, callback) => { stopShortcut = callback; return true; }, unregister() {} },
+  globalShortcut: {
+    register: (_key, callback) => {
+      stopShortcut = callback;
+      return true;
+    },
+    unregister() {},
+  },
   screen: Object.assign(new EventEmitter(), {
     getAllDisplays: () => [{ id: 1, workArea: { x: 0, y: 0, width: 1920, height: 1080 } }],
   }),
@@ -47,21 +77,32 @@ globalThis.overlayLifecycleElectron = {
 registerHooks({
   resolve(specifier, context, next) {
     return specifier === 'electron'
-      ? { url: 'data:text/javascript,export const {BrowserWindow,screen,globalShortcut}=globalThis.overlayLifecycleElectron;', shortCircuit: true }
+      ? {
+          url: 'data:text/javascript,export const {app,BrowserWindow,screen,globalShortcut}=globalThis.overlayLifecycleElectron;',
+          shortCircuit: true,
+        }
       : next(specifier, context);
   },
 });
 const { createComputerUseOverlay } = await import('./index.ts');
 const { computerUseCoordinator: coordinator } = await import('../session/coordinator.ts');
-const settle = () => new Promise(resolve => setImmediate(resolve));
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('Pause retains the task and its controls; Resume continues it and emergency Stop remains separate', async () => {
   fault = '';
   const start = windows.length;
-  let resumed = 0, paused = 0, stopped = 0;
+  let resumed = 0,
+    paused = 0,
+    stopped = 0;
   const overlay = createComputerUseOverlay({
-    resume: async generation => { resumed++; coordinator.resumeAfterUserTakeover(generation); },
-    pause: async () => { paused++; coordinator.pauseForUser('user_pause'); },
+    resume: async (generation) => {
+      resumed++;
+      coordinator.resumeAfterUserTakeover(generation);
+    },
+    pause: async () => {
+      paused++;
+      coordinator.pauseForUser('user_pause');
+    },
     stop: async () => {
       stopped++;
       coordinator.cancelSession('toggle-fixture');
@@ -72,9 +113,14 @@ test('Pause retains the task and its controls; Resume continues it and emergency
     coordinator.beginCommand({ sessionId: 'toggle-fixture', action: 'capture', mode: 'background' });
     await settle();
     const window = windows[start];
-    const invoke = (action, generation) => window.control({
-      sender: window.webContents, senderFrame: window.webContents.mainFrame,
-    }, { action, generation });
+    const invoke = (action, generation) =>
+      window.control(
+        {
+          sender: window.webContents,
+          senderFrame: window.webContents.mainFrame,
+        },
+        { action, generation }
+      );
     for (const action of ['dismiss', 'stop']) await assert.rejects(invoke(action, 0), /Invalid overlay request/);
     assert.equal((await invoke('pause', coordinator.snapshot().takeoverGeneration)).accepted, true);
     assert.equal(paused, 1);
@@ -91,7 +137,11 @@ test('Pause retains the task and its controls; Resume continues it and emergency
     assert.equal(resumed, 1);
     assert.equal(coordinator.snapshot().userControlActive, false);
     assert.equal(stopped, 0);
-    assert.equal((await invoke('pause', generation - 1)).accepted, true, 'a stale Pause may block input, never release it');
+    assert.equal(
+      (await invoke('pause', generation - 1)).accepted,
+      true,
+      'a stale Pause may block input, never release it'
+    );
     stopShortcut();
     await settle();
     assert.equal(stopped, 1, 'only emergency Stop ends the task');
@@ -121,7 +171,7 @@ for (const stage of ['load', 'script']) {
       overlay.dispose();
       coordinator.reset();
     }
-    assert.ok(windows.slice(start).every(window => window.isDestroyed()));
+    assert.ok(windows.slice(start).every((window) => window.isDestroyed()));
   });
 }
 
@@ -129,7 +179,8 @@ test('an unresponsive control window is retired and its replacement waits for ex
   fault = '';
   const start = windows.length;
   const overlay = createComputerUseOverlay({
-    stop: async () => {}, resume: async generation => coordinator.resumeAfterUserTakeover(generation),
+    stop: async () => {},
+    resume: async (generation) => coordinator.resumeAfterUserTakeover(generation),
     pause: async () => coordinator.pauseForUser('user_pause'),
   });
   try {
@@ -152,9 +203,13 @@ test('an unresponsive control window is retired and its replacement waits for ex
     await settle();
     assert.equal(windows.length, start + 2, 'late events from the retired renderer must not retire its replacement');
     assert.throws(() => coordinator.assertAutomationAllowed());
-    const resumed = await replacement.control({
-      sender: replacement.webContents, senderFrame: replacement.webContents.mainFrame,
-    }, { action: 'resume', generation: coordinator.snapshot().takeoverGeneration });
+    const resumed = await replacement.control(
+      {
+        sender: replacement.webContents,
+        senderFrame: replacement.webContents.mainFrame,
+      },
+      { action: 'resume', generation: coordinator.snapshot().takeoverGeneration }
+    );
     assert.equal(resumed.accepted, true);
     assert.equal(replacement.isVisible(), true);
     assert.equal(coordinator.snapshot().userControlActive, false);
@@ -168,7 +223,8 @@ test('a hung initial load does not block replacement or resurrect the retired wi
   fault = 'load-hang';
   const start = windows.length;
   const overlay = createComputerUseOverlay({
-    stop: async () => {}, resume: async () => {},
+    stop: async () => {},
+    resume: async () => {},
     pause: async () => coordinator.pauseForUser('user_pause'),
   });
   try {
@@ -204,7 +260,10 @@ test('repeated unresponsive renderers are removed without an automatic restart l
   const start = windows.length;
   let stopped = 0;
   const overlay = createComputerUseOverlay({
-    stop: async () => { stopped++; }, resume: async () => {},
+    stop: async () => {
+      stopped++;
+    },
+    resume: async () => {},
     pause: async () => coordinator.pauseForUser('user_pause'),
   });
   try {
@@ -217,7 +276,7 @@ test('repeated unresponsive renderers are removed without an automatic restart l
     await settle();
     await settle();
     assert.equal(windows.length, start + 2);
-    assert.ok(windows.slice(start).every(window => window.isDestroyed()));
+    assert.ok(windows.slice(start).every((window) => window.isDestroyed()));
     assert.equal(coordinator.snapshot().userControlActive, true);
     assert.throws(() => coordinator.assertAutomationAllowed());
     stopShortcut();

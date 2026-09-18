@@ -203,6 +203,55 @@ test('completed Goal stays hidden while its user-input archive is in flight', as
   }
 });
 
+for (const status of ['complete', 'stopped']) {
+  test(`turn boundaries cannot revive a retired ${status} Goal while its archive is in flight`, async () => {
+    const goal = { id: `goal-turn-${status}`, status, objective: 'Retired work' };
+    const state = { busy: false, commandBusy: false, sessionId: `sess_goal_turn_${status}`, goal };
+    let runtimeGoal = goal;
+    let resolveArchive;
+    const archive = new Promise((resolve) => {
+      resolveArchive = resolve;
+    });
+    const controller = createGoalContinuation({
+      runtime: {
+        id: state.sessionId,
+        goalStatus: () => runtimeGoal,
+        // Until the archive write lands the runtime still holds the finished
+        // record, and both turn boundaries hand it straight back.
+        goalTurnStarted: async () => runtimeGoal,
+        goalTurnSettled: async () => runtimeGoal,
+        goalContinuation: () => ({ run: false, reason: status, goal: runtimeGoal }),
+        archiveCompletedGoalOnUserInput: () => archive,
+        onGoalStatusChange: () => () => {},
+      },
+      flags: { disposed: false, pendingSessionReset: false },
+      getState: () => state,
+      set: (patch) => Object.assign(state, patch),
+      getPending: () => [],
+      enqueue: () => true,
+    });
+    try {
+      controller.archiveCompletedGoalOnUserInput();
+      assert.equal(state.goal, null);
+
+      await controller.onGoalTurnStarted();
+      assert.equal(state.goal, null, 'a starting turn must not republish retired chrome');
+      await controller.onGoalTurnSettled({ status: 'done' });
+      assert.equal(state.goal, null, 'a settled turn must not republish retired chrome');
+      assert.equal(controller.shouldRunGoalContinuation({}), false);
+      assert.equal(state.goal, null, 'a continuation check must not republish retired chrome');
+
+      runtimeGoal = null;
+      resolveArchive(null);
+      await archive;
+      await Promise.resolve();
+      assert.equal(state.goal, null);
+    } finally {
+      controller.disposeGoalContinuation();
+    }
+  });
+}
+
 test('failed completed Goal archive restores the persisted Goal snapshot', async () => {
   const goal = { id: 'goal-restore', status: 'complete', objective: 'Restore me' };
   const state = {

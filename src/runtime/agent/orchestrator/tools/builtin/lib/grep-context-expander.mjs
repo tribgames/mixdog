@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from 'node:path';
 import { readSourceWindows } from '../read-source-windows.mjs';
 
-import { normalizeOutputPath } from '../path-utils.mjs';
+import { GREP_AUTO_CONTEXT_AFTER, GREP_AUTO_CONTEXT_BEFORE, normalizeOutputPath } from '../path-utils.mjs';
 import { splitGrepLineNumberOnlyPrefix, splitGrepLinePrefix } from '../grep-formatting.mjs';
 import { relativePathPrefix } from '../search-path-diagnostics.mjs';
 import { GREP_OUTPUT_MAX_BYTES } from '../tool-output-limit.mjs';
@@ -25,13 +25,43 @@ export function _grepContextCharBudget(options = {}) {
   const configured = Number(process.env.MIXDOG_GREP_CONTEXT_CHAR_BUDGET);
   return Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : GREP_CONTEXT_CHAR_BUDGET_DEFAULT;
 }
-const GREP_FOCUSED_CONTEXT_RADIUS = 12;
+// Focused window for broad searches, asymmetric for the same reason as the
+// automatic one: the lines that finish a match's block sit below it.
+const GREP_FOCUSED_CONTEXT_BEFORE = 4;
+const GREP_FOCUSED_CONTEXT_AFTER = 7;
 const GREP_FOCUSED_RAW_BLOCKS = 3;
 // Anchors must stay usable as evidence without a follow-up read: keep the
 // complete match line and only cut pathological long lines (minified files).
 // Mid-line ellipsis below ~100 chars measurably pushed models into re-read
 // verification loops (tool-budget bench, 20260805).
 const GREP_COMPACT_ANCHOR_CONTENT_MAX = 400;
+
+// An explicit `context` is a radius the caller asked for: honour it exactly
+// and symmetrically. It used to be widened to the automatic window, so a
+// deliberate `context:3` still rendered a 25-line block — 78.5% of observed
+// grep calls carry an explicit context, at a median of 3, and every one of
+// them paid for the wider window. Only the automatic window leans downward.
+function contextSpan(requestedContext, maxContext) {
+  const requested = Math.max(0, Math.floor(Number(requestedContext) || 0));
+  const auto = Math.max(0, Math.floor(Number(maxContext) || 0));
+  if (requested > 0) return { before: requested, after: requested };
+  return { before: Math.min(auto, GREP_AUTO_CONTEXT_BEFORE), after: Math.min(auto, GREP_AUTO_CONTEXT_AFTER) };
+}
+
+function focusedSpan(span) {
+  return {
+    before: Math.min(span.before, GREP_FOCUSED_CONTEXT_BEFORE),
+    after: Math.min(span.after, GREP_FOCUSED_CONTEXT_AFTER),
+  };
+}
+
+// Under budget pressure give up the wider side first, so the window keeps its
+// downward lean instead of collapsing to a symmetric sliver.
+function shrinkSpan(span) {
+  return span.after > span.before
+    ? { before: span.before, after: span.after - 1 }
+    : { before: Math.max(0, span.before - 1), after: span.after };
+}
 
 function parseAnchor(line, { workDir, rgSpawnCwd, grepResolvedPath, searchPath, outputMode, filenameOmitted }) {
   if (filenameOmitted) {
@@ -255,17 +285,17 @@ function mergeIntervals(intervals) {
   return merged;
 }
 
-async function readFileWindows(entry, radius, signal) {
+async function readFileWindows(entry, span, signal) {
   const intervals = mergeIntervals(
     entry.anchors.map((anchor) => ({
-      start: Math.max(1, anchor.lineNo - radius),
-      end: anchor.lineNo + radius,
+      start: Math.max(1, anchor.lineNo - span.before),
+      end: anchor.lineNo + span.after,
     }))
   );
   return readSourceWindows(entry.absolutePath, intervals, { signal });
 }
 
-async function readAnchorSources(anchors, radius, signal) {
+async function readAnchorSources(anchors, span, signal) {
   const groups = new Map();
   for (const anchor of anchors) {
     if (!groups.has(anchor.absolutePath)) {
@@ -286,7 +316,7 @@ async function readAnchorSources(anchors, radius, signal) {
         signal?.throwIfAborted();
         const entry = entries[next++];
         try {
-          entry.lines = await readFileWindows(entry, radius, signal);
+          entry.lines = await readFileWindows(entry, span, signal);
         } catch (err) {
           signal?.throwIfAborted();
           entry.error = err;
@@ -302,10 +332,10 @@ export async function prepareGrepContextSources(lineGroups, options) {
   const selected = lineGroups.flatMap(
     (lines) => selectAnchors(parseAnchors(lines, options), options.headLimit, options.offset).selected
   );
-  return readAnchorSources(selected, Math.max(options.requestedContext || 0, options.maxContext || 0), options.signal);
+  return readAnchorSources(selected, contextSpan(options.requestedContext, options.maxContext), options.signal);
 }
 
-function sourceBlock(anchor, source, radius) {
+function sourceBlock(anchor, source, span) {
   if (!source || source.error || !source.lines.has(anchor.lineNo)) {
     return {
       path: anchor.path,
@@ -318,8 +348,8 @@ function sourceBlock(anchor, source, radius) {
       order: anchor.order ?? Number.MAX_SAFE_INTEGER,
     };
   }
-  let startLine = Math.max(1, anchor.lineNo - radius);
-  let endLine = anchor.lineNo + radius;
+  let startLine = Math.max(1, anchor.lineNo - span.before);
+  let endLine = anchor.lineNo + span.after;
   while (startLine < anchor.lineNo && !source.lines.has(startLine)) startLine++;
   while (endLine > anchor.lineNo && !source.lines.has(endLine)) endLine--;
   const contents = [];
@@ -379,8 +409,8 @@ function pagingNotice({ shown, total, totalKnown, omitted, offset, nextOffset })
     : '';
 }
 
-function renderAtRadius(selected, sources, radius, _budget, notice) {
-  const blocks = mergeBlocks(selected.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), radius)));
+function renderAtRadius(selected, sources, span, _budget, notice) {
+  const blocks = mergeBlocks(selected.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), span)));
   const body = blocks
     .map(
       (block) =>
@@ -410,17 +440,15 @@ function compactAnchorContent(content) {
     : `${normalized.slice(0, GREP_COMPACT_ANCHOR_CONTENT_MAX - 1)}…`;
 }
 
-function anchorRangeHint(anchor, radius) {
-  const startLine = Math.max(1, anchor.lineNo - radius);
-  const endLine = anchor.lineNo + radius;
+function anchorRangeHint(anchor, span) {
+  const startLine = Math.max(1, anchor.lineNo - span.before);
+  const endLine = anchor.lineNo + span.after;
   return `lines ${startLine}-${endLine}`;
 }
 
-function renderFocusedContext(selected, sources, radius, budget, notice) {
+function renderFocusedContext(selected, sources, span, budget, notice) {
   const ordered = [...selected].sort(anchorPriority);
-  const rankedBlocks = mergeBlocks(
-    ordered.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), radius))
-  );
+  const rankedBlocks = mergeBlocks(ordered.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), span)));
   // Budget-adaptive raw window: keep the historical floor of
   // GREP_FOCUSED_RAW_BLOCKS clusters, then keep expanding further
   // high-priority clusters while the raw text still fits the char budget.
@@ -446,7 +474,7 @@ function renderFocusedContext(selected, sources, radius, budget, notice) {
     )
     .join('\n');
   const anchors = compact.length
-    ? `\n# Additional matches\n${compact.map((anchor) => `${anchor.path}:${anchor.lineNo}:${compactAnchorContent(anchor.content)} [${anchorRangeHint(anchor, radius)}]`).join('\n')}`
+    ? `\n# Additional matches\n${compact.map((anchor) => `${anchor.path}:${anchor.lineNo}:${compactAnchorContent(anchor.content)} [${anchorRangeHint(anchor, span)}]`).join('\n')}`
     : '';
   const header = compact.length
     ? `[Top ${rawBlocks.length} of ${ordered.length}; remaining as path:line anchors]`
@@ -508,28 +536,27 @@ export async function expandGrepAnchorContextOutput({
       sourceComplete: true,
     };
   }
-  const requested = Math.max(0, Math.floor(Number(requestedContext) || 0));
-  const target = Math.max(requested, Math.max(0, Math.floor(Number(maxContext) || 0)));
+  const span = contextSpan(requestedContext, maxContext);
   const budget = Math.max(512, Math.floor(Number(charBudget) || GREP_CONTEXT_CHAR_BUDGET_DEFAULT));
   signal?.throwIfAborted();
-  const sources = sharedSources || (await readAnchorSources(window.selected, target, signal));
+  const sources = sharedSources || (await readAnchorSources(window.selected, span, signal));
   let selected = window.selected;
   let shown = window.shown;
   let omitted = window.omitted;
-  let radius = target;
-  let rendered = renderAtRadius(selected, sources, radius, budget, notice);
+  let focused = span;
+  let rendered = renderAtRadius(selected, sources, span, budget, notice);
   // Progressive disclosure: one or two source clusters that fit are most
   // useful as patch-ready raw text. Broad searches instead expand up to three
   // high-priority source clusters and retain the rest as compact path:line
-  // anchors with neutral range metadata. This avoids paying 25 lines for
+  // anchors with neutral range metadata. This avoids paying a full window for
   // every match without nudging the model into unnecessary follow-up reads.
   const sparseRaw = rendered.blockCount <= 2 && rendered.text.length <= budget;
   if (!sparseRaw) {
-    radius = Math.min(target, GREP_FOCUSED_CONTEXT_RADIUS);
-    rendered = renderFocusedContext(selected, sources, radius, budget, notice);
-    while (rendered.text.length > budget && radius > 0) {
-      radius--;
-      rendered = renderFocusedContext(selected, sources, radius, budget, notice);
+    focused = focusedSpan(span);
+    rendered = renderFocusedContext(selected, sources, focused, budget, notice);
+    while (rendered.text.length > budget && (focused.before > 0 || focused.after > 0)) {
+      focused = shrinkSpan(focused);
+      rendered = renderFocusedContext(selected, sources, focused, budget, notice);
     }
   } else {
     return {
@@ -551,7 +578,7 @@ export async function expandGrepAnchorContextOutput({
       offset,
       nextOffset: offset + shown,
     });
-    rendered = renderFocusedContext(selected, sources, radius, budget, notice);
+    rendered = renderFocusedContext(selected, sources, focused, budget, notice);
   }
   return {
     ...rendered,

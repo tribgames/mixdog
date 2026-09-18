@@ -64,6 +64,11 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
       assert.equal(reloaded.snapshot('sess_goal_main'), null);
       assert.equal(reloaded.storedSnapshot('sess_goal_main').status, 'complete');
       assert.equal(reloaded.storedSnapshot('sess_goal_main').archivedAt, clock);
+      // Retired work owns no turn chrome: neither boundary may hand the
+      // archived record back to the session lane, or the capsule the user's
+      // prompt dismissed pops back for a frame (user: 사라질 때 한 번 더 생성).
+      assert.equal(await reloaded.startTurn('sess_goal_main'), null);
+      assert.equal(await reloaded.settleTurn('sess_goal_main', { status: 'done' }), null);
     } finally {
       reloaded.close();
     }

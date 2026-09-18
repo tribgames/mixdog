@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { createBrowserRefSet } from './ref-recovery.ts';
 import { unreportedDownloads } from './reply.ts';
 import { formatSnapshot } from './snapshot-format.ts';
 
@@ -55,6 +56,43 @@ test('an empty filter says what it filtered, and console errors are reported onc
   assert.deepEqual(asked, [3]);
 });
 
+test('a brief reply says when the observation it compares against saw only part of the page', () => {
+  const element = (index, extra = {}) => ({
+    ref: `p1-s1-e${index}`,
+    role: 'link',
+    name: `link ${index}`,
+    tag: 'ax',
+    ...extra,
+  });
+  const whole = Array.from({ length: 6 }, (_value, index) => element(index + 1));
+
+  // The caller's last look was capped at two of six. One of those two changed;
+  // the four it never reported are unseen, not elements this action created.
+  const capped = formatSnapshot(
+    payload({ elements: [element(1), element(2, { states: ['focused'] }), ...whole.slice(2)], totalElements: 6 }),
+    diagnostics(),
+    { briefAgainst: createBrowserRefSet(payload({ elements: whole.slice(0, 2), totalElements: 6 })) }
+  );
+  assert.match(capped, /1 changed element\(s\); 4 not previously reported; 1 unchanged omitted/);
+  assert.match(capped, /previous observation reported only 2 of 6 element\(s\)/);
+  assert.match(capped, /Changed elements[\s\S]*\[p1-s1-e2\] link "link 2" focused/);
+  assert.match(capped, /Not previously reported[\s\S]*\[p1-s1-e3\] link "link 3"/);
+
+  const filtered = formatSnapshot(payload({ elements: whole, totalElements: 6 }), diagnostics(), {
+    briefAgainst: createBrowserRefSet(payload({ elements: whole.slice(0, 2), totalElements: 2, query: 'link' })),
+  });
+  assert.match(filtered, /previous observation reported only 2 of 2 element\(s\) matching "link"/);
+
+  // A complete baseline still reports a plain change without the caveat.
+  const complete = formatSnapshot(
+    payload({ elements: [element(1), element(2, { states: ['focused'] })], totalElements: 2 }),
+    diagnostics(),
+    { briefAgainst: createBrowserRefSet(payload({ elements: whole.slice(0, 2), totalElements: 2 })) }
+  );
+  assert.match(complete, /1 changed or new element\(s\); 1 unchanged omitted/);
+  assert.doesNotMatch(complete, /previous observation reported only/);
+});
+
 test('snapshot header names an error status for the document, never a success', () => {
   const failed = formatSnapshot(
     payload(),
@@ -70,6 +108,57 @@ test('snapshot header names an error status for the document, never a success', 
     })
   );
   assert.doesNotMatch(ok, /^Status:/m);
+});
+
+test('a capped diagnostic list says how much it left out', () => {
+  const text = formatSnapshot(
+    payload(),
+    diagnostics({
+      console: {
+        recentErrors: () => [],
+        newErrors: () => ['one', 'two', 'three'],
+        pendingErrorCount: () => 12,
+      },
+      networkFailures: Array.from({ length: 7 }, (_, index) => `GET https://example.test/${index} — failed`),
+    })
+  );
+  assert.match(text, /New console errors \(3 of 12; call console for the rest\)/);
+  assert.match(text, /Recent network failures \(3 of 7; call network for the rest\)/);
+  const small = formatSnapshot(
+    payload(),
+    diagnostics({
+      console: { recentErrors: () => [], newErrors: () => ['only one'], pendingErrorCount: () => 1 },
+      networkFailures: ['GET https://example.test/x — failed'],
+    })
+  );
+  assert.match(small, /New console errors: only one/);
+  assert.doesNotMatch(small, /of 1;/);
+});
+
+test('a clipped page excerpt says the page holds more', () => {
+  const clipped = formatSnapshot({ ...payload(), text: 'first part of a long page', textClipped: true }, diagnostics());
+  assert.match(clipped, /first 25 chars only — the page holds more/);
+  const whole = formatSnapshot({ ...payload(), text: 'the entire page' }, diagnostics());
+  assert.match(whole, /Visible text \(condensed, untrusted\):/);
+  assert.doesNotMatch(whole, /the page holds more/);
+});
+
+test('snapshot names a PDF document instead of reporting an empty page', () => {
+  const pdf = formatSnapshot(
+    payload(),
+    diagnostics({
+      network: { documentStatus: () => ({ status: 200, mimeType: 'application/pdf' }) },
+    })
+  );
+  assert.match(pdf, /This document is a PDF, which this browser cannot display/);
+  assert.match(pdf, /Read the file from this URL/);
+  const html = formatSnapshot(
+    payload(),
+    diagnostics({
+      network: { documentStatus: () => ({ status: 200, mimeType: 'text/html' }) },
+    })
+  );
+  assert.doesNotMatch(html, /This document is a PDF/);
 });
 
 test('snapshot reports a pending file chooser and how to answer it', () => {

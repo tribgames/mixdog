@@ -20,6 +20,31 @@ function anchorDate(anchor, now) {
   return date;
 }
 
+/** `HH:MM` or `HH:MM:SS` on a 24-hour clock; blank means the whole day. */
+function clockTime(value, label) {
+  if (value == null || value === '') return null;
+  const match = typeof value === 'string' ? /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(value) : null;
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59 || Number(match[3] ?? 0) > 59) {
+    throw new TypeError(`Usage range ${label} must be a HH:MM clock time`);
+  }
+  return {
+    hours: Number(match[1]),
+    minutes: Number(match[2]),
+    seconds: match[3] == null ? null : Number(match[3]),
+    text: match[3] == null ? `${match[1]}:${match[2]}` : `${match[1]}:${match[2]}:${match[3]}`,
+  };
+}
+
+/** A bound names an instant at the precision it was written: a start opens its
+ *  named unit, an end spans that unit whole, so 09:00–18:00 keeps all of 18:00. */
+function clockMs(day, time, edge) {
+  const at = new Date(day);
+  if (edge === 'start') at.setHours(time?.hours ?? 0, time?.minutes ?? 0, time?.seconds ?? 0, 0);
+  else if (!time) at.setHours(23, 59, 59, 999);
+  else at.setHours(time.hours, time.minutes, time.seconds ?? 59, 999);
+  return at.getTime();
+}
+
 function shiftDays(date, count) {
   const shifted = new Date(date);
   shifted.setDate(shifted.getDate() + count);
@@ -45,7 +70,15 @@ function calendarBounds(start, end, now, days) {
  * year groups retained history by year; all remains a legacy API alias.
  * Display and accounting bounds both stop at the end of the selected range.
  */
-export function resolveUsageStatsPeriod({ view = 'hour', anchor, startDay, endDay, now = Date.now() } = {}) {
+export function resolveUsageStatsPeriod({
+  view = 'hour',
+  anchor,
+  startDay,
+  endDay,
+  startTime,
+  endTime,
+  now = Date.now(),
+} = {}) {
   if (!VIEWS.has(view)) throw new TypeError('Unknown usage statistics view');
   if (!Number.isFinite(now) || now <= 0) throw new TypeError('Usage period requires a valid current time');
   const today = usageRollupDayKey(now);
@@ -83,6 +116,8 @@ export function resolveUsageStatsPeriod({ view = 'hour', anchor, startDay, endDa
     if (startDay == null || endDay == null) throw new TypeError('Usage range requires a start and end date');
     const start = anchorDate(startDay, now);
     const end = anchorDate(endDay, now);
+    const from = clockTime(startTime, 'start time');
+    const to = clockTime(endTime, 'end time');
     if (start > end) throw new RangeError('Usage range start must not follow its end');
     if (end > midnight(now)) throw new RangeError('Usage range cannot include future dates');
     const days =
@@ -90,10 +125,23 @@ export function resolveUsageStatsPeriod({ view = 'hour', anchor, startDay, endDa
         Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
         86400000 +
       1;
+    // Clock times narrow the selected dates; without them the range stays the
+    // whole days it names, exactly as before.
+    const fromMs = clockMs(start, from, 'start');
+    const toMs = Math.min(now, clockMs(end, to, 'end'));
+    if (fromMs > now) throw new RangeError('Usage range cannot include future dates');
+    if (fromMs > toMs) throw new RangeError('Usage range start must not follow its end');
     return {
       view,
       anchor: null,
-      ...calendarBounds(start, end, now, days),
+      fromMs,
+      toMs,
+      endMs: toMs,
+      startDay: usageRollupDayKey(fromMs),
+      endDay: usageRollupDayKey(end.getTime()),
+      startTime: from?.text ?? null,
+      endTime: to?.text ?? null,
+      days,
       previousAnchor: null,
       nextAnchor: null,
       isCurrent: endDay === today,

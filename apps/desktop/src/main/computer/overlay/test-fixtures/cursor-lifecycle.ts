@@ -16,7 +16,6 @@ void app
     const overlay = createComputerUseCursorOverlay();
     const target = new BrowserWindow({ show: false, focusable: false, skipTaskbar: true });
     const windowId = `hwnd:0x${BigInt(target.getMediaSourceId().split(':')[1]).toString(16)}`;
-    const userPointer = screen.getCursorScreenPoint();
     const userFocus = BrowserWindow.getFocusedWindow();
     const effectWindows = () => BrowserWindow.getAllWindows().filter((window) => window !== target);
     const rendered = async (effectWindow: BrowserWindow) => {
@@ -28,47 +27,59 @@ void app
     };
     try {
       for (const mode of ['background', 'foreground'] as const) {
-      coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode });
-      assert.equal(await prepareCursorFeedback('fixture', 2000), 'ready');
+        coordinator.beginCommand({ sessionId: 'fixture', action: 'click', mode });
+        assert.equal(await prepareCursorFeedback('fixture', 2000), 'ready');
+        const window = effectWindows()[0];
+        assert.ok(window);
+        assert.equal(window.isVisible(), false, 'preparation and mode changes must not replay old effects');
+        assert.equal(window.isFocusable(), false);
+        for (const display of screen.getAllDisplays()) {
+          target.setBounds({ x: display.workArea.x, y: display.workArea.y, width: 400, height: 300 });
+          target.showInactive();
+          const point = screen.dipToScreenPoint({
+            x: display.workArea.x + 100,
+            y: display.workArea.y + 100,
+          });
+          coordinator.showCursor({
+            sessionId: 'fixture',
+            windowId,
+            action: 'move',
+            mode,
+            effect: 'move',
+            tracking: true,
+            ...point,
+          });
+          const deadline = Date.now() + 2000;
+          while (!window.isVisible() && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          assert.equal(window.isVisible(), true);
+          // Wait for the render started by showCursor to apply this display's bounds.
+          const expected = screen.screenToDipPoint(point);
+          while (Math.abs(window.getBounds().x + CURSOR_HOTSPOT - expected.x) > 1 && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          const bounds = window.getBounds();
+          assert.ok(Math.abs(bounds.x + CURSOR_HOTSPOT - expected.x) <= 1);
+          assert.ok(Math.abs(bounds.y + CURSOR_HOTSPOT - expected.y) <= 1);
+          assert.equal(
+            window.isAlwaysOnTop(),
+            mode === 'foreground',
+            'background feedback must not be globally topmost'
+          );
+          // The user can move their own pointer at any moment, so an unchanged
+          // position cannot be required of a live desktop. What must never
+          // happen is the virtual pointer dragging the real one onto the exact
+          // spot it is drawing.
+          assert.notDeepEqual(
+            screen.getCursorScreenPoint(),
+            expected,
+            'feedback must not move the user pointer onto its target'
+          );
+          assert.equal(BrowserWindow.getFocusedWindow(), userFocus, 'feedback must not take focus');
+        }
+      }
       const window = effectWindows()[0];
-      assert.ok(window);
-      assert.equal(window.isVisible(), false, 'preparation and mode changes must not replay old effects');
-      assert.equal(window.isFocusable(), false);
-      for (const display of screen.getAllDisplays()) {
-        target.setBounds({ x: display.workArea.x, y: display.workArea.y, width: 400, height: 300 });
-        target.showInactive();
-        const point = screen.dipToScreenPoint({
-          x: display.workArea.x + 100,
-          y: display.workArea.y + 100,
-        });
-        coordinator.showCursor({
-          sessionId: 'fixture',
-          windowId,
-          action: 'move',
-          mode,
-          effect: 'move',
-          tracking: true,
-          ...point,
-        });
-        const deadline = Date.now() + 2000;
-        while (!window.isVisible() && Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-        assert.equal(window.isVisible(), true);
-        // Wait for the render started by showCursor to apply this display's bounds.
-        const expected = screen.screenToDipPoint(point);
-        while (Math.abs(window.getBounds().x + CURSOR_HOTSPOT - expected.x) > 1 && Date.now() < deadline) {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-        const bounds = window.getBounds();
-        assert.ok(Math.abs(bounds.x + CURSOR_HOTSPOT - expected.x) <= 1);
-        assert.ok(Math.abs(bounds.y + CURSOR_HOTSPOT - expected.y) <= 1);
-        assert.equal(window.isAlwaysOnTop(), mode === 'foreground', 'background feedback must not be globally topmost');
-        assert.deepEqual(screen.getCursorScreenPoint(), userPointer, 'feedback must not move the user pointer');
-        assert.equal(BrowserWindow.getFocusedWindow(), userFocus, 'feedback must not take focus');
-      }
-      }
-      let window = effectWindows()[0];
       coordinator.beginCommand({ sessionId: 'other', action: 'click', mode: 'background' });
       assert.equal(await prepareCursorFeedback('other', 2000), 'ready');
       coordinator.showCursor({
@@ -115,12 +126,24 @@ void app
       assert.equal(replacement.isVisible(), false, 'a crash must not replay the previous effect');
       coordinator.showCursor({ sessionId: 'next', action: 'move', mode: 'foreground', effect: 'move', x: 300, y: 100 });
       await rendered(replacement);
+      const pointerSample = screen.getCursorScreenPoint();
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const pointerBeforeTakeover = screen.getCursorScreenPoint();
+      // Only a settled pointer can show that takeover left it alone; while the
+      // user physically moves the mouse, its position proves nothing about this code.
+      const pointerSettled = pointerSample.x === pointerBeforeTakeover.x && pointerSample.y === pointerBeforeTakeover.y;
       coordinator.pauseForUser('user_input_active');
       assert.equal(window.isDestroyed(), true, 'user takeover must remove the actual effect window');
       assert.equal(nextWindow.isDestroyed(), true);
       assert.equal(replacement.isDestroyed(), true);
       assert.equal(otherWindow.isDestroyed(), true);
-      assert.deepEqual(screen.getCursorScreenPoint(), userPointer);
+      if (pointerSettled) {
+        assert.deepEqual(
+          screen.getCursorScreenPoint(),
+          pointerBeforeTakeover,
+          'user takeover must not move a settled pointer'
+        );
+      }
       assert.equal(BrowserWindow.getFocusedWindow(), userFocus);
       overlay.dispose();
       assert.equal(await prepareCursorFeedback('fixture'), 'unavailable');

@@ -9,7 +9,7 @@ import { physicalAsarPath } from '../../shared/asar-path.mjs';
 
 export const SCHEMA_VERSION = 1;
 
-export const TEMPLATE_INSPECTOR_VERSION = 3;
+export const TEMPLATE_INSPECTOR_VERSION = 4;
 
 const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 

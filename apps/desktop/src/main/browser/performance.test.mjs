@@ -43,6 +43,21 @@ test('browser performance metrics format durations and heap sizes', () => {
   assert.match(formatted, /JSHeapUsedSize: 2\.00 MB/);
 });
 
+test('metrics report the process memory a page holds beyond its JS heap', () => {
+  const metrics = [
+    { name: 'Nodes', value: 1200 },
+    { name: 'JSHeapUsedSize', value: 8 * 1024 * 1024 },
+  ];
+  const withMemory = formatPerformanceMetrics(metrics, 412.5);
+  assert.match(withMemory, /JSHeapUsedSize: 8\.00 MB/);
+  assert.match(withMemory, /RendererProcessMemory: 412\.50 MB/);
+  // The number belongs to a process, not to one page; say so rather than
+  // letting it read as this page's own footprint.
+  assert.match(withMemory, /shared by this page's process/);
+  // An unavailable reading is omitted instead of being reported as zero.
+  assert.equal(formatPerformanceMetrics(metrics).includes('RendererProcessMemory'), false);
+});
+
 test('performance trace setup ends tracing when reload settlement fails', async () => {
   const guest = { reload() {} };
   const traces = new WeakMap();

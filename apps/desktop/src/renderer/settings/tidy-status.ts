@@ -47,6 +47,11 @@ export async function readTidyInstallStatus(api: PanelContext['api']): Promise<D
   return null;
 }
 
+/** `optional` engines are the ones nothing is waiting on: a host toolchain
+ *  that is simply absent, or a managed engine that downloads on first use.
+ *  The panel folds those away so the list shows what is actually there. */
+export type TidyEngineRowState = 'installed' | 'downloading' | 'failed' | 'pending' | 'optional';
+
 export function engineRowState({
   engine,
   installEngine,
@@ -59,6 +64,7 @@ export function engineRowState({
   tag: SidebarResourceTag | null;
   description: string;
   tone: ExtensionItemTone;
+  state: TidyEngineRowState;
 } {
   // 1. Installed / present engines take precedence over failure states
   const isInstalled =
@@ -84,6 +90,7 @@ export function engineRowState({
       tag: null,
       description: parts.join(' · '),
       tone: 'ok',
+      state: 'installed',
     };
   }
 
@@ -113,6 +120,7 @@ export function engineRowState({
       tag: { label: t('Not installed'), tone: 'muted' },
       description: progressText,
       tone: 'muted',
+      state: 'downloading',
     };
   }
 
@@ -123,6 +131,7 @@ export function engineRowState({
       tag: { label: t('Failed'), tone: 'danger' },
       description: error,
       tone: 'warn',
+      state: 'failed',
     };
   }
 
@@ -135,6 +144,7 @@ export function engineRowState({
         engine.installHint ||
         (engine.languages?.length ? engine.languages.join(', ') : ''),
       tone: 'muted',
+      state: 'optional',
     };
   }
 
@@ -144,6 +154,7 @@ export function engineRowState({
       tag: { label: t('Not detected'), tone: 'muted' },
       description: engine.installHint || (engine.languages?.length ? engine.languages.join(', ') : ''),
       tone: 'muted',
+      state: 'optional',
     };
   }
 
@@ -153,6 +164,7 @@ export function engineRowState({
       tag: { label: t('Not installed'), tone: 'muted' },
       description: engine.languages?.length ? engine.languages.join(', ') : '',
       tone: 'muted',
+      state: 'pending',
     };
   }
 
@@ -161,6 +173,7 @@ export function engineRowState({
     tag: { label: t('On demand'), tone: 'muted' },
     description: engine.languages?.length ? engine.languages.join(', ') : '',
     tone: 'muted',
+    state: 'optional',
   };
 }
 

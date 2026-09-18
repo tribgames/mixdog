@@ -1,4 +1,5 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
+import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
 
 /** Coalesce append, row measurement, and composer resize into one native end.
  * Intermediate core offsets are estimates of different stages of the same
@@ -52,7 +53,20 @@ export function createTranscriptEndPin({
         core._iosDeferredAdjustment = 0;
         core.scrollAdjustments = 0;
         core.scrollOffset = max;
+        // scrollHeight/scrollTop read back AFTER the write forces a synchronous
+        // layout, so the probe only resolves its fields when diagnostics are on.
+        const diagnose = transcriptScrollDiagnosticsEnabled();
+        const before = diagnose ? element.scrollTop : 0;
         if (Math.abs(element.scrollTop - max) >= 1) element.scrollTop = max;
+        if (diagnose) {
+          logTranscriptScroll('end-pin', {
+            from: before,
+            to: element.scrollTop,
+            delta: element.scrollTop - before,
+            total: instance.getTotalSize(),
+            height: element.scrollHeight,
+          });
+        }
         markProgrammaticScroll(element.scrollTop, max);
       });
     },

@@ -16,8 +16,11 @@ import {
 import { isRemoteBrowserRenderer } from './remote-ui-projection';
 
 const MAX_IMAGE_FILE_BYTES = 12_000_000;
-const WEB_IMAGE_MAX_WIDTH = 2_000;
-const WEB_IMAGE_MAX_HEIGHT = 2_000;
+// Matches the runtime's vision ceiling: standard models downscale anything
+// past 1568px on the longest edge, so attaching more pixels than that only
+// inflates the upload and the context estimate.
+const WEB_IMAGE_MAX_WIDTH = 1_568;
+const WEB_IMAGE_MAX_HEIGHT = 1_568;
 const WEB_IMAGE_TARGET_BYTES = 3_750_000;
 // Above this, re-encoding a lossless PNG pays for itself several times over.
 const WEB_IMAGE_PNG_REENCODE_BYTES = 300_000;

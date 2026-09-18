@@ -89,13 +89,13 @@ function fixture(overrides = {}) {
   return { state, execution, active, host, capture, run, requests, bounds };
 }
 
-test('a timed-out provider stays an error while later captures use fresh pixels without repeated worker restarts', async t => {
+test('a timed-out provider stays an error while later captures use fresh pixels without repeated worker restarts', async (t) => {
   let now = 10_000;
   t.mock.method(Date, 'now', () => now);
   let snapshots = 0;
   const failure = 'computer_command_timeout: snapshot exceeded 2500ms';
   const f = fixture({
-    native: request => {
+    native: (request) => {
       if (request.action !== 'snapshot') return;
       snapshots++;
       throw new Error(failure);
@@ -112,7 +112,10 @@ test('a timed-out provider stays an error while later captures use fresh pixels 
     assert.equal(result.payload.foreground_input_ready, true);
   }
   assert.equal(snapshots, 1);
-  await assert.rejects(f.run(() => f.capture.captureComputer({ ...command, mode: 'ax' })), /computer_command_timeout/);
+  await assert.rejects(
+    f.run(() => f.capture.captureComputer({ ...command, mode: 'ax' })),
+    /computer_command_timeout/
+  );
   assert.equal(snapshots, 2, 'explicit semantic inspection is never replaced by cached absence');
   now += 30_001;
   await f.run(() => f.capture.captureComputer(command));
@@ -122,13 +125,21 @@ test('a timed-out provider stays an error while later captures use fresh pixels 
 test('state capture retains lossless source pixels for OCR while keeping the model image compact', async () => {
   const f = fixture();
   Object.assign(f.bounds, {
-    width: 2000, height: 1000, client_width: 2000, client_height: 1000,
+    width: 2000,
+    height: 1000,
+    client_width: 2000,
+    client_height: 1000,
   });
   globalThis.captureFixture.sources = async () => [{ id: 'window:1:0', name: 'fixture', thumbnail: image(2000, 1000) }];
-  const result = await f.run(() => f.capture.captureComputer({
-    action: 'capture', window_id: 'hwnd:0x1', session_id: 'a', mode: 'state',
-  }));
-  const ocr = f.requests.find(request => request.action === 'ocr_image');
+  const result = await f.run(() =>
+    f.capture.captureComputer({
+      action: 'capture',
+      window_id: 'hwnd:0x1',
+      session_id: 'a',
+      mode: 'state',
+    })
+  );
+  const ocr = f.requests.find((request) => request.action === 'ocr_image');
   assert.equal(Buffer.from(ocr.image_base64, 'base64').toString(), 'lossless 2000x1000');
   assert.ok(result.payload.width < 2000);
   assert.equal(result.image.mimeType, 'image/jpeg');
@@ -523,15 +534,20 @@ test('external input during capture disables foreground input, while stable capt
 test('unavailable input observers remain distinguishable from user intervention in usable captures', async () => {
   for (const failed of [false, true]) {
     const f = fixture({
-      native: request => {
+      native: (request) => {
         if (request.action !== 'input_idle_state') return;
         if (failed) throw new Error('input observer probe failed');
         return { ok: true, result: { observer_ready: false, monitor: 'worker-a', sequence: 3 } };
       },
     });
-    const result = await f.run(() => f.capture.captureComputer({
-      action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a',
-    }));
+    const result = await f.run(() =>
+      f.capture.captureComputer({
+        action: 'capture',
+        mode: 'vision',
+        window_id: 'hwnd:0x1',
+        session_id: 'a',
+      })
+    );
     assert.equal(result.payload.ok, true);
     assert.equal(result.payload.foreground_input_ready, false);
     assert.equal(result.payload.foreground_input_reason, 'input_observer_unavailable');
@@ -662,6 +678,37 @@ test('elevated semantic refs are refused before opening UAC', async () => {
     /privileged_worker_ref_unsupported/
   );
   assert.equal(launched, 0);
+});
+
+test('element normalisation keeps the shortcut an app advertises for a control', () => {
+  const { normalizeElementRecords } = createSessionState({ callPowerShell: async () => ({ ok: true }) });
+  // The backend reads AcceleratorKey/AccessKey, but only fields named here survive
+  // the host boundary: a missing name silently drops the evidence.
+  const [element, plain] = normalizeElementRecords([
+    { mark: 1, ref: 's1:e0', role: 'Edit', name: 'address bar', accelerator: 'Ctrl+L', access_key: 'Alt+d' },
+    { mark: 2, ref: 's1:e1', role: 'Button', name: 'plain' },
+  ]);
+  assert.equal(element.accelerator, 'Ctrl+L');
+  assert.equal(element.access_key, 'Alt+d');
+  assert.equal(plain.accelerator, undefined);
+  assert.equal(plain.access_key, undefined);
+});
+
+test('the compact element view keeps the shortcut it was given', async () => {
+  const { frameElements } = await import('./analysis.ts');
+  // Compact output names its fields explicitly, so an unnamed one disappears
+  // even after the host has normalised it.
+  const [withShortcut, without] = frameElements(
+    [
+      { mark: 1, ref: 's1:e0', role: 'Edit', name: 'address bar', accelerator: 'Ctrl+L', access_key: 'Alt+d' },
+      { mark: 2, ref: 's1:e1', role: 'Button', name: 'plain' },
+    ],
+    undefined,
+    true
+  );
+  assert.equal(withShortcut.accelerator, 'Ctrl+L');
+  assert.equal(withShortcut.access_key, 'Alt+d');
+  assert.equal(hasOwnProperty.call(without, 'accelerator'), false);
 });
 
 test('app listing returns process names from the full native window read', async () => {

@@ -3,6 +3,7 @@
 import { createRequire } from 'module';
 import { join } from 'path';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
+import { envFlag } from '../../../../shared/env.mjs';
 import { createRulesSourceCache } from './rules-source-cache.mjs';
 
 // Phase B: Pool B Tier 2 content builder (common rules only).
@@ -114,8 +115,11 @@ export function _buildRouteRoundReminder(route = {}) {
 }
 
 // The matching route's one-line turn reminder (`turn-reminder:`), part of
-// the user turn's trailing <system-reminder> block.
+// the user turn's trailing <system-reminder> block. MIXDOG_TURN_REMINDER=0
+// drops it from new turns; turns already recorded keep the line their
+// transcript stored.
 export function _buildRouteTurnReminder(route = {}) {
+  if (!envFlag('MIXDOG_TURN_REMINDER', true)) return '';
   return buildRouteLine('buildRouteTurnReminderContent', 'route turn reminder', route);
 }
 

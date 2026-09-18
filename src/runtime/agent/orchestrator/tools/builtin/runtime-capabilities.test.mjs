@@ -123,7 +123,7 @@ test('Git startup state preserves the non-repository message', () => {
   }
 });
 
-test('Cwd startup entries list the immediate directory contents with a cap', () => {
+test('Cwd startup entries list directories first, then files, with a cap', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-cwd-entries-'));
   try {
     assert.equal(describeCwdStartupEntries({ cwd: root }), '- Cwd entries at startup: none (empty directory).');
@@ -131,16 +131,50 @@ test('Cwd startup entries list the immediate directory contents with a cap', () 
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'README.md'), 'x\n');
     writeFileSync(join(root, 'app.py'), 'x\n');
-    assert.equal(describeCwdStartupEntries({ cwd: root }), '- Cwd entries at startup: app.py README.md src/');
+    assert.equal(describeCwdStartupEntries({ cwd: root }), '- Cwd entries at startup: src/ app.py README.md');
 
     for (let index = 0; index < 5; index += 1) writeFileSync(join(root, `z${index}.txt`), '');
+    mkdirSync(join(root, 'zz-last-dir'));
     const capped = describeCwdStartupEntries({ cwd: root, limit: 4 });
     assert.match(
       capped,
-      /^- Cwd entries at startup: app\.py README\.md src\/ z0\.txt … \+4 more \(list for the rest\)$/
+      /^- Cwd entries at startup: src\/ zz-last-dir\/ app\.py README\.md … \+5 more \(list for the rest\)$/
     );
 
     assert.equal(describeCwdStartupEntries({ cwd: join(root, 'missing') }), '');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Cwd startup entries drop .git and gitignored entries inside a repository', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-cwd-entries-git-'));
+  try {
+    assert.equal(
+      spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8', windowsHide: true }).status,
+      0
+    );
+    writeFileSync(join(root, '.gitignore'), 'build/\n*.log\n.tmp-*\n');
+    mkdirSync(join(root, 'build'));
+    mkdirSync(join(root, '.tmp-scratch'));
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'debug.log'), '');
+    writeFileSync(join(root, 'package.json'), '{}\n');
+    assert.equal(
+      describeCwdStartupEntries({ cwd: root }),
+      '- Cwd entries at startup: src/ .gitignore package.json'
+    );
+
+    rmSync(join(root, 'src'), { recursive: true, force: true });
+    rmSync(join(root, 'package.json'), { force: true });
+    rmSync(join(root, '.gitignore'), { force: true });
+    writeFileSync(join(root, '.git', 'info', 'exclude'), '*\n');
+    assert.equal(
+      describeCwdStartupEntries({ cwd: root }),
+      '- Cwd entries at startup: none besides gitignored entries.'
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

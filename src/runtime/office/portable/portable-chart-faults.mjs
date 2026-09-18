@@ -1,7 +1,8 @@
 // Chart XML PowerPoint refuses although the schema accepts it. Script generators
 // (pptxgenjs and friends) emit both faults silently; LibreOffice and python-pptx
 // open the result, so only a package scan at finalize catches them.
-import { zipText } from './portable-opc.mjs';
+import { posix } from 'node:path';
+import { partRelationshipPath, relationshipMap, zipText } from './portable-opc.mjs';
 
 const CHART_PART = /^ppt\/charts\/chart(\d+)\.xml$/;
 const STACKED = new Set(['stacked', 'percentStacked']);
@@ -97,6 +98,33 @@ export function chartFaultsInXml(part, xml) {
   return issues;
 }
 
+// A chart keeps its numbers in the workbook the package carries: "Edit Data"
+// opens that part, and a chart without it is a drawing of the series. The file
+// opens and prints, so this is what the reader loses on the next revision, not
+// a fault PowerPoint refuses.
+export function chartDataLinkFaults(part, xml, { relationships = new Map(), hasPart = () => false } = {}) {
+  const cleaned = stripExtLst(String(xml || ''));
+  if (!/<c:ser\b/.test(cleaned)) return [];
+  const id = /<c:externalData\b[^>]*\br:id="([^"]+)"/.exec(cleaned)?.[1];
+  const target = id ? relationships.get(id) : '';
+  const resolved = target ? posix.normalize(posix.join(posix.dirname(part), target)) : '';
+  if (resolved && hasPart(resolved)) return [];
+  const detail = !id
+    ? 'declares no <c:externalData>'
+    : !target
+      ? `names relationship ${id}, which its own relationship part does not define`
+      : `points at ${resolved}, which the package does not contain`;
+  return [
+    {
+      severity: 'warning',
+      code: 'chart_data_unlinked',
+      path: `/${part}`,
+      message: `The chart ${detail}, so Edit Data opens nothing and the series can only be changed by drawing the chart again. Write it with add_chart / set_chart_data, which keeps the workbook in the package.`,
+      source: 'chart-scan',
+    },
+  ];
+}
+
 export async function chartFaultIssues(zip) {
   const parts = Object.keys(zip.files)
     .filter((name) => CHART_PART.test(name))
@@ -104,7 +132,14 @@ export async function chartFaultIssues(zip) {
   const issues = [];
   for (const part of parts) {
     const xml = await zipText(zip, part);
-    if (xml) issues.push(...chartFaultsInXml(part, xml));
+    if (!xml) continue;
+    issues.push(...chartFaultsInXml(part, xml));
+    issues.push(
+      ...chartDataLinkFaults(part, xml, {
+        relationships: relationshipMap((await zipText(zip, partRelationshipPath(part))) || ''),
+        hasPart: (name) => Boolean(zip.file(name)),
+      })
+    );
   }
   return issues;
 }

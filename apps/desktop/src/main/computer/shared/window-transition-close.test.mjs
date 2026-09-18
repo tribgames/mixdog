@@ -36,9 +36,12 @@ test('Esc closes the popup once and makes the parent the next observation target
   const transition = computeComputerWindowTransition([main, menu], [main], menu.id);
   const actions = [];
   const result = await executeComputerSequenceSteps(
-    [{ action: 'key', keys: 'esc' }, { action: 'type', text: 'must not run in parent' }],
+    [
+      { action: 'key', keys: 'esc' },
+      { action: 'type', text: 'must not run in parent' },
+    ],
     menu.id,
-    async command => {
+    async (command) => {
       actions.push(command.action);
       return { ok: true, window_transition: transition };
     }
@@ -55,9 +58,10 @@ test('a launcher discovers an opened direct child process but never an unrelated
   const transition = computeComputerWindowTransition([main, unrelated], [main, unrelated, editor], main.id);
   assert.equal(transition.next_target.id, editor.id);
   assert.equal(transition.next_target_reason, 'child_process_window_opened');
-  assert.equal(computeComputerWindowTransition(
-    [main], [main, { ...editor, parentPid: 99 }], main.id
-  ).next_target, undefined);
+  assert.equal(
+    computeComputerWindowTransition([main], [main, { ...editor, parentPid: 99 }], main.id).next_target,
+    undefined
+  );
 });
 
 test('launch resolves a direct child process without guessing unrelated broker windows', () => {
@@ -65,10 +69,14 @@ test('launch resolves a direct child process without guessing unrelated broker w
   const transition = computeComputerWindowTransition([unrelated], [unrelated, child], '', 44, 'launcher');
   assert.equal(transition.next_target.id, child.id);
   assert.equal(transition.next_target_reason, 'launched_process_window');
-  assert.equal(computeComputerWindowTransition(
-    [unrelated], [unrelated, { ...child, parentPid: 55 }], '', 44, 'launcher'
-  ).next_target, undefined);
-  assert.equal(computeComputerWindowTransition(
-    [unrelated], [unrelated, child, { ...child, id: 'hwnd:0x6' }], '', 44, 'launcher'
-  ).next_target, undefined);
+  assert.equal(
+    computeComputerWindowTransition([unrelated], [unrelated, { ...child, parentPid: 55 }], '', 44, 'launcher')
+      .next_target,
+    undefined
+  );
+  assert.equal(
+    computeComputerWindowTransition([unrelated], [unrelated, child, { ...child, id: 'hwnd:0x6' }], '', 44, 'launcher')
+      .next_target,
+    undefined
+  );
 });

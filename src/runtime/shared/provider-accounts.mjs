@@ -189,30 +189,128 @@ export function recordProviderAccountUsage(provider, id, snapshot) {
     if (!row) return;
     row.usage = { windows, checkedAt: Date.now() };
     // A fresh observation of available quota releases a prior typed refusal.
-    if (windows.length && windows.every((window) => window.usedPct !== null && window.usedPct < 100)) {
+    // Only a MEASURED window can testify: a provider that reports a window
+    // without a percentage says nothing about that meter, and requiring a
+    // number from it kept accounts refused that every real reading had freed.
+    const measured = windows.filter((window) => window.usedPct !== null);
+    if (measured.length && measured.every((window) => window.usedPct < 100)) {
       delete row.blockedUntil;
+      delete row.blockedModel;
+      delete row.blockedSource;
     }
   });
 }
 
-export function blockProviderAccount(provider, id, until) {
+// A refusal window is an AVOIDANCE hint for the roster, not the retry schedule —
+// the request-level retry honours Retry-After on its own. Generous enough to
+// cover a full five-hour burst window, tight enough that a header asking for
+// four days cannot take an account out of rotation for four days.
+const MAX_BLOCK_MS = 6 * 60 * 60_000;
+
+// `model` records WHICH model earned the refusal. A block with no model is
+// account-wide, as before. `source` records whether the server scheduled the
+// window or we inferred it, which decides whether re-measuring the account
+// early can tell us anything.
+export function blockProviderAccount(provider, id, until, model = '', source = 'inferred') {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
-    if (row) row.blockedUntil = until;
+    if (!row) return;
+    row.blockedUntil = Math.min(until, Date.now() + MAX_BLOCK_MS);
+    const scope = String(model || '').trim();
+    if (scope) row.blockedModel = scope;
+    else delete row.blockedModel;
+    if (source === 'retry-after') row.blockedSource = source;
+    else delete row.blockedSource;
   });
 }
 
-export function providerAccountExhausted(row, now = Date.now()) {
-  if (row?.blockedUntil > now) return true;
+// Connecting or hand-picking an account states that its quota is expected to
+// be different now. A re-created subscription reuses the same account id, so
+// the refusal window and the meter recorded against the OLD subscription would
+// otherwise outlive it and refuse a request the provider would have served.
+// Both are dropped; the next usage reading refills them.
+export function clearProviderAccountQuotaState(provider, id) {
+  return update(provider, (pool) => {
+    const row = pool.accounts.find((entry) => entry.id === id);
+    if (!row) return;
+    delete row.blockedUntil;
+    delete row.blockedModel;
+    delete row.blockedSource;
+    delete row.usage;
+  });
+}
+
+// Single-token weekly labels ("7D Fable", "7D Opus") belong to that Claude
+// family only. A full Fable window must not idle an Opus request. Unscoped
+// 5H/7D meters and multi-word surfaces ("7D OAuth apps") still apply to every
+// model.
+const FAMILY_QUOTA_WINDOW = /^7D\s+([A-Za-z][A-Za-z0-9]*)$/i;
+
+function quotaWindowAppliesToModel(window, model) {
+  const match = FAMILY_QUOTA_WINDOW.exec(String(window?.label || '').trim());
+  if (!match) return true;
+  const family = match[1].toLowerCase();
+  const id = String(model || '').toLowerCase();
+  if (!id) return false;
+  return new RegExp(`(?:^|[-_/.@])${family}(?:[-_/.@]|$)`).test(id);
+}
+
+// A refusal earned by one model must not idle a model that draws on a
+// different meter — the same rule the usage windows already follow. Two models
+// share a block when one scoped window covers both; when the account exposes no
+// scoped meter at all (a plain 5H/7D subscription) the block stays account-wide,
+// because there is no narrower category to attribute it to.
+function blockAppliesToModel(row, model) {
+  const scope = String(row?.blockedModel || '').trim();
+  if (!scope || !model || scope === String(model)) return true;
+  const scoped = (row?.usage?.windows || []).filter((window) =>
+    FAMILY_QUOTA_WINDOW.test(String(window?.label || '').trim())
+  );
+  if (!scoped.length) return true;
+  return scoped.some((window) => quotaWindowAppliesToModel(window, scope) && quotaWindowAppliesToModel(window, model));
+}
+
+export function providerAccountExhausted(row, now = Date.now(), model = '') {
+  if (row?.blockedUntil > now && blockAppliesToModel(row, model)) return true;
   return (row?.usage?.windows || []).some(
-    (window) => window.usedPct >= 100 && (window.resetAt ? window.resetAt > now : now - row.usage.checkedAt < 60_000)
+    (window) =>
+      window.usedPct >= 100 &&
+      quotaWindowAppliesToModel(window, model) &&
+      (window.resetAt ? window.resetAt > now : now - row.usage.checkedAt < 60_000)
   );
 }
 
-export function chooseProviderAccount(pool, excluded = new Set(), now = Date.now()) {
-  const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now);
+// How old a recorded reading may be and still steer the roster. Long enough
+// that an hour-old reading of a five-hour window still means something, short
+// enough that yesterday's number cannot send every fallback to one account.
+const USAGE_EVIDENCE_MAX_AGE_MS = 60 * 60_000;
+
+// Remaining headroom across every window that applies to this model, or null
+// when nothing recent measured the account. The fullest window decides: an
+// account with 4% of its burst window left cannot serve now, however untouched
+// its weekly allowance is.
+function accountHeadroom(row, now, model) {
+  const usage = row?.usage;
+  if (!usage || now - usage.checkedAt > USAGE_EVIDENCE_MAX_AGE_MS) return null;
+  const used = (usage.windows || [])
+    .filter((window) => typeof window.usedPct === 'number' && quotaWindowAppliesToModel(window, model))
+    .map((window) => window.usedPct);
+  return used.length ? 100 - Math.max(...used) : null;
+}
+
+export function chooseProviderAccount(pool, excluded = new Set(), now = Date.now(), model = '') {
+  const usable = (row) => row && !excluded.has(row.id) && !providerAccountExhausted(row, now, model);
   const selected = pool.accounts.find((row) => row.id === pool.selectedId);
   if (pool.auto === false) return excluded.has(selected?.id) ? null : selected || null;
   if (usable(selected)) return selected;
-  return pool.accounts.find(usable) || null;
+  // Falling back in roster order is blind: the account after the one that just
+  // refused may itself be nearly spent, so the request pays a second switch to
+  // learn what a recorded meter already knew. Ranking needs evidence for EVERY
+  // candidate — with a partial roster it would keep picking the one measured
+  // account while the unmeasured ones never take their turn.
+  const candidates = pool.accounts.filter(usable);
+  if (candidates.length < 2) return candidates[0] || null;
+  const headroom = candidates.map((row) => accountHeadroom(row, now, model));
+  if (headroom.some((value) => value === null)) return candidates[0];
+  return candidates[headroom.indexOf(Math.max(...headroom))];
 }

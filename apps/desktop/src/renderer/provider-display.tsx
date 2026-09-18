@@ -36,7 +36,6 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   'antigravity-oauth': 31,
   'cursor-oauth': 32,
   'opencode-go': 35,
-  openrouter: 36,
   openai: 40,
   'openai-api': 40,
   anthropic: 50,
@@ -48,6 +47,8 @@ const PROVIDER_RANKS: Readonly<Record<string, number>> = {
   deepseek: 90,
   'deepseek-api': 90,
   'mixdog-local': 100,
+  // OpenRouter lists hundreds of models, so keep it behind every other provider.
+  openrouter: 950,
 };
 
 export function providerDisplayName(provider: string | null | undefined) {

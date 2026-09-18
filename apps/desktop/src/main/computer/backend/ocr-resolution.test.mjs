@@ -48,13 +48,18 @@ try {
   $memory.Dispose(); $font.Dispose(); $graphics.Dispose(); $bitmap.Dispose()
 }
 `;
-    const { stdout } = await promisify(execFile)('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
-      windowsHide: true, timeout: 20_000,
-      env: { ...process.env, OCR_FIXTURE: directory },
-    });
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        windowsHide: true,
+        timeout: 20_000,
+        env: { ...process.env, OCR_FIXTURE: directory },
+      }
+    );
     const result = JSON.parse(stdout.trim());
     assert.equal(result.image_width, result.limit);
-    assert.equal(result.image_height, Math.floor(500 * result.limit / result.source_width));
+    assert.equal(result.image_height, Math.floor((500 * result.limit) / result.source_width));
     assert.ok(result.words.includes('TEST'));
   } finally {
     await rm(directory, { recursive: true, force: true });

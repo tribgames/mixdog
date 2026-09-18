@@ -53,8 +53,10 @@ export function createExecutionState() {
     if (state?.aborted) {
       throw new Error('computer_session_aborted: command stopped by session cancellation');
     }
-    if (state?.inputInvalidated
-      || (state?.observations && [...state.observations].some(observation => observation.invalidated))) {
+    if (
+      state?.inputInvalidated ||
+      (state?.observations && [...state.observations].some((observation) => observation.invalidated))
+    ) {
       throw new Error('stale_frame: another session changed the observed window during capture');
     }
   }
@@ -63,7 +65,7 @@ export function createExecutionState() {
     assertExecutionNotAborted();
     const state = executionContext.getStore();
     if (!state) return { includeWindow() {}, close() {} };
-    const observations = state.observations ||= new Set();
+    const observations = (state.observations ||= new Set());
     const observation: ActiveObservation = { windowIds: new Set(), invalidated: false };
     observations.add(observation);
     const includeWindow = (id: string) => {
@@ -72,18 +74,23 @@ export function createExecutionState() {
       for (const current of observations) current.windowIds.add(id.toLowerCase());
     };
     includeWindow(windowId);
-    return { includeWindow, close: () => { observations.delete(observation); } };
+    return {
+      includeWindow,
+      close: () => {
+        observations.delete(observation);
+      },
+    };
   }
 
   function invalidateObservationsForWindows(windowIds: Array<string | undefined>, exceptSessionId: string): void {
-    const ids = new Set(windowIds.filter(Boolean).map(id => String(id).toLowerCase()));
+    const ids = new Set(windowIds.filter(Boolean).map((id) => String(id).toLowerCase()));
     for (const [sessionId, state] of activeExecutionsBySession) {
       if (sessionId === exceptSessionId) continue;
       for (const scope of state.inputScopes?.values() || []) {
-        if (scope.relatedWindowIds.some(id => ids.has(id.toLowerCase()))) state.inputInvalidated = true;
+        if (scope.relatedWindowIds.some((id) => ids.has(id.toLowerCase()))) state.inputInvalidated = true;
       }
       for (const observation of state.observations || []) {
-        if ([...observation.windowIds].some(id => ids.has(id))) observation.invalidated = true;
+        if ([...observation.windowIds].some((id) => ids.has(id))) observation.invalidated = true;
       }
     }
   }

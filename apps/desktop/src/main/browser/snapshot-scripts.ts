@@ -53,6 +53,9 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
     const candidates = [];
     const headings = [];
     const pageTexts = [];
+    // Page text is capped, and a caller that cannot see the cap reads the
+    // excerpt as the whole page.
+    let textClipped = false;
     const seenDocuments = new Set();
     const stack = [{ el: document.documentElement, frames: [] }];
     const viewportWidth = window.innerWidth;
@@ -86,8 +89,12 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       const doc = el.ownerDocument;
       const labelledBy = compact(el.getAttribute('aria-labelledby'), 200);
       if (labelledBy) {
+        // Inside a shadow root the referenced ids belong to that root, not to
+        // the document, so a web component's label resolves only from there.
+        const scope = el.getRootNode ? el.getRootNode() : doc;
+        const byId = (id) => (scope.getElementById ? scope.getElementById(id) : doc.getElementById(id));
         const named = labelledBy.split(/\\s+/)
-          .map((id) => doc.getElementById(id)?.textContent || '')
+          .map((id) => byId(id)?.textContent || '')
           .join(' ');
         if (compact(named, 120)) return compact(named, 120);
       }
@@ -130,6 +137,9 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
         states.push('scrollable=' + (scrollsY ? 'y' : '') + (scrollsX ? 'x' : ''));
       }
       if (el.disabled || el.getAttribute('aria-disabled') === 'true') states.push('disabled');
+      // Rendered but outside the accessibility tree: assistive tech and many
+      // widgets treat it as absent, which is why acting on it can do nothing.
+      if (el.closest && el.closest('[aria-hidden="true"]')) states.push('aria-hidden');
       // Every input carries a checked property; only a checkable one means it.
       const inputType = (el.tagName || '').toLowerCase() === 'input' ? String(el.type || '').toLowerCase() : '';
       const checkable = inputType === 'checkbox' || inputType === 'radio' || el.hasAttribute('aria-checked');
@@ -164,7 +174,10 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       if (!seenDocuments.has(doc)) {
         seenDocuments.add(doc);
         const bodyText = doc.body ? (doc.body.innerText || doc.body.textContent || '') : '';
-        if (bodyText) pageTexts.push(String(bodyText).slice(0, config.textChars * 4));
+        if (bodyText) {
+          if (String(bodyText).length > config.textChars * 4) textClipped = true;
+          pageTexts.push(String(bodyText).slice(0, config.textChars * 4));
+        }
       }
       const tag = (el.tagName || '').toLowerCase();
       let style;
@@ -266,8 +279,13 @@ export function browserSnapshotExpression(options: BrowserSnapshotExpressionOpti
       refs.set(ref, { element: candidate.el, frames: candidate.frames });
       return { ref, ...candidate.entry };
     });
-    const text = compact(pageTexts.join('\\n').slice(0, config.textChars * 4), config.textChars);
+    const joinedText = pageTexts.join('\\n');
+    if (joinedText.length > config.textChars * 4) textClipped = true;
+    const normalizedText = String(joinedText.slice(0, config.textChars * 4)).replace(/\\s+/g, ' ').trim();
+    if (normalizedText.length > config.textChars) textClipped = true;
+    const text = normalizedText.slice(0, config.textChars);
     return {
+      textClipped,
       snapshotId: config.snapshotId,
       url: String(location.href),
       title: compact(document.title, 150),

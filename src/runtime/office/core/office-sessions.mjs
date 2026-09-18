@@ -15,6 +15,7 @@ import { createPdf, snapshotPdf } from '../pdf/pdf-adapter.mjs';
 import { createTabular, snapshotTabular } from './tabular.mjs';
 import { createOfficeSnapshotRequest, finalizeOfficeSnapshotPage } from './pagination.mjs';
 import { applyPdfDesign } from '../design/design-system.mjs';
+import { annotatePptxSnapshotRoles } from '../design/library/design-template-induct.mjs';
 import {
   analyzeOfficeFilePromptInjection,
   analyzeOfficePromptInjection,
@@ -674,6 +675,9 @@ export async function snapshot(session, args, { full = false } = {}) {
       const conventions = summarizeXlsxConventions(value);
       if (conventions) value.conventions = conventions;
     }
+    // A deck is read to be reused: without the job each page does and the slot
+    // each box fills, a page the user already owns can only be copied by eye.
+    if (session.format === 'pptx') annotatePptxSnapshotRoles(value);
     wrapped = {
       session: session.id,
       mode: session.mode,

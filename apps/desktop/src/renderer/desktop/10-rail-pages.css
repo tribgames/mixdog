@@ -576,6 +576,11 @@
 .utility-dock .agent-activity-page .agent-pool-row:disabled {
   cursor: default;
 }
+/* The row keeps its click cursor — opening is still the primary gesture — and
+   only fades while it is being dragged into the workspace. */
+.utility-dock .agent-activity-page .agent-pool-row[data-dragging="true"] {
+  opacity: 0.48;
+}
 .utility-dock .agent-activity-page .agent-pool-heading {
   display: flex;
   align-items: center;

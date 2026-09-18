@@ -79,19 +79,23 @@ export function browserVisualLocatorExpression(rawQuery: string, maxCandidates =
       if (!element || element.nodeType !== 1) continue;
       const rect = element.getBoundingClientRect();
       const style = element.ownerDocument.defaultView?.getComputedStyle(element);
+      // No accessibility filter belongs here: a visual search exists for the
+      // elements a semantic snapshot cannot offer, including the aria-hidden
+      // widgets a person still sees and clicks.
       const visible = rect.width >= 2 && rect.height >= 2 && style
         && style.display !== 'none' && style.visibility !== 'hidden'
         && Number(style.opacity || '1') > 0;
       const tag = (element.tagName || '').toLowerCase();
       const role = compact(element.getAttribute?.('role') || tag, 40).toLowerCase();
-      const name = compact(
-        element.getAttribute?.('aria-label') || element.getAttribute?.('alt')
-          || element.getAttribute?.('title') || element.innerText || element.textContent || '',
-      );
       const actionable = ['a','button','input','select','textarea','summary','canvas','svg','img'].includes(tag)
         || ['button','link','tab','checkbox','radio','switch','textbox','option','menuitem'].includes(role)
         || element.hasAttribute?.('onclick') || style?.cursor === 'pointer';
       if (visible && actionable) {
+        // Reading a name walks the element's text; only a live candidate earns it.
+        const name = compact(
+          element.getAttribute?.('aria-label') || element.getAttribute?.('alt')
+            || element.getAttribute?.('title') || element.innerText || element.textContent || '',
+        );
         const background = namedColor(style.backgroundColor);
         const foreground = namedColor(style.color);
         const color = background && background !== 'white' ? background : foreground;

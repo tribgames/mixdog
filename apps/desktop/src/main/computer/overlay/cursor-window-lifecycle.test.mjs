@@ -18,7 +18,10 @@ class WindowFixture extends EventEmitter {
           this.scriptsAfterClose = (this.scriptsAfterClose || 0) + 1;
           throw new Error('fixture script sent after close');
         }
-        if (fault === 'script-hang') await new Promise((resolve) => { this.finishScript = resolve; });
+        if (fault === 'script-hang')
+          await new Promise((resolve) => {
+            this.finishScript = resolve;
+          });
         if (this.isDestroyed()) throw new Error('fixture renderer is closed');
         if (script.includes('window.mixdogAgentCursor(')) this.rendered = true;
         return { handler: true, ring: true, opacity: 1 };
@@ -30,26 +33,47 @@ class WindowFixture extends EventEmitter {
     handle.writeBigUInt64LE(BigInt(windows.indexOf(this) + 1));
     return handle;
   }
-  setTitle() { if (fault === 'setup') throw new Error('fixture setup failure'); }
+  setTitle() {
+    if (fault === 'setup') throw new Error('fixture setup failure');
+  }
   setContentProtection() {}
   setVisibleOnAllWorkspaces() {}
-  setAlwaysOnTop(value) { this.topmost = value; }
-  setIgnoreMouseEvents(value) { this.clickThrough = value; }
-  async loadURL() {
-    if (fault === 'load-hang') await new Promise((resolve) => { this.finishLoading = resolve; });
+  setAlwaysOnTop(value) {
+    this.topmost = value;
   }
-  isDestroyed() { return this.destroyed === true; }
+  setIgnoreMouseEvents(value) {
+    this.clickThrough = value;
+  }
+  async loadURL() {
+    if (fault === 'load-hang')
+      await new Promise((resolve) => {
+        this.finishLoading = resolve;
+      });
+  }
+  isDestroyed() {
+    return this.destroyed === true;
+  }
   destroy() {
     if (this.isDestroyed()) return;
     this.destroyed = true;
     this.visible = false;
     this.emit('closed');
   }
-  isVisible() { return this.visible === true; }
-  showInactive() { this.visible = true; }
-  hide() { this.visible = false; }
-  setBounds(bounds) { this.bounds = bounds; }
-  getBounds() { return this.bounds; }
+  isVisible() {
+    return this.visible === true;
+  }
+  showInactive() {
+    this.visible = true;
+  }
+  hide() {
+    this.visible = false;
+  }
+  setBounds(bounds) {
+    this.bounds = bounds;
+  }
+  getBounds() {
+    return this.bounds;
+  }
   moveAbove(source) {
     if (source === 'window:57005:0') throw new Error('fixture target no longer exists');
     this.source = source;
@@ -63,7 +87,10 @@ globalThis.cursorLifecycleElectron = { BrowserWindow: WindowFixture, screen };
 registerHooks({
   resolve(specifier, context, next) {
     return specifier === 'electron'
-      ? { url: 'data:text/javascript,export const {BrowserWindow,screen}=globalThis.cursorLifecycleElectron;', shortCircuit: true }
+      ? {
+          url: 'data:text/javascript,export const {BrowserWindow,screen}=globalThis.cursorLifecycleElectron;',
+          shortCircuit: true,
+        }
       : next(specifier, context);
   },
 });
@@ -74,9 +101,16 @@ const { computerUseCoordinator: coordinator } = await import('../session/coordin
 const settle = () => new Promise((resolve) => setImmediate(resolve));
 const begin = (sessionId, mode = 'background') => coordinator.beginCommand({ sessionId, action: 'click', mode });
 const idOf = (window) => `hwnd:0x${(windows.indexOf(window) + 1).toString(16)}`;
-const show = (sessionId, windowId = 'hwnd:0xABC', mode = 'background') => coordinator.showCursor({
-  sessionId, windowId, mode, action: 'type', effect: 'type', x: 200, y: 100,
-});
+const show = (sessionId, windowId = 'hwnd:0xABC', mode = 'background') =>
+  coordinator.showCursor({
+    sessionId,
+    windowId,
+    mode,
+    action: 'type',
+    effect: 'type',
+    x: 200,
+    y: 100,
+  });
 
 for (const stage of ['load', 'script']) {
   for (const exit of ['end', 'pause', 'dispose']) {
@@ -206,7 +240,10 @@ test('repeated cursor lifetimes release native windows, internal ids and display
     overlay.dispose();
     coordinator.reset();
   }
-  assert.deepEqual(events.map((event) => screen.listenerCount(event)), listeners);
+  assert.deepEqual(
+    events.map((event) => screen.listenerCount(event)),
+    listeners
+  );
   assert.equal(windows.slice(start).filter((window) => !window.isDestroyed()).length, 0);
   begin('after-dispose');
   show('after-dispose');
@@ -232,7 +269,11 @@ test('ending one background session leaves the other visible and a missing targe
     assert.equal(windows[start + 1].isVisible(), true);
     show('b', 'hwnd:0xDEAD');
     await settle();
-    assert.equal(windows[start + 1].isVisible(), false, 'missing targets must hide feedback rather than float elsewhere');
+    assert.equal(
+      windows[start + 1].isVisible(),
+      false,
+      'missing targets must hide feedback rather than float elsewhere'
+    );
     assert.equal(windows[start + 1].topmost, false);
   } finally {
     overlay.dispose();

@@ -377,6 +377,8 @@ export function toolActivityTitle(
       return t('Computer Use');
     case 'office':
       return t('Document work');
+    case 'tidy':
+      return t('Code Tidy');
     case 'agent':
     case 'bridge':
       return t('Agent');

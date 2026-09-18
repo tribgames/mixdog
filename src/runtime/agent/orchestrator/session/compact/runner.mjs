@@ -158,7 +158,7 @@ export async function generateFreshHandoffSummary(provider, messages, model, bud
     onStageChange: undefined,
     drainSteering: undefined,
     onSteerMessage: undefined,
-    signal: combinedSignal(opts.signal || opts.sendOpts?.signal || null, opts.timeoutMs || 30_000),
+    signal: combinedSignal(opts.signal || opts.sendOpts?.signal || null, opts.timeoutMs || 300_000),
   };
   if (opts.sessionId) sendOpts.sessionId = `${opts.sessionId}:compact`;
   if (opts.promptCacheKey || opts.sendOpts?.promptCacheKey) {

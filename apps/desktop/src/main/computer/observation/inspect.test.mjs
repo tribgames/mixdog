@@ -13,14 +13,18 @@ function inspection(result) {
   });
 }
 
-test('verification keeps provider budgets intact near the polling deadline and in one-shot mode', async t => {
+test('verification keeps provider budgets intact near the polling deadline and in one-shot mode', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);
   t.mock.method(globalThis, 'setTimeout', (callback, delay) => {
     now += delay;
     queueMicrotask(callback);
   });
-  for (const [timeout, expectedSamples] of [[0, 1], [100, 1], [350, 2]]) {
+  for (const [timeout, expectedSamples] of [
+    [0, 1],
+    [100, 1],
+    [350, 2],
+  ]) {
     now = 0;
     const budgets = [];
     const reader = createInspection({
@@ -32,11 +36,17 @@ test('verification keeps provider budgets intact near the polling deadline and i
       sessionIdFor: () => 'verify-budget',
       assertExecutionNotAborted() {},
     });
-    const result = JSON.parse((await reader.verifyWindowState({
-      action: 'verify', window_id: 'hwnd:0x1',
-      expect: [{ window_exists: false }],
-      timeout_ms: timeout, stable_samples: 1,
-    })).text);
+    const result = JSON.parse(
+      (
+        await reader.verifyWindowState({
+          action: 'verify',
+          window_id: 'hwnd:0x1',
+          expect: [{ window_exists: false }],
+          timeout_ms: timeout,
+          stable_samples: 1,
+        })
+      ).text
+    );
     assert.equal(result.decision, 'unsatisfied');
     assert.equal(result.samples, expectedSamples);
     assert.equal(result.provider_error, undefined);
@@ -46,14 +56,22 @@ test('verification keeps provider budgets intact near the polling deadline and i
 
 test('genuine predicate provider failure remains unknown, not proof of absence', async () => {
   const reader = createInspection({
-    callPowerShell: async () => { throw new Error('provider timed out'); },
+    callPowerShell: async () => {
+      throw new Error('provider timed out');
+    },
     sessionIdFor: () => 'verify-failure',
     assertExecutionNotAborted() {},
   });
-  const result = JSON.parse((await reader.verifyWindowState({
-    action: 'verify', window_id: 'hwnd:0x1',
-    expect: [{ absent: 'error' }], timeout_ms: 0,
-  })).text);
+  const result = JSON.parse(
+    (
+      await reader.verifyWindowState({
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ absent: 'error' }],
+        timeout_ms: 0,
+      })
+    ).text
+  );
   assert.equal(result.ok, false);
   assert.equal(result.decision, 'unknown');
   assert.equal(result.provider_error, 'provider timed out');
@@ -112,7 +130,10 @@ test('diagnose reports blocked input even when window enumeration and accessibil
     assert.equal(result.ready, !blocked);
     assert.equal(result.capabilities.input_mode, blocked ? 'blocked' : 'enabled');
     assert.equal(result.capabilities.input_state.cleanup_state, state.cleanupState);
-    assert.equal(result.issues.some(issue => issue.startsWith('input blocked:')), blocked);
+    assert.equal(
+      result.issues.some((issue) => issue.startsWith('input blocked:')),
+      blocked
+    );
   }
 });
 
@@ -144,6 +165,9 @@ test('diagnose probes native input readiness instead of inferring it from usable
     assert.equal(result.capabilities.semantic_accessibility.available, true);
     assert.equal(result.capabilities.input_observation.ready, ready);
     assert.equal(result.ready, ready);
-    assert.equal(result.issues.some(issue => /input|observation/.test(issue)), !ready);
+    assert.equal(
+      result.issues.some((issue) => /input|observation/.test(issue)),
+      !ready
+    );
   }
 });

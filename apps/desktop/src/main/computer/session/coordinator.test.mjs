@@ -1,22 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  ComputerUseCoordinator,
-  computerResultHasCode,
-  queuedForegroundRequiresRecapture,
-} from './coordinator';
-import {
-  computerUseCursorPresentations,
-  computerUseOverlayPresentation,
-} from '../overlay/model';
+import { ComputerUseCoordinator, computerResultHasCode, queuedForegroundRequiresRecapture } from './coordinator';
+import { computerUseCursorPresentations, computerUseOverlayPresentation } from '../overlay/model';
 
-function begin(
-  coordinator,
-  sessionId,
-  mode = 'background',
-  action = 'click',
-) {
+function begin(coordinator, sessionId, mode = 'background', action = 'click') {
   coordinator.beginCommand({
     sessionId,
     action,
@@ -37,8 +25,11 @@ test('different target windows can be leased concurrently by different sessions'
     assert.equal(left.status, 'acquired');
     assert.equal(right.status, 'acquired');
     assert.deepEqual(
-      coordinator.snapshot().targetLeases.map((lease) => lease.windowId).sort(),
-      ['window-a', 'window-b'],
+      coordinator
+        .snapshot()
+        .targetLeases.map((lease) => lease.windowId)
+        .sort(),
+      ['window-a', 'window-b']
     );
   } finally {
     coordinator.reset();
@@ -49,23 +40,18 @@ test('same-target contention queues the lease and requires a fresh action after 
   const coordinator = new ComputerUseCoordinator({ targetLeaseWaitMs: 1_000 });
   try {
     begin(coordinator, 'session-owner');
-    assert.deepEqual(
-      await coordinator.acquireTargets('session-owner', ['window-shared']),
-      {
-        status: 'acquired',
-        queued: false,
-        waitedMs: 0,
-        windowIds: ['window-shared'],
-      },
-    );
+    assert.deepEqual(await coordinator.acquireTargets('session-owner', ['window-shared']), {
+      status: 'acquired',
+      queued: false,
+      waitedMs: 0,
+      windowIds: ['window-shared'],
+    });
     coordinator.finishCommand('session-owner');
 
     begin(coordinator, 'session-waiter');
     const waiting = coordinator.acquireTargets('session-waiter', ['window-shared']);
     await Promise.resolve();
-    const queued = coordinator.snapshot().activities.find(
-      (activity) => activity.sessionId === 'session-waiter',
-    );
+    const queued = coordinator.snapshot().activities.find((activity) => activity.sessionId === 'session-waiter');
     assert.equal(queued?.phase, 'queued_target');
     assert.equal(queued?.queuePosition, 1);
 
@@ -74,10 +60,8 @@ test('same-target contention queues the lease and requires a fresh action after 
     assert.equal(granted.status, 'acquired');
     assert.equal(granted.queued, true);
     assert.equal(
-      coordinator.snapshot().activities.find(
-        (activity) => activity.sessionId === 'session-waiter',
-      )?.phase,
-      'awaiting_recapture',
+      coordinator.snapshot().activities.find((activity) => activity.sessionId === 'session-waiter')?.phase,
+      'awaiting_recapture'
     );
   } finally {
     coordinator.reset();
@@ -93,11 +77,17 @@ test('overlapping multi-window waiters retain order without blocking independent
     const second = coordinator.acquireTargets('second', ['b', 'c']);
     const independent = coordinator.acquireTargets('independent', ['c']);
     coordinator.releaseTargets('owner-c');
-    assert.equal(coordinator.snapshot().targetLeases.some((lease) => lease.windowId === 'c'), false);
+    assert.equal(
+      coordinator.snapshot().targetLeases.some((lease) => lease.windowId === 'c'),
+      false
+    );
     assert.equal((await coordinator.acquireTargets('unrelated', ['d'])).status, 'acquired');
     coordinator.releaseTargets('owner-a');
     assert.equal((await first).status, 'acquired');
-    assert.equal(coordinator.snapshot().targetLeases.some((lease) => lease.sessionId === 'second'), false);
+    assert.equal(
+      coordinator.snapshot().targetLeases.some((lease) => lease.sessionId === 'second'),
+      false
+    );
     coordinator.releaseTargets('first');
     assert.equal((await second).status, 'acquired');
     coordinator.releaseTargets('second');
@@ -142,23 +132,12 @@ test('user takeover cancels target waiters, clears leases, and blocks automation
     assert.deepEqual(pausedSessions.sort(), ['session-owner', 'session-waiter']);
     assert.equal((await waiting).status, 'user_takeover');
     assert.equal(coordinator.snapshot().targetLeases.length, 0);
-    assert.ok(
-      coordinator.snapshot().activities.every(
-        (activity) => activity.phase === 'paused_user_takeover',
-      ),
-    );
-    assert.throws(
-      () => begin(coordinator, 'session-blocked'),
-      /computer_user_control_active/,
-    );
+    assert.ok(coordinator.snapshot().activities.every((activity) => activity.phase === 'paused_user_takeover'));
+    assert.throws(() => begin(coordinator, 'session-blocked'), /computer_user_control_active/);
 
     coordinator.resumeAfterUserTakeover();
     begin(coordinator, 'session-resumed');
-    assert.ok(
-      coordinator.snapshot().activities.some(
-        (activity) => activity.sessionId === 'session-resumed',
-      ),
-    );
+    assert.ok(coordinator.snapshot().activities.some((activity) => activity.sessionId === 'session-resumed'));
   } finally {
     coordinator.reset();
   }
@@ -170,14 +149,14 @@ test('overlay model distinguishes user control and confirmation while listing ev
     begin(coordinator, 'session-foreground', 'foreground', 'type');
     const active = computerUseOverlayPresentation(coordinator.snapshot(), 'en');
     assert.equal(active.visible, true);
-    assert.equal(active.title, 'Mixdog using');
+    assert.equal(active.title, 'Computer in use');
     assert.deepEqual(active.sessionIds, ['session-foreground']);
 
     coordinator.finishCommand('session-foreground');
     begin(coordinator, 'session-second');
     const thinking = computerUseOverlayPresentation(coordinator.snapshot(), 'ko-KR');
     assert.equal(thinking.visible, true);
-    assert.equal(thinking.title, 'Mixdog 사용 중');
+    assert.equal(thinking.title, '컴퓨터 사용 중');
     assert.deepEqual(thinking.sessionIds, ['session-foreground', 'session-second']);
 
     coordinator.requestAttention({
@@ -205,8 +184,13 @@ test('execution stays visible between commands and disappears only on explicit e
   try {
     begin(coordinator, 'session-lifecycle', 'background', 'capture');
     coordinator.showCursor({
-      sessionId: 'session-lifecycle', windowId: 'hwnd:0x1', x: 10, y: 20,
-      action: 'click', effect: 'click', mode: 'background',
+      sessionId: 'session-lifecycle',
+      windowId: 'hwnd:0x1',
+      x: 10,
+      y: 20,
+      action: 'click',
+      effect: 'click',
+      mode: 'background',
     });
     coordinator.finishCommand('session-lifecycle');
     assert.equal(coordinator.snapshot().cursors.length, 1, 'the pointer stays where the session last acted');
@@ -267,14 +251,14 @@ test('session cursor state carries exact points and is removed by takeover clean
         toY: cursor?.toY,
         effect: cursor?.effect,
       },
-      { x: 120, y: 240, toX: 420, toY: 440, effect: 'drag' },
+      { x: 120, y: 240, toX: 420, toY: 440, effect: 'drag' }
     );
     assert.deepEqual(
       computerUseCursorPresentations(coordinator.snapshot()).map((entry) => ({
         badge: entry.badge,
         context: entry.context,
       })),
-      [{ badge: 'Target app', context: '' }],
+      [{ badge: 'Target app', context: '' }]
     );
 
     coordinator.pauseForUser('emergency_shortcut');
@@ -286,18 +270,15 @@ test('session cursor state carries exact points and is removed by takeover clean
 
 test('only an explicit nested result code triggers foreground intervention', () => {
   assert.equal(
-    computerResultHasCode(
-      JSON.stringify({ actions: [{ code: 'foreground_changed' }] }),
-      'foreground_changed',
-    ),
-    true,
+    computerResultHasCode(JSON.stringify({ actions: [{ code: 'foreground_changed' }] }), 'foreground_changed'),
+    true
   );
   assert.equal(
     computerResultHasCode(
       JSON.stringify({ text: 'the words foreground_changed are user content' }),
-      'foreground_changed',
+      'foreground_changed'
     ),
-    false,
+    false
   );
   assert.equal(queuedForegroundRequiresRecapture(0), false);
   assert.equal(queuedForegroundRequiresRecapture(1), true);
@@ -318,15 +299,9 @@ test('the emergency shortcut is inert when no Computer Use session exists', () =
 test('takeover can cancel a host-queued session before its activity begins', () => {
   const coordinator = new ComputerUseCoordinator();
   try {
-    assert.deepEqual(
-      coordinator.pauseForUser('emergency_shortcut', ['session-host-queued']),
-      ['session-host-queued'],
-    );
+    assert.deepEqual(coordinator.pauseForUser('emergency_shortcut', ['session-host-queued']), ['session-host-queued']);
     assert.equal(coordinator.snapshot().userControlActive, true);
-    assert.equal(
-      coordinator.snapshot().activities[0]?.phase,
-      'paused_user_takeover',
-    );
+    assert.equal(coordinator.snapshot().activities[0]?.phase, 'paused_user_takeover');
   } finally {
     coordinator.reset();
   }

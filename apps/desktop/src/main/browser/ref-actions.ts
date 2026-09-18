@@ -15,6 +15,7 @@ import type { PendingFileChooser } from './guest-state';
 import type { createBrowserInputDriver } from './input';
 import { redactBrowserText } from './redaction';
 import { BROWSER_EDITABILITY_CHECK } from './editability';
+import { BROWSER_DROP_GUARD_INSTALL, BROWSER_DROP_GUARD_TAKE } from './file-drop';
 import { browserRefElementSource, checkedBrowserRefResult, createBrowserRefAccess } from './ref-access';
 import { createBrowserRefSelection } from './ref-select';
 
@@ -103,6 +104,9 @@ export interface BrowserRefActionsHost {
   ): Promise<{ handled: false } | { handled: true; value: T }>;
   /** The page-side fallback for a ref the accessibility snapshot lost. */
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T>;
+  /** The same expression in every attached frame. A drop zone can live in
+   *  one, and its drop never reaches the top document's listeners. */
+  evaluateInFrames<T>(guest: WebContents, expression: string, signal?: AbortSignal): Promise<T[]>;
   cdp: BrowserCdpPort;
   /** The accessibility snapshot's ref table, when this page still has one. */
   accessibilityRefs(guest: WebContents):
@@ -112,7 +116,7 @@ export interface BrowserRefActionsHost {
     | undefined;
   /** Where the ref sits right now, refused when something covers it. */
   resolveRefPoint(guest: WebContents, ref: string, signal?: AbortSignal): Promise<{ x: number; y: number }>;
-  input: Pick<ReturnType<typeof createBrowserInputDriver>, 'pressKey' | 'clickAt'>;
+  input: Pick<ReturnType<typeof createBrowserInputDriver>, 'pressKey' | 'clickAt' | 'typeText' | 'dropFilesAt'>;
   pause(ms: number, signal?: AbortSignal): Promise<void>;
   /** The picker the page opened and nobody has answered yet. */
   pendingFileChooser(guest: WebContents): PendingFileChooser | null;
@@ -189,7 +193,9 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     if (focused?.sensitive && text) host.rememberSecret?.(guest, text);
     await browserInput.pressKey(guest, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal);
     await browserInput.pressKey(guest, 'Backspace', signal);
-    await cdp.sendCdpInput(guest, await cdp.guestDebugger(guest), 'Input.insertText', { text }, signal);
+    // Real keystrokes, not an insertion: this is the gesture for controls that
+    // only react while a person types. `fill` owns bulk replacement.
+    await browserInput.typeText(guest, text, signal);
   }
 
   /** What a control offers, without choosing anything. A native <select> keeps
@@ -351,7 +357,7 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     guest: WebContents,
     ref: string,
     signal?: AbortSignal
-  ): Promise<PendingFileChooser> {
+  ): Promise<PendingFileChooser | null> {
     clearFileChooser(guest);
     const point = await resolveRefPoint(guest, ref, signal);
     await browserInput.clickAt(guest, point.x, point.y, 1, 'left', 0, signal);
@@ -359,12 +365,31 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     for (;;) {
       const chooser = pendingFileChooser(guest);
       if (chooser) return chooser;
-      if (Date.now() >= deadline) {
-        throw new Error(
-          `ref ${ref} is not a file input and clicking it did not open a file chooser within ${FILE_CHOOSER_WAIT_MS}ms`
-        );
-      }
+      if (Date.now() >= deadline) return null;
       await pause(FILE_CHOOSER_POLL_MS, signal);
+    }
+  }
+
+  /** The upload zones that never show a picker take their files as a drop.
+   *  The guard neutralises a drop the page does not take, so a refusal costs
+   *  the caller a clear error instead of a navigation to the file. */
+  async function dropFilesOnRef(guest: WebContents, ref: string, paths: string[], signal?: AbortSignal): Promise<void> {
+    const point = await resolveRefPoint(guest, ref, signal);
+    await host.evaluateInFrames<boolean>(guest, BROWSER_DROP_GUARD_INSTALL, signal);
+    let accepted = false;
+    try {
+      await browserInput.dropFilesAt(guest, point, paths, signal);
+    } finally {
+      const answers = await host
+        .evaluateInFrames<boolean>(guest, BROWSER_DROP_GUARD_TAKE, signal)
+        .catch(() => [] as boolean[]);
+      accepted = answers.some(Boolean);
+    }
+    if (!accepted) {
+      throw new Error(
+        `ref ${ref} is not a file input, clicking it opened no file chooser within ${FILE_CHOOSER_WAIT_MS}ms, ` +
+          "and it did not accept a file drop; upload through the page's own file input"
+      );
     }
   }
 
@@ -407,6 +432,10 @@ export function createBrowserRefActions(host: BrowserRefActionsHost) {
     }
     if (direct) return;
     const chooser = await openFileChooserVia(guest, ref, signal);
+    if (!chooser) {
+      await dropFilesOnRef(guest, ref, paths, signal);
+      return;
+    }
     await answerFileChooser(guest, chooser, paths, signal);
   }
 

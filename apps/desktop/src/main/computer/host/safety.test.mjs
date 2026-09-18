@@ -194,7 +194,7 @@ test('focus recovery falls back to the owner when the action closed its window',
   assert.ok(body.includes("$restoredTarget = 'owner'"));
   assert.ok(body.includes('input recovery restore window is stale or invalid'));
   // Landing anywhere else still counts as a miss.
-  assert.match(hostSource, /restoredTarget === 'owner'\s*\n\s*&& inputRecovery\.restoreOwnerWindowId !== ''/);
+  assert.match(hostSource, /restoredTarget === 'owner' &&\s*\n\s*inputRecovery\.restoreOwnerWindowId !== ''/);
 });
 
 test('waiting on a condition never invalidates the refs the caller holds', () => {

@@ -255,6 +255,53 @@ export function isNonTerminalStreamClose(err) {
   return readStreamOutcome(err).terminalObserved !== true;
 }
 
+// Network-outage class: the uplink itself failed (DNS, connect, reset, socket
+// close, undici transport). Our own watchdog codes (stall, acquire/provider
+// timeouts) are deliberately absent — those describe a LIVE connection that
+// went quiet, which is a provider symptom, not a lost network.
+const CONNECTION_FAILURE_CODES = new Set([
+  'ECONNRESET',
+  'ETIMEDOUT',
+  'ESOCKETTIMEDOUT',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'EAI_NODATA',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EPIPE',
+  'ECONNABORTED',
+  'ENETRESET',
+  'EPROTO',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_DESTROYED',
+  'UND_ERR_CLOSED',
+  'ERR_STREAM_DESTROYED',
+  'ERR_SOCKET_CONNECTION_TIMEOUT',
+]);
+
+/**
+ * True when the failure is the NETWORK dropping, not the provider refusing or
+ * faulting. The distinction matters for retry budgeting: a lost uplink returns
+ * on its own schedule (a lift, a sleeping laptop, a router reboot) and the same
+ * request succeeds once it does, so this class earns a far longer ladder than
+ * an ordinary transport fault. A typed HTTP status disqualifies the failure —
+ * the server answered, so the network was up.
+ */
+export function isConnectionFailure(err) {
+  if (!err || (typeof err !== 'object' && typeof err !== 'function')) return false;
+  const chain = boundedCauseChain(err);
+  if (chain.some(isExplicitUserAbortError)) return false;
+  if (Number(err.httpStatus || err.status || err.response?.status || 0) || 0) return false;
+  if (chain.some((item) => CONNECTION_FAILURE_CODES.has(String(item?.code || '')))) return true;
+  if (chain.some((item) => TRANSIENT_SDK_NAMES.has(String(item?.name || '')))) return true;
+  return chain.some((item) => BARE_FETCH_TRANSPORT_MESSAGE_RE.test(String(item?.message || '').trim()));
+}
+
 /**
  * Should this failed stream be re-issued as a NON-STREAMING request?
  *

@@ -7,8 +7,13 @@ import type { WebContents } from 'electron';
 
 import { OFFSCREEN_VIEWPORT } from '../command';
 import { normalizeModifierMask, normalizeMouseButton } from '../input';
+import {
+  type BrowserScrollTextMatch,
+  browserScrollTextApplyExpression,
+  browserScrollTextMatchExpression,
+} from '../scroll-text';
 import { mutateRef } from './ref-mutation';
-import { actionRef } from './target';
+import { actionRef, dragRefs } from './target';
 import { type BrowserActionContext, defineBrowserActions } from './types';
 
 function pointerKind(command: BrowserActionContext['command'], action: string): 'mouse' | 'touch' {
@@ -86,13 +91,17 @@ export const pointerActions = defineBrowserActions({
   async drag(context) {
     const { guest, command, signal, services } = context;
     const pointer = pointerKind(command, 'drag');
-    const semantic = Boolean(command.ref);
-    const source = await targetPoint(context, command.ref, command.x, command.y, 'drag');
+    // Both ends take a snapshot-free target, as every other pointer action
+    // does. A draggable element with no accessible name carries no ref, so
+    // requiring one meant grounding coordinates just to move it.
+    const { source: sourceRef, destination: destinationRef } = await dragRefs(context);
+    const semantic = Boolean(sourceRef);
+    const source = await targetPoint(context, sourceRef, command.x, command.y, 'drag');
     const destination = semantic
       ? await services.reply.withRefRecovery(
           guest,
           context.refRecovery,
-          command.targetRef as string,
+          destinationRef as string,
           (ref) => services.refPoints.resolveRefPoint(guest, ref, signal),
           signal
         )
@@ -127,7 +136,7 @@ export const pointerActions = defineBrowserActions({
     if (wantedText) {
       // Bringing a known phrase into view without knowing where it sits.
       // A phrase that is not on the page fails rather than scrolling blind.
-      const found = await scrollTextIntoView(cdp, guest, wantedText, signal);
+      const found = await scrollTextIntoView(services.documents, guest, wantedText, signal);
       if (!found) {
         throw new Error(`scroll text ${JSON.stringify(wantedText)} was not found on this page; nothing was scrolled`);
       }
@@ -177,32 +186,28 @@ export const pointerActions = defineBrowserActions({
   },
 });
 
+/** Two passes over every frame: each one reports whether it holds the phrase,
+ * then only the frame the host picked scrolls. One phrase on two frames must
+ * not make both of them jump. */
 async function scrollTextIntoView(
-  cdp: BrowserActionContext['services']['cdp'],
+  documents: BrowserActionContext['services']['documents'],
   guest: WebContents,
   wantedText: string,
   signal?: AbortSignal
 ): Promise<boolean> {
-  const found = await cdp.evaluate<{ found: boolean; text?: string }>(
+  const matches = await documents.collect<BrowserScrollTextMatch>(
     guest,
-    `(() => {
-    const wanted = ${JSON.stringify(wantedText.toLowerCase())};
-    const walker = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      const value = String(node.textContent || '');
-      if (!value.toLowerCase().includes(wanted)) continue;
-      const element = node.parentElement;
-      if (!element) continue;
-      const rect = element.getBoundingClientRect();
-      if (rect.width <= 0 && rect.height <= 0) continue;
-      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-      return { found: true, text: value.replace(/\\s+/g, ' ').trim().slice(0, 120) };
-    }
-    return { found: false };
-  })()`,
+    browserScrollTextMatchExpression(wantedText),
     signal
   );
-  return Boolean(found?.found);
+  const match = matches.find((entry) => entry.found);
+  if (!match) return false;
+  const applied = await documents.collect<{ scrolled: boolean }>(
+    guest,
+    browserScrollTextApplyExpression(match.token),
+    signal
+  );
+  return applied.some((entry) => entry.scrolled);
 }
 
 /** Scroll the nearest scrollable ancestor of the ref'd element. */

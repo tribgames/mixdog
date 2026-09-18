@@ -19,6 +19,7 @@ export {
   renderPortableOoxml,
   validateLibreOfficeReopen,
 } from './portable-soffice.mjs';
+export { recalculatePortableWorkbook, recalculateWithFormulaEngine } from './xlsx-recalculate.mjs';
 
 export async function applyPortableOoxmlBatch(path, format, operations) {
   const zip = await loadPackage(path);

@@ -96,6 +96,23 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     return { guest: page.guest, background: hidden, tabName: backgroundName };
   }
 
+  /** The background page a tab reference names, by page id or by name. */
+  function backgroundTabEntry(sessionId: string, tab: string): [string, BackgroundPage] | null {
+    if (/^p\d+$/i.test(tab)) return backgroundEntryByPageId(sessionId, tab);
+    const name = normalizeBackgroundTabName(tab, { required: true });
+    const page = backgroundPages(sessionId).get(name);
+    return page ? [name, page] : null;
+  }
+
+  /** Whether a tab reference names one of the session's visible pages, by
+   *  page id or by the `v1`-style position list_tabs prints beside it. */
+  function visibleTabMatches(sessionId: string, tab: string): boolean {
+    const list = visibleGuests(sessionId);
+    const position = /^v(\d+)$/i.exec(tab);
+    if (position) return Boolean(list[Number(position[1]) - 1]);
+    return list.some((guest) => stablePageId(guest).toLowerCase() === tab.toLowerCase());
+  }
+
   function listTabs(sessionId: string): BrowserCommandResult {
     const lines: string[] = [];
     visibleGuests(sessionId).forEach((guest, index) => {
@@ -122,13 +139,16 @@ export function createBrowserTabs(host: BrowserTabsHost) {
   }
 
   function closeBackgroundTab(sessionId: string, tab: string): BrowserCommandResult {
-    const found = /^p\d+$/i.test(tab)
-      ? backgroundEntryByPageId(sessionId, tab)
-      : (() => {
-          const name = normalizeBackgroundTabName(tab, { required: true });
-          const page = backgroundPages(sessionId).get(name);
-          return page ? ([name, page] as [string, BackgroundPage]) : null;
-        })();
+    // list_tabs prints the visible tab with the same page id as any other, so
+    // a caller naturally aims close_tab at it. The panel keeps that page for
+    // the session, so say what it is instead of sending the caller back to
+    // the listing that handed out the id.
+    if (visibleTabMatches(sessionId, tab)) {
+      throw new Error(
+        `"${tab}" is the visible tab, which stays with the browser panel; navigate it elsewhere, or call hide to put the panel away.`
+      );
+    }
+    const found = backgroundTabEntry(sessionId, tab);
     if (!found || found[1].window.isDestroyed()) {
       throw new Error(`unknown background tab "${tab}"; call list_tabs`);
     }

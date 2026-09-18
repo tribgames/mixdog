@@ -1,5 +1,6 @@
 import { columnNumber } from './portable-cells.mjs';
 import { quoteSheetName } from './portable-sheet-xml.mjs';
+import { escapeRegExp } from './xlsx-audit-support.mjs';
 
 const XLSX_MAX_ROWS = 1_048_576;
 const XLSX_MAX_COLUMNS = 16_384;
@@ -90,10 +91,6 @@ const SPILLING_FUNCTIONS = Object.freeze([
 ]);
 
 const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
-
-function escapeRegExp(text) {
-  return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 // `My Sheet!B5` evaluates to #VALUE!; Excel needs `'My Sheet'!B5`. Only names
 // the workbook actually holds are quoted, and never inside a string literal.

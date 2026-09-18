@@ -94,6 +94,27 @@ export function canonicalComputerResultText(text, args) {
   return JSON.stringify(value);
 }
 
+// A capture payload reports the frame's real pixel size (`width`/`height`,
+// nested under `observation` for action replies). Carrying it on the image
+// block lets the context estimator bill a screenshot at its true vision cost
+// instead of the flat unknown-image allowance. Provider normalizers rebuild
+// the wire block from `type`/`source` alone, so these fields never reach an
+// API and never shift the cached prefix.
+function computerImageDimensions(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  for (const frame of [value, value?.observation]) {
+    const width = Number(frame?.width);
+    const height = Number(frame?.height);
+    if (width > 0 && height > 0 && Number.isFinite(width) && Number.isFinite(height)) return { width, height };
+  }
+  return null;
+}
+
 function canonicalComputerResultIsError(text, args) {
   if (args.action === 'clipboard' && args.input?.operation === 'read') return false;
   try {
@@ -335,6 +356,7 @@ export async function executeComputerTool(rawArgs, context = {}) {
   if (value.image?.data && value.image?.mimeType) {
     content.push({
       type: 'image',
+      ...(computerImageDimensions(text) ?? {}),
       source: {
         type: 'base64',
         media_type: String(value.image.mimeType),

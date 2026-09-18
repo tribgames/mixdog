@@ -13,21 +13,35 @@ async function runFixture(name) {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-overlay-ipc-'));
   try {
     await Promise.all([
-      build({ entryPoints: [fileURLToPath(new URL(`./test-fixtures/${name}.ts`, import.meta.url))],
-        bundle: true, platform: 'node', format: 'cjs', external: ['electron'],
-        outfile: join(directory, 'main/index.cjs') }),
-      build({ entryPoints: [fileURLToPath(new URL('../../../preload/computer-overlay.ts', import.meta.url))],
-        bundle: true, platform: 'node', format: 'cjs', external: ['electron'],
-        outfile: join(directory, 'preload/computer-overlay.js') }),
+      build({
+        entryPoints: [fileURLToPath(new URL(`./test-fixtures/${name}.ts`, import.meta.url))],
+        bundle: true,
+        platform: 'node',
+        format: 'cjs',
+        external: ['electron'],
+        outfile: join(directory, 'main/index.cjs'),
+      }),
+      build({
+        entryPoints: [fileURLToPath(new URL('../../../preload/computer-overlay.ts', import.meta.url))],
+        bundle: true,
+        platform: 'node',
+        format: 'cjs',
+        external: ['electron'],
+        outfile: join(directory, 'preload/computer-overlay.js'),
+      }),
     ]);
     const env = { ...process.env, OVERLAY_TEST_DIRECTORY: directory };
     delete env.ELECTRON_RUN_AS_NODE;
     const run = await promisify(execFile)(electron, [join(directory, 'main/index.cjs')], {
       // A loaded hosted runner needs seconds for the native click's cold Add-Type alone, so
       // this budget bounds a hung fixture only, never a slow-but-healthy one.
-      env, windowsHide: true, timeout: 30000, maxBuffer: 8 * 1024 * 1024,
+      env,
+      windowsHide: true,
+      timeout: 30000,
+      maxBuffer: 8 * 1024 * 1024,
     }).catch((error) => error);
-    const stdout = String(run.stdout ?? ''), stderr = String(run.stderr ?? '');
+    const stdout = String(run.stdout ?? ''),
+      stderr = String(run.stderr ?? '');
     // Electron can exit 0 without a result (its default quit-on-last-window-close outruns the
     // fixture, a renderer hangs, the run is killed on timeout); only stderr explains which.
     const evidence = `\n--- ${name} stdout ---\n${stdout.slice(-4000)}\n--- ${name} stderr ---\n${stderr.slice(-8000)}`;
@@ -38,11 +52,16 @@ async function runFixture(name) {
       result: JSON.parse(marker.split('\n')[0]),
       clickMode: /OVERLAY_CLICK_MODE (\S+)/.exec(stderr)?.[1] ?? '',
     };
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 // The overlay belongs to Computer Use, which ships on Windows only; the Linux CI lanes also have no display server.
-test('one sandboxed Pause/Resume toggle preserves native hit-testing, non-activation and preload IPC', { timeout: 45000, skip: process.platform !== 'win32' }, async () => {
+test('one sandboxed Pause/Resume toggle preserves native hit-testing, non-activation and preload IPC', {
+  timeout: 45000,
+  skip: process.platform !== 'win32',
+}, async () => {
   const { result, clickMode } = await runFixture('electron-resume');
   assert.equal(result.resumed, 2);
   assert.equal(result.paused, 2);
@@ -53,7 +72,10 @@ test('one sandboxed Pause/Resume toggle preserves native hit-testing, non-activa
   console.log('overlay IPC evidence', { ...result, clickMode });
 });
 
-test('a frozen real renderer is retired and its replacement remains paused until native Resume', { timeout: 45000, skip: process.platform !== 'win32' }, async () => {
+test('a frozen real renderer is retired and its replacement remains paused until native Resume', {
+  timeout: 45000,
+  skip: process.platform !== 'win32',
+}, async () => {
   const { result, clickMode } = await runFixture('electron-recovery');
   assert.deepEqual(result, { retired: true, visible: true, inputBlocked: false, resumed: 1 });
   assert.ok(['desktop-hit-test', 'locked-session'].includes(clickMode), `native click mode ${clickMode}`);

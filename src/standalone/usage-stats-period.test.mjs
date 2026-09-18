@@ -202,6 +202,39 @@ test('custom ranges validate explicit calendar dates and include both selected e
   assert.equal(leap.days, 3);
 });
 
+test('clock times narrow a custom range and rebuild its partial days from retained timestamps', async (t) => {
+  const ledger = store(t);
+  t.mock.method(Date, 'now', () => now);
+  record(ledger, 'early', '2026-08-15T08:59:59');
+  record(ledger, 'opening', '2026-08-15T09:00:00');
+  record(ledger, 'closing', '2026-08-15T18:00:30');
+  record(ledger, 'after', '2026-08-15T18:01:00');
+  const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
+  const result = await api.getUsageStats({
+    view: 'custom',
+    startDay: '2026-08-15',
+    endDay: '2026-08-15',
+    startTime: '09:00',
+    endTime: '18:00',
+  });
+  assert.equal(result.totals.turns, 2, 'the named minutes are included whole; neighbours are not');
+  assert.equal(result.totals.tokens, 222);
+  assert.equal(result.period.startTime, '09:00');
+  assert.equal(result.period.endTime, '18:00');
+  const clocked = (startTime, endTime) =>
+    resolveUsageStatsPeriod({ view: 'custom', startDay: '2026-08-15', endDay: '2026-08-15', startTime, endTime, now });
+  assert.equal(clocked('09:00').toMs, new Date('2026-08-15T23:59:59.999').getTime());
+  assert.equal(clocked('09:00').fromMs, new Date('2026-08-15T09:00:00.000').getTime());
+  assert.equal(clocked().startTime, null, 'a range without times stays whole days');
+  assert.throws(() => clocked('9:00'), /clock time/);
+  assert.throws(() => clocked('25:00'), /clock time/);
+  assert.throws(() => clocked('18:00', '09:00'), /must not follow/);
+  assert.throws(
+    () => resolveUsageStatsPeriod({ view: 'custom', startDay: '2026-09-13', endDay: '2026-09-13', startTime: '23:00', now }),
+    /future dates/
+  );
+});
+
 test('rolling hours retain source precedence and leave timeless legacy usage in calendar views', (t) => {
   const ledger = store(t);
   record(ledger, 'first-hour', '2026-09-13T00:59:59');

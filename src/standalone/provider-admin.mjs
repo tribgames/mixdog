@@ -49,6 +49,8 @@ import {
   newProviderAccountId,
   changeProviderAccounts,
   removeProviderAccount,
+  clearProviderAccountQuotaState,
+  ACCOUNT_PROVIDERS,
 } from '../runtime/shared/provider-accounts.mjs';
 import { currentProviderAccountId, withProviderAccount } from '../runtime/shared/provider-auth-binding.mjs';
 
@@ -370,7 +372,12 @@ export async function loginOAuthProvider(cfgMod, provider) {
   // probe — and took down a provider whose other accounts were still signed in.
   // Disabling a provider is forgetProviderAuth's job alone, and it does so only
   // once the last account is disconnected.
-  if (auth.authenticated) updateConfigProvider(cfgMod, id, { enabled: true });
+  if (auth.authenticated) {
+    updateConfigProvider(cfgMod, id, { enabled: true });
+    // Same reason as the interactive add-account flow: a fresh credential says
+    // nothing about the quota the previous one exhausted.
+    if (ACCOUNT_PROVIDERS.includes(id)) clearProviderAccountQuotaState(id, currentProviderAccountId(id));
+  }
   return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null };
 }
 
@@ -418,6 +425,10 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
     // success only; a failed attempt leaves the stored config untouched.
     if (auth.authenticated) {
       registerProviderAccount(id, accountId, { includeDefault, label: options.label });
+      // A re-connect can follow a re-created subscription under the same
+      // account id: start it from no recorded quota rather than from the
+      // exhausted window the previous credential earned.
+      clearProviderAccountQuotaState(id, accountId);
       updateConfigProvider(cfgMod, id, { enabled: true });
     }
     return {
@@ -490,6 +501,11 @@ export function updateProviderAccounts(provider, change) {
     registerProviderAccount(provider, 'default', { label: 'Account 1' });
   }
   changeProviderAccounts(provider, change);
+  // Picking an account by hand is a decision to use it NOW, so the refusal
+  // window and meter stored against it — both describing the state the user
+  // just changed — are dropped here. Never in the pool's own fallback commit,
+  // where clearing them would send the request back to a spent account.
+  if (change?.selectedId !== undefined) clearProviderAccountQuotaState(provider, change.selectedId);
   return listProviderAccounts(provider);
 }
 

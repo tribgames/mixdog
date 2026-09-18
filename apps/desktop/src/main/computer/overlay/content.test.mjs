@@ -13,12 +13,14 @@ function fixture(t, locale = 'ko') {
   };
   dom.window.eval(overlayScript(locale));
   return {
-    window: dom.window, document: dom.window.document, calls,
+    window: dom.window,
+    document: dom.window.document,
+    calls,
     publish: dom.window.mixdogComputerOverlay,
     button: dom.window.document.querySelector('button'),
   };
 }
-const settle = () => new Promise(resolve => setImmediate(resolve));
+const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('outline glow disappears while paused and returns on resume without hiding the track', () => {
   const dom = new JSDOM(overlayHtml('ko'), { runScripts: 'outside-only' });
@@ -32,10 +34,12 @@ test('outline glow disappears while paused and returns on resume without hiding 
       assert.equal(dom.window.getComputedStyle(highlight).display === 'none', paused);
       assert.notEqual(dom.window.getComputedStyle(track).display, 'none');
     }
-  } finally { dom.window.close(); }
+  } finally {
+    dom.window.close();
+  }
 });
 
-test('one control changes between Pause and Resume and never offers unsafe resume', t => {
+test('one control changes between Pause and Resume and never offers unsafe resume', (t) => {
   for (const locale of ['ko', 'en']) {
     const f = fixture(t, locale);
     assert.equal(f.document.querySelectorAll('button').length, 1);
@@ -59,7 +63,7 @@ test('one control changes between Pause and Resume and never offers unsafe resum
   }
 });
 
-test('the same button pauses and resumes without sending task cancellation or dismissal', async t => {
+test('the same button pauses and resumes without sending task cancellation or dismissal', async (t) => {
   const f = fixture(t);
   f.publish({ paused: false, generation: 1, renderRevision: 1 });
   f.button.click();
@@ -68,10 +72,13 @@ test('the same button pauses and resumes without sending task cancellation or di
   f.publish({ paused: true, canResume: true, generation: 2, renderRevision: 2 });
   f.button.click();
   await settle();
-  assert.deepEqual(f.calls, [{ action: 'pause', generation: 1 }, { action: 'resume', generation: 2 }]);
+  assert.deepEqual(f.calls, [
+    { action: 'pause', generation: 1 },
+    { action: 'resume', generation: 2 },
+  ]);
 });
 
-test('a takeover between pointer down and up cannot turn a Pause click into Resume', async t => {
+test('a takeover between pointer down and up cannot turn a Pause click into Resume', async (t) => {
   const f = fixture(t);
   f.publish({ paused: false, generation: 8, renderRevision: 1 });
   f.button.dispatchEvent(new f.window.Event('pointerdown'));
@@ -85,18 +92,20 @@ test('a takeover between pointer down and up cannot turn a Pause click into Resu
   assert.equal(f.button.disabled, true);
 });
 
-test('Resume retains the generation from pointer or keyboard activation and reports delivery failure', async t => {
+test('Resume retains the generation from pointer or keyboard activation and reports delivery failure', async (t) => {
   for (const input of ['pointerdown', 'keydown']) {
     const f = fixture(t);
     f.publish({ paused: true, canResume: true, generation: 8, renderRevision: 1 });
-    f.button.dispatchEvent(input === 'pointerdown'
-      ? new f.window.Event(input)
-      : new f.window.KeyboardEvent(input, { key: 'Enter' }));
+    f.button.dispatchEvent(
+      input === 'pointerdown' ? new f.window.Event(input) : new f.window.KeyboardEvent(input, { key: 'Enter' })
+    );
     f.publish({ paused: true, canResume: true, generation: 9, renderRevision: 2 });
     f.button.click();
     await settle();
     assert.deepEqual(f.calls, [{ action: 'resume', generation: 8 }]);
-    f.window.mixdogComputerControl = async () => { throw new Error('private channel error'); };
+    f.window.mixdogComputerControl = async () => {
+      throw new Error('private channel error');
+    };
     f.button.click();
     await settle();
     assert.equal(f.document.getElementById('title').textContent, '실패');
@@ -105,9 +114,9 @@ test('Resume retains the generation from pointer or keyboard activation and repo
   }
 });
 
-test('a rejected Pause remains visible even though Pause moves the generation', async t => {
+test('a rejected Pause remains visible even though Pause moves the generation', async (t) => {
   const f = fixture(t);
-  f.window.mixdogComputerControl = async request => {
+  f.window.mixdogComputerControl = async (request) => {
     assert.equal(request.action, 'pause');
     f.publish({ paused: true, canResume: false, generation: 4, renderRevision: 2 });
     return { accepted: true, error: 'cleanup' };
@@ -123,14 +132,16 @@ test('a rejected Pause remains visible even though Pause moves the generation', 
   assert.equal(f.button.disabled, true);
 });
 
-test('pending Resume can be interrupted using the same button without cancelling the task', async t => {
+test('pending Resume can be interrupted using the same button without cancelling the task', async (t) => {
   const f = fixture(t);
   const calls = [];
   let finishResume;
-  f.window.mixdogComputerControl = request => {
+  f.window.mixdogComputerControl = (request) => {
     calls.push(request.action);
     return request.action === 'resume'
-      ? new Promise(resolve => { finishResume = resolve; })
+      ? new Promise((resolve) => {
+          finishResume = resolve;
+        })
       : Promise.resolve({ accepted: true });
   };
   f.publish({ paused: true, canResume: true, generation: 2, renderRevision: 1 });
@@ -149,7 +160,7 @@ test('pending Resume can be interrupted using the same button without cancelling
   assert.equal(f.document.body.dataset.error, 'true');
 });
 
-test('a cancelled pointer gesture releases its old toggle intent without sending input', t => {
+test('a cancelled pointer gesture releases its old toggle intent without sending input', (t) => {
   const f = fixture(t);
   f.publish({ paused: false, generation: 1, renderRevision: 1 });
   f.button.dispatchEvent(new f.window.Event('pointerdown'));

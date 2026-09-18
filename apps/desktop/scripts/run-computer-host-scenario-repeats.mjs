@@ -18,6 +18,9 @@ const runDirectory = resolve(
   argument('run-dir') || join(initialDirectory, 'artifacts', 'computer-use', 'repeats', label)
 );
 const requirePass = repeatRequiresPass();
+// Foreground delivery takes the real pointer, so the lane has to reach every
+// repeated run: otherwise a repeat silently claims the user's cursor.
+const skipForeground = process.argv.includes('--skip-foreground');
 const only = argument('only');
 const customTimeoutMs = Number(argument('timeout-ms')) || 300_000;
 const scenarioRunner = fileURLToPath(new URL('./run-computer-host-scenarios.mjs', import.meta.url));
@@ -94,6 +97,7 @@ for (let repeat = 1; repeat <= repeatCount; repeat += 1) {
       `--output=${shardOutput}`,
       `--only=${shard.only}`,
       `--timeout-ms=${shard.timeoutMs}`,
+      ...(skipForeground ? ['--skip-foreground'] : []),
     ]);
   }
   const repeatOutput = join(runDirectory, `${repeatLabel}.json`);

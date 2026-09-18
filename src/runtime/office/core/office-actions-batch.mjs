@@ -10,6 +10,7 @@ import { quoteUnquotedSheetReferences, validateXlsxOperations } from '../portabl
 import { applyTabularBatch } from './tabular.mjs';
 import { expandOfficeDesignOperations } from '../design/design-system.mjs';
 import { createPptxSlideSelection } from '../design/library/design-library.mjs';
+import { expandTemplatePageOperations } from '../design/library/design-template-fill.mjs';
 import { assertOfficeMutationAllowed } from '../quality/assurance.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
 import { DEFAULT_SERIES_COLORS } from '../portable/portable-chart.mjs';
@@ -73,9 +74,10 @@ export async function applyBatch(session, args) {
     'merge_pdf',
     'apply_theme',
     'import_slides',
+    'use_template_page',
     'add_media',
   ]);
-  const operations = Array.isArray(prepared.operations)
+  let operations = Array.isArray(prepared.operations)
     ? prepared.operations.map((operation) => {
         let normalized = operation;
         if (operation?.path && pathOperations.has(String(operation.op || ''))) {
@@ -123,6 +125,10 @@ export async function applyBatch(session, args) {
     backend: session.backend,
     operations,
   });
+  // A template page is chosen and filled before any backend sees the batch: it
+  // arrives as the import of that one page and the writes into its own slots,
+  // which both backends already perform.
+  operations = await expandTemplatePageOperations(session.format, operations);
   if (session.format === 'xlsx' || TABULAR_FORMATS.has(session.format)) validateXlsxOperations(operations);
   // Excel rejects `My Sheet!A1` outright; the portable writer quotes it from
   // the sheet list, and an Excel session gets the same courtesy here.

@@ -1,13 +1,6 @@
-const DEFAULT_SESSION_TITLE = 'Untitled session';
+import { stripInjectedBlocks } from '../../../../src/runtime/shared/injected-display-text.mjs';
 
-const INJECTED_DISPLAY_BLOCK_TAGS = Object.freeze([
-  'system-reminder',
-  'available-deferred-tools',
-  'mcp-instructions',
-  'memory-context',
-  'skill',
-  'event',
-]);
+const DEFAULT_SESSION_TITLE = 'Untitled session';
 
 const GENERATED_TITLE_NOISE = Object.freeze([
   /^\[mixdog-runtime\]/i,
@@ -136,14 +129,10 @@ export function stripSessionEnvelope(value) {
   );
 }
 
-export function stripInjectedDisplayText(value) {
-  let text = String(value ?? '');
-  for (const tag of INJECTED_DISPLAY_BLOCK_TAGS) {
-    const block = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?(?:<\\/${tag}\\s*>|$)`, 'gi');
-    const closing = new RegExp(`<\\/${tag}\\s*>`, 'gi');
-    text = text.replace(block, ' ').replace(closing, ' ');
-  }
-  return text;
+/** Display default: closed blocks only, so a user-typed tag name never eats
+ *  the rest of their message. Truncated sources opt into `dropUnterminated`. */
+export function stripInjectedDisplayText(value, options) {
+  return stripInjectedBlocks(value, options);
 }
 
 export function isSyntheticSessionDisplayText(value) {
@@ -166,7 +155,7 @@ export function hasMeaningfulSessionTitleText(value) {
  */
 export function normalizeSessionTitle(value, fallback = DEFAULT_SESSION_TITLE, maxLength = 100) {
   let text = String(value ?? '');
-  text = stripSessionReference(stripInjectedDisplayText(stripSessionEnvelope(text)))
+  text = stripSessionReference(stripInjectedDisplayText(stripSessionEnvelope(text), { dropUnterminated: true }))
     .replace(/<file\b[^>]*>[\s\S]*?<\/file>/gi, ' ')
     .replace(/\[Pasted text\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
     .replace(MEDIA_DISPLAY_BLOCK, ' ')

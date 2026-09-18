@@ -94,11 +94,16 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
   assert.deepEqual(anthropicInput.properties.actions.items.properties.type.enum, [
     'click',
     'double_click',
+    'triple_click',
+    'mouse_down',
+    'mouse_up',
     'move',
     'drag',
     'scroll',
     'type',
     'key',
+    'key_down',
+    'key_up',
     'wait',
   ]);
   assert.deepEqual(schemas[2].required, ['action']);

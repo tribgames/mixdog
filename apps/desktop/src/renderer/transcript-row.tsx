@@ -236,7 +236,9 @@ export function isVisibleTranscriptItem(item: TranscriptItem | undefined): boole
     metadataRecord?.internal === true ||
     metadataRecord?.hidden === true ||
     metadataRecord?.synthetic === true ||
-    isInternalTranscriptDisplayText(text)
+    // TUI parity: the loose completion-wrapper shape hides RUNTIME-injected
+    // rows only. A prompt the user typed or pasted stays visible.
+    isInternalTranscriptDisplayText(text, { lenientWrapper: false })
   );
 }
 

@@ -4,7 +4,13 @@
 function Invoke-SequenceStep($req) {
     $step = $req.step
     $actions = @('invoke', 'click', 'right_click', 'middle_click', 'double_click',
-        'mouse_move', 'drag', 'scroll', 'type', 'key', 'wait')
+        'triple_click', 'mouse_down', 'mouse_up', 'mouse_move', 'drag', 'scroll',
+        'type', 'key', 'wait')
+    # A held key is foreground-only. Say so instead of reporting bad grammar, so
+    # the caller learns the supported route rather than re-sending the same step.
+    if ($null -ne $step -and @('key_down', 'key_up') -contains [string]$step.action) {
+        throw 'background_unsupported|a held key requires the real keyboard; use explicit foreground delivery'
+    }
     if ($null -eq $step -or $actions -notcontains [string]$step.action -or
         $step.delivery -ne 'background' -or $req.delivery -ne 'background' -or
         -not $step.window_id -or $step.window -or

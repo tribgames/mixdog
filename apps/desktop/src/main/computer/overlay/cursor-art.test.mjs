@@ -18,9 +18,10 @@ test('cursor renders no labels, and movement does not announce a click', () => {
     for (const mode of ['background', 'foreground']) {
       dom.window.mixdogAgentCursor({ mode, effect: 'move' });
       assert.equal(shown('arrow'), mode === 'background');
-      assert.equal(shown('typing'), false);
+      // Typing shows as the cursor's own pulse: no attached badge, and never an
+      // echo of what is being typed.
       dom.window.mixdogAgentCursor({ mode, effect: 'type', text: 'private input' });
-      assert.equal(shown('typing'), true);
+      assert.equal(dom.window.document.getElementById('surface').className, 'visible type');
       assert.equal(dom.window.document.body.textContent.trim(), '');
     }
   } finally {
@@ -39,11 +40,10 @@ test('ongoing input stays visible in both delivery modes until its lifecycle cha
     await new Promise((resolve) => setTimeout(resolve, 1100));
     for (const { dom, mode } of views) {
       const surface = dom.window.document.getElementById('surface');
-      const typing = dom.window.document.getElementById('typing');
       assert.ok(surface.classList.contains('visible'), `${mode} hid an ongoing input`);
-      assert.notEqual(dom.window.getComputedStyle(typing).display, 'none');
+      assert.ok(surface.classList.contains('type'), `${mode} dropped the typing state`);
       dom.window.mixdogAgentCursor({ mode, effect: 'move' });
-      assert.equal(dom.window.getComputedStyle(typing).display, 'none');
+      assert.equal(surface.classList.contains('type'), false);
     }
   } finally {
     for (const { dom } of views) dom.window.close();

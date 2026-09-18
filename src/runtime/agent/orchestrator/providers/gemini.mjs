@@ -651,7 +651,12 @@ export class GeminiProvider {
     }
 
     const useModel = model || (await ensureLatestGeminiModel(this));
-    const thinkingConfig = geminiThinkingConfig(useModel, opts);
+    // Gemini returns thought summaries only when the request asks for them.
+    // Without this the reasoning channel stays empty for the whole turn and
+    // the model's only visible output is the plain pre-tool text, so every
+    // round reads as another preamble. On by default for every model; an
+    // explicit opts.includeThoughts still wins.
+    const thinkingConfig = geminiThinkingConfig(useModel, opts, { includeThoughts: true });
     const generationConfig = thinkingConfig ? { thinkingConfig } : undefined;
     const systemInstruction =
       messages

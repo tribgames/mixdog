@@ -9,7 +9,7 @@ import {
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { cursorTokenExpiry, exchangeCursorToken, resolveCursorOAuthAccessToken } from './cursor-auth.mjs';
-import { isCursorEffortParameterId } from './cursor-wire-normalization.mjs';
+import { canonicalCursorModelId, isCursorAutoModelId, isCursorEffortParameterId } from './cursor-wire-normalization.mjs';
 
 let runtimePromise = null;
 const CURSOR_EFFORT_ORDER = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);
@@ -271,9 +271,10 @@ function parameterizedCursorModel(entry, provider) {
     CURSOR_DEFAULT_CONTEXT_WINDOW;
   const maxContextWindow = Number(entry.maxContextWindow) || (supportsMaxMode ? describedContextWindow : 0);
   const contextWindow = maxOnly ? maxContextWindow || nonMaxContextWindow : nonMaxContextWindow;
+  const id = canonicalCursorModelId(entry.id);
   return {
-    id: entry.id,
-    display: cursorPlainText(entry.name || entry.id),
+    id,
+    display: isCursorAutoModelId(entry.id) ? 'Auto' : cursorPlainText(entry.name || entry.id),
     provider,
     mode: 'chat',
     contextWindow,
@@ -293,7 +294,7 @@ function parameterizedCursorModel(entry, provider) {
     defaultFast: defaultVariant?.routeParameters?.fast === 'true',
     supportsMaxMode,
     _cursorParameterized: {
-      id: entry.id,
+      id,
       definitions,
       effortParameterId: effortDefinition?.id || null,
       variants: normalizedVariants,
@@ -319,10 +320,21 @@ function normalizeCursorCatalog(entries, provider) {
       Number(entry?.maxContextWindow) > 0
     ) {
       const model = parameterizedCursorModel(entry, provider);
-      parameterizedModels.push(model);
-      parameterGroups.set(model.id, model._cursorParameterized);
+      const group = model._cursorParameterized;
       delete model._cursorParameterized;
+      const existingIndex = parameterizedModels.findIndex((candidate) => candidate.id === model.id);
+      const existing = existingIndex >= 0 ? parameterizedModels[existingIndex] : null;
+      const existingScore = existing
+        ? (existing.modelParameterOptions?.length || 0) + (existing.supportsMaxMode ? 1 : 0)
+        : -1;
+      const nextScore = (model.modelParameterOptions?.length || 0) + (model.supportsMaxMode ? 1 : 0);
+      if (!existing || nextScore >= existingScore) {
+        if (existingIndex >= 0) parameterizedModels[existingIndex] = model;
+        else parameterizedModels.push(model);
+        parameterGroups.set(model.id, group);
+      }
       rawIds.add(model.id);
+      if (isCursorAutoModelId(entry.id)) rawIds.add(String(entry.id).trim());
       for (const alias of entry.aliases || []) {
         const variant = (entry.variants || []).find((candidate) => candidate.legacySlug === alias);
         if (!aliases.has(alias)) {
@@ -353,6 +365,7 @@ function normalizeCursorCatalog(entries, provider) {
   }
   const models = [...parameterizedModels];
   for (const [baseId, variants] of groups) {
+    if (parameterGroups.has(baseId)) continue;
     variants.sort((a, b) => variantPreference(a) - variantPreference(b) || a.id.localeCompare(b.id));
     const representative = variants[0];
     const efforts = CURSOR_EFFORT_ORDER.filter((effort) => variants.some((variant) => variant.effort === effort));
@@ -487,7 +500,7 @@ class CursorProviderBase {
   }
 
   async _resolveCursorModel(model, sendOpts, runtime, accessToken) {
-    const requested = String(model || 'auto').trim() || 'auto';
+    const requested = canonicalCursorModelId(String(model || 'auto').trim() || 'auto');
     const catalog = await this._loadCursorCatalog(runtime, accessToken);
     const alias = catalog.aliases.get(requested);
     const parameterGroup = catalog.parameterGroups.get(requested);

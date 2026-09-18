@@ -323,6 +323,30 @@ function Do-Invoke($ref, [bool]$allowNativeClick = $false) {
     return Background-Unavailable 'invoke' "element $ref exposes no semantic toggle/invoke/select action; no physical fallback was attempted" ([MixWin32]::WindowId($top))
 }
 
+# A XAML/WinUI/UWP host consumes only system-queue input, so posted characters
+# reach nothing there. The native guard decides, and its refusal runs before any
+# delivery, so a false answer means no input was sent.
+function Test-BackgroundKeyboardRoute($top, $preferred) {
+    try {
+        [MixWin32]::ValidateBackgroundInput($top, $preferred, 'type', '')
+        return $true
+    }
+    catch { return $false }
+}
+
+# A value-settable element accepts text through its own pattern, so background
+# text input does not need an exact native keyboard target on that element.
+function Test-BackgroundValueTarget($record) {
+    if ($record.Kind -eq 'msaa') { return $true }
+    $el = $record.Element
+    $pat = $null
+    if (-not $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pat)) { return $false }
+    # A browser or Electron tab echoes the write without applying it in the
+    # document, so its readback would confirm input that never landed.
+    $top = New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)
+    return -not [MixWin32]::IsWebContentHost($top)
+}
+
 function Do-SetValue($ref, $text) {
     $record = Get-RefRecord $ref
     if ($record.Kind -eq 'msaa') {
@@ -651,6 +675,11 @@ function Invoke-ForegroundWheel($target, $x, $y, $clicks, $horizontal, $modifier
 }
 
 function Do-ClickFamily($req, $kind) {
+    if (($kind -eq 'press' -or $kind -eq 'release') -and $req.delivery -eq 'foreground') {
+        # The real pointer belongs to the user: it must never stay pressed between
+        # commands, so a held button is background-only.
+        throw 'background_unsupported|a held pointer button is background-only; no input sent'
+    }
     if ($req.ref -and $kind -eq 'click' -and $req.delivery -ne 'foreground' -and -not $req.modifiers) {
         # Keep click intent: a supported semantic action wins, but an element that
         # has no such pattern can still accept a target-bound native pointer message.
@@ -686,6 +715,7 @@ function Do-ClickFamily($req, $kind) {
         try {
             Assert-ExecutionAuthorization $req $target
             $messageTarget = [MixWin32]::BackgroundPointer($target, $p[0], $p[1], $kind, $req.modifiers)
+            if ($kind -eq 'press' -or $kind -eq 'release') { Record-HeldPointer $target $p $kind }
             $message = "$($req.action) delivered to $messageTarget as a native window message"
             return Complete-NativeAction $req.action $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord $message
         }
@@ -726,6 +756,44 @@ function Do-MouseMove($req) {
     return Do-ClickFamily $req 'move'
 }
 
+function Record-HeldPointer($target, $point, $kind) {
+    $state = Get-CurrentSession
+    if ($null -eq $state.HeldPointerTargets) { $state.HeldPointerTargets = @{} }
+    $id = [string][MixWin32]::WindowId($target)
+    if ($kind -eq 'press') { $state.HeldPointerTargets[$id] = @([int]$point[0], [int]$point[1]) }
+    else { $state.HeldPointerTargets.Remove($id) }
+}
+
+function Release-HeldPointerButtons($state) {
+    if ($null -eq $state.HeldPointerTargets -or $state.HeldPointerTargets.Count -eq 0) { return }
+    # Every exit from a session releases what this session pressed; an unreleased
+    # button would leave the target believing a drag is still in progress.
+    $failed = $false
+    foreach ($id in @($state.HeldPointerTargets.Keys)) {
+        $point = $state.HeldPointerTargets[$id]
+        try {
+            $handle = [MixWin32]::ParseWindowId([string]$id)
+            [void][MixWin32]::BackgroundPointer($handle, [int]$point[0], [int]$point[1], 'release', '')
+        }
+        catch { $failed = $true }
+    }
+    $state.HeldPointerTargets.Clear()
+    if ($failed) { throw 'input_cleanup_unconfirmed: a held pointer button could not be released' }
+}
+
+function Release-HeldKeys($state) {
+    if ($null -eq $state.HeldKeys -or $state.HeldKeys.Count -eq 0) { return }
+    # A key left down keeps acting on whatever the user does next, so every exit
+    # from a session releases what this session pressed.
+    $failed = $false
+    foreach ($keys in @($state.HeldKeys.Keys)) {
+        try { [MixTaggedKeys]::Hold([string]$keys, $false) }
+        catch { $failed = $true }
+    }
+    $state.HeldKeys.Clear()
+    if ($failed) { throw 'input_cleanup_unconfirmed: a held key could not be released' }
+}
+
 function Do-Wait($req) {
     $s = if ($null -ne $req.duration) { [double]$req.duration } else { 1 }
     if ($s -lt 0 -or $s -gt 30) { throw 'wait duration must be 0..30 seconds' }
@@ -734,6 +802,34 @@ function Do-Wait($req) {
 }
 
 function Do-Drag($req) {
+    if ($null -ne $req.waypoints -and @($req.waypoints).Count -gt 0) {
+        # The host has already mapped every waypoint into screen pixels of one
+        # window, so the gesture travels as a single press.
+        $points = @($req.waypoints)
+        if ($points.Count -lt 2) { throw 'waypoint drag requires at least two points' }
+        if (-not $req.window_id -and -not $req.window) {
+            return Background-Unavailable 'drag' 'waypoint drag requires an exact window_id-bound frame' $null 'target_required'
+        }
+        $info = Resolve-WindowInfo $req.window $req.window_id
+        $xs = [int[]]@($points | ForEach-Object { [int]$_.x })
+        $ys = [int[]]@($points | ForEach-Object { [int]$_.y })
+        if ($req.delivery -ne 'foreground') {
+            try {
+                Assert-ExecutionAuthorization $req $info.Handle
+                $messageTarget = [MixWin32]::BackgroundDragPath($info.Handle, $xs, $ys, $req.modifiers)
+                return New-ActionResult 'drag' 'win32_message' 'unverifiable' $false "drag delivered to $messageTarget through $($points.Count) waypoints as native window messages; refresh state before treating it as complete" $null 'background' $info.Id
+            }
+            catch {
+                return Native-BackgroundFailure 'drag' $_.Exception $info.Id
+            }
+        }
+        return Invoke-ForegroundInput $info.Handle 'drag' {
+            for ($index = 0; $index -lt $xs.Length; $index++) {
+                Assert-DragPointTargets $req $info.Handle $xs[$index] $ys[$index] $xs[$index] $ys[$index]
+            }
+            Invoke-PointerModifiers $req.modifiers { [MixWin32]::DragPath($xs, $ys, $info.Handle) }
+        } $true
+    }
     if ($null -ne $req.x -or $null -ne $req.y -or $null -ne $req.to_x -or $null -ne $req.to_y) {
         if ($null -eq $req.x -or $null -eq $req.y -or $null -eq $req.to_x -or $null -eq $req.to_y) {
             throw 'coordinate drag requires x, y, to_x, and to_y from one frame_id'
@@ -1153,6 +1249,10 @@ function Do-InvokeMenu($req) {
         if ($path.Count -lt 1 -or $path.Count -gt 8) { throw 'menu path must have 1..8 segments' }
         $root = $null
         $walked = @()
+        # Menu levels this call opened itself. A walk that stops early must not
+        # leave them on screen for the user or the next command.
+        $opened = 0
+        try {
         for ($i = 0; $i -lt $path.Count; $i++) {
             $segment = $path[$i]
             # Native applications usually expose menu state through MSAA immediately.
@@ -1180,6 +1280,7 @@ function Do-InvokeMenu($req) {
                     return New-ActionResult 'invoke_menu' 'msaa_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
                 }
                 Start-Sleep -Milliseconds 120
+                $opened++
                 $root = $null
                 continue
             }
@@ -1202,7 +1303,11 @@ function Do-InvokeMenu($req) {
                 $candidates = @($popupCandidates)
             }
             if ($candidates.Count -eq 0) {
-                throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > ')"
+                # A wrong path and a popup chain that closed under the user's own
+                # click fail identically here, so the count that separates them
+                # travels with the error instead of being guessed later.
+                $ownedPopups = @([MixWin32]::RelatedWindowIds($info.Handle)).Count
+                throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > '); owned_popups=$ownedPopups"
             }
             if ($candidates.Count -gt 1) {
                 throw "menu_path_ambiguous: '$segment' matched $($candidates.Count) entries; use a more exact path"
@@ -1239,7 +1344,17 @@ function Do-InvokeMenu($req) {
                 throw "menu_expand_unavailable: '$segment' cannot be opened through accessibility"
             }
             Start-Sleep -Milliseconds 120
+            $opened++
             $root = $el
+        }
+        }
+        catch {
+            # Nothing was invoked, so the window has to return to the state it had
+            # before this call; the original cause still travels to the caller.
+            if ($opened -gt 0) {
+                try { [void][MixWin32]::BackgroundKeys($info.Handle, [IntPtr]::Zero, ('{ESC}' * $opened)) } catch {}
+            }
+            throw
         }
     }
 }

@@ -55,12 +55,15 @@ export function planGlide(from: GlidePoint | undefined, to: GlidePoint, area: Gl
   const start = from ?? seedGlideStart(to, area);
   const distance = Math.hypot(to.x - start.x, to.y - start.y);
   if (!Number.isFinite(distance) || distance < GLIDE_MIN_DISTANCE) return null;
-  const durationMs = Math.min(GLIDE_MAX_MS, Math.max(GLIDE_MIN_MS, Math.round((distance / GLIDE_SPEED_PX_PER_S) * 1000)));
+  const durationMs = Math.min(
+    GLIDE_MAX_MS,
+    Math.max(GLIDE_MIN_MS, Math.round((distance / GLIDE_SPEED_PX_PER_S) * 1000))
+  );
   return { from: { x: start.x, y: start.y }, to: { x: to.x, y: to.y }, durationMs };
 }
 
 function easeInOutCubic(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 }
 
 export function glidePosition(plan: GlidePlan, elapsedMs: number): GlidePoint {

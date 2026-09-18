@@ -65,13 +65,19 @@ class AgentCompactFailedError extends Error {
   }
 }
 
+// The summary step may run on its own maintenance route, so the model that
+// failed is not necessarily the session's. `compactRoute`, stamped by the
+// compaction pipeline on the error it propagates, names the real target —
+// without it a maintenance-model quota failure reads as if the conversation's
+// own provider were exhausted.
 export function agentCompactFailedError({ stage, sessionId, sessionRef, model }, cause) {
+  const failed = cause?.compactRoute || null;
   return new AgentCompactFailedError(
     {
       stage,
       sessionId,
-      provider: sessionRef?.provider || null,
-      model: sessionRef?.model || model || null,
+      provider: failed?.provider || sessionRef?.provider || null,
+      model: failed?.model || sessionRef?.model || model || null,
     },
     cause
   );

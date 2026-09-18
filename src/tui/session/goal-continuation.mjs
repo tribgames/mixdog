@@ -31,18 +31,28 @@ export function createGoalContinuation({ runtime, flags, getState, set, getPendi
     return removed;
   };
 
+  // A user prompt retires completed AND stopped work (see
+  // archiveCompletedGoalOnUserInput), so both stay masked until that archive
+  // write lands. The raw record still holds the finished Goal in that window.
   const visibleGoal = (goal) =>
-    goal?.status === 'complete' && clean(goal.id) === suppressedCompletedGoalId ? null : goal || null;
+    ['complete', 'stopped'].includes(goal?.status) && clean(goal.id) === suppressedCompletedGoalId
+      ? null
+      : goal || null;
 
-  const refreshGoalState = () => {
-    const goal = visibleGoal(runtime.goalStatus?.() || null);
+  /** The ONE way this controller writes the Goal lane: every publisher (route
+   *  pulse, turn boundary, continuation check) passes through the archive mask,
+   *  so retired chrome cannot pop back for a frame and vanish again. */
+  const publishGoal = (raw) => {
+    const goal = visibleGoal(raw || null);
     if (getState().goal !== goal) set({ goal });
     return goal;
   };
 
+  const refreshGoalState = () => publishGoal(runtime.goalStatus?.() || null);
+
   const continuationDecision = () => {
     const decision = runtime.goalContinuation?.() || { run: false, reason: 'unavailable', goal: null };
-    if (getState().goal !== decision.goal) set({ goal: decision.goal || null });
+    publishGoal(decision.goal);
     return decision;
   };
 
@@ -181,13 +191,13 @@ export function createGoalContinuation({ runtime, flags, getState, set, getPendi
     shouldRunGoalContinuation,
     async onGoalTurnStarted() {
       const goal = await Promise.resolve(runtime.goalTurnStarted?.());
-      if (goal !== undefined && getState().goal !== goal) set({ goal: goal || null });
+      if (goal !== undefined) publishGoal(goal);
       return goal;
     },
     async onGoalTurnSettled(detail = {}) {
       const status = clean(typeof detail === 'string' ? detail : detail.status).toLowerCase();
       const goal = await Promise.resolve(runtime.goalTurnSettled?.(typeof detail === 'string' ? { status } : detail));
-      if (goal !== undefined && getState().goal !== goal) set({ goal: goal || null });
+      if (goal !== undefined) publishGoal(goal);
       if (goal?.status === 'active') scheduleGoalContinuation();
       return goal;
     },

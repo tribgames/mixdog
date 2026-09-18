@@ -7,11 +7,16 @@ export const COMPUTER_DEFAULT_DELIVERY = 'background';
 const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
   'click',
   'double_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
   'move',
   'drag',
   'scroll',
   'type',
   'key',
+  'key_down',
+  'key_up',
   'wait',
 ]);
 
@@ -38,6 +43,22 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
     to_element: { type: 'integer', minimum: 1 },
     to_x: { type: 'integer' },
     to_y: { type: 'integer' },
+    waypoints: {
+      type: 'array',
+      minItems: 2,
+      maxItems: 32,
+      items: {
+        type: 'object',
+        properties: {
+          x: { type: 'integer' },
+          y: { type: 'integer' },
+        },
+        required: ['x', 'y'],
+        additionalProperties: false,
+      },
+      description:
+        'Drag points in act.input.frame_id for a gesture that is not a straight line; replaces x/y and to_x/to_y.',
+    },
     button: { type: 'string', enum: ['left', 'right', 'middle'] },
     modifiers: {
       type: 'string',
@@ -73,11 +94,16 @@ const CONTINUATION_TARGET_FIELDS = [...TARGET_FIELDS, 'to', 'to_element', 'to_x'
 const FIELDS_BY_TYPE = {
   click: new Set(['type', ...TARGET_FIELDS, 'button', 'modifiers']),
   double_click: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  triple_click: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  mouse_down: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
+  mouse_up: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
   move: new Set(['type', ...TARGET_FIELDS, 'modifiers']),
-  drag: new Set(['type', ...TARGET_FIELDS, 'to', 'to_element', 'to_x', 'to_y', 'modifiers']),
+  drag: new Set(['type', ...TARGET_FIELDS, 'to', 'to_element', 'to_x', 'to_y', 'waypoints', 'modifiers']),
   scroll: new Set(['type', ...TARGET_FIELDS, 'direction', 'amount', 'modifiers']),
   type: new Set(['type', ...TARGET_FIELDS, 'text']),
   key: new Set(['type', 'ref', 'keys']),
+  key_down: new Set(['type', 'ref', 'keys']),
+  key_up: new Set(['type', 'ref', 'keys']),
   wait: new Set(['type', 'duration']),
 };
 
@@ -182,8 +208,8 @@ export function validateComputerCoreActions(actions, { frameId = '', delivery = 
       }
     }
     if (index > 0) {
-      if (!['type', 'key', 'wait'].includes(type)) {
-        return 'Computer Use act actions after the first must be type, key, or wait';
+      if (!['type', 'key', 'key_down', 'key_up', 'wait'].includes(type)) {
+        return 'Computer Use act actions after the first must be type, key, key_down, key_up, or wait';
       }
       const targeted = CONTINUATION_TARGET_FIELDS.filter((field) => hasOwn(action, field));
       if (targeted.length) {
@@ -192,7 +218,7 @@ export function validateComputerCoreActions(actions, { frameId = '', delivery = 
     } else if (type === 'wait') {
       return 'Computer Use act must start with an input action';
     }
-    if (['click', 'double_click', 'move'].includes(type)) {
+    if (['click', 'double_click', 'triple_click', 'mouse_down', 'mouse_up', 'move'].includes(type)) {
       const error = targetFormError(action, { frameId });
       if (error) return `${label} ${error}`;
     }
@@ -203,15 +229,24 @@ export function validateComputerCoreActions(actions, { frameId = '', delivery = 
       const destinationPoint = ['to_x', 'to_y'].filter((field) => hasOwn(action, field));
       const semantic = sourceSemantic.length === 1 && destinationSemantic.length === 1;
       const coordinate = sourcePoint.length === 2 && destinationPoint.length === 2;
-      if (
-        sourceSemantic.length > 1 ||
-        destinationSemantic.length > 1 ||
-        (semantic && coordinate) ||
-        (!semantic && !coordinate)
-      ) {
-        return `${label} requires one matching semantic or coordinate source/destination pair`;
+      if (hasOwn(action, 'waypoints')) {
+        // Waypoints already name every point of the gesture, so a second source or
+        // destination could only contradict them.
+        if (sourceSemantic.length || destinationSemantic.length || sourcePoint.length || destinationPoint.length) {
+          return `${label} waypoints carry the whole gesture and cannot be combined with another target`;
+        }
+        if (!frameId) return `${label} waypoints require act.input.frame_id`;
+      } else {
+        if (
+          sourceSemantic.length > 1 ||
+          destinationSemantic.length > 1 ||
+          (semantic && coordinate) ||
+          (!semantic && !coordinate)
+        ) {
+          return `${label} requires one matching semantic or coordinate source/destination pair`;
+        }
+        if (coordinate && !frameId) return `${label} coordinate target requires act.input.frame_id`;
       }
-      if (coordinate && !frameId) return `${label} coordinate target requires act.input.frame_id`;
     }
     if (type === 'scroll') {
       const error = targetFormError(action, { required: false, frameId });

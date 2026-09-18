@@ -56,7 +56,8 @@ observed target, and leave windows where they were.
   or keyboard focus, background is known unsupported, or the user requests a
   visible demonstration. A click or drag is not automatically foreground:
   supported background gestures remain eligible. The exact target is prepared
-  before the one physical cursor moves. Leave it at its destination.
+  before the one physical cursor moves, and the cursor returns to where the
+  user left it; recovery skips that return when the user moved it meanwhile.
 - Do not spend a failed background attempt on a route already known unsupported.
   Select foreground directly when it is within scope. A strict no-focus request
   requires approval before foreground escalation.
@@ -120,7 +121,9 @@ observed target, and leave windows where they were.
 ## The core loop
 
 1. Use the known exact `window_id` or unique `app`; use `list` (kind windows)
-   only when the target is unresolved.
+   only when the target is unresolved. `list` (kind apps) also answers `query`
+   with installed apps that are not running, and `launch` accepts those names.
+   `list` (kind history) returns this session's executed commands and verdicts.
 2. Without a fresh usable observation, `capture` that window.
    `mode=state` (default) returns structured UI + an
    image; `ax` = accessibility only (cheapest), `som` = numbered marks,
@@ -133,11 +136,19 @@ observed target, and leave windows where they were.
    For `zoom`, pass `frame_id` and `region` without `window_id`, `app`, or
    `screen`: the frame already identifies the exact source window.
 3. `act` with 1–6 simple actions. The first is an input action (`click`,
-   `double_click`, `move`, `drag`, `scroll`, `type`, or `key`), using a fresh
+   `double_click`, `triple_click`, `mouse_down`, `mouse_up`, `move`, `drag`,
+   `scroll`, `type`, `key`, `key_down`, or `key_up`), using a fresh
    `ref`, an `element` mark, or `x`/`y` in `act.input.frame_id` when a target
-   is needed. Later actions may only be `type`, `key`, or `wait`; they reuse
+   is needed. Later actions may only be `type`, `key`, `key_down`, `key_up`, or
+   `wait`; they reuse
    focus and cannot carry another target. A second pointer action needs a
    separate `act` using the returned observation.
+   `mouse_down` holds a button past the end of its command and is
+   background-only; pair it with `mouse_up` on a fresh observation.
+   `key_down` holds a key the same way and is foreground-only, because no window
+   message can leave a key physically down; pair it with `key_up`. Any session
+   exit releases what the session pressed, and a failed release is reported
+   rather than assumed.
    Execution stops at the first failure or when the target transitions
    (popup, dialog, window change) and returns one fresh observation.
 4. Read the returned observation, including any successor target. It replaces
@@ -167,7 +178,9 @@ refs still work.
   on "no path", use the recovery capture and target the item by OCR/frame
   instead of retrying `menu` unchanged.
 - `window` — `focus`, `minimize`, `close`; `move`/`maximize`/`restore` only on
-  explicit user request.
+  explicit user request. `terminate` kills the process behind the window and
+  loses unsaved work: it needs the user's go-ahead plus `confirm="terminate"`,
+  and it is refused while the window still answers messages — close that one.
 - `launch` — executable name, exact path, file, or URL; use `list` to find
   the new window only if the result did not resolve it. Reuse a successful
   returned observation; otherwise capture the resolved window. Use `verify`

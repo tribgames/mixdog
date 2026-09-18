@@ -6,6 +6,7 @@
 // steering. Mutable counters (dedupStubTotal/editCount) are threaded in/out;
 // crossTurnCalls/epoch/pending mutate by reference. Behavior identical.
 import { resolve as resolvePath, isAbsolute } from 'path';
+import { envFlag } from '../../../shared/env.mjs';
 import { skillBodyPresentInSession } from '../context/collect.mjs';
 import { isInjectedSkillBodyMessage } from './compact/messages.mjs';
 import { canonicalizeBuiltinToolName, isBuiltinTool } from '../tools/builtin.mjs';
@@ -1016,12 +1017,15 @@ export async function processToolBatch(ctx) {
   // (batching-nudge.mjs). Rides the channel the flush above just used, so
   // tool_result pairing stays valid.
   {
+    // MIXDOG_ROUND_REMINDER=0 silences the route's per-round line here too;
+    // the batching heuristics keep their own triggers.
+    const _roundReminderOn = !opts.roundReminderByProvider && envFlag('MIXDOG_ROUND_REMINDER', true);
     const _nudge = observeToolBatchForNudge({
       sessionRef,
       calls,
       results: calls.map((call) => _batchToolResultByCallId.get(call.id) ?? null),
       tools,
-      reminder: opts.roundReminderByProvider ? null : opts.roundReminder || null,
+      reminder: _roundReminderOn ? opts.roundReminder || null : null,
     });
     if (_nudge) {
       messages.push(batchingNudgeMessage(_nudge));

@@ -48,7 +48,10 @@ test('a stopped discovery continuation cannot publish readiness or own the next 
   let enabled = true;
   let nativeCalls = 0;
   const bridge = createBridgeServer({
-    callPowerShell: async () => { nativeCalls++; return { ok: true }; },
+    callPowerShell: async () => {
+      nativeCalls++;
+      return { ok: true };
+    },
     powerShellBySession: new Map(),
     elevatedSessionIds: () => [],
     abortComputerSession: async () => ({ text: '' }),

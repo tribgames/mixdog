@@ -50,9 +50,6 @@ export function ContextBody({ status, snapshot, request: inspectRequest }: { sta
   });
   const used = usage.used;
   const windowTokens = usage.limit;
-  const rawWindowTokens = nonNegativeNumber(
-    context.rawContextWindow || state.contextWindow || context.contextWindow || windowTokens
-  );
   const usedPercent = contextPercent(used, windowTokens) || 0;
   const rawCategories = [
     {
@@ -84,13 +81,9 @@ export function ContextBody({ status, snapshot, request: inspectRequest }: { sta
     ? t('Measured total; category colors show estimated proportions.')
     : t(contextMeasurementLabel(usage.source));
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
-  const autoCompactBufferTokens = Math.max(0, rawWindowTokens - windowTokens);
   const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
-  const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens + autoCompactBufferTokens);
-  categories.push(
-    { key: 'free', label: t('Free space'), tokens: estimatedFreeTokens },
-    { key: 'autocompact', label: t('Autocompact buffer'), tokens: autoCompactBufferTokens }
-  );
+  const categoryWindowTokens = Math.max(windowTokens, categorizedTokens);
+  categories.push({ key: 'free', label: t('Free space'), tokens: estimatedFreeTokens });
 
   return (
     <div className="context-surface-view">
@@ -128,7 +121,6 @@ export function ContextBody({ status, snapshot, request: inspectRequest }: { sta
         {inspection ? <ContextInspector
           inspection={inspection}
           windowTokens={windowTokens}
-          reserveTokens={autoCompactBufferTokens}
           request={inspectRequest}
         /> : <section className="context-mix" aria-labelledby="context-mix-title">
           <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>

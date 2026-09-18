@@ -55,6 +55,108 @@ test('browser CDP pointer input keeps CSS coordinates independent of WebContents
   assert.deepEqual([wheel.params.x, wheel.params.y, wheel.params.deltaX, wheel.params.deltaY], [600, 400, 120, 180]);
 });
 
+test('a page that starts its own HTML5 drag is finished with drag events, never a mouse release', async () => {
+  const calls = [];
+  let pending = { items: [{ mimeType: 'text/plain', data: 'card-42' }], dragOperationsMask: 1 };
+  const driver = createBrowserInputDriver(
+    async (_guest, method, params) => {
+      calls.push({ method, type: params.type, x: params.x, y: params.y, enabled: params.enabled, data: params.data });
+      return 'completed';
+    },
+    {
+      drags: {
+        reset: () => {},
+        take: () => {
+          const data = pending;
+          pending = null;
+          return data;
+        },
+      },
+    }
+  );
+
+  await driver.dragAt({}, { x: 100, y: 100 }, { x: 300, y: 100 });
+
+  assert.deepEqual(
+    calls.filter((call) => call.method === 'Input.setInterceptDrags').map((call) => call.enabled),
+    [true, false]
+  );
+  const dragEvents = calls.filter((call) => call.method === 'Input.dispatchDragEvent');
+  assert.equal(dragEvents[0].type, 'dragEnter');
+  assert.equal(dragEvents.filter((call) => call.type === 'dragOver').length, 8);
+  assert.equal(dragEvents.at(-1).type, 'drop');
+  assert.deepEqual([dragEvents.at(-1).x, dragEvents.at(-1).y], [300, 100]);
+  assert.equal(dragEvents.at(-1).data.items[0].data, 'card-42');
+  assert.equal(
+    calls.filter((call) => call.type === 'mouseReleased').length,
+    0,
+    'releasing the button would cancel the drag Chromium is holding'
+  );
+});
+
+test('typing sends one key event per character, so keydown-driven widgets react', async () => {
+  const calls = [];
+  const driver = createBrowserInputDriver(async (_guest, method, params) => {
+    calls.push({ method, ...params });
+    return 'completed';
+  });
+
+  await driver.typeText({}, 'Hi.한');
+
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.type ?? null, call.key ?? null, call.code ?? null, call.text ?? null]),
+    [
+      ['Input.dispatchKeyEvent', 'keyDown', 'H', 'KeyH', 'H'],
+      ['Input.dispatchKeyEvent', 'keyUp', 'H', 'KeyH', null],
+      ['Input.dispatchKeyEvent', 'keyDown', 'i', 'KeyI', 'i'],
+      ['Input.dispatchKeyEvent', 'keyUp', 'i', 'KeyI', null],
+      ['Input.dispatchKeyEvent', 'keyDown', '.', 'Period', '.'],
+      ['Input.dispatchKeyEvent', 'keyUp', '.', 'Period', null],
+      // No physical key produces it, so the character is inserted instead.
+      ['Input.insertText', null, null, null, '한'],
+    ]
+  );
+  assert.equal(calls[0].modifiers, 8, 'an uppercase letter is Shift plus its key');
+  assert.equal(calls[2].modifiers, 0);
+});
+
+test('a drag no page claims stays a plain mouse gesture', async () => {
+  const calls = [];
+  const driver = createBrowserInputDriver(
+    async (_guest, method, params) => {
+      calls.push({ method, type: params.type });
+      return 'completed';
+    },
+    { drags: { reset: () => {}, take: () => null } }
+  );
+
+  await driver.dragAt({}, { x: 100, y: 100 }, { x: 300, y: 100 });
+
+  assert.equal(calls.filter((call) => call.method === 'Input.dispatchDragEvent').length, 0);
+  assert.equal(calls.filter((call) => call.type === 'mouseReleased').length, 1);
+});
+
+test('dropping files announces the payload before delivering it', async () => {
+  const calls = [];
+  const driver = createBrowserInputDriver(async (_guest, method, params) => {
+    calls.push({ method, type: params.type, files: params.data?.files, x: params.x, y: params.y });
+    return 'completed';
+  });
+
+  await driver.dropFilesAt({}, { x: 120.4, y: 80.6 }, ['C:\\tmp\\report.pdf']);
+
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.type]),
+    [
+      ['Input.dispatchDragEvent', 'dragEnter'],
+      ['Input.dispatchDragEvent', 'dragOver'],
+      ['Input.dispatchDragEvent', 'drop'],
+    ]
+  );
+  assert.deepEqual(calls.at(-1).files, ['C:\\tmp\\report.pdf']);
+  assert.deepEqual([calls[0].x, calls[0].y], [120, 81]);
+});
+
 test('Browser Use keyboard input cannot read or overwrite the system clipboard', () => {
   assert.doesNotThrow(() => assertBrowserKeyDoesNotAccessClipboard('Control+A'));
   assert.throws(() => assertBrowserKeyDoesNotAccessClipboard('Control+V'), /cannot access the system clipboard/);

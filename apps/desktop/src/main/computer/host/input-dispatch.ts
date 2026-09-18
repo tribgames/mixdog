@@ -40,7 +40,7 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     target: ResolvedInputTarget,
     batchSequenceStep = false
   ): Promise<PowerShellResponse> {
-    const { targetWindowId, physicalX, physicalY, physicalToX, physicalToY, allowedWindowIds } = target;
+    const { targetWindowId, physicalX, physicalY, physicalToX, physicalToY, physicalPath, allowedWindowIds } = target;
     const inputObservation =
       command.delivery === 'foreground' && sessionIdFor(command) !== CHROME_SETUP_SESSION_ID
         ? target.observedScope?.inputObservation
@@ -129,10 +129,12 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       await authorizeDispatch();
       assertObservationInputAllowed(command, host.isObserveOnly());
       const bounds = electronTextTarget.getContentBounds();
-      const feedbackPoint = typingPoint ?? screen.dipToScreenPoint({
-        x: Math.round(bounds.x + bounds.width / 2),
-        y: Math.round(bounds.y + bounds.height / 2),
-      });
+      const feedbackPoint =
+        typingPoint ??
+        screen.dipToScreenPoint({
+          x: Math.round(bounds.x + bounds.width / 2),
+          y: Math.round(bounds.y + bounds.height / 2),
+        });
       computerUseCoordinator.showCursor({
         sessionId: sessionIdFor(command),
         windowId: targetWindowId,
@@ -178,10 +180,12 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       y: physicalY ?? null,
       to_x: physicalToX ?? null,
       to_y: physicalToY ?? null,
+      waypoints: physicalPath ?? null,
       allowed_window_ids: allowedWindowIds,
       width: command.width ?? null,
       height: command.height ?? null,
       state: command.state ?? null,
+      confirm: command.confirm ?? null,
       path: command.path ?? null,
       modifiers: command.modifiers ?? null,
       duration: command.duration ?? null,

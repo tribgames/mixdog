@@ -38,6 +38,10 @@ import { createInputDispatch } from './input-dispatch';
 import { buildActionReply } from './action-reply';
 import { prepareCursorFeedback } from '../overlay/cursor-readiness';
 import { assertObservationInputAllowed } from './observation-policy';
+import { readComputerRunRecords } from '../session/run-log';
+
+/** Enough history to review a run without turning one read into a transcript. */
+const MAX_HISTORY_RECORDS = 60;
 
 const POINTER_ACTIONS = [
   'invoke',
@@ -46,11 +50,15 @@ const POINTER_ACTIONS = [
   'right_click',
   'middle_click',
   'triple_click',
+  'mouse_down',
+  'mouse_up',
   'mouse_move',
   'drag',
   'scroll',
   'type',
   'key',
+  'key_down',
+  'key_up',
 ];
 
 type WorkerPool = ReturnType<typeof createWorkerPool>;
@@ -275,6 +283,10 @@ export function createCommandRouter(host: CommandRouterHost) {
       : undefined;
     if (action === 'verify') return await verifyWindowState(command);
     if (action === 'list_apps') return await listComputerApps(command);
+    if (action === 'list_history') {
+      const records = readComputerRunRecords(sessionIdFor(command), MAX_HISTORY_RECORDS);
+      return { text: JSON.stringify({ history: records, returned: records.length }) };
+    }
     if (action === 'capture') {
       const capture = await captureComputer(command);
       return {

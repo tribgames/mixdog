@@ -59,5 +59,7 @@ The runtime absorbs what it can (edge spaces are preserved, list numbering is de
 | Deleted text lives in `<w:delText>` inside `<w:del>`, inserted text in `<w:t>` inside `<w:ins>` (hand-built XML only; the operations do this) | Word refuses the file → `text_in_deletion`, `deleted_text_in_insertion` |
 | A text element with an edge space carries `xml:space="preserve"` | "HelloWorld" → `whitespace_not_preserved` |
 | Comment range markers come in pairs and match a comment | → `comment_marker_mismatch` |
+| A picture carries about 150 pixels per inch at the size it is placed | an enlarged thumbnail prints soft → `image_low_resolution` |
+| A table that crosses a page repeats its header row (`add_table` `properties.repeatHeader`, on by default) | unlabelled columns after the break → `table_header_not_repeated` |
 
 Delivery names the renderer actually used and which pages were inspected; do not claim to have inspected Word when you read exported images.

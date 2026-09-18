@@ -59,7 +59,8 @@ export function createCursorTail(
         if (modes && modes.get(id) !== cursor.mode) remove(id);
       }
       const foreground = current.reduce<ComputerUseCursorPresentation | undefined>(
-        (latest, cursor) => cursor.mode === 'foreground' && (!latest || cursor.eventId > latest.eventId) ? cursor : latest,
+        (latest, cursor) =>
+          cursor.mode === 'foreground' && (!latest || cursor.eventId > latest.eventId) ? cursor : latest,
         undefined
       );
       if (foreground && foreground.eventId > latestForegroundEventId) {
@@ -69,8 +70,9 @@ export function createCursorTail(
           if (cursor.mode === 'foreground' && id !== foreground.sessionId) remove(id);
         }
       }
-      current = current.filter((cursor) =>
-        cursor.mode === 'background' || (cursor === foreground && cursor.eventId === latestForegroundEventId)
+      current = current.filter(
+        (cursor) =>
+          cursor.mode === 'background' || (cursor === foreground && cursor.eventId === latestForegroundEventId)
       );
       const live = new Set(current.map((cursor) => cursor.sessionId));
       for (const cursor of current) {

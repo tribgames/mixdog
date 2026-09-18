@@ -189,7 +189,6 @@ export const providerDisplayRank = (provider) => {
     'antigravity-oauth': 31,
     'cursor-oauth': 32,
     'opencode-go': 35,
-    openrouter: 36,
     openai: 40,
     'openai-api': 40,
     anthropic: 50,
@@ -201,6 +200,8 @@ export const providerDisplayRank = (provider) => {
     deepseek: 90,
     'deepseek-api': 90,
     'mixdog-local': 100,
+    // OpenRouter lists hundreds of models, so keep it behind every other provider.
+    openrouter: 950,
   };
   return ranks[key] ?? 900;
 };

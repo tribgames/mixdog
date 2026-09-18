@@ -82,8 +82,8 @@ void app
       }
       // Inspect actual renderer pixels, not just CSS declarations.
       for (const mode of ['background', 'foreground']) {
-      for (const effect of ['move', 'prepare', 'press', 'click', 'double_click', 'drag', 'scroll', 'type']) {
-        await window.webContents.executeJavaScript(`(async () => {
+        for (const effect of ['move', 'prepare', 'press', 'click', 'double_click', 'drag', 'scroll', 'type']) {
+          await window.webContents.executeJavaScript(`(async () => {
         window.mixdogAgentCursor({ mode: ${JSON.stringify(mode)}, effect: ${JSON.stringify(effect)} });
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         for (const animation of document.getAnimations()) {
@@ -91,33 +91,36 @@ void app
           animation.currentTime = 80;
         }
       })()`);
-        const image = await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
-        const pixels = image.toBitmap();
-        let colored = 0;
-        for (let index = 0; index < pixels.length; index += 4) {
-          if (pixels[index] > pixels[index + 2] + 15 && pixels[index + 3] > 0) colored++;
-        }
-        const rendered = await window.webContents.executeJavaScript(`(() => {
+          const image = await window.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
+          const pixels = image.toBitmap();
+          let colored = 0;
+          for (let index = 0; index < pixels.length; index += 4) {
+            if (pixels[index] > pixels[index + 2] + 15 && pixels[index + 3] > 0) colored++;
+          }
+          const rendered = await window.webContents.executeJavaScript(`(() => {
         const surface = document.getElementById('surface');
         return { effect: surface.className, opacity: getComputedStyle(surface).opacity,
           accent: getComputedStyle(surface).getPropertyValue('--accent'),
           ring: getComputedStyle(document.getElementById('ring')).opacity,
           visibility: document.visibilityState, scale: devicePixelRatio,
-          pointer: getComputedStyle(document.getElementById('arrow')).display !== 'none',
-          typing: getComputedStyle(document.getElementById('typing')).display !== 'none' };
+          pointer: getComputedStyle(document.getElementById('arrow')).display !== 'none' };
       })()`);
-        assert.equal(rendered.pointer, mode === 'background', 'background has its own pointer; foreground has no duplicate');
-        assert.equal(rendered.typing, effect === 'type', 'typing has a visible keyboard indicator');
-        assert.ok(
-          colored > 15,
-          `${effect} did not produce visible colored pixels: ${JSON.stringify({
-            rendered,
-            size: image.getSize(),
-            bytes: pixels.length,
-            colored,
-          })}`
-        );
-      }
+          assert.equal(
+            rendered.pointer,
+            mode === 'background',
+            'background has its own pointer; foreground has no duplicate'
+          );
+          assert.ok(rendered.effect.includes(effect), 'the cursor carries the effect it is showing');
+          assert.ok(
+            colored > 15,
+            `${effect} did not produce visible colored pixels: ${JSON.stringify({
+              rendered,
+              size: image.getSize(),
+              bytes: pixels.length,
+              colored,
+            })}`
+          );
+        }
       }
       process.stdout.write(`CURSOR_ART_OK ${JSON.stringify(result)}\n`);
     } finally {

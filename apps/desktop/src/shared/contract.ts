@@ -85,6 +85,7 @@ export const DESKTOP_IPC = {
   browserConfigureGuestViewport: 'mixdog:browser-configure-guest-viewport',
   browserGuestViewportChanged: 'mixdog:browser-guest-viewport-changed',
   browserRemoteViewerChanged: 'mixdog:browser-remote-viewer-changed',
+  browserClearData: 'mixdog:browser-clear-data',
   browserProfileImportSources: 'mixdog:browser-profile-import-sources',
   browserProfileImportStart: 'mixdog:browser-profile-import-start',
   browserProfileImportProgress: 'mixdog:browser-profile-import-progress',
@@ -1030,6 +1031,24 @@ export interface DesktopBrowserTab {
   active: boolean;
   loading: boolean;
   kind: 'page' | 'popup' | 'background';
+}
+
+/** A capture that lost a race against navigation or a resize owns no pixels for
+ * the state that was asked about, and the page it would describe no longer
+ * exists. Human browsing causes that race constantly, so the display answers
+ * with this marker and asks again for whatever the page shows now, rather than
+ * reporting an error for pixels it was always going to re-request. */
+export interface DesktopBrowserPageResample {
+  resample: true;
+}
+
+/** Cache costs a page only a slower reload; site data drops what a page saved
+ * locally; cookies end the sessions the user is signed in to. */
+export type DesktopBrowserDataScope = 'cache' | 'siteData' | 'cookies';
+
+export interface DesktopBrowserDataClearResult {
+  cleared: DesktopBrowserDataScope[];
+  errors: Partial<Record<DesktopBrowserDataScope, string>>;
 }
 
 export interface DesktopBrowserPageFrame extends DesktopRemoteBrowserFrame {
@@ -2097,7 +2116,10 @@ export interface DesktopApi {
   onBrowserSessionReleased?(listener: (sessionId: string, reason?: 'unloaded' | 'gone') => void): () => void;
   /** Bind one persistent guest to its owning conversation session. */
   browserSetActiveGuest?(sessionId: string, webContentsId: number, active: boolean): Promise<void>;
-  browserPageFrame?(sessionId: string, previousFrameId?: string): Promise<DesktopBrowserPageFrame>;
+  browserPageFrame?(
+    sessionId: string,
+    previousFrameId?: string
+  ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample>;
   browserPresentTexture?(sessionId: string, textureId: string, canvasId: string): void;
   browserDiscardTexture?(sessionId: string): void;
   browserPageControl?(sessionId: string, input: DesktopBrowserPageControl): Promise<void>;
@@ -2121,6 +2143,10 @@ export interface DesktopApi {
   browserProfileImportStart?(request: DesktopBrowserImportRequest): Promise<DesktopBrowserImportResult>;
   onBrowserProfileImportProgress?(listener: (progress: DesktopBrowserImportProgress) => void): () => void;
   browserHistorySearch?(query: string): Promise<DesktopBrowserHistoryEntry[]>;
+  /** Reclaim what the shared Browser Use partition accumulated on disk. Each
+   *  scope is answered on its own so a partial result is never reported as a
+   *  clean sweep: cache is free to lose, site data and cookies are not. */
+  browserClearData?(scopes: DesktopBrowserDataScope[]): Promise<DesktopBrowserDataClearResult>;
   /** Current session's Browser Use page only. Passwords never cross this API. */
   browserCredentialSuggestions?(sessionId: string): Promise<DesktopBrowserCredentialSuggestion[]>;
   browserCredentialFill?(sessionId: string, credentialId: string): Promise<DesktopBrowserCredentialFillResult>;

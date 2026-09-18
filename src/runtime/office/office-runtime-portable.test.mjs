@@ -7,10 +7,142 @@ import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { recalculateLibreOfficeWorkbook } from './portable/portable-ooxml.mjs';
 import { parseXlsxAutofitRange } from './portable/xlsx-contract.mjs';
 import { auditDocxRedlining } from './portable/docx-revisions.mjs';
+import { issuesPortableOoxml } from './portable/portable-validation.mjs';
 import { officeOpenFailure } from './core/office-sessions.mjs';
 import { value, workspace, writeZip } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
+
+// A newsletter page is a section property: the prose flows through the columns
+// the section declares, and a later page edit leaves them alone.
+test('set_page lays a Word section out in columns and keeps them through later page edits', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'columns.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: 'Two hundred words of prose flow through the columns.' },
+          { op: 'set_page', properties: { columns: 3, columnSpacing: 18 } },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(created.batch.results.at(-1).columns, 3);
+  const columned = await JSZip.loadAsync(await readFile(path));
+  assert.match(await columned.file('word/document.xml').async('string'), /<w:cols w:num="3" w:equalWidth="1" w:space="360"\/>/);
+  const rotated = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        path,
+        mode: 'portable',
+        operations: [{ op: 'set_page', properties: { orientation: 'landscape' } }],
+      },
+      { cwd }
+    )
+  );
+  const document = await (await JSZip.loadAsync(await readFile(rotated.output))).file('word/document.xml').async('string');
+  assert.match(document, /w:orient="landscape"/);
+  assert.match(document, /<w:cols w:num="3" w:equalWidth="1" w:space="360"\/>/);
+  const single = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        path: rotated.output,
+        mode: 'portable',
+        operations: [{ op: 'set_page', properties: { columns: 1 } }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(single.results[0].columns, 1);
+  assert.match(
+    await (await JSZip.loadAsync(await readFile(single.output))).file('word/document.xml').async('string'),
+    /<w:cols w:space="360"\/>/
+  );
+});
+
+// A table long enough to cross a page keeps its column labels only while the
+// first row is marked to repeat; a document that arrived from elsewhere is
+// where that mark goes missing.
+test('a long Word table whose header row stops repeating is reported', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'long-table.docx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        operations: [
+          {
+            op: 'add_table',
+            values: [
+              ['Region', 'Revenue'],
+              ...Array.from({ length: 30 }, (_, row) => [`Row ${row + 1}`, `${row * 10}`]),
+            ],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const repeated = await issuesPortableOoxml(path, 'docx');
+  assert.deepEqual(
+    repeated.issues.filter((issue) => issue.code === 'table_header_not_repeated'),
+    []
+  );
+  const zip = await JSZip.loadAsync(await readFile(path));
+  zip.file('word/document.xml', (await zip.file('word/document.xml').async('string')).replaceAll('<w:tblHeader/>', ''));
+  await writeFile(path, await zip.generateAsync({ type: 'nodebuffer' }));
+  const dropped = (await issuesPortableOoxml(path, 'docx')).issues.filter(
+    (issue) => issue.code === 'table_header_not_repeated'
+  );
+  assert.equal(dropped.length, 1, JSON.stringify(dropped));
+  assert.equal(dropped[0].path, '/body/table[1]');
+  assert.match(dropped[0].message, /31 rows/);
+});
+
+// Every tracked edit takes the reviewer's label beside the operation, and a redline is written that way from the
+// first edit to the last. append_text alone read it nested in properties and refused the documented field, so a
+// batch written as the guide says failed whole — with the rest of the redline in it.
+test('a tracked append_text carries the reviewer label beside the operation', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'redline.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        operations: [{ op: 'append_text', text: '야간 출고는 10월부터 기본값이 된다.' }],
+      },
+      { cwd }
+    )
+  );
+  const edited = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [
+          { op: 'track_changes', enabled: true },
+          { op: 'append_text', text: '10월 운영 회의에 설계안을 올린다.', author: '검토자 A' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(edited.results.at(-1).tracked, true);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: created.session }, { cwd }));
+  assert.deepEqual(snapshot.document.revisionAuthors, [{ author: '검토자 A', insertions: 1, deletions: 0 }]);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
 
 test('XLSX autofit accepts bounded cell, whole-column, and whole-row selectors', () => {
   assert.equal(parseXlsxAutofitRange('A1:D5').type, 'cells');
@@ -357,6 +489,114 @@ test("baseline validation treats the Office application's own resave of theme, l
     'ppt/embeddings/Microsoft_Excel_Worksheet2.xlsx',
     'ppt/theme/theme1.xml',
   ]);
+});
+
+// Word draws a TOC field's cached entries until something asks it to rebuild
+// the field, so the document shipped with a table of contents that was three
+// lines of plain text: no leaders, no page numbers.
+test('insert_toc asks Word to rebuild its fields, so the contents arrive with page numbers', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'toc.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'docx',
+        path,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '운영 안내서' },
+          { op: 'append_text', text: '도입 범위', style: 'Heading 1' },
+          { op: 'append_text', text: '사내 보고서와 회의록이 대상이다.' },
+          { op: 'append_text', text: '사용 절차', style: 'Heading 1' },
+          { op: 'append_text', text: '템플릿을 고르고 본문을 쓴다.' },
+          { op: 'insert_toc', paragraph: 1 },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const zip = await JSZip.loadAsync(await readFile(path));
+  const settings = await zip.file('word/settings.xml').async('string');
+  assert.match(settings, /<w:updateFields w:val="true"\/>/);
+  const types = await zip.file('[Content_Types].xml').async('string');
+  assert.match(types, /PartName="\/word\/settings\.xml"/);
+  const relationships = await zip.file('word/_rels/document.xml.rels').async('string');
+  assert.match(relationships, /Target="settings\.xml"/);
+  // Asked twice, the part keeps one declaration rather than a stack of them.
+  value(
+    await executeOfficeTool(
+      { action: 'batch', session: created.session, operations: [{ op: 'insert_toc', paragraph: 1 }] },
+      { cwd }
+    )
+  );
+  const again = await (await JSZip.loadAsync(await readFile(path))).file('word/settings.xml').async('string');
+  assert.equal((again.match(/<w:updateFields\b/g) || []).length, 1);
+  await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
+});
+
+// A footer line and its page number are asked for as two operations, and the
+// second one wrote the story from scratch: the author's words were gone from
+// the package while the result reported the edit as done.
+test('add_page_numbers joins the footer the author wrote instead of replacing it', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'footer.docx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'docx',
+        path,
+        mode: 'portable',
+        operations: [
+          { op: 'append_text', text: '본문' },
+          { op: 'set_header_footer', kind: 'footer', text: '운영 안내서 · 내부용' },
+          { op: 'add_page_numbers' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const footer = async () => (await JSZip.loadAsync(await readFile(path))).file('word/footer1.xml').async('string');
+  const written = await footer();
+  assert.match(written, /운영 안내서 · 내부용/);
+  assert.match(written, /w:instr=" PAGE "/);
+  // Asked again, the story keeps one number and the same words around it.
+  value(
+    await executeOfficeTool(
+      { action: 'batch', session: created.session, operations: [{ op: 'add_page_numbers', alignment: 'right' }] },
+      { cwd }
+    )
+  );
+  const again = await footer();
+  assert.equal((again.match(/w:instr=" PAGE "/g) || []).length, 1, 'one page field, not a stack of them');
+  assert.match(again, /운영 안내서 · 내부용/);
+  assert.match(again, /<w:jc w:val="right"\/>/);
+  await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
+});
+
+// A value that reached the page as an object is a machine tell no author
+// types. One slipped through a kit helper and shipped as a slide title, and the
+// measured read named only the overlap the oversized string caused.
+test('a stringified value on the page is reported like any other leftover', async (t) => {
+  const cwd = await workspace(t);
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        format: 'docx',
+        path: join(cwd, 'tell.docx'),
+        mode: 'portable',
+        operations: [{ op: 'append_text', text: '분기 요약: [object Object]' }],
+      },
+      { cwd }
+    )
+  );
+  const issues = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  const placeholder = (issues.issues || []).find((entry) => entry.code === 'placeholder_text');
+  assert.ok(placeholder, 'the stringified value is reported');
+  assert.match(placeholder.message, /\[object Object\]/);
+  await executeOfficeTool({ action: 'close', session: created.session }, { cwd });
 });
 
 test('portable DOCX preserves the package while replacing split runs and appending text', async (t) => {
@@ -2376,9 +2616,14 @@ test('a Word table takes per-column text alignment, and the page review keeps th
   assert.equal((rowsXml[1].match(/<w:b\/>/g) || []).length, 0);
   assert.equal((written.match(/<w:tc>[^]*?<w:spacing[^>]*w:lineRule="atLeast"/g) || []).length, 4);
   // A created document keeps Hangul words whole at the line end (Word reads
-  // wordWrap="0" as "break Korean words anywhere").
+  // wordWrap="0" as "break Korean words anywhere") and sets the Hangul-to-Latin
+  // and Hangul-to-digit spacing off, which Word otherwise opens inside the word
+  // ("2026 년 9 월") while the preview renders it tight.
   const styles = await (await JSZip.loadAsync(await readFile(path))).file('word/styles.xml').async('string');
-  assert.match(styles, /<w:pPrDefault><w:pPr><w:wordWrap w:val="1"\/>/);
+  assert.match(
+    styles,
+    /<w:pPrDefault><w:pPr><w:wordWrap w:val="1"\/><w:autoSpaceDE w:val="0"\/><w:autoSpaceDN w:val="0"\/>/
+  );
   const plain = join(cwd, 'plain.docx');
   value(
     await executeOfficeTool(

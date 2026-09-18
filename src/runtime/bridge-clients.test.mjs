@@ -904,18 +904,23 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.equal(inputFor('verify').properties.expect.maxItems, 8);
   assert.equal(inputFor('verify').properties.stable_samples.maximum, 5);
   assert.equal(inputFor('menu').properties.path.maxItems, 8);
-  assert.deepEqual(list.properties.kind.enum, ['windows', 'apps']);
+  assert.deepEqual(list.properties.kind.enum, ['windows', 'apps', 'history']);
   assert.ok(diagnose.properties.ocr_language);
   assert.ok(capture.properties.window_id);
   assert.ok(act.properties.frame_id);
   assert.deepEqual(core.properties.type.enum, [
     'click',
     'double_click',
+    'triple_click',
+    'mouse_down',
+    'mouse_up',
     'move',
     'drag',
     'scroll',
     'type',
     'key',
+    'key_down',
+    'key_up',
     'wait',
   ]);
   assert.deepEqual(core.properties.button.enum, ['left', 'right', 'middle']);
@@ -944,7 +949,15 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.deepEqual(core.properties.direction.enum, ['up', 'down', 'left', 'right']);
   assert.equal(act.properties.actions.minItems, 1);
   assert.equal(act.properties.actions.maxItems, 6);
-  assert.deepEqual(window.properties.operation.enum, ['focus', 'move', 'minimize', 'maximize', 'restore', 'close']);
+  assert.deepEqual(window.properties.operation.enum, [
+    'focus',
+    'move',
+    'minimize',
+    'maximize',
+    'restore',
+    'close',
+    'terminate',
+  ]);
   assert.deepEqual(clipboard.properties.operation.enum, ['read', 'write']);
   assert.equal(validateComputerToolArgs({ action: 'capture' }), null);
   assert.equal(
@@ -1324,7 +1337,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
         ],
       },
     }),
-    /actions after the first must be type, key, or wait/i
+    /actions after the first must be type, key, key_down, key_up, or wait/i
   );
   assert.match(
     validateComputerToolArgs({

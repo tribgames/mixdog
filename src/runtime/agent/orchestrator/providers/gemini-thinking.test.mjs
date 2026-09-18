@@ -66,7 +66,9 @@ test('Gemini sends selected thinking configuration with and without cachedConten
         { effort }
       );
       assert.equal(response.content, 'ok');
-      assert.deepEqual(captured.generationConfig, { thinkingConfig: { thinkingLevel: effort } });
+      assert.deepEqual(captured.generationConfig, {
+        thinkingConfig: { includeThoughts: true, thinkingLevel: effort },
+      });
       if (cached) {
         assert.equal(captured.cachedContent, 'cachedContents/fixture');
         assert.equal(captured.systemInstruction, undefined);

@@ -89,8 +89,8 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
     };
     guest.on('will-navigate', blockUnsafeNavigation);
     guest.on('will-redirect', blockUnsafeNavigation);
-    guest.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
-      if (isMainFrame) state.beginDocument(guest);
+    guest.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+      if (isMainFrame) state.beginDocument(guest, isInPlace);
     });
     guest.setWindowOpenHandler(({ url }) => {
       try {
@@ -127,7 +127,12 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
         return;
       }
       const ownerSessionId = sessions.sessionIdForGuest(guest) ?? DEFAULT_BROWSER_SESSION_ID;
-      trackBackgroundPage(ownerSessionId, nextPopupTabName(ownerSessionId), child, 'popup', state.pageId(guest));
+      const popupName = nextPopupTabName(ownerSessionId);
+      trackBackgroundPage(ownerSessionId, popupName, child, 'popup', state.pageId(guest));
+      // The opener's next reply has to mention it: a click that opened a tab
+      // changes nothing in this document and would otherwise be reported as a
+      // click the page ignored.
+      pushBounded(state.for(guest).openedPopups, popupName);
       host.onPopup?.(guest, child.webContents);
     });
     guest.on('render-process-gone', (_event, details) => {
@@ -158,7 +163,9 @@ export function createBrowserGuestLifecycle(host: BrowserGuestLifecycleHost) {
   function attachDebuggerEagerly(guest: WebContents): void {
     void cdp
       .guestDebugger(guest)
-      .catch((error) => state.for(guest).console.recordError(`CDP initialization failed: ${(error as Error).message}`));
+      .catch((error) =>
+        state.for(guest).console.recordInternal(`CDP initialization failed: ${(error as Error).message}`)
+      );
   }
 
   // A legacy/misconfigured renderer must not reintroduce the shared input tree.

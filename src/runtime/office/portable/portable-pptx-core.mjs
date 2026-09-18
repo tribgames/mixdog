@@ -175,7 +175,10 @@ export async function inspectPptxTextBoxes(zip) {
         height: Number(extent[2]) / 12_700,
       };
       if (shape.name !== 'p:sp') {
-        content.push({ slide: index + 1, shape: shapeIndex + 1, kind: shape.name, ...bounds });
+        // The object's own name travels with its box: the kit signs the devices it draws (a motif, an orb, an icon)
+        // there, and a page's balance is read against what carries it, not against its decoration.
+        const objectName = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(shape.xml)?.[1] || '';
+        content.push({ slide: index + 1, shape: shapeIndex + 1, kind: shape.name, name: objectName, ...bounds });
         continue;
       }
       // A gradient plane reads as its first stop: the kit puts the text on that side (a scrim's dark edge).
@@ -365,7 +368,12 @@ export function updateShapeGeometry(shape, properties) {
     });
   }
   if (['left', 'top', 'width', 'height', 'rotation'].some((key) => properties[key] != null)) {
-    const current = /<a:xfrm\b[^>]*?(?:\/>|>[\s\S]*?<\/a:xfrm>)/.exec(next);
+    // A chart or a table sits in a graphic frame, and a frame keeps its
+    // geometry in <p:xfrm> where a shape or picture keeps it in <a:xfrm>.
+    // Writing the shape form left the chart exactly where it was and answered
+    // that nothing had changed, so a page could not be rebalanced around it.
+    const frameTag = /<p:graphicFrame[\s>]/.test(next) ? 'p:xfrm' : 'a:xfrm';
+    const current = new RegExp(`<${frameTag}\\b[^>]*?(?:/>|>[\\s\\S]*?</${frameTag}>)`).exec(next);
     const offset = current ? /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(current[0]) : null;
     const extent = current ? /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(current[0]) : null;
     const rotation =
@@ -373,14 +381,16 @@ export function updateShapeGeometry(shape, properties) {
         ? Math.round(Number(properties.rotation) * 60_000)
         : Number(current ? xmlAttribute(current[0], 'rot') : 0) || 0;
     const frame =
-      `<a:xfrm${rotation ? ` rot="${rotation}"` : ''}>` +
+      `<${frameTag}${rotation ? ` rot="${rotation}"` : ''}>` +
       `<a:off x="${properties.left != null ? toEmu(properties.left) : Number(offset?.[1] || 0)}"` +
       ` y="${properties.top != null ? toEmu(properties.top) : Number(offset?.[2] || 0)}"/>` +
       `<a:ext cx="${properties.width != null ? toEmu(properties.width) : Number(extent?.[1] || 1)}"` +
-      ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></a:xfrm>`;
+      ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></${frameTag}>`;
     next = current
       ? `${next.slice(0, current.index)}${frame}${next.slice(current.index + current[0].length)}`
-      : next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
+      : frameTag === 'p:xfrm'
+        ? next.replace('</p:nvGraphicFramePr>', `$&${frame}`)
+        : next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
   }
   if (properties.fillColor != null) {
     const shapeProperties = containerInner(next, 'p:spPr');

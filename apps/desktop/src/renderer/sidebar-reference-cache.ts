@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { invalidateSharedModelCatalogRequest } from './model-catalog-cache';
+import { invalidateWorkflowOptions } from './workflow-options-cache';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { record, rows } from './record-utils';
@@ -307,6 +308,11 @@ export function invalidateSidebarReference(...keys: SidebarReferenceKey[]): void
   // entries. A provider change retires that snapshot too, otherwise a newly
   // connected provider stays missing from the picker until the app restarts.
   if (keys.some((key) => PROVIDER_KEYS.includes(key))) invalidateSharedModelCatalogRequest();
+  // The composer's workflow picker shares its own list, also outside these
+  // entries, and it hides itself where a workspace has a single pack. A created
+  // or deleted pack therefore decides whether that control exists at all: it
+  // must never wait out the picker's TTL.
+  if (keys.includes('workflows')) invalidateWorkflowOptions();
   // Tell the mounted panels. Settings/onboarding mutate reference data from an
   // overlay ABOVE the sidebar, so without this the panel underneath would keep
   // a stale snapshot until the next re-entry.

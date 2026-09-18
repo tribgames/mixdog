@@ -2,7 +2,7 @@
 
 Owns the code: primitives that draw what `composition.md` names, sized with `MEASURE` so text never overflows. The kit is a toolbox, not a slide catalog — no function here draws a whole slide, and every position is the author's. Draw every repeated element through one function so the deck stays consistent. Chart and table helpers are in `charts.md`, picture helpers in `pictures.md` §4.
 
-**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ hue, accentHue?, mode, script, pairing, fonts })` call that sets the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
+**The runtime runs every code block of this file, `charts.md`, and `pictures.md` before the script** — the script never pastes them. A script opens with the brief, then one `deck({ style, hue, accentHue?, mode, script, pairing, fonts })` call that sets the frame the style chooses, the palette, the faces, the type scale, the zones, and the masters, then the slides. Read the blocks for the signatures and defaults; redefine a helper in the script when a page needs a different one (a later declaration wins). A script that creates its own `pres` runs without the prelude.
 
 **Hard rule — paragraph options sit on the first run**: the runtime keeps one `a:pPr` per paragraph (the first). `bullet`, `align`, `paraSpaceAfter`, `lineSpacingMultiple` go on the text box or on a paragraph's first run; `breakLine: true` on a paragraph's last run. → runtime (absorbed: the normalizer keeps the first `pPr`; nothing to check)
 
@@ -31,7 +31,7 @@ const GAP = { bind: SPACE.hair, within: SPACE.tight, between: SPACE.gap };
 const GUTTER = SPACE.gap;
 const PAD = SPACE.snug;
 const M = SPACE.wide;
-const RADIUS = 0.08;                            // the one corner radius for lifted or rounded fields
+let RADIUS = 0.08;                              // the one corner radius for lifted or rounded fields; the style sets it
 // inner: the content box of a region after the inset — write inner(L) never L.x + 0.15.
 const inner = (r, pad = PAD) => ({ x: r.x + pad, y: (r.y ?? 0) + pad, w: r.w - pad * 2, h: r.h != null ? r.h - pad * 2 : undefined });
 
@@ -248,6 +248,10 @@ typography({ script: 'ko', pairing: 'weight', fonts: 'noto' });
 
 // The one setup call a script makes right after its brief: the palette from the seed (the accent on the counter hue
 // unless accentHue is given), the faces from the script and pairing, the scale and zones from the reading mode.
+// style: the frame (STYLES above) — its chrome, corner radius, rule stroke, motif, theme, and accent policy in one id
+// from direction.md §3; chrome: overrides the chrome it chose. The five chromes are 'bare', 'bands', 'rail' (the title
+// on the main column, the kicker in the left rail), 'plane' (a full-height dark plane carries the head and the body
+// takes the column beside it) and 'masthead' (the title flush to the page top over one heavy full-bleed bar).
 // titleLines: the deck's longest content title in lines (zones()). chrome: 'bare' (the default for every mode) puts the
 // title on the open canvas with the kicker above it — nine of the ten reference decks (Bond, Evans, BCG, NVIDIA, Kakao,
 // Naver, Coatue, Sequoia, YC) carry their title on paper with no band, and the source as one small line at the foot;
@@ -275,14 +279,56 @@ function darkTheme(hue) {
     state: Object.fromEntries(Object.entries(T.state || {}).map(([name, s]) => [name, { ...s, text: s.solid, weak: hsl({ positive: 150, warning: 40, critical: 5, informative: 215 }[name] ?? hue, 0.35, 0.20) }])),
   });
 }
-function deck({ hue = 205, accentHue, accentSat, accentLight, mode = 'balanced', script = 'ko', pairing = 'weight', fonts = 'noto', titleLines = 1, chrome, theme = 'light' } = {}) {
-  Object.assign(T, palette({ hue, accentHue, accentSat, accentLight }));
-  if (theme === 'dark') darkTheme(hue);
-  typography({ script, pairing, fonts });
+// The style the brief names (direction.md §3) is mechanical here, not advice: it chooses the page chrome, the corner
+// radius, the stroke a rule takes, the motif an anchor repeats, the theme, and whether the accent stays on the seed
+// hue. Passed to deck(), two decks of the same content open on visibly different pages; left out, every deck repeats
+// one frame — the title at the top left, the body under it, the source at the foot — whatever its brief called it.
+// `motifs` is the style's decoration set, not one device: an anchor that names no kind takes the next one, so the
+// cover, the section marks, and the closing of one deck are not the same drawing three times (composition.md §3).
+const STYLES = {
+  'swiss-minimal': { chrome: 'bare', radius: 0, line: 1, motifs: ['rays', 'dots'], singleHue: true, pairing: 'weight', titleBoost: 1.15 },
+  editorial: { chrome: 'rail', radius: 0, line: 1, motifs: ['waves', 'rings'], pairing: 'serif' },
+  'photo-editorial': { chrome: 'plane', radius: 0, line: 1, motifs: ['arcs', 'waves'], pairing: 'serif' },
+  'data-journalism': { chrome: 'bands', radius: 0, line: 1, motifs: ['dots', 'rays'], pairing: 'weight' },
+  'soft-rounded': { chrome: 'bare', radius: 0.16, line: 0.75, motifs: ['rings', 'arcs'], pairing: 'concord' },
+  'dark-tech': { chrome: 'plane', radius: 0.08, line: 1, motifs: ['rings', 'rays'], theme: 'dark', pairing: 'weight' },
+  glassmorphism: { chrome: 'bare', radius: 0.2, line: 0.75, motifs: ['rings', 'waves'], theme: 'dark', pairing: 'concord' },
+  blueprint: { chrome: 'bands', radius: 0, line: 1, motifs: ['dots', 'rings'], theme: 'dark', pairing: 'weight' },
+  brutalist: { chrome: 'masthead', radius: 0, line: 3, motifs: ['rays', 'dots'], singleHue: true, pairing: 'weight', titleBoost: 1.3 },
+  // custom: the frame the kit drew before the styles existed — write the five columns of direction.md §3 yourself.
+  custom: { chrome: 'bare', radius: 0.08, line: 1, motifs: ['rings', 'arcs'] },
+};
+const STYLE_DEFAULTS = { chrome: 'bare', radius: 0.08, line: 1, motifs: ['rings', 'arcs'], singleHue: false, theme: 'light' };
+let STYLE = { name: 'custom', ...STYLE_DEFAULTS, ...STYLES.custom };
+let LINE = STYLE.line;     // the stroke a rule, a hairline, or an outline takes unless its call names one
+let MOTIFS = STYLE.motifs; // the deck's decoration set (STYLES above)
+let MOTIF = MOTIFS[0];     // its primary device — the one an anchor takes when it names a kind itself
+let MOTIF_AT = 0;
+// The next device in the deck's set. `motif(s, '', …)` takes it, so two anchors in a row never carry the same
+// drawing; naming a kind (`motif(s, MOTIF, …)`) still wins when the echo is the point (a closing answering its cover).
+function nextMotif() { const kind = MOTIFS[MOTIF_AT % MOTIFS.length]; MOTIF_AT += 1; return kind; }
+function deck({ style = 'custom', hue = 205, accentHue, accentSat, accentLight, mode = 'balanced', script = 'ko', pairing, fonts = 'noto', titleLines = 1, chrome, theme } = {}) {
+  const preset = STYLES[style];
+  if (!preset) throw new Error(`deck: unknown style "${style}" — one of ${Object.keys(STYLES).join(', ')}`);
+  STYLE = { name: style, ...STYLE_DEFAULTS, ...preset };
+  RADIUS = STYLE.radius;
+  LINE = STYLE.line;
+  MOTIFS = STYLE.motifs ?? [STYLE.motif];
+  MOTIF = MOTIFS[0];
+  MOTIF_AT = 0;
+  // A single-hue style (swiss-minimal, brutalist, blueprint) keeps the accent on the seed; the rest take the counter hue.
+  Object.assign(T, palette({ hue, accentHue: accentHue ?? (STYLE.singleHue ? hue : undefined), accentSat, accentLight }));
+  if ((theme ?? STYLE.theme) === 'dark') darkTheme(hue);
+  // The face pairing is the style's too (an editorial page sets its display in the serif, a masthead in the sans),
+  // unless the brief names one here.
+  typography({ script, pairing: pairing ?? STYLE.pairing ?? 'weight', fonts });
   MODE = mode;
   TYPE = typeScale(mode);
+  // A style may carry its display scale apart from the body: the brutalist masthead and the swiss hero run larger
+  // than an analyst page at the same reading mode, and that ratio is the style's, not a per-deck guess.
+  if (STYLE.titleBoost && STYLE.titleBoost !== 1) for (const role of ['title', 'section', 'cover']) TYPE[role] = Math.round(TYPE[role] * STYLE.titleBoost);
   DIAG = { label: TYPE.caption + 1, note: Math.max(9.5, TYPE.caption - 1.5) };
-  CHROME = chrome ?? 'bare';
+  CHROME = chrome ?? STYLE.chrome;
   Z = zones(mode, { titleLines, chrome: CHROME });
   return T;
 }
@@ -301,9 +347,15 @@ function masters() {
   master('DARK', T.dark, { color: T.onDarkMuted });
   master('QUIET', T.dark, { number: false });    // cover and closing
 }
-const light = () => (masters(), pres.addSlide({ masterName: 'LIGHT' }));
-const dark = () => (masters(), pres.addSlide({ masterName: 'DARK' }));
-const quiet = () => (masters(), pres.addSlide({ masterName: 'QUIET' }));
+// The field a page stands on, remembered as it is opened and again when a full-canvas surface is painted over it.
+// A helper whose colours differ on paper and on a dark page reads this instead of defaulting to one of them: the
+// poster kept its on-dark defaults on a light page and drew white type on white paper at 1.08:1.
+const FIELD = new WeakMap();
+const onField = (slide, kind) => (FIELD.set(slide, kind), slide);
+const fieldOf = (slide) => FIELD.get(slide) || 'paper';
+const light = () => (masters(), onField(pres.addSlide({ masterName: 'LIGHT' }), 'paper'));
+const dark = () => (masters(), onField(pres.addSlide({ masterName: 'DARK' }), 'dark'));
+const quiet = () => (masters(), onField(pres.addSlide({ masterName: 'QUIET' }), 'dark'));
 ```
 
 ## 2. Gradients (native) and raster helpers (sharp turns an SVG string into a PNG the deck can place)
@@ -414,7 +466,8 @@ async function orb(slide, cx, cy, d, { light: lit = T.accent, shade = T.dark, gl
 // arcs (quarter arcs nested on the box's bottom-right corner), waves (contour lines) — at full size on the cover, half
 // on a section mark, a corner on the closing (direction.md §3; composition.md §3). One kind per deck, in the accent or
 // the on-dark accent at low alpha; it sits behind the type (draw it first), never over it. Returns the placed box.
-async function motif(slide, kind, x, y, w, h, { color = T.accent, alpha = 0.22, stroke = 3, count = 7 } = {}) {
+async function motif(slide, kind = '', x, y, w, h, { color = T.accent, alpha = 0.22, stroke = 3, count = 7 } = {}) {
+  kind = kind || nextMotif();   // no kind named: the next device in the deck's set (STYLES above)
   // Rendered side by side (fifteen anchors, September 2026): rings, arcs, and waves read at a 3 px stroke; rays and
   // dots vanish at contact-sheet scale under 4 px, so those two draw heavier.
   const pw = Math.round(w * PX), ph = Math.round(h * PX), sw = (kind === 'rays' || kind === 'dots' ? stroke * 1.6 : stroke) * PX / 96;
@@ -647,7 +700,7 @@ function reading(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.bet
 // Takeaway band: one sentence closing a page that has a claim to close; sits near the lower safe margin. The band is
 // the deck's dark field with the sentence in the on-dark face, bold — the one saturated object on an evidence page after
 // the accent, so the conclusion has the presence of the chart it closes (a light tint read as a footnote).
-function takeaway(slide, str, y = Z.foot.takeaway, { x = M, w = W - 2 * M, h = 0.7, tint = T.dark, color = T.onDark, bold = true } = {}) {
+function takeaway(slide, str, y = Z.foot.takeaway, { x = Z.body.x, w = Z.body.w, h = 0.7, tint = T.dark, color = T.onDark, bold = true } = {}) {
   const c = inner({ x, w }), size = fitSize(str, c.w, h - 0.2, TYPE.lead, T.sans, { bold, min: TYPE.caption });
   slide.addShape(S.rect, { ...box(x, y, w, h), fill: { color: tint }, line: { color: tint } });
   slide.addText(runsOf(wrapKo(str, c.w, size, T.sans, bold)), { ...box(c.x, y, c.w, h), fontFace: T.sans, fontSize: size, bold, color, margin: 0, valign: 'middle' });
@@ -674,10 +727,18 @@ function ghost(slide, str, x, y, size = 240, w = 5.5, { color = T.onAccent, tran
 // Typographic poster: the anchor a deck without pictures has — one phrase set at poster scale on the dark or accent
 // field (Sequoia's section pages, Naver's green cover, the a16z chapter openers), a kicker above it, one line under it.
 // The phrase is content (the section's claim, what the number means), never a label; it steps down the scale until it
-// fits w in at most `maxLines` lines. On dark() / quiet() with the on-dark colors (the defaults), on paper with T.ink.
+// fits w in at most `maxLines` lines. The colours follow the field the page stands on — the on-dark pair on dark() /
+// quiet() or under a painted full-canvas field, T.ink on paper — so a poster is never white type on white paper.
 // Returns the bottom edge.
 // emph: one phrase of the poster in the accent (emphColor) — the contrast phrase of the mock headlines (runsWith).
-function poster(slide, str, { x = M, y = 1.6, w = W - 2 * M, size = TYPE.poster, maxLines = 3, color = T.onDark, kicker: k = '', kickerColor = T.onDarkAccent, line = '', lineColor = T.onDarkMuted, lineSize = TYPE.lead, lineLh = 1.3, font = T.display, lh = 1.05, emph = '', emphColor = T.onDarkAccent } = {}) {
+function poster(slide, str, { x = M, y = 1.6, w = W - 2 * M, size = TYPE.poster, maxLines = 3, color, kicker: k = '', kickerColor, line = '', lineColor, lineSize = TYPE.lead, lineLh = 1.3, font = T.display, lh = 1.05, emph = '', emphColor } = {}) {
+  // The colours follow the field the page stands on (the master it was opened with, or a full-canvas surface painted
+  // over it); a colour named in the call still wins.
+  const paper = fieldOf(slide) === 'paper';
+  color ??= paper ? T.ink : T.onDark;
+  kickerColor ??= paper ? T.accent : T.onDarkAccent;
+  lineColor ??= paper ? T.body : T.onDarkMuted;
+  emphColor ??= paper ? T.accent : T.onDarkAccent;
   if (k) kicker(slide, k, x, y - 0.3 - GAP.within, kickerColor, Math.min(w, 8));
   const wrapped = (at) => wrapKo(str, w, at, font, true);
   const steps = [size, ...scaleSteps().filter((v) => v < size && v >= TYPE.title)];
@@ -717,7 +778,14 @@ function dateline(slide, str, { y = Z.head.kicker, w = 3.6, color = T.muted } = 
 // section's claim beside it at section scale, one line under. The numeral says where the deck is; the claim carries
 // the content, so the page is never a numeral alone. On dark() / quiet() with the defaults; on paper pass
 // color: T.accent, claimColor: T.ink, lineColor: T.body. Returns the bottom edge.
-function numeralBeat(slide, value, claim, { x = M, y = 1.4, w = W - 2 * M, size = 220, color = T.onDarkAccent, claimColor = T.onDark, line = '', lineColor = T.onDarkMuted } = {}) {
+function numeralBeat(slide, value, claim, { x = M, y = 1.4, w = W - 2 * M, size = 220, color, claimColor, line = '', lineColor } = {}) {
+  // The beat is usually a dark field, but it is not only that: on paper the dark-field colours draw a white numeral on
+  // a white page (measured 1.1:1 — invisible, and reported as low_contrast). The colours follow the field the page
+  // stands on, as poster() does; a colour named in the call still wins.
+  const paper = fieldOf(slide) === 'paper';
+  color ??= paper ? T.accent : T.onDarkAccent;
+  claimColor ??= paper ? T.ink : T.onDark;
+  lineColor ??= paper ? T.body : T.onDarkMuted;
   // The numeral's box is measured, never lineH: at 200 pt PowerPoint's own line box for the data face runs past 1.2 em.
   const nw = textW(String(value), size, T.data, true) * 1.1 + 0.3, nh = fitH(String(value), nw, size, T.data, { bold: true, lh: 1.1 });   // PowerPoint's own bound of a 200 pt run outgrows the measured width by a few percent
   slide.addText(String(value), { ...box(x, y, nw, nh), fontFace: T.data, fontSize: size, bold: true, color, margin: 0, valign: 'top', lineSpacingMultiple: 1.1 });
@@ -743,22 +811,32 @@ function numeralBeat(slide, value, claim, { x = M, y = 1.4, w = W - 2 * M, size 
 // 2.2 in rail at the left for the legend, the kicker, a hero figure, and the main column for the carrier; head()
 // with x: Z.main.x, w: Z.main.w puts the title on the same column.
 function zones(mode = MODE, { titleLines = 1, chrome = CHROME } = {}) {
-  const bands = chrome === 'bands';
-  // A band needs no kicker room above the title (its own field is the margin); on the open canvas the kicker sits at
-  // the margin and the title starts a kicker line under it — the reference title tops sit 5-17% down the page.
-  const headTop = bands ? M - 0.15 : M + 0.3 + GAP.within - 0.15;
+  const bands = chrome === 'bands', masthead = chrome === 'masthead', plane = chrome === 'plane';
+  // A band or a masthead needs no kicker room above the title (its own field, or the page edge, is the margin); on the
+  // open canvas the kicker sits at the margin and the title starts a kicker line under it — the reference title tops
+  // sit 5-17% down the page.
+  const headTop = bands || masthead ? M - 0.15 : M + 0.3 + GAP.within - 0.15;
   const headBottom = headTop + lineH(TYPE.title, T.display, 1.15) * titleLines + 0.06;   // the title's bottom edge (+ fitH's allowance)
   const headBand = headBottom + PAD;
   const footBand = H - 0.78 - GAP.within;
-  const rail = 2.2;
+  const rail = 2.2, planeW = 4.4;
+  // The column the body owns under this chrome: the safe width on the open canvas, the main column beside an editorial
+  // rail, and the page beside the plane when the chrome carries the title on one. head() and the carriers register to
+  // it, so choosing a style moves the whole page instead of only its title.
+  const column = chrome === 'rail'
+    ? { x: M + rail + GUTTER, w: W - 2 * M - rail - GUTTER }
+    : plane
+      ? { x: planeW + GUTTER, w: W - M - planeW - GUTTER }
+      : { x: M, w: W - 2 * M };
   return {
     chrome,
     // display: where a display() headline's first line starts on the open canvas (a kicker line under the head top) —
     // the rail beside an editorial hero registers its first label there, never at `Z.head.top + 0.3` typed by hand.
     head: { kicker: M, top: headTop, display: headTop + 0.3, bottom: headBottom, band: headBand },
     // The body ends a between step above the source line in either chrome, so a carrier drawn to Z.body.bottom never
-    // touches the source (the runtime reads under 6 pt between text boxes as a collision).
-    body: { top: (bands ? headBand : headBottom) + GAP.between, bottom: bands ? footBand - GAP.within : H - 0.78 - GAP.between },
+    // touches the source (the runtime reads under 6 pt between text boxes as a collision). x and w are the column the
+    // chrome left for it — beside a plane the carrier starts past the plane's edge, never under it.
+    body: { top: (bands ? headBand : plane ? headTop : headBottom) + GAP.between, bottom: bands ? footBand - GAP.within : H - 0.78 - GAP.between, x: column.x, w: column.w },
     // The foot holds two things and they stack: the source line sits last, and
     // the takeaway band ends a within step above it. Defaults that overlapped
     // put the band over the source on any page that carried both, and a hair
@@ -767,6 +845,7 @@ function zones(mode = MODE, { titleLines = 1, chrome = CHROME } = {}) {
     seam: splitAt(M, W - 2 * M, 7, 3),                        // the deck seam (GUTTER wide); re-assign once from the brief (e.g. 3:7) and reuse
     rail: { x: M, w: rail },
     main: { x: M + rail + GUTTER, w: W - 2 * M - rail - GUTTER },
+    plane: { x: 0, y: 0, w: planeW, h: H },                   // the full-height plane the 'plane' chrome carries its head on
   };
 }
 let Z = zones(MODE);
@@ -782,29 +861,50 @@ const avail = (top, { bottom = Z.body.bottom } = {}) => Math.max(0, bottom - top
 // sits at the band's right in onDarkAccent, the way Samsung's IR band carries its running mark. Returns the body top:
 // the first body element sits exactly there (flow(s, x, top, …)), never at top + a hand offset.
 // w: the column the title shares with the body under it — pass the same w to both so their right edges register.
-function head(slide, kickerText, titleText, { size = TYPE.title, color, kickerColor, w = W - 2 * M, x = M, sub = '', emph = '', emphColor } = {}) {
-  const bands = Z.chrome === 'bands';
-  color ??= bands ? T.onDark : T.ink;
-  kickerColor ??= bands ? T.onDarkAccent : T.accent;
+function head(slide, kickerText, titleText, { size = TYPE.title, color, kickerColor, w = Z.body.w, x = Z.body.x, sub = '', emph = '', emphColor } = {}) {
+  const bands = Z.chrome === 'bands', plane = Z.chrome === 'plane', masthead = Z.chrome === 'masthead', rail = Z.chrome === 'rail';
+  const onField = bands || plane;   // the head sits on the deck's dark field, so its type is the on-dark pair
+  color ??= onField ? T.onDark : T.ink;
+  kickerColor ??= onField ? T.onDarkAccent : T.accent;
   emphColor ??= kickerColor;
-  const lh = 1.15, t = wrapKo(titleText, w, size, T.display, true), th = fitH(t, w, size, T.display, { bold: true, lh });
+  // The plane carries the title in its own narrow column, so the title is measured against the plane, not the body.
+  // A masthead carries its kicker at the right of the title's own line, so the title measures against what is left
+  // beside it — a full-width box would sit under the kicker and the two read as one block.
+  // A head that hangs its kicker at the right edge (a band, a masthead) shortens the title box by that much: a
+  // full-width title box runs under the kicker, and the two read as one line crossing itself.
+  const tx = plane ? M : x, tw = plane ? Z.plane.w - 2 * M : (masthead || bands) && kickerText ? w - 3.6 : w;
+  const lh = 1.15, t = wrapKo(titleText, tw, size, T.display, true), th = fitH(t, tw, size, T.display, { bold: true, lh });
   // The sub line reads at body size: the reference subs (NVIDIA's green line, Kakao's, the bento subtitle) sit at or
   // under the body, and a lead-size sub pushed the body top to 28-36% of the page against their 11-20%.
-  const s = sub ? wrapKo(sub, w, TYPE.body, T.light) : '', sh = sub ? fitH(s, w, TYPE.body, T.light, { lh: 1.25 }) : 0;
-  const top = bands ? Z.head.top : Z.head.bottom - th;
-  if (top < Z.head.top - 0.01) throw new Error(`head: title needs ${(Z.head.top - top).toFixed(2)} in more than the head band — shorten it or break it in two lines`);
+  const s = sub ? wrapKo(sub, tw, TYPE.body, T.light) : '', sh = sub ? fitH(s, tw, TYPE.body, T.light, { lh: 1.25 }) : 0;
+  // Where the title sits: at the band's top, flush to the page edge on a masthead, a kicker line down the plane, and
+  // bottom-aligned on the head zone on the open canvas.
+  const top = bands || masthead ? Z.head.top : plane ? M + 0.95 : Z.head.bottom - th;
+  if (!plane && top < Z.head.top - 0.01) throw new Error(`head: title needs ${(Z.head.top - top).toFixed(2)} in more than the head band — shorten it or break it in two lines`);
   const bottom = top + th + (sub ? GAP.within + sh : 0);
   const bandBottom = Math.max(Z.head.band, bottom + PAD);
   if (bands) field(slide, 0, 0, W, bandBottom, T.dark);
-  slide.addText(emph ? runsWith(t, emph, { color: emphColor }) : runsOf(t), { ...box(x, top, w, th), fontFace: T.display, fontSize: size, bold: true, color, margin: 0, valign: bands ? 'top' : 'bottom', lineSpacingMultiple: lh });
-  if (sub) slide.addText(runsOf(s), { ...box(x, top + th + GAP.within, w, sh), fontFace: T.light, fontSize: TYPE.body, color: bands ? T.onDarkMuted : T.body, margin: 0, valign: 'top', lineSpacingMultiple: 1.25 });
+  if (plane) field(slide, Z.plane.x, Z.plane.y, Z.plane.w, Z.plane.h, T.dark);
+  slide.addText(emph ? runsWith(t, emph, { color: emphColor }) : runsOf(t), { ...box(tx, top, tw, th), fontFace: T.display, fontSize: size, bold: true, color, margin: 0, valign: bands || plane || masthead ? 'top' : 'bottom', lineSpacingMultiple: lh });
+  if (sub) slide.addText(runsOf(s), { ...box(tx, top + th + GAP.within, tw, sh), fontFace: T.light, fontSize: TYPE.body, color: onField ? T.onDarkMuted : T.body, margin: 0, valign: 'top', lineSpacingMultiple: 1.25 });
   if (kickerText) {
-    if (bands) kicker(slide, kickerText, W - M - 3.2, top + 0.04, kickerColor, 3.2, 'right');
-    else kicker(slide, kickerText, x, top - 0.3 - GAP.within, kickerColor);
+    if (bands || masthead) kicker(slide, kickerText, W - M - 3.2, top + 0.04, kickerColor, 3.2, 'right');
+    else if (rail) kicker(slide, kickerText, Z.rail.x, top + 0.04, kickerColor, Z.rail.w);   // the editorial rail carries the running mark beside the title
+    // The kicker's box never leaves the column its title owns: a default-width one on a plane ran past the plane's
+    // edge onto the paper, where its on-dark colour read at 2.2:1 and it collided with the first block beside it.
+    else kicker(slide, kickerText, tx, top - 0.3 - GAP.within, kickerColor, Math.min(tw, 6));
+  }
+  // A masthead closes its head with one heavy full-bleed bar in the style's stroke; the body starts under the bar.
+  let barBottom = bottom;
+  if (masthead) {
+    const barH = Math.max(0.05, (LINE * 2) / 72);
+    field(slide, 0, bottom + GAP.within, W, barH, T.ink);
+    barBottom = bottom + GAP.within + barH;
   }
   // 'bare' with a sub line: the sub hangs under the bottom-aligned title, so the body starts a pad under the sub (the
-  // NVIDIA and Kakao pages open their carrier about 0.3 in under the sub line), not at the zone.
-  return bands ? bandBottom + GAP.between : Math.max(Z.body.top, bottom + PAD);
+  // NVIDIA and Kakao pages open their carrier about 0.3 in under the sub line), not at the zone. On a plane the title
+  // never pushes the body down: the carrier beside it starts at the body top whatever the title's length.
+  return bands ? bandBottom + GAP.between : masthead ? barBottom + GAP.between : plane ? Z.body.top : Math.max(Z.body.top, bottom + PAD);
 }
 // foot: the foot of a page carries the source line and the page number on the open canvas — no field under them in
 // either chrome (no reference deck tints its foot). Kept as the one place a page registers its foot, so source() and a
@@ -815,7 +915,8 @@ function foot(slide) {
   FOOTED.add(slide);
 }
 // source: the running source line on the foot; never moves. It stops short of the page number.
-function source(slide, str, { color = T.muted, w = W - 2 * M - 0.9 } = {}) { foot(slide); text(slide, str, M, Z.foot.source, w, TYPE.caption, { color, font: T.data, lh: 1.1 }); }
+// The foot follows the chrome's column too: on a plane the source line starts beside the plane, not on it.
+function source(slide, str, { color = T.muted, w = Z.body.w - 0.9 } = {}) { foot(slide); text(slide, str, Z.body.x, Z.foot.source, w, TYPE.caption, { color, font: T.data, lh: 1.1 }); }
 
 // Content weight of a peer: an explicit `weight`, else the length of what it says; an active peer counts more.
 const weightOf = (item, { active = false } = {}) => (Number(item?.weight)
@@ -961,9 +1062,11 @@ function stack(slide, x, y, w, blocks, { bottom = Z.body.bottom, gap = GAP.withi
 ```js
 function field(slide, x, y, w, h, tint = T.paperAlt, shape = S.rect, extra = {}) {   // page field or module surface
   slide.addShape(shape, { ...box(x, y, w, h), fill: { color: tint }, line: { color: tint }, ...extra });
+  // A surface that covers the page is the page's field from here on, whatever master it was opened with.
+  if (w * h >= W * H * 0.9) onField(slide, contrast(tint, T.onDark) >= contrast(tint, T.ink) ? 'dark' : 'paper');
 }
 // Outline carrier: no fill, one coherent stroke (the strong line — it owns the region) — ownership without a heavy card.
-function outline(slide, x, y, w, h, { color = T.lineStrong, width = 1, shape = S.rect, radius = 0, dash = 'solid' } = {}) {
+function outline(slide, x, y, w, h, { color = T.lineStrong, width = LINE, shape = S.rect, radius = 0, dash = 'solid' } = {}) {
   slide.addShape(shape, { ...box(x, y, w, h), fill: { color: T.paper, transparency: 100 }, line: { color, width, dashType: dash }, ...(radius ? { rectRadius: radius } : {}) });
 }
 // Badge / chip: compact status, tag, or category label. tone: neutral (ink on tint) · accent (white on the accent, the one
@@ -976,9 +1079,9 @@ function badge(slide, x, y, w, h, str, { tone: toneName = 'neutral', fill, color
 }
 // Horizontal rule: T.line at a section boundary (default), T.lineSubtle between repeated items, T.lineStrong as a frame edge.
 function hairline(slide, x, y, w, color = T.line) {
-  slide.addShape(S.line, { ...box(x, y, w, 0), line: { color, width: 1 } });
+  slide.addShape(S.line, { ...box(x, y, w, 0), line: { color, width: LINE } });
 }
-function rule(slide, x, y, h, color = T.line, width = 1) {   // vertical rule the content hangs from
+function rule(slide, x, y, h, color = T.line, width = LINE) {   // vertical rule the content hangs from
   slide.addShape(S.line, { ...box(x, y, 0, h), line: { color, width } });
 }
 function connector(slide, x1, y1, x2, y2, { color = T.mark, width = 1.5, arrow = 'triangle', dash = 'solid' } = {}) {
@@ -1336,7 +1439,10 @@ function venn(slide, cx, cy, sets, { d = 3.0, overlap = 1.1, shared = '' } = {})
   const centers = n < 3 ? st.map((_, i) => [cx + (i - (n - 1) / 2) * off, cy]) : [[cx - off / 2, cy + off * 0.29], [cx + off / 2, cy + off * 0.29], [cx, cy - off * 0.58]];
   centers.forEach(([px, py], i) => slide.addShape(S.ellipse, { ...box(px - d / 2, py - d / 2, d, d), fill: { color: fills[i], transparency: 65 }, line: { color: fills[i], transparency: 40 } }));
   centers.forEach(([px, py], i) => { const ux = (px - cx) / (off || 1), uy = (py - cy) / (off || 1); slabel(slide, st[i].label, px + ux * d * 0.18 - 0.9, py + uy * d * 0.18 - 0.25, 1.8, 0.5, 'venn', { bold: true }); });
-  if (shared) slabel(slide, shared, cx - 0.8, cy - 0.25, 1.6, 0.5, 'venn', { bold: true, size: sp.note });
+  // Where the shared meaning is written depends on where the sets' own names are: two sets name themselves on the
+  // centre line, so the shared label sits a line under them (it used to run straight through both); three sets stand
+  // around the centre and leave it free, which is where the common region is.
+  if (shared) slabel(slide, shared, cx - 0.8, n < 3 ? cy + 0.35 : cy - 0.25, 1.6, 0.5, 'venn', { bold: true, size: sp.note });
   return Math.max(...centers.map(([, py]) => py)) + d / 2;
 }
 // Quote: someone else's words — an oversized mark in the accent, the quote at reading scale beside and below it, the

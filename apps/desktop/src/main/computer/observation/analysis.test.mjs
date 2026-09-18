@@ -264,7 +264,9 @@ test('foreground-lock failures request user focus instead of another input attem
   assert.equal(recommendedRecovery('suspected_noop', 'foreground_changed', 'foreground', null), 'user');
 });
 
-test('an uncertain background effect requests evidence instead of switching delivery', () => {
+test('an uncertain background effect requests evidence, an unsupported one names foreground', () => {
   assert.equal(recommendedRecovery('suspected_noop', undefined, 'background', null), 'recapture');
-  assert.equal(recommendedRecovery('unverifiable', 'background_unsupported', 'background', null), 'recapture');
+  // Another observation cannot change a target class that refuses posted input,
+  // so the refusal names the delivery that can actually land.
+  assert.equal(recommendedRecovery('unverifiable', 'background_unsupported', 'background', null), 'foreground');
 });

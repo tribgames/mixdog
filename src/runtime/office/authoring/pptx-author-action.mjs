@@ -13,7 +13,7 @@ import {
   throwIfAuthoringCancelled,
 } from './pptx-author-session.mjs';
 import { runPptxAuthoringScript } from './pptx-script-runner.mjs';
-import { factsGate, parseAuthoringBrief } from './pptx-brief.mjs';
+import { factsGate, parseAuthoringBrief, planGate } from './pptx-brief.mjs';
 import { readCompositionReceipt } from './pptx-review-artifacts.mjs';
 import { snapshotPortableOoxml } from '../portable/portable-ooxml.mjs';
 
@@ -22,16 +22,50 @@ import { snapshotPortableOoxml } from '../portable/portable-ooxml.mjs';
 const PPTX_AUTHOR_NEEDS_SCRIPT =
   'author requires script. Load the `pptx` Skill first (Skill name:"pptx"): it carries the authoring workflow, composition grammar, device kit, and the pptxgenjs footguns, then call author again with path and script.';
 
-// The gate reads the staged deck with the portable reader whatever backend
+// The gates read the staged deck with the portable reader whatever backend
 // will hold it; a package the reader cannot open is left to qa, never turned
-// into a refusal.
-async function factsGateForDeck(path, brief) {
-  if (!brief.present || brief.factsMode === 'sample') return { blocked: false };
+// into a refusal. One snapshot answers both: the figures against the fact
+// sheet, then the pages against the plan that was written before them.
+async function gateStagedDeck(path, brief) {
+  if (!brief.present) return { blocked: false };
+  let document;
   try {
-    return factsGate(await snapshotPortableOoxml(path, 'pptx', {}), brief);
+    document = await snapshotPortableOoxml(path, 'pptx', {});
   } catch (error) {
     return { blocked: false, unavailable: error?.message || String(error) };
   }
+  const facts = factsGate(document, brief);
+  if (facts.blocked) return { ...facts, gate: 'facts' };
+  const plan = planGate(document, brief);
+  return plan.blocked ? { ...plan, gate: 'plan' } : { blocked: false };
+}
+
+function planGateResult(target, gate, run) {
+  const listed = gate.slides
+    .map((entry) =>
+      entry.carrier
+        ? `slide ${entry.slide}: ${entry.carrier} (${entry.label})`
+        : entry.missing
+          ? `slide ${entry.slide}: ${entry.missing.join(', ')}`
+          : `slide ${entry.slide}`
+    )
+    .join('; ');
+  const nextAction = {
+    plan_missing:
+      'The deck holds more than one slide but the brief has no `// slide plan:` line, so nothing landed. Write one line per slide — `1 job: cover · move: <what the reader now holds> · composition: <the page move> · carriers: statement` — then call author again.',
+    plan_slide_unplanned: `Slides the plan does not cover (${listed}), so nothing landed. Give every slide its plan line, or drop the slides the plan does not want; then call author again.`,
+    plan_incomplete: `Plan lines that name no job or carriers (${listed}), so nothing landed. Every line says what the page does and what carries it; then call author again.`,
+    plan_promise_missing: `Slides that do not carry what their own plan line named (${listed}), so nothing landed. Draw the carrier the line promises, or change the line to what the page actually carries; then call author again.`,
+  }[gate.code];
+  return {
+    ok: false,
+    reason: 'plan_gate',
+    output: target,
+    gate: { code: gate.code, slides: gate.slides },
+    logs: run.logs,
+    elapsedMs: run.elapsedMs,
+    nextAction,
+  };
 }
 
 function factsGateResult(target, brief, gate, run) {
@@ -91,10 +125,12 @@ export async function authorPptx(args, { cwd, dataDir, signal = null }) {
         nextAction: 'Fix the script at the reported line and call author again.',
       };
     }
-    // The gate reads the staged deck before anything lands: a figure with no
-    // fact behind it is refused here, not reported once the deck is open.
-    const gate = await factsGateForDeck(staging, brief);
-    if (gate.blocked) return factsGateResult(target, brief, gate, run);
+    // The gates read the staged deck before anything lands: a figure with no
+    // fact behind it, and a page that does not carry what its plan line named,
+    // are refused here, not reported once the deck is open.
+    const gate = await gateStagedDeck(staging, brief);
+    if (gate.blocked)
+      return gate.gate === 'plan' ? planGateResult(target, gate, run) : factsGateResult(target, brief, gate, run);
     // Keep the valid staged deck recoverable if replacement fails for a non-cancellation reason.
     discardStaging = false;
     if (reusable) {

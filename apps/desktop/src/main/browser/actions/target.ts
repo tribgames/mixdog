@@ -15,6 +15,27 @@ export function adoptResolvedTargets(context: BrowserActionContext, resolved: Re
   }
 }
 
+/**
+ * Both ends of a drag. Targets are resolved in one observation so the two refs
+ * describe the same page state; a page that moves between two separate
+ * resolutions would otherwise hand back a source and a destination that never
+ * existed together.
+ */
+export async function dragRefs(
+  context: BrowserActionContext
+): Promise<{ source?: string; destination?: string }> {
+  const { guest, command, signal, services } = context;
+  if (command.target === undefined || command.target === null) {
+    return {
+      source: command.ref ? String(command.ref) : undefined,
+      destination: command.targetRef ? String(command.targetRef) : undefined,
+    };
+  }
+  const resolved = await services.targets.resolveTargetRefs(guest, [command.target, command.dropTarget!], signal);
+  adoptResolvedTargets(context, resolved);
+  return { source: resolved[0].ref, destination: resolved[1].ref };
+}
+
 export async function actionRef(context: BrowserActionContext): Promise<string | undefined> {
   const { guest, command, signal, services } = context;
   if (command.ref) return String(command.ref);

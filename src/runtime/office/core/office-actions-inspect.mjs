@@ -140,7 +140,7 @@ export async function validate(session, args = {}) {
   }
   const compatibility =
     args.compatibility === true && ['docx', 'xlsx', 'pptx'].includes(session.format)
-      ? await validateLibreOfficeReopen(session.target)
+      ? await validateLibreOfficeReopen(session.target, { signal: session.activeSignal || null })
       : null;
   const postSaveGate =
     native?.persisted != null

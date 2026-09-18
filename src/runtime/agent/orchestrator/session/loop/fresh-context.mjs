@@ -4,6 +4,7 @@ import { loadConfig } from '../../config.mjs';
 import { getProvider, initProviders } from '../../providers/registry.mjs';
 import { resolveMaintenanceRoute } from '../../agent-runtime/maintenance-route.mjs';
 import { resolveSessionContextMeta } from '../manager/context-meta.mjs';
+import { isAccountQuotaError } from '../../providers/account-pool.mjs';
 import { builtinFeatureActive } from '../../../../../session-runtime/builtin-features.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 import { estimateMessagesTokens, providerTokenCalibration } from '../context-utils.mjs';
@@ -30,10 +31,11 @@ export async function resolveCompactionRoute({
   signal,
   getProviderFn = getProvider,
   initProvidersFn = initProviders,
+  allowMaintenance = true,
 } = {}) {
   signal?.throwIfAborted();
   const route =
-    builtinFeatureActive(config, 'memory') && config.recap?.enabled !== false
+    allowMaintenance && builtinFeatureActive(config, 'memory') && config.recap?.enabled !== false
       ? resolveMaintenanceRoute({ agent: 'cycle1-agent', config, includeDefault: false })
       : null;
   const useMaintenance = !!(route?.provider && route?.model && config.providers?.[route.provider]?.enabled !== false);
@@ -124,7 +126,47 @@ export async function runFreshContextCompact({
     result.diagnostics.pipeline = { ...pipeline, totalMs: Date.now() - startedAt };
     return result;
   }
-  const route = await resolveCompactionRoute({
+  const summarize = (target) => {
+    const summaryWindow = positiveInt(target.contextWindow) || contextWindow;
+    const outputTokens = Math.min(SUMMARY_OUTPUT_TOKENS, Math.max(256, Math.floor(summaryWindow * 0.15)));
+    // The summary request's input budget belongs to its OWN model, whereas
+    // the rebuilt conversation must fit the original session's target/window.
+    const inputBudget = Math.max(
+      1,
+      Math.floor((summaryWindow - outputTokens) / providerTokenCalibration(target.providerName))
+    );
+    const summarySession = {
+      id: `${sessionId || 'unknown'}:compact`,
+      provider: target.providerName,
+      model: target.model,
+      cwd: sessionRef?.cwd,
+    };
+    return generateFreshHandoffSummary(
+      target.provider,
+      conversationInput,
+      target.model,
+      Math.max(compactBudgetTokens, hardBudget),
+      {
+        reserveTokens: compactPolicy.reserveTokens,
+        compactionInputBudgetTokens: inputBudget,
+        maxOutputTokens: outputTokens,
+        providerName: target.providerName,
+        sessionId,
+        signal,
+        // Never share provider conversation state or cross-provider
+        // credentials with the summary request.
+        sendOpts: {
+          ...(target.providerName === sessionRef?.provider ? sendOpts : {}),
+          session: summarySession,
+        },
+        fast: target.fast,
+        timeoutMs: compactPolicy.handoffTimeoutMs,
+        force: true,
+        filterOldHistoryForIngest: true,
+      }
+    );
+  };
+  let route = await resolveCompactionRoute({
     sessionRef,
     provider,
     model,
@@ -133,44 +175,44 @@ export async function runFreshContextCompact({
     getProviderFn,
     initProvidersFn,
   });
-  const summaryWindow = positiveInt(route.contextWindow) || contextWindow;
-  const outputTokens = Math.min(SUMMARY_OUTPUT_TOKENS, Math.max(256, Math.floor(summaryWindow * 0.15)));
-  // The summary request's input budget belongs to its OWN model, whereas
-  // the rebuilt conversation must fit the original session's target/window.
-  const inputBudget = Math.max(
-    1,
-    Math.floor((summaryWindow - outputTokens) / providerTokenCalibration(route.providerName))
-  );
-  const summarySession = {
-    id: `${sessionId || 'unknown'}:compact`,
-    provider: route.providerName,
-    model: route.model,
-    cwd: sessionRef?.cwd,
-  };
-  const generated = await generateFreshHandoffSummary(
-    route.provider,
-    conversationInput,
-    route.model,
-    Math.max(compactBudgetTokens, hardBudget),
-    {
-      reserveTokens: compactPolicy.reserveTokens,
-      compactionInputBudgetTokens: inputBudget,
-      maxOutputTokens: outputTokens,
-      providerName: route.providerName,
-      sessionId,
-      signal,
-      // Never share provider conversation state or cross-provider
-      // credentials with the summary request.
-      sendOpts: {
-        ...(route.providerName === sessionRef?.provider ? sendOpts : {}),
-        session: summarySession,
-      },
-      fast: route.fast,
-      timeoutMs: compactPolicy.handoffTimeoutMs,
-      force: true,
-      filterOldHistoryForIngest: true,
+  let generated;
+  try {
+    generated = await summarize(route);
+  } catch (error) {
+    // A maintenance summary model that is out of quota must not take the whole
+    // turn down: the conversation's own model still has budget and can
+    // summarize. Only exhaustion reroutes — every other compaction failure
+    // (overflow, malformed summary, transport) keeps its existing handling, and
+    // an aborted turn stays aborted.
+    signal?.throwIfAborted();
+    const status = Number(error?.status || error?.httpStatus || error?.response?.status || 0);
+    const exhausted =
+      error?.code === 'provider_accounts_exhausted' || status === 429 || isAccountQuotaError(error);
+    const fallback =
+      route.source === 'maintenance' && exhausted
+        ? await resolveCompactionRoute({
+            sessionRef,
+            provider,
+            model,
+            config,
+            signal,
+            getProviderFn,
+            initProvidersFn,
+            allowMaintenance: false,
+          })
+        : null;
+    if (!fallback || (fallback.providerName === route.providerName && fallback.model === route.model)) {
+      error.compactRoute = { provider: route.providerName, model: route.model };
+      throw error;
     }
-  );
+    try {
+      generated = await summarize(fallback);
+    } catch (fallbackError) {
+      fallbackError.compactRoute = { provider: fallback.providerName, model: fallback.model };
+      throw fallbackError;
+    }
+    route = fallback;
+  }
   signal?.throwIfAborted();
   const result = build(generated.summary);
   signal?.throwIfAborted();

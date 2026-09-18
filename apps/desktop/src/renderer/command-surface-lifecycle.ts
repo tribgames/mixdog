@@ -166,52 +166,10 @@ export function useCommandSurfaceLifecycle({
     };
   }, [api, load, open, surface]);
 
-  useEffect(() => {
-    if (!open || surface !== 'context' || loading || typeof api.subscribeState !== 'function') return undefined;
-    let disposed = false;
-    let refreshRunning = false;
-    let refreshQueued = false;
-    const refreshContextStatus = async () => {
-      if (refreshRunning) {
-        refreshQueued = true;
-        return;
-      }
-      refreshRunning = true;
-      while (!disposed) {
-        refreshQueued = false;
-        try {
-          const result = await api.invokeCapability(capabilityRequest('contextStatus', [{ inspect: true }]));
-          if (disposed) break;
-          // A newer state arrived while this request was in flight. Skip the
-          // stale pair and immediately fetch once more for the latest snapshot.
-          if (refreshQueued) continue;
-          setData((current) => {
-            const next = {
-              ...current,
-              contextStatus: result.value,
-              snapshot: result.snapshot,
-            };
-            writeSurfaceDataCache(cacheKey, next);
-            return next;
-          });
-          setError('');
-        } catch (reason) {
-          if (!disposed && !refreshQueued) {
-            setError(reason instanceof Error ? reason.message : String(reason));
-          }
-        }
-        if (!refreshQueued) break;
-      }
-      refreshRunning = false;
-    };
-    const unsubscribe = api.subscribeState(() => {
-      void refreshContextStatus();
-    });
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
-  }, [api, cacheKey, capabilityRequest, loading, open, surface]);
+  // The context surface is the snapshot it opened with. Following live state
+  // frames re-read the gauge dozens of times per streaming turn, which moved
+  // the list under the reader and cut off the entry preview mid-read (user:
+  // 이런 게 자꾸 떠서 볼 수가 없어). Closing and reopening takes a new reading.
 
   const run = useCallback(
     async (capability: DesktopCapability, args: unknown[] = []) => {

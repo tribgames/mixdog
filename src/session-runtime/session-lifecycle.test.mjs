@@ -211,9 +211,11 @@ test('route config treats a cleared context percentage as model-default intent',
   );
 });
 
+// Sized to overflow a 20,000-token heir with room to spare, so the cases below
+// exercise refusal and compaction rather than sitting on the trigger.
 const CONVERSATION = [
   { role: 'system', content: 'source instructions' },
-  { role: 'user', content: 'carry this conversation '.repeat(2_000) },
+  { role: 'user', content: 'carry this conversation '.repeat(6_000) },
   { role: 'assistant', content: 'understood '.repeat(200) },
 ];
 

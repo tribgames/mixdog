@@ -7,10 +7,10 @@ export function typingTargetProbe(point?: { x: number; y: number }): string {
     let root = document;
     let active = root.activeElement;
     while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
-    if (!active || active.disabled || active.readOnly) return false;
-    const editable = active.isContentEditable || active.tagName === 'TEXTAREA'
-      || (active.tagName === 'INPUT' && ['text','search','url','tel','email','password','number'].includes(active.type));
-    if (!editable) return false;
+    const editable = (el) => !!el && !el.disabled && !el.readOnly
+      && (el.isContentEditable || el.tagName === 'TEXTAREA'
+        || (el.tagName === 'INPUT' && ['text','search','url','tel','email','password','number'].includes(el.type)));
+    if (!editable(active)) return false;
     if (!point) return true;
     let hit = root.elementFromPoint(point.x, point.y);
     while (hit?.shadowRoot) {
@@ -18,7 +18,13 @@ export function typingTargetProbe(point?: { x: number; y: number }): string {
       if (!next || next === hit) break;
       hit = next;
     }
-    return !!hit && (hit === active || active.contains(hit));
+    if (!hit) return false;
+    if (hit === active || active.contains(hit)) return true;
+    // A click legitimately delegates focus away from the element under the
+    // pointer: canvas and host elements do this. Refuse only when the pointer
+    // landed on a different editable target, which would mean typing into a
+    // field the caller did not aim at.
+    return !editable(hit);
   })()`;
 }
 

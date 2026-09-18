@@ -19,6 +19,7 @@ import {
   hasVisibleStyle,
   insideTableBody,
   isMarkedInputStyle,
+  locate,
   notedRefs,
   numericValue,
   position,
@@ -113,6 +114,87 @@ export function singleCellReferences(formula) {
     });
   }
   return found;
+}
+
+// The areas a purely additive formula reads — `SUM(B2:B9)`, `B2+B3`, or the two
+// together — and nothing else: a product, a ratio, a name, another sheet, or any
+// other function disqualifies the formula, so only a plain total is read as one.
+function additiveAreas(formula) {
+  const body = formulaBody(formula).replace(/\s+/g, '');
+  if (!body) return null;
+  const areas = [];
+  for (const term of body.split('+')) {
+    const summed = /^SUM\(([^()]+)\)$/i.exec(term);
+    for (const piece of summed ? summed[1].split(',') : [term]) {
+      const span = /^\$?([A-Z]{1,3})\$?([1-9]\d*):\$?([A-Z]{1,3})\$?([1-9]\d*)$/i.exec(piece);
+      const one = /^\$?([A-Z]{1,3})\$?([1-9]\d*)$/i.exec(piece);
+      if (span) {
+        const columns = [columnNumber(span[1].toUpperCase()), columnNumber(span[3].toUpperCase())];
+        const rows = [Number(span[2]), Number(span[4])];
+        areas.push({
+          startColumn: Math.min(...columns),
+          endColumn: Math.max(...columns),
+          startRow: Math.min(...rows),
+          endRow: Math.max(...rows),
+        });
+      } else if (one) {
+        const column = columnNumber(one[1].toUpperCase());
+        const row = Number(one[2]);
+        areas.push({ startColumn: column, endColumn: column, startRow: row, endRow: row });
+      } else return null;
+    }
+  }
+  return areas.length ? areas : null;
+}
+
+const insideArea = (area, at) =>
+  at.column >= area.startColumn && at.column <= area.endColumn && at.row >= area.startRow && at.row <= area.endRow;
+
+const coversArea = (outer, inner) =>
+  inner.startColumn >= outer.startColumn &&
+  inner.endColumn <= outer.endColumn &&
+  inner.startRow >= outer.startRow &&
+  inner.endRow <= outer.endRow;
+
+const multiCell = (area) => area.startRow !== area.endRow || area.startColumn !== area.endColumn;
+
+// A total that counts a subtotal again: the outer range covers a cell that is
+// itself the sum of cells inside that same range, so every value under the
+// subtotal lands in the answer twice. The sheet recalculates cleanly and the
+// number is wrong by construction, which is why this reads under every profile.
+function auditDoubleCounting(list, sheet, cells) {
+  const located = locate(cells.filter((cell) => cell.formula));
+  const subtotals = new Map();
+  for (const entry of located) {
+    const terms = additiveAreas(entry.cell.formula);
+    if (!terms || !terms.some(multiCell)) continue;
+    if (!subtotals.has(entry.at.column)) subtotals.set(entry.at.column, []);
+    subtotals.get(entry.at.column).push({ ...entry, terms });
+  }
+  if (!subtotals.size) return;
+  for (const { cell, at } of located) {
+    const outer = additiveAreas(cell.formula);
+    if (!outer) continue;
+    const counted = outer
+      .filter(multiCell)
+      .flatMap((area) =>
+        Array.from({ length: area.endColumn - area.startColumn + 1 }, (_, step) =>
+          (subtotals.get(area.startColumn + step) || []).filter(
+            (candidate) =>
+              candidate.at.row !== at.row &&
+              insideArea(area, candidate.at) &&
+              candidate.terms.every((term) => coversArea(area, term) && !insideArea(term, candidate.at))
+          )
+        ).flat()
+      );
+    if (!counted.length) continue;
+    list.push(
+      'warning',
+      'subtotal_double_counted',
+      cellPath(sheet, cell),
+      `The total covers ${counted[0].cell.ref}, which is itself the sum of cells inside that same range; every value under that subtotal lands in this total twice. Sum the detail rows only, or leave the subtotal out of the range.`
+    );
+  }
 }
 
 function auditLine(list, sheet, cells, axis) {
@@ -243,6 +325,26 @@ function auditModelDiscipline(list, sheet, cells) {
     if (feedsModel && !headerYear && !noted.has(String(cell.ref).toUpperCase()) && !insideTableBody(bodies, at)) {
       unsourced.push({ row: at.row, column: at.column, ref: String(cell.ref).toUpperCase(), path });
     }
+    // The same interruption reads down a column: a schedule whose periods run
+    // down the page keeps its formulas in one column, and a pasted result
+    // between them stops recalculating exactly as it does across a row. Only a
+    // constant the formulas bracket is read this way — a number under the last
+    // formula is as likely to be the next block of the sheet as a pasted total.
+    // The column must be a pattern before a cell can break it: the formula above
+    // and the formula below the constant compute the same thing, one row apart,
+    // which is a schedule. A column of assumptions — a ratio here, a cross-sheet
+    // reference there — holds formulas and inputs side by side by design.
+    const columnEntries = (byColumn.get(at.column) || []).slice().sort((a, b) => a.index - b.index);
+    const above = [...columnEntries].reverse().find((entry) => entry.index < at.row);
+    const below = columnEntries.find((entry) => entry.index > at.row);
+    if (above && below && above.signature && above.signature === below.signature) {
+      list.push(
+        'warning',
+        'formula_inconsistency',
+        path,
+        'A hardcoded value interrupts a column of formulas; the schedule no longer recalculates through this cell.'
+      );
+    }
     const formulaColumns = formulaRows.get(at.row);
     if (!formulaColumns || formulaColumns.length < 2) continue;
     const first = Math.min(...formulaColumns);
@@ -309,6 +411,7 @@ export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null
     if (!cells.length) continue;
     auditSheetHygiene(list, sheet, cells, names);
     auditSheetLayout(list, sheet, cells);
+    auditDoubleCounting(list, sheet, cells);
     if (auditProfile === 'financial-model') auditModelDiscipline(list, sheet, cells);
   }
   if (list.omitted > 0) {

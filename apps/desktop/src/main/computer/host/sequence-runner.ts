@@ -41,13 +41,18 @@ const FIRST_STEP_ACTIONS = [
   'right_click',
   'middle_click',
   'double_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
   'mouse_move',
   'drag',
   'scroll',
   'type',
   'key',
+  'key_down',
+  'key_up',
 ];
-const CONTINUATION_STEP_ACTIONS = ['type', 'key', 'wait'];
+const CONTINUATION_STEP_ACTIONS = ['type', 'key', 'key_down', 'key_up', 'wait'];
 const ROOT_ONLY_FIELDS = ['window_id', 'window', 'app', 'screen', 'session_id', 'delivery'];
 const TARGET_FIELDS = ['ref', 'element', 'frame_id', 'x', 'y'];
 const ALLOWED_STEP_FIELDS: Record<string, Set<string>> = {
@@ -56,11 +61,29 @@ const ALLOWED_STEP_FIELDS: Record<string, Set<string>> = {
   right_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
   middle_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
   double_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
+  triple_click: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
+  mouse_down: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
+  mouse_up: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
   mouse_move: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'modifiers']),
-  drag: new Set(['action', 'ref', 'element', 'to', 'to_element', 'frame_id', 'x', 'y', 'to_x', 'to_y', 'modifiers']),
+  drag: new Set([
+    'action',
+    'ref',
+    'element',
+    'to',
+    'to_element',
+    'frame_id',
+    'x',
+    'y',
+    'to_x',
+    'to_y',
+    'waypoints',
+    'modifiers',
+  ]),
   scroll: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'direction', 'amount', 'modifiers']),
   type: new Set(['action', 'ref', 'element', 'frame_id', 'x', 'y', 'text']),
   key: new Set(['action', 'ref', 'keys']),
+  key_down: new Set(['action', 'ref', 'keys']),
+  key_up: new Set(['action', 'ref', 'keys']),
   wait: new Set(['action', 'duration']),
 };
 

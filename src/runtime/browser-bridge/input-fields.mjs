@@ -31,6 +31,10 @@ export const BROWSER_INPUT_FIELDS = {
     },
     target: TARGET_SCHEMA,
     targetRef: { type: 'string', maxLength: 128, description: 'drag destination ref from the same snapshot.' },
+    dropTarget: {
+      ...NESTED_TARGET_SCHEMA,
+      description: 'drag destination shaped like input.target; pair it with target, not targetRef.',
+    },
     snapshotId: {
       type: 'string',
       maxLength: 128,
@@ -52,7 +56,7 @@ export const BROWSER_INPUT_FIELDS = {
       type: 'string',
       enum: ['semantic', 'visual', 'both'],
       description:
-        'snapshot only: semantic refs (default), visual image, or both. Coordinates require both; fullPage requires visual. navigate uses includeScreenshot, not mode.',
+        'snapshot only: semantic refs (default), visual image, or both. Coordinates need both; fullPage and ref/target crops need visual. navigate uses includeScreenshot.',
     },
     fullPage: { type: 'boolean', description: 'Full-document screenshot; inspection-only.' },
     format: {
@@ -245,7 +249,7 @@ export const BROWSER_INPUT_FIELDS = {
       type: 'string',
       maxLength: 320,
       description:
-        'fill: account or masked label stored for this HTTPS site; fills the whole sign-in form. No ref/target/text; submit presses Enter. The password stays on the host.',
+        'fill: account or masked label saved for this HTTPS site; fills the whole sign-in form, password kept on the host. No ref/target/text; submit presses Enter.',
     },
     key: {
       type: 'string',
@@ -266,7 +270,7 @@ export const BROWSER_INPUT_FIELDS = {
       type: 'string',
       maxLength: 4096,
       description:
-        'snapshot/read: keywords OR-match or /pattern/i. locate: visual text/color/position. network/console: case-insensitive substring (network ID, URL, method, type, MIME, status).',
+        'snapshot/read: keywords OR-match or /pattern/i. locate: visual text/color/position. network/console: case-insensitive substring (ID, URL, method, type, MIME, status).',
     },
     viewportOnly: {
       type: 'boolean',
@@ -354,17 +358,17 @@ export const BROWSER_INPUT_FIELDS = {
         text: {
           type: 'string',
           maxLength: 10000,
-          description: 'Page text substring that must appear after the action.',
+          description: 'Page text substring; spaces collapsed, lines apart.',
         },
         textGone: {
           type: 'string',
           maxLength: 10000,
-          description: 'Page text substring that must disappear after the action.',
+          description: 'Page text substring that must disappear; spaces collapsed.',
         },
         url: {
           type: 'string',
           maxLength: 10000,
-          description: 'Final URL substring that must appear after the action; locale prefixes may change.',
+          description: 'Final URL substring; locale prefixes may change.',
         },
         timeoutMs: {
           type: 'integer',
@@ -375,13 +379,13 @@ export const BROWSER_INPUT_FIELDS = {
       },
       additionalProperties: false,
       description:
-        'State-changing actions only: verified once after dispatch, never replayed; failure returns an error with a fresh snapshot. Already true before dispatch = inconclusive.',
+        'State-changing actions only: verified once after dispatch, never replayed; failure returns a fresh snapshot. Already true beforehand = inconclusive.',
     },
     settleMs: {
       type: 'integer',
       minimum: 0,
       maximum: 5000,
-      description: 'Delay before the final snapshot when a dynamic page has no deterministic postcondition.',
+      description: 'Delay before the final snapshot when a dynamic page has no firm postcondition.',
     },
     includeScreenshot: {
       type: 'boolean',
@@ -400,7 +404,7 @@ export const BROWSER_INPUT_FIELDS = {
     background: {
       type: 'boolean',
       description:
-        'true creates/targets a hidden support page; omitted never promotes a named support page; false temporarily reveals it. open without true retains the page for user handoff.',
+        'true creates/targets a hidden support page; false reveals it; omitted never promotes a named one. open without true keeps it for user handoff.',
     },
   },
 };

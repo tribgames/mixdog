@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { nativeImage, type WebContents } from 'electron';
 import type { BrowserHost } from './host';
+import { readyBrowserFrame } from './harness-frame';
 import { measureBrowserSurfaceLoad } from './input-surface-load';
 
 /** Fixture-only input acknowledgement and visible-pixel latency measurements. */
@@ -27,7 +28,7 @@ export async function measureBrowserPresentation(
     return window.presentationLoads;
   })()`);
   await guest.executeJavaScript('clearInterval(window.presentationAnimation)');
-  const frame = await host.browserPageFrame('visible-session');
+  const frame = await readyBrowserFrame(host, 'visible-session');
   const samples: number[] = [];
   const visible: number[] = [];
   await guest.executeJavaScript(`(() => {
@@ -52,7 +53,7 @@ export async function measureBrowserPresentation(
       });
       samples.push(performance.now() - start);
       for (;;) {
-        const next = await host.browserPageFrame('visible-session');
+        const next = await readyBrowserFrame(host, 'visible-session');
         assert.ok(next.image);
         const pixels = nativeImage.createFromBuffer(Buffer.from(next.image.data, 'base64')).toBitmap();
         const x = Math.floor((8 * next.width) / next.viewportWidth);

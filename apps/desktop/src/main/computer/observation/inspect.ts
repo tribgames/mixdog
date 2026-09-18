@@ -125,14 +125,20 @@ export function createInspection(host: InspectHost) {
     }
     let inputObservation: Record<string, unknown>;
     try {
-      const probe = await callPowerShell({
-        action: 'input_idle_state',
-        session_id: sessionIdFor(command),
-        read_only: true,
-      }, DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS);
+      const probe = await callPowerShell(
+        {
+          action: 'input_idle_state',
+          session_id: sessionIdFor(command),
+          read_only: true,
+        },
+        DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS
+      );
       inputObservation = {
-        ready: probe.ok === true && probe.result?.observer_ready === true &&
-          probe.result?.ready === true && probe.result?.held === false,
+        ready:
+          probe.ok === true &&
+          probe.result?.observer_ready === true &&
+          probe.result?.ready === true &&
+          probe.result?.held === false,
         observer_ready: probe.result?.observer_ready === true,
         desktop_ready: probe.result?.ready === true,
         input_held: typeof probe.result?.held === 'boolean' ? probe.result.held : null,
@@ -152,9 +158,11 @@ export function createInspection(host: InspectHost) {
     if (requestedWindowId && !target) issues.push(`requested window is unavailable: ${requestedWindowId}`);
     if (inputBlocked) issues.push(`input blocked: ${inputState?.takeoverReason || inputState?.cleanupState}`);
     if (inputObservation.ready !== true) {
-      issues.push(inputObservation.input_held === true
-        ? 'foreground input is unavailable while physical input is held'
-        : String(inputObservation.error || 'foreground input observation is unavailable'));
+      issues.push(
+        inputObservation.input_held === true
+          ? 'foreground input is unavailable while physical input is held'
+          : String(inputObservation.error || 'foreground input observation is unavailable')
+      );
     }
     if (accessibility.available === false) issues.push(String(accessibility.reason || 'accessibility unavailable'));
     if (command.ocr_language && ocr.available !== true) {
@@ -165,8 +173,11 @@ export function createInspection(host: InspectHost) {
         ok: windows !== null,
         action: 'diagnose',
         platform: 'win32',
-        ready: windows !== null && (!requestedWindowId || Boolean(target)) &&
-          !inputBlocked && inputObservation.ready === true,
+        ready:
+          windows !== null &&
+          (!requestedWindowId || Boolean(target)) &&
+          !inputBlocked &&
+          inputObservation.ready === true,
         backend: 'win32_uia_powershell_electron',
         windows: {
           available: windows !== null,
@@ -180,16 +191,18 @@ export function createInspection(host: InspectHost) {
           delivery_modes: ['background', 'foreground'],
           input_mode: isObserveOnly() ? 'observation_only' : inputBlocked ? 'blocked' : 'enabled',
           input_observation: inputObservation,
-          ...(inputState ? {
-            input_state: {
-              user_control_active: inputState.userControlActive,
-              cleanup_state: inputState.cleanupState,
-              reason: inputState.takeoverReason || '',
-            },
-          } : {}),
+          ...(inputState
+            ? {
+                input_state: {
+                  user_control_active: inputState.userControlActive,
+                  cleanup_state: inputState.cleanupState,
+                  reason: inputState.takeoverReason || '',
+                },
+              }
+            : {}),
           focus_cursor_restore: false,
           focus_recovery: 'session_release',
-          cursor_recovery: 'preserve_position_restore_appearance',
+          cursor_recovery: 'restore_position_and_appearance',
           app_owned_electron_text: true,
           browser_content_route: 'preserve_selected_session',
           capture_probe: 'run capture against an exact target; diagnostics does not expose screen pixels',

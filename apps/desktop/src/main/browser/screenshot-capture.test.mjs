@@ -25,11 +25,17 @@ const image = {
   getSize: () => ({ width: 800, height: 600 }),
   toJPEG: () => bytes,
   toPNG: () => Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+  crop: (rect) => ({
+    getSize: () => ({ width: rect.width, height: rect.height }),
+    toJPEG: () => bytes,
+    toPNG: () => Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+  }),
 };
 
-function fixture({ cdpCapture, nativeCapture, layout, resize } = {}) {
+function fixture({ cdpCapture, nativeCapture, layout, layoutMetrics, resize } = {}) {
   globalThis.screenshotFixtureImage = image;
   const calls = [];
+  const captureParams = [];
   let size = [320, 240];
   const guest = {
     invalidate() {},
@@ -52,9 +58,12 @@ function fixture({ cdpCapture, nativeCapture, layout, resize } = {}) {
     call: async (_guest, method, params) => {
       if (method === 'Page.captureScreenshot') {
         calls.push('CDP');
+        captureParams.push(params);
         return cdpCapture ? cdpCapture() : { data: bytes.toString('base64') };
       }
-      if (method === 'Page.getLayoutMetrics') return { cssContentSize: { width: 800, height: 600 } };
+      if (method === 'Page.getLayoutMetrics') {
+        return { cssContentSize: layoutMetrics || { width: 800, height: 600 } };
+      }
       assert.equal(method, 'Runtime.evaluate');
       const phase = params.expression === FULL_PAGE_LAYOUT_PREPARE ? 'prepare' : 'restore';
       assert.ok([FULL_PAGE_LAYOUT_PREPARE, FULL_PAGE_LAYOUT_RESTORE].includes(params.expression));
@@ -62,8 +71,80 @@ function fixture({ cdpCapture, nativeCapture, layout, resize } = {}) {
       return layout ? layout(phase) : {};
     },
   };
-  return { guest, calls, size: () => size, service: createBrowserScreenshotService(cdp, 100, 100) };
+  return { guest, calls, captureParams, size: () => size, service: createBrowserScreenshotService(cdp, 100, 100) };
 }
+
+test('an element inside the window is cropped out of one viewport capture', async () => {
+  const f = fixture();
+  const shot = await f.service.captureElement(
+    f.guest,
+    false,
+    {},
+    { x: 100, y: 50, width: 100, height: 50 },
+    { viewport: { width: 320, height: 240 }, scroll: { x: 0, y: 0 } }
+  );
+  assert.equal(shot.partial, false);
+  // The image is 2.5x the CSS viewport, so the crop is scaled with it.
+  assert.deepEqual({ width: shot.width, height: shot.height }, { width: 250, height: 125 });
+  assert.deepEqual(f.calls, ['CDP']);
+  assert.equal(f.captureParams[0].clip, undefined);
+});
+
+test('an element taller than the window is cut out of the document capture, not the fold', async () => {
+  const f = fixture();
+  const shot = await f.service.captureElement(
+    f.guest,
+    false,
+    {},
+    { x: 40, y: -100, width: 700, height: 500 },
+    { viewport: { width: 320, height: 240 }, scroll: { x: 0, y: 150 } }
+  );
+  assert.equal(shot.partial, false);
+  // The element sits at document y=50, so the whole 700x500 box is in frame.
+  assert.deepEqual({ width: shot.width, height: shot.height }, { width: 700, height: 500 });
+  assert.deepEqual(f.calls, ['prepare', 'CDP', 'restore']);
+  assert.deepEqual(f.captureParams[0].clip, { x: 0, y: 0, width: 800, height: 600, scale: 1 });
+});
+
+test('an element crop keeps the requested lossless format', async () => {
+  const f = fixture();
+  const shot = await f.service.captureElement(
+    f.guest,
+    false,
+    { format: 'png' },
+    { x: 0, y: 0, width: 80, height: 40 },
+    { viewport: { width: 320, height: 240 }, scroll: { x: 0, y: 0 } }
+  );
+  assert.equal(shot.mimeType, 'image/png');
+  assert.equal(shot.partial, false);
+  assert.deepEqual({ width: shot.width, height: shot.height }, { width: 200, height: 100 });
+});
+
+test('an element larger than the document is clipped to what the page actually holds', async () => {
+  const f = fixture();
+  const shot = await f.service.captureElement(
+    f.guest,
+    false,
+    {},
+    { x: 0, y: 0, width: 40_000, height: 40_000 },
+    { viewport: { width: 320, height: 240 }, scroll: { x: 0, y: 0 } }
+  );
+  assert.equal(shot.partial, true);
+  assert.deepEqual({ width: shot.width, height: shot.height }, { width: 800, height: 600 });
+});
+
+test('an uncapturable document leaves the cropped viewport image as the answer', async () => {
+  const f = fixture({ layoutMetrics: { width: 40_000, height: 40_000 } });
+  const shot = await f.service.captureElement(
+    f.guest,
+    false,
+    {},
+    { x: 0, y: 0, width: 700, height: 500 },
+    { viewport: { width: 320, height: 240 }, scroll: { x: 0, y: 0 } }
+  );
+  assert.equal(shot.partial, true);
+  assert.deepEqual({ width: shot.width, height: shot.height }, { width: 800, height: 600 });
+});
 
 test('screenshot fallback keeps both engine failure reasons, without hiding them as empty captures', async () => {
   const f = fixture({

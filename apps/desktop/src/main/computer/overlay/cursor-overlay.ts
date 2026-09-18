@@ -142,14 +142,17 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
         };
         next.webContents.on('render-process-gone', () => retireRenderer('renderer_gone'));
         next.on('unresponsive', () => retireRenderer('renderer_unresponsive'));
-        const closed = new Promise<never>((_resolve, reject) => { rejectCreation = reject; });
+        const closed = new Promise<never>((_resolve, reject) => {
+          rejectCreation = reject;
+        });
         const assertCurrentSurface = (): void => {
           if (disposed || next.isDestroyed() || surfaces.get(sessionId) !== surface) {
             throw new Error('Computer Use cursor disposed during creation');
           }
         };
         await Promise.race([
-          next.loadURL(`data:text/html;base64,${Buffer.from(cursorHtml()).toString('base64')}`), closed,
+          next.loadURL(`data:text/html;base64,${Buffer.from(cursorHtml()).toString('base64')}`),
+          closed,
         ]);
         assertCurrentSurface();
         await Promise.race([next.webContents.executeJavaScript(cursorScript()), closed]);
@@ -193,7 +196,12 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     );
     recordCursorDiagnostic(evidence?.handler ? 'handler_called' : 'handler_missing');
     recordCursorDiagnostic(evidence?.ring ? 'ring_present' : 'ring_missing');
-    recordCursorDiagnostic(evidence?.opacity > 0 ? 'ring_visible_style' : 'ring_transparent_style');
+    // Animated effects start their keyframes at zero opacity, so reading the
+    // style in the same frame says nothing about whether they became visible.
+    const animated = ['click', 'type', 'scroll', 'prepare'].includes(effect);
+    recordCursorDiagnostic(
+      evidence?.opacity > 0 ? 'ring_visible_style' : animated ? 'ring_animation_start' : 'ring_transparent_style'
+    );
   };
 
   const pinAboveTarget = (window: BrowserWindow, windowId: string): void => {
@@ -299,9 +307,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
 
   const render = (): void => {
     if (disposed) return;
-    const modes = new Map(
-      latestSnapshot.activities.map((activity) => [activity.sessionId, activity.mode])
-    );
+    const modes = new Map(latestSnapshot.activities.map((activity) => [activity.sessionId, activity.mode]));
     const cursors = tail.update(
       computerUseCursorPresentations(latestSnapshot),
       latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed',
@@ -350,9 +356,7 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     if (disposed || latestSnapshot.userControlActive || latestSnapshot.cleanupState === 'failed') {
       throw new Error('cursor presentation unavailable');
     }
-    if (
-      !latestSnapshot.activities.some((activity) => activity.sessionId === sessionId)
-    ) {
+    if (!latestSnapshot.activities.some((activity) => activity.sessionId === sessionId)) {
       throw new Error('cursor presentation requires an active session');
     }
     await ensureWindow(sessionId, surfaceFor(sessionId));

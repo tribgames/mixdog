@@ -70,18 +70,15 @@ for (const command of [
       emit({ id: request.id, x: 0, y: 0, held: false, phase: 'unknown' });
       await Promise.resolve();
       assert.equal(settled, false);
-      assert.deepEqual(
-        events,
-        [
-          ['a', 3100, 900, true, command.delivery, 'drag', 'hwnd:0x123'],
-          ['a', 3200, 1000, false, command.delivery, 'move', 'hwnd:0x123'],
-          ['a', 3200, 1000, false, command.delivery, 'prepare', 'hwnd:0x123'],
-          ['a', 3200, 1000, true, command.delivery, 'press', 'hwnd:0x123'],
-          ['a', 3200, 1000, false, command.delivery, 'release', 'hwnd:0x123'],
-          ['a', 3200, 1000, false, command.delivery, 'scroll', 'hwnd:0x123'],
-          ['a', 3200, 1000, false, command.delivery, 'type', 'hwnd:0x123'],
-        ]
-      );
+      assert.deepEqual(events, [
+        ['a', 3100, 900, true, command.delivery, 'drag', 'hwnd:0x123'],
+        ['a', 3200, 1000, false, command.delivery, 'move', 'hwnd:0x123'],
+        ['a', 3200, 1000, false, command.delivery, 'prepare', 'hwnd:0x123'],
+        ['a', 3200, 1000, true, command.delivery, 'press', 'hwnd:0x123'],
+        ['a', 3200, 1000, false, command.delivery, 'release', 'hwnd:0x123'],
+        ['a', 3200, 1000, false, command.delivery, 'scroll', 'hwnd:0x123'],
+        ['a', 3200, 1000, false, command.delivery, 'type', 'hwnd:0x123'],
+      ]);
       child.stdout.write(RESPONSE_MARKER + JSON.stringify({ id: request.id, ok: true, result: {} }) + '\n');
       await pending;
       emit({ id: request.id, x: 0, y: 0, held: true });

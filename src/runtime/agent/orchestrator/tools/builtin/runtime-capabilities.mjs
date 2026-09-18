@@ -222,24 +222,62 @@ export function describeGitStartupState({ cwd = process.cwd(), ...pathOptions } 
 }
 
 // The cwd's immediate entries are the same kind of fact as the git line: a
-// property of this directory, true at startup, readable without spawning.
-// Without it the first call of a session is routinely `list .` or `glob *`
-// (11/11 trials on orientation-heavy tasks), one full model round-trip spent
-// on a listing the prompt could have carried. Capped so a large root does not
-// swell the prompt; the cap is reported so the caller knows to list for more.
+// property of this directory, true at startup. Without it the first call of a
+// session is routinely `list .` or `glob *` (11/11 trials on orientation-heavy
+// tasks), one full model round-trip spent on a listing the prompt could have
+// carried. Capped so a large root does not swell the prompt; the cap is
+// reported so the caller knows to list for more.
+//
+// The line only pays for itself when it actually replaces that listing, so it
+// carries what the listing would have taught: gitignored entries are dropped
+// (the project's own `.gitignore` decides, no name-based guessing), `.git`
+// itself is repository metadata rather than content, and directories sort
+// ahead of files so the cap trims loose files before the tree's shape.
 const CWD_STARTUP_ENTRY_LIMIT = 40;
 
+function _gitIgnoredEntries(directory, names) {
+  if (!names.length || !findRepositoryRoot(directory)) return new Set();
+  try {
+    const result = spawnSync(
+      'git',
+      ['--no-optional-locks', '-C', directory, 'check-ignore', '--stdin', '-z'],
+      {
+        encoding: 'utf8',
+        input: `${names.join('\0')}\0`,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        maxBuffer: 1024 * 1024,
+        timeout: 1500,
+        windowsHide: true,
+      }
+    );
+    // Exit 1 is "nothing ignored", not a failure.
+    if (result.status !== 0 && result.status !== 1) return new Set();
+    return new Set(String(result.stdout || '').split('\0').filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
 export function describeCwdStartupEntries({ cwd = process.cwd(), limit = CWD_STARTUP_ENTRY_LIMIT } = {}) {
+  let directory;
   let entries;
   try {
-    entries = readdirSync(pathResolveAbsolute(String(cwd || '.')), { withFileTypes: true });
+    directory = pathResolveAbsolute(String(cwd || '.'));
+    entries = readdirSync(directory, { withFileTypes: true });
   } catch {
     return '';
   }
   if (!entries.length) return '- Cwd entries at startup: none (empty directory).';
-  const names = entries
-    .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`)
-    .sort((a, b) => a.localeCompare(b, 'en'));
+  const candidates = entries.filter((entry) => entry.name !== '.git');
+  const ignored = _gitIgnoredEntries(
+    directory,
+    candidates.map((entry) => entry.name)
+  );
+  const kept = candidates.filter((entry) => !ignored.has(entry.name));
+  if (!kept.length) return '- Cwd entries at startup: none besides gitignored entries.';
+  const names = kept
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name, 'en'))
+    .map((entry) => `${entry.name}${entry.isDirectory() ? '/' : ''}`);
   const shown = names.slice(0, limit);
   const omitted = names.length - shown.length;
   return `- Cwd entries at startup: ${shown.join(' ')}${omitted > 0 ? ` … +${omitted} more (list for the rest)` : ''}`;

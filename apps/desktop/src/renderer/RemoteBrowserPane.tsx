@@ -17,6 +17,7 @@ import { readBrowserZoom, writeBrowserZoom } from './browser-zoom-level';
 import { BrowserZoomPill } from './BrowserZoomPill';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { createBrowserDisplayHealth } from './browser-display-health';
 import type { BrowserPaneProps } from './BrowserPane.lazy';
 
 /** Keep a zoomed frame's edges inside the box: the image may pan only as far
@@ -34,6 +35,10 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
   const ownerSessionId = sessionId;
   const addressFocused = useRef(false);
   const frameId = useRef('');
+  /** Frame size of the last delivered picture: the health window restarts
+   *  while the geometry keeps changing, not on every new frame id. */
+  const geometry = useRef('');
+  const health = useMemo(() => createBrowserDisplayHealth(), []);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const composing = useRef(false);
@@ -110,6 +115,8 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         if (cancelled || !next) return;
         frameId.current = next.frameId;
         setFrame(next);
+        health.recovered();
+        geometry.current = `${next.width}:${next.height}`;
         setFailure('');
         if (next.image) {
           setImageUrl(`data:${next.image.mimeType};base64,${next.image.data}`);
@@ -120,7 +127,12 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
         delay = next.loading ? ACTIVE_POLL_MS : IDLE_POLL_MS;
       } catch (error) {
         if (cancelled) return;
-        setFailure(error instanceof Error ? error.message : String(error));
+        // A page that is navigating is not a lost connection. The phone polls
+        // again at the active cadence and only reports a display that stops
+        // making progress, exactly as the desktop pane does.
+        const message = health.failed(error, Date.now(), geometry.current);
+        setFailure(message);
+        if (!message) delay = ACTIVE_POLL_MS;
       } finally {
         polling = false;
         if (!cancelled) {
@@ -143,7 +155,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
       window.clearTimeout(timer);
       wakePoll.current = null;
     };
-  }, [active, api, ownerSessionId]);
+  }, [active, api, ownerSessionId, health]);
 
   useEffect(() => {
     if (keyboardOpen) inputRef.current?.focus();

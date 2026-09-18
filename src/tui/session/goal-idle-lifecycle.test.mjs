@@ -93,7 +93,10 @@ test('new work wakes a duration wait without extending the approved budget', asy
   ).goal;
   f.state.busy = false;
   await tick();
-  assert.deepEqual(f.pending, []);
+  // A settled list earns one review turn first; this test covers the wake that
+  // follows it, so consume that entry before adding the new work.
+  assert.equal(f.pending.length, 1);
+  f.pending.length = 0;
   await f.call({
     action: 'update_tasks',
     tasks: [{ text: 'User-approved additional check', status: 'pending', kind: 'verification' }],
@@ -103,6 +106,40 @@ test('new work wakes a duration wait without extending the approved budget', asy
   assert.equal(f.pending.length, 1);
   assert.equal(f.pending[0].mode, 'goal-continuation');
   assert.equal(f.controller.shouldRunGoalContinuation(f.pending[0]), true);
+});
+
+test('a settled duration list gets one review turn before the deadline wait', async (t) => {
+  const f = fixture(t);
+  await f.call({
+    action: 'create',
+    objective: 'Finish the approved duration',
+    time_limit_minutes: 60,
+    time_mode: 'duration',
+    tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'work' }],
+  });
+  f.state.busy = false;
+  await tick();
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'idle-review');
+  assert.equal(f.pending.length, 1);
+  assert.equal(f.pending[0].mode, 'goal-continuation');
+  assert.match(f.pending[0].content, /set_tasks/);
+
+  // The review turn ran and recorded nothing new: the deadline timer owns the
+  // remaining duration instead of another identical continuation.
+  f.pending.length = 0;
+  await f.controller.onGoalTurnStarted();
+  f.state.busy = false;
+  await f.controller.onGoalTurnSettled({ status: 'done' });
+  await tick();
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'duration-wait');
+  assert.deepEqual(f.pending, []);
+
+  // A changed task list is a new chance, not the same answered one.
+  await f.call({
+    action: 'update_tasks',
+    tasks: [{ text: 'Recorded follow-up outcome', status: 'completed', kind: 'work' }],
+  });
+  assert.equal(f.runtime.continuation(f.sessionId).reason, 'idle-review');
 });
 
 test('duration waiting cannot suppress unfinished work, objective review, or maximum-budget closeout', async (t) => {

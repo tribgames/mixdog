@@ -14,6 +14,7 @@ import {
   writeJsonAtomic,
 } from './design-library-core.mjs';
 import { normalizeLayouts, normalizeLocalSamples } from './design-library-pack.mjs';
+import { inducePptxSampleRoles } from './design-template-induct.mjs';
 import {
   directPptxShapeBlocks,
   inferPptxSampleKind,
@@ -21,6 +22,7 @@ import {
   pptxSampleCapacity,
   pptxShapeMetadata,
   pptxSlideEntries,
+  pptxSlot,
   walkTemplateDirectory,
   xmlAttribute,
 } from './design-template-inspect.mjs';
@@ -57,7 +59,21 @@ export async function inspectOfficeTemplate(path, { format = '' } = {}) {
       capabilities,
     });
   }
+  const slideSize = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/i.exec(
+    zip.file('ppt/presentation.xml') ? await zip.file('ppt/presentation.xml').async('string') : ''
+  );
+  const canvas = slideSize ? { width: Number(slideSize[1]), height: Number(slideSize[2]) } : undefined;
   for (const sample of sampleSlides) {
+    // A drawn page answers with geometry where it has no placeholder to answer
+    // with; a role the file states itself always wins over the induced one.
+    const induced = inducePptxSampleRoles(sample, canvas);
+    for (const shape of sample.shapes) {
+      const role = induced.get(shape.shape);
+      if (!role || (shape.slot && !/^body-\d+$/.test(shape.slot.role))) continue;
+      shape.slot = pptxSlot(shape, role);
+    }
+    sample.slots = sample.shapes.flatMap((shape) => (shape.slot ? [shape.slot] : []));
+    sample.title ||= sample.shapes.find((shape) => shape.slot?.role === 'title')?.text || '';
     sample.kind = inferPptxSampleKind(sample, sampleSlides.length);
     sample.capacity = pptxSampleCapacity(sample);
   }

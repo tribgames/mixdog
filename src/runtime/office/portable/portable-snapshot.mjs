@@ -21,6 +21,7 @@ import {
   xmlAttribute,
   xmlDecode,
 } from './portable-xml.mjs';
+import { expandSharedFormulas } from './portable-shared-formulas.mjs';
 import { worksheetDrawings } from './portable-sheet-page.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
 import { resolveCellStyles } from './portable-sheet-styles.mjs';
@@ -74,6 +75,50 @@ function cellMarkup(cellXml) {
   return { tracked: true, ...(deletedText ? { deletedText } : {}) };
 }
 
+// Word keeps a heading's type in styles.xml, not on its runs: a document whose
+// headings carry no direct formatting reads as sizeless unless the style chain
+// is resolved. Each style answers with what it states, then with what it is
+// based on, and finally with the document defaults.
+function docxRunFont(xml) {
+  const sizes = [...String(xml).matchAll(/<w:sz\b[^>]*\bw:val="(\d+)"/g)]
+    .map((match) => Number(match[1]) / 2)
+    .filter((size) => size > 0);
+  return {
+    size: sizes.length ? Math.max(...sizes) : 0,
+    bold: /<w:b\b(?![^>]*\bw:val="(?:0|false)")/.test(String(xml)),
+    name: xmlDecode(/<w:rFonts\b[^>]*\bw:ascii="([^"]*)"/.exec(String(xml))?.[1] || ''),
+  };
+}
+
+export function resolveDocxStyleFonts(stylesXml) {
+  const fonts = new Map();
+  if (!stylesXml) return fonts;
+  const base = docxRunFont(/<w:docDefaults\b[\s\S]*?<\/w:docDefaults>/.exec(stylesXml)?.[0] || '');
+  const declared = new Map();
+  for (const match of stylesXml.matchAll(/<w:style\b([^>]*)>([\s\S]*?)<\/w:style>/g)) {
+    const id = xmlDecode(/\bw:styleId="([^"]+)"/.exec(match[1])?.[1] || '');
+    if (!id) continue;
+    declared.set(id, {
+      basedOn: xmlDecode(/<w:basedOn\b[^>]*\bw:val="([^"]+)"/.exec(match[2])?.[1] || ''),
+      ...docxRunFont(match[2]),
+    });
+  }
+  const resolve = (id, seen) => {
+    const entry = declared.get(id);
+    if (!entry || seen.has(id)) return base;
+    seen.add(id);
+    const parent = entry.basedOn ? resolve(entry.basedOn, seen) : base;
+    return {
+      size: entry.size || parent.size,
+      bold: entry.bold || parent.bold,
+      name: entry.name || parent.name,
+    };
+  };
+  for (const id of declared.keys()) fonts.set(id, resolve(id, new Set()));
+  fonts.set('', base);
+  return fonts;
+}
+
 export function docxBodyModel(documentXml) {
   const body = containerInner(documentXml, 'w:body');
   if (!body) return { paragraphs: [], tables: [], blocks: [] };
@@ -103,6 +148,12 @@ export function docxBodyModel(documentXml) {
         // Office reader reports it that way. Answering with an empty string made
         // the same paragraph look unstyled to one backend and styled to the other.
         style: xmlDecode(/<w:pStyle\b[^>]*\bw:val="([^"]+)"/.exec(block.xml)?.[1] || 'Normal'),
+        // What the paragraph's own runs state; snapshotDocx fills in what its
+        // style says when they state nothing.
+        ...(() => {
+          const direct = docxRunFont(block.xml);
+          return direct.size || direct.bold || direct.name ? { font: direct } : {};
+        })(),
         // A soft break reads back as a newline like a typed one does, but Word
         // draws it as a line break instead of a space. Counting them lets a
         // review tell a deliberate break from a newline left inside a run.
@@ -208,6 +259,17 @@ export async function snapshotDocx(zip, options = {}) {
   }
   const documentXml = await zipText(zip, 'word/document.xml');
   const model = docxBodyModel(documentXml);
+  const styleFonts = resolveDocxStyleFonts(await zipText(zip, 'word/styles.xml'));
+  if (styleFonts.size) {
+    for (const paragraph of model.paragraphs) {
+      const inherited = styleFonts.get(paragraph.style) || styleFonts.get('');
+      const size = paragraph.font?.size || inherited?.size || 0;
+      const bold = paragraph.font?.bold || inherited?.bold || false;
+      const name = paragraph.font?.name || inherited?.name || '';
+      if (!size && !bold && !name) continue;
+      paragraph.font = { ...(size ? { size } : {}), ...(bold ? { bold: true } : {}), ...(name ? { name } : {}) };
+    }
+  }
   // A paragraph's numId names a definition in numbering.xml; the level's
   // number format tells a bullet from a numbered list.
   const numbering = await zipText(zip, 'word/numbering.xml');
@@ -597,6 +659,11 @@ function chartPartSnapshot(xml) {
     chartType: /<c:\w+Chart\b/.test(xml) ? detectChartType(xml) : '',
     title: blockText(/<c:title>([\s\S]*?)<\/c:title>/.exec(xml)?.[1] || '', 'a:t'),
     seriesCount: series.length,
+    // What tells one series from another on the page: the legend the chart draws,
+    // or labels that carry the series name. Without either, two series are two
+    // colours and the reader has nothing to read them by.
+    legend: /<c:legend>/.test(xml),
+    seriesNamesShown: /<c:showSerName val="1"\/>/.test(xml),
     series,
   };
 }
@@ -739,6 +806,7 @@ export async function snapshotXlsx(zip, options = {}) {
     const xml = await zipText(zip, sheet.path);
     const cellResult = cellRecords(xml, strings, paged ? { ...options, styles } : { styles });
     const cells = paged ? cellResult.records : cellResult;
+    expandSharedFormulas(xml, cells);
     const notes = await worksheetNotes(zip, sheet);
     const tables = await worksheetTables(zip, sheet);
     const visuals = await worksheetVisuals(zip, sheet, xml);
@@ -984,6 +1052,19 @@ export async function snapshotPptx(zip, options = {}) {
     const index = slidePaths.indexOf(path) + 1;
     const tree = containerInner(xml, 'p:spTree');
     const shapeBlocks = tree ? topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']) : [];
+    // A chart frame carries only a relationship to its part, so the slide read
+    // alone says a chart is there and nothing about what it draws. The part is
+    // resolved here — the series, the legend, the labels — which is what the
+    // review needs to say whether a reader can tell the series apart. A part
+    // that cannot be resolved leaves the frame as it was, never as an empty chart.
+    const chartParts = new Map();
+    for (let shapeIndex = 0; shapeIndex < shapeBlocks.length; shapeIndex += 1) {
+      const id = /<c:chart\b[^>]*\br:id="([^"]+)"/i.exec(shapeBlocks[shapeIndex].xml)?.[1];
+      if (!id) continue;
+      const part = await relatedPartById(zip, path, id);
+      const partXml = part ? await zipText(zip, part) : '';
+      if (partXml) chartParts.set(shapeIndex, { part, ...chartPartSnapshot(partXml) });
+    }
     slides.push({
       path: `/slide[${index}]`,
       index,
@@ -1068,7 +1149,9 @@ export async function snapshotPptx(zip, options = {}) {
           text: tableRows ? paragraphTexts(shape.xml, 'a:t').join(' ') : blockText(shape.xml, 'a:t'),
           ...(shape.name === 'p:grpSp' ? { group: true } : {}),
           ...(/<p:ph\b/i.test(shape.xml) ? { placeholder: true } : {}),
-          ...(/<c:chart\b/i.test(shape.xml) ? { chart: { path: `${shapePath}/chart` } } : {}),
+          ...(/<c:chart\b/i.test(shape.xml)
+            ? { chart: { path: `${shapePath}/chart`, ...(chartParts.get(shapeIndex) || {}) } }
+            : {}),
           ...(tableRows ? { table: { rows: tableRows, columns: tableColumns } } : {}),
           ...(fontSizes.length
             ? {

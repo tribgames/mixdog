@@ -48,7 +48,7 @@ export interface BrowserReplyHost {
     guest: WebContents,
     signal?: AbortSignal,
     until?: Promise<unknown>,
-    options?: { background?: boolean; requireQuiet?: boolean }
+    options?: { background?: boolean; requireQuiet?: boolean; previousUrl?: string }
   ): Promise<unknown>;
   postconditionMatchesGuest(guest: WebContents, expected: BrowserPostcondition, signal?: AbortSignal): Promise<boolean>;
   captureSnapshotPayload(
@@ -129,6 +129,18 @@ export function createBrowserReply(host: BrowserReplyHost) {
   function dialogResult(guest: WebContents): BrowserCommandResult | null {
     const dialog = state.for(guest).pendingDialog;
     if (!dialog) return null;
+    // Chromium supplies no text for a leave-confirmation and the choice is not
+    // symmetric: accepting discards whatever the page has not saved.
+    if (dialog.type === 'beforeunload') {
+      return {
+        outcome: 'blocked',
+        text:
+          'The page refused to be left: it guards unsaved work with a leave confirmation, which Chromium answers by ' +
+          'itself, so the navigation was abandoned and the page stayed. handle_dialog has nothing left to answer.\n' +
+          'Finish or discard what the page is holding — submit, reset, or clear the form — and navigate again; ' +
+          'repeating the same navigation is refused the same way.',
+      };
+    }
     return {
       outcome: 'blocked',
       text:
@@ -201,6 +213,9 @@ export function createBrowserReply(host: BrowserReplyHost) {
               {
                 background: options.targetIsBackground,
                 requireQuiet: Boolean(expected && options.preexistingPostcondition),
+                // Where the page was before the gesture: a URL that changed
+                // without a load means the view is still being replaced.
+                previousUrl: options.baseline?.url,
               }
             )
           : Promise.resolve(),
@@ -237,12 +252,19 @@ export function createBrowserReply(host: BrowserReplyHost) {
             includeScroll: action === 'scroll',
           })
         : undefined;
-    const unchanged = reacted === false && baseline?.url === payload.url;
+    // A gesture that opened a page did something, even when this document is
+    // untouched. Reporting that as "no observable change" sends the caller
+    // looking for a covering element instead of the page that just opened.
+    const openedPages = state.for(guest).openedPopups.splice(0);
+    const unchanged = reacted === false && baseline?.url === payload.url && openedPages.length === 0;
     const notes = [
       settleMs && `Explicit settle completed after ${settleMs}ms.`,
       expected && options.preexistingPostcondition
         ? 'Postcondition was already true before this action, so it proves nothing about it; the action executed once. Verify with a condition only this action makes true.'
         : expected && `Postcondition met after ${postconditionElapsed}ms; action executed once.`,
+      openedPages.length > 0 &&
+        `Opened ${openedPages.map((name) => JSON.stringify(name)).join(', ')} as a new page; ` +
+          'act on it with that tab name, or call list_tabs for its URL.',
       unchanged &&
         `No observable change: the document, URL, and control values are the same as before this ${action}. ` +
           "Do not repeat the same gesture; check the element's states or covering elements, or choose another target.",

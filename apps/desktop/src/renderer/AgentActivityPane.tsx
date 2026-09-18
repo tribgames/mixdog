@@ -5,6 +5,7 @@ import { InitialSurface } from './InitialSurface';
 import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu, useHiddenAgentGroups } from './agent-group-visibility';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { beginBootSurface, reportBootSurfaceReady } from './boot-metrics';
+import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 
 import type { DesktopAgentPoolRow, DesktopApi, DesktopSessionSummary } from '../shared/contract';
 import {
@@ -652,6 +653,9 @@ function AgentPoolRow({
   const prefetch = () => {
     if (sessionId) onPrefetchSession?.(lead ? ownerSessionId : sessionId);
   };
+  const [dragging, setDragging] = useState(false);
+  // A settled native drag must not also fire the row's open click.
+  const suppressClick = useRef(false);
   return (
     <button
       type="button"
@@ -670,11 +674,50 @@ function AgentPoolRow({
       tabIndex={tabIndex}
       aria-label={name}
       disabled={!sessionId}
+      // Every row with a session is a pane source, exactly like a sidebar
+      // session row: dropping it inside a pane opens the session as a tab and
+      // dropping it on a pane edge splits a new pane there.
+      draggable={Boolean(sessionId)}
+      data-dragging={dragging ? 'true' : undefined}
       onPointerEnter={prefetch}
       onFocus={prefetch}
       onPointerDown={prefetch}
+      onDragStart={(event) => {
+        if (!sessionId) {
+          event.preventDefault();
+          return;
+        }
+        const drag: PaneDragSession = {
+          kind: 'session',
+          key: `session:${sessionId}`,
+          title: tabTitle,
+          selection: { kind: 'session', id: sessionId, title: tabTitle },
+        };
+        // The gesture settles in the global drag session, so this cleanup still
+        // runs when the pool retires this row mid-drag.
+        beginPaneDrag(
+          event.nativeEvent,
+          drag,
+          event.currentTarget,
+          () => {
+            setDragging(false);
+            suppressClick.current = true;
+            window.setTimeout(() => {
+              suppressClick.current = false;
+            }, 0);
+            delete document.body.dataset.tabDragging;
+          },
+          // The row's own frame follows the pointer, not a tab ghost.
+          'frame'
+        );
+        setDragging(true);
+        document.body.dataset.tabDragging = '1';
+      }}
+      onDragEnd={() => {
+        finishPaneDrag();
+      }}
       onClick={() => {
-        if (!sessionId) return;
+        if (!sessionId || suppressClick.current) return;
         if (lead) onOpenLeadSession?.(ownerSessionId);
         else onOpenSession?.(sessionId, tabTitle, ownerSessionId);
       }}

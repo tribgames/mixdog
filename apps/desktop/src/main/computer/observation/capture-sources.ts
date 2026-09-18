@@ -203,7 +203,11 @@ export function createCaptureSources(
       plan.push({
         backend: 'app_owned',
         acquire: async () => {
-          const image = await withTimeout(owned.capturePage(), OWNED_CAPTURE_TIMEOUT_MS, 'capture_timeout: app-owned capture');
+          const image = await withTimeout(
+            owned.capturePage(),
+            OWNED_CAPTURE_TIMEOUT_MS,
+            'capture_timeout: app-owned capture'
+          );
           return {
             image: preserveResolution ? image : fitCaptureImage(image, maxWidth),
             sourceId: `browser-window:${windowId}`,

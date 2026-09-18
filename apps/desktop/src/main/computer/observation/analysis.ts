@@ -149,6 +149,10 @@ export function frameElements(
           name: element.name,
           ...(element.value ? { value: element.value } : {}),
           ...(element.state ? { state: element.state } : {}),
+          // The app's own shortcut reaches a command without travelling to the
+          // control, so the compact view keeps it too.
+          ...(element.accelerator ? { accelerator: element.accelerator } : {}),
+          ...(element.access_key ? { access_key: element.access_key } : {}),
           enabled: element.enabled,
           bounds,
           actions: element.actions,
@@ -408,7 +412,7 @@ export function recommendedRecovery(
   code: string | undefined,
   delivery: string,
   transition: ComputerWindowTransition | null
-): 'switch_target' | 'recapture' | 'user' | undefined {
+): 'switch_target' | 'recapture' | 'user' | 'foreground' | undefined {
   if (transition?.next_target) return 'switch_target';
   if (code === 'target_mismatch' || code === 'stale_target' || code === 'stale_frame' || code === 'user_input_active') {
     return 'recapture';
@@ -416,6 +420,10 @@ export function recommendedRecovery(
   if (code === 'foreground_unavailable' || code === 'foreground_changed') {
     return 'user';
   }
+  // A target class that cannot accept posted input never becomes able to through
+  // another observation, so recapturing would only loop. Explicit foreground
+  // delivery is the route the refusal itself names.
+  if (code === 'background_unsupported') return 'foreground';
   // A native browser window is a user-selected session. Delivery failure does
   // not authorize replacing it with the app's separate browser session.
   if (delivery === 'background' && (effect === 'suspected_noop' || code?.startsWith('background_'))) {

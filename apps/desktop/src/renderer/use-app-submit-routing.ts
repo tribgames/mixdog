@@ -44,6 +44,34 @@ export function useAppSubmitRouting({
     selection: NavigationSelection;
     leafId: string;
   };
+  // One draft mints exactly one session. Until the first submit's
+  // acknowledgement promotes the tab, the route still reads as a draft, so a
+  // prompt sent in that window called submitNewTask() again and opened a
+  // duplicate session (user: 최초 프롬 넣는 중에 두 번째 프롬을 넣으면 세션이
+  // 하나 더 파짐). This registry — not composer-local submit state, which resets
+  // whenever that composer remounts — is the authority on that single mint.
+  const draftSubmissions = useRef(new Map<string, Promise<string>>());
+  /** Claims the draft's creation slot before the first await, so a same-tick
+   *  second submit already observes it. The claim settles with the created
+   *  session id, or drops itself when the draft never reached one (retryable). */
+  const claimDraftSubmission = (draftKey: string) => {
+    let settle: (sessionId: string) => void = () => {};
+    draftSubmissions.current.set(
+      draftKey,
+      new Promise<string>((resolve) => {
+        settle = resolve;
+      })
+    );
+    while (draftSubmissions.current.size > 32) {
+      const oldest = draftSubmissions.current.keys().next().value;
+      if (oldest === undefined || oldest === draftKey) break;
+      draftSubmissions.current.delete(oldest);
+    }
+    return (sessionId: string) => {
+      if (!sessionId) draftSubmissions.current.delete(draftKey);
+      settle(sessionId);
+    };
+  };
   const submitFromRoute = useCallback(
     async (route: SubmitRoute, content: DesktopPromptContent, options?: DesktopSubmitOptions): Promise<unknown> => {
       const host = window.mixdogDesktop;
@@ -68,8 +96,14 @@ export function useAppSubmitRouting({
       let accepted: unknown;
       const submittedProjectPath =
         routeSelection.kind === 'new' ? effectiveDraftProjectPath(draftPrefs?.projectPath || '') : '';
-      try {
-        if (routeSelection.kind === 'new') {
+      if (routeSelection.kind === 'new') {
+        const pendingDraftSession = draftSubmissions.current.get(draftKey);
+        const draftSessionId = pendingDraftSession ? await pendingDraftSession : '';
+        // This draft already owns a session, promoted or still promoting: the
+        // prompt joins that engine queue instead of minting a second session.
+        if (draftSessionId) return await host.submitToSession(draftSessionId, content, options);
+        const settleDraftSession = claimDraftSubmission(draftKey);
+        try {
           const result = await host.submitNewTask(content, options, {
             ...(submittedProjectPath ? { projectPath: submittedProjectPath } : {}),
             ...(draftPrefs?.modelSelection ? { route: draftPrefs.modelSelection } : {}),
@@ -92,13 +126,13 @@ export function useAppSubmitRouting({
             clearNewTaskPreferences(routeSelection);
             setNewTaskDeferred(false);
           }
-        } else if (routeSelection.kind === 'session') {
-          accepted = await host.submitToSession(routeSelection.id, content, options);
-        } else {
-          throw new Error('Prompt submission requires a New task draft or session.');
+        } finally {
+          settleDraftSession(startedSessionId);
         }
-      } catch (reason) {
-        throw reason;
+      } else if (routeSelection.kind === 'session') {
+        accepted = await host.submitToSession(routeSelection.id, content, options);
+      } else {
+        throw new Error('Prompt submission requires a New task draft or session.');
       }
       if (accepted === true) {
         if (routeSelection.kind === 'new' && draftRouteStillExists()) {

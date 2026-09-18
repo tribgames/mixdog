@@ -316,6 +316,586 @@ async function deleteWorksheet(zip, sheets, sheet) {
   return { sheet: sheet.name };
 }
 
+/** Places a picture on the sheet's drawing, sized from the file when no size is given. */
+async function addWorksheetImage(zip, sheet, xml, op) {
+  const extension = extname(String(op.path || ''))
+    .replace(/^\./, '')
+    .toLowerCase();
+  const contentType = IMAGE_CONTENT_TYPES[extension];
+  if (!contentType) {
+    throw new Error(
+      `Unsupported image type: .${extension || 'unknown'}. Use ${Object.keys(IMAGE_CONTENT_TYPES).join(', ')}`
+    );
+  }
+  const data = await readFile(op.path);
+  let mediaOrdinal = 1;
+  while (zip.file(`xl/media/image${mediaOrdinal}.${extension}`)) mediaOrdinal += 1;
+  const mediaPart = `xl/media/image${mediaOrdinal}.${extension}`;
+  zip.file(mediaPart, data);
+  await ensureDefaultContentType(zip, extension, contentType);
+  const drawing = await ensureWorksheetDrawing(zip, sheet, xml);
+  const imageFit = fitDrawingSheetOnePageWide(drawing.worksheet);
+  xml = imageFit.xml;
+  const embedId = await addPackageRelationship(
+    zip,
+    partRelationshipPath(drawing.part),
+    `${OFFICE_RELATIONSHIP_BASE}/image`,
+    posix.relative(posix.dirname(drawing.part), mediaPart)
+  );
+  const pixels = imagePixelSize(data);
+  const width = Number(op.width) > 0 ? Number(op.width) : pixels ? pixels.width * PIXELS_TO_POINTS : 240;
+  const height = Number(op.height) > 0 ? Number(op.height) : pixels ? pixels.height * PIXELS_TO_POINTS : 180;
+  const drawingXml = await zipText(zip, drawing.part);
+  const anchorCount = (drawingXml.match(/<xdr:(absolute|two|one)CellAnchor\b/g) || []).length;
+  const placement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 0, top: 0 };
+  const anchor =
+    '<xdr:absoluteAnchor>' +
+    `<xdr:pos x="${toEmu(op.left ?? placement.left)}" y="${toEmu(op.top ?? placement.top)}"/>` +
+    `<xdr:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/>` +
+    `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${anchorCount + 2}" name="Picture ${anchorCount + 1}"${pictureDescription(op.altText)}/>` +
+    '<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' +
+    `<xdr:blipFill><a:blip r:embed="${embedId}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
+    '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm>' +
+    '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
+    '<xdr:clientData/></xdr:absoluteAnchor>';
+  zip.file(drawing.part, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
+  zip.file(sheet.path, xml);
+  return {
+    op: op.op,
+    changed: true,
+    sheet: sheet.name,
+    image: mediaPart,
+    ...(op.cell ? { cell: String(op.cell).toUpperCase() } : {}),
+    ...(String(op.altText ?? '').trim() ? { altText: String(op.altText).trim() } : {}),
+  };
+}
+
+/** Writes one slot of a sheet's header or footer, keeping the other slots and the other story. */
+async function setWorksheetHeaderFooter(zip, sheet, xml, op) {
+  const named = String(op.kind || '').toLowerCase();
+  if (!['header', 'footer'].includes(named)) throw new Error('set_header_footer kind must be header or footer');
+  const alignment = String(op.alignment || 'center').toLowerCase();
+  const slot = { left: 'L', center: 'C', right: 'R' }[alignment];
+  if (!slot) throw new Error('set_header_footer alignment must be left, center, or right');
+  const existing = worksheetSection(xml, 'headerFooter')?.[0] || '';
+  const kept =
+    named === 'header'
+      ? /<oddFooter>[\s\S]*?<\/oddFooter>/.exec(existing)?.[0] || ''
+      : /<oddHeader>[\s\S]*?<\/oddHeader>/.exec(existing)?.[0] || '';
+  // Excel keeps all three slots of one story in a single string. Writing the
+  // whole element for one slot dropped the others, so a sheet could carry a
+  // title or a page number but never both: only the named slot is replaced.
+  const story = named === 'header' ? 'oddHeader' : 'oddFooter';
+  const current = xmlDecode(new RegExp(`<${story}>([\\s\\S]*?)</${story}>`).exec(existing)?.[1] || '');
+  const slots = { L: '', C: '', R: '' };
+  let reading = 'C';
+  let buffer = '';
+  for (let index = 0; index < current.length; index += 1) {
+    // && is the caller's own ampersand; &L/&C/&R open a slot and every
+    // other code (&P, &N, &D) belongs to the slot being read.
+    if (current[index] === '&' && current[index + 1] === '&') {
+      buffer += '&&';
+      index += 1;
+      continue;
+    }
+    if (current[index] === '&' && 'LCR'.includes(current[index + 1])) {
+      slots[reading] = buffer;
+      buffer = '';
+      reading = current[index + 1];
+      index += 1;
+      continue;
+    }
+    buffer += current[index];
+  }
+  slots[reading] = buffer;
+  slots[slot] = headerFooterFields(op.text);
+  const encoded = xmlEncode(
+    ['L', 'C', 'R']
+      .filter((key) => slots[key] !== '')
+      .map((key) => `&${key}${slots[key]}`)
+      .join('')
+  );
+  const written = `<${story}>${encoded}</${story}>`;
+  zip.file(
+    sheet.path,
+    upsertWorksheetSection(
+      xml,
+      'headerFooter',
+      `<headerFooter>${named === 'header' ? `${written}${kept}` : `${kept}${written}`}</headerFooter>`
+    )
+  );
+  return { op: op.op, changed: true, sheet: sheet.name, kind: named, alignment };
+}
+
+/** Adds a conditional rule over a range, or removes the rules already on it. */
+async function applyConditionalFormat(zip, sheet, xml, op) {
+  const area = parseAreaRange(op.range);
+  const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+  if (op.op === 'delete_conditional_formats') {
+    const pattern = new RegExp(
+      `<conditionalFormatting\\b[^>]*\\bsqref="${tagPattern(reference)}"[^>]*>[\\s\\S]*?<\\/conditionalFormatting>`,
+      'g'
+    );
+    const next = xml.replace(pattern, '');
+    zip.file(sheet.path, next);
+    return { op: op.op, changed: next !== xml, sheet: sheet.name, range: reference };
+  }
+  const priority =
+    [...xml.matchAll(/<cfRule\b[^>]*\bpriority="(\d+)"/g)].reduce((max, match) => Math.max(max, Number(match[1])), 0) +
+    1;
+  // A rule that paints the cells it picks needs a differential format; a
+  // scale or a bar paints every cell in the range by its own value, so it
+  // carries its colors inside the rule and takes no formula.
+  const kind = conditionalFormatKind(op);
+  if (kind !== 'expression') {
+    zip.file(
+      sheet.path,
+      appendWorksheetSection(
+        xml,
+        'conditionalFormatting',
+        `<conditionalFormatting sqref="${reference}">` +
+          conditionalScaleRule(kind, op, priority) +
+          '</conditionalFormatting>'
+      )
+    );
+    return { op: op.op, changed: true, sheet: sheet.name, range: reference, priority, type: kind };
+  }
+  const stylesPath = 'xl/styles.xml';
+  const styles = await zipText(zip, stylesPath);
+  if (!styles) throw new Error('Workbook is missing xl/styles.xml');
+  const differential = appendDifferentialFormat(styles, {
+    color: op.color,
+    fillColor: op.fillColor,
+  });
+  zip.file(stylesPath, differential.xml);
+  zip.file(
+    sheet.path,
+    appendWorksheetSection(
+      xml,
+      'conditionalFormatting',
+      `<conditionalFormatting sqref="${reference}">` +
+        `<cfRule type="expression" dxfId="${differential.id}" priority="${priority}">` +
+        `<formula>${xmlEncode(String(op.formula).replace(/^=/, ''))}</formula></cfRule></conditionalFormatting>`
+    )
+  );
+  return { op: op.op, changed: true, sheet: sheet.name, range: reference, priority, type: kind };
+}
+
+/** One data validation over a range, appended to the validations already there. */
+function addWorksheetValidation(zip, sheet, xml, op) {
+  const area = parseAreaRange(op.range);
+  const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+  // A list is the common case and what Excel writes through the same
+  // operation, so it is the default; the other kinds guard a number, a
+  // date, or a length, and take a second bound. A formula that states a
+  // rule rather than naming choices is that rule, not a dropdown of one
+  // entry: "서울,부산" and $A$1:$A$9 are lists, B2>0 is a custom check.
+  const kind = String(op.type || (listValidationFormula(op.formula1) ? 'list' : 'custom'))
+    .trim()
+    .toLowerCase();
+  const type = XLSX_VALIDATION_TYPES[kind];
+  if (!type) {
+    throw new Error(`add_validation type must be one of ${Object.keys(XLSX_VALIDATION_TYPES).join(', ')}`);
+  }
+  const requested = String(op.operator || '').trim();
+  const operator = requested
+    ? XLSX_VALIDATION_OPERATORS[requested.toLowerCase()]
+    : op.formula2 != null && !['list', 'custom'].includes(type)
+      ? 'between'
+      : '';
+  if (requested && !operator) {
+    throw new Error(`add_validation operator must be one of ${Object.keys(XLSX_VALIDATION_OPERATORS).join(', ')}`);
+  }
+  const formula = (value) => `${xmlEncode(String(value).replace(/^=/, ''))}`;
+  const existing = worksheetSection(xml, 'dataValidations');
+  const previous = existing ? containerBody(existing[0], 'dataValidations') : '';
+  const count = (previous.match(/<dataValidation\b/g) || []).length + 1;
+  const validation =
+    `<dataValidation type="${type}"${operator ? ` operator="${operator}"` : ''}` +
+    ' allowBlank="1" showInputMessage="1" showErrorMessage="1"' +
+    `${op.inputMessage ? ` prompt="${xmlEncode(op.inputMessage)}"` : ''}` +
+    `${op.errorMessage ? ` error="${xmlEncode(op.errorMessage)}"` : ''}` +
+    ` sqref="${reference}">` +
+    `<formula1>${formula(op.formula1)}</formula1>` +
+    `${op.formula2 == null || op.formula2 === '' ? '' : `<formula2>${formula(op.formula2)}</formula2>`}` +
+    '</dataValidation>';
+  zip.file(
+    sheet.path,
+    upsertWorksheetSection(
+      xml,
+      'dataValidations',
+      `<dataValidations count="${count}">${previous}${validation}</dataValidations>`
+    )
+  );
+  return {
+    op: op.op,
+    changed: true,
+    sheet: sheet.name,
+    range: reference,
+    type,
+    ...(operator ? { operator } : {}),
+  };
+}
+
+/** Sorts the values of a range, refusing the cases Excel itself refuses. */
+async function sortWorksheetRange(zip, sheet, xml, op) {
+  const area = expandRange(op.range);
+  const records = new Map(cellRecords(xml, await sharedStrings(zip)).map((cell) => [cell.ref, cell]));
+  const header = op.hasHeader !== false;
+  const firstRow = area.startRow + (header ? 1 : 0);
+  const refAt = (row, col) => `${columnLabel(col)}${row}`;
+  // A sort moves whole rows. A formula inside them would keep pointing at
+  // the row number it was written for, so the sorted sheet would compute
+  // someone else's numbers: sort the values, then write the formulas.
+  const formulas = [];
+  for (let row = firstRow; row <= area.endRow; row += 1) {
+    for (let col = area.startCol; col <= area.endCol; col += 1) {
+      if (records.get(refAt(row, col))?.formula) formulas.push(refAt(row, col));
+    }
+  }
+  if (formulas.length) {
+    const named = formulas.slice(0, 3).join(', ') + (formulas.length > 3 ? ` and ${formulas.length - 3} more` : '');
+    const holds =
+      formulas.length === 1 ? 'holds a formula whose references would' : 'hold formulas whose references would';
+    throw new Error(
+      `XLSX sort_range moves rows, and ${named} ${holds} follow the move. Sort a range of values, then write the formulas over the sorted rows.`
+    );
+  }
+  // A filtered sheet hides rows, not records: the flag stays on the row
+  // number while the values move under it, so a sort would leave a
+  // different record hidden than the one the reader filtered away.
+  const withheld = [...hiddenSheetAreas(xml).rows].filter((row) => row >= firstRow && row <= area.endRow);
+  if (withheld.length) {
+    throw new Error(
+      `XLSX sort_range would move values under hidden row${withheld.length > 1 ? 's' : ''} ${withheld.slice(0, 5).join(', ')}, leaving a different record withheld. Show them first with set_row_visibility visible: true, or sort a range without them.`
+    );
+  }
+  // Excel refuses the same case: a merged cell cannot travel with one row.
+  const merges = mergedRanges(xml).filter((range) => {
+    const merge = expandRange(range);
+    return (
+      merge.endRow >= firstRow &&
+      merge.startRow <= area.endRow &&
+      merge.endCol >= area.startCol &&
+      merge.startCol <= area.endCol
+    );
+  });
+  if (merges.length) {
+    throw new Error(
+      `XLSX sort_range cannot move rows through the merged cell${merges.length > 1 ? 's' : ''} ${merges.slice(0, 5).join(', ')}; Excel refuses the same sort. Unmerge them first with unmerge_cells.`
+    );
+  }
+  const column = sortKeyColumn(op, area, (col) => records.get(refAt(area.startRow, col))?.value);
+  const descending = String(op.order || 'asc')
+    .trim()
+    .toLowerCase()
+    .startsWith('desc');
+  const styles = cellStyleIndexes(
+    xml,
+    Array.from({ length: area.endRow - firstRow + 1 }, (unused, offset) => firstRow + offset).flatMap((row) =>
+      Array.from({ length: area.endCol - area.startCol + 1 }, (empty, index) => refAt(row, area.startCol + index))
+    )
+  );
+  const body = [];
+  for (let row = firstRow; row <= area.endRow; row += 1) {
+    body.push(
+      Array.from({ length: area.endCol - area.startCol + 1 }, (unused, index) => {
+        const ref = refAt(row, area.startCol + index);
+        return { value: records.get(ref)?.value ?? null, style: styles.get(ref) || 0 };
+      })
+    );
+  }
+  const keyIndex = column - area.startCol;
+  const sorted = [...body].sort(
+    (left, right) => compareSortValues(left[keyIndex]?.value, right[keyIndex]?.value) * (descending ? -1 : 1)
+  );
+  xml = setCellsInSheet(
+    xml,
+    sorted.flatMap((cells, offset) =>
+      cells.map((cell, index) => ({
+        ref: refAt(firstRow + offset, area.startCol + index),
+        value: cell.value,
+      }))
+    )
+  );
+  xml = setCellStylesInSheet(
+    xml,
+    sorted.flatMap((cells, offset) =>
+      cells.map((cell, index) => ({
+        ref: refAt(firstRow + offset, area.startCol + index),
+        style: cell.style,
+      }))
+    )
+  );
+  zip.file(sheet.path, xml);
+  return {
+    op: op.op,
+    changed: true,
+    sheet: sheet.name,
+    range: op.range,
+    by: columnLabel(column),
+    order: descending ? 'desc' : 'asc',
+    rows: sorted.length,
+  };
+}
+
+/** Widths measured from what each cell prints, with the floor a composed sheet asks for. */
+async function autofitWorksheetRange(zip, sheet, xml, op) {
+  const area = parseAreaRange(op.range);
+  // A row fit names rows (1:12) and asks for their height. Measuring columns
+  // there rewrote every column width from its text, which silently undid the
+  // widths a composed layout had just asked for.
+  if (op.rows === true && !area.startCol) {
+    return { op: op.op, changed: true, sheet: sheet.name, rows: true, columns: 0 };
+  }
+  // Widths follow what the cell prints: a number carries its format's
+  // separators, decimals, and units, not the digits it stores.
+  const cellStyles = resolveCellStyles(await zipText(zip, 'xl/styles.xml'));
+  const records = cellRecords(xml, await sharedStrings(zip), { styles: cellStyles });
+  const spans = mergedRanges(xml).map((entry) => parseAreaRange(entry));
+  const measured = new Map();
+  for (const record of records) {
+    const parsed = parseCellRef(record.ref);
+    const column = columnNumber(parsed.col);
+    if (area.startCol && (column < area.startCol || column > area.endCol)) continue;
+    if (area.startRow && (parsed.row < area.startRow || parsed.row > area.endRow)) continue;
+    if (
+      spans.some(
+        (span) =>
+          span.startCol !== span.endCol &&
+          span.startCol <= column &&
+          column <= span.endCol &&
+          span.startRow <= parsed.row &&
+          parsed.row <= span.endRow
+      )
+    )
+      continue;
+    const value = record.formula ? record.cachedValue : record.value;
+    const text = String(value ?? '');
+    const numeric = record.dataType !== 'text' && text.trim() !== '' && Number.isFinite(Number(text));
+    const needed = numeric ? formattedNumberWidth(Number(text), record.style?.numberFormat || '') : displayWidth(text);
+    measured.set(column, Math.max(measured.get(column) || 0, needed));
+  }
+  // Fit-to-page never enlarges a sheet, so a layout whose columns hold only
+  // their text prints as a small block in the corner of the page. minWidth is
+  // the floor a composed sheet asks for: the columns still grow to their
+  // content, and every column in the range - including the empty ones a
+  // merged band spans - reaches that floor so the block keeps its width.
+  const floor = Number(op.minWidth) > 0 ? Math.min(80, Number(op.minWidth)) : 8;
+  if (Number(op.minWidth) > 0 && area.startCol && area.endCol - area.startCol < 64) {
+    for (let column = area.startCol; column <= area.endCol; column += 1) {
+      if (!measured.has(column)) measured.set(column, 0);
+    }
+  }
+  const widths = new Map(
+    [...measured.entries()].map(([column, width]) => [
+      column,
+      Math.min(80, Math.max(floor, Math.round((width + 2) * 10) / 10)),
+    ])
+  );
+  zip.file(sheet.path, writeColumnWidths(xml, widths));
+  return { op: op.op, changed: true, sheet: sheet.name, columns: widths.size };
+}
+
+/** One row field and one column field over a bounded source range. */
+async function addWorksheetPivotTable(zip, sheet, xml, op) {
+  const area = parseAreaRange(op.source);
+  if (!area.startRow || !area.startCol || area.endRow <= area.startRow) {
+    throw new Error('add_pivot_table requires a bounded source range whose first row holds field names');
+  }
+  const asList = (value) =>
+    (Array.isArray(value) ? value : value == null ? [] : [value])
+      .map((entry) => String(entry ?? '').trim())
+      .filter(Boolean);
+  const rowNames = asList(op.rows);
+  const columnNames = asList(op.columns);
+  const valueNames = asList(op.values);
+  if (!valueNames.length) throw new Error('add_pivot_table requires at least one value field');
+  if (rowNames.length > 1 || columnNames.length > 1) {
+    throw new Error(
+      'Portable add_pivot_table supports one row field and one column field; run the edit with Microsoft Excel for deeper nesting'
+    );
+  }
+  if (valueNames.length > 1 && columnNames.length) {
+    throw new Error('Portable add_pivot_table supports multiple value fields only without a column field');
+  }
+  const grid = new Map(cellRecords(xml, await sharedStrings(zip)).map((record) => [record.ref, record]));
+  const cellValue = (column, row) => {
+    const record = grid.get(`${columnLabel(column)}${row}`);
+    if (!record) return null;
+    return record.formula ? record.cachedValue : record.value;
+  };
+  const headers = [];
+  for (let column = area.startCol; column <= area.endCol; column += 1) {
+    headers.push(String(cellValue(column, area.startRow) ?? ''));
+  }
+  if (headers.some((entry) => !entry)) {
+    throw new Error('add_pivot_table requires a field name in every column of the first source row');
+  }
+  const records = [];
+  for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
+    records.push(headers.map((_, index) => cellValue(area.startCol + index, row)));
+  }
+  if (!records.length) throw new Error('add_pivot_table source range has no data rows');
+  const fieldIndex = (name) => {
+    const index = headers.indexOf(name);
+    if (index < 0) {
+      throw new Error(`add_pivot_table field "${name}" is not in the source header row (${headers.join(', ')})`);
+    }
+    return index;
+  };
+  const destinationName = String(op.destinationSheet || sheet.name);
+  const destination = (await workbookSheets(zip)).find((entry) => entry.name === destinationName);
+  if (!destination) throw new Error(`add_pivot_table destination sheet "${destinationName}" was not found`);
+  const pivotName = String(
+    op.name ||
+      `MixdogPivot${Object.keys(zip.files).filter((part) => /^xl\/pivotTables\/pivotTable\d+\.xml$/.test(part)).length + 1}`
+  );
+  const written = await writePivotTable(zip, {
+    fields: summarizePivotFields(headers, records),
+    records,
+    sourceSheet: sheet.name,
+    sourceRef: `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`,
+    destinationSheetPath: destination.path,
+    destination: String(op.destination || 'A1'),
+    name: pivotName,
+    rowField: rowNames.length ? fieldIndex(rowNames[0]) : -1,
+    columnField: columnNames.length ? fieldIndex(columnNames[0]) : -1,
+    valueFields: valueNames.map(fieldIndex),
+  });
+  return {
+    op: op.op,
+    changed: true,
+    sheet: destinationName,
+    name: pivotName,
+    rows: records.length,
+    fields: headers.length,
+    part: written.tablePart,
+  };
+}
+
+/** A chart part, its drawing anchor, and the series read out of the sheet. */
+async function addWorksheetChart(zip, sheet, xml, op) {
+  // One bounded area, or several joined by commas the way Excel's own
+  // Range("A7:A12,D7:D12") reads them: the first column of the first area
+  // holds the categories, every other column of every area is a series,
+  // so a chart can skip the columns between its category and its value.
+  const areas = String(op.range ?? '')
+    .split(',')
+    .map((part) => parseAreaRange(part.trim()));
+  const area = areas[0];
+  const seriesColumns = areas.flatMap((entry, index) => {
+    const from = index === 0 ? entry.startCol + 1 : entry.startCol;
+    return Array.from({ length: Math.max(0, entry.endCol - from + 1) }, (_, offset) => from + offset);
+  });
+  if (
+    !area?.startRow ||
+    !area.startCol ||
+    !seriesColumns.length ||
+    areas.some(
+      (entry) => !entry.startRow || !entry.startCol || entry.startRow !== area.startRow || entry.endRow !== area.endRow
+    )
+  ) {
+    throw new Error(
+      'add_chart requires a bounded range whose first column holds categories (comma-joined areas must share the same rows)'
+    );
+  }
+  const grid = new Map(cellRecords(xml, await sharedStrings(zip)).map((record) => [record.ref, record]));
+  const cellValue = (column, row) => {
+    const record = grid.get(`${columnLabel(column)}${row}`);
+    if (!record) return null;
+    return record.formula ? record.cachedValue : record.value;
+  };
+  const categories = [];
+  for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
+    categories.push(String(cellValue(area.startCol, row) ?? ''));
+  }
+  const palette = Array.isArray(op.seriesColors) ? op.seriesColors : [];
+  const sheetReference = quoteSheetName(sheet.name);
+  const series = [];
+  const names = [];
+  const values = [];
+  for (const [index, column] of seriesColumns.entries()) {
+    const label = columnLabel(column);
+    const numbers = [];
+    for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
+      numbers.push(Number(cellValue(column, row)));
+    }
+    series.push({
+      name: String(cellValue(column, area.startRow) ?? `Series ${index + 1}`),
+      values: numbers,
+      ...(palette.length ? { color: palette[index % palette.length] } : {}),
+      ...(['pie', 'doughnut', 'donut'].includes(String(op.chartType).toLowerCase()) && palette.length
+        ? { pointColors: categories.map((_, point) => palette[point % palette.length]) }
+        : {}),
+    });
+    names.push(`${sheetReference}!$${label}$${area.startRow}`);
+    values.push(`${sheetReference}!$${label}$${area.startRow + 1}:$${label}$${area.endRow}`);
+  }
+  const categoryLabel = columnLabel(area.startCol);
+  let chartOrdinal = 1;
+  while (zip.file(`xl/charts/chart${chartOrdinal}.xml`)) chartOrdinal += 1;
+  const chartPart = `xl/charts/chart${chartOrdinal}.xml`;
+  zip.file(
+    chartPart,
+    chartXml({
+      chartType: op.chartType,
+      title: op.title,
+      categories,
+      series,
+      references: {
+        sheet: sheetReference,
+        category: `${sheetReference}!$${categoryLabel}$${area.startRow + 1}:$${categoryLabel}$${area.endRow}`,
+        names,
+        values,
+      },
+      showValues: op.showValues === true,
+      dataLabelPosition: op.dataLabelPosition,
+      dataLabelColor: op.dataLabelColor,
+      valueNumberFormat: op.valueNumberFormat,
+      showLegend: op.showLegend,
+      zeroBaseline: op.zeroBaseline,
+    })
+  );
+  await ensureContentTypeOverride(zip, `/${chartPart}`, CHART_CONTENT_TYPE);
+  const drawing = await ensureWorksheetDrawing(zip, sheet, xml);
+  const drawingPart = drawing.part;
+  const chartFit = fitDrawingSheetOnePageWide(drawing.worksheet);
+  xml = chartFit.xml;
+  zip.file(sheet.path, xml);
+  const chartRelationshipId = await addPackageRelationship(
+    zip,
+    partRelationshipPath(drawingPart),
+    `${OFFICE_RELATIONSHIP_BASE}/chart`,
+    posix.relative(posix.dirname(drawingPart), chartPart)
+  );
+  const drawingXml = await zipText(zip, drawingPart);
+  const anchorCount = (drawingXml.match(/<xdr:(absolute|two|one)CellAnchor\b/g) || []).length;
+  const framePlacement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 300, top: 20 };
+  const anchor =
+    '<xdr:absoluteAnchor>' +
+    `<xdr:pos x="${toEmu(op.left ?? framePlacement.left)}" y="${toEmu(op.top ?? framePlacement.top)}"/>` +
+    `<xdr:ext cx="${Math.max(1, toEmu(op.width ?? 480))}" cy="${Math.max(1, toEmu(op.height ?? 280))}"/>` +
+    '<xdr:graphicFrame macro="">' +
+    `<xdr:nvGraphicFramePr><xdr:cNvPr id="${anchorCount + 2}" name="Chart ${anchorCount + 1}"/>` +
+    '<xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>' +
+    '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>' +
+    '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
+    '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"' +
+    ` xmlns:r="${OFFICE_RELATIONSHIP_BASE}" r:id="${chartRelationshipId}"/>` +
+    '</a:graphicData></a:graphic></xdr:graphicFrame>' +
+    '<xdr:clientData/></xdr:absoluteAnchor>';
+  zip.file(drawingPart, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
+  return {
+    op: op.op,
+    changed: true,
+    sheet: sheet.name,
+    chart: chartPart,
+    series: series.length,
+    ...(chartFit.applied ? { pageFit: 'one-page-wide' } : {}),
+  };
+}
+
 export async function applyXlsx(zip, operations) {
   let sheets = await workbookSheets(zip);
   const results = [];
@@ -385,104 +965,7 @@ export async function applyXlsx(zip, operations) {
       continue;
     }
     if (op.op === 'sort_range') {
-      const area = expandRange(op.range);
-      const records = new Map(cellRecords(xml, await sharedStrings(zip)).map((cell) => [cell.ref, cell]));
-      const header = op.hasHeader !== false;
-      const firstRow = area.startRow + (header ? 1 : 0);
-      const refAt = (row, col) => `${columnLabel(col)}${row}`;
-      // A sort moves whole rows. A formula inside them would keep pointing at
-      // the row number it was written for, so the sorted sheet would compute
-      // someone else's numbers: sort the values, then write the formulas.
-      const formulas = [];
-      for (let row = firstRow; row <= area.endRow; row += 1) {
-        for (let col = area.startCol; col <= area.endCol; col += 1) {
-          if (records.get(refAt(row, col))?.formula) formulas.push(refAt(row, col));
-        }
-      }
-      if (formulas.length) {
-        const named = formulas.slice(0, 3).join(', ') + (formulas.length > 3 ? ` and ${formulas.length - 3} more` : '');
-        const holds =
-          formulas.length === 1 ? 'holds a formula whose references would' : 'hold formulas whose references would';
-        throw new Error(
-          `XLSX sort_range moves rows, and ${named} ${holds} follow the move. Sort a range of values, then write the formulas over the sorted rows.`
-        );
-      }
-      // A filtered sheet hides rows, not records: the flag stays on the row
-      // number while the values move under it, so a sort would leave a
-      // different record hidden than the one the reader filtered away.
-      const withheld = [...hiddenSheetAreas(xml).rows].filter((row) => row >= firstRow && row <= area.endRow);
-      if (withheld.length) {
-        throw new Error(
-          `XLSX sort_range would move values under hidden row${withheld.length > 1 ? 's' : ''} ${withheld.slice(0, 5).join(', ')}, leaving a different record withheld. Show them first with set_row_visibility visible: true, or sort a range without them.`
-        );
-      }
-      // Excel refuses the same case: a merged cell cannot travel with one row.
-      const merges = mergedRanges(xml).filter((range) => {
-        const merge = expandRange(range);
-        return (
-          merge.endRow >= firstRow &&
-          merge.startRow <= area.endRow &&
-          merge.endCol >= area.startCol &&
-          merge.startCol <= area.endCol
-        );
-      });
-      if (merges.length) {
-        throw new Error(
-          `XLSX sort_range cannot move rows through the merged cell${merges.length > 1 ? 's' : ''} ${merges.slice(0, 5).join(', ')}; Excel refuses the same sort. Unmerge them first with unmerge_cells.`
-        );
-      }
-      const column = sortKeyColumn(op, area, (col) => records.get(refAt(area.startRow, col))?.value);
-      const descending = String(op.order || 'asc')
-        .trim()
-        .toLowerCase()
-        .startsWith('desc');
-      const styles = cellStyleIndexes(
-        xml,
-        Array.from({ length: area.endRow - firstRow + 1 }, (unused, offset) => firstRow + offset).flatMap((row) =>
-          Array.from({ length: area.endCol - area.startCol + 1 }, (empty, index) => refAt(row, area.startCol + index))
-        )
-      );
-      const body = [];
-      for (let row = firstRow; row <= area.endRow; row += 1) {
-        body.push(
-          Array.from({ length: area.endCol - area.startCol + 1 }, (unused, index) => {
-            const ref = refAt(row, area.startCol + index);
-            return { value: records.get(ref)?.value ?? null, style: styles.get(ref) || 0 };
-          })
-        );
-      }
-      const keyIndex = column - area.startCol;
-      const sorted = [...body].sort(
-        (left, right) => compareSortValues(left[keyIndex]?.value, right[keyIndex]?.value) * (descending ? -1 : 1)
-      );
-      xml = setCellsInSheet(
-        xml,
-        sorted.flatMap((cells, offset) =>
-          cells.map((cell, index) => ({
-            ref: refAt(firstRow + offset, area.startCol + index),
-            value: cell.value,
-          }))
-        )
-      );
-      xml = setCellStylesInSheet(
-        xml,
-        sorted.flatMap((cells, offset) =>
-          cells.map((cell, index) => ({
-            ref: refAt(firstRow + offset, area.startCol + index),
-            style: cell.style,
-          }))
-        )
-      );
-      zip.file(sheet.path, xml);
-      results.push({
-        op: op.op,
-        changed: true,
-        sheet: sheet.name,
-        range: op.range,
-        by: columnLabel(column),
-        order: descending ? 'desc' : 'asc',
-        rows: sorted.length,
-      });
+      results.push(await sortWorksheetRange(zip, sheet, xml, op));
       continue;
     }
     if (op.op === 'append_row') {
@@ -607,65 +1090,7 @@ export async function applyXlsx(zip, operations) {
       continue;
     }
     if (op.op === 'autofit_range') {
-      const area = parseAreaRange(op.range);
-      // A row fit names rows (1:12) and asks for their height. Measuring columns
-      // there rewrote every column width from its text, which silently undid the
-      // widths a composed layout had just asked for.
-      const rowsOnly = op.rows === true && !area.startCol;
-      if (rowsOnly) {
-        results.push({ op: op.op, changed: true, sheet: sheet.name, rows: true, columns: 0 });
-        continue;
-      }
-      // Widths follow what the cell prints: a number carries its format's
-      // separators, decimals, and units, not the digits it stores.
-      const cellStyles = resolveCellStyles(await zipText(zip, 'xl/styles.xml'));
-      const records = cellRecords(xml, await sharedStrings(zip), { styles: cellStyles });
-      const spans = mergedRanges(xml).map((entry) => parseAreaRange(entry));
-      const measured = new Map();
-      for (const record of records) {
-        const parsed = parseCellRef(record.ref);
-        const column = columnNumber(parsed.col);
-        if (area.startCol && (column < area.startCol || column > area.endCol)) continue;
-        if (area.startRow && (parsed.row < area.startRow || parsed.row > area.endRow)) continue;
-        if (
-          spans.some(
-            (span) =>
-              span.startCol !== span.endCol &&
-              span.startCol <= column &&
-              column <= span.endCol &&
-              span.startRow <= parsed.row &&
-              parsed.row <= span.endRow
-          )
-        )
-          continue;
-        const value = record.formula ? record.cachedValue : record.value;
-        const text = String(value ?? '');
-        const numeric = record.dataType !== 'text' && text.trim() !== '' && Number.isFinite(Number(text));
-        const needed = numeric
-          ? formattedNumberWidth(Number(text), record.style?.numberFormat || '')
-          : displayWidth(text);
-        measured.set(column, Math.max(measured.get(column) || 0, needed));
-      }
-      // Fit-to-page never enlarges a sheet, so a layout whose columns hold only
-      // their text prints as a small block in the corner of the page. minWidth is
-      // the floor a composed sheet asks for: the columns still grow to their
-      // content, and every column in the range - including the empty ones a
-      // merged band spans - reaches that floor so the block keeps its width.
-      const floor = Number(op.minWidth) > 0 ? Math.min(80, Number(op.minWidth)) : 8;
-      if (Number(op.minWidth) > 0 && area.startCol && area.endCol - area.startCol < 64) {
-        for (let column = area.startCol; column <= area.endCol; column += 1) {
-          if (!measured.has(column)) measured.set(column, 0);
-        }
-      }
-      const widths = new Map(
-        [...measured.entries()].map(([column, width]) => [
-          column,
-          Math.min(80, Math.max(floor, Math.round((width + 2) * 10) / 10)),
-        ])
-      );
-      xml = writeColumnWidths(xml, widths);
-      zip.file(sheet.path, xml);
-      results.push({ op: op.op, changed: true, sheet: sheet.name, columns: widths.size });
+      results.push(await autofitWorksheetRange(zip, sheet, xml, op));
       continue;
     }
     if (['insert_rows', 'delete_rows', 'insert_columns', 'delete_columns'].includes(op.op)) {
@@ -744,57 +1169,7 @@ export async function applyXlsx(zip, operations) {
     // document number. Word and PowerPoint could carry one and a workbook could
     // not, so a printed pack lost its marking at the spreadsheet.
     if (op.op === 'set_header_footer') {
-      const named = String(op.kind || '').toLowerCase();
-      if (!['header', 'footer'].includes(named)) throw new Error('set_header_footer kind must be header or footer');
-      const alignment = String(op.alignment || 'center').toLowerCase();
-      const slot = { left: 'L', center: 'C', right: 'R' }[alignment];
-      if (!slot) throw new Error('set_header_footer alignment must be left, center, or right');
-      const existing = worksheetSection(xml, 'headerFooter')?.[0] || '';
-      const kept =
-        named === 'header'
-          ? /<oddFooter>[\s\S]*?<\/oddFooter>/.exec(existing)?.[0] || ''
-          : /<oddHeader>[\s\S]*?<\/oddHeader>/.exec(existing)?.[0] || '';
-      // Excel keeps all three slots of one story in a single string. Writing the
-      // whole element for one slot dropped the others, so a sheet could carry a
-      // title or a page number but never both: only the named slot is replaced.
-      const story = named === 'header' ? 'oddHeader' : 'oddFooter';
-      const current = xmlDecode(new RegExp(`<${story}>([\\s\\S]*?)</${story}>`).exec(existing)?.[1] || '');
-      const slots = { L: '', C: '', R: '' };
-      let reading = 'C';
-      let buffer = '';
-      for (let index = 0; index < current.length; index += 1) {
-        // && is the caller's own ampersand; &L/&C/&R open a slot and every
-        // other code (&P, &N, &D) belongs to the slot being read.
-        if (current[index] === '&' && current[index + 1] === '&') {
-          buffer += '&&';
-          index += 1;
-          continue;
-        }
-        if (current[index] === '&' && 'LCR'.includes(current[index + 1])) {
-          slots[reading] = buffer;
-          buffer = '';
-          reading = current[index + 1];
-          index += 1;
-          continue;
-        }
-        buffer += current[index];
-      }
-      slots[reading] = buffer;
-      slots[slot] = headerFooterFields(op.text);
-      const encoded = xmlEncode(
-        ['L', 'C', 'R']
-          .filter((key) => slots[key] !== '')
-          .map((key) => `&${key}${slots[key]}`)
-          .join('')
-      );
-      const written = `<${story}>${encoded}</${story}>`;
-      xml = upsertWorksheetSection(
-        xml,
-        'headerFooter',
-        `<headerFooter>${named === 'header' ? `${written}${kept}` : `${kept}${written}`}</headerFooter>`
-      );
-      zip.file(sheet.path, xml);
-      results.push({ op: op.op, changed: true, sheet: sheet.name, kind: named, alignment });
+      results.push(await setWorksheetHeaderFooter(zip, sheet, xml, op));
       continue;
     }
     // Hiding a row or a column is how a sheet withholds a working note or a
@@ -950,56 +1325,7 @@ export async function applyXlsx(zip, operations) {
       continue;
     }
     if (op.op === 'add_image') {
-      const extension = extname(String(op.path || ''))
-        .replace(/^\./, '')
-        .toLowerCase();
-      const contentType = IMAGE_CONTENT_TYPES[extension];
-      if (!contentType) {
-        throw new Error(
-          `Unsupported image type: .${extension || 'unknown'}. Use ${Object.keys(IMAGE_CONTENT_TYPES).join(', ')}`
-        );
-      }
-      const data = await readFile(op.path);
-      let mediaOrdinal = 1;
-      while (zip.file(`xl/media/image${mediaOrdinal}.${extension}`)) mediaOrdinal += 1;
-      const mediaPart = `xl/media/image${mediaOrdinal}.${extension}`;
-      zip.file(mediaPart, data);
-      await ensureDefaultContentType(zip, extension, contentType);
-      const drawing = await ensureWorksheetDrawing(zip, sheet, xml);
-      const imageFit = fitDrawingSheetOnePageWide(drawing.worksheet);
-      xml = imageFit.xml;
-      const embedId = await addPackageRelationship(
-        zip,
-        partRelationshipPath(drawing.part),
-        `${OFFICE_RELATIONSHIP_BASE}/image`,
-        posix.relative(posix.dirname(drawing.part), mediaPart)
-      );
-      const pixels = imagePixelSize(data);
-      const width = Number(op.width) > 0 ? Number(op.width) : pixels ? pixels.width * PIXELS_TO_POINTS : 240;
-      const height = Number(op.height) > 0 ? Number(op.height) : pixels ? pixels.height * PIXELS_TO_POINTS : 180;
-      const drawingXml = await zipText(zip, drawing.part);
-      const anchorCount = (drawingXml.match(/<xdr:(absolute|two|one)CellAnchor\b/g) || []).length;
-      const placement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 0, top: 0 };
-      const anchor =
-        '<xdr:absoluteAnchor>' +
-        `<xdr:pos x="${toEmu(op.left ?? placement.left)}" y="${toEmu(op.top ?? placement.top)}"/>` +
-        `<xdr:ext cx="${Math.max(1, toEmu(width))}" cy="${Math.max(1, toEmu(height))}"/>` +
-        `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${anchorCount + 2}" name="Picture ${anchorCount + 1}"${pictureDescription(op.altText)}/>` +
-        '<xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>' +
-        `<xdr:blipFill><a:blip r:embed="${embedId}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
-        '<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></a:xfrm>' +
-        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>' +
-        '<xdr:clientData/></xdr:absoluteAnchor>';
-      zip.file(drawing.part, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
-      zip.file(sheet.path, xml);
-      results.push({
-        op: op.op,
-        changed: true,
-        sheet: sheet.name,
-        image: mediaPart,
-        ...(op.cell ? { cell: String(op.cell).toUpperCase() } : {}),
-        ...(String(op.altText ?? '').trim() ? { altText: String(op.altText).trim() } : {}),
-      });
+      results.push(await addWorksheetImage(zip, sheet, xml, op));
       continue;
     }
     if (op.op === 'set_hyperlink') {
@@ -1052,111 +1378,11 @@ export async function applyXlsx(zip, operations) {
       continue;
     }
     if (op.op === 'add_conditional_format' || op.op === 'delete_conditional_formats') {
-      const area = parseAreaRange(op.range);
-      const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
-      if (op.op === 'delete_conditional_formats') {
-        const pattern = new RegExp(
-          `<conditionalFormatting\\b[^>]*\\bsqref="${tagPattern(reference)}"[^>]*>[\\s\\S]*?<\\/conditionalFormatting>`,
-          'g'
-        );
-        const next = xml.replace(pattern, '');
-        const changed = next !== xml;
-        xml = next;
-        zip.file(sheet.path, xml);
-        results.push({ op: op.op, changed, sheet: sheet.name, range: reference });
-        continue;
-      }
-      const priority =
-        [...xml.matchAll(/<cfRule\b[^>]*\bpriority="(\d+)"/g)].reduce(
-          (max, match) => Math.max(max, Number(match[1])),
-          0
-        ) + 1;
-      // A rule that paints the cells it picks needs a differential format; a
-      // scale or a bar paints every cell in the range by its own value, so it
-      // carries its colors inside the rule and takes no formula.
-      const kind = conditionalFormatKind(op);
-      if (kind !== 'expression') {
-        xml = appendWorksheetSection(
-          xml,
-          'conditionalFormatting',
-          `<conditionalFormatting sqref="${reference}">` +
-            conditionalScaleRule(kind, op, priority) +
-            '</conditionalFormatting>'
-        );
-        zip.file(sheet.path, xml);
-        results.push({ op: op.op, changed: true, sheet: sheet.name, range: reference, priority, type: kind });
-        continue;
-      }
-      const stylesPath = 'xl/styles.xml';
-      const styles = await zipText(zip, stylesPath);
-      if (!styles) throw new Error('Workbook is missing xl/styles.xml');
-      const differential = appendDifferentialFormat(styles, {
-        color: op.color,
-        fillColor: op.fillColor,
-      });
-      zip.file(stylesPath, differential.xml);
-      xml = appendWorksheetSection(
-        xml,
-        'conditionalFormatting',
-        `<conditionalFormatting sqref="${reference}">` +
-          `<cfRule type="expression" dxfId="${differential.id}" priority="${priority}">` +
-          `<formula>${xmlEncode(String(op.formula).replace(/^=/, ''))}</formula></cfRule></conditionalFormatting>`
-      );
-      zip.file(sheet.path, xml);
-      results.push({ op: op.op, changed: true, sheet: sheet.name, range: reference, priority, type: kind });
+      results.push(await applyConditionalFormat(zip, sheet, xml, op));
       continue;
     }
     if (op.op === 'add_validation') {
-      const area = parseAreaRange(op.range);
-      const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
-      // A list is the common case and what Excel writes through the same
-      // operation, so it is the default; the other kinds guard a number, a
-      // date, or a length, and take a second bound. A formula that states a
-      // rule rather than naming choices is that rule, not a dropdown of one
-      // entry: "서울,부산" and $A$1:$A$9 are lists, B2>0 is a custom check.
-      const kind = String(op.type || (listValidationFormula(op.formula1) ? 'list' : 'custom'))
-        .trim()
-        .toLowerCase();
-      const type = XLSX_VALIDATION_TYPES[kind];
-      if (!type) {
-        throw new Error(`add_validation type must be one of ${Object.keys(XLSX_VALIDATION_TYPES).join(', ')}`);
-      }
-      const requested = String(op.operator || '').trim();
-      const operator = requested
-        ? XLSX_VALIDATION_OPERATORS[requested.toLowerCase()]
-        : op.formula2 != null && !['list', 'custom'].includes(type)
-          ? 'between'
-          : '';
-      if (requested && !operator) {
-        throw new Error(`add_validation operator must be one of ${Object.keys(XLSX_VALIDATION_OPERATORS).join(', ')}`);
-      }
-      const formula = (value) => `${xmlEncode(String(value).replace(/^=/, ''))}`;
-      const existing = worksheetSection(xml, 'dataValidations');
-      const previous = existing ? containerBody(existing[0], 'dataValidations') : '';
-      const count = (previous.match(/<dataValidation\b/g) || []).length + 1;
-      const validation =
-        `<dataValidation type="${type}"${operator ? ` operator="${operator}"` : ''}` +
-        ' allowBlank="1" showInputMessage="1" showErrorMessage="1"' +
-        `${op.inputMessage ? ` prompt="${xmlEncode(op.inputMessage)}"` : ''}` +
-        `${op.errorMessage ? ` error="${xmlEncode(op.errorMessage)}"` : ''}` +
-        ` sqref="${reference}">` +
-        `<formula1>${formula(op.formula1)}</formula1>` +
-        `${op.formula2 == null || op.formula2 === '' ? '' : `<formula2>${formula(op.formula2)}</formula2>`}` +
-        '</dataValidation>';
-      xml = upsertWorksheetSection(
-        xml,
-        'dataValidations',
-        `<dataValidations count="${count}">${previous}${validation}</dataValidations>`
-      );
-      zip.file(sheet.path, xml);
-      results.push({
-        op: op.op,
-        changed: true,
-        sheet: sheet.name,
-        range: reference,
-        type,
-        ...(operator ? { operator } : {}),
-      });
+      results.push(addWorksheetValidation(zip, sheet, xml, op));
       continue;
     }
     if (op.op === 'add_table') {
@@ -1208,201 +1434,11 @@ export async function applyXlsx(zip, operations) {
       continue;
     }
     if (op.op === 'add_pivot_table') {
-      const area = parseAreaRange(op.source);
-      if (!area.startRow || !area.startCol || area.endRow <= area.startRow) {
-        throw new Error('add_pivot_table requires a bounded source range whose first row holds field names');
-      }
-      const asList = (value) =>
-        (Array.isArray(value) ? value : value == null ? [] : [value])
-          .map((entry) => String(entry ?? '').trim())
-          .filter(Boolean);
-      const rowNames = asList(op.rows);
-      const columnNames = asList(op.columns);
-      const valueNames = asList(op.values);
-      if (!valueNames.length) throw new Error('add_pivot_table requires at least one value field');
-      if (rowNames.length > 1 || columnNames.length > 1) {
-        throw new Error(
-          'Portable add_pivot_table supports one row field and one column field; run the edit with Microsoft Excel for deeper nesting'
-        );
-      }
-      if (valueNames.length > 1 && columnNames.length) {
-        throw new Error('Portable add_pivot_table supports multiple value fields only without a column field');
-      }
-      const grid = new Map(cellRecords(xml, await sharedStrings(zip)).map((record) => [record.ref, record]));
-      const cellValue = (column, row) => {
-        const record = grid.get(`${columnLabel(column)}${row}`);
-        if (!record) return null;
-        return record.formula ? record.cachedValue : record.value;
-      };
-      const headers = [];
-      for (let column = area.startCol; column <= area.endCol; column += 1) {
-        headers.push(String(cellValue(column, area.startRow) ?? ''));
-      }
-      if (headers.some((entry) => !entry)) {
-        throw new Error('add_pivot_table requires a field name in every column of the first source row');
-      }
-      const records = [];
-      for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
-        records.push(headers.map((_, index) => cellValue(area.startCol + index, row)));
-      }
-      if (!records.length) throw new Error('add_pivot_table source range has no data rows');
-      const fieldIndex = (name) => {
-        const index = headers.indexOf(name);
-        if (index < 0) {
-          throw new Error(`add_pivot_table field "${name}" is not in the source header row (${headers.join(', ')})`);
-        }
-        return index;
-      };
-      const destinationName = String(op.destinationSheet || sheet.name);
-      const destination = (await workbookSheets(zip)).find((entry) => entry.name === destinationName);
-      if (!destination) throw new Error(`add_pivot_table destination sheet "${destinationName}" was not found`);
-      const pivotName = String(
-        op.name ||
-          `MixdogPivot${Object.keys(zip.files).filter((part) => /^xl\/pivotTables\/pivotTable\d+\.xml$/.test(part)).length + 1}`
-      );
-      const written = await writePivotTable(zip, {
-        fields: summarizePivotFields(headers, records),
-        records,
-        sourceSheet: sheet.name,
-        sourceRef: `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`,
-        destinationSheetPath: destination.path,
-        destination: String(op.destination || 'A1'),
-        name: pivotName,
-        rowField: rowNames.length ? fieldIndex(rowNames[0]) : -1,
-        columnField: columnNames.length ? fieldIndex(columnNames[0]) : -1,
-        valueFields: valueNames.map(fieldIndex),
-      });
-      results.push({
-        op: op.op,
-        changed: true,
-        sheet: destinationName,
-        name: pivotName,
-        rows: records.length,
-        fields: headers.length,
-        part: written.tablePart,
-      });
+      results.push(await addWorksheetPivotTable(zip, sheet, xml, op));
       continue;
     }
     if (op.op === 'add_chart') {
-      // One bounded area, or several joined by commas the way Excel's own
-      // Range("A7:A12,D7:D12") reads them: the first column of the first area
-      // holds the categories, every other column of every area is a series,
-      // so a chart can skip the columns between its category and its value.
-      const areas = String(op.range ?? '')
-        .split(',')
-        .map((part) => parseAreaRange(part.trim()));
-      const area = areas[0];
-      const seriesColumns = areas.flatMap((entry, index) => {
-        const from = index === 0 ? entry.startCol + 1 : entry.startCol;
-        return Array.from({ length: Math.max(0, entry.endCol - from + 1) }, (_, offset) => from + offset);
-      });
-      if (
-        !area?.startRow ||
-        !area.startCol ||
-        !seriesColumns.length ||
-        areas.some(
-          (entry) =>
-            !entry.startRow || !entry.startCol || entry.startRow !== area.startRow || entry.endRow !== area.endRow
-        )
-      ) {
-        throw new Error(
-          'add_chart requires a bounded range whose first column holds categories (comma-joined areas must share the same rows)'
-        );
-      }
-      const grid = new Map(cellRecords(xml, await sharedStrings(zip)).map((record) => [record.ref, record]));
-      const cellValue = (column, row) => {
-        const record = grid.get(`${columnLabel(column)}${row}`);
-        if (!record) return null;
-        return record.formula ? record.cachedValue : record.value;
-      };
-      const categories = [];
-      for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
-        categories.push(String(cellValue(area.startCol, row) ?? ''));
-      }
-      const palette = Array.isArray(op.seriesColors) ? op.seriesColors : [];
-      const sheetReference = quoteSheetName(sheet.name);
-      const series = [];
-      const names = [];
-      const values = [];
-      for (const [index, column] of seriesColumns.entries()) {
-        const label = columnLabel(column);
-        const numbers = [];
-        for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
-          numbers.push(Number(cellValue(column, row)));
-        }
-        series.push({
-          name: String(cellValue(column, area.startRow) ?? `Series ${index + 1}`),
-          values: numbers,
-          ...(palette.length ? { color: palette[index % palette.length] } : {}),
-          ...(['pie', 'doughnut', 'donut'].includes(String(op.chartType).toLowerCase()) && palette.length
-            ? { pointColors: categories.map((_, point) => palette[point % palette.length]) }
-            : {}),
-        });
-        names.push(`${sheetReference}!$${label}$${area.startRow}`);
-        values.push(`${sheetReference}!$${label}$${area.startRow + 1}:$${label}$${area.endRow}`);
-      }
-      const categoryLabel = columnLabel(area.startCol);
-      let chartOrdinal = 1;
-      while (zip.file(`xl/charts/chart${chartOrdinal}.xml`)) chartOrdinal += 1;
-      const chartPart = `xl/charts/chart${chartOrdinal}.xml`;
-      zip.file(
-        chartPart,
-        chartXml({
-          chartType: op.chartType,
-          title: op.title,
-          categories,
-          series,
-          references: {
-            sheet: sheetReference,
-            category: `${sheetReference}!$${categoryLabel}$${area.startRow + 1}:$${categoryLabel}$${area.endRow}`,
-            names,
-            values,
-          },
-          showValues: op.showValues === true,
-          dataLabelPosition: op.dataLabelPosition,
-          dataLabelColor: op.dataLabelColor,
-          valueNumberFormat: op.valueNumberFormat,
-          showLegend: op.showLegend,
-          zeroBaseline: op.zeroBaseline,
-        })
-      );
-      await ensureContentTypeOverride(zip, `/${chartPart}`, CHART_CONTENT_TYPE);
-      const drawing = await ensureWorksheetDrawing(zip, sheet, xml);
-      const drawingPart = drawing.part;
-      const chartFit = fitDrawingSheetOnePageWide(drawing.worksheet);
-      xml = chartFit.xml;
-      zip.file(sheet.path, xml);
-      const chartRelationshipId = await addPackageRelationship(
-        zip,
-        partRelationshipPath(drawingPart),
-        `${OFFICE_RELATIONSHIP_BASE}/chart`,
-        posix.relative(posix.dirname(drawingPart), chartPart)
-      );
-      const drawingXml = await zipText(zip, drawingPart);
-      const anchorCount = (drawingXml.match(/<xdr:(absolute|two|one)CellAnchor\b/g) || []).length;
-      const framePlacement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 300, top: 20 };
-      const anchor =
-        '<xdr:absoluteAnchor>' +
-        `<xdr:pos x="${toEmu(op.left ?? framePlacement.left)}" y="${toEmu(op.top ?? framePlacement.top)}"/>` +
-        `<xdr:ext cx="${Math.max(1, toEmu(op.width ?? 480))}" cy="${Math.max(1, toEmu(op.height ?? 280))}"/>` +
-        '<xdr:graphicFrame macro="">' +
-        `<xdr:nvGraphicFramePr><xdr:cNvPr id="${anchorCount + 2}" name="Chart ${anchorCount + 1}"/>` +
-        '<xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>' +
-        '<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>' +
-        '<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">' +
-        '<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart"' +
-        ` xmlns:r="${OFFICE_RELATIONSHIP_BASE}" r:id="${chartRelationshipId}"/>` +
-        '</a:graphicData></a:graphic></xdr:graphicFrame>' +
-        '<xdr:clientData/></xdr:absoluteAnchor>';
-      zip.file(drawingPart, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));
-      results.push({
-        op: op.op,
-        changed: true,
-        sheet: sheet.name,
-        chart: chartPart,
-        series: series.length,
-        ...(chartFit.applied ? { pageFit: 'one-page-wide' } : {}),
-      });
+      results.push(await addWorksheetChart(zip, sheet, xml, op));
       continue;
     }
     if (op.op === 'set_page_setup') {

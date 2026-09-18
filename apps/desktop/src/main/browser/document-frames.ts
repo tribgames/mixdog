@@ -2,6 +2,13 @@ import type { WebContents } from 'electron';
 import type { BrowserCdpPort } from './cdp';
 import { createBrowserReadPool, settleBrowserReads } from './parallel-read';
 import { createBrowserFrameCacheStore } from './frame-cache';
+import { pause } from './settle';
+
+/** Ad slots and embedded widgets attach frames in bursts, so a page can change
+ *  its topology faster than one immediate repeat can catch. Observations have
+ *  no side effects: wait for the burst to settle and read again, with a small
+ *  bounded ceiling so a page that never settles still answers. */
+const TOPOLOGY_SETTLE_DELAYS_MS = [50, 150, 350];
 
 interface FrameTree {
   frame: { id: string };
@@ -14,12 +21,7 @@ export interface BrowserFrameHost {
 
 export function createBrowserFrameCollector(host: BrowserFrameHost) {
   const cacheFor = createBrowserFrameCacheStore();
-  async function collect<T>(
-    guest: WebContents,
-    expression: string,
-    signal?: AbortSignal,
-    recoverTopology = true
-  ): Promise<T[]> {
+  async function collect<T>(guest: WebContents, expression: string, signal?: AbortSignal, attempt = 0): Promise<T[]> {
     const debuggerPort = await host.cdp.guestDebugger(guest);
     signal?.throwIfAborted();
     const cache = cacheFor(guest, debuggerPort);
@@ -121,10 +123,12 @@ export function createBrowserFrameCollector(host: BrowserFrameHost) {
     } catch (error) {
       const changed = cache.epoch !== epoch;
       cache.invalidate();
-      // Only observations are repeated, once, after an actual topology event.
-      // Input dispatch never enters this collector.
-      if (changed && recoverTopology && !signal?.aborted) {
-        return collect<T>(guest, expression, signal, false);
+      // Only observations are repeated, and only after an actual topology
+      // event. Input dispatch never enters this collector.
+      const settleDelay = TOPOLOGY_SETTLE_DELAYS_MS[attempt];
+      if (changed && settleDelay !== undefined && !signal?.aborted) {
+        await pause(settleDelay, signal);
+        return collect<T>(guest, expression, signal, attempt + 1);
       }
       throw error;
     }

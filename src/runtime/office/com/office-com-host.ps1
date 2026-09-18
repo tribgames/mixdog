@@ -224,6 +224,20 @@ function Snapshot-Word($doc, $payload) {
       } catch {}
       $hiddenText = ([string]$hiddenText).TrimEnd("`r", "`a")
       if ($hiddenText.Length -gt 0) { $entry.hiddenText = $hiddenText }
+      # The type the paragraph is set in, the same reading the portable snapshot
+      # resolves from styles.xml. Word answers 9999999 for a range set in more
+      # than one size, which says nothing about the paragraph and is left out.
+      try {
+        $paragraphFont = $p.Range.Font
+        $paragraphSize = [double]$paragraphFont.Size
+        if ($paragraphSize -gt 0 -and $paragraphSize -lt 1639) {
+          $entry.font = [ordered]@{
+            name = [string]$paragraphFont.Name
+            size = $paragraphSize
+            bold = ([int]$paragraphFont.Bold -eq -1)
+          }
+        }
+      } catch {}
       try {
         $listFormat = $p.Range.ListFormat
         $listType = [int]$listFormat.ListType
@@ -2460,7 +2474,21 @@ function Invoke-WordOperation($doc, $op) {
       if ($props.bottomMargin) { $section.PageSetup.BottomMargin = [single]$props.bottomMargin }
       if ($props.leftMargin) { $section.PageSetup.LeftMargin = [single]$props.leftMargin }
       if ($props.rightMargin) { $section.PageSetup.RightMargin = [single]$props.rightMargin }
-      return [ordered]@{ op = 'set_page'; changed = $true; section = $section.Index }
+      # Columns are a property of the section, so the text flows through them
+      # instead of being placed into boxes; 1 returns the section to one column.
+      if ($null -ne $props.columns) {
+        $columnCount = [int]$props.columns
+        if ($columnCount -lt 1 -or $columnCount -gt 12) { throw 'set_page columns must be a whole number from 1 to 12' }
+        $null = $section.PageSetup.TextColumns.SetCount($columnCount)
+        if ($columnCount -gt 1) {
+          $section.PageSetup.TextColumns.EvenlySpaced = -1
+          $section.PageSetup.TextColumns.Spacing = $(if ($null -ne $props.columnSpacing) { [single]$props.columnSpacing } else { [single]35.4 })
+        }
+      } elseif ($null -ne $props.columnSpacing) {
+        $section.PageSetup.TextColumns.EvenlySpaced = -1
+        $section.PageSetup.TextColumns.Spacing = [single]$props.columnSpacing
+      }
+      return [ordered]@{ op = 'set_page'; changed = $true; section = $section.Index; columns = [int]$section.PageSetup.TextColumns.Count }
     }
     'fit_table' {
       $table = $doc.Tables.Item([int]$op.table)

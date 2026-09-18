@@ -583,6 +583,24 @@ function statementSlides(boxes = []) {
 // page, not as air: the eye crosses it looking for the missing region.
 const HOLLOW_BAND = 108; // 1.5in at 72pt per inch
 
+// A table, chart, picture or group is the page's carrier, and the few text
+// boxes around it are its labels rather than its body. Such a page reads as a
+// statement to the text-only heuristic above — few boxes, little text, a large
+// title — so without this the exemption hides exactly the pages whose body
+// stops halfway down the canvas. A full-bleed background is already filtered
+// out of the content, so a statement over a picture stays exempt.
+const CARRIER_KINDS = new Set(['p:graphicFrame', 'p:pic', 'p:grpSp']);
+// A device the kit drew — the deck's motif, the cover's orb, an icon — is decoration placed as a picture, not the
+// object a page is balanced around. Counting it as a carrier took the exemption away from exactly the pages the
+// recipes ask for: a claim at poster scale with its device and half the canvas deliberately empty.
+// The same signature the composition receipt reads: the writer names a drawn vector `mixdog-svg:<svg>` and a drawn
+// raster `mixdog-device:<kind>`, and the normalizer renames the vector "Icon" once its SVG is attached.
+const DEVICE_NAME = /^(?:mixdog-svg:|mixdog-device:|Icon$)/;
+
+function carriesObject(content = []) {
+  return content.some((shape) => CARRIER_KINDS.has(shape.kind) && !DEVICE_NAME.test(String(shape.name || '')));
+}
+
 // The deepest empty band between the slide's content, measured on merged
 // intervals so overlapping shapes (a value over its field) never open a gap.
 function hollowBand(content = []) {
@@ -612,11 +630,11 @@ export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight
     slides.get(box.slide).push(box);
   }
   for (const [slide, shapes] of slides) {
-    if (statements.has(slide)) continue;
     const content = shapes.filter(
       (shape) => Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
     );
     if (!content.length) continue;
+    if (statements.has(slide) && !carriesObject(content)) continue;
     const top = Math.min(...content.map((shape) => shape.top));
     const bottom = Math.max(...content.map((shape) => shape.top + shape.height));
     const topEmpty = Math.max(0, top);

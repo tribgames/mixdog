@@ -43,16 +43,25 @@ test('runtime-authored user rows read as system sections and skill sections name
       { role: 'system', content: '# Skills\nApply matching skills.\n# available-skills\n- browser-use: pages.' },
       { role: 'user', content: '<system-reminder>\nBatch independent calls.\n</system-reminder>' },
       { role: 'user', content: '<mixdog-runtime kind="runtime-control">\n[mixdog-runtime] nudge\n</mixdog-runtime>' },
+      // The stored transcript carries no envelope — that projection runs on the
+      // provider-bound copy only — so a task notification has to be recognized
+      // by its own shape or it inflates the person's message count.
+      { role: 'user', content: 'Async shell task job_1 (completed, exit 1) finished.\n\nResult:\n> [status: completed]' },
       { role: 'user', content: 'A normal question.' },
       { role: 'assistant', content: 'A normal answer.' },
     ],
   }));
   // Only the two real turns stay message rows, each under its own role.
   const turns = result.entries.filter((entry) => entry.kind === 'message');
-  assert.deepEqual(turns.map((entry) => [entry.group, entry.ordinal]), [['user', 1], ['assistant', 1]]);
+  assert.deepEqual(
+    turns.map((entry) => [entry.category, entry.group, entry.ordinal]),
+    [['user', 'user', 1], ['assistant', 'assistant', 1]]
+  );
+  // A reminder is the system speaking through a user-role row, so it counts as
+  // a system message and only its group says where it came from.
   assert.deepEqual(
     result.entries.filter((entry) => entry.group === 'reminder').map((entry) => [entry.category, entry.label]),
-    [['system', 'System reminder'], ['system', 'System reminder']]
+    [['system', 'System reminder'], ['system', 'System reminder'], ['system', 'System reminder']]
   );
   assert.deepEqual(
     result.entries.filter((entry) => entry.category === 'skills').map((entry) => entry.label),
@@ -112,19 +121,33 @@ test('entries group by role and producing tool, and tools carry their wire state
   });
   const result = inspectContext(input);
   const turns = result.entries.filter((entry) => entry.kind === 'message');
-  // Tool results fold into the assistant turn that called them; ordinals count
-  // turns per role, so the second assistant turn is "assistant 2" even though
-  // it sits at transcript index 3.
-  assert.deepEqual(turns.map((entry) => [entry.group, entry.ordinal]), [['user', 1], ['assistant', 1], ['assistant', 2], ['summary', 1]]);
-  assert.equal(result.entries.find((entry) => entry.id === 'message:2'), undefined);
+  // Ordinals count turns per role, so the second assistant turn is "assistant 2"
+  // even though it sits at transcript index 3.
+  // The compaction summary is a user-role row, so it stays on the user side.
+  assert.deepEqual(
+    turns.map((entry) => [entry.category, entry.group, entry.ordinal]),
+    [['user', 'user', 1], ['assistant', 'assistant', 1], ['assistant', 'assistant', 2], ['user', 'summary', 1]]
+  );
+  // A tool result is a row of its own, grouped under the tool that produced it
+  // and numbered within that tool.
+  assert.deepEqual(
+    result.entries.filter((entry) => entry.kind === 'toolResult').map((entry) => [entry.category, entry.group, entry.ordinal]),
+    [['toolResults', 'read', 1], ['toolResults', 'shell', 1]]
+  );
   const firstTurn = result.entries.find((entry) => entry.id === 'message:1');
+  // The turn keeps the name only; the size moved to the tool row.
   assert.deepEqual(firstTurn.toolResults.map((row) => row.name), ['read']);
-  assert.equal(firstTurn.tokens, estimateMessagesTokens(input.messages.slice(1, 3)));
+  assert.equal(firstTurn.tokens, estimateMessagesTokens(input.messages.slice(1, 2)));
+  assert.equal(
+    result.entries.find((entry) => entry.id === 'message:2').tokens,
+    estimateMessagesTokens(input.messages.slice(2, 3))
+  );
   assert.equal(result.entries.find((entry) => entry.id === 'message:3').toolResults[0].name, 'shell');
   assert.equal(result.entries.reduce((sum, row) => sum + row.tokens, 0), result.estimatedTokens);
   const preview = inspectContext(input, { entryId: 'message:1', revision: result.revision }).preview.text;
   assert.match(preview, /calling/);
-  assert.match(preview, /── read ──\nfile body/);
+  assert.doesNotMatch(preview, /file body/);
+  assert.match(inspectContext(input, { entryId: 'message:2', revision: result.revision }).preview.text, /file body/);
   const states = Object.fromEntries(result.entries.filter((entry) => entry.kind === 'tool').map((entry) => [entry.label, entry.state]));
   assert.deepEqual(states, { read: 'active', office: 'loaded', browser: 'deferred' });
   assert.equal(result.entries.find((entry) => entry.label === 'browser').tokens, 0);
@@ -195,7 +218,51 @@ test('status inspection is opt-in, uncached, live, and absent from ordinary stat
   assert.equal(next.inspection.entries.filter((entry) => entry.kind === 'message').length, 2);
   const result = api.contextStatus({ inspect: true, entryId: 'message:1', revision: next.inspection.revision });
   assert.equal(result.inspection.preview.text, 'live content');
+  // The reader holds the revision the inspector listed, and the running turn
+  // keeps appending under it. Resolving against the live transcript answered
+  // "context changed" for nearly every entry opened during a turn; the
+  // retained snapshot answers the revision that was actually read.
+  session.liveTurnMessages = [...session.liveTurnMessages, { role: 'user', content: 'appended after the read' }];
+  const moved = api.contextStatus({ inspect: true, entryId: 'message:1', revision: next.inspection.revision });
+  assert.equal(moved.inspection.preview.stale, false);
+  assert.equal(moved.inspection.preview.text, 'live content');
+  // A revision nobody retained is still refused rather than answered from a
+  // different transcript.
+  const forgotten = api.contextStatus({ inspect: true, entryId: 'message:1', revision: 'forgotten' });
+  assert.equal(forgotten.inspection.preview.stale, true);
   assert.equal(api.contextStatus().inspection, undefined);
   assert.equal(session.inspection, undefined);
   assert.equal(ordinary.measurement.source, first.measurement.source);
+});
+
+test('attachments and named prompt blocks get their own rows instead of hiding in a message', () => {
+  const messages = [
+    {
+      role: 'system',
+      content: '# Rules\nFollow instructions.\n\n---\n<available-deferred-tools>\n- recall: Recall prior work.\n</available-deferred-tools>',
+    },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Look at this.' },
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+      ],
+    },
+  ];
+  const result = inspectContext(fixture({ messages, tools: [] }));
+  // The manifest block has no markdown heading, so the plain section split left
+  // it nameless inside the system prompt; it is its own named row now.
+  assert.deepEqual(
+    result.entries.filter((entry) => entry.category === 'system').map((entry) => entry.label),
+    ['Rules', 'Deferred tool list']
+  );
+  // The image is billed on its own allowance, so it leaves the user row.
+  const attachment = result.entries.find((entry) => entry.category === 'attachments');
+  assert.deepEqual([attachment.kind, attachment.role, attachment.ordinal], ['attachment', 'user', 1]);
+  assert.ok(attachment.tokens > 0);
+  const question = result.entries.find((entry) => entry.id === 'message:1');
+  assert.ok(question.tokens > 0 && question.tokens < attachment.tokens);
+  assert.equal(question.tokens + attachment.tokens, estimateMessagesTokens(messages.slice(1)));
+  assert.equal(result.entries.reduce((sum, row) => sum + row.tokens, 0), result.estimatedTokens);
+  assert.equal(result.estimatedTokens, estimateMessagesTokens(messages) + 8);
 });

@@ -142,6 +142,7 @@
   ],
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
+    "@formulajs/formulajs": "^4.6.1",
     "@google/generative-ai": "^0.24.1",
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",

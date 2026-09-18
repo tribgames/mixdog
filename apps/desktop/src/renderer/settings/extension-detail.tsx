@@ -247,7 +247,7 @@ export function ExtensionSection({
   );
 }
 
-export type ExtensionItemTone = 'ok' | 'off' | 'warn' | 'muted';
+export type ExtensionItemTone = 'ok' | 'off' | 'warn' | 'muted' | 'danger';
 
 /** Stack of item rows on the section's 6px rhythm. */
 export function ExtensionItemList({ children }: { children: ReactNode }) {

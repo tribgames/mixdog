@@ -191,7 +191,9 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
     const level = Math.min(3, Math.max(1, Number(block.level) || 1));
     return Math.round(Number(block.size || HEADING_SIZES[level]) * 0.8);
   };
-  for (const block of blocks || []) {
+  const flowed = Array.isArray(blocks) ? blocks : [];
+  for (let index = 0; index < flowed.length; index += 1) {
+    const block = flowed[index];
     const type = String(block.type || 'paragraph').toLowerCase();
     if (type === 'pagebreak') {
       newPage();
@@ -229,6 +231,11 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
       items.forEach((item, itemIndex) => {
         const marker = ordered ? `${itemIndex + 1}.` : String(block.marker ?? '•');
         const lines = wrapText(item, font, fontSize, Math.max(8, textWidth));
+        // One item is one unit: broken line by line, an item that met the foot
+        // of a page left its marker and first line there with the rest overleaf,
+        // where no bullet introduces them. An item taller than a page still
+        // flows, on the per-line guard below.
+        if (y - lines.length * lineHeight < margin && y < page.getHeight() - margin) newPage();
         lines.forEach((line, lineIndex) => {
           if (y - lineHeight < margin) newPage();
           y -= lineHeight;
@@ -336,8 +343,19 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
         }
         y -= height;
       };
+      // A caption names what the table shows, so it is measured with the last
+      // row: on its own it landed at the top of the next page, citing a table
+      // the reader had already turned away from.
+      const following = flowed[index + 1];
+      const captionSize = Number(following?.size || 8.5);
+      const captionHeight =
+        following && String(following.type || '').toLowerCase() === 'caption'
+          ? wrapText(String(following.text ?? ''), font, captionSize, Math.max(8, width)).length * captionSize * 1.35 +
+            Number(following.after ?? 10)
+          : 0;
       for (let rowIndex = 0; rowIndex < laidOut.length; rowIndex += 1) {
-        if (y - laidOut[rowIndex].height < margin) {
+        const needed = laidOut[rowIndex].height + (rowIndex === laidOut.length - 1 ? captionHeight : 0);
+        if (y - needed < margin) {
           newPage();
           if (rowIndex > 0 && block.repeatHeader !== false) drawRow(0);
         }
@@ -430,7 +448,16 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
       const size = Number(block.size || 13),
         lh = Number(block.lineHeight || size * 1.45),
         inset = 16;
-      const height = linesHeight(block.text, size, bodyWidth - inset, lh);
+      const attribution = block.attribution ? `— ${block.attribution}` : '';
+      const attributionSize = 9,
+        attributionLh = 13,
+        attributionGap = 4;
+      // The attribution is part of the quote, so the break is decided on both:
+      // measured on the words alone, a quote that ended a page left its
+      // attribution stranded at the top of the next one, under nothing.
+      const height =
+        linesHeight(block.text, size, bodyWidth - inset, lh) +
+        (attribution ? attributionGap + linesHeight(attribution, attributionSize, bodyWidth - inset, attributionLh) : 0);
       if (y - height < margin && y < page.getHeight() - margin) newPage();
       const top = y;
       drawLines(block.text, size, { lh, x: left + inset, width: bodyWidth - inset, tint: block.color || '1F2937' });

@@ -1,8 +1,54 @@
-import { isMotifShape } from '../design/design-discipline.mjs';
+import { fontFamilyKey, isMotifShape } from '../design/design-discipline.mjs';
+import { annotatePptxSnapshotRoles } from '../design/library/design-template-induct.mjs';
 import { auditXlsxFormulas } from '../portable/xlsx-formula-audit.mjs';
 
 export function issue(code, path, message, source = 'format-review', severity = 'warning') {
   return { severity, code, path, message, source };
+}
+
+// A heading is read as a heading because its type leads the body's, and one
+// level carries one type through the document. A heading set at the body size
+// with no weight of its own, or a level set two ways, is a hierarchy the reader
+// cannot see however correct the styles behind it are.
+const HEADING_TYPE_TOLERANCE = 0.05;
+
+function paragraphSize(paragraph) {
+  return Number(paragraph?.font?.size) || 0;
+}
+
+function reviewDocxHeadingType(content, headings, issues) {
+  const bodySizes = content
+    .filter((paragraph) => headingLevel(paragraph) === null)
+    .map(paragraphSize)
+    .filter((size) => size > 0)
+    .sort((left, right) => left - right);
+  const body = bodySizes.length ? bodySizes[Math.floor(bodySizes.length / 2)] : 0;
+  const byLevel = new Map();
+  for (const { paragraph, level } of headings) {
+    const size = paragraphSize(paragraph);
+    if (!size) continue;
+    byLevel.set(level, [...(byLevel.get(level) || []), { paragraph, size }]);
+    if (body && size <= body && !paragraph.font?.bold) {
+      issues.push(
+        issue(
+          'heading_not_distinct',
+          paragraph.path || '/body',
+          `Heading is set at ${size} pt against ${body} pt body text and carries no weight of its own; the hierarchy is not visible.`
+        )
+      );
+    }
+  }
+  for (const [level, members] of byLevel) {
+    const sizes = members.map((entry) => entry.size);
+    if (members.length < 2 || Math.max(...sizes) <= Math.min(...sizes) * (1 + HEADING_TYPE_TOLERANCE)) continue;
+    issues.push(
+      issue(
+        'heading_style_inconsistent',
+        members[1].paragraph.path || '/body',
+        `Level ${level} headings are set at ${[...new Set(sizes)].sort((left, right) => left - right).join(' / ')} pt; one level carries one type.`
+      )
+    );
+  }
 }
 
 function headingLevel(paragraph) {
@@ -45,6 +91,7 @@ function reviewDocxStructure(document) {
   const headings = content
     .map((paragraph) => ({ paragraph, level: headingLevel(paragraph) }))
     .filter((entry) => entry.level !== null);
+  reviewDocxHeadingType(content, headings, issues);
   if (content.length >= 8 && headings.length === 0) {
     issues.push(
       issue(
@@ -149,10 +196,31 @@ function cellRow(ref) {
 
 function formulaRanges(formula) {
   const ranges = [];
-  for (const match of String(formula || '').matchAll(/\$?[A-Z]{1,3}\$?([1-9]\d*):\$?[A-Z]{1,3}\$?([1-9]\d*)/gi)) {
-    ranges.push({ start: Number(match[1]), end: Number(match[2]) });
+  for (const match of String(formula || '').matchAll(/\$?([A-Z]{1,3})\$?([1-9]\d*):\$?([A-Z]{1,3})\$?([1-9]\d*)/gi)) {
+    ranges.push({
+      startColumn: columnIndex(match[1]),
+      start: Number(match[2]),
+      endColumn: columnIndex(match[3]),
+      end: Number(match[4]),
+    });
   }
   return ranges;
+}
+
+// How far a series may stop above the data before the gap reads as a deliberate
+// window rather than as the row someone forgot to include.
+const CHART_SHORT_ROWS = 2;
+
+function cellColumn(ref) {
+  return columnIndex(/^\$?([A-Z]{1,3})/i.exec(String(ref || ''))?.[1] || '');
+}
+
+// A number the sheet holds, whatever notation it wears; a note or a label under
+// the table is text and is not data the chart left out.
+function numericCell(cell) {
+  const raw = String(cell?.value ?? '').trim();
+  if (!raw) return false;
+  return Number.isFinite(Number(raw.replaceAll(',', '').replace(/%$/, '')));
 }
 
 function columnIndex(label) {
@@ -229,6 +297,43 @@ function reviewXlsxStructure(document, auditProfile = '') {
             'chart_includes_total_row',
             chart.path || `${sheet.path || `/sheet[${sheet.name || ''}]`}/chart`,
             `Chart source includes total or subtotal row ${included}; separate summary rows from comparison series.`
+          )
+        );
+      }
+      // The opposite error renders just as cleanly: a series that stops one row
+      // above the data draws a picture the sheet does not support. A chart
+      // showing a deliberate window stops far short, and a total row is left
+      // out on purpose, so only the last row or two count.
+      const ranges = formulas.flatMap((formula) => formulaRanges(formula));
+      const lastRead = ranges.length ? Math.max(...ranges.map((range) => range.end)) : 0;
+      const readColumns = ranges.length
+        ? {
+            first: Math.min(...ranges.map((range) => range.startColumn)),
+            last: Math.max(...ranges.map((range) => range.endColumn)),
+          }
+        : null;
+      const missed = readColumns
+        ? cells
+            .filter((cell) => {
+              const row = cellRow(cell.ref);
+              const column = cellColumn(cell.ref);
+              return (
+                row > lastRead &&
+                !totalRows.has(row) &&
+                column >= readColumns.first &&
+                column <= readColumns.last &&
+                numericCell(cell)
+              );
+            })
+            .map((cell) => cellRow(cell.ref))
+        : [];
+      const lastData = missed.length ? Math.max(...missed) : 0;
+      if (lastRead && lastData && lastData - lastRead <= CHART_SHORT_ROWS) {
+        issues.push(
+          issue(
+            'chart_stops_short_of_data',
+            chart.path || `${sheet.path || `/sheet[${sheet.name || ''}]`}/chart`,
+            `Chart source stops at row ${lastRead} while the columns it reads hold data through row ${lastData}; widen the series range.`
           )
         );
       }
@@ -541,18 +646,219 @@ function pptxAxisDrift(shape, axes) {
   return null;
 }
 
+// A figure and the words that name it sit close on purpose, whichever way round
+// the page sets them: a value over its caption, or a short label introducing the
+// number under it. The label is short and the sizes say which line is which; a
+// stat pair reported as crowded sent the next fix round after the one grouping
+// the page had right.
+const LABEL_UNIT_CHARS = 16;
+// The kicker is the other half of that pair and it is not short: an eyebrow line sits a hair over the title it
+// introduces, and the two read as one head — every reference deck sets them that way, and the kit draws them so.
+// It is recognised by its type, not its length: one line, at most three fifths of the size of the line under it.
+const KICKER_SIZE_SHARE = 0.6;
+const LABEL_UNIT_WIDTH_SHARE = 0.6;
+const LABEL_HEADING_CHARS = 28;
+
+function isPptxKickerOverTitle(upper, lower) {
+  const upperSize = Number(upper.font?.size) || 0;
+  const lowerSize = Number(lower.font?.size) || 0;
+  const upperHeight = Number(upper.height) || 0;
+  if (!upperSize || !lowerSize || upperSize > lowerSize * KICKER_SIZE_SHARE) return false;
+  // One line of that size, with the slack a text box carries around its own line.
+  return upperHeight > 0 && upperHeight <= (upperSize / 72) * 1.2 * 1.9 * 72;
+}
+
 function isPptxLabelledUnit(left, right) {
   const [upper, lower] = left.top <= right.top ? [left, right] : [right, left];
   const upperText = String(upper.text || '').trim();
   const upperSize = Number(upper.font?.size) || 0;
   const lowerSize = Number(lower.font?.size) || 0;
-  return upperText.length <= 12 && upperSize > 0 && lowerSize > 0 && upperSize >= lowerSize * 1.2;
+  if (!upperSize || !lowerSize) return false;
+  if (isPptxKickerOverTitle(upper, lower)) return true;
+  // A heading line over the detail it names is the same unit as a figure over its caption; what marks it is the step
+  // in type, not a short string. Held to one line of label length, so a paragraph crowding another is still reported.
+  const stepped = upperSize >= lowerSize * 1.2 || lowerSize >= upperSize * 1.2;
+  if (stepped && !upperText.includes('\n') && upperText.length <= LABEL_HEADING_CHARS) return true;
+  if (upperText.length > LABEL_UNIT_CHARS) return false;
+  if (stepped) return true;
+  // Two lines a step apart in size are still a label and its detail when the measure says so: a short line in a box
+  // little more than half the width of the paragraph under it is the name of that paragraph, not a block of copy
+  // crowding it (the card title over its body, which the reference decks set tight on purpose).
+  const upperWidth = Number(upper.width) || 0;
+  const lowerWidth = Number(lower.width) || 0;
+  return upperWidth > 0 && lowerWidth > 0 && upperWidth <= lowerWidth * LABEL_UNIT_WIDTH_SHARE;
+}
+
+// A row of peers is read as one set: the reader takes boxes that look alike to
+// belong together, so column titles at 20 pt beside one at 18 pt read as a
+// mistake rather than as emphasis. The page's own geometry says which boxes
+// form the row.
+const PEER_TYPE_TOLERANCE = 0.05;
+const PEER_WIDTH_SHARE = 0.6;
+const PEER_SLOT = /^((?:column|metric|step)-(?:title|body|value|label|detail))-\d+$/;
+// A page that fits its words is not a page anyone reads from a seat: past the
+// top of every reference body page and covering half the canvas, the slide is a
+// document being projected. Two readings at once keep a table page and a long
+// quotation out of it.
+const TEXT_WALL_CHARS = 900;
+const TEXT_WALL_COVERAGE = 0.45;
+
+function shapeFaces(shape) {
+  const names = Array.isArray(shape.fonts) ? shape.fonts : [shape.font?.name];
+  return names.map(fontFamilyKey).filter(Boolean);
+}
+
+// How much of a text box an opaque object may cover before the words behind it
+// stop being read.
+const TEXT_OCCLUSION_SHARE = 0.25;
+
+// Slack an auto-fitting text box carries below its last line: two boxes in one
+// column may share this much without a reader seeing it. Past it the lines are
+// in each other's space.
+const PPTX_TEXT_COLLISION_PT = 4;
+
+function isPptxPicture(shape) {
+  return Boolean(shape?.picture || shape?.image || shape?.type === 'p:pic' || Number(shape?.type) === 13);
+}
+
+// The kit signs the glow it draws under a hero object; it is a gradient that ends at zero alpha, not a plane.
+function isHaloDevice(shape) {
+  return String(shape?.name || shape?.objectName || '') === 'mixdog-device:glow';
+}
+
+// Two or more series drawn in two or more colours are read by whatever names
+// them: the chart's legend, labels carrying the series name, or the page's own
+// words (a deck often sets its legend beside the chart as text, which is a
+// legend the reader can read). With none of those the colours mean nothing, and
+// the chart is a picture of a difference nobody can attribute.
+function reviewPptxChartSeriesNaming(slide, shape, issues) {
+  const chart = shape?.chart;
+  if (!chart || Number(chart.seriesCount) < 2) return;
+  if (chart.legend !== false || chart.seriesNamesShown === true) return;
+  const names = (chart.series || [])
+    .map((series) => String(series?.name || '').trim())
+    .filter((name) => name.length > 1);
+  if (names.length < 2) return;
+  const words = (slide.shapes || [])
+    .filter((entry) => entry !== shape)
+    .map((entry) => String(entry.text || ''))
+    .join('\n');
+  if (names.every((name) => words.includes(name))) return;
+  issues.push(
+    issue(
+      'chart_series_unnamed',
+      chart.path || `${shape.path || slide.path}/chart`,
+      `${names.length} series (${names.slice(0, 3).join(', ')}) are told apart by colour alone: the chart draws no legend, its labels carry no series name, and the page does not name them either.`
+    )
+  );
+}
+
+function reviewPptxPeerType(slide, issues) {
+  const groups = new Map();
+  for (const shape of slide.shapes || []) {
+    const role = PEER_SLOT.exec(String(shape.slot || ''))?.[1];
+    if (!role || !String(shape.text || '').trim()) continue;
+    groups.set(role, [...(groups.get(role) || []), shape]);
+  }
+  const path = slide.path || `/slide[${slide.index}]`;
+  for (const [role, members] of groups) {
+    if (members.length < 2) continue;
+    // Peers in one row hold the same column: a 140 pt label beside a 665 pt lead
+    // line is a label and its sentence, and reading them as one set reported the
+    // grammar the page had right.
+    const widths = members.map((shape) => Number(shape.width) || 0);
+    if (Math.min(...widths) < Math.max(...widths) * PEER_WIDTH_SHARE) continue;
+    const sizes = members.map((shape) => Number(shape.font?.size) || 0).filter((size) => size > 0);
+    if (sizes.length === members.length && Math.max(...sizes) > Math.min(...sizes) * (1 + PEER_TYPE_TOLERANCE)) {
+      issues.push(
+        issue(
+          'peer_style_inconsistent',
+          path,
+          `The ${role} boxes are set at ${[...new Set(sizes)].sort((left, right) => left - right).join(' / ')} pt; peers in one row read as one set.`
+        )
+      );
+      continue;
+    }
+    const faces = new Set(members.flatMap(shapeFaces));
+    if (faces.size > 1) {
+      issues.push(
+        issue('peer_style_inconsistent', path, `The ${role} boxes mix ${[...faces].join(', ')}; peers in one row carry one face.`)
+      );
+    }
+  }
+}
+
+// A page of boxes all set in one size has no voice the eye reaches first. The
+// induction names a title only where one box leads the rest, so a text page of
+// several boxes that induced none is a page with no hierarchy to see — a
+// statement or a captioned picture is not, since neither is a page of peers.
+const FLAT_PAGE_TEXT_BOXES = 3;
+// Type itself can lead where the induction names no title: a page whose loudest box runs a third larger than the
+// type around it has a place to start, whatever the geometry made of its rows. Two boxes sharing that size (a title
+// beside its hero numeral) lead together — the reading is the step down to the rest of the page, not which one wins.
+const HIERARCHY_LEAD_RATIO = 1.3;
+
+function leadsByType(sizes) {
+  const largest = Math.max(...sizes);
+  const rest = [...sizes].sort((left, right) => right - left).slice(1);
+  if (!rest.length) return true;
+  const middle = rest.slice().sort((left, right) => left - right);
+  const median =
+    middle.length % 2 ? middle[(middle.length - 1) / 2] : (middle[middle.length / 2 - 1] + middle[middle.length / 2]) / 2;
+  return largest >= median * HIERARCHY_LEAD_RATIO;
+}
+
+function reviewPptxHierarchy(slide, issues) {
+  const shapes = slide.shapes || [];
+  if (shapes.some((shape) => shape.chart || shape.table || shape.group || isPptxPicture(shape))) return;
+  const textShapes = shapes.filter((shape) => String(shape.text || '').trim() && !isMotifShape(shape));
+  if (textShapes.length < FLAT_PAGE_TEXT_BOXES) return;
+  if (textShapes.some((shape) => shape.slot === 'title')) return;
+  const sizes = textShapes.map((shape) => Number(shape.font?.size) || 0).filter((size) => size > 0);
+  if (sizes.length !== textShapes.length) return;
+  if (leadsByType(sizes)) return;
+  issues.push(
+    issue(
+      'slide_hierarchy_flat',
+      slide.path || `/slide[${slide.index}]`,
+      `The slide's ${textShapes.length} text boxes are set at ${[...new Set(sizes)].sort((left, right) => left - right).join(' / ')} pt with none leading the others; the reader has no place to start.`
+    )
+  );
+}
+
+function reviewPptxTextWall(slide, width, height, issues) {
+  const shapes = slide.shapes || [];
+  // A chart, table, picture, or group carries the page instead of the words.
+  if (!width || !height) return;
+  if (shapes.some((shape) => shape.chart || shape.table || shape.group || shape.type === 'p:pic')) return;
+  let chars = 0;
+  let area = 0;
+  for (const shape of shapes) {
+    const text = String(shape.text || '').trim();
+    if (!text) continue;
+    chars += text.length;
+    area += Math.max(0, Number(shape.width) || 0) * Math.max(0, Number(shape.height) || 0);
+  }
+  const coverage = area / Math.max(1, width * height);
+  if (chars <= TEXT_WALL_CHARS || coverage < TEXT_WALL_COVERAGE) return;
+  issues.push(
+    issue(
+      'slide_text_dense',
+      slide.path || `/slide[${slide.index}]`,
+      `The slide carries ${chars} characters over ${Math.round(coverage * 100)}% of the canvas with no carrier; split it or cut it rather than projecting a document.`
+    )
+  );
 }
 
 function reviewPptxStructure(document, auditProfile = '') {
   const issues = [];
   const width = Number(document?.slideWidth) || 0;
   const height = Number(document?.slideHeight) || 0;
+  // A deck read from the file carries no slots; the roles come from the same
+  // induction the snapshot uses, and annotating twice changes nothing.
+  if (!(document?.slides || []).some((slide) => (slide.shapes || []).some((shape) => shape.slot))) {
+    annotatePptxSnapshotRoles(document);
+  }
   for (const source of document?.slides || []) {
     // A hidden slide is not in the deck the reader receives.
     if (source.hidden === true) continue;
@@ -561,6 +867,9 @@ function reviewPptxStructure(document, auditProfile = '') {
     const slide = (source.shapes || []).some((shape) => shape.hidden === true)
       ? { ...source, shapes: source.shapes.filter((shape) => shape.hidden !== true) }
       : source;
+    reviewPptxPeerType(slide, issues);
+    reviewPptxTextWall(slide, width, height, issues);
+    reviewPptxHierarchy(slide, issues);
     for (const shape of slide.shapes || []) {
       if (shape.chart && Number(shape.chart.seriesCount) === 0) {
         issues.push(
@@ -573,6 +882,7 @@ function reviewPptxStructure(document, auditProfile = '') {
           )
         );
       }
+      reviewPptxChartSeriesNaming(slide, shape, issues);
     }
     const textShapes = (slide.shapes || [])
       .filter(
@@ -646,12 +956,26 @@ function reviewPptxStructure(document, auditProfile = '') {
           Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left)
         );
         const verticalGap = Math.max(right.top - (left.top + left.height), left.top - (right.top + right.height));
-        if (
-          horizontalOverlap >= Math.min(left.width, right.width) * 0.3 &&
-          verticalGap >= 0 &&
-          verticalGap < 6 &&
-          !isPptxLabelledUnit(left, right)
-        ) {
+        if (horizontalOverlap < Math.min(left.width, right.width) * 0.3) continue;
+        // A band laid across a column it does not belong to covers a small share
+        // of its own area, so the area rule above passes it while the page shows
+        // two blocks running into each other. Where the boxes share a column,
+        // the reading is the overlap itself: past the slack an auto-fitting box
+        // carries, the lines are in each other's space.
+        if (verticalGap < -PPTX_TEXT_COLLISION_PT) {
+          issues.push(
+            issue(
+              'shape_overlap',
+              slide.path || `/slide[${slide.index}]`,
+              `Text shapes ${left.index || leftIndex + 1} and ${right.index || rightIndex + 1} run into each other over ${Math.round(-verticalGap)} pt of the column they share; the two blocks read as one.`
+            )
+          );
+          continue;
+        }
+        // A label and the line it names sit tight by design, so the pair is exempt from the spacing step — never from
+        // a collision: two boxes in each other's space read as one block whatever they say to each other.
+        if (isPptxLabelledUnit(left, right)) continue;
+        if (verticalGap >= 0 && verticalGap < 6) {
           issues.push(
             issue(
               'text_spacing_tight',
@@ -727,6 +1051,44 @@ function reviewPptxStructure(document, auditProfile = '') {
             'shape_overlap',
             frame.path || slide.path || `/slide[${slide.index}]`,
             `Text shape ${textShape.index} runs into the table (${Math.round(share * 100)}% of the text box lies over it); move the text or give the table fewer rows.`
+          )
+        );
+        break;
+      }
+    }
+    // The words a later object covers are the defect a rendered page hides best:
+    // the box still measures as fitting and its text still reads back from the
+    // file. A card drawn under its own text sits below it in z-order, so only an
+    // object added after the text can hide it.
+    for (const textShape of pairShapes) {
+      const textArea = Number(textShape.width) * Number(textShape.height);
+      if (!(textArea > 0)) continue;
+      for (const cover of slide.shapes || []) {
+        // A halo is a radial wash that fades to nothing at its edge — the kit signs the one it draws under a product
+        // render — so the words it reaches are still read. Only an object that paints over them hides them.
+        if (cover === textShape || isMotifShape(cover) || isHaloDevice(cover) || String(cover.text || '').trim())
+          continue;
+        if (!(Number(cover.index) > Number(textShape.index))) continue;
+        if (!isPptxPicture(cover) && !solidShapeFill(cover)) continue;
+        if (![cover.left, cover.top, cover.width, cover.height].every((entry) => Number.isFinite(Number(entry))))
+          continue;
+        const width = Math.max(
+          0,
+          Math.min(Number(textShape.left) + Number(textShape.width), Number(cover.left) + Number(cover.width)) -
+            Math.max(Number(textShape.left), Number(cover.left))
+        );
+        const height = Math.max(
+          0,
+          Math.min(Number(textShape.top) + Number(textShape.height), Number(cover.top) + Number(cover.height)) -
+            Math.max(Number(textShape.top), Number(cover.top))
+        );
+        const share = (width * height) / textArea;
+        if (share < TEXT_OCCLUSION_SHARE) continue;
+        issues.push(
+          issue(
+            'shape_overlap',
+            textShape.path || slide.path || `/slide[${slide.index}]`,
+            `Shape ${cover.index} is drawn over text shape ${textShape.index}, covering ${Math.round(share * 100)}% of it; the words behind it are not read.`
           )
         );
         break;

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { executeOfficeTool } from './index.mjs';
 import { value, workspace } from './office-test-support.mjs';
 import { documentSessionKey, documentSessions, sessions } from './core/office-core.mjs';
-import { factsGate, parseAuthoringBrief, reviewFactCoverage } from './authoring/pptx-brief.mjs';
+import { factsGate, parseAuthoringBrief, planGate, reviewFactCoverage } from './authoring/pptx-brief.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -94,6 +94,52 @@ test('the brief names its facts mode and the author gate mirrors the fact review
       ' · F3 지연 건수 96 42 — 시트 B6\n'
   );
   assert.deepEqual(factsGate(table, covered), { blocked: false });
+});
+
+// The plan lived in the brief as prose: a deck could name a chart on page two
+// and land without one, and every page could go unplanned, because the review
+// only reported it. The gate holds the deck to the plan the author wrote.
+test('the plan gate refuses a deck whose pages are unplanned or do not carry what they planned', () => {
+  const document = {
+    slides: [
+      { index: 1, shapes: [{ text: '표지', font: { size: 40 } }] },
+      { index: 2, shapes: [{ text: '근거', font: { size: 28 } }] },
+    ],
+  };
+  const noPlan = parseAuthoringBrief('// BRIEF\n// subject/audience/action: 리뷰\n');
+  assert.deepEqual(planGate(document, noPlan), { blocked: true, code: 'plan_missing', slides: [] });
+  // A single slide is a specimen, and a script with no brief is not gated at all.
+  assert.deepEqual(planGate({ slides: document.slides.slice(0, 1) }, noPlan), { blocked: false });
+  assert.deepEqual(planGate(document, parseAuthoringBrief('const deckWithoutBrief = 1;')), { blocked: false });
+
+  const partial = parseAuthoringBrief('// BRIEF\n// slide plan: 1 job: cover · carriers: statement\n');
+  assert.deepEqual(planGate(document, partial), {
+    blocked: true,
+    code: 'plan_slide_unplanned',
+    slides: [{ slide: 2 }],
+  });
+
+  const noCarriers = parseAuthoringBrief(
+    '// BRIEF\n// slide plan: 1 job: cover · carriers: statement\n//   2 job: evidence · move: 규모를 본다\n'
+  );
+  assert.deepEqual(planGate(document, noCarriers), {
+    blocked: true,
+    code: 'plan_incomplete',
+    slides: [{ slide: 2, missing: ['carriers'] }],
+  });
+
+  const promised = parseAuthoringBrief(
+    '// BRIEF\n// slide plan: 1 job: cover · carriers: statement\n//   2 job: evidence · carriers: chart\n'
+  );
+  assert.deepEqual(planGate(document, promised), {
+    blocked: true,
+    code: 'plan_promise_missing',
+    slides: [{ slide: 2, carrier: 'chart', label: 'a native chart' }],
+  });
+  assert.deepEqual(
+    planGate({ slides: [document.slides[0], { index: 2, shapes: [{ chart: { type: 'bar' } }] }] }, promised),
+    { blocked: false }
+  );
 });
 
 test('author refuses to land a deck whose figures have no fact and leaves the previous deck untouched', async (t) => {

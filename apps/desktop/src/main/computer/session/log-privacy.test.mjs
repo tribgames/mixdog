@@ -1,7 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { computerLogError, computerLogTarget } from './log-privacy.ts';
-import { computerRunRecord } from './run-log.ts';
+import { appendComputerRunRecord, computerRunRecord, readComputerRunRecords } from './run-log.ts';
+
+test('a session can read back its own run history, newest last, without the truncated tail', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-run-history-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  const sessionId = `history-${process.pid}`;
+  process.env.MIXDOG_DATA_DIR = directory;
+  try {
+    appendComputerRunRecord(sessionId, { action: 'click', effect: 'confirmed' });
+    appendComputerRunRecord(sessionId, { action: 'type', effect: 'confirmed' });
+    await mkdir(join(directory, 'computer-runs'), { recursive: true });
+    const records = readComputerRunRecords(sessionId, 10);
+    assert.deepEqual(
+      records.map((record) => record.action),
+      ['click', 'type']
+    );
+    assert.equal(records[0].session, sessionId);
+    assert.deepEqual(readComputerRunRecords(sessionId, 1).map((record) => record.action), ['type']);
+    // A history read never invents a session and never fails a command.
+    assert.deepEqual(readComputerRunRecords('', 10), []);
+    assert.deepEqual(readComputerRunRecords('never-ran', 10), []);
+    await writeFile(join(directory, 'computer-runs', `${sessionId}.jsonl`), '{"action":"click"}\n{"action":', 'utf8');
+    assert.deepEqual(
+      readComputerRunRecords(sessionId, 10).map((record) => record.action),
+      ['click']
+    );
+  } finally {
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+  }
+});
 
 test('launch diagnostics omit URL credentials, paths, query strings and fragments', () => {
   const record = computerRunRecord(

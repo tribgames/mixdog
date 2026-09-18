@@ -38,6 +38,10 @@ function requestSerializedToolsForContext(session, provider, messages = session?
 }
 
 const NO_NATIVE_TOOLS = Object.freeze([]);
+// How many inspected snapshots stay resolvable for entry previews. One open
+// inspector needs a single slot; the spares cover a second surface and a reader
+// who keeps opening entries while newer readings arrive.
+const INSPECTION_SNAPSHOT_LIMIT = 4;
 
 // Live /context gauge computation + its self-owned memoization cache. Extracted
 // verbatim from the runtime API object; the runtime injects live getters for
@@ -176,31 +180,51 @@ export function createContextStatus({
     return requestTools;
   }
 
+  // Entry ids address positions in the transcript the inspector listed, and a
+  // running turn keeps appending to it. Resolving a preview against the live
+  // transcript therefore refused almost every entry opened during a turn
+  // ("Context changed. Select the entry again."). Keep the last inspected
+  // snapshots — message and tool references only — so a preview is answered
+  // from the exact revision its reader is looking at.
+  const inspectionSnapshots = new Map();
+
+  function retainInspectionSnapshot(revision, input) {
+    inspectionSnapshots.delete(revision);
+    inspectionSnapshots.set(revision, input);
+    for (const oldest of inspectionSnapshots.keys()) {
+      if (inspectionSnapshots.size <= INSPECTION_SNAPSHOT_LIMIT) break;
+      inspectionSnapshots.delete(oldest);
+    }
+  }
+
   function withInspection(status, messages, tools, options, session = getSession()) {
     if (options?.inspect !== true) return status;
-    const deferredCatalogNames = new Set(
-      [
-        ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
-        ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
-      ]
-        .map((tool) => String(tool?.name || '').trim())
-        .filter(Boolean)
-    );
-    return {
-      ...status,
-      inspection: inspectContext({
-        sessionId: status.sessionId,
-        provider: status.provider,
-        model: status.model,
-        messages,
-        tools,
-        overheadTokens: status.request.requestOverheadTokens,
-        // The provider's own count for the prefix it measured lets the
-        // inspector reconcile its estimates with the gauge's headline.
-        coverage: providerBaselineCoverage(session, messages),
-        deferredCatalogNames,
-      }, options),
+    const requestedRevision = options.entryId !== undefined ? String(options.revision || '') : '';
+    const retained = requestedRevision ? inspectionSnapshots.get(requestedRevision) : null;
+    const input = retained || {
+      sessionId: status.sessionId,
+      provider: status.provider,
+      model: status.model,
+      // Copy both lists: the live turn pushes into its own array, and a
+      // retained revision has to keep the order its entry ids were built from.
+      messages: messages.slice(),
+      tools: tools.slice(),
+      overheadTokens: status.request.requestOverheadTokens,
+      // The provider's own count for the prefix it measured lets the
+      // inspector reconcile its estimates with the gauge's headline.
+      coverage: providerBaselineCoverage(session, messages),
+      deferredCatalogNames: new Set(
+        [
+          ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
+          ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
+        ]
+          .map((tool) => String(tool?.name || '').trim())
+          .filter(Boolean)
+      ),
     };
+    const inspection = inspectContext(input, options);
+    retainInspectionSnapshot(inspection.revision, input);
+    return { ...status, inspection };
   }
 
   function contextStatus(options) {

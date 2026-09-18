@@ -172,6 +172,59 @@ test('a changed route text leaves recorded boundaries byte-identical; only the n
   );
 });
 
+test('MIXDOG_ROUND_REMINDER=0 suppresses the round being sent and replays recorded boundaries', (t) => {
+  const history = [{ role: 'user', content: 'Inspect the files.' }, ...toolContinuation()];
+  const first = build(history, 'claude-fable-5-1');
+  const signed = [
+    { type: 'thinking', thinking: 'Continue.', signature: 'kill-switch-signature' },
+    { type: 'tool_use', id: 'toolu_off', name: 'read', input: { file_path: 'd.txt' } },
+  ];
+  history.push(
+    {
+      role: 'assistant',
+      content: '',
+      providerReplay: withTurnReminderContext(createProviderReplay('anthropic', signed), first),
+      toolCalls: [{ id: 'toolu_off', name: 'read', arguments: { file_path: 'd.txt' } }],
+    },
+    { role: 'tool', toolCallId: 'toolu_off', content: 'off result' }
+  );
+  process.env.MIXDOG_ROUND_REMINDER = '0';
+  t.after(() => {
+    delete process.env.MIXDOG_ROUND_REMINDER;
+  });
+  const off = build(history, 'claude-fable-5-1');
+  // The prefix the signed response saw is rebuilt; the new round gets nothing.
+  assert.deepEqual(
+    off.messages.filter((message) => message.role === 'system'),
+    [{ role: 'system', content: REMINDER, clear_at: 'next_user_message' }]
+  );
+  assert.equal(off.messages.at(-1).role, 'user');
+
+  // A response produced while suppressed records that absence, so switching
+  // back on never backfills a boundary in front of its signed thinking.
+  const suppressedSigned = [
+    { type: 'thinking', thinking: 'Still going.', signature: 'suppressed-signature' },
+    { type: 'tool_use', id: 'toolu_back', name: 'read', input: { file_path: 'e.txt' } },
+  ];
+  history.push(
+    {
+      role: 'assistant',
+      content: '',
+      providerReplay: withTurnReminderContext(createProviderReplay('anthropic', suppressedSigned), off),
+      toolCalls: [{ id: 'toolu_back', name: 'read', arguments: { file_path: 'e.txt' } }],
+    },
+    { role: 'tool', toolCallId: 'toolu_back', content: 'back result' }
+  );
+  delete process.env.MIXDOG_ROUND_REMINDER;
+  assert.deepEqual(
+    build(history, 'claude-fable-5-1').messages.filter((message) => message.role === 'system'),
+    [
+      { role: 'system', content: REMINDER, clear_at: 'next_user_message' },
+      { role: 'system', content: REMINDER, clear_at: 'next_user_message' },
+    ]
+  );
+});
+
 test('a steering user turn remains the final instruction and suppresses batching guidance', () => {
   const messages = [
     ...toolContinuation(),

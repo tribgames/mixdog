@@ -475,13 +475,21 @@ export function CompletionStatus({ item, animate = false }: { item: TranscriptIt
     );
   }
   const elapsed = formatElapsed(item.elapsedMs);
+  const toolCount = Number(item.toolCount || 0);
+  const elapsedMs = Math.max(0, Number(item.elapsedMs || 0));
   const doneVerb = String(item.verb || item.label || 'Thought').trim() || 'Thought';
-  const completionLabel =
-    item.kind === 'turndone'
-      ? elapsed
-        ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed })
-        : t(doneVerb)
-      : label || t('Complete');
+  let completionLabel: string;
+  if (item.kind === 'turndone') {
+    if (toolCount > 0) {
+      completionLabel = elapsed ? t('Work complete in {{elapsed}}', { elapsed }) : t('Work complete');
+    } else if (elapsedMs > 0 && elapsedMs < 10_000) {
+      completionLabel = t('Response complete');
+    } else {
+      completionLabel = elapsed ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed }) : t(doneVerb);
+    }
+  } else {
+    completionLabel = label || t('Complete');
+  }
   return (
     <div className="turn-status complete" role="status" data-animate={animate ? 'true' : undefined}>
       <MxIcon name="check" className="turn-status-icon" size={16} />

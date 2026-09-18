@@ -174,6 +174,19 @@ function inferredVisualType(slide) {
   return 'typography';
 }
 
+// The decoration a page carries, read from the description the kit writes on its device ("rings motif"). A style
+// runs a set of devices, not one, and an anchor that names no kind takes the next of the set, so two pages in a
+// row drawing the same device are one page twice however their type differs (composition.md §3 — three devices,
+// one deck). A page with no device reads as its own kind and never joins a run.
+const MOTIF_DESCRIPTION = /^([a-z]+) motif$/i;
+function decorationKind(slide) {
+  for (const shape of slide?.shapes || []) {
+    const match = MOTIF_DESCRIPTION.exec(String(shape?.altText || '').trim());
+    if (match) return match[1].toLowerCase();
+  }
+  return '';
+}
+
 // The longest run of consecutive content slides that share one coarse grammar and one visual type:
 // the third same page in a row is what a reader notices first at contact-sheet scale.
 function longestRepeatRun(entries) {
@@ -229,6 +242,18 @@ export function reviewPptxDeckDiversity({ document, design } = {}) {
       )
     );
   }
+  const decorations = slides.map((slide) => decorationKind(slide));
+  const decorationRun = longestRepeatRun(decorations.map((kind, index) => kind || `\u0000${index}`));
+  if (decorationRun.length >= 2) {
+    const first = Number(slides[decorationRun.start]?.index) || decorationRun.start + 1;
+    const last = Number(slides[decorationRun.start + decorationRun.length - 1]?.index) || first + decorationRun.length - 1;
+    issues.push(
+      issue(
+        'repeated_decoration',
+        `Slides ${first}-${last} draw the same ${decorations[decorationRun.start]} device ${decorationRun.length} pages in a row; take the next device of the deck's set on the later page, or leave it undecorated.`
+      )
+    );
+  }
   const requiredVisualTypes = Math.min(3, Math.ceil(content.length / 2));
   if (content.length >= 5 && uniqueVisualTypes.size < requiredVisualTypes) {
     issues.push(
@@ -239,8 +264,15 @@ export function reviewPptxDeckDiversity({ document, design } = {}) {
     );
   }
   issues.push(...deckShapeIssues(slides));
-  const directionCandidates = design?.artDirection?.candidates || [];
-  if (directionCandidates.length < 3 || !design?.artDirection?.selected?.id) {
+  // An authored deck declares its directions on the brief's `directions:` line — the two compared compositions and
+  // the one selected, which is what the skill asks for; the composer's own route builds three candidates instead.
+  // Reading only the composer's payload told every authored deck it had no art direction, whatever its brief said.
+  const briefDirections = design?.brief?.directions;
+  const composed = design?.artDirection?.candidates || [];
+  const directionCandidates = composed.length ? composed : briefDirections?.candidates || [];
+  const selected = design?.artDirection?.selected?.id || (composed.length ? '' : briefDirections?.selected || '');
+  const required = composed.length || !briefDirections ? 3 : 2;
+  if (directionCandidates.length < required || !selected) {
     issues.push(
       issue(
         'art_direction_candidates_missing',

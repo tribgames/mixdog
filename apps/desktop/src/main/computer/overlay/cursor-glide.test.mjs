@@ -23,7 +23,10 @@ test('only background action effects travel; foreground and tracking movement st
 });
 
 test('a never-shown pointer seeds up-left inside its display and never collapses onto the target', () => {
-  assert.deepEqual(seedGlideStart({ x: 800, y: 600 }, display), { x: 800 - GLIDE_SEED_OFFSET, y: 600 - GLIDE_SEED_OFFSET });
+  assert.deepEqual(seedGlideStart({ x: 800, y: 600 }, display), {
+    x: 800 - GLIDE_SEED_OFFSET,
+    y: 600 - GLIDE_SEED_OFFSET,
+  });
   assert.deepEqual(seedGlideStart({ x: 3, y: 3 }, display), { x: 3 + GLIDE_SEED_OFFSET, y: 3 + GLIDE_SEED_OFFSET });
   const edge = seedGlideStart({ x: 1919, y: 1079 }, display);
   assert.ok(edge.x >= display.x && edge.x <= display.x + display.width);

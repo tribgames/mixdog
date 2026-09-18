@@ -135,7 +135,7 @@ const CATALOG = {
     properties: {
       paragraph: ['style'],
       font: ['name', 'nameEastAsia', 'size', 'bold', 'italic', 'underline', 'color', 'hidden'],
-      page: ['orientation', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin'],
+      page: ['orientation', 'topMargin', 'bottomMargin', 'leftMargin', 'rightMargin', 'columns', 'columnSpacing'],
       headerFooter: ['section', 'kind', 'header', 'text'],
       table: [
         'style',
@@ -358,6 +358,7 @@ const CATALOG = {
         'set_shape',
         'set_slide_background',
         'import_slides',
+        'use_template_page',
         'replace_image',
         'set_table_data',
         'fit_text',
@@ -586,7 +587,7 @@ const CATALOG = {
 };
 
 const BACKENDS = new Set(['microsoft-office-com', 'mixdog-ooxml', 'mixdog-tabular', 'mixdog-pdf']);
-const VIRTUAL_OPERATIONS = new Set(['compose_document', 'compose_sheet']);
+const VIRTUAL_OPERATIONS = new Set(['compose_document', 'compose_sheet', 'use_template_page']);
 
 function signature(required = [], optional = [], { oneOf = [], propertySets = [], notes = '' } = {}) {
   return { required, optional, oneOf, propertySets, notes };
@@ -632,9 +633,10 @@ const FORMAT_SIGNATURES = {
           'Optional preset, not the default authoring path. It chooses typography, summary emphasis and spacing. For an authored design use set_page and native append_text/table/image operations with explicit properties.',
       }
     ),
-    append_text: signature(['text'], ['style', 'properties'], {
+    append_text: signature(['text'], ['style', 'properties', 'author'], {
       propertySets: ['paragraph', 'font', 'paragraphFormat'],
-      notes: 'Creates one real paragraph.',
+      notes:
+        'Creates one real paragraph. With track_changes on the paragraph is inserted as a tracked change; author labels it, as it does on every other tracked edit.',
     }),
     set_paragraph_text: signature(['paragraph', 'text'], ['author'], {
       notes:
@@ -704,7 +706,11 @@ const FORMAT_SIGNATURES = {
       notes:
         "author settles only that reviewer's revisions (text wrappers, paragraph marks, table rows, formatting records) on both backends and leaves the other reviewers' changes tracked; without it every revision resolves.",
     }),
-    set_page: signature(['properties'], ['section'], { propertySets: ['page'] }),
+    set_page: signature(['properties'], ['section'], {
+      propertySets: ['page'],
+      notes:
+        'Margins and columnSpacing are points. columns lays the section out in that many even columns and the text flows through them (1 returns it to a single column), so a newsletter page needs no text boxes.',
+    }),
     fit_table: signature(['table']),
     insert_toc: signature([], ['paragraph', 'lowerHeadingLevel', 'upperHeadingLevel'], {
       notes:
@@ -921,6 +927,10 @@ const FORMAT_SIGNATURES = {
     move_slide: signature(['slide', 'index']),
     duplicate_slide: signature(['slide'], ['index']),
     import_slides: signature(['path'], ['after', 'slides']),
+    use_template_page: signature(['path', 'after'], ['role', 'slide', 'title', 'items', 'notes'], {
+      notes:
+        'Takes a page from the template deck at path and fills it: role picks the page by the job it does (the snapshot reports it as slide.role — cover, comparison, process, metrics, split, statement, closing, content), or slide names one exact page. after is the slide the new page follows, 0 for the front. title fills the title slot; items[] fill the page\'s repeated group in order, each { title, body } (a metric page reads them as { value, label }). Fewer items than slots empties the unused ones; more items than the page holds is refused, since a page takes another item by being replaced, never by shrinking its type.',
+    }),
     keep_slides: signature(['slides']),
     set_notes: signature(['slide', 'text']),
     set_footer: signature(['slide', 'text']),

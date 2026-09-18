@@ -57,12 +57,17 @@ export function createUsageStatsApi({ ledger = getUsageLedger, importHistory = i
               anchor: options.anchor,
               startDay: options.startDay,
               endDay: options.endDay,
+              startTime: options.startTime,
+              endTime: options.endTime,
               now,
             });
+      // A range cut below whole days has to be rebuilt from retained
+      // timestamps; cached day totals would spill past the selected clock.
+      const timed = period?.view === 'hour' || Boolean(period?.startTime || period?.endTime);
       const snapshot = usageStatsSnapshot({
         rollup: store.rollup({
           hourlyDay: period?.view === 'hour' ? period.startDay : null,
-          ...(period?.view === 'hour' ? { fromMs: period.fromMs, toMs: period.toMs } : {}),
+          ...(timed ? { fromMs: period.fromMs, toMs: period.toMs } : {}),
           ...(period
             ? {
                 fromDay: period.startDay || undefined,

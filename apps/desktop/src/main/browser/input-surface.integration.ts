@@ -4,37 +4,13 @@ import type { BrowserHost } from './host';
 import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
 import { DESKTOP_IPC, type DesktopBrowserPageFrame } from '../../shared/contract';
+import { readyBrowserFrame } from './harness-frame';
 import { measureBrowserPresentation } from './input-surface-performance';
 import { exerciseBrowserErrorNotice } from './input-surface-errors';
 import { exerciseBrowserPrompts } from './input-surface-prompts';
 import { exerciseBrowserIme } from './input-surface-ime';
 
-export async function readyBrowserFrame(host: BrowserHost, sessionId: string): Promise<DesktopBrowserPageFrame> {
-  const { eventually } = createPolling({ timeoutMs: 8000, intervalMs: 50 });
-  let lastError: unknown;
-  try {
-    const frame = await eventually(
-      async () => {
-        try {
-          return await host.browserPageFrame(sessionId);
-        } catch (error) {
-          if (
-            !/UnknownVizError|Browser display frame is not ready|Browser page changed during capture/.test(
-              String(error)
-            )
-          )
-            throw error;
-          lastError = error;
-          return null;
-        }
-      },
-      (value) => value !== null
-    );
-    return frame!;
-  } catch (error) {
-    throw lastError ?? error;
-  }
-}
+export { readyBrowserFrame } from './harness-frame';
 
 export async function exerciseBrowserInputSurface(options: {
   parent: BrowserWindow;

@@ -33,6 +33,7 @@ const GROUP_LABELS: Record<string, string> = {
   summary: 'Compaction summary',
   instruction: 'Instructions',
   reminder: 'System reminder',
+  tool: 'Tool result',
   native: 'Provider built-in',
   active: 'Always sent',
   loaded: 'Loaded on demand',
@@ -43,9 +44,14 @@ const GROUP_LABELS: Record<string, string> = {
 // first, what was loaded next, and what costs nothing last.
 const GROUP_ORDER = ['native', 'active', 'loaded', 'overhead', 'deferred'];
 const COLLAPSE_THRESHOLD = 12;
+// Tool names shown on a turn's sub-line before the tail becomes "+N".
+const TOOL_SUMMARY_LIMIT = 3;
 
+// A group is either one of the known kinds above or a tool name. Tool names are
+// identifiers, so an unknown key is printed as it came — never run through the
+// catalog, where a lowercase word could collide with an unrelated phrase.
 export function groupLabel(group: string): string {
-  return t(GROUP_LABELS[group] || group);
+  return GROUP_LABELS[group] ? t(GROUP_LABELS[group]) : group;
 }
 export type ContextRequest = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 type Preview = { id: string; text: string; truncated?: boolean; stale?: boolean };
@@ -54,19 +60,32 @@ const ROLE_LABELS: Record<string, string> = {
   user: 'User',
   assistant: 'Assistant',
   system: 'System',
+  tool: 'Tool result',
 };
 
-// An assistant turn that called tools carries their results; the row's
-// sub-line names them with their share so the pair reads as one turn.
+// Tool results are rows of their own now, so this sub-line is only a trace of
+// which tools the turn called — the sizes live in the Tool results category.
+// One name per tool, most-used first, and only the leading few: listing every
+// call let the line, and with it the row, grow without bound (user: 저것 때문에
+// 아이템 길이가 달라져).
 export function toolResultLine(entry: Entry): string {
-  return (entry.toolResults || []).map((row) => `${row.name} ≈${row.tokens.toLocaleString()}`).join(' · ');
+  const calls = new Map<string, number>();
+  for (const row of entry.toolResults || []) calls.set(row.name, (calls.get(row.name) || 0) + 1);
+  const ranked = [...calls].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const line = ranked.slice(0, TOOL_SUMMARY_LIMIT).map(([name, count]) => (count > 1 ? `${name} ×${count}` : name));
+  if (ranked.length > TOOL_SUMMARY_LIMIT) line.push(`+${ranked.length - TOOL_SUMMARY_LIMIT}`);
+  return line.join(' · ');
 }
 
-// Message rows carry role + ordinal so the row reads in the UI language.
-// Everything else is content: tool names are identifiers and prompt section
-// headings are the user's own text, so both stay verbatim. Only the synthetic
-// framing row has a translatable label.
+// Message and attachment rows carry role + ordinal so the row reads in the UI
+// language. Everything else is content: tool names are identifiers and prompt
+// section headings are the user's own text, so both stay verbatim. Only the
+// synthetic framing row has a translatable label.
 export function entryLabel(entry: Entry): string {
+  if (entry.kind === 'attachment') {
+    const owner = entry.role ? `${t(ROLE_LABELS[entry.role] || 'Message')} ${entry.ordinal ?? ''}`.trim() : '';
+    return owner ? `${owner} · ${entry.label}` : entry.label;
+  }
   if (entry.kind === 'message' && entry.role) {
     const role = t(ROLE_LABELS[entry.role] || 'Message');
     return `${role} ${entry.ordinal ?? ''}`.trim() + (entry.name ? ` · ${entry.name}` : '');
@@ -75,15 +94,20 @@ export function entryLabel(entry: Entry): string {
   return entry.label;
 }
 
-export function ContextInspector({ inspection, windowTokens, reserveTokens, request }: {
+export function ContextInspector({ inspection, windowTokens, request }: {
   inspection: ContextInspection;
   windowTokens: number;
-  reserveTokens: number;
   request?: ContextRequest;
 }) {
   const [category, setCategory] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Which category the pointer is over in the block map, so its blocks and its
+  // row in the list light up together.
+  const [hovered, setHovered] = useState('');
+  // The floating bubble that names the block under the pointer, positioned
+  // against the map rather than the viewport so it travels with the dialog.
+  const [bubble, setBubble] = useState<{ x: number; y: number; flip: boolean; text: string } | null>(null);
   const sequence = useRef(0);
   useEffect(() => () => { sequence.current += 1; }, []);
   // A new revision means the transcript changed under us. The category list
@@ -98,7 +122,7 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
     if (preview) setPreview(null);
     if (category && !inspection.categories.some((row) => row.key === category)) setCategory('');
   }
-  const map = buildContextMap(inspection.categories, { windowTokens, reserveTokens });
+  const map = buildContextMap(inspection.categories, { windowTokens });
   const selectCategory = (key: string) => {
     sequence.current += 1;
     setPreview(null);
@@ -111,10 +135,13 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
     calibrated && entry.estimatedTokens !== undefined && entry.estimatedTokens !== entry.tokens
       ? t('Raw estimate: ≈{{tokens}}', { tokens: entry.estimatedTokens.toLocaleString() })
       : undefined;
+  // The list stays put until the content is actually here. Swapping it for a
+  // "Loading preview…" pane first meant one click resized the pane twice
+  // (user: 상세항목 눌러서 들어갈때 툭 튀고); the read is a local snapshot, so
+  // the wait is a frame, not a spinner's worth of time.
   const openPreview = async (entry: Entry) => {
     if (!request) return;
     const ticket = ++sequence.current;
-    setPreview({ id: entry.id, text: t('Loading preview…') });
     try {
       const result = record(await request('contextStatus', [{ inspect: true, entryId: entry.id, revision: inspection.revision }]));
       if (ticket !== sequence.current) return;
@@ -136,6 +163,47 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
   const freeTokens = Math.max(0, windowTokens - inspection.estimatedTokens);
   const percentLabel = (tokens: number) =>
     windowTokens > 0 ? `${Math.round((tokens / windowTokens) * 1000) / 10}%` : '';
+  // Every block already knows its category, so hovering one can say which
+  // share it belongs to and how big that share is — the same numbers as the
+  // row in the list (user: 그리드에 호버하면 팝업 ... 어떤거 얼마나 먹었는지).
+  const cellKey = (node: EventTarget | null) => (node instanceof HTMLElement ? node.dataset.contextKey || '' : '');
+  const cellSummary = (key: string) => {
+    if (key === 'free') {
+      return [t('Free space'), percentLabel(freeTokens), `≈${freeTokens.toLocaleString()}`].filter(Boolean).join(' · ');
+    }
+    const row = inspection.categories.find((item) => item.key === key);
+    if (!row) return '';
+    return [t(row.label), t('{{count}} items', { count: row.count }), percentLabel(row.tokens), `≈${row.tokens.toLocaleString()}`]
+      .filter(Boolean)
+      .join(' · ');
+  };
+  // Hovering a block answers in place (user: 호버하면 플로팅되는 팝업) instead
+  // of only lighting its run up, so the map can be read without tracking the
+  // colour back to a row in the list.
+  const trackBubble = (mapNode: HTMLElement, target: EventTarget | null) => {
+    const cell = target instanceof HTMLElement ? target : null;
+    const key = cell?.dataset.contextKey || '';
+    if (!cell || !key) {
+      setHovered('');
+      setBubble(null);
+      return;
+    }
+    setHovered(key);
+    const mapRect = mapNode.getBoundingClientRect();
+    const cellRect = cell.getBoundingClientRect();
+    const top = cellRect.top - mapRect.top;
+    // Keep the bubble inside the map — an edge block would otherwise push it
+    // past the dialog — and hang it under the block on the top rows, where
+    // there is nothing above to hold it.
+    const flip = top <= 28;
+    const centre = cellRect.left - mapRect.left + cellRect.width / 2;
+    setBubble({
+      x: Math.min(Math.max(centre, 80), Math.max(80, mapRect.width - 80)),
+      y: flip ? top + cellRect.height : top,
+      flip,
+      text: cellSummary(key),
+    });
+  };
   const mapNote = [
     t('Each block represents approximately {{tokens}} tokens.', { tokens: Math.ceil(map.blockTokens).toLocaleString() }),
     t('Category estimates are not provider measurements.'),
@@ -162,7 +230,9 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
           <button type="button" className="context-detail-icon" onClick={closePreview} aria-label={t('Close preview')}>
             <ChevronLeft size={16} />
           </button>
-          <h3>{previewEntry ? entryLabel(previewEntry) : ''}</h3>
+          {/* The name is content — a tool name, a prompt heading — so the DOM
+              translation pass must not swap it for a catalog phrase. */}
+          <h3 data-i18n-skip>{previewEntry ? entryLabel(previewEntry) : ''}</h3>
           <span>{previewEntry ? `≈${previewEntry.tokens.toLocaleString()}` : ''}</span>
         </header>
         {preview.truncated ? <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p> : null}
@@ -215,7 +285,7 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
             <X size={16} />
           </button>
         </header>
-        <div className="context-entry-list">
+        <div className="context-entry-list" data-i18n-skip>
           {grouped
             ? ordered.map(([key, rows]) => {
                 const open = isOpen(key);
@@ -242,13 +312,31 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
   return (
     <section className="context-inspector" aria-label={t('Context inspector')}>
       <aside className="context-inspector-nav">
-        <div className="context-block-map" role="img" aria-label={`${t('Estimated context composition')}. ${mapNote}`} title={mapNote}>
-          {map.cells.map((key: string, index: number) => <i key={index} data-context-key={key} />)}
+        {/* The map is one image for assistive tech — the per-block hover copy is
+            a pointer affordance, so the native title is gone (it would double
+            up with the bubble) and the note rides the label. */}
+        <div className="context-block-map" role="img" aria-label={`${t('Estimated context composition')}. ${mapNote}`}
+          data-hover={hovered ? 'true' : undefined}
+          onPointerOver={(event) => trackBubble(event.currentTarget, event.target)}
+          onPointerLeave={() => { setHovered(''); setBubble(null); }}
+          onClick={(event) => {
+            const key = cellKey(event.target);
+            if (key && key !== 'free') selectCategory(key);
+          }}>
+          {map.cells.map((key: string, index: number) => (
+            <i key={index} data-context-key={key}
+              data-muted={hovered && hovered !== key ? 'true' : undefined} />
+          ))}
+          {bubble ? (
+            <span className="context-block-bubble" aria-hidden="true" data-flip={bubble.flip ? 'true' : undefined}
+              style={{ left: `${bubble.x}px`, top: `${bubble.y}px` }}>{bubble.text}</span>
+          ) : null}
         </div>
         <div className="context-mix-list">
           {rankedCategories.map((row) => (
             <button type="button" className="context-mix-row" key={row.key} data-context-key={row.key}
               data-empty={row.tokens > 0 ? undefined : 'true'}
+              data-hot={hovered === row.key ? 'true' : undefined}
               aria-pressed={category === row.key} onClick={() => selectCategory(row.key)}
               aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${row.tokens.toLocaleString()}`}>
               <i aria-hidden="true" />
@@ -258,13 +346,9 @@ export function ContextInspector({ inspection, windowTokens, reserveTokens, requ
             </button>
           ))}
           <div className="context-mix-remainder">
-            <div className="context-mix-row" data-context-key="free">
+            <div className="context-mix-row" data-context-key="free" data-hot={hovered === 'free' ? 'true' : undefined}>
               <i aria-hidden="true" /><span>{t('Free space')}</span>
               <em>{percentLabel(freeTokens)}</em><strong>≈{freeTokens.toLocaleString()}</strong>
-            </div>
-            <div className="context-mix-row" data-context-key="autocompact">
-              <i aria-hidden="true" /><span>{t('Autocompact buffer')}</span>
-              <em>{percentLabel(reserveTokens)}</em><strong>{reserveTokens.toLocaleString()}</strong>
             </div>
           </div>
         </div>

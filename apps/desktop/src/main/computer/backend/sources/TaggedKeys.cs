@@ -104,15 +104,7 @@ public static class MixTaggedKeys
                 throw new System.Exception("unsafe_key: Alt+F4 is blocked");
             }
             if (node.Children != null) Validate(node.Children, modifiers);
-            else if (node.Text != null && modifiers.Count > 0)
-            {
-                short mapping = VkKeyScan(node.Text[0]);
-                if (mapping == -1) throw new System.Exception("invalid_keys: character has no modified-key mapping");
-                node.Key = (ushort)(mapping & 255); node.Text = null;
-                if ((mapping & 0x100) != 0 && !modifiers.Contains(0x10)) node.Modifiers.Add(0x10);
-                if ((mapping & 0x200) != 0 && !modifiers.Contains(0x11)) node.Modifiers.Add(0x11);
-                if ((mapping & 0x400) != 0 && !modifiers.Contains(0x12)) node.Modifiers.Add(0x12);
-            }
+            else if (node.Text != null && modifiers.Count > 0) ResolveTextKey(node, modifiers);
         }
     }
     static void Execute(System.Collections.Generic.List<Node> nodes, IMixKeySink sink, System.Collections.Generic.HashSet<ushort> held)
@@ -147,6 +139,47 @@ public static class MixTaggedKeys
                 if (releaseError != null) throw new System.Exception("input_cleanup_unconfirmed: key release failed", releaseError);
             }
         }
+    }
+    // A character becomes a key only through the keyboard layout, which may also
+    // demand modifiers the caller never wrote.
+    static void ResolveTextKey(Node node, System.Collections.Generic.HashSet<ushort> modifiers)
+    {
+        short mapping = VkKeyScan(node.Text[0]);
+        if (mapping == -1) throw new System.Exception("invalid_keys: character has no modified-key mapping");
+        node.Key = (ushort)(mapping & 255); node.Text = null;
+        if ((mapping & 0x100) != 0 && !modifiers.Contains(0x10)) node.Modifiers.Add(0x10);
+        if ((mapping & 0x200) != 0 && !modifiers.Contains(0x11)) node.Modifiers.Add(0x11);
+        if ((mapping & 0x400) != 0 && !modifiers.Contains(0x12)) node.Modifiers.Add(0x12);
+    }
+    // A held key outlives the command that pressed it, so the stream must name
+    // exactly one key: a group or a repeat would leave state nobody can release.
+    public static void Hold(string value, bool down) { Hold(value, down, new NativeSink()); }
+    public static void Hold(string value, bool down, IMixKeySink sink)
+    {
+        var nodes = new Parser(value).Parse(0, false);
+        Validate(nodes, new System.Collections.Generic.HashSet<ushort>());
+        if (nodes.Count != 1) throw new System.Exception("invalid_keys: a held key must name exactly one key");
+        var node = nodes[0];
+        if (node.Children != null || node.Repeat != 1)
+        {
+            throw new System.Exception("invalid_keys: a held key cannot be a group or a repeat");
+        }
+        if (!node.Key.HasValue)
+        {
+            if (node.Text == null || node.Text.Length != 1)
+            {
+                throw new System.Exception("invalid_keys: a held key must name exactly one key");
+            }
+            ResolveTextKey(node, new System.Collections.Generic.HashSet<ushort>());
+        }
+        if (down)
+        {
+            foreach (var modifier in node.Modifiers) sink.Down(modifier);
+            sink.Down(node.Key.Value);
+            return;
+        }
+        sink.Up(node.Key.Value);
+        for (int index = node.Modifiers.Count - 1; index >= 0; index--) sink.Up(node.Modifiers[index]);
     }
     public static void Send(string value) { Send(value, new NativeSink()); }
     public static void Send(string value, IMixKeySink sink)

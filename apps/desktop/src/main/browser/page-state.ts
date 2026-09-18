@@ -101,8 +101,8 @@ export function createBrowserPageState(host: BrowserPageStateHost) {
     if (operation === 'clear') {
       const cookies = await partitionSession.cookies.get({ url: currentUrl });
       for (const cookie of cookies) {
-        const host = String(cookie.domain || new URL(currentUrl).hostname).replace(/^\./, '');
-        const url = `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path || '/'}`;
+        const cookieHost = String(cookie.domain || new URL(currentUrl).hostname).replace(/^\./, '');
+        const url = `${cookie.secure ? 'https' : 'http'}://${cookieHost}${cookie.path || '/'}`;
         await partitionSession.cookies.remove(url, cookie.name);
       }
       return { text: `Cleared ${cookies.length} cookie(s) for ${redactBrowserUrl(currentUrl)}.` };

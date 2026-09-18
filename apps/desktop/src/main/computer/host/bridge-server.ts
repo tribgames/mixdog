@@ -30,10 +30,7 @@ const HEARTBEAT_MS = 60_000;
 type WorkerPool = ReturnType<typeof createWorkerPool>;
 
 export interface BridgeServerHost
-  extends Pick<
-      WorkerPool,
-      'powerShellBySession' | 'elevatedSessionIds'
-    >,
+  extends Pick<WorkerPool, 'powerShellBySession' | 'elevatedSessionIds'>,
     Pick<SessionLifecycle, 'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers'> {
   dataDirectory(): string;
   isBridgeWanted(): boolean;
@@ -166,6 +163,10 @@ export function createBridgeServer(host: BridgeServerHost) {
           return;
         }
         activeRequests++;
+        // The heartbeat alone reclaims too late: a burst of short sessions can
+        // exhaust the worker limit between two beats, and the caller owns none
+        // of those sessions. Reclaim on the request path as well.
+        reapIdleSessionWorkers();
         let clientGone = false;
         const requestAbort = new AbortController();
         const abortOnDisconnect = (): void => {
@@ -246,35 +247,35 @@ export function createBridgeServer(host: BridgeServerHost) {
       void writeDiscovery(discoveryRecord)
         .then((ownership) => {
           if (!stillCurrent()) return;
-            if (!stillCurrent() || !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)) return;
-            if (ownership !== 'owned') {
-              console.warn(`computer bridge discovery ${ownership}; heartbeat will retry`);
-            }
-            heartbeat = setInterval(() => {
-              if (!stillCurrent()) return;
-              void heartbeatDiscovery(discoveryRecord)
-                .then((status) => {
-                  if (
-                    status !== 'lost' ||
-                    !stillCurrent() ||
-                    !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)
-                  )
-                    return;
-                  void stopBridge().catch((error) => {
-                    console.error('computer bridge restart after endpoint loss failed:', error);
-                  });
-                })
-                .catch((error) => {
-                  console.error('computer bridge discovery heartbeat failed:', error);
+          if (!stillCurrent() || !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)) return;
+          if (ownership !== 'owned') {
+            console.warn(`computer bridge discovery ${ownership}; heartbeat will retry`);
+          }
+          heartbeat = setInterval(() => {
+            if (!stillCurrent()) return;
+            void heartbeatDiscovery(discoveryRecord)
+              .then((status) => {
+                if (
+                  status !== 'lost' ||
+                  !stillCurrent() ||
+                  !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)
+                )
+                  return;
+                void stopBridge().catch((error) => {
+                  console.error('computer bridge restart after endpoint loss failed:', error);
                 });
-              reapIdleSessionWorkers();
-            }, HEARTBEAT_MS);
-            heartbeat.unref?.();
-            diagnose('computer-bridge-ready', {
-              generation,
-              durationMs: Date.now() - startedAt,
-              ownership,
-            });
+              })
+              .catch((error) => {
+                console.error('computer bridge discovery heartbeat failed:', error);
+              });
+            reapIdleSessionWorkers();
+          }, HEARTBEAT_MS);
+          heartbeat.unref?.();
+          diagnose('computer-bridge-ready', {
+            generation,
+            durationMs: Date.now() - startedAt,
+            ownership,
+          });
         })
         .catch((error) => {
           if (!stillCurrent()) return;

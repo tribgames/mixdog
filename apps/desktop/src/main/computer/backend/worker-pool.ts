@@ -109,9 +109,19 @@ export function createWorkerPool(host: WorkerPoolHost) {
     return hostScriptPath;
   }
 
+  /** An exited worker keeps its slot until its `exit` event arrives, and a
+   * confirmed session release can outrun that event. Dead children are pruned
+   * before the limit is judged so a finished session never blocks the next. */
+  function liveWorkerCount(): number {
+    for (const child of hostWorkers) {
+      if (child.exitCode !== null || child.signalCode !== null) hostWorkers.delete(child);
+    }
+    return hostWorkers.size;
+  }
+
   function spawnHostWorker(): ChildProcessWithoutNullStreams {
     elevatedJobs.assertClear();
-    assertComputerWorkerCapacity(hostWorkers.size + elevatedSlots, maxWorkers);
+    assertComputerWorkerCapacity(liveWorkerCount() + elevatedSlots, maxWorkers);
     // The program runs from a temp .ps1 via -File, NOT piped through -Command -:
     // with -Command - PowerShell consumes stdin as the command text, colliding
     // with the per-command JSON we also write to stdin. -File leaves stdin
@@ -147,7 +157,15 @@ export function createWorkerPool(host: WorkerPoolHost) {
             const phase = event.phase ?? (event.held ? 'drag' : 'move');
             if (['move', 'prepare', 'press', 'release', 'drag', 'scroll', 'type'].includes(phase)) {
               recordCursorDiagnostic('validated');
-              host.onPointerProgress?.(entry.sessionId, event.x, event.y, event.held, entry.mode, phase, entry.windowId);
+              host.onPointerProgress?.(
+                entry.sessionId,
+                event.x,
+                event.y,
+                event.held,
+                entry.mode,
+                phase,
+                entry.windowId
+              );
             } else recordCursorDiagnostic('invalid_phase');
           } else recordCursorDiagnostic('discarded_event');
         } catch {
@@ -292,13 +310,16 @@ export function createWorkerPool(host: WorkerPoolHost) {
         'right_click',
         'middle_click',
         'triple_click',
+        'mouse_down',
+        'mouse_up',
         'mouse_move',
         'drag',
         'scroll',
         'key',
+        'key_down',
+        'key_up',
         'type',
-      ].includes(String(inputAction)) &&
-      Boolean(host.onPointerProgress);
+      ].includes(String(inputAction)) && Boolean(host.onPointerProgress);
     const line = `${JSON.stringify({ ...request, id, pointer_feedback: pointerFeedback })}\n`;
     if (pending.size >= 32 || Buffer.byteLength(line) > MAX_COMPUTER_INTERNAL_REQUEST_BYTES) {
       return Promise.reject(
@@ -341,7 +362,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
     if (!hostScriptPath) throw new Error('privileged_worker_unavailable: computer host script is missing');
     const directory = dataDirectory();
     mkdirSync(directory, { recursive: true });
-    assertComputerWorkerCapacity(hostWorkers.size + elevatedSlots + 2, maxWorkers);
+    assertComputerWorkerCapacity(liveWorkerCount() + elevatedSlots + 2, maxWorkers);
     const nonce = randomBytes(24).toString('base64url');
     const requestPath = join(directory, `computer-elevated-${nonce}.request.json`);
     const responsePath = join(directory, `computer-elevated-${nonce}.response.txt`);

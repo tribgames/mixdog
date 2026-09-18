@@ -56,15 +56,27 @@ export function normalizeBrowserSettleMs(raw: unknown): number {
   return Math.min(MAX_EXPLICIT_SETTLE_MS, Math.max(0, Math.trunc(raw as number)));
 }
 
+/** Page text keeps the document's own spacing: an indent, a run of spaces, or
+ *  a non-breaking space where the caller wrote one plain space. Runs of
+ *  horizontal whitespace collapse on both sides, while line breaks stay —
+ *  two blocks the reader sees on separate lines are not one phrase. */
+function comparableText(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.replace(/[^\S\r\n]+/g, ' ').trim())
+    .join('\n')
+    .toLowerCase();
+}
+
 export function browserPostconditionMatches(
   expected: Pick<BrowserPostconditionInput, 'text' | 'textGone' | 'url'>,
   state: BrowserPostconditionState
 ): boolean {
-  const text = state.text?.toLowerCase();
+  const text = typeof state.text === 'string' ? comparableText(state.text) : undefined;
   const url = state.url.toLowerCase();
   return (
-    (!expected.text || (text !== undefined && text.includes(expected.text.toLowerCase()))) &&
-    (!expected.textGone || (text !== undefined && !text.includes(expected.textGone.toLowerCase()))) &&
+    (!expected.text || (text !== undefined && text.includes(comparableText(expected.text)))) &&
+    (!expected.textGone || (text !== undefined && !text.includes(comparableText(expected.textGone)))) &&
     (!expected.url || url.includes(expected.url.toLowerCase()))
   );
 }

@@ -6,7 +6,11 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { num, round, cleanString } from './lib/usage-primitives.mjs';
 import { currentProviderAccountId } from '../../../shared/provider-auth-binding.mjs';
-import { ACCOUNT_PROVIDERS, recordProviderAccountUsage } from '../../../shared/provider-accounts.mjs';
+import {
+  ACCOUNT_PROVIDERS,
+  recordProviderAccountUsage,
+  clearProviderAccountQuotaState,
+} from '../../../shared/provider-accounts.mjs';
 
 const CACHE_FILE = 'gateway-oauth-usage-cache.json';
 const LIVE_CACHE_TTL_MS = 60_000;
@@ -628,9 +632,10 @@ function normalizeCodexRateLimits(rateLimits, source = 'openai-codex-local') {
   };
 }
 
-// Model- and surface-scoped weekly windows. A scoped refusal arrives as a
-// 429 while the all-model windows stay far below 100%, so the account counts
-// as exhausted when ANY of these windows is closed.
+// Model- and surface-scoped weekly windows. A Fable (or Opus) refusal arrives
+// as a 429 while the all-model windows stay far below 100%. Record each
+// scoped window so only a matching-family request treats the account as
+// exhausted.
 const SCOPED_WEEKLY_KEY = /^seven_day_(.+)$/;
 
 function scopedWindowLabel(name) {
@@ -731,7 +736,7 @@ async function fetchOpenAICodexUsage(providerObj) {
     fetch('https://chatgpt.com/backend-api/wham/usage', fetchOptions(codexHeaders(auth, 'responses=experimental'))),
     fetchOpenAICodexResetCreditsWithAuth(auth).catch(() => null),
   ]);
-  if (!res.ok) throw new Error(`openai-oauth usage ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`openai-oauth usage ${res.status}`), { status: res.status });
   const data = await res.json();
   const usage = normalizeOpenAIWhamUsage(data);
   // Codex may include the authoritative available count directly
@@ -757,7 +762,7 @@ async function fetchAnthropicUsage(providerObj) {
       Accept: 'application/json',
     })
   );
-  if (!res.ok) throw new Error(`anthropic oauth usage ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(`anthropic oauth usage ${res.status}`), { status: res.status });
   const data = await res.json();
   return normalizeAnthropicUsage(data) || latestClaudeStatuslineUsage();
 }
@@ -839,6 +844,15 @@ async function fetchGrokUsage(providerObj, routeInfo) {
   return null;
 }
 
+// The stored expiry is only what the server said when the token was issued; a
+// subscription change can revoke it long before that. Nothing local can tell —
+// the server's own refusal is the evidence — so a usage 401/403 means the same
+// thing it means on a real request: refresh and ask again.
+function isUsageAuthRejection(error) {
+  const status = Number(error?.status || 0);
+  return status === 401 || status === 403;
+}
+
 export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () => {}, options = {}) {
   const provider = providerKey(routeInfo);
   if (!provider.includes('oauth') && provider !== 'cursor-api') return null;
@@ -859,22 +873,40 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
 
   const task = (async () => {
     let snapshot = null;
-    try {
-      if (provider === 'openai-oauth') {
-        snapshot = await fetchOpenAICodexUsage(providerObj);
-      } else if (provider === 'anthropic-oauth') {
-        snapshot = await fetchAnthropicUsage(providerObj);
-      } else if (provider === 'grok-oauth') {
-        snapshot = await fetchGrokUsage(providerObj, routeInfo);
-      } else if (
+    const measure = async () => {
+      if (provider === 'openai-oauth') return await fetchOpenAICodexUsage(providerObj);
+      if (provider === 'anthropic-oauth') return await fetchAnthropicUsage(providerObj);
+      if (provider === 'grok-oauth') return await fetchGrokUsage(providerObj, routeInfo);
+      if (
         (provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth') &&
         typeof providerObj?.getUsageSnapshot === 'function'
       ) {
-        snapshot = await providerObj.getUsageSnapshot();
+        return await providerObj.getUsageSnapshot();
+      }
+      return null;
+    };
+    try {
+      try {
+        snapshot = await measure();
+      } catch (error) {
+        if (!isUsageAuthRejection(error) || typeof providerObj?.ensureAuth !== 'function') throw error;
+        await providerObj.ensureAuth({ forceRefresh: true, reason: 'usage-auth' });
+        snapshot = await measure();
       }
     } catch (err) {
       if (provider === 'anthropic-oauth' && accountId === 'default') snapshot = latestClaudeStatuslineUsage();
       if (!snapshot) {
+        // A credential the server refuses even after a forced refresh cannot
+        // vouch for the reading it last produced. Keeping a 100% meter earned
+        // by a dead token would hold the account out of the roster until its
+        // reset time, so the recorded quota goes with the credential.
+        if (isUsageAuthRejection(err) && ACCOUNT_PROVIDERS.includes(provider)) {
+          try {
+            clearProviderAccountQuotaState(provider, accountId);
+          } catch (error) {
+            log(`Account usage could not be cleared: ${error.message}`);
+          }
+        }
         warnThrottled(
           log,
           `oauth-usage:${provider}`,

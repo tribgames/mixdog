@@ -14,10 +14,14 @@ never route one through `tidy` (they are not tidy engines):
 |---|---|---|
 | `tidy check` diagnostics | unused imports/variables from Biome, ruff (`F401`, `F841`), ESLint `no-unused-vars` | exact file:line, safest tier |
 | `tsc --noEmit --noUnusedLocals --noUnusedParameters` | unused locals, imports, parameters, private members | TypeScript projects; run through the project's own `tsc` |
-| `knip` (`node_modules/.bin/knip`) | unused files, exports, types, dependencies | JS/TS; only when the project already depends on it |
+| `knip` (`node_modules/.bin/knip`) | unused files, exports, types, dependencies; imports missing from the manifest (`unlisted`) or resolving to nothing (`unresolved`) | JS/TS; only when the project already depends on it |
 | `vulture` (in the project's venv) | unused functions, classes, imports with confidence | Python; only when present |
 | `deadcode` (Go, `golang.org/x/tools`) / `cargo machete` | unreachable functions / unused crates | only when on PATH |
 | `code_graph mode:symbols` per changed file | private helpers with no callers (`callers`) | universal, no install |
+
+An import the project cannot resolve, or one whose package is absent from the
+manifest, is not dead code but a phantom dependency: report it under "Bugs
+found" and never settle it by installing the package.
 
 ## Verify every candidate
 

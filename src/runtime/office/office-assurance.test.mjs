@@ -214,6 +214,19 @@ test('Korean and English prompt injection is labeled as untrusted data and gates
   assert.equal(trust.risk, 'high');
   assert.throws(() => assertOfficeMutationAllowed({ trust }), /mutation blocked/i);
   assert.doesNotThrow(() => assertOfficeMutationAllowed({ trust, acknowledged: true }));
+
+  // Korean writes an order and a description with the same words. A speaker
+  // note saying what the product does is documentation, and reading it as an
+  // injection locked every edit of the deck that carried it.
+  const documented = analyzeOfficePromptInjection({
+    format: 'pptx',
+    notes: [
+      { path: '/slide[7]/notes', text: '설치 명령과 실행 명령은 별도 줄로 실행한다. 토큰 사용량은 로그에 출력한다.' },
+      { path: '/slide[8]/notes', text: 'CLI는 Node.js 22.19+ 또는 24+ 필요. 초기 실행 시 모델 선택 안내.' },
+    ],
+  });
+  assert.equal(documented.risk, 'none', JSON.stringify(documented.findings));
+  assert.doesNotThrow(() => assertOfficeMutationAllowed({ trust: documented }));
 });
 
 test('existing tabular documents block prompt-injected mutations until explicitly acknowledged', async (t) => {
@@ -314,6 +327,70 @@ test('format-specific Office review catches orphan headings, chart totals, and s
     },
   });
   assert.ok(excel.some((entry) => entry.code === 'chart_includes_total_row'));
+
+  // A heading is read as one because its type leads the body's, and one level
+  // carries one type; the styles behind it can be correct and the page still
+  // show no hierarchy.
+  const headingReview = reviewOfficeStructure({
+    format: 'docx',
+    document: {
+      paragraphs: [
+        { path: '/body/p[1]', index: 1, style: 'Heading1', text: '운영 개선 보고', font: { size: 24, bold: true } },
+        { path: '/body/p[2]', index: 2, style: 'Normal', text: '야간 출고 흐름을 다시 짰다.', font: { size: 11 } },
+        { path: '/body/p[3]', index: 3, style: 'Heading1', text: '배경', font: { size: 11 } },
+        { path: '/body/p[4]', index: 4, style: 'Normal', text: '묶음 단위로 실어 대기가 길었다.', font: { size: 11 } },
+        { path: '/body/p[5]', index: 5, style: 'Normal', text: '도크별로 나눈 뒤 대기가 사라졌다.', font: { size: 11 } },
+      ],
+    },
+  });
+  const flat = headingReview.find((entry) => entry.code === 'heading_not_distinct');
+  assert.ok(flat, headingReview.map((entry) => entry.code).join(', '));
+  assert.equal(flat.path, '/body/p[3]');
+  const level = headingReview.find((entry) => entry.code === 'heading_style_inconsistent');
+  assert.ok(level);
+  assert.match(level.message, /Level 1 headings are set at 11 \/ 24 pt/);
+
+  // The opposite error renders just as cleanly: a series that stops one row
+  // above the data draws a picture the sheet does not support. A total row left
+  // out is left out on purpose, and a note under the table is not data.
+  const shortSheet = (cells) => ({
+    format: 'xlsx',
+    document: {
+      sheets: [
+        {
+          path: '/sheet[Ops]',
+          name: 'Ops',
+          cells: cells.map((cell) => ({ path: `/sheet[Ops]/cell[${cell.ref}]`, style: {}, ...cell })),
+          charts: [
+            {
+              path: '/sheet[Ops]/chart[1]',
+              series: [{ formula: '=SERIES("처리량",Ops!$A$2:$A$3,Ops!$B$2:$B$3,1)' }],
+            },
+          ],
+        },
+      ],
+    },
+  });
+  const stops = reviewOfficeStructure(
+    shortSheet([
+      { ref: 'B2', value: 120 },
+      { ref: 'B3', value: 118 },
+      { ref: 'B4', value: 96 },
+      { ref: 'A5', value: '출처: 운영 로그' },
+    ])
+  ).find((entry) => entry.code === 'chart_stops_short_of_data');
+  assert.ok(stops);
+  assert.match(stops.message, /stops at row 3 .*through row 4/);
+  assert.ok(
+    !reviewOfficeStructure(
+      shortSheet([
+        { ref: 'B2', value: 120 },
+        { ref: 'B3', value: 118 },
+        { ref: 'A4', value: '합계' },
+        { ref: 'B4', value: 334 },
+      ])
+    ).some((entry) => entry.code === 'chart_stops_short_of_data')
+  );
 
   const powerpoint = reviewOfficeStructure({
     format: 'pptx',
@@ -560,6 +637,68 @@ test('critical Office review rejects persisted empty charts and formula errors',
     },
   });
   assert.equal(deck.find((entry) => entry.code === 'empty_chart')?.severity, 'error');
+});
+
+// Two series in two colours and nothing that says which is which: the legend is
+// off, the labels carry no series name, and the page never writes them either.
+// The chart then draws a difference no reader can attribute.
+test('slide review reports series told apart by colour alone, and accepts a legend written on the page', () => {
+  const deck = (chart, shapes = []) => ({
+    format: 'pptx',
+    document: {
+      slideWidth: 960,
+      slideHeight: 540,
+      slides: [
+        {
+          index: 1,
+          path: '/slide[1]',
+          shapes: [
+            {
+              path: '/slide[1]/shape[1]',
+              index: 1,
+              text: '',
+              left: 60,
+              top: 120,
+              width: 600,
+              height: 300,
+              chart: { path: '/slide[1]/shape[1]/chart', seriesCount: 2, ...chart },
+            },
+            ...shapes,
+          ],
+        },
+      ],
+    },
+  });
+  const series = [{ name: '검출' }, { name: '오탐' }];
+  const unnamed = reviewOfficeStructure(deck({ legend: false, seriesNamesShown: false, series })).filter(
+    (entry) => entry.code === 'chart_series_unnamed'
+  );
+  assert.equal(unnamed.length, 1, JSON.stringify(unnamed));
+  assert.match(unnamed[0].message, /검출, 오탐/);
+  // The legend the chart draws, series-name labels, and a legend the page writes
+  // beside the chart each name the colours.
+  const named = (chart, shapes) =>
+    reviewOfficeStructure(deck(chart, shapes)).filter((entry) => entry.code === 'chart_series_unnamed');
+  assert.deepEqual(named({ legend: true, series }), []);
+  assert.deepEqual(named({ legend: false, seriesNamesShown: true, series }), []);
+  assert.deepEqual(
+    named({ legend: false, seriesNamesShown: false, series }, [
+      {
+        path: '/slide[1]/shape[2]',
+        index: 2,
+        text: '파란 선이 검출, 회색 선이 오탐이다',
+        left: 700,
+        top: 120,
+        width: 200,
+        height: 60,
+      },
+    ]),
+    []
+  );
+  // One series carries its meaning in the title, and a backend that does not
+  // report the legend at all is never guessed at.
+  assert.deepEqual(named({ legend: false, seriesCount: 1, series: [series[0]] }), []);
+  assert.deepEqual(named({ series }), []);
 });
 
 // A spine a slide already shares is a promise: a rule, a connector, and the band
@@ -898,6 +1037,29 @@ test('quality pipeline upgrades critical issues and returns target-specific poli
   assert.match(resolveOfficeRenderOutput('preview.png'), /preview\.pdf$/);
 });
 
+// A deck went out with a footer printed on top of its own source line, and the
+// overlap had been sitting in its warnings the whole time. Two blocks in each
+// other's space, words a box cannot hold, and a picture that draws nothing are
+// wrong at delivery whatever the author meant; a layout judgement is the
+// author's to make, and stays readable beside them instead of blocking.
+test('measured collisions block a submission while layout judgements stay advisory', () => {
+  for (const code of ['shape_overlap', 'text_overflow', 'blank_image']) {
+    const [promoted] = normalizeOfficeReviewIssues([
+      { severity: 'warning', code, path: '/slide[4]', message: `${code} on slide 4` },
+    ]);
+    assert.equal(promoted.severity, 'error', code);
+    assert.equal(evaluateOfficeSubmissionGate({ persisted: true, issues: [promoted] }).ok, false, code);
+  }
+  const judgement = {
+    severity: 'warning',
+    code: 'layout_visual_imbalance',
+    path: '/slide[4]',
+    message: 'the left column carries most of the weight',
+  };
+  assert.equal(normalizeOfficeReviewIssues([judgement])[0].severity, 'info');
+  assert.equal(evaluateOfficeSubmissionGate({ persisted: true, issues: [judgement] }).ok, true);
+});
+
 test('one content model binds the same sourced facts across Word, Excel, and PowerPoint', () => {
   const content = {
     packageId: 'july-review',
@@ -1107,6 +1269,260 @@ test('semantic composers emit editorial rhythm, dashboard print setup, and nativ
       }),
     /action:author/
   );
+});
+
+// A page whose boxes are all one size has no voice the eye reaches first; a
+// page where one box leads the rest has, and is left alone.
+test('slide review reports a page of peers with nothing leading them', () => {
+  const page = (sizes) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      {
+        path: '/slide[1]',
+        index: 1,
+        shapes: sizes.map((size, index) => ({
+          path: `/slide[1]/shape[${index + 1}]`,
+          index: index + 1,
+          type: 'p:sp',
+          text: `항목 ${index + 1}`,
+          left: 60,
+          top: 60 + index * 90,
+          width: 400,
+          height: 60,
+          font: { size },
+        })),
+      },
+    ],
+  });
+  const flat = reviewOfficeStructure({ format: 'pptx', document: page([16, 16, 16]) });
+  const reported = flat.find((entry) => entry.code === 'slide_hierarchy_flat');
+  assert.ok(reported, flat.map((entry) => entry.code).join(', '));
+  assert.match(reported.message, /none leading the others/);
+  assert.ok(
+    !reviewOfficeStructure({ format: 'pptx', document: page([30, 16, 16]) }).some(
+      (entry) => entry.code === 'slide_hierarchy_flat'
+    )
+  );
+  // A title beside its hero numeral shares the loud size, so the geometry induces no single title — and the page was
+  // reported as having nowhere to start although its type leads by more than double. Ten of these across the shipped
+  // decks. The step down to the rest of the page is the reading, not which of the two boxes wins.
+  assert.deepEqual(
+    reviewOfficeStructure({ format: 'pptx', document: page([36, 35, 17, 15, 10, 9]) }).filter(
+      (entry) => entry.code === 'slide_hierarchy_flat'
+    ),
+    []
+  );
+  // A page whose loudest line is a step over its neighbours still has no voice: 18 over 16 is not a hierarchy.
+  assert.ok(
+    reviewOfficeStructure({ format: 'pptx', document: page([18, 16, 16, 16]) }).some(
+      (entry) => entry.code === 'slide_hierarchy_flat'
+    )
+  );
+});
+
+// A figure and the words naming it sit close on purpose. The exemption read
+// only a value over its caption and stopped at twelve characters, so a stat
+// block wrote two crowding reports for the grouping the page had right.
+test('slide review leaves a stat and its label alone but still reports crowded body lines', () => {
+  const page = (shapes) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      {
+        path: '/slide[1]',
+        index: 1,
+        shapes: shapes.map((shape, index) => ({
+          path: `/slide[1]/shape[${index + 1}]`,
+          index: index + 1,
+          type: 'p:sp',
+          left: 590,
+          width: 326,
+          ...shape,
+        })),
+      },
+    ],
+  });
+  const stat = reviewOfficeStructure({
+    format: 'pptx',
+    document: page([
+      { text: '성공률', top: 297, height: 30, font: { size: 18 } },
+      { text: '86.5% / 86.1%', top: 333, height: 42, font: { size: 27 } },
+      { text: 'Mixdog / Codex CLI', top: 377, height: 23, font: { size: 13 } },
+    ]),
+  }).filter((entry) => entry.code === 'text_spacing_tight');
+  assert.deepEqual(stat, []);
+  const crowded = reviewOfficeStructure({
+    format: 'pptx',
+    document: page([
+      { text: '지난 분기에는 대기 시간이 길었다', top: 297, height: 30, font: { size: 18 } },
+      { text: '이번 분기에는 대기 시간이 사라졌다', top: 329, height: 30, font: { size: 18 } },
+    ]),
+  }).filter((entry) => entry.code === 'text_spacing_tight');
+  assert.equal(crowded.length, 1, JSON.stringify(crowded));
+});
+
+// The head and the card were reported as crowded on every shipped deck: a kicker sits a hair over the title it
+// introduces, and a card's label sits on its body — both are one unit, and the pair rule only knew the short label
+// over a figure. 63 of these across 33 delivered decks buried the collisions that mattered in the same list.
+test('a kicker over its title and a label over its paragraph are one unit, not crowded text', () => {
+  const page = (shapes) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [{ path: '/slide[1]', index: 1, shapes: shapes.map((shape, index) => ({ index: index + 1, ...shape })) }],
+  });
+  const tight = (shapes) =>
+    reviewOfficeStructure({ format: 'pptx', document: page(shapes) }).filter(
+      (entry) => entry.code === 'text_spacing_tight'
+    );
+
+  // The eyebrow line: long enough to miss the label rule, one line, a third of the title's size, 2 pt above it.
+  assert.deepEqual(
+    tight([
+      { text: 'DIAGNOSTIC ANATOMY & BOTTLENECK ANALYSIS', left: 43, top: 33, width: 500, height: 20, font: { size: 11 } },
+      { text: '레거시 모놀리스 체인의 3대 구조적 한계', left: 43, top: 55, width: 500, height: 47, font: { size: 30 } },
+    ]),
+    []
+  );
+  // The card: a short label in a narrow box over the paragraph it names, one type step apart.
+  assert.deepEqual(
+    tight([
+      { text: '컨텍스트 비대화', left: 60, top: 219, width: 130, height: 19, font: { size: 9.5 } },
+      { text: '단일 프롬프트에 문맥 과밀 주입으로 지연율이 급증한다', left: 60, top: 240, width: 356, height: 27, font: { size: 10.5 } },
+    ]),
+    []
+  );
+  // A heading over the detail it names: the same measure, a step in type, and a label line too long for the old
+  // sixteen-character rule.
+  assert.deepEqual(
+    tight([
+      { text: 'tool calls per report', left: 60, top: 328, width: 331, height: 36, font: { size: 16 } },
+      { text: '21 operations · 13 snapshots · 4 QA round trips', left: 60, top: 367, width: 331, height: 36, font: { size: 12 } },
+    ]),
+    []
+  );
+  // A sentence is not a heading: a paragraph crowding the one under it is still reported, type step or not.
+  assert.equal(
+    tight([
+      { text: '지난 분기에는 대기 시간이 길어 이탈이 늘었다고 보고되었다', left: 60, top: 219, width: 356, height: 27, font: { size: 18 } },
+      { text: '이번 분기에는 대기 시간이 사라졌다', left: 60, top: 248, width: 356, height: 27, font: { size: 14 } },
+    ]).length,
+    1
+  );
+  // Two paragraphs of one measure and one size are still two blocks, and still crowded.
+  assert.equal(
+    tight([
+      { text: '지난 분기에는 대기 시간이 길었다', left: 60, top: 219, width: 356, height: 27, font: { size: 10.5 } },
+      { text: '이번 분기에는 대기 시간이 사라졌다', left: 60, top: 248, width: 356, height: 27, font: { size: 10.5 } },
+    ]).length,
+    1
+  );
+});
+
+// A band laid across a column it does not belong to covers only a quarter of
+// its own area, so the area rule passed it while the page showed the two blocks
+// running into each other — the case the shipped deck carried to delivery.
+test('slide review reports two text blocks that run into each other in one column', () => {
+  const page = (bandTop) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      {
+        path: '/slide[1]',
+        index: 1,
+        shapes: [
+          {
+            path: '/slide[1]/shape[1]',
+            index: 1,
+            type: 'p:sp',
+            text: '탭·폼·다운로드를 조작하고 페이지 상태를 확인한다',
+            left: 43,
+            top: 377,
+            width: 270,
+            height: 63,
+            font: { size: 18 },
+          },
+          {
+            path: '/slide[1]/shape[2]',
+            index: 2,
+            type: 'p:sp',
+            text: '설명에 그치지 않고, 연결된 도구로 작업을 수행한다',
+            left: 43,
+            top: bandTop,
+            width: 873,
+            height: 40,
+            font: { size: 22 },
+          },
+        ],
+      },
+    ],
+  });
+  const collided = reviewOfficeStructure({ format: 'pptx', document: page(425) }).filter(
+    (entry) => entry.code === 'shape_overlap'
+  );
+  assert.equal(collided.length, 1, JSON.stringify(collided));
+  assert.match(collided[0].message, /run into each other over 15 pt/);
+  // Below the column the same band is a separate block, and the slack an
+  // auto-fitting box carries is not a collision.
+  for (const top of [448, 438]) {
+    assert.deepEqual(
+      reviewOfficeStructure({ format: 'pptx', document: page(top) }).filter((entry) => entry.code === 'shape_overlap'),
+      [],
+      `a band at ${top} pt is not reported`
+    );
+  }
+});
+
+// The most common flaw a human annotator marks on a slide is content something
+// else covers: the box still measures as fitting and its words still read back
+// from the file, so only the z-order says they are hidden.
+test('slide review reports the words a later picture or filled shape covers', () => {
+  const slide = (shapes) => ({
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      {
+        path: '/slide[1]',
+        index: 1,
+        shapes: shapes.map((shape, index) => ({
+          path: `/slide[1]/shape[${index + 1}]`,
+          index: index + 1,
+          type: 'p:sp',
+          ...shape,
+        })),
+      },
+    ],
+  });
+  const covered = reviewOfficeStructure({
+    format: 'pptx',
+    document: slide([
+      { text: '야간 출고 개선', left: 60, top: 60, width: 400, height: 60, font: { size: 28 } },
+      { text: '', left: 40, top: 40, width: 300, height: 120, type: 'p:pic' },
+    ]),
+  }).filter((entry) => entry.code === 'shape_overlap');
+  assert.equal(covered.length, 1, JSON.stringify(covered));
+  assert.match(covered[0].message, /drawn over text shape 1, covering \d+% of it/);
+
+  // The halo under a product render is a gradient that ends at zero alpha, and the kit signs it: the words it reaches
+  // are still read, so every render() page landed with its kicker reported as covered.
+  const haloed = reviewOfficeStructure({
+    format: 'pptx',
+    document: slide([
+      { text: '제품', left: 60, top: 40, width: 300, height: 30, font: { size: 14 } },
+      { text: '', left: 40, top: 20, width: 400, height: 300, type: 'p:pic', name: 'mixdog-device:glow' },
+    ]),
+  }).filter((entry) => entry.code === 'shape_overlap');
+  assert.deepEqual(haloed, []);
+
+  // A card drawn under its own text is the normal way a slide is built.
+  const carded = reviewOfficeStructure({
+    format: 'pptx',
+    document: slide([
+      { text: '', left: 40, top: 40, width: 440, height: 120, fill: { color: 'EEF2F7' } },
+      { text: '야간 출고 개선', left: 60, top: 60, width: 400, height: 60, font: { size: 28 } },
+    ]),
+  }).filter((entry) => entry.code === 'shape_overlap');
+  assert.deepEqual(carded, []);
 });
 
 test('task checklist blocks pending manual requirements and reports deterministic format gates', () => {

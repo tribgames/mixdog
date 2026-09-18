@@ -165,7 +165,7 @@ export function createPowerShellComputerHost(
       });
     },
   });
-  const { callPowerShell, powerShellBySession } = workerPool;
+  const { callPowerShell, powerShellBySession, retirePowerShell } = workerPool;
 
   const sessionState = createSessionState({ callPowerShell });
   const { sessionIdFor } = sessionState;
@@ -173,8 +173,8 @@ export function createPowerShellComputerHost(
   const { assertExecutionNotAborted } = execution;
 
   const windowReads = createWindowReads({ callPowerShell, sessionIdFor });
-  const { readComputerWindows } = windowReads;
-  const targeting = createWindowTargeting({ readComputerWindows });
+  const { readComputerWindows, readInstalledApps } = windowReads;
+  const targeting = createWindowTargeting({ readComputerWindows, readInstalledApps });
   const inspection = createInspection({
     callPowerShell,
     sessionIdFor,
@@ -308,7 +308,19 @@ export function createPowerShellComputerHost(
       if (enabled) bridge.startBridge();
       else {
         userWait.cancel();
-        void bridge.stopBridge().catch(() => {});
+        // A stopped bridge answers no command, so its native workers are pure
+        // cost. Retire them through the session path instead of holding the
+        // processes until dispose.
+        for (const child of new Set(powerShellBySession.values())) {
+          retirePowerShell(child, new Error('computer bridge stopped'));
+        }
+        // A bridge that refuses to stop would keep answering agent commands
+        // after the user switched Computer Use off, so the failure is recorded.
+        void bridge.stopBridge().catch((error) => {
+          diagnose('computer_bridge_stop_failed', {
+            message: String((error as Error)?.message || error),
+          });
+        });
       }
     },
     setObserveOnly(enabled: boolean): void {

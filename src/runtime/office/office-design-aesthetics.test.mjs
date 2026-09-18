@@ -7,6 +7,7 @@ import { reviewRenderedOfficePages } from './quality/assurance.mjs';
 import { resolveOfficeDesign } from './design/design-system.mjs';
 import { scoreOfficeReleaseQuality } from './quality/quality-score.mjs';
 import { reviewOfficeDesign } from './quality/design-review.mjs';
+import { reviewPptxDeckDiversity } from './quality/design-deck-diversity.mjs';
 import { isAdvisoryOfficeIssue } from './quality/quality-pipeline.mjs';
 
 function renderedImage(page, draw, { width = 320, height = 180 } = {}) {
@@ -576,4 +577,62 @@ test('deck review reports three consecutive same compositions and reads signed s
   // The measured verdicts are targets, not information.
   assert.equal(isAdvisoryOfficeIssue({ code: 'consecutive_composition_repeat' }), false);
   assert.equal(isAdvisoryOfficeIssue({ code: 'repeated_layout_grammar' }), false);
+
+  // A style carries a decoration set, so two anchors in a row drawing one device is the same page twice. The kit
+  // writes the device into the picture's description, which is where the run is read from.
+  const decorated = (kinds) =>
+    review(
+      varied.map((slide, index) =>
+        kinds[index]
+          ? { ...slide, shapes: [...slide.shapes, { type: 13, altText: `${kinds[index]} motif`, left: 0, top: 0, width: 960, height: 540 }] }
+          : slide
+      )
+    );
+  const repeatedDevice = decorated(['rings', '', '', '', 'rings', 'rings']).find(
+    (entry) => entry.code === 'repeated_decoration'
+  );
+  assert.ok(repeatedDevice, 'one device on two pages in a row is reported');
+  assert.match(repeatedDevice.message, /Slides 5-6/);
+  assert.match(repeatedDevice.message, /rings/);
+  // The same two pages taking the set's two devices, and one device echoed across the deck, are not runs.
+  assert.equal(
+    decorated(['rings', '', '', '', 'rings', 'arcs']).some((entry) => entry.code === 'repeated_decoration'),
+    false
+  );
+  assert.equal(
+    decorated(['rings', '', '', '', '', '', '', 'rings']).some((entry) => entry.code === 'repeated_decoration'),
+    false
+  );
+  assert.equal(isAdvisoryOfficeIssue({ code: 'repeated_decoration' }), false);
+});
+
+// An authored deck declares its directions on the brief's own line, and the check read only the composer's payload:
+// every authored deck was told it had no art direction, however carefully its brief compared the two compositions
+// the skill asks for.
+test('the art direction reading accepts the directions an authored brief declares', () => {
+  const document = {
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [1, 2, 3].map((index) => ({
+      index,
+      shapes: [{ type: 17, text: `쪽 ${index}`, left: 58, top: 46, width: 780, height: 70, font: { size: 40 } }],
+    })),
+  };
+  const codes = (design) => reviewPptxDeckDiversity({ document, design }).map((entry) => entry.code);
+  assert.ok(codes({}).includes('art_direction_candidates_missing'), 'a deck with neither payload nor brief is named');
+  const brief = {
+    directions: { candidates: [{ id: 'A', text: 'editorial' }, { id: 'B', text: 'swiss-minimal' }], selected: 'A' },
+  };
+  assert.equal(codes({ brief }).includes('art_direction_candidates_missing'), false);
+  // The brief must still say which one it took, and compare more than one.
+  assert.ok(
+    codes({ brief: { directions: { candidates: brief.directions.candidates, selected: '' } } }).includes(
+      'art_direction_candidates_missing'
+    )
+  );
+  assert.ok(
+    codes({ brief: { directions: { candidates: [{ id: 'A', text: 'editorial' }], selected: 'A' } } }).includes(
+      'art_direction_candidates_missing'
+    )
+  );
 });

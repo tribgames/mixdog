@@ -223,13 +223,15 @@ test('existing-session Enter does not wait for the previous host acknowledgement
     }),
     false
   );
+  // A draft's follow-up joins the session its first submit is minting, so it
+  // is queued rather than dropped; useAppSubmitRouting owns the single mint.
   assert.equal(
     shouldBlockPromptSubmit({
       submitting: true,
       draftMode: true,
       slashCommand: false,
     }),
-    true
+    false
   );
   assert.equal(
     shouldBlockPromptSubmit({

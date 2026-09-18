@@ -486,6 +486,17 @@ export class ComputerUseCoordinator {
     });
   }
 
+  /** A worker can be reclaimed while its session still holds window claims. The
+   * claim outlives that process, so another agent cannot seize the reserved
+   * target before the lease itself expires. */
+  hasLiveTargetLease(sessionId: string): boolean {
+    this.pruneExpiredLeases();
+    for (const lease of this.targetLeases.values()) {
+      if (lease.sessionId === sessionId) return true;
+    }
+    return false;
+  }
+
   releaseTargets(sessionId: string): void {
     for (const [windowId, lease] of this.targetLeases) {
       if (lease.sessionId !== sessionId) continue;

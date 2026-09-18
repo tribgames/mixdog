@@ -5,6 +5,236 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+- A page no longer opens by announcing downloads it never made. Saved files
+  belong to the session, but each page tracked what it had reported starting
+  from zero, so every page opened afterwards greeted the caller with the whole
+  backlog — a search page reporting a file another tab had saved minutes
+  earlier. A new page starts already aware of what happened before it existed;
+  a file saved while it is open still reaches it.
+
+- The browser's own faults no longer read as the page's. A timed-out CDP call,
+  a child frame that could not be attached, an interception that could not be
+  answered — all of them were logged as page console errors, so a reply about a
+  healthy site could open with `CDP Runtime.evaluate timed out` as if the site
+  had logged it. They stay readable through `console`, marked `[browser]`, and
+  no longer count among the errors a page is answerable for.
+
+- A deadline reached behind an open dialog says so. An alert, confirm or prompt
+  freezes the page's main thread, so the next call died on its timeout with
+  nothing but the deadline — and the obvious retry timed out the same way. The
+  error now names the dialog and its text, and says to answer it with
+  `handle_dialog` before acting on the page again.
+
+- A client-side route change is answered with the screen it produced, not the
+  one the caller left. Single-page apps move the address with `history.pushState`
+  and render the new view a moment later; no document loads, so the settle saw a
+  quiet page and returned at once — and an `expect.url` was satisfied by the new
+  address before anything was drawn. Clicking "Learn" on react.dev answered with
+  the home page under the `/learn` address. When an action changes the address
+  without a load, the reply now waits for the page to go quiet and a URL
+  condition may not cut that short. Measured on the real-device harness:
+  navigate, click and snapshot latencies are unchanged, because only same-
+  document route changes take the extra wait.
+
+- A WebSocket detail shows the upgrade request it actually sent. Only the
+  address and the handshake response were recorded, so `network` answered with
+  an empty request-header section — and a refused upgrade is usually explained
+  by `Origin`, `Sec-WebSocket-Protocol` or a cookie. Credentials stay redacted.
+
+- A click that opens a tab is no longer reported as a click that did nothing.
+  A `target="_blank"` link leaves the current document untouched, so the reply
+  answered "No observable change" and told the caller to look for a covering
+  element — while the page it had just opened sat in `list_tabs` unmentioned.
+  The reply now names the page that opened and how to act on it.
+
+- `drag` takes snapshot-free targets like every other pointer action. Its two
+  ends only accepted refs or raw coordinates, and the elements a page makes
+  draggable — cards, list rows, drop zones — often carry no accessible name and
+  therefore no ref, so moving one meant grounding a visual snapshot first even
+  when the CSS selector was known. `target` and `dropTarget` now name the two
+  ends, resolved together in one observation; refs and coordinates work as
+  before, and both ends still have to be addressed the same way.
+
+- A saved file is no longer announced as a failed request. An address that
+  turns into a download cancels its own navigation, and Chromium reports that
+  cancellation as `net::ERR_ABORTED`, so a reply that listed the download also
+  listed it as a recent network failure. Cancelled requests — downloads, fetches
+  the page abandoned, navigations replaced by another — stay readable through
+  `network` but are no longer volunteered as faults of the page; a request that
+  genuinely failed still is.
+
+- A `brief` reply no longer turns one filled field into a page-wide change. It
+  compares against the caller's previous observation, and when that observation
+  was capped or filtered it had never reported the rest of the page — so every
+  element outside it was listed as "changed or new". Filling three boxes on a
+  form answered with fifteen elements, and typing one search word answered with
+  a hundred and forty-six. The reply now keeps what the action demonstrably
+  changed apart from what the earlier observation simply never covered, and says
+  how much of the page that observation held. Nothing is omitted either way.
+
+- Request headers in `network` are the ones that were actually sent. Chromium
+  reports a provisional set first and adds language, encoding, client hints and
+  cookies afterwards, so a request detail could show two headers and read as if
+  the page never asked for Korean content. The later set is merged in;
+  credentials are still named and never shown. Header names are case-insensitive
+  and the two reports spell them differently, so the merge keeps one entry per
+  header — the spelling and value that went on the wire — instead of listing
+  `User-Agent` and `user-agent` as if the request carried both.
+
+- Sites see Browser Use as the Chrome build that renders them. The agent string
+  still carried the desktop app version and the Electron runtime, while the
+  client hints the same pages received named Chromium alone; GitHub answered
+  that contradiction with a sign-in wall on a public repository. The browser
+  partition now presents the plain Chrome string — one less fingerprint, and
+  fewer "unsupported browser" detours — and an emulated user agent still wins
+  when a task asks for one.
+
+- Pages that keep attaching frames can be observed again. Portals and news
+  front pages open ad slots and widgets in bursts, and a snapshot that started
+  mid-burst used to give up with "frame topology changed during observation" —
+  reproducibly, on the first and second try. Observations have no side effects,
+  so the collector now waits briefly for the burst to settle and reads again,
+  up to a small ceiling, instead of handing the caller an error for a page that
+  was merely busy. When a reading still fails, the reply now says the page is
+  loaded and only the reading of it failed, so the next step is to observe
+  again rather than abandon a page that is fine.
+
+- A page reports only its own failures. Requests and console errors from the
+  previous document stayed in the ledgers, so a snapshot of a healthy page could
+  list aborted requests from the site visited before it, and `console` on a
+  clean page could answer with the errors of the page before — both sending the
+  reader after a fault that was not there. Loading a new document clears them;
+  navigating inside the same document keeps them, because nothing reloaded.
+
+- Browser Use display races are no longer failures. A capture that loses to a
+  navigation or a window resize now answers with a resample marker instead of
+  an error, because the pane was always going to ask again for whatever the
+  page shows next. Ordinary browsing used to fill the app log with capture
+  failures — seventeen in one harness run, none now — and a paired phone
+  reported the same race as "could not connect to browser screen"; it now
+  re-samples at the active cadence and reports only a display that genuinely
+  stops making progress.
+
+- Clear Browser Use browsing data. The browser pane has an eraser button that
+  removes the cache, the data sites stored on this device, and cookies, each
+  as its own decision: cache is preselected because losing it costs one slower
+  reload, while cookies sign you out of every site and are never the default.
+  Each scope is cleared on its own, so one failure is reported as a failure
+  instead of disappearing behind the scopes that worked. Clearing cookies also
+  rewrites the sealed file that carries session sign-ins across restarts, so a
+  login you cleared does not come back the next time the app opens — and if
+  that file cannot be rewritten, cookies are reported as not cleared rather
+  than as done. Until now the shared partition grew on disk with no way to
+  reclaim it.
+
+- Browser Use `performance` metrics report the memory of the process painting
+  the page, not just the JavaScript heap: a page whose images and layers hold
+  the memory used to look small. The reading names the process, since one
+  renderer can paint several pages of the same site.
+
+- Browser Use domain policy covers peer connections. When an operator
+  restricts the domains a page may reach, WebRTC no longer walks past the
+  filter through STUN and TURN: peer connections are refused in the page and
+  in every child frame. Without a domain policy nothing changes, and this
+  remains containment for page code rather than a network boundary.
+
+- Browser Use element screenshots. `snapshot mode=visual` accepts `ref` or
+  `target` and returns that element as its own image. The box is measured in
+  top-document CSS pixels — same-process frames fold their offset in on the
+  page side, a cross-origin frame adds its session offset without the hit
+  test that guards input, because a picture dispatches nothing and a frame
+  under a CSS transform still deserves one — and the crop is scaled by the
+  image-to-viewport ratio, so it holds
+  on a zoomed or high-DPI display. An element taller or wider than the window
+  is cut out of the document capture instead of the viewport, so a long table
+  or article arrives whole rather than ending at the fold; only a page too
+  large to capture falls back to the visible part, and says so. The image is
+  inspection-only: it is never bound as coordinate grounding, because the ref
+  remains the way to act on the element. `mode=semantic`, `fullPage` and
+  `format=pdf` refuse a target rather than ignoring it.
+
+- Browser Use input fidelity. `drag` now completes a page's own HTML5 drag:
+  Chromium's drag interception hands over the payload the page started and
+  the gesture finishes as `dragEnter`/`dragOver`/`drop`, which is what a
+  kanban card, a sortable list or a file drop zone actually listens for;
+  pages that only track mouse events keep the previous path. `type` sends a
+  real key event per character instead of inserting the whole string, so
+  keystroke-driven autocomplete and combo boxes react, while characters
+  outside the US layout (Korean, emoji) are still inserted as text. `press`
+  sends the US key codes for punctuation (`.` was Delete, `-` was Insert),
+  keeps a shortcut from typing a character, and no longer infers Shift from a
+  capital letter, which had turned `Control+A` into `Control+Shift+A`.
+  `upload` drops files on an element that never opens a file chooser, with a
+  guard that neutralizes an unhandled drop — otherwise the browser navigates
+  the page to the dropped file — and reports plainly when nothing accepted it.
+
+- Browser Use observation fidelity. `scroll text=` searches frames and shadow
+  roots like `read` and `expect` do, picks one match across them, and no
+  longer scrolls to a collapsed element. `expect.text` normalizes spaces
+  within a line but keeps line breaks, so indented markup matches while two
+  separate blocks never merge into one sentence. Console diagnostics keep
+  what a page logged: object arguments arrive as a readable preview instead
+  of an empty message, entries name the script and the line a reader would
+  open, and an uncaught bare `throw` carries its location. Snapshots mark
+  `aria-hidden`, a failed native `select` lists the options it did find, and
+  `aria-labelledby` resolves inside a shadow root.
+
+- Browser Use counts the diagnostics it could not fit. A page report shows the
+  three newest console errors and network failures, which read as the whole
+  story: twelve failures arrived as three. The report now names the total and
+  points at `console` or `network` whenever the list is capped.
+
+- Browser Use admits when a page excerpt stops early. The visible text in a
+  snapshot is capped, and the report said only "condensed", so a long article
+  read as if the excerpt were the whole page. Both snapshot paths — the
+  accessibility capture and the DOM fallback — now mark a clipped excerpt, and
+  the report names how much it carries and says the page holds more.
+
+- Attachments report the size of the image they actually produced. Fitting an
+  image to a vision patch budget trims the edges one at a time, which can ask
+  for a box the picture does not fill; the rendition then came out smaller
+  than the size reported beside it, and coordinates mapped through that size
+  were off. The resize now reports the dimensions of the produced image.
+
+- Browser Use says where a page script failed. `evaluate` kept only the first
+  line of the browser's error, so a script of several lines reported
+  `TypeError: ...` with nothing to locate it. The failure now carries the
+  innermost stack frame with it, and the integration harness pins the position
+  a throw on a later line reports.
+
+- Browser Use names a PDF instead of reporting an empty page. Opening a link
+  to a PDF committed the address, but the guest has no viewer for it, so the
+  snapshot showed an untitled page with no text and console noise about a
+  blocked viewer stylesheet — nothing that says what happened. The page report
+  now states that the document is a PDF this browser cannot display and that
+  the file has to be read from its URL, and the failures Chromium's own
+  bundled components raise for their `chrome-extension://` resources no longer
+  appear as the page's console or network errors. The integration harness
+  covers the navigation, the quiet report, and a later snapshot of the page.
+
+- Browser Use stops bouncing `close_tab` off the visible tab. `list_tabs`
+  prints the visible page with an ordinary page id, so aiming `close_tab` at
+  it was answered with `unknown background tab "p12"; call list_tabs` — the
+  listing that handed the id out. The refusal now says the page belongs to
+  the browser panel and points at navigating it elsewhere or `hide`, and
+  unrelated names still report an unknown background tab.
+
+- Browser Use says what a leave confirmation actually did. A page that guards
+  unsaved work stopped a navigation with a `beforeunload` dialog, and the
+  reply asked for `handle_dialog` — but Chromium answers that confirmation
+  itself, so the call always came back "no JavaScript dialog is currently
+  open" while repeating the navigation repeated the same instruction. The
+  reply now states that the navigation was abandoned and the page stayed,
+  that there is nothing left to answer, and that the work the page holds has
+  to be finished or discarded first; the integration harness holds the whole
+  sequence, including the navigation going through once the guard is gone.
+
+- Browser Use locale emulation reaches the server. `emulate locale` set
+  `navigator.language` alone, so the page kept asking for the old language
+  and sites negotiated content the emulation contradicted; it now carries the
+  locale as `Accept-Language` too, and clearing it restores the browser's own
+  negotiation.
+
 ## v0.9.171 - 2026-09-18
 
 - Release recovery: the staged production relay artifact is keyed to the run

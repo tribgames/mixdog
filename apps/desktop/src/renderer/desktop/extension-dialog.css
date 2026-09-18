@@ -236,7 +236,9 @@
   gap: 8px;
 }
 /* Status pill = .settings-status: a bordered pill with a dot, tinted by
-   tone (green = connected/running, amber = attention, neutral otherwise). */
+   tone (green = connected/running, amber = attention, red = failed, neutral
+   otherwise) — the same tones the sidebar row tag uses, so one state never
+   reads as two different severities. */
 .extensions-item-status {
   min-width: 0;
   height: 18px;
@@ -271,6 +273,12 @@
   border-color: color-mix(in srgb, var(--mx-warning) 35%, transparent);
   color: var(--mx-warning);
   background: color-mix(in srgb, var(--mx-warning) 10%, transparent);
+}
+.extensions-item[data-tone="danger"] .extensions-item-status,
+.extensions-dialog-title-status[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--mx-danger) 35%, transparent);
+  color: var(--mx-danger);
+  background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
 }
 /* A dropdown on a row's trailing edge keeps a readable width. */
 .extensions-dialog-title-status {

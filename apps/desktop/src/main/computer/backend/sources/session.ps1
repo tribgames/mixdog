@@ -61,6 +61,8 @@ function Get-SessionState($id) {
       OriginalFocus = [IntPtr]::Zero
       OriginalFocusMonitor = ''
       OriginalFocusSequence = $null
+      HeldPointerTargets = @{}
+      HeldKeys = @{}
     }
   }
   return $Sessions[$key]

@@ -1,4 +1,4 @@
-import type { DesktopBrowserPageFrame } from '../../shared/contract';
+import type { DesktopBrowserPageFrame, DesktopBrowserPageResample } from '../../shared/contract';
 
 /** Local pixels are not agent observations. They never reserve the gesture
  * queue, and late results cannot resurrect a released session. */
@@ -25,7 +25,11 @@ export function createBrowserPresentationReads(host: {
     }
   }
   return {
-    read(sessionId: string, previousId = '', texture = false): Promise<DesktopBrowserPageFrame> {
+    read(
+      sessionId: string,
+      previousId = '',
+      texture = false
+    ): Promise<DesktopBrowserPageFrame | DesktopBrowserPageResample> {
       if (disposed) return Promise.reject(new Error('Browser display is closed.'));
       const key = JSON.stringify([sessionId, texture]);
       let read = reads.get(key);
@@ -52,10 +56,23 @@ export function createBrowserPresentationReads(host: {
           .catch(() => {});
       }
       const { work, controller } = read;
-      return work.then((frame) => {
-        controller.signal.throwIfAborted();
-        return previousId === frame.frameId ? { ...frame, image: undefined } : frame;
-      });
+      return work.then(
+        (frame) => {
+          controller.signal.throwIfAborted();
+          return previousId === frame.frameId ? { ...frame, image: undefined } : frame;
+        },
+        (error: unknown) => {
+          // A released or closed display is a real failure, and so is anything
+          // other than losing the race. Only the race becomes a resample: the
+          // caller polls continuously and wants the current page, not a report
+          // about the one that just went away.
+          if (disposed || controller.signal.aborted) throw error;
+          if (error instanceof Error && /page changed during capture/.test(error.message)) {
+            return { resample: true } as const;
+          }
+          throw error;
+        }
+      );
     },
     release,
     dispose(): void {

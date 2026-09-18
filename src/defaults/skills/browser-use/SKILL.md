@@ -85,7 +85,9 @@ resort. `mode=visual` alone cannot ground coordinates.
   Unchanged elements still got new refs; use a known `target` to act on one,
   or request a focused `snapshot` if its identity is unknown.
 - Console errors appear once, when new; an empty console line means nothing
-  new was logged, not that the page is clean.
+  new was logged, not that the page is clean. Both the console log and the
+  network failures belong to the document that produced them: loading a new
+  document starts them empty, and navigating inside one keeps them.
 - A postcondition that was already true before the action is reported as
   inconclusive, not as failure: the action ran once and proved nothing.
 - `file-input`, `accept=…`, and `multiple` states mark file inputs (the
@@ -117,12 +119,16 @@ resort. `mode=visual` alone cannot ground coordinates.
 Bad waits fail more often than bad refs. Use `wait` with a concrete condition
 — `text` that must appear, `textGone` that must disappear, a `url` substring —
 or put the same condition in `expect`. Avoid bare timeouts; `timeoutMs` only
-caps a conditional wait.
+caps a conditional wait. Text conditions collapse runs of spaces, including
+non-breaking ones, but keep line breaks: write the phrase as one line reads,
+not as two blocks joined.
 
 ## Reading and extracting
 
 - `read` — rendered page text, paged with `maxChars` / `offset`, filtered by
-  `query` for matching lines. Prefer this over screenshots for content.
+  `query` for matching lines. Prefer this over screenshots for content. A
+  snapshot's visible text is only an excerpt and says when it stops early;
+  read the document itself rather than answering from that excerpt.
 - `query` (snapshot, read, wait): space-separated keywords match with OR and
   all-keyword matches rank first; `/pattern/i` is a regular expression. A
   filter that matches nothing says so and how many elements or characters it
@@ -135,9 +141,10 @@ caps a conditional wait.
   list small on busy pages.
 - `evaluate` — JS escape hatch, with `ref` bound to `element`/`this`. Use it
   when no built-in action reads what is needed; not as a first move.
-- Screenshots: `mode=visual` or `includeScreenshot`; `fullPage` for the whole
-  document; `format=pdf` prints the page to a file; `image_output=file` keeps
-  large images out of the conversation.
+- Screenshots: `mode=visual` or `includeScreenshot`; `mode=visual` with `ref`
+  or `target` crops to that element, even one taller than the window;
+  `fullPage` for the whole document; `format=pdf` prints the page to a file;
+  `image_output=file` keeps large images out of the conversation.
 
 ## Foreground vs background
 
@@ -199,7 +206,13 @@ instead of `text` (`fill ref checked:true`; the same as a step). Custom
 checkboxes hide the native input behind a label; `fill` and `click` land on
 the label automatically. Rich text
 editors (`contenteditable`) are filled as typed input over a select-all, so
-`fill` works on them like on a textarea.
+`fill` works on them like on a textarea. `fill` sets a value in one step and is
+the default; `type` sends one real keystroke per character, which is what a
+search box, autocomplete, or combobox that only reacts to keys needs.
+
+**PDF address** — this browser has no PDF viewer, so such a page reports that
+it is a PDF and carries nothing to act on; read the file from its URL with a
+file-reading tool instead of clicking around the page.
 
 **Multi-page task** — keep one snapshot per page; `list_tabs` when targets or
 ownership are unknown, then act on the intended tab. Use `back` instead of
@@ -209,10 +222,21 @@ earlier snapshot showed.
 **Downloads / uploads** — `downloads` lists and can `wait` for and `attach`
 the newest file (≤ 8 MiB). A wait pins the newest download, or the next one to
 start; provide `downloadId` to choose another. `upload` takes absolute `paths`;
-clicking a non-file ref opens its chooser first.
+clicking a non-file ref opens its chooser first, and a target that opens none
+receives the files as a drop. A target that takes neither says so instead.
+
+**Drag and drop** — `drag` moves between two ends addressed the same way:
+`ref`+`targetRef`, `target`+`dropTarget`, or grounded coordinates. Drop zones
+and cards often have no accessible name, so a CSS `selector` target is usually
+the shortest route. A page that answers the gesture with its own HTML5 drag — kanban
+cards, sortable lists, file drop zones — is carried through to a real drop, so
+the reply reflects the dropped state, not just a pointer that moved.
 
 **Dialogs** — an alert/confirm/prompt halts the flow; answer it with
 `handle_dialog` (`accept`, optional `promptText`) and read the fresh snapshot.
+A page guarding unsaved work is different: the browser answers that leave
+confirmation itself and abandons the navigation, so finish or discard the work
+in the page instead of retrying the same `navigate`.
 
 ## Debugging a web app
 

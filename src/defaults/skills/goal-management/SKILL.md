@@ -63,8 +63,9 @@ not just the conversation. Reconcile the Goal before research or execution:
   requirements; drop a task only after the user changes its scope.
 - Prefer `update_tasks` for changed items; `set_tasks` replaces the full list.
   Serialize mutations to the same Goal. `resume` accepts updates and additions
-  atomically. Starting approved work can resume a user-answer wait, never a
-  user-initiated pause. Bookkeeping alone does not authorize execution.
+  atomically. Starting approved work can resume a user-answer wait or a
+  cancelled-turn pause, never a user-initiated pause. Bookkeeping alone does
+  not authorize execution.
 - Batch related task changes and independent work. Creation, status, and resume return full state; other
   successful replies are brief and need no confirmation read.
 
@@ -78,6 +79,12 @@ Pause only when all remaining tasks await a user answer. Include the required
 answer as `blocker` and ask the parked questions together. Do not pause merely
 because clarification would help. Respect a user-initiated pause until the user
 asks to continue; routine errors and retries are not reasons to pause.
+
+A cancelled turn pauses the Goal with `pauseReason: cancelled`. The user stopped
+that turn, not the objective, and only the stop control retires a Goal. Judge the
+next instruction: resume and continue the work when it carries this objective
+forward or redirects it, and leave the Goal paused when it is unrelated or asks
+you to stay stopped.
 
 Each continuation should do concrete work or wait on a verified live handle.
 Evidence that changes the next action is progress; repeated reports and plan

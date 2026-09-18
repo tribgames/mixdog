@@ -88,7 +88,12 @@ test('a resting pointer fades after the idle period and returns with its next ev
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let clock = 1_000_000;
   let changed = 0;
-  const tail = createCursorTail(() => changed++, 1500, 20_000, () => clock);
+  const tail = createCursorTail(
+    () => changed++,
+    1500,
+    20_000,
+    () => clock
+  );
   t.after(() => tail.dispose());
   const modes = new Map([['a', 'background']]);
   const first = { sessionId: 'a', eventId: 1, mode: 'background', updatedAt: clock };
@@ -118,7 +123,9 @@ test('ending sessions immediately clears their tails and timers without acceptin
   const tail = createCursorTail(() => changes++);
   t.after(() => tail.dispose());
   const cursors = Array.from({ length: 200 }, (_, index) => ({
-    sessionId: `session-${index}`, eventId: index + 1, mode: 'background',
+    sessionId: `session-${index}`,
+    eventId: index + 1,
+    mode: 'background',
   }));
   const modes = new Map(cursors.map((cursor) => [cursor.sessionId, cursor.mode]));
   assert.equal(tail.update(cursors, false, modes).length, 200);

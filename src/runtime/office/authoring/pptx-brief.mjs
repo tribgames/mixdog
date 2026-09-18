@@ -2,8 +2,8 @@
 // §3). The runtime reads it back as information: the slide plan (each slide's
 // job, relationship, move, composition, and carriers), the three directions
 // and the selected one, the style line, and the fact sheet (which numbers the
-// deck may show, with their sources). The plan is the author's intent, never a
-// layout the review enforces.
+// deck may show, with their sources). The plan is the contract the author
+// writes before any geometry exists, and `planGate` holds the deck to it.
 
 const PLAN_KEYS = ['job', 'relationship', 'move', 'composition', 'carriers', 'texture', 'rhythm'];
 
@@ -192,8 +192,9 @@ export function plannedCarrierGaps(document, brief) {
   return gaps;
 }
 
-// The plan is the author's stated intent, not a layout the review enforces:
-// what it reports here is advisory (severity info).
+// The review reports the same reading the gate refuses on: a carrier the plan
+// named and the slide does not show is a defect (the page was designed for it),
+// while a stale slide count is information.
 export function reviewBriefPromises(document, brief) {
   const issues = [];
   const slides = Array.isArray(document?.slides) ? document.slides : [];
@@ -210,12 +211,43 @@ export function reviewBriefPromises(document, brief) {
       issue(
         'plan_promise_missing',
         `/slide[${gap.slide}]`,
-        `The plan names ${gap.carrier} among the slide's carriers but the slide does not seem to carry ${gap.label}.`,
-        'info'
+        `The plan names ${gap.carrier} among the slide's carriers but the slide does not seem to carry ${gap.label}.`
       )
     );
   }
   return issues;
+}
+
+// The plan gate: a deck of two or more slides is a presentation, and its brief
+// answers two questions per page before any geometry exists — what job the page
+// does, and what carries it. A plan that leaves a page unwritten, a line with no
+// job or carriers, and a page that does not carry what its own line named are
+// refused at author, the way the fact sheet is. A single slide is a specimen or
+// a probe, not a presentation, so it is not gated.
+const PLAN_REQUIRED_SLIDES = 2;
+
+export function planGate(document, brief) {
+  if (!brief?.present) return { blocked: false };
+  const slides = Array.isArray(document?.slides) ? document.slides : [];
+  if (slides.length < PLAN_REQUIRED_SLIDES) return { blocked: false };
+  const plan = Array.isArray(brief.plan) ? brief.plan : [];
+  if (!plan.length) return { blocked: true, code: 'plan_missing', slides: [] };
+  const planned = new Set(plan.map((entry) => entry.slide));
+  const unplanned = slides
+    .map((slide) => Number(slide.index))
+    .filter((index) => Number.isFinite(index) && !planned.has(index))
+    .map((slide) => ({ slide }));
+  if (unplanned.length) return { blocked: true, code: 'plan_slide_unplanned', slides: unplanned };
+  const drawn = new Set(slides.map((slide) => Number(slide.index)));
+  const incomplete = plan
+    .filter((entry) => drawn.has(entry.slide) && (!entry.job || !entry.carriers.length))
+    .map((entry) => ({
+      slide: entry.slide,
+      missing: [entry.job ? '' : 'job', entry.carriers.length ? '' : 'carriers'].filter(Boolean),
+    }));
+  if (incomplete.length) return { blocked: true, code: 'plan_incomplete', slides: incomplete };
+  const gaps = plannedCarrierGaps(document, brief);
+  return gaps.length ? { blocked: true, code: 'plan_promise_missing', slides: gaps } : { blocked: false };
 }
 
 // Numbers a deck shows must come from the fact sheet. Dates, page numbers,

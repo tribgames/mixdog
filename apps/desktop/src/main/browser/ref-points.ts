@@ -12,12 +12,21 @@ import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
 import { browserRefElementSource } from './ref-access';
 import type { BrowserRefSet } from './ref-recovery';
+import { BROWSER_REF_RECT, browserRefRectExpression } from './ref-rect';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 import { formatSnapshot, type SnapshotDiagnosticsView } from './snapshot-format';
 import { browserRefPointExpression } from './snapshot-scripts';
 import { createBrowserHitTarget } from './hit-target';
 import { BROWSER_STABLE_RECT } from './stable-rect';
 import { timedBrowserOperation } from './timing';
+
+interface RefRectMeasurement {
+  error?: string;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}
 
 /** The screenshot a coordinate action is allowed to be expressed in. */
 export interface VisualGrounding {
@@ -303,6 +312,61 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     return { x: point.x, y: point.y };
   }
 
+  /** The element's box, for a screenshot crop rather than a gesture. */
+  async function probeRefRect(
+    guest: WebContents,
+    ref: string,
+    signal?: AbortSignal
+  ): Promise<{ x: number; y: number; width: number; height: number }> {
+    const accessibility = await callAccessibilityRef<RefRectMeasurement>(
+      guest,
+      ref,
+      `async function() { return (${BROWSER_REF_RECT})(this); }`,
+      [],
+      signal
+    );
+    let measured: RefRectMeasurement;
+    if (accessibility.handled) {
+      const target = accessibilityRefsByGuest.get(guest)?.refs.get(ref);
+      if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
+      measured = accessibility.value;
+      if (!measured?.error && typeof measured?.x === 'number' && typeof measured?.y === 'number') {
+        // The page measured its own realm; only the cross-origin frame offset
+        // is left to add. A picture dispatches nothing, so the offset is taken
+        // without the hit test that guards input against a covered frame.
+        const frameOffset = await frameOffsetForSession(guest, target.sessionId, signal);
+        measured = { ...measured, x: frameOffset.x + measured.x, y: frameOffset.y + measured.y };
+      }
+    } else {
+      measured = await evaluate<RefRectMeasurement>(guest, browserRefRectExpression(ref), signal);
+    }
+    if (
+      !measured ||
+      measured.error ||
+      typeof measured.x !== 'number' ||
+      typeof measured.y !== 'number' ||
+      !measured.width ||
+      !measured.height
+    ) {
+      if (measured?.error === 'moving') {
+        throw new BrowserActionabilityError(`ref ${ref} is still moving; wait briefly and try again`, 'moving');
+      }
+      if (measured?.error === 'not-visible') {
+        throw new BrowserActionabilityError(`ref ${ref} is not visible; take a fresh snapshot first`, 'hidden');
+      }
+      throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
+    }
+    return { x: measured.x, y: measured.y, width: measured.width, height: measured.height };
+  }
+
+  function resolveRefRect(
+    guest: WebContents,
+    ref: string,
+    signal?: AbortSignal
+  ): Promise<{ x: number; y: number; width: number; height: number }> {
+    return waitForBrowserActionable(() => probeRefRect(guest, ref, signal), signal);
+  }
+
   function bindVisualGrounding(
     guest: WebContents,
     refSet: BrowserRefSet,
@@ -377,6 +441,7 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
 
   return {
     resolveRefPoint: timedBrowserOperation('actionability', resolveRefPoint),
+    resolveRefRect: timedBrowserOperation('actionability', resolveRefRect),
     bindVisualGrounding,
     visualPoint: timedBrowserOperation('actionability', visualPoint),
     guardRef: timedBrowserOperation('actionability', guardRef),

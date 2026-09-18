@@ -101,6 +101,118 @@ test('design tokens replace unsafe typefaces and keep palettes readable', () => 
   assert.equal(saturatedHueFamilies(['60A5FA', 'A3E635', 'A78BFA']).length, 3);
 });
 
+// A page that fits its words is not a page anyone reads from a seat: past every
+// reference body page and covering half the canvas, it is a document projected.
+test('deck review reports a slide that projects a wall of prose', () => {
+  const prose = '야간 출고는 묶음 단위로 실어 대기가 길어졌고 도크별 분할 이후 대기가 사라졌다. '.repeat(20);
+  const document = {
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      {
+        index: 1,
+        shapes: [{ index: 1, type: 'p:sp', left: 50, top: 40, width: 860, height: 60, text: '운영 보고', font: { size: 30 } }],
+      },
+      {
+        index: 2,
+        shapes: [
+          { index: 1, type: 'p:sp', left: 50, top: 36, width: 860, height: 50, text: '지난 분기 요약', font: { size: 28 } },
+          { index: 2, type: 'p:sp', left: 50, top: 110, width: 860, height: 360, text: prose, font: { size: 12 } },
+        ],
+      },
+      {
+        index: 3,
+        shapes: [
+          { index: 1, type: 'p:sp', left: 50, top: 36, width: 860, height: 50, text: '표로 본 분기', font: { size: 28 } },
+          {
+            index: 2,
+            type: 'p:graphicFrame',
+            left: 50,
+            top: 110,
+            width: 860,
+            height: 360,
+            text: prose,
+            table: { rows: 8, columns: 4 },
+          },
+        ],
+      },
+    ],
+  };
+  const { issues } = reviewOfficeDesign({ format: 'pptx', document, design: { review: true } });
+  const walls = issues.filter((entry) => entry.code === 'slide_text_dense');
+  assert.equal(walls.length, 1, issues.map((entry) => `${entry.code}${entry.path}`).join(', '));
+  assert.equal(walls[0].path, '/slide[2]');
+  // The same words inside a table are a table, not a wall: the carrier reads them.
+  assert.ok(!walls.some((entry) => entry.path === '/slide[3]'));
+});
+
+// A row of peers is one set to the reader: the odd size reads as a mistake, and
+// the page's own geometry is what says which boxes form the row.
+test('deck review reports a row of peers whose type does not match', () => {
+  const box = (index, left, top, width, height, text, size) => ({
+    index,
+    type: 'p:sp',
+    left,
+    top,
+    width,
+    height,
+    text,
+    font: { size },
+    fonts: ['Noto Sans KR'],
+  });
+  const document = {
+    slideWidth: 960,
+    slideHeight: 540,
+    slides: [
+      { index: 1, shapes: [box(1, 60, 190, 640, 100, '표지', 40)] },
+      {
+        index: 2,
+        shapes: [
+          box(1, 50, 36, 860, 64, '도입 전후 비교', 30),
+          box(2, 50, 144, 400, 44, '도입 전', 20),
+          box(3, 500, 144, 400, 44, '도입 후', 18),
+          box(4, 50, 202, 400, 115, '묶음으로 실어 대기가 길었다', 14),
+          box(5, 500, 202, 400, 115, '도크별로 나눠 대기가 사라졌다', 14),
+        ],
+      },
+    ],
+  };
+  const { issues } = reviewOfficeDesign({ format: 'pptx', document, design: { review: true } });
+  const peer = issues.find((entry) => entry.code === 'peer_style_inconsistent');
+  assert.ok(peer, issues.map((entry) => entry.code).join(', '));
+  assert.match(peer.message, /column-title boxes are set at 18 \/ 20 pt/);
+  assert.equal(peer.path, '/slide[2]');
+
+  // A narrow label beside the sentence it introduces is not a row of peers: they
+  // hold different columns, and reading them as one set reported the grammar a
+  // shipped deck had right on every one of its rows.
+  const labelled = reviewOfficeDesign({
+    format: 'pptx',
+    document: {
+      slideWidth: 960,
+      slideHeight: 540,
+      slides: [
+        { index: 1, shapes: [box(1, 60, 190, 640, 100, '표지', 40)] },
+        {
+          index: 2,
+          shapes: [
+            box(1, 43, 73, 873, 54, '모델 선택부터 작업 기억까지 연결한다', 36),
+            box(2, 61, 178, 140, 42, '모델 선택', 27),
+            box(3, 252, 168, 665, 40, '역할에 맞게 모델을 지정한다', 22),
+            box(4, 61, 276, 140, 42, '작업 분담', 27),
+            box(5, 252, 267, 665, 40, '병렬 작업을 조율한다', 22),
+          ],
+        },
+      ],
+    },
+    design: { review: true },
+  }).issues;
+  assert.deepEqual(
+    labelled.filter((entry) => entry.code === 'peer_style_inconsistent'),
+    []
+  );
+});
+
 test('deck review blocks mixed typefaces, unsafe fonts, and rainbow accents from saved slides', () => {
   const slide = (index, shapes) => ({
     index,

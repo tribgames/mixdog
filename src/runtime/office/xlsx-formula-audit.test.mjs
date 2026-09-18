@@ -44,6 +44,59 @@ test('inline constants and unguarded division follow the modelling rules', () =>
   assert.equal(unguardedDivision('=IF(C5=0,0,B5/C5)'), false);
 });
 
+test('a table column where one row wears another number format is reported', () => {
+  const table = (style) => ({
+    ...sheet('Sales', [
+      ['A1', { value: 'Region' }],
+      ['B1', { value: 'Revenue' }],
+      ['A2', { value: '서울' }],
+      ['B2', { value: 1200, style: { numberFormat: '#,##0' } }],
+      ['A3', { value: '부산' }],
+      ['B3', { value: 900, style: { numberFormat: '#,##0' } }],
+      ['A4', { value: '대구' }],
+      ['B4', { value: 640, style: { numberFormat: '#,##0' } }],
+      ['A5', { value: '대전' }],
+      ['B5', { value: 480, style }],
+    ]),
+    tables: [{ name: 'Sales', range: 'A1:B5' }],
+  });
+  const drifted = auditXlsxFormulas([table({ numberFormat: '0.00' })]);
+  assert.deepEqual(codesAt(drifted, 'number_format_inconsistent'), ['/sheet[Sales]/table[1]']);
+  assert.match(drifted.find((entry) => entry.code === 'number_format_inconsistent').message, /B5 under a format/);
+  assert.deepEqual(
+    codesAt(auditXlsxFormulas([table({ numberFormat: '#,##0' })]), 'number_format_inconsistent'),
+    []
+  );
+});
+
+test('a total whose range covers a subtotal of the same rows is reported under every profile', () => {
+  const doubled = sheet('Ops', [
+    ['A1', { value: 'Region' }],
+    ['B2', { value: 10 }],
+    ['B3', { value: 20 }],
+    ['B4', { value: 30 }],
+    ['B5', { formula: 'SUM(B2:B4)', value: 60 }],
+    ['B6', { formula: 'SUM(B2:B5)', value: 120 }],
+  ]);
+  const issues = auditXlsxFormulas([doubled]);
+  assert.deepEqual(codesAt(issues, 'subtotal_double_counted'), ['/sheet[Ops]/cell[B6]']);
+  assert.match(issues.find((entry) => entry.code === 'subtotal_double_counted').message, /covers B5/);
+});
+
+test('running totals, detail-only totals, and derived rows are never read as double counting', () => {
+  const clean = sheet('Ops', [
+    ['B2', { value: 10 }],
+    ['B3', { formula: 'C3*D3', value: 20 }],
+    ['B4', { value: 30 }],
+    ['B5', { formula: 'SUM(B2:B4)', value: 60 }],
+    ['C2', { formula: 'SUM($B$2:B2)', value: 10 }],
+    ['C3', { formula: 'SUM($B$2:B3)', value: 30 }],
+    ['C4', { formula: 'SUM($B$2:B4)', value: 60 }],
+    ['E5', { formula: "SUM('Detail Rows'!B2:B4)", value: 60 }],
+  ]);
+  assert.deepEqual(codesAt(auditXlsxFormulas([clean]), 'subtotal_double_counted'), []);
+});
+
 test('financial-model audit reports modelling discipline; every profile reports workbook hygiene', () => {
   const model = sheet('Model', [
     ['A1', { value: 'Growth', style: { bold: true } }],
@@ -74,6 +127,31 @@ test('financial-model audit reports modelling discipline; every profile reports 
   assert.deepEqual(codesAt(financial, 'inline_constant_in_formula'), ['/sheet[Model]/cell[E2]']);
   assert.deepEqual(codesAt(financial, 'formula_pattern_inconsistency'), ['/sheet[Model]/cell[E2]']);
   assert.deepEqual(codesAt(financial, 'formula_inconsistency'), ['/sheet[Model]/cell[D3]']);
+  // A schedule whose periods run down the page carries the same defect in the
+  // other direction: a pasted result between the formulas of one column was
+  // read only as an input without a source, never as the break in the schedule.
+  const downward = sheet('Schedule', [
+    ['A1', { value: '분기', dataType: 'text' }],
+    ['B1', { value: '매출', dataType: 'text' }],
+    ['C1', { value: '누계', dataType: 'text' }],
+    ['A2', { value: '1분기', dataType: 'text' }],
+    ['B2', { value: 100 }],
+    ['C2', { formula: 'SUM($B$2:B2)', value: 100 }],
+    ['A3', { value: '2분기', dataType: 'text' }],
+    ['B3', { value: 110 }],
+    ['C3', { formula: 'SUM($B$2:B3)', value: 210 }],
+    ['A4', { value: '3분기', dataType: 'text' }],
+    ['B4', { value: 120 }],
+    ['C4', { value: 330 }],
+    ['A5', { value: '4분기', dataType: 'text' }],
+    ['B5', { value: 130 }],
+    ['C5', { formula: 'SUM($B$2:B5)', value: 460 }],
+  ]);
+  const schedule = auditXlsxFormulas([downward], { auditProfile: 'financial-model', sheetNames: ['Schedule'] });
+  assert.deepEqual(codesAt(schedule, 'formula_inconsistency'), ['/sheet[Schedule]/cell[C4]']);
+  // The inputs the schedule reads are not interruptions: only the cell the
+  // formulas of one column bracket is.
+  assert.deepEqual(codesAt(schedule, 'rogue_hardcode'), []);
   assert.deepEqual(codesAt(financial, 'rogue_hardcode'), ['/sheet[Model]/cell[F3]']);
   assert.deepEqual(codesAt(financial, 'unguarded_division'), ['/sheet[Model]/cell[B4]']);
   assert.deepEqual(codesAt(financial, 'percentage_stored_as_whole'), ['/sheet[Model]/cell[B5]']);
@@ -90,6 +168,27 @@ test('financial-model audit reports modelling discipline; every profile reports 
     'percentage_stored_as_whole',
     'unquoted_sheet_reference',
     'year_with_thousands_separator',
+  ]);
+
+  // A column of figures under #,##0 passes through the year range sooner or later, and every such figure was
+  // reported as a year rendered with a separator; the column beside it says which it is.
+  const quantities = sheet('Volume', [
+    ['A1', { value: '월', dataType: 'text' }],
+    ['B1', { value: '처리량 (건)', dataType: 'text' }],
+    ['B2', { value: 1000, style: { numberFormat: '#,##0' } }],
+    ['B3', { value: 2096, style: { numberFormat: '#,##0' } }],
+    ['B4', { value: 2507, style: { numberFormat: '#,##0' } }],
+  ]);
+  assert.deepEqual(codesAt(auditXlsxFormulas([quantities]), 'year_with_thousands_separator'), []);
+  // A column whose numbers are all in the year range is a year column, and the separator is the defect.
+  const years = sheet('Plan', [
+    ['A1', { value: '연도', dataType: 'text' }],
+    ['A2', { value: 2024, style: { numberFormat: '#,##0' } }],
+    ['A3', { value: 2025, style: { numberFormat: '#,##0' } }],
+  ]);
+  assert.deepEqual(codesAt(auditXlsxFormulas([years]), 'year_with_thousands_separator'), [
+    '/sheet[Plan]/cell[A2]',
+    '/sheet[Plan]/cell[A3]',
   ]);
 
   // Numbers stored as text never sum; a year written as text is deliberate.
