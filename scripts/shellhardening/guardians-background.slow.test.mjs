@@ -1,10 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  path,
-  spawnSync,
   executeBashTool,
-  join,
   _shellFamilyForSpawn,
   descendantsAlive,
   killShellDescendants,
@@ -19,7 +16,6 @@ import {
   _backgroundResultLines,
   normalizeToolEnvelope,
   spawn,
-  fileURLToPath,
   delay,
   childGuardianSpawnEnv,
   startChildGuardian,

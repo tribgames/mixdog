@@ -8,19 +8,28 @@ test('Desktop setup waits for a matching, single-use receipt; snapshot metadata 
   let event;
   const broker = createSetupUiRequests({
     getSessionId: () => 'session-a',
-    notifySessionUi: (_session, content, meta) => { event = { content, meta }; return true; },
+    notifySessionUi: (_session, content, meta) => {
+      event = { content, meta };
+      return true;
+    },
   });
   const args = { action: 'set_instructions', content: 'private instructions' };
   const pending = broker.request(args);
   assert.equal(event.meta.kind, 'setup-ui');
   assert.doesNotMatch(JSON.stringify(event), /private instructions/);
-  assert.deepEqual(resolveTuiRuntimeNotificationDelivery(event, event.content), { action: 'setup-ui', id: event.meta.id });
+  assert.deepEqual(resolveTuiRuntimeNotificationDelivery(event, event.content), {
+    action: 'setup-ui',
+    id: event.meta.id,
+  });
   assert.equal(broker.claimSetupRequest('missing', 'owner'), null);
   const claim = broker.claimSetupRequest(event.meta.id, 'owner');
   assert.deepEqual(claim.args, args);
   assert.equal(broker.claimSetupRequest(event.meta.id, 'other-window'), null);
   assert.equal(broker.completeSetupRequest(event.meta.id, 'wrong-owner', { result: {} }), false);
-  assert.equal(broker.completeSetupRequest(event.meta.id, 'owner', { result: { saved: true, scope: 'desktop-host' } }), true);
+  assert.equal(
+    broker.completeSetupRequest(event.meta.id, 'owner', { result: { saved: true, scope: 'desktop-host' } }),
+    true
+  );
   assert.deepEqual(await pending, { saved: true, scope: 'desktop-host' });
   assert.equal(broker.claimSetupRequest(event.meta.id, 'owner'), null);
   assert.equal(broker.completeSetupRequest(event.meta.id, 'owner', { result: {} }), false);
@@ -31,8 +40,12 @@ test('headless, expired and cancelled requests fail without granting a Desktop m
   await assert.rejects(absent.request({ action: 'set_appearance' }), /no attached Desktop/);
   let id;
   const broker = createSetupUiRequests({
-    getSessionId: () => 's', claimTimeoutMs: 10,
-    notifySessionUi: (_session, _content, meta) => { id = meta.id; return true; },
+    getSessionId: () => 's',
+    claimTimeoutMs: 10,
+    notifySessionUi: (_session, _content, meta) => {
+      id = meta.id;
+      return true;
+    },
   });
   await assert.rejects(broker.request({ action: 'set_appearance' }), /nothing was changed/);
   assert.equal(broker.claimSetupRequest(id, 'owner'), null);
@@ -46,7 +59,8 @@ test('headless, expired and cancelled requests fail without granting a Desktop m
 test('setup uses the Desktop receipt rather than treating notification delivery as saved', async () => {
   let executor;
   executor = createSetupToolExecutor({
-    getApi: () => ({}), getSessionId: () => 's',
+    getApi: () => ({}),
+    getSessionId: () => 's',
     notifySessionUi: (_session, _content, meta) => {
       queueMicrotask(() => {
         const claim = executor.claimSetupRequest(meta.id, 'local-desktop');
@@ -56,7 +70,10 @@ test('setup uses the Desktop receipt rather than treating notification delivery 
       return true;
     },
   });
-  await assert.rejects(executor.execute({ action: 'set_desktop_settings', desktop: { keepAwake: false } }), /Desktop storage failed/);
+  await assert.rejects(
+    executor.execute({ action: 'set_desktop_settings', desktop: { keepAwake: false } }),
+    /Desktop storage failed/
+  );
 });
 
 test('a claimed Desktop request loses mutation authority as soon as its turn is cancelled', async () => {
@@ -64,7 +81,10 @@ test('a claimed Desktop request loses mutation authority as soon as its turn is 
   const controller = new AbortController();
   const broker = createSetupUiRequests({
     getSessionId: () => 's',
-    notifySessionUi: (_session, _content, meta) => { id = meta.id; return true; },
+    notifySessionUi: (_session, _content, meta) => {
+      id = meta.id;
+      return true;
+    },
   });
   const pending = broker.request({ action: 'set_desktop_settings' }, { signal: controller.signal });
   broker.claimSetupRequest(id, 'desktop');

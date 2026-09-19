@@ -95,10 +95,20 @@ test('streaming links keep one inert caption through every incomplete boundary',
 
 test('streaming link healing respects escapes, code, destinations, footnotes and task boxes', () => {
   for (const source of [
-    '\\[literal', '\\[literal]', '`[literal`', '```\n[literal\n```',
-    '[docs](https://x/a_(b))', '[docs](<https://x/a)b>)', '[docs](https://x "a)b")',
-    '[docs](https://x/a\\))', '[docs][ref]\n\n[ref]: https://x',
-    'body[^1]', 'body[^1]\n\n[^1]: note', '- [ ]', '- [x]', '- [ ] todo',
+    '\\[literal',
+    '\\[literal]',
+    '`[literal`',
+    '```\n[literal\n```',
+    '[docs](https://x/a_(b))',
+    '[docs](<https://x/a)b>)',
+    '[docs](https://x "a)b")',
+    '[docs](https://x/a\\))',
+    '[docs][ref]\n\n[ref]: https://x',
+    'body[^1]',
+    'body[^1]\n\n[^1]: note',
+    '- [ ]',
+    '- [x]',
+    '- [ ] todo',
   ]) {
     const healed = balanceStreamingMarkdown(source);
     assert.equal(healed, source, source);

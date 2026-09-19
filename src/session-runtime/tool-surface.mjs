@@ -32,8 +32,10 @@ export function createToolSurface({
     if (session?.id || session?.workflow || session?.orchestrationMode) {
       return sessionOrchestrationMode(session) !== 'none' && session?.workflow?.delegatesAgents !== false;
     }
-    return configuredOrchestrationMode(getConfig()) !== 'none' &&
-      (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0;
+    return (
+      configuredOrchestrationMode(getConfig()) !== 'none' &&
+      (delegatableAgentIds?.(getConfig(), cfgMod.getPluginData?.() || dataDir).length ?? 1) > 0
+    );
   }
 
   function modelStandaloneTools() {

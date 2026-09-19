@@ -73,7 +73,10 @@ test('policy guards reach the root document and every child frame, and stay abse
     injected.map((call) => call.sessionId),
     [undefined, 'frame-1']
   );
-  assert.equal(injected.every((call) => call.params.runImmediately === true), true);
+  assert.equal(
+    injected.every((call) => call.params.runImmediately === true),
+    true
+  );
 
   const unrestricted = fixture();
   await unrestricted.cdp.guestDebugger(unrestricted.guest);

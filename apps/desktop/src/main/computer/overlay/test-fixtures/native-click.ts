@@ -34,6 +34,8 @@ public static class OverlayClickFixture {
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr window, out Rect rect);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr window, StringBuilder text, int count);
   [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr window, StringBuilder text, int count);
+  delegate bool EnumChildProc(IntPtr hWnd, IntPtr lParam);
+  [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr hWnd, EnumChildProc lpEnumFunc, IntPtr lParam);
   /** Raise only this fixture's own window, never activating it or touching another process. */
   static void KeepOnTop(IntPtr window) { SetWindowPos(window, new IntPtr(-1), 0, 0, 0, 0, 0x13); }
   static string Describe(IntPtr window) {
@@ -77,6 +79,14 @@ public static class OverlayClickFixture {
             + ", fixture [" + Describe(root) + "]");
         mode = "locked-session";
         target = root;
+        EnumChildWindows(root, (child, param) => {
+          Rect r; GetWindowRect(child, out r);
+          if (x >= r.Left && x < r.Right && y >= r.Top && y < r.Bottom && ClassOf(child) == "Chrome_RenderWidgetHostHWND") {
+            target = child;
+            return false;
+          }
+          return true;
+        }, IntPtr.Zero);
         break;
       }
       Thread.Sleep(50);

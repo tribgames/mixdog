@@ -229,9 +229,12 @@ export function createResourceApi(deps) {
       const existing = originalName ? servers[originalName] : {};
       // UI editors send complete transports; setup may send a partial patch.
       // Keep omitted fields, including credentials, without returning them.
-      const transportType = (type) => type === 'streamable-http' ? 'http' : type;
-      const transportChanged = (input.type && transportType(input.type) !== transportType(existing.type || (existing.url ? 'http' : 'stdio')))
-        || (input.command && existing.url) || (input.url && !existing.url);
+      const transportType = (type) => (type === 'streamable-http' ? 'http' : type);
+      const transportChanged =
+        (input.type &&
+          transportType(input.type) !== transportType(existing.type || (existing.url ? 'http' : 'stdio'))) ||
+        (input.command && existing.url) ||
+        (input.url && !existing.url);
       const maps = {};
       if (!transportChanged) {
         for (const key of ['env', 'headers', 'env_http_headers']) {

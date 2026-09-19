@@ -238,36 +238,34 @@ export async function runSessionCompaction(session, opts = {}) {
   let compactError = null;
   let freshContextResult = null;
   let freshContextError = null;
-  {
+  try {
+    freshContextResult = await runHandoffCompaction({
+      session,
+      messages,
+      budgetTokens: budget,
+      boundaryTokens: boundary,
+      reserveTokens,
+      contextWindow: positiveInt(session.contextWindow) || boundary,
+      sessionId: resolvedSessionId,
+      signal: opts.signal || null,
+      provider,
+      model: opts.model,
+      config: opts.config,
+      messageTokensEst: beforeMessageTokens,
+    });
+    if (Array.isArray(freshContextResult?.messages)) {
+      compacted = freshContextResult.messages;
+      addCompactUsageToSession(session, freshContextResult.usage, freshContextResult.summaryProvider);
+    }
+  } catch (err) {
+    freshContextError = err;
+    compactError = err;
     try {
-      freshContextResult = await runHandoffCompaction({
-        session,
-        messages,
-        budgetTokens: budget,
-        boundaryTokens: boundary,
-        reserveTokens,
-        contextWindow: positiveInt(session.contextWindow) || boundary,
-        sessionId: resolvedSessionId,
-        signal: opts.signal || null,
-        provider,
-        model: opts.model,
-        config: opts.config,
-        messageTokensEst: beforeMessageTokens,
-      });
-      if (Array.isArray(freshContextResult?.messages)) {
-        compacted = freshContextResult.messages;
-        addCompactUsageToSession(session, freshContextResult.usage, freshContextResult.summaryProvider);
-      }
-    } catch (err) {
-      freshContextError = err;
-      compactError = err;
-      try {
-        process.stderr.write(
-          `[session] fresh-context ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`
-        );
-      } catch {
-        /* best-effort */
-      }
+      process.stderr.write(
+        `[session] fresh-context ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`
+      );
+    } catch {
+      /* best-effort */
     }
   }
   if (!compacted && !compactError) {

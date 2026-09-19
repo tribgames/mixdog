@@ -50,6 +50,7 @@ const TIMEOUT_CODES = new Set([
 ]);
 const TLS_CODE_RE = /^(?:UNABLE_TO_|CERT_|DEPTH_ZERO_SELF_SIGNED|SELF_SIGNED_CERT|ERR_TLS_|HOSTNAME_MISMATCH)/;
 const UNAVAILABLE_STATUSES = new Set([502, 503, 504, 521, 522, 523, 524]);
+const WS_LOST_CLOSE_CODES = new Set([1000, 1001, 1005, 1006, 1011, 1012]);
 
 // Bare runtime messages that carry no code: undici body abort, Node/Chromium/
 // WebKit fetch failures, the Anthropic/OpenAI SDK connection wrapper. Matched
@@ -63,6 +64,9 @@ const UNREACHABLE_PHRASE_RE =
   /\b(?:connection refused|getaddrinfo|dns lookup failed|host (?:not found|unreachable))\b/i;
 const TIMEOUT_PHRASE_RE = /\b(?:connect(?:ion)? timed? ?out|headers timeout|body timeout)\b/i;
 const GATEWAY_STATUS_MESSAGE_RE = /\b(?:API|HTTP(?: fallback)?)\s+(50[234]|52[1-4])\b/;
+// Exact provider messages survive persistence/IPC without wsCloseCode.
+const WS_CLOSE_MESSAGE_RE =
+  /^(?:Error:\s*)?(?:OpenAI(?: OAuth)?|xAI) WS (?:closed before response\.completed|handshake closed before open) \(code=(\d{4})(?:, reason=[\s\S]*)?\)$/;
 
 function causeChain(error) {
   const chain = [];
@@ -146,8 +150,16 @@ export function classifyTransportError(error) {
     if (gateway) return { kind: 'unavailable', code: '', status: Number(gateway[1]) };
   }
   if (!kind) {
+    for (let index = chain.length - 1; index >= 0; index--) {
+      const closeCode = Number(chain[index].wsCloseCode);
+      if (WS_LOST_CLOSE_CODES.has(closeCode)) return { kind: 'lost', code: `WS ${closeCode}`, status: 0 };
+    }
+  }
+  if (!kind) {
     for (const message of messages) {
       if (!message) continue;
+      const closeCode = Number(WS_CLOSE_MESSAGE_RE.exec(message)?.[1]);
+      if (WS_LOST_CLOSE_CODES.has(closeCode)) return { kind: 'lost', code: `WS ${closeCode}`, status: 0 };
       if (LOST_BARE_MESSAGE_RE.test(message) || LOST_PHRASE_RE.test(message)) {
         kind = 'lost';
         break;
@@ -182,6 +194,6 @@ const TRANSPORT_SENTENCES = {
 export function transportErrorText(error) {
   const verdict = classifyTransportError(error);
   if (!verdict) return null;
-  const detail = verdict.code || (verdict.status ? String(verdict.status) : '');
+  const detail = verdict.code.startsWith('WS ') ? '' : verdict.code || (verdict.status ? String(verdict.status) : '');
   return `${TRANSPORT_SENTENCES[verdict.kind]}${detail ? ` (${detail})` : ''}.`;
 }

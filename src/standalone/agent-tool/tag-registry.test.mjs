@@ -48,8 +48,12 @@ function fakeManager(sessions) {
     getSession: (id) => sessions.get(id) || null,
     listSessions: () => [...sessions.values()].filter((session) => session.closed !== true),
     getSessionRuntime: () => null,
-    hideSessionFromList: (id) => { hidden.push(id); },
-    unloadSessionRuntime: (id) => { unloaded.push(id); },
+    hideSessionFromList: (id) => {
+      hidden.push(id);
+    },
+    unloadSessionRuntime: (id) => {
+      unloaded.push(id);
+    },
   };
 }
 
@@ -96,7 +100,10 @@ test('session scan does not resurrect a session the reaper just tombstoned', () 
     // Boot recovery: the 60m window elapsed long ago -> reap + tombstone.
     const registry = makeRegistry(root, mgr);
     assert.deepEqual(storedRows(root), []);
-    assert.equal(storedTombstones(root).some((row) => row.tag === 'review1'), true);
+    assert.equal(
+      storedTombstones(root).some((row) => row.tag === 'review1'),
+      true
+    );
     assert.equal(mgr.hidden.includes('child-a'), true);
 
     registry.refreshTagsFromSessions({ scanSessions: true });
@@ -129,8 +136,14 @@ test('scanned terminal sessions keep their own stamps and elapsed leases reap at
     registry.flushWorkerIndexMutations();
 
     // Elapsed window: reaped immediately instead of buying a fresh one.
-    assert.equal(storedRows(root).some((row) => row.sessionId === 'stale-child'), false);
-    assert.equal(storedTombstones(root).some((row) => row.tag === 'stale1'), true);
+    assert.equal(
+      storedRows(root).some((row) => row.sessionId === 'stale-child'),
+      false
+    );
+    assert.equal(
+      storedTombstones(root).some((row) => row.tag === 'stale1'),
+      true
+    );
     assert.equal(mgr.hidden.includes('stale-child'), true);
     assert.equal(registry.tags.has('stale1'), false);
 
@@ -164,7 +177,10 @@ test('repeated list reads never extend a terminal row lease', () => {
     for (let i = 0; i < 3; i += 1) {
       registry.refreshTagsFromSessions({ scanSessions: true });
       const entries = registry.agentSessionEntries({ scanSessions: true });
-      assert.equal(entries.some((entry) => entry.tag === 'idle1'), true);
+      assert.equal(
+        entries.some((entry) => entry.tag === 'idle1'),
+        true
+      );
       registry.flushWorkerIndexMutations();
       const row = storedRows(root).find((entry) => entry.sessionId === 'idle-child');
       assert.ok(row);
@@ -199,8 +215,14 @@ for (const [label, encode] of [
       registry.refreshTagsFromSessions({ scanSessions: true });
       registry.flushWorkerIndexMutations();
 
-      assert.equal(storedRows(root).some((row) => row.sessionId === 'stale-child'), false);
-      assert.equal(storedTombstones(root).some((row) => row.tag === 'stale1'), true);
+      assert.equal(
+        storedRows(root).some((row) => row.sessionId === 'stale-child'),
+        false
+      );
+      assert.equal(
+        storedTombstones(root).some((row) => row.tag === 'stale1'),
+        true
+      );
       assert.equal(mgr.hidden.includes('stale-child'), true);
 
       const recent = storedRows(root).find((row) => row.sessionId === 'recent-child');
@@ -218,7 +240,10 @@ for (const [label, encode] of [
         assert.equal(row.updatedAt, recent.updatedAt);
         assert.equal(row.reapAt, recent.reapAt);
       }
-      assert.equal(storedRows(root).some((row) => row.sessionId === 'stale-child'), false);
+      assert.equal(
+        storedRows(root).some((row) => row.sessionId === 'stale-child'),
+        false
+      );
     } finally {
       registry.cancelReap('recent-child');
       rmSync(root, { recursive: true, force: true });
@@ -277,7 +302,10 @@ test('tag reuse after a reap consumes the tombstone and binds the fresh session'
     registry.refreshTagsFromSessions({ scanSessions: true, context });
     registry.flushWorkerIndexMutations();
     assert.equal(registry.tags.get('review1'), 'child-b');
-    assert.equal(storedRows(root).some((entry) => entry.sessionId === 'child-b'), true);
+    assert.equal(
+      storedRows(root).some((entry) => entry.sessionId === 'child-b'),
+      true
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

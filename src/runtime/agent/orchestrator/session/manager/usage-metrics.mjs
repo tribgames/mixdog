@@ -397,7 +397,11 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
   if (
     _lastTurn.mainUsageAvailable !== false &&
     measuredInput + measuredCache <= 0 &&
-    applyMeasuredContextOccupancy(session, _lastTurn.contextTokens, _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens)
+    applyMeasuredContextOccupancy(
+      session,
+      _lastTurn.contextTokens,
+      _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens
+    )
   ) {
     return;
   }

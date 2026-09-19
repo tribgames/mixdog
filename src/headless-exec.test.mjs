@@ -137,7 +137,6 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
   const errors = [];
   const runtimeOptions = [];
   const activeScopes = [];
-  let activeChecks = 0;
   let boundaryCleaned = false;
   let boundaryCleanupOptions = null;
   let runtimeClosed = false;
@@ -197,7 +196,6 @@ test('headless exec runs one implicit-approval session and waits for tracked tas
       },
       hasActiveTasks: (scope) => {
         activeScopes.push(scope);
-        activeChecks += 1;
         return false;
       },
       installSignalCleanupFn: () => ({ uninstall() {} }),

@@ -1,33 +1,14 @@
 import { createHash } from 'node:crypto';
-import {
-  cp,
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import {
-  createPackageWithOptions,
-  extractAll,
-  extractFile,
-  listPackage,
-  statFile,
-} from '@electron/asar';
+import { createPackageWithOptions, extractAll, extractFile, listPackage, statFile } from '@electron/asar';
 
 const require = createRequire(import.meta.url);
 const { readAsarHeader } = require('app-builder-lib/out/asar/asar.js');
-const {
-  NtExecutable,
-  NtExecutableResource,
-  Resource,
-} = require('resedit');
+const { NtExecutable, NtExecutableResource, Resource } = require('resedit');
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = resolve(desktopDir, '../..');
@@ -50,9 +31,7 @@ export function fastDirectRuntimeArchive(installedResources) {
 }
 
 export function changedPlanGroups(planned = {}, current = {}) {
-  return Object.keys(current).filter(
-    (name) => planned?.[name]?.hash !== current?.[name]?.hash,
-  );
+  return Object.keys(current).filter((name) => planned?.[name]?.hash !== current?.[name]?.hash);
 }
 
 function packagedAsarPosixPath(entry) {
@@ -81,9 +60,7 @@ function nodeModuleSearchDirs(fromDir) {
 }
 
 function productionDependencyEntries(manifest) {
-  const objectKeys = (value) => (
-    value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
-  );
+  const objectKeys = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []);
   const optional = new Set(objectKeys(manifest?.optionalDependencies));
   return [...new Set([...objectKeys(manifest?.dependencies), ...optional])]
     .sort()
@@ -130,9 +107,7 @@ export function planForceFullForMissingProductionDependency(error) {
  */
 export async function assertPackagedProductionDependencyClosure(archivePath, options = {}) {
   const asarFiles = packagedAsarFileSet(archivePath);
-  const unpackedRoot = Object.hasOwn(options, 'unpackedDir')
-    ? options.unpackedDir
-    : `${archivePath}.unpacked`;
+  const unpackedRoot = Object.hasOwn(options, 'unpackedDir') ? options.unpackedDir : `${archivePath}.unpacked`;
   const unpackedPackages = new Set(options.unpackedPackages || []);
   const unpackedAllowlist = Symbol('unpacked-allowlist');
   const manifests = new Map();
@@ -141,12 +116,7 @@ export async function assertPackagedProductionDependencyClosure(archivePath, opt
   const readManifest = async (packageDir) => {
     const key = packageDir || '.';
     if (manifests.has(key)) return manifests.get(key);
-    const manifest = await readPackagedPackageJson(
-      archivePath,
-      asarFiles,
-      unpackedRoot,
-      packageDir,
-    );
+    const manifest = await readPackagedPackageJson(archivePath, asarFiles, unpackedRoot, packageDir);
     manifests.set(key, manifest);
     return manifest;
   };
@@ -210,7 +180,8 @@ const runtimeDependencyInputs = [
   join(desktopDir, 'scripts', 'runtime-package-payload.mjs'),
   join(repoRoot, 'native', 'mixdog-browser-import'),
 ];
-const ignoredSource = /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
+const ignoredSource =
+  /(?:^|[\\/])(?:node_modules|out|dist|target|\.cache|\.runtime)(?:[\\/]|$)|(?:^|[\\/]).*\.(?:test|spec)\.[^.]+$/i;
 const fileContents = new Map();
 const fileMetadata = new Map();
 const inputFiles = new Map();
@@ -361,9 +332,7 @@ async function contentsForFingerprint(path) {
   if (resolvedPath !== desktopPackageManifest && resolvedPath !== repoPackageManifest) {
     return contents;
   }
-  return Buffer.from(JSON.stringify(
-    packagingManifestForFingerprint(JSON.parse(contents.toString('utf8'))),
-  ));
+  return Buffer.from(JSON.stringify(packagingManifestForFingerprint(JSON.parse(contents.toString('utf8')))));
 }
 
 async function hashFile(path) {
@@ -401,10 +370,7 @@ async function fingerprint(inputs) {
   files.sort((left, right) => left.localeCompare(right));
   const details = new Array(files.length);
   await mapPool(files, 12, async (file, index) => {
-    const [metadata, contents] = await Promise.all([
-      metadataForFile(file),
-      contentsForFingerprint(file),
-    ]);
+    const [metadata, contents] = await Promise.all([metadataForFile(file), contentsForFingerprint(file)]);
     details[index] = { file, metadata, contents };
   });
   const hash = createHash('sha256');
@@ -423,9 +389,11 @@ async function fingerprint(inputs) {
 
 export function runtimePackageFileForFingerprint(file) {
   const resolvedFile = resolve(file);
-  if (runtimeDependencyInputs.some((input) => (
-    resolvedFile === resolve(input) || resolvedFile.startsWith(`${resolve(input)}${sep}`)
-  ))) {
+  if (
+    runtimeDependencyInputs.some(
+      (input) => resolvedFile === resolve(input) || resolvedFile.startsWith(`${resolve(input)}${sep}`)
+    )
+  ) {
     return true;
   }
   const path = relative(repoRoot, resolvedFile).replaceAll(sep, '/');
@@ -438,12 +406,12 @@ export function runtimePackageFileForFingerprint(file) {
   // published and must invalidate the runtime payload.
   if (script.includes('/')) return true;
   return !(
-    /^recall-bench-.*\.txt$/i.test(script)
-    || /(?:-test|\.test|-smoke|-bench)\.mjs$/i.test(script)
-    || /^smoke-loop.*\.mjs$/i.test(script)
-    || /bench-.*\.mjs$/i.test(script)
-    || script === 'verify-embedding-runtime.mjs'
-    || /\.(?:ps1|jsx)$/i.test(script)
+    /^recall-bench-.*\.txt$/i.test(script) ||
+    /(?:-test|\.test|-smoke|-bench)\.mjs$/i.test(script) ||
+    /^smoke-loop.*\.mjs$/i.test(script) ||
+    /bench-.*\.mjs$/i.test(script) ||
+    script === 'verify-embedding-runtime.mjs' ||
+    /\.(?:ps1|jsx)$/i.test(script)
   );
 }
 
@@ -469,9 +437,8 @@ export function decidePlan({
     const changed = Object.fromEntries(
       Object.keys(targetInputs).map((name) => [
         name,
-        previous?.schemaVersion !== schemaVersion
-          || previous.groups?.[name]?.hash !== groups[name].hash,
-      ]),
+        previous?.schemaVersion !== schemaVersion || previous.groups?.[name]?.hash !== groups[name].hash,
+      ])
     );
     changed.package = true;
     return {
@@ -486,10 +453,7 @@ export function decidePlan({
   }
   if (previous?.schemaVersion === schemaVersion && installedMatches) {
     const changed = Object.fromEntries(
-      Object.keys(targetInputs).map((name) => [
-        name,
-        previous.groups?.[name]?.hash !== groups[name].hash,
-      ]),
+      Object.keys(targetInputs).map((name) => [name, previous.groups?.[name]?.hash !== groups[name].hash])
     );
     // Schema 2 states created before runtimeDependencies existed used the
     // developer deploy scripts as package inputs. Migrate that one state by
@@ -506,14 +470,10 @@ export function decidePlan({
     return {
       full,
       bootstrap: false,
-      targets: full
-        ? []
-        : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
+      targets: full ? [] : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
       daemon: !full && changed.daemon,
       runtime,
-      runtimeMode: runtime
-        ? (changed.runtimeDependencies || !devRuntimeReady ? 'full' : 'code')
-        : 'none',
+      runtimeMode: runtime ? (changed.runtimeDependencies || !devRuntimeReady ? 'full' : 'code') : 'none',
       changed,
     };
   }
@@ -532,9 +492,7 @@ export function decidePlan({
     return {
       full,
       bootstrap: true,
-      targets: full
-        ? []
-        : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
+      targets: full ? [] : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
       daemon: !full && changed.daemon,
       runtime: !full,
       runtimeMode: full ? 'none' : 'full',
@@ -572,8 +530,8 @@ async function currentGroups() {
       Object.entries(targetInputs).map(async ([name, inputs]) => [
         name,
         name === 'runtime' ? await runtimeFingerprint(inputs) : await fingerprint(inputs),
-      ]),
-    ),
+      ])
+    )
   );
 }
 
@@ -591,19 +549,19 @@ async function currentPrebuilt(groups) {
   return {
     renderer: await artifactFresh(
       join(desktopDir, 'out', 'renderer', 'index.html'),
-      Math.max(groups.renderer.newestMtimeMs, packageMtimeMs),
+      Math.max(groups.renderer.newestMtimeMs, packageMtimeMs)
     ),
     main: await artifactFresh(
       join(desktopDir, 'out', 'main', 'index.js'),
-      Math.max(groups.main.newestMtimeMs, packageMtimeMs),
+      Math.max(groups.main.newestMtimeMs, packageMtimeMs)
     ),
     preload: await artifactFresh(
       join(desktopDir, 'out', 'preload', 'index.js'),
-      Math.max(groups.preload.newestMtimeMs, packageMtimeMs),
+      Math.max(groups.preload.newestMtimeMs, packageMtimeMs)
     ),
     daemon: await artifactFresh(
       join(desktopDir, 'out', 'main', 'daemon.cjs'),
-      Math.max(groups.daemon.newestMtimeMs, packageMtimeMs),
+      Math.max(groups.daemon.newestMtimeMs, packageMtimeMs)
     ),
   };
 }
@@ -615,9 +573,7 @@ async function installedHashes(installDir) {
   return {
     appAsar: await hashFile(appAsar),
     runtimeAsar: await hashFile(runtimeAsar),
-    browserImportNativeTools: await hashBrowserImportNativeTools(
-      join(resources, 'native-tools'),
-    ),
+    browserImportNativeTools: await hashBrowserImportNativeTools(join(resources, 'native-tools')),
   };
 }
 
@@ -673,26 +629,21 @@ async function createPlan({ installDir, statePath, planPath, forceFull = false }
   const previous = await readState(statePath);
   const hashes = await installedHashes(installDir);
   const installedMatches = Boolean(
-    previous
-    && previous.installDir === resolve(installDir)
-    && previous.installed?.appAsar === hashes.appAsar
-    && previous.installed?.runtimeAsar === hashes.runtimeAsar
-    && previous.installed?.browserImportNativeTools === hashes.browserImportNativeTools,
+    previous &&
+      previous.installDir === resolve(installDir) &&
+      previous.installed?.appAsar === hashes.appAsar &&
+      previous.installed?.runtimeAsar === hashes.runtimeAsar &&
+      previous.installed?.browserImportNativeTools === hashes.browserImportNativeTools
   );
   const bootstrap = previous ? null : await bootstrapFreshness(installDir);
-  const devRuntimeReady = await installedFastRuntimeReady(
-    installDir,
-    groups.runtimeDependencies.hash,
-  );
+  const devRuntimeReady = await installedFastRuntimeReady(installDir, groups.runtimeDependencies.hash);
   let fullPlan = forceFull;
   try {
     await assertPackagedProductionDependencyClosure(join(installDir, 'resources', 'app.asar'));
   } catch (error) {
     planForceFullForMissingProductionDependency(error);
     fullPlan = true;
-    process.stderr.write(
-      `[fastdirect] ${error.message}; forcing complete win-unpacked fallback\n`,
-    );
+    process.stderr.write(`[fastdirect] ${error.message}; forcing complete win-unpacked fallback\n`);
   }
   const decision = decidePlan({
     previous,
@@ -731,19 +682,19 @@ async function replaceWinAsarIntegrity(executablePath, integrity) {
   if (versionInfo.length !== 1) throw new Error(`Failed to parse version info in ${executablePath}`);
   const languages = versionInfo[0].getAllLanguagesForStringValues();
   if (languages.length !== 1) throw new Error(`Failed to locate language in ${executablePath}`);
-  resources.entries = resources.entries.filter(
-    (entry) => !(entry.type === 'INTEGRITY' && entry.id === 'ELECTRONASAR'),
-  );
+  resources.entries = resources.entries.filter((entry) => !(entry.type === 'INTEGRITY' && entry.id === 'ELECTRONASAR'));
   resources.entries.push({
     type: 'INTEGRITY',
     id: 'ELECTRONASAR',
-    bin: Buffer.from(JSON.stringify(
-      Object.entries(integrity).map(([file, value]) => ({
-        file: file.replaceAll('/', '\\'),
-        alg: value.algorithm,
-        value: value.hash,
-      })),
-    )),
+    bin: Buffer.from(
+      JSON.stringify(
+        Object.entries(integrity).map(([file, value]) => ({
+          file: file.replaceAll('/', '\\'),
+          alg: value.algorithm,
+          value: value.hash,
+        }))
+      )
+    ),
     lang: languages[0].lang,
     codepage: languages[0].codepage,
   });
@@ -761,7 +712,7 @@ async function stageShell({ installDir, artifactDir, plan }) {
   const cacheParent = join(desktopDir, '.cache', 'dev-fast-direct-shell');
   const stagingRoot = join(cacheParent, installedIntegrity.hash);
   const cacheMarker = `${stagingRoot}.ready`;
-  let cacheHit = await pathExists(cacheMarker) && await pathExists(stagingRoot);
+  let cacheHit = (await pathExists(cacheMarker)) && (await pathExists(stagingRoot));
 
   await mkdir(cacheParent, { recursive: true });
   if (!cacheHit) {
@@ -816,9 +767,7 @@ async function stageShell({ installDir, artifactDir, plan }) {
   try {
     await cp(sourcePtyPackage, stagedPtyPackage, { recursive: true });
   } catch (error) {
-    throw new Error(
-      `FastDirect could not stage the PTY package from ${sourcePtyPackage}: ${error.message}`,
-    );
+    throw new Error(`FastDirect could not stage the PTY package from ${sourcePtyPackage}: ${error.message}`);
   }
   const ptyBinding = join(stagedPtyPackage, 'build', 'Release', 'pty.node');
   if (!(await stat(ptyBinding).catch(() => null))?.isFile()) {
@@ -836,8 +785,8 @@ async function stageShell({ installDir, artifactDir, plan }) {
     'resources/runtime.asar': await hashAsarHeader(runtimeArchive),
   });
   process.stdout.write(
-    `[fastdirect] staged app shell in ${((performance.now() - startedAt) / 1000).toFixed(2)}s`
-    + ` (template cache ${cacheHit ? 'hit' : 'miss'})\n`,
+    `[fastdirect] staged app shell in ${((performance.now() - startedAt) / 1000).toFixed(2)}s` +
+      ` (template cache ${cacheHit ? 'hit' : 'miss'})\n`
   );
 }
 
@@ -895,7 +844,7 @@ async function main() {
     const changed = changedPlanGroups(plan.groups, await currentGroups());
     if (changed.length) {
       throw new Error(
-        `FastDirect inputs changed after planning/build (${changed.join(', ')}); rerun the deploy so stale artifacts are never installed`,
+        `FastDirect inputs changed after planning/build (${changed.join(', ')}); rerun the deploy so stale artifacts are never installed`
       );
     }
     process.stdout.write('[fastdirect] planned inputs are still current\n');

@@ -283,7 +283,14 @@ export function ContextPanel({
   const isContextUsage = detail?.type === 'context';
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
   const panelDescription = truncateText(
-    String(description || (detail?.inspection ? 'Current context snapshot. R refresh · Enter inspect.' : isContextUsage ? 'Live context window usage by category.' : ''))
+    String(
+      description ||
+        (detail?.inspection
+          ? 'Current context snapshot. R refresh · Enter inspect.'
+          : isContextUsage
+            ? 'Live context window usage by category.'
+            : '')
+    )
       .replace(/\s+/g, ' ')
       .trim(),
     Math.max(0, columns - 4)
@@ -307,7 +314,13 @@ export function ContextPanel({
         <Text color={theme.subtle}>{panelDescription || ' '}</Text>
         <Text> </Text>
         {isContextUsage ? (
-          <ContextUsageView detail={detail} columns={columns} panelRows={panelRows} onInspect={onInspect} onRefresh={onRefresh} />
+          <ContextUsageView
+            detail={detail}
+            columns={columns}
+            panelRows={panelRows}
+            onInspect={onInspect}
+            onRefresh={onRefresh}
+          />
         ) : (
           safeRows.map((row) => (
             <Box key={row.value || row.label} flexDirection="row" width="100%">

@@ -83,11 +83,18 @@ test('standing memory lists only curated records; legacy history stays unchanged
     assert.equal(ui._summary, 'Project preference');
     assert.equal(ui._indexRevision, scoped.entries[0].index_revision);
     const { handleMemoryAction } = createMemoryActionHandlers({
-      getDb: () => db, dataDir: root, readMainConfig: () => ({}),
+      getDb: () => db,
+      dataDir: root,
+      readMainConfig: () => ({}),
     });
     indexReads = 0;
     const batch = await handleMemoryAction({
-      action: 'core', op: 'list', project_id: '*', project_paths: projectPaths, format: 'json', limit: 100,
+      action: 'core',
+      op: 'list',
+      project_id: '*',
+      project_paths: projectPaths,
+      format: 'json',
+      limit: 100,
     });
     assert.equal(indexReads, 1, 'all project rows share one index synchronization');
     const page = JSON.parse(batch.text);
@@ -96,11 +103,14 @@ test('standing memory lists only curated records; legacy history stays unchanged
       { path: projectPaths[1], projectId: 'other' },
       { path: projectPaths[2], projectId: 'empty' },
     ]);
-    assert.deepEqual(page.entries.map(({ project_id, id, summary }) => [project_id, id, summary]), [
-      [null, 1, 'Common preference'],
-      ['mixdog', 1, 'Project preference'],
-      ['other', 1, 'Other preference'],
-    ]);
+    assert.deepEqual(
+      page.entries.map(({ project_id, id, summary }) => [project_id, id, summary]),
+      [
+        [null, 1, 'Common preference'],
+        ['mixdog', 1, 'Project preference'],
+        ['other', 1, 'Other preference'],
+      ]
+    );
     assert.equal(page.nextOffset, null);
     for (const project_paths of ['not-an-array', [null], ['']]) {
       await assert.rejects(listManagedMemories(db, '*', { project_paths }), /project_paths requires/);

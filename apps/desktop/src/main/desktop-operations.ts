@@ -257,8 +257,10 @@ export function createDesktopOperations({
     if (name === 'writeInstructions') {
       const [file, content, expected, legacyFile] = args;
       return (await import('./instructions-file')).writeInstructionsText(
-        String(file || ''), String(content ?? ''),
-        typeof expected === 'string' ? expected : undefined, String(legacyFile || ''),
+        String(file || ''),
+        String(content ?? ''),
+        typeof expected === 'string' ? expected : undefined,
+        String(legacyFile || '')
       );
     }
     if (name === 'lspDocument') {

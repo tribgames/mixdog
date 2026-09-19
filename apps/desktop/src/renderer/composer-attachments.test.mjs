@@ -87,7 +87,7 @@ test('web image attachments resize locally before appearing in the draft', async
     });
     const attachment = await attachmentFromFile(file, { id: 7 });
 
-    assert.deepEqual(harness.drawCalls, [{ x: 0, y: 0, width: 2_000, height: 500 }]);
+    assert.deepEqual(harness.drawCalls, [{ x: 0, y: 0, width: 1_568, height: 392 }]);
     assert.equal(harness.capabilityCalls(), 0);
     // Re-encoded as WebP: a lossless PNG screenshot is the largest thing a
     // phone can attach, and WebP keeps alpha at a fraction of the bytes.
@@ -95,8 +95,8 @@ test('web image attachments resize locally before appearing in the draft', async
     assert.equal(attachment?.data, 'cmVzaXplZA==');
     assert.equal(
       attachment?.metadataText,
-      '[Image: source: mobile.png, 4000x1000, displayed at 2000x500. ' +
-        'Multiply coordinates by 2.00 to map to the original image.]'
+      '[Image: source: mobile.png, 4000x1000, displayed at 1568x392. ' +
+        'Multiply coordinates by 2.55 to map to the original image.]'
     );
   } finally {
     harness.close();

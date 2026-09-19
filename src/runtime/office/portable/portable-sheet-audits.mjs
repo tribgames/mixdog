@@ -254,6 +254,47 @@ export async function columnFitIssues(zip, sheets) {
 // The ranges Excel tables own: inside one, the table style paints the header
 // and banding, so a cell there carries a fill this scan cannot read from the
 // cell itself.
+// A pasted result where a formula belongs stops recalculating, and the row goes
+// on looking right. Only a constant the row's formulas have already started is
+// read that way: the first period of a projection is the input every later
+// period grows from, and calling that an interruption reports the ordinary
+// shape of a plan as a defect.
+export async function formulaConsistencyIssues(zip, sheets) {
+  const issues = [];
+  for (const sheet of sheets) {
+    const xml = await zipText(zip, sheet.path);
+    if (!xml) continue;
+    for (const row of iterateSheetRows(xml)) {
+      const cells = [...iterateSheetCells(row.body)].map((cell) => ({
+        reference: cell.ref,
+        formula: /<f[\s>]/.test(cell.body),
+        numeric:
+          !/\bt="(?:s|inlineStr|str|b)"/.test(cell.attributes) &&
+          Number.isFinite(Number(/<v>([\s\S]*?)<\/v>/.exec(cell.body)?.[1])),
+      }));
+      if (cells.filter((cell) => cell.formula).length < 3) continue;
+      let started = false;
+      for (const cell of cells) {
+        if (cell.formula) {
+          started = true;
+          continue;
+        }
+        if (!started || !cell.numeric || !cell.reference) continue;
+        issues.push({
+          severity: 'warning',
+          code: 'formula_inconsistency',
+          path: `/sheet[${sheet.name}]/cell[${cell.reference}]`,
+          message:
+            'A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.',
+          source: 'formula-audit',
+        });
+        if (issues.length >= 50) return issues;
+      }
+    }
+  }
+  return issues;
+}
+
 async function tableRanges(zip, sheet, xml) {
   const parts = worksheetSection(xml, 'tableParts');
   if (!parts) return [];
@@ -338,37 +379,6 @@ export async function cellInkIssues(zip, sheets) {
         source: 'text-metrics',
       });
       if (issues.length >= 20) return issues;
-    }
-  }
-  return issues;
-}
-
-export async function formulaConsistencyIssues(zip, sheets) {
-  const issues = [];
-  for (const sheet of sheets) {
-    const xml = await zipText(zip, sheet.path);
-    if (!xml) continue;
-    for (const row of iterateSheetRows(xml)) {
-      const cells = [...iterateSheetCells(row.body)].map((cell) => ({
-        reference: cell.ref,
-        formula: /<f[\s>]/.test(cell.body),
-        numeric:
-          !/\bt="(?:s|inlineStr|str|b)"/.test(cell.attributes) &&
-          Number.isFinite(Number(/<v>([\s\S]*?)<\/v>/.exec(cell.body)?.[1])),
-      }));
-      if (cells.filter((cell) => cell.formula).length < 3) continue;
-      for (const cell of cells) {
-        if (cell.formula || !cell.numeric || !cell.reference) continue;
-        issues.push({
-          severity: 'warning',
-          code: 'formula_inconsistency',
-          path: `/sheet[${sheet.name}]/cell[${cell.reference}]`,
-          message:
-            'A hardcoded value interrupts a row of formulas; a lone edited cell mid-row is a common silent error.',
-          source: 'formula-audit',
-        });
-        if (issues.length >= 50) return issues;
-      }
     }
   }
   return issues;

@@ -65,7 +65,6 @@ function percentile(values, fraction) {
 
 async function benchmark(itemCount) {
   let runtimeRef = null;
-  let frames = 0;
   let firstFrameBytes = 0;
   let deltaFrameBytes = 0;
   let deltaFrames = 0;
@@ -73,7 +72,6 @@ async function benchmark(itemCount) {
     createSessionRuntime: async () => (runtimeRef = createBenchSessionRuntime(itemCount)),
     publishIntervalMs: 50,
     onFrame: (frame, targetTokens) => {
-      frames += 1;
       const bytes = JSON.stringify(frame).length;
       if (frame.full !== undefined) firstFrameBytes = bytes;
       else {

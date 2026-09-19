@@ -324,14 +324,23 @@ test('orchestration selector inherits its mode and stages all four choices witho
   const { OrchestrationModeSelect } = await import('./model-controls.tsx');
   const staged = [];
   const props = {
-    disabled: false, invokeResult: (work) => work(), applySnapshot() {},
+    disabled: false,
+    invokeResult: (work) => work(),
+    applySnapshot() {},
     onDraftChange: (value) => staged.push(value),
   };
   await view.render(React.createElement(OrchestrationModeSelect, props));
   assert.match(view.host.textContent, /Solo/);
   assert.deepEqual(calls, [{ capability: 'getOrchestrationMode', args: [] }]);
-  for (const [mode, label] of [['focused', 'Assisted'], ['balanced', 'Collaborative'], ['swarm', 'Swarm'], ['none', 'Solo']]) {
-    await view.render(React.createElement(OrchestrationModeSelect, { ...props, mode: mode === 'none' ? 'swarm' : 'none' }));
+  for (const [mode, label] of [
+    ['focused', 'Assisted'],
+    ['balanced', 'Collaborative'],
+    ['swarm', 'Swarm'],
+    ['none', 'Solo'],
+  ]) {
+    await view.render(
+      React.createElement(OrchestrationModeSelect, { ...props, mode: mode === 'none' ? 'swarm' : 'none' })
+    );
     await view.settle(() => view.host.querySelector('[role="combobox"]').click());
     const option = [...document.querySelectorAll('[role="option"]')].find((item) => item.textContent === label);
     assert.ok(option, `${label} is selectable`);

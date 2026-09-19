@@ -457,7 +457,9 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
       // attribution stranded at the top of the next one, under nothing.
       const height =
         linesHeight(block.text, size, bodyWidth - inset, lh) +
-        (attribution ? attributionGap + linesHeight(attribution, attributionSize, bodyWidth - inset, attributionLh) : 0);
+        (attribution
+          ? attributionGap + linesHeight(attribution, attributionSize, bodyWidth - inset, attributionLh)
+          : 0);
       if (y - height < margin && y < page.getHeight() - margin) newPage();
       const top = y;
       drawLines(block.text, size, { lh, x: left + inset, width: bodyWidth - inset, tint: block.color || '1F2937' });

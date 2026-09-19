@@ -196,11 +196,13 @@ export function createConfigLifecycle({
   }
 
   function flushConfigSave() {
-    if (configWriter.flushSyncIfIdle(() => {
-      const changes = pendingConfigChanges;
-      cfgMod.saveConfigPatch(changes);
-      pendingConfigChanges = pendingConfigChanges.slice(changes.length);
-    })) {
+    if (
+      configWriter.flushSyncIfIdle(() => {
+        const changes = pendingConfigChanges;
+        cfgMod.saveConfigPatch(changes);
+        pendingConfigChanges = pendingConfigChanges.slice(changes.length);
+      })
+    ) {
       skillsWriter.flushSyncIfIdle((names) => cfgMod.patchSkillsDisabled(names));
     }
     releaseSavedWriter();

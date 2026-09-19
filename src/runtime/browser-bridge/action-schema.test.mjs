@@ -50,11 +50,7 @@ test('a snapshot target crops the visual image and refuses the forms with nothin
   bad('snapshot', { mode: 'both', target: { name: 'Chart' } }, /requires input.mode=visual/);
   bad('snapshot', { mode: 'visual', ref: 'p1-s1-e1', fullPage: true }, /cannot be combined with fullPage/);
   bad('snapshot', { mode: 'visual', ref: 'p1-s1-e1', format: 'pdf' }, /prints the whole page/);
-  bad(
-    'snapshot',
-    { mode: 'visual', ref: 'p1-s1-e1', target: { name: 'Chart' } },
-    /only one input target form/
-  );
+  bad('snapshot', { mode: 'visual', ref: 'p1-s1-e1', target: { name: 'Chart' } }, /only one input target form/);
 });
 
 test('ref forms that share a field with the target form still validate', () => {

@@ -638,7 +638,10 @@ fn spawn_io_error(id: u64, error: std::io::Error) {
 // Open the caller's capture files in append mode. BOTH must open for file
 // capture to engage; a half-open pair falls back to pipes so a command never
 // fails over capture plumbing alone.
-fn open_capture_files(stdout_path: Option<&str>, stderr_path: Option<&str>) -> Option<(File, File)> {
+fn open_capture_files(
+    stdout_path: Option<&str>,
+    stderr_path: Option<&str>,
+) -> Option<(File, File)> {
     let out_path = stdout_path.filter(|path| !path.is_empty())?;
     let err_path = stderr_path.filter(|path| !path.is_empty())?;
     let out = OpenOptions::new()
@@ -706,7 +709,11 @@ fn refresh_capture_state(managed: &ManagedProcess, stdout_path: &str, stderr_pat
     }
 }
 
-fn arm_output_size_watchdog(managed: Arc<ManagedProcess>, stdout_path: String, stderr_path: String) {
+fn arm_output_size_watchdog(
+    managed: Arc<ManagedProcess>,
+    stdout_path: String,
+    stderr_path: String,
+) {
     thread::spawn(move || loop {
         if managed.done.load(Ordering::Acquire) {
             return;

@@ -16,26 +16,26 @@ RENDERER_MODE="reused"
 RENDERER_DELTA_DIR="$SRC_DIR/.cache/renderer-delta"
 RENDERER_MANIFEST="$SRC_DIR/.cache/renderer-manifest.json"
 if [[ -d "$RENDERER_DELTA_DIR" && -f "$RENDERER_MANIFEST" ]]; then
-  # Provenance, not just presence: a delta reconstructs its release only on top
-  # of the exact installed tree it was computed from. The manifest records that
-  # base and `renderer-delta.mjs --action=apply` refuses any other tree, so a
-  # cache left over from an earlier release can no longer rebuild stale content
-  # that then passes the post-swap hash check (taken from the same rebuild).
-  RENDERER_BASE="$(node -e 'const {readFileSync}=require("node:fs");const m=JSON.parse(readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof m.base==="string"?m.base:"")' "$RENDERER_MANIFEST")"
-  if [[ "$RENDERER_BASE" =~ ^[0-9a-f]{64}$ ]]; then
-    RENDERER_MODE="delta"
-  elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
-    # An unusable cache never outranks renderer content that IS in this upload.
-    echo "[deploy] ignoring cached renderer delta without base provenance; deploying the full renderer from this upload" >&2
-    RENDERER_MODE="full"
-  else
-    echo "[deploy] cached renderer delta at $RENDERER_DELTA_DIR has no base provenance, and this upload carries no renderer/." >&2
-    echo "[deploy] fix: rm -rf '$SRC_DIR/.cache' and re-run to keep the installed renderer, or rebuild the delta:" >&2
-    echo "[deploy]   node '$SRC_DIR/deploy/renderer-delta.mjs' --action=create --root=<renderer> --base=<installed manifest> --delta='$RENDERER_DELTA_DIR' --manifest='$RENDERER_MANIFEST'" >&2
-    exit 1
-  fi
+	# Provenance, not just presence: a delta reconstructs its release only on top
+	# of the exact installed tree it was computed from. The manifest records that
+	# base and `renderer-delta.mjs --action=apply` refuses any other tree, so a
+	# cache left over from an earlier release can no longer rebuild stale content
+	# that then passes the post-swap hash check (taken from the same rebuild).
+	RENDERER_BASE="$(node -e 'const {readFileSync}=require("node:fs");const m=JSON.parse(readFileSync(process.argv[1],"utf8"));process.stdout.write(typeof m.base==="string"?m.base:"")' "$RENDERER_MANIFEST")"
+	if [[ "$RENDERER_BASE" =~ ^[0-9a-f]{64}$ ]]; then
+		RENDERER_MODE="delta"
+	elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
+		# An unusable cache never outranks renderer content that IS in this upload.
+		echo "[deploy] ignoring cached renderer delta without base provenance; deploying the full renderer from this upload" >&2
+		RENDERER_MODE="full"
+	else
+		echo "[deploy] cached renderer delta at $RENDERER_DELTA_DIR has no base provenance, and this upload carries no renderer/." >&2
+		echo "[deploy] fix: rm -rf '$SRC_DIR/.cache' and re-run to keep the installed renderer, or rebuild the delta:" >&2
+		echo "[deploy]   node '$SRC_DIR/deploy/renderer-delta.mjs' --action=create --root=<renderer> --base=<installed manifest> --delta='$RENDERER_DELTA_DIR' --manifest='$RENDERER_MANIFEST'" >&2
+		exit 1
+	fi
 elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
-  RENDERER_MODE="full"
+	RENDERER_MODE="full"
 fi
 source "$SRC_DIR/deploy/release-transaction.sh"
 
@@ -44,17 +44,17 @@ source "$SRC_DIR/deploy/release-transaction.sh"
 # work in progress — including a backup mid-swap.
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-  echo "[deploy] another release is already running; aborting" >&2
-  exit 1
+	echo "[deploy] another release is already running; aborting" >&2
+	exit 1
 fi
 
 cleanup_stale_releases() {
-  rm -rf \
-    /opt/mixdog-relay.rollback \
-    /opt/mixdog-relay.previous \
-    /opt/mixdog-relay.bak-* \
-    /opt/mixdog-relay.backup-* \
-    /opt/mixdog-relay.next-*
+	rm -rf \
+		/opt/mixdog-relay.rollback \
+		/opt/mixdog-relay.previous \
+		/opt/mixdog-relay.bak-* \
+		/opt/mixdog-relay.backup-* \
+		/opt/mixdog-relay.next-*
 }
 
 test -d "$INSTALL_DIR"
@@ -66,17 +66,17 @@ cp "$SRC_DIR/server.mjs" "$SRC_DIR/package.json" "$SRC_DIR/package-lock.json" "$
 cp -r "$SRC_DIR/lib" "$NEXT_DIR/"
 cp -r "$SRC_DIR/deploy" "$NEXT_DIR/"
 if [[ "$RENDERER_MODE" = "delta" ]]; then
-  node "$SRC_DIR/deploy/renderer-delta.mjs" --action=apply \
-    "--base=$INSTALL_DIR/renderer" \
-    "--delta=$RENDERER_DELTA_DIR" \
-    "--manifest=$RENDERER_MANIFEST" \
-    "--output=$NEXT_DIR/renderer" \
-    --hardlink-base
+	node "$SRC_DIR/deploy/renderer-delta.mjs" --action=apply \
+		"--base=$INSTALL_DIR/renderer" \
+		"--delta=$RENDERER_DELTA_DIR" \
+		"--manifest=$RENDERER_MANIFEST" \
+		"--output=$NEXT_DIR/renderer" \
+		--hardlink-base
 elif [[ "$RENDERER_MODE" = "full" ]]; then
-  cp -r "$SRC_DIR/renderer" "$NEXT_DIR/"
+	cp -r "$SRC_DIR/renderer" "$NEXT_DIR/"
 else
-  test -f "$INSTALL_DIR/renderer/index.html"
-  cp -al "$INSTALL_DIR/renderer" "$NEXT_DIR/"
+	test -f "$INSTALL_DIR/renderer/index.html"
+	cp -al "$INSTALL_DIR/renderer" "$NEXT_DIR/"
 fi
 LOCAL_HASH="$(sha256sum "$NEXT_DIR/renderer/index.html" | awk '{print $1}')"
 cd "$NEXT_DIR"
@@ -84,12 +84,12 @@ cd "$NEXT_DIR"
 # rarely moves — when the lockfile hash matches the installed tree, reuse it
 # instead of a fresh npm ci network pass.
 LOCK_HASH="$(sha256sum "$NEXT_DIR/package-lock.json" | awk '{print $1}')"
-if [[ -f "$INSTALL_DIR/node_modules/.mixdog-lock-hash" \
-  && "$(cat "$INSTALL_DIR/node_modules/.mixdog-lock-hash")" = "$LOCK_HASH" ]]; then
-  cp -al "$INSTALL_DIR/node_modules" "$NEXT_DIR/node_modules"
+if [[ -f "$INSTALL_DIR/node_modules/.mixdog-lock-hash" &&
+	"$(cat "$INSTALL_DIR/node_modules/.mixdog-lock-hash")" = "$LOCK_HASH" ]]; then
+	cp -al "$INSTALL_DIR/node_modules" "$NEXT_DIR/node_modules"
 else
-  npm ci --omit=dev --no-audit --no-fund
-  printf '%s' "$LOCK_HASH" > "$NEXT_DIR/node_modules/.mixdog-lock-hash"
+	npm ci --omit=dev --no-audit --no-fund
+	printf '%s' "$LOCK_HASH" >"$NEXT_DIR/node_modules/.mixdog-lock-hash"
 fi
 
 activate_release
@@ -100,7 +100,7 @@ activate_release
 systemctl is-active --quiet mixdog-relay
 test "$(sha256sum "$INSTALL_DIR/renderer/index.html" | awk '{print $1}')" = "$LOCAL_HASH"
 node "$INSTALL_DIR/deploy/verify-release.mjs" \
-  "--origin=https://$DOMAIN" "--address=127.0.0.1" "--expected-index=$LOCAL_HASH"
+	"--origin=https://$DOMAIN" "--address=127.0.0.1" "--expected-index=$LOCAL_HASH"
 
 commit_release_transaction
 rm -rf "$BACKUP_DIR"

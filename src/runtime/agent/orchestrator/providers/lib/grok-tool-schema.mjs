@@ -123,7 +123,11 @@ function projectDroppedBranches(schema, dropped) {
 function preferredBranch(branches) {
   const objects = branches.filter((branch) => branch && typeof branch === 'object' && !Array.isArray(branch));
   const arrays = objects.filter(describesArray);
-  if (arrays.length === 1 && objects.length > 1 && objects.every((branch) => branch === arrays[0] || describesScalar(branch))) {
+  if (
+    arrays.length === 1 &&
+    objects.length > 1 &&
+    objects.every((branch) => branch === arrays[0] || describesScalar(branch))
+  ) {
     return arrays[0];
   }
   return objects[0] || null;

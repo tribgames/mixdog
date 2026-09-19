@@ -10,10 +10,7 @@ export function diffConfig(before, after, path = []) {
     const next = Object.hasOwn(after, key) ? after[key] : undefined;
     if (isDeepStrictEqual(previous, next)) continue;
     const field = [...path, key];
-    if (
-      isPlainObject(next) &&
-      (isPlainObject(previous) || (previous === undefined && Object.keys(next).length > 0))
-    ) {
+    if (isPlainObject(next) && (isPlainObject(previous) || (previous === undefined && Object.keys(next).length > 0))) {
       changes.push(...diffConfig(previous || {}, next, field));
     } else if (next === undefined) {
       changes.push({ path: field, remove: true });

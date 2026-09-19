@@ -261,7 +261,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
   };
   let afterN = coerceContext(args['-A']);
   let beforeN = coerceContext(args['-B']);
-  let contextN =
+  const contextN =
     args['-C'] !== undefined && args['-C'] !== null && args['-C'] !== ''
       ? coerceContext(args['-C'])
       : coerceContext(args.context);

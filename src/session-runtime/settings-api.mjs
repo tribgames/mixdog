@@ -242,12 +242,25 @@ export function createSettingsApi({
         // A new budget representation replaces the previous one. Otherwise a
         // saved token override silently outranks a later percentage edit.
         if (hasOwn(input, key)) {
-          for (const old of ['mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction']) delete next[old];
+          for (const old of [
+            'mainBufferTokens',
+            'mainBuffer',
+            'mainBufferPercent',
+            'mainBufferPct',
+            'mainBufferRatio',
+            'mainBufferFraction',
+          ])
+            delete next[old];
           break;
         }
       }
       for (const key of [
-        'mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction',
+        'mainBufferTokens',
+        'mainBuffer',
+        'mainBufferPercent',
+        'mainBufferPct',
+        'mainBufferRatio',
+        'mainBufferFraction',
       ]) {
         if (hasOwn(input, key)) next[key] = input[key];
       }
@@ -275,7 +288,12 @@ export function createSettingsApi({
           'recallWindowSize',
           'recallConcurrency',
           'recallCycle1DeadlineMs',
-          'mainBufferTokens', 'mainBuffer', 'mainBufferPercent', 'mainBufferPct', 'mainBufferRatio', 'mainBufferFraction',
+          'mainBufferTokens',
+          'mainBuffer',
+          'mainBufferPercent',
+          'mainBufferPct',
+          'mainBufferRatio',
+          'mainBufferFraction',
         ]) {
           delete currentSessionCompaction[key];
         }

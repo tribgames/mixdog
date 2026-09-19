@@ -15,7 +15,7 @@ const round = (sessionRef, calls, results) =>
 
 const grepResult = [
   '# src/auth.mjs:2 [lines 1-4]',
-  "1→export function login(user) {",
+  '1→export function login(user) {',
   "2→  console.log('login', user);",
   '# src/cart.mjs:4 [lines 2-6]',
   "4→  console.log('added', item.id);",
@@ -72,7 +72,10 @@ test('sites far apart in one file become separate windows, never the whole file;
   ]);
 
   const many = { provider: 'antigravity-oauth' };
-  const anchors = Array.from({ length: 12 }, (_, i) => `# src/f${i}.mjs:${300 + i * 100} [lines ${298 + i * 100}-${302 + i * 100}]`).join('\n');
+  const anchors = Array.from(
+    { length: 12 },
+    (_, i) => `# src/f${i}.mjs:${300 + i * 100} [lines ${298 + i * 100}-${302 + i * 100}]`
+  ).join('\n');
   round(many, [call('grep', { pattern: 'x', path: 'src' })], [anchors]);
   const split = round(many, [call('read', { file_path: 'src/f3.mjs' })]);
   assert.match(split.text, /2 read calls in the same response: read \[.*\]; read \[.*\]/);
@@ -107,10 +110,21 @@ test('a search after a read that took nothing from it is reported as late locati
 
   const fed = { provider: 'antigravity-oauth' };
   round(fed, [call('read', { file_path: 'src/auth.mjs' })], ['1→import { verifyToken } from "./token.mjs";']);
-  assert.equal(round(fed, [call('grep', { pattern: 'verifyToken', path: 'src' })], ['src/token.mjs:3: export function verifyToken']), null);
+  assert.equal(
+    round(
+      fed,
+      [call('grep', { pattern: 'verifyToken', path: 'src' })],
+      ['src/token.mjs:3: export function verifyToken']
+    ),
+    null
+  );
 
   const afterEdit = { provider: 'antigravity-oauth' };
-  round(afterEdit, [call('edit', { file_path: 'src/auth.mjs', old_string: 'a', new_string: 'b' })], ['Updated src/auth.mjs (1 replacement)']);
+  round(
+    afterEdit,
+    [call('edit', { file_path: 'src/auth.mjs', old_string: 'a', new_string: 'b' })],
+    ['Updated src/auth.mjs (1 replacement)']
+  );
   assert.equal(round(afterEdit, [call('grep', { pattern: 'console\\.log', path: 'src' })], ['(no matches)']), null);
 });
 
@@ -134,5 +148,9 @@ test('bare path lists from glob count as located files without windows', () => {
   const nudge = round(session, [call('read', { file_path: 'src/util.mjs' })]);
   assert.equal(nudge.trigger, 'located_sites');
   const entries = JSON.parse(/read (\[.*\]) — then/.exec(nudge.text)[1]);
-  assert.deepEqual(entries, [{ file_path: 'src/auth.mjs' }, { file_path: 'src/cart.mjs' }, { file_path: 'src/util.mjs' }]);
+  assert.deepEqual(entries, [
+    { file_path: 'src/auth.mjs' },
+    { file_path: 'src/cart.mjs' },
+    { file_path: 'src/util.mjs' },
+  ]);
 });

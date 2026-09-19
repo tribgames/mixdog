@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import { readFile, writeFile } from 'node:fs/promises';
 import { presetLabels } from '../shared/labels.mjs';
 import {
+  OFFICE_RELATIONSHIP_BASE,
   TEMPLATE_TOKEN_SOURCE,
   XML_HEADER,
   paragraphTexts,
@@ -398,6 +399,63 @@ export async function cloneOwnedSlideParts(zip, relationshipsPath) {
   return copied;
 }
 
+// A page borrowed from another deck was drawn on that deck's layout. When this
+// deck already holds the same layout the import points at it; when the two were
+// cut from different templates the layout is copied in and adopted by this
+// deck's master, so the page keeps the geometry it was built with and the
+// master still lists every layout under it.
+async function adoptImportedLayout(source, zip, layoutPath, cache) {
+  const master = Object.keys(zip.files)
+    .filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/.test(name))
+    .sort()[0];
+  const file = source.file(layoutPath);
+  if (!master || !file) return '';
+  const targetPath = nextAvailablePart(zip, 'ppt/slideLayouts', 'slideLayout', 'xml');
+  zip.file(targetPath, await file.async('nodebuffer'));
+  cache.set(layoutPath, targetPath);
+  await copyPartContentType(source, zip, layoutPath, targetPath);
+  const relationships = await zipText(source, partRelationshipPath(layoutPath));
+  if (relationships) {
+    let output = relationships;
+    for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/>/g)) {
+      const block = match[0];
+      if (/\bTargetMode="External"/i.test(block)) continue;
+      const target = xmlDecode(xmlAttribute(block, 'Target'));
+      if (!target) continue;
+      const resolved = target.startsWith('/')
+        ? target.slice(1)
+        : posix.normalize(posix.join(posix.dirname(layoutPath), target));
+      // The imported layout answers to this deck's master, which is what keeps
+      // one theme over every page instead of two masters fighting for the deck.
+      const mapped = xmlAttribute(block, 'Type').endsWith('/slideMaster')
+        ? master
+        : await importPartTree(source, zip, resolved, cache);
+      if (!mapped) continue;
+      output = output.replace(
+        block,
+        block.replace(/\bTarget="[^"]*"/, `Target="${xmlEncode(posix.relative(posix.dirname(targetPath), mapped))}"`)
+      );
+    }
+    zip.file(partRelationshipPath(targetPath), output);
+  }
+  const relationshipId = await addPackageRelationship(
+    zip,
+    partRelationshipPath(master),
+    `${OFFICE_RELATIONSHIP_BASE}/slideLayout`,
+    posix.relative(posix.dirname(master), targetPath)
+  );
+  const masterXml = await zipText(zip, master);
+  const ids = [...masterXml.matchAll(/<p:sldLayoutId\b[^>]*\bid="(\d+)"/g)].map((match) => Number(match[1]));
+  const entry = `<p:sldLayoutId id="${Math.max(2147483648, ...ids) + 1}" r:id="${relationshipId}"/>`;
+  zip.file(
+    master,
+    masterXml.includes('</p:sldLayoutIdLst>')
+      ? masterXml.replace('</p:sldLayoutIdLst>', `${entry}</p:sldLayoutIdLst>`)
+      : masterXml.replace(/(<p:clrMap\b[^>]*\/>)/, `$1<p:sldLayoutIdLst>${entry}</p:sldLayoutIdLst>`)
+  );
+  return targetPath;
+}
+
 export async function rewriteImportedRelationships(source, zip, sourceOwner, targetOwner, relationships, cache) {
   const sourceDirectory = posix.dirname(sourceOwner);
   const targetDirectory = posix.dirname(targetOwner);
@@ -420,9 +478,10 @@ export async function rewriteImportedRelationships(source, zip, sourceOwner, tar
         /^ppt\/slideLayouts\/slideLayout\d+\.xml$/,
         await partDigest(source, resolved)
       );
+      if (!mapped) mapped = await adoptImportedLayout(source, zip, resolved, cache);
       if (!mapped) {
         throw new Error(
-          'portable import_slides requires the deck to be seeded from the same template; create the presentation from this template first'
+          `import_slides cannot place the layout of ${resolved}: this presentation has no slide master to adopt it`
         );
       }
     } else if (type.endsWith('/slide')) {

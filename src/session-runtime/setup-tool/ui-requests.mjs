@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 
 /** One addressed request, one desktop claimant, one receipt. Snapshot replay
  * carries only an id; it cannot replay a mutation after expiry or completion. */
-export function createSetupUiRequests({ notifySessionUi, getSessionId, claimTimeoutMs = 15_000, executionTimeoutMs = 900_000 }) {
+export function createSetupUiRequests({
+  notifySessionUi,
+  getSessionId,
+  claimTimeoutMs = 15_000,
+  executionTimeoutMs = 900_000,
+}) {
   const pending = new Map();
   function finish(id, error, result) {
     const entry = pending.get(id);
@@ -17,15 +22,23 @@ export function createSetupUiRequests({ notifySessionUi, getSessionId, claimTime
   function request(args, { signal } = {}) {
     if (signal?.aborted) return Promise.reject(new Error('setup: cancelled before Desktop execution'));
     const sessionId = String(getSessionId?.() || '');
-    if (!sessionId) return Promise.reject(new Error('setup: open this conversation in Desktop to change desktop-host settings'));
+    if (!sessionId)
+      return Promise.reject(new Error('setup: open this conversation in Desktop to change desktop-host settings'));
     const id = randomUUID();
     return new Promise((resolve, reject) => {
       const entry = {
-        args, sessionId, resolve, reject, owner: null,
+        args,
+        sessionId,
+        resolve,
+        reject,
+        owner: null,
         signal,
         abort: () => finish(id, 'setup: cancelled. If Desktop already started, inspect its state before retrying.'),
         expiresAt: Date.now() + claimTimeoutMs,
-        timer: setTimeout(() => finish(id, 'setup: no Desktop window claimed the request; nothing was changed'), claimTimeoutMs),
+        timer: setTimeout(
+          () => finish(id, 'setup: no Desktop window claimed the request; nothing was changed'),
+          claimTimeoutMs
+        ),
       };
       pending.set(id, entry);
       signal?.addEventListener('abort', entry.abort, { once: true });
@@ -38,8 +51,9 @@ export function createSetupUiRequests({ notifySessionUi, getSessionId, claimTime
     request,
     isSetupRequestActive(id, owner) {
       const entry = pending.get(id);
-      return Boolean(entry && entry.owner === owner && !entry.signal?.aborted
-        && entry.sessionId === String(getSessionId?.() || ''));
+      return Boolean(
+        entry && entry.owner === owner && !entry.signal?.aborted && entry.sessionId === String(getSessionId?.() || '')
+      );
     },
     claimSetupRequest(id, owner) {
       const entry = pending.get(id);
@@ -48,7 +62,11 @@ export function createSetupUiRequests({ notifySessionUi, getSessionId, claimTime
       entry.owner = owner;
       clearTimeout(entry.timer);
       entry.timer = setTimeout(
-        () => finish(id, 'setup: Desktop did not return a receipt. The operation may still be running; inspect its state before retrying.'),
+        () =>
+          finish(
+            id,
+            'setup: Desktop did not return a receipt. The operation may still be running; inspect its state before retrying.'
+          ),
         executionTimeoutMs
       );
       return { id, args: entry.args, scope: 'desktop-host' };

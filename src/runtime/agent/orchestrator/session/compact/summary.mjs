@@ -1,7 +1,7 @@
 // Handoff summarization, schema validation/repair, and fresh-context
 // summary-message fitting.
 import { estimateMessagesTokens } from '../context-utils.mjs';
-import { SUMMARY_PREFIX, SUMMARY_PREFIX_ANCHOR } from './constants.mjs';
+import { SUMMARY_PREFIX_ANCHOR } from './constants.mjs';
 import { extractText, truncateMiddle, toolCallSummary, toolCallArgBudget, toolResultId } from './text-utils.mjs';
 import { compactHeader, makeSummaryMessage } from './messages.mjs';
 import {

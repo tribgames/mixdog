@@ -91,7 +91,9 @@ test('a failed external launch reports the error without opening a blank editor'
   window.addEventListener(DESKTOP_TOAST_EVENT, receive);
   t.after(() => window.removeEventListener(DESKTOP_TOAST_EVENT, receive));
   const view = await mountNavigation(t, {
-    openFilePath: async () => { throw new Error('No application is associated with this file.'); },
+    openFilePath: async () => {
+      throw new Error('No application is associated with this file.');
+    },
   });
   await act(async () => view.current.value.openFileTab('C:/Project/demo', 'deck.pptx'));
   assert.equal(notices.length, 1);
@@ -116,7 +118,9 @@ test('native previews, text and unsafe files retain editor routing without launc
 test('remote document clicks keep their internal page-viewer tab instead of calling the inert OS bridge', async (t) => {
   const previous = navigator.userAgent;
   navigator.userAgent = 'Mozilla/5.0';
-  t.after(() => { navigator.userAgent = previous; });
+  t.after(() => {
+    navigator.userAgent = previous;
+  });
   const external = [];
   const view = await mountNavigation(t, { openFilePath: async (...args) => external.push(args) });
   await act(async () => view.current.value.openFileTab('C:/Project/demo', 'deck.pptx'));
@@ -135,24 +139,34 @@ test('the external-open escape stays visible even for a successfully loaded PDF 
     await act(async () => root.unmount());
     host.remove();
   });
-  await act(async () => root.render(React.createElement(EditorBreadcrumbs, {
-    projectPath: 'C:/Project/demo',
-    relPath: 'report.pdf',
-    accessToken: 'grant',
-    load: { content: '', binary: true, tooLarge: false, mtimeMs: 1, encoding: 'utf8' },
-    preview: { kind: 'pdf', mime: 'application/pdf', url: 'mixdog-media://preview/token/report.pdf', mtimeMs: 1, size: 1 },
-    dirty: false,
-    saving: false,
-    reverting: false,
-    cursorLine: 1,
-    outline: [],
-    problemStatus: { errors: 0, warnings: 0 },
-    onSave() {},
-    onRevert() {},
-    onShowProblems() {},
-    onFocusEditor() {},
-    onRevealSymbol() {},
-  })));
+  await act(async () =>
+    root.render(
+      React.createElement(EditorBreadcrumbs, {
+        projectPath: 'C:/Project/demo',
+        relPath: 'report.pdf',
+        accessToken: 'grant',
+        load: { content: '', binary: true, tooLarge: false, mtimeMs: 1, encoding: 'utf8' },
+        preview: {
+          kind: 'pdf',
+          mime: 'application/pdf',
+          url: 'mixdog-media://preview/token/report.pdf',
+          mtimeMs: 1,
+          size: 1,
+        },
+        dirty: false,
+        saving: false,
+        reverting: false,
+        cursorLine: 1,
+        outline: [],
+        problemStatus: { errors: 0, warnings: 0 },
+        onSave() {},
+        onRevert() {},
+        onShowProblems() {},
+        onFocusEditor() {},
+        onRevealSymbol() {},
+      })
+    )
+  );
   const button = host.querySelector('.editor-breadcrumb-actions button');
   assert.ok(button);
   await act(async () => button.click());

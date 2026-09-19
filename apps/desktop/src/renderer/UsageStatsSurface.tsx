@@ -696,12 +696,7 @@ function RouteCells({ route }: { route: Row }) {
       <td className="stats-breakdown">{statsTokens(route.cacheRead, incomplete)}</td>
       <td className="stats-optional">{statsPercent(route.cacheHitRate)}</td>
       <td className="stats-total-cell">{statsTokens(route.tokens, incomplete)}</td>
-      <td
-        className="stats-cost-cell"
-        title={
-          unpricedTurns(route) > 0 ? t('Partial cost') : undefined
-        }
-      >
+      <td className="stats-cost-cell" title={unpricedTurns(route) > 0 ? t('Partial cost') : undefined}>
         {statsMoney(route)}
       </td>
     </>

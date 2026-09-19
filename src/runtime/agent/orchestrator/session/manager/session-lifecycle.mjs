@@ -222,7 +222,9 @@ export function createSession(opts) {
   // override role-inapplicable entries.
   const sessionDeny = [
     ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
-    ...(!ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow)) ? ['agent'] : []),
+    ...(!ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow))
+      ? ['agent']
+      : []),
   ];
   // Role permission is prompt/diagnostic metadata only. Resolve and persist
   // it without shaping the provider-visible Agent schema.
@@ -268,7 +270,8 @@ export function createSession(opts) {
         provider: providerName,
         model: modelName,
       });
-  const delegationFree = !ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow));
+  const delegationFree =
+    !ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow));
   const roleRules = skipAgentRules
     ? ''
     : ownerIsAgent
@@ -497,7 +500,10 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel, prev
   const deny = [
     ...(Array.isArray(session?.disallowedTools) ? session.disallowedTools : []),
     ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
-    ...(!isAgentOwner(session) && (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session?.workflow)) ? ['agent'] : []),
+    ...(!isAgentOwner(session) &&
+    (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session?.workflow))
+      ? ['agent']
+      : []),
   ];
   const allowTools = isAgentOwner(session) ? null : session?.schemaAllowedTools;
   const previousRules = _buildBaseRules({
@@ -674,7 +680,10 @@ function _prepareResumeTools(session, preset) {
           : null,
       disallowedTools: [
         ...(Array.isArray(session.disallowedTools) ? session.disallowedTools : []),
-        ...(!isAgentOwner(session) && (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session.workflow)) ? ['agent'] : []),
+        ...(!isAgentOwner(session) &&
+        (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session.workflow))
+          ? ['agent']
+          : []),
       ],
       ownerIsAgent,
       resolvedAgent: session.agent || null,

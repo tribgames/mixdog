@@ -147,10 +147,17 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
         MIXDOG_DATA_DIR: join(dir, 'data'),
         MIXDOG_USER_DATA_BACKUP_ROOT: join(dir, 'backups'),
         MIXDOG_CONFIG_READ_TTL_MS: '0',
-        ...Object.fromEntries([
-          'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY', 'DEEPSEEK_API_KEY',
-          'XAI_API_KEY', 'OPENCODE_API_KEY', 'OPENROUTER_API_KEY',
-        ].map(key => [key, 'fixture-key-not-a-real-credential'])),
+        ...Object.fromEntries(
+          [
+            'OPENAI_API_KEY',
+            'ANTHROPIC_API_KEY',
+            'GEMINI_API_KEY',
+            'DEEPSEEK_API_KEY',
+            'XAI_API_KEY',
+            'OPENCODE_API_KEY',
+            'OPENROUTER_API_KEY',
+          ].map((key) => [key, 'fixture-key-not-a-real-credential'])
+        ),
       },
       encoding: 'utf8',
       timeout: 30_000,

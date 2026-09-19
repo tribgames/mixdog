@@ -4,11 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import sys
-import tempfile
 import tarfile
+import tempfile
 import unittest
 from pathlib import Path
-
 
 BENCH_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BENCH_ROOT))
@@ -35,7 +34,9 @@ def _sample_tree(root: Path) -> tuple[Path, Path]:
 
 
 class BundleIdentityTest(unittest.TestCase):
-    def test_selected_graph_binary_is_executable_and_part_of_bundle_identity(self) -> None:
+    def test_selected_graph_binary_is_executable_and_part_of_bundle_identity(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             source, spawn = _sample_tree(root)
@@ -43,17 +44,25 @@ class BundleIdentityTest(unittest.TestCase):
             graph.write_bytes(b"first selected graph")
             first = build_src_snapshot(source, root / "graph-first.tar", spawn, graph)
             manifest = bundle_manifest(first, "spawn-digest")
-            entry = next(row for row in manifest["files"] if row["path"] == GRAPH_MEMBER)
-            self.assertEqual(entry["sha256"], hashlib.sha256(graph.read_bytes()).hexdigest())
+            entry = next(
+                row for row in manifest["files"] if row["path"] == GRAPH_MEMBER
+            )
+            self.assertEqual(
+                entry["sha256"], hashlib.sha256(graph.read_bytes()).hexdigest()
+            )
             self.assertEqual(entry["mode"], "0755")
             with tarfile.open(first.archive_path) as archive:
-                self.assertEqual(archive.extractfile(GRAPH_MEMBER).read(), graph.read_bytes())
+                self.assertEqual(
+                    archive.extractfile(GRAPH_MEMBER).read(), graph.read_bytes()
+                )
                 self.assertEqual(archive.getmember(GRAPH_MEMBER).mode, 0o755)
             graph.write_bytes(b"second selected graph")
             second = build_src_snapshot(source, root / "graph-second.tar", spawn, graph)
             self.assertNotEqual(first.bundle_sha256, second.bundle_sha256)
 
-    def test_missing_empty_or_conflicting_graph_override_is_not_silently_ignored(self) -> None:
+    def test_missing_empty_or_conflicting_graph_override_is_not_silently_ignored(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             source, spawn = _sample_tree(root)

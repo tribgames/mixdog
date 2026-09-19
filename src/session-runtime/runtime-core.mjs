@@ -1388,9 +1388,8 @@ export async function createMixdogSessionRuntime({
       }
       return active;
     },
-    getOrchestrationMode: () => rt.session?.id
-      ? sessionOrchestrationMode(rt.session)
-      : configuredOrchestrationMode(rt.config),
+    getOrchestrationMode: () =>
+      rt.session?.id ? sessionOrchestrationMode(rt.session) : configuredOrchestrationMode(rt.config),
     getOutputStyle: () => getOutputStyleStatusCached().current,
     getContextStatus: computeContextStatus,
     getContextStatusForSession: computeContextStatusForSession,

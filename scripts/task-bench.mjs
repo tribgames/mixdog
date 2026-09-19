@@ -14,7 +14,7 @@
 // Input is constant (finished sessions are immutable); only rules/briefs change
 // between the two frozen groups you compare.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 

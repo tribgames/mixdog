@@ -27,10 +27,7 @@ const REASONING_BLOCK_TYPES = new Set(['thinking', 'redacted_thinking']);
 export function supportsInputTokenCount(provider) {
   const name = String(provider || '').toLowerCase();
   return (
-    name.startsWith('anthropic') ||
-    name.startsWith('openai') ||
-    name.startsWith('gemini') ||
-    name.startsWith('google')
+    name.startsWith('anthropic') || name.startsWith('openai') || name.startsWith('gemini') || name.startsWith('google')
   );
 }
 

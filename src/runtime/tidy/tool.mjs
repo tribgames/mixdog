@@ -1,10 +1,11 @@
 // The model-facing `tidy` tool: a multi-language cleanup multiplexer.
 //
-// scan    detect languages → resolve engines → report policy
-// check   run every resolved engine in check mode + structural rules, no writes
-// fix     same, but reports the change plan; apply:true writes through apply.mjs
-// install download missing managed engines (sha256-verified, policy-gated)
-// rules   list the structural rule packs and the languages they cover
+// scan     detect languages → resolve engines → report policy
+// check    run every resolved engine in check mode + structural rules, no writes
+// fix      same, but reports the change plan; apply:true writes through apply.mjs
+// install  download missing managed engines (sha256-verified, policy-gated)
+// rules    list the structural rule packs and the languages they cover
+// results  page diagnostics/matches from the last check/fix (no engine re-run)
 //
 // The heavy pieces (engine runners, structural adapter, installer, orchestrator
 // write pipeline) load on demand so importing this module stays cheap at boot.
@@ -14,14 +15,80 @@ import { TIDY_ACTIONS } from './tool-defs.mjs';
 import { detectLanguages, parseGraphLangs } from './languages.mjs';
 import { readEnginesManifest } from './install.mjs';
 import { resolveEngines, runnableEngines } from './resolve.mjs';
-import { buildTidyReport, tidyToolResult } from './report.mjs';
+import { DIAGNOSTIC_CAP, RESULTS_PAGE_MAX, buildTidyReport, tidyToolResult } from './report.mjs';
 import { runProcess } from './process.mjs';
 
 const GRAPH_LANGS_TIMEOUT_MS = 8000;
-// Above this, the file list stops being an argv filter and the engine walks cwd.
-const MAX_STRUCTURAL_FILE_ARGS = 200;
+// Argv-safe --files batches. Larger scopes stay scoped: omitting --files makes
+// mixdog-graph walk cwd, which is never an acceptable fallback.
+export const MAX_STRUCTURAL_FILE_ARGS = 200;
+const RESULT_CACHE_MAX = 32;
+const RESULT_CACHE = new Map();
+const PAGING_NOTE =
+  'more diagnostics are stored from this run; action results with offset/limit pages them without re-running engines';
 
 class TidyToolError extends Error {}
+
+/** Split a file list into --files batches. Empty input means "do not scan". */
+export function chunkStructuralFiles(files = [], maxArgs = MAX_STRUCTURAL_FILE_ARGS) {
+  const width = Math.max(1, Number(maxArgs) || MAX_STRUCTURAL_FILE_ARGS);
+  if (!Array.isArray(files) || files.length === 0) return [];
+  const chunks = [];
+  for (let index = 0; index < files.length; index += width) {
+    chunks.push(files.slice(index, index + width));
+  }
+  return chunks;
+}
+
+function resultCacheKey(cwd, sessionId) {
+  return `${sessionId || ''}::${cwd}`;
+}
+
+export function resetTidyResultCache() {
+  RESULT_CACHE.clear();
+}
+
+export function rememberTidyRun(cwd, sessionId, payload) {
+  const key = resultCacheKey(cwd, sessionId);
+  RESULT_CACHE.delete(key);
+  RESULT_CACHE.set(key, payload);
+  while (RESULT_CACHE.size > RESULT_CACHE_MAX) {
+    const oldest = RESULT_CACHE.keys().next().value;
+    RESULT_CACHE.delete(oldest);
+  }
+}
+
+function recallTidyRun(cwd, sessionId) {
+  return RESULT_CACHE.get(resultCacheKey(cwd, sessionId)) || null;
+}
+
+function parseOffset(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(1_000_000_000, Math.trunc(n));
+}
+
+function parseLimit(value) {
+  if (value == null || value === '') return DIAGNOSTIC_CAP;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DIAGNOSTIC_CAP;
+  return Math.min(RESULTS_PAGE_MAX, Math.max(1, Math.trunc(n)));
+}
+
+function matchFileKey(file, cwd) {
+  const raw = String(file || '').replaceAll('\\', '/');
+  if (!raw) return '';
+  const root = String(cwd || '')
+    .replaceAll('\\', '/')
+    .replace(/\/+$/, '');
+  if (root && (raw === root || raw.startsWith(`${root}/`))) return raw.slice(root.length + 1);
+  return raw.replace(/^\.\//, '');
+}
+
+function reportHasMore(report) {
+  const engineMore = (report.results || []).some((row) => Number(row?.more) > 0);
+  return engineMore || Number(report.structural?.more) > 0;
+}
 
 function list(value) {
   if (value == null) return [];
@@ -148,8 +215,20 @@ async function satisfyMissingEngines({ resolution, cwd, engineFilter, approveDow
   };
 }
 
-async function runStructural({ cwd, files, languages = [], apply, sessionId, signal, graphBinPath, graphLangs }) {
-  const { groupsForLanguages, loadRulePacks, resolveStructuralAdapter } = await import('./structural.mjs');
+async function runStructural({
+  cwd,
+  files,
+  languages = [],
+  apply,
+  sessionId,
+  signal,
+  graphBinPath,
+  graphLangs,
+  extensions = null,
+}) {
+  const { filesForStructuralGroup, groupsForLanguages, loadRulePacks, resolveStructuralAdapter } = await import(
+    './structural.mjs'
+  );
   const { groups } = loadRulePacks();
   if (groups.length === 0) {
     return { adapter: 'none', matches: [], applied: [], packs: [], note: 'no structural rule packs are installed' };
@@ -159,17 +238,25 @@ async function runStructural({ cwd, files, languages = [], apply, sessionId, sig
   const adapter = await resolveStructuralAdapter({ cwd, graphBinPath, graphLangs, signal });
   // `--fix` asks the producer for fix payloads only — the graph binary emits
   // them and writes nothing — so the plan is always complete and apply.mjs
-  // stays the only writer. An unscoped run omits `--files` and lets the engine
-  // walk the tree itself instead of pushing thousands of argv entries.
-  const scoped = files.length > 0 && files.length <= MAX_STRUCTURAL_FILE_ARGS ? files : [];
+  // stays the only writer. An empty file list must not omit `--files` (that
+  // walks cwd). Oversize lists are batched so every spawn stays scoped.
+  if (!files.length) {
+    return { adapter: adapter.id, packs: [], matches: [], applied: [], note: 'no files in scope' };
+  }
+  const allowed = new Set(files.map((rel) => matchFileKey(rel, cwd)));
   const runnable = groupsForLanguages(groups, languages);
   const matches = [];
   const ruleErrors = [];
   for (const group of runnable) {
-    const scan = await adapter.scan({ cwd, rulesText: group.rulesText, files: scoped, fix: true, signal });
-    matches.push(...(scan.matches || []));
-    // One unusable pack takes down its own language only; the rest still run.
-    if (scan.error) ruleErrors.push({ language: group.language, ...scan.error });
+    const groupFiles = filesForStructuralGroup(files, group, extensions);
+    for (const chunk of chunkStructuralFiles(groupFiles)) {
+      const scan = await adapter.scan({ cwd, rulesText: group.rulesText, files: chunk, fix: true, signal });
+      for (const match of scan.matches || []) {
+        if (allowed.has(matchFileKey(match.file, cwd))) matches.push(match);
+      }
+      // One unusable pack takes down its own language only; the rest still run.
+      if (scan.error) ruleErrors.push({ language: group.language, ...scan.error });
+    }
   }
   const structural = {
     adapter: adapter.id,
@@ -251,9 +338,20 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
           signal,
           graphBinPath: detected.graphBinPath,
           graphLangs: detected.graphLangs,
+          extensions: detected.extensions,
         });
 
-  return buildTidyReport({
+  rememberTidyRun(cwd, sessionId, {
+    languages: detected.languages,
+    languageSource: detected.source,
+    engines: resolution.engines,
+    policy: resolution.policy,
+    results,
+    structural,
+    scope,
+  });
+
+  const report = buildTidyReport({
     action,
     languages: detected.languages,
     languageSource: detected.source,
@@ -270,6 +368,36 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
       ...(action === 'fix' && !apply ? ['dry run: pass apply:true to write these changes'] : []),
       ...(installed?.errors ? installed.errors.map((entry) => `${entry.id}: ${entry.error}`) : []),
     ],
+    offset: parseOffset(args.offset),
+    limit: parseLimit(args.limit),
+    elapsedMs: Date.now() - startedAt,
+  });
+  if (reportHasMore(report)) report.notes = [...(report.notes || []), PAGING_NOTE];
+  return report;
+}
+
+async function resultsAction({ args, cwd, sessionId, engineFilter, startedAt }) {
+  const cached = recallTidyRun(cwd, sessionId);
+  if (!cached) {
+    throw new TidyToolError('no stored tidy results for this session; run check or fix first');
+  }
+  const results = Array.isArray(cached.results)
+    ? engineFilter.length
+      ? cached.results.filter((row) => engineFilter.includes(row.id))
+      : cached.results
+    : null;
+  return buildTidyReport({
+    action: 'results',
+    languages: cached.languages || [],
+    languageSource: cached.languageSource || '',
+    engines: cached.engines || [],
+    policy: cached.policy || null,
+    results,
+    structural: args.structural === false ? null : cached.structural,
+    ...(cached.scope?.length ? { scope: cached.scope } : {}),
+    notes: ['paged from the last check/fix; engines were not re-run'],
+    offset: parseOffset(args.offset),
+    limit: parseLimit(args.limit),
     elapsedMs: Date.now() - startedAt,
   });
 }
@@ -352,6 +480,9 @@ export async function executeTidyTool(args = {}, { cwd = process.cwd(), signal =
     }
     if (action === 'rules') {
       return tidyToolResult(await rulesAction({ cwd, signal, startedAt }));
+    }
+    if (action === 'results') {
+      return tidyToolResult(await resultsAction({ args, cwd, sessionId, engineFilter, startedAt }));
     }
     return tidyToolResult(
       await runAction({

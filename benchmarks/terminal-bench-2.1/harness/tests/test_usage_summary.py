@@ -7,14 +7,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
-
 HARNESS_ROOT = Path(__file__).resolve().parents[1]
 COST_REPORT = HARNESS_ROOT / "cost-exact.mjs"
 
 
 class UsageSummaryTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "Node.js is not installed")
-    def test_cost_report_separates_openai_cache_writes_and_uses_iteration_count(self) -> None:
+    def test_cost_report_separates_openai_cache_writes_and_uses_iteration_count(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(prefix="mixdog-cost-report-") as temp:
             run_dir = Path(temp)
             trial_dir = run_dir / "fixture__trial"

@@ -212,6 +212,8 @@ function normalizePivotFields(operation) {
   if (operation.values != null) operation.values = pivotValueFields(operation.values);
 }
 
+const VALIDATION_CHOICE_RANGE = /^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$/;
+
 // A dropdown names its choices — "서울,부산" — or points at the cells holding
 // them; anything that compares, calls, or tests is a rule the sheet evaluates.
 export function listValidationFormula(formula1) {
@@ -220,10 +222,22 @@ export function listValidationFormula(formula1) {
     .replace(/^=/, '');
   if (!text) return false;
   if (/^"[^"]*"$/.test(text)) return true;
-  if (/^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?\d+(?::\$?[A-Z]{1,3}\$?\d+)?$/.test(text)) return true;
+  if (VALIDATION_CHOICE_RANGE.test(text)) return true;
   // Bare comma-separated items are what a caller writes when the quotes are
   // forgotten; an expression never looks like that.
   return text.includes(',') && !/[=<>+*/()"]/.test(text);
+}
+
+// Excel holds a literal list quoted — <formula1>"서울,부산"</formula1>. Written
+// bare, the reader looks for a name spelled 서울,부산, finds none, and opens an
+// empty dropdown, so the quotes the caller left off are put back here. A range
+// of choices and an already quoted list are written as they came.
+export function listValidationChoices(formula1) {
+  const text = String(formula1 ?? '')
+    .trim()
+    .replace(/^=/, '');
+  if (!text || /^"[^"]*"$/.test(text) || VALIDATION_CHOICE_RANGE.test(text)) return text;
+  return `"${text}"`;
 }
 
 // Three ways a sheet marks its numbers: a rule that paints the cells it picks,

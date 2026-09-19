@@ -52,7 +52,8 @@ public static class TransportFixture {
     int attempts = 0; bool enter = false, rightControlExtended = false;
     var ownedMarker = new System.IntPtr(System.Diagnostics.Process.GetCurrentProcess().Id + 1000000);
     var heldBatch = new [] { MixNativeInput.Key(13,0,0,ownedMarker),
-      MixNativeInput.Key(0xA3,0,1,ownedMarker), MixNativeInput.Mouse(2,ownedMarker) };
+      MixNativeInput.Key(0xA3,0,1,ownedMarker), MixNativeInput.Mouse(2,ownedMarker),
+      MixNativeInput.Key(0x41,0,0,ownedMarker) };
     MixNativeInput.DeliverTracked(heldBatch, ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { return (uint)inputs.Length; });
     MixNativeInput.RecordForeignKey(0x10, true);
     MixNativeInput.RecordForeignKey(0xA3, true);
@@ -60,6 +61,15 @@ public static class TransportFixture {
     uint conflicting = MixNativeInput.DeliverTracked(new [] { MixNativeInput.Key(0xA3,0,3,ownedMarker) },
       ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { conflictingReleases++; return 1; });
     Require(conflicting == 0 && conflictingReleases == 0, "released a key now held by the user");
+    // A key this session holds reads as physically down when the next command
+    // starts observing. It is ours, so its own release must still be accepted.
+    MixNativeInput.RecordForeignKey(0x41, true);
+    MixNativeInput.BeginOwnershipObservation();
+    int holdReleases = 0;
+    uint holdRelease = MixNativeInput.DeliverTracked(new [] { MixNativeInput.Key(0x41,0,2,ownedMarker) },
+      ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { holdReleases++; return 1; });
+    Require(holdRelease == 1 && holdReleases == 1, "refused the release of a key this session holds");
+    MixNativeInput.RecordForeignKey(0xA3, true);
     MixNativeInput.RecordForeignKey(0xA3, false);
     try {
       MixNativeInput.ReleaseOwned(ownedMarker, delegate(MixNativeInput.INPUT[] inputs) {

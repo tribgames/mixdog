@@ -17,18 +17,22 @@ import { ORCHESTRATION_MODES } from '../../runtime/shared/orchestration.mjs';
 import { setBuiltinFirstUseApprovalInConfig } from '../builtin-features.mjs';
 import { schemaValueError } from '../../runtime/shared/schema-value-error.mjs';
 
-const run = async (api, args, options = {}) => JSON.parse(await createSetupToolExecutor({ getApi: () => api, ...options }).execute(args));
+const run = async (api, args, options = {}) =>
+  JSON.parse(await createSetupToolExecutor({ getApi: () => api, ...options }).execute(args));
 
 test('every registered action field is exposed, and every extended action has an implementation', () => {
   const fields = SETUP_TOOL_DEFS[0].inputSchema.properties;
   for (const [action, signature] of Object.entries(SETUP_ACTION_FIELDS)) {
-    for (const field of signature.split(' ').filter(Boolean).map((field) => field.replace(/\?$/, ''))) {
+    for (const field of signature
+      .split(' ')
+      .filter(Boolean)
+      .map((field) => field.replace(/\?$/, ''))) {
       assert.ok(Object.hasOwn(fields, field), `${action}: missing ${field}`);
     }
   }
   assert.deepEqual(
     Object.keys(SETUP_EXTENDED_ACTION_FIELDS).sort(),
-    [...Object.keys(EXTENDED_SETUP_HANDLERS), ...SETUP_DESKTOP_ACTIONS].sort(),
+    [...Object.keys(EXTENDED_SETUP_HANDLERS), ...SETUP_DESKTOP_ACTIONS].sort()
   );
   assert.deepEqual(fields.mode.enum, [...ORCHESTRATION_MODES]);
   assert.equal(schemaValueError(null, fields.localContextWindow, 'context'), null);
@@ -37,17 +41,25 @@ test('every registered action field is exposed, and every extended action has an
 });
 
 test('agent tuning preserves its model and unrelated settings; disable and inheritance are explicit', async () => {
-  const previous = { provider: 'cursor-oauth', model: 'audit-model', effort: 'low', fast: true, modelParameters: { context: 'large' } };
+  const previous = {
+    provider: 'cursor-oauth',
+    model: 'audit-model',
+    effort: 'low',
+    fast: true,
+    modelParameters: { context: 'large' },
+  };
   let config = { agents: { maintainer: { ...previous } }, profile: { title: 'unchanged' } };
   const helpers = createWorkflowRouteHelpers({ findPreset: () => null });
   const main = { provider: 'openai', model: 'main-model' };
   const api = createWorkflowAgentsApi({
     getConfig: () => config,
     agentRouteFromConfig: helpers.agentRouteFromConfig,
-    resolveRoute: (_config, requested) => Object.keys(requested).length ? { ...requested } : main,
+    resolveRoute: (_config, requested) => (Object.keys(requested).length ? { ...requested } : main),
     lookupModelMeta: async () => ({ fastCapable: true, fastEfforts: ['low', 'high'] }),
     ensureProvidersReady: async () => {},
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
   });
   const changed = await run(api, { action: 'set_agent_route', agent: 'maintainer', route: { effort: 'high' } });
   assert.equal(changed.route.provider, previous.provider);
@@ -69,16 +81,26 @@ test('agent tuning preserves its model and unrelated settings; disable and inher
 });
 
 test('Web Search Fast-only edits keep the search model and effort; explicit reset follows Main', async () => {
-  const previous = { provider: 'openai-oauth', model: 'audit-search-model', effort: 'low', fast: true, modelParameters: { context: 'large' } };
+  const previous = {
+    provider: 'openai-oauth',
+    model: 'audit-search-model',
+    effort: 'low',
+    fast: true,
+    modelParameters: { context: 'large' },
+  };
   let config = { webSearchRoute: previous, agents: { untouched: { provider: 'openai', model: 'other' } } };
   let route = previous;
   const api = createModelRouteApi({
     getConfig: () => config,
     getWebSearchRouteState: () => route,
-    setWebSearchRouteState: (next) => { route = next; },
+    setWebSearchRouteState: (next) => {
+      route = next;
+    },
     lookupModelMeta: async () => ({ id: previous.model, provider: previous.provider }),
     webSearchCapableFor: () => true,
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     ensureFullConfig: () => {},
     awaitKeychainPrewarm: async () => {},
     ensureProvidersReady: async () => {},
@@ -93,7 +115,12 @@ test('Web Search Fast-only edits keep the search model and effort; explicit rese
 
 test('Main context and model parameters reach the route API, while agent-only flags are rejected', async () => {
   const calls = [];
-  const api = { setRoute: async (value) => { calls.push(value); return value; } };
+  const api = {
+    setRoute: async (value) => {
+      calls.push(value);
+      return value;
+    },
+  };
   const route = { modelParameters: { context: 'large' }, contextPercent: 70 };
   await run(api, { action: 'set_route', route });
   assert.deepEqual(calls, [route]);
@@ -104,20 +131,32 @@ test('Main context and model parameters reach the route API, while agent-only fl
 
 test('auto-clear resets preserve unrelated overrides; percentage budgets replace tokens in config and live session', async () => {
   let config = {
-    autoClear: { enabled: true, idleMs: 600000, providerIdleMs: { openai: 900000, gemini: 1200000 }, minContextPercent: 10 },
+    autoClear: {
+      enabled: true,
+      idleMs: 600000,
+      providerIdleMs: { openai: 900000, gemini: 1200000 },
+      minContextPercent: 10,
+    },
     compaction: { auto: true, mainBufferTokens: 8000 },
   };
   const session = { compaction: { auto: true, mainBufferTokens: 8000 } };
   const api = createSettingsApi({
-    getConfig: () => config, getSession: () => session,
+    getConfig: () => config,
+    getSession: () => session,
     hasOwn: (value, key) => Object.hasOwn(value, key),
-    normalizeAutoClearConfig, normalizeCompactionConfig,
-    saveConfigAndAdopt: (next) => { config = next; },
+    normalizeAutoClearConfig,
+    normalizeCompactionConfig,
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     formatDurationMs: (value) => String(value),
     invalidateContextStatusCache: () => {},
   });
   api.getAutoClear = () => config.autoClear;
-  await run(api, { action: 'set_autoclear', autoclear: { provider: 'openai', resetProvider: true, minContextPercent: 20 } });
+  await run(api, {
+    action: 'set_autoclear',
+    autoclear: { provider: 'openai', resetProvider: true, minContextPercent: 20 },
+  });
   assert.deepEqual(config.autoClear.providerIdleMs, { gemini: 1200000 });
   assert.equal(config.autoClear.idleMs, 600000);
   assert.equal(config.autoClear.minContextPercent, 20);
@@ -129,19 +168,37 @@ test('auto-clear resets preserve unrelated overrides; percentage budgets replace
   assert.equal(session.compaction.mainBufferPercent, 15);
   assert.equal(Object.hasOwn(config.compaction, 'mainBufferTokens'), false);
   assert.equal(Object.hasOwn(session.compaction, 'mainBufferTokens'), false);
-  await assert.rejects(run(api, { action: 'set_compaction', compaction: { mainBufferTokens: 1000, mainBufferPercent: 15 } }), /not both/);
+  await assert.rejects(
+    run(api, { action: 'set_compaction', compaction: { mainBufferTokens: 1000, mainBufferPercent: 15 } }),
+    /not both/
+  );
   await assert.rejects(run(api, { action: 'set_autoclear', autoclear: { resetProvider: true } }), /requires provider/);
 });
 
 test('MCP edits use documented names, retain omitted credentials and arguments, and rename without duplicating', async (t) => {
-  let config = { mcpServers: { fixture: { type: 'stdio', command: 'node', args: ['original'], env: { API_TOKEN: 'credential-canary' }, enabled: false } } };
+  let config = {
+    mcpServers: {
+      fixture: {
+        type: 'stdio',
+        command: 'node',
+        args: ['original'],
+        env: { API_TOKEN: 'credential-canary' },
+        enabled: false,
+      },
+    },
+  };
   const glue = createMcpGlue({ getConfig: () => config, getCurrentCwd: () => process.cwd(), mcpClient: {}, state: {} });
-  const status = () => ({ servers: Object.entries(config.mcpServers).map(([name, entry]) => ({ name, enabled: entry.enabled })) });
+  const status = () => ({
+    servers: Object.entries(config.mcpServers).map(([name, entry]) => ({ name, enabled: entry.enabled })),
+  });
   const api = createResourceApi({
-    getConfig: () => config, getCurrentCwd: () => process.cwd(),
+    getConfig: () => config,
+    getCurrentCwd: () => process.cwd(),
     normalizeMcpServerInput: glue.normalizeMcpServerInput,
     getMcpServerConfig: glue.getMcpServerConfig,
-    saveConfigAndAdopt: (next) => { config = next; },
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
     connectConfiguredMcp: async () => status(),
     mcpStatus: status,
     invalidatePreSessionToolSurface: () => {},
@@ -160,12 +217,19 @@ test('MCP edits use documented names, retain omitted credentials and arguments, 
   const safe = await run(api, { action: 'get_mcp_server', name: 'renamed' });
   assert.doesNotMatch(JSON.stringify(safe), /credential-canary|original/);
   assert.deepEqual(safe.environmentNames, ['API_TOKEN', 'LABEL']);
-  await assert.rejects(run(api, { action: 'add_mcp_server', server: { name: 'renamed', command: 'node' } }), /already exists/);
+  await assert.rejects(
+    run(api, { action: 'add_mcp_server', server: { name: 'renamed', command: 'node' } }),
+    /already exists/
+  );
 });
 
 test('typed MCP input rejects misspellings, wrong types, credentials and conflicting transports before mutation', async () => {
   let calls = 0;
-  const api = { addMcpServer: async () => { calls++; } };
+  const api = {
+    addMcpServer: async () => {
+      calls++;
+    },
+  };
   for (const server of [
     { name: 'x', comand: 'node' },
     { name: 'x', command: 'node', args: 'not-an-array' },
@@ -174,7 +238,8 @@ test('typed MCP input rejects misspellings, wrong types, credentials and conflic
     { name: 'x', url: 'https://name:secret@example.test' },
     { name: 'x', url: 'https://example.test?token=secret' },
     { name: 'x', command: 'node', url: 'https://example.test' },
-  ]) await assert.rejects(run(api, { action: 'add_mcp_server', server }));
+  ])
+    await assert.rejects(run(api, { action: 'add_mcp_server', server }));
   assert.equal(calls, 0);
 });
 
@@ -182,42 +247,94 @@ test('definition partial edits preserve names and bodies not requested for chang
   let workflow = { id: 'fixture', name: 'Keep name', description: 'Old', body: 'Keep instructions' };
   const api = {
     getWorkflowPack: () => workflow,
-    saveWorkflowPack: async (next) => { workflow = next; return next; },
+    saveWorkflowPack: async (next) => {
+      workflow = next;
+      return next;
+    },
   };
-  const result = await run(api, { action: 'save_definition', definitionKind: 'workflow', definition: { id: 'fixture', description: 'New' } });
+  const result = await run(api, {
+    action: 'save_definition',
+    definitionKind: 'workflow',
+    definition: { id: 'fixture', description: 'New' },
+  });
   assert.deepEqual(workflow, { id: 'fixture', name: 'Keep name', description: 'New', body: 'Keep instructions' });
   assert.equal(result.saved, true);
-  await assert.rejects(run(api, { action: 'save_definition', definitionKind: 'workflow', definition: { id: 'fixture', whenToUse: 'not a workflow field' } }), /not a workflow/);
+  await assert.rejects(
+    run(api, {
+      action: 'save_definition',
+      definitionKind: 'workflow',
+      definition: { id: 'fixture', whenToUse: 'not a workflow field' },
+    }),
+    /not a workflow/
+  );
 });
 
 test('automation partial edits preserve one-shot timing and attachments; signing secrets never reach receipts', async () => {
   const attachment = { kind: 'text', name: 'keep.txt', data: 'attachment-canary' };
-  const entry = { name: 'fixture', instructions: 'Keep prompt', whenAt: '2035-01-01T09:00:00.000Z', time: 'at 2035-01-01T09:00:00.000Z', attachments: [attachment], enabled: false };
+  const entry = {
+    name: 'fixture',
+    instructions: 'Keep prompt',
+    whenAt: '2035-01-01T09:00:00.000Z',
+    time: 'at 2035-01-01T09:00:00.000Z',
+    attachments: [attachment],
+    enabled: false,
+  };
   let received;
   const api = {
-    getChannelSetup: async () => ({ schedules: [entry], webhooks: [{ name: 'hook', instructions: 'Keep prompt', secretSet: true }], webhook: { enabled: true } }),
-    saveSchedule: async (value) => { received = value; return value; },
+    getChannelSetup: async () => ({
+      schedules: [entry],
+      webhooks: [{ name: 'hook', instructions: 'Keep prompt', secretSet: true }],
+      webhook: { enabled: true },
+    }),
+    saveSchedule: async (value) => {
+      received = value;
+      return value;
+    },
     saveWebhook: async (value) => ({ ...value, secret: 'signing-canary' }),
   };
-  const result = await run(api, { action: 'save_automation', automationKind: 'schedule', entry: { name: 'fixture', overwrite: true, description: 'New' } });
+  const result = await run(api, {
+    action: 'save_automation',
+    automationKind: 'schedule',
+    entry: { name: 'fixture', overwrite: true, description: 'New' },
+  });
   assert.equal(received.at, entry.whenAt);
   assert.equal(Object.hasOwn(received, 'time'), false);
   assert.deepEqual(received.attachments, [attachment]);
   assert.equal(received.enabled, false);
   assert.equal(received.instructions, entry.instructions);
   assert.doesNotMatch(JSON.stringify(result), /attachment-canary/);
-  const hook = await run(api, { action: 'save_automation', automationKind: 'webhook', entry: { name: 'hook', overwrite: true, description: 'New' } });
+  const hook = await run(api, {
+    action: 'save_automation',
+    automationKind: 'webhook',
+    entry: { name: 'hook', overwrite: true, description: 'New' },
+  });
   assert.equal(hook.secretSet, true);
   assert.doesNotMatch(JSON.stringify(hook), /signing-canary/);
-  await assert.rejects(run(api, { action: 'save_automation', automationKind: 'webhook', entry: { name: 'hook', time: '* * * * *' } }), /not accepted/);
+  await assert.rejects(
+    run(api, { action: 'save_automation', automationKind: 'webhook', entry: { name: 'hook', time: '* * * * *' } }),
+    /not accepted/
+  );
 });
 
 test('first-use approval can be inspected, and failed persistence cannot produce a success receipt', async () => {
   const config = setBuiltinFirstUseApprovalInConfig({}, 'browser', false);
-  const features = await run({ getToolModuleSettings: () => ({}) }, { action: 'status', domain: 'features' }, { getConfig: () => config });
+  const features = await run(
+    { getToolModuleSettings: () => ({}) },
+    { action: 'status', domain: 'features' },
+    { getConfig: () => config }
+  );
   assert.equal(features.browser.firstUseApproval, false);
   assert.equal(features.computer.firstUseApproval, true);
-  await assert.rejects(run({ setProfile: () => ({ title: 'Changed' }) },
-    { action: 'set_profile', profile: { title: 'Changed' } },
-    { flushSettings: async () => { throw new Error('disk unavailable'); } }), /disk unavailable/);
+  await assert.rejects(
+    run(
+      { setProfile: () => ({ title: 'Changed' }) },
+      { action: 'set_profile', profile: { title: 'Changed' } },
+      {
+        flushSettings: async () => {
+          throw new Error('disk unavailable');
+        },
+      }
+    ),
+    /disk unavailable/
+  );
 });

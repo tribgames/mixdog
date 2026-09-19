@@ -369,7 +369,9 @@ export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, 
     return {
       summary: workflowSummary(pack, { hasAgents: delegatableAgentIds(config, dir).length > 0, orchestrationMode }),
       orchestrationMode,
-      context: [workflowContextBlockFromPack(pack), orchestrationContextBlock(config, dir)].filter(Boolean).join('\n\n'),
+      context: [workflowContextBlockFromPack(pack), orchestrationContextBlock(config, dir)]
+        .filter(Boolean)
+        .join('\n\n'),
     };
   }
 

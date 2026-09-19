@@ -64,9 +64,11 @@ test('confirmed resume reports already completed input without replaying it', as
     { action: 'focus_window', window_id: 'hwnd:0x1' },
     async (command) => {
       calls.push(command.action);
-      return value(command.action === 'wait_for_user'
-        ? { status: 'resumed', resumed: true }
-        : { ok: true, frame_id: 'after-focus' });
+      return value(
+        command.action === 'wait_for_user'
+          ? { status: 'resumed', resumed: true }
+          : { ok: true, frame_id: 'after-focus' }
+      );
     }
   );
   const body = JSON.parse(result.text);
@@ -95,9 +97,11 @@ test('confirmed resume without a known target requests capture instead of anothe
 
 test('failed post-resume observation requests recapture without claiming user control is still active', async () => {
   const result = await continuePendingComputerWork(pending, { window_id: 'hwnd:0x1' }, async (command) =>
-    value(command.action === 'wait_for_user'
-      ? { status: 'resumed', resumed: true }
-      : { ok: false, code: 'capture_source_unavailable' })
+    value(
+      command.action === 'wait_for_user'
+        ? { status: 'resumed', resumed: true }
+        : { ok: false, code: 'capture_source_unavailable' }
+    )
   );
   const body = JSON.parse(result.text);
   assert.equal(body.ok, false);

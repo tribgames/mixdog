@@ -782,7 +782,11 @@ function reviewPptxPeerType(slide, issues) {
     const faces = new Set(members.flatMap(shapeFaces));
     if (faces.size > 1) {
       issues.push(
-        issue('peer_style_inconsistent', path, `The ${role} boxes mix ${[...faces].join(', ')}; peers in one row carry one face.`)
+        issue(
+          'peer_style_inconsistent',
+          path,
+          `The ${role} boxes mix ${[...faces].join(', ')}; peers in one row carry one face.`
+        )
       );
     }
   }
@@ -804,7 +808,9 @@ function leadsByType(sizes) {
   if (!rest.length) return true;
   const middle = rest.slice().sort((left, right) => left - right);
   const median =
-    middle.length % 2 ? middle[(middle.length - 1) / 2] : (middle[middle.length / 2 - 1] + middle[middle.length / 2]) / 2;
+    middle.length % 2
+      ? middle[(middle.length - 1) / 2]
+      : (middle[middle.length / 2 - 1] + middle[middle.length / 2]) / 2;
   return largest >= median * HIERARCHY_LEAD_RATIO;
 }
 

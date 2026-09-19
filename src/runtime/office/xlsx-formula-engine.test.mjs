@@ -219,9 +219,7 @@ test('a defined name reads as the cell it stands for', async (t) => {
     [
       {
         name: 'Model',
-        rows:
-          '<row r="1"><c r="A1"><f>TaxRate*21</f></c></row>' +
-          '<row r="2"><c r="A2"><f>Uplift*4</f></c></row>',
+        rows: '<row r="1"><c r="A1"><f>TaxRate*21</f></c></row>' + '<row r="2"><c r="A2"><f>Uplift*4</f></c></row>',
       },
       { name: 'Raw Data', rows: '<row r="2"><c r="B2"><v>2</v></c></row>' },
     ],
@@ -258,7 +256,10 @@ test('an array block is filled where it answers once, and refused where it answe
   // A block whose answer differs per cell is one this engine cannot stand
   // behind, so those cells keep exactly what the file held.
   assert.match(xml, /<c r="B2"\/>/);
-  assert.ok(result.unevaluated.some((entry) => entry.startsWith('Data!B1: ')), JSON.stringify(result.unevaluated));
+  assert.ok(
+    result.unevaluated.some((entry) => entry.startsWith('Data!B1: ')),
+    JSON.stringify(result.unevaluated)
+  );
 });
 
 // Excel writes a filled-down column once and gives the cells under it the

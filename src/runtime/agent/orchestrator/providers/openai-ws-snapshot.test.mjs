@@ -9,14 +9,22 @@ test('WebSocket snapshots preserve JSON normalization for every supported value 
   sparse[3] = '한글\ud800\0🙂';
   for (const value of [
     'long immutable text '.repeat(1_000),
-    0, -0, NaN, Infinity, false,
+    0,
+    -0,
+    NaN,
+    Infinity,
+    false,
     sparse,
     new Date('2026-01-01T00:00:00.000Z'),
     new Number(NaN),
     new String('boxed'),
     Object.assign(Object.create(null), { message: 'text', omitted: undefined }),
     JSON.parse('{"__proto__":{"safe":true},"constructor":"ordinary data"}'),
-    { toJSON(key) { return { key, output: 'custom serialization' }; } },
+    {
+      toJSON(key) {
+        return { key, output: 'custom serialization' };
+      },
+    },
     { text: 'kept', omit: undefined, fn() {}, [Symbol('ignored')]: 'ignored' },
   ]) {
     const expected = JSON.parse(JSON.stringify(value));
@@ -43,8 +51,16 @@ test('snapshot serialization observes getters and toJSON exactly as JSON.stringi
   const fixture = () => {
     const calls = [];
     const value = {
-      get text() { calls.push('text'); return 'value'; },
-      child: { toJSON(key) { calls.push(`json:${key}`); return { text: 'child' }; } },
+      get text() {
+        calls.push('text');
+        return 'value';
+      },
+      child: {
+        toJSON(key) {
+          calls.push(`json:${key}`);
+          return { text: 'child' };
+        },
+      },
     };
     return { calls, value };
   };

@@ -1,19 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  os,
-  fs,
-  path,
-  spawnSync,
-  executeBashTool,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-  tmpdir,
-  join,
-  normalizeToolEnvelope,
-  hasCmd,
-} from './_shared.mjs';
+import { os, fs, path, spawnSync, executeBashTool, normalizeToolEnvelope, hasCmd } from './_shared.mjs';
 
 test('integration: live pwsh no-match search head (findstr) exits 1', (t) => {
   if (process.platform !== 'win32') return t.skip('win32-only');

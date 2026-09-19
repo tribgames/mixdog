@@ -47,7 +47,10 @@ fn to_wide(value: &str) -> Vec<u16> {
 }
 
 /// Launch the elevated helper and return the decrypted 32-byte v20 master key.
-pub async fn unwrap_app_bound_key(admin_exe: &str, app_bound_encrypted_key: &str) -> Result<Vec<u8>> {
+pub async fn unwrap_app_bound_key(
+    admin_exe: &str,
+    app_bound_encrypted_key: &str,
+) -> Result<Vec<u8>> {
     if !is_base64(app_bound_encrypted_key) {
         return Err(anyhow!("app-bound key is not valid base64"));
     }
@@ -83,11 +86,7 @@ pub async fn unwrap_app_bound_key(admin_exe: &str, app_bound_encrypted_key: &str
         return Err(error);
     }
 
-    let message = timeout(
-        Duration::from_secs(WAIT_FOR_ADMIN_TIMEOUT_SECS),
-        rx.recv(),
-    )
-    .await;
+    let message = timeout(Duration::from_secs(WAIT_FOR_ADMIN_TIMEOUT_SECS), rx.recv()).await;
     server_task.abort();
 
     let message = match message {

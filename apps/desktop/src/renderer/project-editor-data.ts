@@ -147,9 +147,6 @@ export async function readProjectMemories(
   for (const entries of byScope.values()) entries.sort((a, b) => a.id - b.id);
   return new Map([
     [null, byScope.get(null) ?? []],
-    ...projectScopes.map(({ path, projectId }): [string, CoreMemoryEntry[]] => [
-      path,
-      byScope.get(projectId) ?? [],
-    ]),
+    ...projectScopes.map(({ path, projectId }): [string, CoreMemoryEntry[]] => [path, byScope.get(projectId) ?? []]),
   ]);
 }

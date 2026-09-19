@@ -4,7 +4,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { executeTidyTool } from './tool.mjs';
+import {
+  chunkStructuralFiles,
+  executeTidyTool,
+  MAX_STRUCTURAL_FILE_ARGS,
+  rememberTidyRun,
+  resetTidyResultCache,
+} from './tool.mjs';
 import { runProcess } from './process.mjs';
 import { graphSupportsScan } from './structural.mjs';
 import { graphBinaryPath } from '../agent/orchestrator/tools/code-graph/graph-binary.mjs';
@@ -212,4 +218,207 @@ test('unsupported actions and escaping paths fail as tool errors, not throws', a
   const noEngines = await executeTidyTool({ action: 'install' }, { cwd: process.cwd() });
   assert.equal(noEngines.isError, true);
   assert.match(parseResult(noEngines).error, /install requires engines/);
+});
+
+test('structural file chunks never collapse a large scope to an unfiltered walk', () => {
+  assert.deepEqual(chunkStructuralFiles([]), []);
+  assert.deepEqual(chunkStructuralFiles(['a.js']), [['a.js']]);
+  const files = Array.from({ length: MAX_STRUCTURAL_FILE_ARGS + 1 }, (_unused, index) => `f${index}.js`);
+  const chunks = chunkStructuralFiles(files);
+  assert.equal(chunks.length, 2);
+  assert.equal(chunks[0].length, MAX_STRUCTURAL_FILE_ARGS);
+  assert.equal(chunks[1].length, 1);
+  assert.ok(chunks.every((chunk) => chunk.length > 0));
+  assert.deepEqual(chunks.flat(), files);
+});
+
+test('results without a stored run fails closed', async () => {
+  resetTidyResultCache();
+  const result = await executeTidyTool({ action: 'results' }, { cwd: process.cwd(), sessionId: 'tidy-results-empty' });
+  assert.equal(result.isError, true);
+  assert.match(parseResult(result).error, /no stored tidy results/);
+});
+
+test('results pages stored diagnostics without dropping counts', async () => {
+  resetTidyResultCache();
+  const cwd = process.cwd();
+  const sessionId = 'tidy-results-page';
+  rememberTidyRun(cwd, sessionId, {
+    languages: [{ id: 'python', files: 12 }],
+    languageSource: 'git',
+    engines: [{ id: 'ruff', source: 'project-local', kind: ['lint'], languages: ['python'] }],
+    results: [
+      {
+        id: 'ruff',
+        source: 'project-local',
+        filesChecked: 12,
+        filesChanged: [],
+        diagnostics: Array.from({ length: 55 }, (_unused, index) => ({
+          file: `src/f${index}.py`,
+          line: index + 1,
+          col: 1,
+          code: 'F401',
+          message: 'imported but unused',
+          severity: 'error',
+        })),
+      },
+    ],
+    structural: {
+      adapter: 'graph-binary',
+      packs: ['javascript/no-debugger'],
+      matches: Array.from({ length: 30 }, (_unused, index) => ({
+        file: `src/a${index}.js`,
+        ruleId: 'no-debugger',
+        message: 'debugger',
+      })),
+    },
+    scope: ['src'],
+  });
+  const report = parseResult(await executeTidyTool({ action: 'results', offset: 20, limit: 10 }, { cwd, sessionId }));
+  assert.equal(report.action, 'results');
+  assert.equal(report.ok, true);
+  assert.equal(report.results[0].diagnostics.length, 10);
+  assert.equal(report.results[0].diagnostics[0].file, 'src/f20.py');
+  assert.equal(report.results[0].diagnosticsCount, 55);
+  assert.equal(report.results[0].more, 25);
+  assert.equal(report.results[0].nextOffset, 30);
+  assert.equal(report.structural.matches.length, 10);
+  assert.equal(report.structural.matchesCount, 30);
+  assert.equal(report.structural.matches[0].file, 'src/a20.js');
+  assert.match(report.notes.join(' '), /were not re-run/);
+  resetTidyResultCache();
+});
+
+test('a >200-file scoped check never walks cwd and results pages the stored matches', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'tidy-scope-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'src', 'in'), { recursive: true });
+  mkdirSync(join(root, 'src', 'out'), { recursive: true });
+  mkdirSync(join(root, '.runtime'), { recursive: true });
+  const count = MAX_STRUCTURAL_FILE_ARGS + 1;
+  for (let index = 0; index < count; index += 1) {
+    writeFileSync(join(root, 'src', 'in', `f${String(index).padStart(3, '0')}.js`), `export const n = ${index};\n`);
+  }
+  writeFileSync(join(root, 'src', 'out', 'leak.js'), 'export const leak = 1;\n');
+  writeFileSync(join(root, '.runtime', 'scratch.kt'), 'fun x() {}\n');
+  const fakeGraph = join(root, 'fake-graph.mjs');
+  const logPath = join(root, 'fake-graph.log');
+  writeFileSync(
+    fakeGraph,
+    `
+    import { appendFileSync } from 'node:fs';
+    process.stdin.resume();
+    const args = process.argv.slice(2);
+    const logPath = process.env.FAKE_GRAPH_LOG;
+    const files = [];
+    const idx = args.indexOf('--files');
+    if (idx >= 0) {
+      for (let i = idx + 1; i < args.length; i++) {
+        if (String(args[i]).startsWith('--')) break;
+        files.push(String(args[i]).replaceAll('\\\\', '/'));
+      }
+    }
+    const unscoped = args.includes('--scan') && idx < 0;
+    if (logPath) {
+      appendFileSync(logPath, JSON.stringify({
+        mode: args.includes('--scan') ? 'scan' : args.includes('--langs') ? 'langs' : 'other',
+        files,
+        unscoped,
+      }) + '\\n');
+    }
+    if (args.includes('--langs')) {
+      process.stdout.write(JSON.stringify({
+        languages: [{ id: 'javascript', extensions: ['js', 'mjs', 'cjs', 'jsx'], scan: true, extract: true }],
+      }));
+      process.exit(0);
+    }
+    if (args.includes('--scan')) {
+      const emitted = unscoped ? ['.runtime/scratch.kt', 'src/out/leak.js'] : files;
+      for (const file of emitted) {
+        process.stdout.write(JSON.stringify({
+          file,
+          lang: 'javascript',
+          ruleId: 'no-debugger',
+          severity: 'warning',
+          message: 'debugger',
+          range: { start: { line: 0, column: 0 }, end: { line: 0, column: 8 }, byteOffset: [0, 8] },
+        }) + '\\n');
+      }
+      process.stdout.write(JSON.stringify({ summary: { files: emitted.length, matches: emitted.length, rules: 1 } }) + '\\n');
+      process.exit(0);
+    }
+    process.exit(0);
+    `
+  );
+  const windows = process.platform === 'win32';
+  const wrapper = join(root, windows ? 'fake-graph.cmd' : 'fake-graph.sh');
+  writeFileSync(
+    wrapper,
+    windows
+      ? `@echo off\r\n"${process.execPath}" "${fakeGraph}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fakeGraph)} "$@"\n`,
+    windows ? {} : { mode: 0o755 }
+  );
+  for (const args of [['init'], ['add', '.']]) {
+    const git = await runProcess('git', args, { cwd: root, timeoutMs: 30_000 });
+    if (git.code !== 0) {
+      t.skip('git is unavailable in this environment');
+      return;
+    }
+  }
+
+  const childScript = join(root, 'probe-tidy.mjs');
+  writeFileSync(
+    childScript,
+    `
+    import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
+    const cwd = ${JSON.stringify(root)};
+    async function run(args) {
+      const result = await executeTidyTool(args, { cwd, sessionId: 'scope-batch' });
+      return { isError: Boolean(result.isError), body: JSON.parse(result.content[0].text) };
+    }
+    const out = {
+      big: await run({ action: 'check', paths: ['src/in'], engines: ['__none__'] }),
+      page: await run({ action: 'results', offset: 20, limit: 10 }),
+      empty: await run({ action: 'check', languages: ['python'], engines: ['__none__'] }),
+    };
+    process.stdout.write(JSON.stringify(out));
+    `
+  );
+  const result = await runProcess(process.execPath, [childScript], {
+    cwd: root,
+    env: { ...process.env, MIXDOG_GRAPH_BIN: wrapper, FAKE_GRAPH_LOG: logPath },
+    timeoutMs: 120_000,
+  });
+  assert.equal(result.code, 0, result.stderr.slice(0, 800));
+  const out = JSON.parse(result.stdout);
+  assert.equal(out.big.isError, false, JSON.stringify(out.big.body).slice(0, 400));
+  assert.equal(out.big.body.structural.matchesCount, count);
+  assert.equal(out.big.body.structural.matches.length, 20);
+  assert.equal(out.big.body.structural.more, count - 20);
+  assert.ok(out.big.body.structural.matches.every((match) => match.file.startsWith('src/in/')));
+  assert.equal(
+    out.big.body.structural.matches.some((match) => match.file.includes('.runtime') || match.file.includes('src/out/')),
+    false
+  );
+  assert.equal(out.page.body.action, 'results');
+  assert.equal(out.page.body.structural.matchesCount, count);
+  assert.equal(out.page.body.structural.matches.length, 10);
+  assert.equal(out.page.body.structural.matches[0].file, 'src/in/f020.js');
+  assert.equal(out.empty.body.structural.matchesCount, 0);
+  assert.equal(out.empty.body.ok, true);
+
+  const log = readFileSync(logPath, 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+  const scans = log.filter((entry) => entry.mode === 'scan');
+  assert.ok(scans.length >= 2, `expected batched scans, got ${scans.length}`);
+  assert.ok(scans.every((entry) => entry.unscoped === false));
+  assert.ok(scans.every((entry) => entry.files.length > 0 && entry.files.every((file) => file.startsWith('src/in/'))));
+  const scanned = scans.flatMap((entry) => entry.files);
+  assert.equal(scanned.length, count);
+  assert.equal(scanned.includes('src/out/leak.js'), false);
+  assert.equal(scanned.includes('.runtime/scratch.kt'), false);
 });

@@ -1,5 +1,4 @@
-import { readFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync } from 'fs';
 import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH } from '../../shared/config.mjs';
 import { listSchedules } from '../../shared/schedules-db.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
@@ -105,13 +104,5 @@ function createProvider() {
   // (scheduler/webhooks) and voice transcription keep the worker alive while
   // every messaging call is a no-op.
   return HEADLESS_PROVIDER;
-}
-const PROFILE_FILE = join(DATA_DIR, 'profile.json');
-function loadProfileConfig() {
-  try {
-    return JSON.parse(readFileSync(PROFILE_FILE, 'utf8'));
-  } catch {
-    return {};
-  }
 }
 export { DATA_DIR, createProvider, loadConfig };

@@ -1,8 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  os,
-  path,
   _placeDestructiveWarningsAfterStatus,
   _isBenignSearchExitOne,
   executeBashTool,

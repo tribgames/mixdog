@@ -446,6 +446,31 @@ export async function handleSetTableDataOrReplaceImage(context, op) {
     const media = await addSlideImage(zip, path, op.path);
     updated = shape.xml.replace(/(<a:blip\b[^>]*\br:embed=")[^"]*(")/, `$1${media.relationshipId}$2`);
     detail = { image: media.part, replaced: previous };
+    // The frame is the page's design and the new picture rarely shares its
+    // ratio: stretched into it the photograph comes out squeezed (the audit's
+    // image_aspect_distorted). It is centred and cropped to the frame, the way
+    // add_image fit:'cover' places one, so the picture changes and the page does
+    // not. A crop the old picture carried is replaced, never kept over the new one.
+    const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shape.xml);
+    const sourceSize = imagePixelSize(await readFile(op.path));
+    if (extent && sourceSize?.width && sourceSize?.height) {
+      const { crop } = resolveImageLayout({
+        sourceWidth: sourceSize.width,
+        sourceHeight: sourceSize.height,
+        width: Number(extent[1]) / 12_700,
+        height: Number(extent[2]) / 12_700,
+        fit: 'cover',
+      });
+      const edge = (value) => Math.round(Math.max(0, Math.min(1, Number(value) || 0)) * 100_000);
+      const cropped = crop && Object.values(crop).some((value) => value > 0);
+      const rect = cropped
+        ? `<a:srcRect l="${edge(crop.left)}" t="${edge(crop.top)}" r="${edge(crop.right)}" b="${edge(crop.bottom)}"/>`
+        : '';
+      updated = updated
+        .replace(/<a:srcRect\b[^>]*\/>/, '')
+        .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, `$1${rect}`);
+      detail.cropped = cropped;
+    }
     // The frame keeps the description of the picture that used to be in it, so
     // a replaced photo is announced as the old one until the caller renames it.
     const altText = String(op.altText ?? '').trim();

@@ -462,11 +462,13 @@ function usesPersistentUtilityPortal(selection: WorkspaceSelection | null): bool
 }
 
 function retainSurfaceForOneFrame(previousLeaf: PaneLeaf, currentLeaf: PaneLeaf): boolean {
+  const previous = paneActiveSelection(previousLeaf);
+  // Only an open tab may bridge a switch. A closed tab must leave in this commit.
+  if (!previous || !currentLeaf.tabs.some((tab) => navigationKey(tab) === navigationKey(previous))) return false;
   // A utility destination needs its physical portal slot in the same commit.
   // Holding the outgoing layer suppresses that slot; a missed retirement frame
   // then leaves a newly opened Studio mounted nowhere and the pane stays blank.
   if (usesPersistentUtilityPortal(paneActiveSelection(currentLeaf))) return false;
-  const previous = paneActiveSelection(previousLeaf);
   return isConversationSelection(previous) || parksConversationBehindSelection(previous);
 }
 
@@ -782,10 +784,11 @@ export function PaneWorkspace({
   for (const leaf of workspace.leaves) {
     const current = { key: paneSurfaceKey(leaf), leaf };
     const previous = previousPaneSurfaces.current.get(leaf.id);
+    const handoff = paneSurfaceHandoffs.current.get(leaf.id);
     currentPaneSurfaces.set(leaf.id, current);
     if (previous && previous.key !== current.key && retainSurfaceForOneFrame(previous.leaf, current.leaf)) {
       paneSurfaceHandoffs.current.set(leaf.id, previous);
-    } else if (paneSurfaceHandoffs.current.get(leaf.id)?.key === current.key) {
+    } else if (handoff && (handoff.key === current.key || !retainSurfaceForOneFrame(handoff.leaf, current.leaf))) {
       paneSurfaceHandoffs.current.delete(leaf.id);
     }
   }

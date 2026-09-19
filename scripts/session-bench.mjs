@@ -890,7 +890,7 @@ function buildToolDiagnostics(rows, failureRows = []) {
   readonlyStalls.sort((a, b) => (b.run_turns || 0) - (a.run_turns || 0) || b.run_length - a.run_length);
 
   const identicalCallRepeats = [];
-  for (const [key, trows] of groupBy(
+  for (const [, trows] of groupBy(
     tools.filter((r) => toolResultKind(r) !== 'error'),
     (r) => `${sessionId(r)}::${field(r, 'tool_name') || ''}::${toolArgsHash(r) || ''}`
   ).entries()) {

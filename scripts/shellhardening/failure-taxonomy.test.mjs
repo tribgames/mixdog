@@ -1,9 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  os,
-  fs,
-  path,
   spawnSync,
   chmodSync,
   mkdtempSync,
@@ -18,12 +15,8 @@ import {
   execShellCommand,
   _composeShellFailure,
   _shellFailureStatus,
-  spawn,
-  readFileSync,
   withoutUnhandledProcessFailure,
   assertSpawnToolFailure,
-  root,
-  source,
 } from './_shared.mjs';
 
 test('apply_patch taxonomy separates parse, context, verification, path and resource guards', () => {

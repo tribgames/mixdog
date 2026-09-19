@@ -38,13 +38,23 @@ test('cached pool metadata preserves routing and display fields without dependin
     writeFileSync(join(root, 'sessions', `${id}.json`), JSON.stringify(session));
     writeFileSync(
       join(root, 'agent-workers.json'),
-      JSON.stringify({ workers: [{ sessionId: id, tag: 'review', agent: 'reviewer', status: 'idle' }] }),
+      JSON.stringify({ workers: [{ sessionId: id, tag: 'review', agent: 'reviewer', status: 'idle' }] })
     );
     const first = listStoredAgentWorkers();
     assert.equal(first.length, 1);
     for (const field of [
-      'ownerSessionId', 'parentSessionId', 'agent', 'title', 'provider',
-      'model', 'effort', 'fast', 'createdAt', 'updatedAt', 'cwd', 'clientHostPid',
+      'ownerSessionId',
+      'parentSessionId',
+      'agent',
+      'title',
+      'provider',
+      'model',
+      'effort',
+      'fast',
+      'createdAt',
+      'updatedAt',
+      'cwd',
+      'clientHostPid',
     ]) {
       assert.equal(first[0][field], session[field], field);
     }

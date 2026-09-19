@@ -16,6 +16,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
 import { pluginManifest, pluginSkillsRoots, resolveContainedPluginPath } from '../runtime/shared/plugin-manifest.mjs';
+import { isPlainObject } from '../runtime/shared/object.mjs';
 
 // Config keys must compare the same cwd spelling on read and write. Windows
 // paths are case-insensitive, so canonicalize their resolved form to lowercase.
@@ -173,10 +174,6 @@ export function saveProjectMcpServer(cwd, { originalName = '', name, config }) {
   map[target] = mergeMcpServerConfig(existing, config);
   writeProjectMcpDocument(path, raw);
   return { name: target, source: 'project', path, config: { ...map[target] } };
-}
-
-function isPlainObject(value) {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 // Manifest + contained-path resolution live in the shared module so skill

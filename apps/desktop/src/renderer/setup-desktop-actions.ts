@@ -5,19 +5,29 @@ export interface SetupPreferences {
   read(): Promise<Values>;
   write(input: Values): Promise<Values>;
 }
-const record = (value: unknown): Values => value && typeof value === 'object' ? value as Values : {};
+const record = (value: unknown): Values => (value && typeof value === 'object' ? (value as Values) : {});
 const clientsOnly = (info: DesktopRemoteAccessInfo | null) => ({
   available: info !== null,
-  clients: (info?.clients || []).map(({ id, name, platform, browser, createdAt, lastSeenAt, online }) =>
-    ({ id, name, platform, browser, createdAt, lastSeenAt, online })),
+  clients: (info?.clients || []).map(({ id, name, platform, browser, createdAt, lastSeenAt, online }) => ({
+    id,
+    name,
+    platform,
+    browser,
+    createdAt,
+    lastSeenAt,
+    online,
+  })),
   pairing: 'Pairing URLs and credentials remain in Settings → Connection.',
 });
 
 /** Uses the same Desktop API as the settings panels. Only the local Desktop
  * claimant runs it; the web shim must never apply host appearance to a phone. */
 export async function executeSetupDesktopAction(
-  args: Values, api: DesktopApi, preferences: SetupPreferences, sessionId: string,
-  assertActive: () => Promise<void> = async () => {},
+  args: Values,
+  api: DesktopApi,
+  preferences: SetupPreferences,
+  sessionId: string,
+  assertActive: () => Promise<void> = async () => {}
 ): Promise<Values> {
   const mutate = async <T>(operation: () => Promise<T>): Promise<T> => {
     await assertActive();
@@ -37,14 +47,21 @@ export async function executeSetupDesktopAction(
     }
   };
   const saved = (value: Values, appliesTo = 'the Desktop host, immediately') => ({
-    ...value, saved: true, scope: 'desktop-host', appliesTo,
+    ...value,
+    saved: true,
+    scope: 'desktop-host',
+    appliesTo,
   });
   if (action === 'status') {
     switch (args.domain) {
       case 'desktop':
         return { settings: await api.readSettings(), voice: await invoke('getVoiceStatus'), scope: 'desktop-host' };
       case 'appearance':
-        return { ...await preferences.read(), scope: 'desktop-host', notifications: 'Permission and subscription require a user gesture on the receiving device.' };
+        return {
+          ...(await preferences.read()),
+          scope: 'desktop-host',
+          notifications: 'Permission and subscription require a user gesture on the receiving device.',
+        };
       case 'projects':
         return { projects: await projects(), scope: 'installation' };
       case 'connection':
@@ -72,7 +89,8 @@ export async function executeSetupDesktopAction(
     }
     return saved({ settings: await api.readSettings() });
   }
-  if (action === 'set_appearance') return { ...await mutate(() => preferences.write(record(args.appearance))), scope: 'desktop-host' };
+  if (action === 'set_appearance')
+    return { ...(await mutate(() => preferences.write(record(args.appearance)))), scope: 'desktop-host' };
   if (action === 'install_builtin' || action === 'set_builtin_enabled') {
     const name = String(args.name);
     const enabled = action === 'install_builtin' || args.enabled === true;
@@ -107,14 +125,26 @@ export async function executeSetupDesktopAction(
   if (action === 'remove_project') {
     await requireProject(projectPath);
     await mutate(() => api.removeProject(projectPath!));
-    return { ...saved({ projects: await projects(), recovery: 'Only registration was removed. Project files remain; re-register the same path to restore it.' }), scope: 'installation' };
+    return {
+      ...saved({
+        projects: await projects(),
+        recovery: 'Only registration was removed. Project files remain; re-register the same path to restore it.',
+      }),
+      scope: 'installation',
+    };
   }
   if (action === 'get_instructions' || action === 'set_instructions') {
     await requireProject(projectPath, true);
     if (action === 'get_instructions') {
-      return { projectPath, content: await api.readInstructions!(projectPath), scope: projectPath === null ? 'common' : 'project' };
+      return {
+        projectPath,
+        content: await api.readInstructions!(projectPath),
+        scope: projectPath === null ? 'common' : 'project',
+      };
     }
-    const receipt = await mutate(() => api.writeInstructions!(projectPath, String(args.content), String(args.expectedContent)));
+    const receipt = await mutate(() =>
+      api.writeInstructions!(projectPath, String(args.content), String(args.expectedContent))
+    );
     const content = await api.readInstructions!(projectPath);
     if (content !== args.content) throw new Error('Instructions changed again after saving; read them before retrying');
     return {

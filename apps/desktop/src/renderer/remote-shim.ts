@@ -1867,7 +1867,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     deleteEditorBackup: (projectPath, relPath, accessToken) =>
       call('deleteEditorBackup', [projectPath, relPath, accessToken ?? null]),
     readInstructions: (projectPath) => call('readInstructions', [projectPath ?? null]),
-    writeInstructions: (projectPath, content, expectedContent) => call('writeInstructions', [projectPath ?? null, content, expectedContent]),
+    writeInstructions: (projectPath, content, expectedContent) =>
+      call('writeInstructions', [projectPath ?? null, content, expectedContent]),
     codeGraphQuery: (projectPath, mode, query) => call('codeGraphQuery', [projectPath, mode, query]),
     searchWorkspaceText: (projectPath, options) => call('searchWorkspaceText', [projectPath, options]),
     replaceWorkspaceText: (projectPath, options, replacement, relPaths) =>

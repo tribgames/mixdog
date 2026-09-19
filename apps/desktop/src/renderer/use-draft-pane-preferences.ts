@@ -29,16 +29,23 @@ export type DraftPanePrefs = {
 /** What a draft actually paints and submits: the project is resolved. */
 export type ResolvedDraftPrefs = DraftPanePrefs & { projectPath: string };
 
-function storedWorkflowPreferences(value: Record<string, unknown>): Pick<DraftPanePrefs, 'workflow' | 'orchestrationMode'> {
+function storedWorkflowPreferences(
+  value: Record<string, unknown>
+): Pick<DraftPanePrefs, 'workflow' | 'orchestrationMode'> {
   const workflow = asRecord(value.workflow) as DesktopWorkflowState | null;
   const solo = workflow?.id === 'solo';
   const cowork = workflow?.id === 'default' && workflow?.name === 'Cowork';
   const mode = value.orchestrationMode;
   return {
     workflow: solo || cowork ? { ...workflow, id: 'default', name: 'Default' } : workflow,
-    orchestrationMode: typeof mode === 'string' && ['none', 'focused', 'balanced', 'swarm'].includes(mode)
-      ? mode as DesktopOrchestrationMode
-      : solo ? 'none' : cowork ? 'swarm' : undefined,
+    orchestrationMode:
+      typeof mode === 'string' && ['none', 'focused', 'balanced', 'swarm'].includes(mode)
+        ? (mode as DesktopOrchestrationMode)
+        : solo
+          ? 'none'
+          : cowork
+            ? 'swarm'
+            : undefined,
   };
 }
 

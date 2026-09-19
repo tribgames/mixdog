@@ -280,10 +280,7 @@ function prependLatestUserContext(message, prefix) {
   // Replacement is confined to producer-owned reminders, never human XML.
   let suffix = bare !== message ? message.meta.runtimeUserContext.suffix : '';
   if (replacesGoalState) {
-    suffix = suffix.replace(
-      /<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*/gi,
-      ''
-    );
+    suffix = suffix.replace(/<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*/gi, '');
   }
   return withRuntimeUserContext(bare, { prefix: `${text}\n\n`, suffix });
 }

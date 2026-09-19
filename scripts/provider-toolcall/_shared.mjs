@@ -8,8 +8,6 @@
 //
 // Parser entry points (file:line at authoring time) and sharing notes are
 // documented inline per provider block below.
-import test from 'node:test';
-import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { readFileSync } from 'node:fs';
 import { parse } from 'acorn';

@@ -7,10 +7,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 PROFILE_PATH = Path(__file__).with_name("route_profiles.json")
 PRISTINE_CONTRACT = json.loads(
-    (Path(__file__).resolve().parents[3] / "src/runtime/shared/pristine-execution-contract.json").read_text(encoding="utf-8")
+    (
+        Path(__file__).resolve().parents[3]
+        / "src/runtime/shared/pristine-execution-contract.json"
+    ).read_text(encoding="utf-8")
 )
 PROFILE_ROLES = (
     "lead",
@@ -75,7 +77,9 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
         )
     profiles = document["profiles"]
     if not isinstance(profiles, dict) or not profiles:
-        raise RouteProfileError("routing profile document needs a non-empty profiles object")
+        raise RouteProfileError(
+            "routing profile document needs a non-empty profiles object"
+        )
 
     known_roles = set(PROFILE_ROLES)
     for profile_name, profile in profiles.items():
@@ -98,8 +102,12 @@ def validate_profile_document(document: Any) -> dict[str, Any]:
             or "lead" not in routes
             or not set(routes) <= known_roles
         ):
-            missing = ["lead"] if isinstance(routes, dict) and "lead" not in routes else []
-            extra = sorted(set(routes) - known_roles) if isinstance(routes, dict) else []
+            missing = (
+                ["lead"] if isinstance(routes, dict) and "lead" not in routes else []
+            )
+            extra = (
+                sorted(set(routes) - known_roles) if isinstance(routes, dict) else []
+            )
             raise RouteProfileError(
                 f"profile {profile_name!r} must define lead and only known roles; "
                 f"missing={missing!r}, extra={extra!r}"
@@ -117,7 +125,9 @@ def load_route_profile(
     try:
         document = json.loads(profile_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise RouteProfileError(f"cannot load routing profiles from {profile_path}: {exc}") from exc
+        raise RouteProfileError(
+            f"cannot load routing profiles from {profile_path}: {exc}"
+        ) from exc
     profiles = validate_profile_document(document)["profiles"]
     if profile_name not in profiles:
         available = ", ".join(sorted(profiles))
@@ -137,10 +147,7 @@ def build_benchmark_config(
     selected_workflow = str(workflow or "").strip() or "headless"
     routes = profile["routes"]
     lead_route = copy.deepcopy(routes["lead"])
-    providers = {
-        route["provider"]
-        for route in routes.values()
-    }
+    providers = {route["provider"] for route in routes.values()}
     if "leadFallback" in profile:
         providers.add(profile["leadFallback"]["provider"])
     provider_config = {
@@ -180,7 +187,7 @@ def build_benchmark_config(
                 }
             },
             "mcpServers": {},
-        }
+        },
     }
 
 

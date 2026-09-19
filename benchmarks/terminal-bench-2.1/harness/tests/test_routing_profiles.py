@@ -16,7 +16,6 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 BENCH_ROOT = Path(__file__).resolve().parents[2]
 HARNESS_ROOT = BENCH_ROOT / "harness"
 REPO_ROOT = BENCH_ROOT.parents[1]
@@ -32,7 +31,7 @@ from harness.routing_profiles import (  # noqa: E402
     reject_profile_conflicts,
     validate_profile_document,
 )
-from harness.src_overlay import (  # noqa: E402
+from harness.src_overlay import (
     SNAPSHOT_ENV,
     SrcOverlayError,
     build_src_snapshot,
@@ -47,6 +46,8 @@ EXPECTED_AUDIT_LINE = (
     "reviewer=openai-oauth/gpt-5.6-sol effort=xhigh fast=true; "
     "debugger=openai-oauth/gpt-5.6-sol effort=xhigh fast=true"
 )
+
+
 def resolve_with_real_runtime(config: dict) -> dict:
     repo_root = BENCH_ROOT.parents[1]
     config_uri = (repo_root / "src/runtime/agent/orchestrator/config.mjs").as_uri()
@@ -115,104 +116,104 @@ class RoutingProfileTests(unittest.TestCase):
 
     def test_profile_schema_and_exact_routes(self) -> None:
         validate_profile_document(self.document)
-        profile = load_route_profile('fable-xhigh')
-        self.assertEqual(tuple(profile['routes']), PROFILE_ROLES)
+        profile = load_route_profile("fable-xhigh")
+        self.assertEqual(tuple(profile["routes"]), PROFILE_ROLES)
         self.assertEqual(
-            profile['leadFallback'],
+            profile["leadFallback"],
             {
-                'provider': 'anthropic-oauth',
-                'model': 'claude-opus-4-8',
-                'effort': 'xhigh',
-                'fast': False,
+                "provider": "anthropic-oauth",
+                "model": "claude-opus-4-8",
+                "effort": "xhigh",
+                "fast": False,
             },
         )
         self.assertEqual(
-            profile['routes'],
+            profile["routes"],
             {
-                'lead': {
-                    'provider': 'anthropic-oauth',
-                    'model': 'claude-fable-5',
-                    'effort': 'xhigh',
-                    'fast': False,
+                "lead": {
+                    "provider": "anthropic-oauth",
+                    "model": "claude-fable-5",
+                    "effort": "xhigh",
+                    "fast": False,
                 },
-                'worker': {
-                    'provider': 'openai-oauth',
-                    'model': 'gpt-5.6-terra',
-                    'effort': 'high',
-                    'fast': True,
+                "worker": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-terra",
+                    "effort": "high",
+                    "fast": True,
                 },
-                'heavy-worker': {
-                    'provider': 'openai-oauth',
-                    'model': 'gpt-5.6-sol',
-                    'effort': 'xhigh',
-                    'fast': True,
+                "heavy-worker": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
                 },
-                'reviewer': {
-                    'provider': 'openai-oauth',
-                    'model': 'gpt-5.6-sol',
-                    'effort': 'xhigh',
-                    'fast': True,
+                "reviewer": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
                 },
-                'debugger': {
-                    'provider': 'openai-oauth',
-                    'model': 'gpt-5.6-sol',
-                    'effort': 'xhigh',
-                    'fast': True,
+                "debugger": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
                 },
             },
         )
-        sol_profile = load_route_profile('sol-xhigh')
-        self.assertEqual(tuple(sol_profile['routes']), ('lead',))
-        self.assertNotIn('leadFallback', sol_profile)
+        sol_profile = load_route_profile("sol-xhigh")
+        self.assertEqual(tuple(sol_profile["routes"]), ("lead",))
+        self.assertNotIn("leadFallback", sol_profile)
         self.assertEqual(
-            sol_profile['routes'],
+            sol_profile["routes"],
             {
-                'lead': {
-                    'provider': 'openai-oauth',
-                    'model': 'gpt-5.6-sol',
-                    'effort': 'xhigh',
-                    'fast': True,
+                "lead": {
+                    "provider": "openai-oauth",
+                    "model": "gpt-5.6-sol",
+                    "effort": "xhigh",
+                    "fast": True,
                 },
             },
         )
         for profile_name in (
-            'sol-xhigh',
-            'sol-xhigh-nofast',
-            'grok46-xhigh',
-            'grok46-high',
-            'opus5-solo',
-            'grokbuild',
+            "sol-xhigh",
+            "sol-xhigh-nofast",
+            "grok46-xhigh",
+            "grok46-high",
+            "opus5-solo",
+            "grokbuild",
         ):
             with self.subTest(profile=profile_name):
                 self.assertEqual(
-                    tuple(load_route_profile(profile_name)['routes']), ('lead',)
+                    tuple(load_route_profile(profile_name)["routes"]), ("lead",)
                 )
-        sol_workers = load_route_profile('fable-sol-workers-xhigh')
-        opus_workers = load_route_profile('fable-opus-workers-xhigh')
+        sol_workers = load_route_profile("fable-sol-workers-xhigh")
+        opus_workers = load_route_profile("fable-opus-workers-xhigh")
         shared = {
-            role: sol_workers['routes'][role]
+            role: sol_workers["routes"][role]
             for role in PROFILE_ROLES
-            if role not in ('worker', 'heavy-worker')
+            if role not in ("worker", "heavy-worker")
         }
         self.assertEqual(
             shared,
             {
-                role: opus_workers['routes'][role]
+                role: opus_workers["routes"][role]
                 for role in PROFILE_ROLES
-                if role not in ('worker', 'heavy-worker')
+                if role not in ("worker", "heavy-worker")
             },
         )
         self.assertEqual(
-            sol_workers['routes']['worker'],
-            sol_workers['routes']['heavy-worker'],
+            sol_workers["routes"]["worker"],
+            sol_workers["routes"]["heavy-worker"],
         )
         self.assertEqual(
-            opus_workers['routes']['worker'],
-            opus_workers['routes']['heavy-worker'],
+            opus_workers["routes"]["worker"],
+            opus_workers["routes"]["heavy-worker"],
         )
         self.assertNotEqual(
-            sol_workers['routes']['worker'],
-            opus_workers['routes']['worker'],
+            sol_workers["routes"]["worker"],
+            opus_workers["routes"]["worker"],
         )
 
     def test_schema_rejects_malformed_documents(self) -> None:
@@ -241,7 +242,10 @@ class RoutingProfileTests(unittest.TestCase):
         invalid_fallback["profiles"]["fable-xhigh"]["leadFallback"]["fast"] = "true"
         cases.append(invalid_fallback)
         for malformed in cases:
-            with self.subTest(malformed=malformed), self.assertRaises(RouteProfileError):
+            with (
+                self.subTest(malformed=malformed),
+                self.assertRaises(RouteProfileError),
+            ):
                 validate_profile_document(malformed)
 
     def test_unknown_profile_and_explicit_override_conflicts(self) -> None:
@@ -252,8 +256,9 @@ class RoutingProfileTests(unittest.TestCase):
             {"model": "gpt-5.6-sol"},
             {"effort": "xhigh"},
         ):
-            with self.subTest(override=override), self.assertRaisesRegex(
-                RouteProfileError, "cannot be combined"
+            with (
+                self.subTest(override=override),
+                self.assertRaisesRegex(RouteProfileError, "cannot be combined"),
             ):
                 reject_profile_conflicts("fable-xhigh", **override)
         reject_profile_conflicts(None, provider="openai-oauth", model="gpt-5.6-sol")
@@ -286,9 +291,7 @@ class RoutingProfileTests(unittest.TestCase):
         self.assertEqual(agent["builtins"], {})
         self.assertEqual(agent["workflowRoutes"], {"lead": profile["routes"]["lead"]})
         self.assertNotIn("memory", agent["workflowRoutes"])
-        self.assertEqual(
-            set(agent["providers"]), {"anthropic-oauth", "openai-oauth"}
-        )
+        self.assertEqual(set(agent["providers"]), {"anthropic-oauth", "openai-oauth"})
         serialized = json.dumps(config)
         for personal_key in (
             "plugins",
@@ -317,10 +320,13 @@ class RoutingProfileTests(unittest.TestCase):
         self.assertEqual(resolved["runtimeLead"], profile["routes"]["lead"])
         self.assertEqual(resolved["defaultPreset"], profile["routes"]["lead"])
         self.assertEqual(resolved["workflowLead"], profile["routes"]["lead"])
-        self.assertEqual(resolved["agents"], {
-            role: profile["routes"][role]
-            for role in ("worker", "heavy-worker", "reviewer", "debugger")
-        })
+        self.assertEqual(
+            resolved["agents"],
+            {
+                role: profile["routes"][role]
+                for role in ("worker", "heavy-worker", "reviewer", "debugger")
+            },
+        )
 
     def test_audit_log_is_stable_and_complete(self) -> None:
         line = format_resolved_routes("fable-xhigh", load_route_profile("fable-xhigh"))
@@ -462,7 +468,9 @@ class SrcSnapshotTests(unittest.TestCase):
             shutil.rmtree(package_src)
             extracted.replace(package_src)
 
-            self.assertEqual((package_src / "kept.mjs").read_bytes(), b"exact local bytes")
+            self.assertEqual(
+                (package_src / "kept.mjs").read_bytes(), b"exact local bytes"
+            )
             self.assertFalse((package_src / "locally-deleted.mjs").exists())
 
     def test_snapshot_rejects_unsafe_and_non_regular_archive_members(self) -> None:
@@ -613,7 +621,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
     def test_installer_pins_package_version_unless_explicitly_overridden(self) -> None:
         module = self.load_adapter_module()
         commands = []
-        pinned = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["version"]
+        pinned = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))[
+            "version"
+        ]
 
         async def exec_as_root(environment, *, command, env=None):
             commands.append(command)
@@ -628,9 +638,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         self.assertEqual(default_agent._mixdog_version, pinned)
         self.assertNotEqual(pinned.lower(), "latest")
         self.assertEqual(override_agent._mixdog_version, "fixture")
-        npm_commands = [
-            command for command in commands if "npm install -g" in command
-        ]
+        npm_commands = [command for command in commands if "npm install -g" in command]
         self.assertEqual(len(npm_commands), 2)
         self.assertIn(f"mixdog@{pinned}", npm_commands[0])
         self.assertIn("mixdog@fixture", npm_commands[1])
@@ -649,6 +657,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         agent._route_profile = profile
         agent._provider = None
         agent._effort = None
+
         async def exec_as_root(environment, *, command, env=None):
             return None
 
@@ -737,9 +746,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         agent._inject_credentials = inject
         agent._run_lead = run_lead
         agent._populate_usage_context = mock.AsyncMock()
-        with self.assertRaisesRegex(
-            module.NonZeroAgentExitCodeError, "exit 86"
-        ):
+        with self.assertRaisesRegex(module.NonZeroAgentExitCodeError, "exit 86"):
             asyncio.run(agent.run("task", Environment(), None))
         asyncio.run(agent.run("task", Environment(), None))
         self.assertEqual(calls, [None, None])
@@ -950,9 +957,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
         ):
             asyncio.run(agent.run("task", Environment(), None))
 
-        self.assertEqual(
-            captured[0]["MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED"], "1"
-        )
+        self.assertEqual(captured[0]["MIXDOG_ANTHROPIC_OAUTH_REFRESH_DISABLED"], "1")
         self.assertEqual(captured[0]["MIXDOG_USAGE_LOG"], "/logs/agent/usage.json")
         self.assertEqual(
             captured[0]["MIXDOG_SESSION_TRANSCRIPT_LOG"],
@@ -1060,13 +1065,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 asyncio.run(agent._inject_credentials(Environment()))
 
             self.assertEqual(preflight_calls, [host_credentials])
-            self.assertEqual(
-                uploads[module.CONTAINER_CREDS_PATH], snapshot_bytes
-            )
+            self.assertEqual(uploads[module.CONTAINER_CREDS_PATH], snapshot_bytes)
             self.assertEqual(host_credentials.read_bytes(), host_bytes)
-            uploaded_names = {
-                Path(destination).name for destination in uploads
-            }
+            uploaded_names = {Path(destination).name for destination in uploads}
             self.assertEqual(
                 uploaded_names,
                 {
@@ -1087,9 +1088,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 build_benchmark_config(agent._route_profile, "default"),
             )
             self.assertNotIn("must-not-copy", json.dumps(generated_config))
-            audit = json.loads(
-                uploads[module.CONTAINER_PERSONAL_STATE_AUDIT]
-            )
+            audit = json.loads(uploads[module.CONTAINER_PERSONAL_STATE_AUDIT])
             self.assertEqual(audit["personalState"]["behavioralStateFilesCopied"], 0)
             self.assertFalse(audit["personalState"]["hostConfigRead"])
             self.assertTrue(
@@ -1179,7 +1178,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             (123, 45, 67),
         )
 
-    def test_installer_guarantees_gnu_timeout_on_every_package_manager_path(self) -> None:
+    def test_installer_guarantees_gnu_timeout_on_every_package_manager_path(
+        self,
+    ) -> None:
         module = self.load_adapter_module()
         commands = []
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
@@ -1189,16 +1190,22 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             commands.append(command)
 
         agent.exec_as_root = exec_as_root
-        with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")):
+        with mock.patch.object(
+            module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")
+        ):
             asyncio.run(agent.install(object()))
 
         dependency_command = commands[0]
-        self.assertIn("apt-get install -y curl ca-certificates coreutils", dependency_command)
+        self.assertIn(
+            "apt-get install -y curl ca-certificates coreutils", dependency_command
+        )
         self.assertIn("apk add --no-cache curl bash coreutils", dependency_command)
         self.assertIn("yum install -y nodejs coreutils", dependency_command)
         self.assertIn("timeout --version | grep -q 'GNU coreutils'", dependency_command)
 
-    def test_installer_runs_uv_provisioning_as_a_separate_best_effort_step(self) -> None:
+    def test_installer_runs_uv_provisioning_as_a_separate_best_effort_step(
+        self,
+    ) -> None:
         module = self.load_adapter_module()
         commands = []
         agent = module.MixdogAgent.__new__(module.MixdogAgent)
@@ -1208,7 +1215,9 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             commands.append(command)
 
         agent.exec_as_root = exec_as_root
-        with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")):
+        with mock.patch.object(
+            module, "DEFAULT_PREBAKE_TAR", Path("__missing_prebake__")
+        ):
             asyncio.run(agent.install(object()))
 
         self.assertEqual(len(commands), 3)
@@ -1270,7 +1279,11 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp:
             tar_path = Path(temp) / "mixdog-node-prebake.tar.gz"
-            for name in ("mixdog-node-prebake.tar.gz", "mixdog-node-prebake.tar.zst", "zstd-amd64"):
+            for name in (
+                "mixdog-node-prebake.tar.gz",
+                "mixdog-node-prebake.tar.zst",
+                "zstd-amd64",
+            ):
                 (Path(temp) / name).touch()
             agent = module.MixdogAgent.__new__(module.MixdogAgent)
             agent._mixdog_version = "fixture"
@@ -1278,7 +1291,12 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
             with mock.patch.object(module, "DEFAULT_PREBAKE_TAR", tar_path):
                 asyncio.run(agent.install(Environment()))
         self.assertEqual(uploads, [])
-        self.assertTrue(any("tar -C / -I /opt/mixdog-prebake-cache/" in command for command in commands))
+        self.assertTrue(
+            any(
+                "tar -C / -I /opt/mixdog-prebake-cache/" in command
+                for command in commands
+            )
+        )
         self.assertTrue(any("Acquire::Retries=1" in command for command in commands))
 
     def _run_uv_provision_fixture(
@@ -1354,9 +1372,7 @@ INSTALLER
         curl.chmod(0o755)
         if existing_uv:
             uv_bin.mkdir(parents=True)
-            (uv_bin / "uv").write_text(
-                "#!/bin/sh\necho 'uv 0.9.5'\n", encoding="utf-8"
-            )
+            (uv_bin / "uv").write_text("#!/bin/sh\necho 'uv 0.9.5'\n", encoding="utf-8")
             (uv_bin / "uvx").write_text(
                 "#!/bin/sh\necho 'uvx 0.9.5'\n"
                 if matching_uvx
@@ -1370,9 +1386,7 @@ INSTALLER
                 shell,
                 "-e",
                 "-c",
-                module._uv_provision_command(
-                    home.as_posix(), curl.as_posix()
-                ),
+                module._uv_provision_command(home.as_posix(), curl.as_posix()),
             ],
             env={
                 **os.environ,
@@ -1416,9 +1430,7 @@ INSTALLER
                 "retry-all-errors",
                 (home / ".curlrc").read_text(encoding="utf-8"),
             )
-            self.assertNotIn(
-                "--retry-all-errors", log.read_text(encoding="utf-8")
-            )
+            self.assertNotIn("--retry-all-errors", log.read_text(encoding="utf-8"))
             self.assertEqual(len(log.read_text(encoding="utf-8").splitlines()), 3)
             self.assertEqual(
                 (home / ".local" / "bin" / "uv").read_text(encoding="utf-8"),
@@ -1578,7 +1590,9 @@ INSTALLER
                 commands.append(command)
 
             agent.exec_as_root = exec_as_root
-            with mock.patch.dict(os.environ, {SNAPSHOT_ENV: str(snapshot.archive_path)}):
+            with mock.patch.dict(
+                os.environ, {SNAPSHOT_ENV: str(snapshot.archive_path)}
+            ):
                 asyncio.run(agent._inject_src_snapshot(Environment()))
 
         self.assertEqual(
@@ -1684,9 +1698,14 @@ class LauncherDryRunTests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="mixdog-launcher-validation-") as temp:
             harness = Path(temp) / "benchmarks" / "terminal-bench-2.1" / "harness"
             harness.mkdir(parents=True)
-            contract = Path(temp) / "src/runtime/shared/pristine-execution-contract.json"
+            contract = (
+                Path(temp) / "src/runtime/shared/pristine-execution-contract.json"
+            )
             contract.parent.mkdir(parents=True)
-            shutil.copy2(REPO_ROOT / "src/runtime/shared/pristine-execution-contract.json", contract)
+            shutil.copy2(
+                REPO_ROOT / "src/runtime/shared/pristine-execution-contract.json",
+                contract,
+            )
             script = harness / "run-tb21.ps1"
             shutil.copy2(self.script, script)
             shutil.copy2(HARNESS_ROOT / "routing_profiles.py", harness)
@@ -1698,9 +1717,7 @@ class LauncherDryRunTests(unittest.TestCase):
                 json.dumps(malformed), encoding="utf-8"
             )
 
-            result = self.run_launcher(
-                "-RouteProfile", "fable-high", script=script
-            )
+            result = self.run_launcher("-RouteProfile", "fable-high", script=script)
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fast must be boolean", result.stderr)
@@ -1713,20 +1730,16 @@ class LauncherDryRunTests(unittest.TestCase):
             bin_dir.mkdir()
             capture = root / "state-paths.txt"
             if os.name == "nt":
-                (bin_dir / "python.cmd").write_text(
-                    "@exit /b 0\n", encoding="utf-8"
-                )
+                (bin_dir / "python.cmd").write_text("@exit /b 0\n", encoding="utf-8")
                 (bin_dir / "harbor.cmd").write_text(
-                    "@mkdir \"%MIXDOG_TB_SRC_SNAPSHOT%\"\n"
-                    f"@echo %MIXDOG_TB_SRC_SNAPSHOT%>\"{capture}\"\n"
-                    f"@echo %MIXDOG_TB_HARNESS_SNAPSHOT%>>\"{capture}\"\n"
+                    '@mkdir "%MIXDOG_TB_SRC_SNAPSHOT%"\n'
+                    f'@echo %MIXDOG_TB_SRC_SNAPSHOT%>"{capture}"\n'
+                    f'@echo %MIXDOG_TB_HARNESS_SNAPSHOT%>>"{capture}"\n'
                     "@exit /b 37\n",
                     encoding="utf-8",
                 )
             else:
-                (bin_dir / "python").write_text(
-                    "#!/bin/sh\nexit 0\n", encoding="utf-8"
-                )
+                (bin_dir / "python").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
                 (bin_dir / "harbor").write_text(
                     "#!/bin/sh\n"
                     'mkdir -p "$MIXDOG_TB_SRC_SNAPSHOT" '

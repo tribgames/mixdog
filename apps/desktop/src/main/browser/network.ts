@@ -277,10 +277,7 @@ function headers(value: unknown): Record<string, string> {
  *  differently: the provisional set says "User-Agent", the sent set says
  *  "user-agent". A raw merge would list one header twice and read as if the
  *  request carried it twice, so the sent spelling and value take its place. */
-function mergeSentHeaders(
-  provisional: Record<string, string>,
-  sent: Record<string, string>
-): Record<string, string> {
+function mergeSentHeaders(provisional: Record<string, string>, sent: Record<string, string>): Record<string, string> {
   const merged = new Map<string, [string, string]>();
   for (const [name, value] of Object.entries(provisional)) merged.set(name.toLowerCase(), [name, value]);
   for (const [name, value] of Object.entries(sent)) merged.set(name.toLowerCase(), [name, value]);

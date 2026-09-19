@@ -408,7 +408,9 @@ test('models start expanded, request counts lead numeric columns, and cache hits
   await render({ data: { getUsageStats: stats }, request: async () => stats });
   assert.deepEqual(
     [...document.querySelectorAll('thead th')].map((th) => th.textContent),
-    ['Provider', 'Usage share', 'Usage records', 'Input', 'Output', 'Cache hits', 'Hit rate', 'Tokens', 'Cost'].map((key) => t(key))
+    ['Provider', 'Usage share', 'Usage records', 'Input', 'Output', 'Cache hits', 'Hit rate', 'Tokens', 'Cost'].map(
+      (key) => t(key)
+    )
   );
   assert.equal(document.querySelectorAll('.stats-model-row').length, 2);
   const providerRow = document.querySelector('.stats-provider tr');
@@ -602,10 +604,7 @@ test('partial totals keep their amounts and price tooltip without trailing plus 
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '$1.04');
   assert.equal(document.querySelector('.stats-provider tr').cells[8].textContent, '$1.04');
   assert.equal(document.querySelector('.stats-model-row').cells[8].textContent, '$1.04');
-  assert.equal(
-    document.querySelector('.stats-provider tr').cells[8].title,
-    t('Partial cost')
-  );
+  assert.equal(document.querySelector('.stats-provider tr').cells[8].title, t('Partial cost'));
   assert.equal(
     document
       .querySelector('.stats-surface')

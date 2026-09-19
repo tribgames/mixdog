@@ -339,7 +339,13 @@ test('format-specific Office review catches orphan headings, chart totals, and s
         { path: '/body/p[2]', index: 2, style: 'Normal', text: '야간 출고 흐름을 다시 짰다.', font: { size: 11 } },
         { path: '/body/p[3]', index: 3, style: 'Heading1', text: '배경', font: { size: 11 } },
         { path: '/body/p[4]', index: 4, style: 'Normal', text: '묶음 단위로 실어 대기가 길었다.', font: { size: 11 } },
-        { path: '/body/p[5]', index: 5, style: 'Normal', text: '도크별로 나눈 뒤 대기가 사라졌다.', font: { size: 11 } },
+        {
+          path: '/body/p[5]',
+          index: 5,
+          style: 'Normal',
+          text: '도크별로 나눈 뒤 대기가 사라졌다.',
+          font: { size: 11 },
+        },
       ],
     },
   });
@@ -1379,7 +1385,14 @@ test('a kicker over its title and a label over its paragraph are one unit, not c
   // The eyebrow line: long enough to miss the label rule, one line, a third of the title's size, 2 pt above it.
   assert.deepEqual(
     tight([
-      { text: 'DIAGNOSTIC ANATOMY & BOTTLENECK ANALYSIS', left: 43, top: 33, width: 500, height: 20, font: { size: 11 } },
+      {
+        text: 'DIAGNOSTIC ANATOMY & BOTTLENECK ANALYSIS',
+        left: 43,
+        top: 33,
+        width: 500,
+        height: 20,
+        font: { size: 11 },
+      },
       { text: '레거시 모놀리스 체인의 3대 구조적 한계', left: 43, top: 55, width: 500, height: 47, font: { size: 30 } },
     ]),
     []
@@ -1388,7 +1401,14 @@ test('a kicker over its title and a label over its paragraph are one unit, not c
   assert.deepEqual(
     tight([
       { text: '컨텍스트 비대화', left: 60, top: 219, width: 130, height: 19, font: { size: 9.5 } },
-      { text: '단일 프롬프트에 문맥 과밀 주입으로 지연율이 급증한다', left: 60, top: 240, width: 356, height: 27, font: { size: 10.5 } },
+      {
+        text: '단일 프롬프트에 문맥 과밀 주입으로 지연율이 급증한다',
+        left: 60,
+        top: 240,
+        width: 356,
+        height: 27,
+        font: { size: 10.5 },
+      },
     ]),
     []
   );
@@ -1397,14 +1417,28 @@ test('a kicker over its title and a label over its paragraph are one unit, not c
   assert.deepEqual(
     tight([
       { text: 'tool calls per report', left: 60, top: 328, width: 331, height: 36, font: { size: 16 } },
-      { text: '21 operations · 13 snapshots · 4 QA round trips', left: 60, top: 367, width: 331, height: 36, font: { size: 12 } },
+      {
+        text: '21 operations · 13 snapshots · 4 QA round trips',
+        left: 60,
+        top: 367,
+        width: 331,
+        height: 36,
+        font: { size: 12 },
+      },
     ]),
     []
   );
   // A sentence is not a heading: a paragraph crowding the one under it is still reported, type step or not.
   assert.equal(
     tight([
-      { text: '지난 분기에는 대기 시간이 길어 이탈이 늘었다고 보고되었다', left: 60, top: 219, width: 356, height: 27, font: { size: 18 } },
+      {
+        text: '지난 분기에는 대기 시간이 길어 이탈이 늘었다고 보고되었다',
+        left: 60,
+        top: 219,
+        width: 356,
+        height: 27,
+        font: { size: 18 },
+      },
       { text: '이번 분기에는 대기 시간이 사라졌다', left: 60, top: 248, width: 356, height: 27, font: { size: 14 } },
     ]).length,
     1

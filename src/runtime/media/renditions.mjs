@@ -372,13 +372,13 @@ export async function ensureRendition({
   variant,
   cacheDir,
   priority = 'foreground',
-  generate = true,
+  generate: shouldGenerate = true,
 }) {
   const spec = renditionSpec(variant);
   if (!spec) return null;
   const cached = cachedRendition(cacheDir, variant, id);
   if (cached) return cached;
-  if (!generate) return null;
+  if (!shouldGenerate) return null;
   const key = `${variant}:${id}`;
   pruneFailedRenditions();
   if ((failedUntil.get(key) || 0) > Date.now()) return null;

@@ -139,7 +139,10 @@ export function formatSnapshot(
         for (const el of brief.unseen) lines.push(elementLine(el));
       }
     } else {
-      lines.push('', `Brief reply: ${brief.changed.length} changed or new element(s); ${brief.unchanged} unchanged omitted${tail}`);
+      lines.push(
+        '',
+        `Brief reply: ${brief.changed.length} changed or new element(s); ${brief.unchanged} unchanged omitted${tail}`
+      );
       if (brief.changed.length) {
         lines.push('Changed or new elements (* = in viewport):');
         for (const el of brief.changed) lines.push(elementLine(el));

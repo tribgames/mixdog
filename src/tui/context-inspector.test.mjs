@@ -16,7 +16,12 @@ test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow prev
   const output = join(directory, 'inspector.mjs');
   await build({
     entryPoints: [resolve('src/tui/components/ContextPanel.jsx')],
-    outfile: output, bundle: true, packages: 'external', platform: 'node', format: 'esm', jsx: 'automatic',
+    outfile: output,
+    bundle: true,
+    packages: 'external',
+    platform: 'node',
+    format: 'esm',
+    jsx: 'automatic',
   });
   const { ContextPanel } = await import(pathToFileURL(output).href);
   const stdout = new PassThrough();
@@ -29,24 +34,31 @@ test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow prev
   stdin.unref = () => {};
   let screen = '';
   // Ink's debug stream emits complete frames without a separating newline.
-  stdout.on('data', (chunk) => { screen = String(chunk); });
+  stdout.on('data', (chunk) => {
+    screen = String(chunk);
+  });
   const calls = [];
   const inspection = {
     revision: 'tui-first',
     categories: [{ key: 'system', label: 'System prompt', tokens: 20, count: 1 }],
     entries: [{ id: 'message:0', category: 'system', label: 'Instructions', tokens: 20 }],
   };
-  const view = render(React.createElement(ContextPanel, {
-    columns: 40, panelRows: 22,
-    detail: {
-      type: 'context', inspection,
-      usage: { usedTokens: 30, windowTokens: 100, rawWindowTokens: 120, measurementSource: 'last_api_request' },
-    },
-    onInspect: async (id, revision) => {
-      calls.push({ id, revision });
-      return { text: 'PRIVATE_PREVIEW\n' + '한글 내용 '.repeat(50) };
-    },
-  }), { stdout, stdin, stderr: stdout, debug: true, exitOnCtrlC: false, patchConsole: false });
+  const view = render(
+    React.createElement(ContextPanel, {
+      columns: 40,
+      panelRows: 22,
+      detail: {
+        type: 'context',
+        inspection,
+        usage: { usedTokens: 30, windowTokens: 100, rawWindowTokens: 120, measurementSource: 'last_api_request' },
+      },
+      onInspect: async (id, revision) => {
+        calls.push({ id, revision });
+        return { text: 'PRIVATE_PREVIEW\n' + '한글 내용 '.repeat(50) };
+      },
+    }),
+    { stdout, stdin, stderr: stdout, debug: true, exitOnCtrlC: false, patchConsole: false }
+  );
   context.after(() => {
     view.unmount();
     stdin.end();
@@ -67,7 +79,11 @@ test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow prev
   assert.deepEqual(calls, [{ id: 'message:0', revision: 'tui-first' }]);
   assert.match(screen, /PRIVATE_PREVIEW/);
   const lines = stripVTControlCharacters(screen).split('\n');
-  assert.deepEqual(lines.filter((line) => stringWidth(line) > 40), [], 'preview stays within the available width');
+  assert.deepEqual(
+    lines.filter((line) => stringWidth(line) > 40),
+    [],
+    'preview stays within the available width'
+  );
   screen = '';
   stdin.write('\x1b[D');
   await settle();

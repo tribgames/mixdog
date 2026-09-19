@@ -117,7 +117,6 @@ function _pruneDiskCodeGraphEntries(_now = Date.now()) {
   for (const [cwd, entry] of _diskCodeGraphCache) {
     if (!entry || typeof entry !== 'object') {
       _dropDiskEntry(cwd);
-      continue;
     }
     // Disk entries are not TTL-evicted: signature validation on load/build
     // plus _pruneCodeGraphManifestForBudget (MIXDOG_CODE_GRAPH_CACHE_MAX_MB)

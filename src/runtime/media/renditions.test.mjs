@@ -1,10 +1,21 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, utimesSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { cacheRendition, createPriorityScheduler, pruneRenditionCache, videoPosterArguments } from './renditions.mjs';
+import {
+  cacheRendition,
+  createPriorityScheduler,
+  ensureRendition,
+  pruneRenditionCache,
+  videoPosterArguments,
+} from './renditions.mjs';
+
+const PIXEL_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+  'base64'
+);
 
 test('video posters seek off frame zero and encode one JPEG without a second still pass', () => {
   const args = videoPosterArguments('clip.mp4', { maxEdge: 512 });
@@ -90,6 +101,83 @@ test('rendition files reject oversized entries and obey a total disk budget', ()
       }),
       null
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('cache-miss stills generate a valid webp rendition', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rendition-generate-'));
+  try {
+    const sourcePath = join(root, 'source.png');
+    writeFileSync(sourcePath, PIXEL_PNG);
+    const result = await ensureRendition({
+      id: 'still-miss',
+      kind: 'image',
+      sourcePath,
+      variant: 'thumb',
+      cacheDir: root,
+    });
+    assert.ok(result);
+    assert.equal(result.mime, 'image/webp');
+    assert.ok(result.bytes > 0);
+    assert.equal(existsSync(result.path), true);
+    const body = readFileSync(result.path);
+    assert.equal(body.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(body.toString('ascii', 8, 12), 'WEBP');
+    assert.equal(body.length, result.bytes);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('generate:false skips creation on a cache miss', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rendition-nogen-'));
+  try {
+    const sourcePath = join(root, 'source.png');
+    writeFileSync(sourcePath, PIXEL_PNG);
+    const result = await ensureRendition({
+      id: 'still-nogen',
+      kind: 'image',
+      sourcePath,
+      variant: 'thumb',
+      cacheDir: root,
+      generate: false,
+    });
+    assert.equal(result, null);
+    assert.equal(existsSync(join(root, 'thumb')), false);
+    assert.equal(existsSync(join(root, 'display')), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('cached rendition reads still succeed without regenerating', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rendition-cached-'));
+  try {
+    const sourcePath = join(root, 'source.png');
+    writeFileSync(sourcePath, PIXEL_PNG);
+    const created = await ensureRendition({
+      id: 'still-cached',
+      kind: 'image',
+      sourcePath,
+      variant: 'thumb',
+      cacheDir: root,
+    });
+    assert.ok(created);
+    const cached = await ensureRendition({
+      id: 'still-cached',
+      kind: 'image',
+      sourcePath,
+      variant: 'thumb',
+      cacheDir: root,
+      generate: false,
+    });
+    assert.deepEqual(
+      { path: cached.path, mime: cached.mime, bytes: cached.bytes },
+      { path: created.path, mime: created.mime, bytes: created.bytes }
+    );
+    assert.equal(existsSync(created.path), true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

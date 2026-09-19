@@ -1,5 +1,8 @@
 import {
-  SETUP_EXTENDED_ACTION_FIELDS, SETUP_EXTENDED_DOMAINS, SETUP_EXTENDED_PROPERTIES, SETUP_MCP_SCHEMA,
+  SETUP_EXTENDED_ACTION_FIELDS,
+  SETUP_EXTENDED_DOMAINS,
+  SETUP_EXTENDED_PROPERTIES,
+  SETUP_MCP_SCHEMA,
 } from './settings-contract.mjs';
 
 /** Built-in `setup` tool: the model's handle on a Mixdog user's persisted
@@ -100,7 +103,15 @@ export const SETUP_ACTION_FIELDS = Object.freeze({
 
 export const SETUP_ACTIONS = Object.freeze(Object.keys(SETUP_ACTION_FIELDS));
 
-export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze(['git', 'office', 'tidy', 'localProvider', 'browser', 'computer', 'voice']);
+export const SETUP_BUILTIN_TOGGLE_FEATURES = Object.freeze([
+  'git',
+  'office',
+  'tidy',
+  'localProvider',
+  'browser',
+  'computer',
+  'voice',
+]);
 
 const ROUTE_SCHEMA = {
   type: 'object',
@@ -114,7 +125,10 @@ const ROUTE_SCHEMA = {
     // A typed enum is unrepresentable on Gemini; the bounds project everywhere
     // and the executor rejects values that are not a multiple of 10.
     contextPercent: { type: 'integer', minimum: 10, maximum: 100, description: 'A multiple of 10.' },
-    disabled: { type: 'boolean', description: 'Agent routes only: true disables without losing the route; false re-enables.' },
+    disabled: {
+      type: 'boolean',
+      description: 'Agent routes only: true disables without losing the route; false re-enables.',
+    },
   },
 };
 
@@ -240,7 +254,11 @@ export const SETUP_TOOL_DEFS = Object.freeze([
           type: 'string',
           description: 'set_system_shell: required shell command; "" restores automatic selection.',
         },
-        server: { ...SETUP_MCP_SCHEMA, description: 'Add: name plus command or url. Save: name (or originalName) plus changed fields; omitted settings and credentials are preserved.' },
+        server: {
+          ...SETUP_MCP_SCHEMA,
+          description:
+            'Add: name plus command or url. Save: name (or originalName) plus changed fields; omitted settings and credentials are preserved.',
+        },
         skills: {
           type: 'array',
           items: { type: 'string' },

@@ -48,7 +48,6 @@ import { providerModelCacheRow, sortProviderModels } from '../src/session-runtim
 import { createProviderUsage } from '../src/session-runtime/provider-usage.mjs';
 import { createUsageDashboard } from '../src/standalone/usage-dashboard.mjs';
 import {
-  _withLoadedProviderCtorForTest,
   _withRegisteredProviderForTest,
   providerCatalogRevision,
   refreshCatalogs,

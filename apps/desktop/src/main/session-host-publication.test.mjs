@@ -227,7 +227,9 @@ test('resyncRequired and empty session ids do not apply a live frame', () => {
 
 function applySnapshot(publication, id, fields = {}, revision = 1) {
   return publication.applySessionResult(id, {
-    sessionId: id, revision, projection: true,
+    sessionId: id,
+    revision,
+    projection: true,
     full: { sessionId: id, items: [], queued: [], ...fields },
   });
 }
@@ -235,7 +237,8 @@ function applySnapshot(publication, id, fields = {}, revision = 1) {
 test('unwatched projections obey LRU count and byte budgets without truncating a reply', () => {
   const lane = owner();
   const publication = new SessionHostPublication(lane, {
-    maxUnwatchedEntries: 2, maxUnwatchedBytes: 4_096,
+    maxUnwatchedEntries: 2,
+    maxUnwatchedBytes: 4_096,
   });
   applySnapshot(publication, 'a');
   applySnapshot(publication, 'b');
@@ -261,7 +264,10 @@ test('visible, control, running, queued, and approval projections stay pinned ab
   applySnapshot(publication, 'queued', { queued: [{ id: 'pending' }] });
   applySnapshot(publication, 'approval', { toolApproval: { id: 'approve' } });
   applySnapshot(publication, 'cold');
-  assert.deepEqual([...publication.projections.keys()], ['visible', 'control', 'running', 'command', 'queued', 'approval']);
+  assert.deepEqual(
+    [...publication.projections.keys()],
+    ['visible', 'control', 'running', 'command', 'queued', 'approval']
+  );
   lane.visible.clear();
   publication.pruneProjections();
   assert.equal(publication.projections.has('visible'), false);
@@ -290,7 +296,10 @@ test('a patch after cache eviction re-reads its baseline without publishing an e
   applySnapshot(publication, 'cold', { items: [{ kind: 'assistant', text: 'original' }] });
   assert.equal(publication.projections.has('cold'), false);
   publication.handleSessionFrame({
-    type: 'session-state', sessionId: 'cold', revision: 2, baseRevision: 1,
+    type: 'session-state',
+    sessionId: 'cold',
+    revision: 2,
+    baseRevision: 1,
     patch: { set: { model: 'updated' } },
   });
   await Promise.resolve();

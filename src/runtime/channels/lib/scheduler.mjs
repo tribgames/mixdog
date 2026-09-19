@@ -97,7 +97,7 @@ function releaseSchedulerRuntime(scheduler) {
   scheduler.destroyCronJobs();
   try {
     const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
-    const lockedPid = parseInt(content.split('\n')[0]);
+    const lockedPid = parseInt(content.split('\n')[0], 10);
     if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
   } catch {}
 }
@@ -299,7 +299,7 @@ ${Scheduler.INSTANCE_UUID}`;
             try {
               const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
               const lines = content.split('\n');
-              const pid = parseInt(lines[0]);
+              const pid = parseInt(lines[0], 10);
               let isAlive = false;
               try {
                 process.kill(pid, 0);
@@ -352,7 +352,7 @@ ${Scheduler.INSTANCE_UUID}`;
         // mirrors memory/index.mjs releaseLock().
         try {
           const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
-          const lockedPid = parseInt(content.split('\n')[0]);
+          const lockedPid = parseInt(content.split('\n')[0], 10);
           if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
         } catch {}
       });

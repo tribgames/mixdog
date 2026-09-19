@@ -1,7 +1,7 @@
 import { statSync } from 'fs';
 import * as fsPromises from 'fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { isAbsolute, resolve, sep } from 'path';
+import { isAbsolute, sep } from 'path';
 import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 

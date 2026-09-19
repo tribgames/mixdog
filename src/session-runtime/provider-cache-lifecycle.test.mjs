@@ -103,7 +103,10 @@ test('partial catalogs expose healthy providers without caching a failed provide
   const first = api.collectProviderModels();
   await setImmediate();
   f.requests[0].reject(new Error('temporary catalog failure'));
-  assert.deepEqual((await first).map((row) => row.id), ['healthy-model']);
+  assert.deepEqual(
+    (await first).map((row) => row.id),
+    ['healthy-model']
+  );
   const next = api.collectProviderModels();
   await setImmediate();
   assert.equal(f.requests.length, 2);

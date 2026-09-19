@@ -41,7 +41,10 @@ export function buildContextMap(categories, { windowTokens = 0, cells = 128, fit
   const free = Math.max(0, window - occupied);
   const segments = [...categories, { key: 'free', tokens: fit ? 0 : free }];
   const scaleTokens = segments.reduce((sum, segment) => sum + segment.tokens, 0);
-  const counts = contextShares(segments.map((segment) => segment.tokens), cells);
+  const counts = contextShares(
+    segments.map((segment) => segment.tokens),
+    cells
+  );
   return {
     cells: scaleTokens ? segments.flatMap((segment, index) => Array(counts[index]).fill(segment.key)) : [],
     blockTokens: scaleTokens / cells,

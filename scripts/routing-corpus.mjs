@@ -94,7 +94,6 @@ function argsSummary(tool, args) {
       .trim();
     return s.length > n ? `${s.slice(0, n - 1)}…` : s;
   };
-  const arr = (v) => (Array.isArray(v) ? `[${v.length}:${clip(v[0], 40)}]` : clip(v, 50));
   switch (tool) {
     case 'grep':
       return clip(Array.isArray(args.pattern) ? `[${args.pattern.length}]${args.pattern[0]}` : args.pattern);

@@ -2,10 +2,10 @@
 
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -23,18 +23,29 @@ class HostCredentialsPathTest(unittest.TestCase):
         self.addCleanup(raw.cleanup)
         data = Path(raw.name)
         if pool is not None:
-            (data / "provider-accounts.json").write_text(json.dumps(pool), encoding="utf-8")
+            (data / "provider-accounts.json").write_text(
+                json.dumps(pool), encoding="utf-8"
+            )
         return data
 
     def test_selected_account_resolves_to_its_own_file(self):
         account = "2b2f5aef-e221-48b5-ad10-cda6e69357b3"
-        data = self._data_dir({
-            "version": 1,
-            "providers": {
-                "anthropic-oauth": {"accounts": [{"id": account}], "selectedId": account, "auto": True},
-                "openai-oauth": {"accounts": [{"id": "default"}], "selectedId": "default"},
-            },
-        })
+        data = self._data_dir(
+            {
+                "version": 1,
+                "providers": {
+                    "anthropic-oauth": {
+                        "accounts": [{"id": account}],
+                        "selectedId": account,
+                        "auto": True,
+                    },
+                    "openai-oauth": {
+                        "accounts": [{"id": "default"}],
+                        "selectedId": "default",
+                    },
+                },
+            }
+        )
         env = {"MIXDOG_DATA_DIR": str(data)}
         with patch.dict(os.environ, env, clear=False):
             os.environ.pop("ANTHROPIC_OAUTH_CREDENTIALS_PATH", None)
@@ -54,7 +65,9 @@ class HostCredentialsPathTest(unittest.TestCase):
                 data = self._data_dir(None)
                 if pool is not None:
                     (data / "provider-accounts.json").write_text(pool, encoding="utf-8")
-                with patch.dict(os.environ, {"MIXDOG_DATA_DIR": str(data)}, clear=False):
+                with patch.dict(
+                    os.environ, {"MIXDOG_DATA_DIR": str(data)}, clear=False
+                ):
                     os.environ.pop("ANTHROPIC_OAUTH_CREDENTIALS_PATH", None)
                     self.assertEqual(
                         _host_credentials_path(),
@@ -62,24 +75,35 @@ class HostCredentialsPathTest(unittest.TestCase):
                     )
 
     def test_explicit_override_wins_over_binding(self):
-        data = self._data_dir({
-            "providers": {"anthropic-oauth": {"selectedId": "some-account"}},
-        })
+        data = self._data_dir(
+            {
+                "providers": {"anthropic-oauth": {"selectedId": "some-account"}},
+            }
+        )
         override = data / "explicit.json"
-        env = {"MIXDOG_DATA_DIR": str(data), "ANTHROPIC_OAUTH_CREDENTIALS_PATH": str(override)}
+        env = {
+            "MIXDOG_DATA_DIR": str(data),
+            "ANTHROPIC_OAUTH_CREDENTIALS_PATH": str(override),
+        }
         with patch.dict(os.environ, env, clear=False):
             self.assertEqual(_host_credentials_path(), override)
 
-    def test_collect_provider_files_reads_the_bound_account_for_every_oauth_provider(self):
+    def test_collect_provider_files_reads_the_bound_account_for_every_oauth_provider(
+        self,
+    ):
         account = "2caf0e7c-ced3-428f-857a-aa7c5aaf6f4b"
-        data = self._data_dir({
-            "providers": {"openai-oauth": {"selectedId": account}},
-        })
+        data = self._data_dir(
+            {
+                "providers": {"openai-oauth": {"selectedId": account}},
+            }
+        )
         bound = data / "provider-accounts" / "openai-oauth" / f"{account}.json"
         bound.parent.mkdir(parents=True)
         bound.write_text("{}", encoding="utf-8")
         # The pinned default file exists but is empty: the state that broke the run.
-        (data / PROVIDER_CREDENTIAL_FILES["openai-oauth"]).write_text("{}\n", encoding="utf-8")
+        (data / PROVIDER_CREDENTIAL_FILES["openai-oauth"]).write_text(
+            "{}\n", encoding="utf-8"
+        )
         with patch.dict(os.environ, {"MIXDOG_DATA_DIR": str(data)}, clear=False):
             files = _collect_provider_files({"openai-oauth"})
         self.assertEqual(files[PROVIDER_CREDENTIAL_FILES["openai-oauth"]], bound)

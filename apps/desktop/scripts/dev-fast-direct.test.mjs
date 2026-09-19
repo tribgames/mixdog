@@ -32,13 +32,11 @@ const groups = Object.fromEntries(
   ['renderer', 'main', 'preload', 'daemon', 'runtime', 'runtimeDependencies', 'package'].map((name) => [
     name,
     { hash: `${name}-same`, newestMtimeMs: 10 },
-  ]),
+  ])
 );
 const previous = {
   schemaVersion: 2,
-  groups: Object.fromEntries(
-    Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }]),
-  ),
+  groups: Object.fromEntries(Object.entries(groups).map(([name, value]) => [name, { hash: value.hash }])),
 };
 
 test('ASAR API paths always use native separators', () => {
@@ -50,14 +48,12 @@ test('ASAR API paths always use native separators', () => {
 test('FastDirect shell integrity keeps the installed production runtime fallback', () => {
   assert.equal(
     fastDirectRuntimeArchive(join('C:', 'Mixdog', 'resources')),
-    join('C:', 'Mixdog', 'resources', 'runtime.asar'),
+    join('C:', 'Mixdog', 'resources', 'runtime.asar')
   );
 });
 
 test('FastDirect fingerprints browser importer source and installed native tools', async (context) => {
-  assert.ok(
-    targetInputs.runtime.some((path) => path.endsWith(join('native', 'mixdog-browser-import'))),
-  );
+  assert.ok(targetInputs.runtime.some((path) => path.endsWith(join('native', 'mixdog-browser-import'))));
   const root = await mkdtemp(join(tmpdir(), 'mixdog-fast-direct-native-tools-'));
   context.after(() => rm(root, { recursive: true, force: true }));
   const missingHash = await hashBrowserImportNativeTools(root);
@@ -71,12 +67,7 @@ test('FastDirect keeps Electron ESM entry points packed', async (context) => {
   context.after(() => rm(root, { recursive: true, force: true }));
   const staging = join(root, 'staging');
   const archive = join(root, 'app.asar');
-  const files = [
-    'out/main/index.js',
-    'out/main/daemon.cjs',
-    'out/preload/index.js',
-    'out/renderer/index.html',
-  ];
+  const files = ['out/main/index.js', 'out/main/daemon.cjs', 'out/preload/index.js', 'out/renderer/index.html'];
   for (const file of files) {
     const target = join(staging, asarPath(file));
     await mkdir(join(target, '..'), { recursive: true });
@@ -85,22 +76,10 @@ test('FastDirect keeps Electron ESM entry points packed', async (context) => {
 
   await createPackageWithOptions(staging, archive, fastDirectAsarOptions());
 
-  assert.equal(
-    Boolean(statFile(archive, asarPath('out/main/index.js'), false).unpacked),
-    false,
-  );
-  assert.equal(
-    Boolean(statFile(archive, asarPath('out/preload/index.js'), false).unpacked),
-    false,
-  );
-  assert.equal(
-    Boolean(statFile(archive, asarPath('out/main/daemon.cjs'), false).unpacked),
-    true,
-  );
-  assert.equal(
-    Boolean(statFile(archive, asarPath('out/renderer/index.html'), false).unpacked),
-    true,
-  );
+  assert.equal(Boolean(statFile(archive, asarPath('out/main/index.js'), false).unpacked), false);
+  assert.equal(Boolean(statFile(archive, asarPath('out/preload/index.js'), false).unpacked), false);
+  assert.equal(Boolean(statFile(archive, asarPath('out/main/daemon.cjs'), false).unpacked), true);
+  assert.equal(Boolean(statFile(archive, asarPath('out/renderer/index.html'), false).unpacked), true);
 });
 
 test('FastDirect rejects a plan when build inputs changed before staging', () => {
@@ -118,26 +97,23 @@ test('renderer build cache stays warm briefly and then releases memory', () => {
 });
 
 test('unchanged installed build is a no-op', () => {
-  assert.deepEqual(
-    decidePlan({ previous, groups, installedMatches: true, bootstrapFresh: null }),
-    {
-      full: false,
-      bootstrap: false,
-      targets: [],
+  assert.deepEqual(decidePlan({ previous, groups, installedMatches: true, bootstrapFresh: null }), {
+    full: false,
+    bootstrap: false,
+    targets: [],
+    daemon: false,
+    runtime: false,
+    runtimeMode: 'none',
+    changed: {
+      renderer: false,
+      main: false,
+      preload: false,
       daemon: false,
       runtime: false,
-      runtimeMode: 'none',
-      changed: {
-        renderer: false,
-        main: false,
-        preload: false,
-        daemon: false,
-        runtime: false,
-        runtimeDependencies: false,
-        package: false,
-      },
+      runtimeDependencies: false,
+      package: false,
     },
-  );
+  });
 });
 
 test('an explicit release version forces a shell rebuild without rebuilding unchanged runtime', () => {
@@ -286,10 +262,13 @@ test('installed FastDirect runtime readiness requires the matching dependency ma
   const entry = join(runtimeRoot, 'node_modules', 'mixdog', 'src', 'standalone');
   await mkdir(entry, { recursive: true });
   await writeFile(join(entry, 'session-client.mjs'), 'export {};');
-  await writeFile(join(runtimeRoot, '.mixdog-fast-runtime.json'), JSON.stringify({
-    schemaVersion: 1,
-    dependencyHash: 'dependencies-v1',
-  }));
+  await writeFile(
+    join(runtimeRoot, '.mixdog-fast-runtime.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      dependencyHash: 'dependencies-v1',
+    })
+  );
 
   assert.equal(await installedFastRuntimeReady(installDir, 'dependencies-v1'), true);
   assert.equal(await installedFastRuntimeReady(installDir, 'dependencies-v2'), false);
@@ -321,30 +300,14 @@ test('runtime package metadata still invalidates the packaged application', () =
 });
 
 test('runtime fingerprint excludes developer-only package files but keeps build inputs', () => {
+  assert.equal(runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'bench', 'trace.mjs')), false);
+  assert.equal(runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'release-gate.mjs')), true);
+  assert.equal(runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs')), true);
   assert.equal(
-    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'bench', 'trace.mjs')),
-    false,
+    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'lib', 'stage-postgres-runtime-windows.ps1')),
+    true
   );
-  assert.equal(
-    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'release-gate.mjs')),
-    true,
-  );
-  assert.equal(
-    runtimePackageFileForFingerprint(
-      join(repoRoot, 'scripts', 'runtime-dependency-cache-key.mjs'),
-    ),
-    true,
-  );
-  assert.equal(
-    runtimePackageFileForFingerprint(
-      join(repoRoot, 'scripts', 'lib', 'stage-postgres-runtime-windows.ps1'),
-    ),
-    true,
-  );
-  assert.equal(
-    runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'local-only.ps1')),
-    false,
-  );
+  assert.equal(runtimePackageFileForFingerprint(join(repoRoot, 'scripts', 'local-only.ps1')), false);
 });
 
 async function packProductionDependencyFixture(context, files) {
@@ -354,10 +317,7 @@ async function packProductionDependencyFixture(context, files) {
   for (const [relative, contents] of Object.entries(files)) {
     const target = join(staging, ...relative.split('/'));
     await mkdir(join(target, '..'), { recursive: true });
-    await writeFile(
-      target,
-      typeof contents === 'string' ? contents : `${JSON.stringify(contents)}\n`,
-    );
+    await writeFile(target, typeof contents === 'string' ? contents : `${JSON.stringify(contents)}\n`);
   }
   const archive = join(root, 'app.asar');
   await createPackageWithOptions(staging, archive, {});
@@ -405,11 +365,11 @@ test('packaged production dependency closure names a missing transitive chain', 
       assert.deepEqual(error.chain, ['electron-updater', 'fs-extra', 'graceful-fs']);
       assert.equal(
         error.message,
-        'Packaged app.asar is missing production dependency electron-updater > fs-extra > graceful-fs',
+        'Packaged app.asar is missing production dependency electron-updater > fs-extra > graceful-fs'
       );
       assert.equal(planForceFullForMissingProductionDependency(error), true);
       return true;
-    },
+    }
   );
 });
 
@@ -456,12 +416,15 @@ test('packaged production dependency closure accepts asarUnpack packages from th
     'node_modules',
     '@homebridge',
     'node-pty-prebuilt-multiarch',
-    'package.json',
+    'package.json'
   );
   await mkdir(join(unpackedJson, '..'), { recursive: true });
-  await writeFile(unpackedJson, `${JSON.stringify({
-    name: '@homebridge/node-pty-prebuilt-multiarch',
-  })}\n`);
+  await writeFile(
+    unpackedJson,
+    `${JSON.stringify({
+      name: '@homebridge/node-pty-prebuilt-multiarch',
+    })}\n`
+  );
   await assertPackagedProductionDependencyClosure(archive);
 });
 
@@ -490,7 +453,7 @@ test('a packed package.json parse error does not fall through to the unpacked tr
       assert.equal(error instanceof MissingProductionDependencyError, false);
       assert.equal(error instanceof SyntaxError, true);
       return true;
-    },
+    }
   );
 });
 
@@ -505,6 +468,6 @@ test('a corrupt asar is not treated as a missing production dependency for plann
       assert.equal(error instanceof MissingProductionDependencyError, false);
       assert.throws(() => planForceFullForMissingProductionDependency(error));
       return true;
-    },
+    }
   );
 });

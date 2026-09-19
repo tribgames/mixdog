@@ -815,7 +815,7 @@ export function findLineSequence(lines, needle, fromLine, preferredLine = 0, opt
     minStart = Math.max(minStart, lines.length - needle.length);
   }
   const preferred = Math.max(0, preferredLine || 0);
-  const fuzzy = options && options.fuzzy === false ? false : true;
+  const fuzzy = options?.fuzzy !== false;
   const tiers = fuzzy
     ? [
         (a, b) => a === b,

@@ -735,11 +735,7 @@ function AgentPoolRow({
         <time
           className="agent-activity-elapsed"
           aria-label={elapsed}
-          title={
-            state === 'cancel-unconfirmed'
-              ? t('Cancel unconfirmed')
-              : undefined
-          }
+          title={state === 'cancel-unconfirmed' ? t('Cancel unconfirmed') : undefined}
           data-state={state}
         >
           {elapsed}

@@ -9,7 +9,11 @@ import {
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
 import { ensureChatToolPairs } from './lib/wire-pairing.mjs';
 import { cursorTokenExpiry, exchangeCursorToken, resolveCursorOAuthAccessToken } from './cursor-auth.mjs';
-import { canonicalCursorModelId, isCursorAutoModelId, isCursorEffortParameterId } from './cursor-wire-normalization.mjs';
+import {
+  canonicalCursorModelId,
+  isCursorAutoModelId,
+  isCursorEffortParameterId,
+} from './cursor-wire-normalization.mjs';
 
 let runtimePromise = null;
 const CURSOR_EFFORT_ORDER = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh', 'max']);

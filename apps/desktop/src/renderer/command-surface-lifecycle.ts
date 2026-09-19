@@ -119,10 +119,9 @@ export function useCommandSurfaceLifecycle({
       }
       const capabilities = LOADERS[surface];
       const results = await Promise.all(
-        capabilities.map((capability) => readSurfaceCapability(
-          api,
-          capabilityRequest(capability, surface === 'context' ? [{ inspect: true }] : [])
-        ))
+        capabilities.map((capability) =>
+          readSurfaceCapability(api, capabilityRequest(capability, surface === 'context' ? [{ inspect: true }] : []))
+        )
       );
       if (loadSequence.current === request) {
         const next: Record<string, unknown> = {

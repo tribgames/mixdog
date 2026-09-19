@@ -5,5 +5,3 @@ declare global {
     mixdogDesktop: DesktopApi;
   }
 }
-
-export {};

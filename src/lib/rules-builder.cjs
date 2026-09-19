@@ -294,7 +294,12 @@ function parseRouteFrontmatter(markdown) {
 function routeList(value) {
   return String(value || '')
     .split(',')
-    .map((item) => item.trim().replace(/^['"]|['"]$/g, '').toLowerCase())
+    .map((item) =>
+      item
+        .trim()
+        .replace(/^['"]|['"]$/g, '')
+        .toLowerCase()
+    )
     .filter(Boolean);
 }
 
@@ -345,7 +350,13 @@ function matchingRouteFiles({ PLUGIN_ROOT, provider, model }) {
   return files;
 }
 
-function buildRouteRulesContent({ PLUGIN_ROOT, provider = null, model = null, omitTools = [], allowTools = null } = {}) {
+function buildRouteRulesContent({
+  PLUGIN_ROOT,
+  provider = null,
+  model = null,
+  omitTools = [],
+  allowTools = null,
+} = {}) {
   const parts = [];
   for (const { raw } of matchingRouteFiles({ PLUGIN_ROOT, provider, model })) {
     const body = stripFrontmatter(raw);

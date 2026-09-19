@@ -21,7 +21,11 @@ test('shared editor shortcuts follow the current tab without retaining or regist
 
 test('late tab cleanup cannot remove the replacement shortcut', () => {
   let invoke;
-  const editor = { addCommand: (_key, run) => { invoke = run; } };
+  const editor = {
+    addCommand: (_key, run) => {
+      invoke = run;
+    },
+  };
   const calls = [];
   const old = bindEditorCommand(editor, 42, () => calls.push('old'));
   const current = bindEditorCommand(editor, 42, () => calls.push('current'));

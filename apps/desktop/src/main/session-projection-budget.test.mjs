@@ -8,7 +8,8 @@ test('oversized cold reads, visible re-entry, and multi-session replay never del
   const text = 'history '.repeat(1_200_000);
   for (const id of ['large_a', 'large_b']) {
     f.records.set(id, {
-      id, revision: 1,
+      id,
+      revision: 1,
       snapshot: { sessionId: id, items: [{ id: 'answer', kind: 'assistant', text }], queued: [], busy: false },
     });
   }
@@ -19,8 +20,13 @@ test('oversized cold reads, visible re-entry, and multi-session replay never del
   await f.host.setVisibleSessions(['large_a']);
   assert.equal(updates.at(-1).snapshot.items[0].text, text);
   let replay;
-  await f.host.replaySessionStates(['large_a', 'large_b'], (values) => { replay = values; });
-  assert.deepEqual(replay.map((row) => row.sessionId), ['large_a', 'large_b']);
+  await f.host.replaySessionStates(['large_a', 'large_b'], (values) => {
+    replay = values;
+  });
+  assert.deepEqual(
+    replay.map((row) => row.sessionId),
+    ['large_a', 'large_b']
+  );
   assert.ok(replay.every((row) => row.snapshot.items[0].text === text));
   await f.host.setVisibleSessions([]);
   const before = f.state.reads;
@@ -34,13 +40,19 @@ test('a failed replay delivery releases its holds and later replay still returns
   t.after(() => f.close());
   const text = 'retained '.repeat(1_200_000);
   f.records.set('large', {
-    id: 'large', revision: 1,
+    id: 'large',
+    revision: 1,
     snapshot: { sessionId: 'large', items: [{ id: 'answer', kind: 'assistant', text }], queued: [], busy: false },
   });
-  await assert.rejects(f.host.replaySessionStates(['large'], () => {
-    throw new Error('delivery refused');
-  }), /delivery refused/);
+  await assert.rejects(
+    f.host.replaySessionStates(['large'], () => {
+      throw new Error('delivery refused');
+    }),
+    /delivery refused/
+  );
   let replay;
-  await f.host.replaySessionStates(['large'], (values) => { replay = values; });
+  await f.host.replaySessionStates(['large'], (values) => {
+    replay = values;
+  });
   assert.equal(replay[0].snapshot.items[0].text, text);
 });

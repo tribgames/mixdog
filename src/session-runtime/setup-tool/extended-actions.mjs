@@ -25,7 +25,11 @@ export function publicMcpConfig(row) {
   const config = row?.config || {};
   let endpointOrigin = null;
   if (config.url) {
-    try { endpointOrigin = new URL(config.url).origin; } catch { /* malformed legacy URL stays private */ }
+    try {
+      endpointOrigin = new URL(config.url).origin;
+    } catch {
+      /* malformed legacy URL stays private */
+    }
   }
   return {
     name: row.name,
@@ -53,14 +57,20 @@ export function validateMcpInput(server) {
   }
   if (server.url) {
     const url = new URL(server.url);
-    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) throw new Error('MCP URL must use HTTP(S) or WS(S)');
-    if (url.username || url.password || [...url.searchParams.keys()].some((key) => /key|token|password|secret|auth/i.test(key))) {
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol))
+      throw new Error('MCP URL must use HTTP(S) or WS(S)');
+    if (
+      url.username ||
+      url.password ||
+      [...url.searchParams.keys()].some((key) => /key|token|password|secret|auth/i.test(key))
+    ) {
       throw new Error('MCP URL credentials are not accepted; use environment-variable references');
     }
   }
   if (server.command && server.url) throw new Error('MCP input must select command or url, not both');
   if (server.type === 'stdio' && server.url) throw new Error('stdio requires command, not url');
-  if (server.type && server.type !== 'stdio' && server.command) throw new Error('network MCP transports require url, not command');
+  if (server.type && server.type !== 'stdio' && server.command)
+    throw new Error('network MCP transports require url, not command');
 }
 
 async function readDefinition(rt, kind, name) {
@@ -70,7 +80,8 @@ async function readDefinition(rt, kind, name) {
   const metadata = (await rt.skillsStatus()).skills.find((row) => row.name === name) || {};
   const parsed = parseSkillDocument(resource.content);
   return {
-    name, originalName: name,
+    name,
+    originalName: name,
     description: metadata.description || parsed.description || '',
     whenToUse: metadata.whenToUse || parsed.whenToUse || '',
     body: parsed.body,
@@ -82,9 +93,10 @@ async function readDefinition(rt, kind, name) {
 async function saveDefinition(rt, args) {
   const kind = args.definitionKind;
   const input = args.definition;
-  const allowed = kind === 'skill'
-    ? ['originalName', 'name', 'description', 'body', 'whenToUse', 'toolDependencies']
-    : ['id', 'name', 'description', 'body'];
+  const allowed =
+    kind === 'skill'
+      ? ['originalName', 'name', 'description', 'body', 'whenToUse', 'toolDependencies']
+      : ['id', 'name', 'description', 'body'];
   const unexpected = Object.keys(input).find((key) => !allowed.includes(key));
   if (unexpected) throw new Error(`${unexpected} is not a ${kind} definition field`);
   const creating = args.action === 'create_definition';
@@ -124,9 +136,15 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
   async delete_definition(rt, args) {
     if (args.definitionKind === 'skill') throw new Error('Skill deletion is not supported; use set_disabled_skills');
     await readDefinition(rt, args.definitionKind, args.name);
-    const result = args.definitionKind === 'workflow'
-      ? await rt.deleteWorkflow(args.name) : await rt.deleteAgentDefinition(args.name);
-    return { ...result, recovery: 'User-authored definition files are deleted. A built-in override may revert to its built-in definition.' };
+    const result =
+      args.definitionKind === 'workflow'
+        ? await rt.deleteWorkflow(args.name)
+        : await rt.deleteAgentDefinition(args.name);
+    return {
+      ...result,
+      recovery:
+        'User-authored definition files are deleted. A built-in override may revert to its built-in definition.',
+    };
   },
   async save_automation(rt, args) {
     const kind = args.automationKind;
@@ -151,17 +169,25 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
       if (own(input, 'at') && !own(input, 'time')) delete next.time;
     }
     const result = kind === 'schedule' ? await rt.saveSchedule(next) : await rt.saveWebhook(next);
-    return { ...publicAutomation(result), ...(kind === 'webhook' ? { secretSet: true, credentialHandoff: 'Use the Webhooks UI to copy the signing secret.' } : {}) };
+    return {
+      ...publicAutomation(result),
+      ...(kind === 'webhook'
+        ? { secretSet: true, credentialHandoff: 'Use the Webhooks UI to copy the signing secret.' }
+        : {}),
+    };
   },
   async delete_automation(rt, args) {
     const status = await rt.getChannelSetup();
     const rows = status[args.automationKind === 'schedule' ? 'schedules' : 'webhooks'];
     if (!rows.some((row) => row.name === args.name)) throw new Error('Automation entry not found');
-    const result = args.automationKind === 'schedule' ? await rt.deleteSchedule(args.name) : await rt.deleteWebhook(args.name);
+    const result =
+      args.automationKind === 'schedule' ? await rt.deleteSchedule(args.name) : await rt.deleteWebhook(args.name);
     return { ...result, recovery: 'The automation record is deleted; recreating it requires its definition.' };
   },
-  set_automation_enabled: (rt, args) => args.automationKind === 'schedule'
-    ? rt.setScheduleEnabled(args.name, args.enabled) : rt.setWebhookEnabled(args.name, args.enabled),
+  set_automation_enabled: (rt, args) =>
+    args.automationKind === 'schedule'
+      ? rt.setScheduleEnabled(args.name, args.enabled)
+      : rt.setWebhookEnabled(args.name, args.enabled),
   async set_webhook_config(rt, args) {
     await rt.setWebhookConfig(args.webhook);
     const status = await rt.getChannelSetup();

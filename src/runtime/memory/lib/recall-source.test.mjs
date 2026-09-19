@@ -44,10 +44,7 @@ function handlers(rows = [root, member, raw]) {
   const [rootRow, memberRow, rawRow] = rows;
   const db = {
     async search(_query, options) {
-      return [
-        { ...rootRow, ...(options.includeMembers ? { members: [{ ...memberRow }] } : {}) },
-        { ...rawRow },
-      ];
+      return [{ ...rootRow, ...(options.includeMembers ? { members: [{ ...memberRow }] } : {}) }, { ...rawRow }];
     },
     async query(sql, params = []) {
       if (sql.includes('FROM entries WHERE id = ANY')) {

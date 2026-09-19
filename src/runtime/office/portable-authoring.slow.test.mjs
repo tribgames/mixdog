@@ -3811,6 +3811,38 @@ test('portable image replacement removes the orphaned media part', async (t) => 
   const packaged = await parts(target);
   assert.equal(packaged.has('ppt/media/image2.png'), true);
   assert.equal(packaged.has('ppt/media/image1.png'), false, 'the replaced media part must be cleaned up');
+
+  // The frame is the page's design and the new picture rarely shares its ratio.
+  // Stretched into it the photograph came out squeezed (image_aspect_distorted);
+  // it is centred and cropped to the frame instead.
+  const wide = join(cwd, 'wide.png');
+  await writeFile(
+    wide,
+    await sharp({ create: { width: 800, height: 200, channels: 3, background: '#1B4965' } })
+      .png()
+      .toBuffer()
+  );
+  const replaced = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: created.session,
+        operations: [{ op: 'replace_image', slide: 1, shape: 1, path: wide }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(replaced.results[0].cropped, true);
+  const slide = await (await parts(target)).text('ppt/slides/slide1.xml');
+  const crop = /<a:srcRect\b([^>]*)\/>/.exec(slide)?.[1] || '';
+  // A 4:1 picture in a square frame keeps its middle quarter across.
+  assert.match(crop, /l="37500"/);
+  assert.match(crop, /r="37500"/);
+  const audited = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.deepEqual(
+    (audited.issues || []).filter((entry) => entry.code === 'image_aspect_distorted'),
+    []
+  );
 });
 
 test('portable text metrics flag overflow and fit_text repairs it', async (t) => {

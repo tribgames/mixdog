@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  OpenAICompatProvider,
   _xaiResponsesFingerprintPayloadForTest,
   xaiResponsesCacheRouting,
   GrokOAuthProvider,
@@ -108,15 +107,21 @@ test('xai Responses cache defaults to automatic routing and preserves explicit s
 
   const sessionA = xaiResponsesCacheRouting(
     { sessionId: 'session-a', xaiResponsesCacheScope: 'session' },
-    params, [], 'grok-4.6'
+    params,
+    [],
+    'grok-4.6'
   );
   const sessionAgain = xaiResponsesCacheRouting(
     { sessionId: 'session-a', xaiResponsesCacheScope: 'session' },
-    params, [], 'grok-4.6'
+    params,
+    [],
+    'grok-4.6'
   );
   const sessionB = xaiResponsesCacheRouting(
     { sessionId: 'session-b', xaiResponsesCacheScope: 'session' },
-    params, [], 'grok-4.6'
+    params,
+    [],
+    'grok-4.6'
   );
   assert.equal(sessionA.mode, 'session');
   assert.equal(sessionA.key, sessionAgain.key);

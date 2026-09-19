@@ -79,13 +79,23 @@ test('a hidden file can format, save and back up its retained model without a mo
   const writes = [];
   const backups = [];
   let text = 'saved';
-  const model = { getValue: () => text, setValue: value => { text = value; } };
+  const model = {
+    getValue: () => text,
+    setValue: (value) => {
+      text = value;
+    },
+  };
   let session;
   let formats = 0;
   window.mixdogDesktop = {
     readProjectFile: async () => ({ content: 'saved', mtimeMs: 1, binary: false, tooLarge: false }),
-    writeProjectFile: async (...args) => { writes.push(args); return { mtimeMs: 2 }; },
-    writeEditorBackup: async (...args) => { backups.push(args); },
+    writeProjectFile: async (...args) => {
+      writes.push(args);
+      return { mtimeMs: 2 };
+    },
+    writeEditorBackup: async (...args) => {
+      backups.push(args);
+    },
     deleteEditorBackup: async () => {},
   };
   function Harness() {
@@ -93,11 +103,19 @@ test('a hidden file can format, save and back up its retained model without a mo
     const modelRef = useRef(model);
     const syncLspRef = useRef(async () => true);
     session = useEditorFileSession({
-      editorRef, modelRef, syncLspRef,
-      projectPath: 'C:/Project/demo', relPath: 'a.txt', active: false,
+      editorRef,
+      modelRef,
+      syncLspRef,
+      projectPath: 'C:/Project/demo',
+      relPath: 'a.txt',
+      active: false,
       editorSettings: { formatOnSave: true },
-      formatDocument: async () => { formats++; text = text.trim(); },
-      notifyReady() {}, onDirty() {},
+      formatDocument: async () => {
+        formats++;
+        text = text.trim();
+      },
+      notifyReady() {},
+      onDirty() {},
     });
     return null;
   }

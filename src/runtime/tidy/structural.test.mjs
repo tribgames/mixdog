@@ -9,6 +9,7 @@ import {
   createGraphStructuralAdapter,
   graphSupportsScan,
   groupRulePacks,
+  filesForStructuralGroup,
   groupsForLanguages,
   loadRulePacks,
   normalizeStructuralMatch,
@@ -169,6 +170,15 @@ test('rule groups follow the scan grammar, so tsx packs run for a typescript pro
     ['python']
   );
   assert.equal(groupsForLanguages(groups, []).length, 3);
+});
+
+test('structural groups receive files of their language and tsx aliases', () => {
+  const files = ['a.ts', 'b.tsx', 'c.js', 'd.py'];
+  assert.deepEqual(filesForStructuralGroup(files, { language: 'javascript' }), ['c.js']);
+  assert.deepEqual(filesForStructuralGroup(files, { language: 'typescript' }), ['a.ts', 'b.tsx']);
+  assert.deepEqual(filesForStructuralGroup(files, { language: 'tsx' }), ['b.tsx']);
+  assert.deepEqual(filesForStructuralGroup(files, { language: 'python' }), ['d.py']);
+  assert.deepEqual(filesForStructuralGroup(files, { language: 'kotlin' }), []);
 });
 
 test('a graph binary without the scan mode is refused even though it exits 0', async (t) => {

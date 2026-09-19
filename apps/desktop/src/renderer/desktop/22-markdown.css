@@ -15,7 +15,7 @@
   overflow: hidden;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: 0 0 0 .5px var(--mx-border-muted);
+  box-shadow: 0 0 0 0.5px var(--mx-border-muted);
 }
 .markdown-code > header {
   min-height: 28px;
@@ -23,7 +23,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 6px 0 12px;
-  border-bottom: .5px solid var(--mx-border-muted);
+  border-bottom: 0.5px solid var(--mx-border-muted);
   color: var(--mx-text-faint);
   /* A language label is metadata, and the shell's caption tier is 13/16 — at
      14px it sat above the code it was describing. */
@@ -33,7 +33,9 @@
 }
 /* Parser fallback already uses the final code-block geometry and mono face.
    Only the copy action arrives with the rich AST, inside the fixed header. */
-.markdown-code-fallback > header { justify-content: flex-start; }
+.markdown-code-fallback > header {
+  justify-content: flex-start;
+}
 .markdown-code-copy {
   width: 24px;
   height: 24px;
@@ -46,7 +48,10 @@
   background: transparent;
   cursor: pointer;
 }
-.markdown-code-copy:hover { color: var(--mx-icon); background: transparent; }
+.markdown-code-copy:hover {
+  color: var(--mx-icon);
+  background: transparent;
+}
 .markdown-code-copy:focus-visible {
   color: var(--mx-icon);
   background: transparent;
@@ -64,7 +69,9 @@
   overflow-wrap: anywhere;
   word-break: normal;
 }
-.tool-state.exited { color: var(--mx-warning); }
+.tool-state.exited {
+  color: var(--mx-warning);
+}
 .diff-collapsed {
   position: relative;
   max-height: 260px;
@@ -126,12 +133,15 @@
   background: color-mix(in srgb, var(--mx-bg-base) 62%, transparent);
   -webkit-backdrop-filter: blur(12px) saturate(140%);
   backdrop-filter: blur(12px) saturate(140%);
-  box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    var(--mx-raised);
 }
 /* Hover is the island's slot idiom — one thin ink wash over the plate, not a
    filled button. (--mx-bg-contrast is #242424 in LIGHT mode and turned the
    pill black back when hover swapped the whole background.) */
-.jump-to-latest:hover, .jump-to-latest:focus-visible {
+.jump-to-latest:hover,
+.jump-to-latest:focus-visible {
   background: color-mix(in srgb, var(--mx-text) 6%, transparent);
 }
 /* Same phone reasoning as the island: a live backdrop blur pinned over the
@@ -150,8 +160,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    the other floating chrome already uses (--pane-chrome-inset, same ladder as
    .jump-to-latest). */
 .transcript-shell > .session-status-island {
-  --session-island-frame-bg:
-    color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
+  --session-island-frame-bg: color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
 }
 .transcript-shell > .session-status-island {
   --session-status-slot: 28px;
@@ -181,7 +190,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   pointer-events: none;
   background: var(--session-island-frame-bg);
   backdrop-filter: none;
-  box-shadow: inset 0 0 0 .5px var(--mx-border), var(--mx-raised);
+  box-shadow:
+    inset 0 0 0 0.5px var(--mx-border),
+    var(--mx-raised);
 }
 /* Pane-owned slots: work status, context gauge, then the right utility-dock
    toggle. The work slot stays mounted while idle so the capsule keeps one
@@ -207,7 +218,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   box-shadow: none;
   cursor: pointer;
 }
-.session-work-indicator > button:disabled { cursor: default; }
+.session-work-indicator > button:disabled {
+  cursor: default;
+}
 .session-work-indicator > button:hover:not(:disabled),
 .session-work-indicator > button:focus-visible {
   color: var(--mx-text);
@@ -234,7 +247,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   height: 18px;
   stroke-width: 1.75px;
 }
-.session-work-indicator[data-active="true"] > button { color: var(--mx-text-accent); }
+.session-work-indicator[data-active="true"] > button {
+  color: var(--mx-text-accent);
+}
 .session-work-icon-glow {
   opacity: 0;
   color: color-mix(in srgb, var(--mx-text-accent) 55%, white);
@@ -251,8 +266,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   animation: work-stroke-glow 1.8s linear infinite;
 }
 @keyframes work-stroke-glow {
-  from { -webkit-mask-position: 120% 0; mask-position: 120% 0; }
-  to { -webkit-mask-position: -20% 0; mask-position: -20% 0; }
+  from {
+    -webkit-mask-position: 120% 0;
+    mask-position: 120% 0;
+  }
+  to {
+    -webkit-mask-position: -20% 0;
+    mask-position: -20% 0;
+  }
 }
 /* Hover and keyboard focus are the DESKTOP affordances, and the button no
    longer opens the Agents dock (user: 클릭 시 나오는 팝업/화면전환은 필요없음),
@@ -305,7 +326,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .live-work-group + .live-work-group {
   padding-top: 8px;
-  border-top: .5px solid var(--mx-border);
+  border-top: 0.5px solid var(--mx-border);
 }
 .live-work-group-header {
   min-width: 0;
@@ -347,9 +368,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   padding: 7px var(--live-work-inset);
   border-radius: var(--mx-radius-md);
   background: color-mix(in srgb, var(--mx-bg-layer-1) 72%, transparent);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-border-muted) 76%, transparent);
 }
-.session-work-indicator .live-work-row:hover { background: var(--mx-hover); }
+.session-work-indicator .live-work-row:hover {
+  background: var(--mx-hover);
+}
 /* The idle line belongs to no group, so it keeps the plain card inset. */
 .session-work-indicator .live-work-row:only-child:not([data-kind]) {
   grid-template-columns: 1fr;
@@ -408,15 +431,20 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .live-work-stop:hover:not(:disabled) {
   color: var(--mx-danger);
   background: var(--mx-danger-bg);
-  box-shadow: inset 0 0 0 .5px color-mix(in srgb, var(--mx-danger) 38%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--mx-danger) 38%, transparent);
 }
-.live-work-stop:disabled { opacity: var(--mx-op-disabled); cursor: default; }
+.live-work-stop:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
 @media (prefers-reduced-motion: reduce) {
   .session-work-indicator[data-active="true"] .session-work-icon {
     opacity: 1;
     animation: none;
   }
-  .session-work-indicator[data-active="true"] .session-work-icon-glow { opacity: 0; }
+  .session-work-indicator[data-active="true"] .session-work-icon-glow {
+    opacity: 0;
+  }
 }
 /* Workspace tabs live inside each pane's strip row (editor groups). */
 .workspace-tabs-shell {
@@ -478,8 +506,13 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 /* 15px on a 1.5px stroke: the same weight as the strip's tab glyphs and the
    browser toolbar, so the toggles stop reading heavier than their neighbours
    (user: 소스컨트롤·브라우저·터미널 버튼 약간 두껍지 않아?). */
-.pane-dock-toggle svg.lucide { width: 16px; height: 16px; stroke-width: 1.5px; }
-.pane-dock-toggle:hover, .pane-dock-toggle:focus-visible {
+.pane-dock-toggle svg.lucide {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5px;
+}
+.pane-dock-toggle:hover,
+.pane-dock-toggle:focus-visible {
   color: var(--mx-text);
   background: var(--mx-hover);
   outline: none;
@@ -490,7 +523,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 .pane-dock-toggle[aria-disabled="true"] {
   color: var(--mx-text-faint);
-  opacity: .45;
+  opacity: 0.45;
   cursor: default;
   background: transparent;
 }
@@ -516,9 +549,15 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   overflow: hidden;
   background: var(--mx-workspace-sheet);
 }
-.terminal-tab-pane { background: var(--mx-terminal-bg); }
-.terminal-tab-pane > .dock-terminal-surface { height: 100%; }
-.workspace { position: relative; }
+.terminal-tab-pane {
+  background: var(--mx-terminal-bg);
+}
+.terminal-tab-pane > .dock-terminal-surface {
+  height: 100%;
+}
+.workspace {
+  position: relative;
+}
 .workspace-tabs-shell .workspace-tabs {
   width: auto;
   min-width: 0;
@@ -535,7 +574,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   z-index: 3;
   background: var(--mx-window-band);
 }
-.workspace-tabs[data-group-dragging="true"] { cursor: grabbing; }
+.workspace-tabs[data-group-dragging="true"] {
+  cursor: grabbing;
+}
 /* ONE ink for the strip's two marks — the tab X and the + beside it (user:
    +가 우측 메뉴들이랑 같은 색인데 X랑 같은 색이어야 할 듯). */
 .workspace-tab-close,
@@ -547,13 +588,21 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    strokeWidth attribute — a 1px cross reads as a lighter grey than solid
    ink. Both marks share one real-pixel weight here. */
 .workspace-tab-close svg.lucide,
-.workspace-tabs-shell > .workspace-tab-new svg.lucide { stroke-width: 1.5px; }
+.workspace-tabs-shell > .workspace-tab-new svg.lucide {
+  stroke-width: 1.5px;
+}
 .workspace-tab-close:hover,
 .workspace-tab-close:focus-visible,
 .workspace-tabs-shell > .workspace-tab-new:hover,
-.workspace-tabs-shell > .workspace-tab-new:focus-visible { color: var(--mx-text); }
-.workspace-tabs .workspace-tab { -webkit-app-region: no-drag; }
-.workspace-tab.preview .workspace-tab-main > span { font-style: italic; }
+.workspace-tabs-shell > .workspace-tab-new:focus-visible {
+  color: var(--mx-text);
+}
+.workspace-tabs .workspace-tab {
+  -webkit-app-region: no-drag;
+}
+.workspace-tab.preview .workspace-tab-main > span {
+  font-style: italic;
+}
 .workspace-tab-dirty-glyph {
   display: grid;
   width: 14px;
@@ -570,20 +619,42 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .workspace-tab.dirty .workspace-tab-close:hover .workspace-tab-dirty-glyph {
   font-size: 0;
 }
-.workbench-explorer { min-height: 0; display: flex; flex: 1; flex-direction: column; overflow: hidden; }
-.workbench-explorer-root-row { min-width: 0; display: flex; align-items: center; }
-.workbench-explorer-root-row .workbench-explorer-root { min-width: 0; flex: 1; }
-.workbench-explorer-root-remove { flex: 0 0 24px; margin-right: 4px; }
+.workbench-explorer {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+.workbench-explorer-root-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+.workbench-explorer-root-row .workbench-explorer-root {
+  min-width: 0;
+  flex: 1;
+}
+.workbench-explorer-root-remove {
+  flex: 0 0 24px;
+  margin-right: 4px;
+}
 @media (max-width: 760px) {
-  .workspace-tabs-shell { width: auto; }
+  .workspace-tabs-shell {
+    width: auto;
+  }
 }
 @media (max-width: 480px) {
-  .workspace-tabs-shell { width: auto; }
+  .workspace-tabs-shell {
+    width: auto;
+  }
 }
 
 /* Final surface pass: list, markdown, control, and
    settings-dialog idioms applied to Mixdog-only capability surfaces. */
-.command-surface .mixdog-settings__body { gap: 36px; }
+.command-surface .mixdog-settings__body {
+  gap: 36px;
+}
 .command-surface .settings-group-body {
   display: grid;
   padding: 0 20px;
@@ -599,11 +670,13 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   align-items: center;
   gap: 12px;
   padding: 14px 0;
-  border-bottom: .5px solid var(--mx-border);
+  border-bottom: 0.5px solid var(--mx-border);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-ui);
 }
-.command-surface .settings-group-body > label:last-child { border-bottom: 0; }
+.command-surface .settings-group-body > label:last-child {
+  border-bottom: 0;
+}
 .command-surface input[type="checkbox"],
 .settings-check input[type="checkbox"] {
   width: 16px;
@@ -615,7 +688,10 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   /* Checkbox checked fill is bg-accent (blue-600). */
   accent-color: var(--mx-accent-bg);
 }
-.command-surface-select-row .mx-select-root { width: min(220px, 100%); margin-left: auto; }
+.command-surface-select-row .mx-select-root {
+  width: min(220px, 100%);
+  margin-left: auto;
+}
 .command-surface-form {
   min-height: 60px;
   display: flex;
@@ -623,7 +699,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   gap: 8px;
   padding: 14px 0;
 }
-.command-surface-form .mx-select-root { min-width: 140px; }
+.command-surface-form .mx-select-root {
+  min-width: 140px;
+}
 .command-surface-form input:not([type="checkbox"]),
 .command-surface .settings-group-body > form input:not([type="checkbox"]) {
   min-width: 120px;
@@ -661,11 +739,22 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .command-surface .settings-resource-actions button:hover:not(:disabled) {
   background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-base);
 }
-.command-surface-form button:active:not(:disabled), .command-surface .settings-group-body > button:active:not(:disabled),
-.command-surface .settings-group-body > form button:active:not(:disabled), .command-surface .settings-resource-actions button:active:not(:disabled) { background: var(--mx-flat-press); }
-.command-surface-form button:disabled, .command-surface .settings-group-body > button:disabled,
-.command-surface .settings-group-body > form button:disabled, .command-surface .settings-resource-actions button:disabled { opacity: var(--mx-op-disabled); cursor: default; }
-.command-surface .settings-resource-actions button.danger { color: var(--mx-danger); }
+.command-surface-form button:active:not(:disabled),
+.command-surface .settings-group-body > button:active:not(:disabled),
+.command-surface .settings-group-body > form button:active:not(:disabled),
+.command-surface .settings-resource-actions button:active:not(:disabled) {
+  background: var(--mx-flat-press);
+}
+.command-surface-form button:disabled,
+.command-surface .settings-group-body > button:disabled,
+.command-surface .settings-group-body > form button:disabled,
+.command-surface .settings-resource-actions button:disabled {
+  opacity: var(--mx-op-disabled);
+  cursor: default;
+}
+.command-surface .settings-resource-actions button.danger {
+  color: var(--mx-danger);
+}
 .command-surface .tool-detail {
   max-height: 320px;
   margin: 0;
@@ -675,7 +764,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   background: var(--mx-bg-deep);
-  box-shadow: inset 0 0 0 .5px var(--mx-border);
+  box-shadow: inset 0 0 0 0.5px var(--mx-border);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-minor);
   white-space: pre-wrap;
@@ -683,8 +772,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 
 /* Restrained transcript heading ladder: prose structure stays visible without
    breaking the shared 15/24 rhythm into a second typographic system. */
-.markdown h1, .markdown h2, .markdown h3,
-.markdown h4, .markdown h5, .markdown h6 {
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
   color: var(--mx-text);
   /* Content weight is a TWO-step ramp — 450 prose, 650 emphasis — and headings
      take the emphasis step. The 600 chrome tier put h4 (15/600) BELOW inline
@@ -714,8 +807,16 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   font-size: 18px;
   line-height: 26px;
 }
-.markdown h2 { margin: 20px 0 8px; font-size: 16px; line-height: var(--mx-line-body); }
-.markdown h3 { margin: 16px 0 6px; font-size: var(--mx-font-body); line-height: var(--mx-line-body); }
+.markdown h2 {
+  margin: 20px 0 8px;
+  font-size: 16px;
+  line-height: var(--mx-line-body);
+}
+.markdown h3 {
+  margin: 16px 0 6px;
+  font-size: var(--mx-font-body);
+  line-height: var(--mx-line-body);
+}
 /* Body size, so INK is what separates it from an inline bold lead-in. */
 .markdown h4 {
   margin: 14px 0 6px;
@@ -739,8 +840,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 /* Inline emphasis stays on the prose size but must READ as bold: 500, then 600,
    both washed out against the 450 prose weight (user: 볼드가 표기 안 된다 →
    제안값 준 게 제대로 안 나온다), so strong takes its own 650 instance. */
-.markdown strong, .markdown b { color: var(--mx-text); font-weight: var(--mx-weight-strong); }
-.markdown :is(h1, h2, h3, h4, h5, h6) :is(strong, b) { font-weight: inherit; }
+.markdown strong,
+.markdown b {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-strong);
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) :is(strong, b) {
+  font-weight: inherit;
+}
 /* ONE list gutter for every marker kind: a 16px marker column plus an 8px gap
    IS the indent step, so •, 1., 10. and task checkboxes all open their text on
    the same x, and each nesting level adds exactly one step. Two baselines used
@@ -749,30 +856,49 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .markdown {
   --mx-md-indent: 24px;
 }
-.markdown ul, .markdown ol { margin: 12px 0; padding-left: var(--mx-md-indent); }
+.markdown ul,
+.markdown ol {
+  margin: 12px 0;
+  padding-left: var(--mx-md-indent);
+}
 /* A NESTED list lives inside its parent item, so the flow-block margin belongs
    to the outermost list alone — otherwise every level opened a 12px hole
    between the parent line and its own children. */
-.markdown li > ul, .markdown li > ol { margin: 6px 0 0; }
+.markdown li > ul,
+.markdown li > ol {
+  margin: 6px 0 0;
+}
 /* TIGHT items are single lines and belong to one block: a flat 10px scattered
    a three-item list into three paragraphs (reference density is
    4-8px). A LOOSE item carries its own <p> and IS a paragraph, so it
    keeps the wider gap that separates prose blocks. */
-.markdown li { margin-bottom: 6px; }
-.markdown li:has(> p) { margin-bottom: 12px; }
+.markdown li {
+  margin-bottom: 6px;
+}
+.markdown li:has(> p) {
+  margin-bottom: 12px;
+}
 /* The marker is structure, not decoration — faint ink lost the ordinal
    numbers against the prose they index. */
-.markdown li::marker { color: var(--mx-text-muted); }
+.markdown li::marker {
+  color: var(--mx-text-muted);
+}
 /* Depth-varied ordinals (1. → a. → i.), the ladder the TUI renderer already
    numbers by hand: three nested levels of bare decimals gave every level the
    same "1." and the indent alone had to carry the nesting. */
-.markdown ol ol { list-style-type: lower-alpha; }
-.markdown ol ol ol { list-style-type: lower-roman; }
+.markdown ol ol {
+  list-style-type: lower-alpha;
+}
+.markdown ol ol ol {
+  list-style-type: lower-roman;
+}
 /* Closing blocks never push their own container open: `p:last-child` covered
    only paragraphs, so a quote or item ending in a list, table or code card
    still paid the block margin twice. */
 .markdown blockquote > :last-child,
-.markdown li > :last-child { margin-bottom: 0; }
+.markdown li > :last-child {
+  margin-bottom: 0;
+}
 .markdown blockquote {
   margin: 20px 0;
   /* A quote is a CARD like the code and table blocks, not a bar with prose
@@ -784,7 +910,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   color: var(--mx-text-muted);
   background: var(--mx-surface-plate);
 }
-.markdown blockquote > :first-child { margin-top: 0; }
+.markdown blockquote > :first-child {
+  margin-top: 0;
+}
 /* Every table is wrapped in .markdown-table by markdownComponents, and that
    wrapper owns the box (width, margin, scroll) — only the collapse model is
    the table's own. The width/margin/display/overflow that used to live here
@@ -797,13 +925,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-emphasis);
 }
-.markdown th, .markdown td {
+.markdown th,
+.markdown td {
   padding: 8px 12px;
   /* Enough to keep a two-word header off two lines, not enough to inflate a
      yes/no or count column: at 96px a four-column table forced a horizontal
      scrollbar it never needed. */
   min-width: 64px;
-  border-bottom: .5px solid var(--mx-border);
+  border-bottom: 0.5px solid var(--mx-border);
   text-align: left;
   vertical-align: top;
   /* Same Hangul rule as prose — cells wrap between words, and only a token
@@ -814,8 +943,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
      figures made the columns of counts and sizes wobble row to row. */
   font-variant-numeric: tabular-nums;
 }
-.markdown th { color: var(--mx-text); font-weight: var(--mx-weight-strong); background: var(--mx-bg-layer-1); }
-.markdown tbody tr:last-child td { border-bottom: 0; }
+.markdown th {
+  color: var(--mx-text);
+  font-weight: var(--mx-weight-strong);
+  background: var(--mx-bg-layer-1);
+}
+.markdown tbody tr:last-child td {
+  border-bottom: 0;
+}
 
 /* Finished transcript surfaces: constrain rich content without clipping controls or borders. */
 .thread,
@@ -826,7 +961,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .tool-content,
 .detail-block,
 .code-diff,
-.diff-file { min-width: 0; }
+.diff-file {
+  min-width: 0;
+}
 .message.user {
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -837,13 +974,18 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    `overflow-wrap: anywhere` still breaks the long URL/path tokens that would
    otherwise overflow the column, and `text-wrap: pretty` keeps the last line
    from ending on a single orphan word. */
-.markdown p, .markdown li, .markdown blockquote {
+.markdown p,
+.markdown li,
+.markdown blockquote {
   overflow-wrap: anywhere;
   word-break: keep-all;
   text-wrap: pretty;
 }
 /* Plain-text stand-in while the lazy markdown chunk streams in. */
-.markdown-plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-plain {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 /* Inline code is the ONE colored span in prose: headings, strong and links
    stay neutral, so a single accent has nothing to compete with. The chip —
    tint, padding, radius, ring — is gone: color and a box are two marks for one
@@ -865,7 +1007,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 /* Byte-free image attachment chips on user messages (reference
    user-message-attachments): thumbnail when the submitting window still holds
    the preview, icon + filename after a restart. */
-.message-image-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.message-image-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .message-image-chip {
   display: inline-flex;
   overflow: hidden;
@@ -885,7 +1032,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   outline: 2px solid var(--mx-focus);
   outline-offset: 2px;
 }
-.message-image-chip img { display: block; width: 56px; height: 56px; object-fit: cover; }
+.message-image-chip img {
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+}
 .message-image-fallback {
   display: inline-flex;
   align-items: center;
@@ -895,8 +1047,13 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-meta);
 }
-.message-image-fallback svg { color: var(--mx-icon); }
-.message-image-fallback small { color: var(--mx-text-faint); font-size: var(--mx-font-meta); }
+.message-image-fallback svg {
+  color: var(--mx-icon);
+}
+.message-image-fallback small {
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
 /* Neutral link ink (user: no blue emphasis text) — the underline carries the
    affordance. Ink and underline live in ONE rule; they used to sit ~6k lines
    apart, so a later edit could retune half a link. */
@@ -907,7 +1064,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
 }
-.markdown a:hover { text-decoration-color: currentColor; }
+.markdown a:hover {
+  text-decoration-color: currentColor;
+}
 /* Pending file mentions have the exact same icon, caption and wrapping as
    verified links. Resolving a file must never reflow a finished line. */
 .markdown .markdown-path-link,
@@ -940,7 +1099,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
   text-underline-offset: 2px;
 }
-.tool-path-link:hover { text-decoration-color: currentColor; }
+.tool-path-link:hover {
+  text-decoration-color: currentColor;
+}
 .markdown a:focus-visible,
 .markdown-table:focus-visible {
   border-radius: var(--mx-radius-sm);
@@ -956,7 +1117,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   /* Grok-web table container: rounded card with a hairline ring and a tinted
      header band instead of a naked full-bleed grid. */
   border-radius: var(--mx-radius-md);
-  box-shadow: 0 0 0 .5px var(--mx-border);
+  box-shadow: 0 0 0 0.5px var(--mx-border);
   background: var(--mx-bg-base);
 }
 .markdown-table table {
@@ -978,8 +1139,13 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .diff-fallback {
   overscroll-behavior-inline: contain;
 }
-.tool-header { overflow: hidden; }
-.tool-title { min-width: 0; overflow: hidden; }
+.tool-header {
+  overflow: hidden;
+}
+.tool-title {
+  min-width: 0;
+  overflow: hidden;
+}
 .tool-title b,
 .tool-title b [data-component="text-shimmer"],
 .tool-title b [data-slot="text-shimmer-char"] {
@@ -995,8 +1161,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   white-space: nowrap;
 }
 .tool-state,
-.tool-header > svg { flex: 0 0 auto; }
-.tool-content { overflow: hidden; }
+.tool-header > svg {
+  flex: 0 0 auto;
+}
+.tool-content {
+  overflow: hidden;
+}
 .detail-block pre {
   max-width: 100%;
   overflow: auto;
@@ -1004,7 +1174,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   overflow-wrap: anywhere;
   word-break: normal;
 }
-.diff-file > header { min-width: 0; }
+.diff-file > header {
+  min-width: 0;
+}
 .diff-file > header b {
   flex: 1 1 auto;
   min-width: 0;
@@ -1024,15 +1196,32 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   white-space: nowrap;
 }
 .diff-operation[data-status="A"],
-.turn-review-status[data-status="A"] { color: var(--mx-success); }
+.turn-review-status[data-status="A"] {
+  color: var(--mx-success);
+}
 .diff-operation[data-status="D"],
-.turn-review-status[data-status="D"] { color: var(--mx-danger); }
+.turn-review-status[data-status="D"] {
+  color: var(--mx-danger);
+}
 .diff-operation[data-status="M"],
-.turn-review-status[data-status="M"] { color: var(--mx-warning); }
-.diff-stats { flex: 0 0 auto; display: inline-flex; gap: 6px; white-space: nowrap; }
+.turn-review-status[data-status="M"] {
+  color: var(--mx-warning);
+}
+.diff-stats {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 6px;
+  white-space: nowrap;
+}
 /* Conventional review colors: additions green, deletions red (app-wide). */
-.diff-stats i { color: var(--mx-success); font-style: normal; }
-.diff-stats em { color: var(--mx-danger); font-style: normal; }
+.diff-stats i {
+  color: var(--mx-success);
+  font-style: normal;
+}
+.diff-stats em {
+  color: var(--mx-danger);
+  font-style: normal;
+}
 .diff-loading {
   min-height: 96px;
   display: grid;
@@ -1055,8 +1244,12 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 
 @media (max-width: 640px) {
-  .approval-card dl { grid-template-columns: 1fr; }
-  .approval-card dd + dt { margin-top: 6px; }
+  .approval-card dl {
+    grid-template-columns: 1fr;
+  }
+  .approval-card dd + dt {
+    margin-top: 6px;
+  }
 }
 
 /* Composer cluster: animated status text, compact message navigation, context,
@@ -1087,7 +1280,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   -webkit-background-clip: text;
   animation: transcript-text-shimmer var(--text-shimmer-duration) linear infinite;
 }
-@keyframes transcript-text-shimmer { to { background-position: calc(-1 * var(--text-shimmer-size)) 0; } }
+@keyframes transcript-text-shimmer {
+  to {
+    background-position: calc(-1 * var(--text-shimmer-size)) 0;
+  }
+}
 .context-usage {
   position: relative;
   width: 28px;
@@ -1099,14 +1296,32 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   background: var(--mx-bg-layer-1);
   box-shadow: var(--mx-floating);
 }
-.context-usage svg { position: absolute; inset: 4px; width: 20px; height: 20px; transform: rotate(-90deg); }
-.context-usage circle { fill: none; stroke-width: 2; }
-.context-usage-track { stroke: var(--mx-border-strong); }
-.context-usage-value { stroke: var(--mx-text-accent); stroke-linecap: round; }
+.context-usage svg {
+  position: absolute;
+  inset: 4px;
+  width: 20px;
+  height: 20px;
+  transform: rotate(-90deg);
+}
+.context-usage circle {
+  fill: none;
+  stroke-width: 2;
+}
+.context-usage-track {
+  stroke: var(--mx-border-strong);
+}
+.context-usage-value {
+  stroke: var(--mx-text-accent);
+  stroke-linecap: round;
+}
 /* DELIBERATE sub-micro exception: the readout sits INSIDE a 20px ring, where
    the 11px micro floor would overflow the stroke. It is a gauge label, not a
    sentence — the ring itself carries the reading. */
-.context-usage small { font-size: 8px; font-weight: var(--mx-weight-regular); font-variant-numeric: tabular-nums; }
+.context-usage small {
+  font-size: 8px;
+  font-weight: var(--mx-weight-regular);
+  font-variant-numeric: tabular-nums;
+}
 [data-component="tool-status-title"],
 [data-component="tool-count-summary"],
 [data-component="tool-count-label"] {
@@ -1124,24 +1339,42 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
    tint — only a failure that arrives on a retained live card blinks. Restored
    history mounts already failed and must not replay the signal. */
 .tool-card.failed .tool-icon,
-.tool-state.failed { color: var(--mx-danger); }
-.tool-state.warning { color: var(--mx-warning); }
-.tool-card.failed.failure-arrived .tool-icon svg { animation: tool-failed-blink 700ms ease-in-out 2; }
-@keyframes tool-failed-blink { 50% { opacity: var(--mx-op-ghost); } }
+.tool-state.failed {
+  color: var(--mx-danger);
+}
+.tool-state.warning {
+  color: var(--mx-warning);
+}
+.tool-card.failed.failure-arrived .tool-icon svg {
+  animation: tool-failed-blink 700ms ease-in-out 2;
+}
+@keyframes tool-failed-blink {
+  50% {
+    opacity: var(--mx-op-ghost);
+  }
+}
 /* Successful tool work is the transcript baseline, not an alert. Keep settled
    child rows neutral under the ListTree activity group; rare failures and
    warnings retain their semantic colors below. */
-.tool-card.settled .tool-icon { color: var(--mx-icon-muted); }
+.tool-card.settled .tool-icon {
+  color: var(--mx-icon-muted);
+}
 .tool-card:not(.settled) .tool-icon {
   color: var(--mx-text-muted);
 }
 /* Re-assert outcome colors AFTER settled green (equal specificity — source
    order decides). Warning means the invocation returned but its work failed
    or only part of a mutation committed; red is total invocation failure. */
-.tool-card.failed .tool-icon { color: var(--mx-danger); }
-.tool-card.warning .tool-icon { color: var(--mx-warning); }
+.tool-card.failed .tool-icon {
+  color: var(--mx-danger);
+}
+.tool-card.warning .tool-icon {
+  color: var(--mx-warning);
+}
 @media (prefers-reduced-motion: reduce) {
-  .tool-card.failed.failure-arrived .tool-icon svg { animation: none; }
+  .tool-card.failed.failure-arrived .tool-icon svg {
+    animation: none;
+  }
 }
 .tool-error-summary {
   min-width: 0;
@@ -1167,7 +1400,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
     color: inherit;
     background: none;
   }
-  .live-work-spinner { animation: none; }
+  .live-work-spinner {
+    animation: none;
+  }
   .live-activity-status,
   .live-activity-glyph-spin,
   .live-activity-glyph-core,
@@ -1175,7 +1410,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   .turn-status::before,
   .turn-status-icon,
   .compaction-divider,
-  .compaction-icon { animation: none; }
+  .compaction-icon {
+    animation: none;
+  }
 }
 :root[data-mixdog-motion="paused"] .spin,
 :root[data-mixdog-motion="paused"] .stream-cursor,
@@ -1189,9 +1426,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   animation-play-state: paused !important;
 }
 @media (max-width: 640px) {
-  .command-surface-form { align-items: stretch; flex-direction: column; }
+  .command-surface-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
   .command-surface-form .mx-select-root,
-  .command-surface-select-row .mx-select-root { width: 100%; }
+  .command-surface-select-row .mx-select-root {
+    width: 100%;
+  }
 }
 
 /* Finished composer and command surfaces. These rules intentionally stay
@@ -1207,7 +1449,10 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   resize: none;
   caret-color: var(--mx-text);
 }
-.composer textarea:disabled { opacity: var(--mx-op-dim); cursor: wait; }
+.composer textarea:disabled {
+  opacity: var(--mx-op-dim);
+  cursor: wait;
+}
 .composer-footer {
   min-width: 0;
   display: flex;
@@ -1218,7 +1463,11 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 .fast-mode-toggle,
 .effort-control .mx-select-trigger,
 .send-button {
-  transition: color var(--mx-motion-ink), background var(--mx-motion-ink), box-shadow var(--mx-motion-ink), opacity var(--mx-motion-ink);
+  transition:
+    color var(--mx-motion-ink),
+    background var(--mx-motion-ink),
+    box-shadow var(--mx-motion-ink),
+    opacity var(--mx-motion-ink);
 }
 .composer-tool:focus-visible,
 .model-trigger:focus-visible,
@@ -1270,13 +1519,14 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   justify-content: center;
   pointer-events: none;
 }
-.session-goal-host:empty { display: none; }
+.session-goal-host:empty {
+  display: none;
+}
 .session-goal-host[data-goal-placement="composer"] {
   margin-bottom: 8px;
 }
 .session-goal-host > .session-goal-island {
-  --session-island-frame-bg:
-    color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
+  --session-island-frame-bg: color-mix(in srgb, var(--mx-bg-base) 62%, var(--mx-workspace-sheet));
   /* Three controls + progress·time take ~150px of the capsule, so a 416px
      pill left the objective ~200px — most goals ellipsized after a few
      words (user: goal도 많이 잘리던데). The title now gets the room. */
@@ -1298,7 +1548,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   left: 0;
   display: grid;
   grid-template-rows: auto auto;
-  border: .5px solid var(--mx-border);
+  border: 0.5px solid var(--mx-border);
   border-radius: var(--mx-radius-pill);
   color: var(--mx-text);
   font-family: var(--mx-font-sans);
@@ -1318,7 +1568,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 /* Open drawer: separate the header from the task list. */
 .session-goal-island[data-open="true"] .session-goal-summary {
-  border-bottom: .5px solid var(--mx-border);
+  border-bottom: 0.5px solid var(--mx-border);
 }
 .session-goal-trigger {
   min-width: 0;
@@ -1388,7 +1638,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   box-shadow: inset 0 0 0 2px var(--mx-focus);
 }
 .session-goal-control:disabled {
-  opacity: .45;
+  opacity: 0.45;
   cursor: default;
 }
 .session-goal-glyph {
@@ -1420,7 +1670,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   animation: session-goal-spin 900ms linear infinite;
 }
 @keyframes session-goal-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .session-goal-island[data-waiting="true"] .session-goal-glyph > svg {
@@ -1534,7 +1786,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
 }
 /* Hairline between rows: multi-line tasks otherwise merge into one block. */
 .session-goal-tasks li + li {
-  border-top: .5px solid color-mix(in srgb, var(--mx-border) 70%, transparent);
+  border-top: 0.5px solid color-mix(in srgb, var(--mx-border) 70%, transparent);
 }
 .session-goal-tasks li > span {
   width: var(--mx-icon-md);
@@ -1548,14 +1800,24 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   width: 14px;
   height: 14px;
 }
-.session-goal-tasks li[data-status="completed"] > span { color: var(--mx-success); }
-.session-goal-tasks li[data-status="in_progress"] > span { color: var(--mx-text-accent); }
+.session-goal-tasks li[data-status="completed"] > span {
+  color: var(--mx-success);
+}
+.session-goal-tasks li[data-status="in_progress"] > span {
+  color: var(--mx-text-accent);
+}
 /* Retired work stays readable but visibly out of the running. Never struck
    through: a dropped row was abandoned, not accomplished. */
-.session-goal-tasks li[data-status="dropped"] > span { color: var(--mx-text-faint); }
-.session-goal-tasks li[data-status="dropped"] > div { opacity: .58; }
+.session-goal-tasks li[data-status="dropped"] > span {
+  color: var(--mx-text-faint);
+}
+.session-goal-tasks li[data-status="dropped"] > div {
+  opacity: 0.58;
+}
 /* Parked on the user, not stalled by us. */
-.session-goal-tasks li[data-status="awaiting_approval"] > span { color: var(--mx-warning); }
+.session-goal-tasks li[data-status="awaiting_approval"] > span {
+  color: var(--mx-warning);
+}
 .session-goal-tasks li > div {
   min-width: 0;
   display: grid;
@@ -1601,7 +1863,7 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   flex-wrap: wrap;
   gap: 4px;
   padding-top: 4px;
-  border-top: .5px solid var(--mx-border);
+  border-top: 0.5px solid var(--mx-border);
 }
 .session-goal-actions .composer-tool {
   width: auto;
@@ -1612,7 +1874,9 @@ html[data-mixdog-mobile-tabs] .jump-to-latest::before {
   display: grid;
   gap: 8px;
 }
-.session-goal-blocker { color: var(--mx-warning); }
+.session-goal-blocker {
+  color: var(--mx-warning);
+}
 
 html[data-mixdog-mobile-tabs] .session-goal-host > .session-goal-island {
   --session-goal-width: calc(560px * var(--mx-device-scale, 2.5));

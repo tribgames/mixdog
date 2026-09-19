@@ -1,6 +1,11 @@
 import { extname, posix } from 'node:path';
 import { applyCellStyle, resolveCellStyles } from './portable-sheet-styles.mjs';
-import { conditionalFormatKind, listValidationFormula, normalizeXlsxFormula } from './xlsx-contract.mjs';
+import {
+  conditionalFormatKind,
+  listValidationChoices,
+  listValidationFormula,
+  normalizeXlsxFormula,
+} from './xlsx-contract.mjs';
 import { chartXml } from './portable-chart.mjs';
 import { applyWorksheetPageSetup, fitDrawingSheetOnePageWide, worksheetGeometry } from './portable-sheet-page.mjs';
 import { toEmu } from './portable-slide-shapes.mjs';
@@ -516,7 +521,7 @@ function addWorksheetValidation(zip, sheet, xml, op) {
     `${op.inputMessage ? ` prompt="${xmlEncode(op.inputMessage)}"` : ''}` +
     `${op.errorMessage ? ` error="${xmlEncode(op.errorMessage)}"` : ''}` +
     ` sqref="${reference}">` +
-    `<formula1>${formula(op.formula1)}</formula1>` +
+    `<formula1>${type === 'list' ? xmlEncode(listValidationChoices(op.formula1)) : formula(op.formula1)}</formula1>` +
     `${op.formula2 == null || op.formula2 === '' ? '' : `<formula2>${formula(op.formula2)}</formula2>`}` +
     '</dataValidation>';
   zip.file(
@@ -780,6 +785,10 @@ async function addWorksheetChart(zip, sheet, xml, op) {
   // Range("A7:A12,D7:D12") reads them: the first column of the first area
   // holds the categories, every other column of every area is a series,
   // so a chart can skip the columns between its category and its value.
+  // plotBy:'rows' reads the same block turned a quarter: the first row holds
+  // the categories and every other row is one series, which is how a sheet
+  // that grows a column per period is already written.
+  const plotByRows = String(op.plotBy ?? 'columns').toLowerCase() === 'rows';
   const areas = String(op.range ?? '')
     .split(',')
     .map((part) => parseAreaRange(part.trim()));
@@ -788,16 +797,19 @@ async function addWorksheetChart(zip, sheet, xml, op) {
     const from = index === 0 ? entry.startCol + 1 : entry.startCol;
     return Array.from({ length: Math.max(0, entry.endCol - from + 1) }, (_, offset) => from + offset);
   });
-  if (
-    !area?.startRow ||
-    !area.startCol ||
-    !seriesColumns.length ||
-    areas.some(
-      (entry) => !entry.startRow || !entry.startCol || entry.startRow !== area.startRow || entry.endRow !== area.endRow
-    )
-  ) {
+  const seriesRows = area
+    ? Array.from({ length: Math.max(0, area.endRow - area.startRow) }, (_, offset) => area.startRow + 1 + offset)
+    : [];
+  const wholeBlock = plotByRows
+    ? areas.length === 1 && area?.endCol > area?.startCol
+    : areas.every(
+        (entry) => entry.startRow && entry.startCol && entry.startRow === area.startRow && entry.endRow === area.endRow
+      );
+  if (!area?.startRow || !area.startCol || !(plotByRows ? seriesRows : seriesColumns).length || !wholeBlock) {
     throw new Error(
-      'add_chart requires a bounded range whose first column holds categories (comma-joined areas must share the same rows)'
+      plotByRows
+        ? "add_chart plotBy:'rows' requires one bounded range whose first row holds the categories and whose first column names each series"
+        : 'add_chart requires a bounded range whose first column holds categories (comma-joined areas must share the same rows)'
     );
   }
   const grid = new Map(cellRecords(xml, await sharedStrings(zip)).map((record) => [record.ref, record]));
@@ -807,30 +819,48 @@ async function addWorksheetChart(zip, sheet, xml, op) {
     return record.formula ? record.cachedValue : record.value;
   };
   const categories = [];
-  for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
-    categories.push(String(cellValue(area.startCol, row) ?? ''));
+  if (plotByRows) {
+    for (let column = area.startCol + 1; column <= area.endCol; column += 1) {
+      categories.push(String(cellValue(column, area.startRow) ?? ''));
+    }
+  } else {
+    for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
+      categories.push(String(cellValue(area.startCol, row) ?? ''));
+    }
   }
   const palette = Array.isArray(op.seriesColors) ? op.seriesColors : [];
   const sheetReference = quoteSheetName(sheet.name);
   const series = [];
   const names = [];
   const values = [];
-  for (const [index, column] of seriesColumns.entries()) {
-    const label = columnLabel(column);
+  for (const [index, lane] of (plotByRows ? seriesRows : seriesColumns).entries()) {
+    const label = columnLabel(plotByRows ? area.startCol : lane);
     const numbers = [];
-    for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
-      numbers.push(Number(cellValue(column, row)));
+    if (plotByRows) {
+      for (let column = area.startCol + 1; column <= area.endCol; column += 1) {
+        numbers.push(Number(cellValue(column, lane)));
+      }
+    } else {
+      for (let row = area.startRow + 1; row <= area.endRow; row += 1) {
+        numbers.push(Number(cellValue(lane, row)));
+      }
     }
     series.push({
-      name: String(cellValue(column, area.startRow) ?? `Series ${index + 1}`),
+      name: String(
+        (plotByRows ? cellValue(area.startCol, lane) : cellValue(lane, area.startRow)) ?? `Series ${index + 1}`
+      ),
       values: numbers,
       ...(palette.length ? { color: palette[index % palette.length] } : {}),
       ...(['pie', 'doughnut', 'donut'].includes(String(op.chartType).toLowerCase()) && palette.length
         ? { pointColors: categories.map((_, point) => palette[point % palette.length]) }
         : {}),
     });
-    names.push(`${sheetReference}!$${label}$${area.startRow}`);
-    values.push(`${sheetReference}!$${label}$${area.startRow + 1}:$${label}$${area.endRow}`);
+    names.push(plotByRows ? `${sheetReference}!$${label}$${lane}` : `${sheetReference}!$${label}$${area.startRow}`);
+    values.push(
+      plotByRows
+        ? `${sheetReference}!$${columnLabel(area.startCol + 1)}$${lane}:$${columnLabel(area.endCol)}$${lane}`
+        : `${sheetReference}!$${label}$${area.startRow + 1}:$${label}$${area.endRow}`
+    );
   }
   const categoryLabel = columnLabel(area.startCol);
   let chartOrdinal = 1;
@@ -845,7 +875,9 @@ async function addWorksheetChart(zip, sheet, xml, op) {
       series,
       references: {
         sheet: sheetReference,
-        category: `${sheetReference}!$${categoryLabel}$${area.startRow + 1}:$${categoryLabel}$${area.endRow}`,
+        category: plotByRows
+          ? `${sheetReference}!$${columnLabel(area.startCol + 1)}$${area.startRow}:$${columnLabel(area.endCol)}$${area.startRow}`
+          : `${sheetReference}!$${categoryLabel}$${area.startRow + 1}:$${categoryLabel}$${area.endRow}`,
         names,
         values,
       },

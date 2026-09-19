@@ -172,59 +172,57 @@ export async function runPreSendCompactPass(state) {
         } catch {
           inlineGoalReminder = null;
         }
-        {
-          try {
-            freshContextResult = await runFreshContextCompact({
-              config: state.compactionConfig,
-              sessionRef,
-              messages: compactInputMessages,
-              compactBudgetTokens,
-              compactPolicy,
-              sessionId,
-              signal,
-              provider,
-              model: resolveHandoffSummaryModel(sessionRef, { budgetTokens: compactBudgetTokens }) || model,
-              sendOpts: opts,
-              goalReminderText: inlineGoalReminder?.content || '',
-              activeTurn: true,
-            });
-            const freshMessages = Array.isArray(freshContextResult?.messages) ? freshContextResult.messages : null;
-            if (!freshMessages) throw new Error('fresh-context compact produced no messages');
-            compacted = freshMessages;
-            if (freshContextResult?.usage) {
-              lastUsage = addUsage(lastUsage, freshContextResult.usage);
-              if (!firstTurnUsage) firstTurnUsage = normalizeUsage(freshContextResult.usage);
-              if (sessionId && opts.onUsageDelta) {
-                try {
-                  opts.onUsageDelta({
-                    sessionId,
-                    iterationIndex: iterations + 1,
-                    usageMetricsTurnId: loopUsageMetricsTurnId(),
-                    usageMetricsEpoch: loopUsageMetricsEpoch(),
-                    deltaInput: freshContextResult.usage.inputTokens || 0,
-                    deltaOutput: freshContextResult.usage.outputTokens || 0,
-                    deltaCachedRead: freshContextResult.usage.cachedTokens || 0,
-                    deltaCacheWrite: freshContextResult.usage.cacheWriteTokens || 0,
-                    source: 'fresh_context_compact',
-                    ts: Date.now(),
-                  });
-                } catch {
-                  /* best-effort */
-                }
+        try {
+          freshContextResult = await runFreshContextCompact({
+            config: state.compactionConfig,
+            sessionRef,
+            messages: compactInputMessages,
+            compactBudgetTokens,
+            compactPolicy,
+            sessionId,
+            signal,
+            provider,
+            model: resolveHandoffSummaryModel(sessionRef, { budgetTokens: compactBudgetTokens }) || model,
+            sendOpts: opts,
+            goalReminderText: inlineGoalReminder?.content || '',
+            activeTurn: true,
+          });
+          const freshMessages = Array.isArray(freshContextResult?.messages) ? freshContextResult.messages : null;
+          if (!freshMessages) throw new Error('fresh-context compact produced no messages');
+          compacted = freshMessages;
+          if (freshContextResult?.usage) {
+            lastUsage = addUsage(lastUsage, freshContextResult.usage);
+            if (!firstTurnUsage) firstTurnUsage = normalizeUsage(freshContextResult.usage);
+            if (sessionId && opts.onUsageDelta) {
+              try {
+                opts.onUsageDelta({
+                  sessionId,
+                  iterationIndex: iterations + 1,
+                  usageMetricsTurnId: loopUsageMetricsTurnId(),
+                  usageMetricsEpoch: loopUsageMetricsEpoch(),
+                  deltaInput: freshContextResult.usage.inputTokens || 0,
+                  deltaOutput: freshContextResult.usage.outputTokens || 0,
+                  deltaCachedRead: freshContextResult.usage.cachedTokens || 0,
+                  deltaCacheWrite: freshContextResult.usage.cacheWriteTokens || 0,
+                  source: 'fresh_context_compact',
+                  ts: Date.now(),
+                });
+              } catch {
+                /* best-effort */
               }
             }
-          } catch (freshErr) {
-            freshContextError = freshErr;
-            try {
-              process.stderr.write(
-                `[loop] fresh-context compact failed (sess=${sessionId || 'unknown'}): ` +
-                  `${freshErr?.message || freshErr}\n`
-              );
-            } catch {
-              /* best-effort */
-            }
-            throw freshErr;
           }
+        } catch (freshErr) {
+          freshContextError = freshErr;
+          try {
+            process.stderr.write(
+              `[loop] fresh-context compact failed (sess=${sessionId || 'unknown'}): ` +
+                `${freshErr?.message || freshErr}\n`
+            );
+          } catch {
+            /* best-effort */
+          }
+          throw freshErr;
         }
         summaryChanged = messagesArrayChanged(compactInputMessages, compacted);
       } catch (compactErr) {

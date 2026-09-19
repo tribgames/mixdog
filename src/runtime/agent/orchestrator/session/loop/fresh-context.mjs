@@ -186,8 +186,7 @@ export async function runFreshContextCompact({
     // an aborted turn stays aborted.
     signal?.throwIfAborted();
     const status = Number(error?.status || error?.httpStatus || error?.response?.status || 0);
-    const exhausted =
-      error?.code === 'provider_accounts_exhausted' || status === 429 || isAccountQuotaError(error);
+    const exhausted = error?.code === 'provider_accounts_exhausted' || status === 429 || isAccountQuotaError(error);
     const fallback =
       route.source === 'maintenance' && exhausted
         ? await resolveCompactionRoute({

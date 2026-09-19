@@ -139,7 +139,10 @@ $catalogue = Do-ListInstalledApps @{ query = 'Calc' }
   // what makes the name a user says launchable at all.
   const unpackaged = byTarget['Notepad++'];
   assert.equal(unpackaged.path, 'apps_folder');
-  assert.equal(unpackaged.shelled, 'shell:AppsFolder\\{6D809377-6AF0-444B-8957-A3773F02200E}\\Notepad++\\notepad++.exe');
+  assert.equal(
+    unpackaged.shelled,
+    'shell:AppsFolder\\{6D809377-6AF0-444B-8957-A3773F02200E}\\Notepad++\\notepad++.exe'
+  );
   assert.equal(unpackaged.activated, '');
   // "Calc" matches the packaged calculator and nothing else, so it still resolves.
   assert.equal(byTarget.Calc.path, 'app_activation');

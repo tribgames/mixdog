@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { DATA_DIR } from './config.mjs';
-import { _dtIdxFlush } from './index-drop-trace.mjs';
 import {
   ensureRuntimeDirs,
   cleanupStaleRuntimeFiles,
@@ -11,7 +10,7 @@ import {
 } from './runtime-paths.mjs';
 import { startCliWorker } from './cli-worker-host.mjs';
 // Worker boot maintenance: worker-log rotation + stale worker-log/session GC + plugin-data
-// sibling prune, the SIGTERM drop-trace flush handler, runtime-dir init, and the
+// sibling prune, the SIGTERM handler, runtime-dir init, and the
 // non-worker-mode owner-identity publish + CLI worker start.
 export function runWorkerBootstrap({
   instanceId,
@@ -77,13 +76,11 @@ export function runWorkerBootstrap({
   try {
     pruneStalePluginDataLogSiblings(DATA_DIR, DEFAULT_STALE_LOG_SIBLING_MAX);
   } catch {}
-  // SIGTERM: flush the drop-trace buffer, but do NOT exit here. In worker
-  // mode the graceful `_channelsShutdownHandler` below owns shutdown
-  // (stop() → cleanup → process.exit). In non-worker mode no SIGTERM
-  // handler was previously installed beyond this one; defer to default
-  // termination so process.on('exit') hooks still run.
+  // SIGTERM: do NOT exit here in worker mode — the graceful
+  // `_channelsShutdownHandler` below owns shutdown (stop() → cleanup →
+  // process.exit). In non-worker mode defer to default termination so
+  // process.on('exit') hooks still run.
   process.on('SIGTERM', () => {
-    void _dtIdxFlush();
     if (!isWorkerMode) process.exit(0);
   });
   // ────────────────────────────────────────────────────────────────────────────

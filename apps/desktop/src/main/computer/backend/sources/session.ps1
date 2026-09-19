@@ -10,37 +10,38 @@ $AccessibilityAssemblyPath = [Accessibility.IAccessible].Assembly.Location
 $MixdogHostSource = @'
 @@MIXDOG_HOST_CSHARP@@
 '@
-$MixdogHostRefs = @('System.dll','System.Core.dll','System.Drawing.dll',$AccessibilityAssemblyPath)
+$MixdogHostRefs = @('System.dll', 'System.Core.dll', 'System.Drawing.dll', $AccessibilityAssemblyPath)
 $MixdogHostCacheDir = [string]$env:MIXDOG_COMPUTER_HOST_CACHE
 $MixdogHostBuild = [string]$env:MIXDOG_COMPUTER_HOST_BUILD
 $MixdogHostAssembly = ''
 if ($MixdogHostCacheDir -and $MixdogHostBuild) {
-  $MixdogHostAssembly = Join-Path $MixdogHostCacheDir ('mixdog-computer-host-' + $MixdogHostBuild + '.dll')
+    $MixdogHostAssembly = Join-Path $MixdogHostCacheDir ('mixdog-computer-host-' + $MixdogHostBuild + '.dll')
 }
 $MixdogHostLoaded = $false
 # Loading the cached assembly skips the C# compile that every new worker would
 # otherwise repeat; a miss compiles once and publishes it for the next worker.
 if ($MixdogHostAssembly -and (Test-Path -LiteralPath $MixdogHostAssembly)) {
-  try { Add-Type -Path $MixdogHostAssembly; $MixdogHostLoaded = $true } catch { $MixdogHostLoaded = $false }
+    try { Add-Type -Path $MixdogHostAssembly; $MixdogHostLoaded = $true } catch { $MixdogHostLoaded = $false }
 }
 if (-not $MixdogHostLoaded -and $MixdogHostAssembly) {
-  try {
-    New-Item -ItemType Directory -Force -Path $MixdogHostCacheDir | Out-Null
-    $MixdogHostStaging = $MixdogHostAssembly + '.' + [string]$PID + '.tmp'
-    Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource -OutputAssembly $MixdogHostStaging
-    # A concurrent worker may publish the same build first; either file works.
-    Move-Item -LiteralPath $MixdogHostStaging -Destination $MixdogHostAssembly -Force -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $MixdogHostStaging) {
-      Remove-Item -LiteralPath $MixdogHostStaging -Force -ErrorAction SilentlyContinue
+    try {
+        New-Item -ItemType Directory -Force -Path $MixdogHostCacheDir | Out-Null
+        $MixdogHostStaging = $MixdogHostAssembly + '.' + [string]$PID + '.tmp'
+        Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource -OutputAssembly $MixdogHostStaging
+        # A concurrent worker may publish the same build first; either file works.
+        Move-Item -LiteralPath $MixdogHostStaging -Destination $MixdogHostAssembly -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $MixdogHostStaging) {
+            Remove-Item -LiteralPath $MixdogHostStaging -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $MixdogHostAssembly) {
+            Add-Type -Path $MixdogHostAssembly
+            $MixdogHostLoaded = $true
+        }
     }
-    if (Test-Path -LiteralPath $MixdogHostAssembly) {
-      Add-Type -Path $MixdogHostAssembly
-      $MixdogHostLoaded = $true
-    }
-  } catch { $MixdogHostLoaded = $false }
+    catch { $MixdogHostLoaded = $false }
 }
 if (-not $MixdogHostLoaded) {
-  Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource
+    Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource
 }
 [void][MixWin32]::MakeDpiAware()
 $AE = [System.Windows.Automation.AutomationElement]
@@ -51,101 +52,103 @@ $script:CurrentSession = $null
 $script:CurrentRequest = $null
 
 function Get-SessionState($id) {
-  $key = if ($id) { [string]$id } else { 'default' }
-  if (-not $Sessions.ContainsKey($key)) {
-    $Sessions[$key] = @{
-      Map = @{}
-      Generation = 0
-      Continuation = $null
-      LastFocus = [IntPtr]::Zero
-      OriginalFocus = [IntPtr]::Zero
-      OriginalFocusMonitor = ''
-      OriginalFocusSequence = $null
-      HeldPointerTargets = @{}
-      HeldKeys = @{}
+    $key = if ($id) { [string]$id } else { 'default' }
+    if (-not $Sessions.ContainsKey($key)) {
+        $Sessions[$key] = @{
+            Map                   = @{}
+            Generation            = 0
+            Continuation          = $null
+            LastFocus             = [IntPtr]::Zero
+            OriginalFocus         = [IntPtr]::Zero
+            OriginalFocusMonitor  = ''
+            OriginalFocusSequence = $null
+            HeldPointerTargets    = @{}
+            HeldKeys              = @{}
+        }
     }
-  }
-  return $Sessions[$key]
+    return $Sessions[$key]
 }
 
 function Get-CurrentSession {
-  if ($null -eq $script:CurrentSession) { throw 'computer session is not initialized' }
-  return $script:CurrentSession
+    if ($null -eq $script:CurrentSession) { throw 'computer session is not initialized' }
+    return $script:CurrentSession
 }
 
 function Remember-FocusOrigin($state, $previous, $target) {
-  if ($state.OriginalFocus -ne [IntPtr]::Zero -or $previous -eq $target) { return }
-  $observed = [MixInputObservation]::Read()
-  $state.OriginalFocus = $previous
-  if ($observed.Ready) {
-    $state.OriginalFocusMonitor = $observed.Generation
-    $state.OriginalFocusSequence = $observed.Sequence
-  }
+    if ($state.OriginalFocus -ne [IntPtr]::Zero -or $previous -eq $target) { return }
+    $observed = [MixInputObservation]::Read()
+    $state.OriginalFocus = $previous
+    if ($observed.Ready) {
+        $state.OriginalFocusMonitor = $observed.Generation
+        $state.OriginalFocusSequence = $observed.Sequence
+    }
 }
 
 function Await-WinRt($operation, [Type]$resultType, [int]$timeoutMilliseconds = -1) {
-  if ($null -eq $script:WinRtAsTaskGeneric) {
-    $script:WinRtAsTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
-      Where-Object {
-        $_.Name -eq 'AsTask' -and
-        $_.IsGenericMethodDefinition -and $_.GetGenericArguments().Count -eq 1 -and
-        $_.GetParameters().Count -eq 2 -and
-        $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' -and
-        $_.GetParameters()[1].ParameterType -eq [Threading.CancellationToken]
-      })[0]
-  }
-  $asTask = $script:WinRtAsTaskGeneric.MakeGenericMethod($resultType)
-  $cancellation = [Threading.CancellationTokenSource]::new()
-  try {
-    $task = $asTask.Invoke($null, @($operation, $cancellation.Token))
-    $grace = if ($timeoutMilliseconds -lt 0) { 0 } else { [Math]::Min(100, $timeoutMilliseconds) }
-    $wait = if ($timeoutMilliseconds -lt 0) { -1 } else { $timeoutMilliseconds - $grace }
-    if (-not $task.Wait($wait)) {
-      $timeout = [TimeoutException]::new('winrt_timeout|WinRT operation exceeded its remaining capture budget')
-      try {
-        $cancellation.Cancel()
-        # Completion can be cancelled or faulted; neither turns timeout into success.
-        try { [void]$task.Wait($grace) } catch {}
-        $timeout.Data['WinRtCancellation'] = if ($task.IsCompleted) { 'settled' } else { 'unconfirmed' }
-      } catch { $timeout.Data['WinRtCancellation'] = 'failed' }
-      throw $timeout
+    if ($null -eq $script:WinRtAsTaskGeneric) {
+        $script:WinRtAsTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
+                Where-Object {
+                    $_.Name -eq 'AsTask' -and
+                    $_.IsGenericMethodDefinition -and $_.GetGenericArguments().Count -eq 1 -and
+                    $_.GetParameters().Count -eq 2 -and
+                    $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' -and
+                    $_.GetParameters()[1].ParameterType -eq [Threading.CancellationToken]
+                })[0]
     }
-    return $task.Result
-  } finally { $cancellation.Dispose() }
+    $asTask = $script:WinRtAsTaskGeneric.MakeGenericMethod($resultType)
+    $cancellation = [Threading.CancellationTokenSource]::new()
+    try {
+        $task = $asTask.Invoke($null, @($operation, $cancellation.Token))
+        $grace = if ($timeoutMilliseconds -lt 0) { 0 } else { [Math]::Min(100, $timeoutMilliseconds) }
+        $wait = if ($timeoutMilliseconds -lt 0) { -1 } else { $timeoutMilliseconds - $grace }
+        if (-not $task.Wait($wait)) {
+            $timeout = [TimeoutException]::new('winrt_timeout|WinRT operation exceeded its remaining capture budget')
+            try {
+                $cancellation.Cancel()
+                # Completion can be cancelled or faulted; neither turns timeout into success.
+                try { [void]$task.Wait($grace) } catch {}
+                $timeout.Data['WinRtCancellation'] = if ($task.IsCompleted) { 'settled' } else { 'unconfirmed' }
+            }
+            catch { $timeout.Data['WinRtCancellation'] = 'failed' }
+            throw $timeout
+        }
+        return $task.Result
+    }
+    finally { $cancellation.Dispose() }
 }
 
 function Resolve-WindowInfo($title, $windowId) {
-  if ($windowId) {
-    $handle = [MixWin32]::ParseWindowId([string]$windowId)
-    if (-not [MixWin32]::IsWindowHandle($handle)) { throw "window_id is stale or invalid: $windowId" }
-    return [MixWin32]::Info($handle)
-  }
-  if (-not $title) {
-    $handle = [MixWin32]::Foreground()
-    if (-not [MixWin32]::IsWindowHandle($handle)) { throw 'foreground window not found' }
-    return [MixWin32]::Info($handle)
-  }
-  $exact = New-Object System.Collections.ArrayList
-  $partial = New-Object System.Collections.ArrayList
-  foreach ($info in [MixWin32]::Windows()) {
-    if ($info.Title -eq $title) { [void]$exact.Add($info) }
-    elseif ($info.Title -and $info.Title.ToLower().Contains(([string]$title).ToLower())) { [void]$partial.Add($info) }
-  }
-  if ($exact.Count -eq 1) { return $exact[0] }
-  if ($exact.Count -gt 1) {
-    $ids = @($exact | ForEach-Object { $_.Id }) -join ' | '
-    throw "window title is ambiguous: $title (ids: $ids); use window_id"
-  }
-  if ($partial.Count -eq 1) { return $partial[0] }
-  if ($partial.Count -gt 1) {
-    $matches = @($partial | ForEach-Object { "$($_.Id) $($_.Title)" }) -join ' | '
-    throw "window title is ambiguous: $title (matches: $matches); use window_id"
-  }
-  throw "window not found: $title"
+    if ($windowId) {
+        $handle = [MixWin32]::ParseWindowId([string]$windowId)
+        if (-not [MixWin32]::IsWindowHandle($handle)) { throw "window_id is stale or invalid: $windowId" }
+        return [MixWin32]::Info($handle)
+    }
+    if (-not $title) {
+        $handle = [MixWin32]::Foreground()
+        if (-not [MixWin32]::IsWindowHandle($handle)) { throw 'foreground window not found' }
+        return [MixWin32]::Info($handle)
+    }
+    $exact = New-Object System.Collections.ArrayList
+    $partial = New-Object System.Collections.ArrayList
+    foreach ($info in [MixWin32]::Windows()) {
+        if ($info.Title -eq $title) { [void]$exact.Add($info) }
+        elseif ($info.Title -and $info.Title.ToLower().Contains(([string]$title).ToLower())) { [void]$partial.Add($info) }
+    }
+    if ($exact.Count -eq 1) { return $exact[0] }
+    if ($exact.Count -gt 1) {
+        $ids = @($exact | ForEach-Object { $_.Id }) -join ' | '
+        throw "window title is ambiguous: $title (ids: $ids); use window_id"
+    }
+    if ($partial.Count -eq 1) { return $partial[0] }
+    if ($partial.Count -gt 1) {
+        $matches = @($partial | ForEach-Object { "$($_.Id) $($_.Title)" }) -join ' | '
+        throw "window title is ambiguous: $title (matches: $matches); use window_id"
+    }
+    throw "window not found: $title"
 }
 
 function Find-Window($title, $windowId) {
-  $info = Resolve-WindowInfo $title $windowId
-  try { return $AE::FromHandle($info.Handle) } catch { throw "window has no UI Automation root: $($info.Id) $($info.Title)" }
+    $info = Resolve-WindowInfo $title $windowId
+    try { return $AE::FromHandle($info.Handle) } catch { throw "window has no UI Automation root: $($info.Id) $($info.Title)" }
 }
 

@@ -12,8 +12,8 @@ DOMAIN="${1:?usage: deploy.sh <relay-domain>}"
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 if ! command -v node >/dev/null || [[ "$(node -v | cut -c2-3)" -lt 22 ]]; then
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-  apt-get install -y nodejs
+	curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+	apt-get install -y nodejs
 fi
 
 id -u mixdog-relay >/dev/null 2>&1 || useradd --system --home /var/lib/mixdog-relay --shell /usr/sbin/nologin mixdog-relay
@@ -25,49 +25,49 @@ cp -r "$SRC_DIR/lib" /opt/mixdog-relay/lib
 # Optional web app: run `npm run stage:web` before copying this directory and
 # the relay serves the staged renderer over https.
 if [[ -d "$SRC_DIR/renderer" ]]; then
-  rm -rf /opt/mixdog-relay/renderer
-  cp -r "$SRC_DIR/renderer" /opt/mixdog-relay/renderer
+	rm -rf /opt/mixdog-relay/renderer
+	cp -r "$SRC_DIR/renderer" /opt/mixdog-relay/renderer
 fi
 cd /opt/mixdog-relay && npm ci --omit=dev --no-audit --no-fund
 chown -R mixdog-relay:mixdog-relay /var/lib/mixdog-relay
 
 if [[ ! -d "/etc/letsencrypt/live/$DOMAIN" ]]; then
-  apt-get install -y certbot
-  certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"
+	apt-get install -y certbot
+	certbot certonly --standalone --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"
 fi
 # The service user must read THIS relay's certificate — and nothing else on the
 # host. Recursive group access over live/ and archive/ hands the relay account
 # every private key certbot manages here, so the parents only get traverse (x)
 # and the grant stops at this domain's directory.
 revoke_stale_cert_access() {
-  local domain="$1"
-  local root
-  # An earlier install granted this group RECURSIVE access to every certificate
-  # certbot manages here. An upgrade has to take that back, not just narrow the
-  # new grant, so anything still group-owned outside $domain is handed to root.
-  #
-  # Nothing here is suppressed. A chmod/chgrp that does not land leaves the
-  # relay account holding ANOTHER domain's private key — the exact state this
-  # function exists to end — so a failure has to stop the deploy loudly instead
-  # of scrolling past as `|| true`. A missing tree is not a failure: it is
-  # skipped, which is what `2>/dev/null` used to hide alongside the real ones.
-  for root in /etc/letsencrypt/live /etc/letsencrypt/archive; do
-    [[ -d "$root" ]] || continue
-    find "$root" -mindepth 1 -group mixdog-relay -type f \
-      ! -path "$root/$domain/*" \
-      -exec chmod g-r {} +
-    find "$root" -mindepth 1 -group mixdog-relay \
-      ! -path "$root/$domain" ! -path "$root/$domain/*" \
-      -exec chgrp root {} +
-  done
+	local domain="$1"
+	local root
+	# An earlier install granted this group RECURSIVE access to every certificate
+	# certbot manages here. An upgrade has to take that back, not just narrow the
+	# new grant, so anything still group-owned outside $domain is handed to root.
+	#
+	# Nothing here is suppressed. A chmod/chgrp that does not land leaves the
+	# relay account holding ANOTHER domain's private key — the exact state this
+	# function exists to end — so a failure has to stop the deploy loudly instead
+	# of scrolling past as `|| true`. A missing tree is not a failure: it is
+	# skipped, which is what `2>/dev/null` used to hide alongside the real ones.
+	for root in /etc/letsencrypt/live /etc/letsencrypt/archive; do
+		[[ -d "$root" ]] || continue
+		find "$root" -mindepth 1 -group mixdog-relay -type f \
+			! -path "$root/$domain/*" \
+			-exec chmod g-r {} +
+		find "$root" -mindepth 1 -group mixdog-relay \
+			! -path "$root/$domain" ! -path "$root/$domain/*" \
+			-exec chgrp root {} +
+	done
 }
 grant_cert_access() {
-  local domain="$1"
-  chgrp mixdog-relay /etc/letsencrypt/live /etc/letsencrypt/archive
-  chmod g+x /etc/letsencrypt/live /etc/letsencrypt/archive
-  chgrp -R mixdog-relay "/etc/letsencrypt/live/$domain" "/etc/letsencrypt/archive/$domain"
-  chmod g+rx "/etc/letsencrypt/live/$domain" "/etc/letsencrypt/archive/$domain"
-  chmod g+r "/etc/letsencrypt/archive/$domain"/*.pem
+	local domain="$1"
+	chgrp mixdog-relay /etc/letsencrypt/live /etc/letsencrypt/archive
+	chmod g+x /etc/letsencrypt/live /etc/letsencrypt/archive
+	chgrp -R mixdog-relay "/etc/letsencrypt/live/$domain" "/etc/letsencrypt/archive/$domain"
+	chmod g+rx "/etc/letsencrypt/live/$domain" "/etc/letsencrypt/archive/$domain"
+	chmod g+r "/etc/letsencrypt/archive/$domain"/*.pem
 }
 # A scoping failure is a security failure: stop here with the reason visible
 # rather than continuing into a service that can read the whole cert store.
@@ -76,7 +76,7 @@ revoke_stale_cert_access "$DOMAIN"
 grant_cert_access "$DOMAIN"
 trap - ERR
 mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-cat > /etc/letsencrypt/renewal-hooks/deploy/mixdog-relay <<HOOK
+cat >/etc/letsencrypt/renewal-hooks/deploy/mixdog-relay <<HOOK
 #!/bin/sh
 set -e
 # Renewal re-creates archive/live entries, so the scoping is re-applied on every
@@ -106,7 +106,7 @@ systemctl restart mixdog-relay
 HOOK
 chmod +x /etc/letsencrypt/renewal-hooks/deploy/mixdog-relay
 
-sed "s/RELAY_DOMAIN/$DOMAIN/g" "$SRC_DIR/deploy/mixdog-relay.service" > /etc/systemd/system/mixdog-relay.service
+sed "s/RELAY_DOMAIN/$DOMAIN/g" "$SRC_DIR/deploy/mixdog-relay.service" >/etc/systemd/system/mixdog-relay.service
 systemctl daemon-reload
 systemctl enable mixdog-relay
 systemctl restart mixdog-relay

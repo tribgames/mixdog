@@ -1,5 +1,3 @@
-'use strict';
-
 import { finishProcessLifecycle } from './process-lifecycle.mjs';
 
 const SIGNAL_EXIT_CODES = {

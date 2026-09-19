@@ -91,7 +91,7 @@ export class SessionHostPublication {
     {
       maxUnwatchedBytes = UNWATCHED_PROJECTION_MAX_BYTES,
       maxUnwatchedEntries = UNWATCHED_PROJECTION_MAX_ENTRIES,
-    }: { maxUnwatchedBytes?: number; maxUnwatchedEntries?: number } = {},
+    }: { maxUnwatchedBytes?: number; maxUnwatchedEntries?: number } = {}
   ) {
     this.maxUnwatchedBytes = maxUnwatchedBytes;
     this.maxUnwatchedEntries = maxUnwatchedEntries;
@@ -122,11 +122,15 @@ export class SessionHostPublication {
     for (const [id, projection] of this.projections) {
       const snapshot = projection.snapshot;
       if (
-        visible.has(id) || id === control || this.projectionHolds.has(id)
-        || snapshot?.busy === true || snapshot?.commandBusy === true
-        || snapshot?.toolApproval != null
-        || (Array.isArray(snapshot?.queued) && snapshot.queued.length > 0)
-      ) continue;
+        visible.has(id) ||
+        id === control ||
+        this.projectionHolds.has(id) ||
+        snapshot?.busy === true ||
+        snapshot?.commandBusy === true ||
+        snapshot?.toolApproval != null ||
+        (Array.isArray(snapshot?.queued) && snapshot.queued.length > 0)
+      )
+        continue;
       let bytes = this.projectionWeights.get(projection);
       if (bytes === undefined) {
         bytes = estimateRetainedChars(projection, this.maxUnwatchedBytes / 2) * 2;

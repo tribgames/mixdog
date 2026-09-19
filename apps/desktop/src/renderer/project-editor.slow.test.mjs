@@ -93,15 +93,17 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   const settle = async (index, entries) => {
     await page.evaluate(
       ({ index, entries }) => {
-        window.fixture.requests[index].resolve(JSON.stringify({
-          entries,
-          nextOffset: null,
-          projectScopes: [
-            { path: 'a', projectId: 'alpha-scope' },
-            { path: 'b', projectId: 'beta-scope' },
-            { path: 'empty', projectId: 'empty-scope' },
-          ],
-        }));
+        window.fixture.requests[index].resolve(
+          JSON.stringify({
+            entries,
+            nextOffset: null,
+            projectScopes: [
+              { path: 'a', projectId: 'alpha-scope' },
+              { path: 'b', projectId: 'beta-scope' },
+              { path: 'empty', projectId: 'empty-scope' },
+            ],
+          })
+        );
       },
       { index, entries }
     );
@@ -116,10 +118,13 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await close();
   await open('Alpha');
   assert.equal(await page.evaluate(() => window.fixture.reads.length), 1);
-  assert.deepEqual(await page.evaluate(() => ({
-    scope: window.fixture.reads[0].project_id,
-    paths: window.fixture.reads[0].project_paths,
-  })), { scope: '*', paths: ['a', 'b', 'empty'] });
+  assert.deepEqual(
+    await page.evaluate(() => ({
+      scope: window.fixture.reads[0].project_id,
+      paths: window.fixture.reads[0].project_paths,
+    })),
+    { scope: '*', paths: ['a', 'b', 'empty'] }
+  );
   await settle(0, [alpha, beta]);
   await page.waitForFunction(() => document.querySelector('.core-memory-edit textarea')?.value === 'Alpha memory');
   // Saving an unchanged cached form must not overwrite newer disk content.
@@ -198,7 +203,11 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await page.click('.projects-memory-add-row .core-memory-actions button');
   await page.waitForFunction(() => window.fixture.reads.length === 5);
   assert.deepEqual(await page.evaluate(() => window.fixture.writes[2]), {
-    action: 'core', op: 'add', summary: 'New Beta rule', verbatim: true, cwd: 'b',
+    action: 'core',
+    op: 'add',
+    summary: 'New Beta rule',
+    verbatim: true,
+    cwd: 'b',
   });
   await settle(4, [
     { ...beta, index_revision: 'beta-v2' },
@@ -208,7 +217,8 @@ test('project memory opens from one catalog, survives tabs and refreshes all sco
   await close();
   await open('Beta');
   assert.deepEqual(await page.$$eval('.core-memory-edit textarea', (els) => els.map((el) => el.value)), [
-    'Beta memory', 'New Beta rule',
+    'Beta memory',
+    'New Beta rule',
   ]);
   assert.equal(await page.evaluate(() => window.fixture.reads.length), 5);
   assert.deepEqual(pageErrors, []);

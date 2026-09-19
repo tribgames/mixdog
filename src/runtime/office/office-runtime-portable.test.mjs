@@ -9,7 +9,7 @@ import { parseXlsxAutofitRange } from './portable/xlsx-contract.mjs';
 import { auditDocxRedlining } from './portable/docx-revisions.mjs';
 import { issuesPortableOoxml } from './portable/portable-validation.mjs';
 import { officeOpenFailure } from './core/office-sessions.mjs';
-import { value, workspace, writeZip } from './office-test-support.mjs';
+import { parts, value, workspace, writeZip } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
 
@@ -34,7 +34,10 @@ test('set_page lays a Word section out in columns and keeps them through later p
   );
   assert.equal(created.batch.results.at(-1).columns, 3);
   const columned = await JSZip.loadAsync(await readFile(path));
-  assert.match(await columned.file('word/document.xml').async('string'), /<w:cols w:num="3" w:equalWidth="1" w:space="360"\/>/);
+  assert.match(
+    await columned.file('word/document.xml').async('string'),
+    /<w:cols w:num="3" w:equalWidth="1" w:space="360"\/>/
+  );
   const rotated = value(
     await executeOfficeTool(
       {
@@ -46,7 +49,9 @@ test('set_page lays a Word section out in columns and keeps them through later p
       { cwd }
     )
   );
-  const document = await (await JSZip.loadAsync(await readFile(rotated.output))).file('word/document.xml').async('string');
+  const document = await (await JSZip.loadAsync(await readFile(rotated.output)))
+    .file('word/document.xml')
+    .async('string');
   assert.match(document, /w:orient="landscape"/);
   assert.match(document, /<w:cols w:num="3" w:equalWidth="1" w:space="360"\/>/);
   const single = value(
@@ -3484,6 +3489,101 @@ test('XLSX finalize assertions prove values, formulas, tie-outs, and errors', as
   );
   assert.equal(failed.ok, false);
   assert.equal(failed.assertions.issues[0].code, 'assertion_value_mismatch');
+});
+
+// A page borrowed from another deck was drawn on that deck's layout. Refusing
+// the import unless both files came from one template left the documented
+// operation unusable between two decks the runtime itself authored, so the
+// layout travels with the page and this deck's master adopts it — one master,
+// one theme, and the page keeps the geometry it was built with.
+test('portable PPTX imports a page from another template by adopting its layout', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'deck.pptx');
+  const library = join(cwd, 'library.pptx');
+  const output = join(cwd, 'merged.pptx');
+  const P = 'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"';
+  const A = 'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"';
+  const R = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  const REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const relationships = (entries) =>
+    '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    `${entries}</Relationships>`;
+  const deck = (name) => ({
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+      '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Default Extension="xml" ContentType="application/xml"/>' +
+      '<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>' +
+      '<Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>' +
+      '<Override PartName="/ppt/slideLayouts/slideLayout1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml"/>' +
+      '<Override PartName="/ppt/slideMasters/slideMaster1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml"/></Types>',
+    '_rels/.rels': relationships(
+      `<Relationship Id="rId1" Type="${REL}/officeDocument" Target="ppt/presentation.xml"/>`
+    ),
+    'ppt/presentation.xml':
+      `<?xml version="1.0"?><p:presentation ${P} ${R}><p:sldMasterIdLst><p:sldMasterId id="2147483648" r:id="rId1"/>` +
+      '</p:sldMasterIdLst><p:sldIdLst><p:sldId id="256" r:id="rId2"/></p:sldIdLst></p:presentation>',
+    'ppt/_rels/presentation.xml.rels': relationships(
+      `<Relationship Id="rId1" Type="${REL}/slideMaster" Target="slideMasters/slideMaster1.xml"/>` +
+        `<Relationship Id="rId2" Type="${REL}/slide" Target="slides/slide1.xml"/>`
+    ),
+    'ppt/slides/slide1.xml':
+      `<?xml version="1.0"?><p:sld ${P} ${A}><p:cSld><p:spTree>` +
+      '<p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>' +
+      '<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr/>' +
+      `<p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>${name} 장</a:t></a:r></a:p></p:txBody></p:sp>` +
+      '</p:spTree></p:cSld></p:sld>',
+    'ppt/slides/_rels/slide1.xml.rels': relationships(
+      `<Relationship Id="rId1" Type="${REL}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`
+    ),
+    'ppt/slideLayouts/slideLayout1.xml': `<?xml version="1.0"?><p:sldLayout ${P}><p:cSld name="${name} Layout"/></p:sldLayout>`,
+    'ppt/slideLayouts/_rels/slideLayout1.xml.rels': relationships(
+      `<Relationship Id="rId1" Type="${REL}/slideMaster" Target="../slideMasters/slideMaster1.xml"/>`
+    ),
+    'ppt/slideMasters/slideMaster1.xml':
+      `<?xml version="1.0"?><p:sldMaster ${P} ${R}><p:cSld name="${name} Master"/>` +
+      '<p:clrMap bg1="lt1" tx1="dk1" bg2="lt2" tx2="dk2"/>' +
+      '<p:sldLayoutIdLst><p:sldLayoutId id="2147483649" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>',
+    'ppt/slideMasters/_rels/slideMaster1.xml.rels': relationships(
+      `<Relationship Id="rId1" Type="${REL}/slideLayout" Target="../slideLayouts/slideLayout1.xml"/>`
+    ),
+  });
+  await writeZip(target, deck('Target'));
+  await writeZip(library, deck('Library'));
+  const opened = value(await executeOfficeTool({ action: 'open', path: target, output, mode: 'portable' }, { cwd }));
+  const imported = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [{ op: 'import_slides', path: library, slides: [1], after: 1 }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(imported.results[0].count, 1);
+  const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
+  assert.deepEqual(
+    snapshot.document.slides.map((entry) => entry.text.join('')),
+    ['Target 장', 'Library 장']
+  );
+  const merged = await parts(output);
+  // The borrowed layout came in as its own part; the library's master did not.
+  assert.match(await merged.text('ppt/slideLayouts/slideLayout2.xml'), /Library Layout/);
+  assert.equal(merged.has('ppt/slideMasters/slideMaster2.xml'), false);
+  const master = await merged.text('ppt/slideMasters/slideMaster1.xml');
+  const adopted = /<p:sldLayoutId id="\d+" r:id="(rId\d+)"\/><\/p:sldLayoutIdLst>/.exec(master)?.[1];
+  assert.ok(adopted, master);
+  assert.match(
+    await merged.text('ppt/slideMasters/_rels/slideMaster1.xml.rels'),
+    new RegExp(`Id="${adopted}"[^>]*Target="\\.\\./slideLayouts/slideLayout2\\.xml"`)
+  );
+  assert.match(await merged.text('ppt/slides/_rels/slide2.xml.rels'), /Target="\.\.\/slideLayouts\/slideLayout2\.xml"/);
+  assert.match(
+    await merged.text('ppt/slideLayouts/_rels/slideLayout2.xml.rels'),
+    /Target="\.\.\/slideMasters\/slideMaster1\.xml"/
+  );
+  value(await executeOfficeTool({ action: 'close', session: opened.session }, { cwd }));
 });
 
 test('portable PPTX fills template tokens while preserving masters and layouts', async (t) => {

@@ -8,8 +8,17 @@ import { buildContextMap } from '../../../../src/ui/context-inspection.mjs';
 
 type Category = { key: string; label: string; tokens: number; estimatedTokens?: number; count: number };
 type Entry = {
-  id: string; category: string; label: string; tokens: number; estimatedTokens?: number; kind: string;
-  group?: string; state?: string; role?: string; ordinal?: number; name?: string;
+  id: string;
+  category: string;
+  label: string;
+  tokens: number;
+  estimatedTokens?: number;
+  kind: string;
+  group?: string;
+  state?: string;
+  role?: string;
+  ordinal?: number;
+  name?: string;
   toolResults?: { name: string; tokens: number }[];
 };
 type Calibration = {
@@ -94,7 +103,11 @@ export function entryLabel(entry: Entry): string {
   return entry.label;
 }
 
-export function ContextInspector({ inspection, windowTokens, request }: {
+export function ContextInspector({
+  inspection,
+  windowTokens,
+  request,
+}: {
   inspection: ContextInspection;
   windowTokens: number;
   request?: ContextRequest;
@@ -109,7 +122,12 @@ export function ContextInspector({ inspection, windowTokens, request }: {
   // against the map rather than the viewport so it travels with the dialog.
   const [bubble, setBubble] = useState<{ x: number; y: number; flip: boolean; text: string } | null>(null);
   const sequence = useRef(0);
-  useEffect(() => () => { sequence.current += 1; }, []);
+  useEffect(
+    () => () => {
+      sequence.current += 1;
+    },
+    []
+  );
   // A new revision means the transcript changed under us. The category list
   // keeps its DOM (remounting it on every refresh made the dialog flash on
   // open); only the preview — which was fetched against the OLD revision —
@@ -143,7 +161,9 @@ export function ContextInspector({ inspection, windowTokens, request }: {
     if (!request) return;
     const ticket = ++sequence.current;
     try {
-      const result = record(await request('contextStatus', [{ inspect: true, entryId: entry.id, revision: inspection.revision }]));
+      const result = record(
+        await request('contextStatus', [{ inspect: true, entryId: entry.id, revision: inspection.revision }])
+      );
       if (ticket !== sequence.current) return;
       const next = record(record(result.inspection).preview);
       setPreview({
@@ -173,7 +193,12 @@ export function ContextInspector({ inspection, windowTokens, request }: {
     }
     const row = inspection.categories.find((item) => item.key === key);
     if (!row) return '';
-    return [t(row.label), t('{{count}} items', { count: row.count }), percentLabel(row.tokens), `≈${row.tokens.toLocaleString()}`]
+    return [
+      t(row.label),
+      t('{{count}} items', { count: row.count }),
+      percentLabel(row.tokens),
+      `≈${row.tokens.toLocaleString()}`,
+    ]
       .filter(Boolean)
       .join(' · ');
   };
@@ -205,13 +230,20 @@ export function ContextInspector({ inspection, windowTokens, request }: {
     });
   };
   const mapNote = [
-    t('Each block represents approximately {{tokens}} tokens.', { tokens: Math.ceil(map.blockTokens).toLocaleString() }),
+    t('Each block represents approximately {{tokens}} tokens.', {
+      tokens: Math.ceil(map.blockTokens).toLocaleString(),
+    }),
     t('Category estimates are not provider measurements.'),
     map.overflow ? t('Estimated content exceeds the context window.') : '',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
   const selected = inspection.categories.find((row) => row.key === category);
   const previewEntry = preview ? entries.find((item) => item.id === preview.id) : undefined;
-  const closePreview = () => { sequence.current += 1; setPreview(null); };
+  const closePreview = () => {
+    sequence.current += 1;
+    setPreview(null);
+  };
   // Master/detail: categories on the left are the only navigation, and the
   // right pane always shows the result of the last choice — a placeholder,
   // the entry list, or one entry's preview with a way back to the list.
@@ -225,7 +257,11 @@ export function ContextInspector({ inspection, windowTokens, request }: {
   } else if (preview) {
     // Same 48px bar as the dialog header: back glyph, entry name, size.
     detail = (
-      <section className="context-entry-section context-entry-preview" aria-label={t('Context entries')} aria-live="polite">
+      <section
+        className="context-entry-section context-entry-preview"
+        aria-label={t('Context entries')}
+        aria-live="polite"
+      >
         <header className="context-detail-bar">
           <button type="button" className="context-detail-icon" onClick={closePreview} aria-label={t('Close preview')}>
             <ChevronLeft size={16} />
@@ -235,7 +271,9 @@ export function ContextInspector({ inspection, windowTokens, request }: {
           <h3 data-i18n-skip>{previewEntry ? entryLabel(previewEntry) : ''}</h3>
           <span>{previewEntry ? `≈${previewEntry.tokens.toLocaleString()}` : ''}</span>
         </header>
-        {preview.truncated ? <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p> : null}
+        {preview.truncated ? (
+          <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
+        ) : null}
         <pre tabIndex={0}>{preview.text}</pre>
       </section>
     );
@@ -251,7 +289,10 @@ export function ContextInspector({ inspection, windowTokens, request }: {
       else groups.set(key, [entry]);
     }
     const ordered = [...groups.entries()].sort(([a, aRows], [b, bRows]) => {
-      const rank = (key: string) => { const index = GROUP_ORDER.indexOf(key); return index < 0 ? GROUP_ORDER.length : index; };
+      const rank = (key: string) => {
+        const index = GROUP_ORDER.indexOf(key);
+        return index < 0 ? GROUP_ORDER.length : index;
+      };
       const byOrder = rank(a) - rank(b);
       if (byOrder) return byOrder;
       return bRows.reduce((sum, row) => sum + row.tokens, 0) - aRows.reduce((sum, row) => sum + row.tokens, 0);
@@ -259,14 +300,21 @@ export function ContextInspector({ inspection, windowTokens, request }: {
     const grouped = ordered.length > 1;
     const largest = grouped
       ? ordered.reduce((best, current) =>
-          current[1].reduce((sum, row) => sum + row.tokens, 0) > best[1].reduce((sum, row) => sum + row.tokens, 0) ? current : best
+          current[1].reduce((sum, row) => sum + row.tokens, 0) > best[1].reduce((sum, row) => sum + row.tokens, 0)
+            ? current
+            : best
         )[0]
       : '';
-    const isOpen = (key: string) =>
-      expanded[key] ?? (entries.length <= COLLAPSE_THRESHOLD || key === largest);
+    const isOpen = (key: string) => expanded[key] ?? (entries.length <= COLLAPSE_THRESHOLD || key === largest);
     const row = (entry: Entry) => (
-      <button type="button" key={entry.id} disabled={!request} onClick={() => void openPreview(entry)}
-        data-state={entry.state} title={tokenTitle(entry)}>
+      <button
+        type="button"
+        key={entry.id}
+        disabled={!request}
+        onClick={() => void openPreview(entry)}
+        data-state={entry.state}
+        title={tokenTitle(entry)}
+      >
         <span>
           {entryLabel(entry)}
           {entry.state === 'deferred' ? <small className="context-entry-badge">{t('Deferred')}</small> : null}
@@ -280,8 +328,15 @@ export function ContextInspector({ inspection, windowTokens, request }: {
         <header className="context-detail-bar">
           <i aria-hidden="true" data-context-key={selected.key} />
           <h3>{t(selected.label)}</h3>
-          <span title={tokenTitle(selected)}>{t('{{count}} items', { count: selected.count })} · ≈{selected.tokens.toLocaleString()}</span>
-          <button type="button" className="context-detail-icon" onClick={() => selectCategory('')} aria-label={t('Close entries')}>
+          <span title={tokenTitle(selected)}>
+            {t('{{count}} items', { count: selected.count })} · ≈{selected.tokens.toLocaleString()}
+          </span>
+          <button
+            type="button"
+            className="context-detail-icon"
+            onClick={() => selectCategory('')}
+            aria-label={t('Close entries')}
+          >
             <X size={16} />
           </button>
         </header>
@@ -292,8 +347,12 @@ export function ContextInspector({ inspection, windowTokens, request }: {
                 const total = rows.reduce((sum, item) => sum + item.tokens, 0);
                 return (
                   <div className="context-entry-group" key={key} data-open={open ? 'true' : undefined}>
-                    <button type="button" className="context-entry-group-head" aria-expanded={open}
-                      onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}>
+                    <button
+                      type="button"
+                      className="context-entry-group-head"
+                      aria-expanded={open}
+                      onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
+                    >
                       <ChevronRight size={14} aria-hidden="true" />
                       <span>{groupLabel(key)}</span>
                       <small>{t('{{count}} items', { count: rows.length })}</small>
@@ -315,40 +374,63 @@ export function ContextInspector({ inspection, windowTokens, request }: {
         {/* The map is one image for assistive tech — the per-block hover copy is
             a pointer affordance, so the native title is gone (it would double
             up with the bubble) and the note rides the label. */}
-        <div className="context-block-map" role="img" aria-label={`${t('Estimated context composition')}. ${mapNote}`}
+        <div
+          className="context-block-map"
+          role="img"
+          aria-label={`${t('Estimated context composition')}. ${mapNote}`}
           data-hover={hovered ? 'true' : undefined}
           onPointerOver={(event) => trackBubble(event.currentTarget, event.target)}
-          onPointerLeave={() => { setHovered(''); setBubble(null); }}
+          onPointerLeave={() => {
+            setHovered('');
+            setBubble(null);
+          }}
           onClick={(event) => {
             const key = cellKey(event.target);
             if (key && key !== 'free') selectCategory(key);
-          }}>
+          }}
+        >
           {map.cells.map((key: string, index: number) => (
-            <i key={index} data-context-key={key}
-              data-muted={hovered && hovered !== key ? 'true' : undefined} />
+            <i key={index} data-context-key={key} data-muted={hovered && hovered !== key ? 'true' : undefined} />
           ))}
           {bubble ? (
-            <span className="context-block-bubble" aria-hidden="true" data-flip={bubble.flip ? 'true' : undefined}
-              style={{ left: `${bubble.x}px`, top: `${bubble.y}px` }}>{bubble.text}</span>
+            <span
+              className="context-block-bubble"
+              aria-hidden="true"
+              data-flip={bubble.flip ? 'true' : undefined}
+              style={{ left: `${bubble.x}px`, top: `${bubble.y}px` }}
+            >
+              {bubble.text}
+            </span>
           ) : null}
         </div>
         <div className="context-mix-list">
           {rankedCategories.map((row) => (
-            <button type="button" className="context-mix-row" key={row.key} data-context-key={row.key}
+            <button
+              type="button"
+              className="context-mix-row"
+              key={row.key}
+              data-context-key={row.key}
               data-empty={row.tokens > 0 ? undefined : 'true'}
               data-hot={hovered === row.key ? 'true' : undefined}
-              aria-pressed={category === row.key} onClick={() => selectCategory(row.key)}
-              aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${row.tokens.toLocaleString()}`}>
+              aria-pressed={category === row.key}
+              onClick={() => selectCategory(row.key)}
+              aria-label={`${t(row.label)} · ${t('{{count}} items', { count: row.count })} · ≈${row.tokens.toLocaleString()}`}
+            >
               <i aria-hidden="true" />
-              <span>{t(row.label)}<small>{t('{{count}} items', { count: row.count })}</small></span>
+              <span>
+                {t(row.label)}
+                <small>{t('{{count}} items', { count: row.count })}</small>
+              </span>
               <em>{percentLabel(row.tokens)}</em>
               <strong title={tokenTitle(row)}>≈{row.tokens.toLocaleString()}</strong>
             </button>
           ))}
           <div className="context-mix-remainder">
             <div className="context-mix-row" data-context-key="free" data-hot={hovered === 'free' ? 'true' : undefined}>
-              <i aria-hidden="true" /><span>{t('Free space')}</span>
-              <em>{percentLabel(freeTokens)}</em><strong>≈{freeTokens.toLocaleString()}</strong>
+              <i aria-hidden="true" />
+              <span>{t('Free space')}</span>
+              <em>{percentLabel(freeTokens)}</em>
+              <strong>≈{freeTokens.toLocaleString()}</strong>
             </div>
           </div>
         </div>

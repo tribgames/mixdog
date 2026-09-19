@@ -1487,12 +1487,15 @@ function ruledList(slide, x, y, w, label, items, { labelW = 2.6, size = TYPE.lea
 // each column, widths by weight. cols: [{ title, text | items, weight? }]. Returns the bottom edge.
 // columnsH: the height a columns() row takes at these options, measured before the page is shared out (shareDown
 // gives the stage above it what the row leaves). columns() measures with the same function, so the two agree.
+// A column's prose is `text`; `body` is the same line under another name (the template fill and the page plans call
+// it that), so a column written either way draws the same and neither spelling is dropped in silence.
+const columnProse = (c) => c.text ?? c.body ?? '';
 const columnHeights = (track, cols, { size, lh, ruled }) => cols.map((c, i) => {
   const col = track[i];
   let h = ruled ? GAP.within : 0;
   if (c.title) h += fitH(wrapKo(c.title, col.w, TYPE.lead, T.display, true), col.w, TYPE.lead, T.display, { bold: true, lh: 1.2 }) + GAP.within;
   if (c.items) h += fitH(c.items.map((t) => wrapKo(t, col.w, size, T.light)).join('\n'), col.w, size, T.light, { lh });
-  else if (c.text) h += fitH(wrapKo(c.text, col.w, size, T.light), col.w, size, T.light, { lh: 1.45 });
+  else if (columnProse(c)) h += fitH(wrapKo(columnProse(c), col.w, size, T.light), col.w, size, T.light, { lh: 1.45 });
   return h;
 });
 function columnsH(x, w, cols, { gap = GUTTER, size = TYPE.body, lh = 1.5, ruled = true } = {}) {
@@ -1506,7 +1509,7 @@ function columns(slide, x, y, w, cols, { gap = GUTTER, size = TYPE.body, lh = 1.
   const tallest = Math.max(...measured), over = y + tallest - limit;
   if (over > 0.07) {
     const which = measured.indexOf(tallest);
-    throw new Error(`columns: column ${which + 1} ("${String(cols[which].title || cols[which].text || '').slice(0, 24)}") at (${x.toFixed(2)}, ${y.toFixed(2)}) needs ${over.toFixed(2)} in more than the ${(limit - y).toFixed(2)} in left above the foot at ${size} pt — shorten the copy, drop a column's lines, or start the row higher (avail(top) says how much there is)`);
+    throw new Error(`columns: column ${which + 1} ("${String(cols[which].title || columnProse(cols[which]) || '').slice(0, 24)}") at (${x.toFixed(2)}, ${y.toFixed(2)}) needs ${over.toFixed(2)} in more than the ${(limit - y).toFixed(2)} in left above the foot at ${size} pt — shorten the copy, drop a column's lines, or start the row higher (avail(top) says how much there is)`);
   }
   // The rule over the row is dropped when the row starts directly under the head's title (within 0.6 in of the head
   // zone's bottom and no sub line between): there it reads as the title's underline, which the design review names
@@ -1523,7 +1526,7 @@ function columns(slide, x, y, w, cols, { gap = GUTTER, size = TYPE.body, lh = 1.
       const wrapped = c.items.map((t) => wrapKo(t, col.w, size, T.light)).join('\n'), h = fitH(wrapped, col.w, size, T.light, { lh });
       slide.addText(runsOf(wrapped), { ...box(col.x, cy, col.w, h), fontFace: T.light, fontSize: size, color: T.body, valign: 'top', margin: 0, lineSpacingMultiple: lh });
       cy += h;
-    } else if (c.text) cy = text(slide, c.text, col.x, cy, col.w, size, { color: T.body, lh: 1.45 });
+    } else if (columnProse(c)) cy = text(slide, columnProse(c), col.x, cy, col.w, size, { color: T.body, lh: 1.45 });
     bottom = Math.max(bottom, cy);
   });
   return bottom;

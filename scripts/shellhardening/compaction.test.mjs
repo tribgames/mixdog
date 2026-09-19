@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderShellOutputBody } from '../../src/runtime/agent/orchestrator/tools/builtin/shell-lossless-compact.mjs';
 import {
-  path,
   createHash,
   mkdtempSync,
   rmSync,

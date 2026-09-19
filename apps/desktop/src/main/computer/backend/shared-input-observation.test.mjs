@@ -18,15 +18,18 @@ test('one-shot senders retain the original observer across processes and reject 
   try {
     // Real Windows message queues and shared receipts, but no OS input hooks.
     let source = await readFile(new URL('./sources/InputObservation.cs', import.meta.url), 'utf8');
+    const hookDeclaration =
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll", SetLastError = true\)\]\s+static extern System\.IntPtr SetWindowsHookEx\(int kind, Hook callback, System\.IntPtr module, uint thread\);/;
+    const unhookDeclaration =
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\]\s+static extern bool UnhookWindowsHookEx\(System\.IntPtr hook\);/;
+    assert.match(source, hookDeclaration, 'The fixture must replace the native hook installer before compiling');
+    assert.match(source, unhookDeclaration, 'The fixture must replace native hook cleanup before compiling');
     source = source
       .replace(
-        '[System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]\n  static extern System.IntPtr SetWindowsHookEx(int kind, Hook callback, System.IntPtr module, uint thread);',
+        hookDeclaration,
         'static System.IntPtr SetWindowsHookEx(int kind, Hook callback, System.IntPtr module, uint thread) { return new System.IntPtr(1); }'
       )
-      .replace(
-        '[System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool UnhookWindowsHookEx(System.IntPtr hook);',
-        'static bool UnhookWindowsHookEx(System.IntPtr hook) { return true; }'
-      );
+      .replace(unhookDeclaration, 'static bool UnhookWindowsHookEx(System.IntPtr hook) { return true; }');
     await writeFile(
       join(directory, 'observer.cs'),
       source +

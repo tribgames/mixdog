@@ -665,9 +665,7 @@ export async function runHeadlessExec({
         // exit for the default ≈128s retry budget; 10 linear retries ≈ 5.5s,
         // and the periodic orphan sweep reclaims whatever is left.
         const cleanupResult = boundary?.cleanup(
-          resourceCleanupFailed
-            ? { preserveRoot: true }
-            : { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 }
+          resourceCleanupFailed ? { preserveRoot: true } : { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 }
         );
         if (cleanupResult?.rootRemovalError) {
           writeErr(

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { access, readdir, readFile, rm } from 'node:fs/promises';
+import { access, readdir, rm } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -43,25 +43,6 @@ async function removeChildrenExcept(directory, keep) {
         })
       )
   );
-}
-
-async function packageName(directory) {
-  try {
-    return JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')).name;
-  } catch {
-    return '';
-  }
-}
-
-async function findPackageRoot(entry, expectedName) {
-  let current = dirname(entry);
-  for (;;) {
-    if ((await packageName(current)) === expectedName) return current;
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
-  }
-  throw new Error(`Unable to locate ${expectedName} from ${entry}`);
 }
 
 export function embeddingRuntimeTarget(options = {}) {

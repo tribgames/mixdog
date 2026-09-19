@@ -616,12 +616,7 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
       `apply_patch: V4A rename source unreadable: ${displaySrc} (${err?.code || err?.message || String(err)})`
     );
   }
-  let updatedLines;
-  try {
-    updatedLines = applyV4AHunksToLines(sourceLines, section.hunks, options);
-  } catch (err) {
-    throw err;
-  }
+  const updatedLines = applyV4AHunksToLines(sourceLines, section.hunks, options);
   const newContent = encodePatchTargetContent(joinTextLinesForPatch(updatedLines), sourceLines.encoding);
   if (options.dryRun) {
     return {

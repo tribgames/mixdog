@@ -111,19 +111,39 @@ test('deck review reports a slide that projects a wall of prose', () => {
     slides: [
       {
         index: 1,
-        shapes: [{ index: 1, type: 'p:sp', left: 50, top: 40, width: 860, height: 60, text: '운영 보고', font: { size: 30 } }],
+        shapes: [
+          { index: 1, type: 'p:sp', left: 50, top: 40, width: 860, height: 60, text: '운영 보고', font: { size: 30 } },
+        ],
       },
       {
         index: 2,
         shapes: [
-          { index: 1, type: 'p:sp', left: 50, top: 36, width: 860, height: 50, text: '지난 분기 요약', font: { size: 28 } },
+          {
+            index: 1,
+            type: 'p:sp',
+            left: 50,
+            top: 36,
+            width: 860,
+            height: 50,
+            text: '지난 분기 요약',
+            font: { size: 28 },
+          },
           { index: 2, type: 'p:sp', left: 50, top: 110, width: 860, height: 360, text: prose, font: { size: 12 } },
         ],
       },
       {
         index: 3,
         shapes: [
-          { index: 1, type: 'p:sp', left: 50, top: 36, width: 860, height: 50, text: '표로 본 분기', font: { size: 28 } },
+          {
+            index: 1,
+            type: 'p:sp',
+            left: 50,
+            top: 36,
+            width: 860,
+            height: 50,
+            text: '표로 본 분기',
+            font: { size: 28 },
+          },
           {
             index: 2,
             type: 'p:graphicFrame',

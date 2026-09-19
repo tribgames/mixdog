@@ -39,26 +39,32 @@ export default function SharedEditorSurface({
     const host = container.current;
     if (!modelRef.current) {
       const uri = monaco.Uri.parse(path);
-      modelRef.current = monaco.editor.getModel(uri) ??
+      modelRef.current =
+        monaco.editor.getModel(uri) ??
         monaco.editor.createModel(latest.current.defaultValue, latest.current.defaultLanguage, uri);
       let owners = modelOwners.get(modelRef.current);
-      if (!owners) modelOwners.set(modelRef.current, owners = new Set());
+      if (!owners) modelOwners.set(modelRef.current, (owners = new Set()));
       owners.add(owner.current);
     }
-    const surface = surfaces.acquire(surfaceKey, owner.current, () => {
-      const element = document.createElement('div');
-      element.style.width = '100%';
-      element.style.height = '100%';
-      host.appendChild(element);
-      const editor = monaco.editor.create(element, { ...latest.current.options, model: null });
-      return { element, editor };
-    }, () => {
-      const editor = editorRef.current;
-      if (!editor) return;
-      latest.current.onRelease(editor);
-      editor.setModel(null);
-      editorRef.current = null;
-    });
+    const surface = surfaces.acquire(
+      surfaceKey,
+      owner.current,
+      () => {
+        const element = document.createElement('div');
+        element.style.width = '100%';
+        element.style.height = '100%';
+        host.appendChild(element);
+        const editor = monaco.editor.create(element, { ...latest.current.options, model: null });
+        return { element, editor };
+      },
+      () => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        latest.current.onRelease(editor);
+        editor.setModel(null);
+        editorRef.current = null;
+      }
+    );
     host.appendChild(surface.element);
     editorRef.current = surface.editor;
     surface.editor.updateOptions(latest.current.options);
@@ -73,17 +79,20 @@ export default function SharedEditorSurface({
     editorRef.current?.updateOptions(options);
   }, [active, options, theme]);
 
-  useEffect(() => () => {
-    const model = modelRef.current;
-    if (!model) return;
-    const owners = modelOwners.get(model);
-    owners?.delete(owner.current);
-    if (!owners?.size) {
-      modelOwners.delete(model);
-      model.dispose();
-    }
-    modelRef.current = null;
-  }, [modelRef]);
+  useEffect(
+    () => () => {
+      const model = modelRef.current;
+      if (!model) return;
+      const owners = modelOwners.get(model);
+      owners?.delete(owner.current);
+      if (!owners?.size) {
+        modelOwners.delete(model);
+        model.dispose();
+      }
+      modelRef.current = null;
+    },
+    [modelRef]
+  );
 
   return <div ref={container} style={{ width: '100%', height: '100%' }} />;
 }

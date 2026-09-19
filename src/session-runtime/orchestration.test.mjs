@@ -16,14 +16,20 @@ function fixture(t) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-orchestration-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const helpers = createWorkflowHelpers({
-    rootDir: join(process.cwd(), 'src'), dataDir, readMarkdownDocument, normalizeAgentPermissionOrNone,
+    rootDir: join(process.cwd(), 'src'),
+    dataDir,
+    readMarkdownDocument,
+    normalizeAgentPermissionOrNone,
   });
   return { dataDir, helpers };
 }
 
 test('all modes share Default while only active modes inject instructions and agents', (t) => {
   const { dataDir, helpers } = fixture(t);
-  assert.deepEqual(helpers.listWorkflowPacks(dataDir).map((pack) => pack.id), ['default']);
+  assert.deepEqual(
+    helpers.listWorkflowPacks(dataDir).map((pack) => pack.id),
+    ['default']
+  );
   const body = helpers.loadWorkflowPack(dataDir, 'default').body;
   assert.doesNotMatch(body, /Delegate maximally|Dispatch all ready/);
   assert.match(body, /user approves the latest plan/);
@@ -55,7 +61,10 @@ test('workflow frontmatter no longer controls delegation; agent availability rem
   const { dataDir, helpers } = fixture(t);
   const dir = join(dataDir, 'workflows', 'custom');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'WORKFLOW.md'), '---\nid: custom\nname: Custom\ndelegation: none\n---\nCustom approval rule.');
+  writeFileSync(
+    join(dir, 'WORKFLOW.md'),
+    '---\nid: custom\nname: Custom\ndelegation: none\n---\nCustom approval rule.'
+  );
   const config = { workflow: { active: 'custom' }, orchestrationMode: 'balanced' };
   const active = helpers.activeWorkflowContext(config, dataDir);
   assert.equal(active.summary.delegatesAgents, true);
@@ -72,10 +81,18 @@ test('mode API validates, persists, and refreshes without changing the workflow 
   let config = { workflow: { active: 'default' }, orchestrationMode: 'none', agents: { worker: { model: 'test' } } };
   let refreshes = 0;
   const api = createWorkflowAgentsApi({
-    ...helpers, getConfig: () => config, displayConfig: () => config,
-    cfgMod: { getPluginData: () => dataDir }, STANDALONE_DATA_DIR: dataDir,
-    saveConfigAndAdopt: (value) => { config = value; },
-    refreshEmptySessionToolPolicy: async () => { refreshes++; return { appliedToCurrentSession: true }; },
+    ...helpers,
+    getConfig: () => config,
+    displayConfig: () => config,
+    cfgMod: { getPluginData: () => dataDir },
+    STANDALONE_DATA_DIR: dataDir,
+    saveConfigAndAdopt: (value) => {
+      config = value;
+    },
+    refreshEmptySessionToolPolicy: async () => {
+      refreshes++;
+      return { appliedToCurrentSession: true };
+    },
     invalidateContextStatusCache() {},
   });
   for (const mode of ORCHESTRATION_MODES) {
@@ -88,7 +105,13 @@ test('mode API validates, persists, and refreshes without changing the workflow 
   assert.equal(refreshes, 4);
   await assert.rejects(api.setOrchestrationMode('invalid'), /orchestration mode must be one of/);
   assert.equal(api.getOrchestrationMode(), 'swarm');
-  await api.saveWorkflowPack({ id: 'custom', name: 'Custom', body: 'Approval rule.', delegation: 'none', agents: 'worker' });
+  await api.saveWorkflowPack({
+    id: 'custom',
+    name: 'Custom',
+    body: 'Approval rule.',
+    delegation: 'none',
+    agents: 'worker',
+  });
   const saved = readFileSync(join(dataDir, 'workflows', 'custom', 'WORKFLOW.md'), 'utf8');
   assert.doesNotMatch(saved, /delegation:|agents:/);
   assert.equal(Object.hasOwn(api.getWorkflowPack('custom'), 'delegatesAgents'), false);
@@ -99,31 +122,48 @@ test('mode changes refresh an empty session, remove stale tools, and survive ses
   const { dataDir, helpers } = fixture(t);
   let config = { workflow: { active: 'default' }, orchestrationMode: 'none' };
   const session = {
-    id: 'orchestration-test', workflow: { id: 'default', delegatesAgents: false }, orchestrationMode: 'none',
+    id: 'orchestration-test',
+    workflow: { id: 'default', delegatesAgents: false },
+    orchestrationMode: 'none',
     messages: [
       { role: 'system', content: '# Tool Use\nRules' },
       { role: 'system', content: '# Active Workflow: Default', cacheTier: 'tier3' },
     ],
-    tools: [{ name: 'read' }], deferredToolCatalog: [],
+    tools: [{ name: 'read' }],
+    deferredToolCatalog: [],
   };
   const tools = [{ name: 'read' }, { name: 'agent' }];
   const surface = createToolSurface({
-    mgr: { previewSessionTools: () => tools }, mode: 'full', standaloneTools: tools,
-    agentToolNames: new Set(['agent']), getSession: () => session, getRoute: () => ({ provider: 'openai-oauth' }),
-    getConfig: () => config, cfgMod: { getPluginData: () => dataDir }, dataDir,
+    mgr: { previewSessionTools: () => tools },
+    mode: 'full',
+    standaloneTools: tools,
+    agentToolNames: new Set(['agent']),
+    getSession: () => session,
+    getRoute: () => ({ provider: 'openai-oauth' }),
+    getConfig: () => config,
+    cfgMod: { getPluginData: () => dataDir },
+    dataDir,
     delegatableAgentIds: helpers.delegatableAgentIds,
   });
   const refresh = createToolPolicyRefresh({
-    getSession: () => session, getRoute: () => ({ provider: 'openai-oauth' }), getMode: () => 'full',
-    getConfig: () => config, getDataDir: () => dataDir, modelStandaloneTools: surface.modelStandaloneTools,
-    featureDisallowedTools: () => [], memoryToolsEnabled: () => false,
+    getSession: () => session,
+    getRoute: () => ({ provider: 'openai-oauth' }),
+    getMode: () => 'full',
+    getConfig: () => config,
+    getDataDir: () => dataDir,
+    modelStandaloneTools: surface.modelStandaloneTools,
+    featureDisallowedTools: () => [],
+    memoryToolsEnabled: () => false,
     activeWorkflowContext: helpers.activeWorkflowContext,
   });
   for (const mode of ['focused', 'balanced', 'swarm', 'none']) {
     config = { ...config, orchestrationMode: mode };
     await refresh.refreshEmptySessionToolPolicy();
     assert.equal(session.orchestrationMode, mode);
-    assert.equal(surface.modelStandaloneTools().some((tool) => tool.name === 'agent'), mode !== 'none');
+    assert.equal(
+      surface.modelStandaloneTools().some((tool) => tool.name === 'agent'),
+      mode !== 'none'
+    );
     assert.equal(session.messages[1].content.includes('# Orchestration Mode:'), mode !== 'none');
     assert.equal(_sessionForDisk(session).orchestrationMode, mode);
   }

@@ -15,7 +15,6 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-
 SNAPSHOT_ENV = "MIXDOG_TB_SRC_SNAPSHOT"
 ARCHIVE_ROOT = "src"
 NATIVE_ROOT = "native-tools"
@@ -34,10 +33,10 @@ def spawn_capability_shell(binary_expr: str) -> str:
     """POSIX probe that the native spawn binary exposes the required caps."""
     caps = " ".join(REQUIRED_SPAWN_CAPS)
     return (
-        f'READY="$(printf \'\' | {binary_expr})"; '
+        f"READY=\"$(printf '' | {binary_expr})\"; "
         "printf '%s\\n' \"$READY\" | grep -q '\"ready\":true'; "
         f"for cap in {caps}; do "
-        "printf '%s\\n' \"$READY\" | grep -q \"\\\"$cap\\\":true\"; "
+        'printf \'%s\\n\' "$READY" | grep -q "\\"$cap\\":true"; '
         "done"
     )
 
@@ -104,7 +103,9 @@ def _native_source_digest(source_root: Path) -> str:
         try:
             info = os.lstat(source)
         except OSError as exc:
-            raise SrcOverlayError(f"cannot inspect native source {source}: {exc}") from exc
+            raise SrcOverlayError(
+                f"cannot inspect native source {source}: {exc}"
+            ) from exc
         if stat.S_ISLNK(info.st_mode):
             raise SrcOverlayError(f"refusing symlink in native source: {source}")
         if stat.S_ISDIR(info.st_mode):
@@ -127,7 +128,10 @@ def _docker_mount(path: Path) -> str:
 
 
 def _run_docker(
-    arguments: list[str], label: str, *, input_text: str | None = None,
+    arguments: list[str],
+    label: str,
+    *,
+    input_text: str | None = None,
     timeout: int | None = None,
 ) -> str:
     try:
@@ -204,8 +208,9 @@ def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
             "CARGO_TARGET_DIR=/tmp/target cargo build --locked --release "
             "--manifest-path /src/Cargo.toml; "
             "BINARY=/tmp/target/release/mixdog-spawn; "
-            + spawn_capability_shell('"$BINARY"') + "; " +
-            "install -m 0755 \"$BINARY\" /out/mixdog-spawn-linux-x64"
+            + spawn_capability_shell('"$BINARY"')
+            + "; "
+            + 'install -m 0755 "$BINARY" /out/mixdog-spawn-linux-x64'
         )
         _run_docker(
             [
@@ -252,7 +257,9 @@ def build_local_spawn(repo_root: Path, build_dir: Path) -> Path:
 def _graph_capability_probe(binary_path: Path) -> None:
     """Exercise binary-text opt-in on the exact Linux executable to be bundled."""
     if not binary_path.is_file() or binary_path.is_symlink():
-        raise SrcOverlayError(f"selected graph binary is not a regular file: {binary_path}")
+        raise SrcOverlayError(
+            f"selected graph binary is not a regular file: {binary_path}"
+        )
     with tempfile.TemporaryDirectory(prefix="mixdog-graph-probe-") as raw:
         fixture = Path(raw)
         (fixture / "input.bin").write_bytes(b"\0needle\n")
@@ -261,8 +268,13 @@ def _graph_capability_probe(binary_path: Path) -> None:
                 "id": index,
                 "cwd": "/fixture",
                 "args": [
-                    "--no-ignore", *flags, "-l", "-e", "needle",
-                    "--", "/fixture/input.bin",
+                    "--no-ignore",
+                    *flags,
+                    "-l",
+                    "-e",
+                    "needle",
+                    "--",
+                    "/fixture/input.bin",
                 ],
                 "offset": 0,
                 "limit": 0,
@@ -271,10 +283,18 @@ def _graph_capability_probe(binary_path: Path) -> None:
         ]
         output = _run_docker(
             [
-                "run", "--rm", "-i", "--platform", "linux/amd64",
-                "-v", f"{_docker_mount(binary_path)}:/runtime/graph:ro",
-                "-v", f"{_docker_mount(fixture)}:/fixture:ro",
-                GRAPH_PROBE_IMAGE, "sh", "-c",
+                "run",
+                "--rm",
+                "-i",
+                "--platform",
+                "linux/amd64",
+                "-v",
+                f"{_docker_mount(binary_path)}:/runtime/graph:ro",
+                "-v",
+                f"{_docker_mount(fixture)}:/fixture:ro",
+                GRAPH_PROBE_IMAGE,
+                "sh",
+                "-c",
                 "set -eu; cp /runtime/graph /tmp/mixdog-graph; "
                 "chmod 0755 /tmp/mixdog-graph; "
                 "exec /tmp/mixdog-graph /fixture --serve-search",
@@ -291,15 +311,21 @@ def _graph_capability_probe(binary_path: Path) -> None:
         matched = [str(line).rsplit("/", 1)[-1] for line in text_result["lines"]]
         valid = (
             any(row.get("ready") is True for row in messages)
-            and not text_result.get("error") and not binary_result.get("error")
+            and not text_result.get("error")
+            and not binary_result.get("error")
             and text_result.get("complete") is True
             and binary_result.get("complete") is True
-            and matched == ["input.bin"] and binary_result["lines"] == []
+            and matched == ["input.bin"]
+            and binary_result["lines"] == []
         )
     except (ValueError, KeyError, TypeError) as exc:
-        raise SrcOverlayError(f"native graph preflight returned invalid protocol: {output[-2000:]}") from exc
+        raise SrcOverlayError(
+            f"native graph preflight returned invalid protocol: {output[-2000:]}"
+        ) from exc
     if not valid:
-        raise SrcOverlayError(f"native graph does not honor binary-text opt-in: {output[-2000:]}")
+        raise SrcOverlayError(
+            f"native graph does not honor binary-text opt-in: {output[-2000:]}"
+        )
 
 
 def build_local_graph(repo_root: Path, build_dir: Path) -> Path:
@@ -327,10 +353,17 @@ def build_local_graph(repo_root: Path, build_dir: Path) -> Path:
         temporary = Path(raw)
         _run_docker(
             [
-                "run", "--rm", "--platform", "linux/amd64",
-                "-v", f"{_docker_mount(graph_source)}:/src:ro",
-                "-v", f"{_docker_mount(temporary)}:/out",
-                GRAPH_BUILD_IMAGE, "sh", "-c",
+                "run",
+                "--rm",
+                "--platform",
+                "linux/amd64",
+                "-v",
+                f"{_docker_mount(graph_source)}:/src:ro",
+                "-v",
+                f"{_docker_mount(temporary)}:/out",
+                GRAPH_BUILD_IMAGE,
+                "sh",
+                "-c",
                 "set -eu; apk add --no-cache build-base >/dev/null; "
                 "PCRE2_SYS_STATIC=1 CARGO_TARGET_DIR=/tmp/target "
                 "cargo build --locked --release --manifest-path /src/Cargo.toml; "
@@ -345,12 +378,16 @@ def build_local_graph(repo_root: Path, build_dir: Path) -> Path:
         candidate.replace(binary_path)
         manifest_temp = temporary / "manifest.json"
         manifest_temp.write_text(
-            json.dumps({
-                "schemaVersion": 1,
-                "sourceSha256": source_digest,
-                "binarySha256": binary_digest,
-                "buildImage": GRAPH_BUILD_IMAGE,
-            }, indent=2) + "\n",
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "sourceSha256": source_digest,
+                    "binarySha256": binary_digest,
+                    "buildImage": GRAPH_BUILD_IMAGE,
+                },
+                indent=2,
+            )
+            + "\n",
             encoding="utf-8",
         )
         manifest_temp.replace(manifest_path)
@@ -432,7 +469,9 @@ def _collect_source_entries(
     try:
         root_info = os.lstat(repo_src)
     except OSError as exc:
-        raise SrcOverlayError(f"cannot inspect repository src root {repo_src}: {exc}") from exc
+        raise SrcOverlayError(
+            f"cannot inspect repository src root {repo_src}: {exc}"
+        ) from exc
     if stat.S_ISLNK(root_info.st_mode):
         raise SrcOverlayError(f"repository src root is a symlink: {repo_src}")
     if not stat.S_ISDIR(root_info.st_mode):
@@ -455,7 +494,9 @@ def _collect_source_entries(
                 key=lambda item: _path_order(item.name),
             )
         except OSError as exc:
-            raise SrcOverlayError(f"cannot enumerate local src directory {directory}: {exc}") from exc
+            raise SrcOverlayError(
+                f"cannot enumerate local src directory {directory}: {exc}"
+            ) from exc
         for child in children:
             _validate_component(child.name)
             parts = (*relative_parts, child.name)
@@ -468,7 +509,9 @@ def _collect_source_entries(
                     raise SrcOverlayError(f"refusing symlink in local src: {source}")
                 info = child.stat(follow_symlinks=False)
             except OSError as exc:
-                raise SrcOverlayError(f"cannot inspect local src entry {source}: {exc}") from exc
+                raise SrcOverlayError(
+                    f"cannot inspect local src entry {source}: {exc}"
+                ) from exc
             if stat.S_ISLNK(info.st_mode):
                 raise SrcOverlayError(f"refusing symlink in local src: {source}")
             if stat.S_ISDIR(info.st_mode):
@@ -526,15 +569,22 @@ def _tar_info(entry: _SourceEntry) -> tarfile.TarInfo:
 
 
 def build_src_snapshot(
-    repo_src: Path, output_path: Path, spawn_binary: Path, graph_binary: Path | None = None
+    repo_src: Path,
+    output_path: Path,
+    spawn_binary: Path,
+    graph_binary: Path | None = None,
 ) -> SrcSnapshot:
     """Capture source and the selected native runtime binaries."""
     try:
         spawn_info = os.lstat(spawn_binary)
     except OSError as exc:
-        raise SrcOverlayError(f"cannot inspect local native spawn binary: {exc}") from exc
+        raise SrcOverlayError(
+            f"cannot inspect local native spawn binary: {exc}"
+        ) from exc
     if stat.S_ISLNK(spawn_info.st_mode) or not stat.S_ISREG(spawn_info.st_mode):
-        raise SrcOverlayError(f"local native spawn binary is not a regular file: {spawn_binary}")
+        raise SrcOverlayError(
+            f"local native spawn binary is not a regular file: {spawn_binary}"
+        )
     if spawn_info.st_size == 0:
         raise SrcOverlayError(f"local native spawn binary is empty: {spawn_binary}")
     entries = (
@@ -546,37 +596,48 @@ def build_src_snapshot(
         try:
             graph_info = os.lstat(graph_binary)
         except OSError as exc:
-            raise SrcOverlayError(f"cannot inspect selected graph binary: {exc}") from exc
+            raise SrcOverlayError(
+                f"cannot inspect selected graph binary: {exc}"
+            ) from exc
         if not stat.S_ISREG(graph_info.st_mode) or graph_info.st_size == 0:
-            raise SrcOverlayError("selected graph binary must be a nonempty regular file")
+            raise SrcOverlayError(
+                "selected graph binary must be a nonempty regular file"
+            )
         if any(entry.archive_name == GRAPH_MEMBER for entry in entries):
-            raise SrcOverlayError(f"selected graph binary conflicts with source member: {GRAPH_MEMBER}")
-        entries = (*entries, _SourceEntry(graph_binary, GRAPH_MEMBER, 0o755, graph_info.st_size, False))
+            raise SrcOverlayError(
+                f"selected graph binary conflicts with source member: {GRAPH_MEMBER}"
+            )
+        entries = (
+            *entries,
+            _SourceEntry(graph_binary, GRAPH_MEMBER, 0o755, graph_info.st_size, False),
+        )
     files: list[dict[str, object]] = []
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("xb") as output:
-            with tarfile.open(
+        with (
+            output_path.open("xb") as output,
+            tarfile.open(
                 fileobj=output,
                 mode="w",
                 format=tarfile.PAX_FORMAT,
-            ) as archive:
-                for entry in entries:
-                    info = _tar_info(entry)
-                    if entry.is_directory:
-                        archive.addfile(info)
-                    else:
-                        with entry.source.open("rb") as source:
-                            reader = _DigestReader(source)
-                            archive.addfile(info, reader)
-                        files.append(
-                            {
-                                "path": entry.archive_name,
-                                "sha256": reader.digest.hexdigest(),
-                                "size": entry.size,
-                                "mode": format(entry.mode, "04o"),
-                            }
-                        )
+            ) as archive,
+        ):
+            for entry in entries:
+                info = _tar_info(entry)
+                if entry.is_directory:
+                    archive.addfile(info)
+                else:
+                    with entry.source.open("rb") as source:
+                        reader = _DigestReader(source)
+                        archive.addfile(info, reader)
+                    files.append(
+                        {
+                            "path": entry.archive_name,
+                            "sha256": reader.digest.hexdigest(),
+                            "size": entry.size,
+                            "mode": format(entry.mode, "04o"),
+                        }
+                    )
         output_path.chmod(stat.S_IREAD)
         return SrcSnapshot(
             output_path,
@@ -616,7 +677,9 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
     try:
         archive_info = os.lstat(archive_path)
     except OSError as exc:
-        raise SrcOverlayError(f"cannot inspect src snapshot {archive_path}: {exc}") from exc
+        raise SrcOverlayError(
+            f"cannot inspect src snapshot {archive_path}: {exc}"
+        ) from exc
     if stat.S_ISLNK(archive_info.st_mode) or not stat.S_ISREG(archive_info.st_mode):
         raise SrcOverlayError(f"src snapshot is not a regular archive: {archive_path}")
 
@@ -631,7 +694,9 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
             for member in members:
                 parts = _validate_archive_name(member.name)
                 if member.name in names:
-                    raise SrcOverlayError(f"duplicate src snapshot path: {member.name!r}")
+                    raise SrcOverlayError(
+                        f"duplicate src snapshot path: {member.name!r}"
+                    )
                 names.add(member.name)
                 ordered_names.append(member.name)
                 modes[member.name] = member.mode
@@ -667,7 +732,9 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
                             f"src snapshot parent is missing or not a directory: {parent!r}"
                         )
             if kinds.get(ARCHIVE_ROOT) != "directory":
-                raise SrcOverlayError("src snapshot does not contain a src root directory")
+                raise SrcOverlayError(
+                    "src snapshot does not contain a src root directory"
+                )
             if kinds.get(NATIVE_ROOT) != "directory":
                 raise SrcOverlayError("runtime snapshot does not contain native-tools")
             if kinds.get(SPAWN_MEMBER) != "file" or sizes.get(SPAWN_MEMBER, 0) == 0:
@@ -677,7 +744,9 @@ def load_src_snapshot(archive_path: Path) -> SrcSnapshot:
     except SrcOverlayError:
         raise
     except (OSError, tarfile.TarError, EOFError) as exc:
-        raise SrcOverlayError(f"cannot read src snapshot {archive_path}: {exc}") from exc
+        raise SrcOverlayError(
+            f"cannot read src snapshot {archive_path}: {exc}"
+        ) from exc
     return SrcSnapshot(archive_path, tuple(ordered_names))
 
 
@@ -723,10 +792,14 @@ def main(argv: list[str] | None = None) -> int:
             _graph_capability_probe(graph_binary)
         else:
             graph_binary = build_local_graph(
-                repo_root, Path(__file__).resolve().parents[1] / ".runtime-build" / "graph"
+                repo_root,
+                Path(__file__).resolve().parents[1] / ".runtime-build" / "graph",
             )
         snapshot = build_src_snapshot(
-            repo_src, args.output, spawn_binary, graph_binary,
+            repo_src,
+            args.output,
+            spawn_binary,
+            graph_binary,
         )
         manifest = bundle_manifest(snapshot, _sha256_file(spawn_binary))
         if args.manifest is not None:

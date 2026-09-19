@@ -622,7 +622,7 @@ async function runFuzzyFindPass(args, workDir, options = {}) {
   // machine-wide discovery reaches paths like ~/.mixdog/data/…; callers
   // opt out with hidden:false. .git and other noise dirs are still pruned
   // via DEFAULT_IGNORE_GLOBS below (unless include_noise).
-  const hidden = args.hidden === false ? false : true;
+  const hidden = args.hidden !== false;
   const includeNoise = Boolean(args.include_noise);
   // head_limit:0 means "no cap" per list semantics; default is intentionally
   // compact so ambiguous discovery does not dump a huge candidate list.
@@ -817,7 +817,7 @@ export async function executeFindFilesTool(args, workDir, options = {}) {
       return Date.now() - n * unit;
     }
     const t = Date.parse(v);
-    return isNaN(t) ? null : t;
+    return Number.isNaN(t) ? null : t;
   };
   const after = parseTime(args.modified_after);
   const before = parseTime(args.modified_before);

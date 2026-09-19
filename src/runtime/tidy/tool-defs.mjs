@@ -1,6 +1,6 @@
 import { TOOL_SYNC_EXECUTION_CONTRACT } from '../shared/tool-execution-contract.mjs';
 
-export const TIDY_ACTIONS = Object.freeze(['scan', 'check', 'fix', 'install', 'rules']);
+export const TIDY_ACTIONS = Object.freeze(['scan', 'check', 'fix', 'install', 'rules', 'results']);
 
 export const TOOL_DEFS = [
   {
@@ -9,7 +9,7 @@ export const TOOL_DEFS = [
     description:
       "Clean up code across the languages in this project: detect the languages, resolve each one's formatter/linter engine, run them together with the structural rule packs, and write fixes through the normal edit pipeline. " +
       'fix reports what would change and writes only with apply:true; missing managed engines download automatically unless tidy.downloads is ask, in which case the user approves them. ' +
-      'Engine and rule work belongs here, not in shell. ' +
+      'results pages the last check/fix without re-running engines. Engine and rule work belongs here, not in shell. ' +
       TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',
@@ -18,12 +18,13 @@ export const TOOL_DEFS = [
           type: 'string',
           enum: TIDY_ACTIONS,
           description:
-            'scan: languages, resolved/missing engines and download policy; check: run engines and rules read-only; fix: the change plan (dry run unless apply); install: download missing managed engines; rules: list structural rule packs.',
+            'scan: languages, resolved/missing engines and download policy; check: run engines and rules read-only; fix: the change plan (dry run unless apply); install: download missing managed engines; rules: list structural rule packs; results: page last check/fix diagnostics (offset/limit, no re-run).',
         },
         paths: {
           type: 'array',
           items: { type: 'string' },
-          description: 'Project-relative files or directories to limit the run to; omitted = every tracked file.',
+          description:
+            'Project-relative files or directories to limit the run to; omitted = every git-tracked file (ls-files --cached). Untracked files are not scanned.',
         },
         languages: {
           type: 'array',
@@ -47,6 +48,17 @@ export const TOOL_DEFS = [
         structural: {
           type: 'boolean',
           description: 'Run the structural rule packs (default true for check and fix).',
+        },
+        offset: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Skip this many diagnostics/matches; default 0. results pages the last check/fix.',
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 100,
+          description: 'Page size for diagnostics/matches (max 100, default 20). results does not re-run engines.',
         },
       },
       required: ['action'],

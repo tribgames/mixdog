@@ -230,7 +230,14 @@ test('clock times narrow a custom range and rebuild its partial days from retain
   assert.throws(() => clocked('25:00'), /clock time/);
   assert.throws(() => clocked('18:00', '09:00'), /must not follow/);
   assert.throws(
-    () => resolveUsageStatsPeriod({ view: 'custom', startDay: '2026-09-13', endDay: '2026-09-13', startTime: '23:00', now }),
+    () =>
+      resolveUsageStatsPeriod({
+        view: 'custom',
+        startDay: '2026-09-13',
+        endDay: '2026-09-13',
+        startTime: '23:00',
+        now,
+      }),
     /future dates/
   );
 });

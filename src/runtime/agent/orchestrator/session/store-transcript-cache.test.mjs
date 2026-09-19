@@ -155,7 +155,10 @@ for (const field of ['ctimeMs', 'ino', 'dev']) {
 }
 
 test('a recent ctime or incomplete identity cannot use the stat-only fast path', async () => {
-  for (const fileStat of [{ ...stat(1_000, 3), ctimeMs: 9_000 }, { mtimeMs: 1_000, size: 3 }]) {
+  for (const fileStat of [
+    { ...stat(1_000, 3), ctimeMs: 9_000 },
+    { mtimeMs: 1_000, size: 3 },
+  ]) {
     const cache = createStoredTranscriptCache();
     const base = { key: 'identity', fingerprint: 'absent', fileStat, now: 10_000 };
     const produce = (body) => ({ body });

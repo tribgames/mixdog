@@ -585,14 +585,17 @@ export default function EditorPane({
     cancelLayoutFrame(editor);
     if (editorRef.current === editor) editorRef.current = null;
   };
-  useEffect(() => () => {
-    modelChangeListener.current?.dispose();
-    const model = modelRef.current;
-    if (model && graphContextsByModel.get(model.uri.toString()) === graphContextRef) {
-      graphContextsByModel.delete(model.uri.toString());
-    }
-    disposeLsp(model);
-  }, [disposeLsp]);
+  useEffect(
+    () => () => {
+      modelChangeListener.current?.dispose();
+      const model = modelRef.current;
+      if (model && graphContextsByModel.get(model.uri.toString()) === graphContextRef) {
+        graphContextsByModel.delete(model.uri.toString());
+      }
+      disposeLsp(model);
+    },
+    [disposeLsp]
+  );
   const editorBreadcrumbs = (
     <EditorBreadcrumbs
       projectPath={projectPath}
@@ -756,7 +759,10 @@ export default function EditorPane({
             <button
               type="button"
               aria-label={t('Show Problems')}
-              data-tooltip={t('{{errors}} Errors, {{warnings}} Warnings', { errors: problemStatus.errors, warnings: problemStatus.warnings })}
+              data-tooltip={t('{{errors}} Errors, {{warnings}} Warnings', {
+                errors: problemStatus.errors,
+                warnings: problemStatus.warnings,
+              })}
               onClick={showProblems}
             >
               <span aria-hidden="true">×</span> {problemStatus.errors}

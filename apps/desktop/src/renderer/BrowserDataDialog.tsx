@@ -163,8 +163,18 @@ export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
             </button>
           )}
         </header>
-        {scopeRow('cache', t('Cache'), t('Pages reload more slowly once, nothing else changes.'), <HardDrive size={16} />)}
-        {scopeRow('siteData', t('Site data'), t('Local files and databases sites saved on this device.'), <Database size={16} />)}
+        {scopeRow(
+          'cache',
+          t('Cache'),
+          t('Pages reload more slowly once, nothing else changes.'),
+          <HardDrive size={16} />
+        )}
+        {scopeRow(
+          'siteData',
+          t('Site data'),
+          t('Local files and databases sites saved on this device.'),
+          <Database size={16} />
+        )}
         {scopeRow('cookies', t('Cookies'), t('Signs you out of every site in this browser.'), <Cookie size={16} />)}
         {error ? <ErrorNotice error={error} /> : null}
         <footer>
@@ -174,7 +184,12 @@ export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
             </button>
           )}
           {!result && (
-            <button type="button" className="browser-import-primary" disabled={busy || !selected.length} onClick={clear}>
+            <button
+              type="button"
+              className="browser-import-primary"
+              disabled={busy || !selected.length}
+              onClick={clear}
+            >
               {busy ? <LoaderCircle size={16} className="is-spinning" /> : null}
               {t('Clear now')}
             </button>

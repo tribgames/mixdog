@@ -63,7 +63,13 @@ test('a provider without main usage never exposes output or a warmup as measured
 });
 
 test('Cursor checkpoint occupancy measures the gauge without inventing a prompt or cache split', () => {
-  const raw = { inputTokens: null, cachedTokens: null, inputTokensKnown: false, outputTokens: 40, contextTokens: 61_500 };
+  const raw = {
+    inputTokens: null,
+    cachedTokens: null,
+    inputTokensKnown: false,
+    outputTokens: 40,
+    contextTokens: 61_500,
+  };
   const session = { provider: 'cursor-oauth', lastContextTokens: null, lastContextTokensUpdatedAt: 1 };
   applyAskTerminalUsageTotals(session, { usage: normalizeUsage(raw), lastTurnUsage: raw });
   assert.equal(sessionContextMeasurement(session).source, 'last_api_request');

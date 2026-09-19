@@ -282,8 +282,13 @@ fn run() -> Result<(), String> {
             .map_err(|e| format!("read edit payload: {e}"))?;
         let new_bytes = payload.split_off(old_len);
         let old_bytes = payload;
-        let (stats, tier) =
-            apply_invariant_safe_edit_to_path(&path, &old_bytes, &new_bytes, edit_replace_all, dry_run)?;
+        let (stats, tier) = apply_invariant_safe_edit_to_path(
+            &path,
+            &old_bytes,
+            &new_bytes,
+            edit_replace_all,
+            dry_run,
+        )?;
         println!(
             "OK\t{}\t{:.3}\t{:.3}\t{:.3}\t{:.3}\t{}\t{}",
             stats.replacements,
@@ -1142,10 +1147,7 @@ fn rename_atomic_replace_with_retry(
         }
         match rename_atomic_replace(src, dst) {
             Ok(()) => return Ok(()),
-            Err(err)
-                if is_transient_windows_replace_error(&err)
-                    && attempt < BACKOFFS_MS.len() =>
-            {
+            Err(err) if is_transient_windows_replace_error(&err) && attempt < BACKOFFS_MS.len() => {
                 thread::sleep(Duration::from_millis(BACKOFFS_MS[attempt]));
             }
             Err(err) => return Err(err.to_string()),
@@ -1245,7 +1247,11 @@ fn atomic_write_create_new_with(
     write: impl FnOnce(&mut fs::File, &[u8]) -> io::Result<()>,
     remove: impl FnOnce(&Path) -> io::Result<()>,
 ) -> Result<(), String> {
-    let mut file = match fs::OpenOptions::new().write(true).create_new(true).open(path) {
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+    {
         Ok(file) => file,
         Err(err) if err.kind() == io::ErrorKind::AlreadyExists => {
             return Err(format!("create target already exists: {}", path.display()));
@@ -1420,13 +1426,14 @@ fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
                 // (addition of `++ x`) would be mis-read as a new file
                 // header. The native path-escape guard in
                 // `resolve_entry_path` enforces the realpath bound here.
-                if old_remaining == 0 && new_remaining == 0
+                if old_remaining == 0
+                    && new_remaining == 0
                     && (line.starts_with("@@ ")
                         || line.starts_with("--- ")
                         || line.starts_with("+++ "))
-                    {
-                        break;
-                    }
+                {
+                    break;
+                }
                 if line.starts_with('\\') {
                     hunk_lines.push(line.to_string());
                     i += 1;
@@ -1442,29 +1449,23 @@ fn parse_patch(input: &str) -> Result<Vec<Entry>, String> {
                 match tag {
                     b' ' => {
                         if old_remaining == 0 || new_remaining == 0 {
-                            return Err(
-                                "malformed patch: hunk body exceeds declared line counts"
-                                    .to_string(),
-                            );
+                            return Err("malformed patch: hunk body exceeds declared line counts"
+                                .to_string());
                         }
                         old_remaining -= 1;
                         new_remaining -= 1;
                     }
                     b'-' => {
                         if old_remaining == 0 {
-                            return Err(
-                                "malformed patch: hunk body exceeds declared line counts"
-                                    .to_string(),
-                            );
+                            return Err("malformed patch: hunk body exceeds declared line counts"
+                                .to_string());
                         }
                         old_remaining -= 1;
                     }
                     b'+' => {
                         if new_remaining == 0 {
-                            return Err(
-                                "malformed patch: hunk body exceeds declared line counts"
-                                    .to_string(),
-                            );
+                            return Err("malformed patch: hunk body exceeds declared line counts"
+                                .to_string());
                         }
                         new_remaining -= 1;
                     }
@@ -1498,7 +1499,11 @@ fn parse_file_header(line: &str, prefix: &str) -> Result<String, String> {
         .strip_prefix(prefix)
         .ok_or_else(|| format!("bad file header: {line}"))?;
     // split() always yields at least one item, so next() is never None.
-    let path = rest.split('\t').next().expect("split yields at least one item").trim();
+    let path = rest
+        .split('\t')
+        .next()
+        .expect("split yields at least one item")
+        .trim();
     if path.is_empty() {
         return Err(format!("empty file header: {line}"));
     }
@@ -1510,35 +1515,41 @@ fn parse_hunk_header(line: &str) -> Result<(usize, usize, usize), String> {
     if parts.next() != Some("@@") {
         return Err(format!("bad hunk header: {line}"));
     }
-    let old = parts
-        .next()
-        .ok_or_else(|| format!("missing old range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
-    let old = old
-        .strip_prefix('-')
-        .ok_or_else(|| format!("bad old range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let old = parts.next().ok_or_else(|| {
+        format!("missing old range: {line}; use @@ -A,B +C,D @@ for native unified patches")
+    })?;
+    let old = old.strip_prefix('-').ok_or_else(|| {
+        format!("bad old range: {line}; use @@ -A,B +C,D @@ for native unified patches")
+    })?;
     let (old_start_str, old_count_str) = match old.split_once(',') {
         Some((s, c)) => (s, c),
         None => (old, "1"),
     };
-    let old_start = old_start_str
-        .parse::<usize>()
-        .map_err(|_| format!("bad old start in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
-    let old_count = old_count_str
-        .parse::<usize>()
-        .map_err(|_| format!("bad old count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
-    let new = parts
-        .next()
-        .ok_or_else(|| format!("missing new range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
-    let new = new
-        .strip_prefix('+')
-        .ok_or_else(|| format!("bad new range: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let old_start = old_start_str.parse::<usize>().map_err(|_| {
+        format!(
+            "bad old start in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"
+        )
+    })?;
+    let old_count = old_count_str.parse::<usize>().map_err(|_| {
+        format!(
+            "bad old count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"
+        )
+    })?;
+    let new = parts.next().ok_or_else(|| {
+        format!("missing new range: {line}; use @@ -A,B +C,D @@ for native unified patches")
+    })?;
+    let new = new.strip_prefix('+').ok_or_else(|| {
+        format!("bad new range: {line}; use @@ -A,B +C,D @@ for native unified patches")
+    })?;
     let (_, new_count_str) = match new.split_once(',') {
         Some((s, c)) => (s, c),
         None => (new, "1"),
     };
-    let new_count = new_count_str
-        .parse::<usize>()
-        .map_err(|_| format!("bad new count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"))?;
+    let new_count = new_count_str.parse::<usize>().map_err(|_| {
+        format!(
+            "bad new count in hunk header: {line}; use @@ -A,B +C,D @@ for native unified patches"
+        )
+    })?;
     Ok((old_start, old_count, new_count))
 }
 
@@ -1907,7 +1918,11 @@ fn nearest_line_hint(source: &str, old: &str) -> String {
         if line.contains(keyword) {
             let trimmed = line.trim();
             let content: String = trimmed.chars().take(120).collect();
-            let ellipsis = if trimmed.chars().count() > 120 { "…" } else { "" };
+            let ellipsis = if trimmed.chars().count() > 120 {
+                "…"
+            } else {
+                ""
+            };
             return format!("; nearest match on line {}: {content}{ellipsis}", index + 1);
         }
     }
@@ -1921,8 +1936,8 @@ fn apply_invariant_safe_edit_to_path(
     replace_all: bool,
     dry_run: bool,
 ) -> Result<(ExactEditStats, EditTier), String> {
-    let old = std::str::from_utf8(old_bytes)
-        .map_err(|_| "old_string is not valid UTF-8".to_string())?;
+    let old =
+        std::str::from_utf8(old_bytes).map_err(|_| "old_string is not valid UTF-8".to_string())?;
     if old.is_empty() {
         return Err("old_string is empty".to_string());
     }
@@ -2012,7 +2027,10 @@ fn preserve_eol(new_bytes: &[u8], slice: &[u8], file: &[u8]) -> Vec<u8> {
     let has_lf = slice_str.contains('\n');
     if !has_crlf && !has_lf {
         if file.contains(&b'\r') && !file.contains(&b'\n') {
-            return new_str.replace("\r\n", "\n").replace('\n', "\r").into_bytes();
+            return new_str
+                .replace("\r\n", "\n")
+                .replace('\n', "\r")
+                .into_bytes();
         }
         // Single-line slice: only upgrade LF->CRLF when the WHOLE file is pure
         // CRLF (no bare LF); otherwise leave new untouched to avoid mixed-EOL.
@@ -2024,7 +2042,10 @@ fn preserve_eol(new_bytes: &[u8], slice: &[u8], file: &[u8]) -> Vec<u8> {
                 return new_bytes.to_vec();
             }
         }
-        return new_str.replace("\r\n", "\n").replace('\n', "\r\n").into_bytes();
+        return new_str
+            .replace("\r\n", "\n")
+            .replace('\n', "\r\n")
+            .into_bytes();
     }
     let lf_replacement = new_str.replace("\r\n", "\n");
     let mut result = if has_crlf {
@@ -2341,10 +2362,7 @@ fn newline_flags_compatible(
     if expected.has_newline == line.has_newline {
         return true;
     }
-    is_last_old_in_hunk
-        && is_last_line_in_file
-        && expected.has_newline
-        && !line.has_newline
+    is_last_old_in_hunk && is_last_line_in_file && expected.has_newline && !line.has_newline
 }
 
 fn source_line_matches_eof_aware(
@@ -2357,12 +2375,7 @@ fn source_line_matches_eof_aware(
     if source_line_matches(source, line, expected) {
         return true;
     }
-    if !newline_flags_compatible(
-        line,
-        expected,
-        is_last_old_in_hunk,
-        is_last_line_in_file,
-    ) {
+    if !newline_flags_compatible(line, expected, is_last_old_in_hunk, is_last_line_in_file) {
         return false;
     }
     source[line.start..line.body_end] == expected.body
@@ -2469,13 +2482,18 @@ fn apply_fuzzy_hunk(
             Some((best_fuzz, best_norm, best_dist, _, _, _)) => {
                 fuzz < *best_fuzz
                     || (fuzz == *best_fuzz && norm_count < *best_norm)
-                    || (fuzz == *best_fuzz
-                        && norm_count == *best_norm
-                        && distance < *best_dist)
+                    || (fuzz == *best_fuzz && norm_count == *best_norm && distance < *best_dist)
             }
         };
         if replace {
-            best = Some((fuzz, norm_count, distance, start_offset, end_offset, new_bytes));
+            best = Some((
+                fuzz,
+                norm_count,
+                distance,
+                start_offset,
+                end_offset,
+                new_bytes,
+            ));
         }
     }
     best.map(|(_, _, _, start, end, bytes)| (start, end, bytes))
@@ -2696,12 +2714,7 @@ fn source_context_line_matches_fuzzy(
     is_last_old_in_hunk: bool,
     is_last_line_in_file: bool,
 ) -> bool {
-    if !newline_flags_compatible(
-        line,
-        expected,
-        is_last_old_in_hunk,
-        is_last_line_in_file,
-    ) {
+    if !newline_flags_compatible(line, expected, is_last_old_in_hunk, is_last_line_in_file) {
         return false;
     }
     trim_patch_ws(&source[line.start..line.body_end]) == trim_patch_ws(&expected.body)
@@ -2740,12 +2753,7 @@ fn source_context_line_matches_normalized(
     is_last_old_in_hunk: bool,
     is_last_line_in_file: bool,
 ) -> bool {
-    if !newline_flags_compatible(
-        line,
-        expected,
-        is_last_old_in_hunk,
-        is_last_line_in_file,
-    ) {
+    if !newline_flags_compatible(line, expected, is_last_old_in_hunk, is_last_line_in_file) {
         return false;
     }
     // Guard against lossy UTF-8 decoding: normalize_typographic relies on
@@ -3011,7 +3019,10 @@ mod tests {
         atomic_write_create_new(&path, b"first\n").expect("first create");
         assert_eq!(fs::read(&path).unwrap(), b"first\n");
         let err = atomic_write_create_new(&path, b"second\n").expect_err("no overwrite");
-        assert!(err.contains("create target already exists"), "unexpected: {err}");
+        assert!(
+            err.contains("create target already exists"),
+            "unexpected: {err}"
+        );
         assert_eq!(fs::read(&path).unwrap(), b"first\n");
         // Rollback of a create is still a plain removal.
         let plan = PlannedWrite {
@@ -3055,10 +3066,16 @@ mod tests {
         assert_eq!(format_rollback_failure("write failed", &[]), "write failed");
         let many: Vec<String> = (0..7).map(|i| format!("rollback a{i}: denied")).collect();
         let msg = format_rollback_failure("write failed", &many);
-        assert!(msg.starts_with("write failed; rollback incomplete"), "unexpected: {msg}");
+        assert!(
+            msg.starts_with("write failed; rollback incomplete"),
+            "unexpected: {msg}"
+        );
         assert!(msg.contains("rollback a0: denied"), "unexpected: {msg}");
         assert!(msg.contains("(+2 more)"), "unexpected: {msg}");
-        assert!(!msg.contains("rollback a5"), "report must stay bounded: {msg}");
+        assert!(
+            !msg.contains("rollback a5"),
+            "report must stay bounded: {msg}"
+        );
     }
 
     #[test]
@@ -3077,7 +3094,10 @@ mod tests {
         assert!(err.contains("disk full"), "unexpected: {err}");
         assert!(err.contains("cleanup incomplete"), "unexpected: {err}");
         assert!(err.contains("remove denied"), "unexpected: {err}");
-        assert!(path.exists(), "the report must match the disk: partial file kept");
+        assert!(
+            path.exists(),
+            "the report must match the disk: partial file kept"
+        );
 
         // Cleanup that succeeds leaves no partial file and no cleanup clause.
         let path2 = dir.join("cleaned.txt");
@@ -3120,21 +3140,42 @@ mod tests {
             },
         ];
         let errors = rollback_applied(&plans, vec![0, 1]);
-        assert_eq!(errors.len(), 1, "only the unrestorable entry reports: {errors:?}");
-        assert!(!created.exists(), "the restorable entry must be rolled back");
+        assert_eq!(
+            errors.len(),
+            1,
+            "only the unrestorable entry reports: {errors:?}"
+        );
+        assert!(
+            !created.exists(),
+            "the restorable entry must be rolled back"
+        );
         let msg = format_rollback_failure("persist failed", &errors);
-        assert!(msg.starts_with("persist failed; rollback incomplete"), "unexpected: {msg}");
-        assert!(msg.contains("f.txt"), "the unrestored path must be named: {msg}");
+        assert!(
+            msg.starts_with("persist failed; rollback incomplete"),
+            "unexpected: {msg}"
+        );
+        assert!(
+            msg.contains("f.txt"),
+            "the unrestored path must be named: {msg}"
+        );
         fs::remove_dir_all(&dir).ok();
     }
 
     #[cfg(windows)]
     #[test]
     fn windows_atomic_replace_retries_only_lock_style_errors() {
-        assert!(is_transient_windows_replace_error(&io::Error::from_raw_os_error(5)));
-        assert!(is_transient_windows_replace_error(&io::Error::from_raw_os_error(32)));
-        assert!(is_transient_windows_replace_error(&io::Error::from_raw_os_error(33)));
-        assert!(!is_transient_windows_replace_error(&io::Error::from_raw_os_error(2)));
+        assert!(is_transient_windows_replace_error(
+            &io::Error::from_raw_os_error(5)
+        ));
+        assert!(is_transient_windows_replace_error(
+            &io::Error::from_raw_os_error(32)
+        ));
+        assert!(is_transient_windows_replace_error(
+            &io::Error::from_raw_os_error(33)
+        ));
+        assert!(!is_transient_windows_replace_error(
+            &io::Error::from_raw_os_error(2)
+        ));
     }
 
     #[test]
@@ -3269,7 +3310,10 @@ mod tests {
         };
 
         let applied = apply_exact_bytes(source, &entry, 2).expect("insert at CRLF EOF");
-        assert_eq!(String::from_utf8_lossy(&applied.bytes), "one\r\ntwo\r\nthree");
+        assert_eq!(
+            String::from_utf8_lossy(&applied.bytes),
+            "one\r\ntwo\r\nthree"
+        );
     }
 
     #[test]
@@ -3288,10 +3332,7 @@ mod tests {
     fn deleting_the_unterminated_eof_line_keeps_the_previous_terminator() {
         // "a\r\nb" with no final newline: deleting `b` must leave "a\r\n".
         // The CRLF belongs to the untouched line `a`.
-        for (source, expected) in [
-            (&b"a\r\nb"[..], &b"a\r\n"[..]),
-            (&b"a\nb"[..], &b"a\n"[..]),
-        ] {
+        for (source, expected) in [(&b"a\r\nb"[..], &b"a\r\n"[..]), (&b"a\nb"[..], &b"a\n"[..])] {
             let entry = Entry {
                 old_file: "f".to_string(),
                 new_file: "f".to_string(),
@@ -3488,7 +3529,10 @@ mod tests {
         let entry = Entry {
             old_file: "f".to_string(),
             new_file: "f".to_string(),
-            hunks: vec![hunk(2, &["-two", "+two-nonl", "\\ No newline at end of file"])],
+            hunks: vec![hunk(
+                2,
+                &["-two", "+two-nonl", "\\ No newline at end of file"],
+            )],
         };
 
         let applied = apply_exact_bytes(source, &entry, 2).expect("explicit marker");
@@ -3536,8 +3580,7 @@ mod tests {
 
     #[test]
     fn edit2_exact_curly_crlf_tiers() {
-        let (tier, spans) =
-            locate_invariant_safe_spans("hello world", "world", false).unwrap();
+        let (tier, spans) = locate_invariant_safe_spans("hello world", "world", false).unwrap();
         assert_eq!(tier, EditTier::Exact);
         assert_eq!(spans, vec![(6, 11)]);
 

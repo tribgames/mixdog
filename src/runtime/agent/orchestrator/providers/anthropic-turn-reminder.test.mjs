@@ -131,7 +131,6 @@ test('legacy signed boundaries keep their old scope while new continuations expi
 });
 
 test('no boundary precedes the first response, and a route without a reminder emits none', () => {
-
   const firstTurn = build([{ role: 'user', content: '첫 요청입니다.' }], 'claude-fable-5-1');
   assert.equal(
     firstTurn.messages.some((message) => message.role === 'system'),
@@ -275,10 +274,7 @@ test('the mid-conversation system beta is request-gated and deduplicated', () =>
       .buildOAuthBetaHeaders(continuationBody, { model: 'claude-fable-5-1' })
       .includes(TURN_SCOPED_SYSTEM_BETA_HEADER)
   );
-  const firstTurnBody = build(
-    [{ role: 'user', content: '첫 요청입니다.' }],
-    'claude-fable-5-1'
-  );
+  const firstTurnBody = build([{ role: 'user', content: '첫 요청입니다.' }], 'claude-fable-5-1');
   assert.equal(
     oauthTest
       .buildOAuthBetaHeaders(firstTurnBody, {

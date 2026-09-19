@@ -1004,6 +1004,24 @@ test('PPTX page roles are induced from the geometry of a deck that has no placeh
   assert.equal(metrics.get(3), 'metric-label-1');
   assert.equal(metrics.get(4), 'metric-label-2');
 
+  // The numerals of a metrics page are the loudest type on the canvas and there
+  // are several of them, so the largest box is not the title there. A row of
+  // peers is the page's structure; the title is the largest box standing alone,
+  // and without it the page could not be filled by role at all.
+  const titled = inducePptxSampleRoles({
+    shapes: [
+      box(9, 600_000, 500_000, 8_000_000, 900_000, '3분기 지표', 28),
+      box(1, 600_000, 2_000_000, 2_400_000, 800_000, '38%', 40),
+      box(2, 3_400_000, 2_000_000, 2_400_000, 800_000, '12건', 40),
+      box(3, 600_000, 2_900_000, 2_400_000, 500_000, '재작업 비율', 12),
+      box(4, 3_400_000, 2_900_000, 2_400_000, 500_000, '지연 건수', 12),
+    ],
+  });
+  assert.equal(titled.get(9), 'title');
+  assert.equal(titled.get(1), 'metric-value-1');
+  assert.equal(titled.get(2), 'metric-value-2');
+  assert.equal(titled.get(3), 'metric-label-1');
+
   // A chevron flow sizes every marker to the word it carries, so the row is
   // peers by band and height and never by width; the markers name the structure
   // and the labels drawn on them fill the slots.
@@ -1109,6 +1127,36 @@ test('a PPTX snapshot reports each page job and the slot every box fills', () =>
     ],
   });
   assert.equal(single.slides[0].role, 'comparison');
+
+  // A table's words live inside the table, so a page carrying one reads as
+  // wordless and was answered as a statement page — one thesis and air. It does
+  // the job a chart page does: it carries the quantities.
+  const tabular = annotatePptxSnapshotRoles({
+    format: 'pptx',
+    slideCount: 2,
+    slideWidth: 13.333,
+    slideHeight: 7.5,
+    slides: [
+      { index: 1, shapes: [box(1, 0.8, 2.6, 9, 1.4, '야간 출고 개선 보고', 40)] },
+      {
+        index: 2,
+        shapes: [
+          box(1, 0.7, 0.5, 11.9, 0.9, '세 안을 나란히 둔다', 28),
+          {
+            index: 2,
+            left: 0.7,
+            top: 1.8,
+            width: 11.9,
+            height: 3.4,
+            text: '',
+            table: { rows: 4, columns: 3 },
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(tabular.slides[1].role, 'metrics');
+  assert.equal(tabular.slides[1].shapes[1].slot, 'table');
 });
 
 // Capacity decides which page answers and whether it can answer at all: a page
@@ -1138,6 +1186,28 @@ test('a template page refuses more items than it holds and the closest fitting p
     [1, 2, 3]
   );
   assert.deepEqual(fill.deletes, [7, 6, 5, 4]);
+
+  // A page whose columns are one line each has nowhere to put an item's second
+  // line: the fill wrote the first line and dropped the rest without a word.
+  const oneLine = {
+    index: 3,
+    role: 'comparison',
+    shapes: [
+      { index: 1, slot: 'title', text: '' },
+      { index: 2, slot: 'column-title-1', text: '' },
+      { index: 3, slot: 'column-title-2', text: '' },
+    ],
+  };
+  assert.throws(
+    () => templatePageFill(oneLine, { title: '비교', items: [{ title: '가', body: '가 설명' }] }),
+    /no column body box for item 1/
+  );
+  // The same page takes the items it can hold whole.
+  const titlesOnly = templatePageFill(oneLine, { title: '비교', items: [{ title: '가' }, { title: '나' }] });
+  assert.deepEqual(
+    titlesOnly.sets.map((entry) => entry.text),
+    ['비교', '가', '나']
+  );
 });
 
 // Reuse, end to end: the page is chosen by the job it does, its slots take the

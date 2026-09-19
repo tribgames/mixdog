@@ -12,7 +12,11 @@ test('fixed runtime failure sentences are localized and keep their diagnostic co
   await i18n.changeLanguage('ko');
   assert.equal(
     localizedTurnFailureReason('Connection to the provider was lost (UND_ERR_SOCKET).'),
-    '프로바이더 연결이 끊어졌습니다 (UND_ERR_SOCKET)'
+    '프로바이더와의 연결이 끊어졌습니다 (UND_ERR_SOCKET)'
+  );
+  assert.equal(
+    localizedTurnFailureReason('Connection to the provider was lost.'),
+    '프로바이더와의 연결이 끊어졌습니다'
   );
   assert.equal(
     localizedTurnFailureReason('Provider is temporarily unavailable (503).'),

@@ -18,8 +18,7 @@ function harness() {
   window.Element.prototype.scrollIntoView = function scrollIntoView() {
     scrolled.push(this.id);
   };
-  window.document.querySelector('#host').attachShadow({ mode: 'open' }).innerHTML =
-    '<p id="deep">Quarterly report</p>';
+  window.document.querySelector('#host').attachShadow({ mode: 'open' }).innerHTML = '<p id="deep">Quarterly report</p>';
   return { dom, window, scrolled };
 }
 

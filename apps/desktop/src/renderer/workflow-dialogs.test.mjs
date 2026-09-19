@@ -63,9 +63,16 @@ const editors = [
 
 test('workflow editor contains only instructions and metadata, not delegation controls', async (t) => {
   const render = harness(t);
-  await render(React.createElement(WorkflowEditorDialog, {
-    pack: null, deletable: false, busy: false, onCancel() {}, onSave() {}, onDelete() {},
-  }));
+  await render(
+    React.createElement(WorkflowEditorDialog, {
+      pack: null,
+      deletable: false,
+      busy: false,
+      onCancel() {},
+      onSave() {},
+      onDelete() {},
+    })
+  );
   const dialog = document.querySelector('[role="dialog"]');
   assert.equal(dialog.querySelector('input[type="checkbox"]'), null);
   assert.doesNotMatch(dialog.textContent, /Allow agents|Use no agents|Whether this workflow can delegate/);

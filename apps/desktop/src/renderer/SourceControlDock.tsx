@@ -1485,7 +1485,9 @@ export function SourceControlDock({
               })}
               <RowSpacer edge="trailing" height={historyWindow.trailing} />
               {historyLoading && <p className="utility-dock-empty">{t('Loading history…')}</p>}
-              {!historyLoading && history.length === 0 && <p className="utility-dock-empty">{t('No commits found.')}</p>}
+              {!historyLoading && history.length === 0 && (
+                <p className="utility-dock-empty">{t('No commits found.')}</p>
+              )}
             </div>
           )}
         </>

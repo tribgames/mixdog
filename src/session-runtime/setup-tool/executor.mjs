@@ -182,7 +182,11 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
       case 'model':
         return { route: mainRoute(rt), effortOptions: rt.effortOptions || [] };
       case 'agents':
-        return { agents: rt.listAgents?.() || [], orchestrationMode: rt.getOrchestrationMode(), orchestrationModes: ORCHESTRATION_MODES };
+        return {
+          agents: rt.listAgents?.() || [],
+          orchestrationMode: rt.getOrchestrationMode(),
+          orchestrationModes: ORCHESTRATION_MODES,
+        };
       case 'workflow':
         return { workflows: rt.listWorkflows?.() || [] };
       case 'websearch':
@@ -214,8 +218,14 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const config = getConfig?.() || {};
         return {
           ...(rt.getToolModuleSettings?.() || {}),
-          browser: { active: builtinFeatureActive(config, 'browser'), firstUseApproval: builtinFirstUseApproval(config, 'browser') },
-          computer: { active: builtinFeatureActive(config, 'computer'), firstUseApproval: builtinFirstUseApproval(config, 'computer') },
+          browser: {
+            active: builtinFeatureActive(config, 'browser'),
+            firstUseApproval: builtinFirstUseApproval(config, 'browser'),
+          },
+          computer: {
+            active: builtinFeatureActive(config, 'computer'),
+            firstUseApproval: builtinFirstUseApproval(config, 'computer'),
+          },
         };
       }
       case 'shell':
@@ -237,13 +247,15 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         const status = await rt.getChannelSetup();
         return {
           entries: status[domain].map(publicAutomation),
-          ...(domain === 'webhooks' ? {
-            listener: {
-              enabled: status.webhook?.enabled === true,
-              port: status.webhook?.port,
-              domain: status.webhook?.domain || '',
-            },
-          } : {}),
+          ...(domain === 'webhooks'
+            ? {
+                listener: {
+                  enabled: status.webhook?.enabled === true,
+                  port: status.webhook?.port,
+                  domain: status.webhook?.domain || '',
+                },
+              }
+            : {}),
         };
       }
       default:
@@ -281,7 +293,8 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     const missing = fields.find((field) => !field.endsWith('?') && !Object.hasOwn(args, field));
     if (missing) throw new Error(`[tool-input-validation] ${missing} is required for setup.${action}`);
     if (args.route) {
-      if (!Object.keys(args.route).length) throw new Error('route with at least one of the supported settings is required');
+      if (!Object.keys(args.route).length)
+        throw new Error('route with at least one of the supported settings is required');
       if (action !== 'set_agent_route' && Object.hasOwn(args.route, 'disabled')) {
         throw new Error('route.disabled is only accepted by set_agent_route');
       }
@@ -339,12 +352,14 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
           throw new Error('autoclear with enabled, duration, or provider is required');
         if (input.resetProvider && !clean(input.provider)) throw new Error('resetProvider requires provider');
         if (input.reset && input.provider) throw new Error('Use resetProvider for a provider override');
-        if (input.duration && (input.reset || input.resetProvider)) throw new Error('Cannot reset and set a duration together');
+        if (input.duration && (input.reset || input.resetProvider))
+          throw new Error('Cannot reset and set a duration together');
         return rt.setAutoClear(input);
       }
       case 'set_compaction': {
         const compaction = args.compaction || {};
-        if (args.enabled === undefined && !Object.keys(compaction).length) throw new Error('enabled or compaction is required');
+        if (args.enabled === undefined && !Object.keys(compaction).length)
+          throw new Error('enabled or compaction is required');
         if (Object.hasOwn(compaction, 'mainBufferTokens') && Object.hasOwn(compaction, 'mainBufferPercent')) {
           throw new Error('Choose mainBufferTokens or mainBufferPercent, not both');
         }
@@ -369,7 +384,11 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
         return await rt.setBridgeFirstUseApproval(name, requireBoolean(args.enabled));
       }
       case 'install_builtin': {
-        const name = requireEnum(args.name, ['git', 'memory', 'office', 'tidy', 'localProvider', 'browser', 'computer', 'voice'], 'name');
+        const name = requireEnum(
+          args.name,
+          ['git', 'memory', 'office', 'tidy', 'localProvider', 'browser', 'computer', 'voice'],
+          'name'
+        );
         if (['browser', 'computer', 'voice'].includes(name)) return requestDesktop(args);
         return await rt.installBuiltinFeature(name);
       }
@@ -480,16 +499,37 @@ export function createSetupToolExecutor({ getApi, getConfig, notifySessionUi, ge
     dispose: desktop.dispose,
     async execute(args = {}, options = {}) {
       const result = await execute(args, options);
-      const readOnly = ['status', 'open', 'list_models', 'get_mcp_server', 'read_definition', 'get_instructions',
-        'search_local_models', 'inspect_hf_model', 'local_model_details'].includes(args.action);
+      const readOnly = [
+        'status',
+        'open',
+        'list_models',
+        'get_mcp_server',
+        'read_definition',
+        'get_instructions',
+        'search_local_models',
+        'inspect_hf_model',
+        'local_model_details',
+      ].includes(args.action);
       if (!readOnly) await flushSettings?.();
-      return JSON.stringify(readOnly ? result ?? {} : {
-        ...(['start_local_installation', 'maintain_local_model', 'cancel_local_installation', 'reconnect_mcp'].includes(args.action)
-          ? {} : { saved: true }),
-        scope: 'installation',
-        appliesTo: ACTION_APPLIES_TO[args.action] || 'new sessions unless appliedToCurrentSession is true',
-        ...result,
-      }, null, 2);
+      return JSON.stringify(
+        readOnly
+          ? (result ?? {})
+          : {
+              ...([
+                'start_local_installation',
+                'maintain_local_model',
+                'cancel_local_installation',
+                'reconnect_mcp',
+              ].includes(args.action)
+                ? {}
+                : { saved: true }),
+              scope: 'installation',
+              appliesTo: ACTION_APPLIES_TO[args.action] || 'new sessions unless appliedToCurrentSession is true',
+              ...result,
+            },
+        null,
+        2
+      );
     },
   };
 }

@@ -49,7 +49,7 @@ export function parsePeriod(period, hasQuery) {
   }
   const relMatch = period.match(/^(\d+)(m|h|d)$/);
   if (relMatch) {
-    const n = parseInt(relMatch[1]);
+    const n = parseInt(relMatch[1], 10);
     const unit = relMatch[2];
     const now = new Date();
     if (unit === 'm') {

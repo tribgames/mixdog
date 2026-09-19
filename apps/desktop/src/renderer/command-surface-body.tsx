@@ -50,7 +50,13 @@ export function SurfaceBody({
 }) {
   const busy = Boolean(pending);
   if (surface === 'context') {
-    return <ContextBody status={data.contextStatus} snapshot={commandSurfaceDisplaySnapshot(data, snapshot)} request={request} />;
+    return (
+      <ContextBody
+        status={data.contextStatus}
+        snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
+        request={request}
+      />
+    );
   }
   if (surface === 'usage') {
     return <UsageBody data={data} />;

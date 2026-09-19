@@ -37,9 +37,18 @@ test('a route round-reminder is resolved per provider/model and never enters the
     'plugin/rules/routes/fable.md',
     '---\nproviders: anthropic-oauth, anthropic\nmodels: claude-fable-5-1*, claude-fable-5.1*\nround-reminder: FABLE_REMINDER\n---\n- FABLE_STATIC_RULE'
   );
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }), 'GEMINI_REMINDER: batch it.');
-  assert.equal(rules._buildRouteTurnReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }), 'GEMINI_TURN: plan it.');
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }), 'FABLE_REMINDER');
+  assert.equal(
+    rules._buildRouteRoundReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
+    'GEMINI_REMINDER: batch it.'
+  );
+  assert.equal(
+    rules._buildRouteTurnReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
+    'GEMINI_TURN: plan it.'
+  );
+  assert.equal(
+    rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }),
+    'FABLE_REMINDER'
+  );
   assert.equal(rules._buildRouteTurnReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }), '');
   assert.equal(rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-opus-5-1' }), '');
   assert.equal(rules._buildRouteRoundReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), '');
@@ -48,8 +57,14 @@ test('a route round-reminder is resolved per provider/model and never enters the
   write('plugin/rules/routes/common.md', '---\nturn-reminder: COMMON_TURN\nround-reminder: COMMON_ROUND\n---\n');
   assert.equal(rules._buildRouteRoundReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), 'COMMON_ROUND');
   assert.equal(rules._buildRouteTurnReminder({ provider: 'openai-oauth', model: 'gpt-5.6-sol' }), 'COMMON_TURN');
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }), 'COMMON_ROUND FABLE_REMINDER');
-  assert.equal(rules._buildRouteTurnReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }), 'COMMON_TURN');
+  assert.equal(
+    rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }),
+    'COMMON_ROUND FABLE_REMINDER'
+  );
+  assert.equal(
+    rules._buildRouteTurnReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }),
+    'COMMON_TURN'
+  );
   assert.equal(
     rules._buildRouteRoundReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
     'COMMON_ROUND GEMINI_REMINDER: batch it.'
@@ -79,7 +94,10 @@ test('route rules bind to provider and model family through frontmatter', async 
     'plugin/rules/routes/gemini.md',
     '---\nmodels: gemini-*\n---\n# Parallel Function Calls\n\n- GEMINI_ROUTE_RULE\n<!-- tools: read -->\n- READ_ROUTE_RULE'
   );
-  write('plugin/rules/routes/antigravity.md', '---\nproviders: antigravity-oauth\nmodels: claude-*\n---\n- ANTIGRAVITY_CLAUDE_RULE');
+  write(
+    'plugin/rules/routes/antigravity.md',
+    '---\nproviders: antigravity-oauth\nmodels: claude-*\n---\n- ANTIGRAVITY_CLAUDE_RULE'
+  );
   write('plugin/rules/routes/everyone.md', '- EVERY_ROUTE_RULE');
 
   const gemini = rules._buildRouteRules({ provider: 'gemini', model: 'gemini-3.8-flash' });
@@ -89,16 +107,28 @@ test('route rules bind to provider and model family through frontmatter', async 
   assert.doesNotMatch(gemini, /ANTIGRAVITY_CLAUDE_RULE/);
   assert.doesNotMatch(gemini, /^---$|models:|<!--/m);
   // Gateway ids match on the `/`-leaf; the antigravity tier id matches the glob.
-  assert.match(rules._buildRouteRules({ provider: 'openrouter', model: 'google/gemini-3.8-flash' }), /GEMINI_ROUTE_RULE/);
-  assert.match(rules._buildRouteRules({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash-high' }), /GEMINI_ROUTE_RULE/);
+  assert.match(
+    rules._buildRouteRules({ provider: 'openrouter', model: 'google/gemini-3.8-flash' }),
+    /GEMINI_ROUTE_RULE/
+  );
+  assert.match(
+    rules._buildRouteRules({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash-high' }),
+    /GEMINI_ROUTE_RULE/
+  );
   // Tool markers gate route blocks exactly like shared blocks.
   assert.doesNotMatch(
     rules._buildRouteRules({ provider: 'gemini', model: 'gemini-3.8-flash', omitTools: ['read'] }),
     /READ_ROUTE_RULE/
   );
   // Both listed keys must match.
-  assert.match(rules._buildRouteRules({ provider: 'antigravity-oauth', model: 'claude-opus-5' }), /ANTIGRAVITY_CLAUDE_RULE/);
-  assert.doesNotMatch(rules._buildRouteRules({ provider: 'anthropic', model: 'claude-opus-5' }), /ANTIGRAVITY_CLAUDE_RULE/);
+  assert.match(
+    rules._buildRouteRules({ provider: 'antigravity-oauth', model: 'claude-opus-5' }),
+    /ANTIGRAVITY_CLAUDE_RULE/
+  );
+  assert.doesNotMatch(
+    rules._buildRouteRules({ provider: 'anthropic', model: 'claude-opus-5' }),
+    /ANTIGRAVITY_CLAUDE_RULE/
+  );
   assert.doesNotMatch(
     rules._buildRouteRules({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
     /ANTIGRAVITY_CLAUDE_RULE/

@@ -584,7 +584,13 @@ test('deck review reports three consecutive same compositions and reads signed s
     review(
       varied.map((slide, index) =>
         kinds[index]
-          ? { ...slide, shapes: [...slide.shapes, { type: 13, altText: `${kinds[index]} motif`, left: 0, top: 0, width: 960, height: 540 }] }
+          ? {
+              ...slide,
+              shapes: [
+                ...slide.shapes,
+                { type: 13, altText: `${kinds[index]} motif`, left: 0, top: 0, width: 960, height: 540 },
+              ],
+            }
           : slide
       )
     );
@@ -621,7 +627,13 @@ test('the art direction reading accepts the directions an authored brief declare
   const codes = (design) => reviewPptxDeckDiversity({ document, design }).map((entry) => entry.code);
   assert.ok(codes({}).includes('art_direction_candidates_missing'), 'a deck with neither payload nor brief is named');
   const brief = {
-    directions: { candidates: [{ id: 'A', text: 'editorial' }, { id: 'B', text: 'swiss-minimal' }], selected: 'A' },
+    directions: {
+      candidates: [
+        { id: 'A', text: 'editorial' },
+        { id: 'B', text: 'swiss-minimal' },
+      ],
+      selected: 'A',
+    },
   };
   assert.equal(codes({ brief }).includes('art_direction_candidates_missing'), false);
   // The brief must still say which one it took, and compare more than one.

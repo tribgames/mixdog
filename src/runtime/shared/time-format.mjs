@@ -17,9 +17,9 @@ export function formatDuration(ms, options = {}) {
     return `${Math.floor(value / 1000)}s`;
   }
 
-  let days = Math.floor(value / 86_400_000);
-  let hours = Math.floor((value % 86_400_000) / 3_600_000);
-  let minutes = Math.floor((value % 3_600_000) / 60_000);
+  const days = Math.floor(value / 86_400_000);
+  const hours = Math.floor((value % 86_400_000) / 3_600_000);
+  const minutes = Math.floor((value % 3_600_000) / 60_000);
   const seconds = Math.floor((value % 60_000) / 1000);
 
   if (options.mostSignificantOnly) {

@@ -169,15 +169,12 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   // Read call shape lives in the read description; the rule names the stage only.
   assert.match(full, /one read stage over every located\s+site/i);
   assert.doesNotMatch(full, /window per site|≤10 per call/i);
-  assert.match(full, /A search after a read that could have\s+run before it is a wasted round; content in context is never read again/i);
   assert.match(
     full,
-    /Trust documented guarantees; no availability checks or defensive branches —\s+in scripts too/i
+    /A search after a read that could have\s+run before it is a wasted round; content in context is never read again/i
   );
-  assert.match(
-    full,
-    /Back up only an input you will mutate — the copy command goes in the same\s+response as the first inspection/i
-  );
+  assert.match(full, /Trust documented guarantees; no availability checks or defensive branches —\s+in scripts too/i);
+  assert.match(full, /Back up only when changes risk irreversible loss, not for routine code edits/i);
   assert.match(full, /direct references, no surveys or history/i);
   assert.match(full, /Reuse content\s+already delivered; changed sources and omitted ranges are new evidence/i);
   assert.match(full, /Use supplied commands unchanged except inputs, else documented defaults/i);
@@ -202,7 +199,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
     /Check required behavior, exact outputs and essential integrity, security,\s+compatibility and buildability/i
   );
   assert.match(full, /Supplied\/home\/environment paths need no locator/i);
-  assert.match(full, /keep the backup\s+unless the user requires purging/i);
+  assert.match(full, /keep backups unless the user requests removal/i);
   assert.match(full, /temp workspaces come from a unique-directory\s+allocator/i);
   assert.match(full, /files\/ranges→`read`, text or regex→`grep`,\s+declarations and relations→`code_graph`/i);
   // code_graph usage and the read stage live in their tool descriptions and Tool Calls.
@@ -242,7 +239,10 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Commit, push, release, deployment and any irreversible action/i);
   assert.match(full, /Stage selected diff changes with `git_stage`/i);
   // Delivery is only the git_stage line; without that tool the section is gone.
-  assert.doesNotMatch(buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git_stage'] }), /# Delivery/);
+  assert.doesNotMatch(
+    buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git_stage'] }),
+    /# Delivery/
+  );
   assert.match(full, /`recall` only on request or for an open decision/i);
   // The memory approval flow lives in the memory tool description.
   assert.doesNotMatch(full, /show exact content and scope and ask/i);

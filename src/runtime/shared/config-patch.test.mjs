@@ -26,7 +26,10 @@ test('config patches retain explicit false, null, empty strings, arrays and dele
   const after = { enabled: false, title: '', route: null, skills: [], shell: {} };
   assert.deepEqual(applyConfigPatch(before, diffConfig(before, after)), after);
   assert.deepEqual(applyConfigPatch({}, diffConfig(before, after)), {
-    enabled: false, title: '', route: null, skills: [],
+    enabled: false,
+    title: '',
+    route: null,
+    skills: [],
   });
   assert.deepEqual(applyConfigPatch({}, diffConfig({}, { marker: {} })), { marker: {} });
 });

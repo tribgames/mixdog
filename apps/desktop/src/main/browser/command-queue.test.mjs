@@ -35,12 +35,17 @@ function takeoverFixture(run, options = {}) {
 test('snapshots serialize on their page without delaying independent background pages', async () => {
   const started = [];
   let releaseFirst;
-  const firstSnapshot = new Promise((resolve) => { releaseFirst = resolve; });
-  const queue = takeoverFixture(async (command) => {
-    started.push(`${command.tab}:${command.query}`);
-    if (command.query === 'first') await firstSnapshot;
-    return { text: 'ok' };
-  }, { readOnlyActions: READ_ONLY_ACTIONS });
+  const firstSnapshot = new Promise((resolve) => {
+    releaseFirst = resolve;
+  });
+  const queue = takeoverFixture(
+    async (command) => {
+      started.push(`${command.tab}:${command.query}`);
+      if (command.query === 'first') await firstSnapshot;
+      return { text: 'ok' };
+    },
+    { readOnlyActions: READ_ONLY_ACTIONS }
+  );
   const commands = [
     queue.executeSerialized({ action: 'snapshot', background: true, tab: 'a', query: 'first' }),
     queue.executeSerialized({ action: 'snapshot', background: true, tab: 'a', query: 'second' }),

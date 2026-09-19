@@ -1,5 +1,10 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { DesktopModelOption, DesktopModelSelection, DesktopOrchestrationMode, SessionSnapshot } from '../shared/contract';
+import type {
+  DesktopModelOption,
+  DesktopModelSelection,
+  DesktopOrchestrationMode,
+  SessionSnapshot,
+} from '../shared/contract';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { routePreferenceStore } from './app-route-preference';
 import { useModelSelection } from './use-model-selection';
@@ -209,14 +214,20 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
   useEffect(() => {
     if (mode) return;
     let cancelled = false;
-    void window.mixdogDesktop.invokeCapability<DesktopOrchestrationMode>({
-      capability: 'getOrchestrationMode', args: [],
-    }).then((result) => {
-      if (!cancelled) setInherited(result.value);
-    }).catch(() => {
-      // Keep the unknown control disabled; do not claim an unconfirmed mode.
-    });
-    return () => { cancelled = true; };
+    void window.mixdogDesktop
+      .invokeCapability<DesktopOrchestrationMode>({
+        capability: 'getOrchestrationMode',
+        args: [],
+      })
+      .then((result) => {
+        if (!cancelled) setInherited(result.value);
+      })
+      .catch(() => {
+        // Keep the unknown control disabled; do not claim an unconfirmed mode.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [mode]);
   const selected = mode ?? inherited;
   const change = async (value: string) => {
@@ -229,9 +240,12 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
     guard.current = true;
     setSwitching(true);
     try {
-      const result = await invokeResult(() => window.mixdogDesktop.invokeCapability({
-        capability: 'setOrchestrationMode', args: [next],
-      }));
+      const result = await invokeResult(() =>
+        window.mixdogDesktop.invokeCapability({
+          capability: 'setOrchestrationMode',
+          args: [next],
+        })
+      );
       if (result !== undefined) applySnapshot(result.snapshot);
     } finally {
       guard.current = false;
@@ -272,7 +286,9 @@ export const OrchestrationModeSelect = memo(function OrchestrationModeSelect({
             },
           ]}
         />
-      ) : <InitialSurface variant="control" />}
+      ) : (
+        <InitialSurface variant="control" />
+      )}
     </div>
   );
 });

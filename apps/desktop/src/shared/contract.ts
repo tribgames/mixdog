@@ -1809,7 +1809,11 @@ export interface DesktopApi {
    *  ("# Project Instructions", injected at session start). Optional: the
    *  remote shim omits both and the UI hides the editor. */
   readInstructions?(projectPath: string | null): Promise<string>;
-  writeInstructions?(projectPath: string | null, content: string, expectedContent?: string): Promise<{ backupPath: string } | void>;
+  writeInstructions?(
+    projectPath: string | null,
+    content: string,
+    expectedContent?: string
+  ): Promise<{ backupPath: string } | void>;
   /** Dock Files tab: lazy per-directory listing. */
   listProjectDir?(projectPath: string, relDir: string): Promise<DesktopDirEntry[]>;
   /** Editor tab: project file IO (traversal-guarded in main). */

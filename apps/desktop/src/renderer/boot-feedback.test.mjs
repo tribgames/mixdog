@@ -190,7 +190,7 @@ test('retry requests a page reload and Korean users receive a Korean dialog', ()
     });
     timers.find((timer) => timer.delay === 30000).callback();
     const dialog = dom.window.document.querySelector('[role="alertdialog"]');
-    assert.match(dialog.textContent, /연결이 지연되고 있습니다/);
+    assert.match(dialog.textContent, /연결 시간이 평소보다 오래 걸리고 있습니다/);
     const retry = dialog.querySelector('button');
     assert.equal(retry.textContent, '다시 시도');
     retry.click();

@@ -238,21 +238,21 @@ const CWD_STARTUP_ENTRY_LIMIT = 40;
 function _gitIgnoredEntries(directory, names) {
   if (!names.length || !findRepositoryRoot(directory)) return new Set();
   try {
-    const result = spawnSync(
-      'git',
-      ['--no-optional-locks', '-C', directory, 'check-ignore', '--stdin', '-z'],
-      {
-        encoding: 'utf8',
-        input: `${names.join('\0')}\0`,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-        maxBuffer: 1024 * 1024,
-        timeout: 1500,
-        windowsHide: true,
-      }
-    );
+    const result = spawnSync('git', ['--no-optional-locks', '-C', directory, 'check-ignore', '--stdin', '-z'], {
+      encoding: 'utf8',
+      input: `${names.join('\0')}\0`,
+      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      maxBuffer: 1024 * 1024,
+      timeout: 1500,
+      windowsHide: true,
+    });
     // Exit 1 is "nothing ignored", not a failure.
     if (result.status !== 0 && result.status !== 1) return new Set();
-    return new Set(String(result.stdout || '').split('\0').filter(Boolean));
+    return new Set(
+      String(result.stdout || '')
+        .split('\0')
+        .filter(Boolean)
+    );
   } catch {
     return new Set();
   }

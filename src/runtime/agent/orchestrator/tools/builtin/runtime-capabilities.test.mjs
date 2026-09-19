@@ -152,20 +152,14 @@ test('Cwd startup entries drop .git and gitignored entries inside a repository',
 }, () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-cwd-entries-git-'));
   try {
-    assert.equal(
-      spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8', windowsHide: true }).status,
-      0
-    );
+    assert.equal(spawnSync('git', ['init', '-q'], { cwd: root, encoding: 'utf8', windowsHide: true }).status, 0);
     writeFileSync(join(root, '.gitignore'), 'build/\n*.log\n.tmp-*\n');
     mkdirSync(join(root, 'build'));
     mkdirSync(join(root, '.tmp-scratch'));
     mkdirSync(join(root, 'src'));
     writeFileSync(join(root, 'debug.log'), '');
     writeFileSync(join(root, 'package.json'), '{}\n');
-    assert.equal(
-      describeCwdStartupEntries({ cwd: root }),
-      '- Cwd entries at startup: src/ .gitignore package.json'
-    );
+    assert.equal(describeCwdStartupEntries({ cwd: root }), '- Cwd entries at startup: src/ .gitignore package.json');
 
     rmSync(join(root, 'src'), { recursive: true, force: true });
     rmSync(join(root, 'package.json'), { force: true });

@@ -109,7 +109,14 @@ public static class MixNativeInput
         if (ownership == null) throw new System.Exception("input_cleanup_unconfirmed: ownership observation was not initialized");
         using (var view = ownership.CreateViewAccessor())
         {
-            for (int key = 1; key < 256; key++) view.Write(5000 + key, (GetAsyncKeyState(key) & 0x8000) != 0);
+            // A key this session already holds reads as physically down here. It is
+            // ours, not the user's: recording it as foreign would refuse the very
+            // release that ends the hold.
+            var owned = new System.Collections.Generic.HashSet<int>();
+            foreach (INPUT release in ReadOwned(view, ownershipMarker))
+                if (release.type == 1) owned.Add(release.U.ki.wVk);
+            for (int key = 1; key < 256; key++)
+                view.Write(5000 + key, !owned.Contains(key) && (GetAsyncKeyState(key) & 0x8000) != 0);
         }
         ObserveForeignOwnership = true;
     }

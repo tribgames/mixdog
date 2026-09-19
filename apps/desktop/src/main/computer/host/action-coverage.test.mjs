@@ -42,7 +42,16 @@ test('every exposed pointer action reaches each host action list', async () => {
     (type) => !['type', 'key', 'key_down', 'key_up', 'wait'].includes(type)
   );
   // Changing this list means a new pointer action exists; add it to the lists below.
-  assert.deepEqual(exposed, ['click', 'double_click', 'triple_click', 'mouse_down', 'mouse_up', 'move', 'drag', 'scroll']);
+  assert.deepEqual(exposed, [
+    'click',
+    'double_click',
+    'triple_click',
+    'mouse_down',
+    'mouse_up',
+    'move',
+    'drag',
+    'scroll',
+  ]);
 
   for (const file of HOST_ACTION_LISTS) {
     const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');

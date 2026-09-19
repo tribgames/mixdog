@@ -311,16 +311,33 @@ export function expandXlsxSheet(operation, design, composition) {
     const formatsGiven = Array.isArray(operation.columnFormats)
       ? operation.columnFormats.some(Boolean)
       : plainObject(operation.columnFormats) && Object.values(operation.columnFormats).some(Boolean);
-    if (formatsGiven && rows.length) {
+    // A column of numbers the caller named no format for shipped under General:
+    // the composer picks the type and the spacing and left the figures ragged,
+    // which is the sheet's own `numeric_column_unformatted`. The default is read
+    // off the values and claims nothing about them — integers take the
+    // thousands form, decimals keep the places they were written with — so a
+    // rate stays a rate and a caller's columnFormats still wins.
+    const columnDefault = (index) => {
+      const values = rows
+        .map((row) => (Array.isArray(row) ? row[index] : undefined))
+        .filter((entry) => typeof entry === 'number' && Number.isFinite(entry));
+      if (!values.length || values.length < rows.length) return '';
+      if (values.every((entry) => Number.isInteger(entry))) return '#,##0';
+      const places = Math.min(3, Math.max(...values.map((entry) => (String(entry).split('.')[1] || '').length)));
+      return places > 0 ? `#,##0.${'0'.repeat(places)}` : '#,##0';
+    };
+    if (rows.length) {
       const columnFormat = (index) =>
-        Array.isArray(operation.columnFormats)
+        (Array.isArray(operation.columnFormats)
           ? operation.columnFormats[index]
-          : operation.columnFormats[headers[index]] || operation.columnFormats[columnLabel(index + 1)];
-      let applied = 0;
+          : plainObject(operation.columnFormats)
+            ? operation.columnFormats[headers[index]] || operation.columnFormats[columnLabel(index + 1)]
+            : '') || columnDefault(index);
+      let named = 0;
       for (let index = 0; index < Math.max(headers.length, dataColumns); index += 1) {
         const numberFormat = columnFormat(index);
         if (!numberFormat) continue;
-        applied += 1;
+        if (numberFormat !== columnDefault(index)) named += 1;
         output.push({
           op: 'set_style',
           sheet,
@@ -328,7 +345,9 @@ export function expandXlsxSheet(operation, design, composition) {
           properties: { numberFormat: String(numberFormat) },
         });
       }
-      if (!applied) {
+      // A format the caller wrote that landed nowhere is still reported: the
+      // defaults above cannot answer for it.
+      if (formatsGiven && !named) {
         throw new Error(
           `compose_sheet columnFormats matched no column; give one entry per column in order, or key them by ${headers.length ? `header (${headers.join(', ')})` : 'column letter'}`
         );

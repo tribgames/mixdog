@@ -144,6 +144,80 @@ test('an oversized report trims samples but keeps counts and marks truncation', 
   assert.equal(report.results[0].more, 300 - report.results[0].diagnostics.length);
 });
 
+test('offset/limit page diagnostics and keep full counts', () => {
+  const report = buildTidyReport({
+    action: 'results',
+    engines,
+    results: [
+      {
+        id: 'ruff',
+        source: 'project-local',
+        filesChecked: 30,
+        filesChanged: Array.from({ length: 40 }, (_unused, index) => `src/f${index}.py`),
+        diagnostics: diagnostics(55),
+      },
+    ],
+    structural: {
+      adapter: 'graph-binary',
+      packs: ['javascript/no-debugger'],
+      matches: Array.from({ length: 45 }, (_unused, index) => ({
+        file: `src/a${index}.js`,
+        ruleId: 'no-debugger',
+      })),
+    },
+    offset: 20,
+    limit: 10,
+  });
+  const [result] = report.results;
+  assert.equal(result.diagnostics.length, 10);
+  assert.equal(result.diagnostics[0].file, 'src/f20.py');
+  assert.equal(result.more, 25);
+  assert.equal(result.diagnosticsCount, 55);
+  assert.equal(result.offset, 20);
+  assert.equal(result.nextOffset, 30);
+  assert.equal(result.filesChanged.length, 10);
+  assert.equal(result.filesChanged[0], 'src/f20.py');
+  assert.equal(result.filesChangedCount, 40);
+  assert.equal(report.structural.matches.length, 10);
+  assert.equal(report.structural.matches[0].file, 'src/a20.js');
+  assert.equal(report.structural.matchesCount, 45);
+  assert.equal(report.structural.more, 15);
+  assert.equal(report.structural.nextOffset, 30);
+  assert.deepEqual(report.paging, { offset: 20, limit: 10 });
+  assert.equal(report.ok, true);
+});
+
+test('a page past the end is empty rather than a dump', () => {
+  const report = buildTidyReport({
+    action: 'results',
+    engines,
+    results: [{ id: 'ruff', source: 'path', filesChecked: 1, filesChanged: [], diagnostics: diagnostics(5) }],
+    offset: 40,
+    limit: 10,
+  });
+  assert.equal(report.results[0].diagnostics.length, 0);
+  assert.equal(report.results[0].more, 0);
+  assert.equal(report.results[0].diagnosticsCount, 5);
+  assert.equal(report.results[0].nextOffset, undefined);
+});
+
+test('a structural rule error is not a clean report', () => {
+  const report = buildTidyReport({
+    action: 'check',
+    engines: [],
+    structural: {
+      adapter: 'graph-binary',
+      packs: ['kotlin/todo-marker'],
+      matches: [],
+      error: { kind: 'rules', language: 'kotlin', message: 'invalid rule' },
+      ruleErrors: [{ language: 'kotlin', kind: 'rules', message: 'invalid rule' }],
+    },
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.structural.error.kind, 'rules');
+  assert.equal(report.structural.matchesCount, 0);
+});
+
 test('the tool result is one JSON text block, like the other runtime tools', () => {
   const ok = tidyToolResult({ ok: true, action: 'scan' });
   assert.equal(ok.content.length, 1);

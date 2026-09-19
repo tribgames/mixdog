@@ -261,7 +261,13 @@ test('Cursor checkpoint occupancy anchors the gauge when no prompt count is repo
     { role: 'assistant', content: 'done' },
   ];
   const session = sessionWith(messages, { provider: 'cursor-oauth', model: 'claude-opus-5-high' });
-  const usage = { inputTokens: null, cachedTokens: null, inputTokensKnown: false, outputTokens: 60, contextTokens: 7_000 };
+  const usage = {
+    inputTokens: null,
+    cachedTokens: null,
+    inputTokensKnown: false,
+    outputTokens: 60,
+    contextTokens: 7_000,
+  };
   assert.equal(
     recordProviderContextBaseline(session, messages, usage, { boundary: 'complete', sendTools: session.tools }),
     true

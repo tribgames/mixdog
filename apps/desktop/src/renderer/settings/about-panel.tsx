@@ -5,7 +5,6 @@ import { readGithubStarred, rememberGithubStarred } from './github-star-storage'
 
 const MIXDOG_REPO_URL = 'https://github.com/tribgames/mixdog';
 const MIXDOG_ISSUES_URL = 'https://github.com/tribgames/mixdog/issues';
-const MIXDOG_SPONSOR_URL = 'https://ko-fi.com/tribgamesdev';
 
 export function AboutPanel() {
   const host = (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
@@ -68,16 +67,6 @@ export function AboutPanel() {
         actions={
           <ActionButton disabled={busy} onClick={() => open(MIXDOG_ISSUES_URL)}>
             Issues ↗
-          </ActionButton>
-        }
-      />
-      <ResourceRow
-        title="Sponsor"
-        className="settings-about-row"
-        description="Support mixdog development."
-        actions={
-          <ActionButton disabled={busy} onClick={() => open(MIXDOG_SPONSOR_URL)}>
-            Ko-fi ↗
           </ActionButton>
         }
       />

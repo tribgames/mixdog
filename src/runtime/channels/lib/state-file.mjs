@@ -1,5 +1,4 @@
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
+import { mkdirSync, readFileSync, unlinkSync } from 'fs';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });
@@ -23,10 +22,6 @@ function readJsonFile(filePath, fallback) {
 function readJsonFileStrict(filePath) {
   const raw = readFileSync(filePath, 'utf8');
   return JSON.parse(raw);
-}
-function writeTextFile(filePath, value) {
-  ensureDir(dirname(filePath));
-  writeFileSync(filePath, value);
 }
 function writeJsonFile(filePath, value) {
   writeJsonAtomicSync(filePath, value, { compact: true, lock: true, fsync: false, fsyncDir: false });

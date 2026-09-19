@@ -90,8 +90,6 @@ function Harness({
     }),
     [text]
   );
-  const transcriptItems = React.useMemo(() => [...history, streamingTail], [history, streamingTail]);
-
   const { transcriptWindow, renderedTranscriptItems, transcriptMeasureRef } = useTranscriptWindow({
     items: history,
     structureRevision: 1,
@@ -361,7 +359,7 @@ for (const frame of frames) {
 }
 const dips = [];
 let previousSettled = null;
-for (const [step, list] of [...byStep.entries()].sort((a, b) => a[0] - b[0])) {
+for (const [, list] of [...byStep.entries()].sort((a, b) => a[0] - b[0])) {
   const first = list[0];
   const settled = list.at(-1);
   if (

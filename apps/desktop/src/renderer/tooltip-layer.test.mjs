@@ -42,11 +42,14 @@ async function leave(target) {
 }
 
 test('icon-only buttons and links receive hover hints from their accessible name without per-screen wiring', async (t) => {
-  const host = await mount(`
+  const host = await mount(
+    `
     <button aria-label="Close panel"><svg><path d="M0 0h1"/></svg></button>
     <a href="#settings" aria-label="Settings"><svg><path d="M0 0h1"/></svg></a>
     <div role="button" aria-label="Open panel"></div>
-  `, t);
+  `,
+    t
+  );
   for (const control of host.children) {
     const target = control.querySelector('path') || control;
     assert.equal(await hover(target), control.getAttribute('aria-label'));
@@ -55,7 +58,8 @@ test('icon-only buttons and links receive hover hints from their accessible name
 });
 
 test('controls that already show text, form fields and other labelled widgets stay silent unless a screen opts in', async (t) => {
-  const host = await mount(`
+  const host = await mount(
+    `
     <button aria-label="Edit mixdog"><b>mixdog</b><small>C:/Project/mixdog</small></button>
     <a href="#settings" aria-label="Settings">Settings</a>
     <div role="button" aria-label="Open panel">Panel</div>
@@ -68,7 +72,9 @@ test('controls that already show text, form fields and other labelled widgets st
     <div role="checkbox" aria-label="Stage file"></div>
     <div role="radio" aria-label="Weekly"></div>
     <div role="slider" aria-label="Volume"></div>
-  `, t);
+  `,
+    t
+  );
   for (const control of host.children) {
     const target = control.querySelector('b') || control;
     assert.equal(await hover(target), null, control.outerHTML);
@@ -80,18 +86,22 @@ test('controls that already show text, form fields and other labelled widgets st
 });
 
 test('explicit short copy takes precedence, including over nested SVG icons and labelled controls', async (t) => {
-  const host = await mount(`
+  const host = await mount(
+    `
     <span data-tooltip="Maximum delegation">
       <button aria-label="Assign independent work to all available agents">
         <svg aria-hidden="true"><path d="M0 0h1"/></svg>
       </button>
     </span>
-  `, t);
+  `,
+    t
+  );
   assert.equal(await hover(host.querySelector('path')), 'Maximum delegation');
 });
 
 test('empty hints, native titles, non-controls and inactive surfaces do not acquire duplicate tooltips', async (t) => {
-  const host = await mount(`
+  const host = await mount(
+    `
     <button data-tooltip="" aria-label="Suppressed"></button>
     <button title="Native hint" aria-label="Native"></button>
     <label title="Native setting help"><input aria-label="Setting"></label>
@@ -100,7 +110,9 @@ test('empty hints, native titles, non-controls and inactive surfaces do not acqu
     <div inert><button aria-label="Inactive"></button></div>
     <div aria-hidden="true"><button aria-label="Closing tab"></button></div>
     <input type="hidden" aria-label="Stored value">
-  `, t);
+  `,
+    t
+  );
   for (const target of host.querySelectorAll('[aria-label]')) {
     assert.equal(await hover(target), null, target.outerHTML);
     await leave(target);
@@ -127,7 +139,10 @@ test('shortcuts stay readable and technical content is never automatically trunc
   const button = host.firstElementChild;
   await hover(button);
   assert.equal(document.querySelector('.mx-tooltip-label').textContent, 'Send');
-  assert.deepEqual([...document.querySelectorAll('kbd')].map((key) => key.textContent), ['Ctrl', 'Enter']);
+  assert.deepEqual(
+    [...document.querySelectorAll('kbd')].map((key) => key.textContent),
+    ['Ctrl', 'Enter']
+  );
   await leave(button);
   const details = 'Permission denied: C:/Project/a-long-project-name/src/a-long-module-name/important-file.ts';
   host.lastElementChild.dataset.tooltip = details;

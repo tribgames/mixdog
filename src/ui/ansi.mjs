@@ -9,12 +9,11 @@
  *   - the NO_COLOR env var is set (any value) — https://no-color.org, or
  *   - stdout is not a TTY (piped/redirected/CI) — `process.stdout.isTTY` falsy.
  *
- * The decision is computed once at import time but can be recomputed via
- * `refreshColorSupport()` (used by tests / when output is rebound).
+ * The decision is computed once at import time.
  */
 import { stdout, env, platform } from 'node:process';
 
-let COLOR_ENABLED = computeColorEnabled();
+const COLOR_ENABLED = computeColorEnabled();
 
 function computeColorEnabled() {
   if (env.NO_COLOR !== undefined && env.NO_COLOR !== '') return false;
@@ -23,12 +22,6 @@ function computeColorEnabled() {
     return true;
   }
   return Boolean(stdout && stdout.isTTY);
-}
-
-/** Recompute color support (e.g. after env changes in tests). */
-function refreshColorSupport() {
-  COLOR_ENABLED = computeColorEnabled();
-  return COLOR_ENABLED;
 }
 
 /** Whether styling is currently active. */
@@ -162,11 +155,6 @@ export const brightGreen = sgr('38;2;0;185;88');
 /** Foreground truecolor wrapper: `rgb(215,119,87)('x')`. */
 export function rgb(r, g, b) {
   return sgr(`38;2;${r};${g};${b}`);
-}
-
-/** Background truecolor wrapper: `rgbBg(55,55,55)('x')`. */
-function rgbBg(r, g, b) {
-  return sgr(`48;2;${r};${g};${b}`);
 }
 
 /** Strip every SGR escape from a string (for width math / non-TTY fallbacks). */

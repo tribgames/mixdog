@@ -206,9 +206,7 @@ export function useComposerAttachments({
         if (path) {
           fallbackPaths.push(path);
         } else {
-          setAttachmentError(
-            (current) => `${current} ${file.name || 'Pasted file'}: local file path is unavailable.`
-          );
+          setAttachmentError((current) => `${current} ${file.name || 'Pasted file'}: local file path is unavailable.`);
         }
       }
       insertAbsolutePaths(fallbackPaths);
@@ -223,10 +221,7 @@ export function useComposerAttachments({
       if (transitioningRef.current) return;
       if (loaded.files.length) await attachFiles(loaded.files, loaded.sourcePaths);
       if (transitioningRef.current) return;
-      insertAbsolutePaths([
-        ...loaded.directories.map((entry) => entry.absolutePath),
-        ...loaded.unattachedPaths,
-      ]);
+      insertAbsolutePaths([...loaded.directories.map((entry) => entry.absolutePath), ...loaded.unattachedPaths]);
       if (loaded.errors.length) {
         setAttachmentError((current) => [...loaded.errors, current].filter(Boolean).join('\n'));
       }

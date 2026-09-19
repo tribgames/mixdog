@@ -21,11 +21,11 @@ run():
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import shlex
-import asyncio
-import hashlib
 import subprocess
 import tempfile
 import time
@@ -33,7 +33,7 @@ from pathlib import Path
 
 from harbor.agents.installed.base import (
     BaseInstalledAgent,
-    NonZeroAgentExitCodeError,
+    NonZeroAgentExitCodeError,  # noqa: F401 -- tests reach it as module.NonZeroAgentExitCodeError
     with_prompt_template,
 )
 from harbor.environments.base import BaseEnvironment
@@ -90,7 +90,9 @@ CONTAINER_SRC_SNAPSHOT = f"{CONTAINER_DATA_DIR}/src-snapshot.tar"
 # environments are never modified either way (agent deps only).
 PREBAKE_TAR_ENV = "MIXDOG_TB_PREBAKE_TAR"
 DEFAULT_PREBAKE_TAR = (
-    Path(__file__).resolve().parents[1] / "mixdog-prebake" / "mixdog-node-prebake.tar.gz"
+    Path(__file__).resolve().parents[1]
+    / "mixdog-prebake"
+    / "mixdog-node-prebake.tar.gz"
 )
 CONTAINER_PREBAKE_TAR = "/opt/mixdog-node-prebake.tar.gz"
 # zstd prebake pair (see prebake.ps1): multi-threaded decompress cuts the
@@ -130,8 +132,7 @@ PROVIDER_MODEL_CATALOG_FILES = {
 # API-key providers carry no host credential file; their secret travels as a
 # single container env var named by the pristine contract.
 API_KEY_PROVIDER_ENV = {
-    provider: entry
-    for provider, entry in PRISTINE_CONTRACT["apiKeyProviders"].items()
+    provider: entry for provider, entry in PRISTINE_CONTRACT["apiKeyProviders"].items()
 }
 PERSONAL_STATE_AUDIT_NAME = "personal-state-audit.json"
 CONTAINER_PERSONAL_STATE_AUDIT = f"/logs/agent/{PERSONAL_STATE_AUDIT_NAME}"
@@ -143,14 +144,14 @@ def _tool_dep_preflight_shell() -> str:
     deps = " ".join(_TOOL_DEPS)
     return (
         f"for dep in {deps}; do "
-        "command -v \"$dep\" >/dev/null 2>&1 || { echo \"tool-dep missing: $dep\" >&2; exit 1; }; "
+        'command -v "$dep" >/dev/null 2>&1 || { echo "tool-dep missing: $dep" >&2; exit 1; }; '
         f"done; echo 'tool-dep preflight ok: {deps}'"
     )
 
 
 def _host_data_dir() -> Path:
     """Resolve the host mixdog data dir (mirrors src/lib/plugin-paths.cjs):
-      MIXDOG_DATA_DIR | (MIXDOG_HOME | ~/.mixdog)/data
+    MIXDOG_DATA_DIR | (MIXDOG_HOME | ~/.mixdog)/data
     """
     data_dir = os.environ.get("MIXDOG_DATA_DIR")
     if not data_dir:
@@ -171,7 +172,9 @@ def _host_selected_account_id(provider: str) -> str:
         pool = json.loads(pool_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return "default"
-    entry = (pool.get("providers") or {}).get(provider) if isinstance(pool, dict) else None
+    entry = (
+        (pool.get("providers") or {}).get(provider) if isinstance(pool, dict) else None
+    )
     selected = entry.get("selectedId") if isinstance(entry, dict) else None
     return selected if isinstance(selected, str) and selected.strip() else "default"
 
@@ -242,7 +245,10 @@ def _host_agent_api_key(provider: str) -> str | None:
     """
     module = (
         Path(__file__).resolve().parents[3]
-        / "src" / "runtime" / "shared" / "provider-api-key.mjs"
+        / "src"
+        / "runtime"
+        / "shared"
+        / "provider-api-key.mjs"
     )
     code = (
         'const { pathToFileURL } = await import("node:url");'
@@ -335,7 +341,9 @@ def _run_anthropic_preflight(host_creds: Path, snapshot_path: Path) -> None:
         check=False,
     )
     if result.returncode != 0:
-        detail = (result.stderr or "preflight process exited without diagnostics").strip()
+        detail = (
+            result.stderr or "preflight process exited without diagnostics"
+        ).strip()
         for private_path in (host_creds, snapshot_path):
             detail = detail.replace(str(private_path), "<credential-file>")
         raise RuntimeError(detail)
@@ -383,9 +391,7 @@ def _mixdog_exec_command(
     route_args = f" --effort {shlex.quote(effort)}" if effort else ""
     if fast:
         route_args += " --fast"
-    cache = (
-        "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; " if compile_cache else ""
-    )
+    cache = "export NODE_COMPILE_CACHE=/opt/mixdog-v8-cache; " if compile_cache else ""
     graph = (
         'MIXDOG_ENTRY="$(readlink -f "$(command -v mixdog)")"; '
         'MIXDOG_PACKAGE="$(dirname "$(dirname "$MIXDOG_ENTRY")")"; '
@@ -405,9 +411,7 @@ def _mixdog_exec_command(
     return _bounded_process_command(pipeline, label)
 
 
-def _uv_provision_command(
-    home: str = "/root", curl_command: str = "curl"
-) -> str:
+def _uv_provision_command(home: str = "/root", curl_command: str = "curl") -> str:
     """Best-effort pinned uv bootstrap plus portable, bounded curl policy."""
     uv_bin = f"{home}/.local/bin"
     curlrc = f"{home}/.curlrc"
@@ -431,26 +435,26 @@ def _uv_provision_command(
         "echo 'uv 0.9.5 already available'; "
         "else "
         "provisioned=0; attempt=1; "
-        f"while [ \"$attempt\" -le {UV_BOOTSTRAP_ATTEMPTS} ]; do "
+        f'while [ "$attempt" -le {UV_BOOTSTRAP_ATTEMPTS} ]; do '
         "installer=$(mktemp 2>/dev/null || true); "
-        "if [ -n \"$installer\" ] && "
+        'if [ -n "$installer" ] && '
         f"{quoted_curl} -fsSL --retry 0 --connect-timeout 20 "
-        "https://astral.sh/uv/0.9.5/install.sh -o \"$installer\" && "
-        f"UV_INSTALL_DIR={quoted_bin} sh \"$installer\" && "
+        'https://astral.sh/uv/0.9.5/install.sh -o "$installer" && '
+        f'UV_INSTALL_DIR={quoted_bin} sh "$installer" && '
         f"[ \"$({quoted_bin}/uv --version 2>/dev/null || true)\" = 'uv 0.9.5' ] "
         f"&& [ \"$({quoted_bin}/uvx --version 2>/dev/null || true)\" = 'uvx 0.9.5' ]; then "
-        "provisioned=1; rm -f \"$installer\"; "
+        'provisioned=1; rm -f "$installer"; '
         "echo 'uv 0.9.5 provisioned'; break; "
         "fi; "
-        "if [ -n \"$installer\" ]; then rm -f \"$installer\"; fi; "
+        'if [ -n "$installer" ]; then rm -f "$installer"; fi; '
         f"if [ \"$({quoted_bin}/uv --version 2>/dev/null || true)\" != 'uv 0.9.5' ]; "
         f"then rm -f {quoted_bin}/uv; fi; "
         f"if [ \"$({quoted_bin}/uvx --version 2>/dev/null || true)\" != 'uvx 0.9.5' ]; "
         f"then rm -f {quoted_bin}/uvx; fi; "
-        f"if [ \"$attempt\" -lt {UV_BOOTSTRAP_ATTEMPTS} ]; then sleep 1; fi; "
+        f'if [ "$attempt" -lt {UV_BOOTSTRAP_ATTEMPTS} ]; then sleep 1; fi; '
         "attempt=$((attempt + 1)); "
         "done; "
-        "if [ \"$provisioned\" -ne 1 ]; then "
+        'if [ "$provisioned" -ne 1 ]; then '
         "echo 'warning: uv 0.9.5 pre-provisioning unavailable; verifier may retry bootstrap' >&2; "
         "fi; "
         "fi; "
@@ -475,9 +479,7 @@ class MixdogAgent(BaseInstalledAgent):
         **kwargs,
     ):
         route_profile = (route_profile or "").strip() or None
-        reject_profile_conflicts(
-            route_profile, provider=provider, effort=effort
-        )
+        reject_profile_conflicts(route_profile, provider=provider, effort=effort)
         # Accept mixdog_version via agents[].kwargs; default to the pinned release.
         self._mixdog_version = mixdog_version or DEFAULT_MIXDOG_VERSION
         # Legacy direct-worker probes still select "worker"; published runs use
@@ -524,7 +526,7 @@ class MixdogAgent(BaseInstalledAgent):
             "node -e \"const fs=require('fs'),path=require('path'),"
             "bin=fs.realpathSync(process.argv[1]),"
             "pkg=require(path.resolve(path.dirname(bin),'../package.json'));"
-            "console.log('mixdog-'+pkg.version)\" \"$(command -v mixdog)\""
+            'console.log(\'mixdog-\'+pkg.version)" "$(command -v mixdog)"'
         )
 
     def _required_providers(self) -> set[str]:
@@ -570,58 +572,61 @@ class MixdogAgent(BaseInstalledAgent):
             result = await coro
             timings[label] = time.monotonic() - started
             return result
-        prebake_tar = Path(
-            os.environ.get(PREBAKE_TAR_ENV, "") or DEFAULT_PREBAKE_TAR
-        )
+
+        prebake_tar = Path(os.environ.get(PREBAKE_TAR_ENV, "") or DEFAULT_PREBAKE_TAR)
         prebake_tar_zst = prebake_tar.with_name("mixdog-node-prebake.tar.zst")
         prebake_zstd_bin = prebake_tar.with_name("zstd-amd64")
         if prebake_tar.is_file():
             # apt (glibc) images take the fast path; apk/yum fall through to
             # the stock installer below (the tar targets debian layout).
             probe = await self.exec_as_root(
-                environment, command=(
+                environment,
+                command=(
                     "command -v apt-get >/dev/null 2>&1 && echo apt || true; "
                     "test -r /opt/mixdog-prebake-cache/mixdog-node-prebake.tar.zst && "
                     "test -x /opt/mixdog-prebake-cache/zstd-amd64 && "
                     "echo MIXDOG_PREBAKE_CACHE_READY || true"
-                )
+                ),
             )
             if "apt" in (getattr(probe, "stdout", "") or ""):
+
                 def _stage_command(extract):
                     return (
-                            "set -eu; "
-                            f"{extract} "
-                            # Prebaked dep-layer compile cache lives OUTSIDE
-                            # /opt/mixdog (which _inject_credentials recreates);
-                            # agent-user warmup/driver must be able to append.
-                            "mkdir -p /opt/mixdog-v8-cache; "
-                            "chmod -R a+rwX /opt/mixdog-v8-cache; "
-                            # Static curl + CA bundle from the tar replace the
-                            # old parallel apt leg (18-20s network critical
-                            # path on curl-less images). Additive only: the
-                            # image's own curl/certs always win.
-                            "if ! command -v curl >/dev/null 2>&1 && [ -x /opt/static-curl/curl ]; then "
-                            "install -m 0755 /opt/static-curl/curl /usr/local/bin/curl; fi; "
-                            "if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ -s /opt/static-curl/ca-certificates.crt ]; then "
-                            "mkdir -p /etc/ssl/certs; "
-                            "cp /opt/static-curl/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt; fi; "
-                            "timeout --version | grep -q 'GNU coreutils'; node --version; "
-                            "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed (prebaked)'; "
-                            f"expected={shlex.quote(self._mixdog_version)}; "
-                            "installed=$(node -p \"require('/usr/lib/node_modules/mixdog/package.json').version\"); "
-                            "if [ \"$installed\" != \"$expected\" ]; then "
-                            "echo \"prebake mixdog version $installed != $expected\" >&2; exit 1; "
-                            "fi; "
-                            f"{_tool_dep_preflight_shell()}; "
-                            "if /root/.local/bin/uv --version 2>/dev/null | grep -q '^uv 0\\.9\\.5$' && "
-                            "/root/.local/bin/uvx --version 2>/dev/null | grep -q '^uvx 0\\.9\\.5$'; then "
-                            "echo MIXDOG_PREBAKE_UV_READY; else echo MIXDOG_PREBAKE_UV_MISSING; fi; "
-                            "if command -v curl >/dev/null 2>&1 && [ -s /etc/ssl/certs/ca-certificates.crt ]; then "
-                            "echo CURL_READY; else echo CURL_MISSING; fi"
+                        "set -eu; "
+                        f"{extract} "
+                        # Prebaked dep-layer compile cache lives OUTSIDE
+                        # /opt/mixdog (which _inject_credentials recreates);
+                        # agent-user warmup/driver must be able to append.
+                        "mkdir -p /opt/mixdog-v8-cache; "
+                        "chmod -R a+rwX /opt/mixdog-v8-cache; "
+                        # Static curl + CA bundle from the tar replace the
+                        # old parallel apt leg (18-20s network critical
+                        # path on curl-less images). Additive only: the
+                        # image's own curl/certs always win.
+                        "if ! command -v curl >/dev/null 2>&1 && [ -x /opt/static-curl/curl ]; then "
+                        "install -m 0755 /opt/static-curl/curl /usr/local/bin/curl; fi; "
+                        "if [ ! -s /etc/ssl/certs/ca-certificates.crt ] && [ -s /opt/static-curl/ca-certificates.crt ]; then "
+                        "mkdir -p /etc/ssl/certs; "
+                        "cp /opt/static-curl/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt; fi; "
+                        "timeout --version | grep -q 'GNU coreutils'; node --version; "
+                        "mixdog --help >/dev/null 2>&1 && echo 'mixdog installed (prebaked)'; "
+                        f"expected={shlex.quote(self._mixdog_version)}; "
+                        "installed=$(node -p \"require('/usr/lib/node_modules/mixdog/package.json').version\"); "
+                        'if [ "$installed" != "$expected" ]; then '
+                        'echo "prebake mixdog version $installed != $expected" >&2; exit 1; '
+                        "fi; "
+                        f"{_tool_dep_preflight_shell()}; "
+                        "if /root/.local/bin/uv --version 2>/dev/null | grep -q '^uv 0\\.9\\.5$' && "
+                        "/root/.local/bin/uvx --version 2>/dev/null | grep -q '^uvx 0\\.9\\.5$'; then "
+                        "echo MIXDOG_PREBAKE_UV_READY; else echo MIXDOG_PREBAKE_UV_MISSING; fi; "
+                        "if command -v curl >/dev/null 2>&1 && [ -s /etc/ssl/certs/ca-certificates.crt ]; then "
+                        "echo CURL_READY; else echo CURL_MISSING; fi"
                     )
 
                 async def _stage_leg_zst():
-                    if "MIXDOG_PREBAKE_CACHE_READY" in (getattr(probe, "stdout", "") or ""):
+                    if "MIXDOG_PREBAKE_CACHE_READY" in (
+                        getattr(probe, "stdout", "") or ""
+                    ):
                         return await self.exec_as_root(
                             environment,
                             command=_stage_command(
@@ -629,8 +634,12 @@ class MixdogAgent(BaseInstalledAgent):
                                 "-xf /opt/mixdog-prebake-cache/mixdog-node-prebake.tar.zst;"
                             ),
                         )
-                    await environment.upload_file(prebake_tar_zst, CONTAINER_PREBAKE_TAR_ZST)
-                    await environment.upload_file(prebake_zstd_bin, CONTAINER_PREBAKE_ZSTD)
+                    await environment.upload_file(
+                        prebake_tar_zst, CONTAINER_PREBAKE_TAR_ZST
+                    )
+                    await environment.upload_file(
+                        prebake_zstd_bin, CONTAINER_PREBAKE_ZSTD
+                    )
                     return await self.exec_as_root(
                         environment,
                         command=_stage_command(
@@ -684,7 +693,9 @@ class MixdogAgent(BaseInstalledAgent):
                 if prebake_tar_zst.is_file() and prebake_zstd_bin.is_file():
                     try:
                         stage_result = await _timed("stage-zst", _stage_leg_zst())
-                        if "PREBAKE_ZSTD_UNUSABLE" in (getattr(stage_result, "stdout", "") or ""):
+                        if "PREBAKE_ZSTD_UNUSABLE" in (
+                            getattr(stage_result, "stdout", "") or ""
+                        ):
                             stage_result = None
                     except Exception:
                         stage_result = None
@@ -696,24 +707,30 @@ class MixdogAgent(BaseInstalledAgent):
                 if "CURL_MISSING" in (getattr(stage_result, "stdout", "") or ""):
                     # Old tar without the static bundle: uniform network
                     # fallback (no task conditionals).
-                    await _timed("apt-fallback", self.exec_as_root(
-                        environment,
-                        command=(
-                            "set -eu; apt-get update && "
-                            "apt-get install -y curl ca-certificates"
+                    await _timed(
+                        "apt-fallback",
+                        self.exec_as_root(
+                            environment,
+                            command=(
+                                "set -eu; apt-get update && "
+                                "apt-get install -y curl ca-certificates"
+                            ),
+                            env={"DEBIAN_FRONTEND": "noninteractive"},
                         ),
-                        env={"DEBIAN_FRONTEND": "noninteractive"},
-                    ))
+                    )
                 # Current prebakes prove both uv binaries inside the stage
                 # command, avoiding another container exec on every trial.
                 # Older/incomplete tars retain the bounded recovery path.
                 if "MIXDOG_PREBAKE_UV_READY" not in (
                     getattr(stage_result, "stdout", "") or ""
                 ):
-                    await _timed("uv-fallback", self.exec_as_root(
-                        environment,
-                        command=_uv_provision_command(),
-                    ))
+                    await _timed(
+                        "uv-fallback",
+                        self.exec_as_root(
+                            environment,
+                            command=_uv_provision_command(),
+                        ),
+                    )
                 print(
                     "[setup-timing] "
                     + " ".join(f"{k}={v:.1f}s" for k, v in timings.items()),
@@ -794,20 +811,16 @@ class MixdogAgent(BaseInstalledAgent):
 
             generated_root = Path(generated_dir.name)
             generated_config = generated_root / "mixdog-config.json"
-            config = build_benchmark_config(
-                self._route_profile, self._workflow
-            )
+            config = build_benchmark_config(self._route_profile, self._workflow)
             config_bytes = (
                 json.dumps(config, indent=2, ensure_ascii=False) + "\n"
             ).encode("utf-8")
             generated_config.write_bytes(config_bytes)
             credential_count = sum(
-                name in PROVIDER_CREDENTIAL_FILES.values()
-                for name in boot_files
+                name in PROVIDER_CREDENTIAL_FILES.values() for name in boot_files
             )
             catalog_count = sum(
-                name in PROVIDER_MODEL_CATALOG_FILES.values()
-                for name in boot_files
+                name in PROVIDER_MODEL_CATALOG_FILES.values() for name in boot_files
             )
             audit = {
                 "schemaVersion": 1,
@@ -820,14 +833,10 @@ class MixdogAgent(BaseInstalledAgent):
                 "injectedModelCatalogFileCount": catalog_count,
                 "personalState": {
                     "hostConfigRead": False,
-                    **{
-                        name: 0
-                        for name in PRISTINE_CONTRACT["personalStateCounters"]
-                    },
+                    **{name: 0 for name in PRISTINE_CONTRACT["personalStateCounters"]},
                 },
                 "featuresEnabled": {
-                    name: False
-                    for name in PRISTINE_CONTRACT["disabledFeatures"]
+                    name: False for name in PRISTINE_CONTRACT["disabledFeatures"]
                 },
             }
             generated_audit = generated_root / PERSONAL_STATE_AUDIT_NAME
@@ -850,23 +859,17 @@ class MixdogAgent(BaseInstalledAgent):
             uploads_started = time.monotonic()
             await asyncio.gather(
                 *(
-                    environment.upload_file(
-                        host_path, f"{CONTAINER_DATA_DIR}/{name}"
-                    )
+                    environment.upload_file(host_path, f"{CONTAINER_DATA_DIR}/{name}")
                     for name, host_path in upload_files.items()
                 ),
                 environment.upload_file(
                     generated_audit, CONTAINER_PERSONAL_STATE_AUDIT
                 ),
-                environment.upload_file(
-                    snapshot.archive_path, CONTAINER_SRC_SNAPSHOT
-                ),
+                environment.upload_file(snapshot.archive_path, CONTAINER_SRC_SNAPSHOT),
             )
             timings["uploads"] = time.monotonic() - uploads_started
             print(
-                format_resolved_routes(
-                    self._route_profile_name, self._route_profile
-                ),
+                format_resolved_routes(self._route_profile_name, self._route_profile),
                 flush=True,
             )
             print(
@@ -922,9 +925,7 @@ class MixdogAgent(BaseInstalledAgent):
     ) -> None:
         if upload:
             snapshot = self._load_src_snapshot()
-            await environment.upload_file(
-                snapshot.archive_path, CONTAINER_SRC_SNAPSHOT
-            )
+            await environment.upload_file(snapshot.archive_path, CONTAINER_SRC_SNAPSHOT)
         await self.exec_as_root(
             environment,
             command=(
@@ -936,15 +937,15 @@ class MixdogAgent(BaseInstalledAgent):
                 'BACKUP="$PACKAGE/.src-installed-backup"; '
                 'SPAWN="$PACKAGE/native-tools/mixdog-spawn"; '
                 'SPAWN_BACKUP="$PACKAGE/native-tools/.mixdog-spawn-installed-backup"; '
-                'SRC_SWAPPED=0; SPAWN_SWAPPED=0; HAD_SPAWN=0; '
-                'restore_runtime_swap() { '
+                "SRC_SWAPPED=0; SPAWN_SWAPPED=0; HAD_SPAWN=0; "
+                "restore_runtime_swap() { "
                 'if [ "$SRC_SWAPPED" -eq 1 ] && [ -e "$BACKUP" ]; then '
                 'rm -rf "$PACKAGE/src"; mv "$BACKUP" "$PACKAGE/src"; fi; '
                 'if [ "$SPAWN_SWAPPED" -eq 1 ]; then rm -f "$SPAWN"; '
                 'if [ "$HAD_SPAWN" -eq 1 ] && [ -e "$SPAWN_BACKUP" ]; then '
                 'mv "$SPAWN_BACKUP" "$SPAWN"; fi; fi; }; '
                 'cleanup_runtime_swap() { rm -rf "$STAGING"; restore_runtime_swap; }; '
-                'trap cleanup_runtime_swap EXIT; '
+                "trap cleanup_runtime_swap EXIT; "
                 "trap 'exit 1' HUP INT TERM; "
                 'if [ -e "$BACKUP" ]; then '
                 'if [ ! -e "$PACKAGE/src" ]; then mv "$BACKUP" "$PACKAGE/src"; '
@@ -954,19 +955,20 @@ class MixdogAgent(BaseInstalledAgent):
                 'if [ ! -e "$SPAWN" ]; then mv "$SPAWN_BACKUP" "$SPAWN"; '
                 'else rm -f "$SPAWN_BACKUP"; fi; fi; '
                 'rm -rf "$STAGING"; mkdir -p "$STAGING"; '
-                f"tar -xf {shlex.quote(CONTAINER_SRC_SNAPSHOT)} -C \"$STAGING\"; "
+                f'tar -xf {shlex.quote(CONTAINER_SRC_SNAPSHOT)} -C "$STAGING"; '
                 'test -d "$STAGING/src"; '
                 'test -x "$STAGING/native-tools/mixdog-spawn"; '
                 'mv "$PACKAGE/src" "$BACKUP"; '
-                'SRC_SWAPPED=1; '
+                "SRC_SWAPPED=1; "
                 'if [ -e "$SPAWN" ]; then mv "$SPAWN" "$SPAWN_BACKUP"; HAD_SPAWN=1; fi; '
                 'if ! mv "$STAGING/src" "$PACKAGE/src"; then exit 1; fi; '
                 'if ! mv "$STAGING/native-tools/mixdog-spawn" "$SPAWN"; then exit 1; fi; '
                 'SPAWN_SWAPPED=1; chmod 0755 "$SPAWN"; '
-                + spawn_capability_shell('"$SPAWN"') + "; " +
-                'rm -rf "$BACKUP" "$STAGING"; rm -f "$SPAWN_BACKUP"; '
-                'SRC_SWAPPED=0; SPAWN_SWAPPED=0; '
-                'trap - EXIT HUP INT TERM; '
+                + spawn_capability_shell('"$SPAWN"')
+                + "; "
+                + 'rm -rf "$BACKUP" "$STAGING"; rm -f "$SPAWN_BACKUP"; '
+                "SRC_SWAPPED=0; SPAWN_SWAPPED=0; "
+                "trap - EXIT HUP INT TERM; "
                 'echo "full local runtime bundle installed"'
             ),
         )
@@ -985,7 +987,7 @@ class MixdogAgent(BaseInstalledAgent):
                     'MIXDOG_BIN="$(readlink -f "$(command -v mixdog)")"; '
                     'export MIXDOG_SRC="$(dirname "$(dirname "$MIXDOG_BIN")")/src"; '
                     "timeout 120s node --input-type=module -e "
-                    "'const { pathToFileURL } = await import(\"node:url\"); "
+                    '\'const { pathToFileURL } = await import("node:url"); '
                     'await import(pathToFileURL(process.env.MIXDOG_SRC + "/mixdog-session-runtime.mjs"));\' '
                     ">/dev/null 2>&1 && echo 'v8 cache warmed' || echo 'v8 cache warmup skipped'"
                 ),
@@ -1042,18 +1044,14 @@ class MixdogAgent(BaseInstalledAgent):
             # Shield so an in-flight outer cancellation cannot strand the
             # container exec mid-write; any failure here stays silent.
             try:
-                await asyncio.shield(
-                    self._populate_usage_context(environment, context)
-                )
+                await asyncio.shield(self._populate_usage_context(environment, context))
             except BaseException:
                 pass
 
     async def _populate_usage_context(self, environment, context) -> None:
         """Best-effort copy of the driver's aggregate usage into Harbor."""
         try:
-            result = await environment.exec(
-                command="cat /logs/agent/usage.json"
-            )
+            result = await environment.exec(command="cat /logs/agent/usage.json")
             if getattr(result, "return_code", 1) != 0:
                 return
             document = json.loads(getattr(result, "stdout", "") or "")
@@ -1135,8 +1133,7 @@ class MixdogAgent(BaseInstalledAgent):
             try:
                 captured = await environment.exec(
                     command=(
-                        "cat /logs/agent/mixdog.txt; "
-                        "cat /logs/agent/mixdog.stderr >&2"
+                        "cat /logs/agent/mixdog.txt; cat /logs/agent/mixdog.stderr >&2"
                     )
                 )
                 output = (

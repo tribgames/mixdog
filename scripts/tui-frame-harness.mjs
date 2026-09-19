@@ -210,7 +210,6 @@ function makeDriver({ rows, cols, isWindows }) {
   // out of scope here; log-update reads process.platform/WT_SESSION at import.
   const log = logUpdate.create(fakeStream, { incremental: true });
   const vt = new VT(rows, cols);
-  let lastOutput = '';
   let lastOutputHeight = 0;
   let lastViewportRows = rows;
   let lastOneShortPadded = false;
@@ -259,7 +258,6 @@ function makeDriver({ rows, cols, isWindows }) {
       log(outputToRender);
     }
     for (const c of chunks) vt.write(c);
-    lastOutput = output;
     lastOutputHeight = outputHeight;
     lastViewportRows = rows;
     const trailingNL = outputToRender.endsWith('\n');

@@ -15,7 +15,10 @@ test('tab switches reuse one surface and stale releases cannot dispose its new o
   const b = {};
   const first = pool.acquire('pane', a, create, () => detached.push('a'));
   pool.release('pane', a);
-  assert.equal(pool.acquire('pane', b, create, () => detached.push('b')), first);
+  assert.equal(
+    pool.acquire('pane', b, create, () => detached.push('b')),
+    first
+  );
   pool.release('pane', a);
   await Promise.resolve();
   assert.equal(created, 1);
@@ -39,7 +42,10 @@ test('split panes have independent surfaces and unused panes have none', async (
   assert.equal(created, 0);
   const a = {};
   const b = {};
-  assert.notEqual(pool.acquire('left', a, create, () => {}), pool.acquire('right', b, create, () => {}));
+  assert.notEqual(
+    pool.acquire('left', a, create, () => {}),
+    pool.acquire('right', b, create, () => {})
+  );
   pool.release('left', a);
   await Promise.resolve();
   assert.equal(disposed, 1);

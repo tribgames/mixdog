@@ -46,7 +46,8 @@ export function selectTemplatePage(document, request) {
     return page;
   }
   const role = String(request?.role || '');
-  if (!role) throw new Error('use_template_page needs the page to use: role for the job it does, or slide for one exact page');
+  if (!role)
+    throw new Error('use_template_page needs the page to use: role for the job it does, or slide for one exact page');
   const matches = pages.filter((page) => String(page.role || '') === role);
   if (!matches.length) {
     const carried = [...new Set(pages.map((page) => String(page.role || '')).filter(Boolean))].join(', ');
@@ -79,6 +80,11 @@ export function templatePageFill(page, content) {
   }
   const sets = [];
   const deletes = [];
+  // Text an item carries that the page has no box for: a comparison page whose
+  // columns are one line each cannot hold the second line of an item, and
+  // writing the first line alone drops the rest without a word. A page that
+  // cannot take the content says so, the way it does for too many items.
+  const unplaced = [];
   const title = String(content?.title || '');
   if (title) {
     const shape = slots.get('title');
@@ -96,11 +102,18 @@ export function templatePageFill(page, content) {
     if (lead) {
       if (leadText) sets.push({ shape: lead, text: leadText });
       else deletes.push(lead);
-    }
+    } else if (leadText) unplaced.push({ position, field: group.lead });
     if (follow) {
       if (followText) sets.push({ shape: follow, text: followText });
       else deletes.push(follow);
-    }
+    } else if (followText) unplaced.push({ position, field: group.follow });
+  }
+  if (unplaced.length) {
+    const fields = [...new Set(unplaced.map((entry) => entry.field))].join(' and ');
+    const positions = [...new Set(unplaced.map((entry) => entry.position))].join(', ');
+    throw new Error(
+      `Slide ${page.index} of the template has no ${group.family} ${fields} box for item ${positions}, so that text has nowhere to go: put it in the item's ${group.lead}, or use a page whose ${group.family}s carry a ${fields} line`
+    );
   }
   return {
     sets,

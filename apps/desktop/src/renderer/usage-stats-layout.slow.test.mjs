@@ -18,9 +18,12 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
           import { CommandSurface } from "./CommandSurface";
 
           const root = createRoot(document.getElementById("root"));
-          const period = ${JSON.stringify(resolveUsageStatsPeriod({
-            view: 'hour', now: new Date(2026, 8, 13, 12).getTime(),
-          }))};
+          const period = ${JSON.stringify(
+            resolveUsageStatsPeriod({
+              view: 'hour',
+              now: new Date(2026, 8, 13, 12).getTime(),
+            })
+          )};
           window.renderStats = (state) => {
             const empty = state === "empty";
             const route = {
@@ -99,15 +102,19 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
     }, viewport);
     for (const state of ['loading', 'populated', 'empty']) {
       await page.evaluate((state) => window.renderStats(state), state);
-      await page.waitForFunction((state) => {
-        const surface = document.querySelector('.stats-surface');
-        if (!surface) return false;
-        if (state === 'loading') return surface.dataset.loading === 'true';
-        if (surface.dataset.loading === 'true') return false;
-        return state === 'empty'
-          ? surface.dataset.empty === 'true'
-          : Boolean(surface.querySelector('.stats-provider-row'));
-      }, {}, state);
+      await page.waitForFunction(
+        (state) => {
+          const surface = document.querySelector('.stats-surface');
+          if (!surface) return false;
+          if (state === 'loading') return surface.dataset.loading === 'true';
+          if (surface.dataset.loading === 'true') return false;
+          return state === 'empty'
+            ? surface.dataset.empty === 'true'
+            : Boolean(surface.querySelector('.stats-provider-row'));
+        },
+        {},
+        state
+      );
       const layout = await page.evaluate(async () => {
         await document.fonts.ready;
         const dialog = document.querySelector('.command-surface');
@@ -116,7 +123,10 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
         const rect = dialog.getBoundingClientRect();
         body.scrollTop = body.scrollHeight;
         return {
-          left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom,
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
           layerOverflow: layer.scrollHeight - layer.clientHeight,
           bodyOverflow: body.scrollHeight - body.clientHeight,
           scrollTop: body.scrollTop,

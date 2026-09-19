@@ -29,6 +29,28 @@ test('WGC captures a covered fixture without foreign pixels, preserves foregroun
 public sealed class WgcFixture : System.Windows.Forms.Form {
   [System.Runtime.InteropServices.DllImport("user32.dll")]
   public static extern System.IntPtr WindowFromPoint(System.Drawing.Point point);
+  [System.Runtime.InteropServices.DllImport("user32.dll")]
+  public static extern System.IntPtr GetWindow(System.IntPtr hWnd, uint uCmd);
+  [System.Runtime.InteropServices.DllImport("user32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+  public static extern int GetClassName(System.IntPtr window, System.Text.StringBuilder text, int count);
+  public static string ClassOf(System.IntPtr window) {
+    if (window == System.IntPtr.Zero) return "";
+    var name = new System.Text.StringBuilder(160);
+    GetClassName(window, name, name.Capacity);
+    return name.ToString();
+  }
+  public static bool IsOccluded(WgcFixture window, WgcFixture cover, System.Drawing.Point probe) {
+    var hit = WindowFromPoint(probe);
+    if (hit == cover.Handle) return true;
+    if (ClassOf(hit) == "LockScreenBackstopFrame") {
+      if (!cover.Bounds.Contains(probe)) return false;
+      const uint GW_HWNDNEXT = 2;
+      for (var cur = GetWindow(cover.Handle, GW_HWNDNEXT); cur != System.IntPtr.Zero; cur = GetWindow(cur, GW_HWNDNEXT)) {
+        if (cur == window.Handle) return true;
+      }
+    }
+    return false;
+  }
   public WgcFixture() {
     FormBorderStyle = System.Windows.Forms.FormBorderStyle.None;
     ClientSize = new System.Drawing.Size(160, 120);
@@ -52,12 +74,17 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
   }
 }
 `;
+  const session = PS_SESSION.replace(MIXDOG_HOST_CSHARP, MIXDOG_HOST_CSHARP + '\n' + fixture);
+  const withForms = session.replace(
+    /'System\.Drawing\.dll'\s*,\s*\$AccessibilityAssemblyPath/,
+    "'System.Drawing.dll','System.Windows.Forms.dll',$$AccessibilityAssemblyPath"
+  );
+  if (withForms === session) {
+    throw new Error('WGC fixture could not add System.Windows.Forms.dll to MixdogHostRefs');
+  }
   const program =
     '[Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)\n' +
-    PS_SESSION.replace(MIXDOG_HOST_CSHARP, MIXDOG_HOST_CSHARP + '\n' + fixture).replace(
-      "'System.Drawing.dll',$AccessibilityAssemblyPath",
-      "'System.Drawing.dll','System.Windows.Forms.dll',$AccessibilityAssemblyPath"
-    ) +
+    withForms +
     '\n' +
     PS_WINDOW_CAPTURE +
     String.raw`
@@ -72,7 +99,7 @@ try {
   $cover.Show()
   $cover.Update()
   [Windows.Forms.Application]::DoEvents()
-  $covered = [WgcFixture]::WindowFromPoint([Drawing.Point]::new($window.Left + 100, $window.Top + 90)) -eq $cover.Handle
+  $covered = [WgcFixture]::IsOccluded($window, $cover, [Drawing.Point]::new($window.Left + 100, $window.Top + 90))
   $capture = Get-WindowGraphicsCapture $window.Handle
   $second = Get-WindowGraphicsCapture $window.Handle
   $memory = [IO.MemoryStream]::new([Convert]::FromBase64String($capture.PngBase64))

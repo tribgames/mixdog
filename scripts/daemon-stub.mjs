@@ -6,7 +6,6 @@
 // MIXDOG_DAEMON_ENTRY, so the flip is exercised end to end.
 process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
 
-import os from 'node:os';
 import path from 'node:path';
 import { rmSync, writeFileSync } from 'node:fs';
 import { writeJsonAtomicSync } from '../src/runtime/shared/atomic-file.mjs';

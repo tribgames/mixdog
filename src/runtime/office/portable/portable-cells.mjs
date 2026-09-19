@@ -1,4 +1,4 @@
-import { join, posix } from 'node:path';
+import { posix } from 'node:path';
 import { relationshipMap, zipText } from './portable-opc.mjs';
 import { containerBody, elementSpans, paragraphTexts, setXmlAttribute, xmlDecode, xmlEncode } from './portable-xml.mjs';
 

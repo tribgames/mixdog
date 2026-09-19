@@ -12,11 +12,7 @@
 import { readCachedOAuthUsageSnapshot } from '../runtime/agent/orchestrator/providers/oauth-usage.mjs';
 import { readCachedOpenCodeGoUsageSnapshot } from '../runtime/agent/orchestrator/providers/opencode-go-usage.mjs';
 import { buildGatewayLimits } from '../runtime/agent/orchestrator/providers/statusline-route-meta.mjs';
-import {
-  compactBoundaryForStatus,
-  formatGatewayLimitSegments,
-  loadGatewayStatus,
-} from '../vendor/statusline/bin/statusline-route.mjs';
+import { formatGatewayLimitSegments, loadGatewayStatus } from '../vendor/statusline/bin/statusline-route.mjs';
 import { createSessionStats } from './session-stats.mjs';
 import { measuredContextUsage } from './context-measurement.mjs';
 import {
@@ -28,7 +24,6 @@ import {
   YLW,
   RED,
   terminalColumns,
-  modelContextWindow,
   formatModelSegment,
   formatContextSegment,
   colourPct,

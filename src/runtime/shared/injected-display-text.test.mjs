@@ -44,7 +44,8 @@ test('every surface shares one tag list', () => {
 
 test('lenientWrapper:false keeps a pasted completion-shaped prompt visible', () => {
   // Shape-only match: the quoted body is NOT an internal runtime notification.
-  const pasted = 'Async shell task job_7 (completed, exit 0) finished.\n\nResult:\n> 이 결과 왜 이런지 봐줘\n> 로그도 같이';
+  const pasted =
+    'Async shell task job_7 (completed, exit 0) finished.\n\nResult:\n> 이 결과 왜 이런지 봐줘\n> 로그도 같이';
   assert.equal(isInternalTranscriptDisplayText(pasted), true);
   assert.equal(isInternalTranscriptDisplayText(pasted, { lenientWrapper: false }), false);
 });
@@ -53,6 +54,9 @@ test('lenientWrapper:false still hides genuine runtime control rows', () => {
   const real =
     'Async shell task job_7 (completed, exit 0) finished.\n\nResult:\n> [task_id: job_7]\n> [status: completed]';
   assert.equal(isInternalTranscriptDisplayText(real, { lenientWrapper: false }), true);
-  assert.equal(isInternalTranscriptDisplayText('<system-reminder>\nBatch\n</system-reminder>', { lenientWrapper: false }), true);
+  assert.equal(
+    isInternalTranscriptDisplayText('<system-reminder>\nBatch\n</system-reminder>', { lenientWrapper: false }),
+    true
+  );
   assert.equal(isInternalTranscriptDisplayText('[Request interrupted by user]', { lenientWrapper: false }), true);
 });

@@ -354,9 +354,13 @@ export async function runGrepPatternFanout({
       return `Error: ${err && err.message ? err.message : err}`;
     }
   };
-  const subs = options._grepPathFanout
-    ? await patterns.reduce(async (all, p) => [...(await all), await runPattern(p)], Promise.resolve([]))
-    : await Promise.all(patterns.map(runPattern));
+  let subs;
+  if (options._grepPathFanout) {
+    subs = [];
+    for (const pattern of patterns) subs.push(await runPattern(pattern));
+  } else {
+    subs = await Promise.all(patterns.map(runPattern));
+  }
   // Consolidate single-line no-match sub-results: K missed patterns
   // collapse into ONE summary line instead of K header+body sections.
   const parts = [];

@@ -7,7 +7,6 @@
  *
  * The env-tunable constants and their comments are preserved.
  */
-import { measureStreamingMarkdownRenderedRows } from '../markdown/measure-rendered-rows.mjs';
 import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
 import { normalizeToolName } from '../../runtime/shared/tool-surface.mjs';
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';

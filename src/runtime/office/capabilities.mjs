@@ -714,7 +714,7 @@ const FORMAT_SIGNATURES = {
     fit_table: signature(['table']),
     insert_toc: signature([], ['paragraph', 'lowerHeadingLevel', 'upperHeadingLevel'], {
       notes:
-        'Lands in a paragraph of its own after paragraph (or at the end of the document, where the batch has reached) on both backends, and is rebuilt from the Heading 1..3 paragraphs at every save. Its own title is a bold paragraph, never a Heading — a heading would list itself.',
+        'Lands in a paragraph of its own after paragraph (or at the end of the document, where the batch has reached) on both backends, and is rebuilt from the Heading 1..3 paragraphs at every save. The list carries no title of its own: write one before it as a bold paragraph, never as a Heading, or the contents would list themselves.',
     }),
     add_page_numbers: signature(
       [],
@@ -815,11 +815,12 @@ const FORMAT_SIGNATURES = {
         'valueNumberFormat',
         'dataLabelPosition',
         'dataLabelColor',
+        'plotBy',
       ],
       {
         propertySets: ['chart'],
         notes:
-          "The first source column supplies categories; remaining columns become series. A series that is not beside its categories joins by comma the way Excel reads it (range:'A7:A12,D7:D12', same rows in every area). cell (H2) places the frame's top-left corner on the grid; left/top are points and win when both are given; width/height are points (420 × 260 at F5 reaches about N22), and the print area has to reach past the frame.",
+          "plotBy:'rows' reads one bounded range the other way — the first row supplies the categories and every other row is a series named by its first cell — for a sheet that grows a column per period. The first source column supplies categories; remaining columns become series. A series that is not beside its categories joins by comma the way Excel reads it (range:'A7:A12,D7:D12', same rows in every area). cell (H2) places the frame's top-left corner on the grid; left/top are points and win when both are given; width/height are points (420 × 260 at F5 reaches about N22), and the print area has to reach past the frame.",
       }
     ),
     add_conditional_format: signature(
@@ -929,7 +930,7 @@ const FORMAT_SIGNATURES = {
     import_slides: signature(['path'], ['after', 'slides']),
     use_template_page: signature(['path', 'after'], ['role', 'slide', 'title', 'items', 'notes'], {
       notes:
-        'Takes a page from the template deck at path and fills it: role picks the page by the job it does (the snapshot reports it as slide.role — cover, comparison, process, metrics, split, statement, closing, content), or slide names one exact page. after is the slide the new page follows, 0 for the front. title fills the title slot; items[] fill the page\'s repeated group in order, each { title, body } (a metric page reads them as { value, label }). Fewer items than slots empties the unused ones; more items than the page holds is refused, since a page takes another item by being replaced, never by shrinking its type.',
+        "Takes a page from the template deck at path and fills it: role picks the page by the job it does (the snapshot reports it as slide.role — cover, comparison, process, metrics, split, statement, closing, content), or slide names one exact page. after is the slide the new page follows, 0 for the front. title fills the title slot; items[] fill the page's repeated group in order, each { title, body } (a metric page reads them as { value, label }). Fewer items than slots empties the unused ones; more items than the page holds is refused, since a page takes another item by being replaced, never by shrinking its type.",
     }),
     keep_slides: signature(['slides']),
     set_notes: signature(['slide', 'text']),

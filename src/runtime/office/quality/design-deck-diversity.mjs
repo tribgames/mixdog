@@ -246,7 +246,8 @@ export function reviewPptxDeckDiversity({ document, design } = {}) {
   const decorationRun = longestRepeatRun(decorations.map((kind, index) => kind || `\u0000${index}`));
   if (decorationRun.length >= 2) {
     const first = Number(slides[decorationRun.start]?.index) || decorationRun.start + 1;
-    const last = Number(slides[decorationRun.start + decorationRun.length - 1]?.index) || first + decorationRun.length - 1;
+    const last =
+      Number(slides[decorationRun.start + decorationRun.length - 1]?.index) || first + decorationRun.length - 1;
     issues.push(
       issue(
         'repeated_decoration',

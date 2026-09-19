@@ -151,7 +151,8 @@ function Show-ReferencePointer($ref, $phase) {
         $point = Get-ElPoint $ref $false
         [MixWin32]::ReportPointer($point[0], $point[1], $false, $phase)
         return $point
-    } catch {
+    }
+    catch {
         # Missing visual bounds must not replay or block an otherwise valid semantic action.
         [MixWin32]::PointerEventsFailed++
     }
@@ -1253,100 +1254,100 @@ function Do-InvokeMenu($req) {
         # leave them on screen for the user or the next command.
         $opened = 0
         try {
-        for ($i = 0; $i -lt $path.Count; $i++) {
-            $segment = $path[$i]
-            # Native applications usually expose menu state through MSAA immediately.
-            # Use that exact path before asking UIA to walk an entire provider tree.
-            $msaaCandidates = Get-MsaaMenuCandidates $info $segment
-            if ($msaaCandidates.Count -gt 1) {
-                throw "menu_path_ambiguous: '$segment' matched $($msaaCandidates.Count) entries; use a more exact path"
-            }
-            if ($msaaCandidates.Count -eq 1) {
+            for ($i = 0; $i -lt $path.Count; $i++) {
+                $segment = $path[$i]
+                # Native applications usually expose menu state through MSAA immediately.
+                # Use that exact path before asking UIA to walk an entire provider tree.
+                $msaaCandidates = Get-MsaaMenuCandidates $info $segment
+                if ($msaaCandidates.Count -gt 1) {
+                    throw "menu_path_ambiguous: '$segment' matched $($msaaCandidates.Count) entries; use a more exact path"
+                }
+                if ($msaaCandidates.Count -eq 1) {
+                    $walked += $segment
+                    try {
+                        Assert-ExecutionAuthorization $req $info.Handle
+                        $msaaCandidates[0].DoDefaultAction()
+                    }
+                    catch {
+                        $code = if ($i -eq $path.Count - 1) {
+                            'menu_item_not_invokable'
+                        }
+                        else {
+                            'menu_expand_unavailable'
+                        }
+                        throw "$($code): '$segment' MSAA default action failed: $($_.Exception.Message)"
+                    }
+                    if ($i -eq $path.Count - 1) {
+                        return New-ActionResult 'invoke_menu' 'msaa_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
+                    }
+                    Start-Sleep -Milliseconds 120
+                    $opened++
+                    $root = $null
+                    continue
+                }
+                # Do not initialize a potentially stalled UIA provider while MSAA can
+                # resolve the exact path. Reacquire only when the next level needs UIA.
+                if ($null -eq $root) { $root = Find-Window $req.window $req.window_id }
+                $candidates = Get-MenuCandidates $root $segment
+                if ($candidates.Count -eq 0 -and $i -gt 0) {
+                    # A submenu may live outside the parent item's UIA subtree, but it must
+                    # still belong to this exact window's owned popup chain.
+                    $popupCandidates = New-Object System.Collections.ArrayList
+                    foreach ($popupId in @([MixWin32]::RelatedWindowIds($info.Handle))) {
+                        $popupHandle = [MixWin32]::ParseWindowId([string]$popupId)
+                        if ($popupHandle -eq $info.Handle -or -not [MixWin32]::IsOwnedBy($popupHandle, $info.Handle)) { continue }
+                        $popupRoot = $AE::FromHandle($popupHandle)
+                        foreach ($candidate in @(Get-MenuCandidates $popupRoot $segment)) {
+                            [void]$popupCandidates.Add($candidate)
+                        }
+                    }
+                    $candidates = @($popupCandidates)
+                }
+                if ($candidates.Count -eq 0) {
+                    # A wrong path and a popup chain that closed under the user's own
+                    # click fail identically here, so the count that separates them
+                    # travels with the error instead of being guessed later.
+                    $ownedPopups = @([MixWin32]::RelatedWindowIds($info.Handle)).Count
+                    throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > '); owned_popups=$ownedPopups"
+                }
+                if ($candidates.Count -gt 1) {
+                    throw "menu_path_ambiguous: '$segment' matched $($candidates.Count) entries; use a more exact path"
+                }
+                $el = $candidates[0]
+                $elementWindow = [IntPtr](Get-TopWindow $el).Current.NativeWindowHandle
+                if ($elementWindow -ne $info.Handle -and -not [MixWin32]::IsOwnedBy($elementWindow, $info.Handle)) {
+                    throw 'menu_target_mismatch: menu element no longer belongs to the requested window'
+                }
+                Assert-ExecutionAuthorization $req $elementWindow
+                $enabled = $true
+                try { $enabled = [bool]$el.Current.IsEnabled } catch {}
+                if (-not $enabled) { throw "menu_item_disabled: '$segment' is disabled" }
                 $walked += $segment
-                try {
-                    Assert-ExecutionAuthorization $req $info.Handle
-                    $msaaCandidates[0].DoDefaultAction()
-                }
-                catch {
-                    $code = if ($i -eq $path.Count - 1) {
-                        'menu_item_not_invokable'
-                    }
-                    else {
-                        'menu_expand_unavailable'
-                    }
-                    throw "$($code): '$segment' MSAA default action failed: $($_.Exception.Message)"
-                }
                 if ($i -eq $path.Count - 1) {
-                    return New-ActionResult 'invoke_menu' 'msaa_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
+                    $pat = $null
+                    if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
+                        Assert-ExecutionAuthorization $req $elementWindow
+                        $pat.Invoke()
+                        return New-ActionResult 'invoke_menu' 'uia_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
+                    }
+                    $pat = $null
+                    if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) {
+                        $before = [string]$pat.Current.ToggleState
+                        Assert-ExecutionAuthorization $req $elementWindow
+                        $pat.Toggle()
+                        $after = [string]$pat.Current.ToggleState
+                        $verified = $before -ne $after
+                        return New-ActionResult 'invoke_menu' 'uia_menu_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('toggled menu path: ' + ($walked -join ' > ') + " from $before to $after") $null 'background' $info.Id
+                    }
+                    throw "menu_item_not_invokable: '$segment' exposes no menu action"
+                }
+                if (-not (Expand-MenuElement $el)) {
+                    throw "menu_expand_unavailable: '$segment' cannot be opened through accessibility"
                 }
                 Start-Sleep -Milliseconds 120
                 $opened++
-                $root = $null
-                continue
+                $root = $el
             }
-            # Do not initialize a potentially stalled UIA provider while MSAA can
-            # resolve the exact path. Reacquire only when the next level needs UIA.
-            if ($null -eq $root) { $root = Find-Window $req.window $req.window_id }
-            $candidates = Get-MenuCandidates $root $segment
-            if ($candidates.Count -eq 0 -and $i -gt 0) {
-                # A submenu may live outside the parent item's UIA subtree, but it must
-                # still belong to this exact window's owned popup chain.
-                $popupCandidates = New-Object System.Collections.ArrayList
-                foreach ($popupId in @([MixWin32]::RelatedWindowIds($info.Handle))) {
-                    $popupHandle = [MixWin32]::ParseWindowId([string]$popupId)
-                    if ($popupHandle -eq $info.Handle -or -not [MixWin32]::IsOwnedBy($popupHandle, $info.Handle)) { continue }
-                    $popupRoot = $AE::FromHandle($popupHandle)
-                    foreach ($candidate in @(Get-MenuCandidates $popupRoot $segment)) {
-                        [void]$popupCandidates.Add($candidate)
-                    }
-                }
-                $candidates = @($popupCandidates)
-            }
-            if ($candidates.Count -eq 0) {
-                # A wrong path and a popup chain that closed under the user's own
-                # click fail identically here, so the count that separates them
-                # travels with the error instead of being guessed later.
-                $ownedPopups = @([MixWin32]::RelatedWindowIds($info.Handle)).Count
-                throw "menu_path_not_found: no enabled menu entry named '$segment' after $($walked -join ' > '); owned_popups=$ownedPopups"
-            }
-            if ($candidates.Count -gt 1) {
-                throw "menu_path_ambiguous: '$segment' matched $($candidates.Count) entries; use a more exact path"
-            }
-            $el = $candidates[0]
-            $elementWindow = [IntPtr](Get-TopWindow $el).Current.NativeWindowHandle
-            if ($elementWindow -ne $info.Handle -and -not [MixWin32]::IsOwnedBy($elementWindow, $info.Handle)) {
-                throw 'menu_target_mismatch: menu element no longer belongs to the requested window'
-            }
-            Assert-ExecutionAuthorization $req $elementWindow
-            $enabled = $true
-            try { $enabled = [bool]$el.Current.IsEnabled } catch {}
-            if (-not $enabled) { throw "menu_item_disabled: '$segment' is disabled" }
-            $walked += $segment
-            if ($i -eq $path.Count - 1) {
-                $pat = $null
-                if ($el.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pat)) {
-                    Assert-ExecutionAuthorization $req $elementWindow
-                    $pat.Invoke()
-                    return New-ActionResult 'invoke_menu' 'uia_menu' 'unverifiable' $false ('invoked menu path: ' + ($walked -join ' > ')) $null 'background' $info.Id
-                }
-                $pat = $null
-                if ($el.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$pat)) {
-                    $before = [string]$pat.Current.ToggleState
-                    Assert-ExecutionAuthorization $req $elementWindow
-                    $pat.Toggle()
-                    $after = [string]$pat.Current.ToggleState
-                    $verified = $before -ne $after
-                    return New-ActionResult 'invoke_menu' 'uia_menu_toggle' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('toggled menu path: ' + ($walked -join ' > ') + " from $before to $after") $null 'background' $info.Id
-                }
-                throw "menu_item_not_invokable: '$segment' exposes no menu action"
-            }
-            if (-not (Expand-MenuElement $el)) {
-                throw "menu_expand_unavailable: '$segment' cannot be opened through accessibility"
-            }
-            Start-Sleep -Milliseconds 120
-            $opened++
-            $root = $el
-        }
         }
         catch {
             # Nothing was invoked, so the window has to return to the state it had

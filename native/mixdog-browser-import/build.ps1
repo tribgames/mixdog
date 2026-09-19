@@ -110,6 +110,11 @@ $wrapperDestination = Join-Path $nativeRoot 'mixdog_browser_import_cli'
 New-Item -ItemType Directory -Force -Path (Join-Path $wrapperDestination 'src') | Out-Null
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Cargo.toml') -Destination $wrapperDestination -Force
 Copy-Item -Path (Join-Path $PSScriptRoot 'src\*') -Destination (Join-Path $wrapperDestination 'src') -Recurse -Force
+# Seed the wrapper's lockfile from the upstream workspace so shared dependencies
+# resolve to the versions the pinned upstream commit was built and tested with.
+# A fresh lock pulls the newest crates.io releases, which can be mutually
+# incompatible (find-msvc-tools 0.1.13 does not compile against cc 1.2.51).
+Copy-Item -LiteralPath (Join-Path $nativeRoot 'Cargo.lock') -Destination (Join-Path $wrapperDestination 'Cargo.lock') -Force
 
 $cargoArgs = @('build')
 if ($isRelease) { $cargoArgs += '--release' }

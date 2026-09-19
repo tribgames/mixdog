@@ -448,7 +448,9 @@ function anchorRangeHint(anchor, span) {
 
 function renderFocusedContext(selected, sources, span, budget, notice) {
   const ordered = [...selected].sort(anchorPriority);
-  const rankedBlocks = mergeBlocks(ordered.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), span)));
+  const rankedBlocks = mergeBlocks(
+    ordered.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), span))
+  );
   // Budget-adaptive raw window: keep the historical floor of
   // GREP_FOCUSED_RAW_BLOCKS clusters, then keep expanding further
   // high-priority clusters while the raw text still fits the char budget.

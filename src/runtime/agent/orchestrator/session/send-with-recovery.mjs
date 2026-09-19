@@ -161,7 +161,8 @@ export async function sendWithRecovery(ctx) {
   // replays is picked per failure class below and carried back through the
   // loop, so "Reconnecting... n/max" reports the budget the outage is really
   // getting instead of the default one.
-  const retryMaxForDisplay = Number(transportRetryMax) > 0 ? Math.floor(Number(transportRetryMax)) : TRANSPORT_RETRY_MAX;
+  const retryMaxForDisplay =
+    Number(transportRetryMax) > 0 ? Math.floor(Number(transportRetryMax)) : TRANSPORT_RETRY_MAX;
   let response;
   // Bench-only turn timing (MIXDOG_TURN_TIMING=1): one stderr line per
   // provider request — TTFT (first visible model progress) and total stream

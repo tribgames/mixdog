@@ -1,10 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { JSDOM } from 'jsdom';
 import { renderPaneDockStripTrailing } from './app-shell-side-dock.tsx';
 
 test('renderPaneDockStripTrailing uses activeKey rather than first tab, returning null when active tab is a file', () => {
-  const dom = new JSDOM('<!doctype html><div id="root"></div>');
   const descriptors = new Map([['browser', { id: 'browser', label: 'Browser Use', icon: () => null }]]);
 
   const baseProps = {

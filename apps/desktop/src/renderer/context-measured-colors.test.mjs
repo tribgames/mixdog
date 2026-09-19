@@ -7,16 +7,24 @@ import { ContextBody } from './ContextBody.tsx';
 import { t } from './i18n.ts';
 
 function render(measurement, categories) {
-  return JSDOM.fragment(renderToStaticMarkup(React.createElement(ContextBody, {
-    status: {
-      sessionId: `colors-${measurement.source}`, contextWindow: 10000, measurement,
-      inspection: {
-        revision: 'colors', entries: [], categories,
-        estimatedTokens: categories.reduce((sum, row) => sum + row.tokens, 0),
-      },
-    },
-    snapshot: {},
-  })));
+  return JSDOM.fragment(
+    renderToStaticMarkup(
+      React.createElement(ContextBody, {
+        status: {
+          sessionId: `colors-${measurement.source}`,
+          contextWindow: 10000,
+          measurement,
+          inspection: {
+            revision: 'colors',
+            entries: [],
+            categories,
+            estimatedTokens: categories.reduce((sum, row) => sum + row.tokens, 0),
+          },
+        },
+        snapshot: {},
+      })
+    )
+  );
 }
 
 const categories = [

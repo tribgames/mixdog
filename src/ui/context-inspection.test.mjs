@@ -4,9 +4,16 @@ import { buildContextMap, contextShares } from './context-inspection.mjs';
 
 test('block allocation conserves cells and reports free space as the rest of the window', () => {
   assert.deepEqual(contextShares([1, 1, 1], 10), [4, 3, 3]);
-  const map = buildContextMap([{ key: 'system', tokens: 100 }, { key: 'messages', tokens: 300 }], {
-    windowTokens: 800, cells: 100,
-  });
+  const map = buildContextMap(
+    [
+      { key: 'system', tokens: 100 },
+      { key: 'messages', tokens: 300 },
+    ],
+    {
+      windowTokens: 800,
+      cells: 100,
+    }
+  );
   assert.equal(map.cells.length, 100);
   assert.equal(map.cells.filter((key) => key === 'system').length, 13);
   assert.equal(map.cells.filter((key) => key === 'messages').length, 37);

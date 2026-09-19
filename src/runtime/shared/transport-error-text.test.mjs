@@ -21,6 +21,64 @@ test('undici body abort reads as a lost connection with the innermost code', () 
   );
 });
 
+test('WebSocket closes normalize typed, nested, and persisted provider errors', () => {
+  for (const closeCode of [1000, 1001, 1005, 1006, 1011, 1012]) {
+    const raw = `OpenAI OAuth WS closed before response.completed (code=${closeCode})`;
+    const error = Object.assign(new Error(raw), { wsCloseCode: closeCode, wsCloseReason: '' });
+    const expected = 'Connection to the provider was lost.';
+    for (const input of [error, new Error('provider failed', { cause: error }), raw, String(error)]) {
+      assert.equal(presentErrorText(input, { surface: 'turn' }), expected);
+    }
+    assert.deepEqual(classifyTransportError({ wsCloseCode: String(closeCode) }), {
+      kind: 'lost',
+      code: `WS ${closeCode}`,
+      status: 0,
+    });
+    assert.equal(error.message, raw);
+    assert.equal(error.wsCloseCode, closeCode);
+  }
+  for (const provider of ['OpenAI OAuth', 'OpenAI', 'xAI']) {
+    assert.equal(
+      presentErrorText(`${provider} WS handshake closed before open (code=1006)`),
+      'Connection to the provider was lost.'
+    );
+  }
+  assert.equal(
+    presentErrorText('OpenAI OAuth WS closed before response.completed (code=1012, reason=service restart)'),
+    'Connection to the provider was lost.'
+  );
+  assert.equal(
+    backgroundTaskFailureStatusLabel('failed', 'OpenAI OAuth WS closed before response.completed (code=1006)'),
+    'Failed · Connection to the provider was lost'
+  );
+});
+
+test('WebSocket close metadata does not replace more specific failures', () => {
+  const error = Object.assign(new Error('OpenAI OAuth WS closed before response.completed (code=1006)'), {
+    wsCloseCode: 1006,
+    cause: Object.assign(new Error('read ECONNRESET'), { code: 'ECONNRESET' }),
+  });
+  assert.equal(presentErrorText(error), 'Connection to the provider was lost (ECONNRESET).');
+  assert.equal(
+    presentErrorText(Object.assign(new Error('upstream unavailable'), { wsCloseCode: 1006, httpStatus: 503 })),
+    'Provider is temporarily unavailable (503).'
+  );
+  assert.equal(
+    presentErrorText(Object.assign(new Error('not authorized'), { wsCloseCode: 1006, httpStatus: 401 })),
+    'Provider authentication failed.'
+  );
+  for (const closeCode of [1008, 1009, 4000, 4401]) {
+    const raw = `OpenAI OAuth WS closed before response.completed (code=${closeCode})`;
+    assert.equal(classifyTransportError(Object.assign(new Error(raw), { wsCloseCode: closeCode })), null);
+    assert.equal(classifyTransportError(raw), null);
+  }
+  assert.equal(classifyTransportError('Job failed (code=1006)'), null);
+  assert.equal(
+    classifyTransportError('Quoted diagnostic: OpenAI OAuth WS closed before response.completed (code=1006)'),
+    null
+  );
+});
+
 test('bare fetch failures and DNS/refused errors read as unreachable', () => {
   const fetchFailed = new TypeError('fetch failed');
   fetchFailed.cause = Object.assign(new Error('getaddrinfo ENOTFOUND api.example.invalid'), { code: 'ENOTFOUND' });

@@ -75,10 +75,19 @@ test('rule-only retention and summary budgeting remove the same old owned noise,
   assert.ok(result.diagnostics.finalTokens < 5000);
   assert.ok(result.messages.some((message) => message.content === literal));
   assert.deepEqual(result.messages.at(-1), latest);
-  assert.equal(result.messages.some((message) => String(message.content).includes('old runtime state')), false);
+  assert.equal(
+    result.messages.some((message) => String(message.content).includes('old runtime state')),
+    false
+  );
   const input = conversationCompactionInput(messages);
   assert.equal(result.diagnostics.pipeline.conversationTokens, estimateMessagesTokens(input));
-  assert.equal(input.map((message) => message.content).join('\n').includes('old runtime state'), false);
+  assert.equal(
+    input
+      .map((message) => message.content)
+      .join('\n')
+      .includes('old runtime state'),
+    false
+  );
   assert.deepEqual(messages, before);
 });
 
@@ -113,7 +122,9 @@ test('human XML and heading-shaped content survive summary projection in every t
     { role: 'user', content: ['PLAIN_BLOCK', { type: 'text', text: literal }] },
     { role: 'user', content: 'Latest request.' },
   ];
-  const text = conversationCompactionInput(messages).map((message) => message.content).join('\n');
+  const text = conversationCompactionInput(messages)
+    .map((message) => message.content)
+    .join('\n');
   for (const marker of ['HUMAN_DOCUMENT', 'USER_XML', 'ASSISTANT_XML', 'PLAIN_BLOCK']) {
     assert.ok(text.includes(marker));
   }
@@ -135,8 +146,14 @@ test('Compact-owned Goal prefixes are removable on the next turn without removin
   const latest = result.messages.at(-1);
   assert.ok(latest.content.includes(human));
   assert.equal(latest.content.split('RUNTIME_GOAL').length - 1, 1);
-  const next = [...result.messages, { role: 'assistant', content: 'Checked again.' }, { role: 'user', content: 'Next.' }];
-  const text = conversationCompactionInput(next).map((message) => message.content).join('\n');
+  const next = [
+    ...result.messages,
+    { role: 'assistant', content: 'Checked again.' },
+    { role: 'user', content: 'Next.' },
+  ];
+  const text = conversationCompactionInput(next)
+    .map((message) => message.content)
+    .join('\n');
   assert.ok(text.includes(human));
   assert.equal(text.includes('RUNTIME_GOAL'), false);
 });

@@ -35,7 +35,11 @@ test('an element scrolled out of the capture is refused instead of cropped elsew
   );
   assert.throws(
     () =>
-      screenshotClipForElement({ x: 0, y: 0, width: 10, height: 10 }, { width: 0, height: 800 }, { width: 10, height: 10 }),
+      screenshotClipForElement(
+        { x: 0, y: 0, width: 10, height: 10 },
+        { width: 0, height: 800 },
+        { width: 10, height: 10 }
+      ),
     /measured viewport/
   );
 });

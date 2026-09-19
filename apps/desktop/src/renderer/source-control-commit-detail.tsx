@@ -149,7 +149,9 @@ export function SourceControlCommitDetail({
           </section>
         );
       })}
-      {detail && detailFiles.length === 0 && <p className="utility-dock-empty">{t('No file changes in this commit.')}</p>}
+      {detail && detailFiles.length === 0 && (
+        <p className="utility-dock-empty">{t('No file changes in this commit.')}</p>
+      )}
     </div>
   );
 }

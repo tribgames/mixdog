@@ -151,7 +151,7 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
       effort: _normalizeReasoningEffort(effortProjection?.initialEffort ?? opts.effort),
       ...(supportsReasoningSummary ? { summary: 'auto' } : {}),
     },
-    store: process.env.MIXDOG_OAI_STORE === 'true' ? true : false,
+    store: process.env.MIXDOG_OAI_STORE === 'true',
     stream: true,
     ...(promptCacheProvider === 'openai-oauth' && supportsReasoningSummary
       ? {

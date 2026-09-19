@@ -48,14 +48,23 @@ const { initUiLanguage, setUiLanguagePreference } = await import('./i18n.ts');
 
 const common = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
 const rect = (top = 600) => ({
-  x: 300, y: top, left: 300, right: 460, top, bottom: top + 28, width: 160, height: 28,
+  x: 300,
+  y: top,
+  left: 300,
+  right: 460,
+  top,
+  bottom: top + 28,
+  width: 160,
+  height: 28,
 });
 
 async function mount(element, t) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(React.createElement(React.Fragment, null, element, React.createElement(TooltipLayer))));
+  await act(async () =>
+    root.render(React.createElement(React.Fragment, null, element, React.createElement(TooltipLayer)))
+  );
   t.after(async () => {
     await act(async () => root.unmount());
     host.remove();
@@ -79,11 +88,7 @@ async function hover(target, expected) {
 
 const copy = {
   en: {
-    tips: [
-      'Select project',
-      'Select workflow',
-      'Delegation mode',
-    ],
+    tips: ['Select project', 'Select workflow', 'Delegation mode'],
     modes: [
       ['Solo', 'No delegation'],
       ['Assisted', 'Supporting delegation'],
@@ -92,11 +97,7 @@ const copy = {
     ],
   },
   ko: {
-    tips: [
-      '프로젝트 선택',
-      '워크플로우 선택',
-      '위임 방식',
-    ],
+    tips: ['프로젝트 선택', '워크플로우 선택', '위임 방식'],
     modes: [
       ['단독', '위임 없음'],
       ['보조', '보조 위임'],
@@ -112,13 +113,19 @@ for (const language of ['en', 'ko']) {
       setUiLanguagePreference(language);
       await initUiLanguage();
       const expected = copy[language];
-      const element = control === 'project'
-        ? React.createElement(ProjectContextSelector, {
-            projects: [], activePath: '', activeLabel: '', disabled: false, onClear() {}, onSelect() {},
-          })
-        : control === 'workflow'
-          ? React.createElement(WorkflowSelect, common)
-          : React.createElement(OrchestrationModeSelect, { ...common, mode: 'none' });
+      const element =
+        control === 'project'
+          ? React.createElement(ProjectContextSelector, {
+              projects: [],
+              activePath: '',
+              activeLabel: '',
+              disabled: false,
+              onClear() {},
+              onSelect() {},
+            })
+          : control === 'workflow'
+            ? React.createElement(WorkflowSelect, common)
+            : React.createElement(OrchestrationModeSelect, { ...common, mode: 'none' });
       const trigger = await mount(element, t);
       await hover(trigger, expected.tips[index]);
       await act(async () => trigger.click());
@@ -145,16 +152,25 @@ for (const language of ['en', 'ko']) {
 
 test('orchestration keyboard selection lands on the first option and changes only the draft', async (t) => {
   const changes = [];
-  const trigger = await mount(React.createElement(OrchestrationModeSelect, {
-    ...common, mode: 'none', onDraftChange: (mode) => changes.push(mode),
-  }), t);
+  const trigger = await mount(
+    React.createElement(OrchestrationModeSelect, {
+      ...common,
+      mode: 'none',
+      onDraftChange: (mode) => changes.push(mode),
+    }),
+    t
+  );
   calls.length = 0;
-  await act(async () => trigger.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+  await act(async () =>
+    trigger.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+  );
   const menu = document.querySelector('[role="listbox"]');
   assert.equal(document.activeElement, menu.querySelector('[role="option"]'));
   await act(async () => menu.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'End', bubbles: true })));
   assert.equal(document.activeElement, menu.querySelectorAll('[role="option"]')[3]);
-  await act(async () => document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  await act(async () =>
+    document.activeElement.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+  );
   assert.deepEqual(changes, ['swarm']);
   assert.deepEqual(calls, []);
   assert.equal(document.querySelector('[role="listbox"]'), null);
@@ -163,9 +179,14 @@ test('orchestration keyboard selection lands on the first option and changes onl
 
 test('session mode selection still applies the returned snapshot', async (t) => {
   const snapshots = [];
-  const trigger = await mount(React.createElement(OrchestrationModeSelect, {
-    ...common, mode: 'none', applySnapshot: (value) => snapshots.push(value),
-  }), t);
+  const trigger = await mount(
+    React.createElement(OrchestrationModeSelect, {
+      ...common,
+      mode: 'none',
+      applySnapshot: (value) => snapshots.push(value),
+    }),
+    t
+  );
   calls.length = 0;
   await act(async () => trigger.click());
   await act(async () => document.querySelectorAll('[role="option"]')[2].click());
@@ -187,9 +208,13 @@ test('a context menu near the top falls back below and Escape restores focus', a
 });
 
 test('ordinary selects keep downward placement and do not acquire composer-only content', async (t) => {
-  const trigger = await mount(React.createElement(OpenSelect, {
-    ariaLabel: 'Ordinary select', options: [{ value: 'one', label: 'One' }],
-  }), t);
+  const trigger = await mount(
+    React.createElement(OpenSelect, {
+      ariaLabel: 'Ordinary select',
+      options: [{ value: 'one', label: 'One' }],
+    }),
+    t
+  );
   await act(async () => trigger.click());
   const menu = document.querySelector('[role="listbox"]');
   assert.equal(menu.style.bottom, '');

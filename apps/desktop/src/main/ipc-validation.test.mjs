@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest, requiredNewTaskDraft } from './ipc-validation.ts';
+import {
+  requiredDesktopCapabilityReadRequests,
+  requiredDesktopCapabilityRequest,
+  requiredNewTaskDraft,
+} from './ipc-validation.ts';
 
 test('Local Provider and Code Tidy lifecycle requests pass the desktop IPC boundary', () => {
   assert.deepEqual(
@@ -86,7 +90,8 @@ test('orchestration modes cross the read/configure and new-task IPC boundaries',
       { capability: 'setOrchestrationMode', args: [orchestrationMode] }
     );
     assert.deepEqual(requiredNewTaskDraft({ workflowId: 'default', orchestrationMode }), {
-      workflowId: 'default', orchestrationMode,
+      workflowId: 'default',
+      orchestrationMode,
     });
   }
   assert.throws(() => requiredNewTaskDraft({ orchestrationMode: 'invalid' }), /orchestrationMode is invalid/);

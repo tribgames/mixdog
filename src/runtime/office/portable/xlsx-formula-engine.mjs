@@ -260,14 +260,11 @@ export function translateSharedFormula(formula, rowDelta, columnDelta) {
 
 function splitReference(text) {
   const bang = text.lastIndexOf('!');
-  const sheet =
-    bang < 0
-      ? ''
-      : text
-          .slice(0, bang)
-          .replace(/^'|'$/g, '')
-          .replaceAll("''", "'");
-  const body = text.slice(bang + 1).replaceAll('$', '').toUpperCase();
+  const sheet = bang < 0 ? '' : text.slice(0, bang).replace(/^'|'$/g, '').replaceAll("''", "'");
+  const body = text
+    .slice(bang + 1)
+    .replaceAll('$', '')
+    .toUpperCase();
   const [from, to] = body.split(':');
   return { sheet, from, to: to || '' };
 }

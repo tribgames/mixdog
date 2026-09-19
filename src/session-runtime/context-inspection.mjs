@@ -28,8 +28,14 @@ const PREVIEW_LIMIT = 32_000;
 const CALIBRATION_MIN = 0.25;
 const CALIBRATION_MAX = 3;
 const OPAQUE_FIELDS = new Set([
-  'signature', 'thinkingSignature', 'thoughtSignature', 'thought_signature',
-  'encrypted_content', 'encryptedContent', 'encrypted_reasoning', 'encryptedReasoning',
+  'signature',
+  'thinkingSignature',
+  'thoughtSignature',
+  'thought_signature',
+  'encrypted_content',
+  'encryptedContent',
+  'encrypted_reasoning',
+  'encryptedReasoning',
 ]);
 // Runtime-authored role:'user' rows — a bare <system-reminder>, or the
 // <mixdog-runtime kind="runtime-control"> envelope the wire projection wraps
@@ -118,39 +124,48 @@ function label(value) {
 }
 
 function previewJson(value) {
-  return JSON.stringify(value, (key, item) => {
-    if (OPAQUE_FIELDS.has(key) && typeof item === 'string') return '[Opaque data omitted]';
-    if (item?.type === 'base64') return '[Binary data omitted]';
-    return item;
-  }, 2);
+  return JSON.stringify(
+    value,
+    (key, item) => {
+      if (OPAQUE_FIELDS.has(key) && typeof item === 'string') return '[Opaque data omitted]';
+      if (item?.type === 'base64') return '[Binary data omitted]';
+      return item;
+    },
+    2
+  );
 }
 
 // Project readable fields, never serialize a whole message or provider replay envelope.
 function readableContent(content) {
   if (typeof content === 'string') return content;
   const blocks = Array.isArray(content) ? content : content ? [content] : [];
-  return blocks.map((block) => {
-    if (typeof block === 'string') return block;
-    if (['image', 'image_url', 'input_image'].includes(block?.type)) return '[Image omitted]';
-    if (['document', 'file', 'input_file'].includes(block?.type)) return '[File omitted]';
-    if (block?.type === 'redacted_thinking') return '[Opaque reasoning omitted]';
-    if (block?.type === 'tool_result') return readableContent(block.content);
-    if (block?.type === 'tool_use' || block?.type === 'toolCall') {
-      return `${block.name || 'tool'}\n${previewJson(block.input ?? block.arguments)}`;
-    }
-    if (typeof block?.text === 'string') return block.text;
-    if (typeof block?.thinking === 'string') return block.thinking;
-    if (Array.isArray(block?.summary)) return readableContent(block.summary);
-    return '[Non-text content omitted]';
-  }).join('\n');
+  return blocks
+    .map((block) => {
+      if (typeof block === 'string') return block;
+      if (['image', 'image_url', 'input_image'].includes(block?.type)) return '[Image omitted]';
+      if (['document', 'file', 'input_file'].includes(block?.type)) return '[File omitted]';
+      if (block?.type === 'redacted_thinking') return '[Opaque reasoning omitted]';
+      if (block?.type === 'tool_result') return readableContent(block.content);
+      if (block?.type === 'tool_use' || block?.type === 'toolCall') {
+        return `${block.name || 'tool'}\n${previewJson(block.input ?? block.arguments)}`;
+      }
+      if (typeof block?.text === 'string') return block.text;
+      if (typeof block?.thinking === 'string') return block.thinking;
+      if (Array.isArray(block?.summary)) return readableContent(block.summary);
+      return '[Non-text content omitted]';
+    })
+    .join('\n');
 }
 
 function messagePreview(message) {
   const parts = [readableContent(message.content)];
   if (message.toolCalls?.length) {
-    parts.push(...message.toolCalls.map((call) =>
-      `${call.name || call.function?.name || 'tool'}\n${previewJson(call.arguments ?? call.function?.arguments)}`
-    ));
+    parts.push(
+      ...message.toolCalls.map(
+        (call) =>
+          `${call.name || call.function?.name || 'tool'}\n${previewJson(call.arguments ?? call.function?.arguments)}`
+      )
+    );
   }
   const reasoning = message.providerReplay?.items ?? message.thinkingBlocks ?? message.reasoningItems;
   if (reasoning?.length) parts.push(readableContent(reasoning));
@@ -190,7 +205,8 @@ function calibrateDrafts(drafts, coverage) {
   for (const draft of drafts) draft.estimatedTokens = draft.tokens;
   const count = Number(coverage?.count);
   const measured = Number(coverage?.tokens);
-  if (!Number.isInteger(count) || count < 0 || !(measured > 0)) return { source: 'estimate', estimatedTokens: rawTotal };
+  if (!Number.isInteger(count) || count < 0 || !(measured > 0))
+    return { source: 'estimate', estimatedTokens: rawTotal };
   const covered = drafts.filter((draft) => draft.messageIndex === undefined || draft.messageIndex < count);
   const coveredRaw = covered.reduce((sum, draft) => sum + draft.tokens, 0);
   if (coveredRaw <= 0) return { source: 'estimate', estimatedTokens: rawTotal };
@@ -198,10 +214,16 @@ function calibrateDrafts(drafts, coverage) {
   if (ratio < CALIBRATION_MIN || ratio > CALIBRATION_MAX) {
     return { source: 'estimate', estimatedTokens: rawTotal, rejectedRatio: Math.round(ratio * 1000) / 1000 };
   }
-  const shares = contextShares(covered.map((draft) => draft.tokens), Math.round(measured));
-  covered.forEach((draft, index) => { draft.tokens = shares[index]; });
+  const shares = contextShares(
+    covered.map((draft) => draft.tokens),
+    Math.round(measured)
+  );
+  covered.forEach((draft, index) => {
+    draft.tokens = shares[index];
+  });
   for (const draft of drafts) {
-    if (draft.messageIndex !== undefined && draft.messageIndex >= count) draft.tokens = Math.round(draft.tokens * ratio);
+    if (draft.messageIndex !== undefined && draft.messageIndex >= count)
+      draft.tokens = Math.round(draft.tokens * ratio);
   }
   return {
     source: 'provider',
@@ -219,7 +241,9 @@ export function inspectContext(
   options = {}
 ) {
   const revision = createHash('sha256')
-    .update(JSON.stringify([sessionId, provider, model, contextMessagesSignature(messages), toolSchemaSignature(tools)]))
+    .update(
+      JSON.stringify([sessionId, provider, model, contextMessagesSignature(messages), toolSchemaSignature(tools)])
+    )
     .digest('hex');
   const drafts = [];
   const callNames = toolCallNames(messages);
@@ -239,20 +263,28 @@ export function inspectContext(
     const pushAttachment = (role = '', ordinal = 0, name = '') => {
       if (!attachments.tokens) return;
       drafts.push({
-        id: `message:${index}:attachment`, category: 'attachments', group: role || 'instruction',
-        label: attachmentLabel(attachments.items), tokens: attachments.tokens, kind: 'attachment',
-        messageIndex: index, ...(role ? { role } : {}), ...(ordinal ? { ordinal } : {}), ...(name ? { name } : {}),
+        id: `message:${index}:attachment`,
+        category: 'attachments',
+        group: role || 'instruction',
+        label: attachmentLabel(attachments.items),
+        tokens: attachments.tokens,
+        kind: 'attachment',
+        messageIndex: index,
+        ...(role ? { role } : {}),
+        ...(ordinal ? { ordinal } : {}),
+        ...(name ? { name } : {}),
         preview: () => attachmentPreview(attachments.items),
       });
     };
     const skill = latestSkillBodies([message])[0];
     const text = typeof message.content === 'string' ? message.content : '';
     const reminder = message.role === 'user' && runtimeAuthored(message, text);
-    const sections = reminder
-      ? reminderSections(text)
-      : message.role === 'system' ? promptSections(text) : [];
+    const sections = reminder ? reminderSections(text) : message.role === 'system' ? promptSections(text) : [];
     if (sections.length) {
-      const shares = contextShares(sections.map((section) => estimateTokens(section.text)), tokens);
+      const shares = contextShares(
+        sections.map((section) => estimateTokens(section.text)),
+        tokens
+      );
       sections.forEach((section, sectionIndex) => {
         const heading = section.text.match(/^#\s+([^\n]+)/)?.[1] || (reminder ? 'System reminder' : 'System prompt');
         const bucket = reminderSectionBucket(section.text);
@@ -261,9 +293,14 @@ export function inspectContext(
         // to the system messages, marked by its own group.
         const category = bucket === 'memory' ? 'memory' : skillLabel ? 'skills' : 'system';
         drafts.push({
-          id: `message:${index}:section:${sectionIndex}`, category, group: reminder ? 'reminder' : 'instruction',
-          label: label(section.label || skillLabel || heading), tokens: shares[sectionIndex], kind: 'instruction',
-          messageIndex: index, preview: () => section.text,
+          id: `message:${index}:section:${sectionIndex}`,
+          category,
+          group: reminder ? 'reminder' : 'instruction',
+          label: label(section.label || skillLabel || heading),
+          tokens: shares[sectionIndex],
+          kind: 'instruction',
+          messageIndex: index,
+          preview: () => section.text,
         });
       });
       pushAttachment();
@@ -271,8 +308,14 @@ export function inspectContext(
     }
     if (skill) {
       drafts.push({
-        id: `message:${index}`, category: 'skills', group: 'instruction', label: label(skill.name),
-        tokens, kind: 'instruction', messageIndex: index, preview: () => messagePreview(message),
+        id: `message:${index}`,
+        category: 'skills',
+        group: 'instruction',
+        label: label(skill.name),
+        tokens,
+        kind: 'instruction',
+        messageIndex: index,
+        preview: () => messagePreview(message),
       });
       pushAttachment();
       continue;
@@ -286,8 +329,15 @@ export function inspectContext(
       const ordinal = (ordinals.get(`tool:${toolName}`) || 0) + 1;
       ordinals.set(`tool:${toolName}`, ordinal);
       drafts.push({
-        id: `message:${index}`, category: 'toolResults', group: toolName, name: toolName, ordinal,
-        label: label(`${toolName} · ${ordinal}`), tokens, kind: 'toolResult', messageIndex: index,
+        id: `message:${index}`,
+        category: 'toolResults',
+        group: toolName,
+        name: toolName,
+        ordinal,
+        label: label(`${toolName} · ${ordinal}`),
+        tokens,
+        kind: 'toolResult',
+        messageIndex: index,
         preview: () => messagePreview(message),
       });
       if (openTurn) openTurn.results.push({ name: toolName, tokens });
@@ -302,10 +352,17 @@ export function inspectContext(
     const name = message.name ? String(message.name) : '';
     const results = [];
     const draft = {
-      id: `message:${index}`, category: role === 'system' ? 'system' : role === 'user' ? 'user' : 'assistant', group,
+      id: `message:${index}`,
+      category: role === 'system' ? 'system' : role === 'user' ? 'user' : 'assistant',
+      group,
       label: label(`${role} · ${ordinal}${name ? ` · ${name}` : ''}`),
-      role, ordinal, ...(name ? { name: label(name) } : {}),
-      tokens, kind: 'message', messageIndex: index, results,
+      role,
+      ordinal,
+      ...(name ? { name: label(name) } : {}),
+      tokens,
+      kind: 'message',
+      messageIndex: index,
+      results,
       preview: () => messagePreview(message),
     };
     drafts.push(draft);
@@ -337,22 +394,40 @@ export function inspectContext(
     // loaded: was deferrable but has been loaded this session and now counts.
     // active: always sent in full.
     const name = String(tool.name || '');
-    const state = index < nativeCount ? 'native' : isDeferredTool(tool) ? 'deferred' : catalogNames.has(name) ? 'loaded' : 'active';
+    const state =
+      index < nativeCount ? 'native' : isDeferredTool(tool) ? 'deferred' : catalogNames.has(name) ? 'loaded' : 'active';
     drafts.push({
-      id: `tool:${index}`, category, group: state, state, label: label(tool.name || tool.type || `Tool ${index + 1}`),
-      tokens: toolShares[index], kind: 'tool',
-      preview: () => previewJson(index < nativeCount ? tool : {
-        name: tool.name, description: tool.description,
-        input_schema: tool.inputSchema ?? tool.input_schema ?? tool.parameters ?? tool.schema,
-        ...(isDeferredTool(tool) ? { defer_loading: true } : {}),
-      }),
+      id: `tool:${index}`,
+      category,
+      group: state,
+      state,
+      label: label(tool.name || tool.type || `Tool ${index + 1}`),
+      tokens: toolShares[index],
+      kind: 'tool',
+      preview: () =>
+        previewJson(
+          index < nativeCount
+            ? tool
+            : {
+                name: tool.name,
+                description: tool.description,
+                input_schema: tool.inputSchema ?? tool.input_schema ?? tool.parameters ?? tool.schema,
+                ...(isDeferredTool(tool) ? { defer_loading: true } : {}),
+              }
+        ),
     });
   });
   const framing = overheadTokens + schemaTokens - toolShares.reduce((sum, tokens) => sum + tokens, 0);
-  if (framing > 0) drafts.push({
-    id: 'request:framing', category: 'tools', group: 'overhead', label: 'Request framing', kind: 'overhead', tokens: framing,
-    preview: () => 'Estimated request framing outside message content and individual tool definitions.',
-  });
+  if (framing > 0)
+    drafts.push({
+      id: 'request:framing',
+      category: 'tools',
+      group: 'overhead',
+      label: 'Request framing',
+      kind: 'overhead',
+      tokens: framing,
+      preview: () => 'Estimated request framing outside message content and individual tool definitions.',
+    });
   const calibration = calibrateDrafts(drafts, coverage);
   const entries = drafts.map(({ preview: _preview, messageIndex: _messageIndex, ...entry }) => entry);
   const categories = CONTEXT_CATEGORIES.map((category) => {
@@ -365,7 +440,10 @@ export function inspectContext(
     };
   });
   const result = {
-    revision, categories, entries, calibration,
+    revision,
+    categories,
+    entries,
+    calibration,
     estimatedTokens: categories.reduce((sum, row) => sum + row.tokens, 0),
   };
   if (options.entryId !== undefined) {
@@ -374,7 +452,12 @@ export function inspectContext(
       result.preview = { id: options.entryId, stale: true, text: '', truncated: false };
     } else {
       const text = terminalText(entry.preview());
-      result.preview = { id: entry.id, text: text.slice(0, PREVIEW_LIMIT), truncated: text.length > PREVIEW_LIMIT, stale: false };
+      result.preview = {
+        id: entry.id,
+        text: text.slice(0, PREVIEW_LIMIT),
+        truncated: text.length > PREVIEW_LIMIT,
+        stale: false,
+      };
     }
   }
   return result;

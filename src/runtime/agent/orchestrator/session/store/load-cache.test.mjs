@@ -23,7 +23,9 @@ function fixture(t) {
   const id = `sess_load_cache_${process.pid}_${++sequence}`;
   const path = join(root, 'sessions', `${id}.json`);
   const saved = {
-    id, generation: 1, closed: false,
+    id,
+    generation: 1,
+    closed: false,
     messages: [{ role: 'user', content: 'saved conversation' }],
     tools: [{ name: 'saved-tool', inputSchema: { type: 'object' } }],
   };
@@ -122,11 +124,12 @@ for (const kind of ['malformed', 'foreign', 'duplicate-id']) {
     const live = { ...f.saved };
     setLiveSession(live);
     assert.equal(loadSession(f.id), live);
-    const invalid = kind === 'malformed'
-      ? '{"broken":'
-      : kind === 'foreign'
-        ? JSON.stringify({ ...f.saved, id: 'foreign-session' })
-        : `{"id":"foreign-session","id":${JSON.stringify(f.id)},"messages":[]}`;
+    const invalid =
+      kind === 'malformed'
+        ? '{"broken":'
+        : kind === 'foreign'
+          ? JSON.stringify({ ...f.saved, id: 'foreign-session' })
+          : `{"id":"foreign-session","id":${JSON.stringify(f.id)},"messages":[]}`;
     f.write(invalid);
     assert.equal(loadSession(f.id), null);
     assert.equal(_liveSessions.get(f.id), live);

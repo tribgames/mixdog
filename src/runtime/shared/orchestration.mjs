@@ -28,8 +28,8 @@ export function sessionOrchestrationMode(session) {
     return normalizeOrchestrationMode(session.orchestrationMode);
   }
   const workflow = session?.workflow;
-  if (workflow?.delegatesAgents === false ||
-      (workflow?.agentsConfigured === true && workflow?.agents?.length === 0)) return 'none';
+  if (workflow?.delegatesAgents === false || (workflow?.agentsConfigured === true && workflow?.agents?.length === 0))
+    return 'none';
   if (workflow?.delegatesAgents === true) return 'swarm';
   return workflow ? configuredOrchestrationMode({ workflow: { active: workflow.id } }) : 'swarm';
 }

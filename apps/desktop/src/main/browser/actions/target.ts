@@ -21,9 +21,7 @@ export function adoptResolvedTargets(context: BrowserActionContext, resolved: Re
  * resolutions would otherwise hand back a source and a destination that never
  * existed together.
  */
-export async function dragRefs(
-  context: BrowserActionContext
-): Promise<{ source?: string; destination?: string }> {
+export async function dragRefs(context: BrowserActionContext): Promise<{ source?: string; destination?: string }> {
   const { guest, command, signal, services } = context;
   if (command.target === undefined || command.target === null) {
     return {

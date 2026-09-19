@@ -354,7 +354,12 @@ export function inferPptxSampleKind(sample, total) {
   if (sample.slide === total && /(thank|next|close|감사|다음)/i.test(title)) return 'closing';
   if ([...roles].some((role) => role.startsWith('step-'))) return 'process';
   if ([...roles].some((role) => role.startsWith('column-'))) return 'comparison';
-  if (roles.has('chart') || [...roles].some((role) => role.startsWith('metric-'))) return 'metrics';
+  // A table carries quantities the same way a chart does, and the page that
+  // holds one does the same job. Without it such a page fell through to the
+  // statement reading (a table's words live in the table, so the page looks
+  // wordless) and was offered as a page for one thesis and air.
+  if (roles.has('chart') || roles.has('table') || [...roles].some((role) => role.startsWith('metric-')))
+    return 'metrics';
   if (roles.has('image')) return 'split';
   if (sample.textChars < 90 && sample.shapes.length <= 6) return 'statement';
   return 'content';

@@ -434,21 +434,18 @@ export function useTranscriptWindow({
     for (let i = 0; i < mountedSlice.length; i++) {
       const it = mountedSlice[i];
       if (!it || shouldSuppressFullyFailedToolItem(it)) continue;
-      if (it.kind === 'assistant') {
-        // Assistant rows are exact-model owned and never wait for a Yoga
-        // commit before their max scroll range becomes authoritative.
-        continue;
-      } else {
-        const prev = transcriptMeasuredRowsCache.get(it);
-        if (
-          !prev ||
-          prev.columns !== frameColumns ||
-          prev.toolExpanded !== toolExpandedFlag ||
-          prev.variantKey !== transcriptItemVariantKey(it)
-        ) {
-          holdCommittedMax = true;
-          break;
-        }
+      // Assistant rows are exact-model owned and never wait for a Yoga
+      // commit before their max scroll range becomes authoritative.
+      if (it.kind === 'assistant') continue;
+      const prev = transcriptMeasuredRowsCache.get(it);
+      if (
+        !prev ||
+        prev.columns !== frameColumns ||
+        prev.toolExpanded !== toolExpandedFlag ||
+        prev.variantKey !== transcriptItemVariantKey(it)
+      ) {
+        holdCommittedMax = true;
+        break;
       }
     }
   }

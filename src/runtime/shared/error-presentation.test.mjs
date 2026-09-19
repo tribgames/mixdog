@@ -44,6 +44,17 @@ test('typed failures distinguish sign-in, rate, request and connection recovery'
   );
 });
 
+test('WebSocket disconnect notices wrap the summary and preserve the original diagnostic', () => {
+  const raw = 'OpenAI OAuth WS closed before response.completed (code=1006)';
+  for (const error of [Object.assign(new Error(raw), { wsCloseCode: 1006 }), raw]) {
+    const result = describeError(error);
+    assert.equal(result.kind, 'connection');
+    assert.equal(result.summary, 'Connection to the provider was lost');
+    assert.equal(result.recovery, 'Check the connection, then try again.');
+    assert.equal(result.details, raw);
+  }
+});
+
 test('both summaries and details redact credentials while retaining useful context', () => {
   const secret = 'test-password-123';
   const raw = `Failed at https://user:${secret}@example.test/path?token=abcdef&safe=1\nAuthorization: Bearer verysecret123\n{"api_key":"sk-123456789012345678901234","password":"${secret}"}\nhttps://example.test/?code=oauthcode`;

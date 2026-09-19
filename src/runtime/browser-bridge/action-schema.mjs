@@ -43,7 +43,15 @@ function contract(actions, fields = [], required = []) {
 
 const CONTRACT_ROWS = [
   contract('navigate', ['url', 'reload', ...POST_ACTION_SNAPSHOT], [['url'], ['reload']]),
-  contract('snapshot', [...PAGE_TARGET, ...SNAPSHOT_FILTERS, 'mode', 'ref', 'target', ...SCREENSHOT_OPTIONS, 'settleMs']),
+  contract('snapshot', [
+    ...PAGE_TARGET,
+    ...SNAPSHOT_FILTERS,
+    'mode',
+    'ref',
+    'target',
+    ...SCREENSHOT_OPTIONS,
+    'settleMs',
+  ]),
   contract('locate', [...PAGE_TARGET, 'query', 'limit'], ['query']),
   contract('evaluate', [...POST_ACTION_SNAPSHOT, 'script', 'ref', 'timeoutMs', 'maxChars'], ['script']),
   contract('emulate', [

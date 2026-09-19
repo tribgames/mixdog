@@ -1,9 +1,7 @@
-import { spawn } from 'child_process';
-import { existsSync, mkdirSync, appendFileSync, appendFile as _appendFileAsync } from 'fs';
-import { join, normalize, extname, sep } from 'path';
+import { mkdirSync, appendFileSync, appendFile as _appendFileAsync } from 'fs';
+import { join } from 'path';
 import { DATA_DIR } from './config.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
-const SCRIPTS_DIR = join(DATA_DIR, 'scripts');
 const NOPLUGIN_DIR = join(resolveRuntimeRoot(), 'noplugin');
 const EVENT_LOG = join(DATA_DIR, 'event.log');
 // Buffered async logger — coalesces per-line appends into batched writes.
@@ -114,85 +112,5 @@ function applyTemplate(template, data) {
 function ensureNopluginDir() {
   ensurePrivateRuntimeRoot();
   mkdirSync(NOPLUGIN_DIR, { recursive: true });
-}
-function runScript(name, scriptName, onResult) {
-  if (!existsSync(SCRIPTS_DIR)) {
-    mkdirSync(SCRIPTS_DIR, { recursive: true });
-  }
-  const scriptPath = normalize(join(SCRIPTS_DIR, scriptName));
-  // Boundary-correct containment: startsWith(SCRIPTS_DIR) by itself accepts
-  // sibling roots like `<SCRIPTS_DIR>2/...`. Require either an exact match
-  // OR the path-separator-prefixed form.
-  const SCRIPTS_PREFIX = SCRIPTS_DIR.endsWith(sep) ? SCRIPTS_DIR : SCRIPTS_DIR + sep;
-  if (scriptPath !== SCRIPTS_DIR && !scriptPath.startsWith(SCRIPTS_PREFIX)) {
-    logEvent(`${name}: script path escapes directory: ${scriptName}`);
-    onResult('', null);
-    return;
-  }
-  if (!existsSync(scriptPath)) {
-    logEvent(`${name}: script not found: ${scriptPath}`);
-    onResult('', null);
-    return;
-  }
-  const ext = extname(scriptName).toLowerCase();
-  // Pick interpreter candidates. `python3` does not exist on a default
-  // Windows install — the Python launcher `py` (and often `python`) does —
-  // so on win32 try py → python → python3, falling through on ENOENT.
-  // POSIX keeps python3 → python.
-  let candidates;
-  if (ext === '.py') {
-    candidates = process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python'];
-  } else {
-    candidates = ['node'];
-  }
-  // onResult MUST fire exactly once across the whole candidate chain. A failed
-  // ENOENT spawn emits BOTH 'error' (→ we advance) AND 'close', so guard the
-  // final callback at the chain level and mark each attempt that advanced so
-  // its own 'close' is ignored.
-  let resultSent = false;
-  const finish = (out, code) => {
-    if (resultSent) return;
-    resultSent = true;
-    onResult(out, code);
-  };
-  const trySpawn = (idx) => {
-    const cmd = candidates[idx];
-    let advanced = false;
-    const proc = spawn(cmd, [scriptPath], {
-      timeout: 3e4,
-      env: { ...process.env },
-      windowsHide: true,
-    });
-    let stdout = '';
-    let stderr = '';
-    if (proc.stdout)
-      proc.stdout.on('data', (d) => {
-        stdout += d;
-      });
-    if (proc.stderr)
-      proc.stderr.on('data', (d) => {
-        stderr += d;
-      });
-    proc.on('close', (code) => {
-      // This attempt ENOENT'd and handed off to the next candidate — its
-      // 'close' is spurious and must not report a result.
-      if (advanced) return;
-      if (code !== 0) {
-        logEvent(`${name}: script exited ${code}: ${stderr.substring(0, 500)}`);
-      }
-      finish(stdout.substring(0, 2e3), code);
-    });
-    proc.on('error', (err) => {
-      // Interpreter not found → try the next candidate before giving up.
-      if (err.code === 'ENOENT' && idx + 1 < candidates.length) {
-        advanced = true;
-        trySpawn(idx + 1);
-        return;
-      }
-      logEvent(`${name}: script spawn error: ${err.message}`);
-      finish('', null);
-    });
-  };
-  trySpawn(0);
 }
 export { applyParser, applyTemplate, ensureNopluginDir, evaluateFilter, logEvent };

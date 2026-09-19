@@ -87,7 +87,11 @@ export function createToolPolicyRefresh({
       return { appliedToCurrentSession: false };
     }
 
-    const { summary: workflow, context: workflowContext, orchestrationMode } = activeWorkflowContext(getConfig(), getDataDir());
+    const {
+      summary: workflow,
+      context: workflowContext,
+      orchestrationMode,
+    } = activeWorkflowContext(getConfig(), getDataDir());
     const denied = [...featureDisallowedTools(), ...(workflow?.delegatesAgents === false ? ['agent'] : [])]
       .map((name) => String(name || ''))
       .filter(Boolean);

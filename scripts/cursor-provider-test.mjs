@@ -134,10 +134,7 @@ test('Cursor catalog folds parameterized default Auto into a single Auto', () =>
           ],
         },
       ],
-      variants: [
-        { parameters: { effort: 'high' }, defaultNonMax: true },
-        { parameters: { effort: 'low' } },
-      ],
+      variants: [{ parameters: { effort: 'high' }, defaultNonMax: true }, { parameters: { effort: 'low' } }],
     },
     { id: 'auto', name: 'Auto' },
     { id: 'gpt-5.6-sol-high', name: 'GPT-5.6 Sol High' },

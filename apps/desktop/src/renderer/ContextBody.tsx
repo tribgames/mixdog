@@ -26,7 +26,15 @@ function tokenBuckets(source: Row, names: string[]): number {
   return names.reduce((sum, name) => sum + nonNegativeNumber(record(source[name]).tokens), 0);
 }
 
-export function ContextBody({ status, snapshot, request: inspectRequest }: { status: unknown; snapshot: unknown; request?: ContextRequest }) {
+export function ContextBody({
+  status,
+  snapshot,
+  request: inspectRequest,
+}: {
+  status: unknown;
+  snapshot: unknown;
+  request?: ContextRequest;
+}) {
   const context = record(status);
   const state = record(snapshot);
   const messages = record(context.messages);
@@ -77,9 +85,10 @@ export function ContextBody({ status, snapshot, request: inspectRequest }: { sta
   const categories = rawCategories;
   const measuredCategories = (inspection?.categories ?? rawCategories).filter((category) => category.tokens > 0);
   const measuredCategoryTotal = measuredCategories.reduce((sum, category) => sum + category.tokens, 0);
-  const measuredBarDescription = used != null && measuredCategoryTotal > 0
-    ? t('Measured total; category colors show estimated proportions.')
-    : t(contextMeasurementLabel(usage.source));
+  const measuredBarDescription =
+    used != null && measuredCategoryTotal > 0
+      ? t('Measured total; category colors show estimated proportions.')
+      : t(contextMeasurementLabel(usage.source));
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
   const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
   const categoryWindowTokens = Math.max(windowTokens, categorizedTokens);
@@ -99,52 +108,56 @@ export function ContextBody({ status, snapshot, request: inspectRequest }: { sta
           <div
             className="context-main-bar"
             role="img"
-            aria-label={usage.percent == null
-              ? measuredBarDescription
-              : `${t('{{percent}}% context used', { percent: usage.percent })} ${measuredBarDescription}`}
+            aria-label={
+              usage.percent == null
+                ? measuredBarDescription
+                : `${t('{{percent}}% context used', { percent: usage.percent })} ${measuredBarDescription}`
+            }
             title={measuredBarDescription}
           >
             <span style={{ width: `${usedPercent}%` }}>
-              {used != null && measuredCategoryTotal > 0 && measuredCategories.map((category) => (
-                <b
-                  key={category.key}
-                  data-context-key={category.key}
-                  style={{ width: `${(category.tokens / measuredCategoryTotal) * 100}%` }}
-                  title={`${t(category.label)} · ${t('Estimated share: {{percent}}%', {
-                    percent: Math.round((category.tokens / measuredCategoryTotal) * 1000) / 10,
-                  })}`}
-                />
-              ))}
+              {used != null &&
+                measuredCategoryTotal > 0 &&
+                measuredCategories.map((category) => (
+                  <b
+                    key={category.key}
+                    data-context-key={category.key}
+                    style={{ width: `${(category.tokens / measuredCategoryTotal) * 100}%` }}
+                    title={`${t(category.label)} · ${t('Estimated share: {{percent}}%', {
+                      percent: Math.round((category.tokens / measuredCategoryTotal) * 1000) / 10,
+                    })}`}
+                  />
+                ))}
             </span>
           </div>
         </section>
-        {inspection ? <ContextInspector
-          inspection={inspection}
-          windowTokens={windowTokens}
-          request={inspectRequest}
-        /> : <section className="context-mix" aria-labelledby="context-mix-title">
-          <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
-          <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
-            {categories
-              .filter((category) => category.tokens > 0)
-              .map((category) => (
-                <b
-                  key={category.key}
-                  data-context-key={category.key}
-                  style={{ width: `${Math.max(0.75, contextPercent(category.tokens, categoryWindowTokens) || 0)}%` }}
-                />
+        {inspection ? (
+          <ContextInspector inspection={inspection} windowTokens={windowTokens} request={inspectRequest} />
+        ) : (
+          <section className="context-mix" aria-labelledby="context-mix-title">
+            <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
+            <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
+              {categories
+                .filter((category) => category.tokens > 0)
+                .map((category) => (
+                  <b
+                    key={category.key}
+                    data-context-key={category.key}
+                    style={{ width: `${Math.max(0.75, contextPercent(category.tokens, categoryWindowTokens) || 0)}%` }}
+                  />
+                ))}
+            </div>
+            <div className="context-mix-grid">
+              {categories.map((category) => (
+                <div className="context-mix-row" key={category.key} data-context-key={category.key}>
+                  <i aria-hidden="true" />
+                  <span>{category.label}</span>
+                  <strong>{compactTokens(category.tokens)}</strong>
+                </div>
               ))}
-          </div>
-          <div className="context-mix-grid">
-            {categories.map((category) => (
-              <div className="context-mix-row" key={category.key} data-context-key={category.key}>
-                <i aria-hidden="true" />
-                <span>{category.label}</span>
-                <strong>{compactTokens(category.tokens)}</strong>
-              </div>
-            ))}
-          </div>
-        </section>}
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

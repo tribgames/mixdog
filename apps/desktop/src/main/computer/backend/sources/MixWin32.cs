@@ -419,7 +419,8 @@ public class MixWin32
       InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     interface ApplicationActivation
     {
-        [PreserveSig] int ActivateApplication(
+        [PreserveSig]
+        int ActivateApplication(
           [MarshalAs(UnmanagedType.LPWStr)] string appId,
           [MarshalAs(UnmanagedType.LPWStr)] string arguments,
           int options,
@@ -473,7 +474,8 @@ public class MixWin32
     [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-    [DllImport("kernel32.dll")] static extern bool GetProcessTimes(
+    [DllImport("kernel32.dll")]
+    static extern bool GetProcessTimes(
       IntPtr process, out long created, out long exited, out long kernel, out long user);
     [StructLayout(LayoutKind.Sequential)]
     struct PROCESS_BASIC_INFORMATION

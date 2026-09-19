@@ -143,7 +143,7 @@ export const SETTINGS_CATEGORIES = [
     group: 'Integrations',
     items: [],
   },
-  // Desktop-only surface: repo/star/sponsor links (Settings → About).
+  // Desktop-only surface: repo/star/issue links (Settings → About).
   {
     value: 'about',
     label: 'About',

@@ -126,6 +126,37 @@ async function renderPanel(category, overrides = {}) {
   };
 }
 
+test('About keeps GitHub and issue links without a sponsorship option', async (t) => {
+  const previousApi = window.mixdogDesktop;
+  const opened = [];
+  window.mixdogDesktop = {
+    ...previousApi,
+    async openExternal(url) {
+      opened.push(url);
+    },
+  };
+  t.after(() => {
+    window.mixdogDesktop = previousApi;
+  });
+  const panel = await renderPanel('about');
+  t.after(() => panel.cleanup());
+
+  assert.doesNotMatch(panel.host.textContent, /Sponsor|Ko-fi|Support mixdog development/i);
+  const buttons = [...panel.host.querySelectorAll('button')];
+  assert.deepEqual(
+    buttons.map((button) => button.textContent.trim()),
+    ['Star on GitHub ↗', 'Open ↗', 'Issues ↗']
+  );
+  for (const button of buttons) {
+    await act(async () => button.click());
+  }
+  assert.deepEqual(opened, [
+    'https://github.com/tribgames/mixdog',
+    'https://github.com/tribgames/mixdog',
+    'https://github.com/tribgames/mixdog/issues',
+  ]);
+});
+
 test('extension settings routes collapse into Plugin and Skill', () => {
   assert.equal(extensionSectionForSettings('plugins'), 'plugins');
   assert.equal(extensionSectionForSettings('voice'), 'plugins');
@@ -971,20 +1002,20 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     const biomeRow = dialog.querySelector('[data-tidy-engine="biome"]');
     assert.ok(biomeRow);
     assert.equal(biomeRow.getAttribute('data-tone'), 'ok');
-    assert.equal(biomeRow.querySelector('.sidebar-resource-tag'), null);
+    assert.equal(biomeRow.querySelector('.extensions-item-badge'), null);
     assert.match(biomeRow.textContent, /JavaScript, TypeScript, JSON, CSS · 1\.9\.4 · 34\.0 MB/);
 
     // Check shfmt (present host engine): no tag
     const shfmtRow = dialog.querySelector('[data-tidy-engine="shfmt"]');
     assert.ok(shfmtRow);
     assert.equal(shfmtRow.getAttribute('data-tone'), 'ok');
-    assert.equal(shfmtRow.querySelector('.sidebar-resource-tag'), null);
+    assert.equal(shfmtRow.querySelector('.extensions-item-badge'), null);
     assert.match(shfmtRow.textContent, /Shell · 3\.7\.0/);
 
     // Check ruff (core, missing): tag 'Not installed' (muted), description 'Python'
     const ruffRow = dialog.querySelector('[data-tidy-engine="ruff"]');
     assert.ok(ruffRow);
-    const ruffTag = ruffRow.querySelector('.sidebar-resource-tag');
+    const ruffTag = ruffRow.querySelector('.extensions-item-badge');
     assert.ok(ruffTag);
     assert.equal(ruffTag.textContent, 'Not installed');
     assert.equal(ruffTag.getAttribute('data-tone'), 'muted');
@@ -993,7 +1024,7 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     // Check google-java-format (non-core managed, missing): tag 'On demand' (muted)
     const javaRow = dialog.querySelector('[data-tidy-engine="google-java-format"]');
     assert.ok(javaRow);
-    const javaTag = javaRow.querySelector('.sidebar-resource-tag');
+    const javaTag = javaRow.querySelector('.extensions-item-badge');
     assert.ok(javaTag);
     assert.equal(javaTag.textContent, 'On demand');
     assert.equal(javaTag.getAttribute('data-tone'), 'muted');
@@ -1001,7 +1032,7 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     // Check rustfmt (toolchain host missing): tag 'Not detected' (muted), description is installHint
     const rustRow = dialog.querySelector('[data-tidy-engine="rustfmt"]');
     assert.ok(rustRow);
-    const rustTag = rustRow.querySelector('.sidebar-resource-tag');
+    const rustTag = rustRow.querySelector('.extensions-item-badge');
     assert.ok(rustTag);
     assert.equal(rustTag.textContent, 'Not detected');
     assert.equal(rustTag.getAttribute('data-tone'), 'muted');
@@ -1092,7 +1123,7 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     // ruff shows as Failed (danger) with error in description
     const postRuffRow = dialog.querySelector('[data-tidy-engine="ruff"]');
     assert.ok(postRuffRow);
-    const failedTag = postRuffRow.querySelector('.sidebar-resource-tag');
+    const failedTag = postRuffRow.querySelector('.extensions-item-badge');
     assert.ok(failedTag);
     assert.equal(failedTag.textContent, 'Failed');
     assert.equal(failedTag.getAttribute('data-tone'), 'danger');
@@ -1101,12 +1132,12 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
     // present engine: shfmt still has no tag
     const postShfmtRow = dialog.querySelector('[data-tidy-engine="shfmt"]');
     assert.ok(postShfmtRow);
-    assert.equal(postShfmtRow.querySelector('.sidebar-resource-tag'), null);
+    assert.equal(postShfmtRow.querySelector('.extensions-item-badge'), null);
 
     // skipped engine: psscriptanalyzer renders 'Not detected' (muted) + installHint
     const postPwshRow = dialog.querySelector('[data-tidy-engine="psscriptanalyzer"]');
     assert.ok(postPwshRow);
-    const skippedTag = postPwshRow.querySelector('.sidebar-resource-tag');
+    const skippedTag = postPwshRow.querySelector('.extensions-item-badge');
     assert.ok(skippedTag);
     assert.equal(skippedTag.textContent, 'Not detected');
     assert.equal(skippedTag.getAttribute('data-tone'), 'muted');

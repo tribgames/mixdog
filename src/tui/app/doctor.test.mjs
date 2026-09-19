@@ -90,8 +90,12 @@ test('missing, null, empty and rejected accessors never become healthy defaults'
   assert.equal(reportRow(missing, 'providers'), '⚠ providers: status unavailable');
 
   const rejected = runtime({
-    getProviderSetup: async () => { throw new Error('Authorization: Bearer secret-token'); },
-    mcpStatus: () => { throw new Error('https://user:secret-password@example.test'); },
+    getProviderSetup: async () => {
+      throw new Error('Authorization: Bearer secret-token');
+    },
+    mcpStatus: () => {
+      throw new Error('https://user:secret-password@example.test');
+    },
   });
   const report = await buildDoctorReport(rejected, state);
   assert.match(reportRow(report, 'providers'), /^✗ .*check failed/);
@@ -121,14 +125,17 @@ test('updates and offline checks remain warnings rather than failures', async ()
 });
 
 test('pending credentials do not claim an enabled provider is authenticated or broken', async () => {
-  const report = await buildDoctorReport(runtime({
-    getProviderSetup: async () => ({
-      pendingSecrets: true,
-      api: [{ id: 'openai', enabled: true, authenticated: true }],
-      oauth: [],
-      local: [],
+  const report = await buildDoctorReport(
+    runtime({
+      getProviderSetup: async () => ({
+        pendingSecrets: true,
+        api: [{ id: 'openai', enabled: true, authenticated: true }],
+        oauth: [],
+        local: [],
+      }),
     }),
-  }), state);
+    state
+  );
   assert.equal(
     reportRow(report, 'providers'),
     '⚠ providers: credentials still loading · route openai · run /doctor again when ready'
@@ -138,22 +145,39 @@ test('pending credentials do not claim an enabled provider is authenticated or b
 test('provider readiness distinguishes configuration, authentication, reauth and local installation', async () => {
   for (const [group, entry, expected] of [
     ['api', { type: 'api-key', enabled: true, authenticated: false }, '✗ providers: route openai has no auth'],
-    ['oauth', { type: 'oauth', enabled: true, authenticated: true, usable: false, reauthRequired: true },
-      '✗ providers: route openai requires sign-in again'],
-    ['oauth', { type: 'oauth', enabled: true, authenticated: true, usable: false },
-      '✗ providers: route openai is not usable'],
-    ['local', { type: 'local', enabled: false, authenticated: true, detected: true, usable: false },
-      '✗ providers: route openai is disabled'],
-    ['local', { type: 'local', enabled: true, detected: false, usable: false },
-      '✗ providers: route openai has no installed runtime/model'],
-    ['local', { type: 'local', enabled: true, detected: true, usable: true },
-      '✓ providers: 1 ready · route openai'],
-    ['oauth', { type: 'oauth', enabled: true, authenticated: true, usable: true, refreshable: true },
-      '✓ providers: 1 ready · route openai'],
+    [
+      'oauth',
+      { type: 'oauth', enabled: true, authenticated: true, usable: false, reauthRequired: true },
+      '✗ providers: route openai requires sign-in again',
+    ],
+    [
+      'oauth',
+      { type: 'oauth', enabled: true, authenticated: true, usable: false },
+      '✗ providers: route openai is not usable',
+    ],
+    [
+      'local',
+      { type: 'local', enabled: false, authenticated: true, detected: true, usable: false },
+      '✗ providers: route openai is disabled',
+    ],
+    [
+      'local',
+      { type: 'local', enabled: true, detected: false, usable: false },
+      '✗ providers: route openai has no installed runtime/model',
+    ],
+    ['local', { type: 'local', enabled: true, detected: true, usable: true }, '✓ providers: 1 ready · route openai'],
+    [
+      'oauth',
+      { type: 'oauth', enabled: true, authenticated: true, usable: true, refreshable: true },
+      '✓ providers: 1 ready · route openai',
+    ],
   ]) {
-    const report = await buildDoctorReport(runtime({
-      getProviderSetup: async () => ({ api: [], oauth: [], local: [], [group]: [{ id: 'openai', ...entry }] }),
-    }), state);
+    const report = await buildDoctorReport(
+      runtime({
+        getProviderSetup: async () => ({ api: [], oauth: [], local: [], [group]: [{ id: 'openai', ...entry }] }),
+      }),
+      state
+    );
     assert.ok(reportRow(report, 'providers').startsWith(expected), JSON.stringify(entry));
   }
 });
@@ -172,31 +196,40 @@ test('MCP checks only enabled servers in this project, including connected uncon
     { name: 'elsewhere', configured: true, enabled: true, activeHere: false, connected: false, status: 'failed' },
     { name: 'live', configured: false, connected: true },
   ];
-  const report = await buildDoctorReport(runtime({
-    mcpStatus: () => ({ configuredCount: 3, connectedCount: 2, servers }),
-  }), state);
+  const report = await buildDoctorReport(
+    runtime({
+      mcpStatus: () => ({ configuredCount: 3, connectedCount: 2, servers }),
+    }),
+    state
+  );
   assert.equal(reportRow(report, 'mcp'), '✓ mcp: 2/2 connected · 1 disabled · 1 outside this project');
 });
 
 test('MCP names active failures and pending connections without leaking errors', async () => {
-  const report = await buildDoctorReport(runtime({
-    mcpStatus: async () => ({
-      configuredCount: 2,
-      connectedCount: 0,
-      servers: [
-        { name: 'broken', enabled: true, connected: false, status: 'failed', error: 'token=secret' },
-        { name: 'pending', enabled: true, connected: false, status: 'disconnected' },
-      ],
+  const report = await buildDoctorReport(
+    runtime({
+      mcpStatus: async () => ({
+        configuredCount: 2,
+        connectedCount: 0,
+        servers: [
+          { name: 'broken', enabled: true, connected: false, status: 'failed', error: 'token=secret' },
+          { name: 'pending', enabled: true, connected: false, status: 'disconnected' },
+        ],
+      }),
     }),
-  }), state);
+    state
+  );
   assert.equal(reportRow(report, 'mcp'), '⚠ mcp: 0/2 connected · failed: broken · disconnected: pending');
   assert.doesNotMatch(report, /token=secret/);
 });
 
 test('MCP with incomplete server details does not claim nothing is configured', async () => {
-  const report = await buildDoctorReport(runtime({
-    mcpStatus: () => ({ configuredCount: 2, connectedCount: 0, servers: [] }),
-  }), state);
+  const report = await buildDoctorReport(
+    runtime({
+      mcpStatus: () => ({ configuredCount: 2, connectedCount: 0, servers: [] }),
+    }),
+    state
+  );
   assert.equal(reportRow(report, 'mcp'), '⚠ mcp: status unavailable');
 });
 
@@ -208,10 +241,16 @@ test('memory reports install/enable configuration instead of asserting availabil
     [{ installed: true, enabled: true }, null, '⚠ memory: installed · enabled · recap status unavailable'],
   ]) {
     let recapReads = 0;
-    const report = await buildDoctorReport(runtime({
-      getToolModuleSettings: () => ({ memory }),
-      getRecapSettings: () => { recapReads++; return recap; },
-    }), state);
+    const report = await buildDoctorReport(
+      runtime({
+        getToolModuleSettings: () => ({ memory }),
+        getRecapSettings: () => {
+          recapReads++;
+          return recap;
+        },
+      }),
+      state
+    );
     assert.equal(reportRow(report, 'memory'), expected);
     assert.equal(recapReads, memory.installed && memory.enabled ? 1 : 0);
   }
@@ -224,42 +263,57 @@ test('channels distinguish disabled, stopped and unknown workers and support the
     [{ enabled: true }, undefined, '⚠ channels: enabled · worker status unavailable'],
     [{ enabled: true }, { running: true }, '✓ channels: enabled · worker running'],
   ]) {
-    const report = await buildDoctorReport(runtime({
-      getChannelSettings: (options) => { assert.deepEqual(options, { includeStatus: true }); return settings; },
-      getChannelWorkerStatus: async () => worker,
-    }), state);
+    const report = await buildDoctorReport(
+      runtime({
+        getChannelSettings: (options) => {
+          assert.deepEqual(options, { includeStatus: true });
+          return settings;
+        },
+        getChannelWorkerStatus: async () => worker,
+      }),
+      state
+    );
     assert.equal(reportRow(report, 'channels'), expected);
   }
 });
 
 test('skills and plugins report disabled and project-scoped entries without false alarms', async () => {
-  for (const [label, method] of [['skills', 'skillsStatus'], ['plugins', 'pluginsStatus']]) {
+  for (const [label, method] of [
+    ['skills', 'skillsStatus'],
+    ['plugins', 'pluginsStatus'],
+  ]) {
     const entries = [
       { name: 'ready', enabled: true, activeHere: true },
       { name: 'off', enabled: false, dependencyIssues: ['uninstalled optional feature'] },
       { name: 'elsewhere', enabled: true, activeHere: false, error: 'not active here' },
     ];
-    const report = await buildDoctorReport(runtime({
-      [method]: () => ({ count: 3, [label]: entries }),
-    }), state);
+    const report = await buildDoctorReport(
+      runtime({
+        [method]: () => ({ count: 3, [label]: entries }),
+      }),
+      state
+    );
     assert.equal(reportRow(report, label), `✓ ${label}: 1/3 active · 1 disabled · 1 outside this project`);
   }
 });
 
 test('active skill dependency issues and plugin failures are warnings without raw details', async () => {
-  const report = await buildDoctorReport(runtime({
-    skillsStatus: () => ({
-      skills: [{ name: 'needs-tool', enabled: true, dependencyIssues: [{ message: 'private config' }] }],
+  const report = await buildDoctorReport(
+    runtime({
+      skillsStatus: () => ({
+        skills: [{ name: 'needs-tool', enabled: true, dependencyIssues: [{ message: 'private config' }] }],
+      }),
+      pluginsStatus: () => ({ plugins: [{ name: 'broken', enabled: true, error: 'credential=private' }] }),
+      hooksStatus: () => ({
+        enabled: true,
+        configuredEvents: ['tool:before'],
+        events: ['runtime:start', 'tool:before', 'tool:after'],
+        ruleCount: 2,
+        errors: [{ message: 'secret hook configuration' }],
+      }),
     }),
-    pluginsStatus: () => ({ plugins: [{ name: 'broken', enabled: true, error: 'credential=private' }] }),
-    hooksStatus: () => ({
-      enabled: true,
-      configuredEvents: ['tool:before'],
-      events: ['runtime:start', 'tool:before', 'tool:after'],
-      ruleCount: 2,
-      errors: [{ message: 'secret hook configuration' }],
-    }),
-  }), state);
+    state
+  );
   assert.equal(reportRow(report, 'skills'), '⚠ skills: 1/1 active · issues: needs-tool');
   assert.equal(reportRow(report, 'plugins'), '⚠ plugins: 1/1 active · issues: broken');
   assert.equal(reportRow(report, 'hooks'), '⚠ hooks: enabled · 2 rules · 1 configured events · 1 configuration errors');

@@ -95,6 +95,78 @@ test('the preset speaks the sheet language and formats the columns it was given'
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
+// The composer picks the type, the spacing and the panel, and left the figures under General: its own sheet came
+// back with `numeric_column_unformatted`. The default is read off the values and claims nothing about them.
+test('a composed table formats its numeric columns and still takes the formats the caller names', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'formats.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        mode: 'portable',
+        operations: [
+          {
+            op: 'compose_sheet',
+            sheet: 'Report',
+            title: '야간 출고 성과',
+            headers: ['분기', '처리량 (천 건)', '오류율'],
+            rows: [
+              ['1분기', 12, 0.012],
+              ['2분기', 18, 0.009],
+            ],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const readCells = async (session) => {
+    const snapshot = value(await executeOfficeTool({ action: 'snapshot', session }, { cwd }));
+    return snapshot.document.sheets.find((entry) => entry.name === 'Report')?.cells || [];
+  };
+  const formatOf = (cells, wanted) => cells.find((cell) => cell.value === wanted)?.style?.numberFormat || '';
+  const composed = await readCells(created.session);
+  // Integers take the thousands form; decimals keep the places they were written with.
+  assert.equal(formatOf(composed, 12), '#,##0');
+  assert.equal(formatOf(composed, 0.012), '#,##0.000');
+  const audited = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd })).issues || [];
+  assert.deepEqual(
+    audited.filter((issue) => issue.code === 'numeric_column_unformatted'),
+    []
+  );
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+
+  // A format the caller names wins over the default, and one that lands nowhere is still reported.
+  const named = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: join(cwd, 'named.xlsx'),
+        mode: 'portable',
+        operations: [
+          {
+            op: 'compose_sheet',
+            sheet: 'Report',
+            headers: ['분기', '오류율'],
+            rows: [
+              ['1분기', 0.012],
+              ['2분기', 0.009],
+            ],
+            columnFormats: ['', '0.0%'],
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const namedCells = await readCells(named.session);
+  assert.equal(formatOf(namedCells, 0.012), '0.0%');
+  assert.equal(formatOf(namedCells, 0.009), '0.0%');
+  value(await executeOfficeTool({ action: 'close', session: named.session }, { cwd }));
+});
+
 test('column widths follow the text a number format prints', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'formatted.xlsx');
@@ -636,6 +708,106 @@ test('a chart takes comma-joined areas, and a drawing over another is reported',
     JSON.stringify(overlaps)
   );
   assert.match(overlaps[0].message, /over the chart at E2:/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+// A sheet that grows a column per period is already written the other way:
+// plotBy:'rows' reads the first row as the categories and every other row as a
+// series named by its first cell, instead of asking for a transposed copy.
+test('a chart reads a row-oriented block with plotBy rows', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'rows.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'xlsx',
+        mode: 'portable',
+        operations: [
+          {
+            op: 'set_range',
+            range: 'A1:D3',
+            values: [
+              ['지표', '1분기', '2분기', '3분기'],
+              ['가동률', 92, 94, 96],
+              ['경보', 7, 6, 4],
+            ],
+          },
+          {
+            op: 'add_chart',
+            range: 'A1:D3',
+            plotBy: 'rows',
+            cell: 'F2',
+            chartType: 'line',
+            title: '분기 추이',
+            width: 300,
+            height: 200,
+          },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const chart = created.batch.results.find((entry) => entry.op === 'add_chart');
+  assert.equal(chart.series, 2);
+  const chartXml = await (await JSZip.loadAsync(await readFile(path))).file('xl/charts/chart1.xml').async('string');
+  assert.match(chartXml, /\$B\$1:\$D\$1/);
+  assert.match(chartXml, /\$B\$2:\$D\$2/);
+  assert.match(chartXml, /\$B\$3:\$D\$3/);
+  assert.match(chartXml, /가동률/);
+  // Read by columns the same block would have made the quarters the series.
+  assert.doesNotMatch(chartXml, /\$B\$2:\$B\$3/);
+  const refused = await executeOfficeTool(
+    {
+      action: 'batch',
+      session: created.session,
+      operations: [{ op: 'add_chart', range: 'A1:B3,D1:D3', plotBy: 'rows', cell: 'F20' }],
+    },
+    { cwd }
+  );
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /plotBy:'rows' requires one bounded range/);
+  value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
+});
+
+// Excel holds a dropdown's choices quoted; written bare they are read as a
+// name nobody defined and the list opens empty. A projection whose first
+// period is an input and whose later periods grow from it is the ordinary
+// shape of a plan, not a formula a hardcode interrupts.
+test('a list validation is stored the way Excel reads it, and a plain projection is not a model finding', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'form.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path,
+        format: 'xlsx',
+        mode: 'portable',
+        operations: [
+          { op: 'set_range', range: 'A1:F1', values: [['항목', '1Q', '2Q', '3Q', '4Q', '지역']] },
+          { op: 'set_cell', cell: 'B2', value: 120 },
+          { op: 'set_formula', cell: 'C2', formula: '=B2*1.05' },
+          { op: 'set_formula', cell: 'D2', formula: '=C2*1.05' },
+          { op: 'set_formula', cell: 'E2', formula: '=D2*1.05' },
+          { op: 'add_validation', range: 'F2:F4', formula1: '서울,부산,대구' },
+          { op: 'add_validation', range: 'G2:G4', formula1: '$A$1:$A$3' },
+          { op: 'add_validation', range: 'H2:H4', type: 'whole', formula1: '0', formula2: '50' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const sheetXml = await (await JSZip.loadAsync(await readFile(path))).file('xl/worksheets/sheet1.xml').async('string');
+  assert.match(sheetXml, /<formula1>(?:"|&quot;)서울,부산,대구(?:"|&quot;)<\/formula1>/);
+  assert.match(sheetXml, /<formula1>\$A\$1:\$A\$3<\/formula1>/);
+  assert.match(sheetXml, /<formula1>0<\/formula1><formula2>50<\/formula2>/);
+  const audited = value(await executeOfficeTool({ action: 'issues', session: created.session }, { cwd }));
+  assert.deepEqual(
+    audited.issues.filter((issue) => issue.code === 'formula_inconsistency'),
+    []
+  );
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 

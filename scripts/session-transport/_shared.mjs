@@ -1,8 +1,6 @@
 // Session transport contract: transport fan-out, call routing, and the remote
 // runtime proxy — all against a STUB runtime factory so the test never boots a
 // provider, model catalog, or memory runtime.
-import test from 'node:test';
-import assert from 'node:assert/strict';
 import http from 'node:http';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
@@ -276,12 +274,7 @@ async function withDaemon(
 async function waitFor(predicate, message, timeoutMs = 4000) {
   const started = Date.now();
   while (true) {
-    let value;
-    try {
-      value = await predicate();
-    } catch (err) {
-      throw err;
-    }
+    const value = await predicate();
     if (value) return value;
     if (Date.now() - started > timeoutMs) {
       const detail = typeof message === 'function' ? message() : message;

@@ -72,12 +72,9 @@ test('cache is the preselected scope and only the chosen scopes are cleared', as
 
 test('the finished dialog closes instead of rebuilding the selection form', async () => {
   let closed = 0;
-  const view = renderDialog(
-    { browserClearData: async (scopes) => ({ cleared: scopes, errors: {} }) },
-    () => {
-      closed += 1;
-    }
-  );
+  const view = renderDialog({ browserClearData: async (scopes) => ({ cleared: scopes, errors: {} }) }, () => {
+    closed += 1;
+  });
   try {
     await act(async () => {
       view.button('Clear now').click();

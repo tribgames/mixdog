@@ -141,10 +141,6 @@ function provenanceCandidates(args) {
   return out;
 }
 
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // A result mentions a candidate only as a whole token: not inside a longer
 // word, and — for a bare name — not as a directory prefix of a longer path
 // (`src` in `src/x.mjs` is the scope the call was given, not something the
@@ -153,9 +149,15 @@ function escapeRegExp(text) {
 // revealed `…/Programs/mixdog-desktop` too. Either separator matches.
 function mentions(text, candidate) {
   const isPath = candidate.includes('/');
-  const token = escapeRegExp(candidate).replace(/\//g, '[\\\\/]');
-  const trailing = isPath ? '(?![\\w-])' : '(?![\\w\\-\\\\/])';
-  return new RegExp(`(?<![\\w-])${token}${trailing}`).test(text);
+  const normalized = isPath ? text.replace(/\\/g, '/') : text;
+  const trailing = isPath ? /[\w-]/ : /[\w\\/-]/;
+  // Candidates can be entire source files; search literally instead of compiling them.
+  for (let index = normalized.indexOf(candidate); index !== -1; index = normalized.indexOf(candidate, index + 1)) {
+    if (!/[\w-]/.test(normalized.charAt(index - 1)) && !trailing.test(normalized.charAt(index + candidate.length))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Did this call need the previous round? Provenance (an argument the previous
@@ -245,7 +247,8 @@ function readTargets(args) {
   const values = Array.isArray(raw) ? raw : [raw];
   const out = [];
   for (const value of values) {
-    const target = typeof value === 'string' ? value : value && typeof value === 'object' ? value.file_path ?? value.path : null;
+    const target =
+      typeof value === 'string' ? value : value && typeof value === 'object' ? (value.file_path ?? value.path) : null;
     if (typeof target === 'string' && target.trim()) out.push(target.trim().replace(/\\/g, '/'));
   }
   return out;
@@ -291,7 +294,8 @@ function locatedSitesNudge(call, history, sessionRef) {
   let shape;
   if (!asEntries) shape = `one read per window, all in the same response: ${entries.map(describeWindow).join(', ')}`;
   else if (chunks.length === 1) shape = `one read call: read ${JSON.stringify(chunks[0])}`;
-  else shape = `${chunks.length} read calls in the same response: ${chunks.map((c) => `read ${JSON.stringify(c)}`).join('; ')}`;
+  else
+    shape = `${chunks.length} read calls in the same response: ${chunks.map((c) => `read ${JSON.stringify(c)}`).join('; ')}`;
   return {
     trigger: 'located_sites',
     tools: [READ_TOOL],
@@ -367,7 +371,9 @@ function arrayHints(tools) {
 }
 
 function serialText(names, hints) {
-  const edits = names.some((name) => EDIT_TOOLS.has(name)) ? ' Edits to different files or regions go together too.' : '';
+  const edits = names.some((name) => EDIT_TOOLS.has(name))
+    ? ' Edits to different files or regions go together too.'
+    : '';
   const arrays = hints.length ? ` Several targets → array argument (${hints.join(', ')}).` : '';
   return (
     `Tool batching: the last ${names.length} rounds were single calls (${names.join(', ')}) that did not need the previous result; ` +

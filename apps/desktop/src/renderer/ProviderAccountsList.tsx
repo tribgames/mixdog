@@ -290,10 +290,7 @@ export function ProviderAccountsList({
           )}
           <span className="provider-accounts-heading-actions">
             {!listOnly && pool && pool.accounts.length > 1 && (
-              <label
-                className="provider-accounts-auto"
-                title={t('Switch accounts automatically')}
-              >
+              <label className="provider-accounts-auto" title={t('Switch accounts automatically')}>
                 <span>{t('Auto-switch')}</span>
                 <span className="mixdog-settings__switch compact-switch">
                   <input

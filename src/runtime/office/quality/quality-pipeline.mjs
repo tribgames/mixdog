@@ -212,8 +212,7 @@ const POLISH_GUIDANCE = Object.freeze({
     'Write the brief slide plan before authoring again: one line per slide, each naming the job the page does and what carries it.',
   plan_slide_unplanned:
     'Give every slide in the deck its own plan line, or drop the slides the plan does not want; a page nobody planned is a page nobody designed.',
-  plan_incomplete:
-    'Name the job and the carriers on every plan line, so the page is decided before it is drawn.',
+  plan_incomplete: 'Name the job and the carriers on every plan line, so the page is decided before it is drawn.',
   // Package faults PowerPoint refuses (script-authored charts).
   chart_stacked_label_position:
     'Set dataLabelPosition to ctr, inEnd, or inBase on the stacked chart; outEnd makes PowerPoint refuse the file.',

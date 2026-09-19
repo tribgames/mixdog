@@ -35,7 +35,12 @@ test('compaction drops the checkpoint measured against the pre-compaction prefix
   const conversation = { id: 'conv-1', checkpoint: null, historyBlobIds: null, blobs: new Map() };
   buildRunRequest(runInput(conversation, [{ role: 'user', content: 'a' }]));
   conversation.checkpoint = checkpointWith(349_000);
-  buildRunRequest(runInput(conversation, [{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }]));
+  buildRunRequest(
+    runInput(conversation, [
+      { role: 'user', content: 'a' },
+      { role: 'assistant', content: 'b' },
+    ])
+  );
   assert.notEqual(conversation.checkpoint, null);
   buildRunRequest(runInput(conversation, [{ role: 'user', content: 'compacted summary' }]));
   assert.equal(conversation.checkpoint, null);

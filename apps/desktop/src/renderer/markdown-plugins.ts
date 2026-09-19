@@ -2,8 +2,8 @@
 // react-markdown chunk and the worker AST processor) so their DOM output
 // stays identical. Keep this module dependency-free: it is pulled into the
 // renderer bundle and the markdown worker alike.
-import { isOsDocumentExtension } from "../shared/local-files";
-import { isLocalMarkdownLink } from "./markdown-url";
+import { isOsDocumentExtension } from '../shared/local-files';
+import { isLocalMarkdownLink } from './markdown-url';
 
 interface HastLikeNode {
   type?: string;
@@ -18,7 +18,7 @@ const adjacentStrongPunctuation =
 
 function escapedAt(value: string, index: number): boolean {
   let slashes = 0;
-  for (let cursor = index - 1; cursor >= 0 && value[cursor] === "\\"; cursor -= 1) {
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) {
     slashes += 1;
   }
   return slashes % 2 === 1;
@@ -33,24 +33,28 @@ function escapedAt(value: string, index: number): boolean {
 export function repairAdjacentStrongPunctuation() {
   return (tree: HastLikeNode) => {
     const visit = (node: HastLikeNode) => {
-      if (node.type === "strong" || node.type === "code" || node.type === "inlineCode") return;
+      if (node.type === 'strong' || node.type === 'code' || node.type === 'inlineCode') return;
       const children = node.children;
       if (!children) return;
-      let projection = "";
+      let projection = '';
       const spans = children.map((child) => {
         visit(child);
         const start = projection.length;
-        projection += child.type === "text" && typeof child.value === "string"
-          ? child.value : child.type === "inlineCode" ? "`" : "\n";
+        projection +=
+          child.type === 'text' && typeof child.value === 'string'
+            ? child.value
+            : child.type === 'inlineCode'
+              ? '`'
+              : '\n';
         return { child, start, end: projection.length };
       });
       const slice = (start: number, end: number): HastLikeNode[] => {
         const result: HastLikeNode[] = [];
         for (const span of spans) {
           if (span.end <= start || span.start >= end) continue;
-          if (span.child.type === "text" && typeof span.child.value === "string") {
+          if (span.child.type === 'text' && typeof span.child.value === 'string') {
             result.push({
-              type: "text",
+              type: 'text',
               value: span.child.value.slice(Math.max(0, start - span.start), end - span.start),
             });
           } else {
@@ -62,13 +66,15 @@ export function repairAdjacentStrongPunctuation() {
       const repaired: HastLikeNode[] = [];
       let cursor = 0;
       adjacentStrongPunctuation.lastIndex = 0;
-      for (let match = adjacentStrongPunctuation.exec(projection);
+      for (
+        let match = adjacentStrongPunctuation.exec(projection);
         match;
-        match = adjacentStrongPunctuation.exec(projection)) {
+        match = adjacentStrongPunctuation.exec(projection)
+      ) {
         if (escapedAt(projection, match.index)) continue;
         const end = match.index + match[0].length;
         repaired.push(...slice(cursor, match.index), {
-          type: "strong",
+          type: 'strong',
           children: slice(match.index + 2, end - 2),
         });
         cursor = end;
@@ -95,9 +101,9 @@ export function stripHtmlComments() {
       if (!children) return;
       const kept: HastLikeNode[] = [];
       for (const child of children) {
-        if (child.type === "html" && typeof child.value === "string") {
+        if (child.type === 'html' && typeof child.value === 'string') {
           HTML_COMMENT.lastIndex = 0;
-          const value = child.value.replace(HTML_COMMENT, "");
+          const value = child.value.replace(HTML_COMMENT, '');
           if (!value.trim()) continue;
           kept.push({ ...child, value });
           continue;
@@ -125,12 +131,8 @@ export function htmlLineBreaksToBreaks() {
       if (!children) return;
       for (let index = 0; index < children.length; index += 1) {
         const child = children[index];
-        if (
-          child.type === "html"
-          && typeof child.value === "string"
-          && HTML_LINE_BREAK.test(child.value.trim())
-        ) {
-          children[index] = { type: "break" };
+        if (child.type === 'html' && typeof child.value === 'string' && HTML_LINE_BREAK.test(child.value.trim())) {
+          children[index] = { type: 'break' };
           continue;
         }
         visit(child);
@@ -148,16 +150,14 @@ export function trimTrailingCodeNewline() {
   return (tree: HastLikeNode) => {
     const visit = (node: HastLikeNode) => {
       for (const child of node.children ?? []) visit(child);
-      if (node.type !== "element" || node.tagName !== "pre") return;
-      const code = (node.children ?? []).find(
-        (child) => child.type === "element" && child.tagName === "code",
-      );
+      if (node.type !== 'element' || node.tagName !== 'pre') return;
+      const code = (node.children ?? []).find((child) => child.type === 'element' && child.tagName === 'code');
       const children = code?.children;
       const last = children?.[children.length - 1];
-      if (!children || !last || last.type !== "text" || typeof last.value !== "string") {
+      if (!children || !last || last.type !== 'text' || typeof last.value !== 'string') {
         return;
       }
-      last.value = last.value.replace(/\n$/, "");
+      last.value = last.value.replace(/\n$/, '');
       if (!last.value) children.pop();
     };
     visit(tree);
@@ -173,23 +173,24 @@ export function trimTrailingCodeNewline() {
 // inline). Existing links, code blocks and math stay untouched. The href
 // carries `path:line[:column]` so both pipelines hand MarkdownLink the same
 // target.
-export const PATH_LINK_CLASS = "markdown-path-link";
-const SEGMENT = "[\\p{L}\\p{N}_.@+-]+";
-const PATH_PREFIX = "(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|[\\\\/](?![\\\\/]))";
-const EXTENSION = "\\.[A-Za-z][A-Za-z0-9]{0,11}";
-const LOCATION = "(?::(?<line>\\d+)(?::(?<column>\\d+))?(?:-\\d+)?"
-  + "|#L(?<hashLine>\\d+)(?:C(?<hashColumn>\\d+))?(?:-L?\\d+(?:C\\d+)?)?)?";
+export const PATH_LINK_CLASS = 'markdown-path-link';
+const SEGMENT = '[\\p{L}\\p{N}_.@+-]+';
+const PATH_PREFIX = '(?:[A-Za-z]:[\\\\/]|\\.{1,2}[\\\\/]|[\\\\/](?![\\\\/]))';
+const EXTENSION = '\\.[A-Za-z][A-Za-z0-9]{0,11}';
+const LOCATION =
+  '(?::(?<line>\\d+)(?::(?<column>\\d+))?(?:-\\d+)?' +
+  '|#L(?<hashLine>\\d+)(?:C(?<hashColumn>\\d+))?(?:-L?\\d+(?:C\\d+)?)?)?';
 // Prose: a file needs an extension plus a folder or a ./ ../ / X:\ prefix; a
 // folder needs a trailing separator and must end the word, because "입력/출력"
 // is a slash in running text, not a folder.
 const PROSE_PATH = new RegExp(
-  `(?<![\\p{L}\\p{N}_./\\\\:@-])(?:`
-  + `(?<file>(?:${PATH_PREFIX}(?:${SEGMENT}[\\\\/])*|(?:${SEGMENT}[\\\\/])+)(?:${SEGMENT})?${EXTENSION})`
-  + `${LOCATION}(?![A-Za-z0-9_/\\\\])`
-  + `|(?<folder>${PATH_PREFIX}?(?:${SEGMENT}[\\\\/])+)(?![\\p{L}\\p{N}_/\\\\]))`,
-  "gu",
+  `(?<![\\p{L}\\p{N}_./\\\\:@-])(?:` +
+    `(?<file>(?:${PATH_PREFIX}(?:${SEGMENT}[\\\\/])*|(?:${SEGMENT}[\\\\/])+)(?:${SEGMENT})?${EXTENSION})` +
+    `${LOCATION}(?![A-Za-z0-9_/\\\\])` +
+    `|(?<folder>${PATH_PREFIX}?(?:${SEGMENT}[\\\\/])+)(?![\\p{L}\\p{N}_/\\\\]))`,
+  'gu'
 );
-const CODE_LOCATION = new RegExp(`^(?<path>[\\s\\S]*?)${LOCATION}$`, "u");
+const CODE_LOCATION = new RegExp(`^(?<path>[\\s\\S]*?)${LOCATION}$`, 'u');
 // Line references that trail a mention: `src/a.ts`:42, "(line 269, col 5)",
 // "(269줄)", "269번 줄". A bare "12줄" is a line count, so the unparenthesised
 // Korean form needs 번/번째.
@@ -203,39 +204,139 @@ const TRAILING_LOCATIONS = [
 // "node.js" in prose must not become a link, so bare names count inside
 // inline code only.
 const BARE_FILE_EXTENSIONS = new Set([
-  "mjs", "cjs", "js", "jsx", "ts", "tsx", "mts", "cts", "py", "rs", "go", "java", "kt", "kts",
-  "swift", "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "cs", "rb", "php", "sh", "bash", "zsh",
-  "ps1", "bat", "cmd", "md", "markdown", "mdx", "json", "jsonl", "yaml", "yml", "toml", "xml",
-  "css", "scss", "sass", "less", "html", "htm", "vue", "svelte", "sql", "txt", "log", "csv",
-  "tsv", "env", "ini", "cfg", "conf", "lock", "pdf", "pptx", "docx", "xlsx", "png", "jpg",
-  "jpeg", "gif", "webp", "svg", "mp4", "mp3",
+  'mjs',
+  'cjs',
+  'js',
+  'jsx',
+  'ts',
+  'tsx',
+  'mts',
+  'cts',
+  'py',
+  'rs',
+  'go',
+  'java',
+  'kt',
+  'kts',
+  'swift',
+  'c',
+  'cc',
+  'cpp',
+  'cxx',
+  'h',
+  'hh',
+  'hpp',
+  'cs',
+  'rb',
+  'php',
+  'sh',
+  'bash',
+  'zsh',
+  'ps1',
+  'bat',
+  'cmd',
+  'md',
+  'markdown',
+  'mdx',
+  'json',
+  'jsonl',
+  'yaml',
+  'yml',
+  'toml',
+  'xml',
+  'css',
+  'scss',
+  'sass',
+  'less',
+  'html',
+  'htm',
+  'vue',
+  'svelte',
+  'sql',
+  'txt',
+  'log',
+  'csv',
+  'tsv',
+  'env',
+  'ini',
+  'cfg',
+  'conf',
+  'lock',
+  'pdf',
+  'pptx',
+  'docx',
+  'xlsx',
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'svg',
+  'mp4',
+  'mp3',
 ]);
 const BARE_FILE_NAMES = new Set([
-  "dockerfile", "makefile", "license", "readme", "changelog", "contributing", "codeowners",
-  "procfile", "jenkinsfile", "vagrantfile", "gemfile", "rakefile", "brewfile", "justfile",
-  "pipfile",
+  'dockerfile',
+  'makefile',
+  'license',
+  'readme',
+  'changelog',
+  'contributing',
+  'codeowners',
+  'procfile',
+  'jenkinsfile',
+  'vagrantfile',
+  'gemfile',
+  'rakefile',
+  'brewfile',
+  'justfile',
+  'pipfile',
   // Dotfiles by name only: `.workspace` or `.main-panel` in chat is a CSS
   // selector far more often than a file, so a leading dot proves nothing.
-  ".gitignore", ".gitattributes", ".gitmodules", ".gitkeep", ".dockerignore", ".npmignore",
-  ".npmrc", ".nvmrc", ".node-version", ".python-version", ".ruby-version", ".tool-versions",
-  ".editorconfig", ".prettierrc", ".prettierignore", ".eslintrc", ".eslintignore", ".babelrc",
-  ".env", ".htaccess", ".bashrc", ".zshrc", ".profile", ".vimrc", ".mailmap",
+  '.gitignore',
+  '.gitattributes',
+  '.gitmodules',
+  '.gitkeep',
+  '.dockerignore',
+  '.npmignore',
+  '.npmrc',
+  '.nvmrc',
+  '.node-version',
+  '.python-version',
+  '.ruby-version',
+  '.tool-versions',
+  '.editorconfig',
+  '.prettierrc',
+  '.prettierignore',
+  '.eslintrc',
+  '.eslintignore',
+  '.babelrc',
+  '.env',
+  '.htaccess',
+  '.bashrc',
+  '.zshrc',
+  '.profile',
+  '.vimrc',
+  '.mailmap',
 ]);
 
 function pathLink(href: string, children: HastLikeNode[]): HastLikeNode {
   return {
-    type: "element",
-    tagName: "a",
+    type: 'element',
+    tagName: 'a',
     properties: { href, className: [PATH_LINK_CLASS] },
     children,
   };
 }
 
-interface MentionLocation { line?: number; column?: number }
+interface MentionLocation {
+  line?: number;
+  column?: number;
+}
 
 function locationHref(path: string, { line, column }: MentionLocation): string {
   if (!line) return path;
-  return `${path}:${line}${column ? `:${column}` : ""}`;
+  return `${path}:${line}${column ? `:${column}` : ''}`;
 }
 
 function matchedLocation(groups: Record<string, string | undefined> | undefined): MentionLocation {
@@ -261,20 +362,28 @@ function trailingLocation(text: string): (MentionLocation & { consumed: number }
 
 /** Inline code that names one path: `src/a.ts:12`, `Dockerfile`, `output/`,
  *  `output/제안서 최종.pptx` (spaces only in document names). */
-function codeMention(text: string, allowIncompletePath = false): (MentionLocation & { path: string; bare: boolean }) | null {
+function codeMention(
+  text: string,
+  allowIncompletePath = false
+): (MentionLocation & { path: string; bare: boolean }) | null {
   const match = CODE_LOCATION.exec(text.trim());
-  const path = match?.groups?.path?.trim() || "";
+  const path = match?.groups?.path?.trim() || '';
   const drive = /^[A-Za-z]:[\\/]/.test(path);
   const body = drive ? path.slice(3) : path;
-  if (!path || !/\p{L}/u.test(path) || /\s{2,}/.test(path) || /^\.{1,2}$/.test(path)
-    || !/^[\p{L}\p{N}_.@+\-\\/ ]*$/u.test(body)) {
+  if (
+    !path ||
+    !/\p{L}/u.test(path) ||
+    /\s{2,}/.test(path) ||
+    /^\.{1,2}$/.test(path) ||
+    !/^[\p{L}\p{N}_.@+\-\\/ ]*$/u.test(body)
+  ) {
     return null;
   }
   const folder = /[\\/]$/.test(path);
   const hasSeparator = drive || /[\\/]/.test(body);
-  const name = folder ? "" : body.split(/[\\/]/).at(-1) || "";
-  const dot = name.lastIndexOf(".");
-  const extension = dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+  const name = folder ? '' : body.split(/[\\/]/).at(-1) || '';
+  const dot = name.lastIndexOf('.');
+  const extension = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
   if (/\s/.test(path) && !isOsDocumentExtension(extension)) return null;
   if (folder) return hasSeparator ? { path, bare: false } : null;
   // Without an extension only well-known names count (`scripts/Dockerfile`,
@@ -299,10 +408,10 @@ export function isPendingLocalPathMention(text: string): boolean {
 }
 
 function skipsPathLinks(node: HastLikeNode): boolean {
-  if (node.type !== "element") return false;
-  if (["a", "pre", "script", "style"].includes(String(node.tagName))) return true;
+  if (node.type !== 'element') return false;
+  if (['a', 'pre', 'script', 'style'].includes(String(node.tagName))) return true;
   const className = node.properties?.className;
-  const names = Array.isArray(className) ? className.map(String) : [String(className || "")];
+  const names = Array.isArray(className) ? className.map(String) : [String(className || '')];
   return names.some((name) => /katex|math/.test(name));
 }
 
@@ -311,7 +420,7 @@ function linkifyText(value: string): HastLikeNode[] | null {
   let last = 0;
   PROSE_PATH.lastIndex = 0;
   for (let match = PROSE_PATH.exec(value); match; match = PROSE_PATH.exec(value)) {
-    const path = match.groups?.file || match.groups?.folder || "";
+    const path = match.groups?.file || match.groups?.folder || '';
     let end = match.index + match[0].length;
     let location = matchedLocation(match.groups);
     if (!location.line && match.groups?.file) {
@@ -321,32 +430,29 @@ function linkifyText(value: string): HastLikeNode[] | null {
         end += trailing.consumed;
       }
     }
-    if (match.index > last) out.push({ type: "text", value: value.slice(last, match.index) });
-    out.push(pathLink(locationHref(path, location), [
-      { type: "text", value: value.slice(match.index, end) },
-    ]));
+    if (match.index > last) out.push({ type: 'text', value: value.slice(last, match.index) });
+    out.push(pathLink(locationHref(path, location), [{ type: 'text', value: value.slice(match.index, end) }]));
     last = end;
     PROSE_PATH.lastIndex = end;
   }
   if (!out.length) return null;
-  if (last < value.length) out.push({ type: "text", value: value.slice(last) });
+  if (last < value.length) out.push({ type: 'text', value: value.slice(last) });
   return out;
 }
 
 function inlineCodeLink(code: HastLikeNode, next: HastLikeNode | undefined): HastLikeNode | null {
-  if (code.type !== "element" || code.tagName !== "code" || skipsPathLinks(code)) return null;
+  if (code.type !== 'element' || code.tagName !== 'code' || skipsPathLinks(code)) return null;
   const only = code.children?.length === 1 ? code.children[0] : null;
-  if (!only || only.type !== "text" || typeof only.value !== "string") return null;
+  if (!only || only.type !== 'text' || typeof only.value !== 'string') return null;
   const mention = codeMention(only.value);
   if (!mention) return null;
   let location: MentionLocation = mention;
   const children: HastLikeNode[] = [code];
-  if (!location.line && !/[\\/]$/.test(mention.path)
-    && next?.type === "text" && typeof next.value === "string") {
+  if (!location.line && !/[\\/]$/.test(mention.path) && next?.type === 'text' && typeof next.value === 'string') {
     const trailing = trailingLocation(next.value);
     if (trailing) {
       location = trailing;
-      children.push({ type: "text", value: next.value.slice(0, trailing.consumed) });
+      children.push({ type: 'text', value: next.value.slice(0, trailing.consumed) });
       next.value = next.value.slice(trailing.consumed);
     }
   }
@@ -354,9 +460,9 @@ function inlineCodeLink(code: HastLikeNode, next: HastLikeNode | undefined): Has
 }
 
 function localImageLink(node: HastLikeNode): HastLikeNode | null {
-  if (node.type !== "element" || node.tagName !== "img") return null;
-  const src = String(node.properties?.src || "").trim();
-  return src && isLocalMarkdownLink(src) ? pathLink(src, [{ type: "text", value: src }]) : null;
+  if (node.type !== 'element' || node.tagName !== 'img') return null;
+  const src = String(node.properties?.src || '').trim();
+  return src && isLocalMarkdownLink(src) ? pathLink(src, [{ type: 'text', value: src }]) : null;
 }
 
 export function linkifyLocalPaths() {
@@ -374,11 +480,11 @@ export function linkifyLocalPaths() {
         }
         // Inline code is a single mention or nothing: `python scripts/run.py`
         // must not sprout a link around its argument.
-        if (child.type === "element" && child.tagName === "code") {
+        if (child.type === 'element' && child.tagName === 'code') {
           linked.push(child);
           continue;
         }
-        if (child.type === "text" && typeof child.value === "string") {
+        if (child.type === 'text' && typeof child.value === 'string') {
           const parts = linkifyText(child.value);
           if (parts) linked.push(...parts);
           else if (child.value) linked.push(child);

@@ -425,9 +425,19 @@ export function PullRequestsPane({
           (!prUrl && !api?.gitPush) ||
           Boolean(busy)
         }
-        title={onDefaultBranch ? t('Create or check out a feature branch first.') : createHint ? t(createHint) : t('Create pull request')}
+        title={
+          onDefaultBranch
+            ? t('Create or check out a feature branch first.')
+            : createHint
+              ? t(createHint)
+              : t('Create pull request')
+        }
         data-tooltip={
-          onDefaultBranch ? t('Create or check out a feature branch first.') : createHint ? t(createHint) : t('Create pull request')
+          onDefaultBranch
+            ? t('Create or check out a feature branch first.')
+            : createHint
+              ? t(createHint)
+              : t('Create pull request')
         }
         onClick={beginCreatePullRequest}
       >
@@ -485,7 +495,9 @@ export function PullRequestsPane({
         ? t('Create or check out a feature branch to open a pull request.')
         : prUrl
           ? t('Create a pull request from the current branch.')
-          : createHint ? t(createHint) : t('This repository has no open pull requests.')
+          : createHint
+            ? t(createHint)
+            : t('This repository has no open pull requests.')
       : listView === 'mine'
         ? t('Pull requests you create or check out will appear here.')
         : t('Review requests assigned to you will appear here.');
@@ -594,7 +606,9 @@ export function PullRequestsPane({
                 <span>{t('Create as draft')}</span>
               </label>
               {!prUrl && (
-                <p className="dock-pr-create-note">{createHint ? t(createHint) : t('The branch will be pushed before creation.')}</p>
+                <p className="dock-pr-create-note">
+                  {createHint ? t(createHint) : t('The branch will be pushed before creation.')}
+                </p>
               )}
               {createError && (
                 <SourceControlErrorNotice
@@ -657,7 +671,11 @@ export function PullRequestsPane({
                 </div>
               )}
               {pullRequestViews && visiblePullRequests.length > 0 && (
-                <div className="dock-pr-results" role="list" aria-label={t('{{view}} pull requests', { view: viewLabels[listView] })}>
+                <div
+                  className="dock-pr-results"
+                  role="list"
+                  aria-label={t('{{view}} pull requests', { view: viewLabels[listView] })}
+                >
                   {visiblePullRequests.map((pr) => {
                     const checkedOut = Boolean(currentBranch && pr.headRefName === currentBranch);
                     const checkoutKey = `checkout:${pr.number}`;
@@ -894,7 +912,9 @@ export function PullRequestEditor({
               <span className="dock-pr-refs">
                 <code>{detail.baseRefName}</code> ← <code>{detail.headRefName}</code>
               </span>
-              <span className="dock-pr-updated">{t('updated {{time}} ago', { time: relativeAge(detail.updatedAt) })}</span>
+              <span className="dock-pr-updated">
+                {t('updated {{time}} ago', { time: relativeAge(detail.updatedAt) })}
+              </span>
             </div>
             <div className="dock-pr-actions dock-pr-header-actions">
               <button
@@ -921,11 +941,7 @@ export function PullRequestEditor({
                           : mergeMethod === 'squash'
                             ? t('Squash and merge')
                             : t('Rebase and merge');
-                      if (
-                        !window.confirm(
-                          t('{{action}} pull request #{{number}}?', { action, number: detail.number })
-                        )
-                      )
+                      if (!window.confirm(t('{{action}} pull request #{{number}}?', { action, number: detail.number })))
                         return;
                       void run('merge', () => api?.ghPrMerge?.(projectPath, detail.number, mergeMethod));
                     }}
@@ -1176,9 +1192,7 @@ export function PullRequestEditor({
                 <header className="dock-pr-files-summary">
                   <div>
                     <b>{t('Files changed')}</b>
-                    <small>
-                      {t('{{count}} files', { count: detail.changedFiles })}
-                    </small>
+                    <small>{t('{{count}} files', { count: detail.changedFiles })}</small>
                   </div>
                   <span>
                     {detail.additions > 0 && <i>+{detail.additions}</i>}

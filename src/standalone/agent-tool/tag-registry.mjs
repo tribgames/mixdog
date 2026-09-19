@@ -3,18 +3,28 @@
 // resolve/next/bind/forget, session-index refresh, terminal tombstones, and
 // the delayed reap timers. The maps are returned by reference so the
 // remaining agent-tool closure keeps its original direct reads.
-import { agentTagOf, clean, clearAgentStatuslineRoute, positiveInt, rowMatchesContext, sessionMatchesContext, stampMs } from './helpers.mjs';
-import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, isTerminalWorkerStatus, tagTombstoneKey, workerRowTime, workerRowToSession } from './worker-rows.mjs';
+import {
+  agentTagOf,
+  clean,
+  clearAgentStatuslineRoute,
+  positiveInt,
+  rowMatchesContext,
+  sessionMatchesContext,
+  stampMs,
+} from './helpers.mjs';
+import {
+  TAG_TOMBSTONE_TTL_MS,
+  isLeadPoolAgent,
+  isTerminalWorkerStatus,
+  tagTombstoneKey,
+  workerRowTime,
+  workerRowToSession,
+} from './worker-rows.mjs';
 import { ACTIVE_STAGES } from './tool-def.mjs';
 import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
 import { createLeadWorkerIndex } from './lead-worker-index.mjs';
 import { createWorkerIndex } from './worker-index.mjs';
-export function createTagRegistry({
-  dataDir,
-  cfgMod,
-  mgr,
-  emitSubagentEvent,
-}) {
+export function createTagRegistry({ dataDir, cfgMod, mgr, emitSubagentEvent }) {
   const tags = new Map();
   const tagAgents = new Map();
   const tagCwds = new Map();
@@ -60,8 +70,9 @@ export function createTagRegistry({
       const row = readWorkerRows(context).find((item) => item.sessionId === value);
       return row ? value : null;
     }
-    const matches = agentSessionEntries({ scanSessions, context, excludeTerminalTraces })
-      .filter((entry) => entry.tag === value);
+    const matches = agentSessionEntries({ scanSessions, context, excludeTerminalTraces }).filter(
+      (entry) => entry.tag === value
+    );
     if (matches.length === 1) return matches[0].session.id;
     if (matches.length > 1) {
       throw new Error(`agent: tag "${value}" is ambiguous across terminals; use sessionId`);
@@ -151,13 +162,16 @@ export function createTagRegistry({
     const existing = readWorkerRows().find((row) => clean(row.sessionId) === sessionId) || null;
     const reapMs = resolveAgentTerminalReapMs(
       cfgMod.loadConfig(),
-      clean(existing?.provider) || clean(session?.provider),
+      clean(existing?.provider) || clean(session?.provider)
     );
     // An existing lease is authoritative: a read must never extend or reset it.
     const existingReapMs = stampMs(existing?.reapAt);
-    const reapAt = existingReapMs > 0
-      ? new Date(existingReapMs).toISOString()
-      : (reapMs == null ? null : new Date(terminalAtMs + reapMs).toISOString());
+    const reapAt =
+      existingReapMs > 0
+        ? new Date(existingReapMs).toISOString()
+        : reapMs == null
+          ? null
+          : new Date(terminalAtMs + reapMs).toISOString();
     const finishedMs = stampMs(session?.finishedAt) || stampMs(existing?.finishedAt);
     return {
       // Stamps are re-emitted as ISO so a numeric session stamp cannot leak an
@@ -196,8 +210,8 @@ export function createTagRegistry({
       // reapTerminalRow -> tombstoneTerminalSession flushes the deferred upsert
       // first, so the row it matches on is the one this scan just wrote.
       if (deadline <= now) reapTerminalRow(row);
-      else if (!reapTimers.has(row.sessionId)
-        || scheduledReapAt.get(row.sessionId) !== row.reapAt) schedulePersistedReap(row);
+      else if (!reapTimers.has(row.sessionId) || scheduledReapAt.get(row.sessionId) !== row.reapAt)
+        schedulePersistedReap(row);
     }
   }
 
@@ -224,9 +238,7 @@ export function createTagRegistry({
       // lingering trace kept for the reap grace window. excludeTerminalTraces drops those
       // rows so live-session reuse/spawn resolution can proceed; list/status
       // keep excludeTerminalTraces=false so finished workers still appear.
-      if (excludeTerminalTraces
-        && isTerminalWorkerStatus(row.status || row.stage)
-        && !getLiveSession(sessionId)) {
+      if (excludeTerminalTraces && isTerminalWorkerStatus(row.status || row.stage) && !getLiveSession(sessionId)) {
         return;
       }
       seen.add(sessionId);
@@ -346,12 +358,11 @@ export function createTagRegistry({
     let applied = false;
     flushWorkerIndexMutations();
     writeWorkerRows((byKey, tombstonesByKey, priorityTombstoneKeys) => {
-      const matches = [...byKey.entries()]
-        .filter(([, row]) => clean(row.sessionId) === id);
+      const matches = [...byKey.entries()].filter(([, row]) => clean(row.sessionId) === id);
       const expected = expectedReapAt
-        ? matches.find(([, row]) =>
-          clean(row.reapAt) === expectedReapAt
-          && isTerminalWorkerStatus(row.status || row.stage))
+        ? matches.find(
+            ([, row]) => clean(row.reapAt) === expectedReapAt && isTerminalWorkerStatus(row.status || row.stage)
+          )
         : null;
       // A stale timer from an earlier turn must never reap newer work.
       if (expectedReapAt && !expected) return;
@@ -416,12 +427,16 @@ export function createTagRegistry({
     if (!sessionId || !reapAt || !tag) return false;
     const session = getLiveSession(sessionId);
     if (!tombstoneTerminalSession(tag, sessionId, session, reapAt)) return false;
-    try { mgr.hideSessionFromList?.(sessionId); } catch {}
+    try {
+      mgr.hideSessionFromList?.(sessionId);
+    } catch {}
     clearAgentStatuslineRoute(sessionId);
     // Reaping expires only the reusable tag/runtime lease. The transcript is
     // user-visible from the parent task's agent tab, so terminal cleanup must
     // never tombstone it ahead of that parent.
-    try { mgr.unloadSessionRuntime?.(sessionId, 'terminal-reap'); } catch {}
+    try {
+      mgr.unloadSessionRuntime?.(sessionId, 'terminal-reap');
+    } catch {}
     return true;
   }
 
@@ -431,11 +446,14 @@ export function createTagRegistry({
     const deadline = Date.parse(reapAt) || 0;
     if (!sessionId || !deadline) return false;
     cancelReap(sessionId);
-    const handle = setTimeout(() => {
-      reapTimers.delete(sessionId);
-      scheduledReapAt.delete(sessionId);
-      reapTerminalRow(row);
-    }, Math.max(0, deadline - Date.now()));
+    const handle = setTimeout(
+      () => {
+        reapTimers.delete(sessionId);
+        scheduledReapAt.delete(sessionId);
+        reapTerminalRow(row);
+      },
+      Math.max(0, deadline - Date.now())
+    );
     handle.unref?.();
     reapTimers.set(sessionId, handle);
     scheduledReapAt.set(sessionId, reapAt);
@@ -452,8 +470,7 @@ export function createTagRegistry({
     flushWorkerIndexMutations();
     const row = readWorkerRows().find((entry) => clean(entry.sessionId) === id);
     if (!row || !isTerminalWorkerStatus(row.status || row.stage)) return false;
-    const reapProvider = clean(provider) || clean(row.provider)
-      || clean(getLiveSession(id)?.provider) || null;
+    const reapProvider = clean(provider) || clean(row.provider) || clean(getLiveSession(id)?.provider) || null;
     const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), reapProvider);
     const reapAt = reapMs == null ? null : new Date(Date.now() + reapMs).toISOString();
     let persisted = null;

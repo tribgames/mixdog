@@ -228,9 +228,11 @@ for (const channel of ['config', 'skills', 'outputStyle']) {
     const writer = f.runtime();
     const next = f.runtime();
     const module = channel === 'outputStyle' ? f.sharedCfgMod : f.cfgMod;
-    const method = { config: 'saveConfigPatchAsync', skills: 'patchSkillsDisabledAsync', outputStyle: 'updateConfigAsync' }[
-      channel
-    ];
+    const method = {
+      config: 'saveConfigPatchAsync',
+      skills: 'patchSkillsDisabledAsync',
+      outputStyle: 'updateConfigAsync',
+    }[channel];
     const save = module[method];
     module[method] = async () => {
       throw new Error('fixture persistence failure');

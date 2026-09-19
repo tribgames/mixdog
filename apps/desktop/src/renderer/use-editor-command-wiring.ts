@@ -54,16 +54,18 @@ export function useEditorCommandWiring({
       addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         void saveRef.current();
       });
-      languageDisposables.current.push(editor.addAction({
-        id: 'editor.action.toggleWordWrap',
-        label: 'View: Toggle Word Wrap',
-        keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
-        run: () => {
-          const wrapped = editor.getOption(monaco.editor.EditorOption.wordWrap) !== 'off';
-          const configured = editorSettingsRef.current.wordWrap;
-          setWordWrapOverride(wrapped ? 'off' : configured !== 'off' ? configured : 'on');
-        },
-      }));
+      languageDisposables.current.push(
+        editor.addAction({
+          id: 'editor.action.toggleWordWrap',
+          label: 'View: Toggle Word Wrap',
+          keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyZ],
+          run: () => {
+            const wrapped = editor.getOption(monaco.editor.EditorOption.wordWrap) !== 'off';
+            const configured = editorSettingsRef.current.wordWrap;
+            setWordWrapOverride(wrapped ? 'off' : configured !== 'off' ? configured : 'on');
+          },
+        })
+      );
       const cycle = (offset: number) => window.dispatchEvent(new CustomEvent('mixdog:cycle-tab', { detail: offset }));
       addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.PageDown, () => cycle(1));
       addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.PageUp, () => cycle(-1));

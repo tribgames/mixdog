@@ -8,7 +8,8 @@ test('real Monaco shares a pane surface, retains undo and view state, and releas
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const bundle = await build({
     stdin: {
-      resolveDir, loader: 'tsx',
+      resolveDir,
+      loader: 'tsx',
       contents: `
         import React, { useState } from 'react';
         import { createRoot } from 'react-dom/client';
@@ -72,19 +73,26 @@ test('real Monaco shares a pane surface, retains undo and view state, and releas
         flushSync(() => createRoot(document.getElementById('root')).render(<Fixture />));
       `,
     },
-    bundle: true, jsx: 'automatic', write: false, format: 'iife',
-    outfile: 'fixture.js', loader: { '.ttf': 'dataurl' },
+    bundle: true,
+    jsx: 'automatic',
+    write: false,
+    format: 'iife',
+    outfile: 'fixture.js',
+    loader: { '.ttf': 'dataurl' },
     define: { 'process.env.NODE_ENV': '"production"' },
-    plugins: [{
-      name: 'isolated-monaco',
-      setup(builder) {
-        builder.onResolve({ filter: /^\.\/monaco-setup$/ }, () => ({ path: 'monaco', namespace: 'fixture' }));
-        builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
-          contents: 'export * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";',
-          resolveDir, loader: 'js',
-        }));
+    plugins: [
+      {
+        name: 'isolated-monaco',
+        setup(builder) {
+          builder.onResolve({ filter: /^\.\/monaco-setup$/ }, () => ({ path: 'monaco', namespace: 'fixture' }));
+          builder.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
+            contents: 'export * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";',
+            resolveDir,
+            loader: 'js',
+          }));
+        },
       },
-    }],
+    ],
   });
   const browser = await puppeteer.launch({
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' }),
@@ -101,24 +109,27 @@ test('real Monaco shares a pane surface, retains undo and view state, and releas
     }
   };
   const errors = [];
-  page.on('pageerror', error => errors.push(String(error)));
+  page.on('pageerror', (error) => errors.push(String(error)));
   await page.setContent('<html><body><div id="root"></div></body></html>');
   for (const file of bundle.outputFiles) {
     if (file.path.endsWith('.css')) await page.addStyleTag({ content: file.text });
   }
-  await page.addScriptTag({ content: bundle.outputFiles.find(file => file.path.endsWith('.js')).text });
+  await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
   await page.waitForFunction(() => window.fixture?.state().editors === 1);
   assert.equal(await page.evaluate(() => window.fixture.state().models), 1, 'unvisited tabs do not create models');
   await page.evaluate(() => window.fixture.focus());
   await saveShortcut();
-  await page.evaluate(() => { window.fixture.edit(); window.fixture.select('b'); });
+  await page.evaluate(() => {
+    window.fixture.edit();
+    window.fixture.select('b');
+  });
   assert.equal(await page.evaluate(() => window.fixture.state().editors), 1);
   await page.evaluate(() => window.fixture.focus());
   await saveShortcut();
   await page.evaluate(() => window.fixture.select('a'));
   await page.evaluate(() => window.fixture.focus());
   await saveShortcut();
-  let state = await page.evaluate(() => window.fixture.state());
+  const state = await page.evaluate(() => window.fixture.state());
   assert.equal(state.text, 'unsaved saved a');
   assert.equal(state.position.column, 5);
   assert.equal(new Set(state.changes).size, 1, 'tab switches reuse the same visual editor');
@@ -134,7 +145,10 @@ test('real Monaco shares a pane surface, retains undo and view state, and releas
   await page.evaluate(() => window.fixture.split());
   assert.equal(await page.evaluate(() => window.fixture.state().editors), 2);
   assert.equal(await page.evaluate(() => window.fixture.state().models), 2);
-  await page.evaluate(() => { window.fixture.close('a'); window.fixture.close('b'); });
+  await page.evaluate(() => {
+    window.fixture.close('a');
+    window.fixture.close('b');
+  });
   await page.waitForFunction(() => window.fixture.state().editors === 1);
   assert.equal(await page.evaluate(() => window.fixture.state().mirrorText), 'saved a');
   assert.equal(await page.evaluate(() => window.fixture.state().models), 1);

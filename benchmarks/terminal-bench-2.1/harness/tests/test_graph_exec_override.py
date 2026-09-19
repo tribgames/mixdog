@@ -1,11 +1,11 @@
 """Both native tool routes use the bundled executable without changing the task."""
 
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -21,11 +21,19 @@ class GraphExecOverrideTest(unittest.TestCase):
             (root / "cli").write_text(
                 '#!/bin/sh\nprintf "%s\\n" "${MIXDOG_SEARCH_SERVER_BIN-unset}" '
                 '"${MIXDOG_GRAPH_BIN-unset}" "$@"\n',
-                encoding="utf-8", newline="\n",
+                encoding="utf-8",
+                newline="\n",
             )
-            for selected, present in [(False, True), (True, True), (False, False), (True, False)]:
+            for selected, present in [
+                (False, True),
+                (True, True),
+                (False, False),
+                (True, False),
+            ]:
                 with self.subTest(selected=selected, present=present):
-                    with patch.dict(os.environ, {GRAPH_BINARY_ENV: "selected" if selected else ""}):
+                    with patch.dict(
+                        os.environ, {GRAPH_BINARY_ENV: "selected" if selected else ""}
+                    ):
                         command = _mixdog_exec_command(
                             instruction, "openai-oauth", "example", label="test"
                         )
@@ -38,11 +46,20 @@ class GraphExecOverrideTest(unittest.TestCase):
                         setup += f"cp /package/bin/cli /package/{GRAPH_MEMBER}; "
                     result = subprocess.run(
                         [
-                            "docker", "run", "--rm", "--platform", "linux/amd64",
-                            "-v", f"{root}:/fixture:ro",
-                            "debian:bookworm-slim", "bash", "-c", setup + command,
+                            "docker",
+                            "run",
+                            "--rm",
+                            "--platform",
+                            "linux/amd64",
+                            "-v",
+                            f"{root}:/fixture:ro",
+                            "debian:bookworm-slim",
+                            "bash",
+                            "-c",
+                            setup + command,
                         ],
-                        capture_output=True, text=True,
+                        capture_output=True,
+                        text=True,
                     )
                     if not present:
                         self.assertNotEqual(result.returncode, 0)
@@ -52,7 +69,9 @@ class GraphExecOverrideTest(unittest.TestCase):
                         expected = f"/package/{GRAPH_MEMBER}"
                         self.assertEqual(result.stdout.splitlines()[0], expected)
                         self.assertEqual(result.stdout.splitlines()[1], expected)
-                        self.assertTrue(result.stdout.endswith(instruction + "\n"), result.stdout)
+                        self.assertTrue(
+                            result.stdout.endswith(instruction + "\n"), result.stdout
+                        )
 
 
 if __name__ == "__main__":

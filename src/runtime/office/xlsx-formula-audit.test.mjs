@@ -63,10 +63,7 @@ test('a table column where one row wears another number format is reported', () 
   const drifted = auditXlsxFormulas([table({ numberFormat: '0.00' })]);
   assert.deepEqual(codesAt(drifted, 'number_format_inconsistent'), ['/sheet[Sales]/table[1]']);
   assert.match(drifted.find((entry) => entry.code === 'number_format_inconsistent').message, /B5 under a format/);
-  assert.deepEqual(
-    codesAt(auditXlsxFormulas([table({ numberFormat: '#,##0' })]), 'number_format_inconsistent'),
-    []
-  );
+  assert.deepEqual(codesAt(auditXlsxFormulas([table({ numberFormat: '#,##0' })]), 'number_format_inconsistent'), []);
 });
 
 test('a total whose range covers a subtotal of the same rows is reported under every profile', () => {

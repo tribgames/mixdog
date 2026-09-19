@@ -17,9 +17,14 @@ test('tidy exposes one action-routed schema with no hidden fields', () => {
     'approveDownloads',
     'engines',
     'languages',
+    'limit',
+    'offset',
     'paths',
     'structural',
   ]);
+  assert.match(tool.inputSchema.properties.action.description, /results:/);
+  assert.match(tool.inputSchema.properties.paths.description, /ls-files --cached/);
+  assert.equal(tool.inputSchema.properties.limit.maximum, 100);
   for (const [name, schema] of Object.entries(tool.inputSchema.properties)) {
     assert.equal(schema.minLength, undefined, `${name} must not pin minLength`);
     assert.ok(schema.description, `${name} needs a description`);
@@ -31,6 +36,7 @@ test('the tidy description states the routing, dry-run, and approval contracts',
   assert.match(description, /Clean up code across the languages/i);
   assert.match(description, /writes only with apply:true/i);
   assert.match(description, /approves/i);
+  assert.match(description, /results pages the last check\/fix/i);
   assert.match(description, /Returns final results in this call\./);
   assert.ok(description.length < 700, `tidy description too large: ${description.length}`);
 });

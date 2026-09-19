@@ -92,8 +92,13 @@ test('kit styles are mechanical: the style moves the page frame, not only the pa
   )(createRequire(import.meta.url), MEASURE, { names: [], svg: () => '' });
   const draw = (style) => {
     kit.deck({ style, hue: 205, mode: 'balanced', script: 'ko' });
-    const texts = [], shapes = [];
-    const slide = { addText: (_runs, options) => texts.push(options), addShape: (_kind, options) => shapes.push(options), addImage() {} };
+    const texts = [],
+      shapes = [];
+    const slide = {
+      addText: (_runs, options) => texts.push(options),
+      addShape: (_kind, options) => shapes.push(options),
+      addImage() {},
+    };
     const bodyTop = kit.head(slide, '섹션', '같은 제목, 다른 틀');
     return { texts, shapes, bodyTop, zones: kit.Z(), radius: kit.RADIUS(), line: kit.LINE(), accent: kit.accent() };
   };
@@ -109,7 +114,9 @@ test('kit styles are mechanical: the style moves the page frame, not only the pa
   assert.ok(rail.texts[0].x > bare.texts[0].x + 2, `the rail frame indents the title (${rail.texts[0].x})`);
   assert.ok(plane.zones.body.x > plane.zones.plane.w, 'the body column starts past the plane the head sits on');
   assert.ok(
-    plane.shapes.some((sh) => sh.x === 0 && Math.abs(sh.h - kit.H) < 1e-9 && Math.abs(sh.w - plane.zones.plane.w) < 1e-9),
+    plane.shapes.some(
+      (sh) => sh.x === 0 && Math.abs(sh.h - kit.H) < 1e-9 && Math.abs(sh.w - plane.zones.plane.w) < 1e-9
+    ),
     'the plane chrome draws its full-height field'
   );
   assert.ok(
@@ -143,10 +150,14 @@ test('kit styles are mechanical: the style moves the page frame, not only the pa
   // The faces and the display scale are the style's too: an editorial page pairs a serif display, and a masthead sets
   // its title larger than an analyst page at the same reading mode.
   kit.deck({ style: 'editorial', hue: 205, mode: 'balanced', script: 'ko' });
-  const editorialFace = kit.display(), editorialTitle = kit.TYPE().title;
+  const editorialFace = kit.display(),
+    editorialTitle = kit.TYPE().title;
   kit.deck({ style: 'brutalist', hue: 205, mode: 'balanced', script: 'ko' });
   assert.match(editorialFace, /Serif/, 'the editorial style pairs a serif display face');
-  assert.ok(kit.TYPE().title > editorialTitle, `the masthead title runs larger (${kit.TYPE().title} vs ${editorialTitle})`);
+  assert.ok(
+    kit.TYPE().title > editorialTitle,
+    `the masthead title runs larger (${kit.TYPE().title} vs ${editorialTitle})`
+  );
   kit.deck({ style: 'editorial', hue: 205, mode: 'balanced', script: 'ko', pairing: 'weight' });
   assert.doesNotMatch(kit.display(), /Serif/, 'a pairing named in the call still wins over the style');
   assert.throws(() => kit.deck({ style: 'neo-brutalist' }), /unknown style/);
@@ -1155,7 +1166,7 @@ test('kit chart refuses a value axis that cannot carry its own data', async () =
   assert.equal(charts.length, 1, 'an axis that contains the data is drawn');
   assert.equal(charts[0].options.valAxisMaxVal, 260, 'the declared maximum reaches the chart');
   charts.length = 0;
-  kit.chart(slide, 1, 1, 8, 4, { labels, series: [{ name: '수지', values: [-20, 15] }], labels: ['상', '하'] });
+  kit.chart(slide, 1, 1, 8, 4, { series: [{ name: '수지', values: [-20, 15] }], labels: ['상', '하'] });
   assert.equal(charts.length, 1, 'without declared limits a negative value still plots');
 });
 
@@ -2077,7 +2088,8 @@ test('kit small multiples name their panels and share one category list', () => 
   );
   kit.deck({ hue: 205, theme: 'light', mode: 'balanced', script: 'ko' });
   const drawn = () => {
-    const texts = [], charts = [];
+    const texts = [],
+      charts = [];
     return {
       texts,
       charts,
@@ -2103,7 +2115,9 @@ test('kit small multiples name their panels and share one category list', () => 
   );
   // `title` keeps working for a script written against the old reading, and a panel may carry its own categories.
   const legacy = drawn();
-  kit.smallMultiples(legacy.slide, 0.6, 2, 12, 3, [{ title: '수정', labels: ['1분기'], series: [{ name: '건', values: [3] }] }]);
+  kit.smallMultiples(legacy.slide, 0.6, 2, 12, 3, [
+    { title: '수정', labels: ['1분기'], series: [{ name: '건', values: [3] }] },
+  ]);
   assert.ok(legacy.texts.some((entry) => JSON.stringify(entry.runs).includes('수정')));
   // Without categories the row is refused before the chart call, with the fix named.
   assert.throws(
@@ -2112,13 +2126,47 @@ test('kit small multiples name their panels and share one category list', () => 
   );
 });
 
+// A column's prose is `text`, and `body` is what the template fill and the page plans call the same line. Written
+// that way the kit drew the column's title and dropped its prose without a word — the page came out as three
+// headings over empty space.
+test('kit columns draw a column written with body as they draw one written with text', () => {
+  const MEASURE = (text, { size = 15, width = 4 } = {}) => {
+    const perLine = Math.max(1, Math.floor(width / ((size / 72) * 0.6)));
+    const lines = Math.max(1, Math.ceil(String(text).length / perLine));
+    return {
+      lines,
+      height: lines * (size / 72) * 1.35,
+      width: Math.min(width, String(text).length * (size / 72) * 0.6),
+    };
+  };
+  const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { deck, columns, Z };`)(
+    createRequire(import.meta.url),
+    MEASURE,
+    { names: [], svg: () => '' }
+  );
+  kit.deck({ hue: 205, mode: 'balanced', script: 'ko' });
+  const drawn = (cols) => {
+    const texts = [];
+    const slide = { addText: (runs) => texts.push(JSON.stringify(runs)), addShape() {}, addImage() {} };
+    kit.columns(slide, 0.6, 2, 12, cols);
+    return texts.join(' ');
+  };
+  const prose = '대기열이 길고 셔틀이 논다. 비용은 가장 낮다.';
+  assert.ok(drawn([{ title: '주간 전용', body: prose }]).includes(prose), 'a column written with body draws its prose');
+  assert.ok(drawn([{ title: '주간 전용', text: prose }]).includes(prose), 'and so does one written with text');
+});
+
 // The phone row writes its label beside the narrow screen. On a narrow body the screen leaves a sliver of measure, and
 // the captions set in it broke to one or two words a line (audit: text_box_too_narrow on every column).
 test('kit phone tiles stack their captions when the column beside the screen is a sliver', async () => {
   const MEASURE = (text, { size = 15, width = 4 } = {}) => {
     const perLine = Math.max(1, Math.floor(width / ((size / 72) * 0.6)));
     const lines = Math.max(1, Math.ceil(String(text).length / perLine));
-    return { lines, height: lines * (size / 72) * 1.35, width: Math.min(width, String(text).length * (size / 72) * 0.6) };
+    return {
+      lines,
+      height: lines * (size / 72) * 1.35,
+      width: Math.min(width, String(text).length * (size / 72) * 0.6),
+    };
   };
   const kit = new Function('require', 'MEASURE', 'ICON', `${kitPrelude().source}\nreturn { deck, tiles, Z };`)(
     createRequire(import.meta.url),
@@ -2169,7 +2217,10 @@ test('kit venn keeps the shared label clear of the sets it names', () => {
     { names: [], svg: () => '' }
   );
   kit.deck({ hue: 205, theme: 'light', mode: 'balanced', script: 'ko' });
-  for (const sets of [['런타임', '스킬'], ['운영', '시설', '안전']]) {
+  for (const sets of [
+    ['런타임', '스킬'],
+    ['운영', '시설', '안전'],
+  ]) {
     const boxes = [];
     const slide = { addText: (_runs, options) => boxes.push(options), addShape() {}, addImage() {} };
     kit.venn(slide, 6.6, 3.6, sets, { shared: '감사' });

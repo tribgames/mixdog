@@ -21,7 +21,10 @@ test('a session can read back its own run history, newest last, without the trun
       ['click', 'type']
     );
     assert.equal(records[0].session, sessionId);
-    assert.deepEqual(readComputerRunRecords(sessionId, 1).map((record) => record.action), ['type']);
+    assert.deepEqual(
+      readComputerRunRecords(sessionId, 1).map((record) => record.action),
+      ['type']
+    );
     // A history read never invents a session and never fails a command.
     assert.deepEqual(readComputerRunRecords('', 10), []);
     assert.deepEqual(readComputerRunRecords('never-ran', 10), []);

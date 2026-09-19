@@ -82,7 +82,19 @@ function inducedTitle(shapes) {
   const texts = shapes.filter((shape) => shape.type === 'text' && shape.text.trim());
   const sized = texts.filter((shape) => Number(shape.fontSize) > 0);
   if (!sized.length) return null;
-  const [largest, runnerUp] = [...sized].sort((left, right) => right.fontSize - left.fontSize);
+  // A row of equal boxes is the page's structure, not its title: on a metrics
+  // page the numerals are the loudest type on the canvas and there are several
+  // of them, so reading the loudest box as the title left such a page with no
+  // title at all — and a page with no title slot cannot be filled by role.
+  // The peers step aside; the title is the largest box left standing alone.
+  const peers = new Set(
+    rowBands(sized)
+      .filter((members) => members.every((shape) => shape.fontSize === members[0].fontSize))
+      .flatMap((members) => members.map((shape) => shape.shape))
+  );
+  const candidates = sized.filter((shape) => !peers.has(shape.shape));
+  if (!candidates.length) return null;
+  const [largest, runnerUp] = [...candidates].sort((left, right) => right.fontSize - left.fontSize);
   if (largest.text.trim().length > TITLE_MAX_CHARS) return null;
   if (runnerUp && largest.fontSize < runnerUp.fontSize * TITLE_SIZE_LEAD) return null;
   return largest;

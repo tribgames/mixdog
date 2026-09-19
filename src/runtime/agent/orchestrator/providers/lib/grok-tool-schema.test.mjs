@@ -23,7 +23,12 @@ test('a one-or-many field keeps its array branch so Grok can batch targets', () 
         },
       ],
     },
-    pattern: { anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'string', minLength: 1 }] },
+    pattern: {
+      anyOf: [
+        { type: 'array', items: { type: 'string' } },
+        { type: 'string', minLength: 1 },
+      ],
+    },
   });
   assert.equal(schema.properties.file_path.type, 'array');
   assert.equal(schema.properties.file_path.anyOf, undefined);
@@ -37,8 +42,18 @@ test('a one-or-many field keeps its array branch so Grok can batch targets', () 
 
 test('alternatives that are not one-or-many keep the first branch and note a dropped array', () => {
   const schema = normalize({
-    input: { anyOf: [{ type: 'object', properties: { a: { type: 'string' } } }, { type: 'array', items: { type: 'string' } }] },
-    mode: { oneOf: [{ type: 'string', enum: ['a'] }, { type: 'string', enum: ['b'] }] },
+    input: {
+      anyOf: [
+        { type: 'object', properties: { a: { type: 'string' } } },
+        { type: 'array', items: { type: 'string' } },
+      ],
+    },
+    mode: {
+      oneOf: [
+        { type: 'string', enum: ['a'] },
+        { type: 'string', enum: ['b'] },
+      ],
+    },
   });
   assert.equal(schema.properties.input.type, 'object');
   assert.equal(schema.properties.input.description, 'This provider accepts a single value here, not an array.');

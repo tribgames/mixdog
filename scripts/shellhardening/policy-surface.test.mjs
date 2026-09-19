@@ -1,7 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  path,
   DEFAULT_SHELL_AUTO_BACKGROUND_MS,
   preflightPowerShellHygiene,
   BUILTIN_TOOLS,
@@ -18,7 +17,6 @@ import {
   resolve,
   PS,
   PWSH,
-  root,
 } from './_shared.mjs';
 
 test('shell execution policy matches sync-first background-task parity', () => {
@@ -128,10 +126,7 @@ test('C: shell surface keeps execution contract separate from the platform comma
   );
   // Routing is explicit model-facing guidance for commands AND scripts,
   // rather than a runtime command-name block.
-  assert.match(
-    shellTool.description,
-    /Never use shell commands or scripts for work covered by dedicated tools/
-  );
+  assert.match(shellTool.description, /Never use shell commands or scripts for work covered by dedicated tools/);
   for (const route of [
     'cat/head/tail→read',
     'ls→list',

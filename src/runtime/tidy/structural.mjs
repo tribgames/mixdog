@@ -15,7 +15,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runProcess } from './process.mjs';
-import { parseGraphLangs } from './languages.mjs';
+import { filesForLanguages, parseGraphLangs } from './languages.mjs';
 import { refineHistoryCommentMatches } from './history-comment.mjs';
 
 export const RULES_DIR = fileURLToPath(new URL('./rules/', import.meta.url));
@@ -109,7 +109,7 @@ export function groupRulePacks(packs) {
 // scan parses it with the `tsx` grammar (scan_lang.rs), so `language: typescript`
 // rules never match it. The tsx packs therefore have to run whenever typescript
 // is in scope, or .tsx files get no structural rules at all.
-const GROUP_LANGUAGE_ALIASES = Object.freeze({ tsx: ['typescript'] });
+export const GROUP_LANGUAGE_ALIASES = Object.freeze({ tsx: ['typescript'] });
 
 /** Rule groups that can apply to `languages`; an empty language list means all. */
 export function groupsForLanguages(groups, languages = []) {
@@ -119,6 +119,15 @@ export function groupsForLanguages(groups, languages = []) {
     (group) =>
       wanted.has(group.language) || (GROUP_LANGUAGE_ALIASES[group.language] || []).some((alias) => wanted.has(alias))
   );
+}
+
+/** Files one structural language group should scan; never an unfiltered tree. */
+export function filesForStructuralGroup(files, group, extensions = null) {
+  if (group?.language === 'tsx') {
+    return (files || []).filter((rel) => /\.tsx$/i.test(String(rel || '')));
+  }
+  const wanted = [group?.language, ...(GROUP_LANGUAGE_ALIASES[group?.language] || [])].filter(Boolean);
+  return filesForLanguages(files, wanted, extensions);
 }
 
 function toOneBased(value) {

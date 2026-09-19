@@ -251,57 +251,62 @@ export function createContextStatus({
         0,
         Number(session?.compactBoundaryTokens || session?.contextWindow || route?.contextWindow || 0)
       );
-      return withInspection({
-        sessionId: session?.id || null,
-        provider: session?.provider || route.provider,
-        model: session?.model || route.model,
-        cwd: getCurrentCwd(),
-        toolMode: getMode(),
-        contextWindow: routeWindow || null,
-        effectiveContextWindow: routeWindow || null,
-        rawContextWindow: routeWindow || null,
-        effectiveContextWindowPercent: null,
-        usedTokens: 0,
-        usedSource: 'empty',
-        measurement: sessionContextMeasurement(session, false),
-        currentEstimatedTokens: 0,
-        lastApiRequestTokens: 0,
-        lastApiRequestStale: false,
-        freeTokens: routeWindow,
-        compaction: {
-          boundaryTokens: Number(session?.compactBoundaryTokens || emptyCompactPolicy?.boundaryTokens || 0) || null,
-          triggerTokens: Number(emptyCompactPolicy?.triggerTokens || 0) || null,
-          // Preserve explicit 0 (main full-window buffer). `|| null` would
-          // collapse a real zero buffer into "unset".
-          bufferTokens: Number.isFinite(Number(emptyCompactPolicy?.bufferTokens))
-            ? Math.max(0, Number(emptyCompactPolicy.bufferTokens))
-            : null,
-          bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio) ? emptyCompactPolicy.bufferRatio : null,
+      return withInspection(
+        {
+          sessionId: session?.id || null,
+          provider: session?.provider || route.provider,
+          model: session?.model || route.model,
+          cwd: getCurrentCwd(),
+          toolMode: getMode(),
+          contextWindow: routeWindow || null,
+          effectiveContextWindow: routeWindow || null,
+          rawContextWindow: routeWindow || null,
+          effectiveContextWindowPercent: null,
+          usedTokens: 0,
+          usedSource: 'empty',
+          measurement: sessionContextMeasurement(session, false),
           currentEstimatedTokens: 0,
           lastApiRequestTokens: 0,
           lastApiRequestStale: false,
+          freeTokens: routeWindow,
+          compaction: {
+            boundaryTokens: Number(session?.compactBoundaryTokens || emptyCompactPolicy?.boundaryTokens || 0) || null,
+            triggerTokens: Number(emptyCompactPolicy?.triggerTokens || 0) || null,
+            // Preserve explicit 0 (main full-window buffer). `|| null` would
+            // collapse a real zero buffer into "unset".
+            bufferTokens: Number.isFinite(Number(emptyCompactPolicy?.bufferTokens))
+              ? Math.max(0, Number(emptyCompactPolicy.bufferTokens))
+              : null,
+            bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio) ? emptyCompactPolicy.bufferRatio : null,
+            currentEstimatedTokens: 0,
+            lastApiRequestTokens: 0,
+            lastApiRequestStale: false,
+          },
+          messages: summarizeContextMessages([]),
+          request: {
+            toolSchemaTokens: 0,
+            toolSchemaBreakdown: {},
+            requestOverheadTokens: 0,
+            reserveTokens: 0,
+          },
+          usage: {
+            lastInputTokens: 0,
+            lastUncachedInputTokens: 0,
+            lastOutputTokens: 0,
+            lastCachedReadTokens: 0,
+            lastCacheWriteTokens: 0,
+            lastContextTokens: 0,
+            totalInputTokens: 0,
+            totalUncachedInputTokens: 0,
+            totalOutputTokens: 0,
+            totalCachedReadTokens: 0,
+            totalCacheWriteTokens: 0,
+          },
         },
-        messages: summarizeContextMessages([]),
-        request: {
-          toolSchemaTokens: 0,
-          toolSchemaBreakdown: {},
-          requestOverheadTokens: 0,
-          reserveTokens: 0,
-        },
-        usage: {
-          lastInputTokens: 0,
-          lastUncachedInputTokens: 0,
-          lastOutputTokens: 0,
-          lastCachedReadTokens: 0,
-          lastCacheWriteTokens: 0,
-          lastContextTokens: 0,
-          totalInputTokens: 0,
-          totalUncachedInputTokens: 0,
-          totalOutputTokens: 0,
-          totalCachedReadTokens: 0,
-          totalCacheWriteTokens: 0,
-        },
-      }, [], [], options);
+        [],
+        [],
+        options
+      );
     }
     // Prefer the in-flight working transcript while a turn is running so the
     // context gauge reflects LIVE growth (user turn + tool calls/results) as

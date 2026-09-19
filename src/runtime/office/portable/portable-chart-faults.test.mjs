@@ -82,5 +82,8 @@ test('a chart with series but no workbook behind them is reported as unlinked da
 });
 
 test('a chart part with no series is a template, not a broken data link', () => {
-  assert.deepEqual(chartDataLinkFaults('ppt/charts/chart5.xml', chart('<c:pieChart><c:varyColors val="1"/></c:pieChart>')), []);
+  assert.deepEqual(
+    chartDataLinkFaults('ppt/charts/chart5.xml', chart('<c:pieChart><c:varyColors val="1"/></c:pieChart>')),
+    []
+  );
 });

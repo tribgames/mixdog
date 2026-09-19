@@ -188,7 +188,7 @@ export const COMPUTER_INPUT_SCHEMA = {
             type: 'string',
             enum: ['windows', 'apps', 'history'],
             description:
-              'history returns this session\'s own executed commands with their verdicts, for reviewing what a run already did.',
+              "history returns this session's own executed commands with their verdicts, for reviewing what a run already did.",
           },
           query: {
             type: 'string',

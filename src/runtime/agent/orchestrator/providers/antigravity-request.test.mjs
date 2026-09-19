@@ -13,7 +13,8 @@ const messages = [
   { role: 'system', content: 'rules' },
   { role: 'user', content: 'hello' },
 ];
-const toolConfig = (opts) => buildAntigravityRequest(messages, 'gemini-3.8-flash', tools, opts, 'proj').request.toolConfig;
+const toolConfig = (opts) =>
+  buildAntigravityRequest(messages, 'gemini-3.8-flash', tools, opts, 'proj').request.toolConfig;
 
 test('function-calling mode defaults to VALIDATED; the env override and toolChoice take precedence', () => {
   assert.equal(antigravityFunctionCallingMode({}), 'VALIDATED');

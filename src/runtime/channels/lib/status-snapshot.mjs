@@ -57,7 +57,7 @@ export async function computeSnapshot(scheduler) {
             (typeof task.getNextDate === 'function' ? task.getNextDate() : null);
           if (!nd) continue;
           const fireAt = nd instanceof Date ? nd.getTime() : Number(nd);
-          if (!isFinite(fireAt)) continue;
+          if (!Number.isFinite(fireAt)) continue;
           if (!nextSchedule || fireAt < nextSchedule.fireAt) {
             nextSchedule = { name, fireAt, kind: 'cron' };
           }
@@ -76,7 +76,7 @@ export async function computeSnapshot(scheduler) {
         const def = defs.find((s) => s.name === name);
         if (!def || !def.whenAt) continue;
         const fireAt = new Date(def.whenAt).getTime();
-        if (!isFinite(fireAt)) continue;
+        if (!Number.isFinite(fireAt)) continue;
         if (!nextSchedule || fireAt < nextSchedule.fireAt) {
           nextSchedule = { name, fireAt, kind: 'one-shot' };
         }

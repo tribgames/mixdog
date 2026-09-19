@@ -75,7 +75,7 @@ here.
 | Type escapes | `as any`, `@ts-ignore`, `# type: ignore` without reason, a lint or compiler warning suppressed without one (`eslint-disable`, `# noqa`, `#pragma warning disable`), `object`/`Any` annotations where a union or Protocol fits, a value re-coerced to the type it already has (`String(s)` on a `string`) | an escape or suppression whose comment names the upstream bug it works around | narrow with a guard, a precise type, or `unknown` plus a check; drop a coercion the type already guarantees; fix the warning or record why it is silenced |
 | Hardcoded config | environment-specific URLs and endpoints, provider/account/project ids, absolute paths and path strings spliced with `/`, a literal branch for one caller or one environment, unnamed numeric thresholds | test fixtures, documentation examples, a literal the contract itself fixes (wire strings, protocol constants) | read it through the project's existing config or env accessor; name the literal. A credential in source is a bug — report it, never merely relocate it |
 | Placeholder naming | numbered or filler names on new code (`data2`, `helper1`, `tmp`, `handleStuff`, a `Manager` holding two functions) | names the project's own idioms establish | rename locals after their intent; an exported rename is a contract change, so RISKY |
-| Oversized modules | files well past the project's norm (the skill's 800-line threshold), mixing responsibilities | a self-contained single-responsibility script | split by what each part does; never `utils`/`helpers`/`common`/`part2` dump files |
+| Oversized modules | files well past the project's norm (the skill's 1,000-line threshold), mixing responsibilities | a self-contained single-responsibility script | split by what each part does; never `utils`/`helpers`/`common`/`part2` dump files |
 
 ## Test-suite slop
 
@@ -106,21 +106,44 @@ agent corrections the same way production code does:
   exercised; that needs its own evidence (a current requirement, a real
   caller, a spec).
 
-## Finding record and risk tiers
+## Candidate inventory and risk tiers
 
-Record every finding as:
+All candidates gathered during the read-only investigation are tracked in an
+explicit candidate inventory using stable candidate IDs:
 
 ```text
-file:line → problem → cost (what it duplicates, wastes, or makes harder) → fix | confidence: high/medium/low | risk: SAFE/CAREFUL/RISKY
+[ID] file:line → problem → cost (what it duplicates, wastes, or makes harder) → planned action | tier: SAFE/CAREFUL/RISKY | confidence: high/medium/low | status: completed/kept/unfinished | verification: <test/check>
 ```
 
-A finding that cannot name its cost is a nit; drop it. Confidence is `low`
-when `git blame` and surrounding comments do not explain why the code exists.
+- **Stable IDs & Grouping**: Assign stable IDs (e.g. `C-01`, `C-02` or `MOD-01`).
+  When multiple locations share an identical root cause (e.g. an unused helper
+  referenced across three call sites, or repeated boilerplate), group them under
+  one ID without losing individual `file:line` member locations. Counts track
+  candidate IDs, not raw diagnostics or individual member locations.
+- **Origin tracking**: When code moves during extraction or splitting, retain
+  the origin candidate ID and record the new target location under that ID.
+- **Candidate classification**: Distinguish raw mechanical threshold hits (e.g.
+  files > 1,000 lines, functions > 50 lines) from confirmed changes vs Keep
+  decisions. A mechanical threshold hit is an investigation candidate, not
+  automatically a bug, but each hit requires a planned action, an evidenced Keep
+  under the skill's keep rules, or an unfinished status with a concrete blocker.
+  Generic cohesion is not a waiver.
+- **Cost, Confidence & Nits**: A finding that cannot name its cost is a nit. Once
+  registered in the inventory, a verified nit or false positive is marked `kept`
+  with the recorded reason—never silently erase an ID. An unresolved finding
+  remains `unfinished`; uncertainty is not evidence for keeping it. Confidence is `low` when
+  `git blame` and surrounding comments do not explain why the code exists.
+- **Statuses & Reconciliation Invariants**:
+  - `completed`: verified done, with evidence of what and how changed.
+  - `kept`: preserved with concrete evidence (documented keep rule, external contract, or registered nit).
+  - `unfinished`: work remaining, with substatuses: `pending`, `in_progress`, `blocked`, `deferred`, or `unverified`.
+  - Backlog integrity: retain the complete initial inventory across rounds; newly discovered candidates are appended with new IDs.
+  - Formula: `Total Candidate IDs = Completed + Kept + Unfinished Remaining`. Counts must reconcile exactly.
 
 | Tier | Meaning | Examples | Handling |
 |---|---|---|---|
 | SAFE | provably no behavior change | unused import, commented-out code, pass-through wrapper, redundant type assertion, obvious comment, history comment | apply, run tests once after the batch |
-| CAREFUL | same semantics, structure changes | rename a local, flatten a ternary, guard clause, extract a helper, consolidate duplicates, name a magic number | apply one file at a time, tests after each file, revert the file on failure |
+| CAREFUL | same semantics, structure changes | rename a local, flatten a ternary, guard clause, extract a helper, split responsibilities while preserving entry points, consolidate duplicates, name a magic number | apply one source unit at a time (including required new modules), tests after each unit, revert that change on failure |
 | RISKY | may change behavior or a contract | public API or export rename, route/DB column/config key rename, error-handling change, concurrency change, N+1 restructuring, altitude fix in shared infrastructure | report only, with the test coverage status; never auto-apply |
 
 Conflict resolution when lenses disagree: correctness > the user's stated
@@ -141,19 +164,34 @@ block before re-splitting. One tidying per change set.
 
 ```text
 Scope: <diff vs HEAD | paths | branch> · Mode: report|apply
+Round: Round <N> <completed|partial> · Overall: <complete|partial>
+Inventory: Total <N> · Completed <X> · Kept <Y> · Unfinished <Z> (X + Y + Z = N)
+Stages: baseline / engines / structural / ladder + lenses / tiered changes / final verification
+  <stage>: completed <evidence> | not applicable <reason> | unfinished <blocker>
 Baseline: tests <green|N pre-existing failures excluded> · typecheck <ok|…>
 Deterministic: engines used/missing · files changed · diagnostics remaining · structural matches applied/skipped
 
-Applied
-  path/file.ts
-    ✓ [Quality/SAFE]   removed comment narrating the change (L31)
-    ✓ [Reuse/CAREFUL]  replaced manual join with `joinPath` from src/shared/path.mjs (L53)
+Completed (what changed and how)
+  [ID] path/file.ts:line
+    ✓ [Quality/SAFE]   removed comment narrating the change (L31) → deleted redundant comment
+    ✓ [Reuse/CAREFUL]  replaced manual join with `joinPath` from src/shared/path.mjs (L53) → consolidated helper
 
-Noticed but not applied
+Kept / Not Applicable (evidenced)
+  [ID] path/file.ts:line
+    - [Keep/Contract]  public export `parseConfig` kept (L12) → external contract
+    - [Keep/Rule]      file > 1,000 lines kept intact (L1) → self-contained single-responsibility script under the Oversized modules keep rule
+
+Unfinished (remaining candidates)
+  [ID] path/file.ts:line
+    ☐ [Structure/CAREFUL] split handler responsibility (L105) · Status: pending|in_progress|blocked|deferred|unverified
+      Remaining: extract auth sub-handler · Reason: waiting for auth test fixture · Next: Round <N+1>
+
+Noticed but not applied (report-only or out of scope)
   ⚠ [Altitude/RISKY] special case for caller X in src/core/run.mjs:88 — deeper fix: default in run() · coverage: none
   ⚠ [Quality]        two equal rewrites of parseInput (L70-74); principles could not decide
 
 Deferred debt: <`debt:` markers added, with their ceiling and trigger>
 Bugs found (not fixed here): <correctness issues surfaced while cleaning>
-Verification: tests <result> · typecheck <result> · lint <result>
+Verification: tests <passed/failed/skipped/baseline-excluded counts> · typecheck <result> · lint <remaining diagnostics>
+Next round: <scope and IDs planned for next round, or none if overall complete>
 ```

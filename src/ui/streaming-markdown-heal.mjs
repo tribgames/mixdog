@@ -69,7 +69,7 @@ function isMarkdownPunctuation(character) {
 
 function scanEmphasisRuns(masked) {
   const runs = [];
-  for (let index = 0; index < masked.length;) {
+  for (let index = 0; index < masked.length; ) {
     const marker = masked[index];
     if (marker === '\\') {
       index += 2;
@@ -186,8 +186,12 @@ function healIncompleteLink(text, isPendingLocalPath) {
   const caption = text.slice(open + 1, label < 0 ? undefined : label);
   // Footnotes and task boxes are not unfinished inline links.
   const linePrefix = text.slice(text.lastIndexOf('\n', open) + 1, open);
-  if (caption.startsWith('^') || caption.includes('\n\n')
-    || (/^ {0,3}(?:[-+*]|\d+[.)])\s+$/.test(linePrefix) && /^[ xX]?$/.test(caption))) return text;
+  if (
+    caption.startsWith('^') ||
+    caption.includes('\n\n') ||
+    (/^ {0,3}(?:[-+*]|\d+[.)])\s+$/.test(linePrefix) && /^[ xX]?$/.test(caption))
+  )
+    return text;
   const image = open > 0 && masked[open - 1] === '!';
   const prefix = text.slice(0, image ? open - 1 : open);
   if (image) return `${prefix}${caption}`;

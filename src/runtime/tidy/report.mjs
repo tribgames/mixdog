@@ -6,6 +6,7 @@ import { TOOL_OUTPUT_MAX_BYTES } from '../agent/orchestrator/tools/builtin/tool-
 
 export const DIAGNOSTIC_CAP = 20;
 export const FILE_LIST_CAP = 25;
+export const RESULTS_PAGE_MAX = 100;
 const TRIM_STEPS = [8, 3, 0];
 
 export function tidyToolResult(value, isError = false) {
@@ -15,10 +16,12 @@ export function tidyToolResult(value, isError = false) {
   };
 }
 
-function capList(values, cap) {
-  const list = values || [];
-  if (list.length <= cap) return { items: list, more: 0 };
-  return { items: list.slice(0, cap), more: list.length - cap };
+function pageList(values, offset, cap) {
+  const list = Array.isArray(values) ? values : [];
+  const start = Math.max(0, Math.trunc(Number(offset) || 0));
+  const width = Math.max(0, Math.trunc(Number(cap) || 0));
+  const items = width === 0 ? [] : list.slice(start, start + width);
+  return { items, more: Math.max(0, list.length - start - items.length), offset: start };
 }
 
 /** Engine entry for the report: resolution facts plus the hint when missing. */
@@ -64,9 +67,9 @@ function rollupEngineCounts(results) {
   return any ? { diagnostics, filesToFormat, byFixability, bySeverity } : null;
 }
 
-function shapeEngineResult(result, diagnosticCap) {
-  const diagnostics = capList(result.diagnostics, diagnosticCap);
-  const changed = capList(result.filesChanged, FILE_LIST_CAP);
+function shapeEngineResult(result, diagnosticCap, offset = 0, filePaging = { cap: FILE_LIST_CAP, offset: 0 }) {
+  const diagnostics = pageList(result.diagnostics, offset, diagnosticCap);
+  const changed = pageList(result.filesChanged, filePaging.offset, filePaging.cap);
   return {
     id: result.id,
     ...(result.version ? { version: result.version } : {}),
@@ -76,8 +79,10 @@ function shapeEngineResult(result, diagnosticCap) {
     ...(changed.more ? { filesChangedMore: changed.more } : {}),
     filesChangedCount: (result.filesChanged || []).length,
     diagnostics: diagnostics.items,
-    ...(diagnostics.more ? { more: diagnostics.more } : {}),
+    more: diagnostics.more,
     diagnosticsCount: (result.diagnostics || []).length,
+    offset: diagnostics.offset,
+    ...(diagnostics.more ? { nextOffset: diagnostics.offset + diagnostics.items.length } : {}),
     ...(result.dryRun ? { dryRun: true } : {}),
     ...(result.applied ? { applied: true } : {}),
     ...(result.skipped ? { skipped: result.skipped } : {}),
@@ -88,15 +93,17 @@ function shapeEngineResult(result, diagnosticCap) {
   };
 }
 
-function shapeStructural(structural, diagnosticCap) {
+function shapeStructural(structural, diagnosticCap, offset = 0) {
   if (!structural) return null;
-  const matches = capList(structural.matches, diagnosticCap);
+  const matches = pageList(structural.matches, offset, diagnosticCap);
   return {
     adapter: structural.adapter || 'none',
     ...(structural.packs ? { packs: structural.packs } : {}),
     matchesCount: (structural.matches || []).length,
     matches: matches.items,
-    ...(matches.more ? { more: matches.more } : {}),
+    more: matches.more,
+    offset: matches.offset,
+    ...(matches.more ? { nextOffset: matches.offset + matches.items.length } : {}),
     fixable: (structural.matches || []).filter((match) => match?.fix).length,
     manual: (structural.matches || []).filter((match) => match?.manual).length,
     applied: structural.applied || [],
@@ -127,6 +134,8 @@ export function buildTidyReport({
   rules = null,
   scope = null,
   elapsedMs = 0,
+  offset = 0,
+  limit = DIAGNOSTIC_CAP,
   maxBytes = TOOL_OUTPUT_MAX_BYTES,
 } = {}) {
   const missing = engines.filter((engine) => engine.missing).map(shapeEngine);
@@ -137,8 +146,13 @@ export function buildTidyReport({
   const allNotes = [...notes, ...truncationNotes];
   const engineTruncated = (results || []).some((result) => result?.truncated);
   const rolled = rollupEngineCounts(results);
+  const pageOffset = Math.max(0, Math.trunc(Number(offset) || 0));
+  const startCap = Math.min(RESULTS_PAGE_MAX, Math.max(0, Math.trunc(Number(limit) || 0)));
+  const structuralFailed =
+    Boolean(structural?.error) || (Array.isArray(structural?.ruleErrors) && structural.ruleErrors.length > 0);
+  const reportOk = Boolean(ok) && !structuralFailed;
   const compose = (diagnosticCap) => ({
-    ok,
+    ok: reportOk,
     action,
     ...(scope ? { scope } : {}),
     languages,
@@ -146,9 +160,19 @@ export function buildTidyReport({
     engines: resolved,
     ...(missing.length ? { missing } : {}),
     ...(policy ? { policy } : {}),
-    ...(results ? { results: results.map((result) => shapeEngineResult(result, diagnosticCap)) } : {}),
+    ...(results
+      ? {
+          results: results.map((result) =>
+            shapeEngineResult(result, diagnosticCap, pageOffset, {
+              cap: action === 'results' ? diagnosticCap : FILE_LIST_CAP,
+              offset: action === 'results' ? pageOffset : 0,
+            })
+          ),
+        }
+      : {}),
     ...(rolled ? { counts: rolled } : {}),
-    ...(structural ? { structural: shapeStructural(structural, diagnosticCap) } : {}),
+    ...(structural ? { structural: shapeStructural(structural, diagnosticCap, pageOffset) } : {}),
+    ...(results || structural ? { paging: { offset: pageOffset, limit: diagnosticCap } } : {}),
     ...(rules ? { rules } : {}),
     ...(installed ? { installed } : {}),
     ...(needsApproval ? { needsApproval } : {}),
@@ -157,9 +181,10 @@ export function buildTidyReport({
     elapsedMs,
   });
 
-  let report = compose(DIAGNOSTIC_CAP);
+  const caps = [startCap, ...TRIM_STEPS.filter((step) => step < startCap)];
+  let report = compose(caps[0]);
   if (engineTruncated) report = { ...report, truncated: true };
-  for (const cap of TRIM_STEPS) {
+  for (const cap of caps.slice(1)) {
     if (Buffer.byteLength(JSON.stringify(report), 'utf8') <= maxBytes) return report;
     report = { ...compose(cap), truncated: true };
   }
