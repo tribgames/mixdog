@@ -68,7 +68,7 @@ export interface AccessibilityTargetSnapshot {
 }
 
 /** States that tell an agent to reach a file input through `upload`. */
-export function fileInputStates(facts: FileInputFacts | undefined): string[] {
+function fileInputStates(facts: FileInputFacts | undefined): string[] {
   if (!facts) return [];
   const states = ['file-input'];
   if (facts.accept) states.push(`accept=${facts.accept.slice(0, 120)}`);
@@ -152,6 +152,83 @@ function nodeDepth(node: AccessibilityNode, byId: Map<string, AccessibilityNode>
   return depth;
 }
 
+interface AccessibilityCandidate {
+  backendNodeId: number;
+  sessionId?: string;
+  role: string;
+  name: string;
+  value: string;
+  href: string;
+  sensitive: boolean;
+  states: string[];
+  inViewport?: boolean;
+  order: number;
+  depth: number;
+  matchField?: BrowserSemanticMatchField;
+  matchScore: number;
+}
+
+const AX_STATE_PROPERTIES = [
+  'disabled',
+  'checked',
+  'selected',
+  'expanded',
+  'pressed',
+  'required',
+  'readonly',
+  'focused',
+];
+
+// Whitespace-collapsed text, capped before and after collapsing so one
+// pathological node cannot make the collapse itself expensive.
+function compactAxText(text: string, rawCap: number, cap: number): string {
+  return text.slice(0, rawCap).replace(/\s+/g, ' ').trim().slice(0, cap);
+}
+
+function axStates(node: AccessibilityNode): string[] {
+  const states: string[] = [];
+  for (const property of AX_STATE_PROPERTIES) {
+    const state = axProperty(node, property);
+    if (state === true) states.push(property);
+    else if (state === false && property === 'checked') states.push('unchecked');
+    else if (state !== undefined && state !== false && state !== '') {
+      states.push(`${property}=${compactAxText(String(state), 320, 80)}`);
+    }
+  }
+  return states;
+}
+
+// A frame or OOPIF session reports viewport-relative boxes; the top
+// document reports page coordinates that the scroll offset shifts.
+function axInViewport(
+  box: ReturnType<AccessibilityTargetSnapshot['bounds']['get']>,
+  framed: boolean,
+  pageInfo: AccessibilityPageInfo
+): boolean | undefined {
+  if (!box) return undefined;
+  const viewportTop = framed ? 0 : pageInfo.scrollY;
+  const viewportBottom = framed ? pageInfo.viewportHeight : pageInfo.scrollY + pageInfo.viewportHeight;
+  return (
+    box[0] + box[2] > 0 && box[1] + box[3] > viewportTop && box[0] < pageInfo.viewportWidth && box[1] < viewportBottom
+  );
+}
+
+function snapshotElement(candidate: AccessibilityCandidate, ref: string): BrowserSnapshotElement {
+  return {
+    ref,
+    role: candidate.role,
+    name: candidate.name,
+    tag: 'ax',
+    depth: candidate.depth,
+    ...(candidate.href ? { href: candidate.href } : {}),
+    ...(candidate.value ? { value: candidate.value } : {}),
+    ...(candidate.sensitive ? { sensitive: true } : {}),
+    ...(candidate.states.length ? { states: candidate.states } : {}),
+    ...(candidate.inViewport !== undefined ? { inViewport: candidate.inViewport } : {}),
+    ...(candidate.matchField ? { matchField: candidate.matchField } : {}),
+  };
+}
+
 export function buildAccessibilitySnapshot(options: {
   pageInfo: AccessibilityPageInfo;
   targets: AccessibilityTargetSnapshot[];
@@ -168,21 +245,7 @@ export function buildAccessibilitySnapshot(options: {
   const seenCrossFrameText = new Set<string>();
   let crossFrameTextChars = 0;
   let unfilteredElements = 0;
-  const candidates: Array<{
-    backendNodeId: number;
-    sessionId?: string;
-    role: string;
-    name: string;
-    value: string;
-    href: string;
-    sensitive: boolean;
-    states: string[];
-    inViewport?: boolean;
-    order: number;
-    depth: number;
-    matchField?: BrowserSemanticMatchField;
-    matchScore: number;
-  }> = [];
+  const candidates: AccessibilityCandidate[] = [];
   let scanned = 0;
 
   for (const target of options.targets) {
@@ -195,20 +258,17 @@ export function buildAccessibilitySnapshot(options: {
     for (const node of nodes) {
       if (node.nodeId) byId.set(String(node.nodeId), node);
     }
+    const framed = Boolean(target.sessionId || target.frameId);
     for (const node of nodes) {
       scanned += 1;
       if (node.ignored) continue;
       const role = String(node.role?.value || '')
         .trim()
         .toLowerCase();
-      const name = String(node.name?.value || '')
-        .slice(0, 640)
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 160);
+      const name = compactAxText(String(node.name?.value || ''), 640, 160);
       if (role === 'heading' && name && headings.length < 30) headings.push(`heading ${name}`);
       if (
-        (target.sessionId || target.frameId) &&
+        framed &&
         CROSS_FRAME_TEXT_ROLES.has(role) &&
         name &&
         !seenCrossFrameText.has(name) &&
@@ -223,45 +283,12 @@ export function buildAccessibilitySnapshot(options: {
       const actionable = INTERACTIVE_ROLES.has(role) || (focusable && !NON_ACTIONABLE_FOCUSABLE_ROLES.has(role));
       if (!Number.isFinite(backendNodeId) || !actionable) continue;
       const sensitive = axProperty(node, 'protected') === true;
-      const value = sensitive
-        ? ''
-        : String(node.value?.value ?? '')
-            .slice(0, 480)
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 120);
+      const value = sensitive ? '' : compactAxText(String(node.value?.value ?? ''), 480, 120);
       const href = String(axProperty(node, 'url') || '').slice(0, 240);
-      const states: string[] = [];
-      for (const property of [
-        'disabled',
-        'checked',
-        'selected',
-        'expanded',
-        'pressed',
-        'required',
-        'readonly',
-        'focused',
-      ]) {
-        const state = axProperty(node, property);
-        if (state === true) states.push(property);
-        else if (state === false && property === 'checked') states.push('unchecked');
-        else if (state !== undefined && state !== false && state !== '') {
-          const compactState = String(state).slice(0, 320).replace(/\s+/g, ' ').trim().slice(0, 80);
-          states.push(`${property}=${compactState}`);
-        }
-      }
+      const states = axStates(node);
       states.push(...fileInputStates(target.fileInputs?.get(backendNodeId)));
       unfilteredElements += 1;
-      const box = target.bounds.get(backendNodeId);
-      const inViewport = box
-        ? box[0] + box[2] > 0 &&
-          box[1] + box[3] > (target.sessionId || target.frameId ? 0 : options.pageInfo.scrollY) &&
-          box[0] < options.pageInfo.viewportWidth &&
-          box[1] <
-            (target.sessionId || target.frameId
-              ? options.pageInfo.viewportHeight
-              : options.pageInfo.scrollY + options.pageInfo.viewportHeight)
-        : undefined;
+      const inViewport = axInViewport(target.bounds.get(backendNodeId), framed, options.pageInfo);
       const match = rankBrowserSemanticMatch(query, { role, name, value, href });
       if (query && !match) continue;
       if (options.viewportOnly === true && inViewport === false) continue;
@@ -299,19 +326,7 @@ export function buildAccessibilitySnapshot(options: {
       backendNodeId: candidate.backendNodeId,
       sessionId: candidate.sessionId,
     });
-    return {
-      ref,
-      role: candidate.role,
-      name: candidate.name,
-      tag: 'ax',
-      depth: candidate.depth,
-      ...(candidate.href ? { href: candidate.href } : {}),
-      ...(candidate.value ? { value: candidate.value } : {}),
-      ...(candidate.sensitive ? { sensitive: true } : {}),
-      ...(candidate.states.length ? { states: candidate.states } : {}),
-      ...(candidate.inViewport !== undefined ? { inViewport: candidate.inViewport } : {}),
-      ...(candidate.matchField ? { matchField: candidate.matchField } : {}),
-    };
+    return snapshotElement(candidate, ref);
   });
   const text = [options.pageInfo.text, ...crossFrameText]
     .filter(Boolean)

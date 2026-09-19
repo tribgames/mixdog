@@ -350,17 +350,6 @@ export function ExtensionNote({ children, tone, role }: { children: ReactNode; t
   );
 }
 
-/** Quiet example block: a titled explanation over a monospace sample. */
-export function ExtensionPreview({ title, description, code }: { title: string; description?: string; code: string }) {
-  return (
-    <div className="extensions-preview">
-      <b>{title}</b>
-      {description ? <p>{description}</p> : null}
-      <code>{code}</code>
-    </div>
-  );
-}
-
 /** Form field on the dialog grammar: title, optional note, then the control. */
 export function ExtensionField({
   label,
@@ -385,11 +374,6 @@ export function ExtensionField({
       {children}
     </Tag>
   );
-}
-
-/** Right-aligned action row under a field group (Save for a draft). */
-export function ExtensionFieldActions({ children }: { children: ReactNode }) {
-  return <div className="extensions-field-actions">{children}</div>;
 }
 
 export function ExtensionFacts({ facts }: { facts: ReadonlyArray<readonly [string, string]> }) {

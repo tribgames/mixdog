@@ -6,6 +6,132 @@ import type { captureMode, frameElements } from './analysis';
 import type { ComputerCommand, ComputerElementRecord, OcrWordRecord, ScreenshotCapture } from '../shared/types';
 import type { CaptureEngineHost } from './capture';
 
+type CaptureFrame = NonNullable<ScreenshotCapture['frame']>;
+type OcrResponse = Awaited<ReturnType<CaptureEngineHost['callPowerShell']>>;
+
+// Projects OCR boxes from the OCR image space back into capture-frame pixels,
+// then drops the words the accessibility elements already cover.
+function projectOcrWords(
+  ocr: OcrResponse,
+  screenshot: ScreenshotCapture,
+  frame: CaptureFrame,
+  elements: ReturnType<typeof frameElements>,
+  remainingElementBudget: number
+) {
+  const scaleX =
+    frame.captureWidth / Number(ocr.result?.image_width || screenshot.ocrImage?.width || frame.captureWidth);
+  const scaleY =
+    frame.captureHeight / Number(ocr.result?.image_height || screenshot.ocrImage?.height || frame.captureHeight);
+  const frameBounds = (rect: { x: number; y: number; width: number; height: number }) => ({
+    x: Math.round(rect.x * scaleX),
+    y: Math.round(rect.y * scaleY),
+    width: Math.max(1, Math.round(rect.width * scaleX)),
+    height: Math.max(1, Math.round(rect.height * scaleY)),
+  });
+  const projectedWords = normalizeOcrWords(ocr.result?.words).map((word) => ({
+    ...word,
+    ...frameBounds(word),
+    center_x: Math.round(word.center_x * scaleX),
+    center_y: Math.round(word.center_y * scaleY),
+  }));
+  const ocrWords = dedupeOcrWords(projectedWords, elements).slice(0, remainingElementBudget);
+  return { frameBounds, ocrWords };
+}
+
+// Set-of-marks and state modes list OCR words as clickable Text elements
+// after the accessibility marks.
+function ocrElementRecord(
+  word: OcrWordRecord,
+  mark: number,
+  frameId: ScreenshotCapture['frameId'],
+  observationWindowId: string
+): ComputerElementRecord {
+  return {
+    mark,
+    ref: `ocr:${frameId}:${mark}`,
+    source: 'ocr',
+    role: 'Text',
+    name: word.text,
+    value: '',
+    state: 'ocr',
+    enabled: true,
+    x: word.x,
+    y: word.y,
+    width: Math.max(1, word.width),
+    height: Math.max(1, word.height),
+    center_x: word.center_x,
+    center_y: word.center_y,
+    actions: ['click', 'double_click', 'mouse_move', 'drag', 'scroll', 'type'],
+    frame_id: frameId,
+    window_id: observationWindowId || undefined,
+  };
+}
+
+// Frame-space view of one OCR element: the state view keeps the identity
+// fields only; the full view adds its center and screen bounds.
+function ocrFrameElement(
+  element: ComputerElementRecord,
+  mode: ReturnType<typeof captureMode>,
+  frame: CaptureFrame
+): Record<string, unknown> {
+  const bounds: [number, number, number, number] = [element.x, element.y, element.width, element.height];
+  if (mode === 'state') {
+    return {
+      mark: element.mark,
+      ref: element.ref,
+      source: element.source,
+      role: element.role,
+      name: element.name,
+      state: element.state,
+      enabled: element.enabled,
+      bounds,
+      actions: element.actions,
+    };
+  }
+  const topLeft = framePoint(frame, element.x, element.y);
+  return {
+    ...element,
+    bounds,
+    center: [element.center_x, element.center_y],
+    screen_bounds: [
+      topLeft.x,
+      topLeft.y,
+      Math.max(1, Math.round((element.width * frame.physicalWidth) / frame.captureWidth)),
+      Math.max(1, Math.round((element.height * frame.physicalHeight) / frame.captureHeight)),
+    ],
+  };
+}
+
+function appendOcrElements(input: {
+  mode: ReturnType<typeof captureMode>;
+  ocrWords: OcrWordRecord[];
+  rawElements: ComputerElementRecord[];
+  elements: ReturnType<typeof frameElements>;
+  frame: CaptureFrame;
+  frameId: ScreenshotCapture['frameId'];
+  observationWindowId: string;
+}): ComputerElementRecord[] {
+  const { mode, ocrWords, rawElements, elements, frame, frameId, observationWindowId } = input;
+  let nextMark = rawElements.reduce((maximumMark, element) => Math.max(maximumMark, element.mark), 0) + 1;
+  const ocrElements = ocrWords.map((word) => {
+    const mark = nextMark++;
+    return ocrElementRecord(word, mark, frameId, observationWindowId);
+  });
+  for (const element of ocrElements) elements.push(ocrFrameElement(element, mode, frame));
+  return ocrElements;
+}
+
+function ocrSkipReason(
+  remainingElementBudget: number,
+  semanticAccessibilityAvailable: boolean,
+  screenshot: ScreenshotCapture | null
+): string {
+  if (remainingElementBudget <= 0) return 'element_budget_exhausted';
+  if (semanticAccessibilityAvailable) return 'semantic_accessibility_available';
+  if (screenshot?.pixelUnavailable) return 'pixel_unavailable';
+  return 'screenshot_unavailable';
+}
+
 export async function mergeCaptureOcr(
   host: Pick<CaptureEngineHost, 'callPowerShell' | 'sessionIdFor'>,
   input: {
@@ -48,12 +174,13 @@ export async function mergeCaptureOcr(
     elements.splice(totalElementBudget - reservedOcrBudget);
   }
   const returnedAccessibilityElements = elements.length;
-  let ocrWords: OcrWordRecord[] = [];
   let ocrPayload: Record<string, unknown> | undefined;
   let ocrElements: ComputerElementRecord[] = [];
   const remainingElementBudget = Math.max(0, totalElementBudget - returnedAccessibilityElements);
   const shouldRunOcr = Boolean(screenshot?.image && screenshot.frame && runOcrForCapture && remainingElementBudget > 0);
+  const marksOcr = mode === 'som' || mode === 'state';
   if (shouldRunOcr && screenshot?.image && screenshot.frame) {
+    const frame = screenshot.frame;
     const ocrStartedAt = performance.now();
     try {
       const ocr = await host.callPowerShell(
@@ -68,89 +195,21 @@ export async function mergeCaptureOcr(
         5_000
       );
       if (!ocr.ok) throw new Error(ocr.error || 'Windows OCR failed');
-      const scaleX =
-        screenshot.frame.captureWidth /
-        Number(ocr.result?.image_width || screenshot.ocrImage?.width || screenshot.frame.captureWidth);
-      const scaleY =
-        screenshot.frame.captureHeight /
-        Number(ocr.result?.image_height || screenshot.ocrImage?.height || screenshot.frame.captureHeight);
-      const frameBounds = (rect: { x: number; y: number; width: number; height: number }) => ({
-        x: Math.round(rect.x * scaleX),
-        y: Math.round(rect.y * scaleY),
-        width: Math.max(1, Math.round(rect.width * scaleX)),
-        height: Math.max(1, Math.round(rect.height * scaleY)),
-      });
-      const projectedWords = normalizeOcrWords(ocr.result?.words).map((word) => ({
-        ...word,
-        ...frameBounds(word),
-        center_x: Math.round(word.center_x * scaleX),
-        center_y: Math.round(word.center_y * scaleY),
-      }));
-      ocrWords = dedupeOcrWords(projectedWords, elements).slice(0, remainingElementBudget);
-      if (mode === 'som' || mode === 'state') {
-        let nextMark = rawElements.reduce((maximumMark, element) => Math.max(maximumMark, element.mark), 0) + 1;
-        ocrElements = ocrWords.map((word) => {
-          const mark = nextMark++;
-          return {
-            mark,
-            ref: `ocr:${screenshot.frameId}:${mark}`,
-            source: 'ocr',
-            role: 'Text',
-            name: word.text,
-            value: '',
-            state: 'ocr',
-            enabled: true,
-            x: word.x,
-            y: word.y,
-            width: Math.max(1, word.width),
-            height: Math.max(1, word.height),
-            center_x: word.center_x,
-            center_y: word.center_y,
-            actions: ['click', 'double_click', 'mouse_move', 'drag', 'scroll', 'type'],
-            frame_id: screenshot.frameId,
-            window_id: observationWindowId || undefined,
-          };
+      const { frameBounds, ocrWords } = projectOcrWords(ocr, screenshot, frame, elements, remainingElementBudget);
+      if (marksOcr) {
+        ocrElements = appendOcrElements({
+          mode,
+          ocrWords,
+          rawElements,
+          elements,
+          frame,
+          frameId: screenshot.frameId,
+          observationWindowId,
         });
-        for (const element of ocrElements) {
-          const topLeft = framePoint(screenshot.frame, element.x, element.y);
-          const bounds: [number, number, number, number] = [element.x, element.y, element.width, element.height];
-          elements.push(
-            mode === 'state'
-              ? {
-                  mark: element.mark,
-                  ref: element.ref,
-                  source: element.source,
-                  role: element.role,
-                  name: element.name,
-                  state: element.state,
-                  enabled: element.enabled,
-                  bounds,
-                  actions: element.actions,
-                }
-              : {
-                  ...element,
-                  bounds,
-                  center: [element.center_x, element.center_y],
-                  screen_bounds: [
-                    topLeft.x,
-                    topLeft.y,
-                    Math.max(
-                      1,
-                      Math.round((element.width * screenshot.frame.physicalWidth) / screenshot.frame.captureWidth)
-                    ),
-                    Math.max(
-                      1,
-                      Math.round((element.height * screenshot.frame.physicalHeight) / screenshot.frame.captureHeight)
-                    ),
-                  ],
-                }
-          );
-        }
       }
-      const markedWords =
-        mode === 'som' || mode === 'state'
-          ? ocrWords.map((word, index) => ({ ...word, mark: ocrElements[index]?.mark }))
-          : ocrWords;
+      const markedWords = marksOcr
+        ? ocrWords.map((word, index) => ({ ...word, mark: ocrElements[index]?.mark }))
+        : ocrWords;
       ocrPayload = {
         ok: true,
         mode: 'fallback',
@@ -173,14 +232,7 @@ export async function mergeCaptureOcr(
       mode: 'fallback',
       automatic: command.include_ocr !== true,
       skipped: true,
-      reason:
-        remainingElementBudget <= 0
-          ? 'element_budget_exhausted'
-          : semanticAccessibilityAvailable
-            ? 'semantic_accessibility_available'
-            : screenshot?.pixelUnavailable
-              ? 'pixel_unavailable'
-              : 'screenshot_unavailable',
+      reason: ocrSkipReason(remainingElementBudget, semanticAccessibilityAvailable, screenshot),
       lines: [],
       words: [],
       total_words: 0,

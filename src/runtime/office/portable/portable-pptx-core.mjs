@@ -1,4 +1,4 @@
-import { backgroundXml, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
+import { EMU_PER_POINT, backgroundXml, fromEmu, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
 import { partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import {
   containerBody,
@@ -89,7 +89,7 @@ function backgroundBlock(xml) {
   return /<p:bg\b[^>]*>([\s\S]*?)<\/p:bg>/.exec(xml || '')?.[1] || '';
 }
 
-async function pptxRelatedPart(zip, part, suffix) {
+export async function pptxRelatedPart(zip, part, suffix) {
   const relationshipPath = partRelationshipPath(part);
   const relationships = await zipText(zip, relationshipPath);
   if (!relationships) return '';
@@ -142,6 +142,84 @@ export async function resolveSlideBackground(zip, slidePath, slideXml) {
   return '';
 }
 
+// A gradient plane reads as its first stop: the kit puts the text on that side (a scrim's dark edge).
+// A translucent plane (a venn set, a wash) is the color a reader sees: its fill blended by its alpha over
+// whatever it covers; reading the fill opaque reports contrast against a color that is not on the page.
+function shapeOwnFill(shapeXml, bounds, painted, slideBackground) {
+  const shapeProperties = containerInner(shapeXml, 'p:spPr')?.inner || '';
+  const solid = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"(?:\/>|>([\s\S]*?)<\/a:srgbClr>)/.exec(shapeProperties);
+  let ownFill =
+    /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1] ||
+    solid?.[1] ||
+    '';
+  const alpha =
+    solid && ownFill === solid[1] ? Number(/<a:alpha val="(\d+)"/.exec(solid[2] || '')?.[1] ?? 100_000) / 100_000 : 1;
+  if (ownFill && alpha < 1) {
+    const under = [...painted].reverse().find((entry) => coversBounds(entry, bounds))?.color || slideBackground;
+    if (under) ownFill = blendHex(ownFill, under, alpha);
+  }
+  return ownFill;
+}
+
+function textInsets(bodyProperties) {
+  const inset = (name, fallback) => fromEmu(Number(xmlAttribute(bodyProperties, name)), fallback);
+  return {
+    insetLeft: inset('lIns', DEFAULT_TEXT_INSETS.left),
+    insetTop: inset('tIns', DEFAULT_TEXT_INSETS.top),
+    insetRight: inset('rIns', DEFAULT_TEXT_INSETS.right),
+    insetBottom: inset('bIns', DEFAULT_TEXT_INSETS.bottom),
+  };
+}
+
+function shapeBounds(xml) {
+  const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(xml);
+  const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(xml);
+  if (!offset || !extent) return null;
+  return {
+    left: Number(offset[1]) / EMU_PER_POINT,
+    top: Number(offset[2]) / EMU_PER_POINT,
+    width: Number(extent[1]) / EMU_PER_POINT,
+    height: Number(extent[2]) / EMU_PER_POINT,
+  };
+}
+
+// Records one top-level shape on the page: every visible object joins the
+// balance read (`content`), and a text-bearing shape also becomes a box.
+function inspectPptxShape(shape, at, page) {
+  // A shape PowerPoint hides is not on the page: measuring it reports
+  // overflow, contrast, and collisions about something no reader sees, and
+  // the fix round then chases an invisible box.
+  if (/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/.test(shape.xml)) return;
+  const bounds = shapeBounds(shape.xml);
+  if (!bounds) return;
+  if (shape.name !== 'p:sp') {
+    // The object's own name travels with its box: the kit signs the devices it draws (a motif, an orb, an icon)
+    // there, and a page's balance is read against what carries it, not against its decoration.
+    const objectName = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(shape.xml)?.[1] || '';
+    page.content.push({ ...at, kind: shape.name, name: objectName, ...bounds });
+    return;
+  }
+  const ownFill = shapeOwnFill(shape.xml, bounds, page.painted, page.background);
+  if (ownFill) page.painted.push({ ...bounds, color: ownFill });
+  const paragraphs = shapeParagraphs(shape.xml);
+  const hasText = Boolean(paragraphs?.length) && paragraphs.some((paragraph) => String(paragraph.text || '').trim());
+  if (ownFill || hasText) page.content.push({ ...at, kind: 'p:sp', ...bounds });
+  if (!paragraphs?.length) return;
+  const covering = [...page.painted].reverse().find((entry) => entry.color !== ownFill && coversBounds(entry, bounds));
+  const bodyProperties = /<a:bodyPr\b([^>]*?)\/?>/.exec(shape.xml)?.[1] || '';
+  page.boxes.push({
+    ...shapeIdentity(shape.xml),
+    slideId: page.slideId,
+    ...at,
+    ...bounds,
+    ...textInsets(bodyProperties),
+    wrap: xmlAttribute(bodyProperties, 'wrap') !== 'none',
+    autofit: /<a:normAutofit\b/.test(shape.xml) || /<a:spAutoFit\b/.test(shape.xml),
+    background: ownFill || covering?.color || page.background,
+    paragraphs,
+  });
+}
+
 export async function inspectPptxTextBoxes(zip) {
   const slides = await presentationSlides(zip);
   const presentation = await zipText(zip, 'ppt/presentation.xml');
@@ -154,91 +232,20 @@ export async function inspectPptxTextBoxes(zip) {
     // measuring it reports contrast, fit, and balance defects about a page no
     // reader ever sees.
     if (/^[\s\S]*?<p:sld\b[^>]*\bshow="(?:0|false)"/.test(xml)) continue;
-    const slideBackground = await resolveSlideBackground(zip, slides[index].path, xml);
+    const background = await resolveSlideBackground(zip, slides[index].path, xml);
     const tree = containerInner(xml, 'p:spTree');
     if (!tree) continue;
+    const page = { boxes, content, painted: [], background, slideId: slides[index].id };
     const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-    const painted = [];
-    for (let shapeIndex = 0; shapeIndex < shapes.length; shapeIndex += 1) {
-      const shape = shapes[shapeIndex];
-      // A shape PowerPoint hides is not on the page: measuring it reports
-      // overflow, contrast, and collisions about something no reader sees, and
-      // the fix round then chases an invisible box.
-      if (/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/.test(shape.xml)) continue;
-      const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(shape.xml);
-      const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shape.xml);
-      if (!offset || !extent) continue;
-      const bounds = {
-        left: Number(offset[1]) / 12_700,
-        top: Number(offset[2]) / 12_700,
-        width: Number(extent[1]) / 12_700,
-        height: Number(extent[2]) / 12_700,
-      };
-      if (shape.name !== 'p:sp') {
-        // The object's own name travels with its box: the kit signs the devices it draws (a motif, an orb, an icon)
-        // there, and a page's balance is read against what carries it, not against its decoration.
-        const objectName = /<p:cNvPr\b[^>]*\bname="([^"]*)"/.exec(shape.xml)?.[1] || '';
-        content.push({ slide: index + 1, shape: shapeIndex + 1, kind: shape.name, name: objectName, ...bounds });
-        continue;
-      }
-      // A gradient plane reads as its first stop: the kit puts the text on that side (a scrim's dark edge).
-      const shapeProperties = containerInner(shape.xml, 'p:spPr')?.inner || '';
-      const solid = /<a:solidFill><a:srgbClr val="([0-9A-Fa-f]{6})"(?:\/>|>([\s\S]*?)<\/a:srgbClr>)/.exec(
-        shapeProperties
-      );
-      let ownFill =
-        /<a:gradFill\b[\s\S]*?<a:gs\b[^>]*><a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(shapeProperties)?.[1] ||
-        solid?.[1] ||
-        '';
-      // A translucent plane (a venn set, a wash) is the color a reader sees: its fill blended by its alpha over
-      // whatever it covers; reading the fill opaque reports contrast against a color that is not on the page.
-      const alpha =
-        solid && ownFill === solid[1]
-          ? Number(/<a:alpha val="(\d+)"/.exec(solid[2] || '')?.[1] ?? 100_000) / 100_000
-          : 1;
-      if (ownFill && alpha < 1) {
-        const under = [...painted].reverse().find((entry) => coversBounds(entry, bounds))?.color || slideBackground;
-        if (under) ownFill = blendHex(ownFill, under, alpha);
-      }
-      if (ownFill) painted.push({ ...bounds, color: ownFill });
-      const paragraphs = shapeParagraphs(shape.xml);
-      const hasText =
-        Boolean(paragraphs?.length) && paragraphs.some((paragraph) => String(paragraph.text || '').trim());
-      if (ownFill || hasText) {
-        content.push({ slide: index + 1, shape: shapeIndex + 1, kind: 'p:sp', ...bounds });
-      }
-      if (!paragraphs?.length) continue;
-      const covering = [...painted].reverse().find((entry) => entry.color !== ownFill && coversBounds(entry, bounds));
-      const bodyProperties = /<a:bodyPr\b([^>]*?)\/?>/.exec(shape.xml)?.[1] || '';
-      const inset = (name, fallback) => {
-        const value = Number(xmlAttribute(bodyProperties, name));
-        return Number.isFinite(value) ? value / 12_700 : fallback;
-      };
-      boxes.push({
-        ...shapeIdentity(shape.xml),
-        slideId: slides[index].id,
-        slide: index + 1,
-        shape: shapeIndex + 1,
-        left: Number(offset[1]) / 12_700,
-        top: Number(offset[2]) / 12_700,
-        width: Number(extent[1]) / 12_700,
-        height: Number(extent[2]) / 12_700,
-        insetLeft: inset('lIns', DEFAULT_TEXT_INSETS.left),
-        insetTop: inset('tIns', DEFAULT_TEXT_INSETS.top),
-        insetRight: inset('rIns', DEFAULT_TEXT_INSETS.right),
-        insetBottom: inset('bIns', DEFAULT_TEXT_INSETS.bottom),
-        wrap: xmlAttribute(bodyProperties, 'wrap') !== 'none',
-        autofit: /<a:normAutofit\b/.test(shape.xml) || /<a:spAutoFit\b/.test(shape.xml),
-        background: ownFill || covering?.color || slideBackground,
-        paragraphs,
-      });
+    for (const [shapeIndex, shape] of shapes.entries()) {
+      inspectPptxShape(shape, { slide: index + 1, shape: shapeIndex + 1 }, page);
     }
   }
   return {
     boxes,
     content,
-    slideWidth: size ? Number(size[1]) / 12_700 : 0,
-    slideHeight: size ? Number(size[2]) / 12_700 : 0,
+    slideWidth: size ? Number(size[1]) / EMU_PER_POINT : 0,
+    slideHeight: size ? Number(size[2]) / EMU_PER_POINT : 0,
   };
 }
 
@@ -307,10 +314,10 @@ export function shapeFrame(shapeXml) {
   const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shapeXml);
   if (!offset || !extent) return null;
   return {
-    left: Number(offset[1]) / 12_700,
-    top: Number(offset[2]) / 12_700,
-    width: Number(extent[1]) / 12_700,
-    height: Number(extent[2]) / 12_700,
+    left: Number(offset[1]) / EMU_PER_POINT,
+    top: Number(offset[2]) / EMU_PER_POINT,
+    width: Number(extent[1]) / EMU_PER_POINT,
+    height: Number(extent[2]) / EMU_PER_POINT,
   };
 }
 
@@ -318,8 +325,8 @@ export async function presentationSlideSize(zip) {
   const presentation = await zipText(zip, 'ppt/presentation.xml');
   const size = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(presentation);
   return {
-    width: size ? Number(size[1]) / 12_700 : 960,
-    height: size ? Number(size[2]) / 12_700 : 540,
+    width: size ? Number(size[1]) / EMU_PER_POINT : 960,
+    height: size ? Number(size[2]) / EMU_PER_POINT : 540,
   };
 }
 
@@ -376,21 +383,17 @@ export function updateShapeGeometry(shape, properties) {
     const current = new RegExp(`<${frameTag}\\b[^>]*?(?:/>|>[\\s\\S]*?</${frameTag}>)`).exec(next);
     const offset = current ? /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(current[0]) : null;
     const extent = current ? /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(current[0]) : null;
-    const rotation =
-      properties.rotation != null
-        ? Math.round(Number(properties.rotation) * 60_000)
-        : Number(current ? xmlAttribute(current[0], 'rot') : 0) || 0;
+    const currentRotation = Number(current ? xmlAttribute(current[0], 'rot') : 0) || 0;
+    const rotation = properties.rotation != null ? Math.round(Number(properties.rotation) * 60_000) : currentRotation;
     const frame =
       `<${frameTag}${rotation ? ` rot="${rotation}"` : ''}>` +
       `<a:off x="${properties.left != null ? toEmu(properties.left) : Number(offset?.[1] || 0)}"` +
       ` y="${properties.top != null ? toEmu(properties.top) : Number(offset?.[2] || 0)}"/>` +
       `<a:ext cx="${properties.width != null ? toEmu(properties.width) : Number(extent?.[1] || 1)}"` +
       ` cy="${properties.height != null ? toEmu(properties.height) : Number(extent?.[2] || 1)}"/></${frameTag}>`;
-    next = current
-      ? `${next.slice(0, current.index)}${frame}${next.slice(current.index + current[0].length)}`
-      : frameTag === 'p:xfrm'
-        ? next.replace('</p:nvGraphicFramePr>', `$&${frame}`)
-        : next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
+    if (current) next = `${next.slice(0, current.index)}${frame}${next.slice(current.index + current[0].length)}`;
+    else if (frameTag === 'p:xfrm') next = next.replace('</p:nvGraphicFramePr>', `$&${frame}`);
+    else next = next.replace(/<p:spPr(?:\s[^>]*)?>/, `$&${frame}`);
   }
   if (properties.fillColor != null) {
     const shapeProperties = containerInner(next, 'p:spPr');

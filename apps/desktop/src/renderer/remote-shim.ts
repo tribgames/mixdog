@@ -375,17 +375,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       navigator.platform ||
       'Unknown device'
     ).slice(0, 80);
-    const browser = /Edg\//u.test(userAgent)
-      ? 'Edge'
-      : /Firefox\//u.test(userAgent)
-        ? 'Firefox'
-        : /CriOS\//u.test(userAgent)
-          ? 'Chrome'
-          : /Chrome\//u.test(userAgent)
-            ? 'Chrome'
-            : /Safari\//u.test(userAgent)
-              ? 'Safari'
-              : 'Browser';
+    // Ordered: Edge and iOS Chrome also carry the Chrome and Safari tokens.
+    const browserFamilies: Array<[RegExp, string]> = [
+      [/Edg\//u, 'Edge'],
+      [/Firefox\//u, 'Firefox'],
+      [/CriOS\//u, 'Chrome'],
+      [/Chrome\//u, 'Chrome'],
+      [/Safari\//u, 'Safari'],
+    ];
+    const browser = browserFamilies.find(([pattern]) => pattern.test(userAgent))?.[1] ?? 'Browser';
     // Device identity (user: 무슨 기기인지도 나와야): Android Chromium exposes
     // the hardware model via UA-Client Hints (e.g. "Pixel 8", "SM-S928N");
     // Apple never does, so iPhone/iPad fall back to the UA family.
@@ -704,6 +702,25 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     const mount = () => {
       const layer = document.createElement('div');
       layer.id = 'mixdog-remote-pairing';
+      const threeSteps =
+        '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
+        '<li><i>2</i><span data-role="step-two"></span></li>' +
+        '<li><i>3</i><span data-role="step-three"></span></li></ol>';
+      const twoSteps =
+        '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
+        '<li><i>2</i><span data-role="step-two"></span></li></ol>';
+      let cardBody: string;
+      if (standalone) {
+        cardBody =
+          '<div class="mrp-wait"><i aria-hidden="true"></i>' +
+          '<b data-role="wait-title"></b></div>' +
+          '<p class="mrp-status" data-role="status"></p>' +
+          '<button type="button" data-role="ask" hidden></button>';
+      } else if (!mobile) {
+        cardBody = threeSteps;
+      } else {
+        cardBody = (ios ? threeSteps : twoSteps) + '<button type="button" data-role="install" hidden></button>';
+      }
       layer.innerHTML =
         '<style>' +
         '#mixdog-remote-pairing{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;' +
@@ -742,43 +759,25 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         '<img src="/mixdog.svg" alt="" draggable="false"/>' +
         '<b data-role="heading"></b>' +
         '<p data-role="note"></p>' +
-        (standalone
-          ? '<div class="mrp-wait"><i aria-hidden="true"></i>' +
-            '<b data-role="wait-title"></b></div>' +
-            '<p class="mrp-status" data-role="status"></p>' +
-            '<button type="button" data-role="ask" hidden></button>'
-          : !mobile
-            ? '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
-              '<li><i>2</i><span data-role="step-two"></span></li>' +
-              '<li><i>3</i><span data-role="step-three"></span></li></ol>'
-            : (ios
-                ? '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
-                  '<li><i>2</i><span data-role="step-two"></span></li>' +
-                  '<li><i>3</i><span data-role="step-three"></span></li></ol>'
-                : '<ol><li><i>1</i><span data-role="step-one"></span></li>' +
-                  '<li><i>2</i><span data-role="step-two"></span></li></ol>') +
-              '<button type="button" data-role="install" hidden></button>') +
+        cardBody +
         '</main>';
       // Catalog text enters only textContent, never HTML.
+      let heading = earlyUiT('Install Mixdog on your phone');
+      if (standalone) heading = earlyUiT('Approve this device');
+      else if (mobile) heading = earlyUiT('Install Mixdog');
+      let stepOne = earlyUiT('Open this page on your phone or tablet');
+      let stepTwo = earlyUiT('Install Mixdog from the mobile browser');
+      if (mobile) {
+        stepOne = ios ? earlyUiT('Tap the Share button') : earlyUiT('Install Mixdog from your browser menu');
+        stepTwo = ios ? earlyUiT('Choose Add to Home Screen') : earlyUiT('Open it and approve it on your desktop');
+      }
       const labels: Record<string, string> = {
-        heading: standalone
-          ? earlyUiT('Approve this device')
-          : mobile
-            ? earlyUiT('Install Mixdog')
-            : earlyUiT('Install Mixdog on your phone'),
+        heading,
         'wait-title': earlyUiT('Waiting for approval'),
         ask: earlyUiT('Ask again'),
         install: earlyUiT('Install'),
-        'step-one': !mobile
-          ? earlyUiT('Open this page on your phone or tablet')
-          : ios
-            ? earlyUiT('Tap the Share button')
-            : earlyUiT('Install Mixdog from your browser menu'),
-        'step-two': !mobile
-          ? earlyUiT('Install Mixdog from the mobile browser')
-          : ios
-            ? earlyUiT('Choose Add to Home Screen')
-            : earlyUiT('Open it and approve it on your desktop'),
+        'step-one': stepOne,
+        'step-two': stepTwo,
         'step-three': !mobile
           ? earlyUiT('Open the installed app and approve it on your desktop')
           : earlyUiT('Open Mixdog and approve it on your desktop'),
@@ -789,11 +788,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       }
       const note = layer.querySelector<HTMLElement>('[data-role="note"]');
       if (note) {
-        note.textContent = standalone
-          ? message || earlyUiT('Mixdog needs a one-time approval from the desktop it belongs to.')
-          : mobile
-            ? earlyUiT('Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.')
-            : earlyUiT('The Mixdog web app works only when installed on a mobile device.');
+        if (standalone) {
+          note.textContent = message || earlyUiT('Mixdog needs a one-time approval from the desktop it belongs to.');
+        } else if (mobile) {
+          note.textContent = earlyUiT(
+            'Mixdog runs as an installed mobile app. Install it, then approve it once on your desktop.'
+          );
+        } else {
+          note.textContent = earlyUiT('The Mixdog web app works only when installed on a mobile device.');
+        }
       }
       const install = layer.querySelector<HTMLButtonElement>('[data-role="install"]');
       if (install && installPrompt) install.removeAttribute('hidden');
@@ -2089,8 +2092,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     mediaUrl: (assetId, variant) => {
       const base = serverBase || location.origin;
       const auth = currentToken();
-      const query =
-        `variant=${encodeURIComponent(variant || 'original')}` + (auth ? `&token=${encodeURIComponent(auth)}` : '');
+      const query = `variant=${encodeURIComponent(variant || 'original')}${auth ? `&token=${encodeURIComponent(auth)}` : ''}`;
       return `${base}/media/${encodeURIComponent(assetId)}?${query}`;
     },
     quit: () => Promise.resolve(),

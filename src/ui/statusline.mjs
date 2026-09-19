@@ -120,8 +120,8 @@ function rememberNonEmptyQuotaSegments(key, segments) {
 //   - both shared-cache snapshots ............ accept same-or-newer asOf
 function acceptQuotaSnapshot(held, incoming) {
   if (!held) return true;
-  if (incoming && incoming.owned) return true;
-  const incomingAsOf = num(incoming && incoming.asOf);
+  if (incoming?.owned) return true;
+  const incomingAsOf = num(incoming?.asOf);
   const heldAsOf = num(held.asOf);
   if (!incomingAsOf || !heldAsOf) return true;
   if (held.owned) return incomingAsOf > heldAsOf;
@@ -169,7 +169,7 @@ function l2SpinnerFrame(now = Date.now()) {
  * model / context% / effort / 5H-7D are overridden by the live gateway via
  * loadGatewayStatus() when it's running; these are the standalone fallbacks.
  */
-function activeContextNumerator(provider, stats) {
+function activeContextNumerator(_provider, stats) {
   return measuredContextUsage({ stats }).used;
 }
 
@@ -268,7 +268,92 @@ function renderNativeStatusline({
 } = {}) {
   const cols = terminalColumns();
   const s = stats || createSessionStats();
-  const contextTokens = activeContextNumerator(provider, s);
+  const { gatewayStatus, ctxPct } = statuslineContext({
+    provider,
+    model,
+    effort,
+    fast,
+    stats: s,
+    sessionId,
+    contextWindow,
+    displayContextWindow,
+    rawContextWindow,
+    compactBoundaryTokens,
+    autoCompactTokenLimit,
+    clientHostPid,
+  });
+
+  const sep = ` ${D}│${R} `;
+  const l1Parts = [
+    formatModelSegment({ provider, model, effort, fast, cols }),
+    formatContextSegment(ctxPct, cols, s.currentContextSource),
+    ...quotaSegmentsFor({ provider, model, effort, fast, sessionId, clientHostPid, gatewayStatus, cols }),
+  ].filter(Boolean);
+  const l2Parts = activitySegments({ sessionId, clientHostPid, agentWorkers, agentJobs, activeTools });
+  const l1 = l1Parts.join(sep) || 'mixdog';
+  const l2 = l2Parts.join(sep);
+  return l2 ? `${l1}\n${l2}` : l1;
+}
+
+// Option A boot gate: for OAuth routes, render NOTHING for the usage/quota
+// segment until this process has captured its first confirmed (current-
+// process) OAuth usage snapshot. This suppresses the startup jitter where the
+// gateway active-instance quota windows (not process-start guarded) and the
+// boot-guarded OAuth cache windows would otherwise pop in/merge at different
+// ticks. Model + context% always render. Non-OAuth routes are unaffected.
+// Once armed, the latch holds for the process lifetime so the segment turns
+// on exactly once and then holds the last known value as today.
+function quotaSegmentsFor({ provider, model, effort, fast, sessionId, clientHostPid, gatewayStatus, cols }) {
+  const usageReady = oauthUsageSegmentReady({ provider, model });
+  const quotaStatus = usageReady ? mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model })) : null;
+  const quotaSegments = quotaStatus
+    ? formatGatewayLimitSegments(quotaStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
+    : [];
+  // Only apply the hold to providers that actually armed the OAuth boot latch.
+  // oauthUsageSegmentReady() also returns true for non-OAuth providers (they
+  // are never gated), so gate the hold itself on _oauthUsageArmedProviders to
+  // keep non-OAuth empty/null behavior byte-for-byte unchanged.
+  const normalizedHoldProvider = String(provider || '')
+    .trim()
+    .toLowerCase();
+  if (!usageReady || !_oauthUsageArmedProviders.has(normalizedHoldProvider)) return quotaSegments;
+  const holdKey = quotaSegmentsHoldKey({ provider, model, effort, fast, sessionId, clientHostPid });
+  const held = _lastNonEmptyQuotaSegmentsByKey.get(holdKey);
+  if (!quotaSegments.length) return held?.segments?.length ? held.segments : quotaSegments;
+  // Monotonic replace: keep the currently displayed value unless the new
+  // one is same-or-newer, or is confirmed own-instance live data.
+  const incoming = {
+    asOf: num(quotaStatus?.quotaWindowsAsOf),
+    owned: quotaStatus?.quotaWindowsOwned === true,
+  };
+  if (acceptQuotaSnapshot(held, incoming)) {
+    rememberNonEmptyQuotaSegments(holdKey, { segments: quotaSegments, asOf: incoming.asOf, owned: incoming.owned });
+    return quotaSegments;
+  }
+  return held?.segments?.length ? held.segments : quotaSegments;
+}
+
+// Second statusline row. Segment order: Running Agents → Running Shells →
+// Web Searching → Memory. (activeTools.web_search counts WEB searches —
+// category 'Web Research' — not local file search, which is intentionally
+// not surfaced.)
+// Gateway quota for the current route (cached, refreshed off the render tick)
+// and the context percentage it feeds into.
+function statuslineContext({
+  provider,
+  model,
+  effort,
+  fast,
+  stats,
+  sessionId,
+  contextWindow,
+  displayContextWindow,
+  rawContextWindow,
+  compactBoundaryTokens,
+  autoCompactTokenLimit,
+  clientHostPid,
+}) {
+  const contextTokens = activeContextNumerator(provider, stats);
   const routeContextWindow = num(displayContextWindow) > 0 ? num(displayContextWindow) : num(contextWindow);
   const gatewayStatus = loadGatewayQuotaStatus({
     provider,
@@ -285,7 +370,7 @@ function renderNativeStatusline({
   const ctxPct = resolveContextUsedPct({
     provider,
     model,
-    stats: s,
+    stats,
     contextWindow,
     displayContextWindow,
     rawContextWindow,
@@ -293,62 +378,10 @@ function renderNativeStatusline({
     autoCompactTokenLimit,
     gatewayStatus,
   });
+  return { gatewayStatus, ctxPct };
+}
 
-  const sep = ` ${D}│${R} `;
-  const l1Parts = [];
-  const l2Parts = [];
-  const addL1 = (seg) => {
-    if (seg) l1Parts.push(seg);
-  };
-  const addL2 = (seg) => {
-    if (seg) l2Parts.push(seg);
-  };
-
-  addL1(formatModelSegment({ provider, model, effort, fast, cols }));
-  addL1(formatContextSegment(ctxPct, cols, s.currentContextSource));
-
-  // Option A boot gate: for OAuth routes, render NOTHING for the usage/quota
-  // segment until this process has captured its first confirmed (current-
-  // process) OAuth usage snapshot. This suppresses the startup jitter where the
-  // gateway active-instance quota windows (not process-start guarded) and the
-  // boot-guarded OAuth cache windows would otherwise pop in/merge at different
-  // ticks. Model + context% always render (built above). Non-OAuth routes are
-  // unaffected. Once armed, the latch holds for the process lifetime so the
-  // segment turns on exactly once and then holds the last known value as today.
-  const usageReady = oauthUsageSegmentReady({ provider, model });
-  const quotaStatus = usageReady ? mergeQuotaStatus(gatewayStatus, fallbackQuotaStatus({ provider, model })) : null;
-  let quotaSegments = quotaStatus
-    ? formatGatewayLimitSegments(quotaStatus, { COLS: cols, D, R, GRN, YLW, RED, colourPct, epochMsToHHMM })
-    : [];
-  // Only apply the hold to providers that actually armed the OAuth boot latch.
-  // oauthUsageSegmentReady() also returns true for non-OAuth providers (they
-  // are never gated), so gate the hold itself on _oauthUsageArmedProviders to
-  // keep non-OAuth empty/null behavior byte-for-byte unchanged.
-  const normalizedHoldProvider = String(provider || '')
-    .trim()
-    .toLowerCase();
-  if (usageReady && _oauthUsageArmedProviders.has(normalizedHoldProvider)) {
-    const holdKey = quotaSegmentsHoldKey({ provider, model, effort, fast, sessionId, clientHostPid });
-    if (quotaSegments.length) {
-      // Monotonic replace: keep the currently displayed value unless the new
-      // one is same-or-newer, or is confirmed own-instance live data.
-      const incoming = {
-        asOf: num(quotaStatus?.quotaWindowsAsOf),
-        owned: quotaStatus?.quotaWindowsOwned === true,
-      };
-      const held = _lastNonEmptyQuotaSegmentsByKey.get(holdKey);
-      if (acceptQuotaSnapshot(held, incoming)) {
-        rememberNonEmptyQuotaSegments(holdKey, { segments: quotaSegments, asOf: incoming.asOf, owned: incoming.owned });
-      } else if (held?.segments?.length) {
-        quotaSegments = held.segments;
-      }
-    } else {
-      const held = _lastNonEmptyQuotaSegmentsByKey.get(holdKey);
-      if (held?.segments?.length) quotaSegments = held.segments;
-    }
-  }
-  for (const seg of quotaSegments) addL1(seg);
-
+function activitySegments({ sessionId, clientHostPid, agentWorkers, agentJobs, activeTools }) {
   const agentPayload = agentStatuslinePayload(
     [...(Array.isArray(agentWorkers) ? agentWorkers : []), ...activeHiddenAgentWorkers({ sessionId, clientHostPid })],
     agentJobs
@@ -365,53 +398,49 @@ function renderNativeStatusline({
     ? shellJobsStatus({ clientHostPid, sessionId: shellScope })
     : shellJobsStatus({ clientHostPid });
 
-  const spinnerNow = Date.now();
-  const sp = l2SpinnerFrame(spinnerNow);
-  const spin = `${GRN}${sp}${R}`;
+  const parts = [];
+  const spin = `${GRN}${l2SpinnerFrame(Date.now())}${R}`;
   const elapsedSuffix = (label) => (label ? ` ${D}·${R} ${label}` : '');
-  // Segment order: Running Agents → Running Shells → Web Searching.
-  // (activeTools.web_search counts WEB searches — category 'Web Research' — not
-  // local file search, which is intentionally not surfaced.)
+  const segment = (label, elapsed) => parts.push(`${spin} ${B}${label}${R}${elapsedSuffix(elapsed)}`);
   if (runningWorkers.length) {
     const n = runningWorkers.length;
-    const label = `Running ${n} Agent${n === 1 ? '' : 's'}`;
-    const oldestStart = runningWorkers.reduce((min, w) => {
-      const t = num(w?.startedAtMs);
-      return t > 0 && t < min ? t : min;
-    }, Infinity);
-    const elapsed = Number.isFinite(oldestStart) ? formatElapsed(Date.now() - oldestStart) : '';
-    addL2(`${spin} ${B}${label}${R}${elapsedSuffix(elapsed)}`);
+    segment(`Running ${n} Agent${n === 1 ? '' : 's'}`, agentsElapsed(runningWorkers));
   }
   if (shellStatus.count > 0) {
     const n = shellStatus.count;
-    const label = `Running ${n} Shell${n === 1 ? '' : 's'}`;
-    addL2(`${spin} ${B}${label}${R}${elapsedSuffix(shellStatus.elapsedLabel)}`);
+    segment(`Running ${n} Shell${n === 1 ? '' : 's'}`, shellStatus.elapsedLabel);
   }
-  const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
-  const webSearchInfo = tools.web_search || null;
-  // Web Searching = lead's own web searches (activeTools.web_search) PLUS any
-  // spawned agent sub-session whose current tool call is a web search
-  // (agentWebSearchStatus reads the live session-runtime map). Earliest start
-  // wins for the elapsed label.
-  const agentSearch = agentWebSearchStatus({ sessionId, clientHostPid });
-  const webSearchCount = (webSearchInfo ? num(webSearchInfo.count) : 0) + num(agentSearch.count);
-  if (webSearchCount > 0) {
-    const starts = [webSearchInfo ? num(webSearchInfo.startedAt) : 0, num(agentSearch.startedAt)].filter((v) => v > 0);
-    const webSearchStart = starts.length ? Math.min(...starts) : 0;
-    const elapsed = webSearchStart > 0 ? formatElapsed(Date.now() - webSearchStart) : '';
-    addL2(`${spin} ${B}Web Searching${R}${elapsedSuffix(elapsed)}`);
-  }
+  const webSearch = webSearchActivity(activeTools, { sessionId, clientHostPid });
+  if (webSearch.count > 0) segment('Web Searching', webSearch.elapsed);
   // Memory cycle segment — single unified "Memory" wording for all states:
   // running -> "⠋ Memory · 12s". Backlog is intentionally NOT rendered
   // (owner preference: cycle-health WARN logs cover it); nothing when idle.
   const memStatus = memoryCycleStatus();
-  if (memStatus?.kind === 'running') {
-    const elapsed = formatElapsed(Date.now() - memStatus.startedAt);
-    addL2(`${spin} ${B}Memory${R}${elapsedSuffix(elapsed)}`);
-  }
-  const l1 = l1Parts.join(sep) || 'mixdog';
-  const l2 = l2Parts.join(sep);
-  return l2 ? `${l1}\n${l2}` : l1;
+  if (memStatus?.kind === 'running') segment('Memory', formatElapsed(Date.now() - memStatus.startedAt));
+  return parts;
+}
+
+// Elapsed label from the oldest running worker's start.
+function agentsElapsed(runningWorkers) {
+  const oldestStart = runningWorkers.reduce((min, w) => {
+    const t = num(w?.startedAtMs);
+    return t > 0 && t < min ? t : min;
+  }, Infinity);
+  return Number.isFinite(oldestStart) ? formatElapsed(Date.now() - oldestStart) : '';
+}
+
+// Web Searching = lead's own web searches (activeTools.web_search) PLUS any
+// spawned agent sub-session whose current tool call is a web search
+// (agentWebSearchStatus reads the live session-runtime map). Earliest start
+// wins for the elapsed label.
+function webSearchActivity(activeTools, { sessionId, clientHostPid }) {
+  const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
+  const webSearchInfo = tools.web_search || null;
+  const agentSearch = agentWebSearchStatus({ sessionId, clientHostPid });
+  const count = (webSearchInfo ? num(webSearchInfo.count) : 0) + num(agentSearch.count);
+  const starts = [webSearchInfo ? num(webSearchInfo.startedAt) : 0, num(agentSearch.startedAt)].filter((v) => v > 0);
+  const start = starts.length ? Math.min(...starts) : 0;
+  return { count, elapsed: start > 0 ? formatElapsed(Date.now() - start) : '' };
 }
 
 let _gatewayQuotaRefreshInFlight = false;
@@ -460,42 +489,45 @@ function loadGatewayQuotaStatus({
   // more than one refresh at a time.
   if (!_gatewayQuotaRefreshInFlight) {
     _gatewayQuotaRefreshInFlight = true;
-    setImmediate(() => {
-      let value = null;
-      try {
-        const status = loadGatewayStatus({
+    setImmediate(() =>
+      refreshGatewayQuotaStatus(
+        { key, routeKey },
+        {
           sessionId,
           activeContextTokens,
           clientHostPid,
-          currentRoute: {
-            provider,
-            model,
-            effort,
-            fast,
-            contextWindow,
-            rawContextWindow,
-            autoCompactTokenLimit,
-          },
-        });
-        const statusProvider = String(status?.provider || '').trim();
-        const cliProvider = String(provider || '').trim();
-        const statusModel = String(status?.model || '').trim();
-        const cliModel = String(model || '').trim();
-        if (
-          status &&
-          !(cliProvider && statusProvider && statusProvider !== cliProvider) &&
-          !(cliModel && statusModel && statusModel !== cliModel)
-        ) {
-          value = status;
+          currentRoute: { provider, model, effort, fast, contextWindow, rawContextWindow, autoCompactTokenLimit },
         }
-      } catch {
-        value = null;
-      }
-      _gatewayQuotaStatusCache = { key, routeKey, at: Date.now(), value };
-      _gatewayQuotaRefreshInFlight = false;
-    });
+      )
+    );
   }
   return _gatewayQuotaStatusCache.routeKey === routeKey ? _gatewayQuotaStatusCache.value : null;
+}
+
+function refreshGatewayQuotaStatus({ key, routeKey }, request) {
+  let value = null;
+  try {
+    const status = loadGatewayStatus(request);
+    if (gatewayStatusMatchesRoute(status, request.currentRoute)) value = status;
+  } catch {
+    value = null;
+  }
+  _gatewayQuotaStatusCache = { key, routeKey, at: Date.now(), value };
+  _gatewayQuotaRefreshInFlight = false;
+}
+
+// A status whose provider or model disagrees with the CLI's route is not this
+// route's quota.
+function gatewayStatusMatchesRoute(status, { provider, model }) {
+  if (!status) return false;
+  const statusProvider = String(status.provider || '').trim();
+  const cliProvider = String(provider || '').trim();
+  const statusModel = String(status.model || '').trim();
+  const cliModel = String(model || '').trim();
+  return (
+    !(cliProvider && statusProvider && statusProvider !== cliProvider) &&
+    !(cliModel && statusModel && statusModel !== cliModel)
+  );
 }
 
 // Option A boot gate. Returns true once THIS process has captured its first
@@ -562,56 +594,60 @@ function fallbackQuotaStatus({ provider, model } = {}) {
   // render call stack.
   if (!_fallbackQuotaRefreshInFlight) {
     _fallbackQuotaRefreshInFlight = true;
-    setImmediate(() => {
-      const routeInfo = {
-        provider: normalizedProvider,
-        model: String(model || '').trim(),
-        providerKind: providerKindForQuota(normalizedProvider),
-      };
-      let value = null;
-      try {
-        let usageSnapshot = null;
-        if (normalizedProvider === 'opencode-go') {
-          usageSnapshot = readCachedOpenCodeGoUsageSnapshot();
-        } else if (normalizedProvider.includes('oauth')) {
-          try {
-            usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo, { allowStale: true });
-          } catch {}
-        }
-        if (normalizedProvider === 'opencode-go' && !usageSnapshot) {
-          value = null;
-        } else {
-          // Boot guard: do not render previous-launch usage before the current
-          // runtime has captured at least one snapshot. Once captured in this
-          // process, keep it visible while idle even if refreshes are delayed.
-          if (usageSnapshot) {
-            const cachedAt = num(usageSnapshot.cachedAt, 0);
-            if (!cachedAt || cachedAt < STATUSLINE_PROCESS_STARTED_AT_MS) {
-              usageSnapshot = { ...usageSnapshot, quotaWindows: [] };
-            }
-          }
-          const limits = buildGatewayLimits(routeInfo, null, usageSnapshot);
-          if (limits?.quotaWindows?.length || limits?.balance || limits?.routeSpend) {
-            value = {
-              ...routeInfo,
-              quotaWindows: limits.quotaWindows || [],
-              // Shared provider-wide OAuth usage cache snapshot: not owned by
-              // this instance. asOf = the snapshot's cachedAt for hysteresis.
-              quotaWindowsAsOf: num(usageSnapshot?.cachedAt),
-              quotaWindowsOwned: false,
-              balance: limits.balance || null,
-              routeSpend: limits.routeSpend || null,
-            };
-          }
-        }
-      } catch {
-        value = null;
-      }
-      _fallbackQuotaStatusCache = { key: cacheKey, at: Date.now(), value };
-      _fallbackQuotaRefreshInFlight = false;
-    });
+    setImmediate(() => refreshFallbackQuotaStatus(cacheKey, normalizedProvider, model));
   }
   return _fallbackQuotaStatusCache.key === cacheKey ? _fallbackQuotaStatusCache.value : null;
+}
+
+function refreshFallbackQuotaStatus(cacheKey, normalizedProvider, model) {
+  const routeInfo = {
+    provider: normalizedProvider,
+    model: String(model || '').trim(),
+    providerKind: providerKindForQuota(normalizedProvider),
+  };
+  let value = null;
+  try {
+    value = fallbackQuotaValue(routeInfo, normalizedProvider);
+  } catch {
+    value = null;
+  }
+  _fallbackQuotaStatusCache = { key: cacheKey, at: Date.now(), value };
+  _fallbackQuotaRefreshInFlight = false;
+}
+
+// Quota/balance/spend from the provider's cached usage snapshot, or null when
+// the route reports nothing worth a segment.
+function fallbackQuotaValue(routeInfo, normalizedProvider) {
+  let usageSnapshot = null;
+  if (normalizedProvider === 'opencode-go') {
+    usageSnapshot = readCachedOpenCodeGoUsageSnapshot();
+  } else if (normalizedProvider.includes('oauth')) {
+    try {
+      usageSnapshot = readCachedOAuthUsageSnapshot(routeInfo, { allowStale: true });
+    } catch {}
+  }
+  if (normalizedProvider === 'opencode-go' && !usageSnapshot) return null;
+  // Boot guard: do not render previous-launch usage before the current
+  // runtime has captured at least one snapshot. Once captured in this
+  // process, keep it visible while idle even if refreshes are delayed.
+  if (usageSnapshot) {
+    const cachedAt = num(usageSnapshot.cachedAt, 0);
+    if (!cachedAt || cachedAt < STATUSLINE_PROCESS_STARTED_AT_MS) {
+      usageSnapshot = { ...usageSnapshot, quotaWindows: [] };
+    }
+  }
+  const limits = buildGatewayLimits(routeInfo, null, usageSnapshot);
+  if (!(limits?.quotaWindows?.length || limits?.balance || limits?.routeSpend)) return null;
+  return {
+    ...routeInfo,
+    quotaWindows: limits.quotaWindows || [],
+    // Shared provider-wide OAuth usage cache snapshot: not owned by
+    // this instance. asOf = the snapshot's cachedAt for hysteresis.
+    quotaWindowsAsOf: num(usageSnapshot?.cachedAt),
+    quotaWindowsOwned: false,
+    balance: limits.balance || null,
+    routeSpend: limits.routeSpend || null,
+  };
 }
 
 function providerKindForQuota(provider) {
@@ -639,35 +675,6 @@ function mergeQuotaStatus(primary, fallback) {
     providerKind:
       primary.providerKind || fallback.providerKind || providerKindForQuota(primary.provider || fallback.provider),
   };
-}
-
-/** Minimal one-line footer used when the vendored renderer is unavailable. */
-export function fallbackStatusline({
-  provider = '',
-  model = '',
-  effort = '',
-  fast = false,
-  cwd = '',
-  stats,
-  contextWindow = 0,
-  displayContextWindow = 0,
-  rawContextWindow = 0,
-  compactBoundaryTokens = 0,
-  autoCompactTokenLimit = 0,
-} = {}) {
-  return fallbackLine({
-    provider,
-    model,
-    effort,
-    fast,
-    cwd,
-    stats,
-    contextWindow,
-    displayContextWindow,
-    rawContextWindow,
-    compactBoundaryTokens,
-    autoCompactTokenLimit,
-  });
 }
 
 function fallbackLine({

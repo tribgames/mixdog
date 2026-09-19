@@ -379,11 +379,13 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         inputAfter?.ready === true &&
         inputObservation.monitor === inputAfter.monitor &&
         inputObservation.sequence === inputAfter.sequence;
-      const foregroundInputReason = foregroundReady
-        ? undefined
-        : inputObservation?.ready !== true || inputAfter?.ready !== true
-          ? 'input_observer_unavailable'
-          : 'user_input_during_capture';
+      let foregroundInputReason: string | undefined;
+      if (!foregroundReady) {
+        foregroundInputReason =
+          inputObservation?.ready !== true || inputAfter?.ready !== true
+            ? 'input_observer_unavailable'
+            : 'user_input_during_capture';
+      }
       if (inputObservation) inputObservation = { ...inputObservation, ready: foregroundReady };
       if (mode !== 'vision') {
         rememberElementTargets(command, [...rawElements, ...ocrElements]);

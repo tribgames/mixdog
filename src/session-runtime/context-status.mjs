@@ -58,6 +58,40 @@ export function createContextStatus({
   let contextStatusCacheKey = null;
   let contextStatusCacheValue = null;
 
+  // Every session counter the cache key depends on: usage, the pressure
+  // baseline, and the compaction boundary.
+  function sessionTokenCounters(session) {
+    return {
+      autoCompactTokenLimit: Number(session?.autoCompactTokenLimit || 0),
+      lastContextTokens: Number(session?.lastContextTokens || 0),
+      lastContextTokensUpdatedAt: Number(session?.lastContextTokensUpdatedAt || 0),
+      lastContextTokensStaleAfterCompact: session?.lastContextTokensStaleAfterCompact === true,
+      lastInputTokens: Number(session?.lastInputTokens || 0),
+      lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
+      lastOutputTokens: Number(session?.lastOutputTokens || 0),
+      lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
+      lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
+      contextPressureBaselineTokens: Number(session?.contextPressureBaselineTokens || 0),
+      contextPressureBaselineOutputTokens: Number(session?.contextPressureBaselineOutputTokens || 0),
+      contextPressureBaselineMessageCount: Number(session?.contextPressureBaselineMessageCount ?? -1),
+      contextPressureBaselineUpdatedAt: Number(session?.contextPressureBaselineUpdatedAt || 0),
+      contextPressureBaselineBoundary: session?.contextPressureBaselineBoundary || null,
+      contextPressureBaselineProvider: session?.contextPressureBaselineProvider || null,
+      contextPressureBaselineModel: session?.contextPressureBaselineModel || null,
+      contextPressureBaselineToolSignature: session?.contextPressureBaselineToolSignature || null,
+      contextPressureBaselinePrefixSignature: session?.contextPressureBaselinePrefixSignature || null,
+      contextPressureBaselineSource: session?.contextPressureBaselineSource || null,
+      contextPressureUnanchoredAfterRestart: session?.contextPressureUnanchoredAfterRestart === true,
+      contextPressureUnanchoredReason: session?.contextPressureUnanchoredReason || null,
+      totalInputTokens: Number(session?.totalInputTokens || 0),
+      totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
+      totalOutputTokens: Number(session?.totalOutputTokens || 0),
+      totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
+      totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
+      compactBoundaryTokens: Number(session?.compactBoundaryTokens || 0),
+    };
+  }
+
   function contextStatusCacheKeyFor({
     messages,
     messagesRevision,
@@ -91,33 +125,7 @@ export function createContextStatus({
       contextWindow: session?.contextWindow || null,
       rawContextWindow: session?.rawContextWindow || null,
       effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
-      autoCompactTokenLimit: Number(session?.autoCompactTokenLimit || 0),
-      lastContextTokens: Number(session?.lastContextTokens || 0),
-      lastContextTokensUpdatedAt: Number(session?.lastContextTokensUpdatedAt || 0),
-      lastContextTokensStaleAfterCompact: session?.lastContextTokensStaleAfterCompact === true,
-      lastInputTokens: Number(session?.lastInputTokens || 0),
-      lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
-      lastOutputTokens: Number(session?.lastOutputTokens || 0),
-      lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
-      lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
-      contextPressureBaselineTokens: Number(session?.contextPressureBaselineTokens || 0),
-      contextPressureBaselineOutputTokens: Number(session?.contextPressureBaselineOutputTokens || 0),
-      contextPressureBaselineMessageCount: Number(session?.contextPressureBaselineMessageCount ?? -1),
-      contextPressureBaselineUpdatedAt: Number(session?.contextPressureBaselineUpdatedAt || 0),
-      contextPressureBaselineBoundary: session?.contextPressureBaselineBoundary || null,
-      contextPressureBaselineProvider: session?.contextPressureBaselineProvider || null,
-      contextPressureBaselineModel: session?.contextPressureBaselineModel || null,
-      contextPressureBaselineToolSignature: session?.contextPressureBaselineToolSignature || null,
-      contextPressureBaselinePrefixSignature: session?.contextPressureBaselinePrefixSignature || null,
-      contextPressureBaselineSource: session?.contextPressureBaselineSource || null,
-      contextPressureUnanchoredAfterRestart: session?.contextPressureUnanchoredAfterRestart === true,
-      contextPressureUnanchoredReason: session?.contextPressureUnanchoredReason || null,
-      totalInputTokens: Number(session?.totalInputTokens || 0),
-      totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
-      totalOutputTokens: Number(session?.totalOutputTokens || 0),
-      totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
-      totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
-      compactBoundaryTokens: Number(session?.compactBoundaryTokens || 0),
+      ...sessionTokenCounters(session),
       compactionBoundaryTokens: Number(compaction.boundaryTokens || 0),
       compactionTriggerTokens: Number(compaction.triggerTokens || 0),
       compactionLastChangedAt: Number(compaction.lastChangedAt || 0),
@@ -227,6 +235,183 @@ export function createContextStatus({
     return { ...status, inspection };
   }
 
+  // A route is not a conversation. Keep a pristine desktop/TUI task truly
+  // empty until the first real turn. Remote auto-start may prepare a local
+  // session shell containing system/tool templates, but those templates have
+  // not entered a provider request and must not appear as consumed context.
+  function emptyContextStatus(session, route, options) {
+    let emptyCompactPolicy = null;
+    if (session) {
+      emptyCompactPolicy = resolveWorkerCompactPolicy(session, Array.isArray(session.tools) ? session.tools : []);
+    }
+    const routeWindow = Math.max(
+      0,
+      Number(session?.compactBoundaryTokens || session?.contextWindow || route?.contextWindow || 0)
+    );
+    return withInspection(
+      {
+        sessionId: session?.id || null,
+        provider: session?.provider || route.provider,
+        model: session?.model || route.model,
+        cwd: getCurrentCwd(),
+        toolMode: getMode(),
+        contextWindow: routeWindow || null,
+        effectiveContextWindow: routeWindow || null,
+        rawContextWindow: routeWindow || null,
+        effectiveContextWindowPercent: null,
+        usedTokens: 0,
+        usedSource: 'empty',
+        measurement: sessionContextMeasurement(session, false),
+        currentEstimatedTokens: 0,
+        lastApiRequestTokens: 0,
+        lastApiRequestStale: false,
+        freeTokens: routeWindow,
+        compaction: emptyCompactionStatus(session, emptyCompactPolicy),
+        messages: summarizeContextMessages([]),
+        request: {
+          toolSchemaTokens: 0,
+          toolSchemaBreakdown: {},
+          requestOverheadTokens: 0,
+          reserveTokens: 0,
+        },
+        usage: emptyUsageCounters(),
+      },
+      [],
+      [],
+      options
+    );
+  }
+
+  function emptyCompactionStatus(session, policy) {
+    return {
+      boundaryTokens: Number(session?.compactBoundaryTokens || policy?.boundaryTokens || 0) || null,
+      triggerTokens: Number(policy?.triggerTokens || 0) || null,
+      // Preserve explicit 0 (main full-window buffer). `|| null` would
+      // collapse a real zero buffer into "unset".
+      bufferTokens: Number.isFinite(Number(policy?.bufferTokens)) ? Math.max(0, Number(policy.bufferTokens)) : null,
+      bufferRatio: Number.isFinite(policy?.bufferRatio) ? policy.bufferRatio : null,
+      currentEstimatedTokens: 0,
+      lastApiRequestTokens: 0,
+      lastApiRequestStale: false,
+    };
+  }
+
+  function emptyUsageCounters() {
+    return {
+      lastInputTokens: 0,
+      lastUncachedInputTokens: 0,
+      lastOutputTokens: 0,
+      lastCachedReadTokens: 0,
+      lastCacheWriteTokens: 0,
+      lastContextTokens: 0,
+      totalInputTokens: 0,
+      totalUncachedInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCachedReadTokens: 0,
+      totalCacheWriteTokens: 0,
+    };
+  }
+
+  function requestTokenBudget(requestTools) {
+    const toolSchemaTokens = estimateToolSchemaTokens(requestTools);
+    const reserveTokens = estimateRequestReserveTokens(requestTools);
+    return {
+      toolSchemaTokens,
+      toolSchemaBreakdown: estimateToolSchemaBreakdown(requestTools),
+      requestOverheadTokens: Math.max(0, reserveTokens - toolSchemaTokens),
+      reserveTokens,
+    };
+  }
+
+  // Window sizes, the provider's last reading, the compaction policy and the
+  // resolved usage gauge for one status computation.
+  function contextGauge(session, route, requestTools, messages, messageSummary) {
+    const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
+    const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
+    const lastContextTokens = Number(session?.lastContextTokens || 0);
+    const lastUsageStale = lastUsageIsStale(session, lastContextTokens);
+    const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
+    const displayWindow = compactBoundaryTokens || effectiveWindow;
+    const compactPolicy = contextCompactPolicy(session, route, requestTools, compactBoundaryTokens);
+    // A successful compaction publishes one durable post-mutation reading.
+    // Polling and cold resume keep that exact value until a fresh provider
+    // baseline or a changed transcript/route/tool surface invalidates it.
+    const usageSnapshot =
+      !lastContextTokens || lastUsageStale ? resolveContextUsageSnapshot(session, compactPolicy, { messages }) : null;
+    // One resolution owns both the number and its provenance. Deriving the
+    // label from session fields instead let a calibrated whole-transcript
+    // estimate report itself as `provider`, which hid a 4x disagreement with
+    // the provider's own prompt size behind a trustworthy-looking source.
+    const resolvedGauge = usageSnapshot
+      ? { tokens: usageSnapshot.usedTokens, source: 'post_compact' }
+      : resolveContextTokensWithSource(messageSummary.estimatedTokens, compactPolicy, {
+          messages,
+          sessionRef: session,
+        });
+    const usedTokens = resolvedGauge.tokens;
+    return {
+      rawWindow,
+      effectiveWindow,
+      displayWindow,
+      compactBoundaryTokens,
+      compactPolicy,
+      lastContextTokens,
+      lastUsageStale,
+      usedTokens,
+      usedSource: resolvedGauge.source,
+      freeTokens: displayWindow ? Math.max(0, displayWindow - usedTokens) : 0,
+    };
+  }
+
+  function compactionStatusFor(
+    session,
+    { compactPolicy, compactBoundaryTokens, usedTokens, lastContextTokens, lastUsageStale }
+  ) {
+    const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
+      ? Math.max(0, Number(compactPolicy.bufferTokens))
+      : 0;
+    return {
+      ...(session?.compaction || {}),
+      boundaryTokens: compactBoundaryTokens || null,
+      triggerTokens: compactPolicy.triggerTokens || null,
+      bufferTokens: Number.isFinite(compactBufferTokens) ? compactBufferTokens : null,
+      bufferRatio: Number.isFinite(compactPolicy.bufferRatio) ? compactPolicy.bufferRatio : null,
+      currentEstimatedTokens: usedTokens,
+      pressureTokens: usedTokens,
+      reserveTokens: Math.max(0, Number(compactPolicy.configuredReserveTokens) || 0),
+      lastApiRequestTokens: lastContextTokens || 0,
+      lastApiRequestStale: lastUsageStale,
+    };
+  }
+
+  function contextStatusValue(session, route, { messageSummary, request, gauge, hasConversationActivity }) {
+    const { usedTokens, lastContextTokens, lastUsageStale, displayWindow, effectiveWindow, rawWindow } = gauge;
+    return {
+      sessionId: session?.id || null,
+      provider: session?.provider || route.provider,
+      model: session?.model || route.model,
+      cwd: getCurrentCwd(),
+      toolMode: getMode(),
+      contextWindow: displayWindow || effectiveWindow || null,
+      effectiveContextWindow: effectiveWindow || null,
+      rawContextWindow: rawWindow || null,
+      effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
+      usedTokens,
+      usedSource: gauge.usedSource,
+      // Pressure remains private to compaction/diagnostics. Every display
+      // consumes this measured-input contract instead of the pressure gauge.
+      measurement: sessionContextMeasurement(session, hasConversationActivity),
+      currentEstimatedTokens: usedTokens,
+      lastApiRequestTokens: lastContextTokens || 0,
+      lastApiRequestStale: lastUsageStale,
+      freeTokens: gauge.freeTokens,
+      compaction: compactionStatusFor(session, gauge),
+      messages: messageSummary,
+      request,
+      usage: sessionUsageCounters(session, lastContextTokens),
+    };
+  }
+
   function contextStatus(options) {
     const session = getSession();
     const route = getRoute();
@@ -239,75 +424,7 @@ export function createContextStatus({
         (message) =>
           message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
       );
-    // A route is not a conversation. Keep a pristine desktop/TUI task truly
-    // empty until the first real turn. Remote auto-start may prepare a local
-    // session shell containing system/tool templates, but those templates have
-    // not entered a provider request and must not appear as consumed context.
-    if (!session?.id || !hasConversationActivity) {
-      const emptyCompactPolicy = session
-        ? resolveWorkerCompactPolicy(session, Array.isArray(session.tools) ? session.tools : [])
-        : null;
-      const routeWindow = Math.max(
-        0,
-        Number(session?.compactBoundaryTokens || session?.contextWindow || route?.contextWindow || 0)
-      );
-      return withInspection(
-        {
-          sessionId: session?.id || null,
-          provider: session?.provider || route.provider,
-          model: session?.model || route.model,
-          cwd: getCurrentCwd(),
-          toolMode: getMode(),
-          contextWindow: routeWindow || null,
-          effectiveContextWindow: routeWindow || null,
-          rawContextWindow: routeWindow || null,
-          effectiveContextWindowPercent: null,
-          usedTokens: 0,
-          usedSource: 'empty',
-          measurement: sessionContextMeasurement(session, false),
-          currentEstimatedTokens: 0,
-          lastApiRequestTokens: 0,
-          lastApiRequestStale: false,
-          freeTokens: routeWindow,
-          compaction: {
-            boundaryTokens: Number(session?.compactBoundaryTokens || emptyCompactPolicy?.boundaryTokens || 0) || null,
-            triggerTokens: Number(emptyCompactPolicy?.triggerTokens || 0) || null,
-            // Preserve explicit 0 (main full-window buffer). `|| null` would
-            // collapse a real zero buffer into "unset".
-            bufferTokens: Number.isFinite(Number(emptyCompactPolicy?.bufferTokens))
-              ? Math.max(0, Number(emptyCompactPolicy.bufferTokens))
-              : null,
-            bufferRatio: Number.isFinite(emptyCompactPolicy?.bufferRatio) ? emptyCompactPolicy.bufferRatio : null,
-            currentEstimatedTokens: 0,
-            lastApiRequestTokens: 0,
-            lastApiRequestStale: false,
-          },
-          messages: summarizeContextMessages([]),
-          request: {
-            toolSchemaTokens: 0,
-            toolSchemaBreakdown: {},
-            requestOverheadTokens: 0,
-            reserveTokens: 0,
-          },
-          usage: {
-            lastInputTokens: 0,
-            lastUncachedInputTokens: 0,
-            lastOutputTokens: 0,
-            lastCachedReadTokens: 0,
-            lastCacheWriteTokens: 0,
-            lastContextTokens: 0,
-            totalInputTokens: 0,
-            totalUncachedInputTokens: 0,
-            totalOutputTokens: 0,
-            totalCachedReadTokens: 0,
-            totalCacheWriteTokens: 0,
-          },
-        },
-        [],
-        [],
-        options
-      );
-    }
+    if (!session?.id || !hasConversationActivity) return emptyContextStatus(session, route, options);
     // Prefer the in-flight working transcript while a turn is running so the
     // context gauge reflects LIVE growth (user turn + tool calls/results) as
     // it accumulates, instead of freezing at the pre-turn committed snapshot.
@@ -336,114 +453,61 @@ export function createContextStatus({
     }
 
     const messageSummary = summarizeContextMessagesAtRevision(messages, messagesRevision);
-    const toolSchemaTokens = estimateToolSchemaTokens(requestTools);
-    const toolSchemaBreakdown = estimateToolSchemaBreakdown(requestTools);
-    const requestReserveTokens = estimateRequestReserveTokens(requestTools);
-    const requestOverheadTokens = Math.max(0, requestReserveTokens - toolSchemaTokens);
-    const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
-    const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
-    const lastContextTokens = Number(session?.lastContextTokens || 0);
-    const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
-    const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
-    const lastUsageStale =
-      !!lastContextTokens &&
-      (session?.lastContextTokensStaleAfterCompact === true ||
-        (compactAt > 0 && usageAt > 0 && usageAt <= compactAt) ||
-        (compactAt > 0 && usageAt <= 0));
-    const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
-    const displayWindow = compactBoundaryTokens || effectiveWindow;
-    // Use the worker policy when a boundary is available so target/reserve
-    // headroom, trigger, buffer tokens, and buffer ratio stay identical to the
-    // auto-compact decision. Fall back only for incomplete session metadata.
-    // Meter the same pure provider-visible projection used by pre-send
-    // compaction and the actual agent-loop send/baseline fingerprint.
-    const workerCompactPolicy = resolveWorkerCompactPolicy(session, requestTools);
-    const compactPolicy = workerCompactPolicy?.boundaryTokens
-      ? workerCompactPolicy
-      : {
-          ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
-          tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
-        };
-    // A successful compaction publishes one durable post-mutation reading.
-    // Polling and cold resume keep that exact value until a fresh provider
-    // baseline or a changed transcript/route/tool surface invalidates it.
-    const usageSnapshot =
-      !lastContextTokens || lastUsageStale ? resolveContextUsageSnapshot(session, compactPolicy, { messages }) : null;
-    // One resolution owns both the number and its provenance. Deriving the
-    // label from session fields instead let a calibrated whole-transcript
-    // estimate report itself as `provider`, which hid a 4x disagreement with
-    // the provider's own prompt size behind a trustworthy-looking source.
-    const resolvedGauge = usageSnapshot
-      ? { tokens: usageSnapshot.usedTokens, source: 'post_compact' }
-      : resolveContextTokensWithSource(messageSummary.estimatedTokens, compactPolicy, {
-          messages,
-          sessionRef: session,
-        });
-    const usedTokens = resolvedGauge.tokens;
-    const freeTokens = displayWindow ? Math.max(0, displayWindow - usedTokens) : 0;
-    const compactTriggerTokens = compactPolicy.triggerTokens || 0;
-    const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
-      ? Math.max(0, Number(compactPolicy.bufferTokens))
-      : 0;
-    const compactBufferRatio = Number.isFinite(compactPolicy.bufferRatio) ? compactPolicy.bufferRatio : null;
-    const value = {
-      sessionId: session?.id || null,
-      provider: session?.provider || route.provider,
-      model: session?.model || route.model,
-      cwd: getCurrentCwd(),
-      toolMode: getMode(),
-      contextWindow: displayWindow || effectiveWindow || null,
-      effectiveContextWindow: effectiveWindow || null,
-      rawContextWindow: rawWindow || null,
-      effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
-      usedTokens,
-      usedSource: resolvedGauge.source,
-      // Pressure remains private to compaction/diagnostics. Every display
-      // consumes this measured-input contract instead of the pressure gauge.
-      measurement: sessionContextMeasurement(session, hasConversationActivity),
-      currentEstimatedTokens: usedTokens,
-      lastApiRequestTokens: lastContextTokens || 0,
-      lastApiRequestStale: lastUsageStale,
-      freeTokens,
-      compaction: {
-        ...(session?.compaction || {}),
-        boundaryTokens: compactBoundaryTokens || null,
-        triggerTokens: compactTriggerTokens || null,
-        bufferTokens: Number.isFinite(compactBufferTokens) ? compactBufferTokens : null,
-        bufferRatio: compactBufferRatio,
-        currentEstimatedTokens: usedTokens,
-        pressureTokens: usedTokens,
-        reserveTokens: Math.max(0, Number(compactPolicy.configuredReserveTokens) || 0),
-        lastApiRequestTokens: lastContextTokens || 0,
-        lastApiRequestStale: lastUsageStale,
-      },
-      messages: messageSummary,
-      request: {
-        toolSchemaTokens,
-        toolSchemaBreakdown,
-        requestOverheadTokens,
-        reserveTokens: requestReserveTokens,
-      },
-      usage: {
-        lastInputTokens: Number(session?.lastInputTokens || 0),
-        lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
-        lastOutputTokens: Number(session?.lastOutputTokens || 0),
-        lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
-        lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
-        lastContextTokens,
-        totalInputTokens: Number(session?.totalInputTokens || 0),
-        totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
-        totalOutputTokens: Number(session?.totalOutputTokens || 0),
-        totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
-        totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
-      },
-    };
+    const value = contextStatusValue(session, route, {
+      messageSummary,
+      request: requestTokenBudget(requestTools),
+      gauge: contextGauge(session, route, requestTools, messages, messageSummary),
+      hasConversationActivity,
+    });
     contextStatusCacheKey = cacheKey;
     contextStatusCacheValue = value;
     return withInspection(value, messages, requestTools, options);
   }
 
   return { contextStatus, invalidateContextStatusCache };
+}
+
+// The last provider-reported context size is stale once a compaction (or an
+// explicit stale mark) postdates it.
+function lastUsageIsStale(session, lastContextTokens) {
+  if (!lastContextTokens) return false;
+  const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
+  const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
+  return (
+    session?.lastContextTokensStaleAfterCompact === true ||
+    (compactAt > 0 && usageAt > 0 && usageAt <= compactAt) ||
+    (compactAt > 0 && usageAt <= 0)
+  );
+}
+
+// Use the worker policy when a boundary is available so target/reserve
+// headroom, trigger, buffer tokens, and buffer ratio stay identical to the
+// auto-compact decision. Fall back only for incomplete session metadata.
+// Meter the same pure provider-visible projection used by pre-send
+// compaction and the actual agent-loop send/baseline fingerprint.
+function contextCompactPolicy(session, route, requestTools, compactBoundaryTokens) {
+  const workerCompactPolicy = resolveWorkerCompactPolicy(session, requestTools);
+  if (workerCompactPolicy?.boundaryTokens) return workerCompactPolicy;
+  return {
+    ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
+    tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
+  };
+}
+
+function sessionUsageCounters(session, lastContextTokens) {
+  return {
+    lastInputTokens: Number(session?.lastInputTokens || 0),
+    lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
+    lastOutputTokens: Number(session?.lastOutputTokens || 0),
+    lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
+    lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
+    lastContextTokens,
+    totalInputTokens: Number(session?.totalInputTokens || 0),
+    totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
+    totalOutputTokens: Number(session?.totalOutputTokens || 0),
+    totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
+    totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
+  };
 }
 
 // One-shot gauge for a session that is NOT the runtime's current session (a

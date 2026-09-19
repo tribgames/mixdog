@@ -125,8 +125,8 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     for (const [name, page] of backgroundPages(sessionId)) {
       if (page.window.isDestroyed()) continue;
       const contents = page.window.webContents;
-      const kind =
-        page.kind === 'popup' ? `popup${page.openerPageId ? ` from ${page.openerPageId}` : ''}` : 'background';
+      const opener = page.openerPageId ? ` from ${page.openerPageId}` : '';
+      const kind = page.kind === 'popup' ? `popup${opener}` : 'background';
       lines.push(
         `- ${stablePageId(contents)} ["${name}"] (${kind}): ${redactBrowserText(contents.getTitle() || '(untitled)')} ` +
           `— ${redactBrowserUrl(contents.getURL() || 'about:blank')}`
@@ -166,15 +166,12 @@ export function createBrowserTabs(host: BrowserTabsHost) {
       })),
       ...[...backgroundPages(sessionId).values()]
         .filter((page) => !page.window.isDestroyed() && !page.guest.isDestroyed())
-        .map((page) => ({
-          guest: page.guest,
-          kind: (page.kind === 'popup'
-            ? 'popup'
-            : page.kind === 'user'
-              ? 'page'
-              : 'background') as DesktopBrowserTab['kind'],
-          page,
-        })),
+        .map((page) => {
+          let kind: DesktopBrowserTab['kind'] = 'background';
+          if (page.kind === 'popup') kind = 'popup';
+          else if (page.kind === 'user') kind = 'page';
+          return { guest: page.guest, kind, page };
+        }),
     ];
   }
 

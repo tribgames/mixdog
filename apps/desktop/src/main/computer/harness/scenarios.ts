@@ -619,16 +619,17 @@ async function run(): Promise<void> {
       }
       const commandStartedAt = performance.now();
       const requestBytes = Buffer.byteLength(body);
-      const actionMetrics = activeMetrics
-        ? (activeMetrics.actions[actionName] ||= {
-            commands: 0,
-            failures: 0,
-            durations_ms: [],
-            request_bytes: 0,
-            response_text_bytes: 0,
-            image_bytes: 0,
-          })
-        : null;
+      if (activeMetrics) {
+        activeMetrics.actions[actionName] ||= {
+          commands: 0,
+          failures: 0,
+          durations_ms: [],
+          request_bytes: 0,
+          response_text_bytes: 0,
+          image_bytes: 0,
+        };
+      }
+      const actionMetrics = activeMetrics ? activeMetrics.actions[actionName] : null;
       if (activeMetrics) {
         activeMetrics.commands += 1;
         activeMetrics.request_bytes += requestBytes;

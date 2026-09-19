@@ -21,9 +21,9 @@ export interface ComputerUseCursorPresentation extends ComputerUseCursor {
   context: string;
 }
 
-export const SESSION_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#39c5cf'];
+const SESSION_COLORS = ['#58a6ff', '#a371f7', '#3fb950', '#d29922', '#f778ba', '#39c5cf'];
 
-export function sessionColor(sessionId: string): string {
+function sessionColor(sessionId: string): string {
   let hash = 0;
   for (const character of sessionId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
   return SESSION_COLORS[hash % SESSION_COLORS.length] || SESSION_COLORS[0];
@@ -77,27 +77,17 @@ export function computerUseOverlayPresentation(
     ['input_observation_unavailable', 'input_recovery_unconfirmed', 'input_cleanup_unconfirmed'].includes(
       snapshot.takeoverReason || ''
     );
+  let title = ko ? '컴퓨터 사용 중' : 'Computer in use';
+  if (confirmation) title = ko ? '확인 필요' : 'Check';
+  else if (paused && snapshot.takeoverReason === 'user_stop') title = ko ? '중지 중' : 'Stopping';
+  else if (paused) title = ko ? '일시정지' : 'Paused';
   return {
     // A pending cleanup with no session, pause, or failure behind it is a
     // no-op release (idle worker reap, deferred session release) and stays
     // hidden; a failed cleanup always surfaces.
     visible: sessionIds.length > 0 || paused || failed,
     sessionIds,
-    title: confirmation
-      ? ko
-        ? '확인 필요'
-        : 'Check'
-      : paused && snapshot.takeoverReason === 'user_stop'
-        ? ko
-          ? '중지 중'
-          : 'Stopping'
-        : paused
-          ? ko
-            ? '일시정지'
-            : 'Paused'
-          : ko
-            ? '컴퓨터 사용 중'
-            : 'Computer in use',
+    title,
     // Per-session colours only carry meaning while several agents work at once;
     // a lone session keeps the standard accent instead of a hash-picked one.
     accent: activity && snapshot.activities.length > 1 ? sessionColor(activity.sessionId) : SESSION_COLORS[0],
@@ -120,12 +110,14 @@ export function computerUseCursorPresentations(snapshot: ComputerUseSnapshot): C
     const ordinal = activityOrder.get(cursor.sessionId) || 1;
     const target = visibleTarget(activity.target);
     const multipleSessions = snapshot.activities.length > 1;
+    const modeLabel = cursor.mode === 'foreground' ? 'Foreground' : 'Background';
+    const ordinalPrefix = multipleSessions ? `${ordinal} · ` : '';
     return [
       {
         ...cursor,
         accent: multipleSessions ? sessionColor(cursor.sessionId) : SESSION_COLORS[0],
-        badge: `${multipleSessions ? `${ordinal} · ` : ''}${target || shortSessionId(cursor.sessionId)}`,
-        context: multipleSessions ? (cursor.mode === 'foreground' ? 'Foreground' : 'Background') : '',
+        badge: `${ordinalPrefix}${target || shortSessionId(cursor.sessionId)}`,
+        context: multipleSessions ? modeLabel : '',
       },
     ];
   });

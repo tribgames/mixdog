@@ -129,70 +129,81 @@ export function captureMode(command: ComputerCommand): 'state' | 'som' | 'vision
   return mode;
 }
 
+type ElementBounds = [number, number, number, number];
+
+function renderedElement(
+  element: ComputerElementRecord,
+  compact: boolean,
+  bounds: ElementBounds,
+  center: [number, number],
+  screenBounds?: ElementBounds
+): Record<string, unknown> {
+  if (!compact) return { ...element, bounds, center, ...(screenBounds ? { screen_bounds: screenBounds } : {}) };
+  return {
+    mark: element.mark,
+    ref: element.ref,
+    source: element.source,
+    role: element.role,
+    name: element.name,
+    ...(element.value ? { value: element.value } : {}),
+    ...(element.state ? { state: element.state } : {}),
+    // The app's own shortcut reaches a command without travelling to the
+    // control, so the compact view keeps it too.
+    ...(element.accelerator ? { accelerator: element.accelerator } : {}),
+    ...(element.access_key ? { access_key: element.access_key } : {}),
+    enabled: element.enabled,
+    bounds,
+    actions: element.actions,
+  };
+}
+
+// The element's rectangle mapped into the frame's capture pixels and clipped
+// to the frame; null when it lies entirely outside.
+function clipElementToFrame(element: ComputerElementRecord, frame: CaptureFrame): ComputerElementRecord | null {
+  const x = Math.round(((element.x - frame.originX) * frame.captureWidth) / frame.physicalWidth);
+  const y = Math.round(((element.y - frame.originY) * frame.captureHeight) / frame.physicalHeight);
+  const width = Math.max(1, Math.round((element.width * frame.captureWidth) / frame.physicalWidth));
+  const height = Math.max(1, Math.round((element.height * frame.captureHeight) / frame.physicalHeight));
+  if (x + width <= 0 || y + height <= 0 || x >= frame.captureWidth || y >= frame.captureHeight) return null;
+  const clippedX = Math.max(0, x);
+  const clippedY = Math.max(0, y);
+  const clippedWidth = Math.max(1, Math.min(frame.captureWidth - clippedX, width - (clippedX - x)));
+  const clippedHeight = Math.max(1, Math.min(frame.captureHeight - clippedY, height - (clippedY - y)));
+  return {
+    ...element,
+    x: clippedX,
+    y: clippedY,
+    width: clippedWidth,
+    height: clippedHeight,
+    center_x: clippedX + Math.round(clippedWidth / 2),
+    center_y: clippedY + Math.round(clippedHeight / 2),
+  };
+}
+
 export function frameElements(
   elements: ComputerElementRecord[],
   frame?: CaptureFrame,
   compact = false
 ): Array<Record<string, unknown>> {
-  const rendered = (
-    element: ComputerElementRecord,
-    bounds: [number, number, number, number],
-    center: [number, number],
-    screenBounds?: [number, number, number, number]
-  ): Record<string, unknown> =>
-    compact
-      ? {
-          mark: element.mark,
-          ref: element.ref,
-          source: element.source,
-          role: element.role,
-          name: element.name,
-          ...(element.value ? { value: element.value } : {}),
-          ...(element.state ? { state: element.state } : {}),
-          // The app's own shortcut reaches a command without travelling to the
-          // control, so the compact view keeps it too.
-          ...(element.accelerator ? { accelerator: element.accelerator } : {}),
-          ...(element.access_key ? { access_key: element.access_key } : {}),
-          enabled: element.enabled,
-          bounds,
-          actions: element.actions,
-        }
-      : {
-          ...element,
-          bounds,
-          center,
-          ...(screenBounds ? { screen_bounds: screenBounds } : {}),
-        };
   return elements.flatMap((element) => {
     if (!frame) {
       return [
-        rendered(element, [element.x, element.y, element.width, element.height], [element.center_x, element.center_y]),
+        renderedElement(
+          element,
+          compact,
+          [element.x, element.y, element.width, element.height],
+          [element.center_x, element.center_y]
+        ),
       ];
     }
-    const x = Math.round(((element.x - frame.originX) * frame.captureWidth) / frame.physicalWidth);
-    const y = Math.round(((element.y - frame.originY) * frame.captureHeight) / frame.physicalHeight);
-    const width = Math.max(1, Math.round((element.width * frame.captureWidth) / frame.physicalWidth));
-    const height = Math.max(1, Math.round((element.height * frame.captureHeight) / frame.physicalHeight));
-    if (x + width <= 0 || y + height <= 0 || x >= frame.captureWidth || y >= frame.captureHeight) {
-      return [];
-    }
-    const clippedX = Math.max(0, x);
-    const clippedY = Math.max(0, y);
-    const clippedWidth = Math.max(1, Math.min(frame.captureWidth - clippedX, width - (clippedX - x)));
-    const clippedHeight = Math.max(1, Math.min(frame.captureHeight - clippedY, height - (clippedY - y)));
+    const clipped = clipElementToFrame(element, frame);
+    if (!clipped) return [];
     return [
-      rendered(
-        {
-          ...element,
-          x: clippedX,
-          y: clippedY,
-          width: clippedWidth,
-          height: clippedHeight,
-          center_x: clippedX + Math.round(clippedWidth / 2),
-          center_y: clippedY + Math.round(clippedHeight / 2),
-        },
-        [clippedX, clippedY, clippedWidth, clippedHeight],
-        [clippedX + Math.round(clippedWidth / 2), clippedY + Math.round(clippedHeight / 2)],
+      renderedElement(
+        clipped,
+        compact,
+        [clipped.x, clipped.y, clipped.width, clipped.height],
+        [clipped.center_x, clipped.center_y],
         [element.x, element.y, element.width, element.height]
       ),
     ];
@@ -269,7 +280,7 @@ export function hasSemanticAccessibilityTarget(elements: ComputerElementRecord[]
   });
 }
 
-export function normalizeGroundingText(value: string): string {
+function normalizeGroundingText(value: string): string {
   return value
     .normalize('NFKC')
     .toLocaleLowerCase()

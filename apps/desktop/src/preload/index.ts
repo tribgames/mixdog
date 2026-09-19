@@ -5,6 +5,7 @@ import {
   DESKTOP_IPC,
   type DesktopAgentPoolRow,
   type DesktopApi,
+  type DesktopBootContext,
   type DesktopRemoteClientClaim,
   type DesktopSessionSummary,
   type DesktopSessionStateUpdate,
@@ -31,16 +32,14 @@ const bootId = additionalArgument('mixdog-boot-id');
 const processStartedAt = Number(additionalArgument('mixdog-process-started-at'));
 const bootScenario = additionalArgument('mixdog-boot-scenario');
 
+function bootContextValue(): DesktopBootContext | undefined {
+  if (!bootId || !Number.isFinite(processStartedAt)) return undefined;
+  return Object.freeze({ bootId, processStartedAt, ...(bootScenario ? { scenario: bootScenario } : {}) });
+}
+const bootContext = bootContextValue();
+
 const api: DesktopApi = {
-  ...(bootId && Number.isFinite(processStartedAt)
-    ? {
-        bootContext: Object.freeze({
-          bootId,
-          processStartedAt,
-          ...(bootScenario ? { scenario: bootScenario } : {}),
-        }),
-      }
-    : {}),
+  ...(bootContext ? { bootContext } : {}),
   chooseProject: () => ipcRenderer.invoke(DESKTOP_IPC.chooseProject),
   chooseFile: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFile, defaultPath),
   chooseFiles: (defaultPath) => ipcRenderer.invoke(DESKTOP_IPC.chooseFiles, defaultPath),

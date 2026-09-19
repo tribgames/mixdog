@@ -45,7 +45,7 @@ test('persisted order controls quota failover and preserves selection across rel
   changeProviderAccounts(provider, { order: [ids[0], ids[2], ids[1]] });
   const calls = [];
   const gateway = createAccountPoolProvider(provider, () => ({
-    async send(messages, model, tools, opts) {
+    async send(messages, model, _tools, _opts) {
       const id = currentProviderAccountId(provider);
       calls.push(id);
       assert.equal(readProviderAccountPool(provider).selectedId, ids[0]);
@@ -437,13 +437,8 @@ test('failed free-account fallback retains the paid selection; successful fallba
       },
     }));
     const pending = gateway.send([], 'model', [], { signal: controller.signal });
-    const completion =
-      outcome === 'manual'
-        ? pending
-        : assert.rejects(
-            pending,
-            outcome === 'unavailable' ? (error) => error === unavailable : { name: 'AbortError' }
-          );
+    const rejection = outcome === 'unavailable' ? (error) => error === unavailable : { name: 'AbortError' };
+    const completion = outcome === 'manual' ? pending : assert.rejects(pending, rejection);
     await entered.promise;
     assert.equal(gateway.providerAccountId, paid);
     if (outcome === 'manual') changeProviderAccounts(provider, { selectedId: manual });

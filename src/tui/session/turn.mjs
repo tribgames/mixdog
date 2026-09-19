@@ -75,6 +75,50 @@ function isUsageLimitError(error) {
   );
 }
 
+function turnOutcome(cancelled, failed) {
+  if (cancelled) return 'cancelled';
+  return failed ? 'failed' : 'done';
+}
+
+// Transcript spec for a standalone (non-aggregated) tool card.
+function standaloneCardSpec(itemId, name, args) {
+  return {
+    kind: 'tool',
+    id: itemId,
+    name,
+    args,
+    result: null,
+    isError: false,
+    expanded: false,
+    headerFinalized: false,
+    count: 1,
+    completedCount: 0,
+    startedAt: Date.now(),
+  };
+}
+
+// One call's slot inside an aggregate card, before its result lands.
+function aggregateCallEntry(callKey, name, args, category) {
+  return {
+    callId: callKey,
+    name,
+    args,
+    category,
+    summary: null,
+    summarySeq: null,
+    isError: false,
+    isCallError: false,
+    isExitError: false,
+    exitCode: null,
+    resultText: null,
+    rawResultText: null,
+    resolved: false,
+    completedEarly: false,
+    startedAt: Date.now(),
+    completedAt: null,
+  };
+}
+
 export function createRunTurn(bag) {
   const {
     runtime,
@@ -262,7 +306,7 @@ export function createRunTurn(bag) {
       } catch {
         return;
       }
-      if (!liveness || liveness.stage !== 'tool_running') return;
+      if (liveness?.stage !== 'tool_running') return;
       const tail = typeof liveness.toolOutputTail === 'string' ? liveness.toolOutputTail : '';
       if (!tail || tail === lastLiveTailPatched) return;
       const running = toolCards.filter((c) => !c.done && !c.aggregate);
@@ -416,6 +460,258 @@ export function createRunTurn(bag) {
     // (Math.round(responseLength/4)); we refresh getState().spinner.responseLength on
     // visible-line flush and finalize so that fallback stays valid.
 
+    // Show only COMPLETED lines while streaming. The in-progress trailing
+    // line stays hidden until its '\n' arrives, so the visible text never
+    // grows a glyph at a time (no "Wh"→pause→"What happened…" partial reveal, no
+    // CJK-width reflow jitter). The final non-streaming patch
+    // (streaming:false) always carries the full text, so the tail line that
+    // never got a newline still lands once at finalize.
+    // Incrementally track the last completed-line '\n' offset instead of
+    // rescanning the whole accumulated text every flush. Each char is
+    // examined once across the stream (amortized O(n) total, not O(n) per
+    // flush); when the newline offset hasn't advanced the visible text is
+    // byte-identical to the last flush, so the slice below is skipped and
+    // reused. Reveal semantics are unchanged: still only completed lines.
+    const streamingVisibleTextNow = () => {
+      const textLen = currentAssistantText.length;
+      if (textLen < _streamScanLen) {
+        _streamScanLen = 0;
+        _lastNewlineIdx = -1;
+      }
+      for (let i = _streamScanLen; i < textLen; i++) {
+        if (currentAssistantText.charCodeAt(i) === 10) _lastNewlineIdx = i;
+      }
+      _streamScanLen = textLen;
+      if (_lastNewlineIdx === _emittedNewlineIdx) return _emittedVisibleText;
+      _emittedVisibleText = _lastNewlineIdx >= 0 ? currentAssistantText.slice(0, _lastNewlineIdx + 1) : '';
+      _emittedNewlineIdx = _lastNewlineIdx;
+      return _emittedVisibleText;
+    };
+
+    const flushTextBatch = () => {
+      const streamingVisibleText = streamingVisibleTextNow();
+      const patch = {};
+      // Do NOT create the assistant row (and scroll the transcript) before
+      // there is a completed line with VISIBLE content to show. Until the
+      // first '\n' the only pending getState() is the spinner; the row appears
+      // together with its first visible line, so no empty "●-only" row
+      // flashes/scrolls ahead of text. `.trim()` also guards the
+      // whitespace-only case: a response that opens with leading newlines
+      // ("\n\n# …") completes a blank line first, whose estimated height
+      // still reserves rows and scrolls the transcript, but Markdown trims
+      // the body to nothing — so the scroll advances onto an empty band for
+      // a few seconds until a non-blank line lands. Don't create the row
+      // until there is real content to paint.
+      if (currentAssistantId || streamingVisibleText.trim()) {
+        const id = ensureAssistant(streamingVisibleText);
+        const current = getState().streamingTail;
+        if (!current || current.id !== id || !Object.is(current.text, streamingVisibleText)) {
+          patch.streamingTail = {
+            ...(current || {}),
+            kind: 'assistant',
+            id,
+            text: streamingVisibleText,
+            streaming: true,
+            at: current?.at || Date.now(),
+            ...turnRouteMeta,
+          };
+        }
+      }
+      // Only touch the spinner when there is a real reason: a visible-line
+      // change (patch.items set above), a thinking→responding transition, or a
+      // pending thinking end timestamp. Refresh responseLength here so the
+      // finalize outputTokens fallback stays valid without a per-token push.
+      const responseLengthVal = assistantText.length + thinkingText.length;
+      const visibleLineChanged = patch.streamingTail !== undefined;
+      const thinkingTransition = _publishedThinkingActive === true; // was thinking, now responding
+      if (getState().spinner && (visibleLineChanged || thinkingTransition || _pendingThinkingLastEndedAt)) {
+        patch.spinner = {
+          ...getState().spinner,
+          responseLength: responseLengthVal,
+          thinking: false,
+          thinkingLastEndedAt: _pendingThinkingLastEndedAt || getState().spinner.thinkingLastEndedAt,
+          mode: compactingActive ? 'compacting' : 'responding',
+        };
+        _publishedThinkingActive = false;
+      }
+      if (patch.streamingTail) {
+        const { streamingTail, ...extra } = patch;
+        updateStreamingTail(streamingTail.id, streamingTail, extra);
+      } else if (Object.keys(patch).length > 0) {
+        set(patch);
+      }
+      _pendingThinkingLastEndedAt = 0;
+    };
+
+    const thinkingSpinnerPatch = (responseLengthVal, thinkingElapsedMs) =>
+      compactingActive
+        ? {
+            ...getState().spinner,
+            responseLength: responseLengthVal,
+            thinking: false,
+            thinkingAccumulatedMs: accumulatedThinkingMs,
+            thinkingElapsedMs,
+            thinkingLastEndedAt: getState().spinner.thinkingLastEndedAt || 0,
+            mode: 'compacting',
+          }
+        : {
+            ...getState().spinner,
+            responseLength: responseLengthVal,
+            thinking: true,
+            thinkingStartedAt,
+            thinkingSegmentStartedAt,
+            thinkingAccumulatedMs: accumulatedThinkingMs,
+            thinkingElapsedMs,
+            thinkingLastEndedAt: 0,
+            mode: 'thinking',
+          };
+
+    // App only consumes getState().thinking as a boolean and the Spinner only
+    // reads the thinking flag + timing anchors — none of them render the
+    // growing thinkingText. So publish the thinking boolean only on the
+    // OFF→ON transition (or when compacting toggles the flag), not on every
+    // 8ms reasoning chunk. The full thinkingText stays session runtime-local and is
+    // emitted at finalize via the normal spinner/thinking teardown.
+    const flushThinkBatch = () => {
+      const nextThinkingActive = !compactingActive;
+      // Skip the push when the published thinking boolean is unchanged: neither
+      // the growing thinkingText nor responseLength is rendered per-token, and
+      // the Spinner derives its live elapsed from the (already-published)
+      // thinkingSegmentStartedAt anchor. Applies to both thinking and
+      // compacting steady getState().
+      if (nextThinkingActive === _publishedThinkingActive) return;
+      const responseLengthVal = assistantText.length + thinkingText.length;
+      const thinkingElapsedMs =
+        accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
+      // getState().thinking stays a truthy sentinel while active; consumers read it
+      // as a boolean. Keep the value stable (thinkingText) so a late consumer
+      // still sees real text, but only push on transition.
+      const patch = { thinking: compactingActive ? null : thinkingText };
+      if (getState().spinner) patch.spinner = thinkingSpinnerPatch(responseLengthVal, thinkingElapsedMs);
+      set(patch);
+      _publishedThinkingActive = nextThinkingActive;
+    };
+
+    // Hidden calls (skill loads, task waits) never get a card; their ids are
+    // remembered so their results route past the transcript.
+    const visibleToolCalls = (batchCalls, builtinSkillNames) => {
+      const displayCalls = [];
+      for (const call of batchCalls) {
+        const displayMode = transcriptToolCallDisplayMode(toolCallName(call), toolCallArgs(call), builtinSkillNames);
+        const callId = toolCallId(call);
+        // Tool protocol calls normally always carry ids. If a malformed
+        // provider omits one, keep the ordinary card so its result cannot
+        // strand an unaddressable hidden spinner.
+        if (displayMode === 'visible' || !callId) {
+          displayCalls.push(call);
+          continue;
+        }
+        suppressedTranscriptCallIds.add(callId);
+        if (displayMode === 'task-wait') activeTaskWaitCallIds.add(callId);
+      }
+      return displayCalls;
+    };
+
+    // A tool batch ends any open thinking segment and moves the spinner to
+    // the tool phase.
+    const closeThinkingForToolBatch = () => {
+      if (thinkingText && getState().thinking) {
+        const thinkingLastEndedAt = closeThinkingSegment();
+        const spinnerMode = activeTaskWaitCallIds.size > 0 ? 'task-wait' : 'tool-use';
+        set({
+          thinking: null,
+          spinner: getState().spinner
+            ? {
+                ...getState().spinner,
+                thinking: false,
+                thinkingAccumulatedMs: accumulatedThinkingMs,
+                thinkingLastEndedAt,
+                mode: spinnerMode,
+              }
+            : getState().spinner,
+        });
+        _publishedThinkingActive = false;
+      } else if (getState().spinner) {
+        refreshTaskWaitSpinner();
+      }
+    };
+
+    // One provider tool call becomes a standalone card (Agent) or joins the
+    // batch's aggregate card for its category.
+    const openToolCard = (c, i, batch) => {
+      const name = toolCallName(c);
+      const args = toolCallArgs(c);
+      // Category drives the aggregate bucket so only same-category calls
+      // merge into one card; classify first, then bucket by it.
+      const category = classifyToolCategory(name, args);
+      const shellAfterEdit = category === 'Shell' && batch.sawEditInBatch;
+      if (category === 'Patch' && args?.dry_run !== true) batch.sawEditInBatch = true;
+      // Agent actions aggregate only within this provider-emitted batch.
+      // They stay outbound category cards; asynchronous inbound Responses
+      // are separately tailed by the notification feed and never mix here.
+      const bucket = aggregateBucketForCategory(category, { agentBatch: batch.agentBatch });
+      const callId = toolCallId(c);
+      const callKey = callId || `__tool_${toolCards.length}_${i}`;
+      // The old App scan counted multi-pattern calls via category work
+      // units, not a flat 1. Derive the same
+      // count here so the incremental web-search summary matches.
+      const categoryEntries = aggregateToolCategoryEntries(name, args, category);
+      const activeCount = categoryEntries.reduce((total, entry) => total + Number(entry.count || 1), 0);
+      // Track web-search calls as active for the incremental prompt-
+      // line summary; cleared when their result lands or the turn ends.
+      markToolCallActive(callKey, category, activeCount, Date.now());
+
+      if (!bucket) {
+        const itemId = nextId();
+        // Defer the visible push: hold the spec and only enter the
+        // transcript when the real header/detail will paint (delay
+        // elapsed) or its result lands first. Avoids reserving blank
+        // placeholder height that scrolls the body ahead of the glyphs.
+        const card = { itemId, callId: callKey, done: false, pushed: false, spec: standaloneCardSpec(itemId, name, args) };
+        deferredCards.registerCard(card);
+        if (callId) cardByCallId.set(callId, card);
+        toolCards.push(card);
+        // [jitter fix] Immediate row-reserve is deferred to after the
+        // syncAggregateHeader loop (see standaloneReserve): calling
+        // ensureVisible() here would flush every earlier-seq deferred
+        // entry — including an aggregate whose pendingSpec syncAggregateHeader
+        // hasn't built yet — marking it pushed without inserting (lost/
+        // out-of-order card). Record it and flush once headers exist.
+        batch.standaloneReserve = card;
+        // A standalone card (Agent) breaks the consecutive run too: a
+        // later same-bucket call must open a fresh card BELOW it, not
+        // merge into an aggregate above it.
+        aggregates.sealTail();
+        return;
+      }
+
+      const aggregateCard = aggregates.ensureAggregateCard(bucket);
+      if (shellAfterEdit) aggregateCard.verifyShell = true;
+      for (const categoryEntry of categoryEntries) {
+        if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
+        const prevCategory = aggregateCard.categories.get(categoryEntry.key);
+        aggregateCard.categories.set(categoryEntry.key, {
+          ...categoryEntry,
+          count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
+        });
+      }
+      aggregateCard.calls.set(callKey, aggregateCallEntry(callKey, name, args, category));
+      batch.touchedAggregates.add(aggregateCard);
+      const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
+      if (callId) cardByCallId.set(callId, card);
+      toolCards.push(card);
+    };
+
+    // Results that arrived before their card existed are delivered once the
+    // batch's cards are in place.
+    const flushBufferedToolResults = () => {
+      for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
+        if (!suppressedTranscriptCallIds.has(bufferedCallId) && !cardByCallId.has(bufferedCallId)) continue;
+        deliverToolResultMessage(bufferedMessage);
+        earlyResultBuffer.delete(bufferedCallId);
+      }
+    };
+
     const flushStreamBatch = () => {
       if (_batchTimer !== null) {
         clearTimeout(_batchTimer);
@@ -429,137 +725,11 @@ export function createRunTurn(bag) {
       }
       if (_pendingTextFlush) {
         _pendingTextFlush = false;
-        // Show only COMPLETED lines while streaming. The in-progress trailing
-        // line stays hidden until its '\n' arrives, so the visible text never
-        // grows a glyph at a time (no "Wh"→pause→"What happened…" partial reveal, no
-        // CJK-width reflow jitter). The final non-streaming patch
-        // (streaming:false) always carries the full text, so the tail line that
-        // never got a newline still lands once at finalize.
-        // Incrementally track the last completed-line '\n' offset instead of
-        // rescanning the whole accumulated text every flush. Each char is
-        // examined once across the stream (amortized O(n) total, not O(n) per
-        // flush); when the newline offset hasn't advanced the visible text is
-        // byte-identical to the last flush, so the slice below is skipped and
-        // reused. Reveal semantics are unchanged: still only completed lines.
-        const textLen = currentAssistantText.length;
-        if (textLen < _streamScanLen) {
-          _streamScanLen = 0;
-          _lastNewlineIdx = -1;
-        }
-        for (let i = _streamScanLen; i < textLen; i++) {
-          if (currentAssistantText.charCodeAt(i) === 10) _lastNewlineIdx = i;
-        }
-        _streamScanLen = textLen;
-        let streamingVisibleText;
-        if (_lastNewlineIdx === _emittedNewlineIdx) {
-          streamingVisibleText = _emittedVisibleText;
-        } else {
-          streamingVisibleText = _lastNewlineIdx >= 0 ? currentAssistantText.slice(0, _lastNewlineIdx + 1) : '';
-          _emittedNewlineIdx = _lastNewlineIdx;
-          _emittedVisibleText = streamingVisibleText;
-        }
-        const patch = {};
-        // Do NOT create the assistant row (and scroll the transcript) before
-        // there is a completed line with VISIBLE content to show. Until the
-        // first '\n' the only pending getState() is the spinner; the row appears
-        // together with its first visible line, so no empty "●-only" row
-        // flashes/scrolls ahead of text. `.trim()` also guards the
-        // whitespace-only case: a response that opens with leading newlines
-        // ("\n\n# …") completes a blank line first, whose estimated height
-        // still reserves rows and scrolls the transcript, but Markdown trims
-        // the body to nothing — so the scroll advances onto an empty band for
-        // a few seconds until a non-blank line lands. Don't create the row
-        // until there is real content to paint.
-        if (currentAssistantId || streamingVisibleText.trim()) {
-          const id = ensureAssistant(streamingVisibleText);
-          const current = getState().streamingTail;
-          if (!current || current.id !== id || !Object.is(current.text, streamingVisibleText)) {
-            patch.streamingTail = {
-              ...(current || {}),
-              kind: 'assistant',
-              id,
-              text: streamingVisibleText,
-              streaming: true,
-              at: current?.at || Date.now(),
-              ...turnRouteMeta,
-            };
-          }
-        }
-        // Only touch the spinner when there is a real reason: a visible-line
-        // change (patch.items set above), a thinking→responding transition, or a
-        // pending thinking end timestamp. Refresh responseLength here so the
-        // finalize outputTokens fallback stays valid without a per-token push.
-        const responseLengthVal = assistantText.length + thinkingText.length;
-        const visibleLineChanged = patch.streamingTail !== undefined;
-        const thinkingTransition = _publishedThinkingActive === true; // was thinking, now responding
-        if (getState().spinner && (visibleLineChanged || thinkingTransition || _pendingThinkingLastEndedAt)) {
-          patch.spinner = {
-            ...getState().spinner,
-            responseLength: responseLengthVal,
-            thinking: false,
-            thinkingLastEndedAt: _pendingThinkingLastEndedAt || getState().spinner.thinkingLastEndedAt,
-            mode: compactingActive ? 'compacting' : 'responding',
-          };
-          _publishedThinkingActive = false;
-        }
-        if (patch.streamingTail) {
-          const { streamingTail, ...extra } = patch;
-          updateStreamingTail(streamingTail.id, streamingTail, extra);
-        } else if (Object.keys(patch).length > 0) {
-          set(patch);
-        }
-        _pendingThinkingLastEndedAt = 0;
+        flushTextBatch();
       }
       if (_pendingThinkFlush) {
         _pendingThinkFlush = false;
-        // App only consumes getState().thinking as a boolean and the Spinner only
-        // reads the thinking flag + timing anchors — none of them render the
-        // growing thinkingText. So publish the thinking boolean only on the
-        // OFF→ON transition (or when compacting toggles the flag), not on every
-        // 8ms reasoning chunk. The full thinkingText stays session runtime-local and is
-        // emitted at finalize via the normal spinner/thinking teardown.
-        const nextThinkingActive = !compactingActive;
-        // Skip the push when the published thinking boolean is unchanged: neither
-        // the growing thinkingText nor responseLength is rendered per-token, and
-        // the Spinner derives its live elapsed from the (already-published)
-        // thinkingSegmentStartedAt anchor. Applies to both thinking and
-        // compacting steady getState().
-        if (nextThinkingActive === _publishedThinkingActive) {
-          // no-op: boolean unchanged
-        } else {
-          const responseLengthVal = assistantText.length + thinkingText.length;
-          const thinkingElapsedMs =
-            accumulatedThinkingMs + (thinkingSegmentStartedAt ? Math.max(0, Date.now() - thinkingSegmentStartedAt) : 0);
-          // getState().thinking stays a truthy sentinel while active; consumers read it
-          // as a boolean. Keep the value stable (thinkingText) so a late consumer
-          // still sees real text, but only push on transition.
-          const patch = { thinking: compactingActive ? null : thinkingText };
-          if (getState().spinner) {
-            patch.spinner = compactingActive
-              ? {
-                  ...getState().spinner,
-                  responseLength: responseLengthVal,
-                  thinking: false,
-                  thinkingAccumulatedMs: accumulatedThinkingMs,
-                  thinkingElapsedMs,
-                  thinkingLastEndedAt: getState().spinner.thinkingLastEndedAt || 0,
-                  mode: 'compacting',
-                }
-              : {
-                  ...getState().spinner,
-                  responseLength: responseLengthVal,
-                  thinking: true,
-                  thinkingStartedAt,
-                  thinkingSegmentStartedAt,
-                  thinkingAccumulatedMs: accumulatedThinkingMs,
-                  thinkingElapsedMs,
-                  thinkingLastEndedAt: 0,
-                  mode: 'thinking',
-                };
-          }
-          set(patch);
-          _publishedThinkingActive = nextThinkingActive;
-        }
+        flushThinkBatch();
       }
     };
 
@@ -652,181 +822,34 @@ export function createRunTurn(bag) {
           flushStreamBatch();
           const batchCalls = (calls || []).filter(Boolean);
           if (batchCalls.length === 0) return;
-          const displayCalls = [];
-          const builtinSkillNames = await builtinSkillNamesFor(runtime, batchCalls);
-          for (const call of batchCalls) {
-            const name = toolCallName(call);
-            const args = toolCallArgs(call);
-            const displayMode = transcriptToolCallDisplayMode(name, args, builtinSkillNames);
-            if (displayMode === 'visible') {
-              displayCalls.push(call);
-              continue;
-            }
-            const callId = toolCallId(call);
-            // Tool protocol calls normally always carry ids. If a malformed
-            // provider omits one, keep the ordinary card so its result cannot
-            // strand an unaddressable hidden spinner.
-            if (!callId) {
-              displayCalls.push(call);
-              continue;
-            }
-            suppressedTranscriptCallIds.add(callId);
-            if (displayMode === 'task-wait') activeTaskWaitCallIds.add(callId);
-          }
-          if (thinkingText && getState().thinking) {
-            const thinkingLastEndedAt = closeThinkingSegment();
-            set({
-              thinking: null,
-              spinner: getState().spinner
-                ? {
-                    ...getState().spinner,
-                    thinking: false,
-                    thinkingAccumulatedMs: accumulatedThinkingMs,
-                    thinkingLastEndedAt,
-                    mode: activeTaskWaitCallIds.size > 0 ? 'task-wait' : 'tool-use',
-                  }
-                : getState().spinner,
-            });
-            _publishedThinkingActive = false;
-          } else if (getState().spinner) {
-            refreshTaskWaitSpinner();
-          }
-          const agentBatch = ++providerToolBatch;
+          const displayCalls = visibleToolCalls(batchCalls, await builtinSkillNamesFor(runtime, batchCalls));
+          closeThinkingForToolBatch();
+          const batch = {
+            agentBatch: ++providerToolBatch,
+            touchedAggregates: new Set(),
+            // [jitter fix] Last standalone (Agent) card in this batch to reserve a
+            // row for. Flushed AFTER the syncAggregateHeader loop so any earlier-seq
+            // aggregate it would flush-through already has its pendingSpec built.
+            standaloneReserve: null,
+            // Shell-after-edit tracking: a shell call that follows an edit call
+            // in the SAME provider batch is its verification — the Shell card
+            // header renders Verifying/Verified instead of Running/Ran.
+            sawEditInBatch: false,
+          };
           commitAssistantSegment({ sealToolBlock: true });
+          for (let i = 0; i < displayCalls.length; i++) openToolCard(displayCalls[i], i, batch);
 
-          const touchedAggregates = new Set();
-          // [jitter fix] Last standalone (Agent) card in this batch to reserve a
-          // row for. Flushed AFTER the syncAggregateHeader loop so any earlier-seq
-          // aggregate it would flush-through already has its pendingSpec built.
-          let standaloneReserve = null;
-          // Shell-after-edit tracking: a shell call that follows an edit call
-          // in the SAME provider batch is its verification — the Shell card
-          // header renders Verifying/Verified instead of Running/Ran.
-          let sawEditInBatch = false;
-          for (let i = 0; i < displayCalls.length; i++) {
-            const c = displayCalls[i];
-            const name = toolCallName(c);
-            const args = toolCallArgs(c);
-            // Category drives the aggregate bucket so only same-category calls
-            // merge into one card; classify first, then bucket by it.
-            const category = classifyToolCategory(name, args);
-            const shellAfterEdit = category === 'Shell' && sawEditInBatch;
-            if (category === 'Patch' && args?.dry_run !== true) sawEditInBatch = true;
-            // Agent actions aggregate only within this provider-emitted batch.
-            // They stay outbound category cards; asynchronous inbound Responses
-            // are separately tailed by the notification feed and never mix here.
-            const bucket = aggregateBucketForCategory(category, { agentBatch });
-            const callId = toolCallId(c);
-            const callKey = callId || `__tool_${toolCards.length}_${i}`;
-            // The old App scan counted multi-pattern calls via category work
-            // units, not a flat 1. Derive the same
-            // count here so the incremental web-search summary matches.
-            const categoryEntries = aggregateToolCategoryEntries(name, args, category);
-            const activeCount = categoryEntries.reduce((total, entry) => total + Number(entry.count || 1), 0);
-            // Track web-search calls as active for the incremental prompt-
-            // line summary; cleared when their result lands or the turn ends.
-            markToolCallActive(callKey, category, activeCount, Date.now());
-
-            if (!bucket) {
-              const itemId = nextId();
-              // Defer the visible push: hold the spec and only enter the
-              // transcript when the real header/detail will paint (delay
-              // elapsed) or its result lands first. Avoids reserving blank
-              // placeholder height that scrolls the body ahead of the glyphs.
-              const card = {
-                itemId,
-                callId: callKey,
-                done: false,
-                pushed: false,
-                spec: {
-                  kind: 'tool',
-                  id: itemId,
-                  name,
-                  args,
-                  result: null,
-                  isError: false,
-                  expanded: false,
-                  headerFinalized: false,
-                  count: 1,
-                  completedCount: 0,
-                  startedAt: Date.now(),
-                },
-              };
-              deferredCards.registerCard(card);
-              if (callId) {
-                cardByCallId.set(callId, card);
-              }
-              toolCards.push(card);
-              // [jitter fix] Immediate row-reserve is deferred to after the
-              // syncAggregateHeader loop below (see standaloneReserve): calling
-              // ensureVisible() here would flush every earlier-seq deferred
-              // entry — including an aggregate whose pendingSpec syncAggregateHeader
-              // hasn't built yet — marking it pushed without inserting (lost/
-              // out-of-order card). Record it and flush once headers exist.
-              standaloneReserve = card;
-              // A standalone card (Agent) breaks the consecutive run too: a
-              // later same-bucket call must open a fresh card BELOW it, not
-              // merge into an aggregate above it.
-              aggregates.sealTail();
-              continue;
-            }
-
-            const aggregateCard = aggregates.ensureAggregateCard(bucket);
-            if (shellAfterEdit) aggregateCard.verifyShell = true;
-            for (const categoryEntry of categoryEntries) {
-              if (!aggregateCard.categories.has(categoryEntry.key)) aggregateCard.categoryOrder.push(categoryEntry.key);
-              const prevCategory = aggregateCard.categories.get(categoryEntry.key);
-              aggregateCard.categories.set(categoryEntry.key, {
-                ...categoryEntry,
-                count: Number(prevCategory?.count || 0) + Number(categoryEntry.count || 1),
-              });
-            }
-            aggregateCard.calls.set(callKey, {
-              callId: callKey,
-              name,
-              args,
-              category,
-              summary: null,
-              summarySeq: null,
-              isError: false,
-              isCallError: false,
-              isExitError: false,
-              exitCode: null,
-              resultText: null,
-              rawResultText: null,
-              resolved: false,
-              completedEarly: false,
-              startedAt: Date.now(),
-              completedAt: null,
-            });
-            touchedAggregates.add(aggregateCard);
-            const card = { itemId: aggregateCard.itemId, callId: callKey, done: false, aggregate: aggregateCard };
-            if (callId) {
-              cardByCallId.set(callId, card);
-            }
-            toolCards.push(card);
-          }
-
-          for (const aggregateCard of touchedAggregates) {
+          for (const aggregateCard of batch.touchedAggregates) {
             aggregates.syncAggregateHeader(aggregateCard);
           }
           // [jitter fix] Now that every touched aggregate has its pendingSpec,
           // every entry is push-ready. Flush through the standalone and final
           // aggregate entries so the complete batch becomes visible before this
           // callback yields, while preserving creation order.
-          standaloneReserve?.ensureVisible?.();
-          const lastTouchedAggregate = [...touchedAggregates].at(-1) || null;
+          batch.standaloneReserve?.ensureVisible?.();
+          const lastTouchedAggregate = [...batch.touchedAggregates].at(-1) || null;
           lastTouchedAggregate?.ensureVisible?.();
-          for (const [bufferedCallId, bufferedMessage] of earlyResultBuffer) {
-            if (suppressedTranscriptCallIds.has(bufferedCallId)) {
-              deliverToolResultMessage(bufferedMessage);
-              earlyResultBuffer.delete(bufferedCallId);
-              continue;
-            }
-            if (!cardByCallId.has(bufferedCallId)) continue;
-            deliverToolResultMessage(bufferedMessage);
-            earlyResultBuffer.delete(bufferedCallId);
-          }
+          flushBufferedToolResults();
           await yieldToRenderer();
         },
         onToolResult: (message) => {
@@ -947,14 +970,9 @@ export function createRunTurn(bag) {
             return;
           }
           if (value === 'requesting' || value === 'streaming') compactingActive = false;
-          const mode =
-            value === 'requesting'
-              ? 'requesting'
-              : value === 'streaming'
-                ? getState().spinner.thinking
-                  ? 'thinking'
-                  : 'responding'
-                : null;
+          let mode = null;
+          if (value === 'requesting') mode = 'requesting';
+          else if (value === 'streaming') mode = getState().spinner.thinking ? 'thinking' : 'responding';
           if (!mode || getState().spinner.mode === mode) return;
           set({ spinner: { ...getState().spinner, mode } });
         },
@@ -1222,7 +1240,7 @@ export function createRunTurn(bag) {
           Number(getState().spinner?.outputTokens || 0),
           Math.round(finalResponseLength / 4)
         );
-        const turnStatus = cancelled ? 'cancelled' : failed ? 'failed' : 'done';
+        const turnStatus = turnOutcome(cancelled, failed);
         const resultContent = askResult?.content != null ? String(askResult.content).trim() : '';
         const assistantOutput = (currentAssistantText || assistantText || '').trim();
         // Suppress only true pending-resume no-ops: no transcript items added and no model output; cancelled/error turns and any visible turn stay marked.
@@ -1277,7 +1295,7 @@ export function createRunTurn(bag) {
     // terminal transcript/card mutations as one final snapshot.
     flushEmit?.();
     _publishedThinkingActive = false; // turn teardown cleared getState().thinking
-    const finalStatus = cancelled ? 'cancelled' : failed ? 'failed' : 'done';
+    const finalStatus = turnOutcome(cancelled, failed);
     try {
       await bag.onGoalTurnSettled?.({
         status: finalStatus,

@@ -12,7 +12,7 @@ from pathlib import Path
 BENCH_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(BENCH_ROOT))
 
-from harness.src_overlay import (  # noqa: E402
+from harness.src_overlay import (
     GRAPH_MEMBER,
     SrcOverlayError,
     build_src_snapshot,

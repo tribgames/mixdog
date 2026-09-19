@@ -229,9 +229,8 @@ export async function workbookFormulaErrors(zip) {
   return { total, byType, unparsed };
 }
 
-export async function recalculateLibreOfficeWorkbook(path, { force = false, signal = null } = {}) {
-  const source = await readFile(path);
-  const zip = await JSZip.loadAsync(source);
+// Formula cells in the workbook, and how many of them carry no cached value.
+async function workbookFormulaCounts(zip) {
   let formulaCount = 0;
   let missingCachedValues = 0;
   for (const name of Object.keys(zip.files).filter((entry) => /^xl\/worksheets\/sheet\d+\.xml$/i.test(entry))) {
@@ -242,47 +241,12 @@ export async function recalculateLibreOfficeWorkbook(path, { force = false, sign
       if (!/<v(?:\s[^>]*)?>[\s\S]*?<\/v>/i.test(match[1])) missingCachedValues += 1;
     }
   }
-  const needed = formulaCount > 0 && (force || missingCachedValues > 0);
-  if (!needed) {
-    return {
-      needed: false,
-      recalculated: false,
-      formulaCount,
-      missingCachedValues,
-    };
-  }
-  if (extname(path).toLowerCase() !== '.xlsx') {
-    return {
-      needed: true,
-      available: false,
-      recalculated: false,
-      formulaCount,
-      missingCachedValues,
-      reason:
-        'Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks.',
-    };
-  }
-  if (Object.keys(zip.files).some((entry) => /^xl\/externalLinks\//i.test(entry))) {
-    return {
-      needed: true,
-      available: false,
-      recalculated: false,
-      formulaCount,
-      missingCachedValues,
-      reason: 'Portable formula recalculation is blocked because LibreOffice may invalidate external workbook links.',
-    };
-  }
-  const program = await libreOfficeProgram();
-  if (!program) {
-    return {
-      needed: true,
-      available: false,
-      recalculated: false,
-      formulaCount,
-      missingCachedValues,
-      reason: 'LibreOffice is unavailable for portable XLSX recalculation.',
-    };
-  }
+  return { formulaCount, missingCachedValues };
+}
+
+// Round-trips the workbook through LibreOffice in a scratch directory and
+// returns the recalculated bytes, or the reason none came back.
+async function convertWorkbookWithLibreOffice(program, path, source, signal) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-office-recalculate-'));
   const inputDir = join(root, 'input');
   const outputDir = join(root, 'output');
@@ -301,48 +265,54 @@ export async function recalculateLibreOfficeWorkbook(path, { force = false, sign
         cancelled: 'Portable XLSX recalculation was cancelled',
       },
     });
-    if (!result.ok) {
-      return {
-        needed: true,
-        available: true,
-        recalculated: false,
-        formulaCount,
-        missingCachedValues,
-        reason: result.error,
-      };
-    }
+    if (!result.ok) return { reason: result.error };
     const generated = join(outputDir, `${basename(path, extname(path))}.xlsx`);
     const details = await stat(generated).catch(() => null);
-    if (!details?.isFile() || details.size <= 0) {
-      return {
-        needed: true,
-        available: true,
-        recalculated: false,
-        formulaCount,
-        missingCachedValues,
-        reason: 'LibreOffice produced no recalculated workbook.',
-      };
-    }
-    const recalculated = await readFile(generated);
-    await writeFile(path, recalculated);
-    const errors = await workbookFormulaErrors(await JSZip.loadAsync(recalculated));
-    return {
-      needed: true,
-      available: true,
-      recalculated: true,
-      backend: 'libreoffice',
-      // A clean status proves the formulas evaluate, not that they are right.
-      status: errors.total ? 'errors_found' : 'success',
-      formulaCount,
-      missingCachedValues,
-      totalErrors: errors.total,
-      errorSummary: errors.byType,
-      ...(errors.unparsed.length ? { unparsedFormulas: errors.unparsed } : {}),
-      outputBytes: details.size,
-    };
+    if (!details?.isFile() || details.size <= 0) return { reason: 'LibreOffice produced no recalculated workbook.' };
+    return { recalculated: await readFile(generated), outputBytes: details.size };
   } finally {
     await rm(root, { recursive: true, force: true }).catch(() => {});
   }
+}
+
+export async function recalculateLibreOfficeWorkbook(path, { force = false, signal = null } = {}) {
+  const source = await readFile(path);
+  const zip = await JSZip.loadAsync(source);
+  const counts = await workbookFormulaCounts(zip);
+  const needed = counts.formulaCount > 0 && (force || counts.missingCachedValues > 0);
+  if (!needed) return { needed: false, recalculated: false, ...counts };
+  const unavailable = (reason) => ({ needed: true, available: false, recalculated: false, ...counts, reason });
+  if (extname(path).toLowerCase() !== '.xlsx') {
+    return unavailable(
+      'Portable formula recalculation currently supports .xlsx only; use Microsoft Office background mode for macro-enabled or template workbooks.'
+    );
+  }
+  if (Object.keys(zip.files).some((entry) => /^xl\/externalLinks\//i.test(entry))) {
+    return unavailable(
+      'Portable formula recalculation is blocked because LibreOffice may invalidate external workbook links.'
+    );
+  }
+  const program = await libreOfficeProgram();
+  if (!program) return unavailable('LibreOffice is unavailable for portable XLSX recalculation.');
+  const converted = await convertWorkbookWithLibreOffice(program, path, source, signal);
+  if (!converted.recalculated) {
+    return { needed: true, available: true, recalculated: false, ...counts, reason: converted.reason };
+  }
+  await writeFile(path, converted.recalculated);
+  const errors = await workbookFormulaErrors(await JSZip.loadAsync(converted.recalculated));
+  return {
+    needed: true,
+    available: true,
+    recalculated: true,
+    backend: 'libreoffice',
+    // A clean status proves the formulas evaluate, not that they are right.
+    status: errors.total ? 'errors_found' : 'success',
+    ...counts,
+    totalErrors: errors.total,
+    errorSummary: errors.byType,
+    ...(errors.unparsed.length ? { unparsedFormulas: errors.unparsed } : {}),
+    outputBytes: converted.outputBytes,
+  };
 }
 
 export async function validateLibreOfficeReopen(path, { signal = null } = {}) {

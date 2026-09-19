@@ -25,7 +25,6 @@ import { useAppStartupRestore } from './use-app-startup-restore';
 import { useAppSessionActions } from './use-app-session-actions';
 import { desktopChromeSnapshotsEqual } from './desktop-snapshot-store';
 import { RemoteConnectionBanner } from './RemoteConnectionBanner';
-const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 import { selectDesktopSnapshot, requestSessionRead, useDesktopSnapshotSelector } from './app-snapshot-views';
 
 import { useDesktopState } from './app-desktop-state';
@@ -64,7 +63,7 @@ import { useAppTabActions } from './app-root/use-app-tab-actions';
 import { usePaneConversationRenderer } from './app-root/use-pane-conversation-renderer';
 import { AppWorkspaceMain } from './app-root/AppWorkspaceMain';
 import { AppSidebarDrawer } from './app-root/AppSidebarDrawer';
-import { applySessionLaneResult, useAppTaskLifecycle } from './app-root/use-app-task-lifecycle';
+import { applySessionLaneResult, LAST_SESSION_KEY, useAppTaskLifecycle } from './app-root/use-app-task-lifecycle';
 import { useAppEditorState } from './app-root/use-app-editor-state';
 import { useAppSettingsRouter } from './app-root/use-app-settings-router';
 import { useAppSidebarHub } from './app-root/use-app-sidebar-hub';
@@ -169,7 +168,9 @@ export function App() {
   const activeFileKey = focusedPaneSelection?.kind === 'file' ? navigationKey(focusedPaneSelection) : '';
   const [quickAccessMode, setQuickAccessMode] = useState<WorkbenchQuickAccessMode | null>(null);
 
-  const selectionRef = useRef<NavigationSelection>({ kind: 'new' });
+  const [selection, setSelection] = useState<NavigationSelection>(() => startupNavigationSelection ?? { kind: 'new' });
+  const selectionRef = useRef<NavigationSelection>(selection);
+  selectionRef.current = selection;
 
   const {
     clearNewTaskPreferences,
@@ -192,7 +193,7 @@ export function App() {
     stageNewTaskWorkflow,
     stageNewTaskOrchestrationMode,
   } = useDraftPanePreferences({
-    selection: selectionRef.current,
+    selection,
     selectionRef,
     snapshot,
     projectCatalogValidated,
@@ -279,7 +280,9 @@ export function App() {
   } = useSessionCatalog(reconcileUnreadSessions);
 
   const taskLifecycle = useAppTaskLifecycle({
-    startupNavigationSelection,
+    selection,
+    setSelection,
+    selectionRef,
     paneWorkspace,
     paneLeavesRef,
     focusedLeafIdRef,
@@ -313,8 +316,6 @@ export function App() {
     setCommandSurfaceSessionId,
   });
   const {
-    selection,
-    setSelection,
     tabs,
     setTabs,
     registerWorkspaceSelection,
@@ -324,7 +325,6 @@ export function App() {
     synchronizeActualHost,
     replaceWithInheritedSession,
   } = taskLifecycle;
-  selectionRef.current = selection;
 
   const {
     state: updaterState,

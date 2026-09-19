@@ -285,7 +285,7 @@ export function modelDisplayName(model: string | null | undefined, provider = ''
   return id ? canonicalModelDisplay(id) || id : '';
 }
 
-export function modelRouteDisplayParts(
+function modelRouteDisplayParts(
   model: string | null | undefined,
   effort: string | null | undefined = '',
   fast = false,
@@ -293,12 +293,12 @@ export function modelRouteDisplayParts(
 ) {
   const effortValue = String(effort || '').trim();
   const rawEffortLabel = String(effortLabel || effortValue).trim();
-  const compactEffort =
-    effortValue.toLowerCase() === 'xhigh' || /^(?:extra[\s-]*high|xhigh)$/i.test(rawEffortLabel)
-      ? 'XHigh'
-      : rawEffortLabel
-        ? `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`
-        : '';
+  let compactEffort = '';
+  if (effortValue.toLowerCase() === 'xhigh' || /^(?:extra[\s-]*high|xhigh)$/i.test(rawEffortLabel)) {
+    compactEffort = 'XHigh';
+  } else if (rawEffortLabel) {
+    compactEffort = `${rawEffortLabel.slice(0, 1).toLocaleUpperCase()}${rawEffortLabel.slice(1)}`;
+  }
   return {
     model: String(model || '').trim(),
     effort: compactEffort,

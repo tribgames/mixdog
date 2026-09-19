@@ -110,8 +110,11 @@ export function normalizeToolNotifyContext(context = {}) {
 }
 
 export function toolCompletionInstruction({ surface = 'tool', id, status, detail } = {}) {
-  const label = surface === 'shell' ? 'shell task' : surface === 'agent' ? 'agent task' : `${surface} execution`;
-  const statusText = status ? ` (${status}${detail ? `, ${detail}` : ''})` : '';
+  let label = `${surface} execution`;
+  if (surface === 'shell') label = 'shell task';
+  else if (surface === 'agent') label = 'agent task';
+  const detailText = detail ? `, ${detail}` : '';
+  const statusText = status ? ` (${status}${detailText})` : '';
   return `Async ${label} ${id || ''}${statusText} finished.`;
 }
 
@@ -157,7 +160,7 @@ export function isModelVisibleToolCompletionWrapper(text) {
 // confirms "looks like an instruction preamble + Result: + quoted body" so a
 // TUI transcript never leaks a raw wrapper as a plain user message when the
 // strict detector misses — display-only, never used to gate persistence.
-export function isLikelyToolCompletionWrapper(text) {
+function isLikelyToolCompletionWrapper(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
   const resultSplit = /\n\nResult:\n/.exec(value);
@@ -209,7 +212,7 @@ export function isTranscriptSkillToolName(name) {
   return TRANSCRIPT_SKILL_TOOL_RE.test(normalizeTranscriptToolName(name));
 }
 
-export function isBuiltinSkillToolResult(result) {
+function isBuiltinSkillToolResult(result) {
   return BUILTIN_SKILL_RESULT_RE.test(String(result ?? '').trim());
 }
 
@@ -349,50 +352,18 @@ export function notifyToolCompletion({
   // do NOT return early but fall through to the enqueueFallback path so the
   // completion can still reach the caller session. Only a successful (non-false)
   // notifyFn short-circuits as delivered.
+  const delivery = { ctx, message, meta, enqueueFallback, logPrefix, id, onSettled };
   if (typeof ctx.notifyFn === 'function') {
     try {
       const notifyResult = ctx.notifyFn(message, meta);
       if (notifyResult !== false) {
-        const isThenable = notifyResult && typeof notifyResult.then === 'function';
-        if (isThenable) {
-          // A Promise notifyFn has NOT delivered yet — settlement decides the
-          // real outcome. Return `true` synchronously so the caller does not
-          // double-deliver through the sync fallback, but signal the FINAL
-          // delivered state via onSettled so the caller only *marks* the
-          // completion delivered after settlement. On a reject or explicit
-          // false/0 resolve, rescue via enqueueFallback; onSettled then reports
-          // whether that rescue (or the notifyFn itself) actually delivered, so
-          // a caller can un-mark and retry when nothing landed. The truthy
-          // resolve path never enqueues, preserving exact-once delivery.
-          Promise.resolve(notifyResult)
-            .then((settled) => {
-              if (settled === false || settled === 0) {
-                const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
-                if (typeof onSettled === 'function') onSettled(rescued);
-              } else if (typeof onSettled === 'function') {
-                onSettled(true);
-              }
-            })
-            .catch((err) => {
-              try {
-                process.stderr.write(
-                  `[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`
-                );
-              } catch {}
-              const rescued = tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
-              if (typeof onSettled === 'function') onSettled(rescued);
-            });
-          return true;
-        }
-        // Synchronous non-false result → confirmed delivered now.
+        if (notifyResult && typeof notifyResult.then === 'function') settleAsyncNotify(notifyResult, delivery);
+        // A synchronous non-false result is confirmed delivered now; a promise
+        // is reported delivered so the caller does not double-deliver.
         return true;
       }
     } catch (err) {
-      try {
-        process.stderr.write(
-          `[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`
-        );
-      } catch {}
+      logNotifyFailure(logPrefix, id, err);
     }
   }
 
@@ -401,4 +372,36 @@ export function notifyToolCompletion({
   // enqueue failed, so report failure and leave room for a retry rather than
   // marking the task notified.
   return tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
+}
+
+function logNotifyFailure(logPrefix, id, err) {
+  try {
+    process.stderr.write(
+      `[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`
+    );
+  } catch {}
+}
+
+// A Promise notifyFn has NOT delivered yet — settlement decides the real
+// outcome. The caller already answered `true` synchronously; the FINAL
+// delivered state travels through onSettled so the caller only *marks* the
+// completion delivered after settlement. On a reject or explicit false/0
+// resolve, rescue via enqueueFallback; onSettled then reports whether that
+// rescue (or the notifyFn itself) actually delivered, so a caller can un-mark
+// and retry when nothing landed. The truthy resolve path never enqueues,
+// preserving exact-once delivery.
+function settleAsyncNotify(notifyResult, { ctx, message, meta, enqueueFallback, logPrefix, id, onSettled }) {
+  const report = (delivered) => {
+    if (typeof onSettled === 'function') onSettled(delivered);
+  };
+  const rescue = () => report(tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id));
+  Promise.resolve(notifyResult)
+    .then((settled) => {
+      if (settled === false || settled === 0) rescue();
+      else report(true);
+    })
+    .catch((err) => {
+      logNotifyFailure(logPrefix, id, err);
+      rescue();
+    });
 }

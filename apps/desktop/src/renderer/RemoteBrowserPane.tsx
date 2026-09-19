@@ -385,7 +385,7 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
           });
         }}
       >
-        {imageUrl ? (
+        {imageUrl && (
           <img
             ref={imageRef}
             src={imageUrl}
@@ -397,7 +397,8 @@ export default function RemoteBrowserPane({ sessionId, active }: BrowserPaneProp
             }
             alt={frame?.title || 'Browser Use'}
           />
-        ) : (
+        )}
+        {!imageUrl && (
           <div className="browser-remote-empty">
             {failure ? (
               <ErrorNotice

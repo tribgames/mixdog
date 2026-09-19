@@ -90,8 +90,7 @@ function waitForSseFrame(discovery, clientToken, predicate, timeoutMs = 2_000) {
         let buffer = '';
         res.on('data', (chunk) => {
           buffer += chunk;
-          let index;
-          while ((index = buffer.indexOf('\n\n')) >= 0) {
+          for (let index = buffer.indexOf('\n\n'); index >= 0; index = buffer.indexOf('\n\n')) {
             const raw = buffer.slice(0, index);
             buffer = buffer.slice(index + 2);
             for (const line of raw.split('\n')) {

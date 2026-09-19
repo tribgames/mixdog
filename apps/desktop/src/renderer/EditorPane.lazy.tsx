@@ -56,6 +56,12 @@ import { useEditorMountSession } from './use-editor-mount-session';
 import { useEditorLspSession } from './use-editor-lsp-session';
 export { parseEditorQuickDiffStripes } from './editor-pane-model';
 
+const QUICK_DIFF_TOOLTIPS: Record<keyof typeof QUICK_DIFF_COLOR_TOKENS, string> = {
+  add: 'Added line',
+  mod: 'Changed line',
+  del: 'Removed line',
+};
+
 export default function EditorPane({
   projectPath,
   relPath,
@@ -425,8 +431,7 @@ export default function EditorPane({
             options: {
               isWholeLine: stripe.kind !== 'del',
               linesDecorationsClassName: `editor-dirty-diff editor-dirty-diff-${stripe.kind}`,
-              linesDecorationsTooltip:
-                stripe.kind === 'add' ? 'Added line' : stripe.kind === 'mod' ? 'Changed line' : 'Removed line',
+              linesDecorationsTooltip: QUICK_DIFF_TOOLTIPS[stripe.kind],
               overviewRuler: {
                 color: colorWithAlpha(color, '99'),
                 position: monaco.editor.OverviewRulerLane.Left,
@@ -478,14 +483,15 @@ export default function EditorPane({
     editor.focus();
     onNavigationLocationRef.current?.(relPath, reveal.line, 1);
   }, [reveal?.nonce, load ? 1 : 0, relPath]);
-  const selectionLabel =
-    selectionStatus.selections > 1
-      ? t('{{count}} selections', { count: selectionStatus.selections }) +
-        (selectionStatus.characters
-          ? ' ' + t('({{count}} characters selected)', { count: selectionStatus.characters })
-          : '')
-      : t('Ln {{line}}, Col {{column}}', { line: cursorPosition.line, column: cursorPosition.column }) +
-        (selectionStatus.characters ? ' ' + t('({{count}} selected)', { count: selectionStatus.characters }) : '');
+  const selectedCharacters = selectionStatus.characters;
+  let selectionLabel: string;
+  if (selectionStatus.selections > 1) {
+    selectionLabel = t('{{count}} selections', { count: selectionStatus.selections });
+    if (selectedCharacters) selectionLabel += ` ${t('({{count}} characters selected)', { count: selectedCharacters })}`;
+  } else {
+    selectionLabel = t('Ln {{line}}, Col {{column}}', { line: cursorPosition.line, column: cursorPosition.column });
+    if (selectedCharacters) selectionLabel += ` ${t('({{count}} selected)', { count: selectedCharacters })}`;
+  }
   const revealBreadcrumbSymbol = useCallback((item: EditorOutlineItem) => {
     const editor = editorRef.current;
     if (!editor) return;

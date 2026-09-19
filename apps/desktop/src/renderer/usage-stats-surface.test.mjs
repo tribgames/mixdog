@@ -99,7 +99,7 @@ test('statistics open before the response and repaint cached figures immediately
   );
   assert.equal(document.querySelector('.stats-surface').textContent.includes(t('No usage recorded yet.')), false);
   await act(async () => resolve({ value: snapshot() }));
-  anchors.forEach((selector, index) => assert.equal(document.querySelector(selector), initial[index]));
+  for (const [index, selector] of anchors.entries()) assert.equal(document.querySelector(selector), initial[index]);
   assert.equal(document.querySelector('.stats-surface').dataset.loading, undefined);
   assert.equal(document.querySelector('[role="dialog"]').getAttribute('aria-busy'), 'false');
   assert.equal(document.querySelectorAll('.stats-card').length, 4);

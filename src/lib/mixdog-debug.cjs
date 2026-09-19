@@ -81,7 +81,6 @@ function isDiagnosticIOEnabled() {
 const CANONICAL_PLUGIN_LOG_NAMES = new Set([
   'boot.log',
   'crash.log',
-  'drop-trace.log',
   'event.log',
   'channels-worker.log',
   'memory-worker.log',

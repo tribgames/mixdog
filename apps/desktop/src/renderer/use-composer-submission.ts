@@ -142,8 +142,12 @@ export function useComposerSubmission({
           return;
         }
         setAttachmentError('');
-        const base64Bytes = (data: string) =>
-          Math.floor((data.length * 3) / 4) - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+        const base64Bytes = (data: string) => {
+          let padding = 0;
+          if (data.endsWith('==')) padding = 2;
+          else if (data.endsWith('=')) padding = 1;
+          return Math.floor((data.length * 3) / 4) - padding;
+        };
         const chipOnlyTextTokens = submittedAttachments
           .filter(
             (attachment) =>
@@ -189,26 +193,22 @@ export function useComposerSubmission({
           setAttachmentError('This prompt is too large to send. Remove or shorten an inline text attachment.');
           return;
         }
+        const contentParts: Exclude<DesktopPromptContent, string> = [];
+        if (expandedText) contentParts.push({ type: 'text', text: expandedText });
+        for (const attachment of imageAttachments) {
+          if (attachment.metadataText) contentParts.push({ type: 'text', text: attachment.metadataText });
+          contentParts.push({ type: 'image', data: attachment.data, mimeType: attachment.mimeType });
+        }
+        for (const attachment of pdfAttachments) {
+          contentParts.push({
+            type: 'file',
+            data: attachment.data,
+            mimeType: attachment.mimeType,
+            filename: attachment.name,
+          });
+        }
         const content: DesktopPromptContent =
-          imageAttachments.length || pdfAttachments.length
-            ? [
-                ...(expandedText ? [{ type: 'text' as const, text: expandedText }] : []),
-                ...imageAttachments.flatMap((attachment) => [
-                  ...(attachment.metadataText ? [{ type: 'text' as const, text: attachment.metadataText }] : []),
-                  {
-                    type: 'image' as const,
-                    data: attachment.data,
-                    mimeType: attachment.mimeType,
-                  },
-                ]),
-                ...pdfAttachments.map((attachment) => ({
-                  type: 'file' as const,
-                  data: attachment.data,
-                  mimeType: attachment.mimeType,
-                  filename: attachment.name,
-                })),
-              ]
-            : expandedText;
+          imageAttachments.length || pdfAttachments.length ? contentParts : expandedText;
         const committedAttachments = [...used];
         const retryKey = submissionRetryKey(JSON.stringify([selectedSkill, expandedText]), committedAttachments);
         const submittedDisplayText = [selectedSkill ? `[${skillTitle(selectedSkill)}]` : '', expandedText.trim()]

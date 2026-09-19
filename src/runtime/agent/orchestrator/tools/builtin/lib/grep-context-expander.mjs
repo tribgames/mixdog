@@ -66,7 +66,7 @@ function shrinkSpan(span) {
 function parseAnchor(line, { workDir, rgSpawnCwd, grepResolvedPath, searchPath, outputMode, filenameOmitted }) {
   if (filenameOmitted) {
     const split = splitGrepLineNumberOnlyPrefix(line);
-    if (!split || split.delimiter !== ':') return null;
+    if (split?.delimiter !== ':') return null;
     return {
       path: relativePathPrefix(normalizeOutputPath(searchPath), workDir),
       absolutePath: grepResolvedPath,
@@ -75,10 +75,10 @@ function parseAnchor(line, { workDir, rgSpawnCwd, grepResolvedPath, searchPath, 
     };
   }
   const raw = splitGrepLinePrefix(line);
-  if (!raw || raw.delimiter !== ':') return null;
+  if (raw?.delimiter !== ':') return null;
   const normalized = relativeGrepLine(line, workDir, false, outputMode, false);
   const display = splitGrepLinePrefix(normalized);
-  if (!display || display.delimiter !== ':') return null;
+  if (display?.delimiter !== ':') return null;
   return {
     path: display.path,
     absolutePath: isAbsolute(raw.path) ? raw.path : resolve(rgSpawnCwd, raw.path),
@@ -149,6 +149,40 @@ function splitTopLevelAlternatives(pattern) {
 // leave raw blocks in file order (file-top noise first). Strip leading
 // inline flag groups and one fully-enclosing group so the alternation
 // becomes rankable; remember an inline `i` for branch compilation.
+// Whether the leading `(` of `source` closes at its very last character —
+// i.e. one group wraps the whole pattern — honouring escapes and character
+// classes. False when the first group closes early or never balances.
+function groupEnclosesWhole(source) {
+  let depth = 0;
+  let escaped = false;
+  let inClass = false;
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (inClass) {
+      if (char === ']') inClass = false;
+      continue;
+    }
+    if (char === '[') {
+      inClass = true;
+      continue;
+    }
+    if (char === '(') depth++;
+    else if (char === ')') {
+      depth--;
+      if (depth === 0 && index < source.length - 1) return false;
+    }
+  }
+  return depth === 0;
+}
+
 function unwrapPatternShell(pattern) {
   let source = String(pattern || '');
   let ignoreCase = false;
@@ -160,43 +194,12 @@ function unwrapPatternShell(pattern) {
       continue;
     }
     if (!(source.startsWith('(') && source.endsWith(')'))) break;
-    let depth = 0;
-    let escaped = false;
-    let inClass = false;
-    let wraps = true;
-    for (let index = 0; index < source.length; index++) {
-      const char = source[index];
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === '\\') {
-        escaped = true;
-        continue;
-      }
-      if (inClass) {
-        if (char === ']') inClass = false;
-        continue;
-      }
-      if (char === '[') {
-        inClass = true;
-        continue;
-      }
-      if (char === '(') depth++;
-      else if (char === ')') {
-        depth--;
-        if (depth === 0 && index < source.length - 1) {
-          wraps = false;
-          break;
-        }
-      }
-    }
-    if (!wraps || depth !== 0) break;
+    if (!groupEnclosesWhole(source)) break;
     let inner = source.slice(1, -1);
     if (inner.startsWith('?')) {
       const groupPrefix = inner.match(/^\?(?:<[^=!][^>]*>|([a-zA-Z]+(?:-[a-zA-Z]+)?)?:)/);
       if (!groupPrefix) break; // lookaround — keep wrapped
-      if (groupPrefix[1] && groupPrefix[1].split('-')[0].includes('i')) ignoreCase = true;
+      if (groupPrefix[1]?.split('-')[0].includes('i')) ignoreCase = true;
       inner = inner.slice(groupPrefix[0].length);
     }
     source = inner;
@@ -404,9 +407,9 @@ function pagingNotice({ shown, total, totalKnown, omitted, offset, nextOffset })
       ? `[Showing 0 of ${totalStr} matches; offset ${offset} past end]`
       : `[Showing 0 of ${totalStr} matches (results partial); offset ${offset} is beyond the streamed window — matches past it may exist. Narrow path/glob/pattern instead of paging deeper.]`;
   }
-  return omitted > 0 || !totalKnown
-    ? `\n[Showing ${shown} of ${totalStr} matches${totalKnown ? '' : ' (results partial)'}; pass offset:${nextOffset} for more]`
-    : '';
+  if (!(omitted > 0) && totalKnown) return '';
+  const partial = totalKnown ? '' : ' (results partial)';
+  return `\n[Showing ${shown} of ${totalStr} matches${partial}; pass offset:${nextOffset} for more]`;
 }
 
 function renderAtRadius(selected, sources, span, _budget, notice) {
@@ -542,31 +545,29 @@ export async function expandGrepAnchorContextOutput({
   const budget = Math.max(512, Math.floor(Number(charBudget) || GREP_CONTEXT_CHAR_BUDGET_DEFAULT));
   signal?.throwIfAborted();
   const sources = sharedSources || (await readAnchorSources(window.selected, span, signal));
+  return fitContextToBudget({ window, sources, span, budget, notice, total, totalKnown, offset });
+}
+
+// Progressive disclosure: one or two source clusters that fit are most
+// useful as patch-ready raw text. Broad searches instead expand up to three
+// high-priority source clusters and retain the rest as compact path:line
+// anchors with neutral range metadata. This avoids paying a full window for
+// every match without nudging the model into unnecessary follow-up reads.
+// Past that, the context radius shrinks, then the lowest-priority anchors
+// drop until the text fits.
+function fitContextToBudget({ window, sources, span, budget, notice: initialNotice, total, totalKnown, offset }) {
   let selected = window.selected;
   let shown = window.shown;
   let omitted = window.omitted;
-  let focused = span;
+  let notice = initialNotice;
   let rendered = renderAtRadius(selected, sources, span, budget, notice);
-  // Progressive disclosure: one or two source clusters that fit are most
-  // useful as patch-ready raw text. Broad searches instead expand up to three
-  // high-priority source clusters and retain the rest as compact path:line
-  // anchors with neutral range metadata. This avoids paying a full window for
-  // every match without nudging the model into unnecessary follow-up reads.
   const sparseRaw = rendered.blockCount <= 2 && rendered.text.length <= budget;
-  if (!sparseRaw) {
-    focused = focusedSpan(span);
+  if (sparseRaw) return { ...rendered, total, shown, omitted };
+  let focused = focusedSpan(span);
+  rendered = renderFocusedContext(selected, sources, focused, budget, notice);
+  while (rendered.text.length > budget && (focused.before > 0 || focused.after > 0)) {
+    focused = shrinkSpan(focused);
     rendered = renderFocusedContext(selected, sources, focused, budget, notice);
-    while (rendered.text.length > budget && (focused.before > 0 || focused.after > 0)) {
-      focused = shrinkSpan(focused);
-      rendered = renderFocusedContext(selected, sources, focused, budget, notice);
-    }
-  } else {
-    return {
-      ...rendered,
-      total,
-      shown,
-      omitted,
-    };
   }
   while (rendered.text.length > budget && selected.length > 1) {
     selected = [...selected].sort(anchorPriority).slice(0, -1);
@@ -582,10 +583,5 @@ export async function expandGrepAnchorContextOutput({
     });
     rendered = renderFocusedContext(selected, sources, focused, budget, notice);
   }
-  return {
-    ...rendered,
-    total,
-    shown,
-    omitted,
-  };
+  return { ...rendered, total, shown, omitted };
 }

@@ -57,87 +57,76 @@ async function structureIssues(session, args) {
   }
 }
 
+// The Office host's own read of the document; null off the COM backend.
+async function nativeValidation(session, args) {
+  if (session.backend !== 'microsoft-office-com') return null;
+  if (args.__skipNative === true) {
+    return { ok: true, opened: true, issueCount: 0, issues: [], documentSaved: true, reusedReview: true };
+  }
+  const postSaveNativeValidation = args.__postSave === true || session.mode === 'background';
+  const response = await callMicrosoftOffice(
+    {
+      action: postSaveNativeValidation ? 'post_save_validate' : 'validate',
+      session: session.id,
+      format: session.format,
+      mode: session.mode,
+      path: session.target,
+      inspectIssues: args.__skipNativeIssues !== true,
+    },
+    {
+      signal: session.activeSignal || null,
+      timeoutMs: postSaveNativeValidation ? 300_000 : undefined,
+    }
+  );
+  if (!response.ok) throw new Error(response.error || 'Microsoft Office native validation failed');
+  return response.value;
+}
+
+function packageValidation(session, args) {
+  if (session.format === 'pdf') return validatePdf(session.target);
+  if (TABULAR_FORMATS.has(session.format)) return validateTabular(session.target, session.format);
+  return validatePortableOoxml(session.target, session.format, {
+    original: session.source !== session.target ? session.source : '',
+    savedBy: session.backend,
+    auditProfile: args.auditProfile,
+    author: args.author,
+  });
+}
+
+// OOXML schema validation; the COM backend holds the file open, so the
+// validator reads a copy.
+async function schemaValidation(session, args) {
+  if (!OOXML_FORMATS.has(session.format)) return null;
+  let schemaCopy = '';
+  try {
+    if (session.backend === 'microsoft-office-com') {
+      schemaCopy = join(tmpdir(), `mixdog-schema-${randomUUID()}${extname(session.target)}`);
+      await copyFile(session.target, schemaCopy);
+    }
+    return await validateOoxmlSchema(schemaCopy || session.target, {
+      dataDir: session.dataDir,
+      download: args.downloadDependencies !== false,
+      signal: session.activeSignal || null,
+    });
+  } catch (error) {
+    return { available: false, ok: false, errors: [], reason: error?.message || String(error) };
+  } finally {
+    if (schemaCopy) await rm(schemaCopy, { force: true }).catch(() => {});
+  }
+}
+
+async function assertionValidation(session, args) {
+  if (!Array.isArray(args.assertions) || !args.assertions.length) return null;
+  if (session.format !== 'xlsx') throw new Error('assertions are supported for XLSX sessions only');
+  const asserted = await snapshot(session, { limit: 10_000, maxChars: 100_000, includeStyles: false }, { full: true });
+  return evaluateXlsxAssertions(asserted.document, args.assertions);
+}
+
 export async function validate(session, args = {}) {
-  let native = null;
-  if (session.backend === 'microsoft-office-com') {
-    const postSaveNativeValidation = args.__postSave === true || session.mode === 'background';
-    if (args.__skipNative === true) {
-      native = {
-        ok: true,
-        opened: true,
-        issueCount: 0,
-        issues: [],
-        documentSaved: true,
-        reusedReview: true,
-      };
-    } else {
-      const response = await callMicrosoftOffice(
-        {
-          action: postSaveNativeValidation ? 'post_save_validate' : 'validate',
-          session: session.id,
-          format: session.format,
-          mode: session.mode,
-          path: session.target,
-          inspectIssues: args.__skipNativeIssues !== true,
-        },
-        {
-          signal: session.activeSignal || null,
-          timeoutMs: postSaveNativeValidation ? 300_000 : undefined,
-        }
-      );
-      if (!response.ok) throw new Error(response.error || 'Microsoft Office native validation failed');
-      native = response.value;
-    }
-  }
-  const packageResult =
-    session.format === 'pdf'
-      ? await validatePdf(session.target)
-      : TABULAR_FORMATS.has(session.format)
-        ? await validateTabular(session.target, session.format)
-        : await validatePortableOoxml(session.target, session.format, {
-            original: session.source !== session.target ? session.source : '',
-            savedBy: session.backend,
-            auditProfile: args.auditProfile,
-            author: args.author,
-          });
-  let schema = null;
-  if (OOXML_FORMATS.has(session.format)) {
-    let schemaCopy = '';
-    try {
-      if (session.backend === 'microsoft-office-com') {
-        schemaCopy = join(tmpdir(), `mixdog-schema-${randomUUID()}${extname(session.target)}`);
-        await copyFile(session.target, schemaCopy);
-      }
-      schema = await validateOoxmlSchema(schemaCopy || session.target, {
-        dataDir: session.dataDir,
-        download: args.downloadDependencies !== false,
-        signal: session.activeSignal || null,
-      });
-    } catch (error) {
-      schema = {
-        available: false,
-        ok: false,
-        errors: [],
-        reason: error?.message || String(error),
-      };
-    } finally {
-      if (schemaCopy) await rm(schemaCopy, { force: true }).catch(() => {});
-    }
-  }
-  let assertions = null;
-  if (Array.isArray(args.assertions) && args.assertions.length) {
-    if (session.format !== 'xlsx') throw new Error('assertions are supported for XLSX sessions only');
-    const asserted = await snapshot(
-      session,
-      {
-        limit: 10_000,
-        maxChars: 100_000,
-        includeStyles: false,
-      },
-      { full: true }
-    );
-    assertions = evaluateXlsxAssertions(asserted.document, args.assertions);
-  }
+  const native = await nativeValidation(session, args);
+  const packageResult = await packageValidation(session, args);
+  const schema = await schemaValidation(session, args);
+  const assertions = await assertionValidation(session, args);
   const compatibility =
     args.compatibility === true && ['docx', 'xlsx', 'pptx'].includes(session.format)
       ? await validateLibreOfficeReopen(session.target, { signal: session.activeSignal || null })
@@ -218,44 +207,48 @@ async function mergeComPptxMeasuredRead(session, result, args) {
   }
 }
 
-export async function issues(session, args = {}) {
-  let result;
-  if (session.backend === 'microsoft-office-com') {
-    const response = await callMicrosoftOffice(
-      {
-        action: 'issues',
-        session: session.id,
-        format: session.format,
-        mode: session.mode,
-        path: session.target,
-        sheet: args.sheet,
-        range: args.range,
-        pages: args.pages,
-        target: args.target,
-        auditProfile: args.auditProfile,
-      },
-      {
-        signal: session.activeSignal || null,
-        timeoutMs: args.auditProfile === 'financial-model' ? 300_000 : undefined,
-      }
-    );
-    if (!response.ok) throw new Error(response.error || 'Microsoft Office issue inspection failed');
-    result = response.value;
-    // Excel's host reports its own subset; the shared formula audit reads the
-    // same cells (cached for an owned background session) and adds the rest.
-    if (session.format === 'xlsx') {
-      const read = await snapshot(session, { includeStyles: true }, { full: true });
-      result = mergeXlsxFormulaAudit(result, read?.document, { auditProfile: args.auditProfile, sheet: args.sheet });
+async function microsoftOfficeIssues(session, args) {
+  const response = await callMicrosoftOffice(
+    {
+      action: 'issues',
+      session: session.id,
+      format: session.format,
+      mode: session.mode,
+      path: session.target,
+      sheet: args.sheet,
+      range: args.range,
+      pages: args.pages,
+      target: args.target,
+      auditProfile: args.auditProfile,
+    },
+    {
+      signal: session.activeSignal || null,
+      timeoutMs: args.auditProfile === 'financial-model' ? 300_000 : undefined,
     }
-    if (session.format === 'pptx') result = await mergeComPptxMeasuredRead(session, result, args);
-  } else {
-    result =
-      session.format === 'pdf'
-        ? await issuesPdf(session.target, args)
-        : TABULAR_FORMATS.has(session.format)
-          ? await issuesTabular(session.target, session.format, args)
-          : await issuesPortableOoxml(session.target, session.format, args);
+  );
+  if (!response.ok) throw new Error(response.error || 'Microsoft Office issue inspection failed');
+  let result = response.value;
+  // Excel's host reports its own subset; the shared formula audit reads the
+  // same cells (cached for an owned background session) and adds the rest.
+  if (session.format === 'xlsx') {
+    const read = await snapshot(session, { includeStyles: true }, { full: true });
+    result = mergeXlsxFormulaAudit(result, read?.document, { auditProfile: args.auditProfile, sheet: args.sheet });
   }
+  if (session.format === 'pptx') result = await mergeComPptxMeasuredRead(session, result, args);
+  return result;
+}
+
+function portableIssues(session, args) {
+  if (session.format === 'pdf') return issuesPdf(session.target, args);
+  if (TABULAR_FORMATS.has(session.format)) return issuesTabular(session.target, session.format, args);
+  return issuesPortableOoxml(session.target, session.format, args);
+}
+
+export async function issues(session, args = {}) {
+  const result =
+    session.backend === 'microsoft-office-com'
+      ? await microsoftOfficeIssues(session, args)
+      : await portableIssues(session, args);
   const structural = await structureIssues(session, args);
   const merged = structural.length
     ? normalizeOfficeReviewIssues([...(result.issues || []), ...structural])

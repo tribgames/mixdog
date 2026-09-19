@@ -217,7 +217,8 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
                 const frameSnapshots = await settleBrowserReads(
                   documents.slice(1, 64).map((document) =>
                     readFrame(async (): Promise<AccessibilityTargetSnapshot> => {
-                      const frameId = domSnapshot.strings?.[document.frameId!];
+                      const frameId =
+                        document.frameId === undefined ? undefined : domSnapshot.strings?.[document.frameId];
                       try {
                         if (!frameId) throw new Error('frame document has no frame identity');
                         const tree = await cdp.call<{ nodes?: AccessibilityNode[] }>(

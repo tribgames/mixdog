@@ -5,7 +5,7 @@
 // per-batch newMessages flush, PostToolBatch hook, and completion-first
 // steering. Mutable counters (dedupStubTotal/editCount) are threaded in/out;
 // crossTurnCalls/epoch/pending mutate by reference. Behavior identical.
-import { resolve as resolvePath, isAbsolute } from 'path';
+import { resolve as resolvePath, isAbsolute } from 'node:path';
 import { envFlag } from '../../../shared/env.mjs';
 import { skillBodyPresentInSession } from '../context/collect.mjs';
 import { isInjectedSkillBodyMessage } from './compact/messages.mjs';
@@ -64,6 +64,14 @@ import {
 import { restoreToolCallBodyForId } from './loop/stored-tool-args.mjs';
 import { scopedCacheGeneration } from './cache/scoped-cache.mjs';
 import { observeToolBatchForNudge, batchingNudgeMessage } from './batching-nudge.mjs';
+
+// Directory a patch's relative paths resolve against: an absolute base_path
+// as-is, a relative one under cwd, else cwd itself.
+function patchBaseDir(baseArg, cwd) {
+  const fallback = cwd || process.cwd();
+  if (typeof baseArg !== 'string' || baseArg.length === 0) return fallback;
+  return isAbsolute(baseArg) ? baseArg : resolvePath(fallback, baseArg);
+}
 
 function classifyToolReturn(value, toolName = '') {
   const normalized = normalizeToolEnvelope(value);
@@ -675,13 +683,7 @@ export async function processToolBatch(ctx) {
         // touched paths and invalidate each one. Falls
         // back to a full session clear only when no paths could
         // be parsed (malformed diff or unknown format).
-        const _argsBase = call.arguments?.base_path;
-        const _patchBase =
-          typeof _argsBase === 'string' && _argsBase.length > 0
-            ? isAbsolute(_argsBase)
-              ? _argsBase
-              : resolvePath(cwd || process.cwd(), _argsBase)
-            : cwd || process.cwd();
+        const _patchBase = patchBaseDir(call.arguments?.base_path, cwd);
         const _touched = extractTouchedPathsFromPatch(call.arguments?.patch);
         if (_touched.length > 0) {
           for (const _p of _touched) {
@@ -717,13 +719,7 @@ export async function processToolBatch(ctx) {
       // stale scoped-cache entries for the (possibly partially-written)
       // files. Invalidate targeted paths when the diff parses, else full
       // wipe — file state is unknown after an error exit.
-      const _failBaseArg = call.arguments?.base_path;
-      const _failBase =
-        typeof _failBaseArg === 'string' && _failBaseArg.length > 0
-          ? isAbsolute(_failBaseArg)
-            ? _failBaseArg
-            : resolvePath(cwd || process.cwd(), _failBaseArg)
-          : cwd || process.cwd();
+      const _failBase = patchBaseDir(call.arguments?.base_path, cwd);
       const _failTouched = extractTouchedPathsFromPatch(call.arguments?.patch);
       if (_failTouched.length > 0) {
         clearScopedToolsForSessionPaths(sessionId, _failTouched, _failBase);
@@ -1005,7 +1001,7 @@ export async function processToolBatch(ctx) {
   // own meta flag (e.g. meta:'skill') so compaction's latest-human-prompt
   // selection does not mistake them for the user's request.
   for (const _nm of _batchNewMessages) {
-    if (!_nm || _nm.role !== 'user' || typeof _nm.content !== 'string' || !_nm.content) continue;
+    if (_nm?.role !== 'user' || typeof _nm.content !== 'string' || !_nm.content) continue;
     // Equivalent Skill calls can finish eagerly before either body
     // reaches the live transcript. Deduplicate at the shared commit
     // boundary too, without dropping changed bodies or tool outcomes.

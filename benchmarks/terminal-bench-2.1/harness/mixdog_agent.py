@@ -33,7 +33,7 @@ from pathlib import Path
 
 from harbor.agents.installed.base import (
     BaseInstalledAgent,
-    NonZeroAgentExitCodeError,  # noqa: F401 -- tests reach it as module.NonZeroAgentExitCodeError
+    NonZeroAgentExitCodeError,  # noqa: F401  # re-exported for the harness tests
     with_prompt_template,
 )
 from harbor.environments.base import BaseEnvironment
@@ -267,6 +267,7 @@ def _host_agent_api_key(provider: str) -> str | None:
         env=env,
         capture_output=True,
         text=True,
+        check=False,
     )
     if result.returncode != 0:
         return None

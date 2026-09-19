@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'fs';
-import { appendFile as _appendFile } from 'fs';
-import { join, isAbsolute } from 'path';
-import { randomUUID } from 'crypto';
+import { readFileSync, writeFileSync, appendFileSync, unlinkSync } from 'node:fs';
+import { appendFile as _appendFile } from 'node:fs';
+import { join, isAbsolute } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { DATA_DIR } from './config.mjs';
 import { ensureNopluginDir } from './executor.mjs';
 import { withFileLockSync } from '../../shared/atomic-file.mjs';
@@ -89,17 +89,31 @@ function isCronExpression(time) {
 // (mirrors memory releaseLock and the exit handler). Module-scope on purpose:
 // stop() and restart() both run this exact teardown, never a dispatched
 // override.
+// Verify ownership before unlink: a process whose lock was already reclaimed
+// by a newer owner (PID-reuse / restart race) must NOT delete the new owner's
+// lock file. Read-verify-then-unlink mirrors memory/index.mjs releaseLock().
+// Records a one-shot fire that did not complete; the entry stays pending.
+async function markOneShotFailed(schedule) {
+  schedule.lastFailedAt = new Date().toISOString();
+  try {
+    await markScheduleFailure(schedule.name, new Date());
+  } catch {}
+}
+
+function releaseOwnedSchedulerLock() {
+  try {
+    const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
+    const lockedPid = parseInt(content.split('\n')[0], 10);
+    if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
+  } catch {}
+}
 function releaseSchedulerRuntime(scheduler) {
   if (scheduler.tickTimer) {
     clearInterval(scheduler.tickTimer);
     scheduler.tickTimer = null;
   }
   scheduler.destroyCronJobs();
-  try {
-    const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
-    const lockedPid = parseInt(content.split('\n')[0], 10);
-    if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
-  } catch {}
+  releaseOwnedSchedulerLock();
 }
 class Scheduler {
   nonInteractive;
@@ -262,7 +276,9 @@ class Scheduler {
   /** Wrap prompt with session context metadata */
   wrapPrompt(name, prompt, type) {
     const { lastActivityMs, pendingWork } = this.getSessionState();
-    const state = pendingWork ? 'active' : lastActivityMs === 0 ? 'idle' : 'recent';
+    let state = 'recent';
+    if (pendingWork) state = 'active';
+    else if (lastActivityMs === 0) state = 'idle';
     const time = this.getTimeContext();
     const header = [
       `[schedule: ${name} | type: ${type} | session: ${state}]`,
@@ -276,6 +292,61 @@ ${prompt}`;
   static SCHEDULER_LOCK = join(resolveRuntimeRoot(), 'scheduler.lock');
   static INSTANCE_UUID = randomUUID();
   static _exitHookInstalled = false;
+  // The PID that owns the lock file when that process is still alive, else 0.
+  // No heartbeat: lock age cannot distinguish a long-running healthy owner
+  // from PID-reuse, so an age-only reclaim would double-schedule cron jobs
+  // while the original owner is still firing. Only a reclaim when
+  // process.kill(pid, 0) actually proves the PID is dead — not a guess from
+  // `lockAge > 1h`.
+  static _liveLockOwner() {
+    try {
+      const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
+      const pid = parseInt(content.split('\n')[0], 10);
+      try {
+        process.kill(pid, 0);
+        return pid;
+      } catch {}
+    } catch {}
+    return 0;
+  }
+
+  // Reclaim runs under the shared atomic-file acquisition guard. That guard
+  // serializes this scheduler acquisition path's check/unlink/wx sequence,
+  // so a second reclaimer cannot delete a fresh lock in the path gap between
+  // stale unlink and create.
+  static _reclaimLock(lockContent) {
+    try {
+      unlinkSync(Scheduler.SCHEDULER_LOCK);
+    } catch {}
+    try {
+      writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: 'wx' });
+      return true;
+    } catch (e2) {
+      if (e2.code === 'EEXIST') {
+        process.stderr.write('mixdog scheduler: lock reclaimed by another session during reclaim, skipping\n');
+        return false;
+      }
+      throw e2;
+    }
+  }
+
+  // Creates the scheduler lock, reclaiming a dead owner's; false when a live
+  // session owns it. Runs inside the acquisition guard.
+  static _acquireLock(lockContent) {
+    try {
+      writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: 'wx' });
+      return true;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+    }
+    const pid = Scheduler._liveLockOwner();
+    if (pid) {
+      process.stderr.write(`mixdog scheduler: another session (PID ${pid}) owns the scheduler, skipping\n`);
+      return false;
+    }
+    return Scheduler._reclaimLock(lockContent);
+  }
+
   start() {
     if (this.tickTimer) return;
     const total = this.nonInteractive.length + this.interactive.length;
@@ -284,81 +355,21 @@ ${prompt}`;
       return;
     }
     ensureNopluginDir();
-    const lockContent = `${process.pid}
-${Date.now()}
-${Scheduler.INSTANCE_UUID}`;
+    const lockContent = `${process.pid}\n${Date.now()}\n${Scheduler.INSTANCE_UUID}`;
     let acquiredSchedulerLock = false;
     withFileLockSync(
       `${Scheduler.SCHEDULER_LOCK}.acquire`,
       () => {
-        try {
-          writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: 'wx' });
-          acquiredSchedulerLock = true;
-        } catch (err) {
-          if (err.code === 'EEXIST') {
-            try {
-              const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
-              const lines = content.split('\n');
-              const pid = parseInt(lines[0], 10);
-              let isAlive = false;
-              try {
-                process.kill(pid, 0);
-                isAlive = true;
-              } catch {}
-              if (isAlive) {
-                // No heartbeat: lock age cannot distinguish a long-running
-                // healthy owner from PID-reuse, so an age-only reclaim
-                // would double-schedule cron jobs while the original
-                // owner is still firing. Only proceed to reclaim when
-                // process.kill(pid, 0) actually proves the PID is dead —
-                // not by guessing from `lockAge > 1h`.
-                process.stderr.write(`mixdog scheduler: another session (PID ${pid}) owns the scheduler, skipping
-`);
-                return;
-              }
-            } catch {}
-            // Reclaim runs under the shared atomic-file acquisition guard.
-            // That guard serializes this scheduler acquisition path's
-            // check/unlink/wx sequence, so a second reclaimer cannot delete
-            // a fresh lock in the path gap between stale unlink and create.
-            try {
-              unlinkSync(Scheduler.SCHEDULER_LOCK);
-            } catch {}
-            try {
-              writeFileSync(Scheduler.SCHEDULER_LOCK, lockContent, { flag: 'wx' });
-              acquiredSchedulerLock = true;
-            } catch (e2) {
-              if (e2.code === 'EEXIST') {
-                process.stderr.write(`mixdog scheduler: lock reclaimed by another session during reclaim, skipping
-`);
-                return;
-              }
-              throw e2;
-            }
-          } else {
-            throw err;
-          }
-        }
+        acquiredSchedulerLock = Scheduler._acquireLock(lockContent);
       },
       { timeoutMs: 60000, staleMs: 30000 }
     );
     if (!acquiredSchedulerLock) return;
     if (!Scheduler._exitHookInstalled) {
       Scheduler._exitHookInstalled = true;
-      process.on('exit', () => {
-        // Verify ownership before unlink: an exiting process whose lock
-        // was already reclaimed by a newer owner (PID-reuse / restart race)
-        // must NOT delete the new owner's lock file. Read-verify-then-unlink
-        // mirrors memory/index.mjs releaseLock().
-        try {
-          const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
-          const lockedPid = parseInt(content.split('\n')[0], 10);
-          if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
-        } catch {}
-      });
+      process.on('exit', releaseOwnedSchedulerLock);
     }
-    logSchedule(`${this.nonInteractive.length} non-interactive, ${this.interactive.length} interactive
-`);
+    logSchedule(`${this.nonInteractive.length} non-interactive, ${this.interactive.length} interactive\n`);
     this.registerCronJobs();
     this.tick();
     this.tickTimer = setInterval(() => this.tick(), TICK_INTERVAL);
@@ -513,23 +524,8 @@ ${Scheduler.INSTANCE_UUID}`;
       await this.markDoneWithRetry(schedule.name);
       return;
     }
-    // when_at one-shots must honor deferred_until / skipped_until just like
-    // cron fires (onCronFire) do. Unlike a recurring cron, a one-shot's timer
-    // already elapsed and tickAsync is a no-op, so simply returning would mean
-    // it never fires until a restart. Re-arm for the deferral expiry (the
-    // later of when_at and deferred/skipped-until) so it fires on its own.
     if (this.shouldSkip(schedule.name)) {
-      const until = this.skipUntil(schedule.name);
-      const fireAt = new Date(schedule.whenAt).getTime();
-      const target = Math.max(Number.isFinite(fireAt) ? fireAt : 0, until);
-      const MAX = 2 ** 31 - 1;
-      let delay = target - Date.now();
-      delay = delay > MAX ? MAX : Math.max(delay, 1);
-      logSchedule(`one-shot "${schedule.name}" deferred/skipped — re-arming for ${new Date(target).toISOString()}\n`);
-      const timer = setTimeout(() => this.fireOneShot(schedule, type), delay);
-      this.oneShotTimers.set(schedule.name, timer);
-      schedule.nextFireAt = new Date(target).toISOString();
-      void setNextFire(schedule.name, new Date(target)).catch(() => {});
+      this.rearmDeferredOneShot(schedule, type);
       return;
     }
     // Mark done ONLY after a successful fire. A false/throwing fireTimed
@@ -542,33 +538,48 @@ ${Scheduler.INSTANCE_UUID}`;
       // rejects. Only a resolved dispatch counts as a real fire here.
       const fired = await this.fireTimed(schedule, type, { awaitDispatch: true });
       if (!fired) {
-        schedule.lastFailedAt = new Date().toISOString();
-        try {
-          await markScheduleFailure(schedule.name, new Date());
-        } catch {}
+        await markOneShotFailed(schedule);
         logSchedule(`one-shot "${schedule.name}" did not fire (skipped/guarded) — leaving pending for retry\n`);
         return;
       }
-      this.lastFired.set(schedule.name, now.toISOString());
-      schedule.lastFiredAt = now.toISOString();
-      try {
-        await markFired(schedule.name, now);
-      } catch (err) {
-        process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`);
-      }
-      schedule.lastSuccessAt = new Date().toISOString();
-      try {
-        await markScheduleSuccess(schedule.name, new Date());
-      } catch {}
+      await this.markOneShotFired(schedule, now);
       await this.markDoneWithRetry(schedule.name);
     } catch (err) {
-      schedule.lastFailedAt = new Date().toISOString();
-      try {
-        await markScheduleFailure(schedule.name, new Date());
-      } catch {}
+      await markOneShotFailed(schedule);
       process.stderr.write(`mixdog scheduler: ${schedule.name} one-shot failed: ${err} — leaving pending for retry\n`);
       this.notifyFailure(schedule, `one-shot failed: ${err?.message || err} — left pending for retry`);
     }
+  }
+  /** when_at one-shots must honor deferred_until / skipped_until just like
+   *  cron fires (onCronFire) do. Unlike a recurring cron, a one-shot's timer
+   *  already elapsed and tickAsync is a no-op, so simply returning would mean
+   *  it never fires until a restart. Re-arm for the deferral expiry (the
+   *  later of when_at and deferred/skipped-until) so it fires on its own. */
+  rearmDeferredOneShot(schedule, type) {
+    const until = this.skipUntil(schedule.name);
+    const fireAt = new Date(schedule.whenAt).getTime();
+    const target = Math.max(Number.isFinite(fireAt) ? fireAt : 0, until);
+    const MAX = 2 ** 31 - 1;
+    let delay = target - Date.now();
+    delay = delay > MAX ? MAX : Math.max(delay, 1);
+    logSchedule(`one-shot "${schedule.name}" deferred/skipped — re-arming for ${new Date(target).toISOString()}\n`);
+    const timer = setTimeout(() => this.fireOneShot(schedule, type), delay);
+    this.oneShotTimers.set(schedule.name, timer);
+    schedule.nextFireAt = new Date(target).toISOString();
+    void setNextFire(schedule.name, new Date(target)).catch(() => {});
+  }
+  async markOneShotFired(schedule, now) {
+    this.lastFired.set(schedule.name, now.toISOString());
+    schedule.lastFiredAt = now.toISOString();
+    try {
+      await markFired(schedule.name, now);
+    } catch (err) {
+      process.stderr.write(`mixdog scheduler: ${schedule.name} markFired failed: ${err}\n`);
+    }
+    schedule.lastSuccessAt = new Date().toISOString();
+    try {
+      await markScheduleSuccess(schedule.name, new Date());
+    } catch {}
   }
   restart() {
     releaseSchedulerRuntime(this);
@@ -654,32 +665,14 @@ ${Scheduler.INSTANCE_UUID}`;
   }
   /** Fire a timed schedule with the given prompt content */
   async fireTimedPrompt(schedule, type, prompt, channelId, { awaitDispatch = false } = {}) {
-    logSchedule(`firing ${schedule.name} (${type})
-`);
+    logSchedule(`firing ${schedule.name} (${type})\n`);
     if (this.running.has(schedule.name)) {
       // Not silent anymore: overlap skips were invisible and read as the
       // scheduler "ignoring" a fire.
       logSchedule(`${schedule.name}: skipped — previous run still in progress\n`);
       return false;
     }
-    // Interactive schedules enqueue into the live Lead session's command
-    // queue as system-generated
-    // task notifications (priority 'later'), exactly like inbound channel
-    // messages — enqueue counts as the fire. The visible-session run below
-    // remains the non-interactive path AND the fallback when no live Lead
-    // seat is attached, so a fire is never lost.
-    if (type === 'interactive' && this.injectFn && this.injectReady()) {
-      try {
-        const wrapped = this.wrapPrompt(schedule.name, prompt, type);
-        this.injectFn(channelId, `schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
-        logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
-        return true;
-      } catch (err) {
-        logSchedule(
-          `${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`
-        );
-      }
-    }
+    if (type === 'interactive' && this.injectIntoLead(schedule, type, prompt, channelId)) return true;
     this.running.add(schedule.name);
     const presetId = schedule.model;
     if (!presetId) {
@@ -692,10 +685,34 @@ ${Scheduler.INSTANCE_UUID}`;
     // and swallow async failures. A one-shot (awaitDispatch) instead awaits
     // the dispatch so a rejected run propagates and the caller leaves the
     // entry pending for retry instead of retiring it.
-    // Fires now run as VISIBLE schedule sessions (desktop Recent / TUI
-    // resume) via runScheduleSession; the wrapped prompt keeps the schedule
-    // context header, and the channel relay below is unchanged.
-    const dispatch = runScheduleSession(schedule, { prompt })
+    const dispatch = this.dispatchScheduleRun(schedule, prompt, channelId, awaitDispatch);
+    if (awaitDispatch) return await dispatch;
+    return true;
+  }
+  /** Interactive schedules enqueue into the live Lead session's command
+   *  queue as system-generated task notifications (priority 'later'),
+   *  exactly like inbound channel messages — enqueue counts as the fire.
+   *  False when no live Lead seat is attached or the inject fails, so the
+   *  visible-session run remains the fallback and a fire is never lost. */
+  injectIntoLead(schedule, type, prompt, channelId) {
+    if (!this.injectFn || !this.injectReady()) return false;
+    try {
+      const wrapped = this.wrapPrompt(schedule.name, prompt, type);
+      this.injectFn(channelId, `schedule:${schedule.name}`, ' ', { type: 'schedule', instruction: wrapped });
+      logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
+      return true;
+    } catch (err) {
+      logSchedule(`${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`);
+      return false;
+    }
+  }
+  /** Fires run as VISIBLE schedule sessions (desktop Recent / TUI resume)
+   *  via runScheduleSession; the wrapped prompt keeps the schedule context
+   *  header, and the result is relayed to the channel. Resolves true on
+   *  success; a failure rejects for awaitDispatch callers and resolves false
+   *  (after a channel notice) for fire-and-forget cron fires. */
+  dispatchScheduleRun(schedule, prompt, channelId, awaitDispatch) {
+    return runScheduleSession(schedule, { prompt })
       .then(({ result }) => {
         this.running.delete(schedule.name);
         if (result && channelId && this.sendFn) {
@@ -716,8 +733,6 @@ ${Scheduler.INSTANCE_UUID}`;
         if (awaitDispatch) throw err;
         return false;
       });
-    if (awaitDispatch) return await dispatch;
-    return true;
   }
   // ── Helpers ─────────────────────────────────────────────────────────
   /** Best-effort failure notice to the schedule's channel (or the main

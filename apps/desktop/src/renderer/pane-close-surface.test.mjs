@@ -20,9 +20,7 @@ async function mountPaneWorkspace(t) {
     HTMLElement: dom.window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   };
-  const previous = new Map(
-    Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
-  );
+  const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, value });
   }
@@ -84,11 +82,15 @@ async function mountPaneWorkspace(t) {
               leaf.tabs
                 .filter((selection) => selection.kind === 'file')
                 .map((selection) =>
-                  React.createElement('pre', {
-                    key: navigationKey(selection),
-                    'data-editor': selection.rel,
-                    'data-active': leaf.activeKey === navigationKey(selection) ? 'true' : 'false',
-                  }, selection.rel)
+                  React.createElement(
+                    'pre',
+                    {
+                      key: navigationKey(selection),
+                      'data-editor': selection.rel,
+                      'data-active': leaf.activeKey === navigationKey(selection) ? 'true' : 'false',
+                    },
+                    selection.rel
+                  )
                 ),
             renderConversation: () => React.createElement('section', { 'data-conversation': 'true' }),
             onFocusSelection: noop,

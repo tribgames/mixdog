@@ -67,7 +67,9 @@ function resolveFont(fontName) {
 function fontSpec({ fontName = 'Calibri', fontSize = 18, bold = false, italic = false } = {}) {
   const size = Math.max(1, Number(fontSize) || 18);
   const { family, weight } = resolveFont(fontName);
-  const weightSpec = bold ? '700 ' : weight ? `${weight} ` : '';
+  let weightSpec = '';
+  if (bold) weightSpec = '700 ';
+  else if (weight) weightSpec = `${weight} `;
   return `${italic ? 'italic ' : ''}${weightSpec}${size}px "${family}"`;
 }
 
@@ -133,11 +135,8 @@ let cjkFallback = null;
 function cjkFallbackFamily() {
   if (cjkFallback) return cjkFallback;
   const families = installedFamilies();
-  cjkFallback = families.has('malgun gothic')
-    ? 'Malgun Gothic'
-    : families.has('noto sans kr')
-      ? 'Noto Sans KR'
-      : 'Malgun Gothic';
+  cjkFallback = 'Malgun Gothic';
+  if (!families.has('malgun gothic') && families.has('noto sans kr')) cjkFallback = 'Noto Sans KR';
   return cjkFallback;
 }
 
@@ -461,6 +460,102 @@ export function reviewCjkTracking(boxes = []) {
   return issues;
 }
 
+// Two readings of the same fault: a box narrower than its longest word
+// breaks mid-word, and a box only a little wider still leaves a ragged
+// column of one or two words a line. Both are answered by widening the
+// measure, so they share one code and report once.
+function narrowBoxIssue(box, paragraphs, measured, usableWidth, path) {
+  if (box.wrap === false) return null;
+  const bodySize = Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0));
+  const longestRun = Number(measured.longestRun) || measured.width;
+  if (longestRun > usableWidth * 1.02) {
+    return {
+      code: 'text_box_too_narrow',
+      path,
+      message: `A word needs about ${Math.round(longestRun)}pt but the shape offers ${Math.round(usableWidth)}pt, so the text breaks mid-word.`,
+    };
+  }
+  if (measured.lines >= 3 && bodySize > 0 && usableWidth < bodySize * 7) {
+    return {
+      code: 'text_box_too_narrow',
+      path,
+      message: `The box offers ${Math.round(usableWidth)}pt of measure for ${Math.round(bodySize)}pt text, so its ${measured.lines} lines carry one or two words each.`,
+    };
+  }
+  return null;
+}
+
+function outOfBoundsIssue(box, slideWidth, slideHeight, path) {
+  if (!(slideWidth > 0 && slideHeight > 0)) return null;
+  const right = (Number(box.left) || 0) + (Number(box.width) || 0);
+  const bottom = (Number(box.top) || 0) + (Number(box.height) || 0);
+  if (Number(box.left) < -1 || Number(box.top) < -1 || right > slideWidth + 1 || bottom > slideHeight + 1) {
+    return { code: 'shape_out_of_bounds', path, message: 'Shape extends past the slide edge.' };
+  }
+  return null;
+}
+
+function usableTextArea(box) {
+  const inset = (name) => Number(box[name]) || 0;
+  return {
+    usableWidth: Math.max(1, (Number(box.width) || 0) - inset('insetLeft') - inset('insetRight')),
+    usableHeight: Math.max(1, (Number(box.height) || 0) - inset('insetTop') - inset('insetBottom')),
+  };
+}
+
+function unavailableFonts(paragraphs, isFontAvailable) {
+  return [
+    ...new Set(
+      paragraphs
+        .map((paragraph) => String(paragraph.fontName || '').trim())
+        .filter((name) => name && !isFontAvailable(name))
+    ),
+  ];
+}
+
+function overflowIssue(measured, usableHeight, { tolerance, substituted, path }) {
+  const allowance = substituted ? tolerance * 1.12 : tolerance;
+  if (!(measured.height > usableHeight * allowance)) return null;
+  return {
+    code: 'text_overflow',
+    path,
+    message:
+      `Text needs about ${Math.round(measured.height)}pt but the shape allows ${Math.round(usableHeight)}pt.` +
+      (substituted ? ' The font is not installed here, so the measurement is approximate.' : ''),
+    overflow: Math.round(measured.height - usableHeight),
+    lines: measured.lines,
+    ...(substituted ? { approximate: true } : {}),
+  };
+}
+
+function textBoxFitIssues(box, { slideWidth, slideHeight, tolerance, isFontAvailable }) {
+  const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
+  const path = `/slide[${box.slide}]/shape[${box.shape}]`;
+  const { usableWidth, usableHeight } = usableTextArea(box);
+  const measured = measureTextBlock(paragraphs, { width: box.wrap === false ? 0 : usableWidth });
+  const fonts = unavailableFonts(paragraphs, isFontAvailable);
+  const clipped =
+    box.wrap === false && measured.width > usableWidth * tolerance
+      ? {
+          code: 'text_clipped',
+          path,
+          message: `Unwrapped text is about ${Math.round(measured.width)}pt wide inside a ${Math.round(usableWidth)}pt shape.`,
+        }
+      : null;
+  return [
+    ...fonts.map((font) => ({
+      code: 'font_unavailable',
+      path,
+      message: `Font "${font}" is not installed, so PowerPoint may substitute it and change the layout.`,
+      font,
+    })),
+    overflowIssue(measured, usableHeight, { tolerance, substituted: fonts.length > 0, path }),
+    clipped,
+    narrowBoxIssue(box, paragraphs, measured, usableWidth, path),
+    outOfBoundsIssue(box, slideWidth, slideHeight, path),
+  ].filter(Boolean);
+}
+
 export function reviewTextBoxFit(
   boxes = [],
   { slideWidth = 0, slideHeight = 0, tolerance = 1.04, isFontAvailable = fontAvailable } = {}
@@ -470,83 +565,7 @@ export function reviewTextBoxFit(
     const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
     if (!paragraphs.some((paragraph) => String(paragraph.text ?? '').trim())) continue;
     if (box.autofit === true) continue;
-    const insetLeft = Number(box.insetLeft) || 0;
-    const insetRight = Number(box.insetRight) || 0;
-    const insetTop = Number(box.insetTop) || 0;
-    const insetBottom = Number(box.insetBottom) || 0;
-    const usableWidth = Math.max(1, (Number(box.width) || 0) - insetLeft - insetRight);
-    const usableHeight = Math.max(1, (Number(box.height) || 0) - insetTop - insetBottom);
-    const measured = measureTextBlock(paragraphs, {
-      width: box.wrap === false ? 0 : usableWidth,
-    });
-    const unavailableFonts = [
-      ...new Set(
-        paragraphs
-          .map((paragraph) => String(paragraph.fontName || '').trim())
-          .filter((name) => name && !isFontAvailable(name))
-      ),
-    ];
-    for (const font of unavailableFonts) {
-      issues.push({
-        code: 'font_unavailable',
-        path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: `Font "${font}" is not installed, so PowerPoint may substitute it and change the layout.`,
-        font,
-      });
-    }
-    const substituted = unavailableFonts.length > 0;
-    const allowance = substituted ? tolerance * 1.12 : tolerance;
-    if (measured.height > usableHeight * allowance) {
-      issues.push({
-        code: 'text_overflow',
-        path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message:
-          `Text needs about ${Math.round(measured.height)}pt but the shape allows ${Math.round(usableHeight)}pt.` +
-          (substituted ? ' The font is not installed here, so the measurement is approximate.' : ''),
-        overflow: Math.round(measured.height - usableHeight),
-        lines: measured.lines,
-        ...(substituted ? { approximate: true } : {}),
-      });
-    }
-    if (box.wrap === false && measured.width > usableWidth * tolerance) {
-      issues.push({
-        code: 'text_clipped',
-        path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: `Unwrapped text is about ${Math.round(measured.width)}pt wide inside a ${Math.round(usableWidth)}pt shape.`,
-      });
-    }
-    // Two readings of the same fault: a box narrower than its longest word
-    // breaks mid-word, and a box only a little wider still leaves a ragged
-    // column of one or two words a line. Both are answered by widening the
-    // measure, so they share one code and report once.
-    const bodySize = Math.max(0, ...paragraphs.map((paragraph) => Number(paragraph.fontSize) || 0));
-    const longestRun = Number(measured.longestRun) || measured.width;
-    if (box.wrap !== false && longestRun > usableWidth * 1.02) {
-      issues.push({
-        code: 'text_box_too_narrow',
-        path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: `A word needs about ${Math.round(longestRun)}pt but the shape offers ${Math.round(usableWidth)}pt, so the text breaks mid-word.`,
-      });
-    } else if (box.wrap !== false && measured.lines >= 3 && bodySize > 0 && usableWidth < bodySize * 7) {
-      issues.push({
-        code: 'text_box_too_narrow',
-        path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: `The box offers ${Math.round(usableWidth)}pt of measure for ${Math.round(bodySize)}pt text, so its ${measured.lines} lines carry one or two words each.`,
-      });
-    }
-    const right = (Number(box.left) || 0) + (Number(box.width) || 0);
-    const bottom = (Number(box.top) || 0) + (Number(box.height) || 0);
-    if (
-      slideWidth > 0 &&
-      slideHeight > 0 &&
-      (Number(box.left) < -1 || Number(box.top) < -1 || right > slideWidth + 1 || bottom > slideHeight + 1)
-    ) {
-      issues.push({
-        code: 'shape_out_of_bounds',
-        path: `/slide[${box.slide}]/shape[${box.shape}]`,
-        message: 'Shape extends past the slide edge.',
-      });
-    }
+    issues.push(...textBoxFitIssues(box, { slideWidth, slideHeight, tolerance, isFontAvailable }));
   }
   return issues;
 }

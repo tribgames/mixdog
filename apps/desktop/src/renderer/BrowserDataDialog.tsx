@@ -108,14 +108,15 @@ export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
           <strong>{label}</strong>
           <small>{failure || detail}</small>
         </span>
-        {cleared || failure ? (
+        {(cleared || failure) && (
           <span
             className={`browser-import-state is-${cleared ? 'completed' : 'failed'}`}
             aria-label={cleared ? t('Completed') : t('Failed')}
           >
             {cleared ? <Check size={16} /> : <AlertTriangle size={16} />}
           </span>
-        ) : (
+        )}
+        {!cleared && !failure && (
           <input
             type="checkbox"
             checked={scopes[scope]}
@@ -129,6 +130,9 @@ export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
 
   if (!open) return null;
 
+  let description = t('Select what to remove from the built-in browser');
+  if (busy) description = t('Clearing browsing data…');
+  else if (result) description = error ? t('Some data could not be cleared') : t('Browsing data cleared');
   return (
     <div
       className="browser-import-backdrop"
@@ -147,15 +151,7 @@ export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
         <header>
           <div>
             <h2 id="browser-data-title">{t('Clear browsing data')}</h2>
-            <p id="browser-data-description">
-              {busy
-                ? t('Clearing browsing data…')
-                : result
-                  ? error
-                    ? t('Some data could not be cleared')
-                    : t('Browsing data cleared')
-                  : t('Select what to remove from the built-in browser')}
-            </p>
+            <p id="browser-data-description">{description}</p>
           </div>
           {!busy && (
             <button type="button" className="browser-pane-nav-button" onClick={requestClose} aria-label={t('Close')}>

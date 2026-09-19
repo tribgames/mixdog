@@ -25,7 +25,7 @@ export const IMAGE_MAX_HEIGHT = 1568;
 // Floor for the shortest edge. Patch tiling rejects a degenerate sub-patch
 // image (the 1x1 PNG an empty render emits) with a hard 400 that fails the
 // whole request, so such an image is scaled UP instead of passed through.
-export const IMAGE_MIN_DIMENSION = 200;
+const IMAGE_MIN_DIMENSION = 200;
 // Token budget for a single image. est tokens = base64.length * 0.125 (the
 // common per-image heuristic). Default aligns to the 5MB base64 API ceiling so the
 // dimension/raw-size resize governs the common case and the token gate only
@@ -193,6 +193,143 @@ export function imageMetadataText(dims, sourcePath) {
 // Returns { data (base64), mimeType ("image/..."), dimensions } on success,
 // null only when sharp is unavailable, and throws InvalidImageDataError when
 // the decoder rejects the bytes.
+// Constrain dimensions while preserving aspect ratio. Both limits bind, and
+// either one can be the tighter: the per-edge ceiling governs an elongated
+// image, the patch budget a wide one.
+function targetDimensions(originalWidth, originalHeight, normalizedProfile) {
+  let width = originalWidth;
+  let height = originalHeight;
+  const maxWidth = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_WIDTH;
+  const maxHeight = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_HEIGHT;
+  const patchSize = normalizedProfile === 'openai' ? OPENAI_IMAGE_PATCH_SIZE : ANTHROPIC_IMAGE_PATCH_SIZE;
+  const maxPatches = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_PATCHES : ANTHROPIC_IMAGE_MAX_PATCHES;
+  const scale = Math.min(
+    1,
+    maxWidth / width,
+    maxHeight / height,
+    Math.sqrt((maxPatches * patchSize ** 2) / (width * height))
+  );
+  width = Math.max(1, Math.floor(width * scale));
+  height = Math.max(1, Math.floor(height * scale));
+  // Lift a sub-patch image to the floor, but never past the profile's own
+  // ceiling: an extreme aspect ratio keeps its shape rather than being
+  // blown up to satisfy its short edge.
+  let allowEnlargement = false;
+  const shortestEdge = Math.min(width, height);
+  if (shortestEdge < IMAGE_MIN_DIMENSION) {
+    const ceiling = Math.min(maxWidth, maxHeight);
+    const upscale = Math.min(IMAGE_MIN_DIMENSION / shortestEdge, ceiling / Math.max(width, height));
+    if (upscale > 1) {
+      width = Math.max(1, Math.round(width * upscale));
+      height = Math.max(1, Math.round(height * upscale));
+      allowEnlargement = true;
+    }
+  }
+  // Area scaling is exact, but rounding a partial patch up can still leave
+  // one row or column over budget; trim the longer edge until it fits.
+  while (imagePatchCount(width, height, patchSize) > maxPatches && (width > 1 || height > 1)) {
+    if (width >= height) width -= 1;
+    else height -= 1;
+  }
+  return { width, height, allowEnlargement };
+}
+
+// Token-budget gate: recompress to jpeg q50 at the (already resized) display
+// dimensions, then the 400x400 jpeg q20 hard fallback. Fresh sharp instance
+// per op — reusing an instance after toBuffer() drops the format conversion.
+async function fitRenditionToTokenBudget(sharp, buffer, rendition, maxTokens) {
+  const { originalWidth, originalHeight } = rendition;
+  try {
+    let s = sharp(buffer);
+    if (rendition.displayWidth && rendition.displayHeight) {
+      s = s.resize(rendition.displayWidth, rendition.displayHeight, { fit: 'inside', withoutEnlargement: true });
+    }
+    const jpeg = await s.jpeg({ quality: 50 }).toBuffer({ resolveWithObject: true });
+    rendition.mediaType = 'jpeg';
+    rendition.base64 = jpeg.data.toString('base64');
+    rendition.displayWidth = jpeg.info.width || rendition.displayWidth;
+    rendition.displayHeight = jpeg.info.height || rendition.displayHeight;
+  } catch {
+    /* keep the q-pre buffer; the 400x400 fallback runs next */
+  }
+  if (estTokens(rendition.base64) <= maxTokens) return;
+  try {
+    const fb = await sharp(buffer)
+      .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 20 })
+      .toBuffer();
+    rendition.mediaType = 'jpeg';
+    rendition.base64 = fb.toString('base64');
+    if (originalWidth && originalHeight) {
+      const scale = Math.min(400 / originalWidth, 400 / originalHeight, 1);
+      rendition.displayWidth = Math.max(1, Math.round(originalWidth * scale));
+      rendition.displayHeight = Math.max(1, Math.round(originalHeight * scale));
+    }
+  } catch {
+    /* keep whatever we have */
+  }
+}
+
+// A cached rendition, refreshed to most-recently-used; null on a miss.
+function recallResizeResult(cacheKey) {
+  const cached = imageResizeCache.get(cacheKey);
+  if (!cached) {
+    imageResizeCacheMisses += 1;
+    return null;
+  }
+  imageResizeCacheHits += 1;
+  imageResizeCache.delete(cacheKey);
+  imageResizeCache.set(cacheKey, cached);
+  return cloneResizeResult(cached.result);
+}
+
+// metadata() only parses headers; libpng can still reject a corrupt IDAT
+// stream later. Force one full pixel decode before any original bytes are
+// allowed through unchanged.
+async function decodedImageMeta(sharp, buffer) {
+  const meta = await sharp(buffer).metadata();
+  await sharp(buffer, {
+    sequentialRead: true,
+    limitInputPixels: 64 * 1024 * 1024,
+  })
+    .raw()
+    .toBuffer();
+  return meta;
+}
+
+// The rendition inside the profile's target box. Trimming the edges
+// separately can leave a box the picture does not fill: fit:'inside' keeps
+// the aspect ratio, so the rendition is smaller than the box that was asked
+// for. Report what came out — the metadata line and its coordinate scale are
+// read as the truth about this image.
+async function renderRendition(sharp, buffer, meta, ext, profile) {
+  const originalWidth = meta.width;
+  const originalHeight = meta.height;
+  const rendition = {
+    base64: '',
+    mediaType: normalizeFmt(meta.format || ext),
+    originalWidth,
+    originalHeight,
+    displayWidth: originalWidth,
+    displayHeight: originalHeight,
+  };
+  let outBuf = buffer;
+  if (originalWidth && originalHeight) {
+    const { width, height, allowEnlargement } = targetDimensions(originalWidth, originalHeight, profile);
+    const needsResize = width !== originalWidth || height !== originalHeight;
+    if (needsResize || buffer.length > IMAGE_TARGET_RAW_SIZE) {
+      const resized = await sharp(buffer)
+        .resize(width, height, { fit: 'inside', withoutEnlargement: !allowEnlargement })
+        .toBuffer({ resolveWithObject: true });
+      outBuf = resized.data;
+      rendition.displayWidth = resized.info.width || width;
+      rendition.displayHeight = resized.info.height || height;
+    }
+  }
+  rendition.base64 = outBuf.toString('base64');
+  return rendition;
+}
+
 export async function resizeImageBuffer(
   buffer,
   ext,
@@ -201,137 +338,23 @@ export async function resizeImageBuffer(
   if (!Buffer.isBuffer(buffer) || buffer.length === 0) return null;
   const normalizedProfile = profile === 'openai' ? 'openai' : 'anthropic';
   const cacheKey = resizeCacheKey(buffer, ext, maxTokens, normalizedProfile);
-  const cached = imageResizeCache.get(cacheKey);
-  if (cached) {
-    imageResizeCacheHits += 1;
-    imageResizeCache.delete(cacheKey);
-    imageResizeCache.set(cacheKey, cached);
-    return cloneResizeResult(cached.result);
-  }
-  imageResizeCacheMisses += 1;
+  const cached = recallResizeResult(cacheKey);
+  if (cached) return cached;
   const sharp = await loadSharp();
   if (!sharp) return null;
   try {
-    const meta = await sharp(buffer).metadata();
-    // metadata() only parses headers; libpng can still reject a corrupt
-    // IDAT stream later. Force one full pixel decode before any original
-    // bytes are allowed through unchanged.
-    await sharp(buffer, {
-      sequentialRead: true,
-      limitInputPixels: 64 * 1024 * 1024,
-    })
-      .raw()
-      .toBuffer();
-    const fmt = normalizeFmt(meta.format || ext);
-    const originalWidth = meta.width;
-    const originalHeight = meta.height;
-    const originalSize = buffer.length;
-
-    let outBuf = buffer;
-    let mediaType = fmt;
-    let displayWidth = originalWidth;
-    let displayHeight = originalHeight;
-
-    if (originalWidth && originalHeight) {
-      // Constrain dimensions while preserving aspect ratio.
-      let width = originalWidth;
-      let height = originalHeight;
-      const maxWidth = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_WIDTH;
-      const maxHeight = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_DIMENSION : IMAGE_MAX_HEIGHT;
-      const patchSize = normalizedProfile === 'openai' ? OPENAI_IMAGE_PATCH_SIZE : ANTHROPIC_IMAGE_PATCH_SIZE;
-      const maxPatches = normalizedProfile === 'openai' ? OPENAI_IMAGE_MAX_PATCHES : ANTHROPIC_IMAGE_MAX_PATCHES;
-      // Both limits bind, and either one can be the tighter: the per-edge
-      // ceiling governs an elongated image, the patch budget a wide one.
-      const scale = Math.min(
-        1,
-        maxWidth / width,
-        maxHeight / height,
-        Math.sqrt((maxPatches * patchSize ** 2) / (width * height))
-      );
-      width = Math.max(1, Math.floor(width * scale));
-      height = Math.max(1, Math.floor(height * scale));
-      // Lift a sub-patch image to the floor, but never past the profile's own
-      // ceiling: an extreme aspect ratio keeps its shape rather than being
-      // blown up to satisfy its short edge.
-      let allowEnlargement = false;
-      const shortestEdge = Math.min(width, height);
-      if (shortestEdge < IMAGE_MIN_DIMENSION) {
-        const ceiling = Math.min(maxWidth, maxHeight);
-        const upscale = Math.min(IMAGE_MIN_DIMENSION / shortestEdge, ceiling / Math.max(width, height));
-        if (upscale > 1) {
-          width = Math.max(1, Math.round(width * upscale));
-          height = Math.max(1, Math.round(height * upscale));
-          allowEnlargement = true;
-        }
-      }
-      // Area scaling is exact, but rounding a partial patch up can still leave
-      // one row or column over budget; trim the longer edge until it fits.
-      while (imagePatchCount(width, height, patchSize) > maxPatches && (width > 1 || height > 1)) {
-        if (width >= height) width -= 1;
-        else height -= 1;
-      }
-      const needsResize = width !== originalWidth || height !== originalHeight;
-      if (needsResize || originalSize > IMAGE_TARGET_RAW_SIZE) {
-        // Trimming the edges separately can leave a box the picture does not
-        // fill: fit:'inside' keeps the aspect ratio, so the rendition is
-        // smaller than the box that was asked for. Report what came out —
-        // the metadata line and its coordinate scale are read as the truth
-        // about this image.
-        const resized = await sharp(buffer)
-          .resize(width, height, { fit: 'inside', withoutEnlargement: !allowEnlargement })
-          .toBuffer({ resolveWithObject: true });
-        outBuf = resized.data;
-        displayWidth = resized.info.width || width;
-        displayHeight = resized.info.height || height;
-      }
-    }
-
-    let base64 = outBuf.toString('base64');
-
-    // Token-budget gate: recompress to jpeg q50 at the (already resized)
-    // display dimensions. Fresh sharp instance per op — reusing an
-    // instance after toBuffer() drops the format conversion.
-    if (estTokens(base64) > maxTokens) {
-      try {
-        let s = sharp(buffer);
-        if (displayWidth && displayHeight) {
-          s = s.resize(displayWidth, displayHeight, { fit: 'inside', withoutEnlargement: true });
-        }
-        const jpeg = await s.jpeg({ quality: 50 }).toBuffer({ resolveWithObject: true });
-        outBuf = jpeg.data;
-        mediaType = 'jpeg';
-        base64 = jpeg.data.toString('base64');
-        displayWidth = jpeg.info.width || displayWidth;
-        displayHeight = jpeg.info.height || displayHeight;
-      } catch {
-        /* keep the q-pre buffer; the 400x400 fallback runs next */
-      }
-
-      // Hard fallback: 400x400 jpeg q20.
-      if (estTokens(base64) > maxTokens) {
-        try {
-          const fb = await sharp(buffer)
-            .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 20 })
-            .toBuffer();
-          outBuf = fb;
-          mediaType = 'jpeg';
-          base64 = fb.toString('base64');
-          if (originalWidth && originalHeight) {
-            const scale = Math.min(400 / originalWidth, 400 / originalHeight, 1);
-            displayWidth = Math.max(1, Math.round(originalWidth * scale));
-            displayHeight = Math.max(1, Math.round(originalHeight * scale));
-          }
-        } catch {
-          /* keep whatever we have */
-        }
-      }
-    }
-
+    const meta = await decodedImageMeta(sharp, buffer);
+    const rendition = await renderRendition(sharp, buffer, meta, ext, normalizedProfile);
+    if (estTokens(rendition.base64) > maxTokens) await fitRenditionToTokenBudget(sharp, buffer, rendition, maxTokens);
     const result = {
-      data: base64,
-      mimeType: `image/${mediaType}`,
-      dimensions: { originalWidth, originalHeight, displayWidth, displayHeight },
+      data: rendition.base64,
+      mimeType: `image/${rendition.mediaType}`,
+      dimensions: {
+        originalWidth: rendition.originalWidth,
+        originalHeight: rendition.originalHeight,
+        displayWidth: rendition.displayWidth,
+        displayHeight: rendition.displayHeight,
+      },
     };
     rememberResizeResult(cacheKey, result);
     return result;

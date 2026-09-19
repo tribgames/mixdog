@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 export const QC_MAX_PAGES = 20;
-export const QC_MAX_ROUNDS = 2;
+const QC_MAX_ROUNDS = 2;
 
 const CHILD_FEATURES = {
   MIXDOG_FEATURE_OFFICE: '1',
@@ -61,28 +61,28 @@ export function parsePages(spec, total) {
 export function slideInventory(document, page) {
   const slide = (document?.slides || []).find((entry) => Number(entry.index) === page);
   if (!slide) return [];
+  const shapeKind = (shape, content) => {
+    if (shape.chart) return 'chart';
+    if (shape.table) return `table ${shape.table.rows}×${shape.table.columns}`;
+    if (shape.group) return 'group';
+    if (shape.type === 'p:pic') return 'picture';
+    if (content) return 'text';
+    return shape.geometry || 'shape';
+  };
   return (slide.shapes || []).map((shape) => {
     const content = String(shape.text || '')
       .replace(/\s+/g, ' ')
       .trim();
-    const kind = shape.chart
-      ? 'chart'
-      : shape.table
-        ? `table ${shape.table.rows}×${shape.table.columns}`
-        : shape.group
-          ? 'group'
-          : shape.type === 'p:pic'
-            ? 'picture'
-            : content
-              ? 'text'
-              : shape.geometry || 'shape';
+    const kind = shapeKind(shape, content);
     const box = [shape.left, shape.top, shape.width, shape.height].map(number);
     const geometry = box.every((value) => value !== null)
       ? ` left ${box[0]} top ${box[1]} width ${box[2]} height ${box[3]}`
       : '';
-    const font = shape.font?.size ? ` font ${shape.font.size}${shape.font.bold ? ' bold' : ''}` : '';
+    const bold = shape.font?.bold ? ' bold' : '';
+    const font = shape.font?.size ? ` font ${shape.font.size}${bold}` : '';
     const fill = shape.fill?.color ? ` fill ${shape.fill.color}` : '';
-    const preview = content ? ` "${content.length > 120 ? `${content.slice(0, 117)}…` : content}"` : '';
+    const clipped = content.length > 120 ? `${content.slice(0, 117)}…` : content;
+    const preview = content ? ` "${clipped}"` : '';
     return `shape[${shape.index}] ${kind}${shape.placeholder ? ' placeholder' : ''}${geometry}${font}${fill}${preview}`;
   });
 }
@@ -267,121 +267,142 @@ export async function runPageQc(
     skipped: 0,
     failed: 0,
   };
+  const ctx = { deck, total, provider, model, effort, target, vision, callOffice, measureDeck, run, createRuntime, report };
   await withChildFeatures(async () => {
-    for (const page of selected) {
-      const entry = { page, vision: false, before: 0, after: 0, edited: false, kept: true, reason: '', reply: '' };
-      report.pages.push(entry);
-      const copy = workingCopyPath(deck, page);
-      try {
-        const start = await measureDeck(deck);
-        const defects = pageDefects(start.issues, page);
-        entry.before = defects.length;
-        entry.after = defects.length;
-        let imagePath = '';
-        if (vision) {
-          try {
-            imagePath = await renderPage(callOffice, deck, page);
-          } catch (error) {
-            entry.renderError = error?.message || String(error);
-          }
-        }
-        entry.vision = Boolean(imagePath);
-        // A text-only read with nothing measured has nothing to act on: no
-        // request, no chance of a speculative edit.
-        if (!imagePath && !defects.length) {
-          entry.reason = 'clean';
-          report.skipped += 1;
-          continue;
-        }
-        await rm(copy, { force: true }).catch(() => {});
-        const hashBefore = await sha256(deck);
-        const fingerprints = slideFingerprints(start.document);
-        let raw = '';
-        const errors = [];
-        let code = 1;
-        try {
-          code = await run({
-            message: qcInstruction({
-              deck,
-              copy,
-              page,
-              total,
-              inventory: slideInventory(start.document, page),
-              defects,
-              imagePath,
-            }),
-            provider,
-            model,
-            effort,
-            cwd: dirname(deck),
-            webSearch: false,
-            ...(target ? { usageLogPath: `${target}.page-${page}.usage.json` } : {}),
-            ...(createRuntime
-              ? { runtimeFactory: async (options) => createRuntime({ ...options, toolMode: 'full' }) }
-              : {}),
-            write: (chunk) => {
-              raw += chunk;
-            },
-            writeErr: (chunk) => {
-              errors.push(String(chunk));
-              process.stderr.write(chunk);
-            },
-          });
-        } catch (error) {
-          errors.push(error?.message || String(error));
-        }
-        entry.reply = raw.trim().slice(0, 400);
-        if (errors.length) entry.errors = errors.slice(-5);
-        entry.edited = (await fileExists(copy)) && (await sha256(copy)) !== hashBefore;
-        let decision;
-        if (!entry.edited) {
-          decision = { keep: true, reason: code === 0 ? 'unchanged' : 'execution_failed' };
-        } else {
-          let end = null;
-          try {
-            end = await measureDeck(copy);
-          } catch {
-            end = null;
-          }
-          entry.after = end ? pageDefects(end.issues, page).length : entry.before;
-          decision = decidePage({
-            before: entry.before,
-            after: entry.after,
-            scopeChanged: end ? othersChanged(fingerprints, slideFingerprints(end.document), page) : false,
-            auditFailed: !end,
-          });
-        }
-        entry.kept = decision.keep;
-        entry.reason = decision.reason;
-        // A page whose run never produced a reply was not reviewed. Counting it
-        // as kept made an unreviewed page read exactly like a clean one, so a
-        // report on which most pages had failed still said ok, and the deck went
-        // out with the defects the first measurement had already named.
-        if (decision.reason === 'execution_failed') {
-          report.failed += 1;
-          report.ok = false;
-        }
-        if (!decision.keep) {
-          entry.after = entry.before;
-          report.discarded += 1;
-        } else if (entry.edited) {
-          await copyFile(copy, deck);
-          if (decision.reason === 'improved') report.fixed += 1;
-          else report.polished += 1;
-        }
-      } catch (error) {
-        entry.kept = true;
-        entry.reason = 'error';
-        entry.error = error?.message || String(error);
-        report.failed += 1;
-        report.ok = false;
-      } finally {
-        await rm(copy, { force: true }).catch(() => {});
-      }
-    }
+    for (const page of selected) await qcPage(ctx, page);
   });
   if (target) await writeFile(target, JSON.stringify(report, null, 2));
   return report;
+}
+
+async function renderPageImage({ callOffice, deck }, page, entry) {
+  try {
+    return await renderPage(callOffice, deck, page);
+  } catch (error) {
+    entry.renderError = error?.message || String(error);
+    return '';
+  }
+}
+
+// One headless exec turn against the page's working copy; the reply text
+// and stderr lines are captured for the report entry.
+async function runPageFix(ctx, { copy, page, start, defects, imagePath }) {
+  const { run, deck, total, provider, model, effort, target, createRuntime } = ctx;
+  let raw = '';
+  const errors = [];
+  let code = 1;
+  try {
+    code = await run({
+      message: qcInstruction({
+        deck,
+        copy,
+        page,
+        total,
+        inventory: slideInventory(start.document, page),
+        defects,
+        imagePath,
+      }),
+      provider,
+      model,
+      effort,
+      cwd: dirname(deck),
+      webSearch: false,
+      ...(target ? { usageLogPath: `${target}.page-${page}.usage.json` } : {}),
+      ...(createRuntime ? { runtimeFactory: async (options) => createRuntime({ ...options, toolMode: 'full' }) } : {}),
+      write: (chunk) => {
+        raw += chunk;
+      },
+      writeErr: (chunk) => {
+        errors.push(String(chunk));
+        process.stderr.write(chunk);
+      },
+    });
+  } catch (error) {
+    errors.push(error?.message || String(error));
+  }
+  return { code, raw, errors };
+}
+
+// Keep/discard verdict for an edited copy from its re-measurement; an
+// unedited page is kept as-is (or marked execution_failed when the run
+// never completed).
+async function judgePage({ measureDeck }, { entry, copy, code, page, fingerprints }) {
+  if (!entry.edited) return { keep: true, reason: code === 0 ? 'unchanged' : 'execution_failed' };
+  let end = null;
+  try {
+    end = await measureDeck(copy);
+  } catch {
+    end = null;
+  }
+  entry.after = end ? pageDefects(end.issues, page).length : entry.before;
+  return decidePage({
+    before: entry.before,
+    after: entry.after,
+    scopeChanged: end ? othersChanged(fingerprints, slideFingerprints(end.document), page) : false,
+    auditFailed: !end,
+  });
+}
+
+async function qcPage(ctx, page) {
+  const { deck, report, measureDeck, vision } = ctx;
+  const entry = { page, vision: false, before: 0, after: 0, edited: false, kept: true, reason: '', reply: '' };
+  report.pages.push(entry);
+  const copy = workingCopyPath(deck, page);
+  try {
+    const start = await measureDeck(deck);
+    const defects = pageDefects(start.issues, page);
+    entry.before = defects.length;
+    entry.after = defects.length;
+    const imagePath = vision ? await renderPageImage(ctx, page, entry) : '';
+    entry.vision = Boolean(imagePath);
+    // A text-only read with nothing measured has nothing to act on: no
+    // request, no chance of a speculative edit.
+    if (!imagePath && !defects.length) {
+      entry.reason = 'clean';
+      report.skipped += 1;
+      return;
+    }
+    await rm(copy, { force: true }).catch(() => {});
+    const hashBefore = await sha256(deck);
+    const fingerprints = slideFingerprints(start.document);
+    const { code, raw, errors } = await runPageFix(ctx, { copy, page, start, defects, imagePath });
+    entry.reply = raw.trim().slice(0, 400);
+    if (errors.length) entry.errors = errors.slice(-5);
+    entry.edited = (await fileExists(copy)) && (await sha256(copy)) !== hashBefore;
+    const decision = await judgePage(ctx, { entry, copy, code, page, fingerprints });
+    await applyPageDecision({ deck, report }, entry, copy, decision);
+  } catch (error) {
+    entry.kept = true;
+    entry.reason = 'error';
+    entry.error = error?.message || String(error);
+    report.failed += 1;
+    report.ok = false;
+  } finally {
+    await rm(copy, { force: true }).catch(() => {});
+  }
+}
+
+// Records the judge's verdict on the report and promotes a kept edit into the
+// deck.
+async function applyPageDecision({ deck, report }, entry, copy, decision) {
+  entry.kept = decision.keep;
+  entry.reason = decision.reason;
+  // A page whose run never produced a reply was not reviewed. Counting it
+  // as kept made an unreviewed page read exactly like a clean one, so a
+  // report on which most pages had failed still said ok, and the deck went
+  // out with the defects the first measurement had already named.
+  if (decision.reason === 'execution_failed') {
+    report.failed += 1;
+    report.ok = false;
+  }
+  if (!decision.keep) {
+    entry.after = entry.before;
+    report.discarded += 1;
+  } else if (entry.edited) {
+    await copyFile(copy, deck);
+    if (decision.reason === 'improved') report.fixed += 1;
+    else report.polished += 1;
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

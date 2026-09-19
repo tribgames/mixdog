@@ -227,14 +227,15 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     }
     const authority = await authorizeDispatch();
     assertObservationInputAllowed(command, host.isObserveOnly());
-    const response = usePrivilegedWorker
-      ? await callPowerShellElevated({ ...powerShellRequest, ...authority })
-      : await callPowerShell(
-          batchSequenceStep
-            ? sequenceStepRequest({ ...powerShellRequest, ...authority })
-            : { ...powerShellRequest, ...authority },
-          action === 'invoke_menu' ? 3_000 : undefined
-        );
+    const authorizedRequest = { ...powerShellRequest, ...authority };
+    let response;
+    if (usePrivilegedWorker) response = await callPowerShellElevated(authorizedRequest);
+    else {
+      response = await callPowerShell(
+        batchSequenceStep ? sequenceStepRequest(authorizedRequest) : authorizedRequest,
+        action === 'invoke_menu' ? 3_000 : undefined
+      );
+    }
     if (usePrivilegedWorker && response.result) {
       response.result.path = `uac_elevated_${String(response.result.path || 'foreground_input')}`;
       response.result.privilege = {

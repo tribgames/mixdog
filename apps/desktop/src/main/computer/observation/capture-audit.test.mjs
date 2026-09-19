@@ -489,13 +489,11 @@ test('external input during capture disables foreground input, while stable capt
   for (const changed of [false, true]) {
     let reads = 0;
     const f = fixture({
-      native: (request) =>
-        request.action === 'input_idle_state'
-          ? {
-              ok: true,
-              result: { observer_ready: true, monitor: 'worker-a', sequence: ++reads > 1 && changed ? 4 : 3 },
-            }
-          : undefined,
+      native: (request) => {
+        if (request.action !== 'input_idle_state') return undefined;
+        const sequence = ++reads > 1 && changed ? 4 : 3;
+        return { ok: true, result: { observer_ready: true, monitor: 'worker-a', sequence } };
+      },
     });
     const command = { action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a' };
     const observation = await f.run(() => f.capture.captureComputer(command));

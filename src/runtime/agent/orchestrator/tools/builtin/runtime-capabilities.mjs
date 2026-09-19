@@ -7,27 +7,6 @@ import {
   resolve as pathResolveAbsolute,
 } from 'node:path';
 
-export const SHELL_RUNTIME_CANDIDATES = Object.freeze([
-  'node',
-  'python3',
-  'python',
-  'py',
-  'deno',
-  'bun',
-  'perl',
-  'ruby',
-  'php',
-  'lua',
-  'Rscript',
-  'java',
-  'go',
-  'rustc',
-  'dotnet',
-  'pwsh',
-  'powershell',
-  'bash',
-]);
-
 function _pathDirectory(value) {
   const text = String(value || '').trim();
   return text.length >= 2 && text.startsWith('"') && text.endsWith('"') ? text.slice(1, -1) : text;

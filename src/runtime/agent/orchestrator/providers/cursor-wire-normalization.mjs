@@ -8,7 +8,7 @@ export const FALLBACK_MODELS = [
   { id: 'grok-4.6-high', name: 'Grok 4.6', reasoning: true, contextWindow: 128_000 },
 ];
 
-export const AUTO_MODEL = {
+const AUTO_MODEL = {
   id: 'auto',
   name: 'Auto',
   reasoning: false,
@@ -90,54 +90,76 @@ export function normalizeModels(models) {
   return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
+function parameterValueLabel(raw, isBoolean) {
+  if (!isBoolean) return raw;
+  const text = String(raw);
+  if (text === 'true') return 'On';
+  if (text === 'false') return 'Off';
+  return raw;
+}
+
+function parameterDefinitionsOf(model) {
+  return (model.parameterDefinitions || [])
+    .map((definition) => {
+      const booleanValues = definition.parameterType?.booleanParameter?.values || [];
+      const enumValues = definition.parameterType?.enumParameter?.values || [];
+      const values = [...booleanValues, ...enumValues]
+        .filter((value) => value?.blockedByAdminAllowlist !== true && String(value?.value || '').trim())
+        .map((value) => ({
+          value: String(value.value),
+          label: String(value.displayName || parameterValueLabel(value.value, booleanValues.length > 0)),
+          ...(value.markdownTooltip ? { description: value.markdownTooltip } : {}),
+        }));
+      return {
+        id: String(definition.id || '').trim(),
+        name: String(definition.name || definition.id || '').trim(),
+        kind: booleanValues.length ? 'boolean' : 'enum',
+        values,
+        ...(definition.markdownTooltip ? { description: definition.markdownTooltip } : {}),
+      };
+    })
+    .filter((definition) => definition.id && definition.values.length);
+}
+
+function variantsOf(model) {
+  return (model.variants || []).map((variant) => ({
+    parameters: Object.fromEntries(
+      (variant.parameterValues || [])
+        .map((value) => [String(value.id || '').trim(), String(value.value ?? '')])
+        .filter(([key]) => key)
+    ),
+    displayName: String(variant.displayNameOutsidePicker || variant.displayName || '').trim(),
+    maxMode: variant.isMaxMode === true,
+    defaultMax: variant.isDefaultMaxConfig === true,
+    defaultNonMax: variant.isDefaultNonMaxConfig === true,
+    variantString: String(variant.variantStringRepresentation || '').trim(),
+    legacySlug: String(variant.legacySlug || '').trim(),
+  }));
+}
+
+function modelAliases(model, variants, rawId, id) {
+  return [
+    ...new Set(
+      [
+        ...(model.legacySlugs || []),
+        ...(model.idAliases || []),
+        ...variants.flatMap((variant) => (variant.legacySlug ? [variant.legacySlug] : [])),
+        ...(rawId !== id ? [rawId] : []),
+      ]
+        .map((value) => String(value || '').trim())
+        .filter((value) => value && value !== id)
+    ),
+  ];
+}
+
 export function normalizeParameterizedModels(models) {
   const byId = new Map();
   for (const model of models || []) {
     const rawId = String(model.name || model.serverModelName || '').trim();
     if (!rawId || model.isHidden === true) continue;
     const id = canonicalCursorModelId(rawId);
-    const parameterDefinitions = (model.parameterDefinitions || [])
-      .map((definition) => {
-        const booleanValues = definition.parameterType?.booleanParameter?.values || [];
-        const enumValues = definition.parameterType?.enumParameter?.values || [];
-        const values = [...booleanValues, ...enumValues]
-          .filter((value) => value?.blockedByAdminAllowlist !== true && String(value?.value || '').trim())
-          .map((value) => ({
-            value: String(value.value),
-            label: String(
-              value.displayName ||
-                (booleanValues.length
-                  ? String(value.value) === 'true'
-                    ? 'On'
-                    : String(value.value) === 'false'
-                      ? 'Off'
-                      : value.value
-                  : value.value)
-            ),
-            ...(value.markdownTooltip ? { description: value.markdownTooltip } : {}),
-          }));
-        return {
-          id: String(definition.id || '').trim(),
-          name: String(definition.name || definition.id || '').trim(),
-          kind: booleanValues.length ? 'boolean' : 'enum',
-          values,
-          ...(definition.markdownTooltip ? { description: definition.markdownTooltip } : {}),
-        };
-      })
-      .filter((definition) => definition.id && definition.values.length);
-    const variants = (model.variants || []).map((variant) => ({
-      parameters: Object.fromEntries(
-        (variant.parameterValues || [])
-          .map((value) => [String(value.id || '').trim(), String(value.value ?? '')])
-          .filter(([key]) => key)
-      ),
-      displayName: String(variant.displayNameOutsidePicker || variant.displayName || '').trim(),
-      maxMode: variant.isMaxMode === true,
-      defaultMax: variant.isDefaultMaxConfig === true,
-      defaultNonMax: variant.isDefaultNonMaxConfig === true,
-      variantString: String(variant.variantStringRepresentation || '').trim(),
-      legacySlug: String(variant.legacySlug || '').trim(),
-    }));
+    const parameterDefinitions = parameterDefinitionsOf(model);
+    const variants = variantsOf(model);
     const tooltip = model.tooltipData || {};
     const next = {
       id,
@@ -154,18 +176,7 @@ export function normalizeParameterizedModels(models) {
         model.supportsThinking === true,
       parameterDefinitions,
       variants,
-      aliases: [
-        ...new Set(
-          [
-            ...(model.legacySlugs || []),
-            ...(model.idAliases || []),
-            ...variants.flatMap((variant) => (variant.legacySlug ? [variant.legacySlug] : [])),
-            ...(rawId !== id ? [rawId] : []),
-          ]
-            .map((value) => String(value || '').trim())
-            .filter((value) => value && value !== id)
-        ),
-      ],
+      aliases: modelAliases(model, variants, rawId, id),
     };
     const current = byId.get(id);
     if (!current || autoModelRank(next) >= autoModelRank(current)) byId.set(id, next);
@@ -185,6 +196,54 @@ function usagePercent(value) {
   return Math.round(normalized * 10_000) / 10_000;
 }
 
+// The included-plan windows: per-lane progress percentages when the dashboard
+// reports them, else one dollar window over the included balance.
+function includedUsageWindows(included, plan, includedBalance, resetAt) {
+  const progressWindows = [
+    ['Basic', included.autoPercentUsed],
+    ['API', included.apiPercentUsed],
+  ].filter(([, value]) => Number.isFinite(Number(value)));
+  if (progressWindows.length) {
+    return progressWindows.map(([label, value]) => ({
+      label,
+      source: 'cursor-dashboard',
+      usedPct: usagePercent(value),
+      ...(resetAt ? { resetAt } : {}),
+    }));
+  }
+  if (!includedBalance) return [];
+  return [
+    {
+      label: plan.planName ? `${plan.planName} included` : 'Included usage',
+      source: 'cursor-dashboard',
+      limitUsd: includedBalance.limitUsd,
+      usedUsd: includedBalance.usedUsd,
+      remainingUsd: includedBalance.remainingUsd,
+      ...(resetAt ? { resetAt } : {}),
+    },
+  ];
+}
+
+// The usage-based spend window; null when the account has no spend limit data.
+function usageBasedSpendWindow(spendLimit, resetAt) {
+  const limitCents = Number(spendLimit.overallLimit || spendLimit.individualLimit || spendLimit.pooledLimit || 0);
+  const usedCents = Number(
+    spendLimit.overallUsed || spendLimit.individualUsed || spendLimit.pooledUsed || spendLimit.totalSpend || 0
+  );
+  const remainingCents = Number(
+    spendLimit.overallRemaining || spendLimit.individualRemaining || spendLimit.pooledRemaining || 0
+  );
+  if (limitCents <= 0 && usedCents <= 0 && remainingCents <= 0) return null;
+  return {
+    label: 'Usage-based spend',
+    source: 'cursor-dashboard',
+    limitUsd: centsToUsd(limitCents),
+    usedUsd: centsToUsd(usedCents),
+    remainingUsd: centsToUsd(remainingCents),
+    ...(resetAt ? { resetAt } : {}),
+  };
+}
+
 export function normalizeCursorUsage(usage = {}, planResponse = {}) {
   const plan = planResponse.planInfo || {};
   const included = usage.planUsage || {};
@@ -202,47 +261,11 @@ export function normalizeCursorUsage(usage = {}, planResponse = {}) {
         limitUsd: centsToUsd(includedLimitCents),
       }
     : null;
-  const quotaWindows = [];
-  const progressWindows = [
-    ['Basic', included.autoPercentUsed],
-    ['API', included.apiPercentUsed],
-  ].filter(([, value]) => Number.isFinite(Number(value)));
-  if (progressWindows.length) {
-    for (const [label, value] of progressWindows) {
-      quotaWindows.push({
-        label,
-        source: 'cursor-dashboard',
-        usedPct: usagePercent(value),
-        ...(resetAt ? { resetAt } : {}),
-      });
-    }
-  } else if (hasIncludedBalance) {
-    quotaWindows.push({
-      label: plan.planName ? `${plan.planName} included` : 'Included usage',
-      source: 'cursor-dashboard',
-      limitUsd: includedBalance.limitUsd,
-      usedUsd: includedBalance.usedUsd,
-      remainingUsd: includedBalance.remainingUsd,
-      ...(resetAt ? { resetAt } : {}),
-    });
-  }
-  const extraLimitCents = Number(spendLimit.overallLimit || spendLimit.individualLimit || spendLimit.pooledLimit || 0);
-  const extraUsedCents = Number(
-    spendLimit.overallUsed || spendLimit.individualUsed || spendLimit.pooledUsed || spendLimit.totalSpend || 0
-  );
-  const extraRemainingCents = Number(
-    spendLimit.overallRemaining || spendLimit.individualRemaining || spendLimit.pooledRemaining || 0
-  );
-  if (extraLimitCents > 0 || extraUsedCents > 0 || extraRemainingCents > 0) {
-    quotaWindows.push({
-      label: 'Usage-based spend',
-      source: 'cursor-dashboard',
-      limitUsd: centsToUsd(extraLimitCents),
-      usedUsd: centsToUsd(extraUsedCents),
-      remainingUsd: centsToUsd(extraRemainingCents),
-      ...(resetAt ? { resetAt } : {}),
-    });
-  }
+  const spendWindow = usageBasedSpendWindow(spendLimit, resetAt);
+  const quotaWindows = [
+    ...includedUsageWindows(included, plan, includedBalance, resetAt),
+    ...(spendWindow ? [spendWindow] : []),
+  ];
   return {
     source: 'cursor-dashboard',
     quotaWindows,

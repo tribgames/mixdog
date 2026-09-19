@@ -7,8 +7,7 @@ export async function workbookSheets(zip) {
   const rels = relationshipMap(await zipText(zip, 'xl/_rels/workbook.xml.rels'));
   const sheets = [];
   const regex = /<sheet\b([^>]+?)\/?>/g;
-  let match;
-  while ((match = regex.exec(workbook))) {
+  for (const match of workbook.matchAll(regex)) {
     const attrs = match[1];
     const name = xmlDecode(/\bname="([^"]+)"/.exec(attrs)?.[1] || '');
     const rid = /\br:id="([^"]+)"/.exec(attrs)?.[1];
@@ -19,10 +18,27 @@ export async function workbookSheets(zip) {
     // ignores state reports withheld data as ordinary content, and the caller
     // cannot tell what set_sheet_visibility already did.
     const state = (/\bstate="([^"]+)"/.exec(attrs)?.[1] || '').toLowerCase();
-    const visibility = state === 'hidden' ? 'hidden' : state === 'veryhidden' ? 'very_hidden' : 'visible';
+    const visibility = SHEET_VISIBILITY.get(state) || 'visible';
     sheets.push({ name, path: normalized, rid, visibility });
   }
   return sheets;
+}
+
+const SHEET_VISIBILITY = new Map([
+  ['hidden', 'hidden'],
+  ['veryhidden', 'very_hidden'],
+]);
+
+// A boolean cell reads as Excel reports it, so a Checks tie-out shows true or
+// false on both backends rather than '1' on one of them. A number reads as a
+// number for the same reason: Excel hands 1240 back as 1240, and a value
+// compared against a model's own arithmetic must not depend on which backend
+// opened the workbook.
+function typedCellValue(type, raw, strings) {
+  if (type === 's') return strings[Number(raw)] ?? raw;
+  if (type === 'b' && raw !== '') return raw === '1';
+  if (type === '' || type === 'n') return numericCellValue(raw);
+  return raw;
 }
 
 export async function sharedStrings(zip) {
@@ -30,8 +46,7 @@ export async function sharedStrings(zip) {
   if (!xml) return [];
   const strings = [];
   const regex = /<si(?:\s[^>]*)?>([\s\S]*?)<\/si>/g;
-  let match;
-  while ((match = regex.exec(xml))) strings.push(paragraphTexts(match[1], 't').join(''));
+  for (const match of xml.matchAll(regex)) strings.push(paragraphTexts(match[1], 't').join(''));
   return strings;
 }
 
@@ -59,8 +74,7 @@ function snapshotRangeBounds(reference) {
 
 export function* iterateSheetCells(xml) {
   const regex = /<c\b([^>]*?\br="([A-Z]+\d+)"[^>]*?)\/>|<c\b([^>]*\br="([A-Z]+\d+)"[^>]*)>([\s\S]*?)<\/c>/g;
-  let match;
-  while ((match = regex.exec(xml))) {
+  for (const match of xml.matchAll(regex)) {
     yield {
       attributes: match[1] ?? match[3] ?? '',
       ref: match[2] ?? match[4],
@@ -71,13 +85,53 @@ export function* iterateSheetCells(xml) {
 
 export function* iterateSheetRows(xml) {
   const regex = /<row\b([^>]*?)\/>|<row\b([^>]*)>([\s\S]*?)<\/row>/g;
-  let match;
-  while ((match = regex.exec(xml))) {
+  for (const match of xml.matchAll(regex)) {
     yield {
       attributes: match[1] ?? match[2] ?? '',
       body: match[3] || '',
     };
   }
+}
+
+function cellInBounds(ref, bounds) {
+  if (!bounds) return true;
+  const parsed = parseCellRef(ref);
+  const column = columnNumber(parsed.col);
+  return (
+    parsed.row >= bounds.startRow && parsed.row <= bounds.endRow && column >= bounds.startCol && column <= bounds.endCol
+  );
+}
+
+function cellRecord({ attributes: attrs, ref, body }, strings, styles) {
+  const type = /\bt="([^"]+)"/.exec(attrs)?.[1] || '';
+  const formula = xmlDecode(/<f(?:\s[^>]*)?>([\s\S]*?)<\/f>/.exec(body)?.[1] || '');
+  let raw = '';
+  let value;
+  if (type === 'inlineStr') value = paragraphTexts(body, 't').join('');
+  else {
+    raw = xmlDecode(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body)?.[1] || '');
+    value = typedCellValue(type, raw, strings);
+  }
+  // A cache is present when the file carries a <v> element at all: a
+  // formula whose result is the empty string (IF(C7=0,"",…)) is written as
+  // <v></v> by Excel and LibreOffice alike, and that is a computed value,
+  // not a workbook waiting for its first recalculation.
+  const emptyStringCache = raw === '' && type === 'str' && /<v(?:\s[^>]*)?>/.test(body);
+  let cachedValue = value;
+  if (raw === '') cachedValue = emptyStringCache ? '' : null;
+  const cacheState = raw === '' && !emptyStringCache ? 'missing' : 'present';
+  // Style index 0 is the workbook default; only an explicit style is reported.
+  const styleIndex = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0);
+  const style = styleIndex > 0 ? styles?.[styleIndex] : undefined;
+  return {
+    ref,
+    value,
+    // The flag is what tells a reader that '1,234' is text Excel will not
+    // sum, rather than the number it looks like.
+    ...(type === 's' || type === 'str' || type === 'inlineStr' ? { dataType: 'text' } : {}),
+    ...(formula ? { formula, cachedValue, cacheState } : {}),
+    ...(style ? { style } : {}),
+  };
 }
 
 export function cellRecords(xml, strings, options = null) {
@@ -90,64 +144,9 @@ export function cellRecords(xml, strings, options = null) {
   let formulaCount = 0;
   let formulaCacheMissing = 0;
   for (const cell of iterateSheetCells(xml)) {
-    const attrs = cell.attributes;
-    const ref = cell.ref;
-    if (bounds) {
-      const parsed = parseCellRef(ref);
-      const column = columnNumber(parsed.col);
-      if (
-        parsed.row < bounds.startRow ||
-        parsed.row > bounds.endRow ||
-        column < bounds.startCol ||
-        column > bounds.endCol
-      )
-        continue;
-    }
-    const body = cell.body;
-    const type = /\bt="([^"]+)"/.exec(attrs)?.[1] || '';
-    const formula = xmlDecode(/<f(?:\s[^>]*)?>([\s\S]*?)<\/f>/.exec(body)?.[1] || '');
-    let raw = '';
-    let value;
-    if (type === 'inlineStr') value = paragraphTexts(body, 't').join('');
-    else {
-      raw = xmlDecode(/<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body)?.[1] || '');
-      // A boolean cell reads as Excel reports it, so a Checks tie-out shows
-      // true or false on both backends rather than '1' on one of them. A
-      // number reads as a number for the same reason: Excel hands 1240 back as
-      // 1240, and a value compared against a model's own arithmetic must not
-      // depend on which backend opened the workbook.
-      value =
-        type === 's'
-          ? (strings[Number(raw)] ?? raw)
-          : type === 'b' && raw !== ''
-            ? raw === '1'
-            : type === '' || type === 'n'
-              ? numericCellValue(raw)
-              : raw;
-    }
-    // Style index 0 is the workbook default; only an explicit style is reported.
-    const styleIndex = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0);
-    const style = styleIndex > 0 ? options?.styles?.[styleIndex] : undefined;
-    const record = {
-      ref,
-      value,
-      // The flag is what tells a reader that '1,234' is text Excel will not
-      // sum, rather than the number it looks like.
-      ...(type === 's' || type === 'str' || type === 'inlineStr' ? { dataType: 'text' } : {}),
-      // A cache is present when the file carries a <v> element at all: a
-      // formula whose result is the empty string (IF(C7=0,"",…)) is written as
-      // <v></v> by Excel and LibreOffice alike, and that is a computed value,
-      // not a workbook waiting for its first recalculation.
-      ...(formula
-        ? {
-            formula,
-            cachedValue: raw === '' ? (type === 'str' && /<v(?:\s[^>]*)?>/.test(body) ? '' : null) : value,
-            cacheState: raw === '' && !(type === 'str' && /<v(?:\s[^>]*)?>/.test(body)) ? 'missing' : 'present',
-          }
-        : {}),
-      ...(style ? { style } : {}),
-    };
-    if (formula) {
+    if (!cellInBounds(cell.ref, bounds)) continue;
+    const record = cellRecord(cell, strings, options?.styles);
+    if (record.formula) {
       formulaCount += 1;
       if (record.cacheState === 'missing') formulaCacheMissing += 1;
     }
@@ -351,17 +350,6 @@ export function cellStyleIndexes(xml, refs) {
     indexes.set(parsed.ref, Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0) || 0);
   }
   return indexes;
-}
-
-export function setCellStyleInSheet(xml, ref, styleIndex) {
-  const parsed = parseCellRef(ref);
-  const pattern = new RegExp(`<c\\b([^>]*\\br="${parsed.ref}"[^>]*?)(\\/>|>[\\s\\S]*?<\\/c>)`, 'i');
-  const match = pattern.exec(xml);
-  if (match) {
-    const attrs = setXmlAttribute(match[1], 's', styleIndex);
-    return `${xml.slice(0, match.index)}<c${attrs}${match[2]}${xml.slice(match.index + match[0].length)}`;
-  }
-  return placeCellInSheet(xml, parsed.ref, `<c r="${parsed.ref}" s="${styleIndex}"/>`);
 }
 
 function placeCellInSheet(xml, ref, cell) {

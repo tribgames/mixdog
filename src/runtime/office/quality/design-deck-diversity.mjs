@@ -200,6 +200,70 @@ function longestRepeatRun(entries) {
   return best;
 }
 
+function layoutGrammarIssue(content, grammar) {
+  const signatures = new Map();
+  for (const signature of grammar) {
+    if (signature) signatures.set(signature, (signatures.get(signature) || 0) + 1);
+  }
+  const repeated = Math.max(0, ...signatures.values());
+  if (content.length < 4 || repeated / content.length < 0.6) return null;
+  return issue(
+    'repeated_layout_grammar',
+    `${repeated} of ${content.length} content slides reuse the same coarse layout grammar.`
+  );
+}
+
+function compositionRepeatIssue(content, grammar, visualTypes) {
+  const run = longestRepeatRun(
+    grammar.map((signature, index) => (signature ? `${signature}\u0000${visualTypes[index]}` : `\u0000${index}`))
+  );
+  if (run.length < 3) return null;
+  const first = Number(content[run.start]?.index) || run.start + 2;
+  const last = Number(content[run.start + run.length - 1]?.index) || first + run.length - 1;
+  return issue(
+    'consecutive_composition_repeat',
+    `Slides ${first}-${last} repeat one composition (${visualTypes[run.start]}) ${run.length} pages in a row; change the structure where the meaning changes, or merge the pages.`
+  );
+}
+
+function decorationRepeatIssue(slides) {
+  const decorations = slides.map((slide) => decorationKind(slide));
+  const run = longestRepeatRun(decorations.map((kind, index) => kind || `\u0000${index}`));
+  if (run.length < 2) return null;
+  const first = Number(slides[run.start]?.index) || run.start + 1;
+  const last = Number(slides[run.start + run.length - 1]?.index) || first + run.length - 1;
+  return issue(
+    'repeated_decoration',
+    `Slides ${first}-${last} draw the same ${decorations[run.start]} device ${run.length} pages in a row; take the next device of the deck's set on the later page, or leave it undecorated.`
+  );
+}
+
+function visualVarietyIssue(content, visualTypes) {
+  const unique = new Set(visualTypes.filter(Boolean)).size;
+  const required = Math.min(3, Math.ceil(content.length / 2));
+  if (content.length < 5 || unique >= required) return null;
+  return issue(
+    'visual_role_variety_low',
+    `The deck uses ${unique} visual role(s) across ${content.length} content slides; use at least ${required}.`
+  );
+}
+
+// An authored deck declares its directions on the brief's `directions:` line — the two compared compositions and
+// the one selected, which is what the skill asks for; the composer's own route builds three candidates instead.
+// Reading only the composer's payload told every authored deck it had no art direction, whatever its brief said.
+function artDirectionIssue(design) {
+  const briefDirections = design?.brief?.directions;
+  const composed = design?.artDirection?.candidates || [];
+  const directionCandidates = composed.length ? composed : briefDirections?.candidates || [];
+  const selected = design?.artDirection?.selected?.id || (composed.length ? '' : briefDirections?.selected || '');
+  const required = composed.length || !briefDirections ? 3 : 2;
+  if (directionCandidates.length >= required && selected) return null;
+  return issue(
+    'art_direction_candidates_missing',
+    'The deck has no selected art direction backed by three distinct candidates.'
+  );
+}
+
 export function reviewPptxDeckDiversity({ document, design } = {}) {
   if (design?.review?.allowRepetition) return [];
   const slides = Array.isArray(document?.slides) ? document.slides : [];
@@ -209,77 +273,17 @@ export function reviewPptxDeckDiversity({ document, design } = {}) {
     width: Number(document?.slideWidth) || Number(design?.format?.canvasWidth) || 960,
     height: Number(document?.slideHeight) || Number(design?.format?.canvasHeight) || 540,
   };
-  const signatures = new Map();
   const grammar = content.map((slide) => layoutGrammarSignature(slide, canvas));
-  for (const signature of grammar) {
-    if (signature) signatures.set(signature, (signatures.get(signature) || 0) + 1);
-  }
-  const repeated = Math.max(0, ...signatures.values());
   const plans = new Map((design?.slidePlans || []).map((plan) => [Number(plan?.slide), plan]));
   const visualTypes = content.map(
     (slide) => String(plans.get(Number(slide?.index))?.visualType || '').toLowerCase() || inferredVisualType(slide)
   );
-  const uniqueVisualTypes = new Set(visualTypes.filter(Boolean));
-  const issues = [];
-  if (content.length >= 4 && repeated / content.length >= 0.6) {
-    issues.push(
-      issue(
-        'repeated_layout_grammar',
-        `${repeated} of ${content.length} content slides reuse the same coarse layout grammar.`
-      )
-    );
-  }
-  const run = longestRepeatRun(
-    grammar.map((signature, index) => (signature ? `${signature}\u0000${visualTypes[index]}` : `\u0000${index}`))
-  );
-  if (run.length >= 3) {
-    const first = Number(content[run.start]?.index) || run.start + 2;
-    const last = Number(content[run.start + run.length - 1]?.index) || first + run.length - 1;
-    issues.push(
-      issue(
-        'consecutive_composition_repeat',
-        `Slides ${first}-${last} repeat one composition (${visualTypes[run.start]}) ${run.length} pages in a row; change the structure where the meaning changes, or merge the pages.`
-      )
-    );
-  }
-  const decorations = slides.map((slide) => decorationKind(slide));
-  const decorationRun = longestRepeatRun(decorations.map((kind, index) => kind || `\u0000${index}`));
-  if (decorationRun.length >= 2) {
-    const first = Number(slides[decorationRun.start]?.index) || decorationRun.start + 1;
-    const last =
-      Number(slides[decorationRun.start + decorationRun.length - 1]?.index) || first + decorationRun.length - 1;
-    issues.push(
-      issue(
-        'repeated_decoration',
-        `Slides ${first}-${last} draw the same ${decorations[decorationRun.start]} device ${decorationRun.length} pages in a row; take the next device of the deck's set on the later page, or leave it undecorated.`
-      )
-    );
-  }
-  const requiredVisualTypes = Math.min(3, Math.ceil(content.length / 2));
-  if (content.length >= 5 && uniqueVisualTypes.size < requiredVisualTypes) {
-    issues.push(
-      issue(
-        'visual_role_variety_low',
-        `The deck uses ${uniqueVisualTypes.size} visual role(s) across ${content.length} content slides; use at least ${requiredVisualTypes}.`
-      )
-    );
-  }
-  issues.push(...deckShapeIssues(slides));
-  // An authored deck declares its directions on the brief's `directions:` line — the two compared compositions and
-  // the one selected, which is what the skill asks for; the composer's own route builds three candidates instead.
-  // Reading only the composer's payload told every authored deck it had no art direction, whatever its brief said.
-  const briefDirections = design?.brief?.directions;
-  const composed = design?.artDirection?.candidates || [];
-  const directionCandidates = composed.length ? composed : briefDirections?.candidates || [];
-  const selected = design?.artDirection?.selected?.id || (composed.length ? '' : briefDirections?.selected || '');
-  const required = composed.length || !briefDirections ? 3 : 2;
-  if (directionCandidates.length < required || !selected) {
-    issues.push(
-      issue(
-        'art_direction_candidates_missing',
-        'The deck has no selected art direction backed by three distinct candidates.'
-      )
-    );
-  }
-  return issues;
+  return [
+    layoutGrammarIssue(content, grammar),
+    compositionRepeatIssue(content, grammar, visualTypes),
+    decorationRepeatIssue(slides),
+    visualVarietyIssue(content, visualTypes),
+    ...deckShapeIssues(slides),
+    artDirectionIssue(design),
+  ].filter(Boolean);
 }

@@ -54,7 +54,7 @@ function imagesIn(messages) {
       if (part.type === 'tool_result') content(part.content);
     }
   }
-  messages.forEach((message) => content(message.content));
+  for (const message of messages) content(message.content);
   return images;
 }
 

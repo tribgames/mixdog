@@ -1,7 +1,7 @@
-import { statSync } from 'fs';
-import * as fsPromises from 'fs/promises';
+import { statSync } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { isAbsolute, sep } from 'path';
+import { isAbsolute, sep } from 'node:path';
 import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 
@@ -316,17 +316,6 @@ export function rawContentCacheSet(fullPath, stat, rawBuf, now = Date.now()) {
   }
 }
 
-export function seedRawContentCacheAfterWrite(fullPath, content, st = null) {
-  try {
-    const rawBuf = Buffer.isBuffer(content) ? content : Buffer.from(String(content ?? ''), 'utf-8');
-    const writtenStat = st && typeof st.size === 'number' ? st : statSync(fullPath);
-    rawContentCacheSet(fullPath, writtenStat, rawBuf);
-    return writtenStat;
-  } catch {
-    return st || null;
-  }
-}
-
 function statCacheGet(fullPath, now = Date.now()) {
   const entry = STAT_CACHE.get(fullPath);
   if (!entry) return null;
@@ -353,52 +342,53 @@ export function getCachedReadOnlyStat(fullPath, loader = statSync, now = Date.no
   return stat;
 }
 
-async function visitPathStats(paths, workDir, concurrency, opts, visitor) {
+// Hard per-stat deadline (0 = disabled, legacy behaviour). A hung stat
+// (dead mount / unresponsive network path) must not pin a worker forever;
+// on expiry the entry resolves to null (stat-failed) so the stat phase is
+// bounded instead of running to the 600s agent watchdog.
+function statDeadlineMs(opts) {
+  return Number(opts.deadlineMs) > 0 ? Number(opts.deadlineMs) : 0;
+}
+
+// `statPromise` bounded by `deadlineMs`; null on expiry. ref timer (not
+// unref): the deadline MUST fire even when the hung stat is the only pending
+// work — that is exactly the case we bound. clearTimeout on the normal path
+// keeps a fast stat from holding the loop for the full deadline window.
+function withStatDeadline(statPromise, deadlineMs) {
+  if (!(deadlineMs > 0)) return statPromise;
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(null);
+      }
+    }, deadlineMs);
+    statPromise.then((v) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      }
+    });
+  });
+}
+
+// Deduplicated, deadline-bounded `statImpl` over `paths` with `concurrency`
+// workers; every path reaches `visitor(entry, index)`, a null-stat entry when
+// the stat failed or timed out.
+async function visitBoundedStats(paths, workDir, concurrency, deadlineMs, statImpl, visitor) {
   const items = Array.isArray(paths) ? paths : [];
-  const now = Date.now();
   const inflight = new Map();
   let next = 0;
-  // Hard per-stat deadline (0 = disabled, legacy behaviour). A hung stat
-  // (dead mount / unresponsive network path) must not pin a worker forever;
-  // on expiry the entry resolves to null (stat-failed) so glob's post-rg stat
-  // phase is bounded instead of running to the 600s agent watchdog.
-  const deadlineMs = Number(opts.deadlineMs) > 0 ? Number(opts.deadlineMs) : 0;
-  // Injectable stat impl for testing hung-FS behaviour deterministically.
-  const statImpl = typeof opts._statImpl === 'function' ? opts._statImpl : fsPromises.stat;
 
   async function resolveStat(full) {
     let pending = inflight.get(full);
     if (!pending) {
-      const statBase = statImpl(full)
-        .then((stat) => {
-          statCacheSet(full, stat, now);
-          return stat;
-        })
-        .catch(() => null);
-      let base = statBase;
-      if (deadlineMs > 0) {
-        // ref timer (not unref): the deadline MUST fire even when the
-        // hung stat is the only pending work — that is exactly the case
-        // we bound. clearTimeout on the normal path keeps a fast stat
-        // from holding the loop for the full deadline window.
-        base = new Promise((resolve) => {
-          let settled = false;
-          const timer = setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              resolve(null);
-            }
-          }, deadlineMs);
-          statBase.then((v) => {
-            if (!settled) {
-              settled = true;
-              clearTimeout(timer);
-              resolve(v);
-            }
-          });
-        });
-      }
-      pending = base;
+      pending = withStatDeadline(
+        statImpl(full).catch(() => null),
+        deadlineMs
+      );
       inflight.set(full, pending);
     }
     return pending;
@@ -425,6 +415,18 @@ async function visitPathStats(paths, workDir, concurrency, opts, visitor) {
   await Promise.all(Array.from({ length: workerCount }, worker));
 }
 
+async function visitPathStats(paths, workDir, concurrency, opts, visitor) {
+  const now = Date.now();
+  // Injectable stat impl for testing hung-FS behaviour deterministically.
+  const statImpl = typeof opts._statImpl === 'function' ? opts._statImpl : fsPromises.stat;
+  const cachingStat = (full) =>
+    statImpl(full).then((stat) => {
+      statCacheSet(full, stat, now);
+      return stat;
+    });
+  await visitBoundedStats(paths, workDir, concurrency, statDeadlineMs(opts), cachingStat, visitor);
+}
+
 export async function visitPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}, visitor = () => {}) {
   await visitPathStats(paths, workDir, concurrency, opts, visitor);
 }
@@ -444,66 +446,11 @@ export async function statPathsForMtime(paths, workDir, concurrency = Infinity, 
 export async function lstatPathsForMtime(paths, workDir, concurrency = Infinity, opts = {}) {
   const items = Array.isArray(paths) ? paths : [];
   const out = new Array(items.length);
-  const inflight = new Map();
-  let next = 0;
-  // Hard per-lstat deadline (0 = disabled, legacy behaviour). A hung lstat
-  // (dead mount / unresponsive network path) must not pin a worker forever;
-  // on expiry the entry resolves to null (stat-failed) so list's stat phase
-  // is bounded instead of running to the 600s agent watchdog.
-  const deadlineMs = Number(opts.deadlineMs) > 0 ? Number(opts.deadlineMs) : 0;
   // Injectable lstat impl for testing hung-FS behaviour deterministically.
   const lstatImpl = typeof opts._lstatImpl === 'function' ? opts._lstatImpl : fsPromises.lstat;
-
-  async function resolveLstat(full) {
-    let pending = inflight.get(full);
-    if (!pending) {
-      const lstatBase = lstatImpl(full).catch(() => null);
-      let base = lstatBase;
-      if (deadlineMs > 0) {
-        // ref timer (not unref): the deadline MUST fire even when the
-        // hung lstat is the only pending work — that is exactly the case
-        // we bound. clearTimeout on the normal path keeps a fast lstat
-        // from holding the loop for the full deadline window.
-        base = new Promise((resolve) => {
-          let settled = false;
-          const timer = setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              resolve(null);
-            }
-          }, deadlineMs);
-          lstatBase.then((v) => {
-            if (!settled) {
-              settled = true;
-              clearTimeout(timer);
-              resolve(v);
-            }
-          });
-        });
-      }
-      pending = base;
-      inflight.set(full, pending);
-    }
-    return pending;
-  }
-
-  async function worker() {
-    while (true) {
-      const index = next++;
-      if (index >= items.length) return;
-      const p = items[index];
-      const full = isAbsolute(p) ? p : resolveAgainstCwd(p, workDir);
-      try {
-        const stat = await resolveLstat(full);
-        if (!stat) throw new Error('lstat failed');
-        out[index] = { path: p, full, stat, size: stat.size, mtime: stat.mtimeMs, mtimeMs: stat.mtimeMs };
-      } catch {
-        out[index] = { path: p, full, stat: null, size: 0, mtime: 0, mtimeMs: 0 };
-      }
-    }
-  }
-  const workerCount = Math.min(Math.max(1, concurrency), Math.max(1, items.length));
-  await Promise.all(Array.from({ length: workerCount }, worker));
+  await visitBoundedStats(items, workDir, concurrency, statDeadlineMs(opts), lstatImpl, (entry, index) => {
+    out[index] = entry;
+  });
   return out;
 }
 

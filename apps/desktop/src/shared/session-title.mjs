@@ -197,14 +197,10 @@ export function promptTitle(prompt, displayText = '') {
   const mediaPart = Array.isArray(prompt)
     ? prompt.find((part) => part?.type === 'image' || part?.type === 'video')
     : null;
-  const attachmentFallback =
-    mediaPart?.type === 'video'
-      ? '[Video]'
-      : mediaPart?.type === 'image'
-        ? '[Image]'
-        : Array.isArray(prompt) && prompt.some((part) => part?.type === 'file')
-          ? '[File]'
-          : '';
+  let attachmentFallback = '';
+  if (mediaPart?.type === 'video') attachmentFallback = '[Video]';
+  else if (mediaPart?.type === 'image') attachmentFallback = '[Image]';
+  else if (Array.isArray(prompt) && prompt.some((part) => part?.type === 'file')) attachmentFallback = '[File]';
   if (displayText) {
     const visibleTitle = generatedSessionTitle(displayText, '');
     if (visibleTitle) return visibleTitle;

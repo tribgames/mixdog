@@ -101,7 +101,7 @@ function inducedTitle(shapes) {
 }
 
 function assignGroup(roles, row, prefix) {
-  row.forEach((shape, position) => roles.set(shape.shape, `${prefix}-${position + 1}`));
+  for (const [position, shape] of row.entries()) roles.set(shape.shape, `${prefix}-${position + 1}`);
 }
 
 function rowArea(row) {

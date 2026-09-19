@@ -12,60 +12,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { clean } from './session-text.mjs';
 import { readJsonSafe } from './fs-utils.mjs';
 import { pluginManifest, pluginSkillsRoots, resolveContainedPluginPath } from '../runtime/shared/plugin-manifest.mjs';
 import { isPlainObject } from '../runtime/shared/object.mjs';
-
-// Config keys must compare the same cwd spelling on read and write. Windows
-// paths are case-insensitive, so canonicalize their resolved form to lowercase.
-export function normalizeMcpProjectPathKey(cwd) {
-  const path = resolve(cwd || '.');
-  return process.platform === 'win32' ? path.toLowerCase() : path;
-}
-
-// Project-local MCP ingress: read `.mcp.json` from the project root and return
-// a cleaned { name: cfg } map. Best-effort — never throws. Accepts either the
-// standard `{ mcpServers: {...} }` shape or a bare name->cfg map. Self-ref
-// servers (`mixdog` / `trib-plugin`) are stripped for parity with loadConfig.
-// Inputs are not mutated.
-export function readProjectMcpServers(cwd) {
-  const path = join(cwd || '.', '.mcp.json');
-  if (!existsSync(path)) return {};
-  let raw;
-  try {
-    raw = JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    process.stderr.write(
-      `[mcp-client] Ignoring unparseable .mcp.json at ${path}: ${error?.message || String(error)}\n`
-    );
-    return {};
-  }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-  const map =
-    raw.mcpServers && typeof raw.mcpServers === 'object' && !Array.isArray(raw.mcpServers) ? raw.mcpServers : raw;
-  if (!map || typeof map !== 'object' || Array.isArray(map)) return {};
-  const out = {};
-  for (const [name, cfg] of Object.entries(map)) {
-    const key = clean(name);
-    if (!key) continue;
-    const lower = key.toLowerCase();
-    if (lower === 'mixdog' || lower === 'trib-plugin') continue;
-    if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) continue;
-    // stdio entries (command + no url) spawn relative to the process launch
-    // dir, but mixdog tracks the project dir in memory (no process.chdir).
-    // Anchor their cwd to the .mcp.json directory: default when absent, resolve
-    // relative values against it, keep absolute values as-is.
-    const isStdio = typeof cfg.command === 'string' && cfg.command !== '' && !cfg.url;
-    if (isStdio) {
-      out[key] = { ...cfg, cwd: typeof cfg.cwd === 'string' && cfg.cwd ? resolve(cwd, cfg.cwd) : resolve(cwd) };
-    } else {
-      out[key] = cfg;
-    }
-  }
-  return out;
-}
 
 const MCP_TRANSPORT_FIELDS = new Set([
   'type',
@@ -160,11 +111,12 @@ export function saveProjectMcpServer(cwd, { originalName = '', name, config }) {
   const target = String(name || '').trim();
   const original = String(originalName || '').trim();
   if (!target) throw new Error('MCP server name is required');
-  const entryKey = original
-    ? Object.hasOwn(map, original)
+  let entryKey = null;
+  if (original) {
+    entryKey = Object.hasOwn(map, original)
       ? original
-      : Object.keys(map).find((candidate) => String(candidate || '').trim() === original)
-    : null;
+      : Object.keys(map).find((candidate) => String(candidate || '').trim() === original);
+  }
   if (original && !entryKey) throw new Error(`MCP server not defined in ${path}: ${original}`);
   if (target !== entryKey && Object.hasOwn(map, target)) {
     throw new Error(`MCP server already exists in ${path}: ${target}`);

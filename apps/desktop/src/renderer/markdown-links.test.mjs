@@ -838,12 +838,8 @@ for (const [pipeline, render] of Object.entries(streamingRenderers)) {
       await act(async () => preview.dispatchEvent(new f.dom.window.MouseEvent('click', { bubbles: true })));
       assert.equal(f.opened.length + f.local.length, 0);
 
-      const complete =
-        notation === 'inline code'
-          ? `${format('src/app.ts')}\``
-          : notation === 'link caption'
-            ? `${format('src/app.ts')}](src/app.ts)`
-            : `${format('src/app.ts')} `;
+      const completeSuffix = { 'inline code': '`', 'link caption': '](src/app.ts)' }[notation] ?? ' ';
+      const complete = `${format('src/app.ts')}${completeSuffix}`;
       await f.update(PROJECT, complete);
       await act(async () => {
         release({ size: 10, mtimeMs: 1 });

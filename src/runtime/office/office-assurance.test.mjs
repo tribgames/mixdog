@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 import { createCanvas } from '@napi-rs/canvas';
 
@@ -1703,8 +1704,6 @@ test('Office assurance benchmark covers spreadsheet, slide, document, cross-app,
 // a repair instruction; a code that falls back to the generic "Correct <code>"
 // line is a review the author cannot act on.
 test('every review code the pptx quality modules raise has repair guidance in the polish plan', async () => {
-  const { readFile, readdir } = await import('node:fs/promises');
-  const { fileURLToPath } = await import('node:url');
   const sources = [];
   for (const dir of ['quality', 'authoring']) {
     const base = fileURLToPath(new URL(`./${dir}/`, import.meta.url));

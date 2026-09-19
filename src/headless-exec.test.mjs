@@ -377,7 +377,7 @@ test('headless exec answers an arrived completion and exits without waiting on l
         }
         return { result: { content: 'final result' } };
       },
-      async close(reason, options) {
+      async close(_reason, options) {
         closeOptions = options ?? null;
       },
     }),

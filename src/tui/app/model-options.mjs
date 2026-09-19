@@ -316,33 +316,3 @@ export const routeFromModel = (model, effort = null) => ({
   model: model.id,
   ...(effort && effort !== 'auto' ? { effort } : {}),
 });
-
-const modelScore = (model, slot) => {
-  const text = `${model.provider} ${model.id} ${model.display} ${model.family || ''} ${model.tier || ''}`.toLowerCase();
-  let score = 0;
-  if (model.latest) score += 6;
-  if (slot === 'lead' || slot === 'review') {
-    if (/opus|gpt-5\.5|gpt-5|sonnet/.test(text)) score += 20;
-    if (/mini|nano|haiku|flash/.test(text)) score -= 5;
-  } else if (slot === 'memory') {
-    if (/haiku|mini|nano|flash|fast/.test(text)) score += 20;
-    if (/opus|max/.test(text)) score -= 4;
-  } else if (slot === 'agent') {
-    if (/sonnet|gpt-5|mini|haiku|flash/.test(text)) score += 12;
-    if (/opus/.test(text)) score += 3;
-  }
-  if (model.supportsFunctionCalling) score += 2;
-  return score;
-};
-
-const chooseRecommendedModel = (models, slot, fallbackRoute) => {
-  if (!Array.isArray(models) || models.length === 0) return null;
-  const sorted = models.slice().sort((a, b) => modelScore(b, slot) - modelScore(a, slot));
-  return sorted[0] ? routeFromModel(sorted[0]) : fallbackRoute || null;
-};
-
-export const buildWorkflowDefaults = (models, defaultRoute) => ({
-  lead: defaultRoute,
-  agent: chooseRecommendedModel(models, 'agent', defaultRoute),
-  memory: chooseRecommendedModel(models, 'memory', defaultRoute),
-});

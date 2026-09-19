@@ -19,11 +19,11 @@ export type DayRange = { startDay: string; endDay: string; startTime?: string; e
 const WEEKS = 6;
 const STEPS: Record<string, number> = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7 };
 
-function pad2(value: number): string {
+export function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
 
-function dayKey(date: Date): string {
+export function dayKey(date: Date): string {
   return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
 }
 
@@ -52,6 +52,13 @@ function shiftMonth(month: string, count: number): string {
 function weekStart(locale: string): number {
   const info = (new Intl.Locale(locale) as { getWeekInfo?: () => { firstDay?: number } }).getWeekInfo?.();
   return (info?.firstDay ?? 1) % 7;
+}
+
+/** Where a day sits in the painted range, for the cell's corner styling. */
+function rangeEdge(day: string, from: string, to: string, selected: boolean): string | undefined {
+  if (!selected) return undefined;
+  if (day === from) return day === to ? 'only' : 'start';
+  return day === to ? 'end' : 'inside';
 }
 
 /** Six fixed rows: a month that needs fewer must not resize the panel under
@@ -201,9 +208,7 @@ export function DateRangePicker({
               className="mx-daterange-day"
               data-day={day}
               data-outside={day.slice(0, 7) === month.slice(0, 7) ? undefined : ''}
-              data-range={
-                selected ? (day === from ? (day === to ? 'only' : 'start') : day === to ? 'end' : 'inside') : undefined
-              }
+              data-range={rangeEdge(day, from, to, selected)}
               aria-label={dayFormat.format(parseDay(day))}
               aria-pressed={selected}
               disabled={disabled || day > maxDay}

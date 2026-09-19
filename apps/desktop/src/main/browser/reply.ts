@@ -201,23 +201,19 @@ export function createBrowserReply(host: BrowserReplyHost) {
         await pause(POSTCONDITION_POLL_MS, signal);
       }
     };
+    // A condition that was already true before the gesture proves nothing
+    // about this one, so it may never cut the settle short.
+    const settleUntil = expected && !options.preexistingPostcondition ? postconditionSatisfied : undefined;
     await measureBrowserPhase('wait', () =>
       Promise.all([
         options.settleAction
-          ? settleAfterAction(
-              guest,
-              signal,
-              // A condition that was already true before the gesture proves nothing
-              // about this one, so it may never cut the settle short.
-              expected && !options.preexistingPostcondition ? postconditionSatisfied : undefined,
-              {
-                background: options.targetIsBackground,
-                requireQuiet: Boolean(expected && options.preexistingPostcondition),
-                // Where the page was before the gesture: a URL that changed
-                // without a load means the view is still being replaced.
-                previousUrl: options.baseline?.url,
-              }
-            )
+          ? settleAfterAction(guest, signal, settleUntil, {
+              background: options.targetIsBackground,
+              requireQuiet: Boolean(expected && options.preexistingPostcondition),
+              // Where the page was before the gesture: a URL that changed
+              // without a load means the view is still being replaced.
+              previousUrl: options.baseline?.url,
+            })
           : Promise.resolve(),
         settleMs ? pause(settleMs, signal) : Promise.resolve(),
         waitForPostcondition(),

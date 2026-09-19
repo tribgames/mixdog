@@ -29,6 +29,37 @@ function setLocalProviderEnabledInConfig(configLike, enabled) {
   return next;
 }
 
+// Every spelling of the main-context buffer budget; a new representation
+// replaces the previous one.
+const MAIN_BUFFER_KEYS = [
+  'mainBufferTokens',
+  'mainBuffer',
+  'mainBufferPercent',
+  'mainBufferPct',
+  'mainBufferRatio',
+  'mainBufferFraction',
+];
+// Session-level compaction fields that the saved config owns from now on.
+const SESSION_COMPACTION_KEYS = [
+  'type',
+  'compactType',
+  'compact_type',
+  'semantic',
+  'semanticModel',
+  'prune',
+  'tailTurns',
+  'recallMemoryTimeoutMs',
+  'recallIngestLimit',
+  'recallChunkLimit',
+  'recallLimit',
+  'recallCycle1BatchSize',
+  'recallRowsPerSession',
+  'recallWindowSize',
+  'recallConcurrency',
+  'recallCycle1DeadlineMs',
+  ...MAIN_BUFFER_KEYS,
+];
+
 export function createSettingsApi({
   // config accessors / mutable state
   getConfig,
@@ -187,7 +218,9 @@ export function createSettingsApi({
       return cfgMod.normalizeSkillsConfig(config.skills);
     },
     setDisabledSkills(disabled) {
-      const names = disabled instanceof Set ? [...disabled] : Array.isArray(disabled) ? disabled : [];
+      let names = [];
+      if (disabled instanceof Set) names = [...disabled];
+      else if (Array.isArray(disabled)) names = disabled;
       // Adopt in-memory synchronously so getDisabledSkills reflects the new
       // value on the same tick (matches normalizeSkillsConfig({ disabled })
       // used by patchSkillsDisabled). Defer the heavy in-lock file RMW through
@@ -231,37 +264,12 @@ export function createSettingsApi({
       if (hasOwn(input, 'enabled')) next.auto = input.enabled !== false;
       // Legacy Compact type fields are intentionally ignored. There is one
       // fresh-context Compact contract for every session.
-      for (const key of [
-        'mainBufferTokens',
-        'mainBuffer',
-        'mainBufferPercent',
-        'mainBufferPct',
-        'mainBufferRatio',
-        'mainBufferFraction',
-      ]) {
-        // A new budget representation replaces the previous one. Otherwise a
-        // saved token override silently outranks a later percentage edit.
-        if (hasOwn(input, key)) {
-          for (const old of [
-            'mainBufferTokens',
-            'mainBuffer',
-            'mainBufferPercent',
-            'mainBufferPct',
-            'mainBufferRatio',
-            'mainBufferFraction',
-          ])
-            delete next[old];
-          break;
-        }
+      // A new budget representation replaces the previous one. Otherwise a
+      // saved token override silently outranks a later percentage edit.
+      if (MAIN_BUFFER_KEYS.some((key) => hasOwn(input, key))) {
+        for (const old of MAIN_BUFFER_KEYS) delete next[old];
       }
-      for (const key of [
-        'mainBufferTokens',
-        'mainBuffer',
-        'mainBufferPercent',
-        'mainBufferPct',
-        'mainBufferRatio',
-        'mainBufferFraction',
-      ]) {
+      for (const key of MAIN_BUFFER_KEYS) {
         if (hasOwn(input, key)) next[key] = input[key];
       }
       const nextConfig = { ...config };
@@ -271,32 +279,7 @@ export function createSettingsApi({
       const session = getSession();
       if (session) {
         const currentSessionCompaction = { ...(session.compaction || {}) };
-        for (const key of [
-          'type',
-          'compactType',
-          'compact_type',
-          'semantic',
-          'semanticModel',
-          'prune',
-          'tailTurns',
-          'recallMemoryTimeoutMs',
-          'recallIngestLimit',
-          'recallChunkLimit',
-          'recallLimit',
-          'recallCycle1BatchSize',
-          'recallRowsPerSession',
-          'recallWindowSize',
-          'recallConcurrency',
-          'recallCycle1DeadlineMs',
-          'mainBufferTokens',
-          'mainBuffer',
-          'mainBufferPercent',
-          'mainBufferPct',
-          'mainBufferRatio',
-          'mainBufferFraction',
-        ]) {
-          delete currentSessionCompaction[key];
-        }
+        for (const key of SESSION_COMPACTION_KEYS) delete currentSessionCompaction[key];
         session.compaction = {
           ...currentSessionCompaction,
           ...normalizeCompactionConfig(config2.compaction),

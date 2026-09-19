@@ -33,6 +33,19 @@ export function coerceNonNegInt(value) {
   return Math.floor(n);
 }
 
+// String or string[] argument → its non-empty string entries.
+export function stringList(value) {
+  if (Array.isArray(value)) return value.filter((entry) => typeof entry === 'string' && entry);
+  return value ? [String(value)] : [];
+}
+
+// head_limit shared by the single-path flow and the path[] fan-out:
+// absent → the default cap, 0 → unlimited, otherwise the coerced integer.
+export function resolveHeadLimit(coerced, defaultLimit) {
+  if (coerced === null) return defaultLimit;
+  return coerced === 0 ? Infinity : coerced;
+}
+
 export function globMtimeTiePath(entry) {
   const p = String(entry?.path ?? entry?.full ?? '');
   return process.platform === 'win32' ? p.toLocaleLowerCase() : p;

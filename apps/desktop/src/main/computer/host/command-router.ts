@@ -330,7 +330,8 @@ export function createCommandRouter(host: CommandRouterHost) {
     const { targetWindowId } = inputTarget;
     const activeState = executionContext.getStore();
     if (targetWindowId && inputTarget.observedScope && activeState) {
-      (activeState.inputScopes ||= new Map()).set(targetWindowId, inputTarget.observedScope);
+      activeState.inputScopes ||= new Map();
+      activeState.inputScopes.set(targetWindowId, inputTarget.observedScope);
     } else if (targetWindowId && trustedSequenceContinuation) {
       inputTarget.observedScope = activeState?.inputScopes?.get(targetWindowId);
     }

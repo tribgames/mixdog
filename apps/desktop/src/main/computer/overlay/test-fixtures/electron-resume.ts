@@ -194,10 +194,8 @@ void app
           assert.equal(observed.fits, true, `${locale}/${reason} overflows`);
           assert.equal(observed.pillWidth, OVERLAY_WIDTH - 20, `${locale}/${reason} must keep the same compact width`);
           assert.equal(observed.buttons, 1);
-          assert.equal(
-            observed.label,
-            presentation.paused ? (locale === 'ko' ? '재개' : 'Resume') : locale === 'ko' ? '중단' : 'Pause'
-          );
+          const labels = locale === 'ko' ? { resume: '재개', pause: '중단' } : { resume: 'Resume', pause: 'Pause' };
+          assert.equal(observed.label, presentation.paused ? labels.resume : labels.pause);
           assert.equal(observed.disabled, presentation.paused && !presentation.canResume);
           toggleBounds ??= observed.toggleBounds;
           assert.deepEqual(observed.toggleBounds, toggleBounds, `${locale}/${reason} moved the toggle hit target`);

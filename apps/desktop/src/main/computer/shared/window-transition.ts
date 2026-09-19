@@ -83,7 +83,9 @@ export function launchTransitionConfirmsTarget(
 }
 
 export function normalizeComputerWindowRecords(value: unknown): ComputerWindowRecord[] {
-  const rows = Array.isArray(value) ? value : value && typeof value === 'object' ? [value] : [];
+  let rows: unknown[] = [];
+  if (Array.isArray(value)) rows = value;
+  else if (value && typeof value === 'object') rows = [value];
   const records: ComputerWindowRecord[] = [];
   for (const raw of rows) {
     if (!raw || typeof raw !== 'object') continue;
@@ -154,6 +156,82 @@ function preferredSuccessor(
   return targetStillPresent ? undefined : uniquePreferred(candidates);
 }
 
+type ComputerWindowSuccessor = {
+  window: ComputerWindowRecord;
+  reason: NonNullable<ComputerWindowTransition['next_target_reason']>;
+};
+
+// The command launched a process or app rather than acting on a window: its
+// successor is the window that opened for that process/app, else the app
+// window that took focus, else an existing app window.
+function launchedSuccessor(
+  opened: ComputerWindowRecord[],
+  after: ComputerWindowRecord[],
+  focusedBefore: string,
+  { targetPid, contextApp }: { targetPid: number; contextApp: string }
+): ComputerWindowSuccessor | null {
+  const launchedProcess = uniquePreferred(
+    opened.filter((window) => targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid))
+  );
+  if (launchedProcess) return { window: launchedProcess, reason: 'launched_process_window' };
+  const launchedApp = uniquePreferred(
+    opened.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
+  );
+  if (launchedApp) return { window: launchedApp, reason: 'launched_app_opened' };
+  const focusedApp = after.find(
+    (window) =>
+      window.focused &&
+      window.id !== focusedBefore &&
+      Boolean(contextApp) &&
+      normalizedAppName(window.app) === contextApp
+  );
+  if (focusedApp) return { window: focusedApp, reason: 'launched_app_focused' };
+  const existingApp = uniquePreferred(
+    after.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
+  );
+  return existingApp ? { window: existingApp, reason: 'launched_app_existing' } : null;
+}
+
+// The target closed and nothing opened: the nearest surviving owner in its
+// chain takes over.
+function restoredOwner(
+  beforeById: Map<string, ComputerWindowRecord>,
+  afterById: Map<string, ComputerWindowRecord>,
+  targetWindowId: string
+): ComputerWindowRecord | null {
+  const visited = new Set<string>([targetWindowId]);
+  let ownerId = beforeById.get(targetWindowId)?.ownerId;
+  while (ownerId && !visited.has(ownerId)) {
+    visited.add(ownerId);
+    const owner = afterById.get(ownerId);
+    if (owner) return owner;
+    ownerId = beforeById.get(ownerId)?.ownerId;
+  }
+  return null;
+}
+
+// Successor among the windows the target's action opened: one it owns, then
+// its child process's window, then a single same-process window.
+function openedSuccessor(
+  opened: ComputerWindowRecord[],
+  beforeById: Map<string, ComputerWindowRecord>,
+  afterById: Map<string, ComputerWindowRecord>,
+  targetWindowId: string
+): ComputerWindowSuccessor | null {
+  const owned = opened.filter((window) => ownerChainContains(window.id, targetWindowId, afterById));
+  const ownedTarget = preferredSuccessor(owned, afterById.has(targetWindowId));
+  if (ownedTarget) return { window: ownedTarget, reason: 'owned_window_opened' };
+  const targetBefore = beforeById.get(targetWindowId);
+  if (!targetBefore?.pid) return null;
+  const childProcess = uniquePreferred(opened.filter((window) => window.parentPid === targetBefore.pid));
+  if (childProcess) return { window: childProcess, reason: 'child_process_window_opened' };
+  const sameProcess = opened.filter(
+    (window) => window.pid === targetBefore.pid && !ownerChainContains(window.id, targetWindowId, afterById)
+  );
+  const processTarget = uniquePreferred(sameProcess);
+  return processTarget ? { window: processTarget, reason: 'single_same_process_window_opened' } : null;
+}
+
 export function computeComputerWindowTransition(
   before: ComputerWindowRecord[],
   after: ComputerWindowRecord[],
@@ -187,88 +265,19 @@ export function computeComputerWindowTransition(
     focused_after: after.find((window) => window.focused)?.id || '',
   };
 
+  let successor: ComputerWindowSuccessor | null = null;
   if (!targetWindowId && (targetPid > 0 || Boolean(contextApp))) {
-    const launchedProcessTarget = uniquePreferred(
-      opened.filter((window) => targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid))
-    );
-    if (launchedProcessTarget) {
-      transition.next_target = launchedProcessTarget;
-      transition.next_target_reason = 'launched_process_window';
-      return transition;
-    }
-    const launchedAppTarget = uniquePreferred(
-      opened.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
-    );
-    if (launchedAppTarget) {
-      transition.next_target = launchedAppTarget;
-      transition.next_target_reason = 'launched_app_opened';
-      return transition;
-    }
-    const focusedBefore = transition.focused_before;
-    const focusedAppTarget = after.find(
-      (window) =>
-        window.focused &&
-        window.id !== focusedBefore &&
-        Boolean(contextApp) &&
-        normalizedAppName(window.app) === contextApp
-    );
-    if (focusedAppTarget) {
-      transition.next_target = focusedAppTarget;
-      transition.next_target_reason = 'launched_app_focused';
-      return transition;
-    }
-    const existingAppTarget = uniquePreferred(
-      after.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
-    );
-    if (existingAppTarget) {
-      transition.next_target = existingAppTarget;
-      transition.next_target_reason = 'launched_app_existing';
-      return transition;
-    }
-    return transition;
+    successor = launchedSuccessor(opened, after, transition.focused_before, { targetPid, contextApp });
+  } else if (opened.length === 0) {
+    const owner =
+      targetWindowId && !afterById.has(targetWindowId) ? restoredOwner(beforeById, afterById, targetWindowId) : null;
+    if (owner) successor = { window: owner, reason: 'owner_window_restored' };
+  } else if (targetWindowId) {
+    successor = openedSuccessor(opened, beforeById, afterById, targetWindowId);
   }
-  if (opened.length === 0) {
-    if (targetWindowId && !afterById.has(targetWindowId)) {
-      const visited = new Set<string>([targetWindowId]);
-      let ownerId = beforeById.get(targetWindowId)?.ownerId;
-      while (ownerId && !visited.has(ownerId)) {
-        visited.add(ownerId);
-        const owner = afterById.get(ownerId);
-        if (owner) {
-          transition.next_target = owner;
-          transition.next_target_reason = 'owner_window_restored';
-          break;
-        }
-        ownerId = beforeById.get(ownerId)?.ownerId;
-      }
-    }
-    return transition;
-  }
-  if (!targetWindowId) return transition;
-  const targetStillPresent = afterById.has(targetWindowId);
-  const owned = opened.filter((window) => ownerChainContains(window.id, targetWindowId, afterById));
-  const ownedTarget = preferredSuccessor(owned, targetStillPresent);
-  if (ownedTarget) {
-    transition.next_target = ownedTarget;
-    transition.next_target_reason = 'owned_window_opened';
-    return transition;
-  }
-
-  const targetBefore = beforeById.get(targetWindowId);
-  if (!targetBefore?.pid) return transition;
-  const childProcessTarget = uniquePreferred(opened.filter((window) => window.parentPid === targetBefore.pid));
-  if (childProcessTarget) {
-    transition.next_target = childProcessTarget;
-    transition.next_target_reason = 'child_process_window_opened';
-    return transition;
-  }
-  const sameProcess = opened.filter(
-    (window) => window.pid === targetBefore.pid && !ownerChainContains(window.id, targetWindowId, afterById)
-  );
-  const processTarget = uniquePreferred(sameProcess);
-  if (processTarget) {
-    transition.next_target = processTarget;
-    transition.next_target_reason = 'single_same_process_window_opened';
+  if (successor) {
+    transition.next_target = successor.window;
+    transition.next_target_reason = successor.reason;
   }
   return transition;
 }

@@ -21,7 +21,7 @@ export const GLIDE_SEED_OFFSET = 140;
 export const GLIDE_MIN_MS = 140;
 /** The native worker waits this long after announcing a target before it acts. */
 export const GLIDE_MAX_MS = 360;
-export const GLIDE_SPEED_PX_PER_S = 1400;
+const GLIDE_SPEED_PX_PER_S = 1400;
 const GLIDE_MIN_DISTANCE = 4;
 const AREA_MARGIN = 2;
 const COLLAPSED_SEED = 8;

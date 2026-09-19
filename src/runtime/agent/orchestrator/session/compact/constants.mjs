@@ -19,6 +19,9 @@ export const SUMMARY_PREFIX_ANCHOR =
   'A previous model worked on this task and produced the compacted handoff summary below.';
 export const SUMMARY_PREFIX = `${SUMMARY_PREFIX_ANCHOR} Build on the work already done and avoid duplicating it. The summary covers the session; retained requests and execution records follow it. Actual tool outcomes take precedence over plans or older claims in the summary.`;
 export const SUMMARY_OUTPUT_TOKENS = 4_096;
+// Longest a handoff summary call may run: the default, the config fallback,
+// and the ceiling of the transcript-scaled timeout all read this one value.
+export const HANDOFF_TIMEOUT_MAX_MS = 300_000;
 // Default total post-compact context target, including request/tool overhead.
 // Execution history has its own smaller cap inside this overall budget.
 // Consumers:

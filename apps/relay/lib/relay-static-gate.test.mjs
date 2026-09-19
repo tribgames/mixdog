@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseDeviceRoute, PUBLIC_APP_ASSETS, serveStatic, shareTargetShell } from './relay-static-gate.mjs';
+import { recordingResponse } from './test-recording-response.mjs';
 
 test('device routes require a trailing slash before they can resolve relative assets', () => {
   assert.equal(parseDeviceRoute('/nope'), null);
@@ -36,14 +37,8 @@ test('a share POST that outran the worker reopens the app shell', () => {
   );
   assert.equal(shareTargetShell('/share-target'), '/');
   assert.equal(shareTargetShell('/other'), '');
-  const recorded = [];
-  const response = {
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end() {},
-  };
+  const response = recordingResponse();
+  const { recorded } = response;
   serveStatic(
     '',
     { deviceIdForClientToken: () => null, isKnown: () => false },
@@ -56,16 +51,8 @@ test('a share POST that outran the worker reopens the app shell', () => {
 });
 
 test('healthz is public and other writes still 405', () => {
-  const recorded = [];
-  const response = {
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end(body) {
-      recorded.at(-1).body = body;
-    },
-  };
+  const response = recordingResponse();
+  const { recorded } = response;
   serveStatic('', {}, { allow: () => true }, { method: 'GET', url: '/healthz', headers: {}, socket: {} }, response);
   assert.equal(recorded[0].status, 200);
   assert.equal(recorded[0].body, '{"status":"ok"}');

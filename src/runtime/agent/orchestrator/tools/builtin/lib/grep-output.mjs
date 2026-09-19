@@ -20,6 +20,27 @@ export function globMissingPatternMessage() {
   return 'Error: glob requires pattern.';
 }
 
+// Body for a search that found nothing: names what was searched so the
+// caller can tell an empty scope from a wrong pattern.
+export function grepNoMatchesBody({ patterns, globPatterns, isDirectory, searchPath, totalKnown }) {
+  const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
+  const globStr = globPatterns.length > 0 ? ` glob=${JSON.stringify(globPatterns)}` : '';
+  const pathInfo = isDirectory ? 'path exists (dir)' : 'path exists (file)';
+  return `(no matches${totalKnown ? '' : ' in partial results'}) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+}
+
+// Warning appended when rg stopped early; the caller has already marked the
+// result partial.
+export function grepPartialWarning(streamed) {
+  if (streamed.timeout) {
+    return '\n[warning] rg timed out; partial results shown. Narrow path/glob/pattern for a complete result.';
+  }
+  if (streamed.rgStderr) {
+    return `\n[warning] rg exit 2 (partial results): ${String(streamed.rgStderr).trim().slice(0, 300)}`;
+  }
+  return '\n[warning] rg exit 2 (partial results)';
+}
+
 // --- context-mode match-block windowing (Parts 2 & 3) ---------------------
 // In context mode (explicit -A/-B/-C or content_with_context auto), head_limit
 // and offset count MATCH BLOCKS, not raw output lines, and truncation keeps a
@@ -58,10 +79,7 @@ function parseRenderableGrepContextBlock(block, filenameOmitted, fallbackPath) {
     parsed.length > 0 &&
     parsed.every(
       (entry, index) =>
-        entry &&
-        entry.path &&
-        entry.path === parsed[0].path &&
-        (index === 0 || entry.lineNo === parsed[index - 1].lineNo + 1)
+        entry?.path && entry.path === parsed[0].path && (index === 0 || entry.lineNo === parsed[index - 1].lineNo + 1)
     );
   const match = contiguous ? parsed.find((entry) => entry.delimiter === ':') : null;
   if (!match) return { raw: block.lines.join('\n') };
@@ -124,6 +142,21 @@ function parseGrepContextBlocks(lines, filenameOmitted, fallbackPath) {
   return blocks;
 }
 
+// The rendered page. When blocks are omitted the page keeps head + tail so
+// both ends of the match range stay visible, and paging must resume at the
+// first OMITTED block (right after the head slice): offset+shown would
+// permanently skip the middle blocks that the tail slice displaced. Tail
+// blocks re-appear on later pages — duplication is acceptable, silent loss
+// is not.
+function pagedContextSegments(afterOffset, { shown, omitted, offset, render }) {
+  if (!(omitted > 0 && shown > 0)) return { segments: render(afterOffset.slice(0, shown)), nextOffset: offset + shown };
+  const headCount = Math.max(1, Math.ceil(shown / 2));
+  const tailCount = shown - headCount;
+  const head = render(afterOffset.slice(0, headCount));
+  const tail = tailCount > 0 ? render(afterOffset.slice(afterOffset.length - tailCount)) : [];
+  return { segments: [...head, `…${omitted} matches omitted…`, ...tail], nextOffset: offset + headCount };
+}
+
 export function formatGrepContextOutput({
   allLines,
   workDir,
@@ -157,23 +190,7 @@ export function formatGrepContextOutput({
   const shown = headLimit === Infinity ? afterOffset.length : Math.min(headLimit, afterOffset.length);
   const omitted = afterOffset.length - shown;
   const render = (arr) => renderGrepContextBlocks(arr, filenameOmitted, fallbackPath);
-  let segments;
-  let nextOffset = offset + shown;
-  if (omitted > 0 && shown > 0) {
-    // Keep head + tail so both ends of the match range stay visible.
-    const headCount = Math.max(1, Math.ceil(shown / 2));
-    const tailCount = shown - headCount;
-    const head = render(afterOffset.slice(0, headCount));
-    const tail = tailCount > 0 ? render(afterOffset.slice(afterOffset.length - tailCount)) : [];
-    segments = [...head, `…${omitted} matches omitted…`, ...tail];
-    // Paging must resume at the first OMITTED block (right after the head
-    // slice): offset+shown would permanently skip the middle blocks that
-    // the tail slice displaced. Tail blocks re-appear on later pages —
-    // duplication is acceptable, silent loss is not.
-    nextOffset = offset + headCount;
-  } else {
-    segments = render(afterOffset.slice(0, shown));
-  }
+  const { segments, nextOffset } = pagedContextSegments(afterOffset, { shown, omitted, offset, render });
   const notice =
     omitted > 0 || !totalKnown
       ? `\n[Showing ${shown} of ${totalStr} matches${totalKnown ? '' : ' (results partial)'}; pass offset:${nextOffset} for more]`
@@ -218,6 +235,19 @@ export function dedupeFanoutMatchLines(body, seen) {
   return out.join('\n');
 }
 
+function grepCountSummary(countLines) {
+  let totalMatches = 0;
+  let fileCount = 0;
+  for (const line of countLines) {
+    const m = line.match(/(?:^|:)(\d+)$/);
+    if (m) {
+      totalMatches += Number(m[1]);
+      fileCount++;
+    }
+  }
+  return `\n[total ${totalMatches} match${totalMatches === 1 ? '' : 'es'} across ${fileCount} file${fileCount === 1 ? '' : 's'}]`;
+}
+
 export function formatGrepOutput({
   windowed,
   totalWindowed,
@@ -257,19 +287,7 @@ export function formatGrepOutput({
         : `\n[Showing ${shown} (more matches exist — use mode:'count' for the exact total on ${scopePath}); pass offset:${offset + shown} for more]`
       : '';
 
-  let countSummary = '';
-  if (outputMode === 'count') {
-    let totalMatches = 0;
-    let fileCount = 0;
-    for (const line of normalized) {
-      const m = line.match(/(?:^|:)(\d+)$/);
-      if (m) {
-        totalMatches += Number(m[1]);
-        fileCount++;
-      }
-    }
-    countSummary = `\n[total ${totalMatches} match${totalMatches === 1 ? '' : 'es'} across ${fileCount} file${fileCount === 1 ? '' : 's'}]`;
-  }
+  const countSummary = outputMode === 'count' ? grepCountSummary(normalized) : '';
   const hasContext = beforeN > 0 || afterN > 0 || contextN > 0;
   const groupedBody =
     outputMode === 'content' && !hasContext && !filenameOmitted && !disableContentGrouping

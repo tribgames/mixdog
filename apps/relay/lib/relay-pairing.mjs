@@ -6,7 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 import { clientProfile } from './device-store.mjs';
 import { isRoutingId } from './ids.mjs';
-import { browserSocketOriginAllowed, clientIp } from './relay-http.mjs';
+import { browserSocketOriginAllowed, clientIp, decodedRequestPath, desktopLegOpen } from './relay-http.mjs';
 import { pairingCookieHeaders, parseCookieToken } from './static-http.mjs';
 
 export const MAX_PENDING_CLAIMS = 64;
@@ -48,6 +48,26 @@ function readBoundedJson(request, maxBytes = 8 * 1024) {
   });
 }
 
+/** The registration's request URL and JSON body, or null when either is
+ *  malformed or oversized. */
+async function registrationInput(request) {
+  try {
+    const url = new URL(request.url || '/', 'http://localhost');
+    return { url, body: await readBoundedJson(request) };
+  } catch {
+    return null;
+  }
+}
+
+/** 429 while the caller is throttled, else the given rejection status. */
+function rejectUnauthorized(unauthorizedLimiter, request, response, status) {
+  if (!unauthorizedLimiter.allow(clientIp(request))) {
+    response.writeHead(429, { 'Retry-After': '60' }).end();
+    return;
+  }
+  response.writeHead(status).end();
+}
+
 export async function handleClientRegistration(store, unauthorizedLimiter, request, response) {
   if (request.method !== 'POST') {
     response.writeHead(405).end();
@@ -57,26 +77,24 @@ export async function handleClientRegistration(store, unauthorizedLimiter, reque
     response.writeHead(403).end();
     return;
   }
-  let url;
-  let body;
-  try {
-    url = new URL(request.url || '/', 'http://localhost');
-    body = await readBoundedJson(request);
-  } catch {
+  const input = await registrationInput(request);
+  if (!input) {
     response.writeHead(400).end();
     return;
   }
-  const token = requestToken(request, url);
-  const access = store.clientAccessForToken(token);
-  const clientId = String(body?.clientId || '');
+  const access = store.clientAccessForToken(requestToken(request, input.url));
+  const clientId = String(input.body?.clientId || '');
   if (!access || !isRoutingId(clientId)) {
-    if (!unauthorizedLimiter.allow(clientIp(request))) {
-      response.writeHead(429, { 'Retry-After': '60' }).end();
-      return;
-    }
-    response.writeHead(401).end();
+    rejectUnauthorized(unauthorizedLimiter, request, response, 401);
     return;
   }
+  answerRegistration(store, access, clientId, input.body, request, response);
+}
+
+// A browser already bound to this token refreshes its record; a fresh one is
+// minted its per-browser credential.
+function answerRegistration(store, access, clientId, body, request, response) {
+  const json = jsonResponder(response);
   const profile = {
     name: body?.name,
     platform: body?.platform,
@@ -88,12 +106,7 @@ export async function handleClientRegistration(store, unauthorizedLimiter, reque
       return;
     }
     store.touchClient(access.deviceId, clientId, profile);
-    response
-      .writeHead(200, {
-        'Content-Type': 'application/json',
-        'Cache-Control': 'no-store',
-      })
-      .end(JSON.stringify({ clientId }));
+    json(200, { clientId });
     return;
   }
   const registered = store.registerClient(access.deviceId, clientId, profile);
@@ -101,94 +114,43 @@ export async function handleClientRegistration(store, unauthorizedLimiter, reque
     response.writeHead(409).end();
     return;
   }
-  response
-    .writeHead(200, {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-      ...pairingCookieHeaders(registered.token, request),
-    })
-    .end(JSON.stringify({ clientId, token: registered.token }));
+  json(200, { clientId, token: registered.token }, pairingCookieHeaders(registered.token, request));
 }
 
-export async function handleClaimRequest(context, request, response) {
-  const { store, liveDesktops, claims, unauthorizedLimiter } = context;
-  const json = (status, body) => {
+function jsonResponder(response) {
+  return (status, body, headers = {}) => {
     response
-      .writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+      .writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers })
       .end(JSON.stringify(body));
   };
-  let url;
-  let pathname;
-  try {
-    url = new URL(request.url || '/', 'http://localhost');
-    pathname = decodeURIComponent(url.pathname);
-  } catch {
-    response.writeHead(400).end();
+}
+
+// GET /claim/<id>: the container polls until the desktop answers. One-shot:
+// the credential leaves this relay exactly once.
+function answerClaimPoll(claims, claimId, json) {
+  const claim = claims.get(claimId);
+  if (!claim) {
+    json(200, { status: 'expired' });
     return;
   }
-  for (const [id, pending] of claims) {
-    if (pending.expiresAt <= Date.now()) claims.delete(id);
-  }
-  if (request.method === 'GET' && pathname.startsWith('/claim/')) {
-    const claim = claims.get(pathname.slice('/claim/'.length));
-    if (!claim) {
-      json(200, { status: 'expired' });
-      return;
-    }
-    if (claim.status !== 'approved') {
-      json(200, { status: claim.status });
-      return;
-    }
-    // One-shot: the credential leaves this relay exactly once.
-    claims.delete(claim.id);
-    json(200, {
-      status: 'approved',
-      clientId: claim.clientId,
-      token: claim.token,
-      sealed: claim.sealed,
-    });
+  if (claim.status !== 'approved') {
+    json(200, { status: claim.status });
     return;
   }
-  if (request.method !== 'POST' || pathname !== '/claim') {
-    response.writeHead(405).end();
-    return;
-  }
-  if (!browserSocketOriginAllowed(request)) {
-    response.writeHead(403).end();
-    return;
-  }
-  let body;
-  try {
-    body = await readBoundedJson(request);
-  } catch {
-    response.writeHead(400).end();
-    return;
-  }
-  const deviceId = String(body?.deviceId || '');
-  const clientId = String(body?.clientId || '');
-  const publicKey = String(body?.publicKey || '');
-  if (
-    !isRoutingId(deviceId) ||
-    !isRoutingId(clientId) ||
-    !/^[A-Za-z0-9_-]{86,88}$/.test(publicKey) ||
-    !store.isKnown(deviceId)
-  ) {
-    if (!unauthorizedLimiter.allow(clientIp(request))) {
-      response.writeHead(429, { 'Retry-After': '60' }).end();
-      return;
-    }
-    response.writeHead(404).end();
-    return;
-  }
-  const entry = liveDesktops.get(deviceId);
-  if (!entry || entry.socket.readyState !== entry.socket.OPEN) {
-    json(503, { status: 'offline' });
-    return;
-  }
-  // Idempotent: a phone that reloads mid-approval (a backgrounded web app is
-  // discarded freely) resumes the request the user is already looking at
-  // instead of raising a second prompt on the desktop. A different key is a
-  // different container and does get its own request.
+  claims.delete(claim.id);
+  json(200, {
+    status: 'approved',
+    clientId: claim.clientId,
+    token: claim.token,
+    sealed: claim.sealed,
+  });
+}
+
+// Idempotent: a phone that reloads mid-approval (a backgrounded web app is
+// discarded freely) resumes the request the user is already looking at
+// instead of raising a second prompt on the desktop. A different key is a
+// different container and does get its own request.
+function pendingClaimId(claims, deviceId, clientId, publicKey) {
   for (const [id, pending] of claims) {
     if (
       pending.status === 'pending' &&
@@ -196,26 +158,28 @@ export async function handleClaimRequest(context, request, response) {
       pending.clientId === clientId &&
       pending.publicKey === publicKey
     ) {
-      json(202, { claimId: id });
-      return;
+      return id;
     }
   }
-  const source = clientIp(request);
+  return null;
+}
+
+function claimQuotaExceeded(claims, deviceId, source) {
   let deviceClaims = 0;
   let sourceClaims = 0;
   for (const pending of claims.values()) {
     if (pending.deviceId === deviceId) deviceClaims += 1;
     if (pending.source === source) sourceClaims += 1;
   }
-  if (
+  return (
     claims.size >= MAX_PENDING_CLAIMS ||
     deviceClaims >= MAX_PENDING_CLAIMS_PER_DEVICE ||
     sourceClaims >= MAX_PENDING_CLAIMS_PER_SOURCE
-  ) {
-    json(503, { status: 'busy' });
-    return;
-  }
-  const profile = clientProfile(body, 'Web app');
+  );
+}
+
+// Records the pending claim and asks the desktop for approval.
+function openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source }) {
   const id = randomUUID();
   const expiresAt = Date.now() + CLAIM_TTL_MS;
   claims.set(id, {
@@ -247,4 +211,78 @@ export async function handleClaimRequest(context, request, response) {
     return;
   }
   json(202, { claimId: id });
+}
+
+function sweepExpiredClaims(claims) {
+  for (const [id, pending] of claims) {
+    if (pending.expiresAt <= Date.now()) claims.delete(id);
+  }
+}
+
+/** The claim's routing fields, or null when any of them is malformed. */
+function claimFields(body) {
+  const deviceId = String(body?.deviceId || '');
+  const clientId = String(body?.clientId || '');
+  const publicKey = String(body?.publicKey || '');
+  if (!isRoutingId(deviceId) || !isRoutingId(clientId) || !/^[A-Za-z0-9_-]{86,88}$/.test(publicKey)) {
+    return null;
+  }
+  return { deviceId, clientId, publicKey };
+}
+
+export async function handleClaimRequest(context, request, response) {
+  const { store, liveDesktops, claims, unauthorizedLimiter } = context;
+  const json = jsonResponder(response);
+  const parsed = decodedRequestPath(request);
+  if (!parsed) {
+    response.writeHead(400).end();
+    return;
+  }
+  const { pathname } = parsed;
+  sweepExpiredClaims(claims);
+  if (request.method === 'GET' && pathname.startsWith('/claim/')) {
+    answerClaimPoll(claims, pathname.slice('/claim/'.length), json);
+    return;
+  }
+  if (request.method !== 'POST' || pathname !== '/claim') {
+    response.writeHead(405).end();
+    return;
+  }
+  if (!browserSocketOriginAllowed(request)) {
+    response.writeHead(403).end();
+    return;
+  }
+  let body;
+  try {
+    body = await readBoundedJson(request);
+  } catch {
+    response.writeHead(400).end();
+    return;
+  }
+  const fields = claimFields(body);
+  if (!fields || !store.isKnown(fields.deviceId)) {
+    rejectUnauthorized(unauthorizedLimiter, request, response, 404);
+    return;
+  }
+  startClaim({ liveDesktops, claims, json }, fields, clientProfile(body, 'Web app'), clientIp(request));
+}
+
+// Desktop online, no duplicate request, quota available: record the claim
+// and ask the desktop for approval.
+function startClaim({ liveDesktops, claims, json }, { deviceId, clientId, publicKey }, profile, source) {
+  const entry = liveDesktops.get(deviceId);
+  if (!desktopLegOpen(entry)) {
+    json(503, { status: 'offline' });
+    return;
+  }
+  const existing = pendingClaimId(claims, deviceId, clientId, publicKey);
+  if (existing) {
+    json(202, { claimId: existing });
+    return;
+  }
+  if (claimQuotaExceeded(claims, deviceId, source)) {
+    json(503, { status: 'busy' });
+    return;
+  }
+  openClaim({ claims, entry, json }, { deviceId, clientId, publicKey, profile, source });
 }

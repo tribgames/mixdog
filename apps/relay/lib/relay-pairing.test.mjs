@@ -10,20 +10,7 @@ import {
   handleClaimRequest,
   handleClientRegistration,
 } from './relay-pairing.mjs';
-
-function mockResponse() {
-  const recorded = [];
-  return {
-    recorded,
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end(body) {
-      recorded.at(-1).body = body;
-    },
-  };
-}
+import { recordingResponse } from './test-recording-response.mjs';
 
 test('pending claim pool bounds are the ones the HTTP handler enforces', () => {
   assert.equal(MAX_PENDING_CLAIMS, 64);
@@ -33,7 +20,7 @@ test('pending claim pool bounds are the ones the HTTP handler enforces', () => {
 });
 
 test('client registration refuses non-POST and cross-origin callers', async () => {
-  const response = mockResponse();
+  const response = recordingResponse();
   await handleClientRegistration({}, { allow: () => true }, { method: 'GET', headers: {}, socket: {} }, response);
   assert.equal(response.recorded[0].status, 405);
   await handleClientRegistration(
@@ -46,7 +33,7 @@ test('client registration refuses non-POST and cross-origin callers', async () =
 });
 
 test('claim GET for an unknown id is expired, not 404', async () => {
-  const response = mockResponse();
+  const response = recordingResponse();
   await handleClaimRequest(
     { store: {}, liveDesktops: new Map(), claims: new Map(), unauthorizedLimiter: { allow: () => true } },
     { method: 'GET', url: '/claim/missing', headers: {} },
@@ -66,7 +53,7 @@ test('claim POST for an unknown desktop is refused with 404', async () => {
     request.emit('data', Buffer.from(JSON.stringify({ deviceId: 'nope', clientId: 'nope', publicKey: 'x' })));
     request.emit('end');
   });
-  const response = mockResponse();
+  const response = recordingResponse();
   await handleClaimRequest(
     {
       store: { isKnown: () => false },

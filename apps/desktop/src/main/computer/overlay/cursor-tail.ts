@@ -1,7 +1,7 @@
 import type { ComputerUseCursorPresentation } from './model';
 
 /** A pointer that stopped moving fades after this idle period while its session stays alive. */
-export const CURSOR_IDLE_HIDE_MS = 20_000;
+const CURSOR_IDLE_HIDE_MS = 20_000;
 
 /** Visual-only grace period: never retains execution, targets, or input authority. */
 export function createCursorTail(

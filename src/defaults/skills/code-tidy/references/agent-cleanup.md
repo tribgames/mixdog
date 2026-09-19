@@ -2,7 +2,7 @@
 
 Read this before the agent-level layer of `code-tidy`. It owns the deletion
 ladder, the lens checklists, what counts as slop, the risk tiers, and the
-report shape. The skill body owns scope, order, approvals, and the list of
+final report template. The skill body owns scope, order, approvals, and the list of
 things that are never removed or renamed.
 
 ## Deletion ladder
@@ -160,7 +160,11 @@ other; declare a variable where it is initialized; blank line between chunks
 that do different things; merge over-fragmented pieces back into one readable
 block before re-splitting. One tidying per change set.
 
-## Report shape
+## Final report template
+
+This is the shape of the closing reply to the user after each round. It is
+written in the conversation, not to a file, unless the user asks for a
+document.
 
 ```text
 Scope: <diff vs HEAD | paths | branch> · Mode: report|apply

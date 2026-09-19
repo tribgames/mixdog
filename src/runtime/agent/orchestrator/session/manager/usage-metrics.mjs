@@ -38,7 +38,7 @@ const METRICS_SAVE_THROTTLE_MS = 500;
 
 function _metricsSaveState(sessionId) {
   let state = _metricSaveState.get(sessionId);
-  if (state && state.closed) {
+  if (state?.closed) {
     // A CLOSED state belongs to a previous incarnation of this id (hard
     // delete or close). It is never reused — and it must not block a
     // re-created session: drop it and mint a fresh one. The old object
@@ -134,59 +134,68 @@ function _flushMetricsSave(session, sessionId, state = _metricSaveState.get(sess
       if (!state.dirty) _unparkMetricsSnapshot(state, sessionId);
     })
     .catch((err) => {
-      process.stderr.write(`[usage-metrics] iteration save failed: ${err?.message ?? err}\n`);
-      if (err?.sessionStoreDrained === true) {
-        // Drain owns durability now. Re-parking here would register a
-        // NEW identity (fresh epoch) for an old payload, which could
-        // then overwrite a save that lands after the drain; retrying
-        // would do the same. Release the identity and stay inert.
-        drainSettled = true;
-        state.dirty = false;
-        state.failCount = 0;
-        _unparkMetricsSnapshot(state, sessionId);
-        return;
-      }
-      // Hard delete / close settled this id while the write was in
-      // flight: a re-park here would put a deferred entry (and with it a
-      // drain-recreated file) back for a session that no longer exists.
-      if (!_isMetricsStateCurrent(sessionId, state)) return;
-      // A rejected save must not silently drop the delta already
-      // applied in-memory — re-park it so the process-exit drain
-      // and/or the retry below still see it.
-      state.failCount += 1;
-      state.dirty = true;
-      // NEVER let the rejected closure overwrite a newer snapshot that
-      // parked while this write was in flight: the latest parked ref
-      // wins, under the same preserved identity.
-      const latest = _pendingMetricsFlush.get(sessionId);
-      _parkMetricsSnapshot(state, sessionId, latest ?? session);
+      drainSettled = _onMetricsSaveRejected(err, state, sessionId, session);
     })
-    .finally(() => {
-      state.inFlight = false;
-      if (drainSettled) return; // terminal: no repark, no retry, no timer
-      if (!_isMetricsStateCurrent(sessionId, state)) {
-        // dropMetricSeenState (close) or the hard-delete purge ran
-        // while this save was in flight — do not resurrect per-session
-        // state, timers or deferred entries.
-        _unparkMetricsSnapshot(state, sessionId);
-        if (_metricSaveState.get(sessionId) === state) _metricSaveState.delete(sessionId);
-        return;
-      }
-      // A newer delta (or the rejection re-park above) landed while
-      // this save was in flight — flush once more so it is never
-      // stranded. Always take the LATEST parked session, not the
-      // (possibly stale/pre-detach-resume) closure `session` — a
-      // newer delta may have parked a fresher session/generation.
-      // failCount cap: a persistently failing save (broken dir/disk)
-      // must not spin reject→re-park→retry forever with no backoff.
-      // The session stays parked in _pendingMetricsFlush, so a later
-      // _scheduleMetricsSave (next iteration) or the process-exit
-      // drain still gets a shot at persisting it.
-      if (state.dirty && state.failCount <= 3) {
-        const latest = _pendingMetricsFlush.get(sessionId) ?? session;
-        _flushMetricsSave(latest, sessionId, state);
-      }
-    });
+    .finally(() => _afterMetricsSave(state, sessionId, session, drainSettled));
+}
+
+// A rejected iteration save. Returns true when the store's exit drain
+// settled it, which is terminal for this identity.
+function _onMetricsSaveRejected(err, state, sessionId, session) {
+  process.stderr.write(`[usage-metrics] iteration save failed: ${err?.message ?? err}\n`);
+  if (err?.sessionStoreDrained === true) {
+    // Drain owns durability now. Re-parking here would register a
+    // NEW identity (fresh epoch) for an old payload, which could
+    // then overwrite a save that lands after the drain; retrying
+    // would do the same. Release the identity and stay inert.
+    state.dirty = false;
+    state.failCount = 0;
+    _unparkMetricsSnapshot(state, sessionId);
+    return true;
+  }
+  // Hard delete / close settled this id while the write was in
+  // flight: a re-park here would put a deferred entry (and with it a
+  // drain-recreated file) back for a session that no longer exists.
+  if (!_isMetricsStateCurrent(sessionId, state)) return false;
+  // A rejected save must not silently drop the delta already
+  // applied in-memory — re-park it so the process-exit drain
+  // and/or the retry still see it.
+  state.failCount += 1;
+  state.dirty = true;
+  // NEVER let the rejected closure overwrite a newer snapshot that
+  // parked while this write was in flight: the latest parked ref
+  // wins, under the same preserved identity.
+  const latest = _pendingMetricsFlush.get(sessionId);
+  _parkMetricsSnapshot(state, sessionId, latest ?? session);
+  return false;
+}
+
+// After a save settled either way: release a session that closed meanwhile,
+// or flush once more when a newer delta parked behind this write.
+function _afterMetricsSave(state, sessionId, session, drainSettled) {
+  state.inFlight = false;
+  if (drainSettled) return; // terminal: no repark, no retry, no timer
+  if (!_isMetricsStateCurrent(sessionId, state)) {
+    // dropMetricSeenState (close) or the hard-delete purge ran
+    // while this save was in flight — do not resurrect per-session
+    // state, timers or deferred entries.
+    _unparkMetricsSnapshot(state, sessionId);
+    if (_metricSaveState.get(sessionId) === state) _metricSaveState.delete(sessionId);
+    return;
+  }
+  // A newer delta (or the rejection re-park) landed while this save was
+  // in flight — flush once more so it is never stranded. Always take the
+  // LATEST parked session, not the (possibly stale/pre-detach-resume)
+  // closure `session` — a newer delta may have parked a fresher
+  // session/generation. failCount cap: a persistently failing save
+  // (broken dir/disk) must not spin reject→re-park→retry forever with no
+  // backoff. The session stays parked in _pendingMetricsFlush, so a later
+  // _scheduleMetricsSave (next iteration) or the process-exit drain still
+  // gets a shot at persisting it.
+  if (state.dirty && state.failCount <= 3) {
+    const latest = _pendingMetricsFlush.get(sessionId) ?? session;
+    _flushMetricsSave(latest, sessionId, state);
+  }
 }
 
 /**
@@ -369,24 +378,13 @@ function applyMeasuredContextOccupancy(session, contextTokens, outputTokens, ts)
  */
 export function applyAskTerminalUsageTotals(session, result, options = {}) {
   if (!session || !result?.usage) return;
-  const skipTotals = options.skipTotalsIfIncremental === true;
-  if (!skipTotals) {
-    const inputTokens = result.usage.inputTokens || 0;
-    const outputTokens = result.usage.outputTokens || 0;
-    const cachedTokens = result.usage.cachedTokens || 0;
-    const cacheWriteTokens = result.usage.cacheWriteTokens || 0;
-    const uncachedInputTokens = uncachedInputTokensForProvider(
-      session.provider,
-      inputTokens,
-      cachedTokens,
-      cacheWriteTokens
-    );
-    session.totalInputTokens = (session.totalInputTokens || 0) + inputTokens;
-    session.totalOutputTokens = (session.totalOutputTokens || 0) + outputTokens;
-    session.tokensCumulative = (session.tokensCumulative || 0) + inputTokens + outputTokens;
-    session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + cachedTokens;
-    session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + cacheWriteTokens;
-    session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + uncachedInputTokens;
+  if (options.skipTotalsIfIncremental !== true) {
+    accumulateSessionUsage(session, {
+      deltaInput: result.usage.inputTokens || 0,
+      deltaOutput: result.usage.outputTokens || 0,
+      deltaCachedRead: result.usage.cachedTokens || 0,
+      deltaCacheWrite: result.usage.cacheWriteTokens || 0,
+    });
   }
   const _lastTurn = result.lastTurnUsage || result.usage || {};
   const measuredInput = Number(_lastTurn.mainInputTokens ?? _lastTurn.inputTokens) || 0;
@@ -406,35 +404,102 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     return;
   }
   if (_lastTurn.mainUsageAvailable === false || measuredInput + measuredCache <= 0) {
-    session.lastInputTokens = null;
-    session.lastOutputTokens = null;
-    session.lastCachedReadTokens = null;
-    session.lastCacheWriteTokens = null;
-    session.lastUncachedInputTokens = null;
-    session.lastContextTokens = null;
-    session.lastContextTokensUpdatedAt = Date.now();
-    session.lastContextTokensStaleAfterCompact = true;
+    clearLastContextTokens(session);
     return;
   }
-  const _lastInputTokens = _lastTurn.mainInputTokens ?? _lastTurn.inputTokens ?? 0;
-  const _lastCachedReadTokens = _lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens ?? 0;
-  const _lastCacheWriteTokens = _lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens ?? 0;
-  session.lastInputTokens = _lastInputTokens;
-  session.lastOutputTokens = _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens ?? 0;
-  session.lastCachedReadTokens = _lastCachedReadTokens;
-  session.lastCacheWriteTokens = _lastCacheWriteTokens;
-  session.lastUncachedInputTokens = uncachedInputTokensForProvider(
-    session.provider,
-    _lastInputTokens,
-    _lastCachedReadTokens,
-    _lastCacheWriteTokens
-  );
-  const _inputExcludesCache = providerInputExcludesCache(session.provider);
-  session.lastContextTokens = _inputExcludesCache
-    ? _lastInputTokens + _lastCachedReadTokens + _lastCacheWriteTokens
-    : _lastInputTokens;
-  session.lastContextTokensUpdatedAt = Date.now();
+  setLastContextTokens(session, {
+    input: _lastTurn.mainInputTokens ?? _lastTurn.inputTokens ?? 0,
+    output: _lastTurn.mainOutputTokens ?? _lastTurn.outputTokens ?? 0,
+    cachedRead: _lastTurn.mainCachedTokens ?? _lastTurn.cachedTokens ?? 0,
+    cacheWrite: _lastTurn.mainCacheWriteTokens ?? _lastTurn.cacheWriteTokens ?? 0,
+  });
+}
+
+// No usable prompt split for the last call: the window snapshot is unknown
+// until the next measured send.
+function clearLastContextTokens(session, ts) {
+  session.lastInputTokens = null;
+  session.lastOutputTokens = null;
+  session.lastCachedReadTokens = null;
+  session.lastCacheWriteTokens = null;
+  session.lastUncachedInputTokens = null;
+  session.lastContextTokens = null;
+  session.lastContextTokensUpdatedAt = ts || Date.now();
+  session.lastContextTokensStaleAfterCompact = true;
+}
+
+// The last call's prompt split plus its normalized context footprint: how
+// many prompt tokens the model actually saw on the most-recent send,
+// comparable ACROSS providers. Anthropic reports input_tokens EXCLUDING
+// cache (cache_read is a separate field), so the cached portion must be
+// added back to reflect real context size; openai/grok/gemini already fold
+// cached tokens INTO the input count, so input alone is the footprint.
+function setLastContextTokens(session, { input, output, cachedRead, cacheWrite, ts }) {
+  session.lastInputTokens = input;
+  session.lastOutputTokens = output;
+  session.lastCachedReadTokens = cachedRead;
+  session.lastCacheWriteTokens = cacheWrite;
+  session.lastUncachedInputTokens = uncachedInputTokensForProvider(session.provider, input, cachedRead, cacheWrite);
+  session.lastContextTokens = providerInputExcludesCache(session.provider) ? input + cachedRead + cacheWrite : input;
+  session.lastContextTokensUpdatedAt = ts || Date.now();
   session.lastContextTokensStaleAfterCompact = false;
+}
+
+// Cumulative session totals. Cache totals are additive fields, default 0 on
+// legacy sessions; both are undefined-safe so the schema migrates lazily as
+// new iterations land. Keeps live + terminal aggregates in lock-step
+// (loop.mjs already includes cached_read / cache_write in its terminal
+// usage rollup).
+function accumulateSessionUsage(session, delta) {
+  const { deltaInput, deltaOutput, deltaCachedRead, deltaCacheWrite } = delta;
+  const deltaUncachedInput =
+    delta.deltaUncachedInput != null
+      ? Number(delta.deltaUncachedInput) || 0
+      : uncachedInputTokensForProvider(session.provider, deltaInput, deltaCachedRead, deltaCacheWrite);
+  session.totalInputTokens = (session.totalInputTokens || 0) + (deltaInput || 0);
+  session.totalOutputTokens = (session.totalOutputTokens || 0) + (deltaOutput || 0);
+  session.tokensCumulative = (session.tokensCumulative || 0) + (deltaInput || 0) + (deltaOutput || 0);
+  session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (deltaCachedRead || 0);
+  session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (deltaCacheWrite || 0);
+  session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + deltaUncachedInput;
+}
+
+// Window snapshot updated per iteration so agent type=list reflects the
+// most-recent provider-reported input size even for short dispatches that
+// finish before askSession's terminal save lands.
+function recordLastContextTokens(session, context) {
+  const {
+    contextInputTokens,
+    contextOutputTokens,
+    contextCachedReadTokens,
+    contextCacheWriteTokens,
+    contextUsageAvailable,
+    contextMeasuredTokens,
+    ts,
+  } = context;
+  const inputExcludesCache = providerInputExcludesCache(session.provider);
+  const measuredPrompt =
+    (Number(contextInputTokens) || 0) +
+    (inputExcludesCache ? (Number(contextCachedReadTokens) || 0) + (Number(contextCacheWriteTokens) || 0) : 0);
+  if (
+    contextUsageAvailable !== false &&
+    measuredPrompt <= 0 &&
+    applyMeasuredContextOccupancy(session, contextMeasuredTokens, contextOutputTokens, ts)
+  ) {
+    // Occupancy reading applied; no prompt split to record.
+    return;
+  }
+  if (contextUsageAvailable === false || measuredPrompt <= 0) {
+    clearLastContextTokens(session, ts);
+    return;
+  }
+  setLastContextTokens(session, {
+    input: contextInputTokens || 0,
+    output: contextOutputTokens || 0,
+    cachedRead: contextCachedReadTokens || 0,
+    cacheWrite: contextCacheWriteTokens || 0,
+    ts,
+  });
 }
 
 /**
@@ -442,23 +507,32 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
  * Idempotency key `sessionId:turnId:epoch:iterationIndex:source` scopes retries
  * per ask, compaction epoch, iteration, and usage source.
  */
-export async function persistIterationMetrics(delta) {
-  if (!delta || !delta.sessionId) return;
+// The window reading an iteration delta carries; each context field defaults
+// to the delta's own token counts.
+function iterationContext(delta) {
   const {
-    sessionId,
-    iterationIndex,
-    deltaInput,
-    deltaOutput,
-    deltaCachedRead,
-    deltaCacheWrite,
-    contextInputTokens = deltaInput,
-    contextOutputTokens = deltaOutput,
-    contextCachedReadTokens = deltaCachedRead,
-    contextCacheWriteTokens = deltaCacheWrite,
+    contextInputTokens = delta.deltaInput,
+    contextOutputTokens = delta.deltaOutput,
+    contextCachedReadTokens = delta.deltaCachedRead,
+    contextCacheWriteTokens = delta.deltaCacheWrite,
     contextUsageAvailable = true,
     contextMeasuredTokens = null,
     ts,
   } = delta;
+  return {
+    contextInputTokens,
+    contextOutputTokens,
+    contextCachedReadTokens,
+    contextCacheWriteTokens,
+    contextUsageAvailable,
+    contextMeasuredTokens,
+    ts,
+  };
+}
+
+export async function persistIterationMetrics(delta) {
+  if (!delta?.sessionId) return;
+  const { sessionId, iterationIndex, ts } = delta;
   const runtimeEntry = _getRuntimeEntry(sessionId);
   const session = runtimeEntry?.session ?? loadSession(sessionId);
   if (!session || session.closed) return;
@@ -476,68 +550,8 @@ export async function persistIterationMetrics(delta) {
   seen.add(ikey);
   if (!isReplay) {
     if (runtimeEntry) runtimeEntry.usageMetricsTurnIncremental = true;
-    const deltaUncachedInput =
-      delta.deltaUncachedInput != null
-        ? Number(delta.deltaUncachedInput) || 0
-        : uncachedInputTokensForProvider(session.provider, deltaInput, deltaCachedRead, deltaCacheWrite);
-    session.totalInputTokens = (session.totalInputTokens || 0) + (deltaInput || 0);
-    session.totalOutputTokens = (session.totalOutputTokens || 0) + (deltaOutput || 0);
-    session.tokensCumulative = (session.tokensCumulative || 0) + (deltaInput || 0) + (deltaOutput || 0);
-    // Cache totals — additive fields, default 0 on legacy sessions; both
-    // are undefined-safe so the schema migrates lazily as new iterations
-    // land. Keeps live + terminal aggregates in lock-step (loop.mjs already
-    // includes cached_read / cache_write in its terminal usage rollup).
-    session.totalCachedReadTokens = (session.totalCachedReadTokens || 0) + (deltaCachedRead || 0);
-    session.totalCacheWriteTokens = (session.totalCacheWriteTokens || 0) + (deltaCacheWrite || 0);
-    session.totalUncachedInputTokens = (session.totalUncachedInputTokens || 0) + deltaUncachedInput;
-    // Window snapshot updated per iteration so agent type=list reflects the
-    // most-recent provider-reported input size even for short dispatches
-    // that finish before askSession's terminal save lands.
-    const measuredPrompt =
-      (Number(contextInputTokens) || 0) +
-      (providerInputExcludesCache(session.provider)
-        ? (Number(contextCachedReadTokens) || 0) + (Number(contextCacheWriteTokens) || 0)
-        : 0);
-    if (
-      contextUsageAvailable !== false &&
-      measuredPrompt <= 0 &&
-      applyMeasuredContextOccupancy(session, contextMeasuredTokens, contextOutputTokens, ts)
-    ) {
-      // Occupancy reading applied; no prompt split to record.
-    } else if (contextUsageAvailable === false || measuredPrompt <= 0) {
-      session.lastInputTokens = null;
-      session.lastOutputTokens = null;
-      session.lastCachedReadTokens = null;
-      session.lastCacheWriteTokens = null;
-      session.lastUncachedInputTokens = null;
-      session.lastContextTokens = null;
-      session.lastContextTokensUpdatedAt = ts || Date.now();
-      session.lastContextTokensStaleAfterCompact = true;
-    } else {
-      const contextUncachedInput = uncachedInputTokensForProvider(
-        session.provider,
-        contextInputTokens,
-        contextCachedReadTokens,
-        contextCacheWriteTokens
-      );
-      session.lastInputTokens = contextInputTokens || 0;
-      session.lastOutputTokens = contextOutputTokens || 0;
-      session.lastCachedReadTokens = contextCachedReadTokens || 0;
-      session.lastCacheWriteTokens = contextCacheWriteTokens || 0;
-      session.lastUncachedInputTokens = contextUncachedInput;
-      // Normalized last-call context footprint: how many prompt tokens the
-      // model actually saw on the most-recent send, comparable ACROSS
-      // providers. Anthropic reports input_tokens EXCLUDING cache (cache_read
-      // is a separate field), so the cached portion must be added back to
-      // reflect real context size; openai/grok/gemini already fold cached
-      // tokens INTO the input count, so input alone is the footprint.
-      const _inputExcludesCache = providerInputExcludesCache(session.provider);
-      session.lastContextTokens = _inputExcludesCache
-        ? (contextInputTokens || 0) + (contextCachedReadTokens || 0) + (contextCacheWriteTokens || 0)
-        : contextInputTokens || 0;
-      session.lastContextTokensUpdatedAt = ts || Date.now();
-      session.lastContextTokensStaleAfterCompact = false;
-    }
+    accumulateSessionUsage(session, delta);
+    recordLastContextTokens(session, iterationContext(delta));
   }
   session.lastIterationIndex = iterationIndex;
   session.updatedAt = ts || Date.now();

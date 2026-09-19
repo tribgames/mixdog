@@ -7,7 +7,7 @@ import { executeOfficeTool, resetOfficeSessionsForTest } from './index.mjs';
 import { recalculateLibreOfficeWorkbook } from './portable/portable-ooxml.mjs';
 import { parseXlsxAutofitRange } from './portable/xlsx-contract.mjs';
 import { auditDocxRedlining } from './portable/docx-revisions.mjs';
-import { issuesPortableOoxml } from './portable/portable-validation.mjs';
+import { issuesPortableOoxml, validatePortableOoxml } from './portable/portable-validation.mjs';
 import { officeOpenFailure } from './core/office-sessions.mjs';
 import { parts, value, workspace, writeZip } from './office-test-support.mjs';
 
@@ -446,7 +446,6 @@ test('portable XLSM edits preserve VBA payload and strict package relationships'
 // and master and renumbers a chart's data workbook. The baseline read those as damaged protected parts and refused
 // the finalize; only a rewrite by another backend treats them as protected. Macros stay protected under every backend.
 test("baseline validation treats the Office application's own resave of theme, layouts and chart workbooks as normalisation, not damage", async (t) => {
-  const { validatePortableOoxml } = await import('./portable/portable-validation.mjs');
   const cwd = await workspace(t);
   const original = join(cwd, 'deck.pptx');
   const saved = join(cwd, 'deck.mixdog-edit.pptx');

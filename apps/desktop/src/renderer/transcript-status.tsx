@@ -64,6 +64,9 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
   }, [active, fixedNow]);
   if (!active) return null;
   const total = agentCount + webSearchCount + shellCount;
+  let agentElapsed = '';
+  if (Number.isFinite(oldestAgentStart)) agentElapsed = formatWorkElapsed(clock - oldestAgentStart);
+  else if (tools.agent?.startedAt) agentElapsed = formatWorkElapsed(clock - Number(tools.agent.startedAt));
   const row = (key: string, label: string, elapsed: string) => (
     <div className="live-work-row" key={key}>
       <span>{label}</span>
@@ -80,16 +83,7 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
       <ProgressSpinner className="live-work-spinner" size={16} aria-hidden="true" />
       <span className="live-work-count">{total}</span>
       <div className="live-work-popover" role="tooltip">
-        {agentCount > 0 &&
-          row(
-            'agents',
-            `${agentCount === 1 ? t('Agent') : t('Agents')} ${agentCount}`,
-            Number.isFinite(oldestAgentStart)
-              ? formatWorkElapsed(clock - oldestAgentStart)
-              : tools.agent?.startedAt
-                ? formatWorkElapsed(clock - Number(tools.agent.startedAt))
-                : ''
-          )}
+        {agentCount > 0 && row('agents', `${agentCount === 1 ? t('Agent') : t('Agents')} ${agentCount}`, agentElapsed)}
         {webSearchCount > 0 &&
           row(
             'web_search',
@@ -110,6 +104,21 @@ export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
 const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextDisplayUsage>>();
+
+type ContextUsageMetrics = NonNullable<ReturnType<typeof resolveContextDisplayUsage>>;
+
+/** Exact counts for the tooltip; the visible text uses the compact form. */
+function contextUsageTitle(context: ContextUsageMetrics): string | undefined {
+  if (context.used == null) return undefined;
+  const used = context.used.toLocaleString(uiFormatLocale());
+  return context.limit > 0 ? `${used} / ${context.limit.toLocaleString(uiFormatLocale())}` : used;
+}
+
+function contextUsageText(context: ContextUsageMetrics): string {
+  if (context.used == null) return '—';
+  const used = formatTokenCount(context.used);
+  return context.limit > 0 ? `${used} / ${formatTokenCount(context.limit)}` : used;
+}
 
 function contextMetrics(snapshot: Snapshot) {
   const usage = resolveContextDisplayUsage(snapshot);
@@ -160,7 +169,10 @@ export function ContextUsageIndicator({
   const popoverOpen = popover.open;
   const context = contextMetrics(snapshot);
   const descriptionId = `context-usage-${String(snapshot.sessionId || 'session')}`;
-  const tone = !context ? '' : (context.percent ?? 0) >= 90 ? 'danger' : (context.percent ?? 0) >= 70 ? 'warning' : '';
+  const contextPercent = context?.percent ?? 0;
+  let tone = '';
+  if (context && contextPercent >= 90) tone = 'danger';
+  else if (context && contextPercent >= 70) tone = 'warning';
   const [actionPending, setActionPending] = useState(false);
   const actionInFlight = useRef(false);
   const state = asRecord(snapshot);
@@ -246,30 +258,17 @@ export function ContextUsageIndicator({
           </div>
           <div>
             <span>{t('Usage')}</span>
-            <b
-              title={
-                context.used == null
-                  ? undefined
-                  : context.limit > 0
-                    ? `${context.used.toLocaleString(uiFormatLocale())} / ${context.limit.toLocaleString(uiFormatLocale())}`
-                    : context.used.toLocaleString(uiFormatLocale())
-              }
-            >
-              {context.used == null
-                ? '—'
-                : context.limit > 0
-                  ? `${formatTokenCount(context.used)} / ${formatTokenCount(context.limit)}`
-                  : formatTokenCount(context.used)}
-            </b>
+            <b title={contextUsageTitle(context)}>{contextUsageText(context)}</b>
           </div>
           {(() => {
             const cost = Math.max(0, Number(asRecord(snapshot.stats)?.costUsd || 0));
-            return cost > 0 ? (
+            if (cost <= 0) return null;
+            return (
               <div>
                 <span>{t('Cost')}</span>
                 <b>{uiCurrency(cost, cost >= 1 ? 2 : 3)}</b>
               </div>
-            ) : null;
+            );
           })()}
           {onViewDetails && (
             <button
@@ -366,9 +365,10 @@ export function LiveActivity({
     anchorRef.current = 0;
     return null;
   }
-  const mode = String(
-    activity?.mode || (snapshot.thinking ? 'thinking' : optimisticActivity ? 'requesting' : 'responding')
-  );
+  let fallbackMode = 'responding';
+  if (snapshot.thinking) fallbackMode = 'thinking';
+  else if (optimisticActivity) fallbackMode = 'requesting';
+  const mode = String(activity?.mode || fallbackMode);
   if (mode === 'resuming') {
     anchorRef.current = 0;
     return null;
@@ -455,8 +455,9 @@ export function CompletionStatus({ item, animate = false }: { item: TranscriptIt
   }
   if (tone === 'failed' || tone === 'interrupted') {
     const elapsed = formatElapsed(item.elapsedMs);
-    const fallback =
-      tone === 'failed' ? t('Failed') : elapsed ? t('Cancelled after {{elapsed}}', { elapsed }) : t('Cancelled');
+    let fallback = t('Cancelled');
+    if (tone === 'failed') fallback = t('Failed');
+    else if (elapsed) fallback = t('Cancelled after {{elapsed}}', { elapsed });
     const visible = tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? label || fallback : fallback;
     return (
       <div className={`turn-status ${tone}`} role="status" data-animate={animate ? 'true' : undefined}>

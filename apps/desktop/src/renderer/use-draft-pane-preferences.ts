@@ -36,16 +36,14 @@ function storedWorkflowPreferences(
   const solo = workflow?.id === 'solo';
   const cowork = workflow?.id === 'default' && workflow?.name === 'Cowork';
   const mode = value.orchestrationMode;
+  let orchestrationMode: DesktopOrchestrationMode | undefined;
+  if (typeof mode === 'string' && ['none', 'focused', 'balanced', 'swarm'].includes(mode)) {
+    orchestrationMode = mode as DesktopOrchestrationMode;
+  } else if (solo) orchestrationMode = 'none';
+  else if (cowork) orchestrationMode = 'swarm';
   return {
     workflow: solo || cowork ? { ...workflow, id: 'default', name: 'Default' } : workflow,
-    orchestrationMode:
-      typeof mode === 'string' && ['none', 'focused', 'balanced', 'swarm'].includes(mode)
-        ? (mode as DesktopOrchestrationMode)
-        : solo
-          ? 'none'
-          : cowork
-            ? 'swarm'
-            : undefined,
+    orchestrationMode,
   };
 }
 

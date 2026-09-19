@@ -101,85 +101,59 @@ function typedStatus(error) {
  * transport problem. `code` is the innermost errno/undici code (the most
  * specific cause), preferred over the outer wrapper's code.
  */
+// Innermost typed code wins: an outer TypeError('fetch failed') wraps the
+// SocketError that actually explains the failure.
+function typedTransportKind(chain) {
+  for (let index = chain.length - 1; index >= 0; index--) {
+    const item = chain[index];
+    const code = String(item?.code || '').toUpperCase();
+    const name = String(item?.name || '');
+    if (code && TLS_CODE_RE.test(code)) return { kind: 'tls', code };
+    if (LOST_CODES.has(code)) return { kind: 'lost', code };
+    if (UNREACHABLE_CODES.has(code)) return { kind: 'unreachable', code };
+    if (TIMEOUT_CODES.has(code)) return { kind: 'timeout', code };
+    if (name === 'SocketError') return { kind: 'lost', code };
+    if (name === 'ConnectTimeoutError' || name === 'HeadersTimeoutError' || name === 'BodyTimeoutError') {
+      return { kind: 'timeout', code };
+    }
+  }
+  return null;
+}
+
+// A gateway status, or a WebSocket close code that means the transport dropped.
+function statusTransportKind(chain, messages) {
+  const status = typedStatus(chain[0]);
+  if (UNAVAILABLE_STATUSES.has(status)) return { kind: 'unavailable', code: '', status };
+  const gateway = GATEWAY_STATUS_MESSAGE_RE.exec(messages[0] || '');
+  if (gateway) return { kind: 'unavailable', code: '', status: Number(gateway[1]) };
+  for (let index = chain.length - 1; index >= 0; index--) {
+    const closeCode = Number(chain[index].wsCloseCode);
+    if (WS_LOST_CLOSE_CODES.has(closeCode)) return { kind: 'lost', code: `WS ${closeCode}`, status: 0 };
+  }
+  return null;
+}
+
+// The message text is the last resort: runtimes that carry no code or status.
+function messageTransportKind(messages) {
+  for (const message of messages) {
+    if (!message) continue;
+    const closeCode = Number(WS_CLOSE_MESSAGE_RE.exec(message)?.[1]);
+    if (WS_LOST_CLOSE_CODES.has(closeCode)) return { kind: 'lost', code: `WS ${closeCode}`, status: 0 };
+    if (LOST_BARE_MESSAGE_RE.test(message) || LOST_PHRASE_RE.test(message))
+      return { kind: 'lost', code: '', status: 0 };
+    if (UNREACHABLE_PHRASE_RE.test(message)) return { kind: 'unreachable', code: '', status: 0 };
+    if (TIMEOUT_PHRASE_RE.test(message)) return { kind: 'timeout', code: '', status: 0 };
+    if (FETCH_BARE_MESSAGE_RE.test(message)) return { kind: 'unreachable', code: '', status: 0 };
+  }
+  return null;
+}
+
 export function classifyTransportError(error) {
   const chain = typeof error === 'string' ? [] : causeChain(error);
   const messages = typeof error === 'string' ? [error.trim()] : chain.map(messageOf);
-  let code = '';
-  let kind = null;
-  // Innermost typed code wins: an outer TypeError('fetch failed') wraps the
-  // SocketError that actually explains the failure.
-  for (let index = chain.length - 1; index >= 0; index--) {
-    const item = chain[index];
-    const itemCode = String(item?.code || '').toUpperCase();
-    const itemName = String(item?.name || '');
-    if (itemCode && TLS_CODE_RE.test(itemCode)) {
-      kind = 'tls';
-      code = itemCode;
-      break;
-    }
-    if (LOST_CODES.has(itemCode)) {
-      kind = 'lost';
-      code = itemCode;
-      break;
-    }
-    if (UNREACHABLE_CODES.has(itemCode)) {
-      kind = 'unreachable';
-      code = itemCode;
-      break;
-    }
-    if (TIMEOUT_CODES.has(itemCode)) {
-      kind = 'timeout';
-      code = itemCode;
-      break;
-    }
-    if (itemName === 'SocketError') {
-      kind = 'lost';
-      code = itemCode;
-      break;
-    }
-    if (itemName === 'ConnectTimeoutError' || itemName === 'HeadersTimeoutError' || itemName === 'BodyTimeoutError') {
-      kind = 'timeout';
-      code = itemCode;
-      break;
-    }
-  }
-  if (!kind) {
-    const status = typedStatus(chain[0]);
-    if (UNAVAILABLE_STATUSES.has(status)) return { kind: 'unavailable', code: '', status };
-    const gateway = GATEWAY_STATUS_MESSAGE_RE.exec(messages[0] || '');
-    if (gateway) return { kind: 'unavailable', code: '', status: Number(gateway[1]) };
-  }
-  if (!kind) {
-    for (let index = chain.length - 1; index >= 0; index--) {
-      const closeCode = Number(chain[index].wsCloseCode);
-      if (WS_LOST_CLOSE_CODES.has(closeCode)) return { kind: 'lost', code: `WS ${closeCode}`, status: 0 };
-    }
-  }
-  if (!kind) {
-    for (const message of messages) {
-      if (!message) continue;
-      const closeCode = Number(WS_CLOSE_MESSAGE_RE.exec(message)?.[1]);
-      if (WS_LOST_CLOSE_CODES.has(closeCode)) return { kind: 'lost', code: `WS ${closeCode}`, status: 0 };
-      if (LOST_BARE_MESSAGE_RE.test(message) || LOST_PHRASE_RE.test(message)) {
-        kind = 'lost';
-        break;
-      }
-      if (UNREACHABLE_PHRASE_RE.test(message)) {
-        kind = 'unreachable';
-        break;
-      }
-      if (TIMEOUT_PHRASE_RE.test(message)) {
-        kind = 'timeout';
-        break;
-      }
-      if (FETCH_BARE_MESSAGE_RE.test(message)) {
-        kind = 'unreachable';
-        break;
-      }
-    }
-  }
-  if (!kind) return null;
-  return { kind, code, status: 0 };
+  const typed = typedTransportKind(chain);
+  if (typed) return { ...typed, status: 0 };
+  return statusTransportKind(chain, messages) || messageTransportKind(messages);
 }
 
 const TRANSPORT_SENTENCES = {
@@ -194,6 +168,7 @@ const TRANSPORT_SENTENCES = {
 export function transportErrorText(error) {
   const verdict = classifyTransportError(error);
   if (!verdict) return null;
-  const detail = verdict.code.startsWith('WS ') ? '' : verdict.code || (verdict.status ? String(verdict.status) : '');
+  let detail = '';
+  if (!verdict.code.startsWith('WS ')) detail = verdict.code || (verdict.status ? String(verdict.status) : '');
   return `${TRANSPORT_SENTENCES[verdict.kind]}${detail ? ` (${detail})` : ''}.`;
 }

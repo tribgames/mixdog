@@ -99,7 +99,7 @@ Default scope is the recent change, not the tree:
 ## 4. Agent-level cleanup
 Read `references/agent-cleanup.md` first: it owns the deletion ladder, the
 lens checklists, the slop categories, the risk tiers, candidate inventory
-definitions, and the report template. This section owns the order.
+definitions, and the final report template. This section owns the order.
 
 1. **Lock behavior.** Use the baseline established in section 2. A file with no test covering
    the behavior you will touch gets either the narrowest regression test that
@@ -184,8 +184,11 @@ split remains unfinished, with its specific blocker.
 - A dead-code scanner report is a candidate list, not proof → verify per
   `references/dead-code.md` before deleting.
 
-## 7. Report and reconciliation
-Use the template and inventory reconciliation rules in `references/agent-cleanup.md`.
+## 7. Final report and reconciliation
+The final report is the closing reply to the user at the end of each round —
+not a separate document or file unless the user asks for one. Use the final
+report template and inventory reconciliation rules in
+`references/agent-cleanup.md`.
 
 1. **Separate round completion from whole cleanup completion.**
    Always state the current round outcome separately from overall cleanup status.
@@ -205,7 +208,7 @@ Use the template and inventory reconciliation rules in `references/agent-cleanup
 
 ## 8. References
 - `references/agent-cleanup.md` — before section 4: ladder, lenses, slop
-  categories with keep/fix rules, test-suite slop, risk tiers, report
+  categories with keep/fix rules, test-suite slop, risk tiers, final report
   template.
 - `references/dead-code.md` — before removing any unused symbol, file, or
   dependency: candidate sources, verification, never-dead list, order.

@@ -56,6 +56,12 @@ import {
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
 import { refreshSessionBp3Environment } from './prompt-utils.mjs';
 
+// A lead session may not delegate when orchestration is off or its workflow
+// forbids the agent tool; an agent-owned session never gets the tool anyway.
+function delegationDisabled(source, ownerIsAgent) {
+  return !ownerIsAgent && (sessionOrchestrationMode(source) === 'none' || workflowDisallowsAgentTool(source?.workflow));
+}
+
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null) {
   // Keep this in sync with createSession's provider-cache policy: only
   // explicit-breakpoint providers get BP cache opts here; OpenAI/key-prefix
@@ -129,10 +135,8 @@ function initialCompactionConfig(compaction = {}, contextMeta = {}) {
   };
 }
 
-export function createSession(opts) {
-  const presetObj = opts.preset && typeof opts.preset === 'object' ? opts.preset : null;
-
-  // --- Agent Runtime profile resolution (best-effort, sync) ---
+// Agent Runtime profile resolution (best-effort, sync).
+function resolveAgentRuntimeProfile(opts, presetObj) {
   let profile = opts.profile || null;
   let providerCacheOpts = opts.providerCacheOpts || null;
   if (!profile && (opts.taskType || opts.agent || opts.profileId)) {
@@ -156,7 +160,11 @@ export function createSession(opts) {
       }
     }
   }
+  return { profile, providerCacheOpts };
+}
 
+// Provider, model, tool preset, model parameters and the durable session id.
+function resolveSessionRoute(opts, presetObj, profile) {
   const providerName = opts.provider || presetObj?.provider || profile?.preferredProviders?.[0];
   const modelName = opts.model || presetObj?.model;
   // opts.tools (caller-supplied) wins over presetObj.tools — caller
@@ -167,12 +175,12 @@ export function createSession(opts) {
   const toolPreset = opts.tools || presetObj?.tools || (typeof opts.preset === 'string' ? opts.preset : null) || 'full';
   const effort = Object.hasOwn(opts, 'effort') ? opts.effort || null : presetObj?.effort || null;
   const fast = presetObj?.fast === true || opts.fast === true;
-  const modelParameters =
-    opts.modelParameters && typeof opts.modelParameters === 'object'
-      ? { ...opts.modelParameters }
-      : presetObj?.modelParameters && typeof presetObj.modelParameters === 'object'
-        ? { ...presetObj.modelParameters }
-        : {};
+  let modelParameters = {};
+  if (opts.modelParameters && typeof opts.modelParameters === 'object') {
+    modelParameters = { ...opts.modelParameters };
+  } else if (presetObj?.modelParameters && typeof presetObj.modelParameters === 'object') {
+    modelParameters = { ...presetObj.modelParameters };
+  }
   const requestedContextPercent = Number(opts.contextPercent);
   const contextPercent =
     Number.isFinite(requestedContextPercent) && requestedContextPercent > 0
@@ -190,31 +198,39 @@ export function createSession(opts) {
   // materialization. Supplying that reservation here keeps the address
   // stable across intake -> queued turn -> provider execution.
   const id = requestedId || mintSessionId();
-  // Provider cache strategy — agentRuntime.resolveSync() above is a
-  // best-effort injection point (setAgentRuntime() has no live caller
-  // today, so that branch never fires); build it directly here so every
-  // session still gets a cache strategy. Lead sessions (opts.agent ===
-  // 'lead', or no agent at all — raw/CLI callers) get their BP4 message
-  // tail TTL linked to the user's autoClear idle-sweep config; hidden and
-  // public agents keep the flat 5m default (see cache-strategy.mjs docs).
-  // Scoped to explicit-breakpoint (Anthropic-family) providers only — the
-  // non-Anthropic branches of buildProviderCacheOpts (e.g. the 'openai'
-  // cacheRetention:'24h' shape) were never exercised by createSession
-  // before this change, and are left untouched to avoid altering live
-  // OpenAI/other-provider request shape as a side effect of this fix.
-  if (!providerCacheOpts) providerCacheOpts = buildSessionProviderCacheOpts(providerName, id, opts.agent);
-  const messages = [];
+  return { providerName, modelName, provider, toolPreset, effort, fast, modelParameters, contextPercent, id };
+}
+
+// Exactly two schema surfaces exist: Lead and Agent. Every Agent role gets
+// the full Lead-capable base bundle; the recursive `agent` control tool is
+// removed later at the owner boundary. Role permission remains prompt/
+// diagnostic metadata and does not fragment the provider-visible schema.
+function resolveToolSpec(toolPreset, profile, ownerIsAgent) {
+  if (ownerIsAgent) return 'full';
+  return Array.isArray(profile?.tools) ? profile.tools : toolPreset;
+}
+
+// Every tool omitted by a caller schema allowlist is omitted from BP1 too.
+// The model never receives guidance for a tool it cannot call, and a new
+// process-wide built-in cannot leak into a narrow profile's prompt.
+function schemaOmittedToolNames(toolsForRouting, tools) {
+  const visibleToolNames = new Set(tools.map((tool) => String(tool?.name || '').toLowerCase()));
+  return toolsForRouting
+    .map((tool) => String(tool?.name || ''))
+    .filter((name) => name && !visibleToolNames.has(name.toLowerCase()));
+}
+
+// Role-resolved tool inventory: the routed list, the provider-visible list
+// after the caller allow/deny lists, and the names BP1 must omit.
+// BP1 is shared tool policy. BP2 holds persistent profile/tool catalogs;
+// BP3 holds workflow/role and session/project environment.
+function resolveSessionToolSurface(opts, { profile, toolPreset, modelName }) {
   const ownerIsAgent = isAgentOwner(opts.owner);
   const resolvedAgent = opts.agent || opts.role || profile?.taskType || null;
   const hiddenAgent = getHiddenAgent(resolvedAgent);
   const isRetrievalAgent = hiddenAgent?.kind === 'retrieval';
   // Lead and Agent share the same cwd-scoped Skill inventory.
   const skills = opts.skipSkills ? [] : collectPromptSkillsCached(opts.cwd);
-
-  // BP1 is shared tool policy. BP2 holds persistent profile/tool catalogs;
-  // BP3 holds workflow/role and session/project environment.
-  const agentRulesProfile = isRetrievalAgent ? 'retrieval' : 'full';
-  const skipAgentRules = opts.skipAgentRules === true;
   // BP1 shared tool policy ships to EVERY role (Lead, workers, retrieval,
   // maintenance): its anti-spiral clauses (one anchor is enough, never
   // repeat equivalent patterns/scopes, plausible hit → stop) are exactly
@@ -222,20 +238,12 @@ export function createSession(opts) {
   // override role-inapplicable entries.
   const sessionDeny = [
     ...(Array.isArray(opts.disallowedTools) ? opts.disallowedTools : []),
-    ...(!ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow))
-      ? ['agent']
-      : []),
+    ...(delegationDisabled(opts, ownerIsAgent) ? ['agent'] : []),
   ];
   // Role permission is prompt/diagnostic metadata only. Resolve and persist
   // it without shaping the provider-visible Agent schema.
   const toolPermission = opts.permission || profile?.permission || permissionFromToolSpec(toolPreset) || null;
-  const permission = toolPermission;
-
-  // Exactly two schema surfaces exist: Lead and Agent. Every Agent role gets
-  // the full Lead-capable base bundle; the recursive `agent` control tool is
-  // removed later at the owner boundary. Role permission remains prompt/
-  // diagnostic metadata and does not fragment the provider-visible schema.
-  const toolSpec = ownerIsAgent ? 'full' : Array.isArray(profile?.tools) ? profile.tools : toolPreset;
+  const toolSpec = resolveToolSpec(toolPreset, profile, ownerIsAgent);
   const toolsForRouting = resolveSessionTools(toolSpec, skills, {
     ownerIsAgentSession: ownerIsAgent,
     mcpScopeId: opts.mcpScopeId || null,
@@ -243,7 +251,6 @@ export function createSession(opts) {
     cwd: opts.cwd || null,
   });
 
-  const workflowMeta = toSessionWorkflowMeta(opts.workflow);
   const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
   const schemaAllowedTools = ownerIsAgent || !hasCallerAllow ? null : opts.schemaAllowedTools;
   const tools = finalizeSessionToolList(toolsForRouting, {
@@ -252,50 +259,42 @@ export function createSession(opts) {
     ownerIsAgent,
     resolvedAgent,
   });
-  // Every tool omitted by a caller schema allowlist is omitted from BP1 too.
-  // The model never receives guidance for a tool it cannot call, and a new
-  // process-wide built-in cannot leak into a narrow profile's prompt.
-  const visibleToolNames = new Set(tools.map((tool) => String(tool?.name || '').toLowerCase()));
-  const schemaOmittedTools = hasCallerAllow
-    ? toolsForRouting
-        .map((tool) => String(tool?.name || ''))
-        .filter((name) => name && !visibleToolNames.has(name.toLowerCase()))
-    : [];
-  const ruleOmitTools = [...sessionDeny, ...schemaOmittedTools, unusedModelEditToolName(modelName)];
-  const injectedRules = skipAgentRules
-    ? ''
-    : _buildBaseRules({
-        omitTools: ruleOmitTools,
-        allowTools: schemaAllowedTools,
-        provider: providerName,
-        model: modelName,
-      });
-  const delegationFree =
-    !ownerIsAgent && (sessionOrchestrationMode(opts) === 'none' || workflowDisallowsAgentTool(opts.workflow));
-  const roleRules = skipAgentRules
-    ? ''
-    : ownerIsAgent
-      ? _buildAgentRules(agentRulesProfile)
-      : _buildLeadRules({ includeLeadBrief: !delegationFree });
-  const metaContext = skipAgentRules ? '' : ownerIsAgent ? '' : _buildLeadMetaContext();
-  // Lead-only response language; closes the environment block so no English
-  // system text (session/shell/git lines) follows it.
-  const languageContext = skipAgentRules ? '' : ownerIsAgent ? '' : _buildLeadLanguageContext();
-  // Preserve the exact pre-layout environment payload: Lead carried the
-  // shell preference in Profile Preferences, while any routing surface with
-  // shell carried the startup capability line in BP1.
-  // opts.cwd is the session's explicit Project root. Raw callers that omit
-  // it still get a location line via captureOriginalUserCwd(), which
-  // resolves explicit session signals first and never leaks the daemon's
-  // install root (user-cwd.mjs safe fallback chain).
+  const schemaOmittedTools = hasCallerAllow ? schemaOmittedToolNames(toolsForRouting, tools) : [];
+  return {
+    ownerIsAgent,
+    resolvedAgent,
+    agentRulesProfile: isRetrievalAgent ? 'retrieval' : 'full',
+    skills,
+    sessionDeny,
+    toolPermission,
+    toolSpec,
+    toolsForRouting,
+    tools,
+    hasCallerAllow,
+    schemaAllowedTools,
+    ruleOmitTools: [...sessionDeny, ...schemaOmittedTools, unusedModelEditToolName(modelName)],
+  };
+}
+
+// Preserve the exact pre-layout environment payload: Lead carried the
+// shell preference in Profile Preferences, while any routing surface with
+// shell carried the startup capability line in BP1.
+// opts.cwd is the session's explicit Project root. Raw callers that omit
+// it still get a location line via captureOriginalUserCwd(), which
+// resolves explicit session signals first and never leaks the daemon's
+// install root (user-cwd.mjs safe fallback chain).
+function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting) {
   const sessionCwdLine = opts.cwd || captureOriginalUserCwd();
   const wantsGitStartupLine = toolsForRouting.some((tool) => tool?.name === 'git');
-  const shellEnvironmentContext = [
-    sessionCwdLine
-      ? ownerIsAgent
-        ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
-        : '- Relative paths and shell commands resolve in the active Project shown by Session Cwd.'
-      : '',
+  let cwdContextLine = '';
+  if (sessionCwdLine) {
+    cwdContextLine = ownerIsAgent
+      ? `- Cwd: ${sessionCwdLine} — the active Project root; relative paths and shell commands resolve here.`
+      : '- Relative paths and shell commands resolve in the active Project shown by Session Cwd.';
+  }
+  const startupScope = sessionCwdLine ? { cwd: sessionCwdLine } : {};
+  return [
+    cwdContextLine,
     `- Shell: ${process.platform === 'win32' ? 'PowerShell' : 'Bash'}. Use ${process.platform === 'win32' ? 'PowerShell' : 'Bash'} syntax unless the user specifies otherwise.`,
     // Which common tools the shell can run, measured where commands run
     // (login shell on POSIX, this process's PATH on Windows); see
@@ -307,7 +306,7 @@ export function createSession(opts) {
     // directory, true at startup and observable without spawning anything,
     // and the git tool cannot infer it. Without it a session spends a call
     // discovering `exited 128`, and repeats it per candidate path.
-    wantsGitStartupLine ? describeGitStartupState(sessionCwdLine ? { cwd: sessionCwdLine } : {}) : '',
+    wantsGitStartupLine ? describeGitStartupState(startupScope) : '',
     // Same startup-observation contract: the cwd's immediate entries are a
     // property of the directory, readable without spawning, and replace
     // the orientation `list`/`glob` that otherwise opens most sessions.
@@ -315,11 +314,39 @@ export function createSession(opts) {
   ]
     .filter(Boolean)
     .join('\n');
+}
+
+// BP1/BP2/BP3 rule blocks plus the volatile environment, composed into the
+// four system blocks; environmentTailContext is the persisted env tail.
+function composeSessionSystem(opts, { profile, providerName, modelName, surface }) {
+  const { ownerIsAgent, resolvedAgent, skills } = surface;
+  const skipAgentRules = opts.skipAgentRules === true;
+  const injectedRules = skipAgentRules
+    ? ''
+    : _buildBaseRules({
+        omitTools: surface.ruleOmitTools,
+        allowTools: surface.schemaAllowedTools,
+        provider: providerName,
+        model: modelName,
+      });
+  const delegationFree = delegationDisabled(opts, ownerIsAgent);
+  let roleRules = '';
+  if (!skipAgentRules) {
+    roleRules = ownerIsAgent
+      ? _buildAgentRules(surface.agentRulesProfile)
+      : _buildLeadRules({ includeLeadBrief: !delegationFree });
+  }
+  const leadOnly = !skipAgentRules && !ownerIsAgent;
+  const metaContext = leadOnly ? _buildLeadMetaContext() : '';
+  // Lead-only response language; closes the environment block so no English
+  // system text (session/shell/git lines) follows it.
+  const languageContext = leadOnly ? _buildLeadLanguageContext() : '';
+  const shellEnvironmentContext = buildShellEnvironmentContext(opts, ownerIsAgent, surface.toolsForRouting);
   // Persisted env tail: refreshSessionBp3Environment rebuilds the env block
   // as [session, project, bp3EnvironmentContext], so the language block must
   // already sit at the end of this string to stay last after a refresh.
   const environmentTailContext = [shellEnvironmentContext, languageContext].filter(Boolean).join('\n\n---\n\n');
-  const { baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment } = composeSystemPrompt({
+  const composed = composeSystemPrompt({
     userPrompt: opts.systemPrompt,
     agentRules: injectedRules || undefined,
     roleRules: roleRules || undefined,
@@ -334,20 +361,25 @@ export function createSession(opts) {
     environmentContext: shellEnvironmentContext,
     provider: providerName || null,
   });
-  // 4-BP layout (see composeSystemPrompt docs):
-  //   system block #1 = baseRules — BP1 (1h) shared tool policy
-  //   system block #2 = stableSystemContext — BP2 (1h) profile + skills +
-  //     deferred/MCP catalog
-  //   system block #3 = sessionMarkerCore — BP3 (1h) workflow/role + memory
-  //   system block #4 = sessionEnvironment — UNMARKED volatile session/
-  //     project environment (cacheTier:'env') closed by the response
-  //     language; covered by the messages-tail BP so an environment change
-  //     (e.g. a different Cwd) can never invalidate the BP3 core write.
-  //   later normal messages        = BP4/tail (task, role data, tool history)
-  // Anthropic multi-block system pins each marked block with cache_control
-  // (BP3 is the 3rd system block, tagged cacheTier:'tier3'; the env block
-  // stays unmarked). OpenAI/xAI get stable provider cache keys/session
-  // prefixes. Gemini manages explicit cachedContents inside its provider.
+  return { ...composed, environmentTailContext };
+}
+
+// 4-BP layout (see composeSystemPrompt docs):
+//   system block #1 = baseRules — BP1 (1h) shared tool policy
+//   system block #2 = stableSystemContext — BP2 (1h) profile + skills +
+//     deferred/MCP catalog
+//   system block #3 = sessionMarkerCore — BP3 (1h) workflow/role + memory
+//   system block #4 = sessionEnvironment — UNMARKED volatile session/
+//     project environment (cacheTier:'env') closed by the response
+//     language; covered by the messages-tail BP so an environment change
+//     (e.g. a different Cwd) can never invalidate the BP3 core write.
+//   later normal messages        = BP4/tail (task, role data, tool history)
+// Anthropic multi-block system pins each marked block with cache_control
+// (BP3 is the 3rd system block, tagged cacheTier:'tier3'; the env block
+// stays unmarked). OpenAI/xAI get stable provider cache keys/session
+// prefixes. Gemini manages explicit cachedContents inside its provider.
+function seedSessionMessages({ baseRules, stableSystemContext, sessionMarkerCore, sessionEnvironment }, files) {
+  const messages = [];
   if (baseRules) {
     messages.push({ role: 'system', content: baseRules });
   }
@@ -367,79 +399,30 @@ export function createSession(opts) {
     // of invalidating the stable BP3 core prefix.
     messages.push({ role: 'system', content: sessionEnvironment, cacheTier: 'env' });
   }
-  if (opts.files?.length) {
-    const fileContext = opts.files.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
+  if (files?.length) {
+    const fileContext = files.map((f) => `### ${f.path}\n\`\`\`\n${f.content}\n\`\`\``).join('\n\n');
     messages.push({ role: 'user', content: `Reference files:\n\n${fileContext}` });
     messages.push({ role: 'assistant', content: '.' });
   }
-  // Unified-shard policy — no broad role-specific schema filter. Keep
-  // agent schemas shared unless a hidden-role schema profile explicitly
-  // passes schemaAllowedTools for a small specialist; broad role
-  // whitelists would fragment the cache shard.
+  return messages;
+}
+
+// Unified-shard policy — no broad role-specific schema filter. Keep
+// agent schemas shared unless a hidden-role schema profile explicitly
+// passes schemaAllowedTools for a small specialist; broad role
+// whitelists would fragment the cache shard.
+function logSessionSurface({ resolvedAgent, toolPermission, tools }) {
   if (resolvedAgent && process.env.MIXDOG_DEBUG_SESSION_LOG) {
     process.stderr.write(
-      `[session] agent=${resolvedAgent} permission=${permission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`
+      `[session] agent=${resolvedAgent} permission=${toolPermission || 'full'} toolPermission=${toolPermission || 'full'} tools=${tools.length}\n`
     );
   }
-  const contextMeta = resolveSessionContextMeta(provider, modelName, {
-    selectedContextWindow: opts.selectedContextWindow,
-  });
-  const session = {
-    id,
-    codexWireSessionId: providerName === 'openai-oauth' ? mintUuidV7() : null,
-    provider: providerName,
-    model: modelName,
-    messages,
-    contextWindow: contextMeta.contextWindow,
-    rawContextWindow: contextMeta.rawContextWindow,
-    effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
-    autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
-    compactBoundaryTokens: contextMeta.compactBoundaryTokens,
-    compaction: initialCompactionConfig(opts.compaction, contextMeta),
-    tools,
-    preset: toolPreset,
-    // Persisted so the deferred call-through gate (deferred-call-through.mjs
-    // resolveDeferredSelectMode) can resolve the session's tool mode; without
-    // this every session read `undefined` and write-capable deferred tools
-    // (e.g. MCP) were permanently denied auto-promotion.
-    toolSpec,
-    presetName: presetObj?.name || null,
-    effort,
-    fast,
-    modelParameters,
-    contextPercent,
-    selectedContextWindow: opts.selectedContextWindow || null,
-    agent: opts.agent,
-    owner: opts.owner || 'user',
-    bp3CoreContext: sessionMarkerCore,
-    bp3EnvironmentContext: environmentTailContext,
-    // BP3 core and the volatile environment live in SEPARATE system
-    // blocks (cacheTier 'tier3' vs 'env'). Legacy persisted sessions
-    // without this flag keep the combined-BP3 refresh path.
-    bp3EnvSplit: true,
-    sessionStartMetaInjected: false,
-    ...(opts.approvalMode === IMPLICIT_APPROVAL_MODE ? { approvalMode: IMPLICIT_APPROVAL_MODE } : {}),
-    mcpPid: process.pid,
-    mcpScopeId: opts.mcpScopeId || null,
-    scopeKey: opts.scopeKey || null,
-    lane: opts.lane || 'agent',
-    cwd: opts.cwd,
-    // Optional desktop-only origin metadata. CLI/TUI callers omit it, so
-    // their persisted shape and classification behavior remain unchanged.
-    desktopSession: normalizeDesktopSessionMetadata(opts.desktopSession, opts.cwd),
-    workflow: workflowMeta,
-    orchestrationMode: sessionOrchestrationMode(opts),
-    disallowedTools: sessionDeny.map((name) => String(name)),
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    lastHeartbeatAt: null,
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    // Refreshed on each completed ask() — surfaced by agent type=list for
-    // debugging + consumed by store.mjs's idle-sweep to reclaim stalled
-    // agent sessions past RUNNING_STALL_MS.
-    lastUsedAt: Date.now(),
-    tokensCumulative: 0,
+}
+
+// Origin, permission and cache metadata persisted on the session record.
+function sessionOriginFields(opts, { profile, presetObj, providerCacheOpts, surface }) {
+  const { toolPermission, hasCallerAllow } = surface;
+  return {
     taskType: opts.taskType || null,
     // Agent tag (auto worker{n} on spawn) persisted so the forked status
     // process (statusline) + aggregator can read it from the session JSON.
@@ -447,7 +430,7 @@ export function createSession(opts) {
     agentTag: opts.agentTag || null,
     // Prompt permission is separate from runtime toolPermission so preset
     // restrictions do not fragment the agent cache prefix.
-    permission: permission || null,
+    permission: toolPermission || null,
     toolPermission: toolPermission || null,
     schemaAllowedTools: hasCallerAllow ? opts.schemaAllowedTools.map((n) => String(n)) : null,
     // Origin tag written into every agent-trace usage row so analytics
@@ -473,6 +456,107 @@ export function createSession(opts) {
     visibility: opts.visibility || null,
     clientHostPid: opts.clientHostPid || null,
   };
+}
+
+// The persisted session record.
+function buildSessionRecord({ opts, route, presetObj, surface, prompt, messages, contextMeta, origin }) {
+  const { providerName, modelName, toolPreset, effort, fast, modelParameters, contextPercent, id } = route;
+  return {
+    id,
+    codexWireSessionId: providerName === 'openai-oauth' ? mintUuidV7() : null,
+    provider: providerName,
+    model: modelName,
+    messages,
+    contextWindow: contextMeta.contextWindow,
+    rawContextWindow: contextMeta.rawContextWindow,
+    effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
+    autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
+    compactBoundaryTokens: contextMeta.compactBoundaryTokens,
+    compaction: initialCompactionConfig(opts.compaction, contextMeta),
+    tools: surface.tools,
+    preset: toolPreset,
+    // Persisted so the deferred call-through gate (deferred-call-through.mjs
+    // resolveDeferredSelectMode) can resolve the session's tool mode; without
+    // this every session read `undefined` and write-capable deferred tools
+    // (e.g. MCP) were permanently denied auto-promotion.
+    toolSpec: surface.toolSpec,
+    presetName: presetObj?.name || null,
+    effort,
+    fast,
+    modelParameters,
+    contextPercent,
+    selectedContextWindow: opts.selectedContextWindow || null,
+    agent: opts.agent,
+    owner: opts.owner || 'user',
+    bp3CoreContext: prompt.sessionMarkerCore,
+    bp3EnvironmentContext: prompt.environmentTailContext,
+    // BP3 core and the volatile environment live in SEPARATE system
+    // blocks (cacheTier 'tier3' vs 'env'). Legacy persisted sessions
+    // without this flag keep the combined-BP3 refresh path.
+    bp3EnvSplit: true,
+    sessionStartMetaInjected: false,
+    ...(opts.approvalMode === IMPLICIT_APPROVAL_MODE ? { approvalMode: IMPLICIT_APPROVAL_MODE } : {}),
+    mcpPid: process.pid,
+    mcpScopeId: opts.mcpScopeId || null,
+    scopeKey: opts.scopeKey || null,
+    lane: opts.lane || 'agent',
+    cwd: opts.cwd,
+    // Optional desktop-only origin metadata. CLI/TUI callers omit it, so
+    // their persisted shape and classification behavior remain unchanged.
+    desktopSession: normalizeDesktopSessionMetadata(opts.desktopSession, opts.cwd),
+    workflow: toSessionWorkflowMeta(opts.workflow),
+    orchestrationMode: sessionOrchestrationMode(opts),
+    disallowedTools: surface.sessionDeny.map((name) => String(name)),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    lastHeartbeatAt: null,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    // Refreshed on each completed ask() — surfaced by agent type=list for
+    // debugging + consumed by store.mjs's idle-sweep to reclaim stalled
+    // agent sessions past RUNNING_STALL_MS.
+    lastUsedAt: Date.now(),
+    tokensCumulative: 0,
+    ...origin,
+  };
+}
+
+export function createSession(opts) {
+  const presetObj = opts.preset && typeof opts.preset === 'object' ? opts.preset : null;
+  const resolved = resolveAgentRuntimeProfile(opts, presetObj);
+  const { profile } = resolved;
+  const route = resolveSessionRoute(opts, presetObj, profile);
+  const { providerName, modelName, provider, toolPreset, id } = route;
+  // Provider cache strategy — agentRuntime.resolveSync() above is a
+  // best-effort injection point (setAgentRuntime() has no live caller
+  // today, so that branch never fires); build it directly here so every
+  // session still gets a cache strategy. Lead sessions (opts.agent ===
+  // 'lead', or no agent at all — raw/CLI callers) get their BP4 message
+  // tail TTL linked to the user's autoClear idle-sweep config; hidden and
+  // public agents keep the flat 5m default (see cache-strategy.mjs docs).
+  // Scoped to explicit-breakpoint (Anthropic-family) providers only — the
+  // non-Anthropic branches of buildProviderCacheOpts (e.g. the 'openai'
+  // cacheRetention:'24h' shape) were never exercised by createSession
+  // before this change, and are left untouched to avoid altering live
+  // OpenAI/other-provider request shape as a side effect of this fix.
+  const providerCacheOpts = resolved.providerCacheOpts || buildSessionProviderCacheOpts(providerName, id, opts.agent);
+  const surface = resolveSessionToolSurface(opts, { profile, toolPreset, modelName });
+  const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface });
+  const messages = seedSessionMessages(prompt, opts.files);
+  logSessionSurface(surface);
+  const contextMeta = resolveSessionContextMeta(provider, modelName, {
+    selectedContextWindow: opts.selectedContextWindow,
+  });
+  const session = buildSessionRecord({
+    opts,
+    route,
+    presetObj,
+    surface,
+    prompt,
+    messages,
+    contextMeta,
+    origin: sessionOriginFields(opts, { profile, presetObj, providerCacheOpts, surface }),
+  });
   refreshSessionBp3Environment(session, opts.cwd);
   // In-process registry + async debounced save: same-process create → load
   // reads live memory; disk flush is for cross-process / restart durability.
@@ -500,10 +584,7 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel, prev
   const deny = [
     ...(Array.isArray(session?.disallowedTools) ? session.disallowedTools : []),
     ...(getHiddenAgent(session?.agent || null) ? ['Skill'] : []),
-    ...(!isAgentOwner(session) &&
-    (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session?.workflow))
-      ? ['agent']
-      : []),
+    ...(delegationDisabled(session, isAgentOwner(session)) ? ['agent'] : []),
   ];
   const allowTools = isAgentOwner(session) ? null : session?.schemaAllowedTools;
   const previousRules = _buildBaseRules({
@@ -531,12 +612,7 @@ export function _refreshSessionRuleVariantsForModel(session, previousModel, prev
   return true;
 }
 
-export function updateSessionRoute(id, route = {}) {
-  if (!id) return null;
-  const session = loadSession(id);
-  if (!session || session.closed === true) return null;
-  const previousProvider = session.provider || null;
-  const previousModel = session.model || null;
+function applyRouteFields(session, route) {
   if (route.provider) session.provider = route.provider;
   if (route.model) session.model = route.model;
   if (Object.hasOwn(route, 'fast')) session.fast = route.fast === true;
@@ -553,71 +629,86 @@ export function updateSessionRoute(id, route = {}) {
         ? Math.max(10, Math.min(100, Math.round(requestedContextPercent / 10) * 10))
         : null;
   }
-  const selectedContextWindowProvided = Object.hasOwn(route, 'selectedContextWindow');
-  if (selectedContextWindowProvided) {
+  if (Object.hasOwn(route, 'selectedContextWindow')) {
     session.selectedContextWindow = Number(route.selectedContextWindow) || null;
   }
-  const routeChanged =
-    (route.provider && route.provider !== previousProvider) || (route.model && route.model !== previousModel);
+}
+
+// Provider/model windows are derived metadata. Never seed a new route with
+// the old route's persisted boundary (for example GPT 272k leaking into
+// Cursor Gemini after an empty-session model switch).
+function applyRouteContextWindow(session, routeChanged, selectedContextWindowProvided) {
   const provider = session.provider ? getProvider(session.provider) : null;
-  if (provider && session.model) {
-    // Provider/model windows are derived metadata. Never seed a new route
-    // with the old route's persisted boundary (for example GPT 272k
-    // leaking into Cursor Gemini after an empty-session model switch).
-    const contextSeed = contextSeedForRouteUpdate(session, routeChanged, selectedContextWindowProvided);
-    const contextMeta = resolveSessionContextMeta(provider, session.model, contextSeed);
-    session.contextWindow = contextMeta.contextWindow;
-    session.rawContextWindow = contextMeta.rawContextWindow;
-    session.effectiveContextWindowPercent = contextMeta.effectiveContextWindowPercent;
-    session.autoCompactTokenLimit = contextMeta.autoCompactTokenLimit;
-    session.compactBoundaryTokens = contextMeta.compactBoundaryTokens;
-    session.compaction = {
-      ...(session.compaction || {}),
-      boundaryTokens: contextMeta.compactBoundaryTokens,
-      contextWindow: contextMeta.contextWindow,
-      rawContextWindow: contextMeta.rawContextWindow,
-      effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
-      autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
-    };
-  } else {
+  if (!provider || !session.model) {
     delete session.contextWindow;
     delete session.rawContextWindow;
     delete session.effectiveContextWindowPercent;
     delete session.autoCompactTokenLimit;
     delete session.compactBoundaryTokens;
+    return;
   }
-  if (routeChanged) {
-    const now = Date.now();
-    session.promptCacheKey = providerCacheKey(session.provider);
-    session.providerCacheOpts = buildSessionProviderCacheOpts(session.provider, session.id, session.agent) || null;
-    session.lastInputTokens = 0;
-    session.lastOutputTokens = 0;
-    session.lastCachedReadTokens = 0;
-    session.lastCacheWriteTokens = 0;
-    session.lastContextTokens = 0;
-    session.lastContextTokensUpdatedAt = now;
-    session.lastContextTokensStaleAfterCompact = false;
-    session.providerState = undefined;
-    const prepared = _prepareResumeTools(session, session.preset || 'full');
-    session.tools = prepared.tools;
-    session.toolSpec = prepared.toolSpec;
-    if (Array.isArray(session.deferredToolCatalog)) {
-      session.deferredToolCatalog = filterModelEditTools(session.deferredToolCatalog, session.model);
-    }
-    if (Array.isArray(session.deferredLateToolCatalog)) {
-      session.deferredLateToolCatalog = filterModelEditTools(session.deferredLateToolCatalog, session.model);
-    }
-    for (const key of [
-      'deferredSelectedTools',
-      'deferredCallableTools',
-      'deferredDefaultTools',
-      'deferredDiscoveredTools',
-    ]) {
-      if (Array.isArray(session[key])) session[key] = filterModelEditToolNames(session[key], session.model);
-    }
-    _refreshSessionRuleVariantsForModel(session, previousModel, previousProvider);
-    _preparedResumes.delete(id);
+  const contextSeed = contextSeedForRouteUpdate(session, routeChanged, selectedContextWindowProvided);
+  const contextMeta = resolveSessionContextMeta(provider, session.model, contextSeed);
+  session.contextWindow = contextMeta.contextWindow;
+  session.rawContextWindow = contextMeta.rawContextWindow;
+  session.effectiveContextWindowPercent = contextMeta.effectiveContextWindowPercent;
+  session.autoCompactTokenLimit = contextMeta.autoCompactTokenLimit;
+  session.compactBoundaryTokens = contextMeta.compactBoundaryTokens;
+  session.compaction = {
+    ...(session.compaction || {}),
+    boundaryTokens: contextMeta.compactBoundaryTokens,
+    contextWindow: contextMeta.contextWindow,
+    rawContextWindow: contextMeta.rawContextWindow,
+    effectiveContextWindowPercent: contextMeta.effectiveContextWindowPercent,
+    autoCompactTokenLimit: contextMeta.autoCompactTokenLimit,
+  };
+}
+
+// A new provider/model starts a fresh cache chain, usage baseline and tool
+// surface: the previous route's readings and prepared tools no longer apply.
+function resetSessionForRouteChange(id, session, previousModel, previousProvider) {
+  session.promptCacheKey = providerCacheKey(session.provider);
+  session.providerCacheOpts = buildSessionProviderCacheOpts(session.provider, session.id, session.agent) || null;
+  session.lastInputTokens = 0;
+  session.lastOutputTokens = 0;
+  session.lastCachedReadTokens = 0;
+  session.lastCacheWriteTokens = 0;
+  session.lastContextTokens = 0;
+  session.lastContextTokensUpdatedAt = Date.now();
+  session.lastContextTokensStaleAfterCompact = false;
+  session.providerState = undefined;
+  const prepared = _prepareResumeTools(session, session.preset || 'full');
+  session.tools = prepared.tools;
+  session.toolSpec = prepared.toolSpec;
+  if (Array.isArray(session.deferredToolCatalog)) {
+    session.deferredToolCatalog = filterModelEditTools(session.deferredToolCatalog, session.model);
   }
+  if (Array.isArray(session.deferredLateToolCatalog)) {
+    session.deferredLateToolCatalog = filterModelEditTools(session.deferredLateToolCatalog, session.model);
+  }
+  for (const key of [
+    'deferredSelectedTools',
+    'deferredCallableTools',
+    'deferredDefaultTools',
+    'deferredDiscoveredTools',
+  ]) {
+    if (Array.isArray(session[key])) session[key] = filterModelEditToolNames(session[key], session.model);
+  }
+  _refreshSessionRuleVariantsForModel(session, previousModel, previousProvider);
+  _preparedResumes.delete(id);
+}
+
+export function updateSessionRoute(id, route = {}) {
+  if (!id) return null;
+  const session = loadSession(id);
+  if (!session || session.closed === true) return null;
+  const previousProvider = session.provider || null;
+  const previousModel = session.model || null;
+  applyRouteFields(session, route);
+  const routeChanged =
+    (route.provider && route.provider !== previousProvider) || (route.model && route.model !== previousModel);
+  applyRouteContextWindow(session, routeChanged, Object.hasOwn(route, 'selectedContextWindow'));
+  if (routeChanged) resetSessionForRouteChange(id, session, previousModel, previousProvider);
   // Route fields feed the `# Session` prompt block (Model: … · EFFORT · FAST).
   // Rebuild it here: createSession stamped the block with the creation-time
   // route and set sessionStartMetaInjected, so the ask-time refresh guard
@@ -673,17 +764,11 @@ function _prepareResumeTools(session, preset) {
     toolSpec,
     ownerIsAgent,
     tools: finalizeSessionToolList(toolsForRouting, {
-      schemaAllowedTools: ownerIsAgent
-        ? null
-        : Array.isArray(session.schemaAllowedTools)
-          ? session.schemaAllowedTools
-          : null,
+      schemaAllowedTools:
+        !ownerIsAgent && Array.isArray(session.schemaAllowedTools) ? session.schemaAllowedTools : null,
       disallowedTools: [
         ...(Array.isArray(session.disallowedTools) ? session.disallowedTools : []),
-        ...(!isAgentOwner(session) &&
-        (sessionOrchestrationMode(session) === 'none' || workflowDisallowsAgentTool(session.workflow))
-          ? ['agent']
-          : []),
+        ...(delegationDisabled(session, ownerIsAgent) ? ['agent'] : []),
       ],
       ownerIsAgent,
       resolvedAgent: session.agent || null,
@@ -891,61 +976,55 @@ export function recoverSessionAfterProcessRestart(sessionId) {
   return session;
 }
 
-export async function resumeSession(sessionId, preset, options = {}) {
-  const session = loadSession(sessionId);
-  if (!session) return null;
-  // Resuming a closed session is a resurrection attempt — refuse. The guarded
-  // save below would also block the write, but failing fast here is cleaner
-  // than silently dropping the tool-refresh side effects.
-  if (session.closed === true) return null;
-  ensureCodexWireSessionId(session);
-  // Desktop callers pass their selected durable classification as a
-  // capability check. Refuse a stale/tampered cross-class resume before any
-  // tool refresh or save. CLI/TUI callers omit this option and retain the
-  // historical unrestricted resume behavior.
-  if (Object.hasOwn(options, 'desktopSession')) {
-    const expectedDesktop = normalizeDesktopSessionMetadata(options.desktopSession, session.cwd);
-    const storedDesktop = normalizeDesktopSessionMetadata(session.desktopSession, session.cwd);
-    if (!expectedDesktop || !storedDesktop || expectedDesktop.classification !== storedDesktop.classification) {
-      return null;
+// Desktop callers pass their selected durable classification as a
+// capability check. Refuse a stale/tampered cross-class resume before any
+// tool refresh or save. CLI/TUI callers omit this option and retain the
+// historical unrestricted resume behavior. Answers false when refused.
+function _applyDesktopResumeScope(session, options) {
+  if (!Object.hasOwn(options, 'desktopSession')) return true;
+  const expectedDesktop = normalizeDesktopSessionMetadata(options.desktopSession, session.cwd);
+  const storedDesktop = normalizeDesktopSessionMetadata(session.desktopSession, session.cwd);
+  if (!expectedDesktop || !storedDesktop || expectedDesktop.classification !== storedDesktop.classification) {
+    return false;
+  }
+  // The host's summary may predate a cwd change. It supplies the
+  // classification check, not permission to overwrite the session's
+  // newer execution Project. Task metadata always remains pathless.
+  session.desktopSession =
+    expectedDesktop.classification === 'project'
+      ? normalizeDesktopSessionMetadata(
+          {
+            ...expectedDesktop,
+            projectPath: session.cwd || expectedDesktop.projectPath,
+          },
+          session.cwd
+        )
+      : expectedDesktop;
+  return true;
+}
+
+// ATTACH (viewer mode, zero ownership): hand back the live transcript
+// under the SAME id, flagged remoteAttached. No tool refresh, no save,
+// no generation claim — the session file remains exclusively the
+// owner's. session-turn-api routes this surface's submits into the
+// shared pending spool instead of running a local turn.
+function _attachViewerSession(session, sessionId) {
+  const attached = { ...session, remoteAttached: true };
+  delete attached.liveTurnMessages;
+  delete attached.toolApprovalHook;
+  if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
+    try {
+      process.stderr.write(`[session] attach-on-resume: ${sessionId} is live elsewhere → viewer attach\n`);
+    } catch {
+      /* best-effort */
     }
-    // The host's summary may predate a cwd change. It supplies the
-    // classification check, not permission to overwrite the session's
-    // newer execution Project. Task metadata always remains pathless.
-    session.desktopSession =
-      expectedDesktop.classification === 'project'
-        ? normalizeDesktopSessionMetadata(
-            {
-              ...expectedDesktop,
-              projectPath: session.cwd || expectedDesktop.projectPath,
-            },
-            session.cwd
-          )
-        : expectedDesktop;
   }
-  if (!session.owner) session.owner = 'user';
-  if (Object.hasOwn(options, 'mcpScopeId')) {
-    session.mcpScopeId = String(options.mcpScopeId || '').trim() || null;
-  }
-  if (_isActivelyOwnedElsewhere(session, sessionId)) {
-    // ATTACH (viewer mode, zero ownership): hand back the live transcript
-    // under the SAME id, flagged remoteAttached. No tool refresh, no save,
-    // no generation claim — the session file remains exclusively the
-    // owner's. session-turn-api routes this surface's submits into the
-    // shared pending spool instead of running a local turn.
-    const attached = { ...session, remoteAttached: true };
-    delete attached.liveTurnMessages;
-    delete attached.toolApprovalHook;
-    if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
-      try {
-        process.stderr.write(`[session] attach-on-resume: ${sessionId} is live elsewhere → viewer attach\n`);
-      } catch {
-        /* best-effort */
-      }
-    }
-    return attached;
-  }
-  _recoverTurnCheckpointDurably(session, sessionId);
+  return attached;
+}
+
+// Refreshes the session's tool surface from the prepared resume when it still
+// matches, warning about tools the preset no longer offers.
+function _refreshResumedTools(session, sessionId, preset) {
   const oldTools = session.tools || [];
   const cached = _readPreparedResume(sessionId);
   _preparedResumes.delete(sessionId);
@@ -956,13 +1035,30 @@ export async function resumeSession(sessionId, preset, options = {}) {
   // Keep the persisted tool mode in sync on resume (see createSession note).
   session.toolSpec = prepared.toolSpec;
   session.tools = prepared.tools;
-  const newTools = session.tools;
-  const missing = oldTools.filter((t) => !newTools.find((n) => n.name === t.name));
+  const missing = oldTools.filter((t) => !session.tools.find((n) => n.name === t.name));
   if (missing.length) {
     process.stderr.write(
       `[session] Warning: ${missing.length} tools no longer available: ${missing.map((t) => t.name).join(', ')}\n`
     );
   }
+}
+
+export async function resumeSession(sessionId, preset, options = {}) {
+  const session = loadSession(sessionId);
+  if (!session) return null;
+  // Resuming a closed session is a resurrection attempt — refuse. The guarded
+  // save below would also block the write, but failing fast here is cleaner
+  // than silently dropping the tool-refresh side effects.
+  if (session.closed === true) return null;
+  ensureCodexWireSessionId(session);
+  if (!_applyDesktopResumeScope(session, options)) return null;
+  if (!session.owner) session.owner = 'user';
+  if (Object.hasOwn(options, 'mcpScopeId')) {
+    session.mcpScopeId = String(options.mcpScopeId || '').trim() || null;
+  }
+  if (_isActivelyOwnedElsewhere(session, sessionId)) return _attachViewerSession(session, sessionId);
+  _recoverTurnCheckpointDurably(session, sessionId);
+  _refreshResumedTools(session, sessionId, preset);
   // The live session already owns the refreshed tools and desktop scope.
   // Defer the structured clone + worker round-trip so opening a conversation
   // is not blocked on persisting the same in-memory state back to disk.

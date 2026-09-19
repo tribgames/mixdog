@@ -251,8 +251,9 @@ export function normalizeApplyPatch(value) {
     index -= 1;
     const oldName = operation === 'Add' ? '/dev/null' : `a/${fileName}`;
     const newName = operation === 'Delete' ? '/dev/null' : `b/${fileName}`;
-    const mode =
-      operation === 'Add' ? 'new file mode 100644' : operation === 'Delete' ? 'deleted file mode 100644' : '';
+    let mode = '';
+    if (operation === 'Add') mode = 'new file mode 100644';
+    else if (operation === 'Delete') mode = 'deleted file mode 100644';
     let patchBody = body.join('\n').replace(/\n+$/, '');
     if (operation === 'Add' && patchBody && !/^@@/m.test(patchBody)) {
       const added = patchBody.split('\n').filter((line) => line.startsWith('+')).length;
@@ -372,15 +373,10 @@ export function parseUnifiedDiff(patch) {
     for (let match = plainHeader.exec(normalized); match; match = plainHeader.exec(normalized))
       starts.push(match.index);
   }
-  const sections =
-    starts.length === 0
-      ? [normalized]
-      : [
-          ...(starts[0] > 0 && hasLeadingDiffContent(normalized.slice(0, starts[0]))
-            ? [normalized.slice(0, starts[0])]
-            : []),
-          ...starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length)),
-        ];
+  if (starts.length === 0) return [parseFileSection(normalized)];
+  const sections = starts.map((start, index) => normalized.slice(start, starts[index + 1] ?? normalized.length));
+  const lead = normalized.slice(0, starts[0]);
+  if (starts[0] > 0 && hasLeadingDiffContent(lead)) sections.unshift(lead);
   return sections.map(parseFileSection);
 }
 

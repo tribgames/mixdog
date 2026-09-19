@@ -1,6 +1,10 @@
 import { xmlEncode } from './portable-xml.mjs';
 
-const EMU_PER_POINT = 12_700;
+export const EMU_PER_POINT = 12_700;
+
+export function fromEmu(value, fallback) {
+  return Number.isFinite(value) ? value / EMU_PER_POINT : fallback;
+}
 
 const GEOMETRY = Object.freeze({
   rectangle: 'rect',
@@ -245,6 +249,29 @@ export function pictureXml({
   );
 }
 
+function tableCellXml(text, header, properties, fill) {
+  const defaults = {
+    fontName: properties.fontName,
+    fontSize: properties.fontSize,
+    color: header ? (properties.headerColor ?? properties.color) : properties.color,
+    bold: header ? true : properties.bold,
+  };
+  const body = textBodyXml({
+    paragraphs: [{ text, align: header ? 'left' : properties.align }],
+    defaults,
+    anchor: 'center',
+    margins: { marginLeft: 7, marginRight: 7, marginTop: 3, marginBottom: 3 },
+  });
+  return `<a:tc><a:txBody>${body}</a:txBody><a:tcPr anchor="ctr">${fill ? solidFill(fill) : ''}</a:tcPr></a:tc>`;
+}
+
+function tableRowXml(row, { header, columns, properties, fill, height }) {
+  const cells = Array.from({ length: columns }, (_, columnIndex) =>
+    tableCellXml(row[columnIndex] ?? '', header, properties, fill)
+  ).join('');
+  return `<a:tr h="${height}">${cells}</a:tr>`;
+}
+
 export function tableXml({
   id,
   name = '',
@@ -269,25 +296,13 @@ export function tableXml({
     .map((row, rowIndex) => {
       const header = rowIndex === 0;
       const rowHeight = header ? headerHeight || bodyHeight : bodyHeight || headerHeight;
-      const cells = Array.from({ length: columns }, (_, columnIndex) => {
-        const defaults = {
-          fontName: properties.fontName,
-          fontSize: properties.fontSize,
-          color: header ? (properties.headerColor ?? properties.color) : properties.color,
-          bold: header ? true : properties.bold,
-        };
-        const text = textBodyXml({
-          paragraphs: [{ text: row[columnIndex] ?? '', align: header ? 'left' : properties.align }],
-          defaults,
-          anchor: 'center',
-          margins: { marginLeft: 7, marginRight: 7, marginTop: 3, marginBottom: 3 },
-        });
-        const fill = header ? headerFill : bodyFill;
-        return (
-          `<a:tc><a:txBody>${text}</a:txBody>` + `<a:tcPr anchor="ctr">${fill ? solidFill(fill) : ''}</a:tcPr></a:tc>`
-        );
-      }).join('');
-      return `<a:tr h="${rowHeight ? toEmu(rowHeight) : Math.round(toEmu(height) / rows.length)}">${cells}</a:tr>`;
+      return tableRowXml(row, {
+        header,
+        columns,
+        properties,
+        fill: header ? headerFill : bodyFill,
+        height: rowHeight ? toEmu(rowHeight) : Math.round(toEmu(height) / rows.length),
+      });
     })
     .join('');
   return (

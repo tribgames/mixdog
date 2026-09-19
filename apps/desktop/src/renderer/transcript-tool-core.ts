@@ -65,11 +65,9 @@ export function shouldSuppressFullyFailedToolItem(item: TranscriptItem) {
   const count = Math.max(1, Number(item.count || 1));
   const completed = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
   const explicit = Number(item.errorCount);
-  const errors = Number.isFinite(explicit)
-    ? Math.max(0, Math.min(count, Math.floor(explicit)))
-    : item.isError
-      ? count
-      : 0;
+  let errors = 0;
+  if (Number.isFinite(explicit)) errors = Math.max(0, Math.min(count, Math.floor(explicit)));
+  else if (item.isError) errors = count;
   return completed >= count && errors >= count && !isHookApprovalDenialToolItem(item) && !toolResultText(item);
 }
 
@@ -95,7 +93,7 @@ export function toolActivityItemTone(item: TranscriptItem): 'error' | 'warning' 
     terminalStatus: isHookApprovalDenialToolItem(item) ? 'denied' : '',
     partialMutation,
   });
-  return tone === 'error' ? 'error' : tone === 'warning' ? 'warning' : 'neutral';
+  return tone === 'error' || tone === 'warning' ? tone : 'neutral';
 }
 
 function localizedToolActivityCategory(category: string): string {
@@ -293,7 +291,7 @@ export function desktopToolActivityCategory(name: unknown, args: unknown): strin
   return String(classifyToolCategory(modeledName, surface.args) || 'Other');
 }
 
-export function desktopToolActivityUnit(
+function desktopToolActivityUnit(
   name: unknown,
   args: unknown
 ): {

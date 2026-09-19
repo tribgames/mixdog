@@ -117,7 +117,9 @@ function trustResult({
   complete = true,
   warning = '',
 } = {}) {
-  const risk = findings.some((entry) => entry.severity === 'high') ? 'high' : findings.length ? 'medium' : 'none';
+  let risk = 'none';
+  if (findings.some((entry) => entry.severity === 'high')) risk = 'high';
+  else if (findings.length) risk = 'medium';
   return {
     policy: 'untrusted-data',
     safeToTreatAsInstructions: false,
@@ -159,8 +161,29 @@ function xmlVisibleText(xml) {
   );
 }
 
+// Scans the package's text-bearing parts in name order, stopping once the
+// scan has read 25 MiB or collected 50 findings.
+async function scanOfficePackage(zip, selector) {
+  const names = Object.keys(zip.files)
+    .filter((name) => selector.test(name))
+    .sort();
+  const findings = [];
+  const seen = new Set();
+  let scannedStrings = 0;
+  let scannedBytes = 0;
+  for (const name of names) {
+    const xml = (await zip.file(name)?.async('string')) || '';
+    scannedBytes += Buffer.byteLength(xml);
+    if (scannedBytes > 25 * 1024 * 1024) return { findings, scannedStrings, complete: false };
+    scannedStrings += scanString(xmlVisibleText(xml).slice(0, 2_000_000), `/package/${name}`, findings, seen);
+    if (findings.length >= 50) return { findings, scannedStrings, complete: false };
+  }
+  return { findings, scannedStrings, complete: true };
+}
+
 export async function analyzeOfficeFilePromptInjection(path, { format = extname(path).slice(1).toLowerCase() } = {}) {
   const normalized = String(format || '').toLowerCase();
+  const result = (fields) => trustResult({ format: normalized, source: 'office-file', ...fields });
   try {
     if (['csv', 'tsv'].includes(normalized)) {
       return analyzeOfficePromptInjection(await readFile(path, 'utf8'), {
@@ -170,56 +193,15 @@ export async function analyzeOfficeFilePromptInjection(path, { format = extname(
     }
     const selector = OFFICE_XML_PARTS[normalized];
     if (!selector) {
-      return trustResult({
-        format: normalized,
-        source: 'office-file',
+      return result({
         complete: false,
         warning: `Direct prompt-injection scan is unavailable for ${normalized || 'this format'}.`,
       });
     }
     const zip = await JSZip.loadAsync(await readFile(path));
-    const names = Object.keys(zip.files)
-      .filter((name) => selector.test(name))
-      .sort();
-    const state = {
-      findings: [],
-      scannedStrings: 0,
-      seen: new Set(),
-    };
-    let scannedBytes = 0;
-    let complete = true;
-    for (const name of names) {
-      const xml = (await zip.file(name)?.async('string')) || '';
-      scannedBytes += Buffer.byteLength(xml);
-      if (scannedBytes > 25 * 1024 * 1024) {
-        complete = false;
-        break;
-      }
-      state.scannedStrings += scanString(
-        xmlVisibleText(xml).slice(0, 2_000_000),
-        `/package/${name}`,
-        state.findings,
-        state.seen
-      );
-      if (state.findings.length >= 50) {
-        complete = false;
-        break;
-      }
-    }
-    return trustResult({
-      format: normalized,
-      source: 'office-file',
-      findings: state.findings,
-      scannedStrings: state.scannedStrings,
-      complete,
-    });
+    return result(await scanOfficePackage(zip, selector));
   } catch (error) {
-    return trustResult({
-      format: normalized,
-      source: 'office-file',
-      complete: false,
-      warning: error?.message || String(error),
-    });
+    return result({ complete: false, warning: error?.message || String(error) });
   }
 }
 

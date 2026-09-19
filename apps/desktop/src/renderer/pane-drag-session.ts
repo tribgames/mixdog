@@ -3,7 +3,7 @@
 // application-only metadata and forwards target-local drag lifecycle frames.
 import type { WorkspaceSelection } from './nav-types';
 
-export const PANE_DRAG_MIME = 'application/x-mixdog-pane-drag';
+const PANE_DRAG_MIME = 'application/x-mixdog-pane-drag';
 
 export type PaneDragSession = {
   kind: 'tab' | 'group' | 'session';

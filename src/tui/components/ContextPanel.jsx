@@ -282,15 +282,11 @@ export function ContextPanel({
   const valueWidth = Math.max(0, columns - labelWidth - 8);
   const isContextUsage = detail?.type === 'context';
   // Standard panel rhythm: title row, blank, description/hint row, blank, content.
+  let fallbackDescription = '';
+  if (detail?.inspection) fallbackDescription = 'Current context snapshot. R refresh · Enter inspect.';
+  else if (isContextUsage) fallbackDescription = 'Live context window usage by category.';
   const panelDescription = truncateText(
-    String(
-      description ||
-        (detail?.inspection
-          ? 'Current context snapshot. R refresh · Enter inspect.'
-          : isContextUsage
-            ? 'Live context window usage by category.'
-            : '')
-    )
+    String(description || fallbackDescription)
       .replace(/\s+/g, ' ')
       .trim(),
     Math.max(0, columns - 4)

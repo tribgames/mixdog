@@ -362,6 +362,14 @@ for (const actionBranch of COMPUTER_INPUT_SCHEMA.oneOf) {
 // the exact window_id, or an app label the host resolves to one window and
 // refuses when it matches more than one.
 const WINDOW_TARGET_ACTIONS = new Set(['act', 'window', 'menu', 'verify']);
+// The host command each window operation becomes; every other operation is a
+// window_state change carrying the operation as its state.
+const WINDOW_OPERATION_ACTIONS = Object.freeze({
+  focus: 'focus_window',
+  move: 'move_window',
+  close: 'close_window',
+  terminate: 'terminate_process',
+});
 
 function objectSchemaValueError(value, schema, path) {
   for (const [name, item] of Object.entries(value)) {
@@ -388,6 +396,147 @@ export function normalizeComputerToolArgs(args) {
   return normalized;
 }
 
+// The input object against the action's strict schema: unknown fields,
+// missing required fields and value shapes.
+function inputShapeError(name, branch, inputValue) {
+  if (!inputValue || typeof inputValue !== 'object' || Array.isArray(inputValue)) {
+    return `Computer Use action "${name}" input must be an object`;
+  }
+  const strictInput = branch.properties?.input;
+  const allowed = new Set(Object.keys(strictInput?.properties || {}));
+  const extras = Object.keys(inputValue).filter((key) => !allowed.has(key));
+  if (extras.length) {
+    return `Computer Use action "${name}" does not accept input field(s): ${extras.join(', ')}`;
+  }
+  const missing = (strictInput?.required || []).filter((key) => !hasOwn(inputValue, key));
+  if (missing.length) {
+    return `Computer Use action "${name}" requires input field(s): ${missing.join(', ')}`;
+  }
+  return objectSchemaValueError(inputValue, strictInput, 'Computer Use input');
+}
+
+function captureError(input) {
+  const mode = input.mode || 'state';
+  const captureTargets = ['window_id', 'app', 'screen'].filter((key) => hasOwn(input, key));
+  if (captureTargets.length > 1) {
+    return 'Computer Use capture accepts at most one of window_id, app, or screen';
+  }
+  if (mode === 'zoom' && (!hasOwn(input, 'frame_id') || !hasOwn(input, 'region'))) {
+    return 'Computer Use capture mode="zoom" requires input field(s): frame_id, region';
+  }
+  if (mode === 'zoom' && captureTargets.length) {
+    return 'Computer Use capture mode="zoom" accepts frame_id and region instead of a window, app, or screen target';
+  }
+  if (mode !== 'zoom' && (hasOwn(input, 'frame_id') || hasOwn(input, 'region'))) {
+    return 'Computer Use capture frame_id/region requires mode="zoom"';
+  }
+  if (mode === 'ax' && input.include_ocr === true) {
+    return 'Computer Use capture include_ocr is unavailable with mode="ax"';
+  }
+  if (mode === 'ax' && hasOwn(input, 'image_output')) {
+    return 'Computer Use capture image_output requires a mode that returns pixels';
+  }
+  if (hasOwn(input, 'screen') && mode !== 'vision') {
+    return 'Computer Use capture screen requires mode="vision"';
+  }
+  return null;
+}
+
+function menuError(input) {
+  const segments = input.path || [];
+  if (segments.some((segment) => typeof segment !== 'string' || !segment.trim())) {
+    return 'Computer Use menu path segments must be non-empty labels';
+  }
+  return null;
+}
+
+function verifyError(input) {
+  const allowed = ['present', 'absent', 'title_contains', 'window_exists'];
+  const expectations = input.expect || [];
+  for (let index = 0; index < expectations.length; index += 1) {
+    const predicate = expectations[index];
+    if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {
+      return `Computer Use verify predicate ${index + 1} must be an object`;
+    }
+    const keys = Object.keys(predicate);
+    const extras = keys.filter((key) => !allowed.includes(key));
+    if (extras.length) {
+      return `Computer Use verify predicate ${index + 1} does not accept field(s): ${extras.join(', ')}`;
+    }
+    if (keys.length !== 1) {
+      return `Computer Use verify predicate ${index + 1} takes exactly one condition`;
+    }
+    const key = keys[0];
+    if (key === 'window_exists') {
+      if (typeof predicate[key] !== 'boolean') {
+        return `Computer Use verify predicate ${index + 1} window_exists must be a boolean`;
+      }
+    } else {
+      if (typeof predicate[key] !== 'string') {
+        return `Computer Use verify predicate ${index + 1} text must be a string`;
+      }
+      if (!predicate[key].trim()) {
+        return `Computer Use verify predicate ${index + 1} text must not be empty`;
+      }
+    }
+  }
+  return null;
+}
+
+function actError(input) {
+  return validateComputerCoreActions(input.actions, {
+    frameId: String(input.frame_id || ''),
+    delivery: String(input.delivery || COMPUTER_DEFAULT_DELIVERY),
+  });
+}
+
+function windowError(input) {
+  if (input.operation === 'move' && !['x', 'y', 'width', 'height'].some((key) => hasOwn(input, key))) {
+    return 'Computer Use window operation="move" requires x, y, width, or height';
+  }
+  return null;
+}
+
+function clipboardError(input) {
+  if (input.operation === 'write' && !hasOwn(input, 'text')) {
+    return 'Computer Use clipboard operation="write" requires input field: text';
+  }
+  if (input.operation === 'read' && hasOwn(input, 'text')) {
+    return 'Computer Use clipboard operation="read" does not accept input field: text';
+  }
+  return null;
+}
+
+function launchError(input) {
+  const app = String(input.app || '').trim();
+  if (!app) return 'Computer Use launch app must not be empty';
+  const httpUrl = /^https?:\/\//i.test(app);
+  if (/[\r\n\0]|javascript:/i.test(app) || (!httpUrl && /&&|\|\|/.test(app))) {
+    return 'Computer Use launch app must be one executable, file, or URL without command syntax';
+  }
+  if (
+    !httpUrl &&
+    (/(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i.test(
+      app
+    ) ||
+      /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i.test(app))
+  ) {
+    return 'Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL';
+  }
+  return null;
+}
+
+// Action-specific rules beyond the schema, keyed by action name.
+const ACTION_RULES = {
+  capture: captureError,
+  menu: menuError,
+  verify: verifyError,
+  act: actError,
+  window: windowError,
+  clipboard: clipboardError,
+  launch: launchError,
+};
+
 export function validateComputerToolArgs(rawArgs) {
   if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) {
     return 'Computer Use arguments must be an object';
@@ -407,23 +556,8 @@ export function validateComputerToolArgs(rawArgs) {
   if (inputValue === undefined) {
     if (inputRequired) return `Computer Use action "${name}" requires input`;
   } else {
-    if (!inputValue || typeof inputValue !== 'object' || Array.isArray(inputValue)) {
-      return `Computer Use action "${name}" input must be an object`;
-    }
-
-    const strictInput = branch.properties?.input;
-    const allowed = new Set(Object.keys(strictInput?.properties || {}));
-    const extras = Object.keys(inputValue).filter((key) => !allowed.has(key));
-    if (extras.length) {
-      return `Computer Use action "${name}" does not accept input field(s): ${extras.join(', ')}`;
-    }
-
-    const missing = (strictInput?.required || []).filter((key) => !hasOwn(inputValue, key));
-    if (missing.length) {
-      return `Computer Use action "${name}" requires input field(s): ${missing.join(', ')}`;
-    }
-    const valueError = objectSchemaValueError(inputValue, strictInput, 'Computer Use input');
-    if (valueError) return valueError;
+    const shapeError = inputShapeError(name, branch, inputValue);
+    if (shapeError) return shapeError;
   }
 
   const inputObject = inputValue || {};
@@ -438,109 +572,12 @@ export function validateComputerToolArgs(rawArgs) {
       return `Computer Use ${name} requires exactly one of window_id or app`;
     }
   }
-  if (name === 'capture') {
-    const mode = inputObject.mode || 'state';
-    const captureTargets = ['window_id', 'app', 'screen'].filter((key) => hasOwn(inputObject, key));
-    if (captureTargets.length > 1) {
-      return 'Computer Use capture accepts at most one of window_id, app, or screen';
-    }
-    if (mode === 'zoom' && (!hasOwn(inputObject, 'frame_id') || !hasOwn(inputObject, 'region'))) {
-      return 'Computer Use capture mode="zoom" requires input field(s): frame_id, region';
-    }
-    if (mode === 'zoom' && captureTargets.length) {
-      return 'Computer Use capture mode="zoom" accepts frame_id and region instead of a window, app, or screen target';
-    }
-    if (mode !== 'zoom' && (hasOwn(inputObject, 'frame_id') || hasOwn(inputObject, 'region'))) {
-      return 'Computer Use capture frame_id/region requires mode="zoom"';
-    }
-    if (mode === 'ax' && inputObject.include_ocr === true) {
-      return 'Computer Use capture include_ocr is unavailable with mode="ax"';
-    }
-    if (mode === 'ax' && hasOwn(inputObject, 'image_output')) {
-      return 'Computer Use capture image_output requires a mode that returns pixels';
-    }
-    if (hasOwn(inputObject, 'screen') && mode !== 'vision') {
-      return 'Computer Use capture screen requires mode="vision"';
-    }
-  }
-  if (name === 'menu') {
-    const segments = inputObject.path || [];
-    if (segments.some((segment) => typeof segment !== 'string' || !segment.trim())) {
-      return 'Computer Use menu path segments must be non-empty labels';
-    }
-  }
-  if (name === 'verify') {
-    const allowed = ['present', 'absent', 'title_contains', 'window_exists'];
-    const expectations = inputObject.expect || [];
-    for (let index = 0; index < expectations.length; index += 1) {
-      const predicate = expectations[index];
-      if (!predicate || typeof predicate !== 'object' || Array.isArray(predicate)) {
-        return `Computer Use verify predicate ${index + 1} must be an object`;
-      }
-      const keys = Object.keys(predicate);
-      const extras = keys.filter((key) => !allowed.includes(key));
-      if (extras.length) {
-        return `Computer Use verify predicate ${index + 1} does not accept field(s): ${extras.join(', ')}`;
-      }
-      if (keys.length !== 1) {
-        return `Computer Use verify predicate ${index + 1} takes exactly one condition`;
-      }
-      const key = keys[0];
-      if (key === 'window_exists') {
-        if (typeof predicate[key] !== 'boolean') {
-          return `Computer Use verify predicate ${index + 1} window_exists must be a boolean`;
-        }
-      } else {
-        if (typeof predicate[key] !== 'string') {
-          return `Computer Use verify predicate ${index + 1} text must be a string`;
-        }
-        if (!predicate[key].trim()) {
-          return `Computer Use verify predicate ${index + 1} text must not be empty`;
-        }
-      }
-    }
-  }
-  if (name === 'act') {
-    const actionError = validateComputerCoreActions(inputObject.actions, {
-      frameId: String(inputObject.frame_id || ''),
-      delivery: String(inputObject.delivery || COMPUTER_DEFAULT_DELIVERY),
-    });
-    if (actionError) return actionError;
-  }
-  if (
-    name === 'window' &&
-    inputObject.operation === 'move' &&
-    !['x', 'y', 'width', 'height'].some((key) => hasOwn(inputObject, key))
-  ) {
-    return 'Computer Use window operation="move" requires x, y, width, or height';
-  }
-  if (name === 'clipboard') {
-    if (inputObject.operation === 'write' && !hasOwn(inputObject, 'text')) {
-      return 'Computer Use clipboard operation="write" requires input field: text';
-    }
-    if (inputObject.operation === 'read' && hasOwn(inputObject, 'text')) {
-      return 'Computer Use clipboard operation="read" does not accept input field: text';
-    }
-  }
-  if (name === 'launch') {
-    const app = String(inputObject.app || '').trim();
-    if (!app) return 'Computer Use launch app must not be empty';
-    const httpUrl = /^https?:\/\//i.test(app);
-    if (/[\r\n\0]|javascript:/i.test(app) || (!httpUrl && /&&|\|\|/.test(app))) {
-      return 'Computer Use launch app must be one executable, file, or URL without command syntax';
-    }
-    if (
-      !httpUrl &&
-      (/(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i.test(
-        app
-      ) ||
-        /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i.test(app))
-    ) {
-      return 'Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL';
-    }
-  }
-  return null;
+  const rule = ACTION_RULES[name];
+  return rule ? rule(inputObject) || null : null;
 }
+
+const LIST_KIND_ACTIONS = Object.freeze({ apps: 'list_apps', history: 'list_history' });
+const CLICK_BUTTON_ACTIONS = Object.freeze({ right: 'right_click', middle: 'middle_click' });
 
 export function toComputerHostCommand(rawArgs) {
   const args = normalizeComputerToolArgs(rawArgs);
@@ -548,8 +585,7 @@ export function toComputerHostCommand(rawArgs) {
   const command = { ...inputValue };
   switch (args.action) {
     case 'list':
-      command.action =
-        inputValue.kind === 'apps' ? 'list_apps' : inputValue.kind === 'history' ? 'list_history' : 'list_windows';
+      command.action = LIST_KIND_ACTIONS[inputValue.kind] || 'list_windows';
       delete command.kind;
       break;
     case 'capture':
@@ -566,8 +602,7 @@ export function toComputerHostCommand(rawArgs) {
         const translated = { ...step, action: step.type };
         delete translated.type;
         if (step.type === 'click') {
-          translated.action =
-            step.button === 'right' ? 'right_click' : step.button === 'middle' ? 'middle_click' : 'click';
+          translated.action = CLICK_BUTTON_ACTIONS[step.button] || 'click';
           delete translated.button;
         }
         if (step.type === 'move') translated.action = 'mouse_move';
@@ -580,16 +615,7 @@ export function toComputerHostCommand(rawArgs) {
       delete command.frame_id;
       break;
     case 'window':
-      command.action =
-        inputValue.operation === 'focus'
-          ? 'focus_window'
-          : inputValue.operation === 'move'
-            ? 'move_window'
-            : inputValue.operation === 'close'
-              ? 'close_window'
-              : inputValue.operation === 'terminate'
-                ? 'terminate_process'
-                : 'window_state';
+      command.action = WINDOW_OPERATION_ACTIONS[inputValue.operation] || 'window_state';
       if (command.action === 'window_state') command.state = inputValue.operation;
       delete command.operation;
       break;

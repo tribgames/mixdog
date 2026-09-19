@@ -87,6 +87,48 @@ const ALLOWED_STEP_FIELDS: Record<string, Set<string>> = {
   wait: new Set(['action', 'duration']),
 };
 
+type SequenceStep = NonNullable<ComputerCommand['steps']>[number];
+
+// One step's shape: the action allowed at its position, no root-only or
+// target fields, and the payload its action needs. Answers the action.
+function assertSequenceStep(step: SequenceStep, index: number): string {
+  if (!step || typeof step !== 'object' || Array.isArray(step)) {
+    throw new Error(`sequence step ${index + 1} must be an object`);
+  }
+  const stepAction = String(step.action || '');
+  if (index === 0) {
+    if (!FIRST_STEP_ACTIONS.includes(stepAction)) {
+      throw new Error('sequence first step must be a supported input action');
+    }
+  } else if (!CONTINUATION_STEP_ACTIONS.includes(stepAction)) {
+    throw new Error('sequence continuation steps must be type, key, or wait');
+  }
+  const targetOverrides = ROOT_ONLY_FIELDS.filter((field) => Object.hasOwn(step, field));
+  if (targetOverrides.length) {
+    throw new Error(`sequence step ${index + 1} cannot override root field(s): ${targetOverrides.join(', ')}`);
+  }
+  const extraFields = Object.keys(step).filter((field) => !ALLOWED_STEP_FIELDS[stepAction]?.has(field));
+  if (extraFields.length) {
+    throw new Error(`sequence step ${index + 1} does not accept field(s): ${extraFields.join(', ')}`);
+  }
+  if (index > 0 && TARGET_FIELDS.some((field) => Object.hasOwn(step, field))) {
+    throw new Error(`sequence step ${index + 1} reuses focus and cannot carry a target`);
+  }
+  if (stepAction === 'type' && typeof step.text !== 'string') {
+    throw new Error(`sequence step ${index + 1} requires string text`);
+  }
+  if (stepAction === 'key' && typeof step.keys !== 'string') {
+    throw new Error(`sequence step ${index + 1} requires string keys`);
+  }
+  if (
+    stepAction === 'wait' &&
+    (typeof step.duration !== 'number' || !Number.isFinite(step.duration) || step.duration < 0 || step.duration > 5)
+  ) {
+    throw new Error(`sequence step ${index + 1} requires duration from 0 to 5 seconds`);
+  }
+  return stepAction;
+}
+
 export interface SequenceRunnerHost extends Pick<CaptureEngine, 'captureAfterAction'> {
   sessionIdFor(command: ComputerCommand): string;
   freshObservedWindowScope(command: ComputerCommand): ObservedWindowScope | undefined;
@@ -102,40 +144,7 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
   function validateSteps(command: ComputerCommand, windowId: string): ComputerCommand[] {
     const steps = Array.isArray(command.steps) ? command.steps : [];
     const stepCommands = steps.map((step, index) => {
-      if (!step || typeof step !== 'object' || Array.isArray(step)) {
-        throw new Error(`sequence step ${index + 1} must be an object`);
-      }
-      const stepAction = String(step.action || '');
-      if (index === 0) {
-        if (!FIRST_STEP_ACTIONS.includes(stepAction)) {
-          throw new Error('sequence first step must be a supported input action');
-        }
-      } else if (!CONTINUATION_STEP_ACTIONS.includes(stepAction)) {
-        throw new Error('sequence continuation steps must be type, key, or wait');
-      }
-      const targetOverrides = ROOT_ONLY_FIELDS.filter((field) => Object.hasOwn(step, field));
-      if (targetOverrides.length) {
-        throw new Error(`sequence step ${index + 1} cannot override root field(s): ${targetOverrides.join(', ')}`);
-      }
-      const extraFields = Object.keys(step).filter((field) => !ALLOWED_STEP_FIELDS[stepAction]?.has(field));
-      if (extraFields.length) {
-        throw new Error(`sequence step ${index + 1} does not accept field(s): ${extraFields.join(', ')}`);
-      }
-      if (index > 0 && TARGET_FIELDS.some((field) => Object.hasOwn(step, field))) {
-        throw new Error(`sequence step ${index + 1} reuses focus and cannot carry a target`);
-      }
-      if (stepAction === 'type' && typeof step.text !== 'string') {
-        throw new Error(`sequence step ${index + 1} requires string text`);
-      }
-      if (stepAction === 'key' && typeof step.keys !== 'string') {
-        throw new Error(`sequence step ${index + 1} requires string keys`);
-      }
-      if (
-        stepAction === 'wait' &&
-        (typeof step.duration !== 'number' || !Number.isFinite(step.duration) || step.duration < 0 || step.duration > 5)
-      ) {
-        throw new Error(`sequence step ${index + 1} requires duration from 0 to 5 seconds`);
-      }
+      const stepAction = assertSequenceStep(step, index);
       const stepCommand: ComputerCommand = {
         ...step,
         action: stepAction,
@@ -233,6 +242,14 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
     );
     const resultCode =
       stoppedReason || (observationUnavailable ? String(capture.metadata.code || 'observation_unavailable') : '');
+    let escalation = 'inspect_failed_step';
+    if (stoppedReason === 'target_transition') escalation = 'switch_target';
+    else if (observationUnavailable) escalation = 'recapture';
+    let verdict: Record<string, unknown> = { decision: 'escalate', recommended: escalation };
+    if (completed && !observationUnavailable) {
+      verdict = { decision: 'verify_fresh_state' };
+      if (pixelUnavailable) verdict.recommended = 'use_semantic_target';
+    }
     const payload: Record<string, unknown> = {
       ok: completed && !observationUnavailable,
       action: 'sequence',
@@ -245,21 +262,7 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
       ...(resultCode ? { code: resultCode } : {}),
       ...(lastTransition ? { window_transition: lastTransition } : {}),
       goal_verified: false,
-      verdict:
-        completed && !observationUnavailable
-          ? {
-              decision: 'verify_fresh_state',
-              ...(pixelUnavailable ? { recommended: 'use_semantic_target' } : {}),
-            }
-          : {
-              decision: 'escalate',
-              recommended:
-                stoppedReason === 'target_transition'
-                  ? 'switch_target'
-                  : observationUnavailable
-                    ? 'recapture'
-                    : 'inspect_failed_step',
-            },
+      verdict,
       capture_after: {
         ...capture.metadata,
         target_reason: finalWindowId === windowId ? 'original_target' : 'sequence_successor',

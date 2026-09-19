@@ -124,12 +124,11 @@ for (const kind of ['malformed', 'foreign', 'duplicate-id']) {
     const live = { ...f.saved };
     setLiveSession(live);
     assert.equal(loadSession(f.id), live);
-    const invalid =
-      kind === 'malformed'
-        ? '{"broken":'
-        : kind === 'foreign'
-          ? JSON.stringify({ ...f.saved, id: 'foreign-session' })
-          : `{"id":"foreign-session","id":${JSON.stringify(f.id)},"messages":[]}`;
+    const invalid = {
+      malformed: '{"broken":',
+      foreign: JSON.stringify({ ...f.saved, id: 'foreign-session' }),
+      'duplicate-id': `{"id":"foreign-session","id":${JSON.stringify(f.id)},"messages":[]}`,
+    }[kind];
     f.write(invalid);
     assert.equal(loadSession(f.id), null);
     assert.equal(_liveSessions.get(f.id), live);

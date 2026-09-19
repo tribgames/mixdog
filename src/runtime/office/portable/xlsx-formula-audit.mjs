@@ -167,7 +167,7 @@ function auditDoubleCounting(list, sheet, cells) {
   const subtotals = new Map();
   for (const entry of located) {
     const terms = additiveAreas(entry.cell.formula);
-    if (!terms || !terms.some(multiCell)) continue;
+    if (!terms?.some(multiCell)) continue;
     if (!subtotals.has(entry.at.column)) subtotals.set(entry.at.column, []);
     subtotals.get(entry.at.column).push({ ...entry, terms });
   }
@@ -226,17 +226,8 @@ function auditLine(list, sheet, cells, axis) {
   }
 }
 
-function auditModelDiscipline(list, sheet, cells) {
-  const byRow = new Map();
-  const byColumn = new Map();
-  const formulaRows = new Map();
-  const formulaColumnSet = new Set();
-  const noted = notedRefs(sheet, cells);
-  const bodies = tableAreas(sheet);
-  const checksSheet =
-    String(sheet.name || '')
-      .trim()
-      .toLowerCase() === 'checks';
+// The last populated row/column and the first populated row of the sheet.
+function populatedExtent(cells) {
   const extent = { row: 0, column: 0, firstRow: Number.POSITIVE_INFINITY };
   for (const cell of cells) {
     const at = position(cell);
@@ -245,126 +236,103 @@ function auditModelDiscipline(list, sheet, cells) {
     extent.column = Math.max(extent.column, at.column);
     extent.firstRow = Math.min(extent.firstRow, at.row);
   }
-  let formulaCount = 0;
-  let hardcodes = 0;
-  let markedHardcodes = 0;
-  let styledCells = 0;
-  for (const cell of cells) {
-    const at = position(cell);
-    if (!at) continue;
-    if (hasVisibleStyle(cell.style)) styledCells += 1;
-    if (cell.formula) {
-      const beyond = singleCellReferences(cell.formula)
-        .filter((reference) => reference.row > extent.row || reference.column > extent.column)
-        .map((reference) => reference.ref);
-      if (beyond.length) {
-        list.push(
-          'warning',
-          'formula_reads_beyond_data',
-          cellPath(sheet, cell),
-          `Formula reads ${[...new Set(beyond)].join(', ')}, past the last populated row or column of the sheet; a reference one row or column off recalculates cleanly and shows the wrong number.`
-        );
-      }
-      formulaCount += 1;
-      formulaColumnSet.add(at.column);
-      const signature = relativeFormulaSignature(cell.formula, cell.ref);
-      if (!byRow.has(at.row)) byRow.set(at.row, []);
-      byRow.get(at.row).push({ cell, index: at.column, signature });
-      if (!byColumn.has(at.column)) byColumn.set(at.column, []);
-      byColumn.get(at.column).push({ cell, index: at.row, signature });
-      if (!formulaRows.has(at.row)) formulaRows.set(at.row, []);
-      formulaRows.get(at.row).push(at.column);
-      const path = cellPath(sheet, cell);
-      const constants = inlineConstants(cell.formula);
-      if (constants.length) {
-        list.push(
-          'warning',
-          'inline_constant_in_formula',
-          path,
-          `Formula embeds ${constants.join(', ')}; put each assumption in its own labelled cell and reference it (=B5*(1+$B$6), never =B5*1.05).`
-        );
-      }
-      if (unguardedDivision(cell.formula)) {
-        list.push(
-          'warning',
-          'unguarded_division',
-          path,
-          'Formula divides by a cell that can be zero; wrap it in IFERROR or guard the denominator with IF.'
-        );
-      }
-      if (checksSheet && falseValue(cell)) {
-        list.push(
-          'warning',
-          'failed_check',
-          path,
-          'Tie-out on the Checks sheet evaluates to FALSE; the model does not add up until it reads TRUE.'
-        );
-      }
-    } else if (numericValue(cell) !== null) {
-      hardcodes += 1;
-      if (isMarkedInputStyle(cell.style)) markedHardcodes += 1;
-    }
+  return extent;
+}
+
+function pushTo(map, key, entry) {
+  if (!map.has(key)) map.set(key, []);
+  map.get(key).push(entry);
+}
+
+// One formula cell's own findings: reads past the data, embedded
+// assumptions, unguarded division, and a failed tie-out on the Checks sheet.
+function auditFormulaCell(list, sheet, cell, { extent, checksSheet }) {
+  const beyond = singleCellReferences(cell.formula)
+    .filter((reference) => reference.row > extent.row || reference.column > extent.column)
+    .map((reference) => reference.ref);
+  const path = cellPath(sheet, cell);
+  if (beyond.length) {
+    list.push(
+      'warning',
+      'formula_reads_beyond_data',
+      path,
+      `Formula reads ${[...new Set(beyond)].join(', ')}, past the last populated row or column of the sheet; a reference one row or column off recalculates cleanly and shows the wrong number.`
+    );
   }
-  // One input row missing its source is one decision the reader cannot check,
-  // not four: reported per cell it fills the answer and pushes other findings
-  // out of the list.
-  const unsourced = [];
-  for (const cell of cells) {
-    const value = numericValue(cell);
-    if (cell.formula || value === null) continue;
-    const at = position(cell);
-    if (!at) continue;
-    const path = cellPath(sheet, cell);
-    // An input a formula reads — marked as one, or sharing a row or column
-    // with formulas — says where its number came from; raw data does not,
-    // and a year across the first populated row is a column heading.
-    const feedsModel =
-      formulaCount > 0 &&
-      (isMarkedInputStyle(cell.style) || formulaRows.has(at.row) || formulaColumnSet.has(at.column));
-    const headerYear = at.row === extent.firstRow && Number.isInteger(value) && value >= 1900 && value <= 2100;
-    if (feedsModel && !headerYear && !noted.has(String(cell.ref).toUpperCase()) && !insideTableBody(bodies, at)) {
-      unsourced.push({ row: at.row, column: at.column, ref: String(cell.ref).toUpperCase(), path });
-    }
-    // The same interruption reads down a column: a schedule whose periods run
-    // down the page keeps its formulas in one column, and a pasted result
-    // between them stops recalculating exactly as it does across a row. Only a
-    // constant the formulas bracket is read this way — a number under the last
-    // formula is as likely to be the next block of the sheet as a pasted total.
-    // The column must be a pattern before a cell can break it: the formula above
-    // and the formula below the constant compute the same thing, one row apart,
-    // which is a schedule. A column of assumptions — a ratio here, a cross-sheet
-    // reference there — holds formulas and inputs side by side by design.
-    const columnEntries = (byColumn.get(at.column) || []).slice().sort((a, b) => a.index - b.index);
-    const above = [...columnEntries].reverse().find((entry) => entry.index < at.row);
-    const below = columnEntries.find((entry) => entry.index > at.row);
-    if (above && below && above.signature && above.signature === below.signature) {
-      list.push(
-        'warning',
-        'formula_inconsistency',
-        path,
-        'A hardcoded value interrupts a column of formulas; the schedule no longer recalculates through this cell.'
-      );
-    }
-    const formulaColumns = formulaRows.get(at.row);
-    if (!formulaColumns || formulaColumns.length < 2) continue;
-    const first = Math.min(...formulaColumns);
-    const last = Math.max(...formulaColumns);
-    if (at.column > first && at.column < last) {
-      list.push(
-        'warning',
-        'formula_inconsistency',
-        path,
-        'A hardcoded value interrupts a row of formulas; the projection no longer recalculates through this cell.'
-      );
-    } else if (at.column > last) {
-      list.push(
-        'warning',
-        'rogue_hardcode',
-        path,
-        'Numeric hardcode sits after the formulas of its row; a pasted result where a formula belongs.'
-      );
-    }
+  const constants = inlineConstants(cell.formula);
+  if (constants.length) {
+    list.push(
+      'warning',
+      'inline_constant_in_formula',
+      path,
+      `Formula embeds ${constants.join(', ')}; put each assumption in its own labelled cell and reference it (=B5*(1+$B$6), never =B5*1.05).`
+    );
   }
+  if (unguardedDivision(cell.formula)) {
+    list.push(
+      'warning',
+      'unguarded_division',
+      path,
+      'Formula divides by a cell that can be zero; wrap it in IFERROR or guard the denominator with IF.'
+    );
+  }
+  if (checksSheet && falseValue(cell)) {
+    list.push(
+      'warning',
+      'failed_check',
+      path,
+      'Tie-out on the Checks sheet evaluates to FALSE; the model does not add up until it reads TRUE.'
+    );
+  }
+}
+
+// A hardcode that breaks a formula pattern. Down a column: a schedule whose
+// periods run down the page keeps its formulas in one column, and a pasted
+// result between them stops recalculating exactly as it does across a row.
+// Only a constant the formulas bracket is read this way — a number under the
+// last formula is as likely to be the next block of the sheet as a pasted
+// total. The column must be a pattern before a cell can break it: the formula
+// above and the formula below the constant compute the same thing, one row
+// apart, which is a schedule. A column of assumptions — a ratio here, a
+// cross-sheet reference there — holds formulas and inputs side by side by
+// design.
+function auditHardcodeInterruption(list, path, at, { byColumn, formulaRows }) {
+  const columnEntries = (byColumn.get(at.column) || []).slice().sort((a, b) => a.index - b.index);
+  const above = [...columnEntries].reverse().find((entry) => entry.index < at.row);
+  const below = columnEntries.find((entry) => entry.index > at.row);
+  if (above && below && above.signature && above.signature === below.signature) {
+    list.push(
+      'warning',
+      'formula_inconsistency',
+      path,
+      'A hardcoded value interrupts a column of formulas; the schedule no longer recalculates through this cell.'
+    );
+  }
+  const formulaColumns = formulaRows.get(at.row);
+  if (!formulaColumns || formulaColumns.length < 2) return;
+  const first = Math.min(...formulaColumns);
+  const last = Math.max(...formulaColumns);
+  if (at.column > first && at.column < last) {
+    list.push(
+      'warning',
+      'formula_inconsistency',
+      path,
+      'A hardcoded value interrupts a row of formulas; the projection no longer recalculates through this cell.'
+    );
+  } else if (at.column > last) {
+    list.push(
+      'warning',
+      'rogue_hardcode',
+      path,
+      'Numeric hardcode sits after the formulas of its row; a pasted result where a formula belongs.'
+    );
+  }
+}
+
+// One input row missing its source is one decision the reader cannot check,
+// not four: reported per cell it fills the answer and pushes other findings
+// out of the list.
+function reportUnsourcedRuns(list, unsourced) {
   for (const run of contiguousRuns(unsourced)) {
     const span = run.length > 1 ? `${run[0].ref}:${run[run.length - 1].ref}` : run[0].ref;
     list.push(
@@ -376,26 +344,83 @@ function auditModelDiscipline(list, sheet, cells) {
         : 'Hardcoded input has no note naming its source or the assumption behind it; add_provenance or add_note on the cell.'
     );
   }
-  for (const line of byRow.values())
-    auditLine(
-      list,
-      sheet,
-      line.sort((a, b) => a.index - b.index),
-      'row'
-    );
-  for (const line of byColumn.values())
-    auditLine(
-      list,
-      sheet,
-      line.sort((a, b) => a.index - b.index),
-      'column'
-    );
-  if (styledCells && formulaCount >= 3 && hardcodes >= 5 && markedHardcodes === 0) {
+}
+
+// Audits every formula cell and groups them by row and column, counting
+// the hardcoded numbers beside them.
+function collectFormulaLines(list, sheet, cells, { extent, checksSheet }) {
+  const lines = {
+    byRow: new Map(),
+    byColumn: new Map(),
+    formulaRows: new Map(),
+    formulaColumns: new Set(),
+    formulaCount: 0,
+    hardcodes: 0,
+    markedHardcodes: 0,
+    styledCells: 0,
+  };
+  for (const cell of cells) {
+    const at = position(cell);
+    if (!at) continue;
+    if (hasVisibleStyle(cell.style)) lines.styledCells += 1;
+    if (cell.formula) {
+      auditFormulaCell(list, sheet, cell, { extent, checksSheet });
+      lines.formulaCount += 1;
+      lines.formulaColumns.add(at.column);
+      const signature = relativeFormulaSignature(cell.formula, cell.ref);
+      pushTo(lines.byRow, at.row, { cell, index: at.column, signature });
+      pushTo(lines.byColumn, at.column, { cell, index: at.row, signature });
+      pushTo(lines.formulaRows, at.row, at.column);
+    } else if (numericValue(cell) !== null) {
+      lines.hardcodes += 1;
+      if (isMarkedInputStyle(cell.style)) lines.markedHardcodes += 1;
+    }
+  }
+  return lines;
+}
+
+// An input a formula reads — marked as one, or sharing a row or column
+// with formulas — says where its number came from; raw data does not,
+// and a year across the first populated row is a column heading.
+function auditHardcodes(list, sheet, cells, lines, extent) {
+  const noted = notedRefs(sheet, cells);
+  const bodies = tableAreas(sheet);
+  const unsourced = [];
+  for (const cell of cells) {
+    const value = numericValue(cell);
+    if (cell.formula || value === null) continue;
+    const at = position(cell);
+    if (!at) continue;
+    const path = cellPath(sheet, cell);
+    const feedsModel =
+      lines.formulaCount > 0 &&
+      (isMarkedInputStyle(cell.style) || lines.formulaRows.has(at.row) || lines.formulaColumns.has(at.column));
+    const headerYear = at.row === extent.firstRow && Number.isInteger(value) && value >= 1900 && value <= 2100;
+    if (feedsModel && !headerYear && !noted.has(String(cell.ref).toUpperCase()) && !insideTableBody(bodies, at)) {
+      unsourced.push({ row: at.row, column: at.column, ref: String(cell.ref).toUpperCase(), path });
+    }
+    auditHardcodeInterruption(list, path, at, { byColumn: lines.byColumn, formulaRows: lines.formulaRows });
+  }
+  reportUnsourcedRuns(list, unsourced);
+}
+
+function auditModelDiscipline(list, sheet, cells) {
+  const checksSheet =
+    String(sheet.name || '')
+      .trim()
+      .toLowerCase() === 'checks';
+  const extent = populatedExtent(cells);
+  const lines = collectFormulaLines(list, sheet, cells, { extent, checksSheet });
+  auditHardcodes(list, sheet, cells, lines, extent);
+  const ordered = (line) => line.sort((a, b) => a.index - b.index);
+  for (const line of lines.byRow.values()) auditLine(list, sheet, ordered(line), 'row');
+  for (const line of lines.byColumn.values()) auditLine(list, sheet, ordered(line), 'column');
+  if (lines.styledCells && lines.formulaCount >= 3 && lines.hardcodes >= 5 && lines.markedHardcodes === 0) {
     list.push(
       'info',
       'input_cells_unmarked',
       sheetPath(sheet),
-      `${hardcodes} hardcoded inputs are indistinguishable from formulas; mark inputs (blue font, or a fill for cells the reader edits) and add a legend.`
+      `${lines.hardcodes} hardcoded inputs are indistinguishable from formulas; mark inputs (blue font, or a fill for cells the reader edits) and add a legend.`
     );
   }
 }
@@ -407,7 +432,7 @@ export function auditXlsxFormulas(sheets, { auditProfile = '', sheetNames = null
       ? sheetNames
       : (sheets || []).map((sheet) => sheet?.name).filter(Boolean);
   for (const sheet of sheets || []) {
-    const cells = Array.isArray(sheet?.cells) ? sheet.cells.filter((cell) => cell && cell.ref) : [];
+    const cells = Array.isArray(sheet?.cells) ? sheet.cells.filter((cell) => cell?.ref) : [];
     if (!cells.length) continue;
     auditSheetHygiene(list, sheet, cells, names);
     auditSheetLayout(list, sheet, cells);

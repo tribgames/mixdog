@@ -8,6 +8,7 @@ import {
   handleHookRequest,
   MAX_HOOK_RESPONSE_BODY_BYTES,
 } from './relay-hook.mjs';
+import { recordingResponse } from './test-recording-response.mjs';
 
 test('webhook relay responses enforce strict base64 and byte limits', () => {
   assert.equal(decodeHookResponseBody(Buffer.from('ok').toString('base64')).toString(), 'ok');
@@ -19,16 +20,8 @@ test('webhook relay responses enforce strict base64 and byte limits', () => {
 });
 
 test('hook HTTP answers 400/404/503 without a live agent', () => {
-  const recorded = [];
-  const response = {
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end(body) {
-      recorded.at(-1).body = body;
-    },
-  };
+  const response = recordingResponse();
+  const { recorded } = response;
   handleHookRequest(new Map(), { allow: () => true }, 64, { url: 'http://[', headers: {}, socket: {} }, response);
   assert.equal(recorded[0].status, 400);
 
@@ -48,16 +41,8 @@ test('hook HTTP answers 400/404/503 without a live agent', () => {
 });
 
 test('a dropped hook leg fails every pending HTTP response', () => {
-  const recorded = [];
-  const response = {
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end(body) {
-      recorded.at(-1).body = body;
-    },
-  };
+  const response = recordingResponse();
+  const { recorded } = response;
   const timer = setTimeout(() => {}, 60_000);
   timer.unref?.();
   const entry = { pending: new Map([['req', { response, timer }]]) };
@@ -75,16 +60,8 @@ test('hook rate limits destroy the request before a body is read', () => {
   request.destroy = () => {
     request.destroyed = true;
   };
-  const recorded = [];
-  const response = {
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end(body) {
-      recorded.at(-1).body = body;
-    },
-  };
+  const response = recordingResponse();
+  const { recorded } = response;
   handleHookRequest(new Map(), { allow: () => false }, 64, request, response);
   assert.equal(recorded[0].status, 429);
   assert.equal(recorded[0].headers['Retry-After'], '60');

@@ -178,6 +178,12 @@ function builtInLocalProviderSetup(config, options) {
     ? runtime.models.filter((model) => model?.installed === true)
     : [];
   const detected = runtime?.runtime?.installed === true && installedModels.length > 0;
+  let status = installed ? 'No Model' : 'Not Installed';
+  if (detected) status = enabled ? 'Ready' : 'Off';
+  const plural = installedModels.length === 1 ? '' : 's';
+  const detail = detected
+    ? `${installedModels.length} installed model${plural}`
+    : 'Install a recommended model from Built-in';
   return {
     id: 'mixdog-local',
     name: 'Local Provider',
@@ -188,126 +194,139 @@ function builtInLocalProviderSetup(config, options) {
     detected,
     authenticated: detected,
     usable: detected && enabled,
-    status: detected ? (enabled ? 'Ready' : 'Off') : installed ? 'No Model' : 'Not Installed',
-    detail: detected
-      ? `${installedModels.length} installed model${installedModels.length === 1 ? '' : 's'}`
-      : 'Install a recommended model from Built-in',
+    status,
+    detail,
+  };
+}
+
+// What an OAuth provider says about its own credential; providers without a
+// describe() answer from has() alone.
+function describeOAuthProvider(p, { detail = false } = {}) {
+  if (typeof p.describe === 'function') return p.describe();
+  const authenticated = Boolean(p.has());
+  return { authenticated, status: authenticated ? 'Set' : 'Not Set', ...(detail ? { detail: p.desc } : {}) };
+}
+
+function apiProviderSetup(p, providers, checkSecrets) {
+  const configured = providers[p.id] || {};
+  const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
+  const env = Boolean(envName && process.env[envName]);
+  const configuredEnabled = configured.enabled === true;
+  const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id)) : false;
+  const authenticated = env || stored || (checkSecrets ? Boolean(getAgentApiKey(p.id)) : configuredEnabled);
+  let status = configuredEnabled ? 'No Key' : 'Off';
+  if (stored) status = 'Set';
+  else if (env) status = 'Env';
+  else if (authenticated) status = 'Set';
+  let detail = envName;
+  if (stored) detail = 'stored in keychain';
+  else if (env) detail = envName;
+  else if (authenticated) detail = 'runtime credential';
+  return {
+    ...p,
+    group: 'api',
+    type: 'api-key',
+    enabled: configuredEnabled || authenticated,
+    authenticated,
+    stored,
+    env,
+    envName,
+    status,
+    detail,
+  };
+}
+
+// Auth-derived fields shared by the setup and status views of an OAuth provider.
+function oauthAuthFields(p, auth) {
+  const authenticated = Boolean(auth.authenticated);
+  return {
+    authenticated,
+    status: auth.status || (authenticated ? 'Set' : 'Not Set'),
+    detail: auth.detail || p.desc,
+    expiresAt: auth.expiresAt || null,
+    usable: auth.usable === true || (auth.usable == null && authenticated),
+    refreshable: auth.refreshable === true,
+    reauthRequired: auth.reauthRequired === true,
+  };
+}
+
+function oauthProviderSetup(p, providers, checkSecrets) {
+  const configured = providers[p.id] || {};
+  const configuredStatus = configured.enabled === true ? 'Enabled' : 'Not Set';
+  const auth = checkSecrets
+    ? describeOAuthProvider(p, { detail: true })
+    : { authenticated: configured.enabled === true, status: configuredStatus, detail: p.desc };
+  const fields = oauthAuthFields(p, auth);
+  return {
+    id: p.id,
+    name: p.name,
+    desc: p.desc,
+    group: 'oauth',
+    type: 'oauth',
+    enabled: configured.enabled === true || fields.authenticated,
+    ...fields,
   };
 }
 
 export async function providerSetup(config = {}, options = {}) {
   const providers = config.providers || {};
   const checkSecrets = options?.checkSecrets !== false;
-  const api = API_PROVIDERS.map((p) => {
-    const configured = providers[p.id] || {};
-    const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
-    const env = Boolean(envName && process.env[envName]);
-    const configuredEnabled = configured.enabled === true;
-    const stored = checkSecrets ? hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id)) : false;
-    const authenticated = env || stored || (checkSecrets ? Boolean(getAgentApiKey(p.id)) : configuredEnabled);
-    return {
-      ...p,
-      group: 'api',
-      type: 'api-key',
-      enabled: configuredEnabled || authenticated,
-      authenticated,
-      stored,
-      env,
-      envName,
-      status: stored ? 'Set' : env ? 'Env' : authenticated ? 'Set' : configuredEnabled ? 'No Key' : 'Off',
-      detail: stored ? 'stored in keychain' : env ? envName : authenticated ? 'runtime credential' : envName,
-    };
-  });
+  return {
+    api: API_PROVIDERS.map((p) => apiProviderSetup(p, providers, checkSecrets)),
+    oauth: OAUTH_PROVIDERS.map((p) => oauthProviderSetup(p, providers, checkSecrets)),
+    local: [builtInLocalProviderSetup(config, options)],
+  };
+}
 
-  const oauth = OAUTH_PROVIDERS.map((p) => {
-    const configured = providers[p.id] || {};
-    const auth = checkSecrets
-      ? typeof p.describe === 'function'
-        ? p.describe()
-        : { authenticated: Boolean(p.has()), status: p.has() ? 'Set' : 'Not Set', detail: p.desc }
-      : {
-          authenticated: configured.enabled === true,
-          status: configured.enabled === true ? 'Enabled' : 'Not Set',
-          detail: p.desc,
-        };
-    const authenticated = Boolean(auth.authenticated);
-    return {
-      id: p.id,
-      name: p.name,
-      desc: p.desc,
-      group: 'oauth',
-      type: 'oauth',
-      enabled: configured.enabled === true || authenticated,
-      authenticated,
-      status: auth.status || (authenticated ? 'Set' : 'Not Set'),
-      detail: auth.detail || p.desc,
-      expiresAt: auth.expiresAt || null,
-      usable: auth.usable === true || (auth.usable == null && authenticated),
-      refreshable: auth.refreshable === true,
-      reauthRequired: auth.reauthRequired === true,
-    };
-  });
+function apiProviderStatusRow(p, config) {
+  const configured = config.providers?.[p.id] || {};
+  const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
+  const env = Boolean(envName && process.env[envName]);
+  const stored = hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id));
+  const authenticated = Boolean(getAgentApiKey(p.id));
+  return {
+    id: p.id,
+    type: 'api-key',
+    enabled: configured.enabled === true || authenticated,
+    authenticated,
+    stored,
+    env,
+    envName,
+    label: p.name,
+  };
+}
 
-  return { api, oauth, local: [builtInLocalProviderSetup(config, options)] };
+function oauthProviderStatusRow(p, config) {
+  const fields = oauthAuthFields(p, describeOAuthProvider(p, { detail: true }));
+  const configured = config.providers?.[p.id] || {};
+  return {
+    id: p.id,
+    type: 'oauth',
+    enabled: configured.enabled === true || fields.authenticated,
+    authenticated: fields.authenticated,
+    stored: false,
+    env: false,
+    envName: null,
+    label: p.name,
+    ...fields,
+  };
 }
 
 export function providerStatus(config = {}) {
-  const rows = [];
-  for (const p of API_PROVIDERS) {
-    const configured = config.providers?.[p.id] || {};
-    const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
-    const env = Boolean(envName && process.env[envName]);
-    const stored = hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id));
-    const authenticated = Boolean(getAgentApiKey(p.id));
-    rows.push({
-      id: p.id,
-      type: 'api-key',
-      enabled: configured.enabled === true || authenticated,
-      authenticated,
-      stored,
-      env,
-      envName,
-      label: p.name,
-    });
-  }
-  for (const p of OAUTH_PROVIDERS) {
-    const auth =
-      typeof p.describe === 'function'
-        ? p.describe()
-        : { authenticated: Boolean(p.has()), status: p.has() ? 'Set' : 'Not Set', detail: p.desc };
-    const authenticated = Boolean(auth.authenticated);
-    const configured = config.providers?.[p.id] || {};
-    rows.push({
-      id: p.id,
-      type: 'oauth',
-      enabled: configured.enabled === true || authenticated,
-      authenticated,
-      stored: false,
-      env: false,
-      envName: null,
-      label: p.name,
-      status: auth.status || (authenticated ? 'Set' : 'Not Set'),
-      detail: auth.detail || p.desc,
-      expiresAt: auth.expiresAt || null,
-      usable: auth.usable === true || (auth.usable == null && authenticated),
-      refreshable: auth.refreshable === true,
-      reauthRequired: auth.reauthRequired === true,
-    });
-  }
-  for (const p of LOCAL_PROVIDERS) {
-    const configured = config.providers?.[p.id] || {};
-    rows.push({
+  return [
+    ...API_PROVIDERS.map((p) => apiProviderStatusRow(p, config)),
+    ...OAUTH_PROVIDERS.map((p) => oauthProviderStatusRow(p, config)),
+    ...LOCAL_PROVIDERS.map((p) => ({
       id: p.id,
       type: 'local',
-      enabled: configured.enabled === true,
+      enabled: config.providers?.[p.id]?.enabled === true,
       authenticated: false,
       stored: false,
       env: false,
       envName: null,
       label: p.name,
-    });
-  }
-  return rows;
+    })),
+  ];
 }
 
 export function renderProviderStatus(config = {}) {
@@ -315,20 +334,12 @@ export function renderProviderStatus(config = {}) {
   const width = rows.reduce((n, row) => Math.max(n, row.id.length), 0);
   return rows
     .map((row) => {
-      const auth =
-        row.type === 'oauth'
-          ? String(row.status || (row.authenticated ? 'auth ok' : 'not auth')).toLowerCase()
-          : row.authenticated
-            ? 'auth ok'
-            : 'not auth';
-      const source =
-        row.type === 'oauth'
-          ? row.detail || 'oauth'
-          : row.env
-            ? `env:${row.envName}`
-            : row.stored
-              ? 'keychain'
-              : 'no key';
+      const authWord = row.authenticated ? 'auth ok' : 'not auth';
+      const auth = row.type === 'oauth' ? String(row.status || authWord).toLowerCase() : authWord;
+      let source = 'no key';
+      if (row.type === 'oauth') source = row.detail || 'oauth';
+      else if (row.env) source = `env:${row.envName}`;
+      else if (row.stored) source = 'keychain';
       const enabled = row.enabled ? 'enabled' : 'disabled';
       return `${row.id.padEnd(width)}  ${row.type.padEnd(7)}  ${auth.padEnd(8)}  ${enabled.padEnd(8)}  ${source}`;
     })
@@ -361,10 +372,7 @@ export async function loginOAuthProvider(cfgMod, provider) {
   if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
   const result = await oauth.login();
   if (!result) throw new Error(`${id} login did not complete`);
-  const auth =
-    typeof oauth.describe === 'function'
-      ? oauth.describe()
-      : { authenticated: Boolean(oauth.has()), status: oauth.has() ? 'Set' : 'Not Set' };
+  const auth = describeOAuthProvider(oauth);
   // Only a SUCCESSFUL login states `enabled`. A login that ends unauthenticated
   // (wrong or expired code, a token returned without the inference scope) is not
   // a decision to turn the provider off: writing enabled:false here stored a
@@ -381,11 +389,7 @@ export async function loginOAuthProvider(cfgMod, provider) {
   return { provider: id, type: 'oauth', authenticated: Boolean(auth.authenticated), status: auth.status || null };
 }
 
-export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
-  const id = String(provider || '').trim();
-  const oauth = OAUTH_BY_ID.get(id);
-  if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
-  if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
+function assertOAuthLoginOptions(options) {
   if (
     !options ||
     typeof options !== 'object' ||
@@ -396,6 +400,38 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   ) {
     throw new TypeError('Invalid OAuth account login options.');
   }
+}
+
+// Same rule as loginOAuthProvider, and it matters most here: the add-account
+// flow runs against a brand-new account id, so an exchange that does not
+// land leaves THIS account unauthenticated while every already-connected one
+// stays valid. Registration and the enabled flag therefore move together, on
+// success only; a failed attempt leaves the stored config untouched.
+function settleOAuthLogin({ cfgMod, id, accountId, includeDefault, label, inAccount, oauth }, result) {
+  const auth = inAccount(() => describeOAuthProvider(oauth));
+  if (auth.authenticated) {
+    registerProviderAccount(id, accountId, { includeDefault, label });
+    // A re-connect can follow a re-created subscription under the same
+    // account id: start it from no recorded quota rather than from the
+    // exhausted window the previous credential earned.
+    clearProviderAccountQuotaState(id, accountId);
+    updateConfigProvider(cfgMod, id, { enabled: true });
+  }
+  return {
+    provider: id,
+    type: 'oauth',
+    authenticated: Boolean(auth.authenticated),
+    status: auth.status || null,
+    result,
+  };
+}
+
+export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
+  const id = String(provider || '').trim();
+  const oauth = OAUTH_BY_ID.get(id);
+  if (!oauth) throw new Error(`unknown OAuth provider "${id}"`);
+  if (typeof oauth.begin !== 'function') throw new Error(`${id} does not support interactive code login`);
+  assertOAuthLoginOptions(options);
   const idBefore = currentProviderAccountId(id);
   if (
     options.accountId !== undefined &&
@@ -411,34 +447,8 @@ export async function beginOAuthProviderLogin(cfgMod, provider, options = {}) {
   }
   const started = await inAccount(() => oauth.begin());
   let cancelled = false;
-  const finish = async (result) => {
-    if (!result || cancelled) return null;
-    const auth = inAccount(() =>
-      typeof oauth.describe === 'function'
-        ? oauth.describe()
-        : { authenticated: Boolean(oauth.has()), status: oauth.has() ? 'Set' : 'Not Set' }
-    );
-    // Same rule as loginOAuthProvider, and it matters most here: the add-account
-    // flow runs against a brand-new account id, so an exchange that does not
-    // land leaves THIS account unauthenticated while every already-connected one
-    // stays valid. Registration and the enabled flag therefore move together, on
-    // success only; a failed attempt leaves the stored config untouched.
-    if (auth.authenticated) {
-      registerProviderAccount(id, accountId, { includeDefault, label: options.label });
-      // A re-connect can follow a re-created subscription under the same
-      // account id: start it from no recorded quota rather than from the
-      // exhausted window the previous credential earned.
-      clearProviderAccountQuotaState(id, accountId);
-      updateConfigProvider(cfgMod, id, { enabled: true });
-    }
-    return {
-      provider: id,
-      type: 'oauth',
-      authenticated: Boolean(auth.authenticated),
-      status: auth.status || null,
-      result,
-    };
-  };
+  const login = { cfgMod, id, accountId, includeDefault, label: options.label, inAccount, oauth };
+  const finish = async (result) => (!result || cancelled ? null : settleOAuthLogin(login, result));
   return {
     provider: id,
     type: 'oauth',
@@ -463,11 +473,7 @@ export function listProviderAccounts(provider) {
   const oauth = OAUTH_BY_ID.get(provider);
   if (!oauth) throw new TypeError('Unknown OAuth provider.');
   const pool = readProviderAccountPool(provider);
-  const accounts = pool.accounts.length
-    ? pool.accounts
-    : withProviderAccount(provider, 'default', () => oauth.describe?.().authenticated)
-      ? [{ id: 'default', label: 'Account 1' }]
-      : [];
+  const accounts = pool.accounts.length ? pool.accounts : defaultAccountRows(provider, oauth);
   return {
     provider,
     auto: pool.auto !== false,
@@ -476,12 +482,9 @@ export function listProviderAccounts(provider) {
       const auth = withProviderAccount(provider, row.id, () => oauth.describe?.() || {});
       // A provider-side identity (email, account id) helps tell two accounts
       // apart when the user has not named them; shown as a secondary line.
-      const identity =
-        typeof auth.email === 'string' && auth.email.trim()
-          ? auth.email.trim()
-          : typeof auth.accountId === 'string' && auth.accountId.trim()
-            ? auth.accountId.trim()
-            : null;
+      let identity = null;
+      if (typeof auth.email === 'string' && auth.email.trim()) identity = auth.email.trim();
+      else if (typeof auth.accountId === 'string' && auth.accountId.trim()) identity = auth.accountId.trim();
       return {
         id: row.id,
         label: row.label,
@@ -493,6 +496,12 @@ export function listProviderAccounts(provider) {
       };
     }),
   };
+}
+
+// A provider without a stored pool has one implicit account when it is signed in.
+function defaultAccountRows(provider, oauth) {
+  const authenticated = withProviderAccount(provider, 'default', () => oauth.describe?.().authenticated);
+  return authenticated ? [{ id: 'default', label: 'Account 1' }] : [];
 }
 
 export function updateProviderAccounts(provider, change) {

@@ -65,7 +65,8 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
   const bare = Boolean(
     rel && kind === 'file' && !rel.includes('/') && !/^(?:[a-z]:[\\/]|[\\/]|file:)/i.test(location.path)
   );
-  const suffix = location.line ? `:${location.line}${location.column ? `:${location.column}` : ''}` : '';
+  const columnSuffix = location.column ? `:${location.column}` : '';
+  const suffix = location.line ? `:${location.line}${columnSuffix}` : '';
   const name =
     (location.path
       .replace(/[\\/]+$/, '')

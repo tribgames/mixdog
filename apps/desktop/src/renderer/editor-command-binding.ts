@@ -13,7 +13,10 @@ export function bindEditorCommand(
   handler: () => void
 ): IDisposable {
   let commands = bindings.get(editor);
-  if (!commands) bindings.set(editor, (commands = new Map()));
+  if (!commands) {
+    commands = new Map();
+    bindings.set(editor, commands);
+  }
   let slot = commands.get(keybinding);
   if (!slot) {
     const created: CommandSlot = { handler: null };

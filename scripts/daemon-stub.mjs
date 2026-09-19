@@ -25,7 +25,7 @@ function log(line) {
 
 let transport = null;
 let shuttingDown = false;
-async function shutdown(reason, code = 0) {
+async function shutdown(_reason, code = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   try {

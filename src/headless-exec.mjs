@@ -251,22 +251,7 @@ function createJsonLifecycle({ write, stats, provider, model, effort, fast, cwd,
     }
     pendingTools.delete(callId);
     completedTools.add(callId);
-    const failed = message?.isError === true || message?.toolKind === 'error';
-    const skipped = message?.toolKind === 'skipped';
-    const rawTiming = message?.toolTiming || entry.earlyTiming || {};
-    const dispatchStartedAt = nonNegativeNumber(rawTiming.dispatchStartedAt || entry.startedAt);
-    const executionStartedAt = nonNegativeNumber(rawTiming.executionStartedAt || dispatchStartedAt);
-    const executionCompletedAt = nonNegativeNumber(rawTiming.executionCompletedAt || entry.earlyCompletedAt || at);
-    const postprocessStartedAt = nonNegativeNumber(rawTiming.postprocessStartedAt || executionCompletedAt);
-    const resultCompletedAt = nonNegativeNumber(rawTiming.resultCompletedAt || at);
-    const timing = {
-      queue_ms: Math.max(0, dispatchStartedAt - entry.startedAt),
-      dispatch_ms: Math.max(0, executionStartedAt - dispatchStartedAt),
-      execution_ms: Math.max(0, executionCompletedAt - executionStartedAt),
-      batch_wait_ms: Math.max(0, postprocessStartedAt - executionCompletedAt),
-      postprocess_ms: Math.max(0, resultCompletedAt - postprocessStartedAt),
-      total_ms: Math.max(0, resultCompletedAt - entry.startedAt),
-    };
+    const timing = toolTimingFor(entry, message, at);
     emit(
       {
         type: 'item.completed',
@@ -278,7 +263,7 @@ function createJsonLifecycle({ write, stats, provider, model, effort, fast, cwd,
           name: entry.name,
           arguments: entry.arguments,
           output: jsonValue(message?.content),
-          status: failed ? 'failed' : skipped ? 'skipped' : 'completed',
+          status: toolCallStatus(message),
           started_at: entry.startedAtIso,
           completed_at: nowIso(at),
           duration_ms: timing.total_ms,
@@ -548,6 +533,31 @@ function writeUsageDocument(path, stats, runtime, toolCallCount = 0, observedMod
   renameSync(temp, target);
 }
 
+// Tool-call phase durations from the engine's timing marks, each phase falling
+// back to the previous mark so a partial report still yields monotonic spans.
+function toolTimingFor(entry, message, at) {
+  const rawTiming = message?.toolTiming || entry.earlyTiming || {};
+  const dispatchStartedAt = nonNegativeNumber(rawTiming.dispatchStartedAt || entry.startedAt);
+  const executionStartedAt = nonNegativeNumber(rawTiming.executionStartedAt || dispatchStartedAt);
+  const executionCompletedAt = nonNegativeNumber(rawTiming.executionCompletedAt || entry.earlyCompletedAt || at);
+  const postprocessStartedAt = nonNegativeNumber(rawTiming.postprocessStartedAt || executionCompletedAt);
+  const resultCompletedAt = nonNegativeNumber(rawTiming.resultCompletedAt || at);
+  return {
+    queue_ms: Math.max(0, dispatchStartedAt - entry.startedAt),
+    dispatch_ms: Math.max(0, executionStartedAt - dispatchStartedAt),
+    execution_ms: Math.max(0, executionCompletedAt - executionStartedAt),
+    batch_wait_ms: Math.max(0, postprocessStartedAt - executionCompletedAt),
+    postprocess_ms: Math.max(0, resultCompletedAt - postprocessStartedAt),
+    total_ms: Math.max(0, resultCompletedAt - entry.startedAt),
+  };
+}
+
+function toolCallStatus(message) {
+  if (message?.isError === true || message?.toolKind === 'error') return 'failed';
+  if (message?.toolKind === 'skipped') return 'skipped';
+  return 'completed';
+}
+
 export async function runHeadlessExec({
   message,
   provider,
@@ -593,223 +603,328 @@ export async function runHeadlessExec({
         webSearch,
       })
     : null;
-  let boundary = null;
-  let runtime = null;
-  let signalCleanup = null;
-  let unsubscribeNotification = null;
-  let completionPending = false;
-  let cleanupPromise = null;
-  let result = null;
-  let resultText = '';
-  let executionError = null;
-  let code = 1;
-  const taskScopeFor = (session) => ({
-    ...(clean(session?.id) ? { callerSessionId: clean(session.id) } : {}),
-    clientHostPid: session?.clientHostPid,
+  const outcome = await executeHeadlessPrompt(prompt, {
+    provider,
+    model,
+    effort,
+    fast,
+    cwd,
+    webSearch,
+    json,
+    write,
+    writeErr,
+    usageLogPath,
+    stats,
+    observedModels,
+    lifecycle,
+    boundaryFactory,
+    runtimeFactory,
+    memoryRuntimeCleanup,
+    daemonRuntimeCleanup,
+    usageLedgerCleanup,
+    hasActiveTasks,
+    installSignalCleanupFn,
   });
-  const cleanup = (reason = 'exec-exit') => {
-    cleanupPromise ??= (async () => {
-      const errors = [];
-      try {
-        // Background jobs the model left running ON PURPOSE (a task's required
-        // server) must outlive this process: reaping them at exit destroys the
-        // very artifact the caller asked for. Detach instead of reap. cli.mjs
-        // exits explicitly, so surviving children cannot hold the process open.
-        if (runtime) {
-          await runtime.close(reason, hasActiveTasks(taskScopeFor(runtime)) ? { keepBackgroundWork: true } : {});
-        }
-      } catch (error) {
-        errors.push(error);
-      }
-      try {
-        if (boundary) {
-          // Explicit CLI exit cannot finish an asynchronous append. Drain both
-          // in-flight and queued rows before services or the runtime root go away.
-          const { drainAgentTrace } = await import('./runtime/agent/orchestrator/agent-trace.mjs');
-          await drainAgentTrace();
-        }
-      } catch (error) {
-        errors.push(error);
-      }
-      try {
-        // The usage ledger lives inside the pristine root. Its open SQLite
-        // handle blocks the root removal below on Windows (EBUSY) for the whole
-        // rmSync retry budget, so release it once the last usage row is in.
-        usageLedgerCleanup();
-      } catch (error) {
-        errors.push(error);
-      }
-      let resourceCleanupFailed = false;
-      if (boundary?.runtimeRoot) {
-        try {
-          await daemonRuntimeCleanup(boundary.runtimeRoot, {
-            waitForExit: true,
-            timeoutMs: 8_000,
-          });
-        } catch (error) {
-          resourceCleanupFailed = true;
-          errors.push(error);
-        }
-      }
-      if (boundary) {
-        try {
-          await memoryRuntimeCleanup({ waitForExit: true, timeoutMs: 10_000 });
-        } catch (error) {
-          resourceCleanupFailed = true;
-          errors.push(error);
-        }
-      }
-      try {
-        // The answer is already final here. A root whose memory daemon is still
-        // winding down (its pg.log stays open for a while) must not hold the
-        // exit for the default ≈128s retry budget; 10 linear retries ≈ 5.5s,
-        // and the periodic orphan sweep reclaims whatever is left.
-        const cleanupResult = boundary?.cleanup(
-          resourceCleanupFailed ? { preserveRoot: true } : { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 }
-        );
-        if (cleanupResult?.rootRemovalError) {
-          writeErr(
-            `mixdog: shutdown cleanup failed (result unaffected): ${cleanupResult.rootRemovalError?.message || cleanupResult.rootRemovalError}\n`
-          );
-        }
-      } catch (error) {
-        errors.push(error);
-      }
-      if (errors.length === 1) throw errors[0];
-      if (errors.length > 1) throw new AggregateError(errors, 'headless shutdown failed');
-    })();
-    return cleanupPromise;
-  };
+  if (lifecycle) {
+    if (outcome.code === 0) lifecycle.succeed(outcome.resultText, outcome.result);
+    else lifecycle.fail(outcome.executionError || new Error('execution failed'));
+  }
+  return outcome.code;
+}
+
+// Boots the pristine runtime, asks once, and always closes it; the caller
+// finalizes the lifecycle from the outcome.
+async function executeHeadlessPrompt(
+  prompt,
+  {
+    provider,
+    model,
+    effort,
+    fast,
+    cwd,
+    webSearch,
+    json,
+    write,
+    writeErr,
+    usageLogPath,
+    stats,
+    observedModels,
+    lifecycle,
+    boundaryFactory,
+    runtimeFactory,
+    memoryRuntimeCleanup,
+    daemonRuntimeCleanup,
+    usageLedgerCleanup,
+    hasActiveTasks,
+    installSignalCleanupFn,
+  }
+) {
+  // Live handles the shutdown path reads at exit time, not at creation.
+  const run = { boundary: null, runtime: null, signalCleanup: null, unsubscribeNotification: null, completionPending: false };
+  const outcome = { code: 1, result: null, resultText: '', executionError: null };
+  const cleanup = headlessCleanup(run, {
+    writeErr,
+    hasActiveTasks,
+    usageLedgerCleanup,
+    daemonRuntimeCleanup,
+    memoryRuntimeCleanup,
+  });
+  const writeUsage = () =>
+    writeUsageDocument(usageLogPath, stats, run.runtime, lifecycle?.toolCallCount || 0, observedModels);
 
   try {
-    boundary = boundaryFactory({ provider, model, effort, fast });
-    // Fire-and-forget search prewarm, matching the long-lived host. Warm both
-    // the resident server and this Project's complete path inventory so the
-    // first normal find/glob does real indexed work instead of paying startup
-    // or a cold tree walk. Non-fatal by construction.
-    if (!/^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_DISABLE_TOOL_PREWARM || '').trim())) {
-      void prewarmHeadlessSearch(cwd).catch(() => {});
-    }
-    signalCleanup = installSignalCleanupFn({
-      name: 'mixdog-exec',
-      timeoutMs: 20_000,
-      cleanup,
-    });
-    const createRuntime = runtimeFactory || (await import('./mixdog-session-runtime.mjs')).createMixdogSessionRuntime;
-    // Headless defaults: web research and memory tools stay OFF unless the
-    // caller opts in via --web-search / --memory. Delegation is already
-    // disallowed below, completing the solo surface. The per-process
-    // MIXDOG_FEATURE_* overrides are the runtime's canonical switches.
-    process.env.MIXDOG_FEATURE_WEB_SEARCH = webSearch === true ? '1' : '0';
-    process.env.MIXDOG_FEATURE_MEMORY = '0';
-    runtime = await createRuntime({
+    await startHeadlessRuntime(run, {
       provider,
       model,
+      effort,
+      fast,
       cwd,
-      toolMode: 'full',
-      toolProfile: 'headless',
-      approvalMode: 'implicit',
-      disallowDelegation: true,
-      autoWakeCompletions: false,
-      initialConfig: {
-        ...boundary.loadConfig(),
-        workflow: { active: 'headless' },
-        orchestrationMode: 'none',
-      },
+      webSearch,
+      lifecycle,
+      boundaryFactory,
+      runtimeFactory,
+      installSignalCleanupFn,
+      cleanup,
     });
-    if (lifecycle && !clean(runtime?.id) && typeof runtime?.reserveSessionId === 'function') {
-      runtime.reserveSessionId(lifecycle.threadId);
+    const askOptions = headlessAskOptions({ stats, lifecycle, observedModels, writeUsage });
+    outcome.result = await askUntilSettled(run, prompt, askOptions);
+    outcome.resultText = String(outcome.result?.content ?? outcome.result?.text ?? '');
+    if (!json && outcome.resultText) {
+      write(outcome.resultText.endsWith('\n') ? outcome.resultText : `${outcome.resultText}\n`);
     }
-    lifecycle?.start(runtime);
-    if (typeof runtime?.onNotification === 'function') {
-      unsubscribeNotification = runtime.onNotification((event) => {
-        lifecycle?.onNotification(event);
-        const status = clean(event?.meta?.status).toLowerCase();
-        if (['completed', 'failed', 'cancelled', 'canceled', 'timed_out'].includes(status)) {
-          completionPending = true;
-        }
-      });
+    outcome.code = 0;
+  } catch (error) {
+    outcome.executionError = error;
+    writeErr(`mixdog: ${error?.message || error}\n`);
+  } finally {
+    const shutdown = await closeHeadlessRun(run, { writeUsage, cleanup, writeErr });
+    if (shutdown) {
+      outcome.executionError ??= shutdown.error;
+      outcome.code = 1;
     }
-    // Rewrite the usage snapshot after every model response, not only on the
-    // way out. A session killed mid-run — agent timeout, SIGKILL — never
-    // reaches the exit path, and used to leave no usage document at all while
-    // its token spend was already real. The file is a few hundred bytes and
-    // the write is atomic, so the cost is negligible and a live run stays
-    // readable from outside.
-    const flushUsageDocument = () => {
+  }
+  return outcome;
+}
+
+// Exit NEVER waits on running background work. A job the model left
+// running on purpose (a task's server) has no end, so waiting for it spent
+// the whole remaining budget on an already-finished turn — 2026-08-23 full
+// run: two trials, ~85s of real work each, 900s burned. Claude Code and
+// Codex both leave the moment the turn ends. Completions that ALREADY
+// arrived still get their follow-up turn: that is a queued message, not a
+// wait, so no result the model can act on is dropped.
+async function askUntilSettled(run, prompt, askOptions) {
+  let { result } = await run.runtime.ask(prompt, askOptions);
+  while (run.completionPending) {
+    run.completionPending = false;
+    ({ result } = await run.runtime.ask('', askOptions));
+  }
+  return result;
+}
+
+// Exit-path teardown: drop the notification listener, write the usage
+// document, run the memoized shutdown, then uninstall the signal handlers.
+// Listener and usage failures only log; a shutdown failure is returned.
+async function closeHeadlessRun(run, { writeUsage, cleanup, writeErr }) {
+  try {
+    run.unsubscribeNotification?.();
+  } catch {
+    // Listener cleanup is best-effort.
+  }
+  try {
+    writeUsage();
+  } catch (error) {
+    writeErr(`mixdog: usage log write failed: ${error?.message || error}\n`);
+  }
+  try {
+    await cleanup('exec-exit');
+    return null;
+  } catch (error) {
+    writeErr(`mixdog: shutdown failed: ${error?.message || error}\n`);
+    return { error };
+  } finally {
+    run.signalCleanup?.uninstall();
+  }
+}
+
+function taskScopeFor(session) {
+  return {
+    ...(clean(session?.id) ? { callerSessionId: clean(session.id) } : {}),
+    clientHostPid: session?.clientHostPid,
+  };
+}
+
+// The one-shot shutdown sequence, memoized so the signal handler and the
+// exit path share a single run: close the runtime, drain the trace, release
+// the usage ledger, stop the daemon and memory runtimes, then remove the
+// pristine root.
+function headlessCleanup(run, { writeErr, hasActiveTasks, usageLedgerCleanup, daemonRuntimeCleanup, memoryRuntimeCleanup }) {
+  let cleanupPromise = null;
+  const shutdown = async (reason) => {
+    const { runtime, boundary } = run;
+    const errors = [];
+    // Background jobs the model left running ON PURPOSE (a task's required
+    // server) must outlive this process: reaping them at exit destroys the
+    // very artifact the caller asked for. Detach instead of reap. cli.mjs
+    // exits explicitly, so surviving children cannot hold the process open.
+    await attemptShutdownStep(errors, async () => {
+      if (runtime) {
+        await runtime.close(reason, hasActiveTasks(taskScopeFor(runtime)) ? { keepBackgroundWork: true } : {});
+      }
+    });
+    // Explicit CLI exit cannot finish an asynchronous append. Drain both
+    // in-flight and queued rows before services or the runtime root go away.
+    await attemptShutdownStep(errors, async () => {
+      if (boundary) {
+        const { drainAgentTrace } = await import('./runtime/agent/orchestrator/agent-trace.mjs');
+        await drainAgentTrace();
+      }
+    });
+    // The usage ledger lives inside the pristine root. Its open SQLite
+    // handle blocks the root removal below on Windows (EBUSY) for the whole
+    // rmSync retry budget, so release it once the last usage row is in.
+    await attemptShutdownStep(errors, () => usageLedgerCleanup());
+    let resourceCleanupFailed = false;
+    if (boundary?.runtimeRoot) {
+      const ok = await attemptShutdownStep(errors, () =>
+        daemonRuntimeCleanup(boundary.runtimeRoot, { waitForExit: true, timeoutMs: 8_000 })
+      );
+      resourceCleanupFailed = !ok;
+    }
+    if (boundary) {
+      const ok = await attemptShutdownStep(errors, () => memoryRuntimeCleanup({ waitForExit: true, timeoutMs: 10_000 }));
+      if (!ok) resourceCleanupFailed = true;
+    }
+    await attemptShutdownStep(errors, () => removeBoundaryRoot(boundary, resourceCleanupFailed, writeErr));
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1) throw new AggregateError(errors, 'headless shutdown failed');
+  };
+  return (reason = 'exec-exit') => {
+    cleanupPromise ??= shutdown(reason);
+    return cleanupPromise;
+  };
+}
+
+// Runs one shutdown step, collecting its failure so the remaining steps still
+// run; true when the step succeeded.
+async function attemptShutdownStep(errors, step) {
+  try {
+    await step();
+    return true;
+  } catch (error) {
+    errors.push(error);
+    return false;
+  }
+}
+
+// The answer is already final here. A root whose memory daemon is still
+// winding down (its pg.log stays open for a while) must not hold the
+// exit for the default ≈128s retry budget; 10 linear retries ≈ 5.5s,
+// and the periodic orphan sweep reclaims whatever is left.
+function removeBoundaryRoot(boundary, preserveRoot, writeErr) {
+  const cleanupResult = boundary?.cleanup(
+    preserveRoot ? { preserveRoot: true } : { tolerateRootRemovalFailure: true, rootRemovalRetries: 10 }
+  );
+  if (cleanupResult?.rootRemovalError) {
+    writeErr(
+      `mixdog: shutdown cleanup failed (result unaffected): ${cleanupResult.rootRemovalError?.message || cleanupResult.rootRemovalError}\n`
+    );
+  }
+}
+
+// Pristine boundary, signal handlers, then the session runtime; every
+// handle lands on `run` so the shutdown path can see whatever was reached.
+async function startHeadlessRuntime(
+  run,
+  { provider, model, effort, fast, cwd, webSearch, lifecycle, boundaryFactory, runtimeFactory, installSignalCleanupFn, cleanup }
+) {
+  run.boundary = boundaryFactory({ provider, model, effort, fast });
+  // Fire-and-forget search prewarm, matching the long-lived host. Warm both
+  // the resident server and this Project's complete path inventory so the
+  // first normal find/glob does real indexed work instead of paying startup
+  // or a cold tree walk. Non-fatal by construction.
+  if (!/^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_DISABLE_TOOL_PREWARM || '').trim())) {
+    void prewarmHeadlessSearch(cwd).catch(() => {});
+  }
+  run.signalCleanup = installSignalCleanupFn({
+    name: 'mixdog-exec',
+    timeoutMs: 20_000,
+    cleanup,
+  });
+  const runtime = await createHeadlessSessionRuntime(run.boundary, { provider, model, cwd, webSearch, runtimeFactory });
+  run.runtime = runtime;
+  if (lifecycle && !clean(runtime?.id) && typeof runtime?.reserveSessionId === 'function') {
+    runtime.reserveSessionId(lifecycle.threadId);
+  }
+  lifecycle?.start(runtime);
+  if (typeof runtime?.onNotification === 'function') {
+    run.unsubscribeNotification = runtime.onNotification((event) => {
+      lifecycle?.onNotification(event);
+      const status = clean(event?.meta?.status).toLowerCase();
+      if (['completed', 'failed', 'cancelled', 'canceled', 'timed_out'].includes(status)) {
+        run.completionPending = true;
+      }
+    });
+  }
+}
+
+// Headless defaults: web research and memory tools stay OFF unless the
+// caller opts in via --web-search / --memory. Delegation is already
+// disallowed below, completing the solo surface. The per-process
+// MIXDOG_FEATURE_* overrides are the runtime's canonical switches.
+async function createHeadlessSessionRuntime(boundary, { provider, model, cwd, webSearch, runtimeFactory }) {
+  const createRuntime = runtimeFactory || (await import('./mixdog-session-runtime.mjs')).createMixdogSessionRuntime;
+  process.env.MIXDOG_FEATURE_WEB_SEARCH = webSearch === true ? '1' : '0';
+  process.env.MIXDOG_FEATURE_MEMORY = '0';
+  return createRuntime({
+    provider,
+    model,
+    cwd,
+    toolMode: 'full',
+    toolProfile: 'headless',
+    approvalMode: 'implicit',
+    disallowDelegation: true,
+    autoWakeCompletions: false,
+    initialConfig: {
+      ...boundary.loadConfig(),
+      workflow: { active: 'headless' },
+      orchestrationMode: 'none',
+    },
+  });
+}
+
+// Per-ask callbacks. The usage snapshot is rewritten after every model
+// response, not only on the way out: a session killed mid-run — agent
+// timeout, SIGKILL — never reaches the exit path, and used to leave no usage
+// document at all while its token spend was already real. The file is a few
+// hundred bytes and the write is atomic, so the cost is negligible and a
+// live run stays readable from outside.
+function headlessAskOptions({ stats, lifecycle, observedModels, writeUsage }) {
+  return {
+    onTextReset: () => true,
+    onUsageDelta: (delta) => {
+      const observedModel = clean(delta?.model);
+      if (observedModel) observedModels.add(observedModel);
+      applyUsageDelta(stats, delta);
+      lifecycle?.onUsageDelta(delta);
       try {
-        writeUsageDocument(usageLogPath, stats, runtime, lifecycle?.toolCallCount || 0, observedModels);
+        writeUsage();
       } catch {
         // Telemetry must never break the session; the exit path reports.
       }
-    };
-    const askOptions = {
-      onTextReset: () => true,
-      onUsageDelta: (delta) => {
-        const observedModel = clean(delta?.model);
-        if (observedModel) observedModels.add(observedModel);
-        applyUsageDelta(stats, delta);
-        lifecycle?.onUsageDelta(delta);
-        flushUsageDocument();
-      },
-      ...(lifecycle
-        ? {
-            onProviderSendStarted: () => lifecycle.onProviderSendStarted(),
-            onReasoningDelta: (chunk) => lifecycle.onReasoningDelta(chunk),
-            onAssistantText: (text) => lifecycle.onAssistantText(text),
-            onAssistantToolCallObserved: (call) => lifecycle.onAssistantToolCallObserved(call),
-            onToolCall: (iteration, calls) => lifecycle.onToolCall(iteration, calls),
-            onToolResult: (message) => lifecycle.onToolResult(message),
-            onToolPhaseStarted: () => lifecycle.onToolBatchStarted(),
-            onToolPhaseCompleted: (detail) => lifecycle.onToolBatchCompleted(detail),
-            onStageChange: (stage, detail) => lifecycle.onStageChange(stage, detail),
-          }
-        : {}),
-    };
-    ({ result } = await runtime.ask(prompt, askOptions));
-    // Exit NEVER waits on running background work. A job the model left
-    // running on purpose (a task's server) has no end, so waiting for it spent
-    // the whole remaining budget on an already-finished turn — 2026-08-23 full
-    // run: two trials, ~85s of real work each, 900s burned. Claude Code and
-    // Codex both leave the moment the turn ends. Completions that ALREADY
-    // arrived still get their follow-up turn below: that is a queued message,
-    // not a wait, so no result the model can act on is dropped.
-    while (completionPending) {
-      completionPending = false;
-      ({ result } = await runtime.ask('', askOptions));
-    }
-    resultText = String(result?.content ?? result?.text ?? '');
-    if (!json && resultText) {
-      write(resultText.endsWith('\n') ? resultText : `${resultText}\n`);
-    }
-    code = 0;
-  } catch (error) {
-    executionError = error;
-    writeErr(`mixdog: ${error?.message || error}\n`);
-  } finally {
-    try {
-      unsubscribeNotification?.();
-    } catch {
-      // Listener cleanup is best-effort.
-    }
-    try {
-      writeUsageDocument(usageLogPath, stats, runtime, lifecycle?.toolCallCount || 0, observedModels);
-    } catch (error) {
-      writeErr(`mixdog: usage log write failed: ${error?.message || error}\n`);
-    }
-    try {
-      await cleanup('exec-exit');
-    } catch (error) {
-      executionError ??= error;
-      writeErr(`mixdog: shutdown failed: ${error?.message || error}\n`);
-      code = 1;
-    } finally {
-      signalCleanup?.uninstall();
-    }
-  }
-  if (lifecycle) {
-    if (code === 0) lifecycle.succeed(resultText, result);
-    else lifecycle.fail(executionError || new Error('execution failed'));
-  }
-  return code;
+    },
+    ...(lifecycle
+      ? {
+          onProviderSendStarted: () => lifecycle.onProviderSendStarted(),
+          onReasoningDelta: (chunk) => lifecycle.onReasoningDelta(chunk),
+          onAssistantText: (text) => lifecycle.onAssistantText(text),
+          onAssistantToolCallObserved: (call) => lifecycle.onAssistantToolCallObserved(call),
+          onToolCall: (iteration, calls) => lifecycle.onToolCall(iteration, calls),
+          onToolResult: (message) => lifecycle.onToolResult(message),
+          onToolPhaseStarted: () => lifecycle.onToolBatchStarted(),
+          onToolPhaseCompleted: (detail) => lifecycle.onToolBatchCompleted(detail),
+          onStageChange: (stage, detail) => lifecycle.onStageChange(stage, detail),
+        }
+      : {}),
+  };
 }

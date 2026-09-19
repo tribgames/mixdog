@@ -842,19 +842,20 @@ export function createBrowserHost(
       if (!guest || guest.id !== webContentsId) {
         throw new Error('Browser guest is unavailable.');
       }
-      const fixedViewport = config.width !== null && config.height !== null;
+      const fixedViewport =
+        config.width !== null && config.height !== null ? { width: config.width, height: config.height } : null;
+      const orientation = fixedViewport && fixedViewport.width > fixedViewport.height ? 'landscape' : 'portrait';
       await emulation.configureEmulation(guest, {
         action: 'emulate',
         reset: true,
         ...(fixedViewport
           ? {
-              width: config.width!,
-              height: config.height!,
+              ...fixedViewport,
               deviceScaleFactor: config.deviceScaleFactor,
               mobile: config.mobile,
               touch: config.touch,
               userAgent: config.userAgent ?? '',
-              orientation: config.width! > config.height! ? 'landscape' : 'portrait',
+              orientation,
             }
           : {}),
       });

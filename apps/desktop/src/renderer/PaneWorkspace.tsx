@@ -5,11 +5,11 @@
 // non-focused pane focuses it and asks App to navigate its interactive
 // surface there, so today's single-focused-engine renderer keeps working
 // while the lanes already deliver concurrent live output.
+
 import type React from 'react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useVisibleSessions } from './use-visible-sessions';
-
 import { t } from './i18n';
 import { dataTransferHasLocalFiles, droppedLocalPaths } from './file-drag';
 import { isMobileRemoteSurface } from './mobile-surface';
@@ -17,22 +17,13 @@ import { PaneSplitLayout } from './PaneSplitLayout';
 import { PersistentPanePortal } from './PaneSurfaceGate';
 import type { NavigationSelection, WorkspaceSelection } from './nav-types';
 import {
-  paneHierarchyDropTarget,
-  paneInnerDropZone,
-  paneOuterDropZone,
-  type PaneHierarchyCandidate,
-} from './pane-drop-zone';
-import {
-  canSplitPaneSize,
-  movePaneTabToNodeEdge,
   paneActiveSessionIds,
   paneActiveSelection,
-  paneLeafRelativeRect,
   paneLeavesInVisualOrder,
   paneNodeMinimumSize,
   type PaneLeaf,
 } from './pane-layout';
-import type { PaneDropZone, usePaneWorkspace } from './pane-workspace-state';
+import type { usePaneWorkspace } from './pane-workspace-state';
 import { defaultSessionLaneStore } from './session-lane-store';
 import {
   cancelPaneDragPreview,
@@ -40,11 +31,12 @@ import {
   dropPaneDrag,
   movePaneDrag,
   subscribePaneDrag,
-  type PaneDragFrame,
 } from './pane-drag-session';
 import { navigationKey } from './text-format';
+import { commitPaneDropAction, resolvePaneDropIntent, sameDropPreview } from './pane-drop-intent';
+import type { DropPreview } from './pane-drop-intent';
 
-const DROP_PREVIEW_LEAF_ID = '__pane_drop_preview__';
+export { resolvePaneDropIntent } from './pane-drop-intent';
 
 function paneConversationSlotId(leafId: string): string {
   return `pane-conversation-slot-${leafId}`;
@@ -69,332 +61,6 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
       return selection.title || `Pull Request #${selection.number}`;
     case 'diff':
       return `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`;
-  }
-}
-
-type DropPreview = {
-  leafId: string;
-  zone: PaneDropZone | 'center' | 'insert';
-  rect: { left: number; top: number; width: number; height: number };
-};
-
-function sameDropPreview(left: DropPreview | null, right: DropPreview): boolean {
-  return Boolean(
-    left &&
-      left.leafId === right.leafId &&
-      left.zone === right.zone &&
-      left.rect.left === right.rect.left &&
-      left.rect.top === right.rect.top &&
-      left.rect.width === right.rect.width &&
-      left.rect.height === right.rect.height
-  );
-}
-
-type PaneWorkspaceModel = ReturnType<typeof usePaneWorkspace>;
-
-type PaneDropAction =
-  | {
-      type: 'move-group-to-node-edge';
-      sourceLeafId: string;
-      targetPath: string;
-      zone: PaneDropZone;
-    }
-  | {
-      type: 'move-tab-to-node-edge';
-      sourceLeafId: string;
-      key: string;
-      targetPath: string;
-      zone: PaneDropZone;
-    }
-  | {
-      type: 'move-group';
-      sourceLeafId: string;
-      targetLeafId: string;
-      zone: PaneDropZone;
-    }
-  | {
-      type: 'merge-group';
-      sourceLeafId: string;
-      targetLeafId: string;
-      insertIndex?: number;
-    }
-  | {
-      type: 'open-in-leaf';
-      targetLeafId: string;
-      selection: WorkspaceSelection;
-      insertIndex?: number;
-    }
-  | {
-      type: 'move-tab';
-      sourceLeafId: string;
-      key: string;
-      targetLeafId: string;
-      insertIndex?: number;
-    }
-  | {
-      type: 'split-leaf';
-      targetLeafId: string;
-      zone: PaneDropZone;
-      selection: WorkspaceSelection;
-      sourceLeafId: string;
-    };
-
-type PaneDropIntent = {
-  preview: DropPreview;
-  action: PaneDropAction;
-  selection: WorkspaceSelection;
-};
-
-/** Resolve preview and commit data from the same native frame. */
-export function resolvePaneDropIntent(
-  frame: PaneDragFrame,
-  current: PaneWorkspaceModel,
-  panelElement: HTMLElement
-): PaneDropIntent | null {
-  const groupDrag = frame.kind === 'group';
-  const sessionDrag = frame.kind === 'session';
-  const sourceLeafId = sessionDrag
-    ? (current.leaves.find((leaf) => leaf.tabs.some((tab) => navigationKey(tab) === frame.key))?.id ?? '')
-    : frame.sourceLeafId || '';
-  const sourceLeaf = current.leaves.find((leaf) => leaf.id === sourceLeafId);
-  const sourceOwnsTab = sourceLeaf?.tabs.some((tab) => navigationKey(tab) === frame.key) === true;
-  const canDetachAtRoot = groupDrag
-    ? current.leaves.length > 1
-    : sourceOwnsTab && (current.leaves.length > 1 || (sourceLeaf?.tabs.length ?? 0) > 1);
-  const pointedElement = frame.target;
-  const pointedStrip = pointedElement?.closest?.('.workspace-tabs-shell') ?? null;
-  const panelRect = panelElement.getBoundingClientRect();
-  // A visible tab strip is an explicit insertion target. It wins over the
-  // workspace edge bands that geometrically overlap the top and side rails.
-  const outerZone =
-    !sessionDrag && sourceLeafId && !pointedStrip ? paneOuterDropZone(panelRect, frame.x, frame.y) : null;
-  const candidates: PaneHierarchyCandidate[] = [...panelElement.querySelectorAll<HTMLElement>('[data-pane-path]')].map(
-    (element) => ({
-      path: element.dataset.panePath ?? '',
-      rect: element.getBoundingClientRect(),
-    })
-  );
-  if (!candidates.some((candidate) => candidate.path === '' && candidate.rect.width > 0 && candidate.rect.height > 0)) {
-    candidates.push({ path: '', rect: panelRect });
-  }
-  const hierarchyTarget =
-    canDetachAtRoot && outerZone ? paneHierarchyDropTarget(panelRect, outerZone, frame.x, frame.y, candidates) : null;
-  if (
-    outerZone &&
-    hierarchyTarget &&
-    canSplitPaneSize(
-      outerZone === 'left' || outerZone === 'right' ? 'row' : 'column',
-      hierarchyTarget.rect.width,
-      hierarchyTarget.rect.height
-    )
-  ) {
-    const direction = outerZone === 'left' || outerZone === 'right' ? 'row' : 'column';
-    const addsPane = !groupDrag && (sourceLeaf?.tabs.length ?? 0) > 1;
-    const position = outerZone === 'left' || outerZone === 'top' ? 'before' : 'after';
-    const previewLayout = addsPane
-      ? movePaneTabToNodeEdge(
-          current.layout,
-          sourceLeafId,
-          frame.key,
-          hierarchyTarget.path,
-          direction,
-          position,
-          DROP_PREVIEW_LEAF_ID
-        )
-      : null;
-    const relativeRect = previewLayout ? paneLeafRelativeRect(previewLayout, DROP_PREVIEW_LEAF_ID) : null;
-    const preview: DropPreview = relativeRect
-      ? {
-          leafId: sourceLeafId,
-          zone: 'center',
-          rect: {
-            left: panelRect.left + relativeRect.left * panelRect.width,
-            top: panelRect.top + relativeRect.top * panelRect.height,
-            width: relativeRect.width * panelRect.width,
-            height: relativeRect.height * panelRect.height,
-          },
-        }
-      : {
-          leafId: sourceLeafId,
-          zone: outerZone,
-          rect: {
-            left: hierarchyTarget.rect.left,
-            top: hierarchyTarget.rect.top,
-            width: hierarchyTarget.rect.width,
-            height: hierarchyTarget.rect.height,
-          },
-        };
-    return {
-      preview,
-      selection: frame.selection,
-      action: groupDrag
-        ? {
-            type: 'move-group-to-node-edge',
-            sourceLeafId,
-            targetPath: hierarchyTarget.path,
-            zone: outerZone,
-          }
-        : {
-            type: 'move-tab-to-node-edge',
-            sourceLeafId,
-            key: frame.key,
-            targetPath: hierarchyTarget.path,
-            zone: outerZone,
-          },
-    };
-  }
-
-  let leafId = '';
-  let rect: DOMRect | null = null;
-  let paneScope: HTMLElement | null = null;
-  const paneNode = pointedElement?.closest?.('.pane-leaf') as HTMLElement | null;
-  if (paneNode?.dataset.paneId) {
-    leafId = paneNode.dataset.paneId;
-    rect = paneNode.getBoundingClientRect();
-    paneScope = paneNode;
-  } else if (
-    frame.x >= panelRect.left &&
-    frame.x <= panelRect.right &&
-    frame.y >= panelRect.top &&
-    frame.y <= panelRect.bottom
-  ) {
-    // A single-pane workspace has no .pane-leaf wrapper.
-    leafId = current.leaves[0]?.id ?? '';
-    rect = panelRect;
-    paneScope = panelElement;
-  }
-  const target = leafId ? current.leaves.find((leaf) => leaf.id === leafId) : undefined;
-  if (!target || !rect) return null;
-  if (sourceLeafId === leafId && (groupDrag || (sourceOwnsTab && (sourceLeaf?.tabs.length ?? 0) < 2))) {
-    return null;
-  }
-
-  const stripRect = paneScope?.querySelector('.workspace-tabs-shell')?.getBoundingClientRect() ?? null;
-  const editorTop =
-    stripRect && stripRect.height > 0 && stripRect.top <= rect.top + 1 && stripRect.bottom < rect.bottom
-      ? stripRect.bottom
-      : rect.top;
-  const dropRect = {
-    left: rect.left,
-    top: editorTop,
-    right: rect.right,
-    bottom: rect.bottom,
-    width: rect.width,
-    height: rect.bottom - editorTop,
-  };
-  const overStrip = Boolean(pointedStrip);
-  let zone: PaneDropZone | 'center' = overStrip ? 'center' : paneInnerDropZone(dropRect, frame.x, frame.y, groupDrag);
-  if (zone !== 'center') {
-    const direction = zone === 'left' || zone === 'right' ? 'row' : 'column';
-    if (!canSplitPaneSize(direction, dropRect.width, dropRect.height)) zone = 'center';
-  }
-  const targetActive = paneActiveSelection(target);
-  if (zone === 'center') {
-    if (
-      (!sessionDrag && (!sourceLeafId || sourceLeafId === leafId)) ||
-      (sessionDrag && sourceLeafId === leafId && !overStrip)
-    )
-      return null;
-  } else if (
-    !groupDrag &&
-    sourceLeafId !== leafId &&
-    targetActive &&
-    navigationKey(targetActive) === navigationKey(frame.selection)
-  ) {
-    return null;
-  }
-
-  let insertIndex: number | undefined;
-  let insertBar: DropPreview['rect'] | null = null;
-  if (overStrip && pointedStrip && zone === 'center' && sourceLeafId !== leafId) {
-    const targetStripRect = pointedStrip.getBoundingClientRect();
-    const stripTabs = [...pointedStrip.querySelectorAll<HTMLElement>('.workspace-tab')];
-    insertIndex = stripTabs.length;
-    let barX = stripTabs.length
-      ? stripTabs[stripTabs.length - 1].getBoundingClientRect().right
-      : targetStripRect.left + 6;
-    for (let at = 0; at < stripTabs.length; at += 1) {
-      const tabRect = stripTabs[at].getBoundingClientRect();
-      if (frame.x < tabRect.left + tabRect.width / 2) {
-        insertIndex = at;
-        barX = tabRect.left;
-        break;
-      }
-    }
-    if (targetStripRect.width > 0 && targetStripRect.height > 0) {
-      insertBar = {
-        left: barX - 1,
-        top: targetStripRect.top + 4,
-        width: 2,
-        height: Math.max(0, targetStripRect.height - 8),
-      };
-    }
-  }
-  const preview: DropPreview = insertBar
-    ? { leafId, zone: 'insert', rect: insertBar }
-    : {
-        leafId,
-        zone,
-        rect: {
-          left: dropRect.left,
-          top: dropRect.top,
-          width: dropRect.width,
-          height: dropRect.height,
-        },
-      };
-  let action: PaneDropAction;
-  if (groupDrag && zone !== 'center') {
-    action = { type: 'move-group', sourceLeafId, targetLeafId: leafId, zone };
-  } else if (groupDrag) {
-    action = { type: 'merge-group', sourceLeafId, targetLeafId: leafId, insertIndex };
-  } else if (sessionDrag && zone === 'center') {
-    action = { type: 'open-in-leaf', targetLeafId: leafId, selection: frame.selection, insertIndex };
-  } else if (zone === 'center') {
-    action = {
-      type: 'move-tab',
-      sourceLeafId,
-      key: frame.key,
-      targetLeafId: leafId,
-      insertIndex,
-    };
-  } else {
-    action = {
-      type: 'split-leaf',
-      targetLeafId: leafId,
-      zone,
-      selection: frame.selection,
-      sourceLeafId,
-    };
-  }
-  return { preview, action, selection: frame.selection };
-}
-
-function commitPaneDropAction(current: PaneWorkspaceModel, action: PaneDropAction): void {
-  switch (action.type) {
-    case 'move-group-to-node-edge':
-      current.moveGroupToNodeEdge(action.sourceLeafId, action.targetPath, action.zone);
-      return;
-    case 'move-tab-to-node-edge':
-      current.moveTabToNodeEdge(action.sourceLeafId, action.key, action.targetPath, action.zone);
-      return;
-    case 'move-group':
-      current.moveGroupAt(action.sourceLeafId, action.targetLeafId, action.zone);
-      return;
-    case 'merge-group':
-      if (action.insertIndex === undefined) {
-        current.mergeGroup(action.sourceLeafId, action.targetLeafId);
-      } else {
-        current.mergeGroup(action.sourceLeafId, action.targetLeafId, action.insertIndex);
-      }
-      return;
-    case 'open-in-leaf':
-      current.openInLeaf(action.targetLeafId, action.selection, action.insertIndex);
-      return;
-    case 'move-tab':
-      current.moveTab(action.sourceLeafId, action.key, action.targetLeafId, action.insertIndex);
-      return;
-    case 'split-leaf':
-      current.splitLeafAt(action.targetLeafId, action.zone, action.selection, action.sourceLeafId);
   }
 }
 
@@ -733,51 +399,53 @@ export function PaneWorkspace({
       panelSize.width > 0 &&
       panelSize.height > 0 &&
       (treeMinimum.width > panelSize.width || treeMinimum.height > panelSize.height));
-  const overlay = dropPreview
-    ? createPortal(
-        // ONE drop overlay per editor group: the highlight
-        // glides between zones INSIDE a pane but never slides across panes —
-        // the key remounts the element when the pane (or surface kind)
-        // changes, so only intra-pane moves animate.
-        <div
-          key={`${dropPreview.leafId}:${dropPreview.zone === 'insert' ? 'strip' : 'area'}`}
-          className={dropPreview.zone === 'insert' ? 'pane-drop-overlay pane-drop-insert' : 'pane-drop-overlay'}
-          style={dropZoneStyle(dropPreview)}
-        />,
-        document.body
-      )
-    : null;
+  let overlay: ReturnType<typeof createPortal> | null = null;
+  if (dropPreview) {
+    // ONE drop overlay per editor group: the highlight glides between zones
+    // INSIDE a pane but never slides across panes — the key remounts the
+    // element when the pane (or surface kind) changes, so only intra-pane
+    // moves animate.
+    const insert = dropPreview.zone === 'insert';
+    overlay = createPortal(
+      <div
+        key={`${dropPreview.leafId}:${insert ? 'strip' : 'area'}`}
+        className={insert ? 'pane-drop-overlay pane-drop-insert' : 'pane-drop-overlay'}
+        style={dropZoneStyle(dropPreview)}
+      />,
+      document.body
+    );
+  }
   const { focusedLeafId } = workspace;
-  const fileDropPropsFor = (leafId: string) =>
-    !onOpenDroppedPaths
-      ? {}
-      : {
-          'data-file-dropping': fileDropLeafId === leafId ? 'true' : undefined,
-          onDragEnter: (event: React.DragEvent<HTMLDivElement>) => {
-            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            setFileDropLeafId(leafId);
-          },
-          onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
-            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-            setFileDropLeafId(leafId);
-          },
-          onDragLeave: (event: React.DragEvent<HTMLDivElement>) => {
-            if (event.currentTarget.contains(event.relatedTarget as Node)) return;
-            setFileDropLeafId((current) => (current === leafId ? '' : current));
-          },
-          onDrop: (event: React.DragEvent<HTMLDivElement>) => {
-            if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
-            const paths = droppedLocalPaths(event.dataTransfer);
-            if (!paths.length) return;
-            event.preventDefault();
-            event.stopPropagation();
-            setFileDropLeafId('');
-            void onOpenDroppedPaths(leafId, paths);
-          },
-        };
+  const fileDropPropsFor = (leafId: string) => {
+    if (!onOpenDroppedPaths) return {};
+    return {
+      'data-file-dropping': fileDropLeafId === leafId ? 'true' : undefined,
+      onDragEnter: (event: React.DragEvent<HTMLDivElement>) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        setFileDropLeafId(leafId);
+      },
+      onDragOver: (event: React.DragEvent<HTMLDivElement>) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+        setFileDropLeafId(leafId);
+      },
+      onDragLeave: (event: React.DragEvent<HTMLDivElement>) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node)) return;
+        setFileDropLeafId((current) => (current === leafId ? '' : current));
+      },
+      onDrop: (event: React.DragEvent<HTMLDivElement>) => {
+        if (!dataTransferHasLocalFiles(event.dataTransfer)) return;
+        const paths = droppedLocalPaths(event.dataTransfer);
+        if (!paths.length) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setFileDropLeafId('');
+        void onOpenDroppedPaths(leafId, paths);
+      },
+    };
+  };
   const multi = workspace.leaves.length > 1;
   const currentPaneSurfaces = new Map<string, PaneSurfaceSnapshot>();
   const liveLeafIds = new Set(workspace.leaves.map((leaf) => leaf.id));
@@ -877,24 +545,25 @@ export function PaneWorkspace({
     leafId: entry.leaf.id,
     selectionKey: entry.selectionKey,
   }));
-  const conversationPortals = renderConversation
-    ? conversationLeaves.map(({ leaf, active, handoff, parked }) => {
-        const focused = leaf.id === focusedLeafId;
-        const focusPane = (): void => {
-          workspace.focusLeaf(leaf.id);
-          onFocusSelection(active);
-        };
-        return (
-          <PersistentPanePortal
-            key={ownerByLeaf.get(leaf.id)}
-            targetId={paneConversationSlotId(leaf.id)}
-            className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
-          >
-            {renderConversation(active, focused && !handoff && !parked, focusPane, leaf.id)}
-          </PersistentPanePortal>
-        );
-      })
-    : [];
+  let conversationPortals: React.ReactNode[] = [];
+  if (renderConversation) {
+    conversationPortals = conversationLeaves.map(({ leaf, active, handoff, parked }) => {
+      const focused = leaf.id === focusedLeafId;
+      const focusPane = (): void => {
+        workspace.focusLeaf(leaf.id);
+        onFocusSelection(active);
+      };
+      return (
+        <PersistentPanePortal
+          key={ownerByLeaf.get(leaf.id)}
+          targetId={paneConversationSlotId(leaf.id)}
+          className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
+        >
+          {renderConversation(active, focused && !handoff && !parked, focusPane, leaf.id)}
+        </PersistentPanePortal>
+      );
+    });
+  }
   const conversationEntryByLeaf = new Map(conversationLeaves.map((entry) => [entry.leaf.id, entry]));
   const conversationSlot = (leafId: string, parked: boolean) => (
     <div
@@ -1059,11 +728,11 @@ export function PaneWorkspace({
         onRatioChange={workspace.setRatio}
         renderLeaf={(leaf) => {
           const focused = leaf.id === focusedLeafId;
+          const cellClass = ['pane-cell', focused && 'is-focused', focused && multi && 'has-siblings']
+            .filter(Boolean)
+            .join(' ');
           return (
-            <div
-              className={`pane-cell${focused ? ` is-focused${multi ? ' has-siblings' : ''}` : ''}`}
-              {...fileDropPropsFor(leaf.id)}
-            >
+            <div className={cellClass} {...fileDropPropsFor(leaf.id)}>
               {renderStrip?.(leaf)}
               {renderPaneSurfaceStack(leaf, focused)}
               {renderProblems?.(leaf, focused)}

@@ -45,10 +45,9 @@ function goalTimeLines(goal) {
   const limit = Math.max(0, Number(goal?.timeLimitMs) || 0);
   const elapsed = Math.max(0, Number(goal?.timeUsedMs) || 0);
   const label = (ms) => `${durationLabel(ms)} (${ms} ms)`;
+  const budgetName = goal?.timeMode === 'max' ? 'Maximum time budget' : 'Requested duration';
   return [
-    limit > 0
-      ? `${goal?.timeMode === 'max' ? 'Maximum time budget' : 'Requested duration'}: ${label(limit)}`
-      : 'Duration: none',
+    limit > 0 ? `${budgetName}: ${label(limit)}` : 'Duration: none',
     `Time elapsed: ${label(elapsed)}`,
     ...(limit > 0 ? [`Time remaining: ${label(Math.max(0, limit - elapsed))}`] : []),
   ];
@@ -102,9 +101,18 @@ export function continuationPrompt(goal, { idleReview = false } = {}) {
   ].join('\n');
 }
 
+// How a paused Goal is to be treated, by why it paused.
+const PAUSE_LINES = Object.freeze({
+  waiting:
+    'Waiting for a user answer. Resume with task changes only when that answer permits approved work to continue.',
+  cancelled:
+    'A cancelled turn paused this Goal: the user stopped that turn, not the objective. Judge the newest instruction — resume and carry the work forward when it continues or redirects this objective, and leave the Goal paused when it is unrelated or asks you to stay stopped.',
+  user: 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
+});
+
 // Advance notice is not a stop or a request for an early final report.
 export function goalDeadlineWarning(goal) {
-  if (!goal || goal.status !== 'active') return '';
+  if (goal?.status !== 'active') return '';
   return [
     '<system-reminder>',
     '<goal_deadline>',
@@ -124,7 +132,7 @@ export function goalDeadlineWarning(goal) {
 }
 
 export function goalDeadlineReached(goal) {
-  if (!goal || goal.status !== 'duration_reached') return '';
+  if (goal?.status !== 'duration_reached') return '';
   return [
     '<system-reminder>',
     '<goal_deadline_reached>',
@@ -163,25 +171,19 @@ export function goalStateReminder(goal, { reason = '' } = {}) {
   const { tasksCompleted, tasksTotal } = goalTaskProgress(tasks);
   // Event-specific steering: what the model could not have learned from its own
   // tool results. Standing rules stay in the cached tool description.
-  const lead =
-    reason === 'compaction'
-      ? "Context was compacted, so this Goal's earlier tool results are no longer in context. Current durable snapshot:"
-      : reason === 'objective-updated'
-        ? "The user changed this Goal's objective. Re-align the durable tasks to the objective below before continuing."
-        : 'Current durable Goal snapshot:';
+  let lead = 'Current durable Goal snapshot:';
+  if (reason === 'compaction') {
+    lead =
+      "Context was compacted, so this Goal's earlier tool results are no longer in context. Current durable snapshot:";
+  } else if (reason === 'objective-updated') {
+    lead =
+      "The user changed this Goal's objective. Re-align the durable tasks to the objective below before continuing.";
+  }
   return [
     '<system-reminder>',
     '<goal_state>',
     lead,
-    ...(goal.status === 'paused'
-      ? [
-          goal.pauseReason === 'waiting'
-            ? 'Waiting for a user answer. Resume with task changes only when that answer permits approved work to continue.'
-            : goal.pauseReason === 'cancelled'
-              ? 'A cancelled turn paused this Goal: the user stopped that turn, not the objective. Judge the newest instruction — resume and carry the work forward when it continues or redirects this objective, and leave the Goal paused when it is unrelated or asks you to stay stopped.'
-              : 'The user paused this Goal. Do not resume for bookkeeping, notifications, or unrelated questions; resume only when the user asks to continue.',
-        ]
-      : []),
+    ...(goal.status === 'paused' ? [PAUSE_LINES[goal.pauseReason] || PAUSE_LINES.user] : []),
     '',
     `Objective: ${escapeGoalPromptText(goal.objective)}`,
     `Status: ${escapeGoalPromptText(goal.status)} · tasks ${tasksCompleted}/${tasksTotal}`,

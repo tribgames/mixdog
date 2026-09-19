@@ -47,20 +47,17 @@ const ACT_STEP_STATUSES = new Set(['succeeded', 'failed', 'skipped', 'pending', 
 function canonicalizeActResult(value, args) {
   value.completed_actions = value.completed_steps;
   value.total_actions = value.total_steps;
-  value.actions = Array.isArray(value.steps)
-    ? value.steps.map((row, index) => {
-        const normalized = { ...row };
-        normalized.type = args.input?.actions?.[index]?.type || normalized.action;
-        normalized.status = ACT_STEP_STATUSES.has(normalized.status)
-          ? normalized.status
-          : normalized.ok === false
-            ? 'failed'
-            : 'succeeded';
-        delete normalized.action;
-        delete normalized.ok;
-        return normalized;
-      })
-    : value.steps;
+  const canonicalStep = (row, index) => {
+    const normalized = { ...row };
+    normalized.type = args.input?.actions?.[index]?.type || normalized.action;
+    if (!ACT_STEP_STATUSES.has(normalized.status)) {
+      normalized.status = normalized.ok === false ? 'failed' : 'succeeded';
+    }
+    delete normalized.action;
+    delete normalized.ok;
+    return normalized;
+  };
+  value.actions = Array.isArray(value.steps) ? value.steps.map(canonicalStep) : value.steps;
   delete value.completed_steps;
   delete value.total_steps;
   delete value.steps;
@@ -178,28 +175,13 @@ async function cancelledComputerResult(sessionId, mutationMayHaveExecuted) {
   return { content: [{ type: 'text', text: `Error: computer command aborted; ${cleanup}${partial}` }], isError: true };
 }
 
-export async function executeComputerTool(rawArgs, context = {}) {
-  const discovery = readDiscovery();
-  if (!discovery) {
-    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
-  }
-  // Resolve the argument shape once so validation, host translation, and the
-  // canonical result text all read the same input.
-  const args = normalizeComputerToolArgs(rawArgs);
-  const validationError = validateComputerToolArgs(args);
-  if (validationError) {
-    return { content: [{ type: 'text', text: `Error: ${validationError}` }], isError: true };
-  }
-  let response;
-  const command = toComputerHostCommand(args);
-  const sessionId = context?.sessionId ? String(context.sessionId) : '';
-  const encoded = JSON.stringify({ ...command, ...(sessionId ? { session_id: sessionId } : {}) });
-  if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
-    return {
-      content: [{ type: 'text', text: 'Error: computer request exceeds byte limit; no input was dispatched' }],
-      isError: true,
-    };
-  }
+function computerErrorResult(text) {
+  return { content: [{ type: 'text', text }], isError: true };
+}
+
+// A previous session release must be confirmed before new input goes out.
+// Returns the error result that ends the call, or null to proceed.
+async function awaitPendingSessionRelease(sessionId, args, context) {
   cancelDeferredComputerSessionRelease(sessionId);
   try {
     const released = await waitForComputerRelease(
@@ -207,33 +189,31 @@ export async function executeComputerTool(rawArgs, context = {}) {
       context.signal
     );
     if (!released) {
-      return {
-        content: [
-          {
-            type: 'text',
-            text: formatComputerToolError(
-              'computer_cleanup_pending: previous session release was not confirmed; no new input was dispatched',
-              args
-            ),
-          },
-        ],
-        isError: true,
-      };
+      return computerErrorResult(
+        formatComputerToolError(
+          'computer_cleanup_pending: previous session release was not confirmed; no new input was dispatched',
+          args
+        )
+      );
     }
     context.signal?.throwIfAborted();
   } catch (error) {
     if (context.signal?.aborted) return cancelledComputerResult(sessionId, false);
     throw error;
   }
-  if (sessionId) hostBoundComputerSessions.add(sessionId);
-  if (sessionId) activeComputerExecutions.add(sessionId);
-  if (sessionId && !isReplaySafeComputerCommand(command) && command?.read_only !== true) {
-    activeComputerSessions.add(sessionId);
-  }
+  return null;
+}
+
+// Posts the command, following one bridge republication. The desktop app
+// republishes the bridge with a fresh port/token when it restarts:
+// observations are replay-safe; input may already have executed before the
+// response vanished, so it is never sent twice. Returns { bridge, response }
+// or the error result that ends the call.
+async function postWithBridgeRecovery(discovery, command, encoded, sessionId, context) {
   let bridge = discovery;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      response = await postComputerCommand(bridge, encoded, { signal: context?.signal });
+      const response = await postComputerCommand(bridge, encoded, { signal: context?.signal });
       if (response.status === 401 && attempt === 0 && isReplaySafeComputerCommand(command)) {
         const replacement = readDiscovery();
         if (bridgeDiscoveryChanged(bridge, replacement)) {
@@ -242,14 +222,11 @@ export async function executeComputerTool(rawArgs, context = {}) {
           continue;
         }
       }
-      break;
+      return { bridge, response };
     } catch (error) {
       const externallyAborted = context?.signal?.aborted === true;
       const timedOut = error?.name === 'TimeoutError';
       const mutationMayHaveExecuted = computerMutationMayHaveExecuted(command);
-      // The desktop app republishes the bridge with a fresh port/token when it
-      // restarts. Observations are replay-safe; input may already have executed
-      // before the response vanished, so never send it twice.
       if (attempt === 0 && !externallyAborted && !timedOut) {
         const replacement = readDiscovery();
         if (bridgeDiscoveryChanged(bridge, replacement)) {
@@ -260,99 +237,43 @@ export async function executeComputerTool(rawArgs, context = {}) {
           return computerUncertainMutationResult();
         }
       }
-      if (!externallyAborted && mutationMayHaveExecuted) {
-        return computerUncertainMutationResult();
-      }
+      if (!externallyAborted && mutationMayHaveExecuted) return computerUncertainMutationResult();
       if (externallyAborted) return cancelledComputerResult(sessionId, mutationMayHaveExecuted);
-      const reason = timedOut ? 'computer bridge timed out' : BRIDGE_UNAVAILABLE_MESSAGE;
-      return { content: [{ type: 'text', text: `Error: ${reason}` }], isError: true };
+      return computerErrorResult(`Error: ${timedOut ? 'computer bridge timed out' : BRIDGE_UNAVAILABLE_MESSAGE}`);
     }
   }
-  if (!response) {
-    return { content: [{ type: 'text', text: `Error: ${BRIDGE_UNAVAILABLE_MESSAGE}` }], isError: true };
-  }
-  let body;
-  try {
-    body = await readComputerBridgeJson(response);
-  } catch {
-    if (context.signal?.aborted) {
-      return cancelledComputerResult(sessionId, computerMutationMayHaveExecuted(command));
+  return computerErrorResult(`Error: ${BRIDGE_UNAVAILABLE_MESSAGE}`);
+}
+
+// The read-only continuation for pending computer work. Control can change
+// between Resume and the read-only capture: keep the original progress and
+// wait again; never resubmit input.
+function pendingWorkReader(bridge, sessionId, context) {
+  return async (readCommand) => {
+    const pendingResponse = await postComputerCommand(
+      bridge,
+      { ...readCommand, ...(sessionId ? { session_id: sessionId } : {}) },
+      { signal: context.signal }
+    );
+    const pendingBody = await readComputerBridgeJson(pendingResponse);
+    if (
+      readCommand.action === 'capture' &&
+      pendingBody?.ok === false &&
+      pendingResponse.status !== 401 &&
+      pendingResponse.status !== 403 &&
+      /^computer_user_control_active(?::|$)/.test(String(pendingBody.error || ''))
+    ) {
+      return { text: JSON.stringify({ ok: false, status: 'paused', code: 'computer_user_intervention_pending' }) };
     }
-    const message = computerMutationMayHaveExecuted(command)
-      ? 'computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying'
-      : `computer bridge returned an invalid response (HTTP ${response.status})`;
-    return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
-  }
-  if (context.signal?.aborted) {
-    return cancelledComputerResult(sessionId, computerMutationMayHaveExecuted(command));
-  }
-  if (!body?.ok) {
-    const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
-    return { content: [{ type: 'text', text: formatComputerToolError(message, args) }], isError: true };
-  }
-  let value = body.value || {};
-  try {
-    validateComputerReply(value);
-  } catch (error) {
-    return {
-      content: [{ type: 'text', text: `Error: ${error.message}; input may have executed and was not replayed` }],
-      isError: true,
-    };
-  }
-  if (isPendingComputerWork(value)) {
-    try {
-      value = await continuePendingComputerWork(
-        value,
-        command,
-        async (readCommand) => {
-          const pendingResponse = await postComputerCommand(
-            bridge,
-            {
-              ...readCommand,
-              ...(sessionId ? { session_id: sessionId } : {}),
-            },
-            { signal: context.signal }
-          );
-          const pendingBody = await readComputerBridgeJson(pendingResponse);
-          if (
-            readCommand.action === 'capture' &&
-            pendingBody?.ok === false &&
-            pendingResponse.status !== 401 &&
-            pendingResponse.status !== 403 &&
-            /^computer_user_control_active(?::|$)/.test(String(pendingBody.error || ''))
-          ) {
-            // Control can change between Resume and the read-only capture.
-            // Keep the original progress and wait again; never resubmit input.
-            return {
-              text: JSON.stringify({ ok: false, status: 'paused', code: 'computer_user_intervention_pending' }),
-            };
-          }
-          if (!pendingResponse.ok || !pendingBody?.ok) throw new Error('computer_pending_connection_lost');
-          validateComputerReply(pendingBody.value);
-          return pendingBody.value;
-        },
-        context.signal
-      );
-    } catch {
-      if (context.signal?.aborted && sessionId) await abortComputerSession(sessionId);
-      return {
-        content: [
-          {
-            type: 'text',
-            text: 'Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.',
-          },
-        ],
-        isError: true,
-      };
-    }
-  }
+    if (!pendingResponse.ok || !pendingBody?.ok) throw new Error('computer_pending_connection_lost');
+    validateComputerReply(pendingBody.value);
+    return pendingBody.value;
+  };
+}
+
+function computerToolResult(value, args) {
   const text = canonicalComputerResultText(String(value.text || 'OK'), args);
-  const content = [
-    {
-      type: 'text',
-      text,
-    },
-  ];
+  const content = [{ type: 'text', text }];
   if (value.image?.data && value.image?.mimeType) {
     content.push({
       type: 'image',
@@ -368,6 +289,95 @@ export async function executeComputerTool(rawArgs, context = {}) {
     content,
     ...(canonicalComputerResultIsError(text, args) ? { isError: true } : {}),
   };
+}
+
+export async function executeComputerTool(rawArgs, context = {}) {
+  const discovery = readDiscovery();
+  if (!discovery) return computerErrorResult(`Error: ${BRIDGE_UNAVAILABLE_MESSAGE}`);
+  // Resolve the argument shape once so validation, host translation, and the
+  // canonical result text all read the same input.
+  const args = normalizeComputerToolArgs(rawArgs);
+  const validationError = validateComputerToolArgs(args);
+  if (validationError) return computerErrorResult(`Error: ${validationError}`);
+  const command = toComputerHostCommand(args);
+  const sessionId = context?.sessionId ? String(context.sessionId) : '';
+  const encoded = JSON.stringify({ ...command, ...(sessionId ? { session_id: sessionId } : {}) });
+  if (Buffer.byteLength(encoded) > MAX_COMPUTER_REQUEST_BYTES) {
+    return computerErrorResult('Error: computer request exceeds byte limit; no input was dispatched');
+  }
+  const releaseError = await awaitPendingSessionRelease(sessionId, args, context);
+  if (releaseError) return releaseError;
+  trackComputerSession(sessionId, command);
+  const posted = await postWithBridgeRecovery(discovery, command, encoded, sessionId, context);
+  if (!posted.response) return posted;
+  const { bridge, response } = posted;
+  const read = await readComputerBridgeBody(response, command, sessionId, context);
+  if (read.result) return read.result;
+  const { body } = read;
+  if (!body?.ok) {
+    const message = String(body?.error || `computer bridge request failed (HTTP ${response.status})`);
+    return computerErrorResult(formatComputerToolError(message, args));
+  }
+  const value = body.value || {};
+  try {
+    validateComputerReply(value);
+  } catch (error) {
+    return computerErrorResult(`Error: ${error.message}; input may have executed and was not replayed`);
+  }
+  if (!isPendingComputerWork(value)) return computerToolResult(value, args);
+  const settled = await settlePendingComputerWork(value, command, bridge, sessionId, context);
+  return settled.result || computerToolResult(settled.value, args);
+}
+
+function trackComputerSession(sessionId, command) {
+  if (!sessionId) return;
+  hostBoundComputerSessions.add(sessionId);
+  activeComputerExecutions.add(sessionId);
+  if (!isReplaySafeComputerCommand(command) && command?.read_only !== true) {
+    activeComputerSessions.add(sessionId);
+  }
+}
+
+// The bridge reply's JSON body, or the tool result to return when the body
+// is unreadable or the caller cancelled meanwhile.
+async function readComputerBridgeBody(response, command, sessionId, context) {
+  let body;
+  try {
+    body = await readComputerBridgeJson(response);
+  } catch {
+    if (context.signal?.aborted) {
+      return { result: cancelledComputerResult(sessionId, computerMutationMayHaveExecuted(command)) };
+    }
+    const message = computerMutationMayHaveExecuted(command)
+      ? 'computer command may have executed but the bridge returned an invalid response; inspect fresh state before retrying'
+      : `computer bridge returned an invalid response (HTTP ${response.status})`;
+    return { result: computerErrorResult(`Error: ${message}`) };
+  }
+  if (context.signal?.aborted) {
+    return { result: cancelledComputerResult(sessionId, computerMutationMayHaveExecuted(command)) };
+  }
+  return { body };
+}
+
+// The settled value of a pending reply, or the tool result when the wait
+// was interrupted.
+async function settlePendingComputerWork(value, command, bridge, sessionId, context) {
+  try {
+    const settled = await continuePendingComputerWork(
+      value,
+      command,
+      pendingWorkReader(bridge, sessionId, context),
+      context.signal
+    );
+    return { value: settled };
+  } catch {
+    if (context.signal?.aborted && sessionId) await abortComputerSession(sessionId);
+    return {
+      result: computerErrorResult(
+        'Error: pending computer work was interrupted; no input was replayed. Inspect fresh state before continuing.'
+      ),
+    };
+  }
 }
 
 async function sendComputerSessionControl(sessionId, action, timeoutMs) {

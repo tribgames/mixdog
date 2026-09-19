@@ -146,6 +146,7 @@ test('duration waiting cannot suppress unfinished work, objective review, or max
   for (const scenario of ['unfinished', 'unrecorded', 'objective-review', 'max', 'block-audit']) {
     await t.test(scenario, async (t) => {
       const f = fixture(t);
+      const taskStatus = scenario === 'unfinished' ? 'pending' : 'completed';
       await f.call({
         action: 'create',
         objective: 'Original approved objective',
@@ -157,7 +158,7 @@ test('duration waiting cannot suppress unfinished work, objective review, or max
               tasks: [
                 {
                   text: 'Required verification',
-                  status: scenario === 'unfinished' ? 'pending' : 'completed',
+                  status: taskStatus,
                   kind: 'verification',
                 },
               ],

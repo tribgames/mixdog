@@ -136,58 +136,62 @@ function normalizedChecklistItem(value, index) {
   };
 }
 
-export function evaluateOfficeChecklist({
-  format,
-  task = '',
-  auditProfile = '',
-  checklist = [],
-  issues = [],
-  visualCoverage = null,
-} = {}) {
-  const normalized = String(format || '').toLowerCase();
-  const defaults = (CHECKLIST_RULES[normalized] || []).map((item) => {
-    const matched = issues.filter((entry) => issueMatches(item, entry));
-    return {
-      id: item.id,
-      label: item.label,
-      required: true,
-      status: matched.length ? 'fail' : 'pass',
-      evidence: matched.map((entry) => entry.code),
-    };
-  });
-  if (auditProfile === 'financial-model' && normalized === 'xlsx') {
-    const matched = issues.filter((entry) => entry.code === 'missing_checks_sheet');
-    defaults.push({
-      id: 'checks-sheet',
-      label: 'Financial model includes a Checks sheet with explicit tie-outs.',
-      required: true,
-      status: matched.length ? 'fail' : 'pass',
-      evidence: matched.map((entry) => entry.code),
-    });
+function ruleChecklistItem(id, label, matched) {
+  return {
+    id,
+    label,
+    required: true,
+    status: matched.length ? 'fail' : 'pass',
+    evidence: matched.map((entry) => entry.code),
+  };
+}
+
+function renderCoverageItem(visualCoverage) {
+  const complete = visualCoverage?.complete === true && Number(visualCoverage.total) > 0;
+  return {
+    id: 'full-render-coverage',
+    label: 'Every page or slide has a rendered image; visual acceptance is recorded separately.',
+    required: true,
+    status: complete ? 'pass' : 'fail',
+    evidence: complete ? [`${visualCoverage.reviewed}/${visualCoverage.total}`] : ['visual coverage is incomplete'],
+  };
+}
+
+function defaultChecklistItems(format, auditProfile, issues, visualCoverage) {
+  const items = (CHECKLIST_RULES[format] || []).map((item) =>
+    ruleChecklistItem(
+      item.id,
+      item.label,
+      issues.filter((entry) => issueMatches(item, entry))
+    )
+  );
+  if (auditProfile === 'financial-model' && format === 'xlsx') {
+    items.push(
+      ruleChecklistItem(
+        'checks-sheet',
+        'Financial model includes a Checks sheet with explicit tie-outs.',
+        issues.filter((entry) => entry.code === 'missing_checks_sheet')
+      )
+    );
   }
-  const visualRequired = !['csv', 'tsv'].includes(normalized);
-  if (visualRequired) {
-    defaults.push({
-      id: 'full-render-coverage',
-      label: 'Every page or slide has a rendered image; visual acceptance is recorded separately.',
-      required: true,
-      status: visualCoverage?.complete === true && Number(visualCoverage.total) > 0 ? 'pass' : 'fail',
-      evidence:
-        visualCoverage?.complete === true && Number(visualCoverage.total) > 0
-          ? [`${visualCoverage.reviewed}/${visualCoverage.total}`]
-          : ['visual coverage is incomplete'],
-    });
-  }
-  const custom = (Array.isArray(checklist) ? checklist : [])
+  if (!['csv', 'tsv'].includes(format)) items.push(renderCoverageItem(visualCoverage));
+  return items;
+}
+
+function customChecklistItems(checklist) {
+  return (Array.isArray(checklist) ? checklist : [])
     .map(normalizedChecklistItem)
     .filter((entry) => entry?.label)
-    .map((entry) => ({
-      ...entry,
-      status: entry.passed === true ? 'pass' : entry.passed === false ? 'fail' : 'pending',
-      evidence: entry.evidence ? [entry.evidence] : [],
-    }));
-  const items = [...defaults, ...custom];
-  const checklistIssues = custom
+    .map((entry) => {
+      let status = 'pending';
+      if (entry.passed === true) status = 'pass';
+      else if (entry.passed === false) status = 'fail';
+      return { ...entry, status, evidence: entry.evidence ? [entry.evidence] : [] };
+    });
+}
+
+function customChecklistIssues(custom) {
+  return custom
     .filter((entry) => entry.required && entry.status !== 'pass')
     .map((entry) =>
       issue(
@@ -197,20 +201,28 @@ export function evaluateOfficeChecklist({
         'checklist-review'
       )
     );
-  const passed = items.filter((entry) => entry.status === 'pass').length;
-  const failed = items.filter((entry) => entry.status === 'fail').length;
-  const pending = items.filter((entry) => entry.status === 'pending').length;
+}
+
+export function evaluateOfficeChecklist({
+  format,
+  task = '',
+  auditProfile = '',
+  checklist = [],
+  issues = [],
+  visualCoverage = null,
+} = {}) {
+  const normalized = String(format || '').toLowerCase();
+  const custom = customChecklistItems(checklist);
+  const items = [...defaultChecklistItems(normalized, auditProfile, issues, visualCoverage), ...custom];
+  const count = (status) => items.filter((entry) => entry.status === status).length;
+  const failed = count('fail');
+  const pending = count('pending');
   return {
     ok: failed === 0 && pending === 0,
     task: String(task || ''),
     auditProfile: String(auditProfile || ''),
     items,
-    summary: {
-      total: items.length,
-      passed,
-      failed,
-      pending,
-    },
-    issues: checklistIssues,
+    summary: { total: items.length, passed: count('pass'), failed, pending },
+    issues: customChecklistIssues(custom),
   };
 }

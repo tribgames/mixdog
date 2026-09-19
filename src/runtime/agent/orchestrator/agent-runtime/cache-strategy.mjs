@@ -41,7 +41,7 @@
  *   - Copilot / Local Provider: no API-level cache
  */
 
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { getHiddenAgent } from '../internal-agents.mjs';
 import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
 
@@ -216,9 +216,9 @@ export function resolveProviderCacheKey(opts, provider) {
 
 function stableStringify(value) {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map((v) => stableStringify(v)).join(',') + ']';
+  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(',')}]`;
   const keys = Object.keys(value).sort();
-  return '{' + keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',') + '}';
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
 }
 
 function shortHash(value, chars = 18) {
@@ -286,20 +286,7 @@ export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
   ) {
     return codexThreadPromptCacheKey(opts, namespace);
   }
-  const rawShards = prefix.cacheLaneShards ?? opts?.promptCacheLane?.shards ?? opts?.cacheLaneShards;
-  const rawShardMode = String(rawShards ?? '')
-    .trim()
-    .toLowerCase();
-  const autoLane =
-    prefix.cacheLaneAuto === true ||
-    opts?.promptCacheLane?.auto === true ||
-    rawShards === 0 ||
-    ['auto', 'unbounded', 'unlimited', 'none', 'off'].includes(rawShardMode);
-  const shardCount = autoLane ? 0 : positiveInt(rawShards, 1);
-  const rawSlot = nonNegativeInt(prefix.cacheLaneSlot ?? opts?.promptCacheLane?.slot ?? opts?.cacheLaneSlot, 0);
-  const shardSlot = autoLane ? rawSlot : Math.max(0, Math.min(rawSlot, Math.max(0, shardCount - 1)));
-  const laneEnabled = autoLane || shardCount > 1;
-  const laneSuffix = laneEnabled ? `-s${shardSlot.toString(36).padStart(2, '0')}` : '';
+  const lane = promptCacheLaneParts(prefix, opts);
   const seed = {
     provider: cleanString(provider),
     model: cleanString(prefix.model),
@@ -309,8 +296,8 @@ export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
     fast: prefix.fast === true || opts?.fast === true,
     serviceTier: cleanString(prefix.serviceTier),
     parallelToolCalls: prefix.parallelToolCalls !== false,
-    cacheLaneSlot: laneEnabled ? shardSlot : null,
-    cacheLaneShards: autoLane ? 'auto' : shardCount > 1 ? shardCount : null,
+    cacheLaneSlot: lane.cacheLaneSlot,
+    cacheLaneShards: lane.cacheLaneShards,
     // Per-session cache-key isolation. R8 A/B (2026-07-03) showed parallel
     // sessions sharing one prompt_cache_key evict each other's transcript
     // body on the server cache node (same key -> same node; bodies differ),
@@ -324,8 +311,34 @@ export function buildStableProviderPromptCacheKey(provider, opts, prefix = {}) {
         : cleanString(opts?.sessionId || opts?.session?.id || '') || null,
   };
   const hash = shortHash(seed);
-  const head = namespace.slice(0, Math.max(1, 64 - hash.length - laneSuffix.length - 1));
-  return `${head}-${hash}${laneSuffix}`;
+  const head = namespace.slice(0, Math.max(1, 64 - hash.length - lane.laneSuffix.length - 1));
+  return `${head}-${hash}${lane.laneSuffix}`;
+}
+
+// The lane the key is sharded into: its seed fields and the `-sNN` suffix
+// (empty when the lane is a single un-suffixed shard).
+function promptCacheLaneParts(prefix, opts) {
+  const rawShards = prefix.cacheLaneShards ?? opts?.promptCacheLane?.shards ?? opts?.cacheLaneShards;
+  const rawShardMode = String(rawShards ?? '')
+    .trim()
+    .toLowerCase();
+  const autoLane =
+    prefix.cacheLaneAuto === true ||
+    opts?.promptCacheLane?.auto === true ||
+    rawShards === 0 ||
+    ['auto', 'unbounded', 'unlimited', 'none', 'off'].includes(rawShardMode);
+  const shardCount = autoLane ? 0 : positiveInt(rawShards, 1);
+  const rawSlot = nonNegativeInt(prefix.cacheLaneSlot ?? opts?.promptCacheLane?.slot ?? opts?.cacheLaneSlot, 0);
+  const shardSlot = autoLane ? rawSlot : Math.max(0, Math.min(rawSlot, Math.max(0, shardCount - 1)));
+  const laneEnabled = autoLane || shardCount > 1;
+  let cacheLaneShards = null;
+  if (autoLane) cacheLaneShards = 'auto';
+  else if (shardCount > 1) cacheLaneShards = shardCount;
+  return {
+    cacheLaneSlot: laneEnabled ? shardSlot : null,
+    cacheLaneShards,
+    laneSuffix: laneEnabled ? `-s${shardSlot.toString(36).padStart(2, '0')}` : '',
+  };
 }
 
 function providerEnvKey(provider) {
@@ -395,7 +408,19 @@ function assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto = false 
  * prompt_cache_key is not sharded by default, so every provider now gets
  * one un-suffixed key unless an env/config override opts into shards.
  */
-export function resolveProviderPromptCacheLane(provider, opts = {}, config = {}) {
+// The requested lane limit: 'auto' when any auto flag is set, else the lane
+// SHARDS, requested either by their own name (`*CacheLaneShards`) or through
+// the legacy `*CacheMaxParallel` / MIXDOG_*_CACHE_MAX_PARALLEL aliases. Those
+// knobs also bounded in-flight admission for the removed compat cache lane —
+// that half is gone for good, admission now belongs solely to the
+// provider/account scheduler — but on OpenAI direct/OAuth they have always
+// selected the prompt-cache shard count as well, and existing configurations
+// depend on it. They stay accepted here at LOWER precedence than the
+// explicitly named shard settings.
+// Exception: xAI compatibility routing passes promptCacheLaneIgnoreAliases
+// so the alias keeps meaning nothing there (openai-compat-xai.mjs), where
+// it never selected shards and would silently fan out cache keys.
+function requestedPromptCacheLaneLimit(provider, opts, config) {
   const envKey = providerEnvKey(provider);
   const env = process.env;
   const requestedAuto =
@@ -404,17 +429,7 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
     promptCacheLaneAutoRequested(opts?.promptCacheLane?.auto) ||
     promptCacheLaneAutoRequested(config?.promptCacheLaneAuto) ||
     promptCacheLaneAutoRequested(config?.openaiCacheLaneAuto);
-  // Lane SHARDS, requested either by their own name (`*CacheLaneShards`) or
-  // through the legacy `*CacheMaxParallel` / MIXDOG_*_CACHE_MAX_PARALLEL
-  // aliases. Those knobs also bounded in-flight admission for the removed
-  // compat cache lane — that half is gone for good, admission now belongs
-  // solely to the provider/account scheduler — but on OpenAI direct/OAuth
-  // they have always selected the prompt-cache shard count as well, and
-  // existing configurations depend on it. They stay accepted here at LOWER
-  // precedence than the explicitly named shard settings.
-  // Exception: xAI compatibility routing passes promptCacheLaneIgnoreAliases
-  // so the alias keeps meaning nothing there (openai-compat-xai.mjs), where
-  // it never selected shards and would silently fan out cache keys.
+  if (requestedAuto) return 'auto';
   const ignoreAliases = opts?.promptCacheLaneIgnoreAliases === true || config?.promptCacheLaneIgnoreAliases === true;
   const rawShards =
     opts?.promptCacheLaneShards ??
@@ -433,7 +448,11 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
       config?.openaiCacheMaxParallel ??
       env[`MIXDOG_${envKey}_CACHE_MAX_PARALLEL`] ??
       env.MIXDOG_OPENAI_CACHE_MAX_PARALLEL);
-  const rawLimit = requestedAuto ? 'auto' : (rawShards ?? rawAlias);
+  return rawShards ?? rawAlias;
+}
+
+export function resolveProviderPromptCacheLane(provider, opts = {}, config = {}) {
+  const rawLimit = requestedPromptCacheLaneLimit(provider, opts, config);
   const shards = parsePromptCacheLaneLimit(rawLimit, defaultPromptCacheLaneShards(provider));
   const auto = shards <= 0;
   const seed = cleanString(
@@ -455,7 +474,7 @@ export function resolveProviderPromptCacheLane(provider, opts = {}, config = {})
   };
 }
 
-export function buildProviderCacheOpts(provider, sessionId, agent, options = {}) {
+export function buildProviderCacheOpts(provider, _sessionId, agent, options = {}) {
   const ttls = resolveCacheStrategy(agent, options);
   const capability = cacheCapabilityForProvider(provider);
   if (capability === 'explicit-breakpoint') {

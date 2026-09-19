@@ -30,8 +30,7 @@ function stripExtLst(xml) {
 function plotGroups(xml) {
   const groups = [];
   const open = /<c:(\w+Chart)\b[^>]*(?<!\/)>/g;
-  let match;
-  while ((match = open.exec(xml))) {
+  for (const match of xml.matchAll(open)) {
     const name = match[1];
     const close = xml.indexOf(`</c:${name}>`, match.index);
     if (close < 0) continue;
@@ -43,8 +42,7 @@ function plotGroups(xml) {
 function declaredAxisIds(xml) {
   const ids = new Set();
   const axis = /<c:(?:catAx|valAx|serAx|dateAx)\b[^>]*>\s*<c:axId\b[^>]*\bval="(-?\d+)"/g;
-  let match;
-  while ((match = axis.exec(xml))) ids.add(match[1]);
+  for (const match of xml.matchAll(axis)) ids.add(match[1]);
   return ids;
 }
 
@@ -71,11 +69,11 @@ function axisReferenceFaults(part, block, name, declared) {
   const live = ids.filter((id) => declared.has(id));
   if (live.length >= 2) return [];
   const dead = ids.filter((id) => !declared.has(id));
-  const detail = !ids.length
-    ? `declares no <c:axId>; a plot group needs ${minimum}`
-    : dead.length
-      ? `references axId ${ids.join(', ')}, of which ${dead.join(', ')} name no axis this part declares`
-      : `references only ${ids.length} axis id(s)`;
+  let detail = `references only ${ids.length} axis id(s)`;
+  if (!ids.length) detail = `declares no <c:axId>; a plot group needs ${minimum}`;
+  else if (dead.length) {
+    detail = `references axId ${ids.join(', ')}, of which ${dead.join(', ')} name no axis this part declares`;
+  }
   return [
     {
       severity: 'error',
@@ -109,11 +107,9 @@ export function chartDataLinkFaults(part, xml, { relationships = new Map(), hasP
   const target = id ? relationships.get(id) : '';
   const resolved = target ? posix.normalize(posix.join(posix.dirname(part), target)) : '';
   if (resolved && hasPart(resolved)) return [];
-  const detail = !id
-    ? 'declares no <c:externalData>'
-    : !target
-      ? `names relationship ${id}, which its own relationship part does not define`
-      : `points at ${resolved}, which the package does not contain`;
+  let detail = `points at ${resolved}, which the package does not contain`;
+  if (!id) detail = 'declares no <c:externalData>';
+  else if (!target) detail = `names relationship ${id}, which its own relationship part does not define`;
   return [
     {
       severity: 'warning',

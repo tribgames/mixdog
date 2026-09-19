@@ -57,7 +57,7 @@ for (const command of [
       });
       const child = pool.powerShellBySession.get('a');
       assert.equal(request.pointer_feedback, true);
-      const emit = (data) => child.stdout.write('@@MIXDOG_POINTER@@' + JSON.stringify(data) + '\n');
+      const emit = (data) => child.stdout.write(`@@MIXDOG_POINTER@@${JSON.stringify(data)}\n`);
       emit({ id: request.id + 100, x: 1, y: 2, held: true });
       emit({ id: request.id, x: 'bad', y: 2, held: true });
       emit({ id: request.id, x: 3100, y: 900, held: true, window_id: 'hwnd:0xBAD' });
@@ -79,7 +79,7 @@ for (const command of [
         ['a', 3200, 1000, false, command.delivery, 'scroll', 'hwnd:0x123'],
         ['a', 3200, 1000, false, command.delivery, 'type', 'hwnd:0x123'],
       ]);
-      child.stdout.write(RESPONSE_MARKER + JSON.stringify({ id: request.id, ok: true, result: {} }) + '\n');
+      child.stdout.write(`${RESPONSE_MARKER}${JSON.stringify({ id: request.id, ok: true, result: {} })}\n`);
       await pending;
       emit({ id: request.id, x: 0, y: 0, held: true });
       assert.equal(events.length, 7);

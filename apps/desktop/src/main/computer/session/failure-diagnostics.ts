@@ -18,6 +18,59 @@ const booleanEvidence = (key: string, value: unknown) =>
   typeof value === 'boolean' || (key === 'delivery_accepted' && value === null);
 
 /** An allowlist boundary: no titles, text, clipboard, app paths or pixels. */
+const RECOVERY_EVIDENCE_KEYS = [
+  'ok',
+  'user_control',
+  'recovery_skipped',
+  'focus_preserved_for_followup',
+  'recapture_available',
+  'focus_restored',
+  'focus_unchanged',
+  'input_not_dispatched',
+  'cursor_restored',
+  'reasserted',
+];
+
+function recoveryEvidence(recovery: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(
+    RECOVERY_EVIDENCE_KEYS.filter((key) => typeof recovery[key] === 'boolean').map((key) => [key, recovery[key]])
+  );
+}
+
+function nativeResultEvidence(native: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries([
+    ...['code', 'path', 'effect', 'delivery'].filter((key) => category(native[key])).map((key) => [key, native[key]]),
+    ...['delivery_accepted', 'input_may_have_executed', 'verified', 'goal_verified']
+      .filter((key) => booleanEvidence(key, native[key]))
+      .map((key) => [key, native[key]]),
+  ]);
+}
+
+// The observation rides on the reply itself for capture-style actions.
+function observedRecord(input: Record<string, unknown>): {
+  observation: Record<string, unknown>;
+  observed: Record<string, unknown>;
+} {
+  const observation = object(input.capture_after ?? input.observation);
+  const captureReply = ['capture', 'screenshot', 'zoom'].includes(String(input.action)) ? input : {};
+  return { observation, observed: Object.keys(observation).length ? observation : captureReply };
+}
+
+function observationEvidence(observed: Record<string, unknown>): Record<string, unknown> {
+  const pixels = object(observed.pixel_unavailable);
+  const accessibilityError = computerErrorCode(observed.accessibility_error) || category(observed.accessibility_error);
+  return Object.fromEntries([
+    ...['pixel_status', 'accessibility_status']
+      .filter((key) => category(observed[key]))
+      .map((key) => [key, observed[key]]),
+    ...(typeof observed.ok === 'boolean' ? [['ok', observed.ok]] : []),
+    ...(category(observed.pixel_reason ?? pixels.reason)
+      ? [['pixel_reason', observed.pixel_reason ?? pixels.reason]]
+      : []),
+    ...(accessibilityError ? [['accessibility_error', accessibilityError]] : []),
+  ]);
+}
+
 export function diagnosticRecord(input: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   if (typeof input.at === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(input.at)) result.at = input.at;
@@ -32,50 +85,13 @@ export function diagnosticRecord(input: Record<string, unknown>): Record<string,
     result.window_id = input.window_id;
   }
   if (typeof input.ms === 'number' && Number.isFinite(input.ms)) result.ms = Math.max(0, input.ms);
-  const recovery = object(input.input_recovery ?? input.recovery);
-  result.recovery = Object.fromEntries(
-    [
-      'ok',
-      'user_control',
-      'recovery_skipped',
-      'focus_preserved_for_followup',
-      'recapture_available',
-      'focus_restored',
-      'focus_unchanged',
-      'input_not_dispatched',
-      'cursor_restored',
-      'reasserted',
-    ]
-      .filter((key) => typeof recovery[key] === 'boolean')
-      .map((key) => [key, recovery[key]])
-  );
+  result.recovery = recoveryEvidence(object(input.input_recovery ?? input.recovery));
   const native = object(input.native_result);
-  result.native_result = Object.fromEntries([
-    ...['code', 'path', 'effect', 'delivery'].filter((key) => category(native[key])).map((key) => [key, native[key]]),
-    ...['delivery_accepted', 'input_may_have_executed', 'verified', 'goal_verified']
-      .filter((key) => booleanEvidence(key, native[key]))
-      .map((key) => [key, native[key]]),
-  ]);
+  result.native_result = nativeResultEvidence(native);
   result.cursor_feedback = computerCursorFeedback(input.cursor_feedback ?? native.cursor_feedback) ?? {};
   result.timings_ms = computerTimings(input.timings_ms);
-  const observation = object(input.capture_after ?? input.observation);
-  const observed = Object.keys(observation).length
-    ? observation
-    : ['capture', 'screenshot', 'zoom'].includes(String(input.action))
-      ? input
-      : {};
-  const pixels = object(observed.pixel_unavailable);
-  const accessibilityError = computerErrorCode(observed.accessibility_error) || category(observed.accessibility_error);
-  result.observation = Object.fromEntries([
-    ...['pixel_status', 'accessibility_status']
-      .filter((key) => category(observed[key]))
-      .map((key) => [key, observed[key]]),
-    ...(typeof observed.ok === 'boolean' ? [['ok', observed.ok]] : []),
-    ...(category(observed.pixel_reason ?? pixels.reason)
-      ? [['pixel_reason', observed.pixel_reason ?? pixels.reason]]
-      : []),
-    ...(accessibilityError ? [['accessibility_error', accessibilityError]] : []),
-  ]);
+  const { observation, observed } = observedRecord(input);
+  result.observation = observationEvidence(observed);
   const captureTimings = computerTimings(input.capture_timings_ms ?? observation.timings_ms);
   const attempts = captureAttempts(input.capture_attempts ?? observed.capture_attempts);
   if (attempts.length) result.capture_attempts = attempts;
@@ -103,7 +119,7 @@ export function createComputerFailureDiagnostics(directory: string) {
         histories.delete(key);
         histories.set(key, history);
         if (histories.size > MAX_SESSIONS) {
-          const oldest = histories.keys().next().value!;
+          const [oldest] = histories.keys();
           histories.delete(oldest);
           bundleIds.delete(oldest);
         }

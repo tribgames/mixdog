@@ -24,6 +24,8 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   const openSessionRef = { current: async () => {} };
 
   let focusedSelection = null;
+  let harnessSelection = null;
+  let harnessSelectionRef = null;
   const paneWorkspace = {
     leaves: [{ id: 'leaf-1', tabs: [{ kind: 'new', draftId: 'd1' }], activeTabKey: 'new:d1' }],
     focusedLeafId: 'leaf-1',
@@ -36,8 +38,17 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   };
 
   function TestHarness() {
+    // The caller owns the selection (App.tsx reads it for draft-pane
+    // preferences before this hook runs); the hook only navigates it.
+    const [selection, setSelection] = React.useState({ kind: 'new', draftId: 'd1' });
+    const selectionRef = React.useRef(selection);
+    selectionRef.current = selection;
+    harnessSelection = selection;
+    harnessSelectionRef = selectionRef;
     hookResult = useAppTaskLifecycle({
-      startupNavigationSelection: { kind: 'new', draftId: 'd1' },
+      selection,
+      setSelection,
+      selectionRef,
       paneWorkspace,
       paneLeavesRef: { current: paneWorkspace.leaves },
       focusedLeafIdRef: { current: 'leaf-1' },
@@ -85,12 +96,16 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
 
   assert.notEqual(hookResult, null);
   assert.equal(hookResult.selection.kind, 'new');
+  assert.equal(hookResult.selection, harnessSelection);
+  assert.equal(hookResult.selectionRef, harnessSelectionRef);
 
   // 1. activateSelection switches selection and updates viewedSessionRef
   await act(async () => {
     hookResult.activateSelection({ kind: 'session', id: 's1' }, 'Session 1');
   });
   assert.equal(hookResult.selection.kind, 'session');
+  assert.equal(harnessSelection.kind, 'session');
+  assert.equal(harnessSelectionRef.current.kind, 'session');
   assert.equal(viewedSessionRef.current, 's1');
   assert.equal(focusedSelection.kind, 'session');
 

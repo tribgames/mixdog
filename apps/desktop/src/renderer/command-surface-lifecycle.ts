@@ -15,6 +15,16 @@ import {
   type SurfaceApi,
 } from './command-surface-cache';
 
+function cachedSurfaceData(
+  surface: CommandSurfaceName,
+  api: SurfaceApi,
+  cacheable: boolean,
+  cacheKey: string
+): Record<string, unknown> | undefined {
+  if (surface === 'stats') return getStatsDataCache(api);
+  return cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+}
+
 async function readSurfaceCapability(
   api: SurfaceApi,
   request: DesktopCapabilityRequest
@@ -72,8 +82,7 @@ export function useCommandSurfaceLifecycle({
   // The desktop keeps statistics warm while this surface is closed. Scope the
   // snapshot to its API owner so another host cannot inherit its figures.
   const cacheable = isSurfaceCacheable(surface);
-  const cachedSurface =
-    surface === 'stats' ? getStatsDataCache(api) : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+  const cachedSurface = cachedSurfaceData(surface, api, cacheable, cacheKey);
   const [data, setData] = useState<Record<string, unknown>>(() => cachedSurface ?? {});
   const [loading, setLoading] = useState(() => !cachedSurface);
   const [refreshing, setRefreshing] = useState(false);
@@ -105,8 +114,7 @@ export function useCommandSurfaceLifecycle({
     if (loadingSurface.current === surface) return;
     const request = ++loadSequence.current;
     loadingSurface.current = surface;
-    const cached =
-      surface === 'stats' ? getStatsDataCache(api) : cacheable ? readSurfaceDataCache(cacheKey) : undefined;
+    const cached = cachedSurfaceData(surface, api, cacheable, cacheKey);
     if (cached) setData(cached);
     setLoading(!cached);
     setRefreshing(true);

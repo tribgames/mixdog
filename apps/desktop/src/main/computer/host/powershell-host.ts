@@ -38,7 +38,7 @@ import {
   type ChromeRemoteDebuggingSetup,
   type ChromeRemoteDebuggingTarget,
 } from '../session/chrome-setup';
-import { computerUseCoordinator } from '../session/coordinator';
+import { computerUseCoordinator, type ComputerUseCursorEffect } from '../session/coordinator';
 import { createExecutionState } from './execution-state';
 import { createWindowReads } from './window-reads';
 import { createSessionLifecycle } from './session-lifecycle';
@@ -108,6 +108,15 @@ export function createPowerShellComputerHost(
     },
   });
   const policy = authorization.policy;
+  /** The cursor effect each pointer-progress phase paints; a bare move
+   *  depends on whether a button is held. */
+  const PHASE_CURSOR_EFFECTS: Record<string, ComputerUseCursorEffect> = {
+    release: 'click',
+    prepare: 'prepare',
+    press: 'press',
+    scroll: 'scroll',
+    type: 'type',
+  };
   configureCursorDiagnostics(join(mixdogDataDirectory(), 'computer-cursor-diagnostics.json'));
   const diagnose = (event: string, data: Record<string, unknown> = {}): void => {
     try {
@@ -147,20 +156,7 @@ export function createPowerShellComputerHost(
         y,
         tracking: true,
         action: phase,
-        effect:
-          phase === 'release'
-            ? 'click'
-            : phase === 'prepare'
-              ? 'prepare'
-              : phase === 'press'
-                ? 'press'
-                : phase === 'scroll'
-                  ? 'scroll'
-                  : phase === 'type'
-                    ? 'type'
-                    : held
-                      ? 'drag'
-                      : 'move',
+        effect: PHASE_CURSOR_EFFECTS[phase] ?? (held ? 'drag' : 'move'),
         mode,
       });
     },

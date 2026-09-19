@@ -28,87 +28,91 @@ import {
 } from './design-template-inspect.mjs';
 import { plainObject, sha256 } from '../../shared/values.mjs';
 import { xmlDecode } from '../../portable/portable-xml.mjs';
+import { zipText } from '../../portable/portable-opc.mjs';
+
+function slideDensity(textChars, shapeCount) {
+  if (textChars > 340 || shapeCount > 16) return 'dense';
+  if (textChars > 120 || shapeCount > 8) return 'balanced';
+  return 'light';
+}
+
+const numberFromPath = (value) => Number(/(\d+)(?=\.xml$)/.exec(value)?.[1] || 0);
+
+const shapeSlots = (shapes) => shapes.flatMap((shape) => (shape.slot ? [shape.slot] : []));
+
+function pptxSampleSlide({ slide, part }, xml) {
+  const shapes = directPptxShapeBlocks(xml).map((block, index) => pptxShapeMetadata(block, index + 1));
+  const textChars = shapes.reduce((total, shape) => total + shape.text.length, 0);
+  const title =
+    shapes.find((shape) => ['title', 'ctrTitle'].includes(shape.placeholderType))?.text ||
+    shapes.find((shape) => shape.slot?.role === 'title')?.text ||
+    '';
+  return {
+    slide,
+    part,
+    title,
+    textChars,
+    density: slideDensity(textChars, shapes.length),
+    shapes,
+    slots: shapeSlots(shapes),
+    capabilities: [...new Set(shapes.map((shape) => shape.type).filter((type) => type !== 'text'))],
+  };
+}
+
+// A drawn page answers with geometry where it has no placeholder to answer
+// with; a role the file states itself always wins over the induced one.
+function refinePptxSample(sample, canvas, sampleCount) {
+  const induced = inducePptxSampleRoles(sample, canvas);
+  for (const shape of sample.shapes) {
+    const role = induced.get(shape.shape);
+    if (!role || (shape.slot && !/^body-\d+$/.test(shape.slot.role))) continue;
+    shape.slot = pptxSlot(shape, role);
+  }
+  sample.slots = shapeSlots(sample.shapes);
+  sample.title ||= sample.shapes.find((shape) => shape.slot?.role === 'title')?.text || '';
+  sample.kind = inferPptxSampleKind(sample, sampleCount);
+  sample.capacity = pptxSampleCapacity(sample);
+}
+
+function pptxNativeLayout(name, xml) {
+  const root = /<p:sldLayout\b[^>]*>/i.exec(xml)?.[0] || '';
+  const common = /<p:cSld\b[^>]*>/i.exec(xml)?.[0] || '';
+  const shapes = directPptxShapeBlocks(xml).map((block, index) => pptxShapeMetadata(block, index + 1));
+  return {
+    layout: numberFromPath(name),
+    name: xmlAttribute(common, 'name'),
+    type: xmlAttribute(root, 'type'),
+    slots: shapeSlots(shapes),
+  };
+}
+
+function pptxThemeSummary(xml) {
+  const root = /<a:theme\b[^>]*>/i.exec(xml)?.[0] || '';
+  const fonts = [...xml.matchAll(/<a:(?:latin|ea|cs)\b[^>]*\btypeface="([^"]*)"/gi)]
+    .map((match) => xmlDecode(match[1]))
+    .filter(Boolean);
+  return { name: xmlAttribute(root, 'name'), fonts: [...new Set(fonts)] };
+}
 
 export async function inspectOfficeTemplate(path, { format = '' } = {}) {
   const normalizedFormat = format || TEMPLATE_FORMATS[extname(path).toLowerCase()] || '';
   if (normalizedFormat !== 'pptx') return { sampleSlides: [], nativeLayouts: [], theme: null };
   const zip = await JSZip.loadAsync(await readFile(path));
   const names = Object.keys(zip.files);
-  const numberFromPath = (value) => Number(/(\d+)(?=\.xml$)/.exec(value)?.[1] || 0);
-  const slideEntries = await pptxSlideEntries(zip);
   const sampleSlides = [];
-  for (const { name, slide, part } of slideEntries) {
-    const xml = await zip.file(name).async('string');
-    const shapes = directPptxShapeBlocks(xml).map((block, index) => pptxShapeMetadata(block, index + 1));
-    const slots = shapes.flatMap((shape) => (shape.slot ? [shape.slot] : []));
-    const textChars = shapes.reduce((total, shape) => total + shape.text.length, 0);
-    const title =
-      shapes.find((shape) => ['title', 'ctrTitle'].includes(shape.placeholderType))?.text ||
-      shapes.find((shape) => shape.slot?.role === 'title')?.text ||
-      '';
-    const capabilities = [...new Set(shapes.map((shape) => shape.type).filter((type) => type !== 'text'))];
-    sampleSlides.push({
-      slide,
-      part,
-      title,
-      textChars,
-      density:
-        textChars > 340 || shapes.length > 16 ? 'dense' : textChars > 120 || shapes.length > 8 ? 'balanced' : 'light',
-      shapes,
-      slots,
-      capabilities,
-    });
+  for (const entry of await pptxSlideEntries(zip)) {
+    sampleSlides.push(pptxSampleSlide(entry, await zip.file(entry.name).async('string')));
   }
-  const slideSize = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/i.exec(
-    zip.file('ppt/presentation.xml') ? await zip.file('ppt/presentation.xml').async('string') : ''
-  );
+  const slideSize = /<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/i.exec(await zipText(zip, 'ppt/presentation.xml'));
   const canvas = slideSize ? { width: Number(slideSize[1]), height: Number(slideSize[2]) } : undefined;
-  for (const sample of sampleSlides) {
-    // A drawn page answers with geometry where it has no placeholder to answer
-    // with; a role the file states itself always wins over the induced one.
-    const induced = inducePptxSampleRoles(sample, canvas);
-    for (const shape of sample.shapes) {
-      const role = induced.get(shape.shape);
-      if (!role || (shape.slot && !/^body-\d+$/.test(shape.slot.role))) continue;
-      shape.slot = pptxSlot(shape, role);
-    }
-    sample.slots = sample.shapes.flatMap((shape) => (shape.slot ? [shape.slot] : []));
-    sample.title ||= sample.shapes.find((shape) => shape.slot?.role === 'title')?.text || '';
-    sample.kind = inferPptxSampleKind(sample, sampleSlides.length);
-    sample.capacity = pptxSampleCapacity(sample);
-  }
+  for (const sample of sampleSlides) refinePptxSample(sample, canvas, sampleSlides.length);
   const layoutNames = names
     .filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/i.test(name))
     .sort((left, right) => numberFromPath(left) - numberFromPath(right));
   const nativeLayouts = [];
-  for (const name of layoutNames) {
-    const xml = await zip.file(name).async('string');
-    const root = /<p:sldLayout\b[^>]*>/i.exec(xml)?.[0] || '';
-    const common = /<p:cSld\b[^>]*>/i.exec(xml)?.[0] || '';
-    const shapes = directPptxShapeBlocks(xml).map((block, index) => pptxShapeMetadata(block, index + 1));
-    nativeLayouts.push({
-      layout: numberFromPath(name),
-      name: xmlAttribute(common, 'name'),
-      type: xmlAttribute(root, 'type'),
-      slots: shapes.flatMap((shape) => (shape.slot ? [shape.slot] : [])),
-    });
-  }
+  for (const name of layoutNames) nativeLayouts.push(pptxNativeLayout(name, await zip.file(name).async('string')));
   const themeName = names.find((name) => /^ppt\/theme\/theme\d+\.xml$/i.test(name));
-  let theme = null;
-  if (themeName) {
-    const xml = await zip.file(themeName).async('string');
-    const root = /<a:theme\b[^>]*>/i.exec(xml)?.[0] || '';
-    theme = {
-      name: xmlAttribute(root, 'name'),
-      fonts: [
-        ...new Set(
-          [...xml.matchAll(/<a:(?:latin|ea|cs)\b[^>]*\btypeface="([^"]*)"/gi)]
-            .map((match) => xmlDecode(match[1]))
-            .filter(Boolean)
-        ),
-      ],
-    };
-  }
+  const theme = themeName ? pptxThemeSummary(await zip.file(themeName).async('string')) : null;
   return {
     sampleSlides,
     nativeLayouts,
@@ -129,6 +133,150 @@ function normalizeLocalMetadata(value, path) {
   };
 }
 
+// A previous index entry still describes the file when neither the file, its
+// sidecar, nor the inspector changed.
+function templateEntryUnchanged(previousEntry, details, sidecarDetails) {
+  return (
+    previousEntry &&
+    Number(previousEntry.bytes) === details.size &&
+    Number(previousEntry.mtimeMs) === details.mtimeMs &&
+    Number(previousEntry.sidecarMtimeMs || 0) === Number(sidecarDetails?.mtimeMs || 0) &&
+    Number(previousEntry.inspectionVersion || 0) === TEMPLATE_INSPECTOR_VERSION
+  );
+}
+
+// Sidecar role assignments name the slots by shape index; without them the
+// inspected slots stand.
+function sampleSlots(sample, sampleMetadata) {
+  if (!sampleMetadata || !Object.keys(sampleMetadata.roles).length) return sample.slots;
+  return Object.entries(sampleMetadata.roles).map(([shapeIndex, role]) => {
+    const shape = sample.shapes.find((entry) => entry.shape === Number(shapeIndex));
+    if (!shape) {
+      throw new Error(`Office local template sample ${sample.slide} references missing shape ${shapeIndex}`);
+    }
+    return {
+      role,
+      type: shape.type,
+      shape: shape.shape,
+      ...(shape.placeholderType ? { placeholderType: shape.placeholderType } : {}),
+      ...(Number.isInteger(shape.placeholderIndex) ? { placeholderIndex: shape.placeholderIndex } : {}),
+      geometry: shape.geometry,
+      required: role === 'title',
+    };
+  });
+}
+
+// One layout per inspected sample slide, overlaid with its sidecar sample.
+function sampleLayouts(inspected, metadata, { id, path }) {
+  return inspected.sampleSlides.map((sample) => {
+    const sampleMetadata = metadata.samples.find((entry) => entry.slide === sample.slide);
+    return {
+      id: sampleMetadata?.id || `${id}-slide-${sample.slide}`,
+      format: 'pptx',
+      kind: sampleMetadata?.kind || sample.kind,
+      profile: metadata.profile,
+      density: sampleMetadata?.density || sample.density,
+      variant: sampleMetadata?.variant || 'native',
+      purposes: sampleMetadata?.purposes || [],
+      expressionModes: sampleMetadata?.expressionModes || [],
+      templateId: id,
+      templatePath: path,
+      sourceSlide: sample.slide,
+      sourceLayout: 0,
+      slots: sampleSlots(sample, sampleMetadata),
+      capacity: {
+        ...sample.capacity,
+        ...(sampleMetadata?.capacity || {}),
+      },
+      capabilities: sample.capabilities,
+      priority: sampleMetadata?.priority || 0,
+      strict: sampleMetadata?.strict || false,
+      defaults: sampleMetadata?.defaults || {},
+    };
+  });
+}
+
+// Sidecar-declared layouts, filled from their source slide where they leave
+// slots, capacity or capabilities unspecified.
+function declaredLayouts(metadata, inspected, { id, path }) {
+  return metadata.layouts.map((layout) => {
+    const sample = inspected.sampleSlides.find((entry) => entry.slide === layout.sourceSlide);
+    return {
+      ...layout,
+      templateId: layout.templateId || id,
+      templatePath: path,
+      slots: layout.slots.length ? layout.slots : sample?.slots || [],
+      capacity: Object.keys(layout.capacity || {}).length ? layout.capacity : sample?.capacity || {},
+      capabilities: layout.capabilities.length ? layout.capabilities : sample?.capabilities || [],
+    };
+  });
+}
+
+function indexedSampleSlides(inspected, layouts) {
+  return inspected.sampleSlides.map((sample) => {
+    const layout = layouts.find((entry) => entry.sourceSlide === sample.slide);
+    const titleShape = sample.shapes.find((shape) =>
+      layout?.slots.some((slot) => slot.role === 'title' && slot.shape === shape.shape)
+    );
+    return {
+      ...sample,
+      title: sample.title || titleShape?.text || '',
+      kind: layout?.kind || sample.kind,
+      density: layout?.density || sample.density,
+      purposes: layout?.purposes || [],
+      expressionModes: layout?.expressionModes || [],
+      slots: layout?.slots || sample.slots,
+      capacity: layout?.capacity || sample.capacity,
+    };
+  });
+}
+
+async function inspectTemplateFile(path, format) {
+  try {
+    return { inspected: await inspectOfficeTemplate(path, { format }), inspectionWarning: '' };
+  } catch (error) {
+    return {
+      inspected: { sampleSlides: [], nativeLayouts: [], theme: null, coverage: officeTemplateCoverage([]) },
+      inspectionWarning: error?.message || String(error),
+    };
+  }
+}
+
+// A fresh index entry for one template file.
+async function indexTemplateFile(path, { details, sidecarPath, sidecarDetails }) {
+  const canonical = canonicalPath(path);
+  const digest = await sha256File(path);
+  const metadata = normalizeLocalMetadata(await readJson(sidecarPath, {}), path);
+  const id = metadata.id || `local-${sha256(canonical).slice(0, 16)}`;
+  const format = TEMPLATE_FORMATS[extname(path).toLowerCase()];
+  const { inspected, inspectionWarning } = await inspectTemplateFile(path, format);
+  const layouts = metadata.layouts.length
+    ? declaredLayouts(metadata, inspected, { id, path })
+    : sampleLayouts(inspected, metadata, { id, path });
+  const sampleSlides = indexedSampleSlides(inspected, layouts);
+  return {
+    id,
+    label: metadata.label || path.split(/[\\/]/).at(-1),
+    format,
+    fileKind: extname(path).slice(1).toLowerCase(),
+    path: resolve(path),
+    source: 'local-template',
+    bytes: details.size,
+    mtimeMs: details.mtimeMs,
+    sidecarMtimeMs: Number(sidecarDetails?.mtimeMs || 0),
+    inspectionVersion: TEMPLATE_INSPECTOR_VERSION,
+    inspectionWarning,
+    sha256: digest,
+    version: metadata.version ? `${metadata.version}+${digest.slice(0, 12)}` : digest.slice(0, 16),
+    profile: metadata.profile,
+    layouts,
+    sampleSlides,
+    coverage: officeTemplateCoverage(sampleSlides),
+    nativeLayouts: inspected.nativeLayouts,
+    theme: inspected.theme,
+  };
+}
+
 export async function indexOfficeTemplates({ dataDir, config: configOverride = null } = {}) {
   const paths = libraryPaths(dataDir);
   const config = await loadConfig(dataDir, configOverride);
@@ -139,132 +287,15 @@ export async function indexOfficeTemplates({ dataDir, config: configOverride = n
   for (const directory of config.templateDirectories) await walkTemplateDirectory(directory, files);
   const templates = [];
   for (const path of files) {
-    const canonical = canonicalPath(path);
     const details = await stat(path);
     const sidecarPath = `${path}.mixdog.json`;
     const sidecarDetails = await stat(sidecarPath).catch(() => null);
-    const previousEntry = previousByPath.get(canonical);
-    const unchanged =
-      previousEntry &&
-      Number(previousEntry.bytes) === details.size &&
-      Number(previousEntry.mtimeMs) === details.mtimeMs &&
-      Number(previousEntry.sidecarMtimeMs || 0) === Number(sidecarDetails?.mtimeMs || 0) &&
-      Number(previousEntry.inspectionVersion || 0) === TEMPLATE_INSPECTOR_VERSION;
-    if (unchanged) {
+    const previousEntry = previousByPath.get(canonicalPath(path));
+    if (templateEntryUnchanged(previousEntry, details, sidecarDetails)) {
       templates.push(previousEntry);
       continue;
     }
-    const digest = await sha256File(path);
-    const metadata = normalizeLocalMetadata(await readJson(sidecarPath, {}), path);
-    const id = metadata.id || `local-${sha256(canonical).slice(0, 16)}`;
-    const format = TEMPLATE_FORMATS[extname(path).toLowerCase()];
-    let inspected = {
-      sampleSlides: [],
-      nativeLayouts: [],
-      theme: null,
-      coverage: officeTemplateCoverage([]),
-    };
-    let inspectionWarning = '';
-    try {
-      inspected = await inspectOfficeTemplate(path, { format });
-    } catch (error) {
-      inspectionWarning = error?.message || String(error);
-    }
-    const autoLayouts = inspected.sampleSlides.map((sample) => {
-      const sampleMetadata = metadata.samples.find((entry) => entry.slide === sample.slide);
-      const slots =
-        sampleMetadata && Object.keys(sampleMetadata.roles).length
-          ? Object.entries(sampleMetadata.roles).map(([shapeIndex, role]) => {
-              const shape = sample.shapes.find((entry) => entry.shape === Number(shapeIndex));
-              if (!shape) {
-                throw new Error(`Office local template sample ${sample.slide} references missing shape ${shapeIndex}`);
-              }
-              return {
-                role,
-                type: shape.type,
-                shape: shape.shape,
-                ...(shape.placeholderType ? { placeholderType: shape.placeholderType } : {}),
-                ...(Number.isInteger(shape.placeholderIndex) ? { placeholderIndex: shape.placeholderIndex } : {}),
-                geometry: shape.geometry,
-                required: role === 'title',
-              };
-            })
-          : sample.slots;
-      return {
-        id: sampleMetadata?.id || `${id}-slide-${sample.slide}`,
-        format: 'pptx',
-        kind: sampleMetadata?.kind || sample.kind,
-        profile: metadata.profile,
-        density: sampleMetadata?.density || sample.density,
-        variant: sampleMetadata?.variant || 'native',
-        purposes: sampleMetadata?.purposes || [],
-        expressionModes: sampleMetadata?.expressionModes || [],
-        templateId: id,
-        templatePath: path,
-        sourceSlide: sample.slide,
-        sourceLayout: 0,
-        slots,
-        capacity: {
-          ...sample.capacity,
-          ...(sampleMetadata?.capacity || {}),
-        },
-        capabilities: sample.capabilities,
-        priority: sampleMetadata?.priority || 0,
-        strict: sampleMetadata?.strict || false,
-        defaults: sampleMetadata?.defaults || {},
-      };
-    });
-    const layouts = metadata.layouts.length
-      ? metadata.layouts.map((layout) => {
-          const sample = inspected.sampleSlides.find((entry) => entry.slide === layout.sourceSlide);
-          return {
-            ...layout,
-            templateId: layout.templateId || id,
-            templatePath: path,
-            slots: layout.slots.length ? layout.slots : sample?.slots || [],
-            capacity: Object.keys(layout.capacity || {}).length ? layout.capacity : sample?.capacity || {},
-            capabilities: layout.capabilities.length ? layout.capabilities : sample?.capabilities || [],
-          };
-        })
-      : autoLayouts;
-    const indexedSampleSlides = inspected.sampleSlides.map((sample) => {
-      const layout = layouts.find((entry) => entry.sourceSlide === sample.slide);
-      const titleShape = sample.shapes.find((shape) =>
-        layout?.slots.some((slot) => slot.role === 'title' && slot.shape === shape.shape)
-      );
-      return {
-        ...sample,
-        title: sample.title || titleShape?.text || '',
-        kind: layout?.kind || sample.kind,
-        density: layout?.density || sample.density,
-        purposes: layout?.purposes || [],
-        expressionModes: layout?.expressionModes || [],
-        slots: layout?.slots || sample.slots,
-        capacity: layout?.capacity || sample.capacity,
-      };
-    });
-    const coverage = officeTemplateCoverage(indexedSampleSlides);
-    templates.push({
-      id,
-      label: metadata.label || path.split(/[\\/]/).at(-1),
-      format,
-      fileKind: extname(path).slice(1).toLowerCase(),
-      path: resolve(path),
-      source: 'local-template',
-      bytes: details.size,
-      mtimeMs: details.mtimeMs,
-      sidecarMtimeMs: Number(sidecarDetails?.mtimeMs || 0),
-      inspectionVersion: TEMPLATE_INSPECTOR_VERSION,
-      inspectionWarning,
-      sha256: digest,
-      version: metadata.version ? `${metadata.version}+${digest.slice(0, 12)}` : digest.slice(0, 16),
-      profile: metadata.profile,
-      layouts,
-      sampleSlides: indexedSampleSlides,
-      coverage,
-      nativeLayouts: inspected.nativeLayouts,
-      theme: inspected.theme,
-    });
+    templates.push(await indexTemplateFile(path, { details, sidecarPath, sidecarDetails }));
   }
   templates.sort((left, right) => left.id.localeCompare(right.id) || left.path.localeCompare(right.path));
   const revision = sha256(

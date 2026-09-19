@@ -193,11 +193,7 @@ export function recordProviderAccountUsage(provider, id, snapshot) {
     // without a percentage says nothing about that meter, and requiring a
     // number from it kept accounts refused that every real reading had freed.
     const measured = windows.filter((window) => window.usedPct !== null);
-    if (measured.length && measured.every((window) => window.usedPct < 100)) {
-      delete row.blockedUntil;
-      delete row.blockedModel;
-      delete row.blockedSource;
-    }
+    if (measured.length && measured.every((window) => window.usedPct < 100)) clearAccountBlock(row);
   });
 }
 
@@ -233,11 +229,15 @@ export function clearProviderAccountQuotaState(provider, id) {
   return update(provider, (pool) => {
     const row = pool.accounts.find((entry) => entry.id === id);
     if (!row) return;
-    delete row.blockedUntil;
-    delete row.blockedModel;
-    delete row.blockedSource;
+    clearAccountBlock(row);
     delete row.usage;
   });
+}
+
+function clearAccountBlock(row) {
+  delete row.blockedUntil;
+  delete row.blockedModel;
+  delete row.blockedSource;
 }
 
 // Single-token weekly labels ("7D Fable", "7D Opus") belong to that Claude

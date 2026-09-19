@@ -12,8 +12,8 @@
  *   startSnapshotWriter(scheduler, provider, webhookServer);
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { DATA_DIR } from './config.mjs';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 import { readHookPublicBase } from './webhook/relay-tunnel.mjs';
@@ -36,62 +36,62 @@ function stableSnapshotJson(snapshot) {
 // scheduler accepts cron expressions exclusively (scheduler.mjs:68), so the
 // fallback could only produce stale next-fire timestamps for entries that
 // never actually fire under the cron-only scheduler.
+// The next fire instant of a node-cron task. v4 exposes getNextRun(); older
+// aliases are retained for persisted installations on an earlier runtime.
+// null when the task reports none or the node-cron version mismatches.
+function cronTaskNextFireAt(task) {
+  try {
+    const nd =
+      (typeof task.getNextRun === 'function' ? task.getNextRun() : null) ??
+      (typeof task.nextDate === 'function' ? task.nextDate() : null) ??
+      (typeof task.getNextDate === 'function' ? task.getNextDate() : null);
+    if (!nd) return null;
+    const fireAt = nd instanceof Date ? nd.getTime() : Number(nd);
+    return Number.isFinite(fireAt) ? fireAt : null;
+  } catch {
+    return null;
+  }
+}
+
+// Every armed schedule's next fire: cron tasks via node-cron, when_at
+// one-shots from the loaded schedule def (the timer handle carries no fireAt).
+function* armedScheduleFires(scheduler) {
+  for (const [name, task] of scheduler.cronJobs || []) {
+    if (scheduler.shouldSkip?.(name)) continue;
+    const fireAt = cronTaskNextFireAt(task);
+    if (fireAt !== null) yield { name, fireAt, kind: 'cron' };
+  }
+  const defs = [...(scheduler.nonInteractive || []), ...(scheduler.interactive || [])];
+  for (const name of (scheduler.oneShotTimers || new Map()).keys()) {
+    if (scheduler.shouldSkip?.(name)) continue;
+    const def = defs.find((s) => s.name === name);
+    if (!def?.whenAt) continue;
+    const fireAt = new Date(def.whenAt).getTime();
+    if (Number.isFinite(fireAt)) yield { name, fireAt, kind: 'one-shot' };
+  }
+}
+
+function nextScheduleFire(scheduler) {
+  let next = null;
+  for (const candidate of armedScheduleFires(scheduler)) {
+    if (!next || candidate.fireAt < next.fireAt) next = candidate;
+  }
+  return next;
+}
+
+function activeDeferred(scheduler, now) {
+  const deferred = [];
+  for (const [name, until] of scheduler.deferred || []) {
+    if (until > now) deferred.push({ name, until });
+  }
+  return deferred;
+}
+
 export async function computeSnapshot(scheduler) {
   const now = Date.now();
-
-  // ── Schedules ──────────────────────────────────────────────────────────────
-  let nextSchedule = null; // { name, fireAt, kind }
-  const deferred = [];
-
-  if (scheduler) {
-    // Cron-expression next-fire via node-cron ScheduledTask.nextDate().
-    if (scheduler.cronJobs && scheduler.cronJobs.size > 0) {
-      for (const [name, task] of scheduler.cronJobs) {
-        if (scheduler.shouldSkip && scheduler.shouldSkip(name)) continue;
-        try {
-          // node-cron v4 exposes getNextRun(); retain older aliases for
-          // compatibility with persisted installations on an earlier runtime.
-          const nd =
-            (typeof task.getNextRun === 'function' ? task.getNextRun() : null) ??
-            (typeof task.nextDate === 'function' ? task.nextDate() : null) ??
-            (typeof task.getNextDate === 'function' ? task.getNextDate() : null);
-          if (!nd) continue;
-          const fireAt = nd instanceof Date ? nd.getTime() : Number(nd);
-          if (!Number.isFinite(fireAt)) continue;
-          if (!nextSchedule || fireAt < nextSchedule.fireAt) {
-            nextSchedule = { name, fireAt, kind: 'cron' };
-          }
-        } catch {
-          /* node-cron version mismatch — skip */
-        }
-      }
-    }
-
-    // Armed when_at one-shots: next-fire is the entry's whenAt instant. The
-    // timer handle carries no fireAt, so read it from the loaded schedule def.
-    if (scheduler.oneShotTimers && scheduler.oneShotTimers.size > 0) {
-      const defs = [...(scheduler.nonInteractive || []), ...(scheduler.interactive || [])];
-      for (const name of scheduler.oneShotTimers.keys()) {
-        if (scheduler.shouldSkip && scheduler.shouldSkip(name)) continue;
-        const def = defs.find((s) => s.name === name);
-        if (!def || !def.whenAt) continue;
-        const fireAt = new Date(def.whenAt).getTime();
-        if (!Number.isFinite(fireAt)) continue;
-        if (!nextSchedule || fireAt < nextSchedule.fireAt) {
-          nextSchedule = { name, fireAt, kind: 'one-shot' };
-        }
-      }
-    }
-
-    // Deferred entries
-    if (scheduler.deferred) {
-      for (const [name, until] of scheduler.deferred) {
-        if (until > now) deferred.push({ name, until });
-      }
-    }
-  }
-
-  // ── Relay hook URL (identity file read; assigned on first tunnel start) ────
+  const nextSchedule = scheduler ? nextScheduleFire(scheduler) : null;
+  const deferred = scheduler ? activeDeferred(scheduler, now) : [];
+  // Relay hook URL (identity file read; assigned on first tunnel start).
   const hookPublicUrl = readHookPublicBase();
 
   return {

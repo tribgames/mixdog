@@ -688,12 +688,9 @@ test('the observation-only actions named on each tool surface are valid actions'
   // The computer tool's actions map onto host commands, so the claim is checked
   // against what the client counts as a read.
   for (const action of COMPUTER_OBSERVATION_ACTIONS) {
-    const input =
-      action === 'list'
-        ? { kind: 'windows' }
-        : action === 'verify'
-          ? { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] }
-          : { window_id: 'hwnd:0x1' };
+    let input = { window_id: 'hwnd:0x1' };
+    if (action === 'list') input = { kind: 'windows' };
+    else if (action === 'verify') input = { window_id: 'hwnd:0x1', expect: [{ present: 'Saved' }] };
     const command = toComputerHostCommand({ action, input });
     const hostAction = String(command.action);
     assert.equal(
@@ -1619,7 +1616,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
       ['restore', 'window_state'],
       ['close', 'close_window'],
     ].map(
-      ([operation, expected]) =>
+      ([operation, _expected]) =>
         toComputerHostCommand({
           action: 'window',
           input: {
@@ -1854,15 +1851,17 @@ test('bridge clients authenticate and preserve text plus image results', async (
         authorization: request.headers.authorization,
         body,
       });
+      let text = 'bridge ok';
+      if (request.headers.authorization === 'Bearer computer-token') {
+        text =
+          body.action === 'clipboard_read'
+            ? '{"action":"user-content","nested":true}'
+            : JSON.stringify({ ok: true, action: body.action });
+      }
       const payload = JSON.stringify({
         ok: true,
         value: {
-          text:
-            request.headers.authorization === 'Bearer computer-token'
-              ? body.action === 'clipboard_read'
-                ? '{"action":"user-content","nested":true}'
-                : JSON.stringify({ ok: true, action: body.action })
-              : 'bridge ok',
+          text,
           image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' },
           ...(request.headers.authorization === 'Bearer browser-token'
             ? {

@@ -9,81 +9,34 @@
  * real traffic by orders of magnitude, so cache sits beside the token figure
  * instead of inside it.
  */
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from 'react';
-import { ChevronDown, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import type { DesktopCapability } from '../shared/contract';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { DateRangePicker, type DayRange } from './DateRangePicker';
-import { t, uiFormatLocale } from './i18n';
+import { t } from './i18n';
 import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
 import { record } from './record-utils';
-import { usageCompact, usageMoney, usageNumber, usageProviderLabel } from './usage-format';
-import { useHoverPopover } from './hover-popover';
-import { acquireModalLayer } from './modal-layer';
+import { usageNumber, usageProviderLabel } from './usage-format';
+import {
+  StatsValue,
+  localDayKey,
+  periodLabel,
+  promptDetail,
+  promptTokens,
+  shiftCustomRange,
+  statsCount,
+  statsMoney,
+  statsNumber,
+  statsPercent,
+  statsPlan,
+  statsPlanLabel,
+  statsTokens,
+  unpricedTurns,
+} from './usage-stats-model';
+import type { Row, SortKey, StatsRequest, StatsView } from './usage-stats-model';
+import { UsageTrend } from './UsageTrend';
 
-type Row = Record<string, unknown>;
-type StatsRequest = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
-type SortKey = 'tokens' | 'costUsd' | 'turns';
-
-type Grain = 'hour' | 'day' | 'week' | 'month' | 'year';
-type StatsView = Grain | '7d' | 'custom';
-type Metric = 'tokens' | 'costUsd' | 'turns';
-type TrendGrouping = { grain: Grain; step: number; firstYear: number; lastYear: number };
-const MAX_TREND_BARS = 30;
-
-function statsNumber(value: unknown): number {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount : 0;
-}
-
-function statsTokens(value: unknown, incomplete = false): string {
-  if (incomplete && !(statsNumber(value) > 0)) return '—';
-  return usageCompact(value) || '—';
-}
-
-function statsCount(value: unknown): string {
-  const count = usageNumber(value);
-  return count === null ? '—' : count.toLocaleString(uiFormatLocale());
-}
-
-function statsPercent(value: unknown): string {
-  if (usageNumber(value) === null) return '—';
-  return `${(statsNumber(value) * 100).toFixed(1)}%`;
-}
-
-function unpricedTurns(row: Row): number {
-  const turns = statsNumber(row.turns);
-  const missing = usageNumber(row.costUnpricedTurns);
-  if (missing !== null) return Math.max(0, missing);
-  const known = usageNumber(row.costKnownTurns);
-  if (known !== null) return Math.max(0, turns - known);
-  return turns * (1 - Math.min(1, Math.max(0, statsNumber(row.costCoverage))));
-}
-
-function statsMoney(row: Row): string {
-  const missing = unpricedTurns(row);
-  if (missing > 0 && missing >= statsNumber(row.turns)) return '—';
-  return usageMoney(row.costUsd);
-}
-
-// The recorded route kind decides; the id is only the fallback for rows
-// written before the rollup carried one. Reading the id first labelled a
-// quota-metered API lane as a subscription.
-function statsPlan(provider: string, kind: string): 'api' | 'subscription' | 'local' | '' {
-  const id = provider.toLowerCase();
-  if (kind === 'local' || id === 'mixdog-local') return 'local';
-  if (kind === 'oauth' || kind === 'quota-api') return 'subscription';
-  if (kind === 'api') return 'api';
-  if (id.includes('oauth')) return 'subscription';
-  return id ? 'api' : '';
-}
-
-function statsPlanLabel(plan: ReturnType<typeof statsPlan>): string {
-  return plan === 'subscription' ? t('Subscription') : plan === 'local' ? t('Local') : plan === 'api' ? 'API' : '';
-}
-
-function StatsValue({ value, loading = false }: { value: string; loading?: boolean }) {
-  return loading ? <span className="usage-skeleton stats-value-skeleton" aria-hidden="true" /> : value;
-}
+export { resolveUsageTrendGrouping } from './usage-stats-model';
 
 function StatCard({
   label,
@@ -104,18 +57,6 @@ function StatCard({
       </b>
     </div>
   );
-}
-
-/** Input as sent: fresh input plus the prompt written to cache. Cached providers
- *  file most of a turn's new content as a cache write, so the fresh figure alone
- *  made them look idle beside an uncached provider doing the same work.
- *  input + output + cache hits then adds up to the token total. */
-function promptTokens(row: Row): number {
-  return statsNumber(row.input) + statsNumber(row.cacheWrite);
-}
-
-function promptDetail(row: Row, incomplete: boolean): string {
-  return `${t('Cache excluded')}: ${statsTokens(row.input, incomplete)} · ${t('Cache writes')}: ${statsTokens(row.cacheWrite, incomplete)}`;
 }
 
 function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
@@ -172,518 +113,6 @@ function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
   );
 }
 
-function pad2(value: number): string {
-  return String(value).padStart(2, '0');
-}
-
-function localDayKey(time: number): string {
-  const date = new Date(time);
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function localClockKey(time: number): string {
-  const date = new Date(time);
-  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
-}
-
-/** Step a custom range by its own length, the way the preset arrows page.
- *  A range without clock times keeps landing on whole days. */
-function shiftCustomRange(range: DayRange, direction: 1 | -1): DayRange {
-  const from = new Date(`${range.startDay}T${range.startTime || '00:00'}:00`).getTime();
-  const to = new Date(`${range.endDay}T${range.endTime || '23:59'}:59.999`).getTime();
-  const span = to - from + 1;
-  const nextFrom = from + direction * span;
-  const nextTo = to + direction * span;
-  return {
-    startDay: localDayKey(nextFrom),
-    endDay: localDayKey(nextTo),
-    ...(range.startTime ? { startTime: localClockKey(nextFrom) } : {}),
-    ...(range.endTime ? { endTime: localClockKey(nextTo) } : {}),
-  };
-}
-
-/** Monday of the week a `YYYY-MM-DD` day belongs to. */
-function weekBucketKey(day: string): string {
-  const date = new Date(`${day}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return day;
-  // getDay() counts Sunday as 0; the week is read as Monday-first.
-  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
-  return localDayKey(date.getTime());
-}
-
-/** Count calendar buckets, including partial edges and dates with no usage.
- *  UTC date ordinals avoid DST changing the number of selected calendar days. */
-export function resolveUsageTrendGrouping(startDay: string, endDay: string): TrendGrouping {
-  const ordinal = (day: string) => Date.parse(`${day}T00:00:00Z`) / 86400000;
-  const firstYear = Number(startDay.slice(0, 4));
-  const lastYear = Number(endDay.slice(0, 4));
-  const counts: Array<[Grain, number]> = [
-    ['day', ordinal(endDay) - ordinal(startDay) + 1],
-    ['week', (ordinal(weekBucketKey(endDay)) - ordinal(weekBucketKey(startDay))) / 7 + 1],
-    ['month', (lastYear - firstYear) * 12 + Number(endDay.slice(5, 7)) - Number(startDay.slice(5, 7)) + 1],
-    ['year', lastYear - firstYear + 1],
-  ];
-  const grain = counts.find(([, count]) => count <= MAX_TREND_BARS)?.[0] || 'year';
-  return {
-    grain,
-    step: grain === 'year' ? Math.ceil((lastYear - firstYear + 1) / MAX_TREND_BARS) : 1,
-    firstYear,
-    lastYear,
-  };
-}
-
-type TrendTotals = {
-  tokens: number;
-  costUsd: number;
-  turns: number;
-  unmeasuredTurns: number;
-  costUnpricedTurns: number;
-};
-
-type TrendBucket = TrendTotals & {
-  key: string;
-  label: string;
-  future: boolean;
-  fromMs: number | null;
-  toMs: number | null;
-  startDay: string;
-  endDay: string;
-  providers: Map<string, TrendTotals>;
-};
-
-function emptyTrendTotals(): TrendTotals {
-  return { tokens: 0, costUsd: 0, turns: 0, unmeasuredTurns: 0, costUnpricedTurns: 0 };
-}
-
-function addTrendTotals(target: TrendTotals, row: Row) {
-  target.tokens += statsNumber(row.tokens);
-  target.costUsd += statsNumber(row.costUsd);
-  target.turns += statsNumber(row.turns);
-  target.unmeasuredTurns += statsNumber(row.unmeasuredTurns);
-  target.costUnpricedTurns += unpricedTurns(row);
-}
-
-function groupTrend(daily: Row[], grouping: TrendGrouping): TrendBucket[] {
-  const { grain, step, firstYear, lastYear } = grouping;
-  const buckets = new Map<string, TrendBucket>();
-  // The 24-hour view is a ROLLING window, and the server keys its buckets by
-  // absolute start time (19:48, 20:48 …). A background refresh lands seconds
-  // after every streamed turn, so all 24 buckets arrived under brand-new keys:
-  // React rebuilt every bar and the hovered bucket was no longer in the series,
-  // which closed the detail card mid-hover (user: 트랜스크립트 갱신될 때 자동
-  // 으로 닫힌다). A rolling slot is identified by its POSITION, padded so the
-  // key sort below stays positional.
-  for (const [index, entry] of daily.entries()) {
-    const day = String(grain === 'hour' ? entry.key || '' : entry.day || '');
-    if (!day) continue;
-    let key =
-      grain === 'hour'
-        ? String(index).padStart(3, '0')
-        : grain === 'year'
-          ? day.slice(0, 4)
-          : grain === 'month'
-            ? day.slice(0, 7)
-            : grain === 'week'
-              ? weekBucketKey(day)
-              : day;
-    if (grain === 'year' && step > 1) {
-      key = String(firstYear + Math.floor((Number(key) - firstYear) / step) * step);
-    }
-    const finalYear = Math.min(Number(key) + step - 1, lastYear);
-    const calendarLabel = grain === 'year' && step > 1 && finalYear > Number(key) ? `${key}–${finalYear}` : key;
-    const bucket = buckets.get(key) || {
-      key,
-      label:
-        grain === 'hour'
-          ? entry.unknown
-            ? t('Unknown time')
-            : String(entry.label || key)
-          : grain === 'week'
-            ? day
-            : calendarLabel,
-      ...emptyTrendTotals(),
-      future: true,
-      fromMs: usageNumber(entry.fromMs),
-      toMs: usageNumber(entry.toMs),
-      startDay: grain === 'hour' ? '' : day,
-      endDay: grain === 'hour' ? '' : day,
-      providers: new Map<string, TrendTotals>(),
-    };
-    bucket.future = bucket.future && entry.future === true;
-    if (grain !== 'hour') bucket.endDay = day;
-    addTrendTotals(bucket, entry);
-    for (const raw of Array.isArray(entry.providers) ? (entry.providers as unknown[]) : []) {
-      const slice = record(raw);
-      const id = String(slice.provider || '');
-      if (!id) continue;
-      const provider = bucket.providers.get(id) || emptyTrendTotals();
-      addTrendTotals(provider, slice);
-      bucket.providers.set(id, provider);
-    }
-    buckets.set(key, bucket);
-  }
-  return [...buckets.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-}
-
-function metricValue(bucket: TrendTotals, metric: Metric): number {
-  return metric === 'costUsd' ? bucket.costUsd : metric === 'turns' ? bucket.turns : bucket.tokens;
-}
-
-function metricText(value: number, metric: Metric, incomplete = false): string {
-  if (metric === 'turns') return statsCount(value);
-  if (incomplete && value === 0) return '—';
-  return metric === 'costUsd' ? usageMoney(value) : statsTokens(value, incomplete);
-}
-
-function trendMetricText(totals: TrendTotals, metric: Metric): string {
-  if (metric === 'costUsd') return statsMoney({ ...totals });
-  return metricText(metricValue(totals, metric), metric, totals.unmeasuredTurns > 0);
-}
-
-function trendPeriodLabel(bucket: TrendBucket): string {
-  if (bucket.fromMs !== null && bucket.toMs !== null) {
-    return new Intl.DateTimeFormat(uiFormatLocale(), {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).formatRange(new Date(bucket.fromMs), new Date(bucket.toMs));
-  }
-  if (!bucket.startDay) return bucket.label;
-  return new Intl.DateTimeFormat(uiFormatLocale(), {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).formatRange(new Date(`${bucket.startDay}T00:00:00`), new Date(`${bucket.endDay}T00:00:00`));
-}
-
-/** Provider identity, not rank or metric, owns the colour of every band. */
-function TrendBar({
-  bucket,
-  metric,
-  peak,
-  order,
-  interaction,
-  expanded,
-  controls,
-}: {
-  bucket: TrendBucket;
-  metric: Metric;
-  peak: number;
-  order: string[];
-  interaction: Pick<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'onMouseEnter' | 'onFocus' | 'onBlur'>;
-  expanded: boolean;
-  controls: string;
-}) {
-  const total = metricValue(bucket, metric);
-  const height = peak > 0 ? Math.max(total > 0 ? 3 : 1, (total / peak) * 100) : 1;
-  const parts = order
-    .map((id) => ({ id, value: statsNumber(bucket.providers.get(id)?.[metric]) }))
-    .filter((part) => part.value > 0);
-  const summed = parts.reduce((sum, part) => sum + part.value, 0);
-  const title = bucket.future
-    ? bucket.label
-    : `${bucket.label} · ${
-        metric === 'costUsd'
-          ? statsMoney(bucket as unknown as Row)
-          : metricText(total, metric, bucket.unmeasuredTurns > 0)
-      }`;
-  return (
-    <button
-      type="button"
-      className="stats-trend-bar"
-      {...interaction}
-      aria-label={title}
-      aria-expanded={expanded}
-      aria-controls={expanded ? controls : undefined}
-    >
-      <i
-        className="stats-trend-fill"
-        style={{ height: `${height}%` }}
-        aria-hidden="true"
-        data-empty={total > 0 ? undefined : 'true'}
-        data-future={bucket.future ? 'true' : undefined}
-      >
-        {/* A bar with no split to draw stays a plain block rather than an empty
-        outline: an unattributed day must not read as a different colour. */}
-        {summed > 0 &&
-          parts.map((part) => (
-            <b key={part.id} data-usage-provider={part.id} style={{ height: `${(part.value / summed) * 100}%` }} />
-          ))}
-      </i>
-    </button>
-  );
-}
-
-function UsageTrend({
-  daily,
-  hourly,
-  view,
-  providerOrder,
-  providers,
-  period,
-  loading,
-}: {
-  daily: Row[];
-  hourly: Row[];
-  view: StatsView;
-  providerOrder: string[];
-  providers: Row[];
-  period: Row;
-  loading: boolean;
-}) {
-  const [metric, setMetric] = useState<Metric>('tokens');
-  const startDay = String(period.startDay || daily[0]?.day || '');
-  const endDay = String(period.endDay || daily.at(-1)?.day || '');
-  const calendarGrouping =
-    startDay && endDay && (view === 'custom' || view === 'year')
-      ? resolveUsageTrendGrouping(startDay, endDay)
-      : { grain: 'day' as Grain, step: 1, firstYear: 0, lastYear: 0 };
-  // Presets retain their advertised units. Custom ranges choose the finest
-  // calendar unit that fits; all-history also caps very long yearly series.
-  const grouping: TrendGrouping = {
-    ...calendarGrouping,
-    grain: view === 'custom' ? calendarGrouping.grain : view === '7d' ? 'day' : view,
-  };
-  const { grain } = grouping;
-  const series = groupTrend(view === 'hour' ? hourly : daily, grouping);
-  const popover = useHoverPopover();
-  const detailId = useId();
-  const detailRef = useRef<HTMLDivElement>(null);
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const [activeKey, setActiveKey] = useState<string | null>(null);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
-  const active = series.find((bucket) => bucket.key === activeKey);
-  useLayoutEffect(() => {
-    const host = popover.host.current;
-    const card = detailRef.current;
-    const anchor = anchorRef.current;
-    if (!popover.open || !host || !card || !anchor) return;
-    const layer = acquireModalLayer([]);
-    layer.attachSurface(card);
-    const bounds = host.closest('.mixdog-settings__body')?.getBoundingClientRect() || {
-      top: 0,
-      left: 0,
-      bottom: window.innerHeight,
-      right: window.innerWidth,
-    };
-    const top = Math.max(0, bounds.top) + 8;
-    const bottom = Math.min(window.innerHeight, bounds.bottom) - 8;
-    const left = Math.max(0, bounds.left) + 8;
-    const right = Math.min(window.innerWidth, bounds.right) - 8;
-    card.style.maxHeight = `${Math.max(0, bottom - top)}px`;
-    const size = card.getBoundingClientRect();
-    const owner = host.getBoundingClientRect();
-    const trigger = anchor.getBoundingClientRect();
-    const above = owner.top - size.height - 8;
-    setPosition({
-      left: Math.max(left, Math.min(right - size.width, (trigger.left + trigger.right - size.width) / 2)) - owner.left,
-      top: Math.max(top, above >= top ? above : Math.min(owner.bottom + 8, bottom - size.height)) - owner.top,
-    });
-    // A capture listener on window sees EVERY scroller in the document, and a
-    // transcript pinned to its end scrolls on each streamed token — a session
-    // running BEHIND the popup kept closing this card while the pointer still
-    // sat on the bar (user: 바 위에 호버를 했는데 왜 팝업이 자동으로 사라지냐).
-    // Only a scroller that CARRIES the chart moves the anchor the card is
-    // placed against, so nothing else may dismiss it; the card scrolls inside
-    // the host and is excluded by the same containment test.
-    const dismissOnScroll = (event: Event) => {
-      const target = event.target;
-      if (target instanceof Node && !target.contains(host)) return;
-      popover.close();
-    };
-    window.addEventListener('scroll', dismissOnScroll, true);
-    window.addEventListener('resize', popover.close);
-    return () => {
-      layer.release();
-      window.removeEventListener('scroll', dismissOnScroll, true);
-      window.removeEventListener('resize', popover.close);
-    };
-  }, [popover.open, activeKey, metric, view, daily, hourly]);
-  const activate = (key: string, element: HTMLButtonElement, mode: 'hover' | 'focus' | 'click') => {
-    if (mode === 'hover' && popover.pinned) return;
-    anchorRef.current = element;
-    const changingPinned = mode === 'click' && popover.pinned && activeKey !== key;
-    setActiveKey(key);
-    if (changingPinned) popover.setOpen(true);
-    else if (mode === 'click') popover.triggerProps.onClick();
-    else if (mode === 'focus') popover.triggerProps.onFocus();
-    else popover.hostProps.onMouseEnter();
-  };
-  // Partial weeks/months must not label the axis outside the queried dates.
-  const axisStart = view === 'hour' ? series[0]?.label : String(period.startDay || daily[0]?.day || '');
-  const axisEnd = view === 'hour' ? series.at(-1)?.label : String(period.endDay || daily.at(-1)?.day || '');
-  const peak = series.reduce((max, entry) => Math.max(max, metricValue(entry, metric)), 0);
-  const peakLabel = t('Peak per {{interval}}', {
-    interval: new Intl.NumberFormat(uiFormatLocale(), { style: 'unit', unit: grain, unitDisplay: 'long' }).format(
-      grouping.step
-    ),
-  });
-  // Tokens and cost diverge by several times: a provider can be a small share
-  // of the traffic and most of the spend. The chart draws whichever question
-  // is being asked rather than implying one answers the other.
-  const metrics: ReadonlyArray<{ key: Metric; label: string }> = [
-    { key: 'tokens', label: t('Tokens') },
-    { key: 'costUsd', label: t('Cost') },
-    { key: 'turns', label: t('Usage records') },
-  ];
-  return (
-    <section className="stats-trend">
-      <header>
-        <h4>{t('Trend')}</h4>
-        <div className="stats-ranges stats-grains" role="group" aria-label={t('Metric')}>
-          {metrics.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`stats-range ${option.key === metric ? 'is-active' : ''}`}
-              aria-pressed={option.key === metric}
-              disabled={loading}
-              onClick={() => {
-                popover.close();
-                setMetric(option.key);
-              }}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        {(peak > 0 || loading) && (
-          <span>
-            {peakLabel}{' '}
-            <StatsValue
-              loading={loading}
-              value={metricText(
-                peak,
-                metric,
-                series.some((entry) => (metric === 'costUsd' ? entry.costUnpricedTurns > 0 : entry.unmeasuredTurns > 0))
-              )}
-            />
-          </span>
-        )}
-      </header>
-      {/* A period with nothing in it says so. A row of hairlines under
-        "Peak 0" read as a chart that failed to draw. */}
-      {loading ? (
-        <div className="stats-trend-bars stats-trend-skeleton usage-skeleton" aria-hidden="true" />
-      ) : peak > 0 ? (
-        <div
-          className="stats-trend-bars"
-          {...popover.hostProps}
-          onKeyDownCapture={(event) => {
-            if (popover.open && event.key === 'Escape') {
-              event.stopPropagation();
-              popover.close();
-            }
-          }}
-          data-single={series.length === 1 ? 'true' : undefined}
-        >
-          {series.map((entry) => (
-            <TrendBar
-              key={entry.key}
-              bucket={entry}
-              metric={metric}
-              peak={peak}
-              order={providerOrder}
-              expanded={popover.open && activeKey === entry.key}
-              controls={detailId}
-              interaction={{
-                onMouseEnter: (event) => activate(entry.key, event.currentTarget, 'hover'),
-                onFocus: (event) => activate(entry.key, event.currentTarget, 'focus'),
-                onClick: (event) => activate(entry.key, event.currentTarget, 'click'),
-                onBlur: popover.triggerProps.onBlur,
-              }}
-            />
-          ))}
-          {popover.open && active && (
-            <div
-              className="stats-trend-detail"
-              ref={detailRef}
-              id={detailId}
-              role="dialog"
-              aria-modal="false"
-              aria-labelledby={`${detailId}-period`}
-              style={position}
-              data-pinned={popover.pinned ? 'true' : undefined}
-            >
-              <div className="stats-trend-detail-heading">
-                <b id={`${detailId}-period`}>{trendPeriodLabel(active)}</b>
-                <button type="button" aria-label={t('Close')} onClick={popover.close}>
-                  <X aria-hidden="true" />
-                </button>
-              </div>
-              <dl className="stats-trend-detail-totals">
-                {metrics.map((option) => (
-                  <div key={option.key}>
-                    <dt>{option.label}</dt>
-                    <dd
-                      title={
-                        option.key === 'tokens'
-                          ? t('Cache excluded')
-                          : option.key === 'costUsd' && active.costUnpricedTurns > 0
-                            ? t('Partial cost')
-                            : undefined
-                      }
-                    >
-                      {trendMetricText(active, option.key)}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <ul aria-label={t('Provider')}>
-                {providerOrder
-                  .filter((id) => active.providers.has(id))
-                  .map((id) => {
-                    const usage = active.providers.get(id)!;
-                    const provider = providers.find((row) => row.provider === id);
-                    const plan = statsPlan(id, String(provider?.providerKind || ''));
-                    return (
-                      <li key={id}>
-                        <span>
-                          <i data-usage-provider={id} aria-hidden="true" />
-                          {usageProviderLabel(providerDisplayName(id))}
-                          {plan ? ` · ${statsPlanLabel(plan)}` : ''}
-                        </span>
-                        <b>{trendMetricText(usage, metric)}</b>
-                      </li>
-                    );
-                  })}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : (
-        <p className="stats-trend-empty">
-          {metric === 'costUsd' && series.some((entry) => entry.costUnpricedTurns > 0)
-            ? t('Price unavailable')
-            : metric === 'costUsd' && series.some((entry) => entry.turns > 0)
-              ? `${t('Cost')} ${usageMoney(0)}`
-              : series.some((entry) => entry.unmeasuredTurns > 0)
-                ? t('Unknown usage')
-                : t('No usage in this period.')}
-        </p>
-      )}
-      <footer data-single={axisStart === axisEnd ? 'true' : undefined}>
-        <span>{axisStart}</span>
-        {axisStart !== axisEnd && <span>{axisEnd}</span>}
-      </footer>
-      <ul className="stats-trend-legend">
-        {providerOrder.map((id) => {
-          const provider = providers.find((row) => row.provider === id);
-          const plan = statsPlan(id, String(provider?.providerKind || ''));
-          return (
-            <li key={id}>
-              <i data-usage-provider={id} aria-hidden="true" />
-              {usageProviderLabel(providerDisplayName(id))}
-              {plan ? ` · ${statsPlanLabel(plan)}` : ''}
-            </li>
-          );
-        })}
-      </ul>
-    </section>
-  );
-}
-
 function RouteCells({ route }: { route: Row }) {
   const incomplete = statsNumber(route.unmeasuredTurns) > 0;
   return (
@@ -729,33 +158,6 @@ function SortHeader({
       </button>
     </th>
   );
-}
-
-function periodLabel(view: StatsView, period: Row, firstDay?: string): string {
-  // A range cut by the clock reads like the rolling window: only the exact
-  // instants tell the reader where a partial day was cut.
-  const clocked = view === 'custom' && Boolean(period.startTime || period.endTime);
-  if (view === 'hour' || clocked) {
-    if (!period.fromMs || !period.toMs) return clocked ? '—' : t('Last 24 hours');
-    const options: Intl.DateTimeFormatOptions = {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    };
-    if (clocked) options.year = 'numeric';
-    return new Intl.DateTimeFormat(uiFormatLocale(), options).formatRange(
-      new Date(Number(period.fromMs)),
-      new Date(Number(period.toMs))
-    );
-  }
-  const startDay = view === 'year' ? firstDay : period.startDay;
-  if (!startDay || !period.endDay) return view === 'year' ? t('All') : '—';
-  return new Intl.DateTimeFormat(uiFormatLocale(), {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).formatRange(new Date(`${String(startDay)}T00:00:00`), new Date(`${String(period.endDay)}T00:00:00`));
 }
 
 export function UsageStatsBody({
@@ -868,23 +270,20 @@ export function UsageStatsBody({
   const historyDays = statsNumber(coverage.historyDays);
   const partialDays = statsNumber(coverage.partialDays);
   const incomplete = statsNumber(totals.unmeasuredTurns) > 0;
-  const tokenInfo = [
-    t('Input, output and cache hits combined.'),
-    historyDays > 0
-      ? t('Some historical days use estimated token counts, dates and costs.')
-      : partialDays > 0
-        ? t('Historical records may be incomplete; only surviving usage is counted.')
-        : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  let historyNote = '';
+  if (historyDays > 0) historyNote = t('Some historical days use estimated token counts, dates and costs.');
+  else if (partialDays > 0) historyNote = t('Historical records may be incomplete; only surviving usage is counted.');
+  const tokenInfo = [t('Input, output and cache hits combined.'), historyNote].filter(Boolean).join('\n');
   const waiting = busy || loading;
-  const applyCustom = (range: DayRange) => {
-    setApplied(range);
+  const seedCustomRange = (range: DayRange) => {
     setCustomStart(range.startDay);
     setCustomEnd(range.endDay);
     setCustomStartTime(range.startTime || '');
     setCustomEndTime(range.endTime || '');
+  };
+  const applyCustom = (range: DayRange) => {
+    setApplied(range);
+    seedCustomRange(range);
     setCustomOpen(false);
     reload('custom', undefined, range);
   };
@@ -911,10 +310,7 @@ export function UsageStatsBody({
       startDay: String(period.startDay || record(stats.range).firstDay || localDayKey(initialPeriod.fromMs)),
       endDay: String(period.endDay || localDayKey(initialPeriod.toMs)),
     };
-    setCustomStart(seed.startDay);
-    setCustomEnd(seed.endDay);
-    setCustomStartTime(seed.startTime || '');
-    setCustomEndTime(seed.endTime || '');
+    seedCustomRange(seed);
     setCustomOpen(true);
   };
   // Times only ever narrow a range, so a reversed clock can only appear when
@@ -927,6 +323,12 @@ export function UsageStatsBody({
       Boolean(customStartTime) &&
       Boolean(customEndTime) &&
       customStartTime > customEndTime);
+  const customRange: DayRange = {
+    startDay: customStart,
+    endDay: customEnd,
+    ...(customStartTime ? { startTime: customStartTime } : {}),
+    ...(customEndTime ? { endTime: customEndTime } : {}),
+  };
   const views: ReadonlyArray<{ key: StatsView; label: string }> = [
     { key: 'hour', label: t('Last 24 hours') },
     { key: '7d', label: t('Last 7 days') },
@@ -982,30 +384,10 @@ export function UsageStatsBody({
                     aria-label={t('Custom')}
                     onSubmit={(event) => {
                       event.preventDefault();
-                      applyCustom({
-                        startDay: customStart,
-                        endDay: customEnd,
-                        ...(customStartTime ? { startTime: customStartTime } : {}),
-                        ...(customEndTime ? { endTime: customEndTime } : {}),
-                      });
+                      applyCustom(customRange);
                     }}
                   >
-                    <DateRangePicker
-                      value={{
-                        startDay: customStart,
-                        endDay: customEnd,
-                        ...(customStartTime ? { startTime: customStartTime } : {}),
-                        ...(customEndTime ? { endTime: customEndTime } : {}),
-                      }}
-                      maxDay={today}
-                      disabled={waiting}
-                      onChange={(next) => {
-                        setCustomStart(next.startDay);
-                        setCustomEnd(next.endDay);
-                        setCustomStartTime(next.startTime || '');
-                        setCustomEndTime(next.endTime || '');
-                      }}
-                    />
+                    <DateRangePicker value={customRange} maxDay={today} disabled={waiting} onChange={seedCustomRange} />
                     <button className="stats-range" type="submit" disabled={waiting || customInvalid}>
                       {t('Apply')}
                     </button>

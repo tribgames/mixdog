@@ -142,26 +142,21 @@ function _isCodeGraphCacheHash(value) {
   return /^[0-9a-f]{8,64}$/i.test(String(value || ''));
 }
 
-export function _pruneCodeGraphManifestForBudget(manifest, dir, options = {}) {
-  const maxEntries = Number.isFinite(options.maxEntries)
-    ? Math.max(0, Math.floor(options.maxEntries))
-    : CODE_GRAPH_DISK_MAX_ENTRIES;
-  const maxBytes = Number.isFinite(options.maxBytes)
-    ? Math.max(0, Math.floor(options.maxBytes))
-    : CODE_GRAPH_DISK_MAX_BYTES;
+// Every cached root with its on-disk footprint, oldest build first. Roots
+// whose cache file is gone are skipped. The call-site sidecar is part of a
+// root's footprint, so the byte budget sees it even though no mode parses it
+// eagerly.
+function manifestFootprintRows(manifest, dir) {
   const rows = [];
   for (const [cwd, meta] of Object.entries(manifest || {})) {
     const hash = String(meta?.hash || '');
     if (!cwd || !_isCodeGraphCacheHash(hash)) continue;
-    const file = join(dir, `${hash}.json`);
     let size = 0;
     try {
-      size = statSync(file).size;
+      size = statSync(join(dir, `${hash}.json`)).size;
     } catch {
       continue;
     }
-    // The call-site sidecar is part of this root's disk footprint, so the
-    // byte budget must see it even though no mode parses it eagerly.
     let sidecarSize = 0;
     try {
       sidecarSize = statSync(callsSidecarPath(dir, hash)).size;
@@ -176,6 +171,17 @@ export function _pruneCodeGraphManifestForBudget(manifest, dir, options = {}) {
     });
   }
   rows.sort((a, b) => a.builtAt - b.builtAt || a.cwd.localeCompare(b.cwd));
+  return rows;
+}
+
+export function _pruneCodeGraphManifestForBudget(manifest, dir, options = {}) {
+  const maxEntries = Number.isFinite(options.maxEntries)
+    ? Math.max(0, Math.floor(options.maxEntries))
+    : CODE_GRAPH_DISK_MAX_ENTRIES;
+  const maxBytes = Number.isFinite(options.maxBytes)
+    ? Math.max(0, Math.floor(options.maxBytes))
+    : CODE_GRAPH_DISK_MAX_BYTES;
+  const rows = manifestFootprintRows(manifest, dir);
   const keep = new Set(rows.map((row) => row.cwd));
   let totalBytes = rows.reduce((sum, row) => sum + row.size, 0);
   const evicted = [];
@@ -351,6 +357,79 @@ function _ensureCwdLoaded(cwd) {
   }
 }
 
+// Read under the common lock so concurrently completed roots cannot
+// overwrite one another with manifests based on the same stale snapshot.
+function _readPreservedManifest(dir) {
+  try {
+    const parsed = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+    if (parsed && typeof parsed === 'object') return parsed;
+  } catch {
+    /* no existing manifest yet */
+  }
+  return {};
+}
+
+function _fileSizeOrNull(file) {
+  try {
+    return statSync(file).size;
+  } catch {
+    return null;
+  }
+}
+
+// Writes one cwd's graph entry (and its pending call-site sidecar) and answers
+// with its manifest row. The sidecar is written in the same critical section
+// as the entry it belongs to, so a reader never sees calls from one build
+// paired with the graph of another. An absent pending payload keeps the
+// existing file: this build simply had nothing new to say.
+function _persistDiskEntry(dir, cwd, entry, preserved, writeJson) {
+  const hash = _hashCwd(cwd);
+  const file = join(dir, `${hash}.json`);
+  writeJson(file, entry, { compact: true, lock: false });
+  const bytes = _fileSizeOrNull(file);
+  _noteDiskEntryBytes(cwd, bytes);
+  let callsBytes = Number(preserved?.[cwd]?.callsBytes);
+  const sidecar = _pendingCallsSidecars.get(cwd);
+  if (sidecar) {
+    const sidecarFile = callsSidecarPath(dir, hash);
+    writeJson(sidecarFile, sidecar, { compact: true, lock: false });
+    _pendingCallsSidecars.delete(cwd);
+    callsBytes = _fileSizeOrNull(sidecarFile) ?? undefined;
+  }
+  return {
+    hash,
+    builtAt: entry.builtAt || Date.now(),
+    bytes: Number.isFinite(bytes) ? bytes : undefined,
+    callsBytes: Number.isFinite(callsBytes) ? callsBytes : undefined,
+    maxFiles: Number.isFinite(entry.maxFiles) ? entry.maxFiles : undefined,
+  };
+}
+
+function _commitDiskCodeGraphCache(dir, writeJson) {
+  _loadDiskCodeGraphCache();
+  _pruneDiskCodeGraphEntries();
+  const preserved = _readPreservedManifest(dir);
+  let manifest = { ...preserved };
+  for (const [cwd, entry] of _diskCodeGraphCache) {
+    manifest[cwd] = _persistDiskEntry(dir, cwd, entry, preserved, writeJson);
+  }
+  const pruned = _pruneCodeGraphManifestForBudget(manifest, dir);
+  manifest = pruned.manifest;
+  for (const row of pruned.evicted) {
+    _dropDiskEntry(row.cwd);
+  }
+  const validHashes = new Set();
+  for (const meta of Object.values(manifest)) {
+    if (meta && typeof meta === 'object' && meta.hash) validHashes.add(meta.hash);
+  }
+  writeJson(join(dir, 'manifest.json'), manifest, { compact: true, lock: false });
+  _diskManifest = manifest;
+  // Sweep orphan per-cwd files. validHashes now includes every hash in
+  // the merged manifest (preserved + ours) so cross-instance cache files
+  // are never collateral damage.
+  _sweepCodeGraphCacheDir(dir, validHashes, { sweepJson: true });
+}
+
 function _persistDiskCodeGraphCacheNow({ strict = false, writeJson = writeJsonAtomicSync } = {}) {
   try {
     const dir = _codeGraphDiskDir();
@@ -364,80 +443,9 @@ function _persistDiskCodeGraphCacheNow({ strict = false, writeJson = writeJsonAt
     // loop). Worker strict drains may wait because they run off-thread and must
     // not fail a successful graph build merely because a sibling root finished
     // at the same instant.
-    withFileLockSync(
-      join(dir, '.persist.lock'),
-      () => {
-        _loadDiskCodeGraphCache();
-        _pruneDiskCodeGraphEntries();
-
-        // Read under the common lock so concurrently completed roots cannot
-        // overwrite one another with manifests based on the same stale snapshot.
-        let preserved = {};
-        try {
-          const raw = readFileSync(join(dir, 'manifest.json'), 'utf8');
-          const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object') preserved = parsed;
-        } catch {
-          /* no existing manifest yet */
-        }
-
-        let manifest = { ...preserved };
-        const validHashes = new Set();
-        for (const [cwd, entry] of _diskCodeGraphCache) {
-          const hash = _hashCwd(cwd);
-          const file = join(dir, `${hash}.json`);
-          writeJson(file, entry, { compact: true, lock: false });
-          let bytes = null;
-          try {
-            bytes = statSync(file).size;
-          } catch {
-            /* written entry may be unavailable */
-          }
-          _noteDiskEntryBytes(cwd, bytes);
-          // The call-site sidecar is written in the same critical section as the
-          // entry it belongs to, so a reader never sees calls from one build
-          // paired with the graph of another. An absent pending payload keeps
-          // the existing file: this build simply had nothing new to say.
-          let callsBytes = Number(preserved?.[cwd]?.callsBytes);
-          const sidecar = _pendingCallsSidecars.get(cwd);
-          if (sidecar) {
-            const sidecarFile = callsSidecarPath(dir, hash);
-            writeJson(sidecarFile, sidecar, { compact: true, lock: false });
-            _pendingCallsSidecars.delete(cwd);
-            try {
-              callsBytes = statSync(sidecarFile).size;
-            } catch {
-              callsBytes = undefined;
-            }
-          }
-          manifest[cwd] = {
-            hash,
-            builtAt: entry.builtAt || Date.now(),
-            bytes: Number.isFinite(bytes) ? bytes : undefined,
-            callsBytes: Number.isFinite(callsBytes) ? callsBytes : undefined,
-            maxFiles: Number.isFinite(entry.maxFiles) ? entry.maxFiles : undefined,
-          };
-        }
-        const pruned = _pruneCodeGraphManifestForBudget(manifest, dir);
-        manifest = pruned.manifest;
-        for (const row of pruned.evicted) {
-          _dropDiskEntry(row.cwd);
-        }
-        for (const meta of Object.values(manifest)) {
-          if (meta && typeof meta === 'object' && meta.hash) validHashes.add(meta.hash);
-        }
-
-        const manifestFile = join(dir, 'manifest.json');
-        writeJson(manifestFile, manifest, { compact: true, lock: false });
-        _diskManifest = manifest;
-
-        // Sweep orphan per-cwd files. validHashes now includes every hash in
-        // the merged manifest (preserved + ours) so cross-instance cache files
-        // are never collateral damage.
-        _sweepCodeGraphCacheDir(dir, validHashes, { sweepJson: true });
-      },
-      { timeoutMs: strict ? 30_000 : 0 }
-    );
+    withFileLockSync(join(dir, '.persist.lock'), () => _commitDiskCodeGraphCache(dir, writeJson), {
+      timeoutMs: strict ? 30_000 : 0,
+    });
   } catch (err) {
     process.stderr.write(
       `[code-graph] disk cache persist failed (target: ${_codeGraphDiskDir()}): ${err?.message || err}\n`
@@ -598,7 +606,7 @@ function _stageCallsSidecar(key, graph) {
  * Returns the number of files hydrated.
  */
 export function hydrateGraphCallsFromSidecar(graph) {
-  if (!graph || graph._callsHydration !== 'pending') return 0;
+  if (graph?._callsHydration !== 'pending') return 0;
   graph._callsHydration = 'done';
   try {
     _loadDiskCodeGraphCache();

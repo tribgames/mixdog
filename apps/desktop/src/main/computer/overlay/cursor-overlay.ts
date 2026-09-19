@@ -199,9 +199,8 @@ export function createComputerUseCursorOverlay(): ComputerUseCursorOverlay {
     // Animated effects start their keyframes at zero opacity, so reading the
     // style in the same frame says nothing about whether they became visible.
     const animated = ['click', 'type', 'scroll', 'prepare'].includes(effect);
-    recordCursorDiagnostic(
-      evidence?.opacity > 0 ? 'ring_visible_style' : animated ? 'ring_animation_start' : 'ring_transparent_style'
-    );
+    const unseenRing = animated ? 'ring_animation_start' : 'ring_transparent_style';
+    recordCursorDiagnostic(evidence?.opacity > 0 ? 'ring_visible_style' : unseenRing);
   };
 
   const pinAboveTarget = (window: BrowserWindow, windowId: string): void => {

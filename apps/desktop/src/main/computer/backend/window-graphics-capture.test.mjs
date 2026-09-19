@@ -74,7 +74,7 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
   }
 }
 `;
-  const session = PS_SESSION.replace(MIXDOG_HOST_CSHARP, MIXDOG_HOST_CSHARP + '\n' + fixture);
+  const session = PS_SESSION.replace(MIXDOG_HOST_CSHARP, `${MIXDOG_HOST_CSHARP}\n${fixture}`);
   const withForms = session.replace(
     /'System\.Drawing\.dll'\s*,\s*\$AccessibilityAssemblyPath/,
     "'System.Drawing.dll','System.Windows.Forms.dll',$$AccessibilityAssemblyPath"

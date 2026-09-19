@@ -15,7 +15,7 @@ const GESTURE_WINDOW_MS = 250;
 // Unlike virtual-core's isScrolling this excludes the timeline's own writes,
 // so late idle measurements can still compensate in a continuous burst.
 const READER_SCROLL_IDLE_MS = 180;
-export const BOTTOM_THRESHOLD_PX = 10;
+const BOTTOM_THRESHOLD_PX = 10;
 // A virtualized transcript must have exactly one geometry authority.
 // Browser anchoring and virtual-core both compensate rows that resize above
 // the viewport, so enabling both makes upward reader motion oscillate.

@@ -346,11 +346,9 @@ export function useComposerAttachments({
         const name = String(image.filename || `Image ${rawId || attachmentSequence.current}`);
         const namedToken = `[Image #${rawId}: ${name}]`;
         const plainToken = `[Image #${rawId}]`;
-        const sourceToken = textValue.includes(namedToken)
-          ? namedToken
-          : textValue.includes(plainToken)
-            ? plainToken
-            : '';
+        let sourceToken = '';
+        if (textValue.includes(namedToken)) sourceToken = namedToken;
+        else if (textValue.includes(plainToken)) sourceToken = plainToken;
         if (sourceToken) {
           textValue = textValue
             .replace(sourceToken, ' ')

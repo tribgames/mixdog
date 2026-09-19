@@ -37,6 +37,8 @@ if [[ -d "$RENDERER_DELTA_DIR" && -f "$RENDERER_MANIFEST" ]]; then
 elif [[ -f "$SRC_DIR/renderer/index.html" ]]; then
 	RENDERER_MODE="full"
 fi
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=release-transaction.sh
 source "$SRC_DIR/deploy/release-transaction.sh"
 
 # One release at a time: the staging globs below sweep every

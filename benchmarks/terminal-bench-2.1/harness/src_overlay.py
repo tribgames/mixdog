@@ -295,9 +295,11 @@ def _graph_capability_probe(binary_path: Path) -> None:
                 GRAPH_PROBE_IMAGE,
                 "sh",
                 "-c",
-                "set -eu; cp /runtime/graph /tmp/mixdog-graph; "
-                "chmod 0755 /tmp/mixdog-graph; "
-                "exec /tmp/mixdog-graph /fixture --serve-search",
+                (
+                    "set -eu; cp /runtime/graph /tmp/mixdog-graph; "
+                    "chmod 0755 /tmp/mixdog-graph; "
+                    "exec /tmp/mixdog-graph /fixture --serve-search"
+                ),
             ],
             "native graph capability preflight",
             input_text="".join(json.dumps(request) + "\n" for request in requests),
@@ -364,11 +366,13 @@ def build_local_graph(repo_root: Path, build_dir: Path) -> Path:
                 GRAPH_BUILD_IMAGE,
                 "sh",
                 "-c",
-                "set -eu; apk add --no-cache build-base >/dev/null; "
-                "PCRE2_SYS_STATIC=1 CARGO_TARGET_DIR=/tmp/target "
-                "cargo build --locked --release --manifest-path /src/Cargo.toml; "
-                "install -m 0755 /tmp/target/release/mixdog-graph "
-                "/out/mixdog-graph-linux-x64",
+                (
+                    "set -eu; apk add --no-cache build-base >/dev/null; "
+                    "PCRE2_SYS_STATIC=1 CARGO_TARGET_DIR=/tmp/target "
+                    "cargo build --locked --release --manifest-path /src/Cargo.toml; "
+                    "install -m 0755 /tmp/target/release/mixdog-graph "
+                    "/out/mixdog-graph-linux-x64"
+                ),
             ],
             "local native graph build",
         )
@@ -423,8 +427,7 @@ def _git_index_file_modes(repo_src: Path) -> dict[str, int]:
                 "src/",
             ],
             cwd=repo_src.parent,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
         )
     except OSError as exc:
@@ -527,22 +530,14 @@ def _collect_source_entries(
                 walk(source, parts)
             elif stat.S_ISREG(info.st_mode):
                 relative_name = "/".join(parts)
+                if relative_name == "cli.mjs":
+                    mode = 0o755
+                elif os.name == "nt":
+                    mode = tracked_modes.get(relative_name, 0o644)
+                else:
+                    mode = stat.S_IMODE(info.st_mode)
                 entries.append(
-                    _SourceEntry(
-                        source,
-                        archive_name,
-                        (
-                            0o755
-                            if relative_name == "cli.mjs"
-                            else (
-                                tracked_modes.get(relative_name, 0o644)
-                                if os.name == "nt"
-                                else stat.S_IMODE(info.st_mode)
-                            )
-                        ),
-                        info.st_size,
-                        False,
-                    )
+                    _SourceEntry(source, archive_name, mode, info.st_size, False)
                 )
             else:
                 raise SrcOverlayError(f"refusing unsupported local src entry: {source}")

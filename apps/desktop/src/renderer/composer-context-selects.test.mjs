@@ -113,19 +113,20 @@ for (const language of ['en', 'ko']) {
       setUiLanguagePreference(language);
       await initUiLanguage();
       const expected = copy[language];
-      const element =
-        control === 'project'
-          ? React.createElement(ProjectContextSelector, {
-              projects: [],
-              activePath: '',
-              activeLabel: '',
-              disabled: false,
-              onClear() {},
-              onSelect() {},
-            })
-          : control === 'workflow'
-            ? React.createElement(WorkflowSelect, common)
-            : React.createElement(OrchestrationModeSelect, { ...common, mode: 'none' });
+      const elements = {
+        project: () =>
+          React.createElement(ProjectContextSelector, {
+            projects: [],
+            activePath: '',
+            activeLabel: '',
+            disabled: false,
+            onClear() {},
+            onSelect() {},
+          }),
+        workflow: () => React.createElement(WorkflowSelect, common),
+        orchestration: () => React.createElement(OrchestrationModeSelect, { ...common, mode: 'none' }),
+      };
+      const element = elements[control]();
       const trigger = await mount(element, t);
       await hover(trigger, expected.tips[index]);
       await act(async () => trigger.click());

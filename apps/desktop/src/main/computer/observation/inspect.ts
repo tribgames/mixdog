@@ -64,31 +64,33 @@ export function createInspection(host: InspectHost) {
           DIAGNOSE_ACCESSIBILITY_TIMEOUT_MS
         );
         const returnedElements = Array.isArray(probe.result?.elements) ? probe.result.elements.length : 0;
-        accessibility = probe.ok
-          ? returnedElements > 0
-            ? {
-                available: true,
-                provider_available: true,
-                state: 'usable',
-                target_window_id: target.id,
-                returned_elements: returnedElements,
-              }
-            : {
-                available: false,
-                provider_available: true,
-                state: 'empty',
-                target_window_id: target.id,
-                returned_elements: 0,
-                reason: 'target exposes no semantic accessibility elements; state capture will use OCR/pixels',
-                fallback: 'ocr_or_pixels',
-              }
-          : {
-              available: false,
-              provider_available: false,
-              state: 'error',
-              target_window_id: target.id,
-              reason: probe.error || 'accessibility probe failed',
-            };
+        if (!probe.ok) {
+          accessibility = {
+            available: false,
+            provider_available: false,
+            state: 'error',
+            target_window_id: target.id,
+            reason: probe.error || 'accessibility probe failed',
+          };
+        } else if (returnedElements > 0) {
+          accessibility = {
+            available: true,
+            provider_available: true,
+            state: 'usable',
+            target_window_id: target.id,
+            returned_elements: returnedElements,
+          };
+        } else {
+          accessibility = {
+            available: false,
+            provider_available: true,
+            state: 'empty',
+            target_window_id: target.id,
+            returned_elements: 0,
+            reason: 'target exposes no semantic accessibility elements; state capture will use OCR/pixels',
+            fallback: 'ocr_or_pixels',
+          };
+        }
       } catch (error) {
         accessibility = {
           available: false,
@@ -110,16 +112,14 @@ export function createInspection(host: InspectHost) {
         },
         DIAGNOSE_OCR_TIMEOUT_MS
       );
-      ocr = probe.ok
-        ? {
-            available: probe.result?.available === true,
-            requested_language: probe.result?.requested_language ?? null,
-            active_language: probe.result?.active_language ?? null,
-            installed_languages: Array.isArray(probe.result?.installed_languages)
-              ? probe.result.installed_languages
-              : [],
-          }
-        : { available: false, reason: probe.error || 'OCR readiness probe failed' };
+      if (probe.ok) {
+        ocr = {
+          available: probe.result?.available === true,
+          requested_language: probe.result?.requested_language ?? null,
+          active_language: probe.result?.active_language ?? null,
+          installed_languages: Array.isArray(probe.result?.installed_languages) ? probe.result.installed_languages : [],
+        };
+      } else ocr = { available: false, reason: probe.error || 'OCR readiness probe failed' };
     } catch (error) {
       ocr = { available: false, reason: (error as Error).message || String(error) };
     }
@@ -168,6 +168,9 @@ export function createInspection(host: InspectHost) {
     if (command.ocr_language && ocr.available !== true) {
       issues.push(`Windows OCR language is unavailable: ${command.ocr_language}`);
     }
+    let inputMode = 'enabled';
+    if (isObserveOnly()) inputMode = 'observation_only';
+    else if (inputBlocked) inputMode = 'blocked';
     return {
       text: JSON.stringify({
         ok: windows !== null,
@@ -189,7 +192,7 @@ export function createInspection(host: InspectHost) {
           semantic_accessibility: accessibility,
           ocr,
           delivery_modes: ['background', 'foreground'],
-          input_mode: isObserveOnly() ? 'observation_only' : inputBlocked ? 'blocked' : 'enabled',
+          input_mode: inputMode,
           input_observation: inputObservation,
           ...(inputState
             ? {
@@ -311,12 +314,9 @@ export function createInspection(host: InspectHost) {
         setTimeout(resolve, Math.min(VERIFY_POLL_INTERVAL_MS, Math.max(1, deadline - performance.now())))
       );
     }
-    const decision: VerifyStatus =
-      consecutive >= stableSamples
-        ? 'satisfied'
-        : statuses.some((status) => status === 'unknown')
-          ? 'unknown'
-          : 'unsatisfied';
+    let decision: VerifyStatus = 'unsatisfied';
+    if (consecutive >= stableSamples) decision = 'satisfied';
+    else if (statuses.some((status) => status === 'unknown')) decision = 'unknown';
     return {
       text: JSON.stringify({
         ok: decision === 'satisfied',

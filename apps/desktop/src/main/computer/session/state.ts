@@ -68,6 +68,11 @@ export interface SessionStateHost {
   }>;
 }
 
+/** An optional worker field: absent, null and '' all mean "not reported". */
+function optionalText(value: unknown): string | undefined {
+  return String(value || '') || undefined;
+}
+
 export function createSessionState(host: SessionStateHost) {
   const { callPowerShell } = host;
 
@@ -218,11 +223,11 @@ export function createSessionState(host: SessionStateHost) {
         center_x: Number(row.center_x) || 0,
         center_y: Number(row.center_y) || 0,
         actions: Array.isArray(row.actions) ? row.actions.map((action) => String(action)).filter(Boolean) : [],
-        accelerator: String(row.accelerator || '') || undefined,
-        access_key: String(row.access_key || '') || undefined,
-        runtime_id: String(row.runtime_id || '') || undefined,
-        parent_runtime_id: String(row.parent_runtime_id || '') || undefined,
-        class_name: String(row.class_name || '') || undefined,
+        accelerator: optionalText(row.accelerator),
+        access_key: optionalText(row.access_key),
+        runtime_id: optionalText(row.runtime_id),
+        parent_runtime_id: optionalText(row.parent_runtime_id),
+        class_name: optionalText(row.class_name),
         has_keyboard_focus: row.has_keyboard_focus === true,
         in_document: row.in_document === true,
         ancestors,
@@ -268,12 +273,13 @@ export function createSessionState(host: SessionStateHost) {
     return target;
   }
 
-  function resolveElementAliases(command: ComputerCommand): ComputerCommand {
-    const markedTarget = ELEMENT_ALIAS_ACTIONS.has(command.action)
-      ? elementTarget(command, command.element, 'element')
-      : undefined;
-    const markedDestination =
-      command.action === 'drag' ? elementTarget(command, command.to_element, 'to_element') : undefined;
+  // Marks and explicit refs/coordinates must name the same control and, for a
+  // drag, the same kind of source and destination.
+  function assertElementAliasTargets(
+    command: ComputerCommand,
+    markedTarget: ReturnType<typeof elementTarget> | undefined,
+    markedDestination: ReturnType<typeof elementTarget> | undefined
+  ): void {
     for (const [target, label] of [
       [markedTarget, 'element'],
       [markedDestination, 'to_element'],
@@ -308,6 +314,15 @@ export function createSessionState(host: SessionStateHost) {
     ) {
       throw new Error('drag source and destination must come from the same fresh frame and window');
     }
+  }
+
+  function resolveElementAliases(command: ComputerCommand): ComputerCommand {
+    const markedTarget = ELEMENT_ALIAS_ACTIONS.has(command.action)
+      ? elementTarget(command, command.element, 'element')
+      : undefined;
+    const markedDestination =
+      command.action === 'drag' ? elementTarget(command, command.to_element, 'to_element') : undefined;
+    assertElementAliasTargets(command, markedTarget, markedDestination);
     return {
       ...command,
       ...(markedTarget?.kind === 'ref' && markedTarget.ref ? { ref: markedTarget.ref } : {}),

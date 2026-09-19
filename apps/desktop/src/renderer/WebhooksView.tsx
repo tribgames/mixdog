@@ -415,7 +415,7 @@ function WebhookEditor({
               copied={copiedField === 'url'}
               onCopy={() => copyField('url', editing ? endpointUrl(publicBase, draft.name) : previewUrl)}
             />
-            {editing && !rotated ? (
+            {editing && !rotated && (
               <div className="schedules-field webhook-connection-row">
                 <span>{t('Signing secret')}</span>
                 <small>{t('The saved secret stays hidden. Regenerate it to create a new one.')}</small>
@@ -430,7 +430,8 @@ function WebhookEditor({
                   </button>
                 </div>
               </div>
-            ) : (
+            )}
+            {!(editing && !rotated) && (
               <ConnectionRow
                 label={t('Signing secret')}
                 note={t('Sign requests with this secret — copy it now.')}
@@ -652,9 +653,8 @@ export function WebhooksPane({
         )}
         {/* No loading flash: the list area stays empty until the first snapshot
           lands (Schedules-page grammar). */}
-        {loading ? (
-          <InitialSurface />
-        ) : visible.length ? (
+        {loading && <InitialSurface />}
+        {!loading && visible.length > 0 && (
           <div className="schedules-list">
             {visible.map((webhook) => {
               const name = String(webhook.name);
@@ -684,7 +684,8 @@ export function WebhooksPane({
               );
             })}
           </div>
-        ) : (
+        )}
+        {!loading && visible.length === 0 && (
           <div className="schedules-empty">
             <Webhook size={40} strokeWidth={1.5} aria-hidden="true" />
             <p>{webhooks.length ? t('No webhooks match the current filter.') : t('No inbound webhooks yet.')}</p>

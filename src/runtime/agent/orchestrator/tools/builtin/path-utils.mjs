@@ -1,5 +1,5 @@
-import { homedir } from 'os';
-import { isAbsolute, relative, resolve } from 'path';
+import { homedir } from 'node:os';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { isWSL } from '../../../../shared/wsl.mjs';
 
@@ -201,7 +201,7 @@ export function normalizeGlobArgs(args) {
 export function normalizeOutputPath(p) {
   if (typeof p !== 'string') return p;
   if (process.platform !== 'win32') return p;
-  return p.replace(/\\/g, '/').replace(/^([a-z]):/, (_, d) => d.toUpperCase() + ':');
+  return p.replace(/\\/g, '/').replace(/^([a-z]):/, (_, d) => `${d.toUpperCase()}:`);
 }
 
 export function resolveAgainstCwd(filePath, cwd) {
@@ -227,7 +227,7 @@ export function toDisplayPath(absPath, cwd) {
   if (cwd) {
     const a = String(absPath).replace(/\\/g, '/');
     const c = String(cwd).replace(/\\/g, '/').replace(/\/+$/, '');
-    if (a.toLowerCase().startsWith(c.toLowerCase() + '/')) {
+    if (a.toLowerCase().startsWith(`${c.toLowerCase()}/`)) {
       return a.slice(c.length + 1);
     }
     if (a.toLowerCase() === c.toLowerCase()) return '';
@@ -242,9 +242,9 @@ export function extractGlobBaseDirectory(pattern) {
   if (lastSep === -1) return { baseDir: null, relativePattern: pattern };
   let baseDir = staticPrefix.slice(0, lastSep);
   const remainder = pattern.slice(lastSep + 1);
-  const relativePattern = remainder.startsWith('/') ? remainder : '/' + remainder;
+  const relativePattern = remainder.startsWith('/') ? remainder : `/${remainder}`;
   if (process.platform === 'win32' && /^[A-Za-z]:$/.test(baseDir)) {
-    baseDir = baseDir + '\\';
+    baseDir = `${baseDir}\\`;
   }
   return { baseDir: baseDir || null, relativePattern };
 }

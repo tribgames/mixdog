@@ -7,6 +7,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, resolve, win32 } from 'node:path';
 import { resolvePluginData } from '../src/runtime/shared/plugin-paths.mjs';
+import { parseSince } from './lib/parse-since.mjs';
 
 function argValue(name, fallback = null) {
   const idx = process.argv.indexOf(name);
@@ -17,25 +18,6 @@ function argValue(name, fallback = null) {
 }
 function hasFlag(name) {
   return process.argv.includes(name);
-}
-
-function parseDuration(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  if (/^now$/i.test(raw)) return Date.now();
-  if (/^\d+$/.test(raw)) {
-    const n = Number(raw);
-    return n > 10_000_000_000 ? n : n * 1000;
-  }
-  const rel = raw.match(/^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/i);
-  if (rel) {
-    const n = Number(rel[1]);
-    const u = rel[2].toLowerCase();
-    const mult = u === 'ms' ? 1 : u === 's' ? 1000 : u === 'm' ? 60_000 : u === 'h' ? 3_600_000 : 86_400_000;
-    return Date.now() - n * mult;
-  }
-  const parsed = Date.parse(raw);
-  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function defaultTracePath() {
@@ -133,21 +115,20 @@ function targetValues(tool, args) {
     const symbolMode = ['find_symbol', 'symbol_search', 'search', 'references', 'callers', 'callees'].includes(
       args.mode
     );
-    key =
-      fileMode || (args.mode === 'symbols' && (args.files != null || args.file != null))
-        ? args.files != null
-          ? 'files'
-          : 'file'
-        : symbolMode || args.mode === 'symbols'
-          ? args.symbols != null
-            ? 'symbols'
-            : 'symbol'
-          : 'file';
+    if (fileMode || (args.mode === 'symbols' && (args.files != null || args.file != null))) {
+      key = args.files != null ? 'files' : 'file';
+    } else if (symbolMode || args.mode === 'symbols') {
+      key = args.symbols != null ? 'symbols' : 'symbol';
+    }
   } else if (tool === 'grep' || tool === 'glob') key = 'pattern';
   else if (tool === 'find') key = 'query';
-  const value = args[key];
-  return Array.isArray(value) ? value : value == null ? [] : [value];
+  return asList(args[key]);
 }
+function asList(value) {
+  if (Array.isArray(value)) return value;
+  return value == null ? [] : [value];
+}
+const SINGLE_TARGET_FIELD = { read: 'path', list: 'path', grep: 'pattern', glob: 'pattern', find: 'query' };
 function batchFields(tool, args) {
   if (tool === 'grep' || tool === 'glob') return ['pattern', 'path'];
   if (tool === 'code_graph') {
@@ -157,19 +138,13 @@ function batchFields(tool, args) {
     );
     if (symbolMode && args?.files == null && args?.file == null) return ['symbols', 'symbol'];
     if (symbolMode) return [];
-    return [
-      fileMode || args?.mode === 'symbols'
-        ? args?.files != null
-          ? 'files'
-          : args?.file != null
-            ? 'file'
-            : args?.symbols != null
-              ? 'symbols'
-              : 'symbol'
-        : null,
-    ].filter(Boolean);
+    if (!fileMode && args?.mode !== 'symbols') return [];
+    if (args?.files != null) return ['files'];
+    if (args?.file != null) return ['file'];
+    return [args?.symbols != null ? 'symbols' : 'symbol'];
   }
-  return [tool === 'read' || tool === 'list' ? 'path' : tool === 'find' ? 'query' : null].filter(Boolean);
+  if (tool === 'read' || tool === 'list') return ['path'];
+  return tool === 'find' ? ['query'] : [];
 }
 function compatibleBatchCalls(tool, left, right) {
   if (tool === 'read') {
@@ -228,28 +203,15 @@ function batchSpec(tool, args, forcedField = null) {
       args.mode
     );
     if (symbolMode && (args.files != null || args.file != null)) return null;
-    const field =
-      fileMode || (args.mode === 'symbols' && (args.files != null || args.file != null))
-        ? args.files != null
-          ? 'files'
-          : 'file'
-        : args.symbols != null
-          ? 'symbols'
-          : 'symbol';
+    let field = args.symbols != null ? 'symbols' : 'symbol';
+    if (fileMode || (args.mode === 'symbols' && (args.files != null || args.file != null))) {
+      field = args.files != null ? 'files' : 'file';
+    }
     return { field, values: targetValues(tool, args) };
   }
-  const fieldName =
-    forcedField ||
-    (tool === 'read' || tool === 'list'
-      ? 'path'
-      : tool === 'grep' || tool === 'glob'
-        ? 'pattern'
-        : tool === 'find'
-          ? 'query'
-          : null);
+  const fieldName = forcedField || SINGLE_TARGET_FIELD[tool] || null;
   if (!fieldName) return null;
-  const value = args[fieldName];
-  return { field: fieldName, values: Array.isArray(value) ? value : value == null ? [] : [value] };
+  return { field: fieldName, values: asList(args[fieldName]) };
 }
 function sameIterationBatchObservations(sequence) {
   let found = false;
@@ -323,17 +285,7 @@ function isShellInspect(command) {
   return SHELL_INSPECT_VERB.test(c);
 }
 
-function buildCase(sid, toolRows) {
-  const sorted = [...toolRows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
-  const agent =
-    field(sorted[0], 'agent') ||
-    field(
-      sorted.find((r) => field(r, 'agent')),
-      'agent'
-    ) ||
-    null;
-  const model = field(sorted[0], 'model') || null;
-  const iters = new Set();
+function toolSequence(sorted, iters) {
   const sequence = [];
   for (const r of sorted) {
     const it = field(r, 'iteration');
@@ -355,18 +307,61 @@ function buildCase(sid, toolRows) {
       failed: failed(r),
     });
   }
-  const names = sequence.map((s) => s.tool);
+  return sequence;
+}
+
+const isWinStylePath = (raw, base) =>
+  /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
+
+// Read targets resolve with the Windows resolver when either side looks
+// Windows-styled, so drive-letter windows compare across hosts.
+function normalizeReadPath(value, cwd) {
+  const raw = String(value);
+  const base = String(cwd || process.cwd());
+  const winStyle = isWinStylePath(raw, base);
+  const resolved = (winStyle ? win32.resolve(base, raw) : resolve(base, raw)).replace(/\\/g, '/');
+  return winStyle ? resolved.toLowerCase() : resolved;
+}
+
+function normalizeCoveragePath(value, cwd) {
+  const raw = String(value);
+  const base = String(cwd || process.cwd());
+  const winStyle = isWinStylePath(raw, base);
+  const resolved = resolve(base, raw).replace(/\\/g, '/');
+  return winStyle ? resolved.toLowerCase() : resolved;
+}
+
+const boundedWindow = (offset, limit) =>
+  Number.isFinite(Number(offset)) && Number(offset) >= 0 && Number.isFinite(Number(limit)) && Number(limit) > 0;
+
+// Coverage is emitted by the trace formatter from actual path:line output.
+// Missing/boundedness-unknown coverage intentionally stays unclassified;
+// whole-file reads are a documented residual limitation.
+function grepContextCoversRead(contextGrep, read) {
+  const pathArg = read.rawArgs?.path;
+  const boundedRegion = (path, offset, limit) =>
+    boundedWindow(offset, limit) ? { path, start: Number(offset) + 1, end: Number(offset) + Number(limit) } : null;
+  let region = null;
+  if (typeof pathArg === 'string') region = boundedRegion(pathArg, read.rawArgs.offset, read.rawArgs.limit);
+  else if (pathArg && typeof pathArg === 'object' && pathArg.path) {
+    region = boundedRegion(pathArg.path, pathArg.offset, pathArg.limit);
+  }
+  if (!region) return false;
+  const wanted = normalizeCoveragePath(region.path, read.cwd || contextGrep.cwd);
+  const covered = new Set(
+    (contextGrep.coverage || [])
+      .filter((item) => normalizeCoveragePath(item.path, contextGrep.cwd) === wanted)
+      .map((item) => Number(item.line))
+  );
+  for (let line = region.start; line <= region.end; line += 1) if (!covered.has(line)) return false;
+  return true;
+}
+
+// Exact duplicate requests are the only relookup signal available in tool
+// traces. Do not infer waste from counts, roles, turns, or locator→inspection:
+// exploration followed by inspection can be the intended route.
+function relookupFlags(sequence) {
   const flags = [];
-  const observations = [];
-  if (
-    sequence.some(
-      (s) => s.tool === 'code_graph' && s.rawArgs?.mode === 'find_symbol' && !s.rawArgs?.file && !s.rawArgs?.files
-    )
-  )
-    flags.push('find_symbol_noscope');
-  // Exact duplicate requests are the only relookup signal available in tool
-  // traces. Do not infer waste from counts, roles, turns, or locator→inspection:
-  // exploration followed by inspection can be the intended route.
   const seenRequests = new Set();
   const readWindows = [];
   let pendingContextGrep = null;
@@ -384,19 +379,10 @@ function buildCase(sid, toolRows) {
       if (duplicate) flags.push(`${s.tool}_relookup`);
       if (key) seenRequests.add(key);
       if (s.tool === 'read' && !duplicate) {
-        const normalize = (value, cwd) => {
-          const raw = String(value);
-          const base = String(cwd || process.cwd());
-          const winStyle = /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
-          const resolved = (winStyle ? win32.resolve(base, raw) : resolve(base, raw)).replace(/\\/g, '/');
-          return winStyle ? resolved.toLowerCase() : resolved;
-        };
-        const bounded = (offset, limit) =>
-          Number.isFinite(Number(offset)) && Number(offset) >= 0 && Number.isFinite(Number(limit)) && Number(limit) > 0;
         for (const target of readTargets(s.rawArgs) || []) {
-          const start = bounded(target.offset, target.limit) ? Number(target.offset) : 0;
-          const end = bounded(target.offset, target.limit) ? start + Number(target.limit) : Infinity;
-          const path = normalize(target.path, s.cwd);
+          const start = boundedWindow(target.offset, target.limit) ? Number(target.offset) : 0;
+          const end = boundedWindow(target.offset, target.limit) ? start + Number(target.limit) : Infinity;
+          const path = normalizeReadPath(target.path, s.cwd);
           if (
             !flags.includes('read_overlap') &&
             readWindows.some((prior) => prior.path === path && start < prior.end && prior.start < end)
@@ -409,51 +395,35 @@ function buildCase(sid, toolRows) {
     if (s.tool === 'grep' && Array.isArray(s.coverage) && s.coverage.length) {
       pendingContextGrep = s;
     } else if (s.tool === 'read' && pendingContextGrep) {
-      // Coverage is emitted by the trace formatter from actual path:line
-      // output. Missing/boundedness-unknown coverage intentionally stays
-      // unclassified; whole-file reads are a documented residual limitation.
-      const pathArg = s.rawArgs?.path;
-      const bounded = (offset, limit) =>
-        Number.isFinite(Number(offset)) && Number(offset) >= 0 && Number.isFinite(Number(limit)) && Number(limit) > 0;
-      const region =
-        typeof pathArg === 'string' && bounded(s.rawArgs.offset, s.rawArgs.limit)
-          ? {
-              path: pathArg,
-              start: Number(s.rawArgs.offset) + 1,
-              end: Number(s.rawArgs.offset) + Number(s.rawArgs.limit),
-            }
-          : pathArg && typeof pathArg === 'object' && pathArg.path && bounded(pathArg.offset, pathArg.limit)
-            ? {
-                path: pathArg.path,
-                start: Number(pathArg.offset) + 1,
-                end: Number(pathArg.offset) + Number(pathArg.limit),
-              }
-            : null;
-      if (region) {
-        const normalize = (value, cwd) => {
-          const raw = String(value);
-          const base = String(cwd || process.cwd());
-          const winStyle = /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
-          const resolved = resolve(base, raw).replace(/\\/g, '/');
-          return winStyle ? resolved.toLowerCase() : resolved;
-        };
-        const wanted = normalize(region.path, s.cwd || pendingContextGrep.cwd);
-        const covered = new Set(
-          (pendingContextGrep.coverage || [])
-            .filter((item) => normalize(item.path, pendingContextGrep.cwd) === wanted)
-            .map((item) => Number(item.line))
-        );
-        let complete = true;
-        for (let line = region.start; line <= region.end; line += 1)
-          if (!covered.has(line)) {
-            complete = false;
-            break;
-          }
-        if (complete) flags.push('grep_context_then_read');
-      }
+      if (grepContextCoversRead(pendingContextGrep, s)) flags.push('grep_context_then_read');
       pendingContextGrep = null;
     }
   }
+  return flags;
+}
+
+function buildCase(sid, toolRows) {
+  const sorted = [...toolRows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+  const agent =
+    field(sorted[0], 'agent') ||
+    field(
+      sorted.find((r) => field(r, 'agent')),
+      'agent'
+    ) ||
+    null;
+  const model = field(sorted[0], 'model') || null;
+  const iters = new Set();
+  const sequence = toolSequence(sorted, iters);
+  const names = sequence.map((s) => s.tool);
+  const flags = [];
+  const observations = [];
+  if (
+    sequence.some(
+      (s) => s.tool === 'code_graph' && s.rawArgs?.mode === 'find_symbol' && !s.rawArgs?.file && !s.rawArgs?.files
+    )
+  )
+    flags.push('find_symbol_noscope');
+  flags.push(...relookupFlags(sequence));
   observations.push(...sameIterationBatchObservations(sequence));
   // shell used for filesystem inspection instead of dedicated tools
   if (sequence.some((s) => s.tool === 'shell' && isShellInspect(s.rawArgs?.command))) flags.push('shell_inspect');
@@ -588,7 +558,11 @@ function renderVs(before, after) {
   L.push('');
   const metric = (label, b, a, lowerBetter = true) => {
     const d = a - b;
-    const arrow = d === 0 ? '=' : lowerBetter ? (d < 0 ? 'v' : '^') : d > 0 ? 'v' : '^';
+    let arrow = '=';
+    if (d !== 0) {
+      const improved = lowerBetter ? d < 0 : d > 0;
+      arrow = improved ? 'v' : '^';
+    }
     L.push(
       `- ${label.padEnd(14)} ${String(b).padStart(5)} -> ${String(a).padStart(5)}  (${d > 0 ? '+' : ''}${d}) ${arrow}`
     );
@@ -608,7 +582,7 @@ function renderVs(before, after) {
 
 // ---- main ----
 const tracePath = argValue('--trace') ? resolve(argValue('--trace')) : defaultTracePath();
-const sinceTs = parseDuration(argValue('--since', null));
+const sinceTs = parseSince(argValue('--since', null));
 const limit = Number.parseInt(argValue('--limit', '50'), 10) || 50;
 const agentFilter = argValue('--agent', null);
 const jsonMode = hasFlag('--json');

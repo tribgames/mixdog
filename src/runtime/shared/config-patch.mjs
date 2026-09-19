@@ -28,15 +28,15 @@ function applyField(current, path, change) {
   if (!rest.length && change.remove) {
     delete next[key];
   } else {
+    let value;
+    if (rest.length) {
+      const current = Object.hasOwn(next, key) ? next[key] : undefined;
+      value = applyField(current, rest, change);
+    } else {
+      value = structuredClone(change.value);
+    }
     // Define an own data property, including for literal "__proto__" keys.
-    Object.defineProperty(next, key, {
-      value: rest.length
-        ? applyField(Object.hasOwn(next, key) ? next[key] : undefined, rest, change)
-        : structuredClone(change.value),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+    Object.defineProperty(next, key, { value, enumerable: true, writable: true, configurable: true });
   }
   return next;
 }

@@ -5,11 +5,9 @@ import { stripInjectedBlocks } from '../runtime/shared/injected-display-text.mjs
 export function sessionMessageText(content) {
   if (content == null) return '';
   if (typeof content === 'string') return content;
-  const parts = Array.isArray(content)
-    ? content
-    : content && typeof content === 'object' && Array.isArray(content.content)
-      ? content.content
-      : null;
+  let parts = null;
+  if (Array.isArray(content)) parts = content;
+  else if (content && typeof content === 'object' && Array.isArray(content.content)) parts = content.content;
   if (parts) {
     return parts
       .map((part) => {
@@ -155,17 +153,4 @@ export function sessionHasConversationMessages(activeSession) {
     if (role === 'user' && isSessionPreviewNoise(text)) return false;
     return true;
   });
-}
-
-// Close-for-recreate tombstone gate. Tombstoned sessions are hard-deleted by
-// the 1h sweep, so any close that merely swaps the live session (tool-surface
-// refresh, MCP/skill/plugin change, mode switch, onboarding) must detach
-// (tombstone:false) whenever a real conversation exists — user history stays
-// permanent unless the user explicitly deletes it. liveTurnMessages covers an
-// in-flight first-turn prompt not yet committed to session.messages.
-export function tombstoneOnClose(activeSession) {
-  return (
-    !sessionHasConversationMessages(activeSession) &&
-    !sessionHasConversationMessages({ messages: activeSession?.liveTurnMessages })
-  );
 }

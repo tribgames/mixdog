@@ -30,39 +30,50 @@ function escapedAt(value: string, index: number): boolean {
 // with one backtick per code node, then wrap the original nodes: code content
 // is never searched or re-parsed. Other node kinds form a boundary, so already
 // parsed emphasis stays untouched. Both markdown pipelines share the result.
+type ChildSpan = { child: HastLikeNode; start: number; end: number };
+
+// The children projected onto one string (text verbatim, inline code as a
+// backtick, anything else as a newline) with each child's span in it.
+function projectChildren(
+  children: HastLikeNode[],
+  visit: (node: HastLikeNode) => void
+): { projection: string; spans: ChildSpan[] } {
+  let projection = '';
+  const spans = children.map((child) => {
+    visit(child);
+    const start = projection.length;
+    if (child.type === 'text' && typeof child.value === 'string') projection += child.value;
+    else projection += child.type === 'inlineCode' ? '`' : '\n';
+    return { child, start, end: projection.length };
+  });
+  return { projection, spans };
+}
+
+// The children covering [start, end) of the projection, text nodes cut to
+// the range and other nodes kept whole.
+function sliceSpans(spans: ChildSpan[], start: number, end: number): HastLikeNode[] {
+  const result: HastLikeNode[] = [];
+  for (const span of spans) {
+    if (span.end <= start || span.start >= end) continue;
+    if (span.child.type === 'text' && typeof span.child.value === 'string') {
+      result.push({
+        type: 'text',
+        value: span.child.value.slice(Math.max(0, start - span.start), end - span.start),
+      });
+    } else {
+      result.push(span.child);
+    }
+  }
+  return result;
+}
+
 export function repairAdjacentStrongPunctuation() {
   return (tree: HastLikeNode) => {
     const visit = (node: HastLikeNode) => {
       if (node.type === 'strong' || node.type === 'code' || node.type === 'inlineCode') return;
       const children = node.children;
       if (!children) return;
-      let projection = '';
-      const spans = children.map((child) => {
-        visit(child);
-        const start = projection.length;
-        projection +=
-          child.type === 'text' && typeof child.value === 'string'
-            ? child.value
-            : child.type === 'inlineCode'
-              ? '`'
-              : '\n';
-        return { child, start, end: projection.length };
-      });
-      const slice = (start: number, end: number): HastLikeNode[] => {
-        const result: HastLikeNode[] = [];
-        for (const span of spans) {
-          if (span.end <= start || span.start >= end) continue;
-          if (span.child.type === 'text' && typeof span.child.value === 'string') {
-            result.push({
-              type: 'text',
-              value: span.child.value.slice(Math.max(0, start - span.start), end - span.start),
-            });
-          } else {
-            result.push(span.child);
-          }
-        }
-        return result;
-      };
+      const { projection, spans } = projectChildren(children, visit);
       const repaired: HastLikeNode[] = [];
       let cursor = 0;
       adjacentStrongPunctuation.lastIndex = 0;
@@ -73,14 +84,14 @@ export function repairAdjacentStrongPunctuation() {
       ) {
         if (escapedAt(projection, match.index)) continue;
         const end = match.index + match[0].length;
-        repaired.push(...slice(cursor, match.index), {
+        repaired.push(...sliceSpans(spans, cursor, match.index), {
           type: 'strong',
-          children: slice(match.index + 2, end - 2),
+          children: sliceSpans(spans, match.index + 2, end - 2),
         });
         cursor = end;
       }
       if (cursor > 0) {
-        repaired.push(...slice(cursor, projection.length));
+        repaired.push(...sliceSpans(spans, cursor, projection.length));
         node.children = repaired;
       }
     };
@@ -397,7 +408,8 @@ function codeMention(
 /** Use the same path grammar for an unfinished explicit link's caption. */
 export function localPathMentionHref(text: string): string | null {
   const mention = codeMention(text);
-  return mention ? locationHref(mention.bare ? `./${mention.path}` : mention.path, mention) : null;
+  if (!mention) return null;
+  return locationHref(mention.bare ? `./${mention.path}` : mention.path, mention);
 }
 
 /** An unfinished qualified path may still gain its filename/extension.

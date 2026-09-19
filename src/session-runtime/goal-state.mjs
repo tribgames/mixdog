@@ -119,16 +119,23 @@ export function parseUserCommand(command) {
   return { action: 'create', objective, duration, timeMode };
 }
 
+function storedTimeLimitMs(value) {
+  const stored = Number(value.timeLimitMs);
+  return Number.isFinite(stored) && stored > 0 ? Math.min(MAX_GOAL_TIME_LIMIT_MS, Math.max(60_000, stored)) : 0;
+}
+
+// Dropped work must survive the turn that removed it before completion.
+function storedLastDropTurn(value) {
+  const dropped =
+    value.revision != null || value.lastDropTurn !== 0 || (value.tasks || []).some((task) => task.status === 'dropped');
+  return Number.isInteger(value.lastDropTurn) && dropped ? value.lastDropTurn : -1;
+}
+
 export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
   if (!value || typeof value !== 'object') return null;
   // Version-1 records include this terminal status. Never revive elapsed work.
   const status = value.status === 'budget_limited' ? 'duration_reached' : value.status;
   if (!GOAL_STATUS_VALUES.includes(status)) throw new Error(`invalid stored Goal status: ${status}`);
-  const storedTimeLimitMs = Number(value.timeLimitMs);
-  const timeLimitMs =
-    Number.isFinite(storedTimeLimitMs) && storedTimeLimitMs > 0
-      ? Math.min(MAX_GOAL_TIME_LIMIT_MS, Math.max(60_000, storedTimeLimitMs))
-      : 0;
   return {
     id: clean(value.id) || randomUUID(),
     revision: Math.max(1, Math.floor(Number(value.revision) || 1)),
@@ -146,16 +153,9 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     failureCount: Math.max(0, Math.floor(Number(value.failureCount) || 0)),
     // Observations report progress; they never decide when work is complete.
     turnCount: Math.max(0, Math.floor(Number(value.turnCount) || 0)),
-    // Dropped work must survive the turn that removed it before completion.
-    lastDropTurn:
-      Number.isInteger(value.lastDropTurn) &&
-      (value.revision != null ||
-        value.lastDropTurn !== 0 ||
-        (value.tasks || []).some((task) => task.status === 'dropped'))
-        ? value.lastDropTurn
-        : -1,
+    lastDropTurn: storedLastDropTurn(value),
     tasksUpdatedAt: Number(value.tasksUpdatedAt) > 0 ? Number(value.tasksUpdatedAt) : null,
-    timeLimitMs,
+    timeLimitMs: storedTimeLimitMs(value),
     // Unversioned durations retain their original full-period commitment.
     timeMode: goalTimeMode(value.timeMode, 'duration'),
     timeUsedMs: Math.max(0, Number(value.timeUsedMs) || 0),

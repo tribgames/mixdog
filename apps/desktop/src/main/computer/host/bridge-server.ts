@@ -184,12 +184,11 @@ export function createBridgeServer(host: BridgeServerHost) {
           if (!response.writableEnded) abortOnDisconnect();
         });
         try {
-          const value: ComputerCommandResult =
-            command.action === 'wait_for_user' && host.waitForUser
-              ? await host.waitForUser(command, requestAbort.signal)
-              : command.action === 'session_abort'
-                ? await abortComputerSession(command)
-                : await executeSerialized(command);
+          let value: ComputerCommandResult;
+          if (command.action === 'wait_for_user' && host.waitForUser) {
+            value = await host.waitForUser(command, requestAbort.signal);
+          } else if (command.action === 'session_abort') value = await abortComputerSession(command);
+          else value = await executeSerialized(command);
           validateComputerReply(value);
           if (Buffer.byteLength(JSON.stringify(value)) > MAX_COMPUTER_RESPONSE_BYTES) {
             throw new Error('computer response exceeds byte limit; input may have executed and was not replayed');

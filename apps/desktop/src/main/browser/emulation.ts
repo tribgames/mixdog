@@ -40,10 +40,7 @@ export interface BrowserEmulationHost {
   ): Promise<BrowserCommandResult>;
 }
 
-function validateEmulationCommand(command: BrowserCommand): {
-  hasViewport: boolean;
-  networkProfile?: (typeof NETWORK_PROFILES)[string];
-} {
+function assertEmulationViewport(command: BrowserCommand): boolean {
   const hasWidth = Number.isFinite(command.width);
   const hasHeight = Number.isFinite(command.height);
   if (hasWidth !== hasHeight) throw new Error('emulate requires width and height together');
@@ -54,7 +51,10 @@ function validateEmulationCommand(command: BrowserCommand): {
   ) {
     throw new Error('deviceScaleFactor, mobile, and orientation require width and height');
   }
+  return hasViewport;
+}
 
+function assertEmulationGeolocation(command: BrowserCommand): boolean {
   const hasLatitude = command.latitude !== undefined;
   const hasLongitude = command.longitude !== undefined;
   if (hasLatitude !== hasLongitude) {
@@ -75,6 +75,10 @@ function validateEmulationCommand(command: BrowserCommand): {
   if (command.accuracy !== undefined && !hasLatitude) {
     throw new Error('emulate accuracy requires latitude and longitude');
   }
+  return hasLatitude;
+}
+
+function assertEmulationMedia(command: BrowserCommand): void {
   if (command.cpuThrottlingRate !== undefined && !Number.isFinite(Number(command.cpuThrottlingRate))) {
     throw new Error('cpuThrottlingRate must be a finite number');
   }
@@ -84,6 +88,28 @@ function validateEmulationCommand(command: BrowserCommand): {
   if (command.colorScheme !== undefined && !['auto', 'light', 'dark'].includes(command.colorScheme)) {
     throw new Error('colorScheme must be auto, light, or dark');
   }
+}
+
+function assertEmulationHeaders(headers: BrowserCommand['headers']): void {
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+    throw new Error('headers must be an object');
+  }
+  const entries = Object.entries(headers);
+  if (
+    entries.length > 20 ||
+    entries.some(
+      ([name, value]) =>
+        !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,256}$/.test(name) ||
+        typeof value !== 'string' ||
+        value.length > 8_192 ||
+        /[\r\n]/.test(value)
+    )
+  ) {
+    throw new Error('headers require at most 20 valid names and bounded single-line values');
+  }
+}
+
+function assertEmulationIdentity(command: BrowserCommand): void {
   if (command.locale) {
     try {
       new Intl.Locale(command.locale);
@@ -101,24 +127,17 @@ function validateEmulationCommand(command: BrowserCommand): {
   if (command.userAgent !== undefined && (command.userAgent.length > 2_048 || /[\r\n]/.test(command.userAgent))) {
     throw new Error('userAgent must be at most 2048 characters without line breaks');
   }
-  if (command.headers !== undefined) {
-    if (!command.headers || typeof command.headers !== 'object' || Array.isArray(command.headers)) {
-      throw new Error('headers must be an object');
-    }
-    const entries = Object.entries(command.headers);
-    if (
-      entries.length > 20 ||
-      entries.some(
-        ([name, value]) =>
-          !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,256}$/.test(name) ||
-          typeof value !== 'string' ||
-          value.length > 8_192 ||
-          /[\r\n]/.test(value)
-      )
-    ) {
-      throw new Error('headers require at most 20 valid names and bounded single-line values');
-    }
-  }
+  if (command.headers !== undefined) assertEmulationHeaders(command.headers);
+}
+
+function validateEmulationCommand(command: BrowserCommand): {
+  hasViewport: boolean;
+  networkProfile?: (typeof NETWORK_PROFILES)[string];
+} {
+  const hasViewport = assertEmulationViewport(command);
+  const hasLatitude = assertEmulationGeolocation(command);
+  assertEmulationMedia(command);
+  assertEmulationIdentity(command);
   const networkProfile =
     command.networkProfile === undefined ? undefined : NETWORK_PROFILES[String(command.networkProfile).toLowerCase()];
   if (command.networkProfile !== undefined && !networkProfile) {

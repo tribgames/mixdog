@@ -24,57 +24,67 @@ function normalizeModelLimit(value) {
   return Math.min(Math.floor(limit), MAX_MODEL_LIMIT);
 }
 
+// Keep the existing days API for non-desktop callers: no view, no period.
+function usagePeriodFor(options, now) {
+  if (options?.view == null) return null;
+  return resolveUsageStatsPeriod({
+    view: options.view,
+    anchor: options.anchor,
+    startDay: options.startDay,
+    endDay: options.endDay,
+    startTime: options.startTime,
+    endTime: options.endTime,
+    now,
+  });
+}
+
+// Rollup window for one period. A range cut below whole days has to be
+// rebuilt from retained timestamps; cached day totals would spill past the
+// selected clock.
+function usageRollupQuery(period) {
+  const timed = period?.view === 'hour' || Boolean(period?.startTime || period?.endTime);
+  return {
+    hourlyDay: period?.view === 'hour' ? period.startDay : null,
+    ...(timed ? { fromMs: period.fromMs, toMs: period.toMs } : {}),
+    ...(period
+      ? {
+          fromDay: period.startDay || undefined,
+          toDay: usageRollupDayKey(period.toMs),
+        }
+      : {}),
+  };
+}
+
 export function createUsageStatsApi({ ledger = getUsageLedger, importHistory = importUsageHistory } = {}) {
   let importing = null;
   let imported = false;
+  // Until the first instrumented send establishes the cutover, the legacy
+  // writer may still be active. A previous import is not a live subscription.
+  async function ensureHistoryImported(store, liveSince) {
+    if (!liveSince || !imported || Number(store.get('importedThrough')) < liveSince) {
+      importing ||= importHistory(store, resolvePluginData())
+        .then(() => {
+          imported = true;
+        })
+        .finally(() => {
+          importing = null;
+        });
+      await importing;
+    }
+  }
   return {
     async getUsageStats(options = {}) {
       const store = ledger();
       if (!store) throw new Error('Usage ledger is unavailable');
       const liveSince = Number(store.get('liveSince'));
-      // Until the first instrumented send establishes the cutover, the legacy
-      // writer may still be active. A previous import is not a live subscription.
-      if (!liveSince || !imported || Number(store.get('importedThrough')) < liveSince) {
-        importing ||= importHistory(store, resolvePluginData())
-          .then(() => {
-            imported = true;
-          })
-          .finally(() => {
-            importing = null;
-          });
-        await importing;
-      }
+      await ensureHistoryImported(store, liveSince);
       refreshUnpricedUsage(store);
       // Imports may take time: their newly retained timestamps must not fall
       // beyond a clock captured before the import started.
       const now = Date.now();
-      // Keep the existing days API for non-desktop callers.
-      const period =
-        options?.view == null
-          ? null
-          : resolveUsageStatsPeriod({
-              view: options.view,
-              anchor: options.anchor,
-              startDay: options.startDay,
-              endDay: options.endDay,
-              startTime: options.startTime,
-              endTime: options.endTime,
-              now,
-            });
-      // A range cut below whole days has to be rebuilt from retained
-      // timestamps; cached day totals would spill past the selected clock.
-      const timed = period?.view === 'hour' || Boolean(period?.startTime || period?.endTime);
+      const period = usagePeriodFor(options, now);
       const snapshot = usageStatsSnapshot({
-        rollup: store.rollup({
-          hourlyDay: period?.view === 'hour' ? period.startDay : null,
-          ...(timed ? { fromMs: period.fromMs, toMs: period.toMs } : {}),
-          ...(period
-            ? {
-                fromDay: period.startDay || undefined,
-                toDay: usageRollupDayKey(period.toMs),
-              }
-            : {}),
-        }),
+        rollup: store.rollup(usageRollupQuery(period)),
         days: normalizeDays(options?.days),
         period,
         modelLimit: normalizeModelLimit(options?.modelLimit),

@@ -86,6 +86,7 @@ for (const name of [
     policy: 'act',
   });
 }
+const FOREGROUND_ACTION_POLICY = { launch: 'launch', invoke_menu: 'menu' };
 for (const name of [
   'focus_window',
   'move_window',
@@ -98,7 +99,7 @@ for (const name of [
   action(name, {
     autoCapture: true,
     foreground: true,
-    policy: name === 'launch' ? 'launch' : name === 'invoke_menu' ? 'menu' : 'window',
+    policy: FOREGROUND_ACTION_POLICY[name] || 'window',
   });
 }
 action('clipboard_write', { foreground: true });

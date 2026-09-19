@@ -18,6 +18,7 @@ curl -fsSL --retry 3 \
 	-o "$BUILD_DIR/ffmpeg.tar.xz"
 tar -xJf "$BUILD_DIR/ffmpeg.tar.xz" -C "$BUILD_DIR"
 
+# shellcheck disable=SC2054  # comma lists are single ffmpeg --enable-* values
 CONFIGURE_FLAGS=(
 	--disable-everything
 	--disable-autodetect
@@ -41,7 +42,7 @@ CONFIGURE_FLAGS=(
 	--enable-muxer=wav
 )
 
-STRIP_COMMAND=strip
+STRIP_COMMAND="strip"
 if [[ "$TARGET_OS" == "win32" ]]; then
 	CONFIGURE_FLAGS+=(
 		--target-os=mingw32

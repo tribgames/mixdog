@@ -28,6 +28,35 @@ import {
 // MCP servers, skills, plugins, hooks, and memory/recall surfaces. Extracted
 // verbatim from the runtime API object; stateless helpers are imported directly
 // and the runtime injects live state getters plus the closure callbacks.
+function pluginMcpEnv(pluginDataDir, plugin, serverName) {
+  return {
+    MIXDOG_PLUGIN_ROOT: clean(plugin.root),
+    MIXDOG_PLUGIN_DATA: join(pluginDataDir, 'plugins', 'data', clean(plugin.id || plugin.name || serverName)),
+  };
+}
+
+// Manifest-declared servers replace every entry the plugin owned before
+// (`<name>` and `<name>--<key>`); a single server keeps the bare name.
+function manifestPluginMcpServers(existing, { rawServers, mcpRoot }, { plugin, serverName, env }) {
+  const keys = Object.keys(rawServers).filter((k) => {
+    const v = rawServers[k];
+    return v !== null && typeof v === 'object' && !Array.isArray(v);
+  });
+  const ownedPrefix = `${serverName}--`;
+  const nextServers = {};
+  for (const [k, v] of Object.entries(existing || {})) {
+    if (k === serverName || k.startsWith(ownedPrefix)) continue;
+    nextServers[k] = v;
+  }
+  for (const serverKey of keys) {
+    const cfg = normalizePluginMcpServerConfig(rawServers[serverKey], mcpRoot);
+    cfg.env = { ...(cfg.env || {}), ...env };
+    if (plugin.enabled === false) cfg._mixdogPluginDisabled = true;
+    nextServers[keys.length === 1 ? serverName : `${serverName}--${serverKey}`] = cfg;
+  }
+  return nextServers;
+}
+
 export function createResourceApi(deps) {
   const {
     getConfig,
@@ -184,7 +213,9 @@ export function createResourceApi(deps) {
       }
       const key = clean(name);
       if (!key) throw new Error('extension name is required');
-      const list = Array.isArray(projects) ? projects : projects == null ? [] : [projects];
+      let list = [projects];
+      if (Array.isArray(projects)) list = projects;
+      else if (projects == null) list = [];
       saveConfigAndAdopt(withExtensionScope(getConfig(), scopeKind, key, list));
       // Connections and files are untouched; only what sessions see changes.
       if (scopeKind !== 'mcp') invalidateSkills?.();
@@ -426,35 +457,13 @@ export function createResourceApi(deps) {
       const serverName = pluginMcpServerName(plugin);
       const nextConfig = { ...getConfig() };
       const manifestMcp = pluginRawMcpServers(root, script);
+      const env = pluginMcpEnv(cfgMod.getPluginData?.() || STANDALONE_DATA_DIR, plugin, serverName);
       if (manifestMcp) {
-        const { rawServers, mcpRoot } = manifestMcp;
-        const keys = Object.keys(rawServers).filter((k) => {
-          const v = rawServers[k];
-          return v !== null && typeof v === 'object' && !Array.isArray(v);
+        nextConfig.mcpServers = manifestPluginMcpServers(nextConfig.mcpServers, manifestMcp, {
+          plugin,
+          serverName,
+          env,
         });
-        const ownedPrefix = `${serverName}--`;
-        const nextServers = {};
-        for (const [k, v] of Object.entries(nextConfig.mcpServers || {})) {
-          if (k === serverName || k.startsWith(ownedPrefix)) continue;
-          nextServers[k] = v;
-        }
-        for (const serverKey of keys) {
-          const cfg = normalizePluginMcpServerConfig(rawServers[serverKey], mcpRoot);
-          cfg.env = {
-            ...(cfg.env || {}),
-            MIXDOG_PLUGIN_ROOT: root,
-            MIXDOG_PLUGIN_DATA: join(
-              cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
-              'plugins',
-              'data',
-              clean(plugin.id || plugin.name || serverName)
-            ),
-          };
-          if (plugin.enabled === false) cfg._mixdogPluginDisabled = true;
-          const key = keys.length === 1 ? serverName : `${serverName}--${serverKey}`;
-          nextServers[key] = cfg;
-        }
-        nextConfig.mcpServers = nextServers;
       } else {
         const scriptPath = resolveContainedPluginPath(root, script);
         if (!scriptPath || !existsSync(scriptPath))
@@ -465,15 +474,7 @@ export function createResourceApi(deps) {
             command: 'node',
             args: [scriptPath],
             cwd: root,
-            env: {
-              MIXDOG_PLUGIN_ROOT: root,
-              MIXDOG_PLUGIN_DATA: join(
-                cfgMod.getPluginData?.() || STANDALONE_DATA_DIR,
-                'plugins',
-                'data',
-                clean(plugin.id || plugin.name || serverName)
-              ),
-            },
+            env,
             ...(plugin.enabled === false ? { _mixdogPluginDisabled: true } : {}),
           },
         };

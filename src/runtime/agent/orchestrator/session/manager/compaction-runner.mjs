@@ -4,6 +4,7 @@
 // manager.mjs still owns scheduling / stage gating and simply calls
 // runSessionCompaction().
 import { getProvider } from '../../providers/registry.mjs';
+import { HANDOFF_TIMEOUT_MAX_MS } from '../compact/constants.mjs';
 import {
   estimateMessagesTokens,
   estimateRequestReserveTokens,
@@ -111,7 +112,7 @@ function handoffSummaryTimeoutMs(session, messageTokens) {
   const override = positiveInt(session?.compaction?.timeoutMs);
   if (override) return override;
   const scaled = Math.ceil((messageTokens || 0) / 25_000) * 10_000;
-  return Math.min(300_000, Math.max(60_000, scaled));
+  return Math.min(HANDOFF_TIMEOUT_MAX_MS, Math.max(60_000, scaled));
 }
 /**
  * ONE wiring for the fresh-context handoff pass: provider, summary model,
@@ -137,9 +138,10 @@ export async function runHandoffCompaction({
   config,
   messageTokensEst = null,
 } = {}) {
+  const messageList = Array.isArray(messages) ? messages : [];
   const transcriptTokens = Number.isFinite(Number(messageTokensEst))
     ? Number(messageTokensEst)
-    : estimateMessagesTokens(Array.isArray(messages) ? messages : []);
+    : estimateMessagesTokens(messageList);
   return runFreshContextCompact({
     sessionRef: session,
     messages,
@@ -159,8 +161,10 @@ export async function runHandoffCompaction({
   });
 }
 
-export async function runSessionCompaction(session, opts = {}) {
-  if (!session || session.closed === true) return null;
+// Everything the pass settles before deciding to run: mode, the aligned
+// policy and the token numbers every stage reports from. Null = nothing to
+// do for this session.
+function sessionCompactionPlan(session, opts) {
   const resolvedSessionId = opts.sessionId || session.id || null;
   const mode = opts.mode === 'auto' ? 'auto' : 'manual';
   const force = opts.force === true || mode === 'manual';
@@ -181,85 +185,148 @@ export async function runSessionCompaction(session, opts = {}) {
   // the manual / auto-clear compact budget without the configured headroom the
   // loop path reserves, so a compacted transcript could overflow on next send.
   const alignedPolicy = resolveSessionCompactionPolicy(session);
+  return {
+    session,
+    resolvedSessionId,
+    mode,
+    force,
+    messages,
+    boundary,
+    alignedPolicy,
+    reserveTokens: compactionReserveTokens(session, alignedPolicy),
+    ...compactionPlanNumbers({ session, messages, boundary, alignedPolicy, force }),
+  };
+}
+
+function compactionReserveTokens(session, alignedPolicy) {
   const requestReserveTokens = alignedPolicy?.requestReserveTokens ?? estimateRequestReserveTokens(session.tools || []);
   const configuredReserveTokens =
     alignedPolicy?.configuredReserveTokens ??
     positiveInt(session.compaction?.reservedTokens) ??
     positiveInt(process.env.MIXDOG_AGENT_COMPACT_RESERVED_TOKENS) ??
     0;
-  const reserveTokens = alignedPolicy?.reserveTokens ?? requestReserveTokens + configuredReserveTokens;
+  return alignedPolicy?.reserveTokens ?? requestReserveTokens + configuredReserveTokens;
+}
+
+// The trigger, buffer, budget and before numbers a pass reports from.
+// Reported before/after are the SAME number the context gauge shows: the
+// provider-billed prompt plus calibrated growth when a baseline is live.
+// pressureTokens stays the trigger numerator, so the compaction decision is
+// unchanged; only the reported scale is aligned.
+function compactionPlanNumbers({ session, messages, boundary, alignedPolicy, force }) {
   const beforeMessageTokens = estimateMessagesTokens(messages);
   const triggerTokens = alignedPolicy?.triggerTokens || boundary;
   const bufferTokens = alignedPolicy?.bufferTokens ?? Math.max(0, boundary - triggerTokens);
   const bufferRatio =
     alignedPolicy?.bufferRatio ??
     (boundary ? bufferTokens / boundary : resolveCompactBufferRatio(session.compaction || {}));
-  const targetBudgetTokens = alignedPolicy
-    ? compactTargetBudgetForPolicy({ ...alignedPolicy, force }) || boundary
-    : boundary;
+  const budget = alignedPolicy ? compactTargetBudgetForPolicy({ ...alignedPolicy, force }) || boundary : boundary;
   const pressureTokens = estimateTranscriptContextUsage(messages, session.tools || [], { provider: session.provider });
-  // Reported before/after are the SAME number the context gauge shows: the
-  // provider-billed prompt plus calibrated growth when a baseline is live.
-  // pressureTokens stays the trigger numerator, so the compaction decision is
-  // unchanged; only the reported scale is aligned.
   const beforeTokens =
     (alignedPolicy
       ? resolveGaugeContextTokens(beforeMessageTokens, alignedPolicy, { messages, sessionRef: session })
       : 0) || pressureTokens;
-  if (!force && pressureTokens < triggerTokens)
-    return {
-      changed: false,
-      reason: 'below threshold',
-      beforeMessages: messages.length,
-      afterMessages: messages.length,
-      beforeTokens,
-      afterTokens: beforeTokens,
-      beforeMessageTokens,
-      afterMessageTokens: beforeMessageTokens,
-      pressureTokens,
-      triggerTokens,
-      bufferTokens,
-      bufferRatio,
-      boundaryTokens: boundary,
-      budgetTokens: boundary,
-      targetBudgetTokens,
-      reserveTokens,
-      freshContext: false,
-    };
-  const budget = targetBudgetTokens;
-  const compactStartedAt = Date.now();
+  return { beforeMessageTokens, triggerTokens, bufferTokens, bufferRatio, budget, pressureTokens, beforeTokens };
+}
+
+// The post-compaction numbers of a pass that left the transcript alone.
+function unchangedAfter(plan) {
+  return { messages: plan.messages.length, tokens: plan.beforeTokens, messageTokens: plan.beforeMessageTokens };
+}
+
+function compactionResult(plan, outcome, after, tail) {
+  return {
+    ...outcome,
+    beforeMessages: plan.messages.length,
+    afterMessages: after.messages,
+    beforeTokens: plan.beforeTokens,
+    afterTokens: after.tokens,
+    beforeMessageTokens: plan.beforeMessageTokens,
+    afterMessageTokens: after.messageTokens,
+    pressureTokens: plan.pressureTokens,
+    triggerTokens: plan.triggerTokens,
+    bufferTokens: plan.bufferTokens,
+    bufferRatio: plan.bufferRatio,
+    boundaryTokens: plan.boundary,
+    budgetTokens: plan.boundary,
+    targetBudgetTokens: plan.budget,
+    reserveTokens: plan.reserveTokens,
+    ...tail,
+  };
+}
+
+function compactionRecord(plan, { stage, after, now, reserve, outcome }) {
+  const { session, mode } = plan;
+  return {
+    ...withoutLegacyCompactFields(session.compaction),
+    auto: mode === 'auto' ? true : session.compaction?.auto !== false,
+    boundaryTokens: plan.boundary,
+    triggerTokens: plan.triggerTokens,
+    bufferTokens: plan.bufferTokens,
+    bufferRatio: plan.bufferRatio,
+    ...reserve,
+    lastStage: stage,
+    lastBeforeTokens: plan.beforeTokens,
+    lastAfterTokens: after.tokens,
+    lastBeforeMessageTokens: plan.beforeMessageTokens,
+    lastAfterMessageTokens: after.messageTokens,
+    lastPressureTokens: plan.pressureTokens,
+    currentEstimatedTokens: after.tokens,
+    lastCheckedAt: now,
+    ...outcome,
+  };
+}
+
+// compact_meta parity with the loop's pre-send pass: the out-of-loop
+// (post-turn/manual) compaction — and its failure — used to be invisible to
+// trace analytics.
+function traceSessionCompaction(plan, compactStartedAt, { counts, failure }) {
+  const { session, mode } = plan;
+  traceAgentCompact({
+    sessionId: plan.resolvedSessionId,
+    stage: mode === 'auto' ? 'post_turn' : 'manual',
+    trigger: mode,
+    ...counts,
+    context_window: positiveInt(session.contextWindow) || null,
+    budget_tokens: plan.boundary,
+    boundary_tokens: plan.boundary,
+    target_budget_tokens: plan.budget,
+    reserve_tokens: plan.reserveTokens,
+    pressure_tokens: plan.pressureTokens,
+    trigger_tokens: plan.triggerTokens,
+    message_tokens_est: plan.beforeMessageTokens,
+    duration_ms: Date.now() - compactStartedAt,
+    provider: session.provider || null,
+    model: session.model || null,
+    ...failure,
+  });
+}
+
+async function runSessionHandoff(plan, opts) {
+  const { session, messages, mode } = plan;
+  const run = { compacted: null, compactError: null, freshContextResult: null, freshContextError: null };
   try {
-    await opts.onStageChange?.('compacting');
-  } catch {
-    /* best-effort */
-  }
-  const provider = opts.provider || getProvider(session.provider) || null;
-  let compacted;
-  let compactError = null;
-  let freshContextResult = null;
-  let freshContextError = null;
-  try {
-    freshContextResult = await runHandoffCompaction({
+    run.freshContextResult = await runHandoffCompaction({
       session,
       messages,
-      budgetTokens: budget,
-      boundaryTokens: boundary,
-      reserveTokens,
-      contextWindow: positiveInt(session.contextWindow) || boundary,
-      sessionId: resolvedSessionId,
+      budgetTokens: plan.budget,
+      boundaryTokens: plan.boundary,
+      reserveTokens: plan.reserveTokens,
+      contextWindow: positiveInt(session.contextWindow) || plan.boundary,
+      sessionId: plan.resolvedSessionId,
       signal: opts.signal || null,
-      provider,
+      provider: opts.provider || getProvider(session.provider) || null,
       model: opts.model,
       config: opts.config,
-      messageTokensEst: beforeMessageTokens,
+      messageTokensEst: plan.beforeMessageTokens,
     });
-    if (Array.isArray(freshContextResult?.messages)) {
-      compacted = freshContextResult.messages;
-      addCompactUsageToSession(session, freshContextResult.usage, freshContextResult.summaryProvider);
+    if (Array.isArray(run.freshContextResult?.messages)) {
+      run.compacted = run.freshContextResult.messages;
+      addCompactUsageToSession(session, run.freshContextResult.usage, run.freshContextResult.summaryProvider);
     }
   } catch (err) {
-    freshContextError = err;
-    compactError = err;
+    run.freshContextError = err;
+    run.compactError = err;
     try {
       process.stderr.write(
         `[session] fresh-context ${mode} compact failed (sess=${session.id || 'unknown'}): ${err?.message || err}\n`
@@ -268,27 +335,21 @@ export async function runSessionCompaction(session, opts = {}) {
       /* best-effort */
     }
   }
-  if (!compacted && !compactError) {
-    compactError = new Error('fresh-context compact produced no messages');
+  if (!run.compacted && !run.compactError) {
+    run.compactError = new Error('fresh-context compact produced no messages');
   }
-  if (!compacted) {
-    const now = Date.now();
-    session.compaction = {
-      ...withoutLegacyCompactFields(session.compaction),
-      auto: mode === 'auto' ? true : session.compaction?.auto !== false,
-      boundaryTokens: boundary,
-      triggerTokens,
-      bufferTokens,
-      bufferRatio,
-      reserveTokens,
-      lastStage: mode === 'auto' ? 'post_turn_failed' : 'manual_failed',
-      lastBeforeTokens: beforeTokens,
-      lastAfterTokens: beforeTokens,
-      lastBeforeMessageTokens: beforeMessageTokens,
-      lastAfterMessageTokens: beforeMessageTokens,
-      lastPressureTokens: pressureTokens,
-      currentEstimatedTokens: beforeTokens,
-      lastCheckedAt: now,
+  return run;
+}
+
+function recordFailedCompaction(plan, run, compactStartedAt) {
+  const { session, mode, messages } = plan;
+  const { compactError, freshContextError } = run;
+  session.compaction = compactionRecord(plan, {
+    stage: mode === 'auto' ? 'post_turn_failed' : 'manual_failed',
+    after: unchangedAfter(plan),
+    now: Date.now(),
+    reserve: { reserveTokens: plan.reserveTokens },
+    outcome: {
       lastChanged: false,
       lastFreshContext: false,
       lastFreshContextError: freshContextError?.message || null,
@@ -296,112 +357,53 @@ export async function runSessionCompaction(session, opts = {}) {
         compactError?.message ||
         freshContextError?.message ||
         String(compactError || freshContextError || 'compact failed'),
-    };
-    // compact_meta parity with the loop's pre-send pass: the out-of-loop
-    // (post-turn/manual) compaction failure was previously invisible to
-    // trace analytics.
-    traceAgentCompact({
-      sessionId: resolvedSessionId,
-      stage: mode === 'auto' ? 'post_turn' : 'manual',
-      trigger: mode,
-      compact_changed: false,
-      before_count: messages.length,
-      after_count: messages.length,
-      context_window: positiveInt(session.contextWindow) || null,
-      budget_tokens: boundary,
-      boundary_tokens: boundary,
-      target_budget_tokens: budget,
-      reserve_tokens: reserveTokens,
-      pressure_tokens: pressureTokens,
-      trigger_tokens: triggerTokens,
-      message_tokens_est: beforeMessageTokens,
-      duration_ms: Date.now() - compactStartedAt,
-      provider: session.provider || null,
-      model: session.model || null,
-      error: session.compaction.lastError,
-      error_code: 'compact_failed',
-    });
-    return {
-      changed: false,
-      error: session.compaction.lastError,
-      beforeMessages: messages.length,
-      afterMessages: messages.length,
-      beforeTokens,
-      afterTokens: beforeTokens,
-      beforeMessageTokens,
-      afterMessageTokens: beforeMessageTokens,
-      pressureTokens,
-      triggerTokens,
-      bufferTokens,
-      bufferRatio,
-      boundaryTokens: boundary,
-      budgetTokens: boundary,
-      targetBudgetTokens: budget,
-      reserveTokens,
-      freshContext: false,
-      freshContextError: freshContextError?.message || null,
-    };
-  }
-  let beforeEncoded = '';
-  let afterEncoded = '';
+    },
+  });
+  traceSessionCompaction(plan, compactStartedAt, {
+    counts: { compact_changed: false, before_count: messages.length, after_count: messages.length },
+    failure: { error: session.compaction.lastError, error_code: 'compact_failed' },
+  });
+  return compactionResult(plan, { changed: false, error: session.compaction.lastError }, unchangedAfter(plan), {
+    freshContext: false,
+    freshContextError: freshContextError?.message || null,
+  });
+}
+
+function encodedOrEmpty(messages) {
   try {
-    beforeEncoded = JSON.stringify(messages);
+    return JSON.stringify(messages);
   } catch {
-    beforeEncoded = '';
+    return '';
   }
+}
+
+// Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
+// lets an in-flight turn's sidecars survive until a later compaction/close.
+async function pruneCompactedOffloads(session, sessionId) {
+  if (isSessionCompactionBlocked(sessionId)) return;
   try {
-    afterEncoded = JSON.stringify(compacted);
+    await pruneOffloadSession(sessionId, () => [
+      session.messages,
+      session.liveTurnMessages,
+      _getPendingMessagesForSession(sessionId),
+    ]);
   } catch {
-    afterEncoded = '';
+    /* best-effort */
   }
-  const afterMessageTokens = estimateMessagesTokens(compacted);
-  const postCompactPolicy = resolveSessionCompactionPolicy(session, compacted) || alignedPolicy;
-  // Same scale as beforeTokens: compaction invalidates the provider baseline,
-  // so the gauge's post-compact number is the calibrated transcript estimate
-  // plus the request reserve. The raw sum reported roughly half of that.
-  const afterTokens = postCompactPolicy
-    ? currentContextEstimateTokens(afterMessageTokens, postCompactPolicy)
-    : afterMessageTokens + reserveTokens;
-  const changed =
-    beforeEncoded && afterEncoded
-      ? beforeEncoded !== afterEncoded
-      : compacted.length !== messages.length || afterMessageTokens !== beforeMessageTokens;
-  const unchangedReason = changed ? null : force ? 'nothing to compact' : 'below threshold';
-  const now = Date.now();
-  session.messages = compacted;
-  if (changed) resetReadStateAfterCompaction(resolvedSessionId);
-  // Best-effort GC only: the 10-minute mtime gate plus this idle-only guard
-  // lets an in-flight turn's sidecars survive until a later compaction/close.
-  const pruneSessionId = resolvedSessionId;
-  if (!isSessionCompactionBlocked(pruneSessionId)) {
-    try {
-      await pruneOffloadSession(pruneSessionId, () => [
-        session.messages,
-        session.liveTurnMessages,
-        _getPendingMessagesForSession(pruneSessionId),
-      ]);
-    } catch {
-      /* best-effort */
-    }
-  }
-  if (changed) session.providerState = undefined;
-  session.compaction = {
-    ...withoutLegacyCompactFields(session.compaction),
-    auto: mode === 'auto' ? true : session.compaction?.auto !== false,
-    boundaryTokens: boundary,
-    triggerTokens,
-    bufferTokens,
-    bufferRatio,
-    requestReserveTokens: postCompactPolicy?.requestReserveTokens || 0,
-    reserveTokens: postCompactPolicy?.reserveTokens ?? reserveTokens,
-    lastStage: mode === 'auto' ? 'post_turn' : 'manual',
-    lastBeforeTokens: beforeTokens,
-    lastAfterTokens: afterTokens,
-    lastBeforeMessageTokens: beforeMessageTokens,
-    lastAfterMessageTokens: afterMessageTokens,
-    lastPressureTokens: pressureTokens,
-    currentEstimatedTokens: afterTokens,
-    lastCheckedAt: now,
+}
+
+function summaryUsageRecord(usage) {
+  if (!usage) return null;
+  return {
+    inputTokens: usage.inputTokens || 0,
+    outputTokens: usage.outputTokens || 0,
+    cachedTokens: usage.cachedTokens || 0,
+    cacheWriteTokens: usage.cacheWriteTokens || 0,
+  };
+}
+
+function compactionOutcome(session, freshContextResult, changed, now) {
+  return {
     lastChanged: changed,
     lastChangedAt: changed ? now : session.compaction?.lastChangedAt || null,
     lastCompactAt: changed ? now : session.compaction?.lastCompactAt || null,
@@ -411,16 +413,76 @@ export async function runSessionCompaction(session, opts = {}) {
     lastHandoffSource: freshContextResult?.handoffSource || 'session-local',
     lastSummaryProvider: freshContextResult?.summaryProvider || null,
     lastSummaryModel: freshContextResult?.summaryModel || null,
-    lastSummaryUsage: freshContextResult?.usage
-      ? {
-          inputTokens: freshContextResult.usage.inputTokens || 0,
-          outputTokens: freshContextResult.usage.outputTokens || 0,
-          cachedTokens: freshContextResult.usage.cachedTokens || 0,
-          cacheWriteTokens: freshContextResult.usage.cacheWriteTokens || 0,
-        }
-      : null,
+    lastSummaryUsage: summaryUsageRecord(freshContextResult?.usage),
     compactCount: (session.compaction?.compactCount || 0) + (changed ? 1 : 0),
   };
+}
+
+// Observability parity with the loop's pre-send pass: record the
+// out-of-loop mutation as compact_meta (observed live: a 403k→10k post-turn
+// compact traced as intentional_transition: null with no compact_meta).
+function traceCommittedCompaction(plan, compactStartedAt, { messages, compacted, beforeEncoded, afterEncoded, changed }) {
+  let beforePrefixHash = null;
+  try {
+    beforePrefixHash = messagePrefixHash(messages);
+  } catch {
+    /* best-effort */
+  }
+  traceSessionCompaction(plan, compactStartedAt, {
+    counts: {
+      compact_changed: changed,
+      input_prefix_hash: beforePrefixHash,
+      before_count: messages.length,
+      after_count: compacted.length,
+      before_bytes: beforeEncoded ? Buffer.byteLength(beforeEncoded, 'utf8') : null,
+      after_bytes: afterEncoded ? Buffer.byteLength(afterEncoded, 'utf8') : null,
+    },
+  });
+}
+
+// The post-compaction numbers and whether the transcript actually changed.
+// afterTokens is on the same scale as beforeTokens: compaction invalidates
+// the provider baseline, so the gauge's post-compact number is the
+// calibrated transcript estimate plus the request reserve. The raw sum
+// reported roughly half of that.
+function afterCompactionNumbers(plan, compacted) {
+  const { session, messages, reserveTokens } = plan;
+  const beforeEncoded = encodedOrEmpty(messages);
+  const afterEncoded = encodedOrEmpty(compacted);
+  const afterMessageTokens = estimateMessagesTokens(compacted);
+  const postCompactPolicy = resolveSessionCompactionPolicy(session, compacted) || plan.alignedPolicy;
+  const afterTokens = postCompactPolicy
+    ? currentContextEstimateTokens(afterMessageTokens, postCompactPolicy)
+    : afterMessageTokens + reserveTokens;
+  const changed =
+    beforeEncoded && afterEncoded
+      ? beforeEncoded !== afterEncoded
+      : compacted.length !== messages.length || afterMessageTokens !== plan.beforeMessageTokens;
+  return { beforeEncoded, afterEncoded, afterMessageTokens, postCompactPolicy, afterTokens, changed };
+}
+
+async function commitSessionCompaction(plan, run, compactStartedAt) {
+  const { session, messages, mode, force, resolvedSessionId, reserveTokens } = plan;
+  const { compacted, freshContextResult } = run;
+  const { beforeEncoded, afterEncoded, afterMessageTokens, postCompactPolicy, afterTokens, changed } =
+    afterCompactionNumbers(plan, compacted);
+  let unchangedReason = null;
+  if (!changed) unchangedReason = force ? 'nothing to compact' : 'below threshold';
+  const now = Date.now();
+  session.messages = compacted;
+  if (changed) resetReadStateAfterCompaction(resolvedSessionId);
+  await pruneCompactedOffloads(session, resolvedSessionId);
+  if (changed) session.providerState = undefined;
+  session.compaction = compactionRecord(plan, {
+    stage: mode === 'auto' ? 'post_turn' : 'manual',
+    after: { tokens: afterTokens, messageTokens: afterMessageTokens },
+    now,
+    reserve: {
+      requestReserveTokens: postCompactPolicy?.requestReserveTokens || 0,
+      reserveTokens: postCompactPolicy?.reserveTokens ?? reserveTokens,
+    },
+    outcome: compactionOutcome(session, freshContextResult, changed, now),
+  });
   if (changed) {
     invalidateProviderContextBaseline(session);
     if (postCompactPolicy) {
@@ -433,62 +495,41 @@ export async function runSessionCompaction(session, opts = {}) {
       });
     }
   }
-  // Observability parity with the loop's pre-send pass: record the
-  // out-of-loop mutation as compact_meta and park a one-shot intent so the
-  // next turn's first send tags its cache break instead of logging an
-  // unexplained input_prefix_mismatch (observed live: a 403k→10k post-turn
-  // compact traced as intentional_transition: null with no compact_meta).
-  let beforePrefixHash = null;
-  try {
-    beforePrefixHash = messagePrefixHash(messages);
-  } catch {
-    /* best-effort */
-  }
-  traceAgentCompact({
-    sessionId: pruneSessionId || null,
-    stage: mode === 'auto' ? 'post_turn' : 'manual',
-    trigger: mode,
-    compact_changed: changed,
-    input_prefix_hash: beforePrefixHash,
-    before_count: messages.length,
-    after_count: compacted.length,
-    before_bytes: beforeEncoded ? Buffer.byteLength(beforeEncoded, 'utf8') : null,
-    after_bytes: afterEncoded ? Buffer.byteLength(afterEncoded, 'utf8') : null,
-    context_window: positiveInt(session.contextWindow) || null,
-    budget_tokens: boundary,
-    boundary_tokens: boundary,
-    target_budget_tokens: budget,
-    reserve_tokens: reserveTokens,
-    pressure_tokens: pressureTokens,
-    trigger_tokens: triggerTokens,
-    message_tokens_est: beforeMessageTokens,
-    duration_ms: Date.now() - compactStartedAt,
-    provider: session.provider || null,
-    model: session.model || null,
-  });
+  traceCommittedCompaction(plan, compactStartedAt, { messages, compacted, beforeEncoded, afterEncoded, changed });
+  // Park a one-shot intent so the next turn's first send tags its cache
+  // break instead of logging an unexplained input_prefix_mismatch.
   if (changed) {
     session.pendingCacheBreakIntent = mode === 'auto' ? 'post_turn_compaction' : 'manual_compaction';
   }
-  return {
-    changed,
-    reason: unchangedReason,
-    beforeMessages: messages.length,
-    afterMessages: compacted.length,
-    beforeTokens,
-    afterTokens,
-    beforeMessageTokens,
-    afterMessageTokens,
-    pressureTokens,
-    triggerTokens,
-    bufferTokens,
-    bufferRatio,
-    boundaryTokens: boundary,
-    budgetTokens: boundary,
-    targetBudgetTokens: budget,
-    reserveTokens,
-    freshContext: freshContextResult?.freshContext === true,
-    freshContextError: null,
-    handoffSource: freshContextResult?.handoffSource || 'session-local',
-    usage: freshContextResult?.usage || null,
-  };
+  return compactionResult(
+    plan,
+    { changed, reason: unchangedReason },
+    { messages: compacted.length, tokens: afterTokens, messageTokens: afterMessageTokens },
+    {
+      freshContext: freshContextResult?.freshContext === true,
+      freshContextError: null,
+      handoffSource: freshContextResult?.handoffSource || 'session-local',
+      usage: freshContextResult?.usage || null,
+    }
+  );
+}
+
+export async function runSessionCompaction(session, opts = {}) {
+  if (!session || session.closed === true) return null;
+  const plan = sessionCompactionPlan(session, opts);
+  if (!plan) return null;
+  if (!plan.force && plan.pressureTokens < plan.triggerTokens) {
+    return compactionResult(plan, { changed: false, reason: 'below threshold' }, unchangedAfter(plan), {
+      freshContext: false,
+    });
+  }
+  const compactStartedAt = Date.now();
+  try {
+    await opts.onStageChange?.('compacting');
+  } catch {
+    /* best-effort */
+  }
+  const run = await runSessionHandoff(plan, opts);
+  if (!run.compacted) return recordFailedCompaction(plan, run, compactStartedAt);
+  return commitSessionCompaction(plan, run, compactStartedAt);
 }

@@ -47,28 +47,26 @@ export type CoreMemoryEntry = {
   projectId?: string | null;
 };
 
+type CoreMemoryRow = {
+  id: number | null;
+  element?: string;
+  summary?: string;
+  source?: string;
+  index_revision?: string;
+  project_id?: string | null;
+};
+
 export function parseCoreMemoryEntries(value: unknown): CoreMemoryEntry[] {
   let structured: unknown = value;
   if (typeof value === 'string' && value.trim().startsWith('{')) {
     structured = JSON.parse(value);
   }
   if (structured && typeof structured === 'object' && 'entries' in structured) {
-    const rows = (
-      structured as {
-        entries: Array<{
-          id: number | null;
-          element?: string;
-          summary?: string;
-          source?: string;
-          index_revision?: string;
-          project_id?: string | null;
-        }>;
-      }
-    ).entries;
+    const rows = (structured as { entries: CoreMemoryRow[] }).entries;
     return rows
-      .filter((row) => row.source !== 'generated' && row.id !== null)
+      .filter((row): row is CoreMemoryRow & { id: number } => row.source !== 'generated' && row.id !== null)
       .map((row) => ({
-        id: row.id!,
+        id: row.id,
         element: row.element || '',
         summary: row.summary || row.element || '',
         singleSentence: !row.element || row.element === row.summary,

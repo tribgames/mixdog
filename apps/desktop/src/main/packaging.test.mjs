@@ -39,7 +39,7 @@ test('packaged preload path matches electron-vite output', async () => {
 
 test('renderer bridge cannot dispose the singleton service client', async () => {
   const [contract, preload, ipc, remote] = await Promise.all([
-    readFile(new URL('../shared/contract.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../shared/contract-ipc.ts', import.meta.url), 'utf8'),
     readFile(new URL('../preload/index.ts', import.meta.url), 'utf8'),
     readFile(new URL('./ipc.ts', import.meta.url), 'utf8'),
     readFile(new URL('../renderer/remote-shim.ts', import.meta.url), 'utf8'),

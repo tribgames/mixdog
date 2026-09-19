@@ -69,13 +69,12 @@ function yearLike(values) {
   return values.every((value) => Number.isInteger(value) && value >= 1900 && value <= 2100);
 }
 
-export function auditSheetHygiene(list, sheet, cells, sheetNames) {
-  const display = mergedAreas(sheet);
-  // A quantity that happens to land between 1900 and 2100 is not a year, and a
-  // column of figures under #,##0 will hold one sooner or later (2,096 건). The
-  // column tells them apart: the numbers beside it under the same format. Every
-  // one of them in the year range is a year column; one outside it is a
-  // quantity column that happens to pass through those four digits.
+// A quantity that happens to land between 1900 and 2100 is not a year, and a
+// column of figures under #,##0 will hold one sooner or later (2,096 건). The
+// column tells them apart: the numbers beside it under the same format. Every
+// one of them in the year range is a year column; one outside it is a
+// quantity column that happens to pass through those four digits.
+function numbersByColumnFormat(cells) {
   const byColumnFormat = new Map();
   for (const cell of cells) {
     if (cell.formula) continue;
@@ -83,8 +82,34 @@ export function auditSheetHygiene(list, sheet, cells, sheetNames) {
     const at = position(cell);
     if (value === null || !at) continue;
     const key = `${at.column}|${formatKey(cell.style)}`;
-    byColumnFormat.set(key, [...(byColumnFormat.get(key) || []), value]);
+    if (!byColumnFormat.has(key)) byColumnFormat.set(key, []);
+    byColumnFormat.get(key).push(value);
   }
+  return byColumnFormat;
+}
+
+function auditFormulaHygiene(list, cell, path, sheetNames) {
+  for (const name of unquotedSheetReferences(cell.formula, sheetNames)) {
+    list.push(
+      'warning',
+      'unquoted_sheet_reference',
+      path,
+      `Formula references sheet "${name}" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '${name}'!.`
+    );
+  }
+  if (externalLinkReference(cell.formula)) {
+    list.push(
+      'warning',
+      'external_link_reference',
+      path,
+      'Formula links to another workbook; only its cached value is available here, and recalculation would replace the link with #NAME?. Copy the value into a sourced input cell instead.'
+    );
+  }
+}
+
+export function auditSheetHygiene(list, sheet, cells, sheetNames) {
+  const display = mergedAreas(sheet);
+  const byColumnFormat = numbersByColumnFormat(cells);
   for (const cell of cells) {
     const path = cellPath(sheet, cell);
     // A figure typed as text in a merged banner or metric tile is the label it
@@ -99,22 +124,7 @@ export function auditSheetHygiene(list, sheet, cells, sheetNames) {
       continue;
     }
     if (cell.formula) {
-      for (const name of unquotedSheetReferences(cell.formula, sheetNames)) {
-        list.push(
-          'warning',
-          'unquoted_sheet_reference',
-          path,
-          `Formula references sheet "${name}" without quotes; Excel evaluates it as #VALUE! or #NAME?. Write '${name}'!.`
-        );
-      }
-      if (externalLinkReference(cell.formula)) {
-        list.push(
-          'warning',
-          'external_link_reference',
-          path,
-          'Formula links to another workbook; only its cached value is available here, and recalculation would replace the link with #NAME?. Copy the value into a sourced input cell instead.'
-        );
-      }
+      auditFormulaHygiene(list, cell, path, sheetNames);
       continue;
     }
     const value = numericValue(cell);
@@ -144,6 +154,41 @@ export function auditSheetHygiene(list, sheet, cells, sheetNames) {
   }
 }
 
+// Each all-numeric body column of a table: the ones whose format drifts
+// from the column's majority, and the ones left under General.
+function tableColumnFormats(located, area) {
+  const unformatted = [];
+  const drifted = [];
+  for (let column = area.startCol; column <= area.endCol; column += 1) {
+    const body = located.filter(
+      (entry) => entry.at.column === column && entry.at.row > area.startRow && entry.at.row <= area.endRow
+    );
+    const numbers = body.filter((entry) => entry.cell.dataType !== 'text' && numericValue(entry.cell) !== null);
+    if (numbers.length < NUMERIC_COLUMN_MIN || numbers.length < body.length) continue;
+    const tally = new Map();
+    for (const entry of numbers) {
+      const key = formatKey(entry.cell.style);
+      tally.set(key, (tally.get(key) || 0) + 1);
+    }
+    if (tally.size > 1) {
+      const [dominant, count] = [...tally].sort((left, right) => right[1] - left[1])[0];
+      if (count / numbers.length >= FORMAT_MAJORITY) {
+        drifted.push({
+          column: columnLabel(column),
+          dominant,
+          refs: numbers
+            .filter((entry) => formatKey(entry.cell.style) !== dominant)
+            .map((entry) => String(entry.cell.ref).toUpperCase()),
+        });
+      }
+    }
+    if (!numbers.every((entry) => generalFormat(entry.cell.style))) continue;
+    if (yearLike(numbers.map((entry) => numericValue(entry.cell)))) continue;
+    unformatted.push(columnLabel(column));
+  }
+  return { unformatted, drifted };
+}
+
 export function auditSheetLayout(list, sheet, cells) {
   const located = locate(cells);
   if (!located.length) return;
@@ -162,35 +207,7 @@ export function auditSheetLayout(list, sheet, cells) {
     }
   }
   tableAreas(sheet).forEach((area, index) => {
-    const unformatted = [];
-    const drifted = [];
-    for (let column = area.startCol; column <= area.endCol; column += 1) {
-      const body = located.filter(
-        (entry) => entry.at.column === column && entry.at.row > area.startRow && entry.at.row <= area.endRow
-      );
-      const numbers = body.filter((entry) => entry.cell.dataType !== 'text' && numericValue(entry.cell) !== null);
-      if (numbers.length < NUMERIC_COLUMN_MIN || numbers.length < body.length) continue;
-      const tally = new Map();
-      for (const entry of numbers) {
-        const key = formatKey(entry.cell.style);
-        tally.set(key, (tally.get(key) || 0) + 1);
-      }
-      if (tally.size > 1) {
-        const [dominant, count] = [...tally].sort((left, right) => right[1] - left[1])[0];
-        if (count / numbers.length >= FORMAT_MAJORITY) {
-          drifted.push({
-            column: columnLabel(column),
-            dominant,
-            refs: numbers
-              .filter((entry) => formatKey(entry.cell.style) !== dominant)
-              .map((entry) => String(entry.cell.ref).toUpperCase()),
-          });
-        }
-      }
-      if (!numbers.every((entry) => generalFormat(entry.cell.style))) continue;
-      if (yearLike(numbers.map((entry) => numericValue(entry.cell)))) continue;
-      unformatted.push(columnLabel(column));
-    }
+    const { unformatted, drifted } = tableColumnFormats(located, area);
     const tablePath = area.table.path || `${sheetPath(sheet)}/table[${index + 1}]`;
     for (const drift of drifted) {
       list.push(

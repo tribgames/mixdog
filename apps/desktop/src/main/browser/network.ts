@@ -39,7 +39,7 @@ export interface BrowserWebSocketFrame {
 
 /** One line of status for a recorded request: its failure, its HTTP status, or
  *  where it is in its lifecycle. */
-export function networkRequestStatus(request: BrowserNetworkRequest): string {
+function networkRequestStatus(request: BrowserNetworkRequest): string {
   if (request.failure) return request.failure;
   if (request.status !== undefined) {
     return `${request.status}${request.statusText ? ` ${request.statusText}` : ''}`;
@@ -48,7 +48,7 @@ export function networkRequestStatus(request: BrowserNetworkRequest): string {
 }
 
 /** How long the request has taken, counting an unfinished one up to now. */
-export function networkRequestDuration(request: BrowserNetworkRequest): string {
+function networkRequestDuration(request: BrowserNetworkRequest): string {
   const end = request.finishedAt || Date.now();
   return `${Math.max(0, end - request.startedAt)}ms`;
 }
@@ -63,7 +63,7 @@ export function formatNetworkHeaders(values: Record<string, string>): string[] {
 }
 
 /** Whether a body of this type is worth returning as text at all. */
-export function isTextNetworkMimeType(mimeType: string): boolean {
+function isTextNetworkMimeType(mimeType: string): boolean {
   return /^text\//i.test(mimeType) || /(?:json|javascript|xml|svg|x-www-form-urlencoded|graphql)/i.test(mimeType);
 }
 
@@ -74,7 +74,7 @@ function retainedNetworkText(text: string, maxChars: number): string {
 }
 
 /** A body cut to the caller's budget, saying how much was left behind. */
-export function truncateNetworkBody(body: string, maxChars: number): string {
+function truncateNetworkBody(body: string, maxChars: number): string {
   const limit = Math.max(1, Math.trunc(maxChars) || 1);
   // Redaction is regex-heavy; never run it over an arbitrarily large response
   // merely to return the first few thousand characters.
@@ -201,7 +201,9 @@ export function createBrowserNetworkReports(host: BrowserNetworkReportHost) {
         responseBodyNote = 'Response body is no longer available from Chromium.';
       } else if (response.base64Encoded) {
         const encoded = String(response.body || '');
-        const padding = encoded.endsWith('==') ? 2 : encoded.endsWith('=') ? 1 : 0;
+        let padding = 0;
+        if (encoded.endsWith('==')) padding = 2;
+        else if (encoded.endsWith('=')) padding = 1;
         const estimatedBytes = Math.max(0, Math.floor((encoded.length * 3) / 4) - padding);
         if (!isTextNetworkMimeType(request.mimeType || '')) {
           responseBodyNote = `Binary response body omitted (${estimatedBytes} bytes, ${request.mimeType || 'unknown MIME type'}).`;

@@ -5,7 +5,7 @@
 import { TOOL_OUTPUT_MAX_BYTES } from '../agent/orchestrator/tools/builtin/tool-output-limit.mjs';
 
 export const DIAGNOSTIC_CAP = 20;
-export const FILE_LIST_CAP = 25;
+const FILE_LIST_CAP = 25;
 export const RESULTS_PAGE_MAX = 100;
 const TRIM_STEPS = [8, 3, 0];
 
@@ -25,7 +25,7 @@ function pageList(values, offset, cap) {
 }
 
 /** Engine entry for the report: resolution facts plus the hint when missing. */
-export function shapeEngine(engine) {
+function shapeEngine(engine) {
   return {
     id: engine.id,
     ...(engine.version ? { version: engine.version } : {}),
@@ -138,55 +138,69 @@ export function buildTidyReport({
   limit = DIAGNOSTIC_CAP,
   maxBytes = TOOL_OUTPUT_MAX_BYTES,
 } = {}) {
-  const missing = engines.filter((engine) => engine.missing).map(shapeEngine);
-  const resolved = engines.filter((engine) => !engine.missing).map(shapeEngine);
   const truncationNotes = (results || [])
     .filter((result) => result?.truncated)
     .map((result) => result.note || `${result.id} output was truncated; split the scope and re-run`);
-  const allNotes = [...notes, ...truncationNotes];
   const engineTruncated = (results || []).some((result) => result?.truncated);
-  const rolled = rollupEngineCounts(results);
-  const pageOffset = Math.max(0, Math.trunc(Number(offset) || 0));
   const startCap = Math.min(RESULTS_PAGE_MAX, Math.max(0, Math.trunc(Number(limit) || 0)));
   const structuralFailed =
     Boolean(structural?.error) || (Array.isArray(structural?.ruleErrors) && structural.ruleErrors.length > 0);
-  const reportOk = Boolean(ok) && !structuralFailed;
-  const compose = (diagnosticCap) => ({
-    ok: reportOk,
+  const parts = {
+    ok: Boolean(ok) && !structuralFailed,
     action,
-    ...(scope ? { scope } : {}),
+    scope,
     languages,
-    ...(languageSource ? { languageSource } : {}),
-    engines: resolved,
-    ...(missing.length ? { missing } : {}),
-    ...(policy ? { policy } : {}),
-    ...(results
-      ? {
-          results: results.map((result) =>
-            shapeEngineResult(result, diagnosticCap, pageOffset, {
-              cap: action === 'results' ? diagnosticCap : FILE_LIST_CAP,
-              offset: action === 'results' ? pageOffset : 0,
-            })
-          ),
-        }
-      : {}),
-    ...(rolled ? { counts: rolled } : {}),
-    ...(structural ? { structural: shapeStructural(structural, diagnosticCap, pageOffset) } : {}),
-    ...(results || structural ? { paging: { offset: pageOffset, limit: diagnosticCap } } : {}),
-    ...(rules ? { rules } : {}),
-    ...(installed ? { installed } : {}),
-    ...(needsApproval ? { needsApproval } : {}),
-    ...(errors.length ? { errors } : {}),
-    ...(allNotes.length ? { notes: allNotes } : {}),
+    languageSource,
+    resolved: engines.filter((engine) => !engine.missing).map(shapeEngine),
+    missing: engines.filter((engine) => engine.missing).map(shapeEngine),
+    policy,
+    results,
+    rolled: rollupEngineCounts(results),
+    structural,
+    rules,
+    installed,
+    needsApproval,
+    errors,
+    notes: [...notes, ...truncationNotes],
     elapsedMs,
-  });
-
+    pageOffset: Math.max(0, Math.trunc(Number(offset) || 0)),
+  };
   const caps = [startCap, ...TRIM_STEPS.filter((step) => step < startCap)];
-  let report = compose(caps[0]);
+  let report = composeTidyReport(parts, caps[0]);
   if (engineTruncated) report = { ...report, truncated: true };
   for (const cap of caps.slice(1)) {
     if (Buffer.byteLength(JSON.stringify(report), 'utf8') <= maxBytes) return report;
-    report = { ...compose(cap), truncated: true };
+    report = { ...composeTidyReport(parts, cap), truncated: true };
   }
   return report;
+}
+
+// One report shape at a given diagnostic cap; optional sections appear only
+// when they carry something.
+function composeTidyReport(parts, diagnosticCap) {
+  const { action, results, structural, pageOffset } = parts;
+  const resultFilePage =
+    action === 'results' ? { cap: diagnosticCap, offset: pageOffset } : { cap: FILE_LIST_CAP, offset: 0 };
+  return {
+    ok: parts.ok,
+    action,
+    ...(parts.scope ? { scope: parts.scope } : {}),
+    languages: parts.languages,
+    ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
+    engines: parts.resolved,
+    ...(parts.missing.length ? { missing: parts.missing } : {}),
+    ...(parts.policy ? { policy: parts.policy } : {}),
+    ...(results
+      ? { results: results.map((result) => shapeEngineResult(result, diagnosticCap, pageOffset, resultFilePage)) }
+      : {}),
+    ...(parts.rolled ? { counts: parts.rolled } : {}),
+    ...(structural ? { structural: shapeStructural(structural, diagnosticCap, pageOffset) } : {}),
+    ...(results || structural ? { paging: { offset: pageOffset, limit: diagnosticCap } } : {}),
+    ...(parts.rules ? { rules: parts.rules } : {}),
+    ...(parts.installed ? { installed: parts.installed } : {}),
+    ...(parts.needsApproval ? { needsApproval: parts.needsApproval } : {}),
+    ...(parts.errors.length ? { errors: parts.errors } : {}),
+    ...(parts.notes.length ? { notes: parts.notes } : {}),
+    elapsedMs: parts.elapsedMs,
+  };
 }

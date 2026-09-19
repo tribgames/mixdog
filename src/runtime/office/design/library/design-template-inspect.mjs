@@ -93,6 +93,109 @@ function ensureContentTypeOverride(xml, partName, contentType) {
   return xml.replace(/<\/Types>/i, `<Override PartName="${partName}" ContentType="${contentType}"/></Types>`);
 }
 
+const RELATIONSHIP_BLOCK = /<(?:\w+:)?Relationship\b[^>]*\/?>/gi;
+
+function relationshipBlocks(xml) {
+  return [...xml.matchAll(RELATIONSHIP_BLOCK)].map((match) => match[0]);
+}
+
+// One relationship id per selected slide: the source deck's slide ids in
+// order where they are free, fresh rId numbers where they would collide with
+// a non-slide relationship or an earlier pick.
+function selectedSlideRelationshipIds(entries, relationshipsXml, count) {
+  const slideRelationshipIds = entries.map((entry) => entry.relationshipId).filter(Boolean);
+  const nonSlideRelationshipIds = new Set(
+    relationshipBlocks(relationshipsXml)
+      .filter((block) => !relationshipType(block, 'slide'))
+      .map((block) => xmlAttribute(block, 'Id'))
+  );
+  const relationshipIds = [];
+  let nextRelationshipId = 2;
+  for (let index = 0; index < count; index += 1) {
+    let id = slideRelationshipIds[index] || '';
+    while (!id || nonSlideRelationshipIds.has(id) || relationshipIds.includes(id)) {
+      id = `rId${nextRelationshipId}`;
+      nextRelationshipId += 1;
+    }
+    relationshipIds.push(id);
+  }
+  return relationshipIds;
+}
+
+// The slide part, its relationships, and its notes slide with theirs.
+async function readSlideParts(zip, entry) {
+  const slideXml = await zip.file(entry.name).async('string');
+  const slideRelationshipsPath = `ppt/slides/_rels/slide${entry.part}.xml.rels`;
+  const slideRelationshipsXml = (await zip.file(slideRelationshipsPath)?.async('string')) || '';
+  const notesRelationship = relationshipBlocks(slideRelationshipsXml).find((block) =>
+    relationshipType(block, 'notesSlide')
+  );
+  const notesTarget = notesRelationship ? xmlAttribute(notesRelationship, 'Target') : '';
+  const notesPart = Number(/notesSlide(\d+)\.xml$/i.exec(notesTarget)?.[1] || 0);
+  const notesXml = notesPart
+    ? (await zip.file(`ppt/notesSlides/notesSlide${notesPart}.xml`)?.async('string')) || ''
+    : '';
+  const notesRelationshipsXml = notesPart
+    ? (await zip.file(`ppt/notesSlides/_rels/notesSlide${notesPart}.xml.rels`)?.async('string')) || ''
+    : '';
+  return { slideXml, slideRelationshipsXml, notesXml, notesRelationshipsXml };
+}
+
+function presentationWithSlideList(presentationXml, relationshipIds) {
+  const slideListPattern = /<((?:\w+:)?)sldIdLst\b[^>]*>[\s\S]*?<\/\1sldIdLst>/i;
+  const slideListMatch = slideListPattern.exec(presentationXml);
+  if (!slideListMatch) throw new Error('PPTX presentation slide list is missing');
+  const prefix = slideListMatch[1] || '';
+  const slideIds = relationshipIds.map((id, index) => `<${prefix}sldId id="${256 + index}" r:id="${id}"/>`).join('');
+  return presentationXml.replace(slideListPattern, `<${prefix}sldIdLst>${slideIds}</${prefix}sldIdLst>`);
+}
+
+function presentationRelationshipsWithSlides(relationshipsXml, relationshipIds) {
+  const slideRelationships = relationshipIds
+    .map(
+      (id, index) =>
+        `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`
+    )
+    .join('');
+  return relationshipsXml
+    .replace(RELATIONSHIP_BLOCK, (block) => (relationshipType(block, 'slide') ? '' : block))
+    .replace(/<\/Relationships>/i, `${slideRelationships}</Relationships>`);
+}
+
+// Writes one selected slide (and its notes) under its new ordinal, retargeting
+// the slide<->notes relationships to each other; returns the content types
+// with both parts declared.
+function writeSelectedSlide(zip, part, target, contentTypesXml) {
+  zip.file(`ppt/slides/slide${target}.xml`, part.slideXml);
+  if (part.slideRelationshipsXml) {
+    const slideRels = part.slideRelationshipsXml.replace(RELATIONSHIP_BLOCK, (block) =>
+      relationshipType(block, 'notesSlide')
+        ? xmlSetAttribute(block, 'Target', `../notesSlides/notesSlide${target}.xml`)
+        : block
+    );
+    zip.file(`ppt/slides/_rels/slide${target}.xml.rels`, slideRels);
+  } else {
+    zip.remove(`ppt/slides/_rels/slide${target}.xml.rels`);
+  }
+  let contentTypes = ensureContentTypeOverride(
+    contentTypesXml,
+    `/ppt/slides/slide${target}.xml`,
+    'application/vnd.openxmlformats-officedocument.presentationml.slide+xml'
+  );
+  if (!part.notesXml) return contentTypes;
+  zip.file(`ppt/notesSlides/notesSlide${target}.xml`, part.notesXml);
+  const notesRels = part.notesRelationshipsXml.replace(RELATIONSHIP_BLOCK, (block) =>
+    relationshipType(block, 'slide') ? xmlSetAttribute(block, 'Target', `../slides/slide${target}.xml`) : block
+  );
+  if (notesRels) zip.file(`ppt/notesSlides/_rels/notesSlide${target}.xml.rels`, notesRels);
+  contentTypes = ensureContentTypeOverride(
+    contentTypes,
+    `/ppt/notesSlides/notesSlide${target}.xml`,
+    'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml'
+  );
+  return contentTypes;
+}
+
 export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
   const selected = (Array.isArray(slides) ? slides : []).map(Number);
   if (!selected.length || selected.some((slide) => !Number.isInteger(slide) || slide < 1)) {
@@ -108,108 +211,35 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
   if (!presentationFile || !relationshipsFile) throw new Error('PPTX presentation relationships are missing');
   const presentationXml = await presentationFile.async('string');
   const relationshipsXml = await relationshipsFile.async('string');
-  const relationshipBlocks = [...relationshipsXml.matchAll(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi)].map(
-    (match) => match[0]
-  );
-  const slideRelationshipIds = entries.map((entry) => entry.relationshipId).filter(Boolean);
-  const nonSlideRelationshipIds = new Set(
-    relationshipBlocks.filter((block) => !relationshipType(block, 'slide')).map((block) => xmlAttribute(block, 'Id'))
-  );
-  const relationshipIds = [];
-  let nextRelationshipId = 2;
-  for (let index = 0; index < selected.length; index += 1) {
-    let id = slideRelationshipIds[index] || '';
-    while (!id || nonSlideRelationshipIds.has(id) || relationshipIds.includes(id)) {
-      id = `rId${nextRelationshipId}`;
-      nextRelationshipId += 1;
-    }
-    relationshipIds.push(id);
-  }
+  const relationshipIds = selectedSlideRelationshipIds(entries, relationshipsXml, selected.length);
   const selectedParts = [];
-  for (const slide of selected) {
-    const entry = entries[slide - 1];
-    const slideXml = await zip.file(entry.name).async('string');
-    const slideRelationshipsPath = `ppt/slides/_rels/slide${entry.part}.xml.rels`;
-    const slideRelationshipsXml = (await zip.file(slideRelationshipsPath)?.async('string')) || '';
-    const notesRelationship = [...slideRelationshipsXml.matchAll(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi)]
-      .map((match) => match[0])
-      .find((block) => relationshipType(block, 'notesSlide'));
-    const notesTarget = notesRelationship ? xmlAttribute(notesRelationship, 'Target') : '';
-    const notesPart = Number(/notesSlide(\d+)\.xml$/i.exec(notesTarget)?.[1] || 0);
-    const notesXml = notesPart
-      ? (await zip.file(`ppt/notesSlides/notesSlide${notesPart}.xml`)?.async('string')) || ''
-      : '';
-    const notesRelationshipsXml = notesPart
-      ? (await zip.file(`ppt/notesSlides/_rels/notesSlide${notesPart}.xml.rels`)?.async('string')) || ''
-      : '';
-    selectedParts.push({
-      slideXml,
-      slideRelationshipsXml,
-      notesXml,
-      notesRelationshipsXml,
-    });
-  }
-  const slideListPattern = /<((?:\w+:)?)sldIdLst\b[^>]*>[\s\S]*?<\/\1sldIdLst>/i;
-  const slideListMatch = slideListPattern.exec(presentationXml);
-  if (!slideListMatch) throw new Error('PPTX presentation slide list is missing');
-  const presentationPrefix = slideListMatch[1] || '';
-  const slideIds = relationshipIds
-    .map((id, index) => `<${presentationPrefix}sldId id="${256 + index}" r:id="${id}"/>`)
-    .join('');
-  const nextPresentationXml = presentationXml.replace(
-    slideListPattern,
-    `<${presentationPrefix}sldIdLst>${slideIds}</${presentationPrefix}sldIdLst>`
-  );
-  const slideRelationships = relationshipIds
-    .map(
-      (id, index) =>
-        `<Relationship Id="${id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${index + 1}.xml"/>`
-    )
-    .join('');
-  const nextRelationshipsXml = relationshipsXml
-    .replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) => (relationshipType(block, 'slide') ? '' : block))
-    .replace(/<\/Relationships>/i, `${slideRelationships}</Relationships>`);
-  zip.file('ppt/presentation.xml', nextPresentationXml);
-  zip.file('ppt/_rels/presentation.xml.rels', nextRelationshipsXml);
+  for (const slide of selected) selectedParts.push(await readSlideParts(zip, entries[slide - 1]));
+  zip.file('ppt/presentation.xml', presentationWithSlideList(presentationXml, relationshipIds));
+  zip.file('ppt/_rels/presentation.xml.rels', presentationRelationshipsWithSlides(relationshipsXml, relationshipIds));
   let contentTypesXml = (await zip.file('[Content_Types].xml')?.async('string')) || '';
-  for (let index = 0; index < selectedParts.length; index += 1) {
-    const target = index + 1;
-    const part = selectedParts[index];
-    zip.file(`ppt/slides/slide${target}.xml`, part.slideXml);
-    if (part.slideRelationshipsXml) {
-      const slideRels = part.slideRelationshipsXml.replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) =>
-        relationshipType(block, 'notesSlide')
-          ? xmlSetAttribute(block, 'Target', `../notesSlides/notesSlide${target}.xml`)
-          : block
-      );
-      zip.file(`ppt/slides/_rels/slide${target}.xml.rels`, slideRels);
-    } else {
-      zip.remove(`ppt/slides/_rels/slide${target}.xml.rels`);
-    }
-    contentTypesXml = ensureContentTypeOverride(
-      contentTypesXml,
-      `/ppt/slides/slide${target}.xml`,
-      'application/vnd.openxmlformats-officedocument.presentationml.slide+xml'
-    );
-    if (part.notesXml) {
-      zip.file(`ppt/notesSlides/notesSlide${target}.xml`, part.notesXml);
-      const notesRels = part.notesRelationshipsXml.replace(/<(?:\w+:)?Relationship\b[^>]*\/?>/gi, (block) =>
-        relationshipType(block, 'slide') ? xmlSetAttribute(block, 'Target', `../slides/slide${target}.xml`) : block
-      );
-      if (notesRels) zip.file(`ppt/notesSlides/_rels/notesSlide${target}.xml.rels`, notesRels);
-      contentTypesXml = ensureContentTypeOverride(
-        contentTypesXml,
-        `/ppt/notesSlides/notesSlide${target}.xml`,
-        'application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml'
-      );
-    }
+  for (const [index, part] of selectedParts.entries()) {
+    contentTypesXml = writeSelectedSlide(zip, part, index + 1, contentTypesXml);
   }
   if (contentTypesXml) zip.file('[Content_Types].xml', contentTypesXml);
+  await writeSlideCount(zip, selected.length);
+  await writePackage(zip, outputPath);
+  return {
+    output: outputPath,
+    source: sourcePath,
+    slides: selected,
+    count: selected.length,
+  };
+}
+
+async function writeSlideCount(zip, count) {
   const appFile = zip.file('docProps/app.xml');
-  if (appFile) {
-    const appXml = await appFile.async('string');
-    zip.file('docProps/app.xml', appXml.replace(/<Slides>\d+<\/Slides>/i, `<Slides>${selected.length}</Slides>`));
-  }
+  if (!appFile) return;
+  const appXml = await appFile.async('string');
+  zip.file('docProps/app.xml', appXml.replace(/<Slides>\d+<\/Slides>/i, `<Slides>${count}</Slides>`));
+}
+
+// A package that fails to serialize leaves no half-written file behind.
+async function writePackage(zip, outputPath) {
   await mkdir(dirname(outputPath), { recursive: true });
   try {
     await writeFile(
@@ -224,12 +254,6 @@ export async function createPptxSlideSelection(sourcePath, slides, outputPath) {
     await rm(outputPath, { force: true }).catch(() => {});
     throw error;
   }
-  return {
-    output: outputPath,
-    source: sourcePath,
-    slides: selected,
-    count: selected.length,
-  };
 }
 
 export function directPptxShapeBlocks(xml) {

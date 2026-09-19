@@ -558,18 +558,16 @@ test('deck review reports three consecutive same compositions and reads signed s
     false
   );
   // The same three pages carrying three different signed structures are three visual types: no run.
-  const signed = varied.map((slide, index) =>
-    index >= 1 && index <= 3
-      ? {
-          ...slide,
-          shapes: slide.shapes.map((shape) =>
-            shape.text === 'node'
-              ? { ...shape, name: `mixdog-spec:structure:${['timeline', 'hub', 'tiers'][index - 1]}` }
-              : shape
-          ),
-        }
-      : slide
-  );
+  const signed = varied.map((slide, index) => {
+    if (index < 1 || index > 3) return slide;
+    const structure = ['timeline', 'hub', 'tiers'][index - 1];
+    return {
+      ...slide,
+      shapes: slide.shapes.map((shape) =>
+        shape.text === 'node' ? { ...shape, name: `mixdog-spec:structure:${structure}` } : shape
+      ),
+    };
+  });
   assert.equal(
     review(signed).some((entry) => entry.code === 'consecutive_composition_repeat'),
     false

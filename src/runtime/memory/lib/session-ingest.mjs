@@ -83,7 +83,7 @@ export function stableSessionSourceRef(sessionId, m, role, content, ordinal) {
   // identity so genuine repeats persist as distinct rows. The ordinal is only
   // used when no durable original ts exists — a timestamped turn keeps its
   // compaction-stable identity independent of array position.
-  const ordinalPart = originalTs ? '' : Number.isFinite(Number(ordinal)) ? String(Math.floor(Number(ordinal))) : '';
+  const ordinalPart = !originalTs && Number.isFinite(Number(ordinal)) ? String(Math.floor(Number(ordinal))) : '';
   const identity = [role, originalTs, ordinalPart, toolIds.join(','), content].join('\u0000');
   const hash = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 24);
   return `session:${sessionId}:${hash}`;
@@ -253,7 +253,7 @@ export function projectSessionMessagesForIngest(messages) {
     const role = normalizeIngestRole(m.role);
     if (!role || shouldExcludeIngestMessage(m)) continue;
     const content = sessionMessageContentForIngest(m);
-    if (!content || !content.trim()) continue;
+    if (!content?.trim()) continue;
     const next = { role, content };
     if (Object.hasOwn(m, 'ts')) next.ts = m.ts;
     if (Object.hasOwn(m, 'timestamp')) next.timestamp = m.timestamp;

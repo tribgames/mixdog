@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, unlinkSync } from 'fs';
+import { mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 function ensureDir(dirPath) {
   mkdirSync(dirPath, { recursive: true });

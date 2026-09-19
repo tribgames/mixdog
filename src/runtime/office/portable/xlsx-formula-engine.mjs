@@ -91,8 +91,7 @@ const functionName = (text) =>
 
 // The library groups a dotted family under one owner, so RANK.EQ lives at
 // RANK.EQ rather than under the whole name as a key.
-const resolveLibraryPath = (name) =>
-  name.split('.').reduce((owner, part) => (owner === null || owner === undefined ? undefined : owner[part]), functions);
+const resolveLibraryPath = (name) => name.split('.').reduce((owner, part) => owner?.[part], functions);
 
 // Excel kept every pre-2010 name beside the family it grew into and documents
 // the pair as the same calculation — STDEV is STDEV.S, PERCENTILE is
@@ -114,87 +113,97 @@ const libraryFunction = (name) => {
   return legacy ? resolveLibraryPath(legacy) : direct;
 };
 
-function parse(tokens) {
-  let at = 0;
-  const peek = () => tokens[at];
-  const take = () => tokens[at++];
-
-  const binaryLevel = (operators, next) => () => {
-    let node = next();
-    for (;;) {
-      const token = peek();
-      if (token?.type !== 'operator' || !operators.includes(token.text)) return node;
-      take();
-      node = { kind: 'binary', operator: token.text, left: node, right: next() };
-    }
-  };
-
-  const parsePrimary = () => {
-    const token = take();
-    if (!token) throw new UnsupportedFormula('the formula ends early');
-    if (token.type === 'number') return { kind: 'literal', value: Number(token.text) };
-    if (token.type === 'string') return { kind: 'literal', value: token.text.slice(1, -1).replaceAll('""', '"') };
-    if (token.type === 'error') return { kind: 'literal', value: token.text };
-    if (token.type === 'reference') return { kind: 'reference', text: token.text };
-    if (token.type === 'name') {
-      const upper = token.text.toUpperCase();
-      if (upper === 'TRUE') return { kind: 'literal', value: true };
-      if (upper === 'FALSE') return { kind: 'literal', value: false };
-      return { kind: 'name', text: token.text };
-    }
-    if (token.type === 'call') {
-      take(); // the "(" the name looked ahead to
-      const args = [];
-      if (peek()?.type === 'close') take();
-      else {
-        for (;;) {
-          args.push(parseExpression());
-          const next = take();
-          if (!next) throw new UnsupportedFormula('the call is never closed');
-          if (next.type === 'close') break;
-          if (next.type !== 'comma') throw new UnsupportedFormula(`unexpected "${next.text}" in a call`);
-        }
-      }
-      return { kind: 'call', name: functionName(token.text), args };
-    }
-    if (token.type === 'open') {
-      const expression = parseExpression();
-      const closing = take();
-      if (closing?.type !== 'close') throw new UnsupportedFormula('a group is never closed');
-      return expression;
-    }
-    throw new UnsupportedFormula(`unexpected "${token.text}"`);
-  };
-
-  const parsePostfix = () => {
-    let node = parsePrimary();
-    while (peek()?.type === 'operator' && peek().text === '%') {
-      take();
-      node = { kind: 'percent', operand: node };
-    }
-    return node;
-  };
-
-  const parseUnary = () => {
-    const token = peek();
-    if (token?.type === 'operator' && (token.text === '-' || token.text === '+')) {
-      take();
-      return { kind: 'unary', operator: token.text, operand: parseUnary() };
-    }
-    return parsePostfix();
-  };
-
-  const parsePower = binaryLevel(['^'], parseUnary);
-  const parseProduct = binaryLevel(['*', '/'], parsePower);
-  const parseSum = binaryLevel(['+', '-'], parseProduct);
-  const parseConcat = binaryLevel(['&'], parseSum);
-  const parseComparison = binaryLevel(['=', '<>', '<', '>', '<=', '>='], parseConcat);
-  function parseExpression() {
-    return parseComparison();
+class TokenCursor {
+  constructor(tokens) {
+    this.tokens = tokens;
+    this.at = 0;
   }
+  peek() {
+    return this.tokens[this.at];
+  }
+  take() {
+    return this.tokens[this.at++];
+  }
+}
 
-  const tree = parseExpression();
-  if (at < tokens.length) throw new UnsupportedFormula(`unexpected "${tokens[at].text}"`);
+const binaryLevel = (operators, next) => (cursor) => {
+  let node = next(cursor);
+  for (;;) {
+    const token = cursor.peek();
+    if (token?.type !== 'operator' || !operators.includes(token.text)) return node;
+    cursor.take();
+    node = { kind: 'binary', operator: token.text, left: node, right: next(cursor) };
+  }
+};
+
+function parseCallArgs(cursor) {
+  cursor.take(); // the "(" the name looked ahead to
+  const args = [];
+  if (cursor.peek()?.type === 'close') {
+    cursor.take();
+    return args;
+  }
+  for (;;) {
+    args.push(parseExpression(cursor));
+    const next = cursor.take();
+    if (!next) throw new UnsupportedFormula('the call is never closed');
+    if (next.type === 'close') return args;
+    if (next.type !== 'comma') throw new UnsupportedFormula(`unexpected "${next.text}" in a call`);
+  }
+}
+
+function parsePrimary(cursor) {
+  const token = cursor.take();
+  if (!token) throw new UnsupportedFormula('the formula ends early');
+  if (token.type === 'number') return { kind: 'literal', value: Number(token.text) };
+  if (token.type === 'string') return { kind: 'literal', value: token.text.slice(1, -1).replaceAll('""', '"') };
+  if (token.type === 'error') return { kind: 'literal', value: token.text };
+  if (token.type === 'reference') return { kind: 'reference', text: token.text };
+  if (token.type === 'name') {
+    const upper = token.text.toUpperCase();
+    if (upper === 'TRUE') return { kind: 'literal', value: true };
+    if (upper === 'FALSE') return { kind: 'literal', value: false };
+    return { kind: 'name', text: token.text };
+  }
+  if (token.type === 'call') return { kind: 'call', name: functionName(token.text), args: parseCallArgs(cursor) };
+  if (token.type === 'open') {
+    const expression = parseExpression(cursor);
+    const closing = cursor.take();
+    if (closing?.type !== 'close') throw new UnsupportedFormula('a group is never closed');
+    return expression;
+  }
+  throw new UnsupportedFormula(`unexpected "${token.text}"`);
+}
+
+function parsePostfix(cursor) {
+  let node = parsePrimary(cursor);
+  while (cursor.peek()?.type === 'operator' && cursor.peek().text === '%') {
+    cursor.take();
+    node = { kind: 'percent', operand: node };
+  }
+  return node;
+}
+
+function parseUnary(cursor) {
+  const token = cursor.peek();
+  if (token?.type === 'operator' && (token.text === '-' || token.text === '+')) {
+    cursor.take();
+    return { kind: 'unary', operator: token.text, operand: parseUnary(cursor) };
+  }
+  return parsePostfix(cursor);
+}
+
+const parsePower = binaryLevel(['^'], parseUnary);
+const parseProduct = binaryLevel(['*', '/'], parsePower);
+const parseSum = binaryLevel(['+', '-'], parseProduct);
+const parseConcat = binaryLevel(['&'], parseSum);
+const parseComparison = binaryLevel(['=', '<>', '<', '>', '<=', '>='], parseConcat);
+const parseExpression = (cursor) => parseComparison(cursor);
+
+function parse(tokens) {
+  const cursor = new TokenCursor(tokens);
+  const tree = parseExpression(cursor);
+  if (cursor.at < tokens.length) throw new UnsupportedFormula(`unexpected "${tokens[cursor.at].text}"`);
   return tree;
 }
 
@@ -330,8 +339,11 @@ function single(value) {
   return value;
 }
 
+/** An empty cell or empty text: what Excel reads as blank. */
+export const isBlank = (value) => value == null || value === '';
+
 function toNumber(value) {
-  if (value === null || value === undefined || value === '') return 0;
+  if (isBlank(value)) return 0;
   if (typeof value === 'number') return value;
   if (typeof value === 'boolean') return value ? 1 : 0;
   if (isFormulaError(value)) return value;
@@ -340,9 +352,14 @@ function toNumber(value) {
 }
 
 function toText(value) {
-  if (value === null || value === undefined) return '';
+  if (value == null) return '';
   if (typeof value === 'boolean') return value ? 'TRUE' : 'FALSE';
   return String(value);
+}
+
+function ordering(x, y) {
+  if (x === y) return 0;
+  return x < y ? -1 : 1;
 }
 
 function arithmetic(operator, left, right) {
@@ -361,20 +378,13 @@ function arithmetic(operator, left, right) {
 function compare(operator, left, right) {
   const a = single(left);
   const b = single(right);
-  const blank = (value) => value === null || value === undefined || value === '';
-  let order;
+  let order = null;
   if (typeof a === 'number' || typeof b === 'number') {
-    const x = blank(a) ? 0 : toNumber(a);
-    const y = blank(b) ? 0 : toNumber(b);
-    if (isFormulaError(x)) order = null;
-    else if (isFormulaError(y)) order = null;
-    else order = x === y ? 0 : x < y ? -1 : 1;
+    const x = isBlank(a) ? 0 : toNumber(a);
+    const y = isBlank(b) ? 0 : toNumber(b);
+    if (!isFormulaError(x) && !isFormulaError(y)) order = ordering(x, y);
   }
-  if (order === undefined || order === null) {
-    const x = toText(a).toUpperCase();
-    const y = toText(b).toUpperCase();
-    order = x === y ? 0 : x < y ? -1 : 1;
-  }
+  if (order === null) order = ordering(toText(a).toUpperCase(), toText(b).toUpperCase());
   if (operator === '=') return order === 0;
   if (operator === '<>') return order !== 0;
   if (operator === '<') return order < 0;
@@ -494,6 +504,10 @@ function evaluateNode(node, context) {
     if (['=', '<>', '<', '>', '<=', '>='].includes(node.operator)) return compare(node.operator, left, right);
     return arithmetic(node.operator, left, right);
   }
+  return evaluateCall(node, context);
+}
+
+function evaluateCall(node, context) {
   // An empty cell arrives here as empty text, so ISBLANK would call a blank
   // cell filled. Excel's answer is TRUE, and guessing FALSE is worse than
   // leaving the cell for LibreOffice.

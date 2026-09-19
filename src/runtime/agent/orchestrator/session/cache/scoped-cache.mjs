@@ -100,93 +100,76 @@ function _canonicalizeGrepContextArgs(args) {
   }
 }
 
+const GREP_ARG_ALIASES = {
+  pattern: ['query', 'regex', 'regexp', 'needle', 'search', 'literal'],
+  glob: ['file_pattern', 'filePattern', 'include', 'includes', 'files'],
+  path: ['root', 'directory', 'dir'],
+};
+const GLOB_ARG_ALIASES = {
+  pattern: ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files'],
+  path: ['root', 'directory', 'dir'],
+};
+
+// An empty canonical field takes the first alias spelling present; every
+// alias is then dropped so spellings never split the cache key.
+function _adoptAliases(next, aliasesByKey) {
+  for (const [key, aliases] of Object.entries(aliasesByKey)) {
+    if (next[key] === undefined || next[key] === null || next[key] === '') {
+      const alias = _firstArg(next, aliases);
+      if (alias !== undefined) next[key] = alias;
+    }
+  }
+  for (const aliases of Object.values(aliasesByKey)) for (const k of aliases) delete next[k];
+}
+
+function _canonicalGrepArgs(next) {
+  const adopted = { ...next };
+  for (const [key, aliases] of Object.entries(GREP_ARG_ALIASES)) {
+    if (adopted[key] === undefined || adopted[key] === null || adopted[key] === '') {
+      const alias = _firstArg(adopted, aliases);
+      if (alias !== undefined) adopted[key] = alias;
+    }
+  }
+  _canonicalizeGrepContextArgs(adopted);
+  if (
+    (adopted.output_mode === undefined || adopted.output_mode === null || adopted.output_mode === '') &&
+    typeof adopted.mode === 'string'
+  ) {
+    const mode = adopted.mode.trim();
+    if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) adopted.output_mode = mode;
+  }
+  for (const aliases of Object.values(GREP_ARG_ALIASES)) for (const k of aliases) delete adopted[k];
+  delete adopted.mode;
+
+  // Canonicalize by execution semantics, not caller spelling:
+  // omitted/content_with_context => content + the automatic asymmetric
+  // window, spelled as the -B/-A pair it actually runs as;
+  // context:0 => bare content; context flags are ignored in count/files.
+  const requestedMode = typeof adopted.output_mode === 'string' ? adopted.output_mode.trim() : '';
+  if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
+    adopted.output_mode = requestedMode;
+    delete adopted['-A'];
+    delete adopted['-B'];
+    delete adopted.context;
+    return adopted;
+  }
+  const hasExplicitContext = ['-A', '-B', 'context'].some((key) => Object.hasOwn(adopted, key));
+  adopted.output_mode = 'content';
+  if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
+    adopted['-B'] = GREP_AUTO_CONTEXT_BEFORE;
+    adopted['-A'] = GREP_AUTO_CONTEXT_AFTER;
+  }
+  if (adopted.context === 0 && !Object.hasOwn(adopted, '-A') && !Object.hasOwn(adopted, '-B')) {
+    delete adopted.context;
+  }
+  return adopted;
+}
+
 function _canonicalToolArgs(toolName, args) {
   if (!args || typeof args !== 'object') return args;
+  if (toolName === 'grep') return _canonicalGrepArgs(args);
   const next = { ...args };
-  if (toolName === 'grep') {
-    if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
-      const alias = _firstArg(next, ['query', 'regex', 'regexp', 'needle', 'search', 'literal']);
-      if (alias !== undefined) next.pattern = alias;
-    }
-    if (next.glob === undefined || next.glob === null || next.glob === '') {
-      const alias = _firstArg(next, ['file_pattern', 'filePattern', 'include', 'includes', 'files']);
-      if (alias !== undefined) next.glob = alias;
-    }
-    if (next.path === undefined || next.path === null || next.path === '') {
-      const alias = _firstArg(next, ['root', 'directory', 'dir']);
-      if (alias !== undefined) next.path = alias;
-    }
-    _canonicalizeGrepContextArgs(next);
-    if (
-      (next.output_mode === undefined || next.output_mode === null || next.output_mode === '') &&
-      typeof next.mode === 'string'
-    ) {
-      const mode = next.mode.trim();
-      if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) next.output_mode = mode;
-    }
-    for (const k of [
-      'query',
-      'regex',
-      'regexp',
-      'needle',
-      'search',
-      'literal',
-      'file_pattern',
-      'filePattern',
-      'include',
-      'includes',
-      'files',
-      'root',
-      'directory',
-      'dir',
-    ])
-      delete next[k];
-    delete next.mode;
-
-    // Canonicalize by execution semantics, not caller spelling:
-    // omitted/content_with_context => content + the automatic asymmetric
-    // window, spelled as the -B/-A pair it actually runs as;
-    // context:0 => bare content; context flags are ignored in count/files.
-    const requestedMode = typeof next.output_mode === 'string' ? next.output_mode.trim() : '';
-    if (requestedMode === 'files_with_matches' || requestedMode === 'count') {
-      next.output_mode = requestedMode;
-      delete next['-A'];
-      delete next['-B'];
-      delete next.context;
-    } else {
-      const hasExplicitContext = ['-A', '-B', 'context'].some((key) => Object.hasOwn(next, key));
-      next.output_mode = 'content';
-      if ((requestedMode === '' || requestedMode === 'content_with_context') && !hasExplicitContext) {
-        next['-B'] = GREP_AUTO_CONTEXT_BEFORE;
-        next['-A'] = GREP_AUTO_CONTEXT_AFTER;
-      }
-      if (next.context === 0 && !Object.hasOwn(next, '-A') && !Object.hasOwn(next, '-B')) {
-        delete next.context;
-      }
-    }
-  } else if (toolName === 'glob') {
-    if (next.pattern === undefined || next.pattern === null || next.pattern === '') {
-      const alias = _firstArg(next, ['glob', 'file_pattern', 'filePattern', 'name', 'include', 'includes', 'files']);
-      if (alias !== undefined) next.pattern = alias;
-    }
-    if (next.path === undefined || next.path === null || next.path === '') {
-      const alias = _firstArg(next, ['root', 'directory', 'dir']);
-      if (alias !== undefined) next.path = alias;
-    }
-    for (const k of [
-      'glob',
-      'file_pattern',
-      'filePattern',
-      'name',
-      'include',
-      'includes',
-      'files',
-      'root',
-      'directory',
-      'dir',
-    ])
-      delete next[k];
-  }
+  if (toolName === 'glob') _adoptAliases(next, GLOB_ARG_ALIASES);
   return next;
 }
 
@@ -404,17 +387,7 @@ export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
   mutationGeneration += 1;
   const map = _scopedBySession.get(sessionId);
   if (!map) return;
-  const base = cwd && typeof cwd === 'string' ? cwd : process.cwd();
-  const absPaths = touchedPaths
-    .map((p) => {
-      if (typeof p !== 'string' || p.length === 0) return null;
-      try {
-        return _normalizeCacheKey(_pathNorm(_pathIsAbs(p) ? p : _pathResolve(base, p)));
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+  const absPaths = touchedCacheKeys(touchedPaths, cwd);
   if (absPaths.length === 0) {
     // Fallback: can't resolve — full wipe.
     _scopedBySession.delete(sessionId);
@@ -424,29 +397,7 @@ export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
   }
   const ridx = _scopedReverseIdx.get(sessionId);
   const evictedKeys = new Set();
-  for (const abs of absPaths) {
-    const keys = ridx ? ridx.get(abs) : null;
-    if (keys && keys.size > 0) {
-      for (const key of keys) {
-        if (map.has(key)) {
-          map.delete(key);
-          evictedKeys.add(key);
-        }
-      }
-      keys.clear();
-      ridx.delete(abs);
-    }
-    // Index miss may still touch a cached directory/root dependency
-    // (e.g. grep path:"src" then edit src/a.mjs). Prefix scan is bounded
-    // by MAX_PER_SESSION and prevents stale scoped cache hits.
-    for (const [key, entry] of map) {
-      const roots = Array.isArray(entry?.depRoots) ? entry.depRoots : [];
-      if (roots.some((root) => _pathTouchesRoot(abs, root))) {
-        map.delete(key);
-        evictedKeys.add(key);
-      }
-    }
-  }
+  for (const abs of absPaths) evictScopedEntriesForPath(map, ridx, abs, evictedKeys);
   // Remove evicted keys from any other reverse-index sets they appeared in; prune empty Sets.
   if (ridx && evictedKeys.size > 0) {
     for (const [absKey, keySet] of ridx) {
@@ -455,6 +406,47 @@ export function clearScopedToolsForSessionPaths(sessionId, touchedPaths, cwd) {
     }
   }
   if (evictedKeys.size > 0) _bumpCounter(sessionId, 'clears');
+}
+
+// The normalized absolute cache keys of the touched paths; unresolvable
+// entries are dropped.
+function touchedCacheKeys(touchedPaths, cwd) {
+  const base = cwd && typeof cwd === 'string' ? cwd : process.cwd();
+  return touchedPaths
+    .map((p) => {
+      if (typeof p !== 'string' || p.length === 0) return null;
+      try {
+        return _normalizeCacheKey(_pathNorm(_pathIsAbs(p) ? p : _pathResolve(base, p)));
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+// Evicts every entry keyed to `abs` in the reverse index, then every entry
+// whose dependency roots cover it. An index miss may still touch a cached
+// directory/root dependency (e.g. grep path:"src" then edit src/a.mjs); the
+// prefix scan is bounded by MAX_PER_SESSION and prevents stale scoped hits.
+function evictScopedEntriesForPath(map, ridx, abs, evictedKeys) {
+  const keys = ridx ? ridx.get(abs) : null;
+  if (keys && keys.size > 0) {
+    for (const key of keys) {
+      if (map.has(key)) {
+        map.delete(key);
+        evictedKeys.add(key);
+      }
+    }
+    keys.clear();
+    ridx.delete(abs);
+  }
+  for (const [key, entry] of map) {
+    const roots = Array.isArray(entry?.depRoots) ? entry.depRoots : [];
+    if (roots.some((root) => _pathTouchesRoot(abs, root))) {
+      map.delete(key);
+      evictedKeys.add(key);
+    }
+  }
 }
 
 // Builtin writes and watcher invalidations must reach every session, not only

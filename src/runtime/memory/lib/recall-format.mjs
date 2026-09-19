@@ -6,105 +6,119 @@ import { memberTsInWindow } from './recall-scoring.mjs';
 
 // Recall query/format helpers. Pure string/date logic plus row rendering.
 
-export function parsePeriod(period, hasQuery) {
-  if (!period && hasQuery) period = '30d';
-  if (!period) return null;
-  if (period === 'all') return null;
-  if (period === 'last') return { mode: 'last' };
-  // Calendar-day windows: 'today' anchors at local midnight rather than
-  // rolling 24h. Without this, a query asking 'today' at 01:30 would silently
-  // include yesterday's last 22.5h of activity, mislabelling them as
-  // 'today's work'. 'yesterday' is the previous calendar day.
+// Calendar-day windows: 'today' anchors at local midnight rather than
+// rolling 24h. Without this, a query asking 'today' at 01:30 would silently
+// include yesterday's last 22.5h of activity, mislabelling them as
+// 'today's work'. 'yesterday' is the previous calendar day.
+function calendarDayWindow(period) {
   if (period === 'today') {
     const start = new Date();
     start.setHours(0, 0, 0, 0);
     return { startMs: start.getTime(), endMs: Date.now() };
   }
-  if (period === 'yesterday') {
-    const start = new Date();
-    start.setDate(start.getDate() - 1);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setHours(23, 59, 59, 999);
-    return { startMs: start.getTime(), endMs: end.getTime() };
-  }
-  if (period === 'this_week' || period === 'last_week') {
-    // R6 P9: calendar Mon-Sun previous/current week. Mon-start ISO
-    // convention. Replaces R5 rolling 7-14d range which was empty for
-    // sessions where "last week" decisions actually fell on Mon (4/27) of
-    // this week. Precise calendar bounds match natural-language intuition.
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    const dayOfWeek = d.getDay();
-    const daysSinceMon = (dayOfWeek + 6) % 7;
-    const thisWeekMon = new Date(d);
-    thisWeekMon.setDate(d.getDate() - daysSinceMon);
-    if (period === 'this_week') {
-      return { startMs: thisWeekMon.getTime(), endMs: Date.now() };
-    }
-    const lastWeekMon = new Date(thisWeekMon);
-    lastWeekMon.setDate(thisWeekMon.getDate() - 7);
-    const lastWeekSunEnd = new Date(thisWeekMon.getTime() - 1);
-    return { startMs: lastWeekMon.getTime(), endMs: lastWeekSunEnd.getTime() };
-  }
+  if (period !== 'yesterday') return null;
+  const start = new Date();
+  start.setDate(start.getDate() - 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setHours(23, 59, 59, 999);
+  return { startMs: start.getTime(), endMs: end.getTime() };
+}
+
+// R6 P9: calendar Mon-Sun previous/current week. Mon-start ISO convention.
+// Replaces R5 rolling 7-14d range which was empty for sessions where "last
+// week" decisions actually fell on Mon (4/27) of this week. Precise calendar
+// bounds match natural-language intuition.
+function calendarWeekWindow(period) {
+  if (period !== 'this_week' && period !== 'last_week') return null;
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  const daysSinceMon = (d.getDay() + 6) % 7;
+  const thisWeekMon = new Date(d);
+  thisWeekMon.setDate(d.getDate() - daysSinceMon);
+  if (period === 'this_week') return { startMs: thisWeekMon.getTime(), endMs: Date.now() };
+  const lastWeekMon = new Date(thisWeekMon);
+  lastWeekMon.setDate(thisWeekMon.getDate() - 7);
+  const lastWeekSunEnd = new Date(thisWeekMon.getTime() - 1);
+  return { startMs: lastWeekMon.getTime(), endMs: lastWeekSunEnd.getTime() };
+}
+
+// Rolling 'Nm' / 'Nh' / 'Nd' windows ending now. Minute granularity is for
+// "resume from the previous turn / pick up where we left off" style recall —
+// sub-hour windows where 1h is too coarse. n=0 is a zero-width window that
+// returns no rows; left as a caller-supplied no-op.
+function rollingWindow(period) {
   const relMatch = period.match(/^(\d+)(m|h|d)$/);
-  if (relMatch) {
-    const n = parseInt(relMatch[1], 10);
-    const unit = relMatch[2];
-    const now = new Date();
-    if (unit === 'm') {
-      // Minute granularity is for "resume from the previous turn / pick
-      // up where we left off" style recall — sub-hour windows where 1h
-      // is too coarse. n=0 is invalid (the regex requires \d+ which
-      // matches "0" but a zero-width window returns no rows; leave that
-      // as caller-supplied no-op).
-      const start = new Date(now.getTime() - n * 60_000);
-      return { startMs: start.getTime(), endMs: now.getTime() };
-    }
-    if (unit === 'h') {
-      const start = new Date(now.getTime() - n * 3600_000);
-      return { startMs: start.getTime(), endMs: now.getTime() };
-    }
-    const start = new Date(now);
-    start.setDate(start.getDate() - n);
-    return { startMs: start.getTime(), endMs: now.getTime() };
-  }
+  if (!relMatch) return null;
+  const n = parseInt(relMatch[1], 10);
+  const unit = relMatch[2];
+  const now = new Date();
+  if (unit === 'm') return { startMs: now.getTime() - n * 60_000, endMs: now.getTime() };
+  if (unit === 'h') return { startMs: now.getTime() - n * 3600_000, endMs: now.getTime() };
+  const start = new Date(now);
+  start.setDate(start.getDate() - n);
+  return { startMs: start.getTime(), endMs: now.getTime() };
+}
+
+function dateRangeWindow(period) {
   const rangeMatch = period.match(/^(\d{4}-\d{2}-\d{2})~(\d{4}-\d{2}-\d{2})$/);
-  if (rangeMatch) {
-    return {
-      startMs: Date.parse(rangeMatch[1] + 'T00:00:00'),
-      endMs: Date.parse(rangeMatch[2] + 'T23:59:59.999'),
-    };
-  }
-  // Time-of-day windows: 'HH:MM~HH:MM' (today) or 'YYYY-MM-DD HH:MM~HH:MM'
-  // (specific day). Covers "this afternoon 12:00-14:00" style recall that the
-  // day-granular date/range forms cannot express. End is inclusive to the
-  // minute (:59.999). An end at or before start returns null (invalid window)
-  // rather than guessing an overnight wrap.
+  if (!rangeMatch) return null;
+  return {
+    startMs: Date.parse(`${rangeMatch[1]}T00:00:00`),
+    endMs: Date.parse(`${rangeMatch[2]}T23:59:59.999`),
+  };
+}
+
+// Time-of-day windows: 'HH:MM~HH:MM' (today) or 'YYYY-MM-DD HH:MM~HH:MM'
+// (specific day). Covers "this afternoon 12:00-14:00" style recall that the
+// day-granular date/range forms cannot express. End is inclusive to the
+// minute (:59.999). An end at or before start is an invalid window (null)
+// rather than a guessed overnight wrap.
+function timeOfDayWindow(period) {
   const todMatch = period.match(/^(?:(\d{4}-\d{2}-\d{2})[ T])?(\d{1,2}):(\d{2})~(\d{1,2}):(\d{2})$/);
-  if (todMatch) {
-    const [, day, h1, m1, h2, m2] = todMatch;
-    const base = day ? new Date(day + 'T00:00:00') : new Date();
-    if (Number.isNaN(base.getTime())) return null;
-    const sh = Number(h1),
-      sm = Number(m1),
-      eh = Number(h2),
-      em = Number(m2);
-    if (sh > 23 || eh > 23 || sm > 59 || em > 59) return null;
-    const start = new Date(base);
-    start.setHours(sh, sm, 0, 0);
-    const end = new Date(base);
-    end.setHours(eh, em, 59, 999);
-    if (end.getTime() <= start.getTime()) return null;
-    return { startMs: start.getTime(), endMs: end.getTime(), exact: true };
-  }
+  if (!todMatch) return null;
+  const [, day, h1, m1, h2, m2] = todMatch;
+  const base = day ? new Date(`${day}T00:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) return null;
+  const [sh, sm, eh, em] = [h1, m1, h2, m2].map(Number);
+  if (sh > 23 || eh > 23 || sm > 59 || em > 59) return null;
+  const start = new Date(base);
+  start.setHours(sh, sm, 0, 0);
+  const end = new Date(base);
+  end.setHours(eh, em, 59, 999);
+  if (end.getTime() <= start.getTime()) return null;
+  return { startMs: start.getTime(), endMs: end.getTime(), exact: true };
+}
+
+function singleDayWindow(period) {
   const dateMatch = period.match(/^(\d{4}-\d{2}-\d{2})$/);
-  if (dateMatch) {
-    return {
-      startMs: Date.parse(dateMatch[1] + 'T00:00:00'),
-      endMs: Date.parse(dateMatch[1] + 'T23:59:59.999'),
-      exact: true,
-    };
+  if (!dateMatch) return null;
+  return {
+    startMs: Date.parse(`${dateMatch[1]}T00:00:00`),
+    endMs: Date.parse(`${dateMatch[1]}T23:59:59.999`),
+    exact: true,
+  };
+}
+
+// The period forms are disjoint, so the first parser that recognizes the
+// text owns it — including its own invalid-window null.
+const PERIOD_WINDOW_PARSERS = [
+  calendarDayWindow,
+  calendarWeekWindow,
+  rollingWindow,
+  dateRangeWindow,
+  timeOfDayWindow,
+  singleDayWindow,
+];
+
+export function parsePeriod(period, hasQuery) {
+  if (!period && hasQuery) period = '30d';
+  if (!period) return null;
+  if (period === 'all') return null;
+  if (period === 'last') return { mode: 'last' };
+  for (const parse of PERIOD_WINDOW_PARSERS) {
+    const window = parse(period);
+    if (window) return window;
   }
   return null;
 }
@@ -129,16 +143,16 @@ export function inferRecallPeriod(query) {
   if (/방금(?:\s*전)?|just\s+now/.test(text)) return '3h';
 
   const koRelative = text.match(/(?:최근|지난)\s*(\d+)\s*(분|시간|일)(?:\s*(?:동안|이내|전))?/);
-  if (koRelative) {
-    const unit = koRelative[2] === '분' ? 'm' : koRelative[2] === '시간' ? 'h' : 'd';
-    return `${Number(koRelative[1])}${unit}`;
-  }
+  if (koRelative) return `${Number(koRelative[1])}${relativeUnit(koRelative[2])}`;
   const enRelative = text.match(/(?:last|past)\s*(\d+)\s*(minutes?|hours?|days?)/);
-  if (enRelative) {
-    const unit = enRelative[2].startsWith('minute') ? 'm' : enRelative[2].startsWith('hour') ? 'h' : 'd';
-    return `${Number(enRelative[1])}${unit}`;
-  }
+  if (enRelative) return `${Number(enRelative[1])}${relativeUnit(enRelative[2])}`;
   return undefined;
+}
+
+function relativeUnit(word) {
+  if (word === '분' || word.startsWith('minute')) return 'm';
+  if (word === '시간' || word.startsWith('hour')) return 'h';
+  return 'd';
 }
 
 export function formatTs(tsMs, options = {}) {
@@ -204,13 +218,13 @@ function historicalEventMark(row, enabled = true) {
   const rootElement = cleanMemoryText(String(row?._historicalRootElement ?? ''));
   const rootSummary = cleanMemoryText(String(row?._historicalRootSummary ?? ''));
   if (!rootElement && !rootSummary) return '';
-  return ` [event: ${rootElement}${rootSummary ? `${rootElement ? ' — ' : ''}${rootSummary}` : ''}]`;
+  return ` [event: ${[rootElement, rootSummary].filter(Boolean).join(' — ')}]`;
 }
 
 function recallStandaloneBody(r, preserveSource) {
   const element = r?.element ?? '';
   const summary = r?.summary ?? '';
-  if (element || summary) return `${element}${summary ? ' — ' + summary : ''}`;
+  if (element || summary) return `${element}${summary ? ` — ${summary}` : ''}`;
   return preserveSource || r?._compactRaw ? String(r.content ?? '') : cleanMemoryText(String(r.content ?? ''));
 }
 
@@ -230,6 +244,115 @@ export function interleaveRawRows(hybridRows, rawRows) {
   return out;
 }
 
+function isCollectedRow(row) {
+  return row?.time_source === 'collected';
+}
+
+// The per-line text helpers one render call shares.
+//
+// compactTimestamps (compact handoff only).
+//   collected row -> no stamp at all. Its ts is the ingest instant, not the
+//     event time, and inside one compaction every such row carries the same
+//     second, so the stamp is pure noise.
+//   recorded row  -> local minute instead of the full recall stamp. Only
+//     rows whose ts came from the source reach this branch, and a handoff is
+//     ONE chronological session timeline, so minute precision preserves the
+//     ordering a reader needs. The recall stamp spends ~78 chars restating a
+//     single instant three ways (local + zone/offset + UTC) because a recall
+//     answer must survive being read out of order and across zones; a
+//     handoff never is. Measured on a real 759-row handoff, the full stamps
+//     alone were ~59k chars / ~12k tokens of the injected context.
+// The #id and row order remain in both cases. Browsable recall keeps a loose
+// per-line body cap; lossless compact handoff disables it and relies on its
+// strict final token budget instead.
+function entryLineRenderer({ compactTimestamps, maxBodyChars }) {
+  const bodyLimit =
+    Number.isFinite(Number(maxBodyChars)) && Number(maxBodyChars) > 0 ? Math.floor(Number(maxBodyChars)) : null;
+  return {
+    stamp(row) {
+      if (!compactTimestamps) return `[${formatTs(row?.ts)}] `;
+      return isCollectedRow(row) ? '' : `[${formatLocalMinute(row?.ts)}] `;
+    },
+    boundBody(value) {
+      const text = String(value ?? '');
+      return bodyLimit == null ? text : text.slice(0, bodyLimit);
+    },
+    timeSourceMark(row) {
+      if (isCollectedRow(row)) return compactTimestamps ? '' : ' [time=collected]';
+      if (row?.time_source == null && /^(?:transcript|session):/i.test(String(row?.source_ref || ''))) {
+        return ' [time=legacy; event-time=unverified]';
+      }
+      return '';
+    },
+  };
+}
+
+// One emitted line, tracked with the row identity the order comparators use.
+function entryUnit(row, text) {
+  return { id: row.id, ts: Number(row.ts) || 0, source_turn: row.source_turn, session_id: row.session_id, text };
+}
+
+// The root row itself joins its members when it carries source content
+// inside the requested window and is not already listed among them.
+function rowMembers(r, { includeRootSource, sourceWindow }) {
+  const members = Array.isArray(r.members) ? r.members : [];
+  const includeRoot =
+    includeRootSource &&
+    Number(r.is_root) === 1 &&
+    memberTsInWindow(r, sourceWindow?.startMs, sourceWindow?.endMs) &&
+    typeof r.content === 'string' &&
+    r.content.length > 0 &&
+    !members.some((member) => String(member.id) === String(r.id));
+  return includeRoot ? [r, ...members] : members;
+}
+
+// Chunks present: each member is its own line. The root row is a grouping
+// artifact for retrieval — the caller wants the chunk content (cycle1 raw),
+// not the cycle2-compressed summary.
+function memberUnits(r, members, render, preserveSource) {
+  return members.map((m, memberIndex) => {
+    const source = String(m.content ?? '');
+    const content = render.boundBody(preserveSource ? source : cleanMemoryText(source));
+    return entryUnit(
+      m,
+      `${render.stamp(m)}${recallRoleTag(m.role)}: ${content}${historicalEventMark(r, memberIndex === 0)}${render.timeSourceMark(m)} #${m.id}`
+    );
+  });
+}
+
+// No chunks (root not yet chunked by cycle1, or orphan leaf): the row itself
+// in the same shape; element/summary fall back to raw content when both are
+// absent. Standalone leaf rows (is_root=0, no parent chunks_root resolved
+// into a `members` list) carry their u/a role just like inline chunk members
+// so the format stays consistent across the two emission paths. An
+// unchunked raw leaf (cycle1 hasn't classified it yet) is marked so callers
+// can tell fresh-but-unprocessed rows from chunked memory.
+function standaloneUnit(r, render, { preserveSource, pendingMarks }) {
+  const rolePrefix = r.is_root === 0 && r.role ? `${recallRoleTag(r.role)}: ` : '';
+  const body = recallStandaloneBody(r, preserveSource);
+  const pendingMark = pendingMarks && r.is_root === 0 && r.chunk_root == null ? ' [pending]' : '';
+  return entryUnit(
+    r,
+    `${render.stamp(r)}${rolePrefix}${render.boundBody(body)}${historicalEventMark(r)}${pendingMark}${render.timeSourceMark(r)} #${r.id}`
+  );
+}
+
+// Every line one row contributes. A collapsed near-duplicate (search path
+// only — set by collapseNearDuplicateRows) is a one-line stub carrying its
+// #id so an id-lookup follow-up can still fetch the full body; id-lookup
+// output never carries _dupStub.
+function rowUnits(r, render, options) {
+  if (r?._dupStub) {
+    return [
+      entryUnit(r, `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed)${render.timeSourceMark(r)} #${r.id}`),
+    ];
+  }
+  if (r?._compactBody) return [entryUnit(r, String(r.summary ?? ''))];
+  const members = rowMembers(r, options);
+  if (members.length > 0) return memberUnits(r, members, render, options.preserveSource);
+  return [standaloneUnit(r, render, options)];
+}
+
 export function renderEntryLines(
   rows,
   {
@@ -244,122 +367,17 @@ export function renderEntryLines(
   } = {}
 ) {
   if (!rows || rows.length === 0) return '(no results)';
-  // compactTimestamps (compact handoff only).
-  //   collected row -> no stamp at all. Its ts is the ingest instant, not the
-  //     event time, and inside one compaction every such row carries the same
-  //     second, so the stamp is pure noise.
-  //   recorded row  -> local minute instead of the full recall stamp. Only
-  //     rows whose ts came from the source reach this branch, and a handoff is
-  //     ONE chronological session timeline, so minute precision preserves the
-  //     ordering a reader needs. The recall stamp spends ~78 chars restating a
-  //     single instant three ways (local + zone/offset + UTC) because a recall
-  //     answer must survive being read out of order and across zones; a
-  //     handoff never is. Measured on a real 759-row handoff, the full stamps
-  //     alone were ~59k chars / ~12k tokens of the injected context.
-  // The #id and row order remain in both cases.
-  const isCollected = (row) => row?.time_source === 'collected';
-  const stamp = (row) => {
-    if (!compactTimestamps) return `[${formatTs(row?.ts)}] `;
-    return isCollected(row) ? '' : `[${formatLocalMinute(row?.ts)}] `;
-  };
-  const bodyLimit =
-    Number.isFinite(Number(maxBodyChars)) && Number(maxBodyChars) > 0 ? Math.floor(Number(maxBodyChars)) : null;
-  const boundBody = (value) => {
-    const text = String(value ?? '');
-    return bodyLimit == null ? text : text.slice(0, bodyLimit);
-  };
+  const render = entryLineRenderer({ compactTimestamps, maxBodyChars });
+  const options = { pendingMarks, preserveSource, includeRootSource, sourceWindow };
   // Each emitted line is tracked as a { ts, text } unit so the recencyOrder
   // path can sort the WHOLE stream (roots + their members, plus leaf/raw rows)
   // strictly newest-first. Members are fetched ts-ASC per chunk, so without
   // this global re-sort a multi-member chunk would emit oldest-first lines and
-  // break a strict newest-first contract (bench: recency-today).
-  const units = [];
-  const timeSourceMark = (row) => {
-    if (isCollected(row)) return compactTimestamps ? '' : ' [time=collected]';
-    if (row?.time_source == null && /^(?:transcript|session):/i.test(String(row?.source_ref || ''))) {
-      return ' [time=legacy; event-time=unverified]';
-    }
-    return '';
-  };
-  // No line-count cap here: the orchestrator enforces a global tool-output KB
-  // cap (builtin.mjs tool_output_token_limit), so recall need not self-truncate.
-  // recencyOrder still collects every unit first so the ts sort sees the full
-  // set; the default path emits in row order. Browsable recall keeps a loose
-  // 8000-char per-line safety cap; lossless compact handoff explicitly disables
-  // that cap and relies on its strict final token budget instead.
-  for (const r of rows) {
-    // Collapsed near-duplicate (search path only — set by
-    // collapseNearDuplicateRows). Emit a one-line stub carrying its #id so an
-    // id-lookup follow-up can still fetch the full body; never rendered for
-    // id-lookup output (those rows never carry _dupStub).
-    if (r && r._dupStub) {
-      units.push({
-        id: r.id,
-        ts: Number(r.ts) || 0,
-        source_turn: r.source_turn,
-        session_id: r.session_id,
-        text: `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed)${timeSourceMark(r)} #${r.id}`,
-      });
-      continue;
-    }
-    if (r?._compactBody) {
-      units.push({
-        id: r.id,
-        ts: Number(r.ts) || 0,
-        source_turn: r.source_turn,
-        session_id: r.session_id,
-        text: String(r.summary ?? ''),
-      });
-      continue;
-    }
-    let members = Array.isArray(r.members) ? r.members : [];
-    if (
-      includeRootSource &&
-      Number(r.is_root) === 1 &&
-      memberTsInWindow(r, sourceWindow?.startMs, sourceWindow?.endMs) &&
-      typeof r.content === 'string' &&
-      r.content.length > 0 &&
-      !members.some((member) => String(member.id) === String(r.id))
-    ) {
-      members = [r, ...members];
-    }
-    if (members.length > 0) {
-      // Chunks present: emit each member as its own line. Root row is a
-      // grouping artifact for retrieval — the caller wants the chunk
-      // content (cycle1 raw), not the cycle2-compressed summary.
-      for (const [memberIndex, m] of members.entries()) {
-        const source = String(m.content ?? '');
-        const content = boundBody(preserveSource ? source : cleanMemoryText(source));
-        units.push({
-          id: m.id,
-          ts: Number(m.ts) || 0,
-          source_turn: m.source_turn,
-          session_id: m.session_id,
-          text: `${stamp(m)}${recallRoleTag(m.role)}: ${content}${historicalEventMark(r, memberIndex === 0)}${timeSourceMark(m)} #${m.id}`,
-        });
-      }
-    } else {
-      // No chunks (root not yet chunked by cycle1, or orphan leaf): emit
-      // the row itself in the same shape. element/summary fall back to
-      // raw content when both are absent.
-      // Standalone leaf rows (is_root=0, no parent chunks_root resolved
-      // into a `members` list) carry their u/a role just like inline
-      // chunk members — surface it so the format stays consistent across
-      // the two emission paths.
-      const rolePrefix = r.is_root === 0 && r.role ? `${recallRoleTag(r.role)}: ` : '';
-      const body = recallStandaloneBody(r, preserveSource);
-      // Unchunked raw leaf (cycle1 hasn't classified it yet): mark it so
-      // callers can tell fresh-but-unprocessed rows from chunked memory.
-      const pendingMark = pendingMarks && r.is_root === 0 && r.chunk_root == null ? ' [pending]' : '';
-      units.push({
-        id: r.id,
-        ts: Number(r.ts) || 0,
-        source_turn: r.source_turn,
-        session_id: r.session_id,
-        text: `${stamp(r)}${rolePrefix}${boundBody(body)}${historicalEventMark(r)}${pendingMark}${timeSourceMark(r)} #${r.id}`,
-      });
-    }
-  }
+  // break a strict newest-first contract (bench: recency-today). No
+  // line-count cap here: the orchestrator enforces a global tool-output KB
+  // cap (builtin.mjs tool_output_token_limit), so recall need not
+  // self-truncate.
+  const units = rows.flatMap((r) => rowUnits(r, render, options));
   if (chronologicalOrder) {
     units.sort(compareRecallOldestFirst);
   } else if (recencyOrder) {
@@ -421,53 +439,60 @@ function collapseExactDuplicateRows(rows) {
   return out;
 }
 
+// Word trigram set of a row's text; null for rows too short to compare.
+function rowShingles(row, minTokens) {
+  const toks = normalizedRowText(row).match(/[\p{L}\p{N}_]+/gu) || [];
+  if (toks.length < minTokens) return null;
+  const set = new Set();
+  if (toks.length < 3) {
+    for (const t of toks) set.add(t);
+    return set;
+  }
+  for (let i = 0; i + 3 <= toks.length; i += 1) set.add(`${toks[i]} ${toks[i + 1]} ${toks[i + 2]}`);
+  return set;
+}
+
+// Two metrics per kept row:
+//   containment = |A∩B| / min(|A|,|B|)  — catches paraphrase/superset
+//   jaccard     = |A∩B| / |A∪B|         — size-aware, immune to the
+//                                         short-vs-long 1.0 false positive
+// Dropping on containment alone let a short distinct UPDATE fully contained
+// in a long earlier row score 1.0 and vanish. Drop only on high jaccard OR
+// high containment between comparably-sized rows (size ratio >= 0.5). Stub
+// stays containment-based so paraphrase restatements still collapse to a
+// reachable id-stub.
+function duplicateVerdict(sh, kept, dropOverlap) {
+  let bestStub = 0;
+  let bestStubId = null;
+  let drop = false;
+  for (const k of kept) {
+    const [small, large] = sh.size <= k.shingles.size ? [sh, k.shingles] : [k.shingles, sh];
+    let inter = 0;
+    for (const g of small) if (large.has(g)) inter += 1;
+    const containment = small.size ? inter / small.size : 0;
+    const union = sh.size + k.shingles.size - inter;
+    const jaccard = union ? inter / union : 0;
+    const sizeRatio = large.size ? small.size / large.size : 0;
+    if (jaccard >= 0.85 || (containment >= dropOverlap && sizeRatio >= 0.5)) drop = true;
+    if (containment > bestStub) {
+      bestStub = containment;
+      bestStubId = k.row.id;
+    }
+  }
+  return { drop, bestStub, bestStubId };
+}
+
 export function collapseNearDuplicateRows(rows, { stubOverlap = 0.65, dropOverlap = 0.9, minTokens = 12 } = {}) {
   if (!Array.isArray(rows) || rows.length < 2) return rows;
-  const shingle = (r) => {
-    const toks = normalizedRowText(r).match(/[\p{L}\p{N}_]+/gu) || [];
-    if (toks.length < minTokens) return null;
-    const set = new Set();
-    if (toks.length < 3) {
-      for (const t of toks) set.add(t);
-      return set;
-    }
-    for (let i = 0; i + 3 <= toks.length; i += 1) set.add(`${toks[i]} ${toks[i + 1]} ${toks[i + 2]}`);
-    return set;
-  };
   const kept = []; // { row, shingles }
   const out = [];
   for (const r of rows) {
-    const sh = shingle(r);
+    const sh = rowShingles(r, minTokens);
     if (!sh) {
       out.push(r);
       continue;
     }
-    // Two metrics per kept row:
-    //   containment = |A∩B| / min(|A|,|B|)  — catches paraphrase/superset
-    //   jaccard     = |A∩B| / |A∪B|         — size-aware, immune to the
-    //                                         short-vs-long 1.0 false positive
-    // Dropping on containment alone let a short distinct UPDATE fully contained
-    // in a long earlier row score 1.0 and vanish. Drop only on high jaccard OR
-    // high containment between comparably-sized rows (size ratio >= 0.5). Stub
-    // stays containment-based so paraphrase restatements still collapse to a
-    // reachable id-stub.
-    let bestStub = 0;
-    let bestStubId = null;
-    let drop = false;
-    for (const k of kept) {
-      const [small, large] = sh.size <= k.shingles.size ? [sh, k.shingles] : [k.shingles, sh];
-      let inter = 0;
-      for (const g of small) if (large.has(g)) inter += 1;
-      const containment = small.size ? inter / small.size : 0;
-      const union = sh.size + k.shingles.size - inter;
-      const jaccard = union ? inter / union : 0;
-      const sizeRatio = large.size ? small.size / large.size : 0;
-      if (jaccard >= 0.85 || (containment >= dropOverlap && sizeRatio >= 0.5)) drop = true;
-      if (containment > bestStub) {
-        bestStub = containment;
-        bestStubId = k.row.id;
-      }
-    }
+    const { drop, bestStub, bestStubId } = duplicateVerdict(sh, kept, dropOverlap);
     if (drop) continue;
     if (bestStub >= stubOverlap) {
       out.push({ ...r, _dupStub: true, _dupOf: bestStubId });
@@ -550,20 +575,13 @@ export function renderSessionGroupedLines(
   const renderOptions = { recencyOrder, preserveSource, includeRootSource };
   const hasSessionMeta = spanHeaders && Number(sessionMeta?.size) > 0;
   if ((!rows || rows.length === 0) && !hasSessionMeta) return '(no results)';
-  const groups = new Map();
-  // Seed selected sessions so an entirely query-filtered session still
-  // reports its real activity span and filtering status.
-  if (hasSessionMeta) {
-    for (const sid of sessionMeta.keys()) groups.set(sid, []);
-  }
-  for (const r of rows || []) {
-    const sid = String(r?.session_id || '').trim();
-    const key = sid || '(no session)';
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(r);
-  }
+  const groups = groupRowsBySession(rows, hasSessionMeta ? sessionMeta : null);
   if (!spanHeaders && groups.size <= 1) return renderEntryLines(rows, renderOptions);
   const current = String(currentSessionId || '').trim();
+  const groupLabel = (sid) => {
+    const mark = current && sid === current ? ' (current)' : '';
+    return `${sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`}${mark}`;
+  };
   // period='last' session-grouped browse: activity-span headers over each
   // group's body. No line budget — the orchestrator's global tool-output KB
   // cap bounds total size; each group's body is already row-capped by the
@@ -571,20 +589,7 @@ export function renderSessionGroupedLines(
   if (spanHeaders) {
     const parts = [];
     for (const [sid, groupRows] of groups) {
-      const mark = current && sid === current ? ' (current)' : '';
-      const label = sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`;
-      const meta = sessionMeta?.get?.(sid);
-      const tsAll = collectGroupTs(groupRows);
-      const minTs = Number(meta?.minTs);
-      const maxTs = Number(meta?.maxTs);
-      const hasActivitySpan = Number.isFinite(minTs) && Number.isFinite(maxTs);
-      const suffix = hasActivitySpan
-        ? ` ${spanHeaderSuffix(minTs, maxTs, groupRows.length)}`
-        : tsAll.length
-          ? ` ${spanHeaderSuffix(Math.min(...tsAll), Math.max(...tsAll), groupRows.length)}`
-          : ` (${groupRows.length} entries)`;
-      const filterNote = meta?.queryFiltered ? ` · query-filtered ${meta.shownCount}/${meta.fetchedCount} rows` : '';
-      parts.push(`## ${label}${mark}${suffix}${filterNote}`);
+      parts.push(`## ${groupLabel(sid)}${spanGroupSuffix(groupRows, sessionMeta?.get?.(sid))}`);
       const bodyStr = renderEntryLines(groupRows, renderOptions);
       const bodyLines = bodyStr === '(no results)' ? [] : bodyStr.split('\n');
       for (const l of bodyLines) parts.push(l);
@@ -593,10 +598,41 @@ export function renderSessionGroupedLines(
   }
   const parts = [];
   for (const [sid, groupRows] of groups) {
-    const mark = current && sid === current ? ' (current)' : '';
-    const label = sid === '(no session)' ? sid : `session ${shortSessionLabel(sid)}`;
-    parts.push(`## ${label}${mark}`);
+    parts.push(`## ${groupLabel(sid)}`);
     parts.push(renderEntryLines(groupRows, renderOptions));
   }
   return parts.join('\n');
+}
+
+// Rows keyed by session id, in first-seen order. Selected sessions from
+// `sessionMeta` are seeded first so an entirely query-filtered session still
+// reports its real activity span and filtering status.
+function groupRowsBySession(rows, sessionMeta) {
+  const groups = new Map();
+  if (sessionMeta) {
+    for (const sid of sessionMeta.keys()) groups.set(sid, []);
+  }
+  for (const r of rows || []) {
+    const sid = String(r?.session_id || '').trim();
+    const key = sid || '(no session)';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  return groups;
+}
+
+// The activity-span header suffix: the recorded session span when known,
+// else the rows' own timestamp range, else just the entry count.
+function spanGroupSuffix(groupRows, meta) {
+  const tsAll = collectGroupTs(groupRows);
+  const minTs = Number(meta?.minTs);
+  const maxTs = Number(meta?.maxTs);
+  let suffix = ` (${groupRows.length} entries)`;
+  if (Number.isFinite(minTs) && Number.isFinite(maxTs)) {
+    suffix = ` ${spanHeaderSuffix(minTs, maxTs, groupRows.length)}`;
+  } else if (tsAll.length) {
+    suffix = ` ${spanHeaderSuffix(Math.min(...tsAll), Math.max(...tsAll), groupRows.length)}`;
+  }
+  const filterNote = meta?.queryFiltered ? ` · query-filtered ${meta.shownCount}/${meta.fetchedCount} rows` : '';
+  return `${suffix}${filterNote}`;
 }

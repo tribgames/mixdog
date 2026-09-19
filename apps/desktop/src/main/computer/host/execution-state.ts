@@ -65,7 +65,8 @@ export function createExecutionState() {
     assertExecutionNotAborted();
     const state = executionContext.getStore();
     if (!state) return { includeWindow() {}, close() {} };
-    const observations = (state.observations ||= new Set());
+    state.observations ||= new Set();
+    const observations = state.observations;
     const observation: ActiveObservation = { windowIds: new Set(), invalidated: false };
     observations.add(observation);
     const includeWindow = (id: string) => {

@@ -195,26 +195,39 @@ export async function selectMode(requested, format, source) {
   return { mode: 'portable', backend: 'mixdog-ooxml' };
 }
 
+async function editableTarget(args, cwd, source) {
+  const target = args.output ? await assertDocumentOutput(fullPath(args.output, cwd), source) : defaultOutput(source);
+  if (target.toLowerCase() === source.toLowerCase())
+    throw new Error('background/portable editing requires an output path different from the source');
+  return target;
+}
+
+async function attachMicrosoftOffice(session, { id, format, fileKind = '', mode, target, signal }) {
+  const opened = await openMicrosoftOfficeSession(
+    { session: id, format, ...(fileKind ? { fileKind } : {}), mode, path: target },
+    { signal }
+  );
+  // The file a caller can act on is the one they named, not the working copy.
+  if (!opened.ok) throw new Error(officeOpenFailure(opened.error, session.source || target));
+  Object.assign(session, microsoftOfficeOpenFields(opened));
+}
+
 export async function openSession(args, cwd, dataDir, { readOnly = false } = {}) {
   const source = fullPath(args.path, cwd);
   if (!(await exists(source))) throw new Error(`Office document not found: ${source}`);
   const fileKind = documentFileKind(source);
   const format = documentFormat(source);
   const selected = await selectMode(args.mode, format, source);
-  let target = source;
   // Reading a document does not need a copy of it, and making one overwrote
   // the working copy an earlier edit had already been told was saved: the
   // next read of the same path silently threw that edit away. A read opens
   // the file itself; the working copy appears when an edit does.
   const reads = readOnly && !args.output && ['mixdog-ooxml', 'mixdog-pdf', 'mixdog-tabular'].includes(selected.backend);
-  if (!reads && ['background', 'portable'].includes(selected.mode)) {
-    target = args.output ? await assertDocumentOutput(fullPath(args.output, cwd), source) : defaultOutput(source);
-    if (target.toLowerCase() === source.toLowerCase())
-      throw new Error('background/portable editing requires an output path different from the source');
-  }
+  const copies = !reads && ['background', 'portable'].includes(selected.mode);
+  const target = copies ? await editableTarget(args, cwd, source) : source;
   const existing = reusedDocumentSession(target);
   if (existing) return existing;
-  if (!reads && ['background', 'portable'].includes(selected.mode)) {
+  if (copies) {
     await mkdir(dirname(target), { recursive: true });
     await copyFile(source, target);
   }
@@ -247,18 +260,7 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
     },
   });
   if (selected.backend === 'microsoft-office-com') {
-    const opened = await openMicrosoftOfficeSession(
-      {
-        session: id,
-        format,
-        mode: selected.mode,
-        path: target,
-      },
-      { signal: args.__signal || null }
-    );
-    // The file a caller can act on is the one they named, not the working copy.
-    if (!opened.ok) throw new Error(officeOpenFailure(opened.error, session.source || target));
-    Object.assign(session, microsoftOfficeOpenFields(opened));
+    await attachMicrosoftOffice(session, { id, format, mode: selected.mode, target, signal: args.__signal || null });
   }
   await registerOfficeSession(session);
   return session;
@@ -267,59 +269,177 @@ export async function openSession(args, cwd, dataDir, { readOnly = false } = {})
 // Content handed to create under a field this format does not read produced an
 // empty document and a success answer: the caller spent a turn discovering the
 // file was blank. Each shape is refused with the field that does write it.
-function assertCreateContentFields(format, args) {
-  const filled = (value) => Array.isArray(value) && value.length > 0;
-  const faults = [];
+const filledList = (value) => Array.isArray(value) && value.length > 0;
+
+function contentFieldFault(format, args) {
   if (format === 'pdf') {
-    if (filled(args.operations)) {
-      faults.push(
-        "PDF create writes blocks, not operations: pass blocks:[{ type:'heading', text }, …] (and fields for a form)," +
-          " or create the file first and edit it with action:'batch' operations:[…]."
-      );
-    }
-  } else if (filled(args.blocks)) {
-    faults.push(
-      `${format.toUpperCase()} create writes operations, not blocks: pass operations:[{ op: … }].` +
-        ' blocks is the PDF create field.'
+    if (!filledList(args.operations)) return '';
+    return (
+      "PDF create writes blocks, not operations: pass blocks:[{ type:'heading', text }, …] (and fields for a form)," +
+      " or create the file first and edit it with action:'batch' operations:[…]."
     );
   }
-  if (filled(args.values)) {
-    faults.push(
-      `${format.toUpperCase()} create takes no top-level values:` +
-        " pass operations:[{ op: 'set_range', range: 'A1:B2', values: [[…]] }]."
-    );
-  }
-  if (format !== 'pdf' && typeof args.script === 'string' && args.script.trim()) {
-    faults.push(
-      `${format.toUpperCase()} create takes no script.` +
-        (format === 'pptx' ? " A deck written from a script uses action:'author' with script." : '')
-    );
-  }
-  // Facts and claims describe what the deliverable must carry; they do not
-  // write it. Handed over with nothing that does, the call produced an empty
-  // file and reported success, and the caller found out only on opening it.
+  if (!filledList(args.blocks)) return '';
+  return (
+    `${format.toUpperCase()} create writes operations, not blocks: pass operations:[{ op: … }].` +
+    ' blocks is the PDF create field.'
+  );
+}
+
+// Facts and claims describe what the deliverable must carry; they do not
+// write it. Handed over with nothing that does, the call produced an empty
+// file and reported success, and the caller found out only on opening it.
+function contentWithoutWriterFault(format, args) {
   const content = args.design?.content;
   const carriesContent =
     content &&
     typeof content === 'object' &&
     !Array.isArray(content) &&
-    (filled(content.facts) || filled(content.claims) || String(content.objective || content.decision || '').trim());
-  const writes = format === 'pdf' ? filled(args.blocks) || filled(args.fields) : filled(args.operations);
-  if (carriesContent && !writes) {
-    const route =
-      {
-        pptx: "author the deck with action:'author' script:… (design travels on that call), or add slides here with operations:[{ op: 'add_slide' }, …]",
-        docx: "pass operations:[{ op: 'compose_document', … }] or the append_text/add_table operations that write it",
-        xlsx: "pass operations:[{ op: 'compose_sheet', … }] or the set_range/add_chart operations that write it",
-        pdf: "pass blocks:[{ type: 'heading', text }, …] (and fields for a form)",
-      }[format] || 'pass the operations that write it';
-    faults.push(`${format.toUpperCase()} create writes nothing from design.content on its own: ${route}.`);
-  }
+    (filledList(content.facts) ||
+      filledList(content.claims) ||
+      String(content.objective || content.decision || '').trim());
+  const writes = format === 'pdf' ? filledList(args.blocks) || filledList(args.fields) : filledList(args.operations);
+  if (!carriesContent || writes) return '';
+  const route =
+    {
+      pptx: "author the deck with action:'author' script:… (design travels on that call), or add slides here with operations:[{ op: 'add_slide' }, …]",
+      docx: "pass operations:[{ op: 'compose_document', … }] or the append_text/add_table operations that write it",
+      xlsx: "pass operations:[{ op: 'compose_sheet', … }] or the set_range/add_chart operations that write it",
+      pdf: "pass blocks:[{ type: 'heading', text }, …] (and fields for a form)",
+    }[format] || 'pass the operations that write it';
+  return `${format.toUpperCase()} create writes nothing from design.content on its own: ${route}.`;
+}
+
+function assertCreateContentFields(format, args) {
+  const faults = [
+    contentFieldFault(format, args),
+    filledList(args.values)
+      ? `${format.toUpperCase()} create takes no top-level values:` +
+        " pass operations:[{ op: 'set_range', range: 'A1:B2', values: [[…]] }]."
+      : '',
+    format !== 'pdf' && typeof args.script === 'string' && args.script.trim()
+      ? `${format.toUpperCase()} create takes no script.` +
+        (format === 'pptx' ? " A deck written from a script uses action:'author' with script." : '')
+      : '',
+    contentWithoutWriterFault(format, args),
+  ].filter(Boolean);
   if (faults.length === 1) throw new Error(faults[0]);
   if (faults.length)
     throw new Error(
       `This create request breaks ${faults.length} input contracts; fix them together. ${faults.join(' ')}`
     );
+}
+
+// Registers the session record of a document this create call produced.
+async function registerCreatedSession(creation, fields) {
+  const { target, fileKind, format, dataDir, targetExisted, designContext } = creation;
+  const session = buildOfficeSessionRecord({
+    source: target,
+    target,
+    fileKind,
+    format,
+    dataDir,
+    created: true,
+    createdNewFile: !targetExisted,
+    designContext,
+    ...fields,
+  });
+  await registerOfficeSession(session);
+  return session;
+}
+
+// `design` is where authoring intent and content go for every other format,
+// so blocks named there are the document's content, not an unknown key to
+// drop: dropping them wrote an empty PDF and reported success.
+function firstListed(direct, designed) {
+  if (Array.isArray(direct) && direct.length) return direct;
+  return Array.isArray(designed) ? designed : [];
+}
+
+async function createPdfSession(creation, args, cwd) {
+  const { target, designContext } = creation;
+  await mkdir(dirname(target), { recursive: true });
+  const requestedBlocks = firstListed(args.blocks, args.design?.blocks);
+  const requestedFields = firstListed(args.fields, args.design?.fields);
+  const designed = applyPdfDesign(
+    requestedBlocks.map((block) => (block?.path ? { ...block, path: fullPath(block.path, cwd) } : block)),
+    designContext.designRequest,
+    { library: designContext.designLibrary }
+  );
+  const written = await createPdf(target, {
+    blocks: designed.blocks,
+    fields: requestedFields,
+    properties: {
+      ...designed.properties,
+      ...args.properties,
+      ...(args.properties?.fontPath ? { fontPath: fullPath(args.properties.fontPath, cwd) } : {}),
+    },
+  });
+  return registerCreatedSession(creation, {
+    mode: 'portable',
+    backend: 'mixdog-pdf',
+    designState: portableCreateDesignState(),
+    extra: {
+      // What the writer decided (numbering, the font it embedded) rides on the
+      // create result so the caller need not re-open the file to learn it.
+      createReceipt: {
+        pageNumbers: written.pageNumbers,
+        font: written.font,
+        // What the writer actually flowed: a document with nothing in it is a
+        // result the caller has to see, not a silent success.
+        blocks: designed.blocks.length,
+        fields: requestedFields.length,
+        ...(written.form?.issueCount ? { formIssues: written.form.issues } : {}),
+      },
+      ownership: 'owned',
+      visible: false,
+    },
+  });
+}
+
+async function createTabularSession(creation) {
+  await mkdir(dirname(creation.target), { recursive: true });
+  await createTabular(creation.target);
+  return registerCreatedSession(creation, {
+    mode: 'portable',
+    backend: 'mixdog-tabular',
+    designState: portableCreateDesignState(),
+    extra: { ownership: 'owned', visible: false },
+  });
+}
+
+async function createPortableOoxmlSession(creation) {
+  const { target, fileKind, format, designContext } = creation;
+  if (!portableCreateSupported(fileKind)) {
+    throw new Error(
+      `Creating .${fileKind} without Microsoft Office is unsupported; open Microsoft Office or choose a docx, xlsx, or pptx target`
+    );
+  }
+  await mkdir(dirname(target), { recursive: true });
+  await createPortableOoxmlDocument(target, { fileKind, title: basename(target, extname(target)) });
+  return registerCreatedSession(creation, {
+    mode: 'portable',
+    backend: 'mixdog-ooxml',
+    designState: pptxReviewDesignState(designContext.design, format),
+    extra: { ownership: 'owned', visible: false },
+  });
+}
+
+async function createMicrosoftOfficeSession(creation, args, mode) {
+  const { target, fileKind, format, designContext } = creation;
+  const id = officeSessionId();
+  const opened = await openMicrosoftOfficeSession(
+    { session: id, format, fileKind, mode, path: target, create: true, overwrite: args.overwrite === true },
+    { signal: args.__signal || null }
+  );
+  if (!opened.ok) throw new Error(opened.error || 'Microsoft Office document creation failed');
+  return registerCreatedSession(creation, {
+    id,
+    mode: opened.mode,
+    backend: 'microsoft-office-com',
+    designState: pptxReviewDesignState(designContext.design, format),
+    extra: microsoftOfficeOpenFields(opened),
+  });
 }
 
 export async function createSession(args, cwd, dataDir) {
@@ -335,167 +455,26 @@ export async function createSession(args, cwd, dataDir) {
   // Whether this call brings the file into being decides what a failed create
   // may clean up afterwards: a file it wrote itself, never one already there.
   const targetExisted = await exists(target);
-  const designContext = await resolveOfficeDesignContext({
-    args,
-    dataDir,
-    target,
-    format,
-    created: true,
-  });
-  const { designRequest, designLibrary, design } = designContext;
+  const designContext = await resolveOfficeDesignContext({ args, dataDir, target, format, created: true });
+  const creation = { target, fileKind, format, dataDir, targetExisted, designContext };
   if (format === 'pdf') {
     assertCreateTargetAvailable(target, targetExisted, args.overwrite);
-    await mkdir(dirname(target), { recursive: true });
-    // `design` is where authoring intent and content go for every other format,
-    // so blocks named there are the document's content, not an unknown key to
-    // drop: dropping them wrote an empty PDF and reported success.
-    const requestedBlocks =
-      Array.isArray(args.blocks) && args.blocks.length
-        ? args.blocks
-        : Array.isArray(args.design?.blocks)
-          ? args.design.blocks
-          : [];
-    const requestedFields =
-      Array.isArray(args.fields) && args.fields.length
-        ? args.fields
-        : Array.isArray(args.design?.fields)
-          ? args.design.fields
-          : [];
-    const designed = applyPdfDesign(
-      requestedBlocks.map((block) => (block?.path ? { ...block, path: fullPath(block.path, cwd) } : block)),
-      designRequest,
-      { library: designLibrary }
-    );
-    const written = await createPdf(target, {
-      blocks: designed.blocks,
-      fields: requestedFields,
-      properties: {
-        ...designed.properties,
-        ...args.properties,
-        ...(args.properties?.fontPath ? { fontPath: fullPath(args.properties.fontPath, cwd) } : {}),
-      },
-    });
-    const session = buildOfficeSessionRecord({
-      source: target,
-      target,
-      fileKind,
-      format,
-      mode: 'portable',
-      backend: 'mixdog-pdf',
-      dataDir,
-      created: true,
-      createdNewFile: !targetExisted,
-      designContext,
-      designState: portableCreateDesignState(),
-      extra: {
-        // What the writer decided (numbering, the font it embedded) rides on the
-        // create result so the caller need not re-open the file to learn it.
-        createReceipt: {
-          pageNumbers: written.pageNumbers,
-          font: written.font,
-          // What the writer actually flowed: a document with nothing in it is a
-          // result the caller has to see, not a silent success.
-          blocks: designed.blocks.length,
-          fields: requestedFields.length,
-          ...(written.form?.issueCount ? { formIssues: written.form.issues } : {}),
-        },
-        ownership: 'owned',
-        visible: false,
-      },
-    });
-    await registerOfficeSession(session);
-    return session;
+    return createPdfSession(creation, args, cwd);
   }
-  if (!FORMATS.has(format) || format === 'pdf') {
+  if (!FORMATS.has(format)) {
     throw new Error('Office create currently supports Word, Excel, PowerPoint, CSV, and TSV files');
   }
   assertCreateTargetAvailable(target, targetExisted, args.overwrite);
   const existing = reusedDocumentSession(target);
   if (existing) return existing;
-  if (TABULAR_FORMATS.has(format)) {
-    await mkdir(dirname(target), { recursive: true });
-    await createTabular(target);
-    const session = buildOfficeSessionRecord({
-      source: target,
-      target,
-      fileKind,
-      format,
-      mode: 'portable',
-      backend: 'mixdog-tabular',
-      dataDir,
-      created: true,
-      createdNewFile: !targetExisted,
-      designContext,
-      designState: portableCreateDesignState(),
-      extra: { ownership: 'owned', visible: false },
-    });
-    await registerOfficeSession(session);
-    return session;
-  }
+  if (TABULAR_FORMATS.has(format)) return createTabularSession(creation);
   const requestedMode = String(args.mode || 'auto').toLowerCase();
   if (['attach', 'live'].includes(requestedMode)) {
     throw new Error('Office create requires visible, background, or portable mode');
   }
   const selected = await selectMode(requestedMode, format, target);
-  if (selected.backend === 'mixdog-ooxml') {
-    if (!portableCreateSupported(fileKind)) {
-      throw new Error(
-        `Creating .${fileKind} without Microsoft Office is unsupported; open Microsoft Office or choose a docx, xlsx, or pptx target`
-      );
-    }
-    await mkdir(dirname(target), { recursive: true });
-    await createPortableOoxmlDocument(target, {
-      fileKind,
-      title: basename(target, extname(target)),
-    });
-    const session = buildOfficeSessionRecord({
-      source: target,
-      target,
-      fileKind,
-      format,
-      mode: 'portable',
-      backend: 'mixdog-ooxml',
-      dataDir,
-      created: true,
-      createdNewFile: !targetExisted,
-      designContext,
-      designState: pptxReviewDesignState(design, format),
-      extra: { ownership: 'owned', visible: false },
-    });
-    await registerOfficeSession(session);
-    return session;
-  }
-  const id = officeSessionId();
-  const opened = await openMicrosoftOfficeSession(
-    {
-      session: id,
-      format,
-      fileKind,
-      mode: selected.mode,
-      path: target,
-      create: true,
-      overwrite: args.overwrite === true,
-    },
-    { signal: args.__signal || null }
-  );
-  if (!opened.ok) throw new Error(opened.error || 'Microsoft Office document creation failed');
-  const session = buildOfficeSessionRecord({
-    id,
-    source: target,
-    target,
-    fileKind,
-    format,
-    mode: opened.mode,
-    backend: 'microsoft-office-com',
-    dataDir,
-    created: true,
-    createdNewFile: !targetExisted,
-    designContext,
-    designState: pptxReviewDesignState(design, format),
-    extra: microsoftOfficeOpenFields(opened),
-  });
-  await registerOfficeSession(session);
-  return session;
+  if (selected.backend === 'mixdog-ooxml') return createPortableOoxmlSession(creation);
+  return createMicrosoftOfficeSession(creation, args, selected.mode);
 }
 
 // A deck written by an authoring script already exists on disk; the session
@@ -513,28 +492,27 @@ export function validatePptxAuthorMode(requested) {
   return requestedMode;
 }
 
-export async function createAuthoredSession(args, cwd, dataDir, target) {
-  const fileKind = documentFileKind(target);
-  const format = documentFormat(target);
-  if (format !== 'pptx') throw new Error('author currently supports PowerPoint targets only');
-  const requestedMode = validatePptxAuthorMode(args.mode);
-  const selected = await selectMode(requestedMode, format, target);
-  const resolved = await resolveOfficeDesignContext({
-    args,
-    dataDir,
-    target,
-    format,
-    created: true,
-  });
-  // The script's brief owns the background plan and the slide roles; the
-  // composer's deck plan (sandwich/dark/light) would only contradict it.
-  const designContext = {
+// The script's brief owns the background plan and the slide roles; the
+// composer's deck plan (sandwich/dark/light) would only contradict it.
+function authoredDesignContext(resolved) {
+  return {
     ...resolved,
     design: {
       ...resolved.design,
       deck: { ...(resolved.design?.deck || {}), backgroundMode: 'custom', enforce: false },
     },
   };
+}
+
+export async function createAuthoredSession(args, _cwd, dataDir, target) {
+  const fileKind = documentFileKind(target);
+  const format = documentFormat(target);
+  if (format !== 'pptx') throw new Error('author currently supports PowerPoint targets only');
+  const requestedMode = validatePptxAuthorMode(args.mode);
+  const selected = await selectMode(requestedMode, format, target);
+  const designContext = authoredDesignContext(
+    await resolveOfficeDesignContext({ args, dataDir, target, format, created: true })
+  );
   const id = officeSessionId();
   const session = buildOfficeSessionRecord({
     id,
@@ -553,18 +531,14 @@ export async function createAuthoredSession(args, cwd, dataDir, target) {
     extra: { authored: true, ownership: 'owned', visible: false },
   });
   if (selected.backend === 'microsoft-office-com') {
-    const opened = await openMicrosoftOfficeSession(
-      {
-        session: id,
-        format,
-        fileKind,
-        mode: selected.mode,
-        path: target,
-      },
-      { signal: args.__signal || null }
-    );
-    if (!opened.ok) throw new Error(officeOpenFailure(opened.error, target));
-    Object.assign(session, microsoftOfficeOpenFields(opened));
+    await attachMicrosoftOffice(session, {
+      id,
+      format,
+      fileKind,
+      mode: selected.mode,
+      target,
+      signal: args.__signal || null,
+    });
   }
   await registerOfficeSession(session);
   return session;
@@ -613,6 +587,60 @@ function normalizeExcelSnapshotStyles(document) {
   }
 }
 
+async function fetchSnapshotDocument(session, request, { maxChars, password }) {
+  if (session.backend === 'microsoft-office-com') {
+    const result = await callMicrosoftOffice(
+      {
+        action: 'snapshot',
+        session: session.id,
+        format: session.format,
+        mode: session.mode,
+        path: session.target,
+        ...request,
+      },
+      { signal: session.activeSignal || null }
+    );
+    if (!result.ok) throw new Error(result.error || 'Microsoft Office snapshot failed');
+    if (session.format === 'xlsx') normalizeExcelSnapshotStyles(result.value);
+    return result.value;
+  }
+  // A user password only unlocks this read; it is never kept on the session.
+  if (session.format === 'pdf')
+    return await snapshotPdf(session.target, {
+      maxChars,
+      ...request,
+      ...(password ? { password: String(password) } : {}),
+    });
+  if (TABULAR_FORMATS.has(session.format)) return await snapshotTabular(session.target, session.format, request);
+  return await snapshotPortableOoxml(session.target, session.format, request);
+}
+
+async function wrappedSnapshot(session, value) {
+  return {
+    session: session.id,
+    mode: session.mode,
+    backend: session.backend,
+    fileKind: session.fileKind,
+    source: session.source,
+    output: session.target,
+    ownership: session.ownership,
+    visible: session.visible,
+    appPid: session.appPid,
+    windowHwnd: session.windowHwnd,
+    documentId: session.documentId,
+    document: value,
+    trust: combineOfficeTrustReviews(
+      analyzeOfficePromptInjection(value, {
+        format: session.format,
+        source: 'structured-snapshot',
+      }),
+      await analyzeOfficeFilePromptInjection(session.target, {
+        format: session.format,
+      })
+    ),
+  };
+}
+
 export async function snapshot(session, args, { full = false } = {}) {
   const maxChars = Math.min(100_000, Math.max(1000, Number(args.maxChars) || 30_000));
   const requestArgs = {
@@ -632,33 +660,7 @@ export async function snapshot(session, args, { full = false } = {}) {
     session.mode === 'background' &&
     session.ownership === 'owned' &&
     session.visible !== true;
-  const fetchDocument = async () => {
-    if (session.backend === 'microsoft-office-com') {
-      const result = await callMicrosoftOffice(
-        {
-          action: 'snapshot',
-          session: session.id,
-          format: session.format,
-          mode: session.mode,
-          path: session.target,
-          ...request,
-        },
-        { signal: session.activeSignal || null }
-      );
-      if (!result.ok) throw new Error(result.error || 'Microsoft Office snapshot failed');
-      if (session.format === 'xlsx') normalizeExcelSnapshotStyles(result.value);
-      return result.value;
-    }
-    // A user password only unlocks this read; it is never kept on the session.
-    if (session.format === 'pdf')
-      return await snapshotPdf(session.target, {
-        maxChars,
-        ...request,
-        ...(args.password ? { password: String(args.password) } : {}),
-      });
-    if (TABULAR_FORMATS.has(session.format)) return await snapshotTabular(session.target, session.format, request);
-    return await snapshotPortableOoxml(session.target, session.format, request);
-  };
+  const fetchDocument = () => fetchSnapshotDocument(session, request, { maxChars, password: args.password });
   const load = async () => {
     if (!cacheable) return await fetchDocument();
     const key = `${session.snapshotVersion || 0}|${JSON.stringify(request)}`;
@@ -678,29 +680,7 @@ export async function snapshot(session, args, { full = false } = {}) {
     // A deck is read to be reused: without the job each page does and the slot
     // each box fills, a page the user already owns can only be copied by eye.
     if (session.format === 'pptx') annotatePptxSnapshotRoles(value);
-    wrapped = {
-      session: session.id,
-      mode: session.mode,
-      backend: session.backend,
-      fileKind: session.fileKind,
-      source: session.source,
-      output: session.target,
-      ownership: session.ownership,
-      visible: session.visible,
-      appPid: session.appPid,
-      windowHwnd: session.windowHwnd,
-      documentId: session.documentId,
-      document: value,
-      trust: combineOfficeTrustReviews(
-        analyzeOfficePromptInjection(value, {
-          format: session.format,
-          source: 'structured-snapshot',
-        }),
-        await analyzeOfficeFilePromptInjection(session.target, {
-          format: session.format,
-        })
-      ),
-    };
+    wrapped = await wrappedSnapshot(session, value);
     if (!session.created) session.trustReview = wrapped.trust;
     const serializedLength = serializedToolValue(wrapped).length;
     if (full || serializedLength <= maxChars || request.limit <= 1) break;
@@ -774,7 +754,7 @@ export function queryObject(value, query, path = '$', matches = []) {
     return matches;
   }
   if (Array.isArray(value)) {
-    value.forEach((entry, index) => queryObject(entry, query, `${path}[${index}]`, matches));
+    for (const [index, entry] of value.entries()) queryObject(entry, query, `${path}[${index}]`, matches);
     return matches;
   }
   if (value && typeof value === 'object') {

@@ -54,7 +54,7 @@ test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow prev
       },
       onInspect: async (id, revision) => {
         calls.push({ id, revision });
-        return { text: 'PRIVATE_PREVIEW\n' + '한글 내용 '.repeat(50) };
+        return { text: `PRIVATE_PREVIEW\n${'한글 내용 '.repeat(50)}` };
       },
     }),
     { stdout, stdin, stderr: stdout, debug: true, exitOnCtrlC: false, patchConsole: false }

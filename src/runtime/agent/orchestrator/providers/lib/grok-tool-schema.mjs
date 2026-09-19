@@ -100,14 +100,13 @@ function describesScalar(schema) {
 // Flattening keeps one branch, so a description that still promises the dropped
 // shape would advertise more than the wire schema accepts. Project the loss
 // into the text the model actually reads.
+function droppedBranchNote(schema, dropped) {
+  if (describesArray(schema)) return dropped.some(describesScalar) ? ARRAY_ONLY_NOTE : null;
+  return dropped.some(describesArray) ? ARRAY_DROP_NOTE : null;
+}
+
 function projectDroppedBranches(schema, dropped) {
-  const note = describesArray(schema)
-    ? dropped.some(describesScalar)
-      ? ARRAY_ONLY_NOTE
-      : null
-    : dropped.some(describesArray)
-      ? ARRAY_DROP_NOTE
-      : null;
+  const note = droppedBranchNote(schema, dropped);
   if (!note) return schema;
   const description = String(schema.description || '').trim();
   if (description.includes(note)) return schema;
@@ -133,6 +132,26 @@ function preferredBranch(branches) {
   return objects[0] || null;
 }
 
+// Keywords whose value is a name → schema map.
+const SCHEMA_MAP_KEYWORDS = ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'];
+// Keywords whose value is a schema or a list of schemas. Schema-valued
+// keywords are not restricted to object properties. Data-valued keywords
+// such as enum/default/examples are never walked.
+const SCHEMA_VALUED_KEYWORDS = [
+  'items',
+  'prefixItems',
+  'additionalProperties',
+  'contains',
+  'allOf',
+  'not',
+  'if',
+  'then',
+  'else',
+  'propertyNames',
+  'unevaluatedProperties',
+  'unevaluatedItems',
+];
+
 function normalizeGrokPropertySchema(schema) {
   if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return schema;
   const branches = [
@@ -151,7 +170,7 @@ function normalizeGrokPropertySchema(schema) {
   const replace = (key, value) => {
     if (value !== schema[key]) result = { ...result, [key]: value };
   };
-  for (const key of ['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas']) {
+  for (const key of SCHEMA_MAP_KEYWORDS) {
     if (!schema[key] || typeof schema[key] !== 'object') continue;
     let changed = false;
     const children = Object.fromEntries(
@@ -163,22 +182,7 @@ function normalizeGrokPropertySchema(schema) {
     );
     if (changed) replace(key, children);
   }
-  // Schema-valued keywords are not restricted to object properties. Do not
-  // walk data-valued keywords such as enum/default/examples.
-  for (const key of [
-    'items',
-    'prefixItems',
-    'additionalProperties',
-    'contains',
-    'allOf',
-    'not',
-    'if',
-    'then',
-    'else',
-    'propertyNames',
-    'unevaluatedProperties',
-    'unevaluatedItems',
-  ]) {
+  for (const key of SCHEMA_VALUED_KEYWORDS) {
     const child = schema[key];
     if (Array.isArray(child)) {
       const children = child.map(normalizeGrokPropertySchema);
@@ -202,15 +206,7 @@ function normalizeGrokToolSchema(schema) {
 
   const { anyOf, oneOf, ...root } = schema;
   const branches = [...(Array.isArray(anyOf) ? anyOf : []), ...(Array.isArray(oneOf) ? oneOf : [])];
-  const objectBranches = branches.filter(
-    (branch) =>
-      branch &&
-      typeof branch === 'object' &&
-      !Array.isArray(branch) &&
-      (branch.type === 'object' ||
-        (Array.isArray(branch.type) && branch.type.includes('object')) ||
-        (branch.properties && typeof branch.properties === 'object'))
-  );
+  const objectBranches = branches.filter(isObjectBranch);
 
   if (!objectBranches.length) {
     const required = [...new Set([...requiredKeys(root), ...firstExclusiveRequired(branches)])];
@@ -222,51 +218,66 @@ function normalizeGrokToolSchema(schema) {
     });
   }
 
+  const properties = mergedSchemaProperties(root, objectBranches);
+  const actionContract = actionInputContract(schema);
+  if (actionContract && properties?.input) {
+    properties.input = { ...properties.input, description: actionContract };
+  }
+  const required = unionRequired(root, objectBranches);
+  return normalizeGrokPropertySchema({
+    ...withoutPropertiesOrRequired(Object.assign({}, ...objectBranches)),
+    ...withoutPropertiesOrRequired(root),
+    type: 'object',
+    ...(properties ? { properties } : {}),
+    ...(required.length ? { required } : {}),
+  });
+}
+
+function isObjectBranch(branch) {
+  return (
+    branch &&
+    typeof branch === 'object' &&
+    !Array.isArray(branch) &&
+    (branch.type === 'object' ||
+      (Array.isArray(branch.type) && branch.type.includes('object')) ||
+      (branch.properties && typeof branch.properties === 'object'))
+  );
+}
+
+// The branches' merged properties under the root's own. A root's generic
+// input object constrains its type; it must not erase the action branches'
+// actual fields.
+function mergedSchemaProperties(root, objectBranches) {
   const properties =
     objectBranches.some((branch) => branch.properties) || root.properties
       ? mergeObjectBranchProperties(objectBranches)
       : undefined;
   for (const [name, property] of Object.entries(root.properties || {})) {
     const combined = properties[name];
-    // A root's generic input object constrains its type; it must not erase
-    // the action branches' actual fields.
     properties[name] =
       property.type === 'object' && !property.properties && combined?.type === 'object'
         ? { ...combined, ...property, properties: combined.properties }
         : property;
   }
-  const actionContract = actionInputContract(schema);
-  if (actionContract && properties?.input) {
-    properties.input = {
-      ...properties.input,
-      description: actionContract,
-    };
-  }
+  return properties;
+}
+
+// The root's required keys plus the ones every branch requires; when the
+// branches share none, the first branch's exclusive keys stand in.
+function unionRequired(root, objectBranches) {
   const branchRequiredInEvery = (Array.isArray(objectBranches[0].required) ? objectBranches[0].required : []).filter(
     (key) => objectBranches.every((branch) => Array.isArray(branch.required) && branch.required.includes(key))
   );
-  const required = [
+  return [
     ...new Set([
       ...requiredKeys(root),
       ...branchRequiredInEvery,
       ...(branchRequiredInEvery.length ? [] : firstExclusiveRequired(objectBranches)),
     ]),
   ];
-  const { properties: _rootProperties, required: _rootRequired, ...rootWithoutPropertiesOrRequired } = root;
-  const mergedObjectBranches = Object.assign({}, ...objectBranches);
-  const {
-    properties: _branchProperties,
-    required: _branchRequired,
-    ...mergedObjectBranchesWithoutPropertiesOrRequired
-  } = mergedObjectBranches;
-  return normalizeGrokPropertySchema({
-    ...mergedObjectBranchesWithoutPropertiesOrRequired,
-    ...rootWithoutPropertiesOrRequired,
-    type: 'object',
-    ...(properties ? { properties } : {}),
-    ...(required.length ? { required } : {}),
-  });
 }
+
+const withoutPropertiesOrRequired = ({ properties: _properties, required: _required, ...rest }) => rest;
 
 export function normalizeGrokToolSchemas(tools) {
   if (!Array.isArray(tools)) return tools;

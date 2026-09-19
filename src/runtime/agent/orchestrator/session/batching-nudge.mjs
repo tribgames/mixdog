@@ -18,9 +18,9 @@ import { _isMutationTool, _stripMcpPrefix } from './loop/tool-classify.mjs';
 // A different tool restarts the streak — read → shell → apply_patch is a
 // workflow, not a waste — and any batched round (several calls, or one call
 // carrying an array) clears it.
-export const SERIAL_CALL_ROUNDS = 3;
+const SERIAL_CALL_ROUNDS = 3;
 // Two same-tool calls that differ only in one array field already fit one call.
-export const MERGEABLE_CALLS_MIN = 2;
+const MERGEABLE_CALLS_MIN = 2;
 // No cap and no cooldown: the reminder repeats every time a pattern recurs,
 // and only a round that actually batches silences it.
 
@@ -247,8 +247,9 @@ function readTargets(args) {
   const values = Array.isArray(raw) ? raw : [raw];
   const out = [];
   for (const value of values) {
-    const target =
-      typeof value === 'string' ? value : value && typeof value === 'object' ? (value.file_path ?? value.path) : null;
+    let target = null;
+    if (typeof value === 'string') target = value;
+    else if (value && typeof value === 'object') target = value.file_path ?? value.path;
     if (typeof target === 'string' && target.trim()) out.push(target.trim().replace(/\\/g, '/'));
   }
   return out;

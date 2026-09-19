@@ -1,4 +1,3 @@
-import { isOffloadedToolResultText } from './tool-result-offload.mjs';
 import { createHash } from 'node:crypto';
 import { estimateTokens } from './token-estimate.mjs';
 import { createContextFingerprinter } from './context-fingerprint.mjs';
@@ -7,6 +6,15 @@ import {
   providerNativeToolPrefixCount,
 } from '../../../../session-runtime/provider-request-tools.mjs';
 import { contentFileDescriptors, contentImageDescriptors, contentToText } from '../providers/media-normalization.mjs';
+
+export {
+  dedupToolResultBodies,
+  foldUserTextIntoToolResultTail,
+  reconcileDedupStubs,
+  sanitizeAnthropicContentPairs,
+  sanitizeToolPairs,
+} from './context-tool-pairs.mjs';
+
 export {
   DEFAULT_COMPACTION_BUFFER_TOKENS,
   DEFAULT_COMPACTION_BUFFER_RATIO,
@@ -78,8 +86,7 @@ export function providerTokenCalibration(provider) {
 // maximum and the honest flat allowance for an image whose dimensions we never
 // learned. Known dimensions are billed exactly, through the real vision
 // formula (w*h/750, i.e. 28x28 patches).
-const IMAGE_VISUAL_TOKEN_ALLOWANCE = 1_568;
-const IMAGE_MAX_TOKEN_ALLOWANCE = 1_568;
+const IMAGE_TOKEN_ALLOWANCE = 1_568;
 
 export { estimateTokens };
 
@@ -108,9 +115,11 @@ const OPAQUE_PAYLOAD_RE = /^[A-Za-z0-9+/_=-]{64,}$/;
 // floors and therefore estimates at exactly chars/4. The conservative end of
 // the measured band keeps the estimator's never-read-low contract.
 const OPAQUE_BYTES_PER_TOKEN = 3.43;
+const OPAQUE_WORD = 'opaque ';
 function opaquePayloadProjection(length) {
   const tokens = Math.ceil(length / OPAQUE_BYTES_PER_TOKEN);
-  return 'opaque '.repeat(Math.ceil(tokens / 1.75)).slice(0, tokens * 4);
+  const chars = tokens * 4;
+  return OPAQUE_WORD.repeat(Math.ceil(chars / OPAQUE_WORD.length)).slice(0, chars);
 }
 
 function stripOpaquePayloads(value, depth = 0, keyHint = '') {
@@ -213,17 +222,17 @@ function messageTextTokens(m, precomputedText = null) {
 }
 function imageDescriptorAllowance(descriptor) {
   if (descriptor.width && descriptor.height) {
-    // Anthropic vision cost: tokens = (width * height) / 750, with images
-    // resized down to at most 2000x2000 (5333 tokens). Real pixel dimensions
-    // ARE the billed quantity, so they replace the unknown-image floor in
-    // both directions. Holding a 1280x720 screenshot at the 2000 floor
-    // overstated its true 1229-token cost by 63% and pulled compaction
+    // Anthropic vision cost: tokens = (width * height) / 750, capped at the
+    // allowance above because the provider downscales past it. Real pixel
+    // dimensions ARE the billed quantity, so they replace the unknown-image
+    // floor in both directions. Holding a 1280x720 screenshot at a 2000-token
+    // floor overstated its true 1229-token cost by 63% and pulled compaction
     // forward against a budget that was never actually spent.
     const formula = Math.ceil((descriptor.width * descriptor.height) / 750);
-    return Math.min(IMAGE_MAX_TOKEN_ALLOWANCE, formula);
+    return Math.min(IMAGE_TOKEN_ALLOWANCE, formula);
   }
   // Unknown-size images: flat conservative allowance.
-  return IMAGE_VISUAL_TOKEN_ALLOWANCE;
+  return IMAGE_TOKEN_ALLOWANCE;
 }
 function messageImageDescriptors(m) {
   if (!m || typeof m !== 'object') return [];
@@ -300,6 +309,37 @@ const { contextMessageFingerprint, sameContextMessageFingerprint } = createConte
   contentImageDescriptors,
 });
 
+// A system reminder's tokens split by section bucket; `otherTokens` is
+// whatever the sections do not account for.
+function reminderBucketsFor(text, tokens) {
+  const buckets = { tokens, otherTokens: tokens };
+  let sectionTokens = 0;
+  for (const section of splitMarkdownSections(stripSystemReminder(text))) {
+    const bucket = reminderSectionBucket(section);
+    const sectionTokenCount = estimateTokens(section);
+    buckets[bucket] = (buckets[bucket] || 0) + sectionTokenCount;
+    sectionTokens += sectionTokenCount;
+  }
+  buckets.otherTokens = Math.max(0, tokens - sectionTokens);
+  return buckets;
+}
+
+function systemWorkflowTokensOf(text) {
+  let total = 0;
+  for (const section of splitMarkdownSections(text)) {
+    if (reminderSectionBucket(section) === 'workflow') total += estimateTokens(section);
+  }
+  return total;
+}
+
+function toolCallTokensOf(toolCalls) {
+  try {
+    return estimateTokens(JSON.stringify(toolCalls));
+  } catch {
+    return estimateTokens(`[${toolCalls.length} tool calls]`);
+  }
+}
+
 function contextMessageContribution(message) {
   const cached = message && typeof message === 'object' ? contextMessageMemo.get(message) : null;
   const fingerprint = contextMessageFingerprint(message, cached?.fingerprint);
@@ -327,31 +367,12 @@ function contextMessageContribution(message) {
       .trim()
       .startsWith('<system-reminder>')
   ) {
-    const buckets = { tokens: contribution.tokens, otherTokens: contribution.tokens };
-    let sectionTokens = 0;
-    for (const section of splitMarkdownSections(stripSystemReminder(text))) {
-      const bucket = reminderSectionBucket(section);
-      const sectionTokenCount = estimateTokens(section);
-      buckets[bucket] = (buckets[bucket] || 0) + sectionTokenCount;
-      sectionTokens += sectionTokenCount;
-    }
-    buckets.otherTokens = Math.max(0, contribution.tokens - sectionTokens);
-    contribution.reminderBuckets = buckets;
+    contribution.reminderBuckets = reminderBucketsFor(text, tokens);
   }
-  if (role === 'system') {
-    for (const section of splitMarkdownSections(text)) {
-      if (reminderSectionBucket(section) === 'workflow') {
-        contribution.systemWorkflowTokens += estimateTokens(section);
-      }
-    }
-  }
+  if (role === 'system') contribution.systemWorkflowTokens = systemWorkflowTokensOf(text);
   if (fingerprint.role === 'assistant' && Array.isArray(message?.toolCalls) && message.toolCalls.length) {
     contribution.toolCallCount = message.toolCalls.length;
-    try {
-      contribution.toolCallTokens = estimateTokens(JSON.stringify(message.toolCalls));
-    } catch {
-      contribution.toolCallTokens = estimateTokens(`[${message.toolCalls.length} tool calls]`);
-    }
+    contribution.toolCallTokens = toolCallTokensOf(message.toolCalls);
   }
   if (message && typeof message === 'object') {
     contextMessageMemo.set(message, { fingerprint, contribution });
@@ -519,7 +540,20 @@ export function summarizeContextMessagesAtRevision(messages, revision) {
 const contextMessagesSignatureMemo = new WeakMap();
 const CONTEXT_SIGNATURE_COUNTS_MAX = 4;
 
-export function contextMessagesSignature(messages, count = messages?.length) {
+function sameContributions(previous, current) {
+  if (previous.length !== current.length) return false;
+  for (let index = 0; index < current.length; index += 1) {
+    if (previous[index] !== current[index]) return false;
+  }
+  return true;
+}
+
+// The memoized signature over the first `count` messages. An unchanged
+// prefix (the same contribution objects) is answered from `memo` instead of
+// re-hashing a whole transcript on every pressure check; otherwise
+// `messageIdentity` feeds each message into a fresh sha256 whose digest is
+// remembered per prefix length, most recent CONTEXT_SIGNATURE_COUNTS_MAX kept.
+function memoizedTranscriptSignature(messages, count, memo, messageIdentity) {
   const list = Array.isArray(messages) ? messages : [];
   const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
   let contributions = null;
@@ -527,35 +561,17 @@ export function contextMessagesSignature(messages, count = messages?.length) {
   if (Array.isArray(messages)) {
     summarizeContextMessages(messages);
     contributions = contextTranscriptMemo.get(messages)?.contributions.slice(0, end) || [];
-    signatures = contextMessagesSignatureMemo.get(messages);
+    signatures = memo.get(messages);
     const previous = signatures?.get(end);
-    if (previous && previous.contributions.length === contributions.length) {
-      let unchanged = true;
-      for (let index = 0; index < contributions.length; index += 1) {
-        if (previous.contributions[index] !== contributions[index]) {
-          unchanged = false;
-          break;
-        }
-      }
-      if (unchanged) {
-        signatures.delete(end);
-        signatures.set(end, previous);
-        return previous.signature;
-      }
+    if (previous && sameContributions(previous.contributions, contributions)) {
+      signatures.delete(end);
+      signatures.set(end, previous);
+      return previous.signature;
     }
   }
   const hash = createHash('sha256');
   for (let index = 0; index < end; index += 1) {
-    const message = list[index];
-    hash.update(
-      JSON.stringify([
-        message?.role || '',
-        message?.toolCallId || '',
-        messageEstimateText(message),
-        messageImageAllowance(message),
-        messageImageDescriptors(message),
-      ])
-    );
+    hash.update(JSON.stringify(messageIdentity(list[index])));
     hash.update('\0');
   }
   const signature = hash.digest('hex');
@@ -568,9 +584,19 @@ export function contextMessagesSignature(messages, count = messages?.length) {
       if (oldest === undefined) break;
       signatures.delete(oldest);
     }
-    contextMessagesSignatureMemo.set(messages, signatures);
+    memo.set(messages, signatures);
   }
   return signature;
+}
+
+export function contextMessagesSignature(messages, count = messages?.length) {
+  return memoizedTranscriptSignature(messages, count, contextMessagesSignatureMemo, (message) => [
+    message?.role || '',
+    message?.toolCallId || '',
+    messageEstimateText(message),
+    messageImageAllowance(message),
+    messageImageDescriptors(message),
+  ]);
 }
 
 // Storage-form-independent transcript identity.
@@ -598,56 +624,15 @@ function messageShapeText(message) {
 const contextMessagesShapeSignatureMemo = new WeakMap();
 
 export function contextMessagesShapeSignature(messages, count = messages?.length) {
-  const list = Array.isArray(messages) ? messages : [];
-  const end = Math.max(0, Math.min(list.length, Number.isInteger(count) ? count : list.length));
-  // Same warm-path contract as the exact signature: an unchanged prefix is
-  // answered from the memo instead of re-projecting and re-hashing a whole
-  // transcript on every pressure check.
-  let contributions = null;
-  let signatures = null;
-  if (Array.isArray(messages)) {
-    summarizeContextMessages(messages);
-    contributions = contextTranscriptMemo.get(messages)?.contributions.slice(0, end) || [];
-    signatures = contextMessagesShapeSignatureMemo.get(messages);
-    const previous = signatures?.get(end);
-    if (previous && previous.contributions.length === contributions.length) {
-      let unchanged = true;
-      for (let index = 0; index < contributions.length; index += 1) {
-        if (previous.contributions[index] !== contributions[index]) {
-          unchanged = false;
-          break;
-        }
-      }
-      if (unchanged) return previous.signature;
-    }
-  }
-  const hash = createHash('sha256');
-  for (let index = 0; index < end; index += 1) {
-    const message = list[index];
+  return memoizedTranscriptSignature(messages, count, contextMessagesShapeSignatureMemo, (message) => {
     const shape = messageShapeText(message);
-    hash.update(
-      JSON.stringify([
-        message?.role || '',
-        message?.toolCallId || '',
-        shape.text,
-        messageImageDescriptors(message).length + shape.placeholders,
-      ])
-    );
-    hash.update('\0');
-  }
-  const signature = hash.digest('hex');
-  if (Array.isArray(messages)) {
-    signatures ||= new Map();
-    if (signatures.has(end)) signatures.delete(end);
-    signatures.set(end, { contributions, signature });
-    while (signatures.size > CONTEXT_SIGNATURE_COUNTS_MAX) {
-      const oldest = signatures.keys().next().value;
-      if (oldest === undefined) break;
-      signatures.delete(oldest);
-    }
-    contextMessagesShapeSignatureMemo.set(messages, signatures);
-  }
-  return signature;
+    return [
+      message?.role || '',
+      message?.toolCallId || '',
+      shape.text,
+      messageImageDescriptors(message).length + shape.placeholders,
+    ];
+  });
 }
 
 const toolSchemaAnalysisMemo = new WeakMap();
@@ -754,303 +739,4 @@ export function estimateTranscriptContextUsage(messages, toolsOrReserve, opts = 
   // Provider-aware calibration reconciles the o200k estimate with actual
   // billing (see providerTokenCalibration). No provider → neutral 1.0.
   return Math.round((messageTokens + reserve) * providerTokenCalibration(opts.provider));
-}
-
-const TOOL_MISSING_STUB = '[Older tool result unavailable after context compaction]';
-function collectAssistantToolCallIds(message) {
-  if (!message || message.role !== 'assistant') return [];
-  const ids = [];
-  const seen = new Set();
-  const add = (id) => {
-    if (!id || seen.has(id)) return;
-    seen.add(id);
-    ids.push(id);
-  };
-  if (Array.isArray(message.toolCalls)) {
-    for (const tc of message.toolCalls) add(tc?.id);
-  }
-  const blocksFrom = (blocks) => {
-    if (!Array.isArray(blocks)) return;
-    for (const b of blocks) {
-      if (b?.type === 'tool_use' && b.id) add(b.id);
-    }
-  };
-  blocksFrom(message.assistantBlocks);
-  blocksFrom(message.content);
-  return ids;
-}
-/**
- * Tool-pair sanitization (unmatched tool_use / tool_result repair):
- *   - Drop malformed `tool` messages without toolCallId.
- *   - Drop `tool` messages whose toolCallId has no surviving assistant tool_call.
- *   - For each surviving assistant tool_call, reattach the matching `tool`
- *     message (if any) immediately after that assistant; duplicate ids prefer
- *     the contiguous post-assistant block, then later matches, then earlier.
- *   - For tool_calls with no matching result, insert a stub tool message so
- *     the provider doesn't reject the request for unmatched tool_use_id.
- * Non-tool message order is preserved; tool results are not duplicated.
- */
-export function sanitizeToolPairs(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return messages;
-  const assistantCallIds = new Set();
-  for (const m of messages) {
-    for (const id of collectAssistantToolCallIds(m)) assistantCallIds.add(id);
-  }
-  const pickToolResultForAssistant = (assistantIdx, toolCallId) => {
-    let i = assistantIdx + 1;
-    while (i < messages.length && messages[i]?.role === 'tool') {
-      const tm = messages[i];
-      if (tm.toolCallId === toolCallId) return tm;
-      i += 1;
-    }
-    let afterBlock = assistantIdx + 1;
-    while (afterBlock < messages.length && messages[afterBlock]?.role === 'tool') afterBlock += 1;
-    for (let j = afterBlock; j < messages.length; j += 1) {
-      const tm = messages[j];
-      if (tm?.role === 'tool' && tm.toolCallId === toolCallId) return tm;
-    }
-    for (let j = 0; j < assistantIdx; j += 1) {
-      const tm = messages[j];
-      if (tm?.role === 'tool' && tm.toolCallId === toolCallId) return tm;
-    }
-    return null;
-  };
-  const placedToolIds = new Set();
-  const result = [];
-  for (let idx = 0; idx < messages.length; idx += 1) {
-    const m = messages[idx];
-    if (m.role === 'tool') {
-      if (!m.toolCallId) continue;
-      if (!assistantCallIds.has(m.toolCallId)) continue;
-      if (placedToolIds.has(m.toolCallId)) continue;
-      continue;
-    }
-    result.push(m);
-    if (m.role !== 'assistant') continue;
-    const callIds = collectAssistantToolCallIds(m);
-    if (callIds.length === 0) continue;
-    for (const callId of callIds) {
-      if (placedToolIds.has(callId)) continue;
-      const existing = pickToolResultForAssistant(idx, callId);
-      if (existing) {
-        result.push(existing);
-        placedToolIds.add(callId);
-        continue;
-      }
-      result.push({
-        role: 'tool',
-        content: TOOL_MISSING_STUB,
-        toolCallId: callId,
-      });
-      placedToolIds.add(callId);
-    }
-  }
-  return result;
-}
-
-// Minimum body size to consider for hash-based dedup. Small results are
-// cheap to re-deliver and short strings often collide on trivial content
-// like "ok" or "done", so deduplicate only non-trivial bodies.
-const DEDUP_MIN_BYTES = 512;
-
-/**
- * Replace duplicate tool-result bodies (2nd+ occurrence of the same content
- * hash) with a compact reference stub. Hash-based dedup avoids re-delivering
- * large identical results (e.g. the same grep output called twice) while
- * keeping the first occurrence intact so the model still has the body.
- *
- * Skip conditions (structural — not heuristic prefix sniffing):
- *   - m.toolKind !== 'normal' (and defined): cache-hit / error / ref messages
- *     carry a structured kind annotation set by loop.mjs; skip them.
- *   - No toolKind (undefined): legacy or intra-turn-dedup stubs — apply dedup
- *     (backward compatible; the dedup body IS the meaningful result).
- *   - content.length < DEDUP_MIN_BYTES: structural cost optimization.
- *   - isOffloadedToolResultText(content): body is on disk, not inline.
- */
-export function dedupToolResultBodies(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return messages;
-  const seenHash = new Map(); // hash -> first toolCallId
-  return messages.map((m) => {
-    if (m?.role !== 'tool' || typeof m.content !== 'string') return m;
-    const content = m.content;
-    if (content.length < DEDUP_MIN_BYTES) return m;
-    if (isOffloadedToolResultText(content)) return m;
-    // Structural kind-based skip: non-normal kinds are already stubs/refs —
-    // deduping them would nest stubs inside stubs and confuse the model.
-    if (m.toolKind !== undefined && m.toolKind !== 'normal') return m;
-    const hash = createHash('sha256').update(content).digest('hex').slice(0, 16);
-    const first = seenHash.get(hash);
-    if (!first) {
-      seenHash.set(hash, m.toolCallId || '?');
-      return m;
-    }
-    const stub = `[duplicate-of tool_use_id=${first}] body identical to result of ${first} (sha256 prefix matches; ${content.length} bytes elided).`;
-    return { ...m, content: stub };
-  });
-}
-
-// Match the head of dedupToolResultBodies' stub body so we can detect whether
-// the referenced first-occurrence tool_use_id is still present after later
-// drop passes (safety loop, sanitize). Any stub pointing at an id no longer
-// in the message stream is reconciled back to TOOL_MISSING_STUB so the model
-// never sees `[duplicate-of call_X]` with no call_X.
-const DEDUP_STUB_HEAD_RE = /^\[duplicate-of tool_use_id=([^\]]+)\]/;
-export function reconcileDedupStubs(messages) {
-  if (!Array.isArray(messages) || messages.length === 0) return messages;
-  const presentIds = new Set();
-  for (const m of messages) {
-    if (m?.role === 'tool' && m.toolCallId) presentIds.add(m.toolCallId);
-  }
-  return messages.map((m) => {
-    if (m?.role !== 'tool' || typeof m.content !== 'string') return m;
-    const match = DEDUP_STUB_HEAD_RE.exec(m.content);
-    if (!match) return m;
-    if (presentIds.has(match[1])) return m;
-    return { ...m, content: TOOL_MISSING_STUB };
-  });
-}
-
-/**
- * Final-mile pairing for Anthropic API content arrays. Operates on the
- * already-converted format (role: assistant|user|system, content: block[])
- * — the mixdog-internal sanitizeToolPairs only sees toolCalls/toolCallId
- * fields and misses cases where tool_use blocks were pushed directly into
- * content (streaming chunk inserts, salvage paths, etc.). Without this
- * pass, an unmatched tool_use can reach the provider and trigger
- * `messages.N: tool_use ids were found without tool_result blocks
- * immediately after`.
- */
-export function sanitizeAnthropicContentPairs(messages) {
-  if (!Array.isArray(messages)) return messages;
-  const work = messages.slice();
-  const out = [];
-  let pendingToolUseIds = new Set();
-  const stripOrphanToolResults = (userMsg, allowedIds) => {
-    if (userMsg?.role !== 'user' || !Array.isArray(userMsg.content)) return userMsg;
-    const hasToolResults = userMsg.content.some((b) => b?.type === 'tool_result');
-    if (!hasToolResults) return userMsg;
-    const filtered = userMsg.content.filter((b) => {
-      if (b?.type !== 'tool_result') return true;
-      if (!b.tool_use_id) return false;
-      return allowedIds.size > 0 && allowedIds.has(b.tool_use_id);
-    });
-    if (filtered.length === userMsg.content.length) return userMsg;
-    return { ...userMsg, content: filtered };
-  };
-  for (let i = 0; i < work.length; i++) {
-    let m = work[i];
-    if (m?.role === 'user' && Array.isArray(m.content)) {
-      const hadToolResults = m.content.some((b) => b?.type === 'tool_result');
-      m = stripOrphanToolResults(m, pendingToolUseIds);
-      work[i] = m;
-      if (hadToolResults) pendingToolUseIds = new Set();
-    }
-    // Drop tool_use blocks without an id from assistant messages — these
-    // come from partial streaming chunks that never finalised, and the
-    // provider rejects them as `tool_use ids were found without
-    // tool_result blocks` even though no id was actually emitted.
-    if (m?.role === 'assistant' && Array.isArray(m.content)) {
-      const cleaned = m.content.filter((b) => !(b?.type === 'tool_use' && !b.id));
-      if (cleaned.length !== m.content.length) {
-        m = { ...m, content: cleaned };
-        work[i] = m;
-      }
-    }
-    if (m?.role === 'user' && Array.isArray(m.content) && m.content.length === 0) continue;
-    out.push(m);
-    if (m?.role !== 'assistant' || !Array.isArray(m.content)) continue;
-    const toolUseIds = m.content.filter((b) => b?.type === 'tool_use' && b.id).map((b) => b.id);
-    if (toolUseIds.length === 0) {
-      pendingToolUseIds = new Set();
-      continue;
-    }
-    pendingToolUseIds = new Set(toolUseIds);
-    let next = work[i + 1];
-    if (next?.role === 'user' && Array.isArray(next.content)) {
-      next = stripOrphanToolResults(next, pendingToolUseIds);
-      work[i + 1] = next;
-    }
-    const nextResultIds =
-      next?.role === 'user' && Array.isArray(next.content)
-        ? new Set(next.content.filter((b) => b?.type === 'tool_result' && b.tool_use_id).map((b) => b.tool_use_id))
-        : new Set();
-    const missing = toolUseIds.filter((id) => !nextResultIds.has(id));
-    const stubs = missing.map((id) => ({
-      type: 'tool_result',
-      tool_use_id: id,
-      content: '[tool_result missing — recovered by sanitizeAnthropicContentPairs]',
-      is_error: true,
-    }));
-    if (next?.role === 'user' && Array.isArray(next.content)) {
-      // Anthropic requires tool_result blocks to lead the user message
-      // when responding to a prior tool_use. Reorder even when no stub
-      // was needed; a matching tool_result after text still triggers the
-      // same `tool_use ids ... without tool_result blocks immediately
-      // after` rejection.
-      const existingResults = next.content.filter((b) => b?.type === 'tool_result');
-      const nonResults = next.content.filter((b) => b?.type !== 'tool_result');
-      const reordered = [...stubs, ...existingResults, ...nonResults];
-      const changed = missing.length > 0 || reordered.some((b, idx) => b !== next.content[idx]);
-      if (changed) work[i + 1] = { ...next, content: reordered };
-    } else {
-      if (missing.length === 0) continue;
-      out.push({ role: 'user', content: stubs });
-    }
-  }
-  return out;
-}
-
-/**
- * Fold a plain user text turn into the trailing tool_result block of the
- * previous user message (first-party client parity: merge user content
- * blocks into the trailing tool_result). Any sibling text after a
- * tool_result renders as `</function_results>\n\nHuman:<...>` on the
- * Anthropic wire; repeated mid-conversation this teaches the model to emit
- * 3-token empty end_turn completions (upstream A/B sai-20260310-161901:
- * 92% → 0% after smooshing). Observed in mixdog as the empty-turn nudge
- * livelock: each contract nudge was pushed as its own user turn right after
- * a tool_result turn, reinforcing the empty-completion pattern.
- *
- * Returns true when the text was folded (caller must NOT push the message);
- * false when the message must keep its own turn (no tool_result tail,
- * tool_reference result, or non-text content such as images).
- */
-export function foldUserTextIntoToolResultTail(result, content) {
-  const last = result[result.length - 1];
-  if (last?.role !== 'user' || !Array.isArray(last.content) || last.content.length === 0) return false;
-  const tail = last.content[last.content.length - 1];
-  if (tail?.type !== 'tool_result') return false;
-  // tool_reference results must keep their exact shape — leave as sibling.
-  if (Array.isArray(tail.content) && tail.content.some((b) => b?.type === 'tool_reference')) return false;
-  // Only fold pure text (string or all-text blocks). Images/documents keep
-  // their own user turn.
-  let texts;
-  if (typeof content === 'string') {
-    texts = content.trim() ? [content.trim()] : [];
-  } else if (Array.isArray(content) && content.every((b) => b?.type === 'text' && typeof b.text === 'string')) {
-    texts = content.map((b) => b.text.trim()).filter(Boolean);
-  } else {
-    return false;
-  }
-  if (texts.length === 0) return true; // empty text turn — drop it entirely
-  const joined = texts.join('\n\n');
-  if (typeof tail.content === 'string') {
-    last.content[last.content.length - 1] = {
-      ...tail,
-      content: tail.content.trim() ? `${tail.content}\n\n${joined}` : joined,
-    };
-    return true;
-  }
-  if (Array.isArray(tail.content)) {
-    const blocks = tail.content.slice();
-    const prev = blocks[blocks.length - 1];
-    if (prev?.type === 'text' && typeof prev.text === 'string') {
-      blocks[blocks.length - 1] = { ...prev, text: `${prev.text}\n\n${joined}` };
-    } else {
-      blocks.push({ type: 'text', text: joined });
-    }
-    last.content[last.content.length - 1] = { ...tail, content: blocks };
-    return true;
-  }
-  return false;
 }

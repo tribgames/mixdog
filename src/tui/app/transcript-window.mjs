@@ -282,14 +282,6 @@ function cacheStreamingTailEstimate(id, entry) {
   }
 }
 
-/** Lifecycle visibility for focused cache-boundary tests. */
-export function streamingRowEstimateStateForId(id) {
-  return {
-    tailEstimate: streamingTailEstimateById.has(id),
-    highWater: streamingEstimateHighWaterById.has(id),
-  };
-}
-
 /** True when either streaming id-keyed store holds entries, so the mount-prune
  * call site fires even when only the estimate high-water map is populated (an
  * item that never got a Yoga measurement but reached an estimate high-water,
@@ -551,40 +543,22 @@ export function buildTranscriptRowIndexIncremental(
     });
   }
   const prefixLen = allItems.length - 1;
-  const cache = holder.current;
+  const shape = {
+    columns,
+    toolExpanded: toolOutputExpanded ? 1 : 0,
+    suppress: suppressMeasuredRowHeights,
+    version: measuredRowsVersion,
+    prefixLen,
+    prefixRevision,
+    tailId: tail.id,
+  };
   // Prefix identity is carried by the engine's monotonic structure revision.
   // Every settled-item mutation, including same-length middle tool-card patches,
   // bumps it without requiring a render-time walk over the transcript.
   // Fast path: same prefix length + tail id + revision, and columns/expanded/
   // suppress/version all match. Only the tail row can differ → recompute + append.
-  if (
-    cache &&
-    cache.columns === columns &&
-    cache.toolExpanded === (toolOutputExpanded ? 1 : 0) &&
-    cache.suppress === suppressMeasuredRowHeights &&
-    cache.version === measuredRowsVersion &&
-    cache.prefixLen === prefixLen &&
-    prefixRevision != null &&
-    cache.prefixRevision === prefixRevision &&
-    cache.tailId === tail.id
-  ) {
-    // revision matches → prefix rows provably unchanged; NO prefix walk / no
-    // re-estimation. Only the tail row can differ, recompute it.
-    {
-      const tailMeasured = suppressMeasuredRowHeights
-        ? null
-        : measuredTranscriptRows(tail, columns, toolOutputExpanded);
-      const tailRows =
-        tailMeasured != null ? tailMeasured : estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded);
-      // Immutable segmented views append one virtual tail slot to the cached
-      // settled prefix. No committed array is mutated and no prefix is copied.
-      const totalRows = cache.prefixTotal + tailRows;
-      return {
-        rows: appendTranscriptRow(cache.prefixRowsArr, tailRows),
-        prefixRows: appendTranscriptRow(cache.prefixPrefixRows, totalRows),
-        totalRows,
-      };
-    }
+  if (prefixRevision != null && settledPrefixMatches(holder.current, shape)) {
+    return appendStreamingTail(holder.current, tail, { columns, toolOutputExpanded, suppressMeasuredRowHeights });
   }
   // Cache miss: full build, then repopulate the settled-prefix cache so the NEXT
   // flush (only the tail grown) takes the fast path. The prefix arrays are the
@@ -597,18 +571,41 @@ export function buildTranscriptRowIndexIncremental(
     streamingTailItem,
   });
   holder.current = {
-    columns,
-    toolExpanded: toolOutputExpanded ? 1 : 0,
-    suppress: suppressMeasuredRowHeights,
-    version: measuredRowsVersion,
-    prefixLen,
-    prefixRevision,
-    tailId: tail.id,
+    ...shape,
     prefixRowsArr: full.rows.slice(0, prefixLen),
     prefixPrefixRows: full.prefixRows.slice(0, prefixLen + 1),
     prefixTotal: full.prefixRows[prefixLen] || 0,
   };
   return full;
+}
+
+function settledPrefixMatches(cache, shape) {
+  return (
+    Boolean(cache) &&
+    cache.columns === shape.columns &&
+    cache.toolExpanded === shape.toolExpanded &&
+    cache.suppress === shape.suppress &&
+    cache.version === shape.version &&
+    cache.prefixLen === shape.prefixLen &&
+    cache.prefixRevision === shape.prefixRevision &&
+    cache.tailId === shape.tailId
+  );
+}
+
+// revision matches → prefix rows provably unchanged; NO prefix walk / no
+// re-estimation. Only the tail row can differ, recompute it.
+function appendStreamingTail(cache, tail, { columns, toolOutputExpanded, suppressMeasuredRowHeights }) {
+  const tailMeasured = suppressMeasuredRowHeights ? null : measuredTranscriptRows(tail, columns, toolOutputExpanded);
+  const tailRows =
+    tailMeasured != null ? tailMeasured : estimateTranscriptItemRowsCached(tail, columns, toolOutputExpanded);
+  // Immutable segmented views append one virtual tail slot to the cached
+  // settled prefix. No committed array is mutated and no prefix is copied.
+  const totalRows = cache.prefixTotal + tailRows;
+  return {
+    rows: appendTranscriptRow(cache.prefixRowsArr, tailRows),
+    prefixRows: appendTranscriptRow(cache.prefixPrefixRows, totalRows),
+    totalRows,
+  };
 }
 
 // Stable O(1) signature for transcript row-index/window memos. The engine's
@@ -687,6 +684,55 @@ export function transcriptItemsWithStableTail(settledItems, streamingTailItem, c
   return items;
 }
 
+// Items whose rows intersect [top, bottom): from the item at or before `top`
+// through the one crossing `bottom`, at least one item.
+function itemSpanForRows(prefixRows, itemCount, top, bottom) {
+  const start = Math.max(0, upperBound(prefixRows, top) - 1);
+  const end = Math.min(itemCount, Math.max(start + 1, lowerBound(prefixRows, Math.max(bottom, top + 1))));
+  return [start, end];
+}
+
+// The cap must never cut into rows needed to fill the viewport: floor it at
+// the item span the visible viewport actually covers, so a run of many short
+// (e.g. one-line) items can't leave the top of the viewport unmounted under
+// the small tail cap. Full-view (scrolled-up) behavior is unchanged: there
+// maxItems already exceeds the visible span, so the floor is a no-op.
+function capItemSpan(prefixRows, { itemCount, maxItems, visibleTop, visibleBottom }) {
+  const [visibleStartIndex, visibleEndIndex] = itemSpanForRows(prefixRows, itemCount, visibleTop, visibleBottom);
+  const effectiveMaxItems = Math.max(maxItems, visibleEndIndex - visibleStartIndex);
+  let startIndex = Math.max(0, Math.min(visibleStartIndex, itemCount - effectiveMaxItems));
+  const endIndex = Math.min(itemCount, Math.max(visibleEndIndex, startIndex + effectiveMaxItems));
+  if (endIndex - startIndex > effectiveMaxItems) startIndex = Math.max(0, endIndex - effectiveMaxItems);
+  return [startIndex, endIndex];
+}
+
+// Item span to mount: viewport plus overscan, at least MIN items, capped at
+// MAX (a smaller overscan and cap at the live tail).
+function chooseItemSpan(prefixRows, { itemCount, totalRows, viewRows, effectiveScrollOffset }) {
+  const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, itemCount);
+  // At-bottom (live tail) mounts only viewport + a small overscan; scrolled-up
+  // views keep the full overscan/cap so history renders exactly as before.
+  const atTail = effectiveScrollOffset === 0;
+  const overscanRows = atTail ? TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS : TRANSCRIPT_WINDOW_OVERSCAN_ROWS;
+  const maxItems = Math.max(minItems, atTail ? TRANSCRIPT_WINDOW_TAIL_MAX_ITEMS : TRANSCRIPT_WINDOW_MAX_ITEMS);
+  const visibleTop = Math.max(0, totalRows - effectiveScrollOffset - viewRows);
+  const visibleBottom = Math.min(totalRows, totalRows - effectiveScrollOffset);
+  let [startIndex, endIndex] = itemSpanForRows(
+    prefixRows,
+    itemCount,
+    Math.max(0, visibleTop - overscanRows),
+    Math.min(totalRows, visibleBottom + overscanRows)
+  );
+
+  while (endIndex - startIndex < minItems && startIndex > 0) startIndex--;
+  while (endIndex - startIndex < minItems && endIndex < itemCount) endIndex++;
+
+  if (endIndex - startIndex > maxItems) {
+    return capItemSpan(prefixRows, { itemCount, maxItems, visibleTop, visibleBottom });
+  }
+  return [startIndex, endIndex];
+}
+
 export function transcriptRenderWindow(
   items,
   { scrollOffset = 0, viewportHeight = 24, columns = 80, toolOutputExpanded = false, rowIndex = null } = {}
@@ -715,43 +761,8 @@ export function transcriptRenderWindow(
     };
   }
 
-  const minItems = Math.min(TRANSCRIPT_WINDOW_MIN_ITEMS, itemCount);
-  // At-bottom (live tail) mounts only viewport + a small overscan; scrolled-up
-  // views keep the full overscan/cap so history renders exactly as before.
-  const atTail = effectiveScrollOffset === 0;
-  const overscanRows = atTail ? TRANSCRIPT_WINDOW_TAIL_OVERSCAN_ROWS : TRANSCRIPT_WINDOW_OVERSCAN_ROWS;
-  const maxItems = Math.max(minItems, atTail ? TRANSCRIPT_WINDOW_TAIL_MAX_ITEMS : TRANSCRIPT_WINDOW_MAX_ITEMS);
   const prefixRows = fallbackIndex.prefixRows;
-  const visibleTop = Math.max(0, totalRows - effectiveScrollOffset - viewRows);
-  const visibleBottom = Math.min(totalRows, totalRows - effectiveScrollOffset);
-  const desiredTop = Math.max(0, visibleTop - overscanRows);
-  const desiredBottom = Math.min(totalRows, visibleBottom + overscanRows);
-
-  let startIndex = Math.max(0, upperBound(prefixRows, desiredTop) - 1);
-  let endIndex = Math.min(
-    itemCount,
-    Math.max(startIndex + 1, lowerBound(prefixRows, Math.max(desiredBottom, desiredTop + 1)))
-  );
-
-  while (endIndex - startIndex < minItems && startIndex > 0) startIndex--;
-  while (endIndex - startIndex < minItems && endIndex < itemCount) endIndex++;
-
-  if (endIndex - startIndex > maxItems) {
-    const visibleStartIndex = Math.max(0, upperBound(prefixRows, visibleTop) - 1);
-    const visibleEndIndex = Math.min(
-      itemCount,
-      Math.max(visibleStartIndex + 1, lowerBound(prefixRows, Math.max(visibleBottom, visibleTop + 1)))
-    );
-    // The cap must never cut into rows needed to fill the viewport: floor it at
-    // the item span the visible viewport actually covers, so a run of many short
-    // (e.g. one-line) items can't leave the top of the viewport unmounted under
-    // the small tail cap. Full-view (scrolled-up) behavior is unchanged: there
-    // maxItems already exceeds the visible span, so the floor is a no-op.
-    const effectiveMaxItems = Math.max(maxItems, visibleEndIndex - visibleStartIndex);
-    startIndex = Math.max(0, Math.min(visibleStartIndex, itemCount - effectiveMaxItems));
-    endIndex = Math.min(itemCount, Math.max(visibleEndIndex, startIndex + effectiveMaxItems));
-    if (endIndex - startIndex > effectiveMaxItems) startIndex = Math.max(0, endIndex - effectiveMaxItems);
-  }
+  const [startIndex, endIndex] = chooseItemSpan(prefixRows, { itemCount, totalRows, viewRows, effectiveScrollOffset });
 
   const bottomSpacerRows = Math.max(0, totalRows - (transcriptRowAt(prefixRows, endIndex) || totalRows));
   return {

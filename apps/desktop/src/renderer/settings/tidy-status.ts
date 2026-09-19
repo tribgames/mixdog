@@ -10,7 +10,7 @@ import type { SidebarResourceTag } from '../sidebar-resource-row';
 import type { PanelContext } from './capability-data';
 import type { ExtensionItemTone } from './extension-detail';
 
-export function formatEngineBytes(bytes: unknown): string {
+function formatEngineBytes(bytes: unknown): string {
   const val = Number(bytes);
   if (!Number.isFinite(val) || val <= 0) return '';
   if (val < 1024 * 1024) {
@@ -19,11 +19,11 @@ export function formatEngineBytes(bytes: unknown): string {
   return `${(val / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function formatMB(bytes: number): string {
+function formatMB(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1);
 }
 
-export async function readTidyEngineStatus(api: PanelContext['api']): Promise<DesktopTidyEngineStatus | null> {
+async function readTidyEngineStatus(api: PanelContext['api']): Promise<DesktopTidyEngineStatus | null> {
   const request = { capability: 'getTidyEngineStatus' as const, args: [] };
   if (api.readCapabilities) {
     const [result] = await api.readCapabilities([request]);
@@ -35,7 +35,7 @@ export async function readTidyEngineStatus(api: PanelContext['api']): Promise<De
   return null;
 }
 
-export async function readTidyInstallStatus(api: PanelContext['api']): Promise<DesktopTidyInstallStatus | null> {
+async function readTidyInstallStatus(api: PanelContext['api']): Promise<DesktopTidyInstallStatus | null> {
   const request = { capability: 'getTidyInstallStatus' as const, args: [] };
   if (api.readCapabilities) {
     const [result] = await api.readCapabilities([request]);
@@ -52,6 +52,88 @@ export async function readTidyInstallStatus(api: PanelContext['api']): Promise<D
  *  The panel folds those away so the list shows what is actually there. */
 export type TidyEngineRowState = 'installed' | 'downloading' | 'failed' | 'pending' | 'optional';
 
+type TidyEngineRow = {
+  tag: SidebarResourceTag | null;
+  description: string;
+  tone: ExtensionItemTone;
+  state: TidyEngineRowState;
+};
+
+function engineLanguages(engine: DesktopTidyEngine): string {
+  return engine.languages?.length ? engine.languages.join(', ') : '';
+}
+
+// Languages, version and (for managed engines) the payload size.
+function installedEngineDescription(engine: DesktopTidyEngine, installEngine?: DesktopTidyInstallEngine | null): string {
+  const parts: string[] = [];
+  if (engine.languages?.length) parts.push(engine.languages.join(', '));
+  const version = engine.version || installEngine?.version;
+  if (version) parts.push(version);
+  const bytes = typeof engine.bytes === 'number' && engine.bytes > 0 ? engine.bytes : installEngine?.bytes;
+  if ((engine.source === 'managed' || engine.managed) && typeof bytes === 'number' && bytes > 0) {
+    parts.push(formatEngineBytes(bytes));
+  }
+  return parts.join(' · ');
+}
+
+function engineDownloading(installEngine: DesktopTidyInstallEngine): boolean {
+  return (
+    installEngine.status === 'downloading' ||
+    (installEngine.receivedBytes > 0 &&
+      installEngine.status !== 'installed' &&
+      installEngine.status !== 'present' &&
+      installEngine.status !== 'failed' &&
+      installEngine.status !== 'skipped')
+  );
+}
+
+function downloadProgressText(installEngine: DesktopTidyInstallEngine): string {
+  const receivedMB = formatMB(installEngine.receivedBytes);
+  const totalMB =
+    typeof installEngine.totalBytes === 'number' && installEngine.totalBytes > 0
+      ? formatMB(installEngine.totalBytes)
+      : null;
+  return totalMB
+    ? t('Downloading {{received}} MB / {{total}} MB', { received: receivedMB, total: totalMB })
+    : t('Downloading {{received}} MB', { received: receivedMB });
+}
+
+// An engine that is neither installed, downloading nor failed: skipped by the
+// installer, a host toolchain to install by hand, a core engine still pending,
+// or a managed engine fetched on demand.
+function missingEngineRow(engine: DesktopTidyEngine, installEngine?: DesktopTidyInstallEngine | null): TidyEngineRow {
+  if (installEngine?.status === 'skipped') {
+    return {
+      tag: { label: t('Not detected'), tone: 'muted' },
+      description: installEngine.installHint || engine.installHint || engineLanguages(engine),
+      tone: 'muted',
+      state: 'optional',
+    };
+  }
+  if (engine.toolchain || !engine.managed) {
+    return {
+      tag: { label: t('Not detected'), tone: 'muted' },
+      description: engine.installHint || engineLanguages(engine),
+      tone: 'muted',
+      state: 'optional',
+    };
+  }
+  if (engine.core) {
+    return {
+      tag: { label: t('Not installed'), tone: 'muted' },
+      description: engineLanguages(engine),
+      tone: 'muted',
+      state: 'pending',
+    };
+  }
+  return {
+    tag: { label: t('On demand'), tone: 'muted' },
+    description: engineLanguages(engine),
+    tone: 'muted',
+    state: 'optional',
+  };
+}
+
 export function engineRowState({
   engine,
   installEngine,
@@ -60,121 +142,29 @@ export function engineRowState({
   engine: DesktopTidyEngine;
   installEngine?: DesktopTidyInstallEngine | null;
   isInstallingActive?: boolean;
-}): {
-  tag: SidebarResourceTag | null;
-  description: string;
-  tone: ExtensionItemTone;
-  state: TidyEngineRowState;
-} {
-  // 1. Installed / present engines take precedence over failure states
+}): TidyEngineRow {
+  // Installed / present engines take precedence over failure states.
   const isInstalled =
     engine.source === 'managed' ||
     engine.source === 'host' ||
     installEngine?.status === 'installed' ||
     installEngine?.status === 'present';
-
   if (isInstalled) {
-    const parts: string[] = [];
-    if (engine.languages?.length) {
-      parts.push(engine.languages.join(', '));
-    }
-    const version = engine.version || installEngine?.version;
-    if (version) {
-      parts.push(version);
-    }
-    const bytes = typeof engine.bytes === 'number' && engine.bytes > 0 ? engine.bytes : installEngine?.bytes;
-    if ((engine.source === 'managed' || engine.managed) && typeof bytes === 'number' && bytes > 0) {
-      parts.push(formatEngineBytes(bytes));
-    }
-    return {
-      tag: null,
-      description: parts.join(' · '),
-      tone: 'ok',
-      state: 'installed',
-    };
+    return { tag: null, description: installedEngineDescription(engine, installEngine), tone: 'ok', state: 'installed' };
   }
-
-  // 2. Actively downloading/installing
-  if (
-    isInstallingActive &&
-    installEngine &&
-    (installEngine.status === 'downloading' ||
-      (installEngine.receivedBytes > 0 &&
-        installEngine.status !== 'installed' &&
-        installEngine.status !== 'present' &&
-        installEngine.status !== 'failed' &&
-        installEngine.status !== 'skipped'))
-  ) {
-    const receivedMB = formatMB(installEngine.receivedBytes);
-    const totalMB =
-      typeof installEngine.totalBytes === 'number' && installEngine.totalBytes > 0
-        ? formatMB(installEngine.totalBytes)
-        : null;
-    const progressText = totalMB
-      ? t('Downloading {{received}} MB / {{total}} MB', {
-          received: receivedMB,
-          total: totalMB,
-        })
-      : t('Downloading {{received}} MB', { received: receivedMB });
+  if (isInstallingActive && installEngine && engineDownloading(installEngine)) {
     return {
       tag: { label: t('Not installed'), tone: 'muted' },
-      description: progressText,
+      description: downloadProgressText(installEngine),
       tone: 'muted',
       state: 'downloading',
     };
   }
-
-  // 3. Failed during install
   if (installEngine?.status === 'failed' || (engine as { error?: string }).error) {
     const error = installEngine?.error || (engine as { error?: string }).error || t('Installation failed');
-    return {
-      tag: { label: t('Failed'), tone: 'danger' },
-      description: error,
-      tone: 'warn',
-      state: 'failed',
-    };
+    return { tag: { label: t('Failed'), tone: 'danger' }, description: error, tone: 'warn', state: 'failed' };
   }
-
-  // 4. Skipped (e.g. host toolchain or shell dependency missing)
-  if (installEngine?.status === 'skipped') {
-    return {
-      tag: { label: t('Not detected'), tone: 'muted' },
-      description:
-        installEngine.installHint ||
-        engine.installHint ||
-        (engine.languages?.length ? engine.languages.join(', ') : ''),
-      tone: 'muted',
-      state: 'optional',
-    };
-  }
-
-  // 5. Toolchain host engine missing
-  if (engine.toolchain || !engine.managed) {
-    return {
-      tag: { label: t('Not detected'), tone: 'muted' },
-      description: engine.installHint || (engine.languages?.length ? engine.languages.join(', ') : ''),
-      tone: 'muted',
-      state: 'optional',
-    };
-  }
-
-  // 6. Core engine missing
-  if (engine.core) {
-    return {
-      tag: { label: t('Not installed'), tone: 'muted' },
-      description: engine.languages?.length ? engine.languages.join(', ') : '',
-      tone: 'muted',
-      state: 'pending',
-    };
-  }
-
-  // 7. Non-core managed and missing
-  return {
-    tag: { label: t('On demand'), tone: 'muted' },
-    description: engine.languages?.length ? engine.languages.join(', ') : '',
-    tone: 'muted',
-    state: 'optional',
-  };
+  return missingEngineRow(engine, installEngine);
 }
 
 export function useTidyEngineStatus(api: PanelContext['api'], active: boolean, installing: boolean) {

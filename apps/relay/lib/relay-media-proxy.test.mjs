@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { failMediaPending, handleMediaRequest, mediaResponseHeaders } from './relay-media-proxy.mjs';
+import { recordingResponse } from './test-recording-response.mjs';
 
 test('desktop media metadata cannot make the relay origin serve active content', () => {
   const headers = mediaResponseHeaders({
@@ -21,16 +22,8 @@ test('desktop media metadata cannot make the relay origin serve active content',
 });
 
 test('malformed media paths answer 400 without consulting the store', () => {
-  const recorded = [];
-  const response = {
-    writeHead(status, headers) {
-      recorded.push({ status, headers });
-      return this;
-    },
-    end(body) {
-      recorded.at(-1).body = body;
-    },
-  };
+  const response = recordingResponse();
+  const { recorded } = response;
   handleMediaRequest({}, new Map(), { allow: () => true }, { method: 'GET', url: '/media/%', headers: {} }, response);
   assert.equal(recorded[0].status, 400);
   assert.equal(recorded[0].body, 'Bad request.');

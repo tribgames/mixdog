@@ -200,18 +200,21 @@ find "$RUNTIME_DIR/lib" -name '*.a' -delete
 
 echo "==> Patching rpath"
 # Binaries: $ORIGIN/../lib (from bin/ to lib/)
+# shellcheck disable=SC2016  # $ORIGIN is a literal rpath token for the loader
 find "$RUNTIME_DIR/bin" -type f -executable | while read -r bin; do
 	if file "$bin" 2>/dev/null | grep -q ELF; then
 		patchelf --set-rpath '$ORIGIN/../lib' "$bin" 2>/dev/null || true
 	fi
 done
 # Top-level lib/*.so*: $ORIGIN
+# shellcheck disable=SC2016
 find "$RUNTIME_DIR/lib" -maxdepth 1 -type f -name '*.so*' | while read -r so; do
 	if file "$so" 2>/dev/null | grep -q ELF; then
 		patchelf --set-rpath '$ORIGIN' "$so" 2>/dev/null || true
 	fi
 done
 # Every extension module under lib/postgresql/: $ORIGIN/.. (=lib/) and $ORIGIN/../.. (=runtime root)
+# shellcheck disable=SC2016
 find "$RUNTIME_DIR/lib/postgresql" -name '*.so' 2>/dev/null | while read -r ext; do
 	if file "$ext" 2>/dev/null | grep -q ELF; then
 		patchelf --set-rpath '$ORIGIN/..:$ORIGIN/../..' "$ext" 2>/dev/null || true

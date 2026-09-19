@@ -5,7 +5,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { parseMediaRequest } from './media-http.mjs';
-import { clientIp } from './relay-http.mjs';
+import { desktopLegOpen, endText, rejectUnauthorizedText, upstreamStatus } from './relay-http.mjs';
 import { parseCookieToken } from './static-http.mjs';
 
 // A desktop that goes quiet mid-clip must not pin an open response forever:
@@ -55,59 +55,63 @@ export function handleMediaRequest(store, liveDesktops, unauthorizedLimiter, req
   }
   const pathname = decodePathname(url.pathname);
   if (pathname === null) {
-    response.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Bad request.');
+    endText(response, 400, 'Bad request.');
     return;
   }
   const token = url.searchParams.get('token') || parseCookieToken(request.headers.cookie);
   const deviceId = token ? store.deviceIdForClientToken(token) : null;
   if (!deviceId) {
-    if (!unauthorizedLimiter.allow(clientIp(request))) {
-      response
-        .writeHead(429, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '60' })
-        .end('Too many requests.');
-      return;
-    }
-    response.writeHead(401, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Unauthorized.');
+    rejectUnauthorizedText(unauthorizedLimiter, request, response);
     return;
   }
   const entry = liveDesktops.get(deviceId);
-  const online = Boolean(entry) && entry.socket.readyState === entry.socket.OPEN;
-  // Feature probe, answered for the DESKTOP that would produce the bytes.
-  // The relay serves ONE web bundle to every phone while installs update on
-  // their own schedule, so this relay is routinely newer than the desktop it
-  // is paired with. Reporting the desktop's lane keeps that skew a plain
-  // answer instead of something the phone has to infer from a stall.
+  const online = desktopLegOpen(entry);
   if (pathname === '/media/healthz') {
-    if (!online || !entry.mediaLane) {
-      response.writeHead(503, { 'Content-Type': 'application/json' }).end('{"status":"unsupported"}');
-      return;
-    }
-    response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"ok"}');
+    answerMediaHealth(response, online && Boolean(entry.mediaLane));
     return;
   }
   const target = parseMediaRequest(pathname, url.searchParams);
   if (!target) {
-    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Not found.');
+    endText(response, 404, 'Not found.');
     return;
   }
-  if (!online) {
-    response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Desktop offline.');
+  const refusal = mediaRefusal(entry, online);
+  if (refusal) {
+    endText(response, 503, refusal.text, refusal.headers);
     return;
   }
+  openMediaStream(entry, target, request, response);
+}
+
+// Feature probe, answered for the DESKTOP that would produce the bytes.
+// The relay serves ONE web bundle to every phone while installs update on
+// their own schedule, so this relay is routinely newer than the desktop it
+// is paired with. Reporting the desktop's lane keeps that skew a plain
+// answer instead of something the phone has to infer from a stall.
+function answerMediaHealth(response, supported) {
+  if (!supported) {
+    response.writeHead(503, { 'Content-Type': 'application/json' }).end('{"status":"unsupported"}');
+    return;
+  }
+  response.writeHead(200, { 'Content-Type': 'application/json' }).end('{"status":"ok"}');
+}
+
+/** Why the desktop cannot take one more stream right now (all 503), or null. */
+function mediaRefusal(entry, online) {
+  if (!online) return { text: 'Desktop offline.' };
   // An older desktop leg drops unknown frames on the floor, so asking it for
   // media would buy nothing but a first-frame timeout on every tile. One
   // capability bit from the leg turns that into an instant downgrade to the
   // RPC payload.
-  if (!entry.mediaLane) {
-    response.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Desktop media lane unsupported.');
-    return;
-  }
+  if (!entry.mediaLane) return { text: 'Desktop media lane unsupported.' };
   if (entry.media.size >= MAX_MEDIA_STREAMS) {
-    response
-      .writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '1' })
-      .end('Too many media streams.');
-    return;
+    return { text: 'Too many media streams.', headers: { 'Retry-After': '1' } };
   }
+  return null;
+}
+
+// Registers the pending stream and asks the desktop for the bytes.
+function openMediaStream(entry, target, request, response) {
   const id = randomUUID();
   const pending = { response, timer: null, head: false, paused: false };
   entry.media.set(id, pending);
@@ -223,65 +227,80 @@ export function forwardMediaFrame(entry, message) {
   const pending = entry.media.get(id);
   if (!pending) return;
   if (message.type === 'media-head') {
-    pending.head = true;
-    armMediaTimer(entry, id, pending, MEDIA_STALL_TIMEOUT_MS);
-    const status =
-      Number.isInteger(message.status) && message.status >= 100 && message.status <= 599 ? message.status : 502;
-    try {
-      pending.response.writeHead(status, mediaResponseHeaders(message.headers));
-    } catch {
-      /* client vanished */
-    }
+    applyMediaHead(entry, id, pending, message);
     return;
   }
   if (message.type === 'media-chunk' && typeof message.data === 'string') {
-    if (!pending.head) return;
-    armMediaTimer(entry, id, pending, MEDIA_STALL_TIMEOUT_MS);
-    try {
-      pending.response.write(Buffer.from(message.data, 'base64'));
-    } catch {
-      /* client vanished */
-    }
-    const buffered = pending.response.writableLength || 0;
-    if (buffered > MEDIA_KILL_BUFFER_BYTES) {
-      entry.media.delete(id);
-      clearTimeout(pending.timer);
-      try {
-        pending.response.destroy();
-      } catch {
-        /* already gone */
-      }
-      abortMediaUpstream(entry, id);
-      return;
-    }
-    if (!pending.paused && buffered > MEDIA_PAUSE_BUFFER_BYTES) {
-      pending.paused = true;
-      try {
-        entry.socket.send(JSON.stringify({ type: 'media-pause', id }));
-      } catch {
-        /* gone */
-      }
-      pending.response.once('drain', () => {
-        pending.paused = false;
-        if (entry.media.get(id) !== pending) return;
-        try {
-          entry.socket.send(JSON.stringify({ type: 'media-resume', id }));
-        } catch {
-          /* gone */
-        }
-      });
-    }
+    if (pending.head) applyMediaChunk(entry, id, pending, message.data);
     return;
   }
-  if (message.type === 'media-end' || message.type === 'media-error') {
-    entry.media.delete(id);
-    clearTimeout(pending.timer);
+  if (message.type === 'media-end' || message.type === 'media-error') finishMediaStream(entry, id, pending);
+}
+
+function applyMediaHead(entry, id, pending, message) {
+  pending.head = true;
+  armMediaTimer(entry, id, pending, MEDIA_STALL_TIMEOUT_MS);
+  try {
+    pending.response.writeHead(upstreamStatus(message.status), mediaResponseHeaders(message.headers));
+  } catch {
+    /* client vanished */
+  }
+}
+
+// Writes the chunk, then applies byte-lane flow control: pause the producer
+// once the response buffer fills, cut the stream once it stops draining.
+function applyMediaChunk(entry, id, pending, data) {
+  armMediaTimer(entry, id, pending, MEDIA_STALL_TIMEOUT_MS);
+  try {
+    pending.response.write(Buffer.from(data, 'base64'));
+  } catch {
+    /* client vanished */
+  }
+  const buffered = pending.response.writableLength || 0;
+  if (buffered > MEDIA_KILL_BUFFER_BYTES) {
+    cutMediaStream(entry, id, pending);
+    return;
+  }
+  if (!pending.paused && buffered > MEDIA_PAUSE_BUFFER_BYTES) pauseMediaProducer(entry, id, pending);
+}
+
+function cutMediaStream(entry, id, pending) {
+  entry.media.delete(id);
+  clearTimeout(pending.timer);
+  try {
+    pending.response.destroy();
+  } catch {
+    /* already gone */
+  }
+  abortMediaUpstream(entry, id);
+}
+
+function pauseMediaProducer(entry, id, pending) {
+  pending.paused = true;
+  try {
+    entry.socket.send(JSON.stringify({ type: 'media-pause', id }));
+  } catch {
+    /* gone */
+  }
+  pending.response.once('drain', () => {
+    pending.paused = false;
+    if (entry.media.get(id) !== pending) return;
     try {
-      if (!pending.head) pending.response.writeHead(502);
-      pending.response.end();
+      entry.socket.send(JSON.stringify({ type: 'media-resume', id }));
     } catch {
-      /* client vanished */
+      /* gone */
     }
+  });
+}
+
+function finishMediaStream(entry, id, pending) {
+  entry.media.delete(id);
+  clearTimeout(pending.timer);
+  try {
+    if (!pending.head) pending.response.writeHead(502);
+    pending.response.end();
+  } catch {
+    /* client vanished */
   }
 }
 

@@ -93,11 +93,12 @@ export const formActions = defineBrowserActions({
         if (!fieldRef || payloadCount !== 1 || (hasText && hasValue)) {
           throw new Error('each fill field requires ref or target and exactly one of text/value, values, or checked');
         }
-        const operation: (ref: string) => Promise<unknown> = hasValues
-          ? (ref) => refActions.selectRef(guest, ref, field.values as string[], signal)
-          : hasChecked
-            ? (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal)
-            : (ref) => refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
+        let operation: (ref: string) => Promise<unknown> = (ref) =>
+          refActions.fillRef(guest, ref, String(field.text ?? field.value), signal);
+        if (hasValues) operation = (ref) => refActions.selectRef(guest, ref, field.values as string[], signal);
+        else if (hasChecked) {
+          operation = (ref) => refActions.setCheckedRef(guest, ref, field.checked as boolean, signal);
+        }
         await mutateRef(context, fieldRef, operation, !hasValues && !hasChecked);
         changed = true;
       }

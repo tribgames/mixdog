@@ -1,50 +1,7 @@
-import { createRequire } from 'node:module';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { DOMMatrix, ImageData, Path2D } from '@napi-rs/canvas';
-import { PDFDocument, rgb } from 'pdf-lib';
 import sharp from 'sharp';
-import { resolvedPdfJs } from '../../attachments/pdfjs-runtime.mjs';
-import { embedDocumentFont, fontCovers } from './pdf-fonts.mjs';
-import { renderPdfPages } from './pdf-render.mjs';
-import { MAX_PDF_ANALYSIS_PAGES } from './pdf-limits.mjs';
+import { openPdfJs, selectedPages } from './pdf-document.mjs';
 
-const require = createRequire(import.meta.url);
-
-function installPdfGlobals() {
-  globalThis.DOMMatrix ??= DOMMatrix;
-  globalThis.ImageData ??= ImageData;
-  globalThis.Path2D ??= Path2D;
-}
-
-function selectedPages(total, pages) {
-  const values =
-    Array.isArray(pages) && pages.length
-      ? [...new Set(pages.map(Number))]
-      : Array.from({ length: total }, (_, index) => index + 1);
-  if (values.length > MAX_PDF_ANALYSIS_PAGES)
-    throw new Error(`PDF analysis accepts at most ${MAX_PDF_ANALYSIS_PAGES} pages per call`);
-  for (const page of values) {
-    if (!Number.isInteger(page) || page < 1 || page > total) throw new Error(`PDF page out of range: ${page}`);
-  }
-  return values;
-}
-
-// A path reads the file; bytes let a batch measure the document it is editing
-// before anything reaches the disk.
-async function openPdfJs(source) {
-  installPdfGlobals();
-  const pdfjs = await resolvedPdfJs();
-  const bytes = typeof source === 'string' ? await readFile(source) : source;
-  const loading = pdfjs.getDocument({
-    data: new Uint8Array(bytes),
-    disableWorker: true,
-    useSystemFonts: true,
-    isEvalSupported: false,
-    verbosity: pdfjs.VerbosityLevel.ERRORS,
-  });
-  return { pdfjs, document: await loading.promise };
-}
+export { ocrPdf, ocrTextLines, parseOcrBlocks, parseOcrTsv, pdfOcrReadiness } from './pdf-ocr.mjs';
 
 const MAX_SHAPES_PER_PAGE = 2000;
 const round2 = (value) => Number(Number(value).toFixed(2));
@@ -84,102 +41,84 @@ function pathSubpaths(data) {
 // Rules and boxes are what a form without fields is made of: the horizontal
 // line under a label is where the answer goes, and a small square is a
 // checkbox. Coordinates share the text items' top-left origin.
+// One straight subpath in page space: a hairline stroke or a thin filled
+// bar reads as a line, an axis-aligned closed rectangle as a box.
+const lineShape = (x1, y1, x2, y2) => ({ line: { x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2) } });
+
+function shapeOfSubpath(points, { filled, stroked }) {
+  const xs = points.map((point) => point[0]);
+  const ys = points.map((point) => point[1]);
+  const x = Math.min(...xs);
+  const top = Math.min(...ys);
+  const width = Math.max(...xs) - x;
+  const height = Math.max(...ys) - top;
+  if (points.length === 2) {
+    if (stroked && (near(height, 0, 1) || near(width, 0, 1))) {
+      return lineShape(points[0][0], points[0][1], points[1][0], points[1][1]);
+    }
+    return null;
+  }
+  const closed =
+    points.length === 4 ||
+    (points.length === 5 && near(points[0][0], points[4][0]) && near(points[0][1], points[4][1]));
+  if (!closed) return null;
+  const axisAligned = points.slice(0, 4).every((point, position) => {
+    const next = points[(position + 1) % 4];
+    return near(point[0], next[0]) || near(point[1], next[1]);
+  });
+  if (!axisAligned) return null;
+  if (filled && height <= 1.5 && width > 6) return lineShape(x, top + height / 2, x + width, top + height / 2);
+  if (filled && width <= 1.5 && height > 6) return lineShape(x + width / 2, top, x + width / 2, top + height);
+  if (width >= 2 && height >= 2) {
+    return {
+      box: {
+        x: round2(x),
+        top: round2(top),
+        width: round2(width),
+        height: round2(height),
+        filled,
+        stroked,
+        checkbox: width >= 6 && width <= 24 && height >= 6 && height <= 24 && Math.abs(width - height) <= 2,
+      },
+    };
+  }
+  return null;
+}
+
+// The painting operators that stroke a path and the ones that fill it.
+function paintOps(OPS) {
+  const both = [OPS.fillStroke, OPS.eoFillStroke, OPS.closeFillStroke, OPS.closeEOFillStroke];
+  return {
+    stroke: new Set([OPS.stroke, OPS.closeStroke, ...both]),
+    fill: new Set([OPS.fill, OPS.eoFill, ...both]),
+  };
+}
+
 async function pageShapes(pdfjs, page, viewport) {
   const { OPS, Util } = pdfjs;
-  const strokeOps = new Set([
-    OPS.stroke,
-    OPS.closeStroke,
-    OPS.fillStroke,
-    OPS.eoFillStroke,
-    OPS.closeFillStroke,
-    OPS.closeEOFillStroke,
-  ]);
-  const fillOps = new Set([
-    OPS.fill,
-    OPS.eoFill,
-    OPS.fillStroke,
-    OPS.eoFillStroke,
-    OPS.closeFillStroke,
-    OPS.closeEOFillStroke,
-  ]);
+  const paint = paintOps(OPS);
   const operators = await page.getOperatorList();
   const lines = [];
   const boxes = [];
-  const stack = [];
-  let ctm = [1, 0, 0, 1, 0, 0];
+  const state = { stack: [], ctm: [1, 0, 0, 1, 0, 0] };
   for (let index = 0; index < operators.fnArray.length; index += 1) {
     const fn = operators.fnArray[index];
     const args = operators.argsArray[index] || [];
-    if (fn === OPS.save) stack.push(ctm);
-    else if (fn === OPS.restore) ctm = stack.pop() || ctm;
-    else if (fn === OPS.transform) ctm = Util.transform(ctm, Array.from(args));
-    else if (fn === OPS.paintFormXObjectBegin) {
-      stack.push(ctm);
-      if (args[0]) ctm = Util.transform(ctm, Array.from(args[0]));
-    } else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || ctm;
-    else if (fn === OPS.constructPath) {
-      const [paintOp, [data]] = args;
-      const filled = fillOps.has(paintOp);
-      const stroked = strokeOps.has(paintOp);
-      if (!data?.length || (!filled && !stroked)) continue;
-      const full = Util.transform(viewport.transform, ctm);
-      for (const subpath of pathSubpaths(data)) {
-        if (subpath.curved) continue;
-        const points = subpath.points.map((point) => applyPoint(point, full));
-        const xs = points.map((point) => point[0]);
-        const ys = points.map((point) => point[1]);
-        const x = Math.min(...xs);
-        const top = Math.min(...ys);
-        const width = Math.max(...xs) - x;
-        const height = Math.max(...ys) - top;
-        if (points.length === 2) {
-          if (stroked && (near(height, 0, 1) || near(width, 0, 1))) {
-            lines.push({
-              x1: round2(points[0][0]),
-              y1: round2(points[0][1]),
-              x2: round2(points[1][0]),
-              y2: round2(points[1][1]),
-            });
-          }
-          continue;
-        }
-        const closed =
-          points.length === 4 ||
-          (points.length === 5 && near(points[0][0], points[4][0]) && near(points[0][1], points[4][1]));
-        if (!closed) continue;
-        const axisAligned = points.slice(0, 4).every((point, position) => {
-          const next = points[(position + 1) % 4];
-          return near(point[0], next[0]) || near(point[1], next[1]);
-        });
-        if (!axisAligned) continue;
-        if (filled && height <= 1.5 && width > 6) {
-          lines.push({
-            x1: round2(x),
-            y1: round2(top + height / 2),
-            x2: round2(x + width),
-            y2: round2(top + height / 2),
-          });
-        } else if (filled && width <= 1.5 && height > 6) {
-          lines.push({
-            x1: round2(x + width / 2),
-            y1: round2(top),
-            x2: round2(x + width / 2),
-            y2: round2(top + height),
-          });
-        } else if (width >= 2 && height >= 2) {
-          boxes.push({
-            x: round2(x),
-            top: round2(top),
-            width: round2(width),
-            height: round2(height),
-            filled,
-            stroked,
-            checkbox: width >= 6 && width <= 24 && height >= 6 && height <= 24 && Math.abs(width - height) <= 2,
-          });
-        }
-      }
-      if (lines.length + boxes.length >= MAX_SHAPES_PER_PAGE) break;
+    applyGraphicsOp(pdfjs, fn, args, state);
+    if (fn !== OPS.constructPath) continue;
+    const [paintOp, [data]] = args;
+    const filled = paint.fill.has(paintOp);
+    const stroked = paint.stroke.has(paintOp);
+    if (!data?.length || (!filled && !stroked)) continue;
+    const full = Util.transform(viewport.transform, state.ctm);
+    for (const subpath of pathSubpaths(data)) {
+      if (subpath.curved) continue;
+      const points = subpath.points.map((point) => applyPoint(point, full));
+      const shape = shapeOfSubpath(points, { filled, stroked });
+      if (shape?.line) lines.push(shape.line);
+      else if (shape?.box) boxes.push(shape.box);
     }
+    if (lines.length + boxes.length >= MAX_SHAPES_PER_PAGE) break;
   }
   return { lines: lines.slice(0, MAX_SHAPES_PER_PAGE), boxes: boxes.slice(0, MAX_SHAPES_PER_PAGE) };
 }
@@ -222,6 +161,60 @@ async function pageLinks(document, page, viewport) {
   return links;
 }
 
+// The run's four corners — origin, end of the advance, and both lifted by
+// the glyph height — give one box that is right for upright text, text on
+// a rotated page, and a diagonal watermark.
+function pdfTextItem(pdfjs, viewport, item) {
+  const [a, b, c, d, e, f] = pdfjs.Util.transform(viewport.transform, item.transform);
+  const advance = Math.hypot(a, b) || 1;
+  const run = [(a / advance) * Number(item.width || 0), (b / advance) * Number(item.width || 0)];
+  const xs = [e, e + run[0], e + c, e + run[0] + c];
+  const ys = [f, f + run[1], f + d, f + run[1] + d];
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  // On a rotated page the run stands (vertical) and may read upward
+  // or leftward (reversed); a search places a match along that axis.
+  const vertical = Math.abs(b) > Math.abs(a);
+  const reversed = vertical ? b < 0 : a < 0;
+  return {
+    text: item.str,
+    x: Number(left.toFixed(2)),
+    top: Number(top.toFixed(2)),
+    width: Number((Math.max(...xs) - left).toFixed(2)),
+    height: Number(Math.max(1, Math.max(...ys) - top).toFixed(2)),
+    ...(vertical ? { vertical: true } : {}),
+    ...(reversed ? { reversed: true } : {}),
+    direction: item.dir || '',
+    font: item.fontName || '',
+  };
+}
+
+async function pdfPageGeometry(pdfjs, page, viewport, shapes) {
+  if (!shapes) return { lines: [], boxes: [] };
+  try {
+    return await pageShapes(pdfjs, page, viewport);
+  } catch (error) {
+    return { lines: [], boxes: [], shapesUnavailable: String(error?.message || error) };
+  }
+}
+
+async function pdfPageLayout(document, page, pageNumber, viewport, { items, geometry, shapes }) {
+  const [originX, originY] = Array.isArray(page.view) ? page.view : [0, 0];
+  return {
+    page: pageNumber,
+    width: Number(viewport.width.toFixed(2)),
+    height: Number(viewport.height.toFixed(2)),
+    // Reported only when the page box does not start at 0,0: bottom-left
+    // coordinates derived from this layout need the offset added back.
+    ...(originX || originY ? { origin: { x: round2(originX), y: round2(originY) } } : {}),
+    // User space → these display coordinates; a mark inverts it to land on the page.
+    transform: Array.from(viewport.transform, (value) => Number(value)),
+    items,
+    ...geometry,
+    links: shapes ? await pageLinks(document, page, viewport) : [],
+  };
+}
+
 export async function extractPdfTextLayout(
   path,
   { pages = null, maxItems = 20_000, shapes = true, signal = null } = {}
@@ -229,6 +222,7 @@ export async function extractPdfTextLayout(
   const { pdfjs, document } = await openPdfJs(path);
   try {
     const output = [];
+    let itemCount = 0;
     let truncated = false;
     for (const pageNumber of selectedPages(document.numPages, pages)) {
       if (signal?.aborted) throw new Error('PDF layout extraction was cancelled');
@@ -239,58 +233,15 @@ export async function extractPdfTextLayout(
         const items = [];
         for (const item of content.items || []) {
           if (!item?.str) continue;
-          if (output.reduce((sum, entry) => sum + entry.items.length, 0) + items.length >= maxItems) {
+          if (itemCount + items.length >= maxItems) {
             truncated = true;
             break;
           }
-          const [a, b, c, d, e, f] = pdfjs.Util.transform(viewport.transform, item.transform);
-          // The run's four corners — origin, end of the advance, and both
-          // lifted by the glyph height — give one box that is right for
-          // upright text, text on a rotated page, and a diagonal watermark.
-          const advance = Math.hypot(a, b) || 1;
-          const run = [(a / advance) * Number(item.width || 0), (b / advance) * Number(item.width || 0)];
-          const xs = [e, e + run[0], e + c, e + run[0] + c];
-          const ys = [f, f + run[1], f + d, f + run[1] + d];
-          const left = Math.min(...xs);
-          const top = Math.min(...ys);
-          // On a rotated page the run stands (vertical) and may read upward
-          // or leftward (reversed); a search places a match along that axis.
-          const vertical = Math.abs(b) > Math.abs(a);
-          const reversed = vertical ? b < 0 : a < 0;
-          items.push({
-            text: item.str,
-            x: Number(left.toFixed(2)),
-            top: Number(top.toFixed(2)),
-            width: Number((Math.max(...xs) - left).toFixed(2)),
-            height: Number(Math.max(1, Math.max(...ys) - top).toFixed(2)),
-            ...(vertical ? { vertical: true } : {}),
-            ...(reversed ? { reversed: true } : {}),
-            direction: item.dir || '',
-            font: item.fontName || '',
-          });
+          items.push(pdfTextItem(pdfjs, viewport, item));
         }
-        let geometry = { lines: [], boxes: [] };
-        if (shapes) {
-          try {
-            geometry = await pageShapes(pdfjs, page, viewport);
-          } catch (error) {
-            geometry = { lines: [], boxes: [], shapesUnavailable: String(error?.message || error) };
-          }
-        }
-        const [originX, originY] = Array.isArray(page.view) ? page.view : [0, 0];
-        output.push({
-          page: pageNumber,
-          width: Number(viewport.width.toFixed(2)),
-          height: Number(viewport.height.toFixed(2)),
-          // Reported only when the page box does not start at 0,0: bottom-left
-          // coordinates derived from this layout need the offset added back.
-          ...(originX || originY ? { origin: { x: round2(originX), y: round2(originY) } } : {}),
-          // User space → these display coordinates; a mark inverts it to land on the page.
-          transform: Array.from(viewport.transform, (value) => Number(value)),
-          items,
-          ...geometry,
-          links: shapes ? await pageLinks(document, page, viewport) : [],
-        });
+        itemCount += items.length;
+        const geometry = await pdfPageGeometry(pdfjs, page, viewport, shapes);
+        output.push(await pdfPageLayout(document, page, pageNumber, viewport, { items, geometry, shapes }));
         if (truncated) break;
       } finally {
         try {
@@ -310,25 +261,29 @@ export async function extractPdfTextLayout(
 // so the adapter, the tool surface, and tests keep one import.
 export { findPdfText } from './pdf-search.mjs';
 
-export function evaluatePowerPointCategorySpacing(layout, categories = []) {
-  const expected = [...new Set(categories.map((entry) => String(entry || '').trim()).filter(Boolean))];
+// The text run at `index`, joined with the next run on the same line when only
+// the joined text names a category (a label the PDF drew as two runs).
+function categoryLabelAt(items, index, expected) {
+  const item = items[index];
+  const text = String(item?.text || '').trim();
+  if (!text || expected.includes(text)) return text;
+  let nextIndex = index + 1;
+  while (nextIndex < items.length && !String(items[nextIndex]?.text || '').trim()) nextIndex += 1;
+  const next = items[nextIndex];
+  if (!next || Math.abs(Number(next.top) - Number(item.top)) > 1) return text;
+  const joined = `${text}${String(next.text || '').trim()}`;
+  return expected.includes(joined) ? joined : text;
+}
+
+// Every line that carries category labels, keyed by page and baseline.
+function categoryLabelRows(layout, expected) {
   const rows = [];
   for (const page of layout?.pages || []) {
     const items = Array.isArray(page.items) ? page.items : [];
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
-      let text = String(item?.text || '').trim();
-      if (!text) continue;
-      if (!expected.includes(text)) {
-        let nextIndex = index + 1;
-        while (nextIndex < items.length && !String(items[nextIndex]?.text || '').trim()) nextIndex += 1;
-        const next = items[nextIndex];
-        if (next && Math.abs(Number(next.top) - Number(item.top)) <= 1) {
-          const joined = `${text}${String(next.text || '').trim()}`;
-          if (expected.includes(joined)) text = joined;
-        }
-      }
-      if (!expected.includes(text)) continue;
+      const text = categoryLabelAt(items, index, expected);
+      if (!text || !expected.includes(text)) continue;
       let row = rows.find((entry) => entry.page === page.page && Math.abs(entry.top - Number(item.top)) <= 1);
       if (!row) {
         row = { page: page.page, width: Number(page.width) || 0, top: Number(item.top), labels: [] };
@@ -339,20 +294,27 @@ export function evaluatePowerPointCategorySpacing(layout, categories = []) {
       }
     }
   }
-  const complete = rows
+  return rows;
+}
+
+function categoryRowSpacing(row, expected) {
+  const labels = expected
+    .map((text) => row.labels.find((entry) => entry.text === text))
+    .sort((left, right) => left.x - right.x);
+  const gaps = labels.slice(1).map((entry, index) => entry.x - labels[index].x);
+  return {
+    ...row,
+    labels,
+    span: labels.length > 1 ? labels.at(-1).x - labels[0].x : 0,
+    minimumGap: gaps.length ? Math.min(...gaps) : 0,
+  };
+}
+
+export function evaluatePowerPointCategorySpacing(layout, categories = []) {
+  const expected = [...new Set(categories.map((entry) => String(entry || '').trim()).filter(Boolean))];
+  const complete = categoryLabelRows(layout, expected)
     .filter((row) => expected.every((text) => row.labels.some((entry) => entry.text === text)))
-    .map((row) => {
-      const labels = expected
-        .map((text) => row.labels.find((entry) => entry.text === text))
-        .sort((left, right) => left.x - right.x);
-      const gaps = labels.slice(1).map((entry, index) => entry.x - labels[index].x);
-      return {
-        ...row,
-        labels,
-        span: labels.length > 1 ? labels.at(-1).x - labels[0].x : 0,
-        minimumGap: gaps.length ? Math.min(...gaps) : 0,
-      };
-    })
+    .map((row) => categoryRowSpacing(row, expected))
     .sort((left, right) => right.span - left.span);
   const best = complete[0] || null;
   const requiredGap = best ? best.width * 0.1 : 0;
@@ -632,69 +594,80 @@ function resolvedPdfObject(objects, name) {
   });
 }
 
+// Tracks the current transform through save/restore and form XObject nesting.
+function applyGraphicsOp({ OPS, Util }, fn, args, state) {
+  if (fn === OPS.save) state.stack.push(state.ctm);
+  else if (fn === OPS.restore) state.ctm = state.stack.pop() || state.ctm;
+  else if (fn === OPS.transform) state.ctm = Util.transform(state.ctm, Array.from(args));
+  else if (fn === OPS.paintFormXObjectBegin) {
+    state.stack.push(state.ctm);
+    if (args[0]) state.ctm = Util.transform(state.ctm, Array.from(args[0]));
+  } else if (fn === OPS.paintFormXObjectEnd) state.ctm = state.stack.pop() || state.ctm;
+}
+
+// An image paints the unit square under the current transform, so its
+// corners under that transform are where it sits on the page.
+function imagePlacement(Util, viewport, ctm) {
+  const full = Util.transform(viewport.transform, ctm);
+  const corners = [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+  ].map((point) => applyPoint(point, full));
+  const xs = corners.map((point) => point[0]);
+  const ys = corners.map((point) => point[1]);
+  return {
+    x: round2(Math.min(...xs)),
+    top: round2(Math.min(...ys)),
+    placedWidth: round2(Math.max(...xs) - Math.min(...xs)),
+    placedHeight: round2(Math.max(...ys) - Math.min(...ys)),
+  };
+}
+
+async function collectPageImages(pdfjs, page, pageNumber, images) {
+  const { OPS, Util } = pdfjs;
+  const operators = await page.getOperatorList();
+  const viewport = page.getViewport({ scale: 1 });
+  const seen = new Map();
+  const state = { stack: [], ctm: [1, 0, 0, 1, 0, 0] };
+  for (let index = 0; index < operators.fnArray.length; index += 1) {
+    const fn = operators.fnArray[index];
+    const args = operators.argsArray[index] || [];
+    applyGraphicsOp(pdfjs, fn, args, state);
+    if (![OPS.paintImageXObject, OPS.paintInlineImageXObject].includes(fn)) continue;
+    const key = fn === OPS.paintInlineImageXObject ? `inline-${index}` : String(args[0]);
+    if (seen.has(key)) {
+      seen.get(key).placements += 1;
+      continue;
+    }
+    const image = fn === OPS.paintInlineImageXObject ? args[0] : await resolvedPdfObject(page.objs, args[0]);
+    const data = await pdfImageBuffer(image);
+    if (!data) continue;
+    const entry = {
+      page: pageNumber,
+      index: images.length + 1,
+      width: image.width,
+      height: image.height,
+      ...imagePlacement(Util, viewport, state.ctm),
+      placements: 1,
+      mimeType: 'image/png',
+      data: data.toString('base64'),
+    };
+    seen.set(key, entry);
+    images.push(entry);
+  }
+}
+
 export async function extractPdfImages(path, { pages = null, signal = null } = {}) {
   const { pdfjs, document } = await openPdfJs(path);
-  const { OPS, Util } = pdfjs;
   const images = [];
   try {
     for (const pageNumber of selectedPages(document.numPages, pages)) {
       if (signal?.aborted) throw new Error('PDF image extraction was cancelled');
       const page = await document.getPage(pageNumber);
       try {
-        const operators = await page.getOperatorList();
-        const viewport = page.getViewport({ scale: 1 });
-        const seen = new Map();
-        const stack = [];
-        let ctm = [1, 0, 0, 1, 0, 0];
-        for (let index = 0; index < operators.fnArray.length; index += 1) {
-          const fn = operators.fnArray[index];
-          const args = operators.argsArray[index] || [];
-          if (fn === OPS.save) stack.push(ctm);
-          else if (fn === OPS.restore) ctm = stack.pop() || ctm;
-          else if (fn === OPS.transform) ctm = Util.transform(ctm, Array.from(args));
-          else if (fn === OPS.paintFormXObjectBegin) {
-            stack.push(ctm);
-            if (args[0]) ctm = Util.transform(ctm, Array.from(args[0]));
-          } else if (fn === OPS.paintFormXObjectEnd) ctm = stack.pop() || ctm;
-          if (![OPS.paintImageXObject, OPS.paintInlineImageXObject].includes(fn)) continue;
-          // An image paints the unit square under the current transform, so its
-          // corners under that transform are where it sits on the page.
-          const full = Util.transform(viewport.transform, ctm);
-          const corners = [
-            [0, 0],
-            [1, 0],
-            [0, 1],
-            [1, 1],
-          ].map((point) => applyPoint(point, full));
-          const xs = corners.map((point) => point[0]);
-          const ys = corners.map((point) => point[1]);
-          const placement = {
-            x: round2(Math.min(...xs)),
-            top: round2(Math.min(...ys)),
-            placedWidth: round2(Math.max(...xs) - Math.min(...xs)),
-            placedHeight: round2(Math.max(...ys) - Math.min(...ys)),
-          };
-          const key = fn === OPS.paintInlineImageXObject ? `inline-${index}` : String(args[0]);
-          if (seen.has(key)) {
-            seen.get(key).placements += 1;
-            continue;
-          }
-          const image = fn === OPS.paintInlineImageXObject ? args[0] : await resolvedPdfObject(page.objs, args[0]);
-          const data = await pdfImageBuffer(image);
-          if (!data) continue;
-          const entry = {
-            page: pageNumber,
-            index: images.length + 1,
-            width: image.width,
-            height: image.height,
-            ...placement,
-            placements: 1,
-            mimeType: 'image/png',
-            data: data.toString('base64'),
-          };
-          seen.set(key, entry);
-          images.push(entry);
-        }
+        await collectPageImages(pdfjs, page, pageNumber, images);
       } finally {
         try {
           page.cleanup?.();
@@ -739,305 +712,5 @@ export async function extractPdfOutline(path, { maxEntries = 500 } = {}) {
     try {
       await document.destroy?.();
     } catch {}
-  }
-}
-
-// The engine's own column order. Tesseract writes this table with a header
-// row through its command line and without one through the worker API, so the
-// reader accepts both: taking the first data row as a header dropped that word
-// and left every lookup undefined, which is an empty result, not an error.
-const OCR_TSV_COLUMNS = Object.freeze([
-  'level',
-  'page_num',
-  'block_num',
-  'par_num',
-  'line_num',
-  'word_num',
-  'left',
-  'top',
-  'width',
-  'height',
-  'conf',
-  'text',
-]);
-
-function ocrTsvRows(value) {
-  const lines = String(value || '')
-    .split(/\r?\n/)
-    .filter((line) => line.trim());
-  if (!lines.length) return { at: {}, rows: [] };
-  const first = lines[0].split('\t');
-  const headed = first.includes('text') && first.includes('conf');
-  const at = headed
-    ? Object.fromEntries(first.map((name, index) => [name, index]))
-    : Object.fromEntries(OCR_TSV_COLUMNS.map((name, index) => [name, index]));
-  const rows = (headed ? lines.slice(1) : lines)
-    .map((line) => line.split('\t'))
-    .filter((columns) => columns.length >= OCR_TSV_COLUMNS.length);
-  return { at, rows };
-}
-
-function ocrTsvWord(columns, at) {
-  return {
-    text: columns[at.text] || '',
-    confidence: Number(columns[at.conf] || -1),
-    left: Number(columns[at.left] || 0),
-    top: Number(columns[at.top] || 0),
-    width: Number(columns[at.width] || 0),
-    height: Number(columns[at.height] || 0),
-  };
-}
-
-export function parseOcrTsv(value) {
-  const { at, rows } = ocrTsvRows(value);
-  if (at.text === undefined) return [];
-  return rows
-    .map((columns) => ocrTsvWord(columns, at))
-    .filter((word) => word.text.trim() && word.width > 0 && word.height > 0);
-}
-
-// One text line per recognized row, with the words that belong to it.
-//
-// A word box is where ink sits, not where a word begins and ends: Korean and
-// CJK come back split at syllable boundaries ("출" "고" "율" for 출고율) while a
-// real word break can measure a single pixel. Geometry therefore cannot rebuild
-// the line, but the engine's own line text can — it is the reading the OCR
-// result already reports. The rows and the text come back in the same order, so
-// a line takes that text when it carries exactly the same characters, and falls
-// back to its word boxes when it does not.
-export function ocrTextLines(value, plainText = '') {
-  const { at, rows } = ocrTsvRows(value);
-  if (['line_num', 'left', 'text'].some((name) => at[name] === undefined)) return [];
-  const groups = new Map();
-  for (const columns of rows) {
-    const word = ocrTsvWord(columns, at);
-    if (!word.text.trim() || !(word.width > 0) || !(word.height > 0)) continue;
-    const key = [at.page_num, at.block_num, at.par_num, at.line_num].map((index) => columns[index]).join('/');
-    const group = groups.get(key) || { words: [] };
-    group.words.push(word);
-    groups.set(key, group);
-  }
-  const spoken = String(plainText || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const compact = (line) => line.replace(/\s+/g, '');
-  // A line whose boxes were all discarded leaves its reading without a group,
-  // and pairing by position then hands every later line the text of its
-  // predecessor — one dropped line makes the rest of the page fall back to its
-  // word boxes. A reading is therefore taken from the next line that carries
-  // exactly these characters, never from one that differs.
-  let spokenAt = 0;
-  const spokenReading = (joined) => {
-    const target = compact(joined);
-    if (!target) return '';
-    for (let at = spokenAt; at < spoken.length; at += 1) {
-      if (compact(spoken[at]) !== target) continue;
-      spokenAt = at + 1;
-      return spoken[at];
-    }
-    return '';
-  };
-  return [...groups.values()].map((group) => {
-    const words = group.words.slice().sort((left, right) => left.left - right.left);
-    const left = Math.min(...words.map((word) => word.left));
-    const top = Math.min(...words.map((word) => word.top));
-    const width = Math.max(...words.map((word) => word.left + word.width)) - left;
-    const height = Math.max(...words.map((word) => word.top + word.height)) - top;
-    const joined = words.map((word) => word.text).join(' ');
-    const engine = spokenReading(joined);
-    // The widest space between two boxes on this row. A column gap means the
-    // row is really two, and one stretched run would put every character in it
-    // at the wrong place.
-    const columnGap = words.slice(1).reduce((widest, word, position) => {
-      const previous = words[position];
-      return Math.max(widest, word.left - (previous.left + previous.width));
-    }, 0);
-    return {
-      text: engine || joined,
-      fromEngine: Boolean(engine),
-      words,
-      left,
-      top,
-      width,
-      height,
-      columnGap,
-    };
-  });
-}
-
-export function parseOcrBlocks(blocks) {
-  const words = [];
-  for (const block of blocks || []) {
-    for (const paragraph of block?.paragraphs || []) {
-      for (const line of paragraph?.lines || []) {
-        for (const word of line?.words || []) {
-          const bbox = word?.bbox || {};
-          const left = Number(bbox.x0 || 0);
-          const top = Number(bbox.y0 || 0);
-          const width = Number(bbox.x1 || 0) - left;
-          const height = Number(bbox.y1 || 0) - top;
-          if (String(word?.text || '').trim() && width > 0 && height > 0) {
-            words.push({
-              text: String(word.text),
-              confidence: Number(word.confidence || 0),
-              left,
-              top,
-              width,
-              height,
-            });
-          }
-        }
-      }
-    }
-  }
-  return words;
-}
-
-// Whether a scanned page can be read here and now. The engine ships with the
-// runtime, but each language's data is downloaded on first use and kept in the
-// cache: promising OCR of a Korean scan on a machine with no network and no
-// cached kor data fails in the middle of the task instead of before it.
-export async function pdfOcrReadiness(dataDir) {
-  const cachePath = join(dataDir, 'office', 'ocr', 'languages');
-  let available = true;
-  try {
-    require.resolve('tesseract.js');
-  } catch {
-    available = false;
-  }
-  let languages = [];
-  try {
-    languages = (await readdir(cachePath))
-      .map((name) => /^(.+?)\.traineddata(?:\.gz)?$/.exec(name)?.[1])
-      .filter(Boolean)
-      .sort();
-  } catch {}
-  return {
-    available,
-    backend: 'tesseract',
-    cachedLanguages: languages,
-    cachePath,
-    note: 'A language not listed is downloaded on first use; without network access only the cached ones work.',
-  };
-}
-
-export async function ocrPdf(path, operation, { dataDir, signal = null } = {}) {
-  const source = await readFile(path);
-  const document = await PDFDocument.load(source, {
-    ignoreEncryption: false,
-    updateMetadata: false,
-  });
-  const pages = selectedPages(document.getPageCount(), operation.pages || (operation.page ? [operation.page] : null));
-  const languages = Array.isArray(operation.languages)
-    ? operation.languages.map(String).join('+')
-    : String(operation.languages || 'eng+kor');
-  const cachePath = join(dataDir, 'office', 'ocr', 'languages');
-  await mkdir(cachePath, { recursive: true });
-  const tesseract = require('tesseract.js');
-  const worker = await tesseract.createWorker(languages, tesseract.OEM.LSTM_ONLY, {
-    cachePath,
-    gzip: true,
-  });
-  let wordCount = 0;
-  let skippedWords = 0;
-  let totalConfidence = 0;
-  let text = '';
-  const temporaryImages = [];
-  const recognizedPages = [];
-  try {
-    // Recognize every page first so one font can be chosen for all the text
-    // it produced: Helvetica when it is Latin, an installed Unicode face otherwise.
-    for (const pageNumber of pages) {
-      if (signal?.aborted) throw new Error('PDF OCR was cancelled');
-      const rendered = await renderPdfPages(path, {
-        pages: [pageNumber],
-        maxWidth: Math.max(1200, Math.min(3200, Number(operation.maxWidth) || 2400)),
-        signal,
-      });
-      const image = rendered.images[0];
-      temporaryImages.push(image.path);
-      const recognized = await worker.recognize(image.path, {}, { text: true, tsv: true, blocks: true });
-      const lines = ocrTextLines(recognized.data.tsv, recognized.data.text);
-      const words = (
-        lines.length ? lines.flatMap((line) => line.words) : parseOcrBlocks(recognized.data.blocks)
-      ).filter((word) => word.confidence >= Number(operation.minConfidence ?? 40));
-      recognizedPages.push({ pageNumber, image, lines, words });
-      text += `${text ? '\n\n' : ''}--- Page ${pageNumber} ---\n${recognized.data.text || ''}`;
-    }
-    const coverage = recognizedPages.flatMap((entry) => entry.words.map((word) => word.text)).join(' ');
-    let selected;
-    try {
-      selected = await embedDocumentFont(document, { fontPath: operation.fontPath, text: coverage });
-    } catch (error) {
-      // OCR noise can contain glyphs no installed face has; keep the words a
-      // font does cover rather than failing the whole page.
-      if (operation.fontPath) throw error;
-      selected = await embedDocumentFont(document, { text: '' });
-    }
-    const { font, fontPath, embedded } = selected;
-    for (const { pageNumber, image, lines, words } of recognizedPages) {
-      const page = document.getPage(pageNumber - 1);
-      const scaleX = page.getWidth() / image.width;
-      const scaleY = page.getHeight() / image.height;
-      // Fit the invisible text to its box in both directions so extraction
-      // reads it as one phrase and layout queries land where the picture
-      // shows it.
-      const place = (value, box) => {
-        const naturalWidth = font.widthOfTextAtSize(value, 1);
-        const byWidth = naturalWidth > 0 ? (box.width * scaleX) / naturalWidth : Infinity;
-        page.drawText(value, {
-          x: box.left * scaleX,
-          y: page.getHeight() - (box.top + box.height) * scaleY,
-          size: Math.max(3, Math.min(box.height * scaleY * 0.8, byWidth)),
-          font,
-          color: rgb(0, 0, 0),
-          opacity: 0,
-        });
-      };
-      const settled = new Set();
-      for (const line of lines) {
-        const kept = line.words.filter((word) => word.confidence >= Number(operation.minConfidence ?? 40));
-        // A dropped word, a column gap, or a glyph the font lacks sends this
-        // row back to its boxes: a stretched run would then carry text the
-        // page does not show, or show it in the wrong place.
-        if (kept.length !== line.words.length) continue;
-        if (line.columnGap > line.height * 1.5) continue;
-        if (!line.text || !fontCovers(font, line.text)) continue;
-        place(line.text, line);
-        for (const word of line.words) settled.add(word);
-        wordCount += kept.length;
-        totalConfidence += kept.reduce((sum, word) => sum + word.confidence, 0);
-      }
-      for (const word of words) {
-        if (settled.has(word)) continue;
-        if (!fontCovers(font, word.text)) {
-          skippedWords += 1;
-          continue;
-        }
-        place(word.text, word);
-        wordCount += 1;
-        totalConfidence += word.confidence;
-      }
-    }
-    if (wordCount > 0) await writeFile(path, await document.save({ useObjectStreams: true, addDefaultPage: false }));
-    return {
-      op: operation.op,
-      changed: wordCount > 0,
-      pages,
-      languages,
-      wordCount,
-      ...(skippedWords
-        ? { skippedWords, skippedReason: 'no installed font has glyphs for these words; pass fontPath to keep them' }
-        : {}),
-      averageConfidence: wordCount ? Number((totalConfidence / wordCount).toFixed(2)) : 0,
-      text,
-      searchableTextLayer: wordCount > 0,
-      fontEmbedded: embedded,
-      ...(fontPath ? { fontPath } : {}),
-    };
-  } finally {
-    await worker.terminate().catch(() => {});
-    for (const image of temporaryImages) await rm(image, { force: true }).catch(() => {});
   }
 }

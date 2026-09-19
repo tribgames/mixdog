@@ -574,11 +574,12 @@ export function SourceControlDock({
   /** Every history action is refused while another Git action runs or while
    *  the repository is mid-operation — the same rule the branch actions keep,
    *  and the reason the disabled item carries. */
-  const historyBusyReason = busy
-    ? 'Another Git action is running'
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
-      : '';
+  const repositoryBusyReason = () => {
+    if (busy) return 'Another Git action is running';
+    if (status?.operation) return `Finish the in-progress ${status.operation.replace('-', ' ')} first`;
+    return '';
+  };
+  const historyBusyReason = repositoryBusyReason();
   const commitTitle = (entry: DesktopGitLogEntry) => (entry.subject ?? '').trim() || EMPTY_SUMMARY;
   /** Every destructive history action confirms first, and the prompt NAMES the
    *  commit it is about to touch (short SHA + subject). */
@@ -772,20 +773,22 @@ export function SourceControlDock({
     const included = isIncluded(file);
     const rowSelected = selected.has(file.path);
     const actionFiles = selectedActionFiles(file);
-    const openChange = () =>
-      onOpenDiff
-        ? onOpenDiff(projectPath, file.path, {
-            source: indexOnly(file) ? 'staged' : 'unstaged',
-            ...(file.untracked ? { untracked: true } : {}),
-          })
-        : onOpenFile?.(projectPath, file.path);
+    const openChange = () => {
+      if (!onOpenDiff) return onOpenFile?.(projectPath, file.path);
+      return onOpenDiff(projectPath, file.path, {
+        source: indexOnly(file) ? 'staged' : 'unstaged',
+        ...(file.untracked ? { untracked: true } : {}),
+      });
+    };
     const discardActionFiles = () => {
-      const message =
-        actionFiles.length === 1
-          ? file.untracked
-            ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: file.path })
-            : t('Discard changes to "{{file}}"? This cannot be undone.', { file: file.path })
-          : t('Discard {{count}} selected working tree changes? This cannot be undone.', { count: actionFiles.length });
+      let message = t('Discard {{count}} selected working tree changes? This cannot be undone.', {
+        count: actionFiles.length,
+      });
+      if (actionFiles.length === 1) {
+        message = file.untracked
+          ? t('Delete untracked file "{{file}}"? This cannot be undone.', { file: file.path })
+          : t('Discard changes to "{{file}}"? This cannot be undone.', { file: file.path });
+      }
       if (!window.confirm(message)) return;
       void run(`revert:${file.path}`, () => discardFiles(actionFiles), clearSelected);
     };
@@ -906,22 +909,16 @@ export function SourceControlDock({
   /** Stash grammar (`Stash all changes`): the
    *  changed-files header owns it, refused with a reason while another action
    *  or an in-progress operation holds the repository. */
-  const stashReason = busy
-    ? 'Another Git action is running'
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
-      : !api?.gitStash
-        ? missingChannel('Stashing changes')
-        : files.length === 0
-          ? 'There are no changes to stash'
-          : '';
-  const popStashReason = busy
-    ? 'Another Git action is running'
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
-      : !api?.gitStashPop
-        ? missingChannel('Popping a stash')
-        : '';
+  let stashReason = repositoryBusyReason();
+  if (!stashReason && !api?.gitStash) stashReason = missingChannel('Stashing changes');
+  else if (!stashReason && files.length === 0) stashReason = 'There are no changes to stash';
+  let popStashReason = repositoryBusyReason();
+  if (!popStashReason && !api?.gitStashPop) popStashReason = missingChannel('Popping a stash');
+  let pullRequestCreateHint = 'Pull requests need a pushed upstream branch.';
+  if (!status?.upstream) pullRequestCreateHint = 'Publish the branch to a remote before opening a pull request.';
+  else if (prAhead > 0) {
+    pullRequestCreateHint = `Push ${prAhead} local commit${prAhead === 1 ? '' : 's'} before opening a pull request.`;
+  } else if (status?.operation) pullRequestCreateHint = 'Finish the in-progress Git operation first.';
   const stashChanges = () => {
     const message = window.prompt(t('Stash message (optional)'), '');
     if (message === null) return;
@@ -1094,7 +1091,7 @@ export function SourceControlDock({
           </div>
         )}
         <>
-          {prOnly ? (
+          {prOnly && (
             <PullRequestsPane
               projectPath={projectPath}
               prUrl={prUrl}
@@ -1102,17 +1099,10 @@ export function SourceControlDock({
               headerSlot={headerSlot}
               onOpenPullRequest={onOpenPullRequest}
               currentBranch={status?.branch ?? ''}
-              createHint={
-                !status?.upstream
-                  ? 'Publish the branch to a remote before opening a pull request.'
-                  : prAhead > 0
-                    ? `Push ${prAhead} local commit${prAhead === 1 ? '' : 's'} before opening a pull request.`
-                    : status?.operation
-                      ? 'Finish the in-progress Git operation first.'
-                      : 'Pull requests need a pushed upstream branch.'
-              }
+              createHint={pullRequestCreateHint}
             />
-          ) : view === 'changes' ? (
+          )}
+          {!prOnly && view === 'changes' && (
             <>
               {/* Tri-state select-all row; the shared filter box lives in the view
           controls above Changes | History. */}
@@ -1325,7 +1315,8 @@ export function SourceControlDock({
                 onSummaryChange={setSummary}
               />
             </>
-          ) : selectedCommit ? (
+          )}
+          {!prOnly && view !== 'changes' && selectedCommit && (
             <SourceControlCommitDetail
               detail={commitDetail}
               selectedCommit={selectedCommit}
@@ -1338,7 +1329,8 @@ export function SourceControlDock({
               onCopySha={copyCommitSha}
               onToggleFile={toggleCommitFile}
             />
-          ) : (
+          )}
+          {!prOnly && view !== 'changes' && !selectedCommit && (
             <div className="dock-scm-history" ref={historyScrollRef}>
               {/* History row without the avatar stack (the dock has
           no avatar service, and a monogram only ate width): a one-line

@@ -20,7 +20,7 @@ import { refineHistoryCommentMatches } from './history-comment.mjs';
 
 export const RULES_DIR = fileURLToPath(new URL('./rules/', import.meta.url));
 const PROBE_TIMEOUT_MS = 8000;
-export const STRUCTURAL_TIMEOUT_MS = 120_000;
+const STRUCTURAL_TIMEOUT_MS = 120_000;
 
 const probeCache = new Map();
 
@@ -109,7 +109,7 @@ export function groupRulePacks(packs) {
 // scan parses it with the `tsx` grammar (scan_lang.rs), so `language: typescript`
 // rules never match it. The tsx packs therefore have to run whenever typescript
 // is in scope, or .tsx files get no structural rules at all.
-export const GROUP_LANGUAGE_ALIASES = Object.freeze({ tsx: ['typescript'] });
+const GROUP_LANGUAGE_ALIASES = Object.freeze({ tsx: ['typescript'] });
 
 /** Rule groups that can apply to `languages`; an empty language list means all. */
 export function groupsForLanguages(groups, languages = []) {
@@ -154,7 +154,7 @@ function normalizeFix(raw, range) {
     return range ? { byteOffset: range, text: raw } : null;
   }
   const offset = byteRange(raw.byteOffset ?? raw.range ?? raw.span) || range;
-  const text = typeof raw.text === 'string' ? raw.text : typeof raw.replacement === 'string' ? raw.replacement : null;
+  const text = [raw.text, raw.replacement].find((value) => typeof value === 'string') ?? null;
   if (!offset || text == null) return null;
   return { byteOffset: offset, text };
 }
@@ -196,24 +196,23 @@ export function normalizeStructuralMatch(row, { zeroBased = true } = {}) {
  * run summary; everything else is a match. Exit 2 is a usage or rule-parse
  * error and is reported as such (the rule pack, not the file set, is at fault).
  */
-export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {}) {
-  if (exitCode === 2) {
-    return {
-      matches: [],
-      summary: { matches: 0, files: 0 },
-      error: {
-        exitCode,
-        kind: 'rules',
-        message:
-          String(stderr || '')
-            .trim()
-            .slice(0, 400) || 'rule parse or usage error',
-      },
-    };
-  }
+function stderrError(exitCode, kind, stderr, fallback) {
+  return {
+    exitCode,
+    kind,
+    message:
+      String(stderr || '')
+        .trim()
+        .slice(0, 400) || fallback,
+  };
+}
+
+// The match rows and the summary line of a JSONL scan; unparsable lines are
+// counted, not fatal.
+function parseScanLines(stdout) {
   const matches = [];
   let summary = null;
-  const malformed = [];
+  let malformed = 0;
   for (const line of String(stdout || '').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -221,7 +220,7 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
     try {
       row = JSON.parse(trimmed);
     } catch {
-      malformed.push(trimmed.slice(0, 80));
+      malformed += 1;
       continue;
     }
     if (row && typeof row === 'object' && row.summary) {
@@ -231,6 +230,18 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
     const match = normalizeStructuralMatch(row, { zeroBased: true });
     if (match) matches.push(match);
   }
+  return { matches, summary, malformed };
+}
+
+export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {}) {
+  if (exitCode === 2) {
+    return {
+      matches: [],
+      summary: { matches: 0, files: 0 },
+      error: stderrError(exitCode, 'rules', stderr, 'rule parse or usage error'),
+    };
+  }
+  const { matches, summary, malformed } = parseScanLines(stdout);
   const result = {
     matches,
     summary: summary || { matches: matches.length, files: new Set(matches.map((match) => match.file)).size },
@@ -245,16 +256,9 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
       message: 'structural scan produced no summary line; this mixdog-graph build does not own the --scan protocol',
     };
   } else if (exitCode !== 0) {
-    result.error = {
-      exitCode,
-      kind: 'internal',
-      message:
-        String(stderr || '')
-          .trim()
-          .slice(0, 400) || `structural scan exited ${exitCode}`,
-    };
+    result.error = stderrError(exitCode, 'internal', stderr, `structural scan exited ${exitCode}`);
   }
-  if (malformed.length > 0) result.malformedLines = malformed.length;
+  if (malformed > 0) result.malformedLines = malformed;
   return result;
 }
 
@@ -277,6 +281,27 @@ export async function graphSupportsScan(binPath, { cwd = process.cwd(), signal =
 
 export function resetStructuralProbeCache() {
   probeCache.clear();
+}
+
+// Reads a matched file's bytes whether the scan reported it absolute,
+// cwd-relative, or with either slash style; null when no candidate opens.
+function scanSourceReader(cwd) {
+  return (file) => {
+    const rel = String(file || '').replaceAll('\\', '/');
+    const candidates = [];
+    if (rel) {
+      if (isAbsolute(file) || isAbsolute(rel)) candidates.push(file, rel);
+      candidates.push(join(cwd, rel), join(cwd, file));
+    }
+    for (const candidate of candidates) {
+      try {
+        return readFileSync(candidate);
+      } catch {
+        /* try next */
+      }
+    }
+    return null;
+  };
 }
 
 export function createGraphStructuralAdapter({ binPath, timeoutMs = STRUCTURAL_TIMEOUT_MS }) {
@@ -303,24 +328,7 @@ export function createGraphStructuralAdapter({ binPath, timeoutMs = STRUCTURAL_T
         throw new StructuralEngineUnavailableError(binPath);
       }
       if (!parsed.error) {
-        parsed.matches = refineHistoryCommentMatches(parsed.matches, {
-          sourceFor: (file) => {
-            const rel = String(file || '').replaceAll('\\', '/');
-            const candidates = [];
-            if (rel) {
-              if (isAbsolute(file) || isAbsolute(rel)) candidates.push(file, rel);
-              candidates.push(join(cwd, rel), join(cwd, file));
-            }
-            for (const candidate of candidates) {
-              try {
-                return readFileSync(candidate);
-              } catch {
-                /* try next */
-              }
-            }
-            return null;
-          },
-        });
+        parsed.matches = refineHistoryCommentMatches(parsed.matches, { sourceFor: scanSourceReader(cwd) });
         parsed.summary = {
           ...(parsed.summary || {}),
           matches: parsed.matches.length,

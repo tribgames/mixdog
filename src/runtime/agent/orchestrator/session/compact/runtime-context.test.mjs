@@ -39,7 +39,7 @@ test('unmarked or stale context is never removed by matching tag names', () => {
   const original = { role: 'user', content: literal + suffix };
   assert.equal(stripRuntimeUserContext(original), original);
   const wrapped = withRuntimeUserContext(original, { suffix });
-  const changed = { ...wrapped, content: wrapped.content + 'edited after metadata was recorded' };
+  const changed = { ...wrapped, content: `${wrapped.content}edited after metadata was recorded` };
   assert.equal(stripRuntimeUserContext(changed), changed);
 });
 
@@ -59,7 +59,7 @@ test('reminder ownership preserves the existing outgoing string and multimodal l
 test('rule-only retention and summary budgeting remove the same old owned noise, keeping the current request intact', async () => {
   const old = withRuntimeUserContext(
     { role: 'user', content: literal },
-    { suffix: '\n\n<system-reminder>' + 'old runtime state '.repeat(10_000) + '</system-reminder>' }
+    { suffix: `\n\n<system-reminder>${'old runtime state '.repeat(10_000)}</system-reminder>` }
   );
   const latest = withRuntimeUserContext({ role: 'user', content: 'Continue.' }, { suffix });
   const messages = [
@@ -92,7 +92,7 @@ test('rule-only retention and summary budgeting remove the same old owned noise,
 });
 
 test('legacy unmarked envelopes remain counted and reach the summary instead of silently bypassing it', async () => {
-  const legacy = 'Old request.\n<system-reminder>' + 'unmarked source '.repeat(2000) + '</system-reminder>';
+  const legacy = `Old request.\n<system-reminder>${'unmarked source '.repeat(2000)}</system-reminder>`;
   const messages = [
     { role: 'user', content: legacy },
     { role: 'assistant', content: 'Checked.' },
@@ -117,7 +117,7 @@ test('legacy unmarked envelopes remain counted and reach the summary instead of 
 
 test('human XML and heading-shaped content survive summary projection in every text block', () => {
   const messages = [
-    { role: 'user', content: '# Additional context\nHUMAN_DOCUMENT\n# Task\n' + literal },
+    { role: 'user', content: `# Additional context\nHUMAN_DOCUMENT\n# Task\n${literal}` },
     { role: 'assistant', content: 'Example: <system-reminder>ASSISTANT_XML</system-reminder>' },
     { role: 'user', content: ['PLAIN_BLOCK', { type: 'text', text: literal }] },
     { role: 'user', content: 'Latest request.' },
@@ -136,7 +136,7 @@ test('Compact-owned Goal prefixes are removable on the next turn without removin
   const messages = [
     { role: 'user', content: 'Old request.' },
     { role: 'assistant', content: 'Checked.' },
-    withRuntimeUserContext({ role: 'user', content: human }, { suffix: '\n\n' + currentGoal }),
+    withRuntimeUserContext({ role: 'user', content: human }, { suffix: `\n\n${currentGoal}` }),
   ];
   const result = freshContextCompactMessages(messages, 5000, {
     force: true,

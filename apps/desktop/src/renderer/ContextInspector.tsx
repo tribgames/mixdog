@@ -90,7 +90,7 @@ export function toolResultLine(entry: Entry): string {
 // language. Everything else is content: tool names are identifiers and prompt
 // section headings are the user's own text, so both stay verbatim. Only the
 // synthetic framing row has a translatable label.
-export function entryLabel(entry: Entry): string {
+function entryLabel(entry: Entry): string {
   if (entry.kind === 'attachment') {
     const owner = entry.role ? `${t(ROLE_LABELS[entry.role] || 'Message')} ${entry.ordinal ?? ''}`.trim() : '';
     return owner ? `${owner} · ${entry.label}` : entry.label;
@@ -298,13 +298,11 @@ export function ContextInspector({
       return bRows.reduce((sum, row) => sum + row.tokens, 0) - aRows.reduce((sum, row) => sum + row.tokens, 0);
     });
     const grouped = ordered.length > 1;
-    const largest = grouped
-      ? ordered.reduce((best, current) =>
-          current[1].reduce((sum, row) => sum + row.tokens, 0) > best[1].reduce((sum, row) => sum + row.tokens, 0)
-            ? current
-            : best
-        )[0]
-      : '';
+    const groupTokens = (group: (typeof ordered)[number]) => group[1].reduce((sum, row) => sum + row.tokens, 0);
+    let largest = '';
+    if (grouped) {
+      largest = ordered.reduce((best, current) => (groupTokens(current) > groupTokens(best) ? current : best))[0];
+    }
     const isOpen = (key: string) => expanded[key] ?? (entries.length <= COLLAPSE_THRESHOLD || key === largest);
     const row = (entry: Entry) => (
       <button
@@ -341,28 +339,28 @@ export function ContextInspector({
           </button>
         </header>
         <div className="context-entry-list" data-i18n-skip>
-          {grouped
-            ? ordered.map(([key, rows]) => {
-                const open = isOpen(key);
-                const total = rows.reduce((sum, item) => sum + item.tokens, 0);
-                return (
-                  <div className="context-entry-group" key={key} data-open={open ? 'true' : undefined}>
-                    <button
-                      type="button"
-                      className="context-entry-group-head"
-                      aria-expanded={open}
-                      onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
-                    >
-                      <ChevronRight size={14} aria-hidden="true" />
-                      <span>{groupLabel(key)}</span>
-                      <small>{t('{{count}} items', { count: rows.length })}</small>
-                      <strong>{key === 'deferred' ? '—' : `≈${total.toLocaleString()}`}</strong>
-                    </button>
-                    {open ? rows.map(row) : null}
-                  </div>
-                );
-              })
-            : entries.map(row)}
+          {!grouped && entries.map(row)}
+          {grouped &&
+            ordered.map(([key, rows]) => {
+              const open = isOpen(key);
+              const total = rows.reduce((sum, item) => sum + item.tokens, 0);
+              return (
+                <div className="context-entry-group" key={key} data-open={open ? 'true' : undefined}>
+                  <button
+                    type="button"
+                    className="context-entry-group-head"
+                    aria-expanded={open}
+                    onClick={() => setExpanded((current) => ({ ...current, [key]: !open }))}
+                  >
+                    <ChevronRight size={14} aria-hidden="true" />
+                    <span>{groupLabel(key)}</span>
+                    <small>{t('{{count}} items', { count: rows.length })}</small>
+                    <strong>{key === 'deferred' ? '—' : `≈${total.toLocaleString()}`}</strong>
+                  </button>
+                  {open ? rows.map(row) : null}
+                </div>
+              );
+            })}
           {!entries.length && <p>{t('No entries.')}</p>}
         </div>
       </section>
@@ -392,7 +390,7 @@ export function ContextInspector({
           {map.cells.map((key: string, index: number) => (
             <i key={index} data-context-key={key} data-muted={hovered && hovered !== key ? 'true' : undefined} />
           ))}
-          {bubble ? (
+          {bubble && (
             <span
               className="context-block-bubble"
               aria-hidden="true"
@@ -401,7 +399,7 @@ export function ContextInspector({
             >
               {bubble.text}
             </span>
-          ) : null}
+          )}
         </div>
         <div className="context-mix-list">
           {rankedCategories.map((row) => (

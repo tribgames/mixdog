@@ -1,5 +1,4 @@
 import { posix } from 'node:path';
-import { createHash } from 'node:crypto';
 import sharp from 'sharp';
 import {
   contrastRatio,
@@ -13,20 +12,19 @@ import {
 } from './text-metrics.mjs';
 import { resolveSlideBackground } from './portable-pptx-core.mjs';
 import { workbookSheets } from './portable-cells.mjs';
+import { EMU_PER_POINT } from './portable-slide-shapes.mjs';
 import {
   imagePixelSize,
   loadPackage,
   partRelationshipPath,
   relationshipMap,
   relationshipOwner,
-  relationshipTarget,
   removeContentTypeOverride,
   zipText,
 } from './portable-opc.mjs';
 import { chartFaultIssues } from './portable-chart-faults.mjs';
 import { reviewDeadVectorChart, reviewTextFragmentation } from './review-editability.mjs';
 import { docxTables } from './portable-docx-xml.mjs';
-import { auditDocxRedliningStories, lintDocxRevisions } from './docx-revisions.mjs';
 import { inspectPptxTextBoxes } from './portable-pptx.mjs';
 import { FULL_READ_CELL_LIMIT, snapshotDocx, snapshotPptx, snapshotXlsx } from './portable-snapshot.mjs';
 import { reviewOfficeStructure } from '../quality/assurance-structure.mjs';
@@ -37,274 +35,10 @@ import {
   formulaConsistencyIssues,
   protectedInputIssues,
 } from './portable-sheet-audits.mjs';
-import {
-  OOXML_REQUIRED,
-  TEMPLATE_TOKEN_SOURCE,
-  paragraphTexts,
-  topLevelElements,
-  xmlAttribute,
-  xmlDecode,
-} from './portable-xml.mjs';
+import { TEMPLATE_TOKEN_SOURCE, paragraphTexts, topLevelElements, xmlAttribute, xmlDecode } from './portable-xml.mjs';
+import { validatePortableOoxml } from './portable-validation-package.mjs';
 
-async function inspectXmlParts(zip, entries) {
-  const malformedXml = [];
-  const xmlEntries = entries.filter((name) => name === '[Content_Types].xml' || /\.(?:xml|rels)$/i.test(name));
-  const { JSDOM } = await import('jsdom');
-  for (const name of xmlEntries) {
-    try {
-      const xml = await zipText(zip, name);
-      const dom = new JSDOM(xml, { contentType: 'text/xml' });
-      dom.window.close();
-    } catch (error) {
-      malformedXml.push({ part: name, error: error?.message || String(error) });
-    }
-  }
-  return malformedXml;
-}
-
-function contentTypeCoverage(entries, xml, format) {
-  const defaults = new Map();
-  const overrides = new Map();
-  for (const match of xml.matchAll(/<Default\b([^>]*?)\/?>/gi)) {
-    defaults.set(xmlAttribute(match[1], 'Extension').toLowerCase(), xmlAttribute(match[1], 'ContentType'));
-  }
-  for (const match of xml.matchAll(/<Override\b([^>]*?)\/?>/gi)) {
-    overrides.set(xmlAttribute(match[1], 'PartName').replace(/^\/+/, ''), xmlAttribute(match[1], 'ContentType'));
-  }
-  const missingContentTypes = entries.filter((name) => {
-    if (name === '[Content_Types].xml') return false;
-    if (overrides.has(name)) return false;
-    const extension = name.toLowerCase().endsWith('.rels') ? 'rels' : posix.extname(name).slice(1).toLowerCase();
-    return !extension || !defaults.has(extension);
-  });
-  const mainPart = OOXML_REQUIRED[format]?.[1] || '';
-  const mainContentType = overrides.get(mainPart) || '';
-  return {
-    missingContentTypes,
-    mainPart,
-    mainContentType,
-    mainContentTypeMissing: Boolean(mainPart && !mainContentType),
-  };
-}
-
-/** The chart data workbooks a package's chart relationships point at (native chart evidence, not activatable objects). */
-async function chartWorkbooksOf(zip, entries) {
-  const workbooks = new Set();
-  for (const relPath of entries.filter((name) => /(?:^|\/)charts\/_rels\/chart[^/]*\.xml\.rels$/i.test(name))) {
-    const xml = await zipText(zip, relPath);
-    for (const match of xml.matchAll(/<Relationship\b([^>]+?)\/?>/gi)) {
-      if (!/\/package$/i.test(xmlAttribute(match[1], 'Type'))) continue;
-      const target = xmlAttribute(match[1], 'Target');
-      workbooks.add(posix.normalize(posix.join(posix.dirname(relPath.replace(/_rels\/$|_rels\//, '')), target)));
-    }
-  }
-  return workbooks;
-}
-
-// The parts a rewrite must carry through untouched. When the Office application itself saved the file (the
-// background backend), masters, layouts and themes are normalised by that save and a chart's data workbook may be
-// renumbered (Microsoft_Excel_Worksheet2.xlsx → Microsoft_Excel_Worksheet.xlsx): those are the application's own
-// serialisation, not damage, and are reported as normalised instead. Macros, signatures, ribbon customisation,
-// external links, connections and embedded objects stay protected under every backend.
-const PROTECTED_ALWAYS =
-  /(?:^|\/)(?:vbaProject\.bin|vbaData\.xml|_xmlsignatures\/|origin\.sigs$|signatures?\.xml$|customUI\/|embeddings\/|externalLinks\/|connections\.xml$)/i;
-const PROTECTED_UNLESS_APPLICATION_SAVED = /(?:^|\/)(?:slideMasters\/|slideLayouts\/|theme\/)/i;
-const APPLICATION_BACKENDS = new Set(['microsoft-office-com']);
-
-async function baselinePackage(zip, original, { savedBy = '', chartWorkbooks = new Set() } = {}) {
-  if (!original) return { compared: false };
-  const originalZip = await loadPackage(original);
-  const applicationSaved = APPLICATION_BACKENDS.has(savedBy);
-  const currentEntries = new Set(
-    Object.entries(zip.files)
-      .filter(([, entry]) => !entry.dir)
-      .map(([name]) => name)
-  );
-  const originalEntries = Object.entries(originalZip.files)
-    .filter(([, entry]) => !entry.dir)
-    .map(([name]) => name);
-  const originalChartWorkbooks = applicationSaved ? await chartWorkbooksOf(originalZip, originalEntries) : new Set();
-  // A chart workbook the application renumbered is not lost while the saved package still carries one per chart.
-  const renumberedWorkbook = (name) =>
-    applicationSaved && originalChartWorkbooks.has(name) && chartWorkbooks.size >= originalChartWorkbooks.size;
-  const isProtected = (name) =>
-    PROTECTED_ALWAYS.test(name) || (!applicationSaved && PROTECTED_UNLESS_APPLICATION_SAVED.test(name));
-  const protectedParts = originalEntries.filter((name) => isProtected(name) && !renumberedWorkbook(name));
-  const lostProtectedParts = protectedParts.filter((name) => !currentEntries.has(name));
-  const hash = async (entry) =>
-    createHash('sha256')
-      .update(await entry.async('nodebuffer'))
-      .digest('hex');
-  const changedProtectedParts = [];
-  const applicationNormalizedParts = [];
-  const changedParts = [];
-  for (const name of originalEntries) {
-    const current = zip.file(name);
-    if (!current) {
-      if (applicationSaved && (PROTECTED_UNLESS_APPLICATION_SAVED.test(name) || renumberedWorkbook(name)))
-        applicationNormalizedParts.push(name);
-      continue;
-    }
-    const [before, after] = await Promise.all([hash(originalZip.file(name)), hash(current)]);
-    if (before !== after) {
-      changedParts.push(name);
-      if (isProtected(name) && !renumberedWorkbook(name)) changedProtectedParts.push({ part: name, before, after });
-      else if (applicationSaved && (PROTECTED_UNLESS_APPLICATION_SAVED.test(name) || renumberedWorkbook(name)))
-        applicationNormalizedParts.push(name);
-    }
-  }
-  const signatureParts = originalEntries.filter((name) =>
-    /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name)
-  );
-  return {
-    compared: true,
-    original,
-    savedBy,
-    applicationSaved,
-    originalEntries: originalEntries.length,
-    addedParts: [...currentEntries].filter((name) => !originalZip.file(name)),
-    lostProtectedParts,
-    changedProtectedParts,
-    applicationNormalizedParts,
-    signatureParts,
-    digitalSignatureInvalidated: signatureParts.length > 0 && changedParts.length > 0,
-  };
-}
-
-const DOCX_STORY_PART = /^word\/(document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i;
-
-/** Every story part by name: the audit compares each one with its source
- *  counterpart, so a header edited untracked is caught like the body. */
-async function docxStoryParts(zip) {
-  const parts = new Map();
-  for (const name of Object.keys(zip.files)
-    .filter((entry) => DOCX_STORY_PART.test(entry))
-    .sort()) {
-    parts.set(name, await zipText(zip, name));
-  }
-  return parts;
-}
-
-async function validateDocxRedlining(zip, originalPath, author = '') {
-  if (!originalPath) {
-    return {
-      requested: true,
-      ok: false,
-      reason: 'Redlining audit requires an opened source document.',
-    };
-  }
-  try {
-    const original = await loadPackage(originalPath);
-    return auditDocxRedliningStories(await docxStoryParts(zip), await docxStoryParts(original), { author });
-  } catch (error) {
-    return {
-      requested: true,
-      ok: false,
-      reason: error?.message || String(error),
-    };
-  }
-}
-
-export async function validatePortableOoxml(path, format, options = {}) {
-  const zip = await loadPackage(path);
-  const entries = Object.entries(zip.files)
-    .filter(([, entry]) => !entry.dir)
-    .map(([name]) => name);
-  const missing = (OOXML_REQUIRED[format] || []).filter((name) => !zip.file(name));
-  const unsafeEntries = entries.filter(
-    (name) => name.includes('..') || name.startsWith('/') || /^[A-Za-z]:/.test(name)
-  );
-  const macros = entries.filter((name) => /vbaProject\.bin$/i.test(name));
-  const signatures = entries.filter((name) =>
-    /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name)
-  );
-  const externalLinks = entries.filter((name) => /(?:^|\/)externalLinks\//i.test(name));
-  const dataConnections = entries.filter((name) => /(?:^|\/)connections\.xml$/i.test(name));
-  // A chart's data workbook is native chart evidence, not an activatable
-  // object: it is excluded from the embedded-object security finding.
-  const chartWorkbooks = await chartWorkbooksOf(zip, entries);
-  const embeddedObjects = entries.filter((name) => /(?:^|\/)embeddings\//i.test(name) && !chartWorkbooks.has(name));
-  const malformedXml = await inspectXmlParts(zip, entries);
-  const contentTypes = contentTypeCoverage(entries, await zipText(zip, '[Content_Types].xml'), format);
-  const missingRelationships = [];
-  const duplicateRelationshipIds = [];
-  const externalRelationships = [];
-  for (const relPath of entries.filter((name) => name.endsWith('.rels'))) {
-    const xml = await zipText(zip, relPath);
-    const ids = new Set();
-    for (const match of xml.matchAll(/<Relationship\b([^>]+?)\/?>/gi)) {
-      const id = xmlAttribute(match[1], 'Id');
-      const target = xmlAttribute(match[1], 'Target');
-      const mode = xmlAttribute(match[1], 'TargetMode');
-      if (id && ids.has(id)) duplicateRelationshipIds.push({ relationship: relPath, id });
-      if (id) ids.add(id);
-      if (mode.toLowerCase() === 'external') {
-        externalRelationships.push({ relationship: relPath, id, target: xmlDecode(target) });
-        continue;
-      }
-      const resolved = relationshipTarget(relPath, target);
-      if (!resolved || resolved.startsWith('../') || !zip.file(resolved)) {
-        missingRelationships.push({ relationship: relPath, id, target: xmlDecode(target), resolved });
-      }
-    }
-  }
-  const baseline = await baselinePackage(zip, options.original, { savedBy: options.savedBy, chartWorkbooks });
-  const documentLint =
-    format === 'docx'
-      ? lintDocxRevisions(
-          await Promise.all(
-            entries
-              .filter((name) => /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name))
-              .sort()
-              .map(async (name) => ({ part: name, xml: await zipText(zip, name) }))
-          ),
-          await zipText(zip, 'word/comments.xml')
-        )
-      : [];
-  const redlining =
-    format === 'docx' && options.auditProfile === 'redlining'
-      ? await validateDocxRedlining(zip, options.original, options.author)
-      : null;
-  const ok =
-    missing.length === 0 &&
-    !documentLint.some((finding) => finding.severity === 'error') &&
-    unsafeEntries.length === 0 &&
-    malformedXml.length === 0 &&
-    contentTypes.missingContentTypes.length === 0 &&
-    !contentTypes.mainContentTypeMissing &&
-    missingRelationships.length === 0 &&
-    duplicateRelationshipIds.length === 0 &&
-    !baseline.lostProtectedParts?.length &&
-    !baseline.changedProtectedParts?.length &&
-    baseline.digitalSignatureInvalidated !== true &&
-    (!redlining || redlining.ok);
-  return {
-    ok,
-    format,
-    entries: entries.length,
-    missing,
-    unsafeEntries,
-    macros,
-    security: {
-      macros,
-      signatures,
-      externalLinks,
-      dataConnections,
-      embeddedObjects,
-      macroExecution: 'disabled',
-      digitalSignatureInvalidated: baseline.digitalSignatureInvalidated === true,
-    },
-    malformedXml,
-    missingRelationships,
-    duplicateRelationshipIds,
-    externalRelationships,
-    ...contentTypes,
-    baseline,
-    redlining,
-    documentLint,
-    validation: 'opc-relationships-content-types-xml',
-  };
-}
+export { validatePortableOoxml } from './portable-validation-package.mjs';
 
 // The worst readable ratio among a block's runs, with the size and weight that
 // decide the minimum. Word keeps sizes in half-points.
@@ -413,15 +147,19 @@ const PLACEHOLDER_RULES = Object.freeze([
   { code: 'unfilled_token', label: 'unresolved template token', pattern: new RegExp(TEMPLATE_TOKEN_SOURCE, 'u') },
 ]);
 
+// The parts whose visible text a review reads: every slide of a deck, the
+// body of a document, nothing for a workbook.
+function textParts(zip, format) {
+  if (format === 'pptx') {
+    return Object.keys(zip.files)
+      .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
+      .sort();
+  }
+  return format === 'docx' ? ['word/document.xml'] : [];
+}
+
 async function placeholderIssues(zip, format) {
-  const parts =
-    format === 'pptx'
-      ? Object.keys(zip.files)
-          .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-          .sort()
-      : format === 'docx'
-        ? ['word/document.xml']
-        : [];
+  const parts = textParts(zip, format);
   if (!parts.length) return [];
   const tag = format === 'pptx' ? 'a:t' : 'w:t';
   const issues = [];
@@ -446,8 +184,88 @@ async function placeholderIssues(zip, format) {
   return issues;
 }
 
-const EMU_PER_POINT = 12700;
 const DEFAULT_CELL_INSETS = Object.freeze({ left: 91440, right: 91440, top: 45720, bottom: 45720 });
+
+// A header row on a dark fill with the body's dark ink is unreadable in
+// exactly the way a shape's text would be; cells are measured the same way,
+// against their own fill or the slide behind them.
+function tableCellContrast(cellXml, body, slideSurface) {
+  const properties = /<a:tcPr\b[^>]*>[\s\S]*?<\/a:tcPr>/.exec(cellXml)?.[0] || '';
+  // The cell's own fill follows its border definitions, and each border
+  // carries a colour of its own: read the fill after the lines are out.
+  const surface = properties
+    .replace(/<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*>[\s\S]*?<\/a:ln(?:L|R|T|B|TlToBr|BlToTr)>/g, '')
+    .replace(/<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*\/>/g, '');
+  const fill = /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(surface)?.[1] || slideSurface;
+  const ink = /<a:rPr\b[^>]*>[\s\S]*?<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(body)?.[1] || '';
+  return fill && ink ? contrastRatio(ink, fill) : null;
+}
+
+// Measures one table row's cells for contrast and overflow, pushing at most
+// twenty cell reports in total; returns the row's drawn height in EMU (the
+// larger of its declared height and its tallest cell).
+// The height a cell's text needs against the room its row gives it, or null
+// when the row or column carries no size. A merged label cell (rowSpan) owns
+// the rows it spans: its room is theirs together, not one row's.
+function tableCellFit(cellXml, { text, size, bold, widths, columnOrdinal, declared }) {
+  const width = widths[columnOrdinal - 1];
+  if (!declared || !width) return null;
+  const rowSpan = Math.max(1, Number(/<a:tc\b[^>]*\browSpan="(\d+)"/.exec(cellXml)?.[1]) || 1);
+  const gridSpan = Math.max(1, Number(/<a:tc\b[^>]*\bgridSpan="(\d+)"/.exec(cellXml)?.[1]) || 1);
+  const spannedWidth =
+    widths.slice(columnOrdinal - 1, columnOrdinal - 1 + gridSpan).reduce((sum, value) => sum + value, 0) || width;
+  const usable = (spannedWidth - DEFAULT_CELL_INSETS.left - DEFAULT_CELL_INSETS.right) / EMU_PER_POINT;
+  const available = (declared * rowSpan - DEFAULT_CELL_INSETS.top - DEFAULT_CELL_INSETS.bottom) / EMU_PER_POINT;
+  if (usable <= 0 || available <= 0) return null;
+  return { measured: measureTextBlock([{ text, fontSize: size, bold }], { width: usable }), rowSpan, available };
+}
+
+function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues) {
+  const declared = Number(/<a:tr\b[^>]*\bh="(\d+)"/.exec(rowXml)?.[1]) || 0;
+  let tallest = declared;
+  let columnOrdinal = 0;
+  for (const cell of rowXml.matchAll(/<a:tc(?:\s[^>]*)?>[\s\S]*?<\/a:tc>/g)) {
+    columnOrdinal += 1;
+    const body = /<a:txBody>[\s\S]*?<\/a:txBody>/.exec(cell[0])?.[0] || '';
+    const text = paragraphTexts(body, 'a:t').join(' ').trim();
+    if (!text) continue;
+    const size = Number(/<a:rPr\b[^>]*\bsz="(\d+)"/.exec(body)?.[1] || 0) / 100 || 18;
+    const bold = /<a:rPr\b[^>]*\bb="1"/.test(body);
+    const cellPath = `${pathPrefix}/cell[${columnOrdinal}]`;
+    const ratio = tableCellContrast(cell[0], body, slideSurface);
+    const minimum = size >= 18 || (size >= 14 && bold) ? 3 : 4.5;
+    // Twenty cell reports are enough to read; the rows are still measured so the table's height is known.
+    if (ratio != null && ratio < minimum && issues.length < 20) {
+      issues.push({
+        severity: 'warning',
+        code: 'low_contrast',
+        path: cellPath,
+        message: `Cell text contrast is ${ratio.toFixed(2)}:1 against its fill; ${minimum}:1 is the readable minimum at ${Math.round(size)}pt.`,
+        source: 'text-metrics',
+      });
+    }
+    const fit = tableCellFit(cell[0], { text, size, bold, widths, columnOrdinal, declared });
+    if (!fit) continue;
+    const { measured, rowSpan, available } = fit;
+    if (rowSpan === 1) {
+      tallest = Math.max(
+        tallest,
+        measured.height * EMU_PER_POINT + DEFAULT_CELL_INSETS.top + DEFAULT_CELL_INSETS.bottom
+      );
+    }
+    if (measured.height <= available * 1.08 || issues.length >= 20) continue;
+    issues.push({
+      severity: 'warning',
+      code: 'table_cell_overflow',
+      path: cellPath,
+      message:
+        `Cell text needs about ${Math.round(measured.height)}pt across ${measured.lines} line(s)` +
+        ` but the row offers ${Math.round(available)}pt; shorten the text or widen the column.`,
+      source: 'text-metrics',
+    });
+  }
+  return tallest;
+}
 
 async function tableCellOverflowIssues(zip) {
   const parts = Object.keys(zip.files)
@@ -471,75 +289,18 @@ async function tableCellOverflowIssues(zip) {
       if (!table) continue;
       tableOrdinal += 1;
       const frameTop = Number(/<p:xfrm>[\s\S]*?<a:off\b[^>]*\by="(-?\d+)"/.exec(frame[0])?.[1]) || 0;
-      let predicted = 0;
       const widths = [...table[0].matchAll(/<a:gridCol\b[^>]*\bw="(\d+)"/g)].map((match) => Number(match[1]));
       if (!widths.length) continue;
+      const tablePath = `/slide[${slide}]/table[${tableOrdinal}]`;
+      let predicted = 0;
       let rowOrdinal = 0;
       for (const row of table[0].matchAll(/<a:tr\b[^>]*>[\s\S]*?<\/a:tr>/g)) {
         rowOrdinal += 1;
-        const declared = Number(/<a:tr\b[^>]*\bh="(\d+)"/.exec(row[0])?.[1]) || 0;
-        let tallest = declared;
-        let columnOrdinal = 0;
-        for (const cell of row[0].matchAll(/<a:tc(?:\s[^>]*)?>[\s\S]*?<\/a:tc>/g)) {
-          columnOrdinal += 1;
-          const width = widths[columnOrdinal - 1];
-          const body = /<a:txBody>[\s\S]*?<\/a:txBody>/.exec(cell[0])?.[0] || '';
-          const text = paragraphTexts(body, 'a:t').join(' ').trim();
-          if (!text) continue;
-          const size = Number(/<a:rPr\b[^>]*\bsz="(\d+)"/.exec(body)?.[1] || 0) / 100 || 18;
-          const bold = /<a:rPr\b[^>]*\bb="1"/.test(body);
-          const cellPath = `/slide[${slide}]/table[${tableOrdinal}]/row[${rowOrdinal}]/cell[${columnOrdinal}]`;
-          // A header row on a dark fill with the body's dark ink is unreadable
-          // in exactly the way a shape's text would be; cells are measured the
-          // same way, against their own fill or the slide behind them.
-          const properties = /<a:tcPr\b[^>]*>[\s\S]*?<\/a:tcPr>/.exec(cell[0])?.[0] || '';
-          // The cell's own fill follows its border definitions, and each border
-          // carries a colour of its own: read the fill after the lines are out.
-          const surface = properties
-            .replace(/<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*>[\s\S]*?<\/a:ln(?:L|R|T|B|TlToBr|BlToTr)>/g, '')
-            .replace(/<a:ln(?:L|R|T|B|TlToBr|BlToTr)\b[^>]*\/>/g, '');
-          const fill = /<a:solidFill>\s*<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(surface)?.[1] || slideSurface;
-          const ink = /<a:rPr\b[^>]*>[\s\S]*?<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/.exec(body)?.[1] || '';
-          const ratio = fill && ink ? contrastRatio(ink, fill) : null;
-          const minimum = size >= 18 || (size >= 14 && bold) ? 3 : 4.5;
-          // Twenty cell reports are enough to read; the rows are still measured so the table's height is known.
-          if (ratio != null && ratio < minimum && issues.length < 20) {
-            issues.push({
-              severity: 'warning',
-              code: 'low_contrast',
-              path: cellPath,
-              message: `Cell text contrast is ${ratio.toFixed(2)}:1 against its fill; ${minimum}:1 is the readable minimum at ${Math.round(size)}pt.`,
-              source: 'text-metrics',
-            });
-          }
-          if (!declared || !width) continue;
-          // A merged label cell (rowSpan) owns the rows it spans: its room is theirs together, not one row's.
-          const rowSpan = Math.max(1, Number(/<a:tc\b[^>]*\browSpan="(\d+)"/.exec(cell[0])?.[1]) || 1);
-          const gridSpan = Math.max(1, Number(/<a:tc\b[^>]*\bgridSpan="(\d+)"/.exec(cell[0])?.[1]) || 1);
-          const spannedWidth =
-            widths.slice(columnOrdinal - 1, columnOrdinal - 1 + gridSpan).reduce((sum, value) => sum + value, 0) ||
-            width;
-          const usable = (spannedWidth - DEFAULT_CELL_INSETS.left - DEFAULT_CELL_INSETS.right) / EMU_PER_POINT;
-          const available = (declared * rowSpan - DEFAULT_CELL_INSETS.top - DEFAULT_CELL_INSETS.bottom) / EMU_PER_POINT;
-          if (usable <= 0 || available <= 0) continue;
-          const measured = measureTextBlock([{ text, fontSize: size, bold }], { width: usable });
-          if (rowSpan === 1)
-            tallest = Math.max(
-              tallest,
-              measured.height * EMU_PER_POINT + DEFAULT_CELL_INSETS.top + DEFAULT_CELL_INSETS.bottom
-            );
-          if (measured.height <= available * 1.08 || issues.length >= 20) continue;
-          issues.push({
-            severity: 'warning',
-            code: 'table_cell_overflow',
-            path: cellPath,
-            message:
-              `Cell text needs about ${Math.round(measured.height)}pt across ${measured.lines} line(s)` +
-              ` but the row offers ${Math.round(available)}pt; shorten the text or widen the column.`,
-            source: 'text-metrics',
-          });
-        }
-        predicted += tallest;
+        predicted += auditTableRow(
+          row[0],
+          { widths, pathPrefix: `${tablePath}/row[${rowOrdinal}]`, slideSurface },
+          issues
+        );
       }
       // The lower safe margin is 0.4 in (a source line or page number may sit there; a table may not).
       const room = slideHeight - 0.4 * 914400 - frameTop;
@@ -547,7 +308,7 @@ async function tableCellOverflowIssues(zip) {
         issues.push({
           severity: 'warning',
           code: 'table_exceeds_canvas',
-          path: `/slide[${slide}]/table[${tableOrdinal}]`,
+          path: tablePath,
           message: `The table's rows draw to about ${Math.round(predicted / EMU_PER_POINT)}pt tall but only ${Math.round(room / EMU_PER_POINT)}pt remain under its top; the rows that wrap or the count push it past the canvas — fewer rows, wider columns, or a smaller pitch.`,
           source: 'text-metrics',
         });
@@ -585,15 +346,80 @@ async function drawsNothing(data) {
   }
 }
 
+// The findings for one placed picture: a blank raster ends that picture's
+// audit; otherwise enlargement past its own detail, then aspect distortion.
+// The fraction of the raster a pptx crop leaves visible on each axis.
+function visibleFraction(picture, format) {
+  const sourceRect = format === 'pptx' ? /<a:srcRect\b([^>]*)\/?>/.exec(picture)?.[1] : '';
+  if (!sourceRect) return { width: 1, height: 1 };
+  const side = (name) => Number(xmlAttribute(sourceRect, name)) || 0;
+  return { width: 1 - (side('l') + side('r')) / 100000, height: 1 - (side('t') + side('b')) / 100000 };
+}
+
+function lowResolutionIssue({ source, extent, picture, visible, path }) {
+  const inchesWide = Number(extent[1]) / EMU_PER_INCH;
+  const inchesTall = Number(extent[2]) / EMU_PER_INCH;
+  const drawnAt = Math.min(
+    (source.width * visible.width) / Math.max(inchesWide, 0.01),
+    (source.height * visible.height) / Math.max(inchesTall, 0.01)
+  );
+  const enlarged =
+    !/svgBlip/.test(picture) &&
+    source.width >= IMAGE_SPACER_PX &&
+    source.height >= IMAGE_SPACER_PX &&
+    drawnAt < IMAGE_MIN_PPI;
+  if (!enlarged) return null;
+  return {
+    severity: 'warning',
+    code: 'image_low_resolution',
+    path,
+    message:
+      `Image carries ${source.width}x${source.height} px for a ${inchesWide.toFixed(1)}x${inchesTall.toFixed(1)} in frame` +
+      ` (${Math.round(drawnAt)} px per inch); it is enlarged past its own detail and draws soft.` +
+      ` Supply about ${Math.round(inchesWide * IMAGE_TARGET_PPI)}x${Math.round(inchesTall * IMAGE_TARGET_PPI)} px, or place it smaller.`,
+    source: 'image-audit',
+  };
+}
+
+function aspectDistortionIssue({ source, extent, visible, path }) {
+  const placed = Number(extent[1]) / Number(extent[2]);
+  const visibleAspect = ((source.width / source.height) * visible.width) / visible.height;
+  if (!Number.isFinite(placed) || !Number.isFinite(visibleAspect) || visibleAspect <= 0) return null;
+  const drift = Math.abs(placed - visibleAspect) / visibleAspect;
+  if (drift <= 0.1) return null;
+  return {
+    severity: 'warning',
+    code: 'image_aspect_distorted',
+    path,
+    message:
+      `Image is stretched ${Math.round(drift * 100)}% off its visible ${source.width}x${source.height} aspect ratio;` +
+      ' set only width or height to keep the original proportions.',
+    source: 'image-audit',
+  };
+}
+
+async function pictureIssues({ bytes, source, extent, picture, format, path }) {
+  if (await drawsNothing(bytes)) {
+    return [
+      {
+        severity: 'error',
+        code: 'blank_image',
+        path,
+        message:
+          'Picture draws nothing: every pixel of the raster is transparent, so the page keeps the frame and its caption while the reader sees an empty box.',
+        source: 'image-audit',
+      },
+    ];
+  }
+  const visible = visibleFraction(picture, format);
+  return [
+    lowResolutionIssue({ source, extent, picture, visible, path }),
+    aspectDistortionIssue({ source, extent, visible, path }),
+  ].filter(Boolean);
+}
+
 async function imagePlacementIssues(zip, format) {
-  const parts =
-    format === 'pptx'
-      ? Object.keys(zip.files)
-          .filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))
-          .sort()
-      : format === 'docx'
-        ? ['word/document.xml']
-        : [];
+  const parts = textParts(zip, format);
   if (!parts.length) return [];
   const issues = [];
   for (const part of parts) {
@@ -622,66 +448,11 @@ async function imagePlacementIssues(zip, format) {
       const bytes = await file.async('nodebuffer');
       const source = imagePixelSize(bytes);
       if (!source?.width || !source?.height) continue;
-      const placed = Number(extent[1]) / Number(extent[2]);
-      const original = source.width / source.height;
-      const sourceRect = format === 'pptx' ? /<a:srcRect\b([^>]*)\/?>/.exec(picture[0])?.[1] : '';
-      const visibleWidth = sourceRect
-        ? 1 - ((Number(xmlAttribute(sourceRect, 'l')) || 0) + (Number(xmlAttribute(sourceRect, 'r')) || 0)) / 100000
-        : 1;
-      const visibleHeight = sourceRect
-        ? 1 - ((Number(xmlAttribute(sourceRect, 't')) || 0) + (Number(xmlAttribute(sourceRect, 'b')) || 0)) / 100000
-        : 1;
       const path = slide ? `/slide[${slide}]/picture[${ordinal}]` : `/body/picture[${ordinal}]`;
-      if (await drawsNothing(bytes)) {
-        issues.push({
-          severity: 'error',
-          code: 'blank_image',
-          path,
-          message:
-            'Picture draws nothing: every pixel of the raster is transparent, so the page keeps the frame and its caption while the reader sees an empty box.',
-          source: 'image-audit',
-        });
-        if (issues.length >= 20) return issues;
-        continue;
-      }
-      const inchesWide = Number(extent[1]) / EMU_PER_INCH;
-      const inchesTall = Number(extent[2]) / EMU_PER_INCH;
-      const drawnAt = Math.min(
-        (source.width * visibleWidth) / Math.max(inchesWide, 0.01),
-        (source.height * visibleHeight) / Math.max(inchesTall, 0.01)
-      );
-      if (
-        !/svgBlip/.test(picture[0]) &&
-        source.width >= IMAGE_SPACER_PX &&
-        source.height >= IMAGE_SPACER_PX &&
-        drawnAt < IMAGE_MIN_PPI
-      ) {
-        issues.push({
-          severity: 'warning',
-          code: 'image_low_resolution',
-          path,
-          message:
-            `Image carries ${source.width}x${source.height} px for a ${inchesWide.toFixed(1)}x${inchesTall.toFixed(1)} in frame` +
-            ` (${Math.round(drawnAt)} px per inch); it is enlarged past its own detail and draws soft.` +
-            ` Supply about ${Math.round(inchesWide * IMAGE_TARGET_PPI)}x${Math.round(inchesTall * IMAGE_TARGET_PPI)} px, or place it smaller.`,
-          source: 'image-audit',
-        });
+      for (const issue of await pictureIssues({ bytes, source, extent, picture: picture[0], format, path })) {
+        issues.push(issue);
         if (issues.length >= 20) return issues;
       }
-      const visibleAspect = (original * visibleWidth) / visibleHeight;
-      if (!Number.isFinite(placed) || !Number.isFinite(visibleAspect) || visibleAspect <= 0) continue;
-      const drift = Math.abs(placed - visibleAspect) / visibleAspect;
-      if (drift <= 0.1) continue;
-      issues.push({
-        severity: 'warning',
-        code: 'image_aspect_distorted',
-        path,
-        message:
-          `Image is stretched ${Math.round(drift * 100)}% off its visible ${source.width}x${source.height} aspect ratio;` +
-          ' set only width or height to keep the original proportions.',
-        source: 'image-audit',
-      });
-      if (issues.length >= 20) return issues;
     }
   }
   return issues;
@@ -736,124 +507,104 @@ export async function removeOrphanPackageParts(zip) {
 }
 
 /** What the package itself is missing or contradicts, read from a validation result. */
+const packageError = (code, path, message) => ({ severity: 'error', code, path, message });
+const packageWarning = (code, path, message) => ({ severity: 'warning', code, path, message });
+
 function packageStructureIssues(validation) {
-  const issues = [];
-  for (const missing of validation.missing) {
-    issues.push({
-      severity: 'error',
-      code: 'missing_part',
-      path: `/${missing}`,
-      message: `Required package part is missing: ${missing}`,
-    });
-  }
-  for (const unsafe of validation.unsafeEntries) {
-    issues.push({
-      severity: 'error',
-      code: 'unsafe_zip_entry',
-      path: `/${unsafe}`,
-      message: `Unsafe ZIP entry path: ${unsafe}`,
-    });
-  }
-  for (const malformed of validation.malformedXml) {
-    issues.push({ severity: 'error', code: 'malformed_xml', path: `/${malformed.part}`, message: malformed.error });
-  }
-  for (const relationship of validation.missingRelationships) {
-    issues.push({
-      severity: 'error',
-      code: 'missing_relationship_target',
-      path: `/${relationship.relationship}`,
-      message: `Relationship ${relationship.id || '(unnamed)'} targets missing part ${relationship.resolved || relationship.target}`,
-    });
-  }
-  for (const relationship of validation.duplicateRelationshipIds) {
-    issues.push({
-      severity: 'error',
-      code: 'duplicate_relationship_id',
-      path: `/${relationship.relationship}`,
-      message: `Relationship id is duplicated: ${relationship.id}`,
-    });
-  }
-  for (const part of validation.missingContentTypes) {
-    issues.push({
-      severity: 'error',
-      code: 'missing_content_type',
-      path: `/${part}`,
-      message: 'Package part has no matching content type declaration.',
-    });
-  }
-  if (validation.mainContentTypeMissing) {
-    issues.push({
-      severity: 'error',
-      code: 'missing_main_content_type',
-      path: `/${validation.mainPart}`,
-      message: 'The main Office document part needs an explicit content type override.',
-    });
-  }
-  return issues;
+  return [
+    ...validation.missing.map((missing) =>
+      packageError('missing_part', `/${missing}`, `Required package part is missing: ${missing}`)
+    ),
+    ...validation.unsafeEntries.map((unsafe) =>
+      packageError('unsafe_zip_entry', `/${unsafe}`, `Unsafe ZIP entry path: ${unsafe}`)
+    ),
+    ...validation.malformedXml.map((malformed) => packageError('malformed_xml', `/${malformed.part}`, malformed.error)),
+    ...validation.missingRelationships.map((relationship) =>
+      packageError(
+        'missing_relationship_target',
+        `/${relationship.relationship}`,
+        `Relationship ${relationship.id || '(unnamed)'} targets missing part ${relationship.resolved || relationship.target}`
+      )
+    ),
+    ...validation.duplicateRelationshipIds.map((relationship) =>
+      packageError(
+        'duplicate_relationship_id',
+        `/${relationship.relationship}`,
+        `Relationship id is duplicated: ${relationship.id}`
+      )
+    ),
+    ...validation.missingContentTypes.map((part) =>
+      packageError('missing_content_type', `/${part}`, 'Package part has no matching content type declaration.')
+    ),
+    ...(validation.mainContentTypeMissing
+      ? [
+          packageError(
+            'missing_main_content_type',
+            `/${validation.mainPart}`,
+            'The main Office document part needs an explicit content type override.'
+          ),
+        ]
+      : []),
+  ];
 }
 
 /** What the source package carried and this copy must answer for: protected parts,
  *  signatures, macros, connections, embedded objects, external links. */
 function packageProvenanceIssues(validation) {
-  const issues = [];
-  for (const part of validation.baseline.lostProtectedParts || []) {
-    issues.push({
-      severity: 'error',
-      code: 'lost_protected_part',
-      path: `/${part}`,
-      message: 'A macro, master, layout, or theme part from the source package was removed.',
-    });
-  }
-  for (const part of validation.baseline.changedProtectedParts || []) {
-    issues.push({
-      severity: 'error',
-      code: 'changed_protected_part',
-      path: `/${part.part}`,
-      message:
-        'A macro, signature, embedded object, external link, connection, master, layout, or theme part changed unexpectedly.',
-    });
-  }
-  if (validation.security?.digitalSignatureInvalidated) {
-    issues.push({
-      severity: 'error',
-      code: 'digital_signature_invalidated',
-      path: '/',
-      message: 'The source package was digitally signed and document changes invalidate that signature.',
-    });
-  }
-  for (const macro of validation.macros) {
-    issues.push({
-      severity: 'warning',
-      code: 'macro_present',
-      path: `/${macro}`,
-      message: 'VBA macro payload is present and is never executed by the portable backend.',
-    });
-  }
-  for (const connection of validation.security?.dataConnections || []) {
-    issues.push({
-      severity: 'warning',
-      code: 'data_connection_present',
-      path: `/${connection}`,
-      message: 'Workbook data connection is preserved but never refreshed automatically.',
-    });
-  }
-  for (const embedded of validation.security?.embeddedObjects || []) {
-    issues.push({
-      severity: 'warning',
-      code: 'embedded_object_present',
-      path: `/${embedded}`,
-      message: 'Embedded object is preserved but never activated by Mixdog.',
-    });
-  }
-  for (const relationship of validation.externalRelationships) {
-    issues.push({
-      severity: 'warning',
-      code: 'external_relationship',
-      path: `/${relationship.relationship}`,
-      message: `External relationship: ${relationship.target}`,
-    });
-  }
-  return issues;
+  const security = validation.security || {};
+  return [
+    ...(validation.baseline.lostProtectedParts || []).map((part) =>
+      packageError(
+        'lost_protected_part',
+        `/${part}`,
+        'A macro, master, layout, or theme part from the source package was removed.'
+      )
+    ),
+    ...(validation.baseline.changedProtectedParts || []).map((part) =>
+      packageError(
+        'changed_protected_part',
+        `/${part.part}`,
+        'A macro, signature, embedded object, external link, connection, master, layout, or theme part changed unexpectedly.'
+      )
+    ),
+    ...(security.digitalSignatureInvalidated
+      ? [
+          packageError(
+            'digital_signature_invalidated',
+            '/',
+            'The source package was digitally signed and document changes invalidate that signature.'
+          ),
+        ]
+      : []),
+    ...validation.macros.map((macro) =>
+      packageWarning(
+        'macro_present',
+        `/${macro}`,
+        'VBA macro payload is present and is never executed by the portable backend.'
+      )
+    ),
+    ...(security.dataConnections || []).map((connection) =>
+      packageWarning(
+        'data_connection_present',
+        `/${connection}`,
+        'Workbook data connection is preserved but never refreshed automatically.'
+      )
+    ),
+    ...(security.embeddedObjects || []).map((embedded) =>
+      packageWarning(
+        'embedded_object_present',
+        `/${embedded}`,
+        'Embedded object is preserved but never activated by Mixdog.'
+      )
+    ),
+    ...validation.externalRelationships.map((relationship) =>
+      packageWarning(
+        'external_relationship',
+        `/${relationship.relationship}`,
+        `External relationship: ${relationship.target}`
+      )
+    ),
+  ];
 }
 
 /** The workbook audits that read the sheet parts rather than a snapshot. */
@@ -925,51 +676,10 @@ async function presentationMetricIssues(zip) {
 // shaded — is owed the mark; a table whose first row is data is not.
 const DOCX_LONG_TABLE_ROWS = 25;
 
-/** What the Word document says about itself: revisions, comments, lint, emptiness,
- *  tables wider than the text column or losing their header after a page break,
- *  ink, and pictures without a description. */
-async function documentContentIssues(zip, validation) {
+// Tables wider than the text column, and long tables whose styled header
+// row does not repeat after a page break.
+function documentTableIssues(document) {
   const issues = [];
-  const snapshot = await snapshotDocx(zip);
-  if (snapshot.revisionCount || snapshot.propertyChangeCount) {
-    issues.push({
-      severity: 'info',
-      code: 'unresolved_revisions',
-      path: '/body',
-      message: `${snapshot.revisionCount} tracked revision element(s)${snapshot.propertyChangeCount ? ` and ${snapshot.propertyChangeCount} formatting change record(s)` : ''} remain unresolved.`,
-    });
-  }
-  // A resolved thread is settled and its replies belong to it: counting them
-  // as outstanding tells a reviewer to answer comments Word already closed.
-  const openThreads = (snapshot.comments || []).filter((comment) => !comment.replyTo && !comment.resolved);
-  if (openThreads.length) {
-    issues.push({
-      severity: 'info',
-      code: 'unresolved_comments',
-      path: openThreads[0].path || '/body',
-      message: `${openThreads.length} comment thread(s) remain unresolved.`,
-    });
-  }
-  for (const finding of validation.documentLint || []) {
-    issues.push({
-      severity: finding.severity,
-      code: finding.code,
-      path: finding.part && finding.part !== 'word/document.xml' ? `/${finding.part}` : '/body',
-      message: finding.message,
-      source: 'document-lint',
-    });
-  }
-  const document = await zipText(zip, 'word/document.xml');
-  const body = /<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(document)?.[1] || '';
-  const printable = body.replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g, '').replace(/<w:sectPr\b[^>]*\/>/g, '');
-  if (!/<w:t[\s>]/.test(printable) && !/<w:tbl>/.test(printable) && !/<w:drawing>/.test(printable)) {
-    issues.push({
-      severity: 'error',
-      code: 'empty_document',
-      path: '/body',
-      message: 'The document body carries no text, table, or image; the requested content never reached the file.',
-    });
-  }
   const section = /<w:sectPr\b[\s\S]*?<\/w:sectPr>/.exec(document)?.[0] || '';
   const page = /<w:pgSz\b[^>]*\bw:w="(\d+)"/.exec(section);
   const margins =
@@ -1005,18 +715,130 @@ async function documentContentIssues(zip, validation) {
       message: `Table spans ${(width / 1440).toFixed(2)}in across a ${(usable / 1440).toFixed(2)}in text column; run fit_table to rebalance.`,
     });
   }
-  for (const finding of documentInkIssues(document)) issues.push(finding);
-  // A slide's picture is audited for a description; a Word report delivered
-  // without one leaves the same reader with nothing. The snapshot's own
-  // picture list is the reading, so the finding points at the element the
-  // caller can look up — a header logo included.
-  for (const picture of snapshot.images || []) {
-    if (describesPicture(picture.altText)) continue;
+  return issues;
+}
+
+/** What the Word document says about itself: revisions, comments, lint, emptiness,
+ *  tables wider than the text column or losing their header after a page break,
+ *  ink, and pictures without a description. */
+function reviewStateIssues(snapshot) {
+  const issues = [];
+  if (snapshot.revisionCount || snapshot.propertyChangeCount) {
     issues.push({
+      severity: 'info',
+      code: 'unresolved_revisions',
+      path: '/body',
+      message: `${snapshot.revisionCount} tracked revision element(s)${snapshot.propertyChangeCount ? ` and ${snapshot.propertyChangeCount} formatting change record(s)` : ''} remain unresolved.`,
+    });
+  }
+  // A resolved thread is settled and its replies belong to it: counting them
+  // as outstanding tells a reviewer to answer comments Word already closed.
+  const openThreads = (snapshot.comments || []).filter((comment) => !comment.replyTo && !comment.resolved);
+  if (openThreads.length) {
+    issues.push({
+      severity: 'info',
+      code: 'unresolved_comments',
+      path: openThreads[0].path || '/body',
+      message: `${openThreads.length} comment thread(s) remain unresolved.`,
+    });
+  }
+  return issues;
+}
+
+function emptyDocumentIssues(document) {
+  const body = /<w:body\b[^>]*>([\s\S]*)<\/w:body>/.exec(document)?.[1] || '';
+  const printable = body.replace(/<w:sectPr\b[\s\S]*?<\/w:sectPr>/g, '').replace(/<w:sectPr\b[^>]*\/>/g, '');
+  if (/<w:t[\s>]/.test(printable) || /<w:tbl>/.test(printable) || /<w:drawing>/.test(printable)) return [];
+  return [
+    {
+      severity: 'error',
+      code: 'empty_document',
+      path: '/body',
+      message: 'The document body carries no text, table, or image; the requested content never reached the file.',
+    },
+  ];
+}
+
+// A slide's picture is audited for a description; a Word report delivered
+// without one leaves the same reader with nothing. The snapshot's own
+// picture list is the reading, so the finding points at the element the
+// caller can look up — a header logo included.
+function pictureDescriptionIssues(snapshot) {
+  return (snapshot.images || [])
+    .filter((picture) => !describesPicture(picture.altText))
+    .map((picture) => ({
       severity: 'warning',
       code: 'missing_alt_text',
       path: picture.path,
       message: 'Picture has no alternative text; add_image takes altText.',
+    }));
+}
+
+async function documentContentIssues(zip, validation) {
+  const snapshot = await snapshotDocx(zip);
+  const document = await zipText(zip, 'word/document.xml');
+  return [
+    ...reviewStateIssues(snapshot),
+    ...(validation.documentLint || []).map((finding) => ({
+      severity: finding.severity,
+      code: finding.code,
+      path: finding.part && finding.part !== 'word/document.xml' ? `/${finding.part}` : '/body',
+      message: finding.message,
+      source: 'document-lint',
+    })),
+    ...emptyDocumentIssues(document),
+    ...documentTableIssues(document),
+    ...documentInkIssues(document),
+    ...pictureDescriptionIssues(snapshot),
+  ];
+}
+
+const FORMULA_ERROR_PATTERN = /^(?:#REF!|#DIV\/0!|#VALUE!|#NAME\?|#N\/A|#NUM!|#NULL!)$/i;
+
+// One sheet's values: how far the audit read, formula errors, and formulas
+// without a cached value.
+function sheetValueIssues(sheet) {
+  const issues = [];
+  // Past the audit's own ceiling the answer says how far it read, so a
+  // clean report is never mistaken for a sheet that was read to the end.
+  if (sheet.truncated) {
+    issues.push({
+      // How far the audit read is a fact about this call, not a defect in
+      // the document: it is reported, never handed to a fix round.
+      severity: 'info',
+      code: 'audit_scope_limited',
+      path: sheet.path,
+      message: `Only the first ${sheet.cells.length} of ${sheet.cellCount} populated cells on this sheet were audited; audit the rest with issues sheet:'${sheet.name}' range:'…' in ranges of at most ${FULL_READ_CELL_LIMIT} cells.`,
+    });
+  }
+  // One uncached formula and a thousand are the same fact about the sheet:
+  // it has not been recalculated. Reported per cell, a model fills the
+  // issue budget with that one fact and hides every other finding.
+  const uncached = [];
+  for (const cell of sheet.cells) {
+    if (cell.formula && cell.cacheState === 'missing') uncached.push(cell);
+    if (FORMULA_ERROR_PATTERN.test(String(cell.value || ''))) {
+      issues.push({
+        severity: 'error',
+        code: 'formula_error',
+        path: cell.path,
+        message: `Cell contains formula error ${cell.value}`,
+      });
+    }
+  }
+  if (uncached.length) {
+    const shown = uncached
+      .slice(0, 3)
+      .map((cell) => cell.ref)
+      .join(', ');
+    issues.push({
+      severity: 'warning',
+      code: 'formula_cache_missing',
+      path: uncached.length === 1 ? uncached[0].path : `/sheet[${sheet.name}]`,
+      message: `${uncached.length} formula${uncached.length === 1 ? ' on this sheet has' : 's on this sheet have'} no cached value (${shown}${uncached.length > 3 ? ', …' : ''}); the workbook is marked for full recalculation on open.`,
+      ...(uncached.length > 1
+        ? { cells: uncached.slice(0, 20).map((cell) => cell.ref), cellCount: uncached.length }
+        : {}),
     });
   }
   return issues;
@@ -1039,51 +861,7 @@ async function workbookContentIssues(zip, options) {
         }
       : { full: true }
   );
-  const errorPattern = /^(?:#REF!|#DIV\/0!|#VALUE!|#NAME\?|#N\/A|#NUM!|#NULL!)$/i;
-  for (const sheet of snapshot.sheets) {
-    // Past the audit's own ceiling the answer says how far it read, so a
-    // clean report is never mistaken for a sheet that was read to the end.
-    if (sheet.truncated) {
-      issues.push({
-        // How far the audit read is a fact about this call, not a defect in
-        // the document: it is reported, never handed to a fix round.
-        severity: 'info',
-        code: 'audit_scope_limited',
-        path: sheet.path,
-        message: `Only the first ${sheet.cells.length} of ${sheet.cellCount} populated cells on this sheet were audited; audit the rest with issues sheet:'${sheet.name}' range:'…' in ranges of at most ${FULL_READ_CELL_LIMIT} cells.`,
-      });
-    }
-    // One uncached formula and a thousand are the same fact about the sheet:
-    // it has not been recalculated. Reported per cell, a model fills the
-    // issue budget with that one fact and hides every other finding.
-    const uncached = [];
-    for (const cell of sheet.cells) {
-      if (cell.formula && cell.cacheState === 'missing') uncached.push(cell);
-      if (errorPattern.test(String(cell.value || ''))) {
-        issues.push({
-          severity: 'error',
-          code: 'formula_error',
-          path: cell.path,
-          message: `Cell contains formula error ${cell.value}`,
-        });
-      }
-    }
-    if (uncached.length) {
-      const shown = uncached
-        .slice(0, 3)
-        .map((cell) => cell.ref)
-        .join(', ');
-      issues.push({
-        severity: 'warning',
-        code: 'formula_cache_missing',
-        path: uncached.length === 1 ? uncached[0].path : `/sheet[${sheet.name}]`,
-        message: `${uncached.length} formula${uncached.length === 1 ? ' on this sheet has' : 's on this sheet have'} no cached value (${shown}${uncached.length > 3 ? ', …' : ''}); the workbook is marked for full recalculation on open.`,
-        ...(uncached.length > 1
-          ? { cells: uncached.slice(0, 20).map((cell) => cell.ref), cellCount: uncached.length }
-          : {}),
-      });
-    }
-  }
+  for (const sheet of snapshot.sheets) issues.push(...sheetValueIssues(sheet));
   // Sheet names come from the workbook, not the (possibly selective)
   // snapshot, so a cross-sheet reference to an unselected sheet still audits.
   const sheetNames = (await workbookSheets(zip)).map((sheet) => sheet.name);

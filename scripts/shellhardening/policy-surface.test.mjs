@@ -113,7 +113,7 @@ test('B: POSIX host is a strict no-op', () => {
 // ---------------------------------------------------------------------------
 // C) shell command schema PowerShell cheat — platform-branched
 // ---------------------------------------------------------------------------
-test('C: shell surface keeps execution contract separate from the platform command cheat', (t) => {
+test('C: shell surface keeps execution contract separate from the platform command cheat', (_t) => {
   const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
   assert.ok(shellTool, 'shell tool must exist');
   assert.match(shellTool.description, /^Run programs, builds, tests and computation\./);

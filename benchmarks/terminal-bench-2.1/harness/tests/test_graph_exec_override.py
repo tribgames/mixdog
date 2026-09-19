@@ -60,6 +60,7 @@ class GraphExecOverrideTest(unittest.TestCase):
                         ],
                         capture_output=True,
                         text=True,
+                        check=False,
                     )
                     if not present:
                         self.assertNotEqual(result.returncode, 0)

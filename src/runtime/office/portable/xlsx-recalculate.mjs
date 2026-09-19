@@ -8,7 +8,7 @@ import { expandSharedFormulas } from './portable-shared-formulas.mjs';
 import { loadPackage, savePackage, zipText } from './portable-opc.mjs';
 import { libreOfficeAvailable, recalculateLibreOfficeWorkbook } from './portable-soffice.mjs';
 import { xmlDecode, xmlEncode } from './portable-xml.mjs';
-import { UnsupportedFormula, evaluateFormula, isFormulaError } from './xlsx-formula-engine.mjs';
+import { UnsupportedFormula, evaluateFormula, isBlank, isFormulaError } from './xlsx-formula-engine.mjs';
 
 const MAX_ENGINE_FORMULAS = 20_000;
 // Each cell a formula waits on is another frame on the stack, and a column that
@@ -26,7 +26,7 @@ function cachedCell(value) {
   if (isFormulaError(value)) return { type: 'e', text: xmlEncode(value) };
   if (typeof value === 'boolean') return { type: 'b', text: value ? '1' : '0' };
   if (typeof value === 'number') return { type: '', text: String(value) };
-  if (value === null || value === undefined || value === '') return { type: 'str', text: '' };
+  if (isBlank(value)) return { type: 'str', text: '' };
   return { type: 'str', text: xmlEncode(String(value)) };
 }
 
@@ -66,14 +66,10 @@ function workbookDefinedNames(xml) {
   return names;
 }
 
-/** Evaluates the workbook's formulas in this process and writes the values it reached. */
-export async function recalculateWithFormulaEngine(path) {
-  const zip = await loadPackage(path);
-  if (Object.keys(zip.files).some((entry) => /^xl\/externalLinks\//i.test(entry))) {
-    return { recalculated: false, reason: 'The workbook reads another workbook, which this engine cannot open.' };
-  }
+// The workbook's cells by sheet, plus the per-sheet parts the engine writes
+// back to, and the formula count that gates the engine.
+async function loadWorkbookGrid(zip) {
   const strings = await sharedStrings(zip);
-  const definedNames = workbookDefinedNames(await zipText(zip, 'xl/workbook.xml'));
   const parts = [];
   const grid = new Map();
   let formulaCount = 0;
@@ -85,14 +81,13 @@ export async function recalculateWithFormulaEngine(path) {
     parts.push({ sheet, xml, records, sharedFailures });
     for (const record of records) if (record.formula) formulaCount += 1;
   }
-  if (!formulaCount) return { recalculated: false, reason: 'The workbook has no formulas.' };
-  if (formulaCount > MAX_ENGINE_FORMULAS) {
-    return {
-      recalculated: false,
-      reason: `The workbook carries ${formulaCount} formulas, more than the ${MAX_ENGINE_FORMULAS} this engine evaluates; install LibreOffice to recalculate it.`,
-    };
-  }
+  return { parts, grid, formulaCount };
+}
 
+// A memoized cell evaluator over the grid: literals answer directly,
+// formulas evaluate through their dependencies, with circular references and
+// over-deep chains refused as UnsupportedFormula.
+function createCellEvaluator(grid, definedNames) {
   // How far a sheet's own cells reach, which is what bounds SUM(A:A).
   const extents = new Map();
   const sheetExtent = (sheetName) => {
@@ -112,7 +107,6 @@ export async function recalculateWithFormulaEngine(path) {
     extents.set(key, extent);
     return extent;
   };
-
   const computed = new Map();
   const active = new Set();
   const cellValue = (sheetName, ref) => {
@@ -123,7 +117,7 @@ export async function recalculateWithFormulaEngine(path) {
     const record = records.get(ref);
     if (!record) return '';
     if (!record.formula) {
-      const literal = record.value === null || record.value === undefined ? '' : record.value;
+      const literal = record.value ?? '';
       computed.set(key, literal);
       return literal;
     }
@@ -152,60 +146,53 @@ export async function recalculateWithFormulaEngine(path) {
       active.delete(key);
     }
   };
+  return cellValue;
+}
 
-  const unevaluated = [];
-  const errorCells = [];
-  let evaluated = 0;
-  for (const part of parts) {
-    const values = new Map();
-    for (const failure of part.sharedFailures) {
-      unevaluated.push({ at: `${part.sheet.name}!${failure.ref}`, reason: failure.reason });
-    }
-    const attempt = (record) => {
-      try {
-        const value = cellValue(part.sheet.name, record.ref);
-        values.set(record.ref, value);
-        evaluated += 1;
-        if (isFormulaError(value)) errorCells.push({ value, at: `${part.sheet.name}!${record.ref}` });
-        return null;
-      } catch (error) {
-        if (!(error instanceof UnsupportedFormula)) throw error;
-        return error;
-      }
-    };
-    const refuse = (record, error) =>
-      unevaluated.push({ at: `${part.sheet.name}!${record.ref}`, reason: error.reason });
-
-    // A column that adds up the row above it resolves as the sheet is read. One
-    // written the other way round waits on a cell further down for every row,
-    // and reading top-down would refuse each of them in turn. So the first
-    // refusal for depth turns the rest of the sheet around: read from the
-    // bottom, every cell finds what it waits on already computed.
-    const formulas = part.records.filter((record) => record.formula);
-    let turned = null;
-    for (const [index, record] of formulas.entries()) {
-      const failure = attempt(record);
-      if (!failure) continue;
-      if (failure.deferrable) {
-        turned = formulas.slice(index).reverse();
-        break;
-      }
-      refuse(record, failure);
-    }
-    for (const record of turned || []) {
-      const failure = attempt(record);
-      if (failure) refuse(record, failure);
-    }
-    if (values.size) zip.file(part.sheet.path, writeCachedValues(part.xml, values));
+// Evaluates one sheet's formulas into `values`, recording refusals and error
+// results on the tally. A column that adds up the row above it resolves as
+// the sheet is read. One written the other way round waits on a cell further
+// down for every row, and reading top-down would refuse each of them in turn.
+// So the first refusal for depth turns the rest of the sheet around: read
+// from the bottom, every cell finds what it waits on already computed.
+function evaluateSheetFormulas(part, cellValue, tally) {
+  const values = new Map();
+  const sheetName = part.sheet.name;
+  for (const failure of part.sharedFailures) {
+    tally.unevaluated.push({ at: `${sheetName}!${failure.ref}`, reason: failure.reason });
   }
-  if (!evaluated) {
-    return {
-      recalculated: false,
-      reason: `No formula in this workbook could be evaluated (${unevaluated[0]?.reason || 'unknown reason'}).`,
-    };
+  const attempt = (record) => {
+    try {
+      const value = cellValue(sheetName, record.ref);
+      values.set(record.ref, value);
+      tally.evaluated += 1;
+      if (isFormulaError(value)) tally.errorCells.push({ value, at: `${sheetName}!${record.ref}` });
+      return null;
+    } catch (error) {
+      if (!(error instanceof UnsupportedFormula)) throw error;
+      return error;
+    }
+  };
+  const refuse = (record, error) => tally.unevaluated.push({ at: `${sheetName}!${record.ref}`, reason: error.reason });
+  const formulas = part.records.filter((record) => record.formula);
+  let turned = null;
+  for (const [index, record] of formulas.entries()) {
+    const failure = attempt(record);
+    if (!failure) continue;
+    if (failure.deferrable) {
+      turned = formulas.slice(index).reverse();
+      break;
+    }
+    refuse(record, failure);
   }
-  await savePackage(zip, path);
+  for (const record of turned || []) {
+    const failure = attempt(record);
+    if (failure) refuse(record, failure);
+  }
+  return values;
+}
 
+function errorSummary(errorCells) {
   const byType = {};
   for (const entry of errorCells) {
     byType[entry.value] ||= { count: 0, cells: [] };
@@ -214,11 +201,47 @@ export async function recalculateWithFormulaEngine(path) {
     if (bucket.cells.length < MAX_REPORTED_CELLS) bucket.cells.push(entry.at);
     else bucket.truncated = (bucket.truncated || 0) + 1;
   }
+  return byType;
+}
+
+/** Evaluates the workbook's formulas in this process and writes the values it reached. */
+export async function recalculateWithFormulaEngine(path) {
+  const zip = await loadPackage(path);
+  if (Object.keys(zip.files).some((entry) => /^xl\/externalLinks\//i.test(entry))) {
+    return { recalculated: false, reason: 'The workbook reads another workbook, which this engine cannot open.' };
+  }
+  const { parts, grid, formulaCount } = await loadWorkbookGrid(zip);
+  const definedNames = workbookDefinedNames(await zipText(zip, 'xl/workbook.xml'));
+  if (!formulaCount) return { recalculated: false, reason: 'The workbook has no formulas.' };
+  if (formulaCount > MAX_ENGINE_FORMULAS) {
+    return {
+      recalculated: false,
+      reason: `The workbook carries ${formulaCount} formulas, more than the ${MAX_ENGINE_FORMULAS} this engine evaluates; install LibreOffice to recalculate it.`,
+    };
+  }
+  const cellValue = createCellEvaluator(grid, definedNames);
+  const tally = { unevaluated: [], errorCells: [], evaluated: 0 };
+  for (const part of parts) {
+    const values = evaluateSheetFormulas(part, cellValue, tally);
+    if (values.size) zip.file(part.sheet.path, writeCachedValues(part.xml, values));
+  }
+  const { unevaluated, errorCells, evaluated } = tally;
+  if (!evaluated) {
+    return {
+      recalculated: false,
+      reason: `No formula in this workbook could be evaluated (${unevaluated[0]?.reason || 'unknown reason'}).`,
+    };
+  }
+  await savePackage(zip, path);
+  const byType = errorSummary(errorCells);
+  // A clean status proves the formulas evaluate, not that they are right.
+  let status = 'success';
+  if (errorCells.length) status = 'errors_found';
+  else if (unevaluated.length) status = 'partial';
   return {
     recalculated: true,
     backend: 'mixdog-formula',
-    // A clean status proves the formulas evaluate, not that they are right.
-    status: errorCells.length ? 'errors_found' : unevaluated.length ? 'partial' : 'success',
+    status,
     formulaCount,
     evaluated,
     totalErrors: errorCells.length,

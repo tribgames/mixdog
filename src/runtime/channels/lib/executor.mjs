@@ -1,5 +1,5 @@
-import { mkdirSync, appendFileSync, appendFile as _appendFileAsync } from 'fs';
-import { join } from 'path';
+import { mkdirSync, appendFileSync, appendFile as _appendFileAsync } from 'node:fs';
+import { join } from 'node:path';
 import { DATA_DIR } from './config.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../shared/runtime-root.mjs';
 const NOPLUGIN_DIR = join(resolveRuntimeRoot(), 'noplugin');

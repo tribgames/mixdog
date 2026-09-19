@@ -1,4 +1,4 @@
-import { mkdirSync } from 'fs';
+import { mkdirSync } from 'node:fs';
 import { readSection, updateSection, CONFIG_PATH as MIXDOG_CONFIG_PATH } from '../../shared/config.mjs';
 import { listSchedules } from '../../shared/schedules-db.mjs';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';

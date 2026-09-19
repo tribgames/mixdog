@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import test from 'node:test';
 import { validateComputerCoreActions } from './core-actions.mjs';
+import { toComputerHostCommand, validateComputerToolArgs } from './action-schema.mjs';
 
 test('drag waypoints carry the whole gesture and refuse a second target or a missing frame', () => {
   const waypoints = [
@@ -27,8 +29,7 @@ test('drag waypoints carry the whole gesture and refuse a second target or a mis
   );
 });
 
-test('a waypoint drag carries its frame into the dispatched step', async () => {
-  const { toComputerHostCommand } = await import('./action-schema.mjs');
+test('a waypoint drag carries its frame into the dispatched step', () => {
   const command = toComputerHostCommand({
     action: 'act',
     input: {
@@ -64,8 +65,6 @@ test('a held key is an input action that can also follow the first one', () => {
     /does not accept field\(s\): x, y/
   );
 });
-import test from 'node:test';
-import { toComputerHostCommand, validateComputerToolArgs } from './action-schema.mjs';
 
 test('background is the default and explicit foreground selects the real pointer', () => {
   for (const delivery of [undefined, 'foreground', 'background']) {

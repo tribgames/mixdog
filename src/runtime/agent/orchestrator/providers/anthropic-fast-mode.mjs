@@ -13,6 +13,8 @@
 // session: one session discovering the pool is empty must not leave sibling
 // sessions hammering it.
 
+import { headerValue } from './retry-classification.mjs';
+
 // Server-declared reason header for a fast-mode rejection caused by missing
 // overage billing (matches the reference client's header name).
 const OVERAGE_DISABLED_HEADER = 'anthropic-ratelimit-unified-overage-disabled-reason';
@@ -28,16 +30,6 @@ const DEFAULT_COOLDOWN_MS = 300_000;
 
 let _cooldownUntilMs = 0;
 let _disabledReason = null;
-
-function _headerValue(headers, name) {
-  if (!headers) return null;
-  const lower = name.toLowerCase();
-  if (typeof headers.get === 'function') return headers.get(name) ?? headers.get(lower);
-  for (const [key, value] of Object.entries(headers)) {
-    if (String(key).toLowerCase() === lower) return Array.isArray(value) ? value[0] : value;
-  }
-  return null;
-}
 
 /** True when a request may still ask for `speed: 'fast'`. */
 export function fastModeAvailable(now = Date.now()) {
@@ -69,7 +61,7 @@ export function noteFastModeCapacityError(err, { fast = false, now = Date.now() 
   if (status !== 429 && status !== 529) return 'ignored';
 
   const headers = err?.headers || err?.response?.headers || err?.data?.responseHeaders || null;
-  const overageReason = _headerValue(headers, OVERAGE_DISABLED_HEADER);
+  const overageReason = headerValue(headers, OVERAGE_DISABLED_HEADER);
   if (overageReason != null && String(overageReason) !== '') {
     _disabledReason = String(overageReason);
     return 'disabled';

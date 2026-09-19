@@ -46,13 +46,7 @@ function parseSlidePlan(text) {
       if (match && PLAN_KEYS.includes(match[1].toLowerCase())) fields[match[1].toLowerCase()] = match[2].trim();
     }
     const head = `${entry.tokens[0]} ${fields.job || ''}`;
-    const role = /\bcover\b/i.test(head)
-      ? 'cover'
-      : /\bclosing\b/i.test(head)
-        ? 'closing'
-        : /\bsection\b/i.test(head)
-          ? 'section'
-          : '';
+    const role = planSlideRole(head);
     const carriers = String(fields.carriers || '')
       .split(/\s*[,+/]\s*/)
       .map((word) => word.trim().toLowerCase())
@@ -112,12 +106,21 @@ const SAMPLE_FACTS = /^\s*(?:sample|illustrative|example)\b\s*[—–:-]?\s*/i;
 export const FACTS_SAMPLE_DISCLOSURE =
   'The brief declares facts: sample — every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.';
 
+function planSlideRole(head) {
+  if (/\bcover\b/i.test(head)) return 'cover';
+  if (/\bclosing\b/i.test(head)) return 'closing';
+  if (/\bsection\b/i.test(head)) return 'section';
+  return '';
+}
+
 export function parseAuthoringBrief(script) {
   const plan = parseSlidePlan(briefLine(script, 'slide plan'));
   const factsLine = briefLine(script, 'facts');
   const sample = SAMPLE_FACTS.test(factsLine);
   const facts = sample ? [] : parseFacts(factsLine);
-  const factsMode = sample ? 'sample' : facts.length ? 'sourced' : 'none';
+  let factsMode = 'none';
+  if (sample) factsMode = 'sample';
+  else if (facts.length) factsMode = 'sourced';
   const factsNote = sample ? factsLine.replace(SAMPLE_FACTS, '').trim() : '';
   const style = /^\s*([a-z-]+)/i.exec(briefLine(script, 'style') || briefLine(script, 'family'))?.[1] || '';
   const directions = parseDirections(briefLine(script, 'directions'));

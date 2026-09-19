@@ -21,7 +21,7 @@ HARNESS_ROOT = BENCH_ROOT / "harness"
 REPO_ROOT = BENCH_ROOT.parents[1]
 sys.path.insert(0, str(BENCH_ROOT))
 
-from harness.routing_profiles import (  # noqa: E402
+from harness.routing_profiles import (
     PROFILE_PATH,
     PROFILE_ROLES,
     RouteProfileError,
@@ -104,6 +104,7 @@ process.stdout.write(JSON.stringify({{
             text=True,
             encoding="utf-8",
             timeout=30,
+            check=False,
         )
     if result.returncode != 0:
         raise AssertionError(result.stderr)
@@ -387,6 +388,7 @@ console.log(JSON.stringify({
             text=True,
             encoding="utf-8",
             timeout=10,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
@@ -803,6 +805,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 text=True,
                 encoding="utf-8",
                 timeout=30,
+                check=False,
             )
             self.assertEqual(child.returncode, 0, child.stdout + child.stderr)
             return
@@ -1327,6 +1330,7 @@ class AdapterRunEnvironmentTests(unittest.TestCase):
                 [candidate, "-c", "exit 0"],
                 capture_output=True,
                 timeout=5,
+                check=False,
             )
             if probe.returncode == 0:
                 shell = candidate
@@ -1400,6 +1404,7 @@ INSTALLER
             text=True,
             encoding="utf-8",
             timeout=30,
+            check=False,
         )
         return temp, home, log, result
 
@@ -1563,6 +1568,7 @@ INSTALLER
             text=True,
             encoding="utf-8",
             timeout=120,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -1669,6 +1675,7 @@ class LauncherDryRunTests(unittest.TestCase):
             encoding="utf-8",
             errors="replace",
             timeout=30,
+            check=False,
         )
 
     def test_profile_dry_run_generates_auditable_command(self) -> None:
@@ -1771,6 +1778,7 @@ class LauncherDryRunTests(unittest.TestCase):
                 text=True,
                 encoding="utf-8",
                 timeout=30,
+                check=False,
             )
             state_paths = [
                 Path(line.strip())

@@ -122,9 +122,14 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
     );
   }
   const sessionLifecycleSrc = readMjsSources('src/runtime/agent/orchestrator/session/manager/session-lifecycle.mjs');
-  const updateSessionRouteBlock =
-    sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '';
+  // The route change reset lives in resetSessionForRouteChange; the guard
+  // covers the caller and the helper together.
+  const updateSessionRouteBlock = [
+    sessionLifecycleSrc.match(/export function updateSessionRoute\(id, route = \{\}\) \{[\s\S]*?\n\}/)?.[0] || '',
+    sessionLifecycleSrc.match(/function resetSessionForRouteChange\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || '',
+  ].join('\n');
   if (
+    !/if \(routeChanged\) resetSessionForRouteChange\(/.test(updateSessionRouteBlock) ||
     !/session\.promptCacheKey = providerCacheKey\(session\.provider\)/.test(updateSessionRouteBlock) ||
     !/session\.providerCacheOpts = buildSessionProviderCacheOpts\(session\.provider, session\.id, session\.agent\) \|\| null/.test(
       updateSessionRouteBlock

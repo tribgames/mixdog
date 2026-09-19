@@ -7,7 +7,10 @@ scenario="$2"
 [[ "$(basename "$root")" = mixdog-release-transaction-* ]]
 INSTALL_DIR="$root/mixdog-relay"
 NEXT_DIR="$root/mixdog-relay.next-v0.0.1"
+# shellcheck disable=SC2034  # consumed by the sourced release-transaction.sh
 BACKUP_DIR="$root/mixdog-relay.backup-v0.0.1"
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=release-transaction.sh
 source "$(dirname "${BASH_SOURCE[0]}")/release-transaction.sh"
 restart_count=0
 systemctl() {

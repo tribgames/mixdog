@@ -76,6 +76,32 @@ export function createToolPolicyRefresh({
   activeWorkflowContext,
   invalidatePreSessionToolSurface,
 }) {
+  // Denied tools leave every surface, then the deferred surface is rebuilt
+  // for the lead's current mode.
+  function applyToolDenials(session, denied) {
+    session.disallowedTools = denied;
+    session.tools = filterDisallowedTools(session.tools, denied);
+    if (Array.isArray(session.deferredToolCatalog)) {
+      session.deferredToolCatalog = filterDisallowedTools(session.deferredToolCatalog, denied);
+    }
+    applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), modelStandaloneTools(), {
+      provider: getRoute()?.provider,
+    });
+    const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
+    const active = new Set(toolNames(session.tools).concat(toolNames(session.deferredCallableTools)));
+    const pool = catalog.map((tool) => String(tool?.name || '')).filter((name) => name && !active.has(name));
+    applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true });
+  }
+
+  async function leadCoreMemoryContext() {
+    if (!memoryToolsEnabled()) return '';
+    try {
+      return await loadCoreMemoryContext();
+    } catch {
+      return '';
+    }
+  }
+
   async function refreshEmptySessionToolPolicy() {
     invalidatePreSessionToolSurface?.();
     const session = getSession?.();
@@ -97,18 +123,7 @@ export function createToolPolicyRefresh({
       .filter(Boolean);
     session.workflow = toSessionWorkflowMeta(workflow);
     session.orchestrationMode = orchestrationMode;
-    session.disallowedTools = denied;
-    session.tools = filterDisallowedTools(session.tools, denied);
-    if (Array.isArray(session.deferredToolCatalog)) {
-      session.deferredToolCatalog = filterDisallowedTools(session.deferredToolCatalog, denied);
-    }
-    applyDeferredToolSurface(session, deferredSurfaceModeForLead(getMode()), modelStandaloneTools(), {
-      provider: getRoute()?.provider,
-    });
-    const catalog = Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : [];
-    const active = new Set(toolNames(session.tools).concat(toolNames(session.deferredCallableTools)));
-    const pool = catalog.map((tool) => String(tool?.name || '')).filter((name) => name && !active.has(name));
-    applyInitialDeferredToolManifestToBp2(session, pool, { rebuild: true });
+    applyToolDenials(session, denied);
 
     const allowsAgents = workflow?.delegatesAgents !== false;
     const baseRules = _buildBaseRules({
@@ -118,14 +133,7 @@ export function createToolPolicyRefresh({
       model: getRoute()?.model,
     });
     const roleRules = _buildLeadRules({ includeLeadBrief: allowsAgents });
-    let coreMemoryContext = '';
-    if (memoryToolsEnabled()) {
-      try {
-        coreMemoryContext = await loadCoreMemoryContext();
-      } catch {
-        coreMemoryContext = '';
-      }
-    }
+    const coreMemoryContext = await leadCoreMemoryContext();
     const { sessionMarkerCore } = composeSystemPrompt({
       roleRules,
       skipRoleCatalog: true,

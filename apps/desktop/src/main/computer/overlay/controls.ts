@@ -42,13 +42,11 @@ export function createComputerOverlayController(controls: ComputerUseOverlayCont
     } catch (reason) {
       const message = String((reason as Error)?.message || '');
       if (pending !== request) return;
-      error = /computer_(cleanup_pending|abort_cleanup_unconfirmed|background_cleanup_unconfirmed)/.test(message)
-        ? 'cleanup'
-        : /computer_stop_unconfirmed/.test(message)
-          ? 'stop'
-          : /computer_resume_stale/.test(message)
-            ? 'stale'
-            : 'failed';
+      error = 'failed';
+      if (/computer_(cleanup_pending|abort_cleanup_unconfirmed|background_cleanup_unconfirmed)/.test(message)) {
+        error = 'cleanup';
+      } else if (/computer_stop_unconfirmed/.test(message)) error = 'stop';
+      else if (/computer_resume_stale/.test(message)) error = 'stale';
     } finally {
       if (pending === request) {
         pending = undefined;

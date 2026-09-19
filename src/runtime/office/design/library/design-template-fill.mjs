@@ -64,6 +64,39 @@ export function selectTemplatePage(document, request) {
   return chosen.page;
 }
 
+// Places each item's lead and follow text in the group's slots. Fewer items
+// than slots empties the unused ones outright: the template's own words are
+// never left behind to read as content. Text with no box is reported, not dropped.
+function placeGroupItems(slots, group, items) {
+  const sets = [];
+  const deletes = [];
+  const unplaced = [];
+  for (let position = 1; group && position <= group.size; position += 1) {
+    const item = items[position - 1];
+    const lead = slots.get(`${group.family}-${group.lead}-${position}`);
+    const follow = slots.get(`${group.family}-${group.follow}-${position}`);
+    const leadText = String(item?.title ?? item?.value ?? '');
+    const followText = String(item?.body ?? item?.label ?? item?.detail ?? '');
+    if (lead) {
+      if (leadText) sets.push({ shape: lead, text: leadText });
+      else deletes.push(lead);
+    } else if (leadText) unplaced.push({ position, field: group.lead });
+    if (follow) {
+      if (followText) sets.push({ shape: follow, text: followText });
+      else deletes.push(follow);
+    } else if (followText) unplaced.push({ position, field: group.follow });
+  }
+  return { sets, deletes, unplaced };
+}
+
+function unplacedTextError(page, group, unplaced) {
+  const fields = [...new Set(unplaced.map((entry) => entry.field))].join(' and ');
+  const positions = [...new Set(unplaced.map((entry) => entry.position))].join(', ');
+  return new Error(
+    `Slide ${page.index} of the template has no ${group.family} ${fields} box for item ${positions}, so that text has nowhere to go: put it in the item's ${group.lead}, or use a page whose ${group.family}s carry a ${fields} line`
+  );
+}
+
 export function templatePageFill(page, content) {
   const slots = pageSlots(page);
   const group = pageGroup(slots);
@@ -79,46 +112,22 @@ export function templatePageFill(page, content) {
     );
   }
   const sets = [];
-  const deletes = [];
-  // Text an item carries that the page has no box for: a comparison page whose
-  // columns are one line each cannot hold the second line of an item, and
-  // writing the first line alone drops the rest without a word. A page that
-  // cannot take the content says so, the way it does for too many items.
-  const unplaced = [];
   const title = String(content?.title || '');
   if (title) {
     const shape = slots.get('title');
     if (!shape) throw new Error(`Slide ${page.index} of the template has no title slot to fill`);
     sets.push({ shape, text: title });
   }
-  for (let position = 1; group && position <= group.size; position += 1) {
-    const item = items[position - 1];
-    const lead = slots.get(`${group.family}-${group.lead}-${position}`);
-    const follow = slots.get(`${group.family}-${group.follow}-${position}`);
-    const leadText = String(item?.title ?? item?.value ?? '');
-    const followText = String(item?.body ?? item?.label ?? item?.detail ?? '');
-    // Fewer items than slots empties the unused ones outright: the template's own
-    // words are never left behind to read as content.
-    if (lead) {
-      if (leadText) sets.push({ shape: lead, text: leadText });
-      else deletes.push(lead);
-    } else if (leadText) unplaced.push({ position, field: group.lead });
-    if (follow) {
-      if (followText) sets.push({ shape: follow, text: followText });
-      else deletes.push(follow);
-    } else if (followText) unplaced.push({ position, field: group.follow });
-  }
-  if (unplaced.length) {
-    const fields = [...new Set(unplaced.map((entry) => entry.field))].join(' and ');
-    const positions = [...new Set(unplaced.map((entry) => entry.position))].join(', ');
-    throw new Error(
-      `Slide ${page.index} of the template has no ${group.family} ${fields} box for item ${positions}, so that text has nowhere to go: put it in the item's ${group.lead}, or use a page whose ${group.family}s carry a ${fields} line`
-    );
-  }
+  // Text an item carries that the page has no box for: a comparison page whose
+  // columns are one line each cannot hold the second line of an item, and
+  // writing the first line alone drops the rest without a word. A page that
+  // cannot take the content says so, the way it does for too many items.
+  const placed = placeGroupItems(slots, group, items);
+  if (placed.unplaced.length) throw unplacedTextError(page, group, placed.unplaced);
   return {
-    sets,
+    sets: [...sets, ...placed.sets],
     // Deleting a shape renumbers the ones after it, so they go highest first.
-    deletes: [...new Set(deletes)].sort((left, right) => right - left),
+    deletes: [...new Set(placed.deletes)].sort((left, right) => right - left),
     group,
   };
 }

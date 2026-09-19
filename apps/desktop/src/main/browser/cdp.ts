@@ -391,38 +391,18 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     // A pause carrying a status is already past the request stage, where
     // only continueResponse may release it.
     const atResponseStage = params.responseStatusCode !== undefined;
-    const answered = !rule
-      ? sendCdp(
-          guest,
-          cdp,
-          atResponseStage ? 'Fetch.continueResponse' : 'Fetch.continueRequest',
-          { requestId: pausedRequestId },
-          CDP_REQUEST_TIMEOUT_MS,
-          undefined,
-          sessionId
-        )
-      : rule.abort
-        ? sendCdp(
-            guest,
-            cdp,
-            'Fetch.failRequest',
-            {
-              requestId: pausedRequestId,
-              errorReason: 'Aborted',
-            },
-            CDP_REQUEST_TIMEOUT_MS,
-            undefined,
-            sessionId
-          )
-        : sendCdp(
-            guest,
-            cdp,
-            'Fetch.fulfillRequest',
-            interceptFulfillParams(rule, pausedRequestId),
-            CDP_REQUEST_TIMEOUT_MS,
-            undefined,
-            sessionId
-          );
+    const answer = (method: string, answerParams: Record<string, unknown>) =>
+      sendCdp(guest, cdp, method, answerParams, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId);
+    let answered: Promise<unknown>;
+    if (!rule) {
+      answered = answer(atResponseStage ? 'Fetch.continueResponse' : 'Fetch.continueRequest', {
+        requestId: pausedRequestId,
+      });
+    } else if (rule.abort) {
+      answered = answer('Fetch.failRequest', { requestId: pausedRequestId, errorReason: 'Aborted' });
+    } else {
+      answered = answer('Fetch.fulfillRequest', interceptFulfillParams(rule, pausedRequestId));
+    }
     // A request that could not be answered would otherwise fail silently
     // and look like a hung page, so the reason stays in the console — as the
     // browser's own fault, since the interception is ours, not the page's.
@@ -534,9 +514,10 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
         const thrownUrl = frame?.url || detail?.url;
         // A thrown Error already prints its own stack; only a bare value, such
         // as `throw 'boom'`, needs the script and line spelled out.
+        const thrownLine = frame?.url ? frame.lineNumber : detail?.lineNumber;
         diagnostics.console.recordError(
           thrownUrl && !described.includes(thrownUrl)
-            ? `${described}${formatConsoleSource(redactBrowserUrl(thrownUrl), frame?.url ? frame.lineNumber : detail?.lineNumber)}`
+            ? `${described}${formatConsoleSource(redactBrowserUrl(thrownUrl), thrownLine)}`
             : described
         );
         return;

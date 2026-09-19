@@ -109,13 +109,14 @@ export function createGoalRuntime({
   const commit = async (sessionId, goal) => {
     const id = assertSessionId(sessionId);
     const previous = goal ? readRecord(id).goal : null;
-    const committedGoal = goal
-      ? {
-          ...goal,
-          sessionId: id,
-          tasks: Array.isArray(goal.tasks) ? goal.tasks.map((task) => ({ ...task })) : [],
-        }
-      : null;
+    let committedGoal = null;
+    if (goal) {
+      committedGoal = {
+        ...goal,
+        sessionId: id,
+        tasks: Array.isArray(goal.tasks) ? goal.tasks.map((task) => ({ ...task })) : [],
+      };
+    }
     if (committedGoal) {
       // Clock checkpoints and generated titles must not invalidate a model's
       // task update. Only changes to the actionable state advance its revision.
@@ -234,6 +235,63 @@ export function createGoalRuntime({
     return record.goal;
   };
 
+  // Explicit budget first, then a plain duration, then the configured default.
+  const initialTimeLimitMs = (args) => {
+    if (args.timeLimitMs != null) return parseGoalDuration(args.timeLimitMs);
+    if (args.duration) return parseGoalDuration(args.duration);
+    const configured = Number(defaultTimeLimitMs);
+    return Number.isFinite(configured) && configured > 0 ? parseGoalDuration(configured) : 0;
+  };
+
+  const newGoalRecord = (id, args, at) => {
+    const startTurn = args.startInCurrentTurn === true ? 1 : 0;
+    const initialTasks = Array.isArray(args.tasks)
+      ? normalizeGoalTasks(
+          args.tasks.filter((task) => clean(task?.text)),
+          [],
+          { strict: true }
+        )
+      : [];
+    return {
+      id: randomUUID(),
+      revision: 1,
+      objectiveRevision: 1,
+      tasksObjectiveRevision: 1,
+      sessionId: id,
+      objective: validateObjective(args.objective),
+      title: compactSessionTitle(args.objective),
+      status: 'active',
+      tasks: initialTasks,
+      blocker: '',
+      failureReason: '',
+      failureCount: 0,
+      turnCount: startTurn,
+      lastDropTurn: initialTasks.some((task) => task.status === 'dropped') ? startTurn : -1,
+      tasksUpdatedAt: initialTasks.length > 0 ? at : null,
+      timeLimitMs: initialTimeLimitMs(args),
+      timeMode: goalTimeMode(args.timeMode),
+      timeUsedMs: 0,
+      deadlineWarnedMs: NO_DEADLINE_WARNING_MS,
+      warningRevision: 0,
+      createdAt: at,
+      updatedAt: at,
+      lastStartedAt: at,
+      completedAt: null,
+      archivedAt: null,
+    };
+  };
+
+  // A finished Goal moves to the session's history before its successor
+  // takes the live slot.
+  const archiveFinishedGoal = async (id, goal) => {
+    const write = writeGoalRecord || writeJsonAtomicAsync;
+    await write(
+      join(root, 'history', id, `${assertSessionId(goal.id)}.json`),
+      { version: GOAL_FILE_VERSION, goal },
+      { lock: true, secret: true, fsync: false, timeoutMs: 2_000 }
+    );
+  };
+
   const createGoal = async (sessionId, args = {}) => {
     const id = assertSessionId(sessionId);
     const record = readRecord(id);
@@ -247,64 +305,13 @@ export function createGoalRuntime({
       );
     }
     const at = now();
-    const configuredDefaultTimeLimitMs = Number(defaultTimeLimitMs);
-    const timeLimitMs =
-      args.timeLimitMs != null
-        ? parseGoalDuration(args.timeLimitMs)
-        : args.duration
-          ? parseGoalDuration(args.duration)
-          : Number.isFinite(configuredDefaultTimeLimitMs) && configuredDefaultTimeLimitMs > 0
-            ? parseGoalDuration(configuredDefaultTimeLimitMs)
-            : 0;
-    const initialTasks = Array.isArray(args.tasks)
-      ? normalizeGoalTasks(
-          args.tasks.filter((task) => clean(task?.text)),
-          [],
-          { strict: true }
-        )
-      : [];
-    const goal = {
-      id: randomUUID(),
-      revision: 1,
-      objectiveRevision: 1,
-      tasksObjectiveRevision: 1,
-      sessionId: id,
-      objective: validateObjective(args.objective),
-      title: compactSessionTitle(args.objective),
-      status: 'active',
-      tasks: initialTasks,
-      blocker: '',
-      failureReason: '',
-      failureCount: 0,
-      turnCount: args.startInCurrentTurn === true ? 1 : 0,
-      lastDropTurn: initialTasks.some((task) => task.status === 'dropped')
-        ? args.startInCurrentTurn === true
-          ? 1
-          : 0
-        : -1,
-      tasksUpdatedAt: initialTasks.length > 0 ? at : null,
-      timeLimitMs,
-      timeMode: goalTimeMode(args.timeMode),
-      timeUsedMs: 0,
-      deadlineWarnedMs: NO_DEADLINE_WARNING_MS,
-      warningRevision: 0,
-      createdAt: at,
-      updatedAt: at,
-      lastStartedAt: at,
-      completedAt: null,
-      archivedAt: null,
-    };
+    const goal = newGoalRecord(id, args, at);
     if (args.startInCurrentTurn === true) {
       const startedAt = record.goal ? at : turnStartedAt.get(id) || at;
       goal.lastStartedAt = startedAt;
     }
     if (record.goal && ['complete', 'stopped'].includes(record.goal.status)) {
-      const write = writeGoalRecord || writeJsonAtomicAsync;
-      await write(
-        join(root, 'history', id, `${assertSessionId(record.goal.id)}.json`),
-        { version: GOAL_FILE_VERSION, goal: record.goal },
-        { lock: true, secret: true, fsync: false, timeoutMs: 2_000 }
-      );
+      await archiveFinishedGoal(id, record.goal);
     }
     const created = await commit(id, goal);
     if (args.startInCurrentTurn === true) {
@@ -313,6 +320,54 @@ export function createGoalRuntime({
     }
     scheduleGoalTitle(id, goal);
     return created;
+  };
+
+  // Evidence gates the MODEL's completion claim, never the user's. A user
+  // completing their own Goal is an act of authority: without this the
+  // only user-side exit was deleting the Goal, which threw the record
+  // away. Unfinished rows stay unfinished so the record stays honest.
+  const assertCompletionEvidence = (goal, at) => {
+    if (goal.tasksObjectiveRevision !== goal.objectiveRevision) {
+      throw new Error(
+        'cannot complete Goal: objective changed; read goal status and reconcile the full task list with set_tasks first'
+      );
+    }
+    const tasks = normalizeGoalTasks(goal.tasks || []);
+    const incomplete = tasks.filter((task) => !GOAL_TASK_SETTLED.includes(task.status));
+    if (incomplete.length > 0) {
+      throw new Error(`cannot complete Goal: ${incomplete.length} durable tasks remain incomplete`);
+    }
+    const turnCount = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
+    if (goal.lastDropTurn >= 0 && goal.lastDropTurn === turnCount) {
+      throw new Error(
+        'cannot complete Goal: a task was dropped this turn; only a user scope change retires ' +
+          'requested work, so finish that work or let the user confirm the change first'
+      );
+    }
+    if (goal.timeMode === 'duration' && goal.timeLimitMs > 0 && activeElapsedMs(goal, at) < goal.timeLimitMs) {
+      throw new Error(
+        'cannot complete Goal before the requested duration ends; keep working, or the user may explicitly complete the Goal'
+      );
+    }
+  };
+
+  // Three consecutive turns naming the same blocker confirm it; true once
+  // the audit reaches that count.
+  const recordBlockAudit = (goal, blocker) => {
+    const turn = goal.turnCount;
+    const previous = goal.blockAudit;
+    const sameBlocker = previous?.reason === blocker;
+    let count = 1;
+    if (sameBlocker && previous.turn === turn) count = previous.count;
+    else if (sameBlocker && previous.turn === turn - 1) count = previous.count + 1;
+    goal.blockAudit = { reason: blocker, turn, count };
+    return count >= 3;
+  };
+
+  // The Goal owning the current turn keeps its open segment; any other stops.
+  const settleActiveClock = (id, goal, at) => {
+    if (turnGoalIds.get(id) === goal.id) checkpointActiveClock(goal, at);
+    else stopActiveClock(goal, at);
   };
 
   const updateGoal = async (sessionId, args = {}, { user = false, expectedGoalId = '' } = {}) => {
@@ -333,57 +388,19 @@ export function createGoalRuntime({
       throw new Error('a completed Goal cannot change status; edit it or create a new Goal');
     }
     if (status === 'complete') {
-      // Evidence gates the MODEL's completion claim, never the user's. A user
-      // completing their own Goal is an act of authority: without this the
-      // only user-side exit was deleting the Goal, which threw the record
-      // away. Unfinished rows stay unfinished so the record stays honest.
-      if (!user) {
-        if (goal.tasksObjectiveRevision !== goal.objectiveRevision) {
-          throw new Error(
-            'cannot complete Goal: objective changed; read goal status and reconcile the full task list with set_tasks first'
-          );
-        }
-        const tasks = normalizeGoalTasks(goal.tasks || []);
-        const incomplete = tasks.filter((task) => !GOAL_TASK_SETTLED.includes(task.status));
-        if (incomplete.length > 0) {
-          throw new Error(`cannot complete Goal: ${incomplete.length} durable tasks remain incomplete`);
-        }
-        const turnCount = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
-        if (goal.lastDropTurn >= 0 && goal.lastDropTurn === turnCount) {
-          throw new Error(
-            'cannot complete Goal: a task was dropped this turn; only a user scope change retires ' +
-              'requested work, so finish that work or let the user confirm the change first'
-          );
-        }
-        if (goal.timeMode === 'duration' && goal.timeLimitMs > 0 && activeElapsedMs(goal, at) < goal.timeLimitMs) {
-          throw new Error(
-            'cannot complete Goal before the requested duration ends; keep working, or the user may explicitly complete the Goal'
-          );
-        }
-      }
-      if (turnGoalIds.get(id) === goal.id) checkpointActiveClock(goal, at);
-      else stopActiveClock(goal, at);
+      if (!user) assertCompletionEvidence(goal, at);
+      settleActiveClock(id, goal, at);
       goal.status = 'complete';
       goal.completedAt = at;
       goal.blocker = '';
       clearTurnFailures(goal);
     } else if (status === 'blocked') {
       const blocker = validateGoalBlocker(args.blocker);
-      const turn = goal.turnCount;
-      const previous = goal.blockAudit;
-      const count =
-        previous?.reason === blocker && previous.turn === turn
-          ? previous.count
-          : previous?.reason === blocker && previous.turn === turn - 1
-            ? previous.count + 1
-            : 1;
-      goal.blockAudit = { reason: blocker, turn, count };
-      if (count < 3) {
+      if (!recordBlockAudit(goal, blocker)) {
         goal.updatedAt = at;
         return commit(id, goal);
       }
-      if (turnGoalIds.get(id) === goal.id) checkpointActiveClock(goal, at);
-      else stopActiveClock(goal, at);
+      settleActiveClock(id, goal, at);
       goal.status = 'blocked';
       goal.blocker = blocker;
       clearTurnFailures(goal);
@@ -438,12 +455,9 @@ export function createGoalRuntime({
 
   const control = async (sessionId, rawArgs = {}) => {
     const id = assertSessionId(sessionId);
-    const args =
-      typeof rawArgs === 'string'
-        ? parseUserCommand(rawArgs)
-        : rawArgs?.command != null
-          ? { ...rawArgs, ...parseUserCommand(rawArgs.command) }
-          : rawArgs;
+    let args = rawArgs;
+    if (typeof rawArgs === 'string') args = parseUserCommand(rawArgs);
+    else if (rawArgs?.command != null) args = { ...rawArgs, ...parseUserCommand(rawArgs.command) };
     const action = clean(args?.action || 'get').toLowerCase();
     let goal;
     if (action === 'create') {
@@ -465,20 +479,18 @@ export function createGoalRuntime({
     }
     if (action === 'get' || action === 'status') {
       goal = visibleSnapshot(id);
-      return {
-        ok: true,
-        action: 'get',
-        goal,
-        message: goal
-          ? `Goal ${goal.status} · ${goal.objective}${
-              goal.status === 'active'
-                ? Number(goal.timeLimitMs) > 0
-                  ? ` · ${durationLabel(goal.remainingMs)} remaining`
-                  : ` · ${durationLabel(goal.timeUsedMs)} elapsed`
-                : ''
-            }`
-          : 'No visible Goal for this session',
-      };
+      let message = 'No visible Goal for this session';
+      if (goal) {
+        let timing = '';
+        if (goal.status === 'active') {
+          timing =
+            Number(goal.timeLimitMs) > 0
+              ? ` · ${durationLabel(goal.remainingMs)} remaining`
+              : ` · ${durationLabel(goal.timeUsedMs)} elapsed`;
+        }
+        message = `Goal ${goal.status} · ${goal.objective}${timing}`;
+      }
+      return { ok: true, action: 'get', goal, message };
     }
     if (action === 'clear') {
       await commit(id, null);
@@ -541,14 +553,9 @@ export function createGoalRuntime({
       // the CURRENT objective, so wiping the list meant refining one word threw
       // away every completed row; re-aligning a stale list is set_tasks' job.
       const objective = validateObjective(args.objective);
-      const timeLimitMs =
-        args.timeLimitMs != null
-          ? args.timeLimitMs === 0
-            ? 0
-            : parseGoalDuration(args.timeLimitMs)
-          : args.duration != null
-            ? parseGoalDuration(args.duration)
-            : goal.timeLimitMs;
+      let timeLimitMs = goal.timeLimitMs;
+      if (args.timeLimitMs != null) timeLimitMs = args.timeLimitMs === 0 ? 0 : parseGoalDuration(args.timeLimitMs);
+      else if (args.duration != null) timeLimitMs = parseGoalDuration(args.duration);
       const timeMode = goalTimeMode(args.timeMode, goal.timeMode);
       if (objective !== goal.objective) goal.objectiveRevision += 1;
       goal.objective = objective;
@@ -600,24 +607,22 @@ export function createGoalRuntime({
 
   const toolReply = (id, goal, { full = false, previousIds = null } = {}) => {
     observeGoal(id, goal);
-    const result = {
-      goal:
-        !goal || full
-          ? goal
-          : {
-              id: goal.id,
-              revision: goal.revision,
-              status: goal.status,
-              tasksCompleted: goal.tasksCompleted,
-              tasksTotal: goal.tasksTotal,
-              tasksUpdatedAt: goal.tasksUpdatedAt,
-              timeUsedMs: goal.timeUsedMs,
-              ...(goal.blocker ? { blocker: goal.blocker } : {}),
-              ...(goal.blockAudit ? { blockAudit: goal.blockAudit } : {}),
-              ...(goal.needsTaskReview ? { needsTaskReview: true } : {}),
-            },
-      remaining_ms: goal?.remainingMs ?? null,
-    };
+    let goalView = goal;
+    if (goal && !full) {
+      goalView = {
+        id: goal.id,
+        revision: goal.revision,
+        status: goal.status,
+        tasksCompleted: goal.tasksCompleted,
+        tasksTotal: goal.tasksTotal,
+        tasksUpdatedAt: goal.tasksUpdatedAt,
+        timeUsedMs: goal.timeUsedMs,
+      };
+      if (goal.blocker) goalView.blocker = goal.blocker;
+      if (goal.blockAudit) goalView.blockAudit = goal.blockAudit;
+      if (goal.needsTaskReview) goalView.needsTaskReview = true;
+    }
+    const result = { goal: goalView, remaining_ms: goal?.remainingMs ?? null };
     if (!full && previousIds && goal) {
       const added = goal.tasks.filter((task) => !previousIds.has(task.id));
       if (added.length) result.assigned_tasks = added.map(({ id: taskId, text }) => ({ id: taskId, text }));
@@ -631,12 +636,9 @@ export function createGoalRuntime({
     const observed = observedGoals.get(id);
     // Capture BEFORE queueing: two concurrent calls based on one snapshot
     // must not both overwrite it. Old frozen schemas use the last tool result.
-    const expectedRevision =
-      args.revision != null && args.revision !== ''
-        ? args.revision
-        : observed?.id === expectedGoalId
-          ? observed.revision
-          : current.revision;
+    let expectedRevision = current.revision;
+    if (args.revision != null && args.revision !== '') expectedRevision = args.revision;
+    else if (observed?.id === expectedGoalId) expectedRevision = observed.revision;
     return withMutation(id, () => {
       const latest = requireGoal(id);
       if (latest.id !== expectedGoalId) throw new Error('stale Goal update rejected because the active Goal changed');
@@ -846,7 +848,7 @@ export function createGoalRuntime({
     },
     continuation(sessionId, { agentStatus = null } = {}) {
       const goal = visibleSnapshot(sessionId);
-      if (!goal || goal.status !== 'active') return { run: false, reason: goal?.status || 'missing', goal };
+      if (goal?.status !== 'active') return { run: false, reason: goal?.status || 'missing', goal };
       if (runningAgentWork(agentStatus)) return { run: false, reason: 'agent-running', goal };
       if (settledDurationWait(goal)) {
         // The model already answered this exact list with no new work, so the

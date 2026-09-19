@@ -95,6 +95,43 @@ function canvasBlob(canvas: HTMLCanvasElement, mimeType: string, quality?: numbe
   });
 }
 
+function decodeImageElement(objectUrl: string, displayName: string): Promise<HTMLImageElement> {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const element = new Image();
+    element.onerror = () => reject(new Error(`${displayName}: could not decode image.`));
+    element.onload = () => resolve(element);
+    element.src = objectUrl;
+  });
+}
+
+// WebP first: it keeps alpha, which JPEG cannot, at a fraction of what
+// the same pixels cost as PNG — and a phone screenshot re-encoded as
+// PNG was the largest attachment a remote surface could send. A browser
+// without WebP encoding returns some other type, which this checks.
+async function reencodedImage(
+  image: HTMLImageElement,
+  file: File,
+  displayName: string,
+  displayWidth: number,
+  displayHeight: number
+): Promise<Blob> {
+  const canvas = document.createElement('canvas');
+  canvas.width = displayWidth;
+  canvas.height = displayHeight;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error(`${displayName}: image resize is unavailable.`);
+  context.drawImage(image, 0, 0, displayWidth, displayHeight);
+  let payload = await canvasBlob(canvas, 'image/webp', 0.85);
+  if (payload.type !== 'image/webp') {
+    const fallbackType = /^image\/jpe?g$/i.test(file.type) ? 'image/jpeg' : 'image/png';
+    payload = await canvasBlob(canvas, fallbackType, fallbackType === 'image/png' ? undefined : 0.85);
+  }
+  if (payload.size > WEB_IMAGE_TARGET_BYTES && payload.type !== 'image/jpeg') {
+    payload = await canvasBlob(canvas, 'image/jpeg', 0.82);
+  }
+  return payload;
+}
+
 async function browserResizedImage(
   file: File,
   displayName: string
@@ -105,12 +142,7 @@ async function browserResizedImage(
 }> {
   const objectUrl = URL.createObjectURL(file);
   try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new Image();
-      element.onerror = () => reject(new Error(`${displayName}: could not decode image.`));
-      element.onload = () => resolve(element);
-      element.src = objectUrl;
-    });
+    const image = await decodeImageElement(objectUrl, displayName);
     const originalWidth = image.naturalWidth;
     const originalHeight = image.naturalHeight;
     if (!originalWidth || !originalHeight) throw new Error(`${displayName}: image dimensions are invalid.`);
@@ -123,27 +155,9 @@ async function browserResizedImage(
     // would drop every frame but the first.
     const oversizedLossless = /^image\/png$/i.test(file.type) && file.size > WEB_IMAGE_PNG_REENCODE_BYTES;
     const needsResize = scale < 1 || file.size > WEB_IMAGE_TARGET_BYTES || oversizedLossless;
-    let payload: Blob = file;
-    if (needsResize) {
-      const canvas = document.createElement('canvas');
-      canvas.width = displayWidth;
-      canvas.height = displayHeight;
-      const context = canvas.getContext('2d');
-      if (!context) throw new Error(`${displayName}: image resize is unavailable.`);
-      context.drawImage(image, 0, 0, displayWidth, displayHeight);
-      // WebP first: it keeps alpha, which JPEG cannot, at a fraction of what
-      // the same pixels cost as PNG — and a phone screenshot re-encoded as
-      // PNG was the largest attachment a remote surface could send. A browser
-      // without WebP encoding returns some other type, which this checks.
-      payload = await canvasBlob(canvas, 'image/webp', 0.85);
-      if (payload.type !== 'image/webp') {
-        const fallbackType = /^image\/jpe?g$/i.test(file.type) ? 'image/jpeg' : 'image/png';
-        payload = await canvasBlob(canvas, fallbackType, fallbackType === 'image/png' ? undefined : 0.85);
-      }
-      if (payload.size > WEB_IMAGE_TARGET_BYTES && payload.type !== 'image/jpeg') {
-        payload = await canvasBlob(canvas, 'image/jpeg', 0.82);
-      }
-    }
+    const payload: Blob = needsResize
+      ? await reencodedImage(image, file, displayName, displayWidth, displayHeight)
+      : file;
     return {
       data: await base64Payload(payload, `${displayName}: could not read image.`),
       mimeType: payload.type || file.type,
@@ -199,49 +213,47 @@ async function resizedImage(
 /** Convert one dropped/pasted file into an attachment, rejecting anything the
  *  engine cannot inline. Returns null when `cancelled` turns true mid-read —
  *  the caller must stop ingesting the remaining files then. */
-export async function attachmentFromFile(
-  file: File,
-  options: {
-    id: number;
-    cancelled?: () => boolean;
+type AttachmentInput = { file: File; id: number; displayName: string; cancelled: () => boolean };
+
+async function imageAttachment({ file, id, displayName, cancelled }: AttachmentInput): Promise<ComposerAttachment | null> {
+  if (!SUPPORTED_IMAGE_TYPES.test(file.type) || file.size > MAX_IMAGE_FILE_BYTES) {
+    throw new Error(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
   }
+  const raw = await base64Payload(file, `${displayName}: could not read image.`);
+  if (cancelled()) return null;
+  const image = await resizedImage(file, raw, file.type, displayName);
+  if (cancelled()) return null;
+  return {
+    id,
+    name: displayName,
+    kind: 'image',
+    mimeType: image.mimeType,
+    data: image.data,
+    ...(image.metadataText ? { metadataText: image.metadataText } : {}),
+    // Chip-only: images carry no bracket token, the thumbnail chip is their
+    // sole representation in the draft.
+    token: '',
+  };
+}
+
+async function pdfAttachment({ file, id, displayName, cancelled }: AttachmentInput): Promise<ComposerAttachment | null> {
+  if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${displayName}: PDFs must be under 20 MB.`);
+  const data = await base64Payload(file, `${displayName}: could not read PDF.`);
+  if (cancelled()) return null;
+  return {
+    id,
+    name: displayName,
+    kind: 'pdf',
+    mimeType: 'application/pdf',
+    data,
+    token: `[PDF #${id}: ${displayName}]`,
+  };
+}
+
+async function textAttachment(
+  { file, id, displayName, cancelled }: AttachmentInput,
+  mimeKind: string
 ): Promise<ComposerAttachment | null> {
-  const { id, cancelled = () => false } = options;
-  const displayName = file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file');
-  if (file.type.startsWith('image/')) {
-    if (!SUPPORTED_IMAGE_TYPES.test(file.type) || file.size > MAX_IMAGE_FILE_BYTES) {
-      throw new Error(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
-    }
-    const raw = await base64Payload(file, `${displayName}: could not read image.`);
-    if (cancelled()) return null;
-    const image = await resizedImage(file, raw, file.type, displayName);
-    if (cancelled()) return null;
-    return {
-      id,
-      name: displayName,
-      kind: 'image',
-      mimeType: image.mimeType,
-      data: image.data,
-      ...(image.metadataText ? { metadataText: image.metadataText } : {}),
-      // Chip-only: images carry no bracket token, the thumbnail chip is their
-      // sole representation in the draft.
-      token: '',
-    };
-  }
-  const mimeKind = (file.type || '').split(';', 1)[0].trim().toLowerCase();
-  if (mimeKind === 'application/pdf' || /\.pdf$/i.test(displayName)) {
-    if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${displayName}: PDFs must be under 20 MB.`);
-    const data = await base64Payload(file, `${displayName}: could not read PDF.`);
-    if (cancelled()) return null;
-    return {
-      id,
-      name: displayName,
-      kind: 'pdf',
-      mimeType: 'application/pdf',
-      data,
-      token: `[PDF #${id}: ${displayName}]`,
-    };
-  }
   const textLike =
     mimeKind.startsWith('text/') ||
     TEXT_LIKE_MIME.test(mimeKind) ||
@@ -266,4 +278,20 @@ export async function attachmentFromFile(
     token: `[File #${id}: ${displayName}]`,
     source: 'file',
   };
+}
+
+export async function attachmentFromFile(
+  file: File,
+  options: {
+    id: number;
+    cancelled?: () => boolean;
+  }
+): Promise<ComposerAttachment | null> {
+  const { id, cancelled = () => false } = options;
+  const displayName = file.name || (file.type.startsWith('image/') ? 'Pasted image' : 'Pasted file');
+  const input: AttachmentInput = { file, id, displayName, cancelled };
+  if (file.type.startsWith('image/')) return imageAttachment(input);
+  const mimeKind = (file.type || '').split(';', 1)[0].trim().toLowerCase();
+  if (mimeKind === 'application/pdf' || /\.pdf$/i.test(displayName)) return pdfAttachment(input);
+  return textAttachment(input, mimeKind);
 }

@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { DesktopModelSelection, DesktopWorkflowState, SessionSnapshot } from '../../shared/contract';
 import { sessionSummaryTitle } from '../../shared/session-title.mjs';
 import type { NavigationSelection, WorkspaceTab } from '../navigation';
@@ -23,7 +23,7 @@ import type { Snapshot } from '../desktop-types';
 import type { useDesktopState } from '../app-desktop-state';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 
-const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
+export const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 
 export function applySessionLaneResult(sessionId: string, next: SessionSnapshot | null): void {
   if (!sessionId || !next || typeof next !== 'object') return;
@@ -37,7 +37,11 @@ export function applySessionLaneResult(sessionId: string, next: SessionSnapshot 
 }
 
 export interface UseAppTaskLifecycleOptions {
-  startupNavigationSelection: NavigationSelection | null;
+  // The App owns the committed selection: draft-pane preferences read it
+  // earlier in the same render, so it cannot live inside this hook.
+  selection: NavigationSelection;
+  setSelection: React.Dispatch<React.SetStateAction<NavigationSelection>>;
+  selectionRef: React.MutableRefObject<NavigationSelection>;
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
   paneLeavesRef: React.MutableRefObject<readonly PaneLeaf[]>;
   focusedLeafIdRef: React.MutableRefObject<string>;
@@ -72,7 +76,9 @@ export interface UseAppTaskLifecycleOptions {
 }
 
 export function useAppTaskLifecycle({
-  startupNavigationSelection,
+  selection,
+  setSelection,
+  selectionRef,
   paneWorkspace,
   paneLeavesRef,
   focusedLeafIdRef,
@@ -105,8 +111,6 @@ export function useAppTaskLifecycle({
   setCommandSurface,
   setCommandSurfaceSessionId,
 }: UseAppTaskLifecycleOptions) {
-  const [selection, setSelection] = useState<NavigationSelection>(() => startupNavigationSelection ?? { kind: 'new' });
-  const selectionRef = useRef<NavigationSelection>(selection);
   const [tabs, setTabs] = useState<WorkspaceTab[]>([]);
 
   const {

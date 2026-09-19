@@ -29,7 +29,7 @@ function toolResultIds(message) {
 // read the round as unmarked history and insert the legacy boundary in front
 // of thinking that was signed without one.
 export function withTurnReminderContext(replay, body) {
-  if (!replay || replay.provider !== 'anthropic') return replay;
+  if (replay?.provider !== 'anthropic') return replay;
   const messages = body?.messages;
   const tail = messages?.at(-1);
   const bounded = tail?.role === 'system' && tail.clear_at === TURN_SCOPED && typeof tail.content === 'string';

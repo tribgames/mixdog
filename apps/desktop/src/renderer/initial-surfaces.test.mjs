@@ -508,20 +508,15 @@ test('usage pin waits for its initial setting and data, without letting a late r
     const button = useRef(null);
     const state = useUsageRailPin(snapshot, { rail, nav, settings: button }, true);
     toggle = state.toggleUsagePin;
+    let usageText = 'icon';
+    if (state.loading) usageText = 'pending';
+    else if (state.usagePinned) usageText = state.usagePinRows.map((row) => `${row.label} ${row.percent}%`).join();
     return React.createElement(
       'aside',
       { ref: rail },
       React.createElement('nav', { ref: nav }),
       React.createElement('button', { ref: button }),
-      React.createElement(
-        'output',
-        null,
-        state.loading
-          ? 'pending'
-          : state.usagePinned
-            ? state.usagePinRows.map((row) => `${row.label} ${row.percent}%`).join()
-            : 'icon'
-      )
+      React.createElement('output', null, usageText)
     );
   }
   const snapshot = { dashboard: {}, status: 'loading', loading: true, refreshedAt: 0 };

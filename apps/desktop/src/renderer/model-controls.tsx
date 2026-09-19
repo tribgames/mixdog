@@ -552,24 +552,20 @@ export const ModelSelector = memo(function ModelSelector({
     const values = option.effortOptions.map((entry) => entry.value);
     const sameModel = option.provider === provider && option.model === model;
     const remembered = routePreferenceStore.get(option.provider, option.model);
+    // The first remembered effort the model still offers wins; a model that
+    // offers none of them falls back to its own list.
+    const effortCandidates = [sameModel ? effort : '', remembered?.effort, option.savedEffort];
     const nextEffort =
-      sameModel && effort && values.includes(effort)
-        ? effort
-        : remembered?.effort && values.includes(remembered.effort)
-          ? remembered.effort
-          : option.savedEffort && values.includes(option.savedEffort)
-            ? option.savedEffort
-            : ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) ||
-              values[0];
-    const requestedFast = option.fastCapable
-      ? sameModel
-        ? displayedFast
-        : typeof remembered?.fast === 'boolean'
-          ? remembered.fast
-          : typeof option.savedFast === 'boolean'
-            ? option.savedFast
-            : option.fastPreferred
-      : undefined;
+      effortCandidates.find((candidate) => candidate && values.includes(candidate)) ||
+      ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'].find((value) => values.includes(value)) ||
+      values[0];
+    let requestedFast: boolean | undefined;
+    if (option.fastCapable) {
+      if (sameModel) requestedFast = displayedFast;
+      else if (typeof remembered?.fast === 'boolean') requestedFast = remembered.fast;
+      else if (typeof option.savedFast === 'boolean') requestedFast = option.savedFast;
+      else requestedFast = option.fastPreferred;
+    }
     const nextModelParameters = preferredModelParameters(
       option,
       sameModel ? selectedModelParameters : remembered?.modelParameters || {}

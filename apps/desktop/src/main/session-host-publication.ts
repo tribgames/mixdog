@@ -72,6 +72,32 @@ function emitIsolated<T>(listeners: Set<(value: T) => void>, value: T): void {
 
 /** Listener sets, projection map, and live-frame application. SessionHost
  *  remains the service facade; this object owns publication side effects. */
+function emptySessionSnapshot(id: string): SessionSnapshot {
+  return { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+}
+
+// A stored read carries no baseline, so it always answers FULL — and a
+// visible cold view is re-read on a one second clock. Folding the fresh
+// parse onto the retained projection keeps the object identity that every
+// delta encoder downstream reads as "already sent".
+function rebuiltProjection(prior: SessionSnapshot | null, full: unknown, id: string): SessionSnapshot | null {
+  const rebuilt =
+    full && typeof full === 'object' ? ({ ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot) : null;
+  if (!rebuilt) return prior;
+  return prior ? reconcileSessionProjection(prior, rebuilt) : rebuilt;
+}
+
+// Only a stored projection names a stamp; a live frame clears it so the
+// next cold refresh (after the owner lets go) reads a full body again.
+function projectionStampFor(
+  value: Record<string, unknown> | null | undefined,
+  prior: SessionProjection | undefined
+): string | undefined {
+  if (typeof value?.projectionStamp === 'string' && value.projectionStamp) return value.projectionStamp;
+  if (value?.unchanged === true) return prior?.projectionStamp;
+  return undefined;
+}
+
 export class SessionHostPublication {
   readonly projections = new Map<string, SessionProjection>();
   private readonly projectionWeights = new WeakMap<SessionProjection, number>();
@@ -247,18 +273,7 @@ export class SessionHostPublication {
     }
     let snapshot = prior?.snapshot ?? null;
     if (value && Object.hasOwn(value, 'full')) {
-      const full = value.full;
-      const rebuilt =
-        full && typeof full === 'object'
-          ? ({ ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot)
-          : null;
-      // A stored read carries no baseline, so it always answers FULL — and a
-      // visible cold view is re-read on a one second clock. Folding the fresh
-      // parse onto the retained projection keeps the object identity that every
-      // delta encoder downstream reads as "already sent".
-      if (rebuilt) {
-        snapshot = prior?.snapshot ? reconcileSessionProjection(prior.snapshot, rebuilt) : rebuilt;
-      }
+      snapshot = rebuiltProjection(snapshot, value.full, id);
     } else if (value?.patch && typeof value.patch === 'object') {
       // The live lane usually delivers the same revision BEFORE the action
       // reply that carries it as a patch: the reply's baseline then reads as
@@ -270,9 +285,7 @@ export class SessionHostPublication {
       }
       if (!prior || Number(value.baseRevision) !== prior.revision) {
         this.recoverMissingSessionBaseline(id);
-        return this.snapshotWithRemoteSession(
-          prior?.snapshot ?? ({ sessionId: id, items: [], queued: [] } as SessionSnapshot)
-        );
+        return this.snapshotWithRemoteSession(prior?.snapshot ?? emptySessionSnapshot(id));
       }
       snapshot = statePatch(prior.snapshot, value.patch as Record<string, unknown>);
     }
@@ -281,24 +294,17 @@ export class SessionHostPublication {
       // empty projection cannot blank anything: it keeps the cheap fallback
       // rather than paying for a recovery read on every global capability.
       if (id === this.owner.controlSessionId()) {
-        snapshot = { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+        snapshot = emptySessionSnapshot(id);
       } else {
         this.recoverMissingSessionBaseline(id);
-        return { sessionId: id, items: [], queued: [] } as SessionSnapshot;
+        return emptySessionSnapshot(id);
       }
     }
     const nextRevision = Number.isFinite(revision) ? revision : (prior?.revision ?? 0);
     // Publishing a projection that did not move repaints nothing and costs a
     // whole transcript on the relay leg: the reader already holds this frame.
     const unmoved = prior !== undefined && prior.snapshot === snapshot && prior.revision === nextRevision;
-    // Only a stored projection names a stamp; a live frame clears it so the
-    // next cold refresh (after the owner lets go) reads a full body again.
-    const projectionStamp =
-      typeof value?.projectionStamp === 'string' && value.projectionStamp
-        ? value.projectionStamp
-        : value?.unchanged === true
-          ? prior?.projectionStamp
-          : undefined;
+    const projectionStamp = projectionStampFor(value, prior);
     this.projections.delete(id);
     this.projections.set(id, {
       revision: nextRevision,

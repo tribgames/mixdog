@@ -60,15 +60,15 @@ class GraphRuntimeTest(unittest.TestCase):
                     hashlib.sha256(binary.read_bytes()).hexdigest(),
                 )
                 code.write_text("third source", encoding="utf-8")
-                with patch.object(
-                    src_overlay,
-                    "_run_docker",
-                    side_effect=src_overlay.SrcOverlayError("build failed"),
+                with (
+                    patch.object(
+                        src_overlay,
+                        "_run_docker",
+                        side_effect=src_overlay.SrcOverlayError("build failed"),
+                    ),
+                    self.assertRaisesRegex(src_overlay.SrcOverlayError, "build failed"),
                 ):
-                    with self.assertRaisesRegex(
-                        src_overlay.SrcOverlayError, "build failed"
-                    ):
-                        src_overlay.build_local_graph(root, cache)
+                    src_overlay.build_local_graph(root, cache)
                 self.assertEqual(binary.read_bytes(), b"second source")
 
     def test_default_cli_bundle_contains_graph_without_an_override(self):

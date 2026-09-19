@@ -88,6 +88,22 @@ export function resolveRouteContextState(targetRoute = {}, modelMeta = null, win
   return { contextPercent, contextDefaultPercent, selectedContextWindow };
 }
 
+// Ownership and permission fields an agent-owned session inherits from its profile.
+function agentOwnedSessionFields(sessionProfile) {
+  return {
+    parentSessionId: sessionProfile?.parentSessionId || null,
+    ownerSessionId: sessionProfile?.ownerSessionId || sessionProfile?.parentSessionId || null,
+    visibility: 'agent-only',
+    agentTag: sessionProfile?.agentTag || null,
+    taskType: sessionProfile?.taskType || null,
+    permission: sessionProfile?.permission || undefined,
+    permissionMode: sessionProfile?.permissionMode || undefined,
+    schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)
+      ? sessionProfile.schemaAllowedTools
+      : undefined,
+  };
+}
+
 export function createSessionLifecycle({
   rt,
   adoptSession,
@@ -182,6 +198,9 @@ export function createSessionLifecycle({
       clean(modelMeta?.displayName) ||
       (metaName && metaName !== clean(targetRoute.model) ? metaName : '') ||
       clean(targetRoute.modelDisplay);
+    const selectedContextWindow = [contextState.selectedContextWindow, contextOption?.contextWindow]
+      .map(Number)
+      .find((value) => value > 0);
     rt.route = {
       ...targetRoute,
       fast: fastCapable ? targetRoute.fast === true : false,
@@ -190,11 +209,7 @@ export function createSessionLifecycle({
       effortOptions: effortItemsFor(rt.route.provider, modelMeta, effectiveEffort),
       contextPercent: contextState.contextPercent,
       contextDefaultPercent: contextState.contextDefaultPercent,
-      ...(Number(contextState.selectedContextWindow) > 0
-        ? { selectedContextWindow: Number(contextState.selectedContextWindow) }
-        : Number(contextOption?.contextWindow) > 0
-          ? { selectedContextWindow: Number(contextOption.contextWindow) }
-          : {}),
+      ...(selectedContextWindow ? { selectedContextWindow } : {}),
       ...(modelDisplay ? { modelDisplay } : {}),
     };
     return rt.route;
@@ -295,9 +310,11 @@ export function createSessionLifecycle({
         ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
         clientHostPid: sessionProfile?.clientHostPid || process.pid,
         mcpScopeId: rt.mcpScopeId,
-        disallowedTools: agentOwned
-          ? [...featureDisallowedTools()]
-          : [...LEAD_DISALLOWED_TOOLS, ...(rt.disallowDelegation ? ['agent'] : []), ...featureDisallowedTools()],
+        disallowedTools: [
+          ...(agentOwned ? [] : LEAD_DISALLOWED_TOOLS),
+          ...(!agentOwned && rt.disallowDelegation ? ['agent'] : []),
+          ...featureDisallowedTools(),
+        ],
         cwd: rt.currentCwd,
         ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
         coreMemoryContext,
@@ -312,20 +329,7 @@ export function createSessionLifecycle({
           rt.config.compaction && typeof rt.config.compaction === 'object'
             ? normalizeCompactionConfig(rt.config.compaction)
             : undefined,
-        ...(agentOwned
-          ? {
-              parentSessionId: sessionProfile?.parentSessionId || null,
-              ownerSessionId: sessionProfile?.ownerSessionId || sessionProfile?.parentSessionId || null,
-              visibility: 'agent-only',
-              agentTag: sessionProfile?.agentTag || null,
-              taskType: sessionProfile?.taskType || null,
-              permission: sessionProfile?.permission || undefined,
-              permissionMode: sessionProfile?.permissionMode || undefined,
-              schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)
-                ? sessionProfile.schemaAllowedTools
-                : undefined,
-            }
-          : {}),
+        ...(agentOwned ? agentOwnedSessionFields(sessionProfile) : {}),
       };
       if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {
         sessionOpts.effort = rt.route.effectiveEffort || null;
@@ -380,11 +384,10 @@ export function createSessionLifecycle({
       // a hook error must never break session creation. additionalContext is
       // injected before the first user turn as a system-reminder context pair.
       try {
-        const startSource = /resume/i.test(String(reason || ''))
-          ? 'resume'
-          : /clear/i.test(String(reason || ''))
-            ? 'clear'
-            : 'startup';
+        const reasonText = String(reason || '');
+        let startSource = 'startup';
+        if (/resume/i.test(reasonText)) startSource = 'resume';
+        else if (/clear/i.test(reasonText)) startSource = 'clear';
         const startDispatch = await runAbortable(signal, () =>
           hooks.dispatch(
             'SessionStart',

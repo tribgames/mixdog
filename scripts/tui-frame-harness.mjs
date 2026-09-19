@@ -121,7 +121,7 @@ class VT {
       i++;
     }
   }
-  _csi(cmd, nums, params) {
+  _csi(cmd, nums, _params) {
     const n = nums[0];
     switch (cmd) {
       case 'H':
@@ -233,14 +233,14 @@ function makeDriver({ rows, cols, isWindows }) {
     // Mirror ink.js guard exactly: Windows-like only + one-commit transient.
     const isExactlyOneRowShort = isWindows && outputHeight === rows - 1 && wasFullscreenFrame && !lastOneShortPadded;
     if (isExactlyOneRowShort) {
-      output = '\n' + output;
+      output = `\n${output}`;
       outputHeight = rows;
       lastOneShortPadded = true;
     } else {
       lastOneShortPadded = false;
     }
     const isFullscreen = outputHeight >= rows;
-    let outputToRender = isFullscreen ? output : output + '\n';
+    let outputToRender = isFullscreen ? output : `${output}\n`;
     if (isFullscreen && outputToRender.endsWith('\n')) outputToRender += '\u001B[0m';
     const clearDecision = shouldClearTerminalForFrameProbe({
       isTty: true,
@@ -252,7 +252,7 @@ function makeDriver({ rows, cols, isWindows }) {
       isWindows,
     });
     if (clearDecision) {
-      fakeStream.write('\u001B[0m' + ansiEscapes.clearTerminal + outputToRender);
+      fakeStream.write(`\u001B[0m${ansiEscapes.clearTerminal}${outputToRender}`);
       log.sync(outputToRender);
     } else {
       log(outputToRender);
@@ -290,7 +290,8 @@ function frame({ rows, cols, palette, shortByOne, heightRows }) {
   // heightRows (explicit) overrides shortByOne — lets a caller drive an
   // arbitrary frame height (e.g. rows-3) to exercise the real leave-fullscreen
   // shrink chain, which the boolean shortByOne cannot express.
-  const height = heightRows != null ? heightRows : shortByOne ? rows - 1 : rows;
+  let height = shortByOne ? rows - 1 : rows;
+  if (heightRows != null) height = heightRows;
   const statusRow = height - 1;
   const promptRow = statusRow - 1;
   const lines = [];

@@ -89,7 +89,11 @@ export function ContextInspector({ inspection, columns, rows = 16, windowTokens,
       void openEntry();
       return;
     }
-    const delta = key.upArrow ? -1 : key.downArrow ? 1 : key.pageUp ? -visibleRows : key.pageDown ? visibleRows : 0;
+    let delta = 0;
+    if (key.upArrow) delta = -1;
+    else if (key.downArrow) delta = 1;
+    else if (key.pageUp) delta = -visibleRows;
+    else if (key.pageDown) delta = visibleRows;
     if (!delta) return;
     if (preview) setScroll((value) => Math.max(0, Math.min(Math.max(0, lines.length - previewRows), value + delta)));
     else setIndex((value) => Math.max(0, Math.min(choices.length - 1, value + delta)));
@@ -97,17 +101,37 @@ export function ContextInspector({ inspection, columns, rows = 16, windowTokens,
   const mapColumns = Math.max(4, Math.min(32, width));
   const map = buildContextMap(inspection.categories, { windowTokens, cells: mapColumns * 3, fit });
   const start = Math.max(0, index - visibleRows + 1);
+  const previewNote = preview?.truncated
+    ? 'Preview limited to 32,000 characters.'
+    : 'Local preview · opaque data excluded';
+  const compositionLabel = `Estimated composition · ${fit ? 'Fit' : 'Window'}${map.overflow ? ' · over window' : ''}`;
+  const calibration = inspection.calibration;
+  const calibrationLabel =
+    calibration?.source === 'provider'
+      ? `Scaled to measured ${Number(calibration.measuredTokens || 0).toLocaleString()} (×${Number(calibration.ratio || 1).toFixed(2)}) · raw ≈${Number(calibration.estimatedTokens || 0).toLocaleString()}`
+      : 'Local estimates · no provider reading covers this transcript yet';
+  const cellGlyph = (key) => (key === 'free' ? '·' : '■');
+  const renderChoice = (row, offset) => {
+    const selected = index === start + offset;
+    let color = theme.text;
+    if (selected) color = theme.accent;
+    else if (row.state === 'deferred') color = theme.subtle;
+    const size = row.state === 'deferred' ? 'deferred' : `≈${row.tokens.toLocaleString()}`;
+    const stateNote = row.state && row.state !== 'deferred' && row.state !== 'active' ? ` · ${row.state}` : '';
+    const toolNote = row.toolResults?.length ? ` · ${row.toolResults.map((result) => result.name).join(', ')}` : '';
+    const countNote = row.count !== undefined ? ` · ${row.count} items` : '';
+    return (
+      <Text key={row.id || row.key} color={color}>
+        {fitLine(`${selected ? '›' : ' '} ${row.label} · ${size}${stateNote}${toolNote}${countNote}`, width)}
+      </Text>
+    );
+  };
   return (
     <Box flexDirection="column" height={Math.max(1, rows)} overflow="hidden">
       <Text color={theme.subtle}>{fitLine('↑↓ select · Enter inspect · ← back · Z zoom · R refresh', width)}</Text>
       {preview ? (
         <>
-          <Text color={theme.subtle}>
-            {fitLine(
-              preview.truncated ? 'Preview limited to 32,000 characters.' : 'Local preview · opaque data excluded',
-              width
-            )}
-          </Text>
+          <Text color={theme.subtle}>{fitLine(previewNote, width)}</Text>
           {lines.slice(scroll, scroll + previewRows).map((line, lineIndex) => (
             <Text key={lineIndex}>{line || ' '}</Text>
           ))}
@@ -116,49 +140,24 @@ export function ContextInspector({ inspection, columns, rows = 16, windowTokens,
         <>
           {!category && (
             <>
-              <Text color={theme.subtle}>
-                {fitLine(
-                  `Estimated composition · ${fit ? 'Fit' : 'Window'}${map.overflow ? ' · over window' : ''}`,
-                  width
-                )}
-              </Text>
+              <Text color={theme.subtle}>{fitLine(compositionLabel, width)}</Text>
               {[0, 1, 2].map((row) => (
                 <Text key={row}>
                   {map.cells.slice(row * mapColumns, (row + 1) * mapColumns).map((key, cell) => (
                     <Text key={cell} color={COLORS[key]}>
-                      {key === 'free' ? '·' : '■'}
+                      {cellGlyph(key)}
                     </Text>
                   ))}
                 </Text>
               ))}
               <Text color={theme.subtle}>{fitLine('· free', width)}</Text>
-              <Text color={theme.subtle}>
-                {fitLine(
-                  inspection.calibration?.source === 'provider'
-                    ? `Scaled to measured ${Number(inspection.calibration.measuredTokens || 0).toLocaleString()} (×${Number(inspection.calibration.ratio || 1).toFixed(2)}) · raw ≈${Number(inspection.calibration.estimatedTokens || 0).toLocaleString()}`
-                    : 'Local estimates · no provider reading covers this transcript yet',
-                  width
-                )}
-              </Text>
+              <Text color={theme.subtle}>{fitLine(calibrationLabel, width)}</Text>
             </>
           )}
           {category && (
             <Text bold>{fitLine(inspection.categories.find((row) => row.key === category)?.label || '', width)}</Text>
           )}
-          {choices.slice(start, start + visibleRows).map((row, offset) => (
-            <Text
-              key={row.id || row.key}
-              color={index === start + offset ? theme.accent : row.state === 'deferred' ? theme.subtle : theme.text}
-            >
-              {fitLine(
-                `${index === start + offset ? '›' : ' '} ${row.label} · ${row.state === 'deferred' ? 'deferred' : `≈${row.tokens.toLocaleString()}`}` +
-                  `${row.state && row.state !== 'deferred' && row.state !== 'active' ? ` · ${row.state}` : ''}` +
-                  `${row.toolResults?.length ? ` · ${row.toolResults.map((result) => result.name).join(', ')}` : ''}` +
-                  `${row.count !== undefined ? ` · ${row.count} items` : ''}`,
-                width
-              )}
-            </Text>
-          ))}
+          {choices.slice(start, start + visibleRows).map(renderChoice)}
           {!choices.length && <Text color={theme.subtle}>No entries.</Text>}
         </>
       )}

@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'fs';
-import { createHash } from 'crypto';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -546,18 +546,24 @@ function balanceFromExtraUsage(extra) {
   };
 }
 
+// A money field may be a plain number or a {amount_minor, exponent} object
+// like used/limit; support both shapes.
+function moneyValue(value, fallback) {
+  if (!value || typeof value !== 'object') return num(value, fallback);
+  const minor = num(value.amount_minor, null);
+  return minor === null ? null : minor / 10 ** num(value.exponent, 2);
+}
+
+function limitWindowLabel(limit) {
+  if (limit.kind === 'session' || limit.group === 'session') return '5H';
+  if (limit.kind === 'weekly_all' || limit.group === 'weekly') return '7D';
+  return String(limit.kind || limit.group || 'USE').toUpperCase();
+}
+
 function balanceFromAnthropicSpend(spend) {
   if (!spend || typeof spend !== 'object') return null;
   const currency = cleanString(spend.used?.currency ?? spend.limit?.currency) || 'USD';
-  // spend.balance may be a plain number or a {amount_minor, exponent} money
-  // object like used/limit; support both shapes.
-  const directBalance =
-    spend.balance && typeof spend.balance === 'object'
-      ? (() => {
-          const minor = num(spend.balance.amount_minor, null);
-          return minor === null ? null : minor / 10 ** num(spend.balance.exponent, 2);
-        })()
-      : num(spend.balance, null);
+  const directBalance = moneyValue(spend.balance, null);
   if (directBalance !== null) {
     return {
       source: 'anthropic-oauth-spend',
@@ -665,52 +671,39 @@ function scopedAnthropicWindows(data, source) {
   return [...byLabel.values()];
 }
 
+// The account-wide windows of the `limits` list shape (model/surface-scoped
+// entries are reported separately).
+function anthropicLimitWindows(limits, source) {
+  return limits
+    .filter((x) => x && x.is_active !== false && !x.scope?.model && !x.scope?.surface)
+    .map((x) => windowFromPercent(limitWindowLabel(x), { percent: x.percent, resets_at: x.resets_at }, source))
+    .filter(Boolean);
+}
+
+// The extra-usage (pay-as-you-go) window when it is enabled, else null.
+function anthropicExtraUsageWindow(extraUsage) {
+  if (!extraUsage || extraUsage.is_enabled !== true) return null;
+  return windowFromPercent(
+    'EXTRA',
+    {
+      utilization: extraUsage.utilization,
+      limit_dollars: extraUsage.monthly_limit,
+      used_dollars: extraUsage.used_credits,
+      remaining_dollars: Math.max(0, num(extraUsage.monthly_limit, 0) - num(extraUsage.used_credits, 0)),
+    },
+    'anthropic-oauth-extra'
+  );
+}
+
 export function normalizeAnthropicUsage(data, source = 'anthropic-oauth') {
   if (!data || typeof data !== 'object') return null;
   let windows = [
     windowFromPercent('5H', data.five_hour, source),
     windowFromPercent('7D', data.seven_day, source),
   ].filter(Boolean);
-
-  if (!windows.length && Array.isArray(data.limits)) {
-    windows = data.limits
-      .filter((x) => x && x.is_active !== false && !x.scope?.model && !x.scope?.surface)
-      .map((x) => {
-        const label =
-          x.kind === 'session' || x.group === 'session'
-            ? '5H'
-            : x.kind === 'weekly_all' || x.group === 'weekly'
-              ? '7D'
-              : String(x.kind || x.group || 'USE').toUpperCase();
-        return windowFromPercent(
-          label,
-          {
-            percent: x.percent,
-            resets_at: x.resets_at,
-          },
-          source
-        );
-      })
-      .filter(Boolean);
-  }
+  if (!windows.length && Array.isArray(data.limits)) windows = anthropicLimitWindows(data.limits, source);
   windows.push(...scopedAnthropicWindows(data, source));
-
-  const extra =
-    data.extra_usage && data.extra_usage.is_enabled === true
-      ? windowFromPercent(
-          'EXTRA',
-          {
-            utilization: data.extra_usage.utilization,
-            limit_dollars: data.extra_usage.monthly_limit,
-            used_dollars: data.extra_usage.used_credits,
-            remaining_dollars: Math.max(
-              0,
-              num(data.extra_usage.monthly_limit, 0) - num(data.extra_usage.used_credits, 0)
-            ),
-          },
-          'anthropic-oauth-extra'
-        )
-      : null;
+  const extra = anthropicExtraUsageWindow(data.extra_usage);
   if (extra) windows.push(extra);
 
   if (!windows.length && !data.extra_usage) return null;
@@ -767,30 +760,27 @@ async function fetchAnthropicUsage(providerObj) {
   return normalizeAnthropicUsage(data) || latestClaudeStatuslineUsage();
 }
 
-async function fetchGrokUsage(providerObj, routeInfo) {
-  const auth = await providerObj?.ensureAuth?.({ reason: 'usage' });
-  const token = auth?.access_token || auth?.accessToken || auth?.key;
-  if (!token) return null;
-  const userId = auth?.user_id || auth?.userId || auth?.principal_id || auth?.principalId || '';
-  const cliHeaders = {
+function grokProxyHeaders(token, userId, extra) {
+  return {
     Authorization: `Bearer ${token}`,
     'X-XAI-Token-Auth': 'xai-grok-cli',
     'x-userid': userId,
-    'x-grok-client-version': '0.2.87',
     Accept: 'application/json',
-    'User-Agent': 'xai-grok-build/0.2.87',
+    ...extra,
   };
+}
 
-  // format=credits is what the official grok CLI requests; unified-billing
-  // (shared weekly pool) accounts only report their real cadence and reset
-  // there. The legacy /v1/billing shape keeps serving a stale monthly cycle
-  // for migrated accounts, so it is only a fallback.
+// format=credits is what the official grok CLI requests; unified-billing
+// (shared weekly pool) accounts only report their real cadence and reset
+// there. The legacy /v1/billing shape keeps serving a stale monthly cycle
+// for migrated accounts, so it is only a fallback.
+async function probeGrokBilling(headers, routeInfo) {
   for (const url of [
     'https://cli-chat-proxy.grok.com/v1/billing?format=credits',
     'https://cli-chat-proxy.grok.com/v1/billing',
   ]) {
     try {
-      const res = await fetch(url, fetchOptions(cliHeaders));
+      const res = await fetch(url, fetchOptions(headers));
       if (!res.ok) continue;
       const data = await res.json();
       const config = data?.config && typeof data.config === 'object' ? data.config : data;
@@ -809,18 +799,14 @@ async function fetchGrokUsage(providerObj, routeInfo) {
       // Fall through to the next candidate / generic probes below.
     }
   }
+  return null;
+}
 
-  // xAI documents per-request cost tracking and console rate-limit pages, but
-  // the stable Grok Build quota is currently on the CLI proxy /billing route.
-  // Probe conservative generic candidates too so a future API addition starts
-  // working without changing the statusline contract.
-  const headers = {
-    Authorization: `Bearer ${token}`,
-    'X-XAI-Token-Auth': 'xai-grok-cli',
-    'x-userid': userId,
-    Accept: 'application/json',
-    'User-Agent': 'xai-grok-build/mixdog',
-  };
+// xAI documents per-request cost tracking and console rate-limit pages, but
+// the stable Grok Build quota is currently on the CLI proxy /billing route.
+// Probe conservative generic candidates too so a future API addition starts
+// working without changing the statusline contract.
+async function probeGrokGenericUsage(headers, routeInfo) {
   const urls = [
     'https://cli-chat-proxy.grok.com/v1/billing',
     'https://api.x.ai/v1/usage',
@@ -844,6 +830,20 @@ async function fetchGrokUsage(providerObj, routeInfo) {
   return null;
 }
 
+async function fetchGrokUsage(providerObj, routeInfo) {
+  const auth = await providerObj?.ensureAuth?.({ reason: 'usage' });
+  const token = auth?.access_token || auth?.accessToken || auth?.key;
+  if (!token) return null;
+  const userId = auth?.user_id || auth?.userId || auth?.principal_id || auth?.principalId || '';
+  const cliHeaders = grokProxyHeaders(token, userId, {
+    'x-grok-client-version': '0.2.87',
+    'User-Agent': 'xai-grok-build/0.2.87',
+  });
+  const billing = await probeGrokBilling(cliHeaders, routeInfo);
+  if (billing) return billing;
+  return probeGrokGenericUsage(grokProxyHeaders(token, userId, { 'User-Agent': 'xai-grok-build/mixdog' }), routeInfo);
+}
+
 // The stored expiry is only what the server said when the token was issued; a
 // subscription change can revoke it long before that. Nothing local can tell —
 // the server's own refusal is the evidence — so a usage 401/403 means the same
@@ -851,6 +851,72 @@ async function fetchGrokUsage(providerObj, routeInfo) {
 function isUsageAuthRejection(error) {
   const status = Number(error?.status || 0);
   return status === 401 || status === 403;
+}
+
+async function measureUsage(provider, providerObj, routeInfo) {
+  if (provider === 'openai-oauth') return await fetchOpenAICodexUsage(providerObj);
+  if (provider === 'anthropic-oauth') return await fetchAnthropicUsage(providerObj);
+  if (provider === 'grok-oauth') return await fetchGrokUsage(providerObj, routeInfo);
+  if (
+    (provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth') &&
+    typeof providerObj?.getUsageSnapshot === 'function'
+  ) {
+    return await providerObj.getUsageSnapshot();
+  }
+  return null;
+}
+
+// One measurement, retried once behind a forced credential refresh when the
+// server rejected the token.
+async function measureUsageWithAuthRetry(provider, providerObj, routeInfo) {
+  try {
+    return await measureUsage(provider, providerObj, routeInfo);
+  } catch (error) {
+    if (!isUsageAuthRejection(error) || typeof providerObj?.ensureAuth !== 'function') throw error;
+    await providerObj.ensureAuth({ forceRefresh: true, reason: 'usage-auth' });
+    return await measureUsage(provider, providerObj, routeInfo);
+  }
+}
+
+// The fallback reading after a failed measurement, and the bookkeeping a
+// failure implies. A credential the server refuses even after a forced
+// refresh cannot vouch for the reading it last produced: keeping a 100% meter
+// earned by a dead token would hold the account out of the roster until its
+// reset time, so the recorded quota goes with the credential.
+function usageAfterFailure(err, provider, accountId, log) {
+  const snapshot = provider === 'anthropic-oauth' && accountId === 'default' ? latestClaudeStatuslineUsage() : null;
+  if (snapshot) return snapshot;
+  if (isUsageAuthRejection(err) && ACCOUNT_PROVIDERS.includes(provider)) {
+    try {
+      clearProviderAccountQuotaState(provider, accountId);
+    } catch (error) {
+      log(`Account usage could not be cleared: ${error.message}`);
+    }
+  }
+  warnThrottled(log, `oauth-usage:${provider}`, `gateway ${provider} usage fetch unavailable: ${err?.message || err}`);
+  return null;
+}
+
+// Caches the reading under the provider key and, when the route names a
+// model, under the model-qualified key; returns the route's own view.
+function cacheUsageSnapshot(snapshot, { routeInfo, provider, accountId, providerOnly }) {
+  const model = cacheModelId(routeInfo?.model) || cacheModelId(snapshot.model);
+  const providerSnapshot = {
+    ...snapshot,
+    provider: routeInfo?.provider || snapshot.provider || provider,
+    accountId,
+    cachedAt: Date.now(),
+  };
+  delete providerSnapshot.model;
+  const routeSnapshot = model ? { ...providerSnapshot, model } : providerSnapshot;
+  if (model) {
+    const normalizedKey = `${providerOnly}\u0001${model}`;
+    memoryCache.set(normalizedKey, routeSnapshot);
+    writeSnapshotCache(normalizedKey, routeSnapshot);
+  }
+  memoryCache.set(providerOnly, providerSnapshot);
+  writeSnapshotCache(providerOnly, providerSnapshot);
+  return routeSnapshot;
 }
 
 export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () => {}, options = {}) {
@@ -873,54 +939,16 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
 
   const task = (async () => {
     let snapshot = null;
-    const measure = async () => {
-      if (provider === 'openai-oauth') return await fetchOpenAICodexUsage(providerObj);
-      if (provider === 'anthropic-oauth') return await fetchAnthropicUsage(providerObj);
-      if (provider === 'grok-oauth') return await fetchGrokUsage(providerObj, routeInfo);
-      if (
-        (provider === 'cursor-oauth' || provider === 'cursor-api' || provider === 'antigravity-oauth') &&
-        typeof providerObj?.getUsageSnapshot === 'function'
-      ) {
-        return await providerObj.getUsageSnapshot();
-      }
-      return null;
-    };
     try {
-      try {
-        snapshot = await measure();
-      } catch (error) {
-        if (!isUsageAuthRejection(error) || typeof providerObj?.ensureAuth !== 'function') throw error;
-        await providerObj.ensureAuth({ forceRefresh: true, reason: 'usage-auth' });
-        snapshot = await measure();
-      }
+      snapshot = await measureUsageWithAuthRetry(provider, providerObj, routeInfo);
     } catch (err) {
-      if (provider === 'anthropic-oauth' && accountId === 'default') snapshot = latestClaudeStatuslineUsage();
-      if (!snapshot) {
-        // A credential the server refuses even after a forced refresh cannot
-        // vouch for the reading it last produced. Keeping a 100% meter earned
-        // by a dead token would hold the account out of the roster until its
-        // reset time, so the recorded quota goes with the credential.
-        if (isUsageAuthRejection(err) && ACCOUNT_PROVIDERS.includes(provider)) {
-          try {
-            clearProviderAccountQuotaState(provider, accountId);
-          } catch (error) {
-            log(`Account usage could not be cleared: ${error.message}`);
-          }
-        }
-        warnThrottled(
-          log,
-          `oauth-usage:${provider}`,
-          `gateway ${provider} usage fetch unavailable: ${err?.message || err}`
-        );
-      }
+      snapshot = usageAfterFailure(err, provider, accountId, log);
     }
-
     if (!isContentfulSnapshot(snapshot)) {
       cacheNegative(key, 'empty');
       cacheNegative(providerOnly, 'empty');
       return null;
     }
-
     if (ACCOUNT_PROVIDERS.includes(provider)) {
       try {
         recordProviderAccountUsage(provider, accountId, snapshot);
@@ -928,26 +956,7 @@ export async function fetchOAuthUsageSnapshot(routeInfo, providerObj, log = () =
         log(`Account usage could not be saved: ${error.message}`);
       }
     }
-
-    const model = cacheModelId(routeInfo?.model) || cacheModelId(snapshot.model);
-    const providerSnapshot = {
-      ...snapshot,
-      provider: routeInfo?.provider || snapshot.provider || provider,
-      accountId,
-      cachedAt: Date.now(),
-    };
-    delete providerSnapshot.model;
-
-    const routeSnapshot = model ? { ...providerSnapshot, model } : providerSnapshot;
-
-    if (model) {
-      const normalizedKey = `${providerOnly}\u0001${model}`;
-      memoryCache.set(normalizedKey, routeSnapshot);
-      writeSnapshotCache(normalizedKey, routeSnapshot);
-    }
-    memoryCache.set(providerOnly, providerSnapshot);
-    writeSnapshotCache(providerOnly, providerSnapshot);
-    return routeSnapshot;
+    return cacheUsageSnapshot(snapshot, { routeInfo, provider, accountId, providerOnly });
   })().finally(() => {
     inflight.delete(key);
   });

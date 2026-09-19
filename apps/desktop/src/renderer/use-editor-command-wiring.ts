@@ -62,7 +62,8 @@ export function useEditorCommandWiring({
           run: () => {
             const wrapped = editor.getOption(monaco.editor.EditorOption.wordWrap) !== 'off';
             const configured = editorSettingsRef.current.wordWrap;
-            setWordWrapOverride(wrapped ? 'off' : configured !== 'off' ? configured : 'on');
+            const unwrapped = configured !== 'off' ? configured : 'on';
+            setWordWrapOverride(wrapped ? 'off' : unwrapped);
           },
         })
       );
@@ -94,18 +95,12 @@ export function useEditorCommandWiring({
           startCallHierarchy();
           return;
         }
-        const actionId =
-          action === 'rename'
-            ? 'editor.action.rename'
-            : action === 'quickFix'
-              ? 'editor.action.quickFix'
-              : action === 'refactor'
-                ? 'editor.action.refactor'
-                : action === 'format'
-                  ? 'editor.action.formatDocument'
-                  : action.startsWith('editor.')
-                    ? action
-                    : '';
+        let actionId = '';
+        if (action === 'rename') actionId = 'editor.action.rename';
+        else if (action === 'quickFix') actionId = 'editor.action.quickFix';
+        else if (action === 'refactor') actionId = 'editor.action.refactor';
+        else if (action === 'format') actionId = 'editor.action.formatDocument';
+        else if (action.startsWith('editor.')) actionId = action;
         if (actionId === FORMAT_DOCUMENT_WITH) {
           void editor.getAction('editor.action.formatDocument')?.run();
         } else if (actionId) {

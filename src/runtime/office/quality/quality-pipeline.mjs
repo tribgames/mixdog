@@ -313,7 +313,7 @@ const POLISH_GUIDANCE = Object.freeze({
 export function resolveOfficeRenderOutput(path) {
   const value = String(path || '');
   if (extname(value).toLowerCase() === '.pdf') return value;
-  return value.replace(/\.[^./\\]+$/u, '') + '.pdf';
+  return `${value.replace(/\.[^./\\]+$/u, '')}.pdf`;
 }
 
 export function normalizeOfficeReviewIssues(entries = []) {
@@ -322,14 +322,10 @@ export function normalizeOfficeReviewIssues(entries = []) {
   for (const raw of entries || []) {
     if (!raw || typeof raw !== 'object') continue;
     const code = String(raw.code || '');
-    const issue = {
-      ...raw,
-      severity: CRITICAL_CODES.has(code)
-        ? 'error'
-        : ADVISORY_CODES.has(code)
-          ? 'info'
-          : String(raw.severity || 'warning'),
-    };
+    let severity = String(raw.severity || 'warning');
+    if (CRITICAL_CODES.has(code)) severity = 'error';
+    else if (ADVISORY_CODES.has(code)) severity = 'info';
+    const issue = { ...raw, severity };
     const key = `${issue.severity}\0${issue.code}\0${issue.path}\0${issue.message}`;
     if (seen.has(key)) continue;
     seen.add(key);

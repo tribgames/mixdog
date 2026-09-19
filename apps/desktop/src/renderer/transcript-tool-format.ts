@@ -221,103 +221,110 @@ function toolActivityPath(args: Record<string, unknown>): string {
   return toolActivityFirstText(args, 'file_path', 'filePath', 'path', 'file', 'target');
 }
 
-export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {
-  const path = toolActivityPath(args);
-  switch (normalizedName) {
-    case 'read': {
-      const paths = toolActivityStringList(args.file_path ?? args.path);
-      const target = paths.length > 1 ? `${paths.length} files` : paths[0] || path;
-      const offset = Number(args.offset);
-      const limit = Number(args.limit);
-      const window =
-        Number.isFinite(offset) && offset > 0 && Number.isFinite(limit) && limit > 0
-          ? `lines ${offset}-${offset + limit - 1}`
-          : Number.isFinite(offset) && offset > 0
-            ? `from line ${offset}`
-            : Number.isFinite(limit) && limit > 0
-              ? `${limit} lines`
-              : '';
-      return toolActivityCompact([target, window]);
-    }
-    case 'view_image':
-    case 'read_mcp_resource':
-      return path || toolActivityFirstText(args, 'uri');
-    case 'edit':
-    case 'strreplace':
-    case 'str_replace':
-    case 'str_replace_editor':
-    case 'search_replace':
-      return path;
-    case 'apply_patch':
-      return fallback;
-    case 'shell':
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-    case 'job_wait':
-    case 'git':
-      return toolActivityInline(toolActivityCommand(args), 1_000);
-    case 'git_stage': {
+// One entry per normalized tool name, shared by every name in a group.
+function byToolName<T>(groups: Array<[names: string[], value: T]>): Record<string, T> {
+  const table: Record<string, T> = {};
+  for (const [names, value] of groups) {
+    for (const name of names) table[name] = value;
+  }
+  return table;
+}
+
+type ToolSubjectFormatter = (args: Record<string, unknown>, path: string, fallback: string) => string;
+
+function readSubject(args: Record<string, unknown>, path: string): string {
+  const paths = toolActivityStringList(args.file_path ?? args.path);
+  const target = paths.length > 1 ? `${paths.length} files` : paths[0] || path;
+  const offset = Number(args.offset);
+  const limit = Number(args.limit);
+  const hasOffset = Number.isFinite(offset) && offset > 0;
+  const hasLimit = Number.isFinite(limit) && limit > 0;
+  let window = '';
+  if (hasOffset && hasLimit) window = `lines ${offset}-${offset + limit - 1}`;
+  else if (hasOffset) window = `from line ${offset}`;
+  else if (hasLimit) window = `${limit} lines`;
+  return toolActivityCompact([target, window]);
+}
+
+function grepSubject(args: Record<string, unknown>): string {
+  const patterns = toolActivityStringList(args.pattern ?? args.query);
+  const pattern = patterns.length > 1 ? `${patterns.length} patterns` : toolActivityQuoted(args.pattern ?? args.query);
+  return toolActivityCompact([
+    pattern,
+    args.path ? `in ${toolActivityInline(args.path)}` : '',
+    args.glob ? toolActivityInline(args.glob) : '',
+  ]);
+}
+
+function globSubject(args: Record<string, unknown>): string {
+  const patterns = toolActivityStringList(args.pattern ?? args.glob);
+  const pattern = patterns.length > 1 ? `${patterns.length} globs` : toolActivityInline(args.pattern ?? args.glob);
+  return toolActivityCompact([pattern, args.path ? `in ${toolActivityInline(args.path)}` : '']);
+}
+
+function findSubject(args: Record<string, unknown>): string {
+  const queries = toolActivityStringList(args.query ?? args.fuzzy);
+  const query = queries.length > 1 ? `${queries.length} queries` : toolActivityQuoted(args.query ?? args.fuzzy);
+  return toolActivityCompact([query, args.path ? `in ${toolActivityInline(args.path)}` : '']);
+}
+
+function questionsSubject(args: Record<string, unknown>): string {
+  const questions = Array.isArray(args.questions) ? args.questions : [];
+  if (!questions.length) return '';
+  const count = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'}`;
+  return tExisting('{{count}} questions', count, { count: questions.length });
+}
+
+const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
+  [['read'], readSubject],
+  [['view_image', 'read_mcp_resource'], (args, path) => path || toolActivityFirstText(args, 'uri')],
+  [['edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace'], (_args, path) => path],
+  [['apply_patch'], (_args, _path, fallback) => fallback],
+  [
+    ['shell', 'bash', 'bash_session', 'shell_command', 'job_wait', 'git'],
+    (args) => toolActivityInline(toolActivityCommand(args), 1_000),
+  ],
+  [
+    ['git_stage'],
+    (args) => {
       const files = toolActivityStringList(args.files ?? args.paths);
       return files.length > 2 ? `${files.length} files` : files.join(', ');
-    }
-    case 'grep': {
-      const patterns = toolActivityStringList(args.pattern ?? args.query);
-      const pattern =
-        patterns.length > 1 ? `${patterns.length} patterns` : toolActivityQuoted(args.pattern ?? args.query);
-      return toolActivityCompact([
-        pattern,
-        args.path ? `in ${toolActivityInline(args.path)}` : '',
-        args.glob ? toolActivityInline(args.glob) : '',
-      ]);
-    }
-    case 'glob': {
-      const patterns = toolActivityStringList(args.pattern ?? args.glob);
-      const pattern = patterns.length > 1 ? `${patterns.length} globs` : toolActivityInline(args.pattern ?? args.glob);
-      return toolActivityCompact([pattern, args.path ? `in ${toolActivityInline(args.path)}` : '']);
-    }
-    case 'find': {
-      const queries = toolActivityStringList(args.query ?? args.fuzzy);
-      const query = queries.length > 1 ? `${queries.length} queries` : toolActivityQuoted(args.query ?? args.fuzzy);
-      return toolActivityCompact([query, args.path ? `in ${toolActivityInline(args.path)}` : '']);
-    }
-    case 'list':
-    case 'ls':
-      return toolActivityCompact([path, args.limit ? `${toolActivityInline(args.limit)} entries` : '']);
-    case 'web_search':
-    case 'web_search_call':
-    case 'search_query':
-    case 'image_query':
-      return toolActivityQuoted(args.query ?? args.keywords);
-    case 'web_fetch':
-    case 'fetch':
-      return toolActivityInline(args.url ?? args.uri ?? fallback, 1_000);
-    case 'load_tool': {
+    },
+  ],
+  [['grep'], grepSubject],
+  [['glob'], globSubject],
+  [['find'], findSubject],
+  [
+    ['list', 'ls'],
+    (args, path) => toolActivityCompact([path, args.limit ? `${toolActivityInline(args.limit)} entries` : '']),
+  ],
+  [
+    ['web_search', 'web_search_call', 'search_query', 'image_query'],
+    (args) => toolActivityQuoted(args.query ?? args.keywords),
+  ],
+  [['web_fetch', 'fetch'], (args, _path, fallback) => toolActivityInline(args.url ?? args.uri ?? fallback, 1_000)],
+  [
+    ['load_tool'],
+    (args, _path, fallback) => {
       const names = [...toolActivityStringList(args.names), ...toolActivityStringList(args.select)];
       return names.join(', ') || fallback;
-    }
-    case 'skill':
-    case 'skill_execute':
-    case 'skill_view':
-    case 'skills_list':
-    case 'use_skill':
-      return '';
-    case 'task':
-      return toolActivityCompact([toolActivityFirstText(args, 'action'), toolActivityFirstText(args, 'task_id', 'id')]);
-    case 'agent':
-    case 'bridge':
-      return toolActivityFirstText(args, 'description', 'tag', 'role', 'model') || fallback;
-    case 'request_user_input': {
-      const questions = Array.isArray(args.questions) ? args.questions : [];
-      if (!questions.length) return '';
-      const count = `${questions.length} ${questions.length === 1 ? 'question' : 'questions'}`;
-      return tExisting('{{count}} questions', count, { count: questions.length });
-    }
-    case 'update_plan':
-      return '';
-    default:
-      return fallback;
-  }
+    },
+  ],
+  [['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill', 'update_plan'], () => ''],
+  [
+    ['task'],
+    (args) => toolActivityCompact([toolActivityFirstText(args, 'action'), toolActivityFirstText(args, 'task_id', 'id')]),
+  ],
+  [
+    ['agent', 'bridge'],
+    (args, _path, fallback) => toolActivityFirstText(args, 'description', 'tag', 'role', 'model') || fallback,
+  ],
+  [['request_user_input'], questionsSubject],
+]);
+
+export function toolActivitySubject(normalizedName: string, args: Record<string, unknown>, fallback: string): string {
+  const format = TOOL_SUBJECTS[normalizedName];
+  return format ? format(args, toolActivityPath(args), fallback) : fallback;
 }
 
 export function toolActivityTitle(
@@ -439,116 +446,63 @@ export function toolActivityRedactInlineSecrets(text: string, args: Record<strin
   return redacted;
 }
 
+// Argument keys the activity line already shows for each normalized tool
+// name; the detail view skips them.
+const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
+  [['read'], ['file_path', 'filePath', 'path', 'file', 'offset', 'limit', 'pages']],
+  [['view_image', 'read_mcp_resource'], ['file_path', 'filePath', 'path', 'file', 'uri']],
+  [
+    ['edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace'],
+    ['file_path', 'filePath', 'path', 'file', 'target'],
+  ],
+  [
+    ['shell', 'bash', 'bash_session', 'shell_command', 'job_wait', 'git'],
+    ['command', 'commands', 'cmd', 'description'],
+  ],
+  [['git_stage'], ['files', 'paths']],
+  [['grep'], ['pattern', 'query', 'path', 'glob']],
+  [['glob'], ['pattern', 'glob', 'path']],
+  [['find'], ['query', 'fuzzy', 'path']],
+  [['list', 'ls'], ['path', 'dir', 'cwd', 'limit']],
+  [['web_search', 'web_search_call', 'search_query', 'image_query'], ['query', 'keywords']],
+  [['web_fetch', 'fetch'], ['url', 'uri']],
+  [['load_tool'], ['names', 'select', 'query', 'q', 'text']],
+  [['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill'], ['name', 'skill', 'skill_name', 'query', 'q']],
+  [['task'], ['action', 'task_id', 'id']],
+  [
+    ['agent', 'bridge'],
+    ['type', 'action', 'description', 'tag', 'role', 'model', 'prompt', 'status', 'task_id', 'sessionId'],
+  ],
+  [['request_user_input'], ['questions', 'answers']],
+  [['update_plan'], ['plan', 'todos', 'explanation']],
+  [
+    ['memory', 'remember', 'save_memory', 'update_memory', 'recall_memory', 'recall', 'search_memories'],
+    [
+      'action',
+      'type',
+      'operation',
+      'op',
+      'query',
+      'queries',
+      'text',
+      'input',
+      'summary',
+      'element',
+      'key',
+      'name',
+      'value',
+      'limit',
+      'topK',
+    ],
+  ],
+  [
+    ['code_graph'],
+    ['mode', 'action', 'symbols', 'symbol', 'query', 'files', 'file', 'path', 'body', 'limit', 'depth', 'cwd'],
+  ],
+  [['cwd'], ['action', 'type', 'path', 'cwd', 'dir']],
+  [['list_mcp_resources', 'list_mcp_resource_templates'], ['server']],
+]);
+
 export function toolActivityRepresentedKeys(normalizedName: string): Set<string> {
-  const keys = new Set<string>();
-  const add = (...values: string[]) => values.forEach((value) => keys.add(value));
-  switch (normalizedName) {
-    case 'read':
-      add('file_path', 'filePath', 'path', 'file', 'offset', 'limit', 'pages');
-      break;
-    case 'view_image':
-    case 'read_mcp_resource':
-      add('file_path', 'filePath', 'path', 'file', 'uri');
-      break;
-    case 'edit':
-    case 'strreplace':
-    case 'str_replace':
-    case 'str_replace_editor':
-    case 'search_replace':
-      add('file_path', 'filePath', 'path', 'file', 'target');
-      break;
-    case 'shell':
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-    case 'job_wait':
-    case 'git':
-      add('command', 'commands', 'cmd', 'description');
-      break;
-    case 'git_stage':
-      add('files', 'paths');
-      break;
-    case 'grep':
-      add('pattern', 'query', 'path', 'glob');
-      break;
-    case 'glob':
-      add('pattern', 'glob', 'path');
-      break;
-    case 'find':
-      add('query', 'fuzzy', 'path');
-      break;
-    case 'list':
-    case 'ls':
-      add('path', 'dir', 'cwd', 'limit');
-      break;
-    case 'web_search':
-    case 'web_search_call':
-    case 'search_query':
-    case 'image_query':
-      add('query', 'keywords');
-      break;
-    case 'web_fetch':
-    case 'fetch':
-      add('url', 'uri');
-      break;
-    case 'load_tool':
-      add('names', 'select', 'query', 'q', 'text');
-      break;
-    case 'skill':
-    case 'skill_execute':
-    case 'skill_view':
-    case 'skills_list':
-    case 'use_skill':
-      add('name', 'skill', 'skill_name', 'query', 'q');
-      break;
-    case 'task':
-      add('action', 'task_id', 'id');
-      break;
-    case 'agent':
-    case 'bridge':
-      add('type', 'action', 'description', 'tag', 'role', 'model', 'prompt', 'status', 'task_id', 'sessionId');
-      break;
-    case 'request_user_input':
-      add('questions', 'answers');
-      break;
-    case 'update_plan':
-      add('plan', 'todos', 'explanation');
-      break;
-    case 'memory':
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-    case 'recall_memory':
-    case 'recall':
-    case 'search_memories':
-      add(
-        'action',
-        'type',
-        'operation',
-        'op',
-        'query',
-        'queries',
-        'text',
-        'input',
-        'summary',
-        'element',
-        'key',
-        'name',
-        'value',
-        'limit',
-        'topK'
-      );
-      break;
-    case 'code_graph':
-      add('mode', 'action', 'symbols', 'symbol', 'query', 'files', 'file', 'path', 'body', 'limit', 'depth', 'cwd');
-      break;
-    case 'cwd':
-      add('action', 'type', 'path', 'cwd', 'dir');
-      break;
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-      add('server');
-      break;
-  }
-  return keys;
+  return new Set(TOOL_REPRESENTED_KEYS[normalizedName] ?? []);
 }

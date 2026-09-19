@@ -18,6 +18,28 @@ function formatCommitDate(iso: string): string {
   );
 }
 
+function baseName(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
+function copyStatusText(copyState: { ok: boolean } | null | undefined): string {
+  if (!copyState) return '';
+  return copyState.ok ? 'Full SHA copied to the clipboard' : 'Could not copy the SHA to the clipboard';
+}
+
+function copyButtonTitle(copyState: { ok: boolean } | null | undefined): string {
+  if (!copyState) return t('Copy the full SHA');
+  return copyState.ok ? t('Copied') : t('Copy failed');
+}
+
+function commitPatchBody(patch: string | null | undefined) {
+  if (patch === undefined || patch === null) return <p>{t('Loading diff…')}</p>;
+  if (patch.startsWith('Error:')) return <p>{patch}</p>;
+  if (patch) return <GitFileDiff patch={patch} mode="unified" />;
+  return <p>{t('No textual diff.')}</p>;
+}
+
 export function SourceControlCommitDetail({
   detail,
   selectedCommit,
@@ -73,11 +95,7 @@ export function SourceControlCommitDetail({
           )}
         </div>
         <span className="dock-scm-copy-status" role="status" aria-live="polite">
-          {copyState
-            ? copyState.ok
-              ? 'Full SHA copied to the clipboard'
-              : 'Could not copy the SHA to the clipboard'
-            : ''}
+          {copyStatusText(copyState)}
         </span>
         <div className="dock-scm-commit-actions">
           {detail && (
@@ -85,7 +103,7 @@ export function SourceControlCommitDetail({
               type="button"
               className="dock-scm-commit-action"
               aria-label={t('Copy the full SHA')}
-              title={copyState ? (copyState.ok ? t('Copied') : t('Copy failed')) : t('Copy the full SHA')}
+              title={copyButtonTitle(copyState)}
               onClick={() => void onCopySha(detail.hash)}
             >
               {copyState?.ok ? <Check size={14} aria-hidden="true" /> : <Copy size={14} aria-hidden="true" />}
@@ -105,10 +123,8 @@ export function SourceControlCommitDetail({
       {detailFiles.map((file) => {
         const open = openCommitFile === file.path;
         const patch = commitDiffs[file.path];
-        const slash = file.path.lastIndexOf('/');
-        const fileName = slash >= 0 ? file.path.slice(slash + 1) : file.path;
-        const oldSlash = file.oldPath?.lastIndexOf('/') ?? -1;
-        const oldFileName = file.oldPath ? (oldSlash >= 0 ? file.oldPath.slice(oldSlash + 1) : file.oldPath) : '';
+        const fileName = baseName(file.path);
+        const oldFileName = file.oldPath ? baseName(file.oldPath) : '';
         const displayName = file.oldPath ? `${oldFileName} → ${fileName}` : fileName;
         return (
           <section className="dock-scm-commit-file" data-open={open || undefined} key={file.path}>
@@ -133,19 +149,7 @@ export function SourceControlCommitDetail({
               <ScmPathText path={file.path} name={displayName} />
               <ScmStatusIcon kind={scmStatusKind(file.status)} className="dock-scm-file-state" />
             </button>
-            {open && (
-              <div className="dock-scm-commit-diff">
-                {patch === undefined || patch === null ? (
-                  <p>{t('Loading diff…')}</p>
-                ) : patch.startsWith('Error:') ? (
-                  <p>{patch}</p>
-                ) : patch ? (
-                  <GitFileDiff patch={patch} mode="unified" />
-                ) : (
-                  <p>{t('No textual diff.')}</p>
-                )}
-              </div>
-            )}
+            {open && <div className="dock-scm-commit-diff">{commitPatchBody(patch)}</div>}
           </section>
         );
       })}

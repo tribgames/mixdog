@@ -23,12 +23,10 @@ export { recalculatePortableWorkbook, recalculateWithFormulaEngine } from './xls
 
 export async function applyPortableOoxmlBatch(path, format, operations) {
   const zip = await loadPackage(path);
-  const results =
-    format === 'docx'
-      ? await applyDocx(zip, operations)
-      : format === 'xlsx'
-        ? await applyXlsx(zip, operations)
-        : await applyPptx(zip, operations);
+  let results;
+  if (format === 'docx') results = await applyDocx(zip, operations);
+  else if (format === 'xlsx') results = await applyXlsx(zip, operations);
+  else results = await applyPptx(zip, operations);
   if (operations.some((operation) => ['delete_slide', 'replace_image', 'delete_shape'].includes(operation.op))) {
     await removeOrphanPackageParts(zip).catch(() => ({ removed: [] }));
   }

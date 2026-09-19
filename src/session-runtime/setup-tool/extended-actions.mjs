@@ -21,7 +21,7 @@ export function publicAutomation(row) {
   return result;
 }
 
-export function publicMcpConfig(row) {
+function publicMcpConfig(row) {
   const config = row?.config || {};
   let endpointOrigin = null;
   if (config.url) {

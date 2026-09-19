@@ -38,56 +38,206 @@ function cellText(cell, strings) {
 // A protected sheet locks every cell unless one is marked unlocked, so a form
 // whose entry cells stay locked cannot be filled in at all — the dropdown is
 // there, and Excel refuses the keystroke.
+// Every cell of one A1 reference, capped at 512 rows by 64 columns.
+function addReferenceCells(entryCells, reference) {
+  const [start, end] = reference.split(':');
+  const from = parseCellRef(start);
+  const to = parseCellRef(end || start);
+  if (!from || !to) return;
+  const firstColumn = columnNumber(from.col);
+  const lastColumn = columnNumber(to.col);
+  for (let row = from.row; row <= to.row && row - from.row < 512; row += 1) {
+    for (let column = firstColumn; column <= lastColumn && column - firstColumn < 64; column += 1) {
+      entryCells.add(`${columnLabel(column)}${row}`);
+    }
+  }
+}
+
+// The cells the sheet's data validations ask the reader to fill in.
+function validationEntryCells(xml) {
+  const entryCells = new Set();
+  for (const match of xml.matchAll(/<dataValidation\b([^>]*)/g)) {
+    const references = xmlDecode(xmlAttribute(match[1], 'sqref') || '')
+      .split(/\s+/)
+      .filter(Boolean);
+    for (const reference of references) addReferenceCells(entryCells, reference);
+  }
+  return entryCells;
+}
+
+// The entry cells whose style still locks them under sheet protection.
+function lockedEntryCells(xml, styles, entryCells) {
+  for (const cell of iterateSheetCells(xml)) {
+    if (!cell.ref || !entryCells.has(cell.ref)) continue;
+    const styleIndex = Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1] ?? 0);
+    if (styles[styleIndex]?.locked === false) entryCells.delete(cell.ref);
+  }
+  return [...entryCells].sort();
+}
+
+function protectedInputIssue(sheet, locked) {
+  return {
+    severity: 'warning',
+    code: 'protected_input_locked',
+    path: `/sheet[${sheet.name}]/cell[${locked[0]}]`,
+    message:
+      `Sheet protection is on and ${locked.length === 1 ? 'the entry cell' : `all ${locked.length} entry cells`} ` +
+      `(${locked.slice(0, 4).join(', ')}${locked.length > 4 ? ', …' : ''}) stay locked, so nobody can type the value the validation asks for. ` +
+      'Run set_style with properties { locked: false } on the entry range before protect_sheet.',
+    source: 'sheet-protection',
+  };
+}
+
 export async function protectedInputIssues(zip, sheets) {
   const styles = resolveCellStyles(await zipText(zip, 'xl/styles.xml'));
   const issues = [];
   for (const sheet of sheets) {
     const xml = await zipText(zip, sheet.path);
     if (!xml || !/<sheetProtection\b/.test(xml)) continue;
-    const entryCells = new Set();
-    for (const match of xml.matchAll(/<dataValidation\b([^>]*)/g)) {
-      const references = xmlDecode(xmlAttribute(match[1], 'sqref') || '')
-        .split(/\s+/)
-        .filter(Boolean);
-      for (const reference of references) {
-        const [start, end] = reference.split(':');
-        const from = parseCellRef(start);
-        const to = parseCellRef(end || start);
-        if (!from || !to) continue;
-        for (let row = from.row; row <= to.row && row - from.row < 512; row += 1) {
-          for (
-            let column = columnNumber(from.col);
-            column <= columnNumber(to.col) && column - columnNumber(from.col) < 64;
-            column += 1
-          ) {
-            entryCells.add(`${columnLabel(column)}${row}`);
-          }
-        }
-      }
-    }
+    const entryCells = validationEntryCells(xml);
     if (!entryCells.size) continue;
-    const locked = [];
-    for (const cell of iterateSheetCells(xml)) {
-      if (!cell.ref || !entryCells.has(cell.ref)) continue;
-      const styleIndex = Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1] ?? 0);
-      if (styles[styleIndex]?.locked === false) entryCells.delete(cell.ref);
-    }
-    for (const reference of entryCells) locked.push(reference);
+    const locked = lockedEntryCells(xml, styles, entryCells);
     if (!locked.length) continue;
-    locked.sort();
-    issues.push({
-      severity: 'warning',
-      code: 'protected_input_locked',
-      path: `/sheet[${sheet.name}]/cell[${locked[0]}]`,
-      message:
-        `Sheet protection is on and ${locked.length === 1 ? 'the entry cell' : `all ${locked.length} entry cells`} ` +
-        `(${locked.slice(0, 4).join(', ')}${locked.length > 4 ? ', …' : ''}) stay locked, so nobody can type the value the validation asks for. ` +
-        'Run set_style with properties { locked: false } on the entry range before protect_sheet.',
-      source: 'sheet-protection',
-    });
+    issues.push(protectedInputIssue(sheet, locked));
     if (issues.length >= 50) return issues;
   }
   return issues;
+}
+
+// Declared column widths by column number; undeclared columns use the default.
+function declaredColumnWidths(xml) {
+  const widths = new Map();
+  const section = worksheetSection(xml, 'cols');
+  if (!section) return widths;
+  for (const match of section[0].matchAll(/<col\b([^>]*)\/>/g)) {
+    const min = Number(xmlAttribute(match[1], 'min')) || 0;
+    const max = Number(xmlAttribute(match[1], 'max')) || min;
+    const width = Number(xmlAttribute(match[1], 'width'));
+    if (!Number.isFinite(width) || width <= 0) continue;
+    for (let column = min; column >= 1 && column <= max && column - min < 2048; column += 1) {
+      widths.set(column, width);
+    }
+  }
+  return widths;
+}
+
+// Records one cut cell on its column's entry: the column answers once with
+// the worst cell and how many it takes down.
+function noteCutCell(byColumn, column, entry) {
+  const found = byColumn.get(column);
+  if (!found) {
+    byColumn.set(column, { ...entry, count: 1 });
+    return;
+  }
+  found.count += 1;
+  if (entry.needed > found.needed) Object.assign(found, entry);
+}
+
+function sortedByColumn(byColumn) {
+  return [...byColumn.entries()].sort((left, right) => left[0] - right[0]);
+}
+
+// Numbers a column is too narrow to show: one narrow column cuts every value
+// in it; reporting each cell would fill the issue list with one fault and
+// hide the rest.
+function narrowNumberColumns(xml, { widths, withheld, styles }) {
+  const narrowColumns = new Map();
+  for (const cell of iterateSheetCells(xml)) {
+    const attributes = cell.attributes;
+    if (/\bt="(?:s|inlineStr|str|b)"/.test(attributes)) continue;
+    const raw = /<v>([\s\S]*?)<\/v>/.exec(cell.body)?.[1];
+    const value = Number(raw);
+    if (!Number.isFinite(value)) continue;
+    const reference = cell.ref;
+    if (!reference) continue;
+    const column = columnNumber(parseCellRef(reference).col);
+    if (withheld.columns.has(column) || withheld.rows.has(parseCellRef(reference).row)) continue;
+    const width = widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
+    const style = Number(/\bs="(\d+)"/.exec(attributes)?.[1]);
+    const format = Number.isInteger(style) ? styles[style]?.numberFormat || '' : '';
+    const needed = formattedNumberWidth(value, format);
+    if (needed <= width + 0.5) continue;
+    noteCutCell(narrowColumns, column, { reference, needed, width });
+  }
+  return sortedByColumn(narrowColumns);
+}
+
+function mergedAreas(xml) {
+  return mergedRanges(xml).map((reference) => {
+    const [start, end] = String(reference).split(':');
+    const from = parseCellRef(start);
+    const to = parseCellRef(end || start);
+    return {
+      startCol: columnNumber(from.col),
+      endCol: columnNumber(to.col),
+      startRow: from.row,
+      endRow: to.row,
+    };
+  });
+}
+
+// Labels cut at the column edge: text spills into an empty neighbour, but is
+// cut as soon as the next cell holds something — the reader sees half a
+// label. The label runs until the first column to its right that holds
+// something: the empty columns before it lend their width, and a hidden
+// column lends none, because the sheet gives it no room on the page.
+// Whether a merge that continues past this column covers the cell.
+function insideMergedArea(merged, column, row) {
+  return merged.some(
+    (area) => area.startCol <= column && area.endCol > column && area.startRow <= row && area.endRow >= row
+  );
+}
+
+// The width a label may run across: its own column and the empty shown
+// columns up to its next filled neighbour.
+function labelRoom(column, neighbourColumn, { widths, withheld }) {
+  let available = widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
+  for (let next = column + 1; next < neighbourColumn; next += 1) {
+    if (withheld.columns.has(next)) continue;
+    available += widths.get(next) ?? DEFAULT_COLUMN_WIDTH;
+  }
+  return available;
+}
+
+function cutLabelColumns(xml, { widths, withheld, styles, strings }) {
+  const merged = mergedAreas(xml);
+  const cutLabels = new Map();
+  for (const row of iterateSheetRows(xml)) {
+    const cells = [...iterateSheetCells(row.body)]
+      .filter((cell) => cell.ref)
+      .map((cell) => ({ ...cell, column: columnNumber(parseCellRef(cell.ref).col) }))
+      .sort((left, right) => left.column - right.column);
+    for (let index = 0; index < cells.length; index += 1) {
+      const cell = cells[index];
+      if (withheld.columns.has(cell.column)) continue;
+      const text = cellText(cell, strings).trim();
+      if (!text) continue;
+      const neighbour = cells
+        .slice(index + 1)
+        .find(
+          (candidate) => cellText(candidate, strings).trim() || /<v(?:\s[^>]*)?>[\s\S]*?<\/v>/.test(candidate.body)
+        );
+      if (!neighbour) continue;
+      const styleIndex = Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1] ?? 0);
+      if (styles[styleIndex]?.wrapText === true) continue;
+      const rowNumber = parseCellRef(cell.ref).row;
+      if (withheld.rows.has(rowNumber)) continue;
+      if (insideMergedArea(merged, cell.column, rowNumber)) continue;
+      const width = widths.get(cell.column) ?? DEFAULT_COLUMN_WIDTH;
+      const available = labelRoom(cell.column, neighbour.column, { widths, withheld });
+      const needed = displayWidth(text);
+      if (needed <= available + 0.5) continue;
+      const neighbourRef = `${columnLabel(neighbour.column)}${rowNumber}`;
+      const found = cutLabels.get(cell.column);
+      if (!found) {
+        cutLabels.set(cell.column, { reference: cell.ref, text, needed, width, neighbour: neighbourRef, count: 1 });
+      } else {
+        found.count += 1;
+        if (needed > found.needed) Object.assign(found, { reference: cell.ref, text, needed, neighbour: neighbourRef });
+      }
+    }
+  }
+  return sortedByColumn(cutLabels);
 }
 
 export async function columnFitIssues(zip, sheets) {
@@ -101,50 +251,8 @@ export async function columnFitIssues(zip, sheets) {
     if (sheet.visibility && sheet.visibility !== 'visible') continue;
     const xml = await zipText(zip, sheet.path);
     if (!xml) continue;
-    const withheld = hiddenSheetAreas(xml);
-    const widths = new Map();
-    const section = worksheetSection(xml, 'cols');
-    if (section) {
-      for (const match of section[0].matchAll(/<col\b([^>]*)\/>/g)) {
-        const min = Number(xmlAttribute(match[1], 'min')) || 0;
-        const max = Number(xmlAttribute(match[1], 'max')) || min;
-        const width = Number(xmlAttribute(match[1], 'width'));
-        if (!Number.isFinite(width) || width <= 0) continue;
-        for (let column = min; column >= 1 && column <= max && column - min < 2048; column += 1) {
-          widths.set(column, width);
-        }
-      }
-    }
-    // One narrow column cuts every value in it; reporting each cell would fill
-    // the issue list with one fault and hide the rest, so a column answers once
-    // with the worst cell and how many it takes down.
-    const narrowColumns = new Map();
-    for (const cell of iterateSheetCells(xml)) {
-      const attributes = cell.attributes;
-      if (/\bt="(?:s|inlineStr|str|b)"/.test(attributes)) continue;
-      const raw = /<v>([\s\S]*?)<\/v>/.exec(cell.body)?.[1];
-      const value = Number(raw);
-      if (!Number.isFinite(value)) continue;
-      const reference = cell.ref;
-      if (!reference) continue;
-      const column = columnNumber(parseCellRef(reference).col);
-      if (withheld.columns.has(column) || withheld.rows.has(parseCellRef(reference).row)) continue;
-      const width = widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
-      const style = Number(/\bs="(\d+)"/.exec(attributes)?.[1]);
-      const format = Number.isInteger(style) ? styles[style]?.numberFormat || '' : '';
-      const needed = formattedNumberWidth(value, format);
-      if (needed <= width + 0.5) continue;
-      const found = narrowColumns.get(column);
-      if (!found) narrowColumns.set(column, { reference, needed, width, count: 1 });
-      else {
-        found.count += 1;
-        if (needed > found.needed) {
-          found.needed = needed;
-          found.reference = reference;
-        }
-      }
-    }
-    for (const [column, entry] of [...narrowColumns.entries()].sort((left, right) => left[0] - right[0])) {
+    const measure = { widths: declaredColumnWidths(xml), withheld: hiddenSheetAreas(xml), styles, strings };
+    for (const [column, entry] of narrowNumberColumns(xml, measure)) {
       issues.push({
         severity: 'warning',
         code: 'column_too_narrow',
@@ -156,85 +264,7 @@ export async function columnFitIssues(zip, sheets) {
       });
       if (issues.length >= 50) return issues;
     }
-    // Text spills into an empty neighbour, but is cut at the column edge as
-    // soon as the next cell holds something — the reader sees half a label.
-    const merged = mergedRanges(xml).map((reference) => {
-      const [start, end] = String(reference).split(':');
-      const from = parseCellRef(start);
-      const to = parseCellRef(end || start);
-      return {
-        startCol: columnNumber(from.col),
-        endCol: columnNumber(to.col),
-        startRow: from.row,
-        endRow: to.row,
-      };
-    });
-    const cutLabels = new Map();
-    for (const row of iterateSheetRows(xml)) {
-      const cells = [...iterateSheetCells(row.body)]
-        .filter((cell) => cell.ref)
-        .map((cell) => ({ ...cell, column: columnNumber(parseCellRef(cell.ref).col) }))
-        .sort((left, right) => left.column - right.column);
-      for (let index = 0; index < cells.length; index += 1) {
-        const cell = cells[index];
-        if (withheld.columns.has(cell.column)) continue;
-        const text = cellText(cell, strings).trim();
-        if (!text) continue;
-        // The label runs until the first column to its right that holds
-        // something: the empty columns before it lend their width, and a hidden
-        // column lends none, because the sheet gives it no room on the page.
-        const neighbour = cells
-          .slice(index + 1)
-          .find(
-            (candidate) => cellText(candidate, strings).trim() || /<v(?:\s[^>]*)?>[\s\S]*?<\/v>/.test(candidate.body)
-          );
-        if (!neighbour) continue;
-        const styleIndex = Number(/\bs="(\d+)"/.exec(cell.attributes)?.[1] ?? 0);
-        if (styles[styleIndex]?.wrapText === true) continue;
-        const rowNumber = parseCellRef(cell.ref).row;
-        if (withheld.rows.has(rowNumber)) continue;
-        if (
-          merged.some(
-            (area) =>
-              area.startCol <= cell.column &&
-              area.endCol > cell.column &&
-              area.startRow <= rowNumber &&
-              area.endRow >= rowNumber
-          )
-        )
-          continue;
-        const width = widths.get(cell.column) ?? DEFAULT_COLUMN_WIDTH;
-        let available = width;
-        for (let column = cell.column + 1; column < neighbour.column; column += 1) {
-          if (withheld.columns.has(column)) continue;
-          available += widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
-        }
-        const needed = displayWidth(text);
-        if (needed <= available + 0.5) continue;
-        const found = cutLabels.get(cell.column);
-        if (!found) {
-          cutLabels.set(cell.column, {
-            reference: cell.ref,
-            text,
-            needed,
-            width,
-            neighbour: `${columnLabel(neighbour.column)}${rowNumber}`,
-            count: 1,
-          });
-        } else {
-          found.count += 1;
-          if (needed > found.needed) {
-            Object.assign(found, {
-              reference: cell.ref,
-              text,
-              needed,
-              neighbour: `${columnLabel(neighbour.column)}${rowNumber}`,
-            });
-          }
-        }
-      }
-    }
-    for (const [column, entry] of [...cutLabels.entries()].sort((left, right) => left[0] - right[0])) {
+    for (const [column, entry] of cutLabelColumns(xml, measure)) {
       const shown = entry.text.length > 24 ? `${entry.text.slice(0, 24)}…` : entry.text;
       issues.push({
         severity: 'warning',

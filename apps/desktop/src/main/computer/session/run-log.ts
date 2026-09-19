@@ -96,6 +96,48 @@ export function readComputerRunRecords(sessionId: string, limit: number): Array<
   }
 }
 
+const REPLY_SCALAR_KEYS = [
+  'effect',
+  'verified',
+  'goal_verified',
+  'code',
+  'path',
+  'escalation',
+  'window_id',
+  'pixel_status',
+  'accessibility_status',
+];
+
+// Structured reply fields worth a log line: the diagnostic projection, the
+// delivery booleans, scalar evidence and the verdict.
+function applyReplyEvidence(record: Record<string, unknown>, payload: Record<string, unknown>): void {
+  if (typeof payload.ok === 'boolean') record.ok = payload.ok;
+  const diagnostic = diagnosticRecord(payload);
+  record.input_recovery = diagnostic.recovery;
+  record.timings_ms = diagnostic.timings_ms;
+  record.native_result = diagnostic.native_result;
+  record.observation = diagnostic.observation;
+  for (const key of ['delivery_accepted', 'input_may_have_executed', 'completed']) {
+    if (typeof payload[key] === 'boolean' || payload[key] === null) record[key] = payload[key];
+  }
+  if (diagnostic.capture_timings_ms) record.capture_timings_ms = diagnostic.capture_timings_ms;
+  if (diagnostic.capture_attempts) record.capture_attempts = diagnostic.capture_attempts;
+  if (diagnostic.step_timings) record.step_timings = diagnostic.step_timings;
+  for (const key of REPLY_SCALAR_KEYS) {
+    const value = payload[key];
+    if (value !== undefined && (typeof value !== 'object' || value === null)) record[key] = value;
+  }
+  const verdict = payload.verdict;
+  if (verdict && typeof verdict === 'object' && !Array.isArray(verdict)) {
+    const decision = (verdict as Record<string, unknown>).decision;
+    const recommended = (verdict as Record<string, unknown>).recommended;
+    record.verdict = {
+      ...(typeof decision === 'string' ? { decision } : {}),
+      ...(typeof recommended === 'string' ? { recommended } : {}),
+    };
+  }
+}
+
 export function computerRunRecord(
   command: ComputerCommand,
   startedAt: number,
@@ -115,42 +157,7 @@ export function computerRunRecord(
   record.ok = true;
   record.bytes = result.text.length;
   try {
-    const payload = JSON.parse(result.text) as Record<string, unknown>;
-    if (typeof payload.ok === 'boolean') record.ok = payload.ok;
-    const diagnostic = diagnosticRecord(payload);
-    record.input_recovery = diagnostic.recovery;
-    record.timings_ms = diagnostic.timings_ms;
-    record.native_result = diagnostic.native_result;
-    record.observation = diagnostic.observation;
-    for (const key of ['delivery_accepted', 'input_may_have_executed', 'completed']) {
-      if (typeof payload[key] === 'boolean' || payload[key] === null) record[key] = payload[key];
-    }
-    if (diagnostic.capture_timings_ms) record.capture_timings_ms = diagnostic.capture_timings_ms;
-    if (diagnostic.capture_attempts) record.capture_attempts = diagnostic.capture_attempts;
-    if (diagnostic.step_timings) record.step_timings = diagnostic.step_timings;
-    for (const key of [
-      'effect',
-      'verified',
-      'goal_verified',
-      'code',
-      'path',
-      'escalation',
-      'window_id',
-      'pixel_status',
-      'accessibility_status',
-    ]) {
-      const value = payload[key];
-      if (value !== undefined && (typeof value !== 'object' || value === null)) record[key] = value;
-    }
-    const verdict = payload.verdict;
-    if (verdict && typeof verdict === 'object' && !Array.isArray(verdict)) {
-      const decision = (verdict as Record<string, unknown>).decision;
-      const recommended = (verdict as Record<string, unknown>).recommended;
-      record.verdict = {
-        ...(typeof decision === 'string' ? { decision } : {}),
-        ...(typeof recommended === 'string' ? { recommended } : {}),
-      };
-    }
+    applyReplyEvidence(record, JSON.parse(result.text) as Record<string, unknown>);
   } catch {
     // Plain-text discovery results carry no structured verdict.
   }

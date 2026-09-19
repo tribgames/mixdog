@@ -167,7 +167,9 @@ function splitSheetReference(text) {
 // a caller who writes the field as an object gets the field name read out of it
 // rather than a stringified object in the error.
 function pivotValueFields(values) {
-  const list = Array.isArray(values) ? values : values == null ? [] : [values];
+  let list = [values];
+  if (Array.isArray(values)) list = values;
+  else if (values == null) list = [];
   return list
     .map((entry) => {
       if (entry && typeof entry === 'object') {
@@ -268,107 +270,113 @@ export function conditionalFormatKind(operation) {
   return kind;
 }
 
-export function validateXlsxOperations(operations) {
-  for (const operation of operations || []) {
-    if (!operation || typeof operation !== 'object') throw new Error('XLSX operation must be an object');
-    const op = String(operation.op || '');
-    if (['set_cell', 'set_formula', 'clear_cell', 'add_note', 'delete_note'].includes(op)) {
-      parseXlsxCell(operation.cell);
-    }
-    if (op === 'freeze_panes') {
-      const row = operation.row ?? 1;
-      const column = operation.column ?? 0;
-      if (!Number.isInteger(row) || row < 0 || row > XLSX_MAX_ROWS) {
-        throw new Error(`XLSX freeze_panes row must be between 0 and ${XLSX_MAX_ROWS}`);
-      }
-      if (!Number.isInteger(column) || column < 0 || column > XLSX_MAX_COLUMNS) {
-        throw new Error(`XLSX freeze_panes column must be between 0 and ${XLSX_MAX_COLUMNS}`);
-      }
-    }
-    if (op === 'sort_range') {
-      if (!operation.range) throw new Error('XLSX sort_range requires range');
-      const order = String(operation.order ?? '')
-        .trim()
-        .toLowerCase();
-      if (order && !['asc', 'ascending', 'desc', 'descending'].includes(order)) {
-        throw new Error(`XLSX sort_range order must be asc or desc; received "${operation.order}".`);
-      }
-      parseXlsxRange(operation.range);
-    }
-    if (op === 'add_conditional_format') {
-      const kind = conditionalFormatKind(operation);
-      if (kind === 'expression' && !String(operation.formula ?? '').trim()) {
-        throw new Error(
-          "XLSX add_conditional_format needs formula for a rule that picks cells, or type: 'colorScale' / 'dataBar' to shade every cell in the range by its value."
-        );
-      }
-      if (kind !== 'expression' && String(operation.formula ?? '').trim()) {
-        throw new Error(
-          `XLSX add_conditional_format type: '${kind}' shades the range by value and takes no formula; drop formula, or use the default rule with it.`
-        );
-      }
-      operation.type = kind;
-    }
-    if (op === 'add_pivot_table') normalizePivotFields(operation);
-    // Both backends write the kind named here, so the default is settled once:
-    // a formula that names choices is a dropdown, a formula that states a test
-    // is a custom rule. Writing B2>0 as a list would offer it as one entry.
-    if (op === 'add_validation' && !String(operation.type ?? '').trim()) {
-      operation.type = listValidationFormula(operation.formula1) ? 'list' : 'custom';
-    }
-    if (op === 'set_style' && operation.cell) parseXlsxCell(operation.cell);
-    if (
-      operation.range &&
-      ['set_range', 'set_style', 'add_table', 'add_chart', 'add_conditional_format', 'add_validation'].includes(op)
-    ) {
-      // A chart's source may be several areas joined by commas, the way Excel's
-      // Range("A7:A12,D7:D12") reads them; each one is a bounded range.
-      const parts =
-        op === 'add_chart'
-          ? String(operation.range)
-              .split(',')
-              .map((part) => part.trim())
-          : [operation.range];
-      const area = parseXlsxRange(parts[0]);
-      for (const part of parts.slice(1)) parseXlsxRange(part);
-      if (op === 'set_range') validateRangeMatrix(operation, area);
-    } else if (op === 'set_range') {
-      throw new Error('XLSX set_range requires range');
-    }
-    if (op === 'autofit_range') {
-      if (!operation.range) throw new Error('XLSX autofit_range requires range');
-      parseXlsxAutofitRange(operation.range);
-    }
-    if (op === 'append_row') {
-      if (!Array.isArray(operation.values)) throw new Error('XLSX append_row requires values');
-      if (operation.values.length > XLSX_MAX_COLUMNS) {
-        throw new Error(`XLSX append_row contains ${operation.values.length} values; maximum is ${XLSX_MAX_COLUMNS}`);
-      }
-    }
-    if (['insert_rows', 'delete_rows'].includes(op)) {
-      const row = operation.row;
-      const count = operation.count ?? 1;
-      if (!Number.isInteger(row) || row < 1 || row > XLSX_MAX_ROWS) {
-        throw new Error(`XLSX ${op} row must be between 1 and ${XLSX_MAX_ROWS}`);
-      }
-      if (!Number.isInteger(count) || count < 1 || row + count - 1 > XLSX_MAX_ROWS) {
-        throw new Error(`XLSX ${op} count exceeds the worksheet row limit`);
-      }
-    }
-    if (['insert_columns', 'delete_columns'].includes(op)) {
-      const column = operation.column;
-      const count = operation.count ?? 1;
-      if (!Number.isInteger(column) || column < 1 || column > XLSX_MAX_COLUMNS) {
-        throw new Error(`XLSX ${op} column must be between 1 and ${XLSX_MAX_COLUMNS}`);
-      }
-      if (!Number.isInteger(count) || count < 1 || column + count - 1 > XLSX_MAX_COLUMNS) {
-        throw new Error(`XLSX ${op} count exceeds the worksheet column limit`);
-      }
-    }
-    if (['merge_cells', 'unmerge_cells', 'set_autofilter'].includes(op)) {
-      if (!operation.range) throw new Error(`XLSX ${op} requires range`);
-      parseXlsxRange(operation.range);
+const CELL_OPERATIONS = ['set_cell', 'set_formula', 'clear_cell', 'add_note', 'delete_note'];
+const RANGE_OPERATIONS = ['set_range', 'set_style', 'add_table', 'add_chart', 'add_conditional_format', 'add_validation'];
+
+function validateFreezePanes(operation) {
+  const row = operation.row ?? 1;
+  const column = operation.column ?? 0;
+  if (!Number.isInteger(row) || row < 0 || row > XLSX_MAX_ROWS) {
+    throw new Error(`XLSX freeze_panes row must be between 0 and ${XLSX_MAX_ROWS}`);
+  }
+  if (!Number.isInteger(column) || column < 0 || column > XLSX_MAX_COLUMNS) {
+    throw new Error(`XLSX freeze_panes column must be between 0 and ${XLSX_MAX_COLUMNS}`);
+  }
+}
+
+function validateSortRange(operation) {
+  if (!operation.range) throw new Error('XLSX sort_range requires range');
+  const order = String(operation.order ?? '')
+    .trim()
+    .toLowerCase();
+  if (order && !['asc', 'ascending', 'desc', 'descending'].includes(order)) {
+    throw new Error(`XLSX sort_range order must be asc or desc; received "${operation.order}".`);
+  }
+  parseXlsxRange(operation.range);
+}
+
+function validateConditionalFormat(operation) {
+  const kind = conditionalFormatKind(operation);
+  if (kind === 'expression' && !String(operation.formula ?? '').trim()) {
+    throw new Error(
+      "XLSX add_conditional_format needs formula for a rule that picks cells, or type: 'colorScale' / 'dataBar' to shade every cell in the range by its value."
+    );
+  }
+  if (kind !== 'expression' && String(operation.formula ?? '').trim()) {
+    throw new Error(
+      `XLSX add_conditional_format type: '${kind}' shades the range by value and takes no formula; drop formula, or use the default rule with it.`
+    );
+  }
+  operation.type = kind;
+}
+
+// A chart's source may be several areas joined by commas, the way Excel's
+// Range("A7:A12,D7:D12") reads them; each one is a bounded range.
+function validateRangeOperation(operation, op) {
+  const parts =
+    op === 'add_chart'
+      ? String(operation.range)
+          .split(',')
+          .map((part) => part.trim())
+      : [operation.range];
+  const area = parseXlsxRange(parts[0]);
+  for (const part of parts.slice(1)) parseXlsxRange(part);
+  if (op === 'set_range') validateRangeMatrix(operation, area);
+}
+
+function validateSpan(op, start, count, { field, limit, unit }) {
+  if (!Number.isInteger(start) || start < 1 || start > limit) {
+    throw new Error(`XLSX ${op} ${field} must be between 1 and ${limit}`);
+  }
+  if (!Number.isInteger(count) || count < 1 || start + count - 1 > limit) {
+    throw new Error(`XLSX ${op} count exceeds the worksheet ${unit} limit`);
+  }
+}
+
+function validateXlsxOperation(operation) {
+  if (!operation || typeof operation !== 'object') throw new Error('XLSX operation must be an object');
+  const op = String(operation.op || '');
+  if (CELL_OPERATIONS.includes(op)) parseXlsxCell(operation.cell);
+  if (op === 'freeze_panes') validateFreezePanes(operation);
+  if (op === 'sort_range') validateSortRange(operation);
+  if (op === 'add_conditional_format') validateConditionalFormat(operation);
+  if (op === 'add_pivot_table') normalizePivotFields(operation);
+  // Both backends write the kind named here, so the default is settled once:
+  // a formula that names choices is a dropdown, a formula that states a test
+  // is a custom rule. Writing B2>0 as a list would offer it as one entry.
+  if (op === 'add_validation' && !String(operation.type ?? '').trim()) {
+    operation.type = listValidationFormula(operation.formula1) ? 'list' : 'custom';
+  }
+  if (op === 'set_style' && operation.cell) parseXlsxCell(operation.cell);
+  if (operation.range && RANGE_OPERATIONS.includes(op)) validateRangeOperation(operation, op);
+  else if (op === 'set_range') throw new Error('XLSX set_range requires range');
+  if (op === 'autofit_range') {
+    if (!operation.range) throw new Error('XLSX autofit_range requires range');
+    parseXlsxAutofitRange(operation.range);
+  }
+  if (op === 'append_row') {
+    if (!Array.isArray(operation.values)) throw new Error('XLSX append_row requires values');
+    if (operation.values.length > XLSX_MAX_COLUMNS) {
+      throw new Error(`XLSX append_row contains ${operation.values.length} values; maximum is ${XLSX_MAX_COLUMNS}`);
     }
   }
+  if (['insert_rows', 'delete_rows'].includes(op)) {
+    validateSpan(op, operation.row, operation.count ?? 1, { field: 'row', limit: XLSX_MAX_ROWS, unit: 'row' });
+  }
+  if (['insert_columns', 'delete_columns'].includes(op)) {
+    validateSpan(op, operation.column, operation.count ?? 1, {
+      field: 'column',
+      limit: XLSX_MAX_COLUMNS,
+      unit: 'column',
+    });
+  }
+  if (['merge_cells', 'unmerge_cells', 'set_autofilter'].includes(op)) {
+    if (!operation.range) throw new Error(`XLSX ${op} requires range`);
+    parseXlsxRange(operation.range);
+  }
+}
+
+export function validateXlsxOperations(operations) {
+  for (const operation of operations || []) validateXlsxOperation(operation);
   return operations;
 }

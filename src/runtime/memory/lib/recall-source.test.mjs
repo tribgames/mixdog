@@ -119,7 +119,7 @@ test('grouped source rendering carries explicit options through flat, multi-sess
 });
 
 test('source opt-in keeps the body bound and does not change Compact summary/RAW projection', () => {
-  const large = { ...raw, content: 'x'.repeat(8000) + 'AFTER_BODY_BOUND' };
+  const large = { ...raw, content: `${'x'.repeat(8000)}AFTER_BODY_BOUND` };
   assert.equal(renderEntryLines([large], { preserveSource: true }).includes('AFTER_BODY_BOUND'), false);
   assert.equal(renderEntryLines([{ ...root, _compactBody: true }]), root.summary);
   const compact = renderEntryLines(compactHandoffRows([large]), { maxBodyChars: null });

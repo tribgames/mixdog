@@ -35,7 +35,7 @@ test('outEnd labels on a stacked bar are reported as a PowerPoint-refused fault'
 
 test('a plot group pointing at axes the part never declares is reported', () => {
   const combo = chart(
-    bar() + `<c:lineChart><c:grouping val="standard"/><c:axId val="3"/><c:axId val="4"/></c:lineChart>` + axes('1', '2')
+    `${bar()}<c:lineChart><c:grouping val="standard"/><c:axId val="3"/><c:axId val="4"/></c:lineChart>${axes('1', '2')}`
   );
   const issues = chartFaultsInXml('ppt/charts/chart3.xml', combo);
   assert.deepEqual(

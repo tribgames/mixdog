@@ -21,7 +21,7 @@ function computeColorEnabled() {
   if (env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '0' && env.FORCE_COLOR !== '') {
     return true;
   }
-  return Boolean(stdout && stdout.isTTY);
+  return Boolean(stdout?.isTTY);
 }
 
 /** Whether styling is currently active. */

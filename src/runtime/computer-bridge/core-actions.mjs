@@ -159,6 +159,113 @@ function fieldValueError(field, value, label) {
   return null;
 }
 
+const POINTER_ACTION_TYPES = ['click', 'double_click', 'triple_click', 'mouse_down', 'mouse_up', 'move'];
+const CONTINUATION_ACTION_TYPES = ['type', 'key', 'key_down', 'key_up', 'wait'];
+
+// Shape checks every action shares: known type, allowed fields, field values.
+function actionShapeError(action, type, label) {
+  if (!COMPUTER_CORE_ACTION_TYPES.includes(type)) return `${label} has unknown type: ${type || '(empty)'}`;
+  const extras = Object.keys(action).filter((field) => !ALLOWED_FIELDS.has(field));
+  if (extras.length) return `${label} does not accept field(s): ${extras.join(', ')}`;
+  const typeExtras = Object.keys(action).filter((field) => !FIELDS_BY_TYPE[type].has(field));
+  if (typeExtras.length) return `${label} type="${type}" does not accept field(s): ${typeExtras.join(', ')}`;
+  for (const [field, value] of Object.entries(action)) {
+    const valueError = fieldValueError(field, value, label);
+    if (valueError) return valueError;
+  }
+  for (const field of ['ref', 'to']) {
+    if (hasOwn(action, field) && !action[field].trim()) return `${label}.${field} must not be empty`;
+  }
+  return null;
+}
+
+function deliveryError(action, type, label, delivery) {
+  if (
+    type === 'type' &&
+    delivery === 'foreground' &&
+    typeof action.text === 'string' &&
+    action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS
+  ) {
+    return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units`;
+  }
+  if (typeof action.modifiers !== 'string') return null;
+  const modifierParts = action.modifiers.split('+');
+  if (new Set(modifierParts).size !== modifierParts.length) return `${label}.modifiers must not repeat a modifier`;
+  if (modifierParts.includes('alt') && delivery !== 'foreground') {
+    return `${label}.modifiers alt requires act.input.delivery="foreground"`;
+  }
+  return null;
+}
+
+// Actions after the first reuse the focus the first one established.
+function sequenceError(action, type, index) {
+  if (index === 0) return type === 'wait' ? 'Computer Use act must start with an input action' : null;
+  if (!CONTINUATION_ACTION_TYPES.includes(type)) {
+    return 'Computer Use act actions after the first must be type, key, key_down, key_up, or wait';
+  }
+  if (CONTINUATION_TARGET_FIELDS.some((field) => hasOwn(action, field))) {
+    return 'Computer Use act actions after the first reuse focus and cannot carry a target';
+  }
+  return null;
+}
+
+function dragTargetError(action, label, frameId) {
+  const sourceSemantic = ['ref', 'element'].filter((field) => hasOwn(action, field));
+  const destinationSemantic = ['to', 'to_element'].filter((field) => hasOwn(action, field));
+  const sourcePoint = ['x', 'y'].filter((field) => hasOwn(action, field));
+  const destinationPoint = ['to_x', 'to_y'].filter((field) => hasOwn(action, field));
+  const semantic = sourceSemantic.length === 1 && destinationSemantic.length === 1;
+  const coordinate = sourcePoint.length === 2 && destinationPoint.length === 2;
+  if (hasOwn(action, 'waypoints')) {
+    // Waypoints already name every point of the gesture, so a second source or
+    // destination could only contradict them.
+    if (sourceSemantic.length || destinationSemantic.length || sourcePoint.length || destinationPoint.length) {
+      return `${label} waypoints carry the whole gesture and cannot be combined with another target`;
+    }
+    if (!frameId) return `${label} waypoints require act.input.frame_id`;
+    return null;
+  }
+  if (
+    sourceSemantic.length > 1 ||
+    destinationSemantic.length > 1 ||
+    (semantic && coordinate) ||
+    (!semantic && !coordinate)
+  ) {
+    return `${label} requires one matching semantic or coordinate source/destination pair`;
+  }
+  if (coordinate && !frameId) return `${label} coordinate target requires act.input.frame_id`;
+  return null;
+}
+
+// Per-type argument rules: targets, direction, text, keys, duration.
+function actionArgumentsError(action, type, label, frameId) {
+  if (POINTER_ACTION_TYPES.includes(type)) {
+    const error = targetFormError(action, { frameId });
+    return error ? `${label} ${error}` : null;
+  }
+  if (type === 'drag') return dragTargetError(action, label, frameId);
+  if (type === 'scroll') {
+    const error = targetFormError(action, { required: false, frameId });
+    if (error) return `${label} ${error}`;
+    if (!['up', 'down', 'left', 'right'].includes(action.direction)) {
+      return `${label} direction must be up, down, left, or right`;
+    }
+    return null;
+  }
+  if (type === 'type') {
+    const error = targetFormError(action, { required: false, frameId });
+    if (error) return `${label} ${error}`;
+    return typeof action.text === 'string' ? null : `${label} requires text`;
+  }
+  if (type === 'key') return typeof action.keys === 'string' ? null : `${label} requires keys`;
+  if (type === 'wait') {
+    const { duration } = action;
+    const valid = typeof duration === 'number' && Number.isFinite(duration) && duration >= 0 && duration <= 5;
+    return valid ? null : `${label} duration must be 0..5 seconds`;
+  }
+  return null;
+}
+
 export function validateComputerCoreActions(actions, { frameId = '', delivery = COMPUTER_DEFAULT_DELIVERY } = {}) {
   if (!Array.isArray(actions) || actions.length < 1 || actions.length > 6) {
     return 'Computer Use act actions must contain 1..6 items';
@@ -170,109 +277,12 @@ export function validateComputerCoreActions(actions, { frameId = '', delivery = 
       return `${label} must be an object`;
     }
     const type = String(action.type || '');
-    if (!COMPUTER_CORE_ACTION_TYPES.includes(type)) {
-      return `${label} has unknown type: ${type || '(empty)'}`;
-    }
-    const extras = Object.keys(action).filter((field) => !ALLOWED_FIELDS.has(field));
-    if (extras.length) return `${label} does not accept field(s): ${extras.join(', ')}`;
-    const typeExtras = Object.keys(action).filter((field) => !FIELDS_BY_TYPE[type].has(field));
-    if (typeExtras.length) {
-      return `${label} type="${type}" does not accept field(s): ${typeExtras.join(', ')}`;
-    }
-    for (const [field, value] of Object.entries(action)) {
-      const valueError = fieldValueError(field, value, label);
-      if (valueError) return valueError;
-    }
-    if (
-      type === 'type' &&
-      delivery === 'foreground' &&
-      typeof action.text === 'string' &&
-      action.text.length > MAX_COMPUTER_FOREGROUND_TEXT_CHARS
-    ) {
-      return `${label} foreground text exceeds ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units`;
-    }
-    for (const field of ['ref', 'to']) {
-      if (hasOwn(action, field) && !action[field].trim()) {
-        return `${label}.${field} must not be empty`;
-      }
-    }
-    if (
-      typeof action.modifiers === 'string' &&
-      new Set(action.modifiers.split('+')).size !== action.modifiers.split('+').length
-    ) {
-      return `${label}.modifiers must not repeat a modifier`;
-    }
-    if (typeof action.modifiers === 'string') {
-      const modifierParts = action.modifiers.split('+');
-      if (modifierParts.includes('alt') && delivery !== 'foreground') {
-        return `${label}.modifiers alt requires act.input.delivery="foreground"`;
-      }
-    }
-    if (index > 0) {
-      if (!['type', 'key', 'key_down', 'key_up', 'wait'].includes(type)) {
-        return 'Computer Use act actions after the first must be type, key, key_down, key_up, or wait';
-      }
-      const targeted = CONTINUATION_TARGET_FIELDS.filter((field) => hasOwn(action, field));
-      if (targeted.length) {
-        return 'Computer Use act actions after the first reuse focus and cannot carry a target';
-      }
-    } else if (type === 'wait') {
-      return 'Computer Use act must start with an input action';
-    }
-    if (['click', 'double_click', 'triple_click', 'mouse_down', 'mouse_up', 'move'].includes(type)) {
-      const error = targetFormError(action, { frameId });
-      if (error) return `${label} ${error}`;
-    }
-    if (type === 'drag') {
-      const sourceSemantic = ['ref', 'element'].filter((field) => hasOwn(action, field));
-      const destinationSemantic = ['to', 'to_element'].filter((field) => hasOwn(action, field));
-      const sourcePoint = ['x', 'y'].filter((field) => hasOwn(action, field));
-      const destinationPoint = ['to_x', 'to_y'].filter((field) => hasOwn(action, field));
-      const semantic = sourceSemantic.length === 1 && destinationSemantic.length === 1;
-      const coordinate = sourcePoint.length === 2 && destinationPoint.length === 2;
-      if (hasOwn(action, 'waypoints')) {
-        // Waypoints already name every point of the gesture, so a second source or
-        // destination could only contradict them.
-        if (sourceSemantic.length || destinationSemantic.length || sourcePoint.length || destinationPoint.length) {
-          return `${label} waypoints carry the whole gesture and cannot be combined with another target`;
-        }
-        if (!frameId) return `${label} waypoints require act.input.frame_id`;
-      } else {
-        if (
-          sourceSemantic.length > 1 ||
-          destinationSemantic.length > 1 ||
-          (semantic && coordinate) ||
-          (!semantic && !coordinate)
-        ) {
-          return `${label} requires one matching semantic or coordinate source/destination pair`;
-        }
-        if (coordinate && !frameId) return `${label} coordinate target requires act.input.frame_id`;
-      }
-    }
-    if (type === 'scroll') {
-      const error = targetFormError(action, { required: false, frameId });
-      if (error) return `${label} ${error}`;
-      if (!['up', 'down', 'left', 'right'].includes(action.direction)) {
-        return `${label} direction must be up, down, left, or right`;
-      }
-    }
-    if (type === 'type') {
-      const error = targetFormError(action, { required: false, frameId });
-      if (error) return `${label} ${error}`;
-      if (typeof action.text !== 'string') return `${label} requires text`;
-    }
-    if (type === 'key') {
-      if (typeof action.keys !== 'string') return `${label} requires keys`;
-    }
-    if (
-      type === 'wait' &&
-      (typeof action.duration !== 'number' ||
-        !Number.isFinite(action.duration) ||
-        action.duration < 0 ||
-        action.duration > 5)
-    ) {
-      return `${label} duration must be 0..5 seconds`;
-    }
+    const error =
+      actionShapeError(action, type, label) ||
+      deliveryError(action, type, label, delivery) ||
+      sequenceError(action, type, index) ||
+      actionArgumentsError(action, type, label, frameId);
+    if (error) return error;
   }
   const totalWaitSeconds = actions.reduce(
     (total, action) => total + (action?.type === 'wait' ? Number(action.duration) || 0 : 0),

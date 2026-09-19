@@ -13,10 +13,10 @@
  * substitutes full-size bytes for a thumbnail — that hidden path is exactly
  * what made the remote gallery slow.
  */
-import { spawn } from 'child_process';
-import { randomBytes } from 'crypto';
-import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 
@@ -401,11 +401,16 @@ export async function ensureRendition({
   return pending;
 }
 
+const RENDITION_EXTENSIONS = new Map([
+  ['image/webp', '.webp'],
+  ['image/png', '.png'],
+  ['image/jpeg', '.jpg'],
+]);
+
 /** Persist a small browser-generated fallback so a codec miss is paid once. */
 export function cacheRendition({ id, variant = 'thumb', mime, buffer, cacheDir }) {
   if (!renditionSpec(variant)) return null;
-  const extension =
-    mime === 'image/webp' ? '.webp' : mime === 'image/png' ? '.png' : mime === 'image/jpeg' ? '.jpg' : '';
+  const extension = RENDITION_EXTENSIONS.get(mime) || '';
   if (!extension || !buffer?.length || buffer.length > MAX_CACHED_RENDITION_BYTES) return null;
   failedUntil.delete(`${variant}:${id}`);
   return writeRendition(cacheDir, variant, id, extension, buffer);

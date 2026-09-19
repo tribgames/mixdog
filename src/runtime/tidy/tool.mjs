@@ -243,8 +243,31 @@ async function runStructural({
   if (!files.length) {
     return { adapter: adapter.id, packs: [], matches: [], applied: [], note: 'no files in scope' };
   }
-  const allowed = new Set(files.map((rel) => matchFileKey(rel, cwd)));
   const runnable = groupsForLanguages(groups, languages);
+  const { matches, ruleErrors } = await scanStructuralGroups({
+    adapter,
+    runnable,
+    files,
+    extensions,
+    cwd,
+    signal,
+    filesForStructuralGroup,
+  });
+  const structural = {
+    adapter: adapter.id,
+    packs: runnable.flatMap((group) => group.packs),
+    matches,
+    applied: [],
+    ...(ruleErrors.length ? { error: ruleErrors[0], ruleErrors } : {}),
+  };
+  if (!apply || structural.matches.length === 0) return structural;
+  return applyStructuralPlan(structural, { cwd, sessionId, signal });
+}
+
+// Every group's matches inside the scoped files, scanned chunk by chunk. One
+// unusable pack takes down its own language only; the rest still run.
+async function scanStructuralGroups({ adapter, runnable, files, extensions, cwd, signal, filesForStructuralGroup }) {
+  const allowed = new Set(files.map((rel) => matchFileKey(rel, cwd)));
   const matches = [];
   const ruleErrors = [];
   for (const group of runnable) {
@@ -254,24 +277,19 @@ async function runStructural({
       for (const match of scan.matches || []) {
         if (allowed.has(matchFileKey(match.file, cwd))) matches.push(match);
       }
-      // One unusable pack takes down its own language only; the rest still run.
       if (scan.error) ruleErrors.push({ language: group.language, ...scan.error });
     }
   }
-  const structural = {
-    adapter: adapter.id,
-    packs: runnable.flatMap((group) => group.packs),
-    matches,
-    applied: [],
-    ...(ruleErrors.length ? { error: ruleErrors[0], ruleErrors } : {}),
-  };
-  if (!apply || structural.matches.length === 0) return structural;
+  return { matches, ruleErrors };
+}
 
+async function applyStructuralPlan(structural, { cwd, sessionId, signal }) {
   const { applyStructuralFixes } = await import('./apply.mjs');
   const byFile = {};
   for (const match of structural.matches) {
     if (!match.fix) continue;
-    (byFile[match.file] ||= []).push(match);
+    byFile[match.file] ||= [];
+    byFile[match.file].push(match);
   }
   const outcome = await applyStructuralFixes({ cwd, matchesByFile: byFile, sessionId, signal });
   structural.applied = outcome.applied;
@@ -327,19 +345,7 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
   });
 
   const structural =
-    args.structural === false
-      ? null
-      : await runStructural({
-          cwd,
-          files: detected.files,
-          languages: detected.languages.map((language) => language.id),
-          apply,
-          sessionId,
-          signal,
-          graphBinPath: detected.graphBinPath,
-          graphLangs: detected.graphLangs,
-          extensions: detected.extensions,
-        });
+    args.structural === false ? null : await runStructuralForDetected(detected, { cwd, apply, sessionId, signal });
 
   rememberTidyRun(cwd, sessionId, {
     languages: detected.languages,
@@ -362,12 +368,7 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
     needsApproval,
     installed: installed ? installed.engines : null,
     ...(scope.length ? { scope } : {}),
-    notes: [
-      ...(detected.note ? [detected.note] : []),
-      ...(resolution.config.error ? [resolution.config.error] : []),
-      ...(action === 'fix' && !apply ? ['dry run: pass apply:true to write these changes'] : []),
-      ...(installed?.errors ? installed.errors.map((entry) => `${entry.id}: ${entry.error}`) : []),
-    ],
+    notes: actionNotes({ detected, resolution, action, apply, installed }),
     offset: parseOffset(args.offset),
     limit: parseLimit(args.limit),
     elapsedMs: Date.now() - startedAt,
@@ -376,16 +377,38 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
   return report;
 }
 
+function runStructuralForDetected(detected, { cwd, apply, sessionId, signal }) {
+  return runStructural({
+    cwd,
+    files: detected.files,
+    languages: detected.languages.map((language) => language.id),
+    apply,
+    sessionId,
+    signal,
+    graphBinPath: detected.graphBinPath,
+    graphLangs: detected.graphLangs,
+    extensions: detected.extensions,
+  });
+}
+
+function actionNotes({ detected, resolution, action, apply, installed }) {
+  return [
+    ...(detected.note ? [detected.note] : []),
+    ...(resolution.config.error ? [resolution.config.error] : []),
+    ...(action === 'fix' && !apply ? ['dry run: pass apply:true to write these changes'] : []),
+    ...(installed?.errors ? installed.errors.map((entry) => `${entry.id}: ${entry.error}`) : []),
+  ];
+}
+
 async function resultsAction({ args, cwd, sessionId, engineFilter, startedAt }) {
   const cached = recallTidyRun(cwd, sessionId);
   if (!cached) {
     throw new TidyToolError('no stored tidy results for this session; run check or fix first');
   }
-  const results = Array.isArray(cached.results)
-    ? engineFilter.length
-      ? cached.results.filter((row) => engineFilter.includes(row.id))
-      : cached.results
-    : null;
+  let results = null;
+  if (Array.isArray(cached.results)) {
+    results = engineFilter.length ? cached.results.filter((row) => engineFilter.includes(row.id)) : cached.results;
+  }
   return buildTidyReport({
     action: 'results',
     languages: cached.languages || [],

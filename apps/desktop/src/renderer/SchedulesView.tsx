@@ -171,10 +171,12 @@ function scheduleDraft(schedule: RecordValue | undefined): ScheduleDraft {
   const parsedAt = source.whenAt ? new Date(String(source.whenAt)) : null;
   const cron = String(source.whenCron || '');
   const parsed = frequencyFromCron(cron);
+  let frequency: FrequencyKind = parsed.kind;
+  if (!cron) frequency = source.whenAt ? 'once' : 'daily';
   return {
     name: String(source.name || ''),
     description: String(source.description || ''),
-    frequency: source.whenAt && !cron ? 'once' : cron ? parsed.kind : 'daily',
+    frequency,
     minute: parsed.minute,
     clock: parsed.clock,
     weekday: parsed.weekday,
@@ -674,9 +676,8 @@ export function SchedulesPane({
         )}
         {/* Reserve the first-read list, without claiming it is empty. Cached
           rows stay visible while their background refresh runs. */}
-        {loading ? (
-          <InitialSurface />
-        ) : visible.length ? (
+        {loading && <InitialSurface />}
+        {!loading && visible.length > 0 && (
           <div className="schedules-list">
             {visible.map((schedule) => {
               const name = String(schedule.name);
@@ -716,7 +717,8 @@ export function SchedulesPane({
               );
             })}
           </div>
-        ) : (
+        )}
+        {!loading && visible.length === 0 && (
           <div className="schedules-empty">
             <AlarmClock size={40} strokeWidth={1.5} aria-hidden="true" />
             <p>{schedules.length ? t('No schedules match the current filter.') : t('No scheduled tasks yet.')}</p>

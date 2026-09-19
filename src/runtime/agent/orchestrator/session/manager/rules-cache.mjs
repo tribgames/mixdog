@@ -1,7 +1,7 @@
 // Prompt-layer rules builders. Source revision tracking lives separately so
 // every layer observes deletions, replacements and timestamp rollbacks alike.
-import { createRequire } from 'module';
-import { join } from 'path';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
 import { envFlag } from '../../../../shared/env.mjs';
 import { createRulesSourceCache } from './rules-source-cache.mjs';

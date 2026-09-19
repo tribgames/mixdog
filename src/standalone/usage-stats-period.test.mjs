@@ -131,7 +131,7 @@ test('cards, providers, models and chart data share the trailing range and never
     '2026-09-30T12:00:00',
     '2026-12-31T12:00:00',
   ];
-  dates.forEach((date, i) => record(ledger, `request-${i}`, date));
+  for (const [i, date] of dates.entries()) record(ledger, `request-${i}`, date);
   for (const [view, anchor, records] of [
     ['hour', undefined, 2],
     ['7d', undefined, 2],

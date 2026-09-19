@@ -166,12 +166,9 @@ export function createTagRegistry({ dataDir, cfgMod, mgr, emitSubagentEvent }) {
     );
     // An existing lease is authoritative: a read must never extend or reset it.
     const existingReapMs = stampMs(existing?.reapAt);
-    const reapAt =
-      existingReapMs > 0
-        ? new Date(existingReapMs).toISOString()
-        : reapMs == null
-          ? null
-          : new Date(terminalAtMs + reapMs).toISOString();
+    let reapAt = null;
+    if (existingReapMs > 0) reapAt = new Date(existingReapMs).toISOString();
+    else if (reapMs != null) reapAt = new Date(terminalAtMs + reapMs).toISOString();
     const finishedMs = stampMs(session?.finishedAt) || stampMs(existing?.finishedAt);
     return {
       // Stamps are re-emitted as ISO so a numeric session stamp cannot leak an

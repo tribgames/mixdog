@@ -4,7 +4,7 @@
 // Payloads pass through un-inspected; HMAC verification stays on the agent.
 import { randomUUID } from 'node:crypto';
 
-import { clientIp } from './relay-http.mjs';
+import { clientIp, desktopLegOpen, upstreamStatus } from './relay-http.mjs';
 import { guarded, noteIngressDelivery, releaseIngressLeg, trackLegIngress } from './relay-transport.mjs';
 
 const MAX_HOOK_BODY_BYTES = 1024 * 1024;
@@ -28,18 +28,29 @@ const HOOK_DROP_HEADERS = new Set([
   'te',
 ]);
 
-export function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response) {
+function destroyRequest(request) {
+  try {
+    request.destroy();
+  } catch {
+    /* already gone */
+  }
+}
+
+// Route, rate limit and agent admission for one inbound webhook. Answers the
+// caller itself on refusal and returns null; otherwise the leg entry plus the
+// parsed route.
+function admitHookRequest(liveHooks, hookLimiter, maxPending, request, response) {
   let url;
   try {
     url = new URL(request.url || '/', 'http://localhost');
   } catch {
     response.writeHead(400).end();
-    return;
+    return null;
   }
   const match = url.pathname.match(/^\/hook\/([0-9a-f-]{8,64})(\/.*)?$/);
   if (!match) {
     response.writeHead(404, { 'Content-Type': 'application/json' }).end('{"error":"not found"}');
-    return;
+    return null;
   }
   // Device-keyed alone lets one source spread a burst across ids; the caller
   // bucket is what bounds the total an unauthenticated peer can push in.
@@ -47,17 +58,13 @@ export function handleHookRequest(liveHooks, hookLimiter, maxPending, request, r
     response
       .writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '60' })
       .end('{"error":"rate limited"}');
-    try {
-      request.destroy();
-    } catch {
-      /* already gone */
-    }
-    return;
+    destroyRequest(request);
+    return null;
   }
   const entry = liveHooks.get(match[1]);
-  if (!entry || entry.socket.readyState !== entry.socket.OPEN) {
+  if (!desktopLegOpen(entry)) {
     response.writeHead(503, { 'Content-Type': 'application/json' }).end('{"error":"agent offline"}');
-    return;
+    return null;
   }
   // An agent that is not keeping up must not turn into relay memory: refuse
   // before the body is read rather than queue another megabyte behind it.
@@ -69,20 +76,15 @@ export function handleHookRequest(liveHooks, hookLimiter, maxPending, request, r
     entry.socket.bufferedAmount > HOOK_SOCKET_BUFFER_LIMIT_BYTES
   ) {
     response.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '1' }).end('{"error":"agent busy"}');
-    try {
-      request.destroy();
-    } catch {
-      /* already gone */
-    }
-    return;
+    destroyRequest(request);
+    return null;
   }
-  entry.inflight = (entry.inflight || 0) + 1;
-  let slotReleased = false;
-  const releaseSlot = () => {
-    if (slotReleased) return;
-    slotReleased = true;
-    entry.inflight = Math.max(0, (entry.inflight || 1) - 1);
-  };
+  return { entry, url, match };
+}
+
+// Buffers the body up to MAX_HOOK_BODY_BYTES. The in-flight reservation is
+// released on every exit — oversize, error, hang-up, or the completed body.
+function readHookBody(request, response, releaseSlot, onBody) {
   const chunks = [];
   let total = 0;
   let aborted = false;
@@ -97,11 +99,7 @@ export function handleHookRequest(liveHooks, hookLimiter, maxPending, request, r
       } catch {
         /* client vanished */
       }
-      try {
-        request.destroy();
-      } catch {
-        /* already gone */
-      }
+      destroyRequest(request);
       return;
     }
     chunks.push(chunk);
@@ -117,44 +115,66 @@ export function handleHookRequest(liveHooks, hookLimiter, maxPending, request, r
     // The reservation becomes a `pending` entry: release it in the same turn so
     // the two counters never double-count the same request.
     releaseSlot();
-    const id = randomUUID();
-    const headers = {};
-    for (const [key, value] of Object.entries(request.headers)) {
-      if (!HOOK_DROP_HEADERS.has(key)) headers[key] = value;
-    }
-    const timer = setTimeout(() => {
-      if (entry.pending.delete(id)) {
-        try {
-          response.writeHead(504, { 'Content-Type': 'application/json' }).end('{"error":"agent timeout"}');
-        } catch {
-          /* client vanished */
-        }
-      }
-    }, HOOK_TIMEOUT_MS);
-    timer.unref?.();
-    entry.pending.set(id, { response, timer });
-    try {
-      entry.socket.send(
-        JSON.stringify({
-          type: 'http',
-          id,
-          method: request.method,
-          path: (match[2] || '/') + url.search,
-          headers,
-          body: chunks.length ? Buffer.concat(chunks).toString('base64') : '',
-        })
-      );
-    } catch {
-      clearTimeout(timer);
-      if (entry.pending.delete(id)) {
-        try {
-          response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"agent unreachable"}');
-        } catch {
-          /* client vanished */
-        }
-      }
-    }
+    onBody(chunks);
   });
+}
+
+// Replays the buffered request over the agent leg and parks the response
+// until the agent answers or the timeout fires.
+function forwardHookRequest(entry, request, response, url, match, chunks) {
+  const id = randomUUID();
+  const headers = {};
+  for (const [key, value] of Object.entries(request.headers)) {
+    if (!HOOK_DROP_HEADERS.has(key)) headers[key] = value;
+  }
+  const timer = setTimeout(() => {
+    if (entry.pending.delete(id)) {
+      try {
+        response.writeHead(504, { 'Content-Type': 'application/json' }).end('{"error":"agent timeout"}');
+      } catch {
+        /* client vanished */
+      }
+    }
+  }, HOOK_TIMEOUT_MS);
+  timer.unref?.();
+  entry.pending.set(id, { response, timer });
+  try {
+    entry.socket.send(
+      JSON.stringify({
+        type: 'http',
+        id,
+        method: request.method,
+        path: (match[2] || '/') + url.search,
+        headers,
+        body: chunks.length ? Buffer.concat(chunks).toString('base64') : '',
+      })
+    );
+  } catch {
+    clearTimeout(timer);
+    if (entry.pending.delete(id)) {
+      try {
+        response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"agent unreachable"}');
+      } catch {
+        /* client vanished */
+      }
+    }
+  }
+}
+
+export function handleHookRequest(liveHooks, hookLimiter, maxPending, request, response) {
+  const admitted = admitHookRequest(liveHooks, hookLimiter, maxPending, request, response);
+  if (!admitted) return;
+  const { entry, url, match } = admitted;
+  entry.inflight = (entry.inflight || 0) + 1;
+  let slotReleased = false;
+  const releaseSlot = () => {
+    if (slotReleased) return;
+    slotReleased = true;
+    entry.inflight = Math.max(0, (entry.inflight || 1) - 1);
+  };
+  readHookBody(request, response, releaseSlot, (chunks) =>
+    forwardHookRequest(entry, request, response, url, match, chunks)
+  );
 }
 
 export function failHookPending(entry) {
@@ -195,39 +215,7 @@ export function runHookLeg(liveHooks, deviceId, socket, options = {}) {
     guarded('hook frame', (raw) => {
       noteIngressDelivery(socket);
       socket.isAlive = true;
-      let frame;
-      try {
-        frame = JSON.parse(raw.toString());
-      } catch {
-        return;
-      }
-      if (frame.type !== 'http-response' || typeof frame.id !== 'string') return;
-      const pending = entry.pending.get(frame.id);
-      if (!pending) return;
-      entry.pending.delete(frame.id);
-      clearTimeout(pending.timer);
-      const status = Number.isInteger(frame.status) && frame.status >= 100 && frame.status <= 599 ? frame.status : 502;
-      let body;
-      try {
-        body = decodeHookResponseBody(frame.body);
-      } catch {
-        try {
-          pending.response
-            .writeHead(502, { 'Content-Type': 'application/json' })
-            .end('{"error":"invalid agent response"}');
-        } catch {
-          /* client vanished */
-        }
-        return;
-      }
-      const rawContentType = typeof frame.headers?.['content-type'] === 'string' ? frame.headers['content-type'] : '';
-      const contentType = /^[\x20-\x7e]{1,200}$/.test(rawContentType) ? rawContentType : 'application/json';
-      try {
-        pending.response.writeHead(status, { 'Content-Type': contentType, 'Content-Length': body.length });
-        pending.response.end(body);
-      } catch {
-        /* client vanished */
-      }
+      answerHookFrame(entry, raw);
     })
   );
   socket.on('close', () => {
@@ -236,6 +224,46 @@ export function runHookLeg(liveHooks, deviceId, socket, options = {}) {
     failHookPending(entry);
     liveHooks.delete(deviceId);
   });
+}
+
+// One `http-response` frame from the agent settles its pending inbound request.
+function answerHookFrame(entry, raw) {
+  let frame;
+  try {
+    frame = JSON.parse(raw.toString());
+  } catch {
+    return;
+  }
+  if (frame.type !== 'http-response' || typeof frame.id !== 'string') return;
+  const pending = entry.pending.get(frame.id);
+  if (!pending) return;
+  entry.pending.delete(frame.id);
+  clearTimeout(pending.timer);
+  let body;
+  try {
+    body = decodeHookResponseBody(frame.body);
+  } catch {
+    try {
+      pending.response.writeHead(502, { 'Content-Type': 'application/json' }).end('{"error":"invalid agent response"}');
+    } catch {
+      /* client vanished */
+    }
+    return;
+  }
+  try {
+    pending.response.writeHead(upstreamStatus(frame.status), {
+      'Content-Type': hookContentType(frame.headers),
+      'Content-Length': body.length,
+    });
+    pending.response.end(body);
+  } catch {
+    /* client vanished */
+  }
+}
+
+function hookContentType(headers) {
+  const raw = typeof headers?.['content-type'] === 'string' ? headers['content-type'] : '';
+  return /^[\x20-\x7e]{1,200}$/.test(raw) ? raw : 'application/json';
 }
 
 export function decodeHookResponseBody(value) {

@@ -114,6 +114,16 @@ function DictationMeter({ levelRef }: { levelRef: MutableRefObject<number> }) {
   );
 }
 
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function splitMentionPath(path: string): { directory: string; filename: string } {
+  const separator = path.lastIndexOf('/');
+  if (separator < 0) return { directory: '', filename: path };
+  return { directory: path.slice(0, separator + 1), filename: path.slice(separator + 1) };
+}
+
 function DictationProgress() {
   return (
     <span className="composer-dictation-progress" aria-hidden="true">
@@ -460,15 +470,13 @@ export const Composer = memo(function Composer({
     historyNavigation.current = { index: -1, seed: '' };
   }, [historyScope]);
   const history = useMemo<ComposerHistoryEntry[]>(() => {
-    const engineHistory: ComposerHistoryEntry[] = Array.isArray(promptHistoryList)
-      ? promptHistoryList
-          .map((entry) =>
-            typeof entry === 'string'
-              ? { text: entry }
-              : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') }
-          )
-          .filter((entry) => entry.text.trim())
-      : [];
+    const engineHistory: ComposerHistoryEntry[] = (Array.isArray(promptHistoryList) ? promptHistoryList : [])
+      .map((entry) =>
+        typeof entry === 'string'
+          ? { text: entry }
+          : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') }
+      )
+      .filter((entry) => entry.text.trim());
     const seen = new Set<string>();
     return [...persistedHistory, ...engineHistory]
       .filter((entry) => {
@@ -505,13 +513,10 @@ export const Composer = memo(function Composer({
   // User request: one stable placeholder — no rotating variants.
   // User request: once a session has content, the composer shows NO hint copy
   // at all — instructional placeholders belong to the empty new-task state.
-  const placeholder = hasConversation
-    ? ''
-    : turnBusy
-      ? t('Steer the active turn or queue a follow-up…')
-      : commandBusy
-        ? t('Queue a message after the current command…')
-        : t(COMPOSER_PLACEHOLDERS[0]);
+  let placeholder = t(COMPOSER_PLACEHOLDERS[0]);
+  if (hasConversation) placeholder = '';
+  else if (turnBusy) placeholder = t('Steer the active turn or queue a follow-up…');
+  else if (commandBusy) placeholder = t('Queue a message after the current command…');
   // Only frequent commands appear here; direct input still uses the full registry.
   const slashCommands = useMemo(() => desktopComposerSlashCommands(draft), [draft]);
   const slashOpen = Boolean(
@@ -778,19 +783,13 @@ export const Composer = memo(function Composer({
       window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
     } else if (name === 'autoclear' && argument) {
       const value = argument.toLowerCase();
+      const statusQuery = value === 'status' || value === 'current' || value === 'show';
+      let autoClearPatch: Record<string, unknown> = { duration: value };
+      if (value === 'on' || value === 'enable' || value === 'enabled') autoClearPatch = { enabled: true };
+      else if (value === 'off' || value === 'disable' || value === 'disabled') autoClearPatch = { enabled: false };
       const next = await commandCapability<unknown>(
-        value === 'status' || value === 'current' || value === 'show' ? 'getAutoClear' : 'setAutoClear',
-        value === 'status' || value === 'current' || value === 'show'
-          ? []
-          : [
-              {
-                ...(value === 'on' || value === 'enable' || value === 'enabled'
-                  ? { enabled: true }
-                  : value === 'off' || value === 'disable' || value === 'disabled'
-                    ? { enabled: false }
-                    : { duration: value }),
-              },
-            ]
+        statusQuery ? 'getAutoClear' : 'setAutoClear',
+        statusQuery ? [] : [autoClearPatch]
       );
       const status = asRecord(next);
       if (!invocationFailed) {
@@ -828,13 +827,10 @@ export const Composer = memo(function Composer({
       if (!invocationFailed) showComposerNotice(`Effort set to ${String(next || argument)}`);
     } else if (name === 'fast') {
       const value = argument.toLowerCase();
-      const nextFast = value
-        ? ['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)
-          ? true
-          : ['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(value)
-            ? false
-            : null
-        : !fast;
+      let nextFast: boolean | null = null;
+      if (!value) nextFast = !fast;
+      else if (['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)) nextFast = true;
+      else if (['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(value)) nextFast = false;
       if (nextFast === null) {
         setAttachmentError('Usage: /fast [on|off]');
         return false;
@@ -870,11 +866,10 @@ export const Composer = memo(function Composer({
         return true;
       }
       const presetValue = await commandCapability<unknown>('listPresets');
-      const presetSource = Array.isArray(presetValue)
-        ? presetValue
-        : Array.isArray(asRecord(presetValue)?.presets)
-          ? (asRecord(presetValue)?.presets as unknown[])
-          : [];
+      let presetSource: unknown[] = [];
+      if (Array.isArray(presetValue)) presetSource = presetValue;
+      else if (Array.isArray(asRecord(presetValue)?.presets))
+        presetSource = asRecord(presetValue)?.presets as unknown[];
       const preset = presetSource
         .map(asRecord)
         .find(
@@ -1040,6 +1035,43 @@ export const Composer = memo(function Composer({
     voiceSubmitPending.current = false;
     void send('', 'voice-submit');
   }, [dictationState, draft, send]);
+  let paletteId: string | undefined;
+  if (slashOpen) paletteId = 'composer-slash-palette';
+  else if (mentionOpen) paletteId = 'composer-mention-palette';
+  let activeDescendant: string | undefined;
+  if (slashOpen) activeDescendant = `composer-slash-option-${slashIndex}`;
+  else if (mentionOpen && mentionResults.length) activeDescendant = `composer-mention-option-${mentionIndex}`;
+  let dictationTooltip = t('Dictate');
+  if (dictationState === 'recording') dictationTooltip = t('Stop and transcribe · Enter');
+  else if (dictationState === 'transcribing') dictationTooltip = t('Transcribing…');
+  // Recording swaps the glyph for the stop square: the disc alone never said
+  // that pressing it ENDS the take.
+  let micGlyph = <Mic size={16} />;
+  if (dictationState === 'transcribing') micGlyph = <ProgressSpinner className="composer-mic-spinner" size={16} />;
+  else if (dictationState === 'recording') micGlyph = <MxIcon name="stop" size={16} />;
+  let sendClick: (() => void) | undefined;
+  if (stopOnly) sendClick = () => void stop();
+  else if (voiceSend) sendClick = () => void stopDictationAndSend();
+  const sendDisabled =
+    !stopOnly &&
+    !voiceSend &&
+    ((!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
+      transitioning ||
+      dictationState !== 'idle');
+  let sendLabel = t('Send message');
+  if (stopOnly) sendLabel = t('Stop generation');
+  else if (voiceSend) sendLabel = t('Stop dictation and send');
+  else if (submitting) sendLabel = hasConversation ? t('Sending message') : t('Starting session');
+  else if (turnBusy) sendLabel = t('Queue or steer active turn');
+  else if (commandBusy) sendLabel = t('Queue after current command');
+  let sendTooltip = t('Send · Enter');
+  if (stopOnly) sendTooltip = t('Stop');
+  else if (voiceSend) sendTooltip = t('Stop and send');
+  else if (turnBusy) sendTooltip = t('Queue or steer · Enter');
+  else if (commandBusy) sendTooltip = t('Queue after command · Enter');
+  let sendGlyph = <ArrowUp size={16} />;
+  if (stopOnly) sendGlyph = <MxIcon name="stop" size={16} />;
+  else if (submitting) sendGlyph = <ProgressSpinner className="composer-mic-spinner" size={16} />;
   return (
     <>
       <QueueList
@@ -1158,32 +1190,29 @@ export const Composer = memo(function Composer({
               <MxIcon name="open-file" size={14} />
               <span>{t('Files')}</span>
             </header>
-            {mentionResults.length ? (
-              mentionResults.map((path, index) => {
-                const separator = path.lastIndexOf('/');
-                const directory = separator >= 0 ? path.slice(0, separator + 1) : '';
-                const filename = separator >= 0 ? path.slice(separator + 1) : path;
-                return (
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={index === mentionIndex}
-                    key={path}
-                    id={`composer-mention-option-${index}`}
-                    title={path}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onMouseEnter={() => setMentionIndex(index)}
-                    onClick={() => selectMention(path)}
-                  >
-                    <MxIcon name="open-file" size={14} />
-                    <span className="mention-path">
-                      <span>{directory}</span>
-                      <strong>{filename}</strong>
-                    </span>
-                  </button>
-                );
-              })
-            ) : (
+            {mentionResults.map((path, index) => {
+              const { directory, filename } = splitMentionPath(path);
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={index === mentionIndex}
+                  key={path}
+                  id={`composer-mention-option-${index}`}
+                  title={path}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onMouseEnter={() => setMentionIndex(index)}
+                  onClick={() => selectMention(path)}
+                >
+                  <MxIcon name="open-file" size={14} />
+                  <span className="mention-path">
+                    <span>{directory}</span>
+                    <strong>{filename}</strong>
+                  </span>
+                </button>
+              );
+            })}
+            {mentionResults.length === 0 && (
               <p role="status">{mentionLoading ? t('Searching project files…') : t('No matching files.')}</p>
             )}
           </ComposerPalette>
@@ -1209,7 +1238,7 @@ export const Composer = memo(function Composer({
                           attachment.name
                         );
                       } catch (error) {
-                        setAttachmentError(error instanceof Error ? error.message : String(error));
+                        setAttachmentError(errorText(error));
                       }
                     }}
                   >
@@ -1368,15 +1397,9 @@ export const Composer = memo(function Composer({
             rows={1}
             placeholder={placeholder}
             disabled={transitioning}
-            aria-controls={slashOpen ? 'composer-slash-palette' : mentionOpen ? 'composer-mention-palette' : undefined}
+            aria-controls={paletteId}
             aria-expanded={slashOpen || mentionOpen}
-            aria-activedescendant={
-              slashOpen
-                ? `composer-slash-option-${slashIndex}`
-                : mentionOpen && mentionResults.length
-                  ? `composer-mention-option-${mentionIndex}`
-                  : undefined
-            }
+            aria-activedescendant={activeDescendant}
             aria-label={t('Message Mixdog')}
           />
         </div>
@@ -1451,25 +1474,11 @@ export const Composer = memo(function Composer({
                 disabled={transitioning || dictationState === 'transcribing'}
                 aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
                 aria-pressed={dictationState === 'recording'}
-                data-tooltip={
-                  dictationState === 'recording'
-                    ? t('Stop and transcribe · Enter')
-                    : dictationState === 'transcribing'
-                      ? t('Transcribing…')
-                      : t('Dictate')
-                }
+                data-tooltip={dictationTooltip}
                 data-tooltip-side="top"
                 onClick={() => void toggleDictation()}
               >
-                {/* Recording swaps the glyph for the stop square: the disc alone
-              never said that pressing it ENDS the take. */}
-                {dictationState === 'transcribing' ? (
-                  <ProgressSpinner className="composer-mic-spinner" size={16} />
-                ) : dictationState === 'recording' ? (
-                  <MxIcon name="stop" size={16} />
-                ) : (
-                  <Mic size={16} />
-                )}
+                {micGlyph}
               </button>
             )}
             {/* Mid-take the disc ENDS the take and sends what was spoken, instead
@@ -1480,50 +1489,13 @@ export const Composer = memo(function Composer({
             <button
               type={stopOnly || voiceSend ? 'button' : 'submit'}
               className={`send-button${stopOnly ? ' stop' : ''}`}
-              onClick={stopOnly ? () => void stop() : voiceSend ? () => stopDictationAndSend() : undefined}
-              disabled={
-                stopOnly || voiceSend
-                  ? false
-                  : (!draft.trim() &&
-                      !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
-                    transitioning ||
-                    dictationState !== 'idle'
-              }
-              aria-label={
-                stopOnly
-                  ? t('Stop generation')
-                  : voiceSend
-                    ? t('Stop dictation and send')
-                    : submitting
-                      ? hasConversation
-                        ? t('Sending message')
-                        : t('Starting session')
-                      : turnBusy
-                        ? t('Queue or steer active turn')
-                        : commandBusy
-                          ? t('Queue after current command')
-                          : t('Send message')
-              }
-              data-tooltip={
-                stopOnly
-                  ? t('Stop')
-                  : voiceSend
-                    ? t('Stop and send')
-                    : turnBusy
-                      ? t('Queue or steer · Enter')
-                      : commandBusy
-                        ? t('Queue after command · Enter')
-                        : t('Send · Enter')
-              }
+              onClick={sendClick}
+              disabled={sendDisabled}
+              aria-label={sendLabel}
+              data-tooltip={sendTooltip}
               data-tooltip-side="top"
             >
-              {stopOnly ? (
-                <MxIcon name="stop" size={16} />
-              ) : submitting ? (
-                <ProgressSpinner className="composer-mic-spinner" size={16} />
-              ) : (
-                <ArrowUp size={16} />
-              )}
+              {sendGlyph}
             </button>
           </span>
         </div>

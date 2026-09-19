@@ -43,6 +43,10 @@ export function AboutPanel() {
       .catch(() => open(MIXDOG_REPO_URL))
       .finally(() => setBusy(false));
   };
+  let starLabel = 'Star on GitHub ↗';
+  if (starred) starLabel = 'Starred ★';
+  else if (busy) starLabel = 'Starring…';
+  else if (ghReady) starLabel = 'Star ☆';
   return (
     <Group title="Community">
       <ResourceRow
@@ -52,7 +56,7 @@ export function AboutPanel() {
         actions={
           <>
             <ActionButton disabled={busy || starred} onClick={star}>
-              {starred ? 'Starred ★' : busy ? 'Starring…' : ghReady ? 'Star ☆' : 'Star on GitHub ↗'}
+              {starLabel}
             </ActionButton>
             <ActionButton disabled={busy} onClick={() => open(MIXDOG_REPO_URL)}>
               Open ↗

@@ -7,7 +7,7 @@ export class AgentContextOverflowError extends Error {
     cause
   ) {
     const target = [provider, model].filter(Boolean).join('/') || 'target model';
-    const causeMsg = cause && cause.message ? `: ${cause.message}` : '';
+    const causeMsg = cause?.message ? `: ${cause.message}` : '';
     super(
       `agent context overflow (${target}, stage=${stage || 'compact'}): ` +
         `latest turn cannot fit target context budget=${budgetTokens ?? 'unknown'} ` +
@@ -54,7 +54,7 @@ export function agentContextOverflowError(
 class AgentCompactFailedError extends Error {
   constructor({ stage, sessionId, provider, model }, cause) {
     const target = [provider, model].filter(Boolean).join('/') || 'target model';
-    const causeMsg = cause && cause.message ? `: ${cause.message}` : '';
+    const causeMsg = cause?.message ? `: ${cause.message}` : '';
     super(`agent compact failed (${target}, stage=${stage || 'compact'})${causeMsg}`);
     this.name = 'AgentCompactFailedError';
     this.code = 'AGENT_COMPACT_FAILED';

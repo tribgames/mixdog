@@ -46,6 +46,13 @@ export function expandSharedFormulas(xml, records) {
     if (text) masters.set(id, { formula: text, at: parseCellRef(cell.ref) });
     else followers.push({ ref: cell.ref, id });
   }
+  fillArrayFormulas(arrays, byRef);
+  fillSharedFollowers(followers, masters, byRef, failures);
+  return failures;
+}
+
+// Every cell of an array block carries the block's formula.
+function fillArrayFormulas(arrays, byRef) {
   for (const array of arrays) {
     const [start, end] = array.range.split(':').map((part) => parseCellRef(part.replaceAll('$', '')));
     if (!start || !end) continue;
@@ -61,6 +68,11 @@ export function expandSharedFormulas(xml, records) {
       }
     }
   }
+}
+
+// A follower's formula is its master's, shifted by their distance; a shift
+// the translator cannot express is recorded as a failure.
+function fillSharedFollowers(followers, masters, byRef, failures) {
   for (const follower of followers) {
     const master = masters.get(follower.id);
     const record = byRef.get(follower.ref);
@@ -77,5 +89,4 @@ export function expandSharedFormulas(xml, records) {
       failures.push({ ref: follower.ref, reason: error.reason });
     }
   }
-  return failures;
 }

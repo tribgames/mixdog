@@ -142,7 +142,7 @@ const STATIC_OPERATIONS = {
   writeProjectTextFileIn: projectFiles.writeProjectTextFileIn,
   writeProjectTextFilesIn: projectFiles.writeProjectTextFilesIn,
   writeWorkspaceFile: workspaceConfig.writeWorkspaceFile,
-} satisfies Record<string, (...args: any[]) => unknown>;
+} satisfies Record<string, (...args: never[]) => unknown>;
 
 export function createDesktopOperations({
   userDataPath,

@@ -10,34 +10,42 @@ import {
 import { getSidePanelMode, setSidePanelMode, type SidePanelMode } from './side-panel-preferences';
 import { executeSetupDesktopAction, type SetupPreferences } from './setup-desktop-actions';
 
-export function desktopSetupPreferences(
-  api: DesktopApi,
-  assertActive: () => Promise<void> = async () => {}
-): SetupPreferences {
-  const read = async () => ({
+async function readDesktopAppearance(api: DesktopApi) {
+  return {
     theme: getDesktopThemePreference(),
     themes: desktopThemeOptions(),
     displayLanguage: getUiLanguagePreference(),
     languages: [{ value: 'system', label: 'System' }, ...SUPPORTED_UI_LANGUAGES],
     sidePanels: getSidePanelMode(),
     zoom: await api.getZoomFactor(),
-  });
+  };
+}
+
+function assertAppearanceInput(
+  input: Record<string, unknown>,
+  before: Awaited<ReturnType<typeof readDesktopAppearance>>
+): void {
+  if (input.theme !== undefined && !before.themes.some((entry) => entry.value === input.theme))
+    throw new Error('Unknown Desktop theme');
+  if (input.displayLanguage !== undefined && !before.languages.some((entry) => entry.value === input.displayLanguage))
+    throw new Error('Unknown Desktop display language');
+  if (
+    input.sidePanels !== undefined &&
+    !['close-left', 'close-right', 'close-both', 'keep-open'].includes(String(input.sidePanels))
+  )
+    throw new Error('Unknown side-panel mode');
+}
+
+function desktopSetupPreferences(
+  api: DesktopApi,
+  assertActive: () => Promise<void> = async () => {}
+): SetupPreferences {
+  const read = () => readDesktopAppearance(api);
   return {
     read,
     async write(input) {
       const before = await read();
-      if (input.theme !== undefined && !before.themes.some((entry) => entry.value === input.theme))
-        throw new Error('Unknown Desktop theme');
-      if (
-        input.displayLanguage !== undefined &&
-        !before.languages.some((entry) => entry.value === input.displayLanguage)
-      )
-        throw new Error('Unknown Desktop display language');
-      if (
-        input.sidePanels !== undefined &&
-        !['close-left', 'close-right', 'close-both', 'keep-open'].includes(String(input.sidePanels))
-      )
-        throw new Error('Unknown side-panel mode');
+      assertAppearanceInput(input, before);
       await assertActive();
       if (input.theme !== undefined) {
         setDesktopThemePreference(String(input.theme));
@@ -75,8 +83,12 @@ export function useSetupDesktopRequest(
     // This method exists only on the local Desktop API, never the web shim.
     if (!api.getRemoteAccessInfo || !request?.id || !sessionId || seen.current.has(request.id)) return;
     seen.current.add(request.id);
-    if (seen.current.size > 128) seen.current.delete(seen.current.values().next().value!);
-    const ownerId = (owner.current ||= crypto.randomUUID());
+    if (seen.current.size > 128) {
+      const [oldest] = seen.current;
+      seen.current.delete(oldest);
+    }
+    owner.current ||= crypto.randomUUID();
+    const ownerId = owner.current;
     void (async () => {
       const claimed = await api.invokeCapability<{ args: Record<string, unknown> } | null>({
         capability: 'claimSetupRequest',

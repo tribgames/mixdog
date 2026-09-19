@@ -288,7 +288,7 @@ test('kit shareDown sizes the stage from the measured row under it, never from a
   const spineAt = (opts) => {
     let y = null;
     const slide = {
-      addShape: (type, o) => {
+      addShape: (_type, o) => {
         if (o.h === 0 && y === null) y = o.y;
       },
       addText: () => {},
@@ -596,7 +596,7 @@ test('kit grouped table declares a frame as tall as its flattened rows', async (
   assert.ok(Math.abs(bottom - (2 + options.h)) < 1e-9, 'the returned bottom edge is the frame bottom');
   const plain = [];
   kit.table(
-    { addTable: (r, o) => plain.push(o), addShape: () => {}, addText: () => {} },
+    { addTable: (_r, o) => plain.push(o), addShape: () => {}, addText: () => {} },
     0.6,
     2,
     12,
@@ -721,7 +721,7 @@ test('kit display, dateline, and tableRows follow the measured text page', async
     const drawn = [];
     const rows = Array.from({ length: n }, (_, i) => [`row ${i}`, '1']);
     kit.table(
-      { addTable: (r, o) => drawn.push(o), addShape: () => {}, addText: () => {} },
+      { addTable: (_r, o) => drawn.push(o), addShape: () => {}, addText: () => {} },
       0.6,
       2,
       12,
@@ -745,7 +745,7 @@ test('kit display, dateline, and tableRows follow the measured text page', async
   assert.throws(
     () =>
       kit.table(
-        { addTable: (r, o) => drawnLate.push(o), addShape: () => {}, addText: () => {} },
+        { addTable: (_r, o) => drawnLate.push(o), addShape: () => {}, addText: () => {} },
         0.6,
         top,
         12,
@@ -781,7 +781,7 @@ test('kit cards fill the grid, widen a short last row, and carry one accent', as
     texts = [],
     images = [];
   const slide = {
-    addShape: (kind, o) => shapes.push(o),
+    addShape: (_kind, o) => shapes.push(o),
     addText: (t, o) => texts.push({ text: t, options: o }),
     addImage: (o) => images.push(o),
   };
@@ -859,7 +859,7 @@ test('kit hub, steps, and merge units carry an icon, a detail, and one shadow', 
       images,
       texts,
       slide: {
-        addShape: (kind, o) => shapes.push(o),
+        addShape: (_kind, o) => shapes.push(o),
         addImage: (o) => images.push(o),
         addText: (t, o) => texts.push({ text: t, options: o }),
       },
@@ -1045,7 +1045,7 @@ test('kit quadrants labels keep off the axis rules, and a label that must cross 
   const T = kit.deck({ hue: 205, mode: 'balanced', script: 'ko' });
   const ops = [];
   const slide = {
-    addShape: (type, options) => ops.push({ kind: 'shape', options }),
+    addShape: (_type, options) => ops.push({ kind: 'shape', options }),
     addText: (text, options) => ops.push({ kind: 'text', text, options }),
   };
   await kit.quadrants(slide, 0.6, 2.2, 7.6, 4.2, {
@@ -1187,7 +1187,9 @@ test('kit palette derives a contrast-safe ladder from one seed hue', async () =>
       min = Math.min(r, g, b);
     if (max === min) return null;
     const d = max - min;
-    const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    let h = (r - g) / d + 4;
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
     return (((h * 60) % 360) + 360) % 360;
   };
   // The default accent sits on the counter hue — warm beside cool, cool beside warm — and differs from the single-hue accent.
@@ -1490,7 +1492,10 @@ test('kit wraps Hangul by the eojeol and shrinks type along the scale', async ()
   const start = kit.indexOf('const HANGUL');
   const end = kit.indexOf('\n}\n', kit.indexOf('function fitSize(', start)) + 3;
   assert.ok(start > 0 && end > start, 'the measured-text block is in the kit');
-  const em = (ch) => (/[\uAC00-\uD7A3]/.test(ch) ? 1 : ch === ' ' ? 0.3 : 0.55);
+  const em = (ch) => {
+    if (/[\uAC00-\uD7A3]/.test(ch)) return 1;
+    return ch === ' ' ? 0.3 : 0.55;
+  };
   const widthOf = (text, size) => [...text].reduce((sum, ch) => sum + (em(ch) * size) / 72, 0);
   const MEASURE = (text, { size = 18, width = 0, lineHeight = 1 } = {}) => {
     const lines = String(text)
@@ -1877,7 +1882,7 @@ test('kit tiles refuses a row whose captions would cross the foot, and clippings
       slide: {
         addShape: (kind, o) => shapes.push({ kind, ...o }),
         addImage: (o) => shapes.push({ image: true, ...o }),
-        addText: (t, o) => shapes.push({ text: true, ...o }),
+        addText: (_t, o) => shapes.push({ text: true, ...o }),
       },
     };
   };
@@ -2028,7 +2033,7 @@ test("kit specimen returns the last row's bottom edge, not the gap after it", ()
   )(createRequire(import.meta.url), MEASURE, { names: [], svg: () => '' });
   kit.deck({ hue: 205, theme: 'light', mode: 'balanced', script: 'ko' });
   const boxes = [];
-  const slide = { addText: (t, o) => boxes.push(o), addShape() {}, addImage() {} };
+  const slide = { addText: (_t, o) => boxes.push(o), addShape() {}, addImage() {} };
   const bottom = kit.specimen(slide, 0.6, 2, 12, [
     { text: '야간 배차 자동화', font: kit.T().display, size: kit.TYPE().title, bold: true, label: '제목' },
     { text: '1,204', font: kit.T().data, size: kit.TYPE().stat, bold: true, label: '숫자' },

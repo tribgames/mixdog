@@ -170,12 +170,9 @@ function DesktopBrowserPane({
         addressRef.current?.focus();
         addressRef.current?.select();
       } else if (['zoom-in', 'zoom-out', 'zoom-reset'].includes(action)) {
+        const zoomFactor = action === 'zoom-in' ? 1.1 : 1 / 1.1;
         setZoomLevel((previous) =>
-          writeBrowserZoom(
-            window.localStorage,
-            ownerSessionId,
-            action === 'zoom-reset' ? 1 : previous * (action === 'zoom-in' ? 1.1 : 1 / 1.1)
-          )
+          writeBrowserZoom(window.localStorage, ownerSessionId, action === 'zoom-reset' ? 1 : previous * zoomFactor)
         );
       }
     };
@@ -191,7 +188,7 @@ function DesktopBrowserPane({
   // size, so a preset switch never shows one oversized frame first.
   useLayoutEffect(() => {
     const content = contentRef.current;
-    if (!content || !fixedViewport) {
+    if (!content || frameWidth === null || frameHeight === null) {
       setFrameScale(1);
       return undefined;
     }
@@ -202,14 +199,14 @@ function DesktopBrowserPane({
       const roomWidth = content.clientWidth - padX;
       const roomHeight = content.clientHeight - padY;
       if (roomWidth <= 0 || roomHeight <= 0) return;
-      const scale = Math.min(1, roomWidth / frameWidth!, roomHeight / frameHeight!);
+      const scale = Math.min(1, roomWidth / frameWidth, roomHeight / frameHeight);
       setFrameScale((current) => (Math.abs(current - scale) < 0.001 ? current : scale));
     };
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(content);
     return () => observer.disconnect();
-  }, [fixedViewport, frameWidth, frameHeight]);
+  }, [frameWidth, frameHeight]);
 
   useEffect(() => {
     const view = webviewRef.current;
@@ -311,12 +308,11 @@ function DesktopBrowserPane({
     const onRenderProcessGone = (event: Event) => {
       const details = (event as WebviewRenderProcessGoneEvent).details;
       setLoading(false);
+      const exitCode = details?.exitCode ? ` (${details.exitCode})` : '';
       setPageFailure({
         kind: 'renderer',
         title: t('Browser crashed'),
-        detail: details?.reason
-          ? `${details.reason}${details.exitCode ? ` (${details.exitCode})` : ''}`
-          : t('The page renderer process exited.'),
+        detail: details?.reason ? `${details.reason}${exitCode}` : t('The page renderer process exited.'),
       });
     };
     const onUnresponsive = () =>
@@ -525,6 +521,17 @@ function DesktopBrowserPane({
     [credentialBusy, desktopApi, ownerSessionId]
   );
 
+  let credentialLabel = t('Fill with stored credentials');
+  if (credentialStatus === 'success') credentialLabel = t('Filled stored credentials');
+  else if (credentialStatus === 'error') credentialLabel = t('Could not fill stored credentials');
+  let credentialGlyph = <KeyRound size={15} />;
+  if (credentialBusy) credentialGlyph = <LoaderCircle size={15} className="is-spinning" />;
+  else if (credentialStatus === 'success') credentialGlyph = <Check size={15} />;
+  else if (credentialStatus === 'error') credentialGlyph = <AlertTriangle size={15} />;
+  const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;
+  const viewportFrameStyle = fixedViewport
+    ? { width: `${frameWidth}px`, height: `${frameHeight}px`, transform: frameTransform }
+    : undefined;
   return (
     <div
       className="browser-pane"
@@ -664,30 +671,10 @@ function DesktopBrowserPane({
                   setCredentialMenuOpen((open) => !open);
                 }
               }}
-              aria-label={
-                credentialStatus === 'success'
-                  ? t('Filled stored credentials')
-                  : credentialStatus === 'error'
-                    ? t('Could not fill stored credentials')
-                    : t('Fill with stored credentials')
-              }
-              data-tooltip={
-                credentialStatus === 'success'
-                  ? t('Filled stored credentials')
-                  : credentialStatus === 'error'
-                    ? t('Could not fill stored credentials')
-                    : t('Fill with stored credentials')
-              }
+              aria-label={credentialLabel}
+              data-tooltip={credentialLabel}
             >
-              {credentialBusy ? (
-                <LoaderCircle size={15} className="is-spinning" />
-              ) : credentialStatus === 'success' ? (
-                <Check size={15} />
-              ) : credentialStatus === 'error' ? (
-                <AlertTriangle size={15} />
-              ) : (
-                <KeyRound size={15} />
-              )}
+              {credentialGlyph}
             </button>
             {credentialMenuOpen && (
               <div className="browser-pane-credential-menu" role="menu">
@@ -746,19 +733,7 @@ function DesktopBrowserPane({
       <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <BrowserDataDialog open={clearDataOpen} onClose={() => setClearDataOpen(false)} />
       <div className={`browser-pane-content${fixedViewport ? ' is-device-frame' : ''}`} ref={contentRef}>
-        <div
-          className="browser-pane-viewport"
-          data-viewport-preset={viewportPreset.id}
-          style={
-            fixedViewport
-              ? {
-                  width: `${frameWidth}px`,
-                  height: `${frameHeight}px`,
-                  transform: frameScale < 1 ? `scale(${frameScale})` : undefined,
-                }
-              : undefined
-          }
-        >
+        <div className="browser-pane-viewport" data-viewport-preset={viewportPreset.id} style={viewportFrameStyle}>
           <IsolatedBrowserView
             ref={(element) => {
               webviewRef.current = element;

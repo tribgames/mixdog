@@ -345,7 +345,7 @@ export function ProviderAccountsList({
                 >
                   <GripVertical size={14} aria-hidden="true" />
                 </button>
-                {listOnly ? (
+                {listOnly && (
                   <button
                     type="button"
                     className="provider-account-choice"
@@ -357,7 +357,8 @@ export function ProviderAccountsList({
                     {account.reauthRequired && <small>{t('Reauth required')}</small>}
                     {selected && <Check size={14} aria-label={t('Active')} />}
                   </button>
-                ) : (
+                )}
+                {!listOnly && (
                   <>
                     <div className="provider-account-identity">
                       {!selected && account.authenticated && !account.reauthRequired && editing !== account.id && (

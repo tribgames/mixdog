@@ -12,6 +12,7 @@ import {
   toolSchemaSignature,
 } from '../context-utils.mjs';
 import { CONTEXT_SHARE_RATIO, COMPACT_TARGET_MIN_TOKENS, COMPACT_SAFETY_PERCENT } from '../compact.mjs';
+import { HANDOFF_TIMEOUT_MAX_MS } from '../compact/constants.mjs';
 import { envFlag, envPositiveInt } from '../../../../shared/env.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
@@ -85,11 +86,9 @@ function compactTargetBudgetForTrigger(
   return force && boundedTarget <= reserveTokens ? legacyTarget : boundedTarget;
 }
 
-export function resolveWorkerCompactPolicy(sessionRef, tools) {
-  if (!sessionRef) return null;
-  const cfg = sessionRef.compaction || {};
-  const auto = cfg.auto !== false && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
-  if (!auto) return { auto: false };
+// The boundary the session compacts against: an explicit boundary clamped to
+// the context window, else the window, else the legacy auto limit.
+function compactBoundaryFor(sessionRef, cfg) {
   const contextWindow = positiveInt(sessionRef.contextWindow ?? cfg.contextWindow);
   const explicitBoundary = positiveInt(sessionRef.compactBoundaryTokens ?? cfg.boundaryTokens);
   const autoLimit = positiveInt(sessionRef.autoCompactTokenLimit ?? cfg.autoCompactTokenLimit);
@@ -97,15 +96,44 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
     explicitBoundary && contextWindow
       ? Math.min(explicitBoundary, contextWindow)
       : explicitBoundary || contextWindow || autoLimit;
+  return { contextWindow, boundaryTokens };
+}
+
+// Main/user Compact must not land inside its next trigger. Keep a
+// 1%-of-boundary (up to 1,024-token) gap above the effective post-compact
+// target. Explicit sub-boundary limits and agent triggers retain
+// their established precedence/behavior.
+function workerTriggerTokens({ sessionRef, policy, compactBoundaryTokens, legacyTargetBudget, singleShot, configuredReserve }) {
+  const minMainTrigger = Math.min(
+    compactBoundaryTokens,
+    (legacyTargetBudget || 0) + compactTriggerMarginTokens(compactBoundaryTokens)
+  );
+  const baseTriggerTokens =
+    !singleShot && !isAgentOwner(sessionRef) && !policy.autoCompactTokenLimit
+      ? Math.max(policy.triggerTokens, minMainTrigger)
+      : policy.triggerTokens;
+  return Math.max(1, baseTriggerTokens - configuredReserve);
+}
+
+function effectiveContextWindowPercent(sessionRef, cfg) {
+  const value = Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent);
+  return Number.isFinite(value) ? value : null;
+}
+
+export function resolveWorkerCompactPolicy(sessionRef, tools) {
+  if (!sessionRef) return null;
+  const cfg = sessionRef.compaction || {};
+  const auto = cfg.auto !== false && envFlag('MIXDOG_AGENT_COMPACT_AUTO', true);
+  if (!auto) return { auto: false };
+  const { contextWindow, boundaryTokens } = compactBoundaryFor(sessionRef, cfg);
   if (!boundaryTokens) return null;
   const compactBoundaryTokens = Math.max(1, Math.floor(boundaryTokens * COMPACT_SAFETY_PERCENT));
   // Shared session-compaction policy: main and agent sessions default to
   // full-window trigger (buffer 0 / 100%), with explicit buffer overrides;
-  // a truly-explicit sub-boundary limit wins. explicitAutoCompactTokenLimit
+  // a truly-explicit sub-boundary limit wins. policy.autoCompactTokenLimit
   // is the sanitized (null when legacy full-window) value so telemetry never
   // re-persists a boundary-collapsing limit.
   const policy = resolveSessionCompactPolicy(sessionRef, compactBoundaryTokens);
-  const explicitAutoCompactTokenLimit = policy.autoCompactTokenLimit;
   const configuredReserve =
     positiveInt(cfg.reservedTokens) || envPositiveInt('MIXDOG_AGENT_COMPACT_RESERVED_TOKENS') || 0;
   const requestReserve = estimateRequestReserveTokens(tools);
@@ -116,42 +144,33 @@ export function resolveWorkerCompactPolicy(sessionRef, tools) {
   // value. Operator reserve is local headroom, so preserve its early-compact
   // effect by lowering the threshold instead of inflating displayed usage.
   const singleShot = reserveTokens >= policy.triggerTokens;
-  // Main/user Compact must not land inside its next trigger. Keep a
-  // 1%-of-boundary (up to 1,024-token) gap above the effective post-compact
-  // target. Explicit sub-boundary limits and agent triggers retain
-  // their established precedence/behavior.
-  const minMainTrigger = Math.min(
+  const triggerTokens = workerTriggerTokens({
+    sessionRef,
+    policy,
     compactBoundaryTokens,
-    (legacyTargetBudget || 0) + compactTriggerMarginTokens(compactBoundaryTokens)
-  );
-  const baseTriggerTokens =
-    !singleShot && !isAgentOwner(sessionRef) && !explicitAutoCompactTokenLimit
-      ? Math.max(policy.triggerTokens, minMainTrigger)
-      : policy.triggerTokens;
-  const triggerTokens = Math.max(1, baseTriggerTokens - configuredReserve);
+    legacyTargetBudget,
+    singleShot,
+    configuredReserve,
+  });
   const bufferTokens = Math.max(0, compactBoundaryTokens - triggerTokens);
-  const bufferRatio = bufferTokens / compactBoundaryTokens;
   return {
     auto: true,
     boundaryTokens: compactBoundaryTokens,
     triggerTokens,
     bufferTokens,
-    bufferRatio,
+    bufferRatio: bufferTokens / compactBoundaryTokens,
     compactTargetTokens,
     singleShot,
     contextWindow,
     rawContextWindow: positiveInt(sessionRef.rawContextWindow ?? cfg.rawContextWindow) || contextWindow,
-    effectiveContextWindowPercent: Number.isFinite(
-      Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
-    )
-      ? Number(sessionRef.effectiveContextWindowPercent ?? cfg.effectiveContextWindowPercent)
-      : null,
-    autoCompactTokenLimit: explicitAutoCompactTokenLimit,
+    effectiveContextWindowPercent: effectiveContextWindowPercent(sessionRef, cfg),
+    autoCompactTokenLimit: policy.autoCompactTokenLimit,
     // One summary call can run on a slow reasoning model — the session's own
     // model is used whenever the maintenance route is unavailable — and a large
     // transcript takes minutes there. At 30s the call was aborted mid-flight and
     // a recoverable compaction became a failed turn.
-    handoffTimeoutMs: positiveInt(cfg.timeoutMs) || envPositiveInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || 300_000,
+    handoffTimeoutMs:
+      positiveInt(cfg.timeoutMs) || envPositiveInt('MIXDOG_AGENT_COMPACT_TIMEOUT_MS') || HANDOFF_TIMEOUT_MAX_MS,
     reserveTokens,
     requestReserveTokens: requestReserve,
     configuredReserveTokens: configuredReserve,
@@ -607,30 +626,36 @@ function providerReadingBelowTrigger(sessionRef, trigger) {
   if (compactAt > 0 && usageAt <= compactAt) return false;
   return true;
 }
-export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
-  if (!sessionRef || !policy) return;
-  const prev = sessionRef.compaction && typeof sessionRef.compaction === 'object' ? { ...sessionRef.compaction } : {};
-  for (const key of [
-    'type',
-    'compactType',
-    'semantic',
-    'recallFastTrack',
-    'semanticModel',
-    'semanticTimeoutMs',
-    'tailTurns',
-    'lastSemantic',
-    'lastSemanticError',
-    'lastRecallFastTrack',
-    'lastRecallFastTrackError',
-  ])
-    delete prev[key];
+// Legacy/semantic compaction fields that no longer describe the live policy.
+const COMPACTION_TRANSIENT_KEYS = [
+  'type',
+  'compactType',
+  'semantic',
+  'recallFastTrack',
+  'semanticModel',
+  'semanticTimeoutMs',
+  'tailTurns',
+  'lastSemantic',
+  'lastSemanticError',
+  'lastRecallFastTrack',
+  'lastRecallFastTrackError',
+];
+
+// The per-check telemetry record. pre_send and pre_send_check are both
+// successful terminal pre-send states — pre_send_check is the no-op path
+// after a prior recovered/failing compact, and retaining its old component
+// error made status report a failure although this send's compaction stage
+// completed successfully — so a terminal success clears a carried error;
+// otherwise a meta key that is present (even as null) replaces the previous
+// value.
+function compactionTelemetryRecord(sessionRef, policy, meta, prev) {
   const changed = meta.compactChanged === true;
-  // Both are successful terminal pre-send states. In particular,
-  // pre_send_check is the no-op path after a prior recovered/failing compact;
-  // retaining its old component error makes status report a failure although
-  // this send's compaction stage completed successfully.
   const terminalSuccess = meta.stage === 'pre_send' || meta.stage === 'pre_send_check';
-  sessionRef.compaction = {
+  const carriedError = (present, next, previous) => {
+    if (terminalSuccess) return null;
+    return present ? (next ?? null) : (previous ?? null);
+  };
+  return {
     ...prev,
     auto: policy.auto !== false,
     reservedTokens: policy.configuredReserveTokens || prev.reservedTokens || null,
@@ -663,17 +688,17 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     lastChanged: changed,
     lastTrigger: meta.trigger || prev.lastTrigger || null,
     lastFreshContext: meta.freshContext === true,
-    lastFreshContextError: terminalSuccess
-      ? null
-      : Object.hasOwn(meta, 'freshContextError')
-        ? (meta.freshContextError ?? null)
-        : (prev.lastFreshContextError ?? null),
+    lastFreshContextError: carriedError(
+      Object.hasOwn(meta, 'freshContextError'),
+      meta.freshContextError,
+      prev.lastFreshContextError
+    ),
     lastHandoffSource: meta.handoffSource || prev.lastHandoffSource || null,
-    lastError: terminalSuccess
-      ? null
-      : Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError')
-        ? (meta.compactError ?? meta.lastError ?? null)
-        : (prev.lastError ?? null),
+    lastError: carriedError(
+      Object.hasOwn(meta, 'compactError') || Object.hasOwn(meta, 'lastError'),
+      meta.compactError ?? meta.lastError,
+      prev.lastError
+    ),
     lastDurationMs:
       meta.durationMs != null && Number.isFinite(Number(meta.durationMs))
         ? Math.max(0, Math.round(Number(meta.durationMs)))
@@ -682,48 +707,60 @@ export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
     singleShotConsumed:
       policy.singleShot === true && meta.stage === 'compacting' ? true : prev.singleShotConsumed === true,
   };
-  // Postmortem ring buffer: the per-check telemetry above is overwritten on
-  // every stage change, which erased all pre-compact evidence when a session
-  // blew past its trigger without compacting. Keep the last few decisions
-  // (pressure vs estimate vs trigger plus the live baseline) on the session
-  // so a missed-trigger incident is diagnosable after the fact.
-  {
-    const prior = Array.isArray(prev.recentChecks) ? prev.recentChecks : [];
-    sessionRef.compaction.recentChecks = [
-      ...prior,
-      {
-        at: Date.now(),
-        stage: meta.stage || null,
-        pressure: meta.pressureTokens ?? null,
-        est: meta.messageTokensEst ?? meta.beforeTokens ?? null,
-        trigger: policy.triggerTokens || policy.boundaryTokens || null,
-        baseline: positiveInt(sessionRef.contextPressureBaselineTokens) || null,
-        baselineAt: Number(sessionRef.contextPressureBaselineUpdatedAt) || null,
-      },
-    ].slice(-8);
+}
+
+// Postmortem ring buffer: the per-check telemetry record is overwritten on
+// every stage change, which erased all pre-compact evidence when a session
+// blew past its trigger without compacting. Keep the last few decisions
+// (pressure vs estimate vs trigger plus the live baseline) on the session
+// so a missed-trigger incident is diagnosable after the fact.
+function recentCompactChecks(sessionRef, policy, meta, prev) {
+  const prior = Array.isArray(prev.recentChecks) ? prev.recentChecks : [];
+  return [
+    ...prior,
+    {
+      at: Date.now(),
+      stage: meta.stage || null,
+      pressure: meta.pressureTokens ?? null,
+      est: meta.messageTokensEst ?? meta.beforeTokens ?? null,
+      trigger: policy.triggerTokens || policy.boundaryTokens || null,
+      baseline: positiveInt(sessionRef.contextPressureBaselineTokens) || null,
+      baselineAt: Number(sessionRef.contextPressureBaselineUpdatedAt) || null,
+    },
+  ].slice(-8);
+}
+
+// Persists the policy's window/boundary on the session. Only the sanitized
+// (sub-boundary) explicit limit is kept: policy.autoCompactTokenLimit is
+// already null for legacy derived full-window values, so a stale
+// boundary-sized autoCompactTokenLimit on the session is cleared here rather
+// than carried forward to re-collapse the buffer next turn.
+function persistCompactPolicy(sessionRef, policy) {
+  sessionRef.contextWindow = policy.contextWindow || sessionRef.contextWindow;
+  sessionRef.rawContextWindow = policy.rawContextWindow || sessionRef.rawContextWindow;
+  sessionRef.compactBoundaryTokens = policy.boundaryTokens || sessionRef.compactBoundaryTokens || null;
+  const boundary = positiveInt(sessionRef.compactBoundaryTokens);
+  const prevLimit = positiveInt(sessionRef.autoCompactTokenLimit);
+  const keepPrev = prevLimit && (!boundary || prevLimit < boundary) ? prevLimit : null;
+  sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || keepPrev || null;
+  if (policy.effectiveContextWindowPercent !== null) {
+    sessionRef.effectiveContextWindowPercent = policy.effectiveContextWindowPercent;
   }
-  if (changed) {
+}
+
+export function rememberCompactTelemetry(sessionRef, policy, meta = {}) {
+  if (!sessionRef || !policy) return;
+  const prev = sessionRef.compaction && typeof sessionRef.compaction === 'object' ? { ...sessionRef.compaction } : {};
+  for (const key of COMPACTION_TRANSIENT_KEYS) delete prev[key];
+  sessionRef.compaction = compactionTelemetryRecord(sessionRef, policy, meta, prev);
+  sessionRef.compaction.recentChecks = recentCompactChecks(sessionRef, policy, meta, prev);
+  if (meta.compactChanged === true) {
     const changedAt = Date.now();
     sessionRef.compaction.lastChangedAt = changedAt;
     sessionRef.compaction.lastCompactAt = changedAt;
     invalidateProviderContextBaseline(sessionRef);
   }
-  sessionRef.contextWindow = policy.contextWindow || sessionRef.contextWindow;
-  sessionRef.rawContextWindow = policy.rawContextWindow || sessionRef.rawContextWindow;
-  sessionRef.compactBoundaryTokens = policy.boundaryTokens || sessionRef.compactBoundaryTokens || null;
-  // Persist only the sanitized (sub-boundary) explicit limit. policy.autoCompactTokenLimit
-  // is already null for legacy derived full-window values, so a stale
-  // boundary-sized autoCompactTokenLimit on the session is cleared here rather
-  // than carried forward to re-collapse the buffer next turn.
-  {
-    const _boundary = positiveInt(sessionRef.compactBoundaryTokens);
-    const _prevLimit = positiveInt(sessionRef.autoCompactTokenLimit);
-    const _keepPrev = _prevLimit && (!_boundary || _prevLimit < _boundary) ? _prevLimit : null;
-    sessionRef.autoCompactTokenLimit = policy.autoCompactTokenLimit || _keepPrev || null;
-  }
-  if (policy.effectiveContextWindowPercent !== null) {
-    sessionRef.effectiveContextWindowPercent = policy.effectiveContextWindowPercent;
-  }
+  persistCompactPolicy(sessionRef, policy);
 }
 
 export function emitCompactEvent(opts, event = {}) {

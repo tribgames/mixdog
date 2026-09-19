@@ -21,23 +21,14 @@ import { ToolCard } from './transcript-tool-ui';
 import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/session-title.mjs';
 
-let streamingMarkdownBodyPromise: Promise<typeof import('./StreamingMarkdownBody')> | null = null;
 export const MarkdownBody = lazy(preloadMarkdownBody);
-
-export function preloadStreamingMarkdownBody() {
-  streamingMarkdownBodyPromise ||= import('./StreamingMarkdownBody').catch((error) => {
-    streamingMarkdownBodyPromise = null;
-    throw error;
-  });
-  return streamingMarkdownBodyPromise;
-}
 
 const StableMarkdownBody = React.memo(function StableMarkdownBody({ text }: { text: string }) {
   if (isPlainTextMarkdown(text)) return <p>{text}</p>;
   return <MarkdownBody text={text} copyControl={CopyControl} />;
 });
 
-export const MarkdownResponse = React.memo(function MarkdownResponse({
+const MarkdownResponse = React.memo(function MarkdownResponse({
   text,
   streaming,
 }: {
@@ -95,7 +86,7 @@ export function transcriptItemsEqual(previous: TranscriptItem | undefined, next:
   return previous === next;
 }
 
-export function messageMetadata(item: TranscriptItem) {
+function messageMetadata(item: TranscriptItem) {
   const shortTime =
     typeof item.at === 'number' && Number.isFinite(item.at) && item.at > 0
       ? new Date(item.at).toLocaleTimeString(uiFormatLocale(), { timeStyle: 'short' })
@@ -136,6 +127,23 @@ interface ImageMarkerChip {
   title: string;
 }
 
+// Chip for an `[Image: …]` / `[Image source: …]` metadata line: the file name
+// from its source path and its dimensions.
+function imageMetaChip(meta: string, line: string): ImageMarkerChip {
+  const parts = meta.split(/,\s*/);
+  const source =
+    (parts.find((part) => part.startsWith('source: ')) || '').slice(8).trim() ||
+    (line.startsWith('[Image source:') ? meta.trim() : '');
+  const dims = parts.find((part) => /^\d+x\d+$/.test(part)) || '';
+  const name = source
+    ? source
+        .replace(/[\\/]+$/, '')
+        .split(/[\\/]/)
+        .pop() || 'Image'
+    : 'Image';
+  return { name, dims: dims.replace('x', '\u00D7'), title: source || line };
+}
+
 function extractImageMarkers(text: string): { text: string; chips: ImageMarkerChip[] } {
   const chips: ImageMarkerChip[] = [];
   const kept: string[] = [];
@@ -150,18 +158,7 @@ function extractImageMarkers(text: string): { text: string; chips: ImageMarkerCh
     }
     const meta = /^\[Image(?::| source:) ([^\]]+)\]$/.exec(line);
     if (meta && !/^omitted\b/i.test(meta[1])) {
-      const parts = meta[1].split(/,\s*/);
-      const source =
-        (parts.find((part) => part.startsWith('source: ')) || '').slice(8).trim() ||
-        (line.startsWith('[Image source:') ? meta[1].trim() : '');
-      const dims = parts.find((part) => /^\d+x\d+$/.test(part)) || '';
-      const name = source
-        ? source
-            .replace(/[\\/]+$/, '')
-            .split(/[\\/]/)
-            .pop() || 'Image'
-        : 'Image';
-      chips.push({ name, dims: dims.replace('x', '\u00D7'), title: source || line });
+      chips.push(imageMetaChip(meta[1], line));
       if (pendingRefs > 0) pendingRefs -= 1;
       lastWasMeta = true;
       continue;
@@ -205,7 +202,7 @@ function extractWebhookPayload(text: string): { text: string; payload: string } 
   return { text: stripped, payload: (match[1] || '').trim() };
 }
 
-export function userTranscriptDisplayText(item: TranscriptItem): string {
+function userTranscriptDisplayText(item: TranscriptItem): string {
   return stripInjectedDisplayText(stripSessionEnvelope(String(item.text || '')))
     .replace(/[ \t]+\r?\n/g, '\n')
     .replace(/\r?\n{3,}/g, '\n\n')
@@ -278,7 +275,7 @@ export const TranscriptRow = memo(
       return <CompletionStatus item={item} animate={completionAnimate} />;
     }
     if (item.kind === 'notice') {
-      const tone = item.tone === 'error' ? 'error' : item.tone === 'warn' ? 'warn' : '';
+      const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
       return (
         <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
           {item.text}
@@ -311,7 +308,7 @@ export const TranscriptRow = memo(
         >
           {sourceLabel && <small className="message-source">{sourceLabel}</small>}
           <div className="message-body" onDragStart={(event) => event.preventDefault()}>
-            {user ? (
+            {user && (
               <>
                 {(attachedImages.length > 0 || markerChips.length > 0 || pastedFold.chips.length > 0) && (
                   <div className="message-image-chips" aria-label={t('Attachments')}>
@@ -366,9 +363,8 @@ export const TranscriptRow = memo(
                 )}
                 {webhookFold.text ? <p>{webhookFold.text}</p> : null}
               </>
-            ) : (
-              <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />
             )}
+            {!user && <MarkdownResponse text={text} streaming={Boolean(item.streaming)} />}
           </div>
           {!user && !item.streaming && completion && (
             <footer className="response-footer" aria-label={t('Response details')}>

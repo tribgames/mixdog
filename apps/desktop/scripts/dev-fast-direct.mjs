@@ -256,7 +256,8 @@ async function walkFiles(input, files = [], knownType = '') {
   if (!type) {
     try {
       const metadata = await stat(input);
-      type = metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other';
+      if (metadata.isDirectory()) type = 'directory';
+      else type = metadata.isFile() ? 'file' : 'other';
     } catch (error) {
       if (error?.code === 'ENOENT') return files;
       throw error;
@@ -425,6 +426,24 @@ async function runtimeFingerprint(inputs) {
   return fingerprint([...files]);
 }
 
+const changedByGroup = (changed) => Object.fromEntries(Object.keys(targetInputs).map((name) => [name, changed(name)]));
+
+function fullPlan(changed) {
+  return { full: true, bootstrap: false, targets: [], daemon: false, runtime: false, runtimeMode: 'none', changed };
+}
+
+const buildTargets = (changed) => ['main', 'preload', 'renderer'].filter((name) => changed[name]);
+
+// Schema 2 states created before runtimeDependencies existed used the
+// developer deploy scripts as package inputs. Migrate that one state by
+// comparing only real package inputs against the successful deploy time;
+// a package file changed afterward still takes the complete fallback.
+function migratePackageChange(previous, groups, changed) {
+  if (previous.groups?.runtimeDependencies || !previous.deployedAt) return;
+  const deployedAtMs = Date.parse(previous.deployedAt);
+  if (Number.isFinite(deployedAtMs)) changed.package = groups.package.newestMtimeMs > deployedAtMs;
+}
+
 export function decidePlan({
   previous,
   groups,
@@ -434,46 +453,24 @@ export function decidePlan({
   forceFull = false,
 }) {
   if (forceFull) {
-    const changed = Object.fromEntries(
-      Object.keys(targetInputs).map((name) => [
-        name,
-        previous?.schemaVersion !== schemaVersion || previous.groups?.[name]?.hash !== groups[name].hash,
-      ])
+    const changed = changedByGroup(
+      (name) => previous?.schemaVersion !== schemaVersion || previous.groups?.[name]?.hash !== groups[name].hash
     );
     changed.package = true;
-    return {
-      full: true,
-      bootstrap: false,
-      targets: [],
-      daemon: false,
-      runtime: false,
-      runtimeMode: 'none',
-      changed,
-    };
+    return fullPlan(changed);
   }
   if (previous?.schemaVersion === schemaVersion && installedMatches) {
-    const changed = Object.fromEntries(
-      Object.keys(targetInputs).map((name) => [name, previous.groups?.[name]?.hash !== groups[name].hash])
-    );
-    // Schema 2 states created before runtimeDependencies existed used the
-    // developer deploy scripts as package inputs. Migrate that one state by
-    // comparing only real package inputs against the successful deploy time;
-    // a package file changed afterward still takes the complete fallback.
-    if (!previous.groups?.runtimeDependencies && previous.deployedAt) {
-      const deployedAtMs = Date.parse(previous.deployedAt);
-      if (Number.isFinite(deployedAtMs)) {
-        changed.package = groups.package.newestMtimeMs > deployedAtMs;
-      }
-    }
+    const changed = changedByGroup((name) => previous.groups?.[name]?.hash !== groups[name].hash);
+    migratePackageChange(previous, groups, changed);
     const full = changed.package;
     const runtime = !full && changed.runtime;
     return {
       full,
       bootstrap: false,
-      targets: full ? [] : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
+      targets: full ? [] : buildTargets(changed),
       daemon: !full && changed.daemon,
       runtime,
-      runtimeMode: runtime ? (changed.runtimeDependencies || !devRuntimeReady ? 'full' : 'code') : 'none',
+      runtimeMode: runtimeMode(runtime, changed.runtimeDependencies || !devRuntimeReady),
       changed,
     };
   }
@@ -492,7 +489,7 @@ export function decidePlan({
     return {
       full,
       bootstrap: true,
-      targets: full ? [] : ['main', 'preload', 'renderer'].filter((name) => changed[name]),
+      targets: full ? [] : buildTargets(changed),
       daemon: !full && changed.daemon,
       runtime: !full,
       runtimeMode: full ? 'none' : 'full',
@@ -500,15 +497,7 @@ export function decidePlan({
     };
   }
 
-  return {
-    full: true,
-    bootstrap: false,
-    targets: [],
-    daemon: false,
-    runtime: false,
-    runtimeMode: 'none',
-    changed: Object.fromEntries(Object.keys(targetInputs).map((name) => [name, true])),
-  };
+  return fullPlan(changedByGroup(() => true));
 }
 
 export async function installedFastRuntimeReady(installDir, dependencyHash) {
@@ -805,15 +794,20 @@ async function commitState({ installDir, statePath, plan }) {
   await rm(temporary, { force: true });
 }
 
+/** How much of the runtime a refresh rebuilds: nothing, its code, or the
+ *  dependency closure as well. */
+function runtimeMode(runtime, dependenciesChanged) {
+  if (!runtime) return 'none';
+  return dependenciesChanged ? 'full' : 'code';
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const action = args.action;
   if (action === 'assert-prod-deps') {
-    const archivePath = args.asar
-      ? resolve(args.asar)
-      : args['install-dir']
-        ? join(resolve(args['install-dir']), 'resources', 'app.asar')
-        : '';
+    let archivePath = '';
+    if (args.asar) archivePath = resolve(args.asar);
+    else if (args['install-dir']) archivePath = join(resolve(args['install-dir']), 'resources', 'app.asar');
     if (!archivePath) {
       throw new Error('--action=assert-prod-deps requires --asar=<path> or --install-dir=<dir>');
     }

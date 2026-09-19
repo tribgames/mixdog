@@ -112,45 +112,58 @@ export function resolveUsageStatsPeriod({
       isCurrent: true,
     };
   }
-  if (view === 'custom') {
-    if (startDay == null || endDay == null) throw new TypeError('Usage range requires a start and end date');
-    const start = anchorDate(startDay, now);
-    const end = anchorDate(endDay, now);
-    const from = clockTime(startTime, 'start time');
-    const to = clockTime(endTime, 'end time');
-    if (start > end) throw new RangeError('Usage range start must not follow its end');
-    if (end > midnight(now)) throw new RangeError('Usage range cannot include future dates');
-    const days =
-      (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
-        Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
-        86400000 +
-      1;
-    // Clock times narrow the selected dates; without them the range stays the
-    // whole days it names, exactly as before.
-    const fromMs = clockMs(start, from, 'start');
-    const toMs = Math.min(now, clockMs(end, to, 'end'));
-    if (fromMs > now) throw new RangeError('Usage range cannot include future dates');
-    if (fromMs > toMs) throw new RangeError('Usage range start must not follow its end');
-    return {
-      view,
-      anchor: null,
-      fromMs,
-      toMs,
-      endMs: toMs,
-      startDay: usageRollupDayKey(fromMs),
-      endDay: usageRollupDayKey(end.getTime()),
-      startTime: from?.text ?? null,
-      endTime: to?.text ?? null,
-      days,
-      previousAnchor: null,
-      nextAnchor: null,
-      isCurrent: endDay === today,
-    };
-  }
+  if (view === 'custom') return customUsagePeriod({ view, startDay, endDay, startTime, endTime, now, today });
+  return calendarUsagePeriod(view, anchor, now);
+}
+
+// A custom range: the whole days from startDay to endDay, narrowed by clock
+// times when given, never reaching into the future.
+function customUsagePeriod({ view, startDay, endDay, startTime, endTime, now, today }) {
+  if (startDay == null || endDay == null) throw new TypeError('Usage range requires a start and end date');
+  const start = anchorDate(startDay, now);
+  const end = anchorDate(endDay, now);
+  const from = clockTime(startTime, 'start time');
+  const to = clockTime(endTime, 'end time');
+  if (start > end) throw new RangeError('Usage range start must not follow its end');
+  if (end > midnight(now)) throw new RangeError('Usage range cannot include future dates');
+  const days =
+    (Date.UTC(end.getFullYear(), end.getMonth(), end.getDate()) -
+      Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())) /
+      86400000 +
+    1;
+  // Clock times narrow the selected dates; without them the range stays the
+  // whole days it names, exactly as before.
+  const fromMs = clockMs(start, from, 'start');
+  const toMs = Math.min(now, clockMs(end, to, 'end'));
+  if (fromMs > now) throw new RangeError('Usage range cannot include future dates');
+  if (fromMs > toMs) throw new RangeError('Usage range start must not follow its end');
+  return {
+    view,
+    anchor: null,
+    fromMs,
+    toMs,
+    endMs: toMs,
+    startDay: usageRollupDayKey(fromMs),
+    endDay: usageRollupDayKey(end.getTime()),
+    startTime: from?.text ?? null,
+    endTime: to?.text ?? null,
+    days,
+    previousAnchor: null,
+    nextAnchor: null,
+    isCurrent: endDay === today,
+  };
+}
+
+// A calendar window ending on the anchor day (today at the latest): 7, 30,
+// 90 or 365 days by view, with the neighbouring windows for paging.
+function calendarUsagePeriod(view, anchor, now) {
   const current = midnight(now);
   const requested = anchorDate(anchor, now);
   const end = requested > current ? current : requested;
-  const days = view === '7d' ? 7 : view === 'day' ? 30 : view === 'week' ? 90 : 365;
+  let days = 365;
+  if (view === '7d') days = 7;
+  else if (view === 'day') days = 30;
+  else if (view === 'week') days = 90;
   const start = shiftDays(end, 1 - days);
   const previous = shiftDays(start, -1);
   const next = shiftDays(end, days);

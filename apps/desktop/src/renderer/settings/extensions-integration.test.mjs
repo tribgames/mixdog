@@ -927,15 +927,10 @@ test('Code Tidy card renders engine list, install progress, and failed engine ro
         // Simulate install completing with feature installed, but ruff failed and psscriptanalyzer skipped
         tidyEngineStatus = {
           ...tidyEngineStatus,
-          engines: tidyEngineStatus.engines.map((e) =>
-            e.id === 'biome'
-              ? { ...e, source: 'managed' }
-              : e.id === 'shfmt'
-                ? { ...e, source: 'host' }
-                : e.id === 'ruff'
-                  ? { ...e, source: 'missing' }
-                  : e
-          ),
+          engines: tidyEngineStatus.engines.map((e) => {
+            const source = { biome: 'managed', shfmt: 'host', ruff: 'missing' }[e.id];
+            return source ? { ...e, source } : e;
+          }),
           installing: {
             active: false,
             percent: 100,

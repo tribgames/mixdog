@@ -32,6 +32,55 @@ export function assertExactWindowCommandTarget(command: ComputerCommand): void {
   }
 }
 
+// Windows grouped per app process, focused apps first.
+function windowsGroupedByApp(windows: ComputerWindowRecord[]) {
+  const groups = new Map<
+    string,
+    {
+      name: string;
+      pid: number;
+      focused: boolean;
+      minimized: boolean;
+      windows: Array<{
+        window_id: string;
+        title: string;
+        class_name: string;
+        minimized: boolean;
+        maximized: boolean;
+      }>;
+    }
+  >();
+  for (const window of windows) {
+    const key = `${window.app.toLowerCase()}\0${window.pid}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = {
+        name: window.app,
+        pid: window.pid,
+        focused: false,
+        minimized: true,
+        windows: [],
+      };
+      groups.set(key, group);
+    }
+    group.focused ||= window.focused;
+    group.minimized &&= window.minimized;
+    group.windows.push({
+      window_id: window.id,
+      title: window.title,
+      class_name: window.className,
+      minimized: window.minimized,
+      maximized: window.maximized,
+    });
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      window_count: group.windows.length,
+    }))
+    .sort((left, right) => Number(right.focused) - Number(left.focused) || left.name.localeCompare(right.name));
+}
+
 export function createWindowTargeting(host: WindowTargetingHost) {
   const { readComputerWindows, readInstalledApps } = host;
 
@@ -102,51 +151,7 @@ export function createWindowTargeting(host: WindowTargetingHost) {
   async function listComputerApps(command: ComputerCommand): Promise<ComputerCommandResult> {
     const windows = await readComputerWindows(command, true);
     if (!windows) throw new Error('could not enumerate apps');
-    const groups = new Map<
-      string,
-      {
-        name: string;
-        pid: number;
-        focused: boolean;
-        minimized: boolean;
-        windows: Array<{
-          window_id: string;
-          title: string;
-          class_name: string;
-          minimized: boolean;
-          maximized: boolean;
-        }>;
-      }
-    >();
-    for (const window of windows) {
-      const key = `${window.app.toLowerCase()}\0${window.pid}`;
-      let group = groups.get(key);
-      if (!group) {
-        group = {
-          name: window.app,
-          pid: window.pid,
-          focused: false,
-          minimized: true,
-          windows: [],
-        };
-        groups.set(key, group);
-      }
-      group.focused ||= window.focused;
-      group.minimized &&= window.minimized;
-      group.windows.push({
-        window_id: window.id,
-        title: window.title,
-        class_name: window.className,
-        minimized: window.minimized,
-        maximized: window.maximized,
-      });
-    }
-    const apps = [...groups.values()]
-      .map((group) => ({
-        ...group,
-        window_count: group.windows.length,
-      }))
-      .sort((left, right) => Number(right.focused) - Number(left.focused) || left.name.localeCompare(right.name));
+    const apps = windowsGroupedByApp(windows);
     const installed = await readInstalledApps(command);
     if (!installed) return { text: JSON.stringify({ apps }) };
     const query = String(command.query || '').trim();

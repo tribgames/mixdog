@@ -86,11 +86,11 @@ export function EditorPanePreviewSurface({
             <p>{t('Loading preview…')}</p>
           </div>
         )}
-        {preview.kind === 'image' ? (
-          <img src={preview.url} alt={name} onLoad={onComplete} onError={onFail} />
-        ) : preview.kind === 'pdf' ? (
+        {preview.kind === 'image' && <img src={preview.url} alt={name} onLoad={onComplete} onError={onFail} />}
+        {preview.kind === 'pdf' && (
           <iframe src={preview.url} title={`${name} PDF preview`} onLoad={onComplete} onError={onFail} />
-        ) : preview.kind === 'audio' ? (
+        )}
+        {preview.kind === 'audio' && (
           <audio
             key={mediaForeground ? 'foreground' : 'suspended'}
             ref={(node) => {
@@ -102,7 +102,8 @@ export function EditorPanePreviewSurface({
             onLoadedMetadata={onComplete}
             onError={onFail}
           />
-        ) : (
+        )}
+        {preview.kind === 'video' && (
           <video
             key={mediaForeground ? 'foreground' : 'suspended'}
             ref={(node) => {
@@ -154,6 +155,9 @@ export function EditorPaneAlerts({
   onKeepEdits(): void;
   onRetrySave(): void;
 }) {
+  let onRetry: (() => void) | undefined;
+  if (saveError && !diskChanged) onRetry = onRetrySave;
+  else if (revertError) onRetry = onReload;
   return (
     <>
       {recovery && (
@@ -190,10 +194,7 @@ export function EditorPaneAlerts({
           }
         />
       )}
-      <ErrorNotice
-        errors={[revertError, !diskChanged ? saveError : '']}
-        onRetry={saveError && !diskChanged ? onRetrySave : revertError ? onReload : undefined}
-      />
+      <ErrorNotice errors={[revertError, !diskChanged ? saveError : '']} onRetry={onRetry} />
     </>
   );
 }

@@ -296,12 +296,12 @@ test('desktop state warms statistics before the dialog mounts without blocking b
   assert.equal(document.querySelector('[role="dialog"]'), null);
   await act(async () => resolvers[0]({ value: { totals: { tokens: 1000 } } }));
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 1000);
-  sessionListeners.forEach((listener) =>
+  for (const listener of sessionListeners) {
     listener({
       sessionId: 'background-session',
       snapshot: { stats: { inputTokens: 2000 } },
-    })
-  );
+    });
+  }
   await act(async () => resolvers[1]({ value: { totals: { tokens: 2000 } } }));
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
   await render({ mounted: false });

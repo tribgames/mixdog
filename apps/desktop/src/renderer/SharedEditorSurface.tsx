@@ -43,7 +43,10 @@ export default function SharedEditorSurface({
         monaco.editor.getModel(uri) ??
         monaco.editor.createModel(latest.current.defaultValue, latest.current.defaultLanguage, uri);
       let owners = modelOwners.get(modelRef.current);
-      if (!owners) modelOwners.set(modelRef.current, (owners = new Set()));
+      if (!owners) {
+        owners = new Set();
+        modelOwners.set(modelRef.current, owners);
+      }
       owners.add(owner.current);
     }
     const surface = surfaces.acquire(

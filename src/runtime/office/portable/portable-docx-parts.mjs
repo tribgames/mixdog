@@ -10,6 +10,7 @@ import {
   zipText,
 } from './portable-opc.mjs';
 import { docxBodyModel } from './portable-snapshot.mjs';
+import { EMU_PER_POINT } from './portable-slide-shapes.mjs';
 import {
   DRAWING_MAIN_NS,
   OFFICE_RELATIONSHIP_BASE,
@@ -57,8 +58,8 @@ export async function addDocumentImage(zip, source) {
 }
 
 export function wordDrawingXml({ id, embedId, name, width, height, altText = '' }) {
-  const cx = Math.max(1, Math.round(width * 12_700));
-  const cy = Math.max(1, Math.round(height * 12_700));
+  const cx = Math.max(1, Math.round(width * EMU_PER_POINT));
+  const cy = Math.max(1, Math.round(height * EMU_PER_POINT));
   // A reader who cannot see the picture hears this description; Word reads it
   // from the drawing's descr, so it is written on both names of the picture.
   const descr = String(altText ?? '').trim() ? ` descr="${xmlEncode(String(altText).trim())}"` : '';
