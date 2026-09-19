@@ -1,14 +1,12 @@
-import { ArrowUp, Mic, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { ErrorNotice, errorSummary } from './ErrorNotice';
 import React, {
   memo,
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
-  type CSSProperties,
   type FormEvent,
   type MutableRefObject,
   type ReactNode,
@@ -22,21 +20,11 @@ import type {
   DesktopSubmitOptions,
   SessionSnapshot,
 } from '../shared/contract';
-import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
-import { useMobileBack } from './mobile-back';
 import { ModelSelector } from './model-controls';
 import { MxIcon } from './MxIcon';
-import { ProgressSpinner } from './ProgressSpinner';
 import { shouldStopComposerGeneration } from './renderer-logic.mjs';
-import {
-  desktopComposerSlashCommands,
-  desktopSlashCommandDescription,
-  resolveDesktopSlashCommand,
-  type CommandSurface as CommandSurfaceName,
-  type SettingsSection,
-} from './slash-commands';
-import { TURN_LOCKED_SLASH_COMMANDS, asRecord, oneLine } from './text-format';
+import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import { touchPrimaryPointer } from './surface-input-focus';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { pastedTextLineCount, shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs';
@@ -45,16 +33,12 @@ import { pastedTextLineCount, shouldFoldPastedText } from '../../../../src/tui/p
 // follow-up list live in composer-support.tsx.
 import {
   COMPOSER_PLACEHOLDERS,
-  MAX_PERSISTED_PROMPT_HISTORY,
   PROJECT_CONTEXT_LOCAL,
   ProjectContextSelector,
   QueueList,
   promptHistoryStorageKey,
   queuedFollowupPreview,
   readPromptHistory,
-  type ComposerAttachment,
-  type ComposerHistoryEntry,
-  writePromptHistory,
 } from './composer-support';
 import {
   composerDraftAfterScopeChange,
@@ -69,7 +53,22 @@ import { useComposerQueue } from './use-composer-queue';
 import { useComposerSubmission } from './use-composer-submission';
 import { useComposerKeyboard } from './use-composer-keyboard';
 import { useComposerFocus } from './use-composer-focus';
-import { ComposerPalette } from './ComposerPalette';
+import { useComposerHistory } from './use-composer-history';
+import { useComposerIme } from './use-composer-ime';
+import { useComposerMessageSelector } from './use-composer-message-selector';
+import { useComposerNotice } from './use-composer-notice';
+import { useComposerPalettes } from './use-composer-palettes';
+import { createSlashExecutor } from './composer-slash-executor';
+import {
+  AttachmentChips,
+  DictationButton,
+  DictationOverlay,
+  MentionPalette,
+  MessageSelectorPalette,
+  SendButton,
+  SlashPalette,
+  composerPlaceholder,
+} from './composer-surfaces';
 import { ComposerAddMenu } from './ComposerAddMenu';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { CapabilityIcon } from './CapabilityIcon';
@@ -82,100 +81,33 @@ export {
   readPromptHistory,
 };
 
-// The recording overlay renders m:ss over the typing surface. The placeholder
-// cannot carry this signal: it is blank once a session has content (see
-// `placeholder` below).
-function formatDictationElapsed(elapsedMs: number): string {
-  const seconds = Math.max(0, Math.floor(elapsedMs / 1_000));
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-}
+const ATTACHMENT_ACCEPT =
+  'image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql';
 
-// Envelope of the level meter: one shared level, five bars, tallest in the
-// middle so the row reads as a voice instead of a progress bar.
-const DICTATION_BAR_GAINS = [0.42, 0.72, 1, 0.78, 0.5];
-
-// The meter owns its own animation frame and writes ONLY a CSS variable, so a
-// live 60fps level never re-renders the composer around it.
-function DictationMeter({ levelRef }: { levelRef: MutableRefObject<number> }) {
-  const host = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    let frame = window.requestAnimationFrame(function paint() {
-      host.current?.style.setProperty('--mx-dictation-level', levelRef.current.toFixed(3));
-      frame = window.requestAnimationFrame(paint);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [levelRef]);
-  return (
-    <span className="composer-dictation-meter" ref={host} aria-hidden="true">
-      {DICTATION_BAR_GAINS.map((gain, index) => (
-        <span key={index} style={{ '--mx-dictation-gain': gain } as CSSProperties} />
-      ))}
-    </span>
+// Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency, logged
+// only when a frame is actually slow.
+function sampleKeystrokePaint(pending: MutableRefObject<boolean>) {
+  if (!window.mixdogDesktop?.perfLog || pending.current) return;
+  pending.current = true;
+  const inputAt = performance.now();
+  window.requestAnimationFrame(() =>
+    window.requestAnimationFrame(() => {
+      pending.current = false;
+      const ms = performance.now() - inputAt;
+      if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
+    })
   );
 }
 
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function pastedFiles(clipboard: DataTransfer): File[] {
+  const itemFiles = Array.from(clipboard.items || [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file));
+  return itemFiles.length ? itemFiles : Array.from(clipboard.files);
 }
 
-function splitMentionPath(path: string): { directory: string; filename: string } {
-  const separator = path.lastIndexOf('/');
-  if (separator < 0) return { directory: '', filename: path };
-  return { directory: path.slice(0, separator + 1), filename: path.slice(separator + 1) };
-}
-
-function DictationProgress() {
-  return (
-    <span className="composer-dictation-progress" aria-hidden="true">
-      {DICTATION_BAR_GAINS.map((_, index) => (
-        <span key={index} />
-      ))}
-    </span>
-  );
-}
-
-export const Composer = memo(function Composer({
-  turnBusy,
-  commandBusy,
-  transitioning,
-  focusRequest,
-  historyScope,
-  identityScope,
-  recoveryScope,
-  projectScope,
-  sessionId,
-  hasConversation,
-  promptHistoryList,
-  provider,
-  model,
-  effort,
-  fast,
-  fastCapable,
-  modelParameters,
-  contextPercent,
-  draftMode,
-  onDraftModelSelection,
-  onRoutePreferenceApplied,
-  modelAside,
-  queued,
-  hiddenQueueIds,
-  pendingSubmissionIds,
-  onQueuedRestored,
-  userMessages,
-  submit,
-  abort,
-  invokeResult,
-  applySnapshot,
-  onNewTask,
-  onClearToNewTask,
-  onResumeSession,
-  onOpenSessions,
-  onOpenProjects,
-  onOpenSettings,
-  onOpenCommandSurface,
-  dropTargetRef,
-  paneActive = true,
-}: {
+type ComposerProps = {
   turnBusy: boolean;
   commandBusy: boolean;
   transitioning: boolean;
@@ -229,7 +161,45 @@ export const Composer = memo(function Composer({
   /** This pane is the focused, visible one. A payload shared into the app from
    *  outside (share sheet) may only land in a composer the user can see. */
   paneActive?: boolean;
-}) {
+};
+
+export const Composer = memo(function Composer(props: ComposerProps) {
+  const {
+    turnBusy,
+    commandBusy,
+    transitioning,
+    focusRequest,
+    historyScope,
+    identityScope,
+    recoveryScope,
+    projectScope,
+    sessionId,
+    hasConversation,
+    promptHistoryList,
+    provider,
+    model,
+    effort,
+    fast,
+    fastCapable,
+    modelParameters,
+    contextPercent,
+    draftMode,
+    onDraftModelSelection,
+    onRoutePreferenceApplied,
+    modelAside,
+    queued,
+    hiddenQueueIds,
+    pendingSubmissionIds,
+    onQueuedRestored,
+    userMessages,
+    submit,
+    abort,
+    invokeResult,
+    applySnapshot,
+    onOpenSettings,
+    dropTargetRef,
+    paneActive = true,
+  } = props;
   const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submissionRecoveryVersion, setSubmissionRecoveryVersion] = useState(0);
@@ -239,42 +209,18 @@ export const Composer = memo(function Composer({
   // Reuse the same id when the exact restored payload is retried so daemon-side
   // idempotency acknowledges it instead of posting a duplicate user message.
   const submissionRetryRef = useRef<{ key: string; id: string } | null>(null);
-  const [composerNotice, setComposerNotice] = useState('');
-  // Composer notices are transient helpers (mic errors, etc.): auto-dismiss
-  // after a beat instead of pinning to the composer forever (user-flagged).
-  const composerNoticeTimer = useRef(0);
-  const showComposerNotice = useCallback((message: string, durationMs = 6_000) => {
-    window.clearTimeout(composerNoticeTimer.current);
-    setComposerNotice(message);
-    if (message) {
-      composerNoticeTimer.current = window.setTimeout(() => setComposerNotice(''), durationMs);
-    }
-  }, []);
+  const { notice: composerNotice, showNotice: showComposerNotice, clearNotice } = useComposerNotice();
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      window.clearTimeout(composerNoticeTimer.current);
     };
   }, []);
   const [composerFocused, setComposerFocused] = useState(false);
-  const [caretOffset, setCaretOffset] = useState(0);
-  const [slashIndex, setSlashIndex] = useState(0);
-  const [slashDismissed, setSlashDismissed] = useState('');
-  const [mentionIndex, setMentionIndex] = useState(0);
-  const [mentionResults, setMentionResults] = useState<string[]>([]);
-  const [mentionLoading, setMentionLoading] = useState(false);
-  const [mentionDismissed, setMentionDismissed] = useState('');
-  // Esc-Esc selects a previous prompt, rewinds to it, and restores it for edit.
-  const [selectorOpen, setSelectorOpen] = useState(false);
-  const [selectorIndex, setSelectorIndex] = useState(0);
-  const [persistedHistory, setPersistedHistory] = useState(() => readPromptHistory(historyScope));
   const activeIdentityScope = useRef(identityScope);
   const skillSelection = useComposerSkill(identityScope);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const paletteAnchor = useRef<HTMLFormElement>(null);
-  // Chromium does not report `KeyboardEvent.isComposing` consistently across
-  // every IME event ordering, so keep the explicit composition lifecycle too.
   const composingRef = useRef(false);
   const suppressImeLineBreakRef = useRef(false);
   // True while the current Shift hold has already produced a character ('?' is
@@ -283,10 +229,6 @@ export const Composer = memo(function Composer({
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const escapeClearAtRef = useRef(0);
-  const messagePalette = useRef<HTMLDivElement>(null);
-  const slashPalette = useRef<HTMLDivElement>(null);
-  const mentionPalette = useRef<HTMLDivElement>(null);
-  const mentionSearchGeneration = useRef(0);
   const composerPaintSamplePending = useRef(false);
   const transitioningRef = useRef(transitioning);
   transitioningRef.current = transitioning;
@@ -294,15 +236,7 @@ export const Composer = memo(function Composer({
   // state update, and `send` reads the textarea, so the intent is parked here
   // and fired by the effect below on the commit that carries the words.
   const voiceSubmitPending = useRef(false);
-  const {
-    dictationState,
-    dictationInstalled,
-    toggleDictation,
-    stopDictationAndSend,
-    cancelDictation,
-    recordingElapsedMs,
-    dictationLevelRef,
-  } = useComposerDictation({
+  const dictation = useComposerDictation({
     transitioningRef,
     textarea,
     setDraft,
@@ -313,8 +247,7 @@ export const Composer = memo(function Composer({
       voiceSubmitPending.current = true;
     }, []),
   });
-  const historyNavigation = useRef({ index: -1, seed: '' });
-  const historySeedAttachments = useRef<ComposerAttachment[]>([]);
+  const history = useComposerHistory({ historyScope, promptHistoryList });
   const {
     attachments,
     attachmentsRef,
@@ -337,7 +270,7 @@ export const Composer = memo(function Composer({
     draftRef,
     setDraft,
     textarea,
-    historyNavigation,
+    historyNavigation: history.navigation,
     transitioningRef,
     projectScope,
     recoveryScope,
@@ -364,261 +297,6 @@ export const Composer = memo(function Composer({
     attachFiles,
     appendText: appendSharedText,
   });
-  useEffect(() => {
-    const element = textarea.current;
-    if (!element) return undefined;
-    let reconcileFrame = 0;
-    const onCompositionStart = () => {
-      composingRef.current = true;
-    };
-    const onCompositionEnd = () => {
-      // Match the reference composer: a keydown delivered after compositionend
-      // is the user's submit Enter, even when Chromium keeps both events in the
-      // same task. The separate beforeinput guard below still blocks the stray
-      // insertLineBreak emitted by engines that end composition after keydown.
-      composingRef.current = false;
-      const committed = element.value;
-      draftRef.current = committed;
-      setDraft((current) => (current === committed ? current : committed));
-      setCaretOffset(element.selectionStart);
-      window.cancelAnimationFrame(reconcileFrame);
-      reconcileFrame = window.requestAnimationFrame(() => {
-        if (composingRef.current || textarea.current !== element) return;
-        const value = element.value;
-        draftRef.current = value;
-        setDraft((current) => (current === value ? current : value));
-        setCaretOffset(element.selectionStart);
-      });
-    };
-    const onBeforeInput = (event: InputEvent) => {
-      // A composing Enter commits the IME candidate; it is not a request for a
-      // line break. Electron can deliver the follow-up newline after
-      // compositionend and a later task, using either browser input type.
-      const newline = event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph';
-      if (newline && (composingRef.current || event.isComposing || suppressImeLineBreakRef.current)) {
-        event.preventDefault();
-        suppressImeLineBreakRef.current = false;
-      }
-    };
-    element.addEventListener('compositionstart', onCompositionStart);
-    element.addEventListener('compositionend', onCompositionEnd);
-    element.addEventListener('beforeinput', onBeforeInput);
-    return () => {
-      window.cancelAnimationFrame(reconcileFrame);
-      element.removeEventListener('compositionstart', onCompositionStart);
-      element.removeEventListener('compositionend', onCompositionEnd);
-      element.removeEventListener('beforeinput', onBeforeInput);
-    };
-  }, []);
-  useLayoutEffect(() => {
-    if (activeIdentityScope.current === identityScope) return;
-    const previousScope = activeIdentityScope.current;
-    activeIdentityScope.current = identityScope;
-    // Park the text the user typed in the tab being left, so returning to
-    // that tab hands it back instead of opening empty.
-    const leavingElement = textarea.current;
-    stashComposerDraft(
-      previousScope,
-      document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
-    );
-    resetAttachments();
-    composingRef.current = false;
-    suppressImeLineBreakRef.current = false;
-    mentionSearchGeneration.current += 1;
-    // Scope settles ASYNC after a session switch/promotion; when the user is
-    // ALREADY typing in the composer, the in-flight text carries over instead
-    // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
-    const typingElement = textarea.current;
-    const typingLive = document.activeElement === typingElement;
-    // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
-    // 새작업 pulled the previous pane's text and attachments along).
-    const freshDraft = composerScopeOpensFreshDraft(identityScope);
-    setDraft((current) => {
-      // A remote snapshot can change scope in the same turn as a native input
-      // event. The DOM already owns the newest character while React state may
-      // still be one commit behind, so preserve the focused DOM value instead
-      // of briefly writing the stale controlled value back into the textarea.
-      const next = composerDraftAfterScopeChange({
-        currentDraft: current,
-        liveDomDraft: typingElement?.value ?? current,
-        freshDraft,
-        typingLive,
-        stashedDraft: stashedComposerDraft(identityScope),
-      });
-      draftRef.current = next;
-      return next;
-    });
-    setComposerNotice('');
-    setComposerFocused(false);
-    setCaretOffset(0);
-    setSlashIndex(0);
-    setSlashDismissed('');
-    setMentionIndex(0);
-    setMentionResults([]);
-    setMentionLoading(false);
-    setMentionDismissed('');
-    setDraggingFiles(false);
-    setSelectorOpen(false);
-    setSelectorIndex(0);
-    historyNavigation.current = { index: -1, seed: '' };
-  }, [identityScope, resetAttachments]);
-  // Prompt history keys on historyScope, which can move WITHOUT the pane
-  // identity changing (staging a project on the same draft turns
-  // new-task:local into new-task:<path>) — refresh it independently.
-  useLayoutEffect(() => {
-    setPersistedHistory(readPromptHistory(historyScope));
-    historyNavigation.current = { index: -1, seed: '' };
-  }, [historyScope]);
-  const history = useMemo<ComposerHistoryEntry[]>(() => {
-    const engineHistory: ComposerHistoryEntry[] = (Array.isArray(promptHistoryList) ? promptHistoryList : [])
-      .map((entry) =>
-        typeof entry === 'string'
-          ? { text: entry }
-          : { text: String(asRecord(entry)?.text || asRecord(entry)?.displayText || '') }
-      )
-      .filter((entry) => entry.text.trim());
-    const seen = new Set<string>();
-    return [...persistedHistory, ...engineHistory]
-      .filter((entry) => {
-        const key = entry.text.trim();
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .slice(0, MAX_PERSISTED_PROMPT_HISTORY);
-  }, [persistedHistory, promptHistoryList]);
-  const rememberPrompt = useCallback(
-    (value: string, submittedAttachments: ComposerAttachment[] = []) => {
-      const prompt = value.trim();
-      if (!prompt) return;
-      const retained = submittedAttachments
-        .filter((attachment) => attachment.kind === 'text' && attachment.token && prompt.includes(attachment.token))
-        .map((attachment) => ({ ...attachment }));
-      const entry: ComposerHistoryEntry = {
-        text: prompt,
-        ...(retained.length ? { attachments: retained } : {}),
-      };
-      setPersistedHistory((current) => {
-        const next = [entry, ...current.filter((item) => item.text !== prompt)].slice(0, MAX_PERSISTED_PROMPT_HISTORY);
-        try {
-          writePromptHistory(historyScope, next);
-        } catch {
-          // The engine-provided history remains available when browser storage is unavailable.
-        }
-        return next;
-      });
-    },
-    [historyScope]
-  );
-  // User request: one stable placeholder — no rotating variants.
-  // User request: once a session has content, the composer shows NO hint copy
-  // at all — instructional placeholders belong to the empty new-task state.
-  let placeholder = t(COMPOSER_PLACEHOLDERS[0]);
-  if (hasConversation) placeholder = '';
-  else if (turnBusy) placeholder = t('Steer the active turn or queue a follow-up…');
-  else if (commandBusy) placeholder = t('Queue a message after the current command…');
-  // Only frequent commands appear here; direct input still uses the full registry.
-  const slashCommands = useMemo(() => desktopComposerSlashCommands(draft), [draft]);
-  const slashOpen = Boolean(
-    composerFocused &&
-      paneActive &&
-      !selectorOpen &&
-      !transitioning &&
-      caretOffset === draft.length &&
-      slashDismissed !== draft &&
-      slashCommands.length
-  );
-  const mentionMatch = useMemo(() => {
-    const beforeCaret = draft.slice(0, Math.max(0, Math.min(caretOffset, draft.length)));
-    const match = /(^|[\s([{"'])@([^\s@]*)$/.exec(beforeCaret);
-    if (!match) return null;
-    const start = match.index + match[1].length;
-    return { start, end: beforeCaret.length, query: match[2] || '' };
-  }, [caretOffset, draft]);
-  const mentionSignature = mentionMatch ? `${mentionMatch.start}:${mentionMatch.end}:${mentionMatch.query}` : '';
-  const mentionOpen = Boolean(
-    composerFocused && projectScope && mentionMatch && !transitioning && mentionDismissed !== mentionSignature
-  );
-  // ABB: each open composer palette answers hardware back with the same
-  // dismissal its own Escape performs.
-  useMobileBack(slashOpen, () => setSlashDismissed(draft));
-  useMobileBack(mentionOpen, () => setMentionDismissed(mentionSignature));
-  useMobileBack(selectorOpen, () => setSelectorOpen(false));
-  // Autosize is CSS-native now (field-sizing: content). The old layout-effect
-  // path forced TWO whole-document synchronous reflows per keystroke
-  // (height:auto → scrollHeight read) — the measured source of typing lag on
-  // long transcripts.
-  useEffect(() => {
-    if (!transitioning) return;
-    setDraggingFiles(false);
-  }, [transitioning]);
-  useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
-
-  useEffect(() => setSlashIndex(0), [draft]);
-  useEffect(() => setMentionIndex(0), [mentionMatch?.query]);
-  useEffect(() => {
-    if (!mentionOpen || !mentionMatch) {
-      mentionSearchGeneration.current += 1;
-      setMentionResults([]);
-      setMentionLoading(false);
-      return;
-    }
-    const generation = ++mentionSearchGeneration.current;
-    setMentionResults([]);
-    setMentionLoading(true);
-    const timer = window.setTimeout(() => {
-      void window.mixdogDesktop
-        .searchProjectFiles(projectScope, mentionMatch.query, 20)
-        .then((paths) => {
-          if (mentionSearchGeneration.current !== generation) return;
-          setMentionResults(paths);
-          setMentionLoading(false);
-        })
-        .catch(() => {
-          if (mentionSearchGeneration.current !== generation) return;
-          setMentionResults([]);
-          setMentionLoading(false);
-        });
-    }, 120);
-    return () => {
-      window.clearTimeout(timer);
-      if (mentionSearchGeneration.current === generation) mentionSearchGeneration.current += 1;
-    };
-  }, [mentionMatch?.end, mentionMatch?.query, mentionMatch?.start, mentionOpen, projectScope]);
-  useEffect(() => {
-    if (!selectorOpen) return;
-    messagePalette.current
-      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [selectorIndex, selectorOpen]);
-  useEffect(() => {
-    if (!slashOpen) return;
-    slashPalette.current
-      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [slashIndex, slashOpen, slashCommands]);
-  useEffect(() => {
-    if (!mentionOpen) return;
-    mentionPalette.current
-      ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
-      ?.scrollIntoView?.({ block: 'nearest' });
-  }, [mentionIndex, mentionOpen, mentionResults]);
-  useEffect(() => {
-    const receiveDraft = (event: Event) => {
-      const text = String((event as CustomEvent<unknown>).detail || '');
-      if (!text) return;
-      setDraft((current) => {
-        const next = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${text}`;
-        draftRef.current = next;
-        return next;
-      });
-      historyNavigation.current = { index: -1, seed: '' };
-      window.setTimeout(() => textarea.current?.focus(), 0);
-    };
-    window.addEventListener('mixdog:composer-draft', receiveDraft);
-    return () => window.removeEventListener('mixdog:composer-draft', receiveDraft);
-  }, []);
-
   const invokeCapabilityResult = useCallback(
     async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
       // Every command this composer issues belongs to the session IT paints —
@@ -643,16 +321,7 @@ export const Composer = memo(function Composer({
       (await invokeCapabilityResult<T>(capability, args))?.value,
     [invokeCapabilityResult]
   );
-  const {
-    restoring,
-    setRestoring,
-    pendingSubmissionId,
-    visibleQueued,
-    hasRestorableQueuedMessages,
-    restoreQueue,
-    discardQueued,
-    steerQueuedNow,
-  } = useComposerQueue({
+  const queue = useComposerQueue({
     queued,
     hiddenQueueIds,
     pendingSubmissionIds,
@@ -662,7 +331,7 @@ export const Composer = memo(function Composer({
     setDraft,
     textarea,
     composingRef,
-    historyNavigation,
+    historyNavigation: history.navigation,
     invokeCapability,
     abort,
     restoredAttachments,
@@ -671,255 +340,132 @@ export const Composer = memo(function Composer({
     onQueuedRestored,
     scope: historyScope,
   });
-
-  // Rewindable prompts, oldest → newest (the newest row is preselected).
-  const selectableMessages = Array.isArray(userMessages) ? userMessages : [];
-  const openMessageSelector = () => {
-    if (selectableMessages.length === 0) {
-      showComposerNotice(t('No message to jump back to.'));
-      return;
-    }
-    setSelectorIndex(selectableMessages.length - 1);
-    setSelectorOpen(true);
-  };
-  // Selecting a row drops the conversation from that prompt onward (engine
-  // side) and returns its text for editing — the "restore
-  // conversation".
-  const rewindToMessage = async (messageId: string) => {
-    if (!messageId || restoring) return;
-    setSelectorOpen(false);
-    setRestoring(true);
-    try {
-      const value = asRecord(await invokeCapability<RecordValue>('rewindToItem', [messageId]));
-      const text = String(value?.text || '');
-      if (!text) {
-        showComposerNotice(t('Could not restore that message.'));
-        return;
-      }
-      historyNavigation.current = { index: -1, seed: '' };
-      setDraft(text);
-      window.setTimeout(() => {
-        textarea.current?.focus();
-        textarea.current?.setSelectionRange(text.length, text.length);
-      }, 0);
-    } finally {
-      setRestoring(false);
-    }
-  };
+  const selector = useComposerMessageSelector({
+    userMessages,
+    restoring: queue.restoring,
+    setRestoring: queue.setRestoring,
+    invokeCapability,
+    setDraft,
+    textarea,
+    historyNavigation: history.navigation,
+    showNotice: showComposerNotice,
+  });
+  const palettes = useComposerPalettes({
+    draft,
+    projectScope,
+    paneActive,
+    transitioning,
+    composerFocused,
+    selectorOpen: selector.open,
+  });
+  const { setCaretOffset, slash, mention } = palettes;
+  useComposerIme({ textarea, composingRef, suppressImeLineBreakRef, draftRef, setDraft, setCaretOffset });
+  useLayoutEffect(() => {
+    if (activeIdentityScope.current === identityScope) return;
+    const previousScope = activeIdentityScope.current;
+    activeIdentityScope.current = identityScope;
+    // Park the text the user typed in the tab being left, so returning to
+    // that tab hands it back instead of opening empty.
+    const leavingElement = textarea.current;
+    stashComposerDraft(
+      previousScope,
+      document.activeElement === leavingElement && leavingElement ? leavingElement.value : draftRef.current
+    );
+    resetAttachments();
+    composingRef.current = false;
+    suppressImeLineBreakRef.current = false;
+    palettes.invalidateSearch();
+    // Scope settles ASYNC after a session switch/promotion; when the user is
+    // ALREADY typing in the composer, the in-flight text carries over instead
+    // of being wiped (user bug: draft vanished + scroll jumped mid-sentence).
+    const typingElement = textarea.current;
+    const typingLive = document.activeElement === typingElement;
+    // A fresh New Task pane is the exception: it ALWAYS opens clean (user:
+    // 새작업 pulled the previous pane's text and attachments along).
+    const freshDraft = composerScopeOpensFreshDraft(identityScope);
+    setDraft((current) => {
+      // A remote snapshot can change scope in the same turn as a native input
+      // event. The DOM already owns the newest character while React state may
+      // still be one commit behind, so preserve the focused DOM value instead
+      // of briefly writing the stale controlled value back into the textarea.
+      const next = composerDraftAfterScopeChange({
+        currentDraft: current,
+        liveDomDraft: typingElement?.value ?? current,
+        freshDraft,
+        typingLive,
+        stashedDraft: stashedComposerDraft(identityScope),
+      });
+      draftRef.current = next;
+      return next;
+    });
+    clearNotice();
+    setComposerFocused(false);
+    palettes.reset();
+    setDraggingFiles(false);
+    selector.reset();
+    history.navigation.current = { index: -1, seed: '' };
+  }, [identityScope, resetAttachments, clearNotice, palettes.reset, palettes.invalidateSearch, selector.reset]);
+  const placeholder = composerPlaceholder({
+    hasConversation,
+    turnBusy,
+    commandBusy,
+    fallback: COMPOSER_PLACEHOLDERS[0],
+  });
+  // Autosize is CSS-native now (field-sizing: content). The old layout-effect
+  // path forced TWO whole-document synchronous reflows per keystroke
+  // (height:auto → scrollHeight read) — the measured source of typing lag on
+  // long transcripts.
+  useEffect(() => {
+    if (!transitioning) return;
+    setDraggingFiles(false);
+  }, [transitioning]);
+  useComposerFocus({ textarea, transitioning, focusRequest, paneActive });
+  useEffect(() => {
+    const receiveDraft = (event: Event) => {
+      const text = String((event as CustomEvent<unknown>).detail || '');
+      if (!text) return;
+      setDraft((current) => {
+        const next = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${text}`;
+        draftRef.current = next;
+        return next;
+      });
+      history.navigation.current = { index: -1, seed: '' };
+      window.setTimeout(() => textarea.current?.focus(), 0);
+    };
+    window.addEventListener('mixdog:composer-draft', receiveDraft);
+    return () => window.removeEventListener('mixdog:composer-draft', receiveDraft);
+  }, []);
 
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   useEffect(() => setGoalDialogOpen(false), [identityScope, paneActive]);
-  const executeSlash = async (raw: string): Promise<boolean> => {
-    let invocationFailed = false;
-    const commandCapability = async <T,>(capability: DesktopCapability, args: unknown[] = []) => {
-      if (draftMode && capability === 'setEffort' && onDraftModelSelection && provider && model) {
-        onDraftModelSelection({
-          provider,
-          model,
-          effort: String(args[0] || effort),
-          ...(fastCapable ? { fast } : {}),
-          ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
-        });
-        return String(args[0] || effort) as T;
-      }
-      if (draftMode && capability !== 'listPresets' && capability !== 'getUsageDashboard') {
-        setAttachmentError('Start the task with a message before running this command.');
-        invocationFailed = true;
-        return undefined;
-      }
-      const result = await invokeCapabilityResult<T>(capability, args);
-      if (result === undefined) {
-        invocationFailed = true;
-        return undefined;
-      }
-      return result.value;
-    };
-    const [token, ...tail] = raw.trim().slice(1).split(/\s+/);
-    const rawName = token.toLowerCase();
-    const argument = tail.join(' ').trim();
-    const command = resolveDesktopSlashCommand(rawName);
-    if (!command) {
-      setAttachmentError(`Unknown command: /${rawName}`);
-      return false;
-    }
-    const name = command.name;
-    setAttachmentError('');
-    setComposerNotice('');
-    if (turnBusy && TURN_LOCKED_SLASH_COMMANDS.has(name)) {
-      setAttachmentError(`Wait for the current turn to finish before /${rawName}.`);
-      return false;
-    }
-    if (rawName === 'new' || name === 'clear') {
-      // A session pane's /new and /clear close THIS session tab and open a
-      // New Task in its place (settings inherited). Outside a session pane
-      // the old routes remain: /new opens a draft, /clear clears the engine.
-      if (!draftMode && sessionId && onClearToNewTask) onClearToNewTask();
-      else if (rawName === 'new') onNewTask();
-      else await commandCapability('clear');
-    } else if (name === 'project') onOpenProjects();
-    else if (name === 'resume') argument ? onResumeSession(argument) : onOpenSessions();
-    else if (name === 'compact') await commandCapability('compact');
-    else if (name === 'goal') {
-      if (!argument) {
-        setGoalDialogOpen(true);
-        return true;
-      }
-      if (draftMode) {
-        const accepted = await submit(argument, {
-          displayText: argument,
-          goalCommand: argument,
-        });
-        if (accepted !== true) return false;
-      } else {
-        const result = asRecord(await commandCapability<unknown>('goalControl', [{ command: argument }]));
-        if (!invocationFailed) showComposerNotice(String(result?.message || 'Goal updated.'));
-      }
-    } else if (name === 'doctor') onOpenCommandSurface('doctor');
-    else if (name === 'settings') onOpenSettings();
-    // Desktop /quit leaves THIS task, not the app (user): it rides the same
-    // close path as Ctrl+W, so unsaved-close guards and group collapse apply.
-    // Explicit app quit stays in the File menu.
-    else if (command.action === 'close-task') {
-      window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
-    } else if (name === 'autoclear' && argument) {
-      const value = argument.toLowerCase();
-      const statusQuery = value === 'status' || value === 'current' || value === 'show';
-      let autoClearPatch: Record<string, unknown> = { duration: value };
-      if (value === 'on' || value === 'enable' || value === 'enabled') autoClearPatch = { enabled: true };
-      else if (value === 'off' || value === 'disable' || value === 'disabled') autoClearPatch = { enabled: false };
-      const next = await commandCapability<unknown>(
-        statusQuery ? 'getAutoClear' : 'setAutoClear',
-        statusQuery ? [] : [autoClearPatch]
-      );
-      const status = asRecord(next);
-      if (!invocationFailed) {
-        showComposerNotice(
-          `Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs ? ` · idle ${status.idleMs}ms` : ''}`
-        );
-      }
-    } else if (name === 'outputstyle' && argument) {
-      const statusOnly = ['status', 'current', 'show'].includes(argument.toLowerCase());
-      const value = await commandCapability<unknown>(
-        statusOnly ? 'getOutputStyle' : 'setOutputStyle',
-        statusOnly ? [] : [argument]
-      );
-      if (!invocationFailed) {
-        const result = asRecord(value);
-        const current = asRecord(result?.current);
-        showComposerNotice(
-          `Output style: ${String(
-            current?.label || current?.id || result?.configured || result?.label || result?.id || argument
-          )}`
-        );
-      }
-    } else if (name === 'theme' && argument) {
-      const statusOnly = ['status', 'current', 'show'].includes(argument.toLowerCase());
-      const value = await commandCapability<unknown>(
-        statusOnly ? 'getTheme' : 'setTheme',
-        statusOnly ? [] : [argument, { persist: true }]
-      );
-      if (!invocationFailed) {
-        const result = asRecord(value);
-        showComposerNotice(`Theme: ${String(result?.label || result?.id || value || argument)}`);
-      }
-    } else if (name === 'effort' && argument) {
-      const next = await commandCapability<unknown>('setEffort', [argument]);
-      if (!invocationFailed) showComposerNotice(`Effort set to ${String(next || argument)}`);
-    } else if (name === 'fast') {
-      const value = argument.toLowerCase();
-      let nextFast: boolean | null = null;
-      if (!value) nextFast = !fast;
-      else if (['1', 'true', 'yes', 'on', 'enable', 'enabled'].includes(value)) nextFast = true;
-      else if (['0', 'false', 'no', 'off', 'disable', 'disabled'].includes(value)) nextFast = false;
-      if (nextFast === null) {
-        setAttachmentError('Usage: /fast [on|off]');
-        return false;
-      }
-      if (draftMode && onDraftModelSelection && provider && model) {
-        onDraftModelSelection({
-          provider,
-          model,
-          effort,
-          fast: nextFast,
-          ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
-        });
-      } else {
-        const next = await invokeResult(() => window.mixdogDesktop.setFast(nextFast, sessionId || undefined));
-        if (next === undefined) return false;
-        applySnapshot(next);
-        if (provider && model) {
-          onRoutePreferenceApplied?.({
-            provider,
-            model,
-            effort,
-            fast: nextFast,
-            ...(modelParameters && Object.keys(modelParameters).length ? { modelParameters } : {}),
-          });
-        }
-      }
-      showComposerNotice(`Fast mode ${nextFast ? 'on' : 'off'}`);
-    } else if (name === 'model' && argument) {
-      if (argument.toLowerCase() === 'refresh') {
-        const models = await invokeResult(() => window.mixdogDesktop.listProviderModels({ quick: false }));
-        if (models === undefined) return false;
-        onOpenSettings('model');
-        return true;
-      }
-      const presetValue = await commandCapability<unknown>('listPresets');
-      let presetSource: unknown[] = [];
-      if (Array.isArray(presetValue)) presetSource = presetValue;
-      else if (Array.isArray(asRecord(presetValue)?.presets))
-        presetSource = asRecord(presetValue)?.presets as unknown[];
-      const preset = presetSource
-        .map(asRecord)
-        .find(
-          (entry) =>
-            entry &&
-            (String(entry.id || '').toLowerCase() === argument.toLowerCase() ||
-              String(entry.name || '').toLowerCase() === argument.toLowerCase())
-        );
-      if (preset) {
-        await commandCapability('setModel', [preset.id || preset.name]);
-        if (invocationFailed) return false;
-        return true;
-      }
-      const models = (await invokeResult(() => window.mixdogDesktop.listProviderModels({ quick: false }))) || [];
-      const normalized = argument.toLowerCase();
-      const model = models.find(
-        (entry) =>
-          `${entry.provider}:${entry.model}`.toLowerCase() === normalized ||
-          entry.model.toLowerCase() === normalized ||
-          entry.display.toLowerCase() === normalized
-      );
-      if (!model) {
-        setAttachmentError(`Model not found: ${argument}`);
-        return false;
-      }
-      const selection = {
-        provider: model.provider,
-        model: model.model,
-      };
-      if (draftMode && onDraftModelSelection) {
-        onDraftModelSelection(selection);
-        return true;
-      }
-      if (!sessionId) return false;
-      const next = await invokeResult(() => window.mixdogDesktop.setModelRoute(selection, sessionId));
-      if (next === undefined) return false;
-      applySnapshot(next);
-      onRoutePreferenceApplied?.(selection);
-    } else if (name === 'model') {
-      onOpenSettings('model');
-    } else if (name === 'usage') {
-      if (['refresh', '--refresh', '-r', 'true'].includes(argument.toLowerCase())) {
-        await commandCapability('getUsageDashboard', [{ refresh: true }]);
-      }
-      onOpenCommandSurface('usage');
-    } else if (command.surface) onOpenCommandSurface(command.surface);
-    else if (command.settingsRow) onOpenSettings(command.settingsRow);
-    if (invocationFailed) return false;
-    return true;
-  };
+  const executeSlash = createSlashExecutor({
+    draftMode,
+    sessionId,
+    turnBusy,
+    provider,
+    model,
+    effort,
+    fast,
+    fastCapable,
+    modelParameters,
+    onDraftModelSelection,
+    onRoutePreferenceApplied,
+    invokeResult,
+    invokeCapabilityResult,
+    applySnapshot,
+    submit,
+    setAttachmentError,
+    clearNotice,
+    showNotice: showComposerNotice,
+    openGoalDialog: () => setGoalDialogOpen(true),
+    onNewTask: props.onNewTask,
+    onClearToNewTask: props.onClearToNewTask,
+    onResumeSession: props.onResumeSession,
+    onOpenSessions: props.onOpenSessions,
+    onOpenProjects: props.onOpenProjects,
+    onOpenSettings,
+    onOpenCommandSurface: props.onOpenCommandSurface,
+  });
 
   const { send, stop } = useComposerSubmission({
     turnBusy,
@@ -935,17 +481,17 @@ export const Composer = memo(function Composer({
     submittingRef,
     submissionRetryRef,
     mountedRef,
-    historyNavigation,
+    historyNavigation: history.navigation,
     setDraft,
     setSubmitting,
     setSubmissionRecoveryVersion,
-    clearNotice: () => setComposerNotice(''),
+    clearNotice,
     setAttachmentError,
     removeAttachments,
     mergeRestoredAttachments,
     restoredAttachments,
     executeSlash,
-    rememberPrompt,
+    rememberPrompt: history.rememberPrompt,
     submit,
     abort,
     onQueuedRestored,
@@ -964,44 +510,21 @@ export const Composer = memo(function Composer({
       textarea,
       setCaretOffset,
     },
-    slash: {
-      open: slashOpen,
-      commands: slashCommands,
-      index: slashIndex,
-      setIndex: setSlashIndex,
-      setDismissed: setSlashDismissed,
-    },
-    mention: {
-      match: mentionMatch,
-      open: mentionOpen,
-      signature: mentionSignature,
-      results: mentionResults,
-      index: mentionIndex,
-      setIndex: setMentionIndex,
-      setDismissed: setMentionDismissed,
-      setResults: setMentionResults,
-    },
-    selector: {
-      open: selectorOpen,
-      setOpen: setSelectorOpen,
-      index: selectorIndex,
-      setIndex: setSelectorIndex,
-      messages: selectableMessages,
-      openSelector: openMessageSelector,
-      rewindToMessage,
-    },
+    slash,
+    mention,
+    selector,
     history: {
-      entries: history,
-      navigation: historyNavigation,
-      seedAttachments: historySeedAttachments,
+      entries: history.entries,
+      navigation: history.navigation,
+      seedAttachments: history.seedAttachments,
       attachmentsRef,
       replaceAttachments,
     },
     queue: {
-      pendingSubmissionId,
-      hasRestorableMessages: hasRestorableQueuedMessages,
+      pendingSubmissionId: queue.pendingSubmissionId,
+      hasRestorableMessages: queue.hasRestorableQueuedMessages,
       restore: (source) => {
-        void restoreQueue('', source);
+        void queue.restoreQueue('', source);
       },
     },
     runtime: {
@@ -1029,57 +552,87 @@ export const Composer = memo(function Composer({
   });
   // A live take turns the send disc into "finish and send"; a running turn
   // still claims that disc for Stop.
-  const voiceSend = !stopOnly && dictationState === 'recording';
+  const voiceSend = !stopOnly && dictation.dictationState === 'recording';
   useEffect(() => {
-    if (!voiceSubmitPending.current || dictationState !== 'idle') return;
+    if (!voiceSubmitPending.current || dictation.dictationState !== 'idle') return;
     voiceSubmitPending.current = false;
     void send('', 'voice-submit');
-  }, [dictationState, draft, send]);
-  let paletteId: string | undefined;
-  if (slashOpen) paletteId = 'composer-slash-palette';
-  else if (mentionOpen) paletteId = 'composer-mention-palette';
-  let activeDescendant: string | undefined;
-  if (slashOpen) activeDescendant = `composer-slash-option-${slashIndex}`;
-  else if (mentionOpen && mentionResults.length) activeDescendant = `composer-mention-option-${mentionIndex}`;
-  let dictationTooltip = t('Dictate');
-  if (dictationState === 'recording') dictationTooltip = t('Stop and transcribe · Enter');
-  else if (dictationState === 'transcribing') dictationTooltip = t('Transcribing…');
-  // Recording swaps the glyph for the stop square: the disc alone never said
-  // that pressing it ENDS the take.
-  let micGlyph = <Mic size={16} />;
-  if (dictationState === 'transcribing') micGlyph = <ProgressSpinner className="composer-mic-spinner" size={16} />;
-  else if (dictationState === 'recording') micGlyph = <MxIcon name="stop" size={16} />;
-  let sendClick: (() => void) | undefined;
-  if (stopOnly) sendClick = () => void stop();
-  else if (voiceSend) sendClick = () => void stopDictationAndSend();
-  const sendDisabled =
-    !stopOnly &&
-    !voiceSend &&
-    ((!draft.trim() && !attachments.some((attachment) => !attachment.token || attachment.chipOnly === true)) ||
-      transitioning ||
-      dictationState !== 'idle');
-  let sendLabel = t('Send message');
-  if (stopOnly) sendLabel = t('Stop generation');
-  else if (voiceSend) sendLabel = t('Stop dictation and send');
-  else if (submitting) sendLabel = hasConversation ? t('Sending message') : t('Starting session');
-  else if (turnBusy) sendLabel = t('Queue or steer active turn');
-  else if (commandBusy) sendLabel = t('Queue after current command');
-  let sendTooltip = t('Send · Enter');
-  if (stopOnly) sendTooltip = t('Stop');
-  else if (voiceSend) sendTooltip = t('Stop and send');
-  else if (turnBusy) sendTooltip = t('Queue or steer · Enter');
-  else if (commandBusy) sendTooltip = t('Queue after command · Enter');
-  let sendGlyph = <ArrowUp size={16} />;
-  if (stopOnly) sendGlyph = <MxIcon name="stop" size={16} />;
-  else if (submitting) sendGlyph = <ProgressSpinner className="composer-mic-spinner" size={16} />;
+  }, [dictation.dictationState, draft, send]);
+
+  const onTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    sampleKeystrokePaint(composerPaintSamplePending);
+    const value = event.currentTarget.value;
+    draftRef.current = value;
+    setDraft(value);
+    escapeClearAtRef.current = 0;
+    if (attachmentError) setAttachmentError('');
+    if (composerNotice) clearNotice();
+    setCaretOffset(event.currentTarget.selectionStart);
+    if (slash.dismissed) slash.setDismissed('');
+    if (mention.dismissed) mention.setDismissed('');
+    history.navigation.current = { index: -1, seed: '' };
+  };
+  const onTextareaBlur = () => {
+    composingRef.current = false;
+    suppressImeLineBreakRef.current = false;
+    shiftLatchRef.current = false;
+    setComposerFocused(false);
+  };
+  const onTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const removeSkill = shouldRemoveSelectedSkill({
+      selected: skillSelection.name,
+      key: event.key,
+      start: event.currentTarget.selectionStart,
+      end: event.currentTarget.selectionEnd,
+      composing: composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229,
+      repeat: event.repeat,
+      modified: event.ctrlKey || event.metaKey || event.altKey,
+    });
+    if (removeSkill) {
+      event.preventDefault();
+      event.stopPropagation();
+      skillSelection.select('');
+      return;
+    }
+    onKeyDown(event);
+  };
+  const onTextareaPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = pastedFiles(event.clipboardData);
+    if (files.length) {
+      event.preventDefault();
+      void attachFiles(files);
+      return;
+    }
+    const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
+    if (!shouldFoldPastedText(text)) return;
+    const id = attachmentSequence.current++;
+    const lines = pastedTextLineCount(text);
+    const inserted = insertAttachment({
+      id,
+      name: `Pasted text · ${lines} lines`,
+      kind: 'text',
+      mimeType: 'text/plain',
+      data: text,
+      token: `[Pasted text #${id} +${lines} lines]`,
+      source: 'paste',
+      chipOnly: true,
+    });
+    if (inserted) event.preventDefault();
+  };
+  const focusTextareaFromForm = (event: React.MouseEvent<HTMLFormElement>) => {
+    if (touchPrimaryPointer()) return;
+    const target = event.target as HTMLElement;
+    if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
+  };
+  const goalDisabled = turnBusy || commandBusy || submitting;
   return (
     <>
       <QueueList
-        queued={visibleQueued}
-        restoring={restoring}
-        onEdit={(id) => void restoreQueue(id, 'queue-row')}
-        onSteer={(id) => void steerQueuedNow(id)}
-        onRemove={(id) => void discardQueued(id)}
+        queued={queue.visibleQueued}
+        restoring={queue.restoring}
+        onEdit={(id) => void queue.restoreQueue(id, 'queue-row')}
+        onSteer={(id) => void queue.steerQueuedNow(id)}
+        onRemove={(id) => void queue.discardQueued(id)}
       />
       {/* Error/notice banners float ABOVE the input card (user-flagged: they
           previously rendered inside the pill and read as composer content). */}
@@ -1111,192 +664,51 @@ export const Composer = memo(function Composer({
         ref={paletteAnchor}
         className="composer"
         onSubmit={onSubmit}
-        data-composer-palette-open={selectorOpen || slashOpen || mentionOpen ? 'true' : undefined}
+        data-composer-palette-open={selector.open || slash.open || mention.open ? 'true' : undefined}
         aria-busy={transitioning}
-        onMouseDown={(event) => {
-          if (touchPrimaryPointer()) return;
-          const target = event.target as HTMLElement;
-          if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
-        }}
+        onMouseDown={focusTextareaFromForm}
       >
-        {selectorOpen && (
-          <ComposerPalette
+        {selector.open && (
+          <MessageSelectorPalette
             anchor={paletteAnchor}
-            panel={messagePalette}
-            id="composer-message-selector"
-            className="message-selector"
-            label={t('Previous messages')}
-          >
-            <header>
-              <span>{t('Jump back to a message')}</span>
-            </header>
-            {selectableMessages.map((message, index) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={index === selectorIndex}
-                key={message.id}
-                id={`composer-message-option-${index}`}
-                title={message.text}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setSelectorIndex(index)}
-                onClick={() => {
-                  void rewindToMessage(message.id);
-                }}
-              >
-                <span>{oneLine(queuedFollowupPreview(message.text), 90)}</span>
-              </button>
-            ))}
-          </ComposerPalette>
+            panel={selector.palette}
+            messages={selector.messages}
+            index={selector.index}
+            setIndex={selector.setIndex}
+            onSelect={(id) => void selector.rewindToMessage(id)}
+          />
         )}
-        {slashOpen && (
-          <ComposerPalette
+        {slash.open && (
+          <SlashPalette
             anchor={paletteAnchor}
-            panel={slashPalette}
-            id="composer-slash-palette"
-            label={t('Slash commands')}
-          >
-            <header>
-              <span>{t('Commands')}</span>
-            </header>
-            {slashCommands.map((command, index) => (
-              <button
-                type="button"
-                role="option"
-                aria-selected={index === slashIndex}
-                key={command.name}
-                id={`composer-slash-option-${index}`}
-                onMouseDown={(event) => event.preventDefault()}
-                onMouseEnter={() => setSlashIndex(index)}
-                onClick={() => {
-                  void send(command.usage);
-                }}
-              >
-                <code>{command.usage}</code>
-                <span>{desktopSlashCommandDescription(command)}</span>
-              </button>
-            ))}
-          </ComposerPalette>
+            panel={slash.palette}
+            commands={slash.commands}
+            index={slash.index}
+            setIndex={slash.setIndex}
+            onSelect={(usage) => void send(usage)}
+          />
         )}
-        {mentionOpen && (
-          <ComposerPalette
+        {mention.open && (
+          <MentionPalette
             anchor={paletteAnchor}
-            panel={mentionPalette}
-            id="composer-mention-palette"
-            className="mention-palette"
-            label={t('Project files')}
-          >
-            <header>
-              <MxIcon name="open-file" size={14} />
-              <span>{t('Files')}</span>
-            </header>
-            {mentionResults.map((path, index) => {
-              const { directory, filename } = splitMentionPath(path);
-              return (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={index === mentionIndex}
-                  key={path}
-                  id={`composer-mention-option-${index}`}
-                  title={path}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onMouseEnter={() => setMentionIndex(index)}
-                  onClick={() => selectMention(path)}
-                >
-                  <MxIcon name="open-file" size={14} />
-                  <span className="mention-path">
-                    <span>{directory}</span>
-                    <strong>{filename}</strong>
-                  </span>
-                </button>
-              );
-            })}
-            {mentionResults.length === 0 && (
-              <p role="status">{mentionLoading ? t('Searching project files…') : t('No matching files.')}</p>
-            )}
-          </ComposerPalette>
+            panel={mention.palette}
+            results={mention.results}
+            loading={mention.loading}
+            index={mention.index}
+            setIndex={mention.setIndex}
+            onSelect={selectMention}
+          />
         )}
         {attachments.length > 0 && (
-          <div className="composer-attachments" aria-label={t('Attachments')}>
-            {attachments.map((attachment) => (
-              <div className={`attachment-chip ${attachment.kind}`} key={attachment.id}>
-                {attachment.kind === 'image' ? (
-                  <button
-                    type="button"
-                    className="attachment-open"
-                    aria-label={t('Open image')}
-                    title={attachment.name}
-                    onClick={async () => {
-                      setAttachmentError('');
-                      try {
-                        const api = window.mixdogDesktop;
-                        if (!api?.openAttachmentImage)
-                          throw new Error('Unable to open image: image viewer is unavailable.');
-                        await api.openAttachmentImage(
-                          `data:${attachment.mimeType};base64,${attachment.data}`,
-                          attachment.name
-                        );
-                      } catch (error) {
-                        setAttachmentError(errorText(error));
-                      }
-                    }}
-                  >
-                    <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="" />
-                  </button>
-                ) : (
-                  <span>
-                    <MxIcon name="open-file" size={16} />
-                  </span>
-                )}
-                <span data-tooltip={attachment.name}>{attachment.name}</span>
-                <button
-                  type="button"
-                  aria-label={t('Remove {{name}}', { name: attachment.name })}
-                  onClick={() => removeAttachment(attachment)}
-                  className="attachment-remove"
-                  data-tooltip={t('Remove')}
-                >
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </div>
-            ))}
-          </div>
+          <AttachmentChips attachments={attachments} onRemove={removeAttachment} onError={setAttachmentError} />
         )}
-        {/* Recording takes over the typing surface, never the footer: the stop
-          and send discs below stay reachable, and the draft underneath is
-          untouched until the transcript is appended to it. */}
-        {dictationState !== 'idle' && (
-          <div className="composer-dictation-overlay" data-state={dictationState}>
-            <div className="composer-dictation-status" data-state={dictationState}>
-              {dictationState === 'recording' ? (
-                <>
-                  <DictationMeter levelRef={dictationLevelRef} />
-                  {/* No live region on the timer: a polite announcement twice a second
-                would talk over everything else. The mic button's label carries
-                the state instead. */}
-                  <span className="composer-dictation-elapsed">{formatDictationElapsed(recordingElapsedMs)}</span>
-                  <button
-                    type="button"
-                    className="composer-dictation-cancel"
-                    aria-label={t('Discard recording')}
-                    data-tooltip={t('Discard · Esc')}
-                    data-tooltip-side="top"
-                    onClick={() => cancelDictation()}
-                  >
-                    <X size={14} aria-hidden="true" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <DictationProgress />
-                  <span className="composer-dictation-elapsed" role="status">
-                    {t('Transcribing…')}
-                  </span>
-                </>
-              )}
-            </div>
-          </div>
+        {dictation.dictationState !== 'idle' && (
+          <DictationOverlay
+            state={dictation.dictationState}
+            levelRef={dictation.dictationLevelRef}
+            elapsedMs={dictation.recordingElapsedMs}
+            onCancel={() => dictation.cancelDictation()}
+          />
         )}
         <div className="composer-input-row">
           {skillSelection.name && (
@@ -1310,96 +722,22 @@ export const Composer = memo(function Composer({
           <textarea
             ref={textarea}
             value={draft}
-            onChange={(event) => {
-              // Perf diagnostics (MIXDOG_DESKTOP_PERF=1): keystroke→paint latency,
-              // logged only when a frame is actually slow.
-              if (window.mixdogDesktop?.perfLog && !composerPaintSamplePending.current) {
-                composerPaintSamplePending.current = true;
-                const inputAt = performance.now();
-                window.requestAnimationFrame(() =>
-                  window.requestAnimationFrame(() => {
-                    composerPaintSamplePending.current = false;
-                    const ms = performance.now() - inputAt;
-                    if (ms >= 25) window.mixdogDesktop?.perfLog?.(`composer-keystroke paint=${ms.toFixed(0)}ms`);
-                  })
-                );
-              }
-              const value = event.currentTarget.value;
-              draftRef.current = value;
-              setDraft(value);
-              escapeClearAtRef.current = 0;
-              if (attachmentError) setAttachmentError('');
-              if (composerNotice) setComposerNotice('');
-              setCaretOffset(event.currentTarget.selectionStart);
-              if (slashDismissed) setSlashDismissed('');
-              if (mentionDismissed) setMentionDismissed('');
-              historyNavigation.current = { index: -1, seed: '' };
-            }}
+            onChange={onTextareaChange}
             onFocus={() => setComposerFocused(true)}
-            onBlur={() => {
-              composingRef.current = false;
-              suppressImeLineBreakRef.current = false;
-              shiftLatchRef.current = false;
-              setComposerFocused(false);
-            }}
+            onBlur={onTextareaBlur}
             onPointerDown={() => {
               escapeClearAtRef.current = 0;
             }}
             onSelect={(event) => setCaretOffset(event.currentTarget.selectionStart)}
-            onKeyDown={(event) => {
-              if (
-                shouldRemoveSelectedSkill({
-                  selected: skillSelection.name,
-                  key: event.key,
-                  start: event.currentTarget.selectionStart,
-                  end: event.currentTarget.selectionEnd,
-                  composing: composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229,
-                  repeat: event.repeat,
-                  modified: event.ctrlKey || event.metaKey || event.altKey,
-                })
-              ) {
-                event.preventDefault();
-                event.stopPropagation();
-                skillSelection.select('');
-                return;
-              }
-              onKeyDown(event);
-            }}
+            onKeyDown={onTextareaKeyDown}
             onKeyUp={onKeyUp}
-            onPaste={(event) => {
-              const itemFiles = Array.from(event.clipboardData.items || [])
-                .filter((item) => item.kind === 'file')
-                .map((item) => item.getAsFile())
-                .filter((file): file is File => Boolean(file));
-              const files = itemFiles.length ? itemFiles : Array.from(event.clipboardData.files);
-              if (files.length) {
-                event.preventDefault();
-                void attachFiles(files);
-                return;
-              }
-              const text = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
-              if (shouldFoldPastedText(text)) {
-                const id = attachmentSequence.current++;
-                const lines = pastedTextLineCount(text);
-                const inserted = insertAttachment({
-                  id,
-                  name: `Pasted text · ${lines} lines`,
-                  kind: 'text',
-                  mimeType: 'text/plain',
-                  data: text,
-                  token: `[Pasted text #${id} +${lines} lines]`,
-                  source: 'paste',
-                  chipOnly: true,
-                });
-                if (inserted) event.preventDefault();
-              }
-            }}
+            onPaste={onTextareaPaste}
             rows={1}
             placeholder={placeholder}
             disabled={transitioning}
-            aria-controls={paletteId}
-            aria-expanded={slashOpen || mentionOpen}
-            aria-activedescendant={activeDescendant}
+            aria-controls={palettes.paletteId}
+            aria-expanded={slash.open || mention.open}
+            aria-activedescendant={palettes.activeDescendant}
             aria-label={t('Message Mixdog')}
           />
         </div>
@@ -1409,7 +747,7 @@ export const Composer = memo(function Composer({
             type="file"
             hidden
             multiple
-            accept="image/png,image/jpeg,image/gif,image/webp,application/pdf,.pdf,text/*,.md,.mdx,.txt,.log,.json,.jsonl,.yaml,.yml,.toml,.xml,.csv,.tsv,.js,.jsx,.mjs,.cjs,.ts,.tsx,.mts,.cts,.py,.rb,.rs,.go,.java,.kt,.swift,.cs,.cpp,.cc,.c,.h,.hh,.hpp,.sh,.zsh,.ps1,.bat,.cmd,.sql,.css,.scss,.sass,.html,.htm,.vue,.svelte,.env,.ini,.conf,.cfg,.gql,.graphql"
+            accept={ATTACHMENT_ACCEPT}
             onChange={(event) => {
               if (event.currentTarget.files) void attachFiles(event.currentTarget.files);
               event.currentTarget.value = '';
@@ -1418,7 +756,7 @@ export const Composer = memo(function Composer({
           {goalDialogOpen && (
             <ComposerGoalDialog
               anchor={textarea}
-              disabled={turnBusy || commandBusy || submitting}
+              disabled={goalDisabled}
               onStart={executeSlash}
               onClose={() => setGoalDialogOpen(false)}
               returnFocus={() => textarea.current?.focus()}
@@ -1429,11 +767,11 @@ export const Composer = memo(function Composer({
             anchor={paletteAnchor}
             sessionId={sessionId}
             disabled={transitioning || !paneActive}
-            goalDisabled={turnBusy || commandBusy || submitting}
+            goalDisabled={goalDisabled}
             onAttach={() => fileInput.current?.click()}
             onSkill={(name) => {
               skillSelection.select(name);
-              setMentionDismissed(mentionSignature);
+              mention.setDismissed(mention.signature);
               queueMicrotask(() => textarea.current?.focus());
             }}
             onGoal={executeSlash}
@@ -1467,36 +805,27 @@ export const Composer = memo(function Composer({
             {/* The mic appears only once the voice runtime is installed
             (Extensions → Voice transcription): an uninstalled feature never
             advertises itself in the composer. */}
-            {dictationInstalled && (
-              <button
-                type="button"
-                className={`composer-tool composer-mic ${dictationState !== 'idle' ? `is-${dictationState}` : ''}`.trim()}
-                disabled={transitioning || dictationState === 'transcribing'}
-                aria-label={dictationState === 'recording' ? t('Stop dictation') : t('Dictate with voice')}
-                aria-pressed={dictationState === 'recording'}
-                data-tooltip={dictationTooltip}
-                data-tooltip-side="top"
-                onClick={() => void toggleDictation()}
-              >
-                {micGlyph}
-              </button>
+            {dictation.dictationInstalled && (
+              <DictationButton
+                state={dictation.dictationState}
+                disabled={transitioning || dictation.dictationState === 'transcribing'}
+                onToggle={() => void dictation.toggleDictation()}
+              />
             )}
-            {/* Mid-take the disc ENDS the take and sends what was spoken, instead
-            of sitting disabled: the transcript still only reaches the draft
-            after the recorder stops, so this press chains stop → transcribe →
-            submit. Transcribing keeps it disabled — that take is already on
-            its way. */}
-            <button
-              type={stopOnly || voiceSend ? 'button' : 'submit'}
-              className={`send-button${stopOnly ? ' stop' : ''}`}
-              onClick={sendClick}
-              disabled={sendDisabled}
-              aria-label={sendLabel}
-              data-tooltip={sendTooltip}
-              data-tooltip-side="top"
-            >
-              {sendGlyph}
-            </button>
+            <SendButton
+              stopOnly={stopOnly}
+              voiceSend={voiceSend}
+              submitting={submitting}
+              turnBusy={turnBusy}
+              commandBusy={commandBusy}
+              transitioning={transitioning}
+              hasConversation={hasConversation}
+              dictationState={dictation.dictationState}
+              draft={draft}
+              attachments={attachments}
+              onStop={() => void stop()}
+              onStopDictationAndSend={() => void dictation.stopDictationAndSend()}
+            />
           </span>
         </div>
       </form>

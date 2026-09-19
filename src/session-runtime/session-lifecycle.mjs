@@ -1,228 +1,55 @@
-// Session lifecycle, extracted from runtime-core.mjs: first-turn route
-// resolution, route-effort refresh, and createCurrentSession (provider
-// session construction with MCP wiring and reset handling). Shared mutable
-// runtime state flows through the rt bag.
-import {
-  ensureProviderEnabled,
-  modelMetaLooksResolved,
-  modelSettingsFor,
-  normalizeCompactionConfig,
-} from './config-helpers.mjs';
-import { clean, hasOwn } from './session-text.mjs';
-import { coerceEffortFor, deferredSurfaceModeForLead, effortItemsFor, toolSpecForMode } from './effort.mjs';
-import { filterMcpToolsForSession } from './extension-scopes.mjs';
-import { fastCapableFor } from './model-capabilities.mjs';
+// Session lifecycle: first-turn route resolution, route-effort refresh and
+// createCurrentSession (provider session construction with MCP wiring and
+// reset handling), plus the warmup/prewarm schedulers they feed. Shared
+// mutable runtime state flows through the rt bag. The route derivations live
+// in route-state.mjs / route-resolution.mjs and the session construction in
+// session-create.mjs.
+import { ensureProviderEnabled } from './config-helpers.mjs';
 import { bootProfile } from './boot-profile.mjs';
-import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
-import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
-import { attachSessionHooks } from './session-hooks.mjs';
-import { applyDeferredToolSurface } from './tool-catalog.mjs';
-import { writeStatuslineRoute } from './statusline-route.mjs';
 import { createWarmupSchedulers } from './warmup-schedulers.mjs';
 import { warmCatalogsInBackground } from '../runtime/agent/orchestrator/providers/model-catalog.mjs';
-import { providerCachedModelMetadataSync } from '../runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { envFlag } from '../runtime/shared/env.mjs';
 import { createPrewarmSchedulers } from './prewarm.mjs';
 import { hasActiveAutomation } from '../standalone/channel-admin.mjs';
 import { createSessionTranscript } from './session-transcript.mjs';
-import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
+import { createRouteResolution } from './route-resolution.mjs';
+import { createSessionCreator } from './session-create.mjs';
 
-export function resolveRouteEffortState(targetRoute = {}, modelMeta = null) {
-  const requested = hasOwn(targetRoute, 'effort') ? targetRoute.effort : targetRoute.preset?.effort || null;
-  const metadataResolved = modelMetaLooksResolved(modelMeta);
-  // A cold runtime initially has only `{ id, provider }`. Treating that
-  // placeholder as authoritative erased a persisted effort and disabled a
-  // persisted Fast route before the provider catalog finished warming.
-  // Preserve the already-validated route until real capability metadata is
-  // available; the provider still validates the exact variant before send.
-  const effectiveEffort = metadataResolved
-    ? coerceEffortFor(targetRoute.provider, modelMeta, requested)
-    : requested || null;
-  const fastCapable = metadataResolved
-    ? fastCapableFor(targetRoute.provider, modelMeta, effectiveEffort, targetRoute.modelParameters)
-    : targetRoute.fast === true;
-  return { effectiveEffort, fastCapable, metadataResolved };
-}
+export { resolveRouteContextState, resolveRouteEffortState } from './route-state.mjs';
 
-// The persisted provider model rows are the SAME source the picker sized its
-// slider against, so they carry both windows (openai-oauth: 272k default /
-// 1M max). Reading them keeps a percentage saved against the picker's scale
-// meaningful; anything that only knows a single window would silently rescale
-// it (30% of 272k instead of 30% of 1M).
-function cachedRouteWindows(provider, model) {
-  const row = providerCachedModelMetadataSync(provider, model)?.rawProviderModel || null;
-  if (!row) return null;
-  const contextWindow = Number(row.contextWindow ?? row.context_window ?? row.max_input_tokens) || 0;
-  const maxContextWindow = Number(row.maxContextWindow ?? row.max_context_window) || 0;
-  return contextWindow > 0 || maxContextWindow > 0 ? { contextWindow, maxContextWindow } : null;
-}
-
-export function resolveRouteContextState(targetRoute = {}, modelMeta = null, windowLookup = cachedRouteWindows) {
-  // Only providers that implement getCachedModelInfo (openai-oauth, cursor,
-  // openai-compat, opencode-go) hand lookupModelMeta a window; every other one
-  // (anthropic-oauth, grok-oauth, gemini, …) gets the bare `{ id, provider }`
-  // placeholder. Reading the window from that alone yields 0, which dropped the
-  // saved context percentage for the entire session — while resolveSessionContextMeta
-  // went on to size that session from the provider/catalog window (Claude Opus 5:
-  // a full 1M rather than the selected 500k). Read the cached provider row here so
-  // the percentage and the session boundary cannot disagree.
-  const windowMeta =
-    Number(modelMeta?.contextWindow) > 0 || Number(modelMeta?.maxContextWindow) > 0
-      ? modelMeta
-      : windowLookup?.(clean(targetRoute?.provider), clean(targetRoute?.model)) || modelMeta;
-  const defaultWindow = Math.max(0, Number(windowMeta?.contextWindow) || 0);
-  const maxWindow = Math.max(defaultWindow, Number(windowMeta?.maxContextWindow) || 0);
-  if (!maxWindow) {
-    return { contextPercent: undefined, contextDefaultPercent: undefined, selectedContextWindow: undefined };
-  }
-  const contextDefaultPercent = Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
-  const requested = Number(targetRoute?.contextPercent);
-  const contextPercent =
-    Number.isFinite(requested) && requested > 0
-      ? Math.max(10, Math.min(100, Math.round(requested / 10) * 10))
-      : contextDefaultPercent;
-  const selectedContextWindow =
-    contextPercent === contextDefaultPercent
-      ? defaultWindow
-      : Math.max(1, Math.floor((maxWindow * contextPercent) / 100));
-  return { contextPercent, contextDefaultPercent, selectedContextWindow };
-}
-
-// Ownership and permission fields an agent-owned session inherits from its profile.
-function agentOwnedSessionFields(sessionProfile) {
-  return {
-    parentSessionId: sessionProfile?.parentSessionId || null,
-    ownerSessionId: sessionProfile?.ownerSessionId || sessionProfile?.parentSessionId || null,
-    visibility: 'agent-only',
-    agentTag: sessionProfile?.agentTag || null,
-    taskType: sessionProfile?.taskType || null,
-    permission: sessionProfile?.permission || undefined,
-    permissionMode: sessionProfile?.permissionMode || undefined,
-    schemaAllowedTools: Array.isArray(sessionProfile?.schemaAllowedTools)
-      ? sessionProfile.schemaAllowedTools
-      : undefined,
-  };
-}
-
-export function createSessionLifecycle({
-  rt,
-  adoptSession,
-  collectProviderModels,
-  ensureProvidersReady,
-  lookupModelMeta,
-  mgr,
-  loadCoreMemoryContext,
-  awaitKeychainPrewarm,
-  prepareNewSessionConfig,
-  ensureConfigForRouteProvider,
-  reg,
-  cfgMod,
-  activeWorkflowContext,
-  hooks,
-  hookCommonPayload,
-  mcpClient,
-  modelStandaloneTools,
-  schemaAllowedTools = null,
-  featureDisallowedTools,
-  applyPreSessionToolSelection,
-  statusRoutes,
-  warmupTimers,
-  providerModelCaches,
-  reloadFullConfig,
-  refreshStatuslineUsageSnapshot,
-  warmProviderModelCache,
-  cachedProviderSetup,
-  providerWarmupDelayMs,
-  providerSetupWarmupDelayMs,
-  providerModelWarmupDelayMs,
-  modelCatalogWarmupDelayMs,
-  statuslineUsageWarmupDelayMs,
-  statuslineUsageRefreshDelayMs,
-  backgroundBusyRetryMs,
-  providerWarmupEnabled,
-  modelPrefetchEnabled,
-  modelCatalogWarmupEnabled,
-  prewarmTimers,
-  channelsEnabled,
-  getCodeGraphModule,
-  channels,
-  codeGraphPrewarmDelayMs,
-  channelStartDelayMs,
-  codeGraphPrewarmEnabled,
-  prewarmState,
-  agentTool,
-}) {
-  async function resolveMissingRouteModelForFirstTurn(signal = null) {
-    if (routeHasModel()) return rt.route;
-    const models = await runAbortable(signal, () => collectProviderModels());
-    throwIfAborted(signal);
-    const picked = models[0] || null;
-    if (!picked) {
-      throw new Error('No provider models available. Open /providers to sign in, then /model to choose a model.');
-    }
-    rt.route = {
-      ...rt.route,
-      provider: picked.provider,
-      model: picked.id,
-      preset: null,
-    };
-    return rt.route;
-  }
-
-  async function refreshRouteEffort(modelMetaOverride = null, expectedRoute = null, signal = null) {
-    const targetRoute = expectedRoute || rt.route;
-    await runAbortable(signal, () => ensureProvidersReady(ensureProviderEnabled(rt.config, targetRoute.provider)));
-    const modelMeta =
-      modelMetaOverride || (await runAbortable(signal, () => lookupModelMeta(targetRoute.provider, targetRoute.model)));
-    throwIfAborted(signal);
-    // A rapid second resume/model change can replace the route while provider
-    // metadata is loading. Never let the older completion overwrite it.
-    if (expectedRoute && rt.route !== expectedRoute) return null;
-    const { effectiveEffort, fastCapable } = resolveRouteEffortState(targetRoute, modelMeta);
-    const contextState = resolveRouteContextState(targetRoute, modelMeta);
-    const contextValue = clean(targetRoute.modelParameters?.context);
-    const contextOption = (modelMeta?.modelParameterOptions || [])
-      .find((option) => option?.id === 'context')
-      ?.options?.find((option) => clean(option?.value) === contextValue);
-    // Carry the catalog display name onto the route so the statusline shows a
-    // human label (e.g. "Claude Fable 5") for preset-less direct models instead
-    // of the raw id. `name` is only trusted when it differs from the raw model
-    // id (some providers echo the id as `name`), so it can't clobber a better
-    // already-resolved label. Falls back to existing route.modelDisplay, then unset.
-    const metaName = clean(modelMeta?.name);
-    // A display-only user alias (modelSettings[provider/model].alias) wins
-    // over every catalog label so the statusline matches the picker.
-    const modelDisplay =
-      clean(modelSettingsFor(rt.config, targetRoute.provider, targetRoute.model)?.alias) ||
-      clean(modelMeta?.display) ||
-      clean(modelMeta?.displayName) ||
-      (metaName && metaName !== clean(targetRoute.model) ? metaName : '') ||
-      clean(targetRoute.modelDisplay);
-    const selectedContextWindow = [contextState.selectedContextWindow, contextOption?.contextWindow]
-      .map(Number)
-      .find((value) => value > 0);
-    rt.route = {
-      ...targetRoute,
-      fast: fastCapable ? targetRoute.fast === true : false,
-      fastCapable,
-      effectiveEffort,
-      effortOptions: effortItemsFor(rt.route.provider, modelMeta, effectiveEffort),
-      contextPercent: contextState.contextPercent,
-      contextDefaultPercent: contextState.contextDefaultPercent,
-      ...(selectedContextWindow ? { selectedContextWindow } : {}),
-      ...(modelDisplay ? { modelDisplay } : {}),
-    };
-    return rt.route;
-  }
-
-  function routeHasModel() {
-    return !!clean(rt.route?.model);
-  }
-
-  function requireModelRoute() {
-    if (routeHasModel()) return;
-    throw new Error('No model configured. Open /providers to sign in, then /model to choose a model.');
-  }
+export function createSessionLifecycle(deps) {
+  const {
+    rt,
+    ensureProvidersReady,
+    awaitKeychainPrewarm,
+    ensureConfigForRouteProvider,
+    warmupTimers,
+    providerModelCaches,
+    reloadFullConfig,
+    refreshStatuslineUsageSnapshot,
+    warmProviderModelCache,
+    cachedProviderSetup,
+    providerWarmupDelayMs,
+    providerSetupWarmupDelayMs,
+    providerModelWarmupDelayMs,
+    modelCatalogWarmupDelayMs,
+    statuslineUsageWarmupDelayMs,
+    statuslineUsageRefreshDelayMs,
+    backgroundBusyRetryMs,
+    providerWarmupEnabled,
+    modelPrefetchEnabled,
+    modelCatalogWarmupEnabled,
+    prewarmTimers,
+    getCodeGraphModule,
+    channels,
+    codeGraphPrewarmDelayMs,
+    channelStartDelayMs,
+    codeGraphPrewarmEnabled,
+    prewarmState,
+  } = deps;
+  const routes = createRouteResolution(deps);
+  const { routeHasModel, requireModelRoute, resolveMissingRouteModelForFirstTurn, refreshRouteEffort } = routes;
+  const createCurrentSession = createSessionCreator(deps, routes);
 
   async function recreateCurrentSessionIfReady() {
     if (!routeHasModel()) {
@@ -230,214 +57,6 @@ export function createSessionLifecycle({
       return null;
     }
     return await createCurrentSession();
-  }
-
-  async function createCurrentSession(reason = 'demand', options = {}) {
-    const signal = options?.signal || null;
-    throwIfAborted(signal);
-    if (rt.sessionCreatePromise) {
-      return await runAbortable(signal, () => rt.sessionCreatePromise, 'Session creation aborted');
-    }
-    if (rt.session?.id) {
-      const liveSession = mgr.getSession(rt.session.id);
-      if (liveSession && liveSession.closed !== true && liveSession.status !== 'closed') {
-        rt.session = liveSession;
-        return rt.session;
-      }
-      rt.session = null;
-    }
-
-    const startedAt = performance.now();
-    bootProfile('session:create:start', { mode: rt.mode, reason });
-    // A daemon reservation is deliberate user-think-time prewarm. Start the
-    // one-time agent-loop module load now so the first real prompt does not pay
-    // its ~100ms dynamic-import graph immediately before provider.send.
-    if (reason === 'reservation' && typeof mgr.prewarmAgentLoop === 'function') {
-      void mgr.prewarmAgentLoop().catch((error) => {
-        bootProfile('agent-loop:prewarm-failed', { error: error?.message || String(error) });
-      });
-    }
-    const promise = (async () => {
-      await runAbortable(signal, () => awaitKeychainPrewarm());
-      // Persistence and reload precede EVERY config consumer, including memory,
-      // workflow, tools and the disk-backed prompt builders. The live-session
-      // return above deliberately bypasses this boundary.
-      await runAbortable(signal, () => prepareNewSessionConfig());
-      // The memory snapshot uses the freshly adopted feature policy and still
-      // overlaps the remaining provider/model preparation.
-      const coreMemoryContextPromise = Promise.resolve(loadCoreMemoryContext());
-      coreMemoryContextPromise.catch(() => {});
-      ensureConfigForRouteProvider();
-      await resolveMissingRouteModelForFirstTurn(signal);
-      requireModelRoute();
-      bootProfile('session:create:route-ready', { ms: (performance.now() - startedAt).toFixed(1) });
-      // Route effort waits on provider readiness while the already-started
-      // memory load continues independently.
-      const expectedRoute = rt.route;
-      const [, coreMemoryContext] = await runAbortable(signal, () =>
-        Promise.all([refreshRouteEffort(null, expectedRoute, signal), coreMemoryContextPromise])
-      );
-      throwIfAborted(signal);
-      bootProfile('session:create:effort-ready', { ms: (performance.now() - startedAt).toFixed(1) });
-      const providerImpl = reg.getProvider(rt.route.provider);
-      if (!providerImpl) {
-        throw new Error(`Provider "${rt.route.provider}" is not configured.`);
-      }
-      bootProfile('session:create:provider-ready', { ms: (performance.now() - startedAt).toFixed(1) });
-      if (rt.closeRequested) throw new Error('runtime is closing');
-      throwIfAborted(signal);
-      const dataDir = cfgMod.getPluginData?.() || STANDALONE_DATA_DIR;
-      // Load the active WORKFLOW.md pack once for both summary + context block.
-      const {
-        summary: workflow,
-        context: workflowContext,
-        orchestrationMode,
-      } = activeWorkflowContext(rt.config, dataDir);
-      const sessionProfile = rt.sessionProfile && typeof rt.sessionProfile === 'object' ? rt.sessionProfile : null;
-      const agentOwned = sessionProfile?.owner === 'agent' || sessionProfile?.visibility === 'agent-only';
-      const sessionOpts = {
-        ...(rt.reservedSessionId ? { id: rt.reservedSessionId } : {}),
-        provider: rt.route.provider,
-        model: rt.route.model,
-        preset: rt.route.preset || undefined,
-        tools: toolSpecForMode(rt.mode),
-        ...(Array.isArray(schemaAllowedTools) ? { schemaAllowedTools } : {}),
-        owner: agentOwned ? 'agent' : 'cli',
-        agent: agentOwned ? sessionProfile?.agent || 'worker' : 'lead',
-        lane: agentOwned ? 'agent' : 'cli',
-        sourceType: agentOwned ? sessionProfile?.sourceType || 'agent' : 'lead',
-        sourceName: agentOwned ? sessionProfile?.sourceName || sessionProfile?.agent || 'agent' : 'main',
-        ...(rt.approvalMode ? { approvalMode: rt.approvalMode } : {}),
-        clientHostPid: sessionProfile?.clientHostPid || process.pid,
-        mcpScopeId: rt.mcpScopeId,
-        disallowedTools: [
-          ...(agentOwned ? [] : LEAD_DISALLOWED_TOOLS),
-          ...(!agentOwned && rt.disallowDelegation ? ['agent'] : []),
-          ...featureDisallowedTools(),
-        ],
-        cwd: rt.currentCwd,
-        ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
-        coreMemoryContext,
-        workflow,
-        workflowContext,
-        orchestrationMode,
-        fast: rt.route.fast === true,
-        modelParameters: rt.route.modelParameters || {},
-        contextPercent: rt.route.contextPercent,
-        selectedContextWindow: rt.route.selectedContextWindow || null,
-        compaction:
-          rt.config.compaction && typeof rt.config.compaction === 'object'
-            ? normalizeCompactionConfig(rt.config.compaction)
-            : undefined,
-        ...(agentOwned ? agentOwnedSessionFields(sessionProfile) : {}),
-      };
-      if (hasOwn(rt.route, 'effort') || rt.route.effectiveEffort) {
-        sessionOpts.effort = rt.route.effectiveEffort || null;
-      }
-      adoptSession(mgr.createSession(sessionOpts));
-      rt.reservedSessionId = null;
-      attachSessionHooks(rt.session, { hooks, hookCommonPayload, getCwd: () => rt.currentCwd });
-      // Every-create MCP fold (NO blocking): seed the INITIAL provider-visible
-      // surface (and native BP2 manifest) from MCP servers connected at create
-      // time. There is no await — a boot connect still mid-handshake is caught on
-      // the first user turn by refreshInitialDeferredMcpSurface (session-turn-api),
-      // which re-folds the live registry into the first-turn surface before the
-      // prompt renders. This fold keeps recreate paths (cwd change with MCP
-      // already connected) seeding their manifest instead of re-announcing late.
-      let connectedMcpTools = [];
-      try {
-        connectedMcpTools = filterMcpToolsForSession(
-          mcpClient.getMcpTools?.(rt.mcpScopeId) || [],
-          rt.currentCwd,
-          rt.config
-        );
-      } catch {
-        connectedMcpTools = [];
-      }
-      applyDeferredToolSurface(
-        rt.session,
-        deferredSurfaceModeForLead(rt.mode),
-        connectedMcpTools.length ? [...modelStandaloneTools(), ...connectedMcpTools] : modelStandaloneTools(),
-        { provider: rt.route.provider }
-      );
-      // Session-local one-shot: mark this FRESH session eligible for the
-      // first-turn deferred-surface refresh (session-turn-api). A resumed
-      // session (prior transcript) is NEVER marked, so its already-baked BP2 is
-      // never rebuilt or re-announced — the gate is per-session, not the
-      // process-wide firstTurnCompleted.
-      rt.session.deferredInitialRefreshPending = !/resume/i.test(String(reason || ''));
-      applyPreSessionToolSelection();
-      writeStatuslineRoute(statusRoutes, rt.session, rt.route);
-      try {
-        agentTool?.upsertLeadSession?.(rt.session, { status: 'idle', stage: 'idle' });
-      } catch {
-        /* lead pool must never break session create */
-      }
-      hooks.emit('session:create', {
-        sessionId: rt.session.id,
-        provider: rt.route.provider,
-        model: rt.route.model,
-        toolMode: rt.mode,
-        cwd: rt.currentCwd,
-      });
-      // SessionStart: bridge to the standard project hook bus. Best-effort;
-      // a hook error must never break session creation. additionalContext is
-      // injected before the first user turn as a system-reminder context pair.
-      try {
-        const reasonText = String(reason || '');
-        let startSource = 'startup';
-        if (/resume/i.test(reasonText)) startSource = 'resume';
-        else if (/clear/i.test(reasonText)) startSource = 'clear';
-        const startDispatch = await runAbortable(signal, () =>
-          hooks.dispatch(
-            'SessionStart',
-            hookCommonPayload({ session_id: rt.session.id, source: startSource, model: rt.route.model })
-          )
-        );
-        const startContext = Array.isArray(startDispatch?.additionalContext)
-          ? startDispatch.additionalContext.join('\n\n')
-          : String(startDispatch?.additionalContext || '');
-        if (startContext.trim()) {
-          rt.session.messages.push({
-            role: 'user',
-            content: `<system-reminder>\n# SessionStart Hook Context\n${startContext.trim()}\n</system-reminder>`,
-          });
-          rt.session.messages.push({ role: 'assistant', content: '.' });
-          rt.session.updatedAt = Date.now();
-        }
-      } catch {
-        throwIfAborted(signal);
-        // best-effort: ordinary hook failure never breaks session create
-      }
-      if (
-        rt.session.provider === 'openai-oauth' &&
-        Number(rt.session.totalInputTokens || 0) === 0 &&
-        !rt.session.providerState &&
-        typeof providerImpl.prewarmWsTransportForSession === 'function'
-      ) {
-        void Promise.resolve(
-          providerImpl.prewarmWsTransportForSession({
-            sessionId: rt.session.id,
-            session: rt.session,
-          })
-        ).catch(() => {});
-      }
-      throwIfAborted(signal);
-      bootProfile('session:create:ready', {
-        ms: (performance.now() - startedAt).toFixed(1),
-        reason,
-        tools: Array.isArray(rt.session.tools) ? rt.session.tools.length : 0,
-        catalog: Array.isArray(rt.session.deferredToolCatalog) ? rt.session.deferredToolCatalog.length : 0,
-      });
-      return rt.session;
-    })();
-
-    rt.sessionCreatePromise = promise;
-    try {
-      return await promise;
-    } finally {
-      if (rt.sessionCreatePromise === promise) rt.sessionCreatePromise = null;
-    }
   }
 
   const {

@@ -163,3 +163,25 @@ for (const method of ['setDisabledSkills', 'saveSkill']) {
     }
   });
 }
+
+test('recall reads the live session through the injected getter before asking the memory runtime', async () => {
+  const calls = [];
+  const api = resourceApi({
+    getSession: () => ({ id: 'sess_live', messages: [{ role: 'user', content: 'hello' }] }),
+    getMemoryModule: async () => ({
+      handleToolCall: async (name, args) => {
+        calls.push({ name, action: args.action, sessionId: args.sessionId });
+        return name === 'recall' ? 'remembered: hello' : 'ok';
+      },
+    }),
+  });
+  try {
+    const text = await api.recall('what did I say', { limit: 1 });
+    assert.equal(text, 'remembered: hello');
+    assert.deepEqual(calls[0], { name: 'memory', action: 'ingest_session', sessionId: 'sess_live' });
+    assert.equal(calls[1].name, 'recall');
+    assert.equal(calls[1].sessionId, 'sess_live');
+  } finally {
+    api.disposeGlobalExtensionSubscription();
+  }
+});

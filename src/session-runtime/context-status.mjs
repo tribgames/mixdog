@@ -1,53 +1,33 @@
+// Live /context gauge computation with its self-owned memoization. The
+// runtime injects live getters for the mutable session/route/cwd/mode locals;
+// the shapes live in context-status-shape.mjs, the cache in
+// context-status-cache.mjs and the inspector attachment in
+// context-status-inspection.mjs. invalidateContextStatusCache() is returned
+// for the runtime to call on catalog/route changes.
 import {
-  estimateRequestReserveTokens,
-  estimateToolSchemaTokens,
   contextMessagesRevision,
-  providerTokenCalibration,
-  resolveSessionCompactPolicy,
-  summarizeContextMessages,
   summarizeContextMessagesAtRevision,
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { hasUserConversationMessage } from '../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
-import {
-  providerBaselineCoverage,
-  resolveContextTokensWithSource,
-  resolveContextUsageSnapshot,
-  resolveWorkerCompactPolicy,
-} from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
-import { estimateToolSchemaBreakdown, snapshotProviderRequestTools } from './tool-catalog.mjs';
 import { scopedProviderRequestTools } from './provider-request-tools.mjs';
-import { sessionContextMeasurement } from '../ui/context-measurement.mjs';
-import { inspectContext } from './context-inspection.mjs';
+import { contextGauge, contextStatusValue, emptyContextStatus, requestTokenBudget } from './context-status-shape.mjs';
+import { createContextStatusCache } from './context-status-cache.mjs';
+import { createInspectionSnapshots } from './context-status-inspection.mjs';
 
-// Mirrors the tool-list portion of the Anthropic adapters without changing
-// their wire serialization. Other native-deferred providers expose the
-// catalog through BP2/system content, which is already metered there.
-function requestSerializedToolsForContext(session, provider, messages = session?.messages, { nativeTools = [] } = {}) {
+const NO_NATIVE_TOOLS = Object.freeze([]);
+
+function hasConversationActivity(messages) {
   return (
-    scopedProviderRequestTools(session, provider, messages)?.requestTools ||
-    snapshotProviderRequestTools({
-      provider,
-      tools: session?.tools,
-      nativeTools,
-      messages,
-      session,
-    })
+    hasUserConversationMessage(messages) ||
+    messages.some(
+      (message) =>
+        message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
+    )
   );
 }
 
-const NO_NATIVE_TOOLS = Object.freeze([]);
-// How many inspected snapshots stay resolvable for entry previews. One open
-// inspector needs a single slot; the spares cover a second surface and a reader
-// who keeps opening entries while newer readings arrive.
-const INSPECTION_SNAPSHOT_LIMIT = 4;
-
-// Live /context gauge computation + its self-owned memoization cache. Extracted
-// verbatim from the runtime API object; the runtime injects live getters for
-// the mutable session/route/cwd/mode locals. The cache (key + value) is owned
-// here now, so invalidateContextStatusCache() is returned for the runtime to
-// call from the same places it used to clear the inline locals.
 export function createContextStatus({
   getSession,
   getRoute,
@@ -55,459 +35,56 @@ export function createContextStatus({
   getMode,
   getNativeTools = () => NO_NATIVE_TOOLS,
 }) {
-  let contextStatusCacheKey = null;
-  let contextStatusCacheValue = null;
-
-  // Every session counter the cache key depends on: usage, the pressure
-  // baseline, and the compaction boundary.
-  function sessionTokenCounters(session) {
-    return {
-      autoCompactTokenLimit: Number(session?.autoCompactTokenLimit || 0),
-      lastContextTokens: Number(session?.lastContextTokens || 0),
-      lastContextTokensUpdatedAt: Number(session?.lastContextTokensUpdatedAt || 0),
-      lastContextTokensStaleAfterCompact: session?.lastContextTokensStaleAfterCompact === true,
-      lastInputTokens: Number(session?.lastInputTokens || 0),
-      lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
-      lastOutputTokens: Number(session?.lastOutputTokens || 0),
-      lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
-      lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
-      contextPressureBaselineTokens: Number(session?.contextPressureBaselineTokens || 0),
-      contextPressureBaselineOutputTokens: Number(session?.contextPressureBaselineOutputTokens || 0),
-      contextPressureBaselineMessageCount: Number(session?.contextPressureBaselineMessageCount ?? -1),
-      contextPressureBaselineUpdatedAt: Number(session?.contextPressureBaselineUpdatedAt || 0),
-      contextPressureBaselineBoundary: session?.contextPressureBaselineBoundary || null,
-      contextPressureBaselineProvider: session?.contextPressureBaselineProvider || null,
-      contextPressureBaselineModel: session?.contextPressureBaselineModel || null,
-      contextPressureBaselineToolSignature: session?.contextPressureBaselineToolSignature || null,
-      contextPressureBaselinePrefixSignature: session?.contextPressureBaselinePrefixSignature || null,
-      contextPressureBaselineSource: session?.contextPressureBaselineSource || null,
-      contextPressureUnanchoredAfterRestart: session?.contextPressureUnanchoredAfterRestart === true,
-      contextPressureUnanchoredReason: session?.contextPressureUnanchoredReason || null,
-      totalInputTokens: Number(session?.totalInputTokens || 0),
-      totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
-      totalOutputTokens: Number(session?.totalOutputTokens || 0),
-      totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
-      totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
-      compactBoundaryTokens: Number(session?.compactBoundaryTokens || 0),
-    };
-  }
-
-  function contextStatusCacheKeyFor({
-    messages,
-    messagesRevision,
-    toolsSignature,
-    requestProvider,
-    requestToolCount,
-    requestToolsSignature,
-  }) {
-    const session = getSession();
-    const route = getRoute();
-    const compaction = session?.compaction || {};
-    const lastMessage = messages[messages.length - 1] || null;
-    return {
-      session,
-      sessionId: session?.id || null,
-      provider: session?.provider || route.provider,
-      model: session?.model || route.model,
-      cwd: getCurrentCwd(),
-      mode: getMode(),
-      messages,
-      messageCount: messages.length,
-      messagesRevision,
-      lastMessage,
-      lastMessageRole: lastMessage?.role || null,
-      lastMessageContent: lastMessage?.content || null,
-      toolCount: requestToolCount,
-      toolsSignature,
-      requestProvider,
-      requestToolCount,
-      requestToolsSignature,
-      contextWindow: session?.contextWindow || null,
-      rawContextWindow: session?.rawContextWindow || null,
-      effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
-      ...sessionTokenCounters(session),
-      compactionBoundaryTokens: Number(compaction.boundaryTokens || 0),
-      compactionTriggerTokens: Number(compaction.triggerTokens || 0),
-      compactionLastChangedAt: Number(compaction.lastChangedAt || 0),
-      compactionLastCompactAt: Number(compaction.lastCompactAt || 0),
-      contextUsageSnapshot: session?.contextUsageSnapshot || null,
-    };
-  }
-
-  function sameContextStatusCacheKey(a, b) {
-    if (!a || !b) return false;
-    for (const key of Object.keys(a)) {
-      if (!Object.is(a[key], b[key])) return false;
-    }
-    return true;
-  }
-
-  function invalidateContextStatusCache() {
-    contextStatusCacheKey = null;
-    contextStatusCacheValue = null;
-    requestToolsMemo = null;
-  }
-
-  // The gauge runs on a 2s pulse per session; snapshotting every tool schema
-  // (deep normalization of the whole catalog) on each tick dominated idle CPU.
-  // Reuse the last snapshot while its inputs are the same references; the
-  // runtime calls invalidateContextStatusCache() on catalog/route changes.
-  let requestToolsMemo = null;
-  function memoizedRequestTools(session, requestProvider, messages, messagesRevision) {
-    const tools = session?.tools;
-    const nativeTools = getNativeTools();
-    const toolCount = Array.isArray(tools) ? tools.length : 0;
-    const nativeCount = Array.isArray(nativeTools) ? nativeTools.length : 0;
-    const memo = requestToolsMemo;
-    if (
-      memo &&
-      memo.session === session &&
-      memo.tools === tools &&
-      memo.toolCount === toolCount &&
-      memo.nativeCount === nativeCount &&
-      // Callers may hand back a fresh empty array per call; identity only
-      // matters once there is something in it.
-      (nativeCount === 0 || memo.nativeTools === nativeTools) &&
-      memo.requestProvider === requestProvider &&
-      memo.messagesRevision === messagesRevision
-    )
-      return memo.requestTools;
-    const requestTools = requestSerializedToolsForContext(session, requestProvider, messages, {
-      nativeTools,
-    });
-    requestToolsMemo = {
-      session,
-      tools,
-      toolCount,
-      nativeTools,
-      nativeCount,
-      requestProvider,
-      messagesRevision,
-      requestTools,
-    };
-    return requestTools;
-  }
-
-  // Entry ids address positions in the transcript the inspector listed, and a
-  // running turn keeps appending to it. Resolving a preview against the live
-  // transcript therefore refused almost every entry opened during a turn
-  // ("Context changed. Select the entry again."). Keep the last inspected
-  // snapshots — message and tool references only — so a preview is answered
-  // from the exact revision its reader is looking at.
-  const inspectionSnapshots = new Map();
-
-  function retainInspectionSnapshot(revision, input) {
-    inspectionSnapshots.delete(revision);
-    inspectionSnapshots.set(revision, input);
-    for (const oldest of inspectionSnapshots.keys()) {
-      if (inspectionSnapshots.size <= INSPECTION_SNAPSHOT_LIMIT) break;
-      inspectionSnapshots.delete(oldest);
-    }
-  }
-
-  function withInspection(status, messages, tools, options, session = getSession()) {
-    if (options?.inspect !== true) return status;
-    const requestedRevision = options.entryId !== undefined ? String(options.revision || '') : '';
-    const retained = requestedRevision ? inspectionSnapshots.get(requestedRevision) : null;
-    const input = retained || {
-      sessionId: status.sessionId,
-      provider: status.provider,
-      model: status.model,
-      // Copy both lists: the live turn pushes into its own array, and a
-      // retained revision has to keep the order its entry ids were built from.
-      messages: messages.slice(),
-      tools: tools.slice(),
-      overheadTokens: status.request.requestOverheadTokens,
-      // The provider's own count for the prefix it measured lets the
-      // inspector reconcile its estimates with the gauge's headline.
-      coverage: providerBaselineCoverage(session, messages),
-      deferredCatalogNames: new Set(
-        [
-          ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
-          ...(Array.isArray(session?.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []),
-        ]
-          .map((tool) => String(tool?.name || '').trim())
-          .filter(Boolean)
-      ),
-    };
-    const inspection = inspectContext(input, options);
-    retainInspectionSnapshot(inspection.revision, input);
-    return { ...status, inspection };
-  }
-
-  // A route is not a conversation. Keep a pristine desktop/TUI task truly
-  // empty until the first real turn. Remote auto-start may prepare a local
-  // session shell containing system/tool templates, but those templates have
-  // not entered a provider request and must not appear as consumed context.
-  function emptyContextStatus(session, route, options) {
-    let emptyCompactPolicy = null;
-    if (session) {
-      emptyCompactPolicy = resolveWorkerCompactPolicy(session, Array.isArray(session.tools) ? session.tools : []);
-    }
-    const routeWindow = Math.max(
-      0,
-      Number(session?.compactBoundaryTokens || session?.contextWindow || route?.contextWindow || 0)
-    );
-    return withInspection(
-      {
-        sessionId: session?.id || null,
-        provider: session?.provider || route.provider,
-        model: session?.model || route.model,
-        cwd: getCurrentCwd(),
-        toolMode: getMode(),
-        contextWindow: routeWindow || null,
-        effectiveContextWindow: routeWindow || null,
-        rawContextWindow: routeWindow || null,
-        effectiveContextWindowPercent: null,
-        usedTokens: 0,
-        usedSource: 'empty',
-        measurement: sessionContextMeasurement(session, false),
-        currentEstimatedTokens: 0,
-        lastApiRequestTokens: 0,
-        lastApiRequestStale: false,
-        freeTokens: routeWindow,
-        compaction: emptyCompactionStatus(session, emptyCompactPolicy),
-        messages: summarizeContextMessages([]),
-        request: {
-          toolSchemaTokens: 0,
-          toolSchemaBreakdown: {},
-          requestOverheadTokens: 0,
-          reserveTokens: 0,
-        },
-        usage: emptyUsageCounters(),
-      },
-      [],
-      [],
-      options
-    );
-  }
-
-  function emptyCompactionStatus(session, policy) {
-    return {
-      boundaryTokens: Number(session?.compactBoundaryTokens || policy?.boundaryTokens || 0) || null,
-      triggerTokens: Number(policy?.triggerTokens || 0) || null,
-      // Preserve explicit 0 (main full-window buffer). `|| null` would
-      // collapse a real zero buffer into "unset".
-      bufferTokens: Number.isFinite(Number(policy?.bufferTokens)) ? Math.max(0, Number(policy.bufferTokens)) : null,
-      bufferRatio: Number.isFinite(policy?.bufferRatio) ? policy.bufferRatio : null,
-      currentEstimatedTokens: 0,
-      lastApiRequestTokens: 0,
-      lastApiRequestStale: false,
-    };
-  }
-
-  function emptyUsageCounters() {
-    return {
-      lastInputTokens: 0,
-      lastUncachedInputTokens: 0,
-      lastOutputTokens: 0,
-      lastCachedReadTokens: 0,
-      lastCacheWriteTokens: 0,
-      lastContextTokens: 0,
-      totalInputTokens: 0,
-      totalUncachedInputTokens: 0,
-      totalOutputTokens: 0,
-      totalCachedReadTokens: 0,
-      totalCacheWriteTokens: 0,
-    };
-  }
-
-  function requestTokenBudget(requestTools) {
-    const toolSchemaTokens = estimateToolSchemaTokens(requestTools);
-    const reserveTokens = estimateRequestReserveTokens(requestTools);
-    return {
-      toolSchemaTokens,
-      toolSchemaBreakdown: estimateToolSchemaBreakdown(requestTools),
-      requestOverheadTokens: Math.max(0, reserveTokens - toolSchemaTokens),
-      reserveTokens,
-    };
-  }
-
-  // Window sizes, the provider's last reading, the compaction policy and the
-  // resolved usage gauge for one status computation.
-  function contextGauge(session, route, requestTools, messages, messageSummary) {
-    const rawWindow = Number(session?.rawContextWindow || session?.contextWindow || 0);
-    const effectiveWindow = Number(session?.contextWindow || rawWindow || 0);
-    const lastContextTokens = Number(session?.lastContextTokens || 0);
-    const lastUsageStale = lastUsageIsStale(session, lastContextTokens);
-    const compactBoundaryTokens = Number(session?.compactBoundaryTokens || session?.compaction?.boundaryTokens || 0);
-    const displayWindow = compactBoundaryTokens || effectiveWindow;
-    const compactPolicy = contextCompactPolicy(session, route, requestTools, compactBoundaryTokens);
-    // A successful compaction publishes one durable post-mutation reading.
-    // Polling and cold resume keep that exact value until a fresh provider
-    // baseline or a changed transcript/route/tool surface invalidates it.
-    const usageSnapshot =
-      !lastContextTokens || lastUsageStale ? resolveContextUsageSnapshot(session, compactPolicy, { messages }) : null;
-    // One resolution owns both the number and its provenance. Deriving the
-    // label from session fields instead let a calibrated whole-transcript
-    // estimate report itself as `provider`, which hid a 4x disagreement with
-    // the provider's own prompt size behind a trustworthy-looking source.
-    const resolvedGauge = usageSnapshot
-      ? { tokens: usageSnapshot.usedTokens, source: 'post_compact' }
-      : resolveContextTokensWithSource(messageSummary.estimatedTokens, compactPolicy, {
-          messages,
-          sessionRef: session,
-        });
-    const usedTokens = resolvedGauge.tokens;
-    return {
-      rawWindow,
-      effectiveWindow,
-      displayWindow,
-      compactBoundaryTokens,
-      compactPolicy,
-      lastContextTokens,
-      lastUsageStale,
-      usedTokens,
-      usedSource: resolvedGauge.source,
-      freeTokens: displayWindow ? Math.max(0, displayWindow - usedTokens) : 0,
-    };
-  }
-
-  function compactionStatusFor(
-    session,
-    { compactPolicy, compactBoundaryTokens, usedTokens, lastContextTokens, lastUsageStale }
-  ) {
-    const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
-      ? Math.max(0, Number(compactPolicy.bufferTokens))
-      : 0;
-    return {
-      ...(session?.compaction || {}),
-      boundaryTokens: compactBoundaryTokens || null,
-      triggerTokens: compactPolicy.triggerTokens || null,
-      bufferTokens: Number.isFinite(compactBufferTokens) ? compactBufferTokens : null,
-      bufferRatio: Number.isFinite(compactPolicy.bufferRatio) ? compactPolicy.bufferRatio : null,
-      currentEstimatedTokens: usedTokens,
-      pressureTokens: usedTokens,
-      reserveTokens: Math.max(0, Number(compactPolicy.configuredReserveTokens) || 0),
-      lastApiRequestTokens: lastContextTokens || 0,
-      lastApiRequestStale: lastUsageStale,
-    };
-  }
-
-  function contextStatusValue(session, route, { messageSummary, request, gauge, hasConversationActivity }) {
-    const { usedTokens, lastContextTokens, lastUsageStale, displayWindow, effectiveWindow, rawWindow } = gauge;
-    return {
-      sessionId: session?.id || null,
-      provider: session?.provider || route.provider,
-      model: session?.model || route.model,
-      cwd: getCurrentCwd(),
-      toolMode: getMode(),
-      contextWindow: displayWindow || effectiveWindow || null,
-      effectiveContextWindow: effectiveWindow || null,
-      rawContextWindow: rawWindow || null,
-      effectiveContextWindowPercent: session?.effectiveContextWindowPercent || null,
-      usedTokens,
-      usedSource: gauge.usedSource,
-      // Pressure remains private to compaction/diagnostics. Every display
-      // consumes this measured-input contract instead of the pressure gauge.
-      measurement: sessionContextMeasurement(session, hasConversationActivity),
-      currentEstimatedTokens: usedTokens,
-      lastApiRequestTokens: lastContextTokens || 0,
-      lastApiRequestStale: lastUsageStale,
-      freeTokens: gauge.freeTokens,
-      compaction: compactionStatusFor(session, gauge),
-      messages: messageSummary,
-      request,
-      usage: sessionUsageCounters(session, lastContextTokens),
-    };
-  }
+  const cache = createContextStatusCache({ getNativeTools });
+  const withInspection = createInspectionSnapshots();
+  const env = () => ({ cwd: getCurrentCwd(), mode: getMode() });
 
   function contextStatus(options) {
     const session = getSession();
     const route = getRoute();
     const committedMessages = Array.isArray(session?.messages) ? session.messages : [];
-    const liveMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
-    const activityMessages = liveMessages || committedMessages;
-    const hasConversationActivity =
-      hasUserConversationMessage(activityMessages) ||
-      activityMessages.some(
-        (message) =>
-          message?.role === 'user' && typeof message.content === 'string' && message.content.startsWith(SUMMARY_PREFIX)
-      );
-    if (!session?.id || !hasConversationActivity) return emptyContextStatus(session, route, options);
     // Prefer the in-flight working transcript while a turn is running so the
     // context gauge reflects LIVE growth (user turn + tool calls/results) as
     // it accumulates, instead of freezing at the pre-turn committed snapshot.
     // askSession() sets session.liveTurnMessages for the turn duration and
     // clears it on commit/cancel/error, after which we fall back to the
     // authoritative committed transcript.
-    const messages = activityMessages;
+    const liveMessages = Array.isArray(session?.liveTurnMessages) ? session.liveTurnMessages : null;
+    const messages = liveMessages || committedMessages;
+    const active = hasConversationActivity(messages);
+    if (!session?.id || !active) {
+      return withInspection(emptyContextStatus(session, route, env()), [], [], options, session);
+    }
     const requestProvider = session?.provider || route.provider;
     const messagesRevision = contextMessagesRevision(messages);
     // Do not even evaluate live native definitions when an in-flight request
     // scope owns the complete immutable provider surface.
     const scopedRequest = scopedProviderRequestTools(session, requestProvider, messages);
     const requestTools =
-      scopedRequest?.requestTools || memoizedRequestTools(session, requestProvider, messages, messagesRevision);
+      scopedRequest?.requestTools || cache.requestTools(session, requestProvider, messages, messagesRevision);
     const requestToolsSignature = toolSchemaSignature(requestTools);
-    const cacheKey = contextStatusCacheKeyFor({
+    const key = cache.keyFor(session, route, env(), {
       messages,
       messagesRevision,
-      toolsSignature: requestToolsSignature,
       requestProvider,
-      requestToolCount: requestTools.length,
+      requestTools,
       requestToolsSignature,
     });
-    if (contextStatusCacheValue && sameContextStatusCacheKey(cacheKey, contextStatusCacheKey)) {
-      return withInspection(contextStatusCacheValue, messages, requestTools, options);
-    }
+    const cached = cache.lookup(key);
+    if (cached) return withInspection(cached, messages, requestTools, options, session);
 
     const messageSummary = summarizeContextMessagesAtRevision(messages, messagesRevision);
-    const value = contextStatusValue(session, route, {
+    const value = contextStatusValue(session, route, env(), {
       messageSummary,
       request: requestTokenBudget(requestTools),
       gauge: contextGauge(session, route, requestTools, messages, messageSummary),
-      hasConversationActivity,
+      hasConversationActivity: active,
     });
-    contextStatusCacheKey = cacheKey;
-    contextStatusCacheValue = value;
-    return withInspection(value, messages, requestTools, options);
+    cache.store(key, value);
+    return withInspection(value, messages, requestTools, options, session);
   }
 
-  return { contextStatus, invalidateContextStatusCache };
-}
-
-// The last provider-reported context size is stale once a compaction (or an
-// explicit stale mark) postdates it.
-function lastUsageIsStale(session, lastContextTokens) {
-  if (!lastContextTokens) return false;
-  const compactAt = Number(session?.compaction?.lastChangedAt || session?.compaction?.lastCompactAt || 0);
-  const usageAt = Number(session?.lastContextTokensUpdatedAt || 0);
-  return (
-    session?.lastContextTokensStaleAfterCompact === true ||
-    (compactAt > 0 && usageAt > 0 && usageAt <= compactAt) ||
-    (compactAt > 0 && usageAt <= 0)
-  );
-}
-
-// Use the worker policy when a boundary is available so target/reserve
-// headroom, trigger, buffer tokens, and buffer ratio stay identical to the
-// auto-compact decision. Fall back only for incomplete session metadata.
-// Meter the same pure provider-visible projection used by pre-send
-// compaction and the actual agent-loop send/baseline fingerprint.
-function contextCompactPolicy(session, route, requestTools, compactBoundaryTokens) {
-  const workerCompactPolicy = resolveWorkerCompactPolicy(session, requestTools);
-  if (workerCompactPolicy?.boundaryTokens) return workerCompactPolicy;
-  return {
-    ...resolveSessionCompactPolicy(session || {}, compactBoundaryTokens),
-    tokenCalibration: providerTokenCalibration(session?.provider || route.provider),
-  };
-}
-
-function sessionUsageCounters(session, lastContextTokens) {
-  return {
-    lastInputTokens: Number(session?.lastInputTokens || 0),
-    lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
-    lastOutputTokens: Number(session?.lastOutputTokens || 0),
-    lastCachedReadTokens: Number(session?.lastCachedReadTokens || 0),
-    lastCacheWriteTokens: Number(session?.lastCacheWriteTokens || 0),
-    lastContextTokens,
-    totalInputTokens: Number(session?.totalInputTokens || 0),
-    totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
-    totalOutputTokens: Number(session?.totalOutputTokens || 0),
-    totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
-    totalCacheWriteTokens: Number(session?.totalCacheWriteTokens || 0),
-  };
+  return { contextStatus, invalidateContextStatusCache: cache.invalidate };
 }
 
 // One-shot gauge for a session that is NOT the runtime's current session (a

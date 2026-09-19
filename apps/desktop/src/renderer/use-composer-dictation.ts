@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 
-type DictationState = 'idle' | 'recording' | 'transcribing';
+export type DictationState = 'idle' | 'recording' | 'transcribing';
 
 type DictationMeter = {
   context: AudioContext;

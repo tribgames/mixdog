@@ -1,24 +1,42 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type Dispatch,
-  type RefObject,
-  type SetStateAction,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
 import type { RecordValue } from './desktop-types';
-import {
-  absolutePathsForDragPayload,
-  dataTransferHasDroppableFiles,
-  localFilesFromPaths,
-  readFileDragPayload,
-} from './file-drag';
+import { absolutePathsForDragPayload, localFilesFromPaths } from './file-drag';
 import { attachmentFromFile, attachmentPolicyError, isSupportedComposerImagePath } from './composer-attachments';
 import { MAX_COMPOSER_ATTACHMENTS, type ComposerAttachment } from './composer-support';
 import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
-import { asRecord } from './text-format';
+import { absolutePathTokens, projectMentionTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore';
+import { useComposerFileDrop } from './use-composer-file-drop';
+
+/** Insert a token at the caret, keep the draft mirror current, restore focus
+ *  behind the caret and leave any history walk. */
+function useCaretTokenInsert({
+  draftRef,
+  setDraft,
+  textarea,
+  historyNavigation,
+}: {
+  draftRef: RefObject<string>;
+  setDraft: Dispatch<SetStateAction<string>>;
+  textarea: RefObject<HTMLTextAreaElement | null>;
+  historyNavigation: RefObject<{ index: number; seed: string }>;
+}) {
+  return useCallback(
+    (token: string) => {
+      const element = textarea.current;
+      setDraft((current) => {
+        const { next, caret } = insertComposerToken(current, element?.selectionStart, element?.selectionEnd, token);
+        draftRef.current = next;
+        window.setTimeout(() => {
+          textarea.current?.focus();
+          textarea.current?.setSelectionRange(caret, caret);
+        }, 0);
+        return next;
+      });
+      historyNavigation.current = { index: -1, seed: '' };
+    },
+    [draftRef, historyNavigation, setDraft, textarea]
+  );
+}
 
 export function useComposerAttachments({
   draftRef,
@@ -43,10 +61,10 @@ export function useComposerAttachments({
 }) {
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [attachmentError, setAttachmentError] = useState('');
-  const [draggingFiles, setDraggingFiles] = useState(false);
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const attachmentSequence = useRef(1);
   const fileInput = useRef<HTMLInputElement>(null);
+  const insertTokenAtCaret = useCaretTokenInsert({ draftRef, setDraft, textarea, historyNavigation });
 
   useEffect(() => {
     attachmentsRef.current = attachments;
@@ -68,9 +86,7 @@ export function useComposerAttachments({
         setAttachmentError(policyError);
         return false;
       }
-      const nextAttachments = [...currentAttachments, attachment];
-      replaceAttachments(nextAttachments);
-      const element = textarea.current;
+      replaceAttachments([...currentAttachments, attachment]);
       if (!attachment.token || attachment.chipOnly === true) {
         window.setTimeout(() => {
           textarea.current?.focus();
@@ -78,24 +94,10 @@ export function useComposerAttachments({
         historyNavigation.current = { index: -1, seed: '' };
         return true;
       }
-      setDraft((current) => {
-        const { next, caret } = insertComposerToken(
-          current,
-          element?.selectionStart,
-          element?.selectionEnd,
-          attachment.token
-        );
-        window.setTimeout(() => {
-          textarea.current?.focus();
-          textarea.current?.setSelectionRange(caret, caret);
-        }, 0);
-        draftRef.current = next;
-        return next;
-      });
-      historyNavigation.current = { index: -1, seed: '' };
+      insertTokenAtCaret(attachment.token);
       return true;
     },
-    [draftRef, historyNavigation, replaceAttachments, setDraft, textarea]
+    [historyNavigation, insertTokenAtCaret, replaceAttachments, textarea]
   );
 
   const clearAttachments = useCallback(() => {
@@ -127,56 +129,18 @@ export function useComposerAttachments({
 
   const insertProjectMentions = useCallback(
     (paths: string[]) => {
-      const mentions = paths
-        .map((path) => path.replace(/\\/g, '/').replace(/^\/+/, '').trim())
-        .filter((path) => path && !path.split('/').includes('..') && !/^[a-z]:/i.test(path))
-        .map((path) => `@${path}`);
-      if (!mentions.length) return;
-      const element = textarea.current;
-      setDraft((current) => {
-        const { next, caret } = insertComposerToken(
-          current,
-          element?.selectionStart,
-          element?.selectionEnd,
-          mentions.join(' ')
-        );
-        draftRef.current = next;
-        window.setTimeout(() => {
-          textarea.current?.focus();
-          textarea.current?.setSelectionRange(caret, caret);
-        }, 0);
-        return next;
-      });
-      historyNavigation.current = { index: -1, seed: '' };
+      const mentions = projectMentionTokens(paths);
+      if (mentions.length) insertTokenAtCaret(mentions.join(' '));
     },
-    [draftRef, historyNavigation, setDraft, textarea]
+    [insertTokenAtCaret]
   );
 
   const insertAbsolutePaths = useCallback(
     (paths: string[]) => {
-      const tokens = paths
-        .map((path) => String(path || '').trim())
-        .filter(Boolean)
-        .map((path) => (/\s/.test(path) ? `"${path}"` : path));
-      if (!tokens.length) return;
-      const element = textarea.current;
-      setDraft((current) => {
-        const { next, caret } = insertComposerToken(
-          current,
-          element?.selectionStart,
-          element?.selectionEnd,
-          tokens.join(' ')
-        );
-        draftRef.current = next;
-        window.setTimeout(() => {
-          textarea.current?.focus();
-          textarea.current?.setSelectionRange(caret, caret);
-        }, 0);
-        return next;
-      });
-      historyNavigation.current = { index: -1, seed: '' };
+      const tokens = absolutePathTokens(paths);
+      if (tokens.length) insertTokenAtCaret(tokens.join(' '));
     },
-    [draftRef, historyNavigation, setDraft, textarea]
+    [insertTokenAtCaret]
   );
 
   const attachFiles = useCallback(
@@ -245,153 +209,21 @@ export function useComposerAttachments({
     [attachLocalPaths, insertProjectMentions]
   );
 
-  useEffect(() => {
-    const target = dropTargetRef.current;
-    if (!target) return;
-    const containsInput = (event: DragEvent) =>
-      Boolean(event.dataTransfer && dataTransferHasDroppableFiles(event.dataTransfer));
-    const clearDraggingFiles = () => setDraggingFiles(false);
-    const onDragEnter = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (transitioningRef.current) return;
-      setDraggingFiles(true);
-    };
-    const onDragOver = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = transitioningRef.current ? 'none' : 'copy';
-      }
-      if (!transitioningRef.current) setDraggingFiles(true);
-    };
-    const onDragLeave = (event: DragEvent) => {
-      if (event.relatedTarget && target.contains(event.relatedTarget as Node)) return;
-      clearDraggingFiles();
-    };
-    const onWindowDragOver = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      if (event.target instanceof Node && target.contains(event.target)) return;
-      clearDraggingFiles();
-    };
-    const onDrop = (event: DragEvent) => {
-      if (!containsInput(event)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      clearDraggingFiles();
-      if (transitioningRef.current || !event.dataTransfer) return;
-      const payload = readFileDragPayload(event.dataTransfer);
-      if (payload) {
-        if (payload.kind === 'project') {
-          const source = payload.projectPath.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-          const targetProject = projectScope.replace(/[\\/]+/g, '/').toLocaleLowerCase();
-          if (source && targetProject && source === targetProject) {
-            void attachProjectPaths(payload.projectPath, payload.paths);
-            return;
-          }
-        }
-        void attachLocalPaths(absolutePathsForDragPayload(payload));
-        return;
-      }
-      const itemFiles = Array.from(event.dataTransfer.items)
-        .filter((item) => item.kind === 'file')
-        .map((item) => item.getAsFile())
-        .filter((file): file is File => Boolean(file));
-      void attachFiles(itemFiles.length ? itemFiles : event.dataTransfer.files);
-    };
-    target.addEventListener('dragenter', onDragEnter);
-    target.addEventListener('dragover', onDragOver);
-    target.addEventListener('dragleave', onDragLeave);
-    target.addEventListener('drop', onDrop);
-    window.addEventListener('dragover', onWindowDragOver, true);
-    window.addEventListener('drop', clearDraggingFiles, true);
-    window.addEventListener('dragend', clearDraggingFiles, true);
-    window.addEventListener('blur', clearDraggingFiles);
-    return () => {
-      target.removeEventListener('dragenter', onDragEnter);
-      target.removeEventListener('dragover', onDragOver);
-      target.removeEventListener('dragleave', onDragLeave);
-      target.removeEventListener('drop', onDrop);
-      window.removeEventListener('dragover', onWindowDragOver, true);
-      window.removeEventListener('drop', clearDraggingFiles, true);
-      window.removeEventListener('dragend', clearDraggingFiles, true);
-      window.removeEventListener('blur', clearDraggingFiles);
-    };
-  }, [attachFiles, attachLocalPaths, attachProjectPaths, dropTargetRef, projectScope, transitioningRef]);
+  const { draggingFiles, setDraggingFiles } = useComposerFileDrop({
+    dropTargetRef,
+    transitioningRef,
+    projectScope,
+    attachFiles,
+    attachLocalPaths,
+    attachProjectPaths,
+  });
 
   const restoredAttachments = useCallback(
-    (
-      value: RecordValue,
-      restoredText: string
-    ): {
-      attachments: ComposerAttachment[];
-      text: string;
-    } => {
-      const restored: ComposerAttachment[] = [];
-      const reserved = new Set(attachmentsRef.current.map((attachment) => attachment.id));
-      let textValue = restoredText;
-      const uniqueId = (rawId: number) => {
-        let id = rawId > 0 ? rawId : attachmentSequence.current;
-        while (reserved.has(id)) id = Math.max(id + 1, attachmentSequence.current++);
-        reserved.add(id);
-        attachmentSequence.current = Math.max(attachmentSequence.current, id + 1);
-        return id;
-      };
-      for (const [key, raw] of Object.entries(asRecord(value.pastedImages) || {})) {
-        const image = asRecord(raw);
-        if (!image || typeof image.content !== 'string') continue;
-        const rawId = Number(image.id || key) || 0;
-        const name = String(image.filename || `Image ${rawId || attachmentSequence.current}`);
-        const namedToken = `[Image #${rawId}: ${name}]`;
-        const plainToken = `[Image #${rawId}]`;
-        let sourceToken = '';
-        if (textValue.includes(namedToken)) sourceToken = namedToken;
-        else if (textValue.includes(plainToken)) sourceToken = plainToken;
-        if (sourceToken) {
-          textValue = textValue
-            .replace(sourceToken, ' ')
-            .replace(/ {2,}/g, ' ')
-            .split('\n')
-            .map((line) => line.trim())
-            .join('\n')
-            .trim();
-        }
-        restored.push({
-          id: uniqueId(rawId),
-          name,
-          kind: 'image',
-          mimeType: String(image.mediaType || 'image/png'),
-          data: image.content,
-          token: '',
-          ...(typeof image.metadataText === 'string' && image.metadataText ? { metadataText: image.metadataText } : {}),
-        });
-      }
-      for (const [key, raw] of Object.entries(asRecord(value.pastedTexts) || {})) {
-        const text = asRecord(raw);
-        if (!text || typeof text.text !== 'string') continue;
-        const rawId = Number(text.id || key) || 0;
-        const pastedMatch = textValue.match(new RegExp(`\\[Pasted text #${rawId}(?: \\+\\d+ lines)?\\]`));
-        const fileMatch = textValue.match(new RegExp(`\\[File #${rawId}(?:: [^\\]\\r\\n]+)?\\]`));
-        const source = text.source === 'file' || (!pastedMatch && Boolean(fileMatch)) ? 'file' : 'paste';
-        const match = source === 'file' ? fileMatch : pastedMatch;
-        if (!match) continue;
-        const id = uniqueId(rawId);
-        const token = id === rawId ? match[0] : match[0].replace(`#${rawId}`, `#${id}`);
-        if (token !== match[0]) textValue = textValue.replace(match[0], token);
-        restored.push({
-          id,
-          name: String(text.filename || (source === 'file' ? `File ${id}` : `Pasted text ${id}`)),
-          kind: 'text',
-          mimeType: String(text.mimeType || 'text/plain'),
-          data: text.text,
-          token,
-          source,
-        });
-      }
-      return { attachments: restored, text: textValue };
-    },
+    (value: RecordValue, restoredText: string) =>
+      restoreAttachmentsFromRecord(value, restoredText, {
+        reservedIds: new Set(attachmentsRef.current.map((attachment) => attachment.id)),
+        sequence: attachmentSequence,
+      }),
     []
   );
 
@@ -438,7 +270,7 @@ export function useComposerAttachments({
     replaceAttachments([]);
     setAttachmentError('');
     setDraggingFiles(false);
-  }, [replaceAttachments]);
+  }, [replaceAttachments, setDraggingFiles]);
 
   return {
     attachments,
