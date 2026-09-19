@@ -259,6 +259,9 @@ export function parseStructuralJsonl(stdout, { exitCode = 0, stderr = '' } = {})
     result.error = stderrError(exitCode, 'internal', stderr, `structural scan exited ${exitCode}`);
   }
   if (malformed > 0) result.malformedLines = malformed;
+  if (result.error) {
+    result.matches = result.matches.map((match) => ({ ...match, fix: null, manual: true }));
+  }
   return result;
 }
 

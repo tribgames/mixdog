@@ -12,7 +12,7 @@ const TRIM_STEPS = [8, 3, 0];
 export function tidyToolResult(value, isError = false) {
   return {
     content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
-    ...(isError ? { isError: true } : {}),
+    ...(isError || value?.ok === false ? { isError: true } : {}),
   };
 }
 
@@ -144,9 +144,14 @@ export function buildTidyReport({
   const engineTruncated = (results || []).some((result) => result?.truncated);
   const startCap = Math.min(RESULTS_PAGE_MAX, Math.max(0, Math.trunc(Number(limit) || 0)));
   const structuralFailed =
-    Boolean(structural?.error) || (Array.isArray(structural?.ruleErrors) && structural.ruleErrors.length > 0);
+    Boolean(structural?.error) || Boolean(structural?.ruleErrors?.length) || Boolean(structural?.rejected?.length);
+  const succeeded = Boolean(ok) && !structuralFailed && !engineTruncated && !errors.length &&
+    !(results || []).some((result) => result?.error);
+  const changed = Boolean(structural?.applied?.length) ||
+    (results || []).some((result) => !result.dryRun && result.filesChanged?.length && action === 'fix');
   const parts = {
-    ok: Boolean(ok) && !structuralFailed,
+    ok: succeeded,
+    status: succeeded ? 'complete' : changed ? 'partial' : 'failed',
     action,
     scope,
     languages,
@@ -183,6 +188,7 @@ function composeTidyReport(parts, diagnosticCap) {
     action === 'results' ? { cap: diagnosticCap, offset: pageOffset } : { cap: FILE_LIST_CAP, offset: 0 };
   return {
     ok: parts.ok,
+    status: parts.status,
     action,
     ...(parts.scope ? { scope: parts.scope } : {}),
     languages: parts.languages,

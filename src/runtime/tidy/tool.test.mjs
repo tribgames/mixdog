@@ -47,7 +47,7 @@ test('scan reports detected languages, engine resolution and the download policy
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'scan' }, { cwd: root }));
+  const report = parseResult(await executeTidyTool({ action: 'scan', paths: ['.'] }, { cwd: root }));
   assert.equal(report.ok, true);
   assert.equal(report.action, 'scan');
   assert.deepEqual(report.languages.map((language) => language.id).sort(), ['javascript', 'markdown', 'python']);
@@ -79,7 +79,7 @@ test('check runs read-only and reports one result row per runnable engine', asyn
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'check', structural: false }, { cwd: root }));
+  const report = parseResult(await executeTidyTool({ action: 'check', paths: ['.'], structural: false }, { cwd: root }));
   assert.equal(report.action, 'check');
   assert.ok(Array.isArray(report.results));
   assert.equal(report.structural, undefined);
@@ -95,7 +95,7 @@ test('language detection uses the graph binary when it answers --langs', async (
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'scan' }, { cwd: root }));
+  const report = parseResult(await executeTidyTool({ action: 'scan', paths: ['.'] }, { cwd: root }));
   const expected = (await scanCapableGraphBinary(root)) ? 'graph-binary' : 'git';
   assert.equal(report.languageSource, expected);
 });
@@ -164,7 +164,7 @@ test('an outdated mixdog-graph fails check/fix/rules instead of reporting zero m
     import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
     const cwd = ${JSON.stringify(root)};
     async function run(args) {
-      const result = await executeTidyTool(args, { cwd });
+      const result = await executeTidyTool({ paths: ['src'], ...args }, { cwd });
       return { isError: Boolean(result.isError), body: JSON.parse(result.content[0].text) };
     }
     const out = {
@@ -204,6 +204,88 @@ test('an outdated mixdog-graph fails check/fix/rules instead of reporting zero m
   assert.equal(out.checkOff.body.ok, true);
   assert.equal(out.checkOff.body.structural, undefined);
   assert.ok(Array.isArray(out.checkOff.body.results));
+});
+
+test('scan, check and fix require an explicitly selected scope before doing work', async () => {
+  for (const action of ['scan', 'check', 'fix']) {
+    for (const paths of [undefined, [], ['  ']]) {
+      const result = await executeTidyTool({ action, paths, apply: true });
+      assert.equal(result.isError, true);
+      assert.match(parseResult(result).error, /user-selected scope/);
+    }
+  }
+});
+
+test('a failed structural group prevents every structural write', async (t) => {
+  const root = await gitProject(t);
+  assert.ok(root);
+  const sources = {
+    'src/kept.js': '// Moved from previous.js.\nconst value = 1;\n',
+    'src/kept.py': '# Moved from previous.py.\nvalue = 1\n',
+  };
+  for (const [file, source] of Object.entries(sources)) writeFileSync(join(root, file), source);
+  const fake = join(root, 'failing-graph.mjs');
+  writeFileSync(fake, `
+    import { readFileSync } from 'node:fs';
+    import { join } from 'node:path';
+    process.stdin.resume();
+    const args = process.argv.slice(2);
+    if (args.includes('--langs')) {
+      console.log(JSON.stringify({ languages: [
+        { id: 'javascript', extensions: ['js'], scan: true },
+        { id: 'python', extensions: ['py'], scan: true },
+      ] }));
+    } else if (args.includes('--scan')) {
+      const index = args.indexOf('--files');
+      const files = args.slice(index + 1).filter(arg => arg !== '--fix');
+      for (const file of files) {
+        const source = readFileSync(join(args[0], file), 'utf8');
+        const end = source.indexOf('\\n');
+        console.log(JSON.stringify({
+          file, ruleId: 'no-history-comment', severity: 'warning',
+          range: { byteOffset: [0, end] },
+          fix: { byteOffset: [0, end], text: '' },
+        }));
+      }
+      console.log(JSON.stringify({ summary: { matches: files.length, files: files.length } }));
+      if (files.some(file => file.endsWith('.py'))) {
+        process.stderr.write('scan interrupted');
+        process.exitCode = 1;
+      }
+    }
+  `);
+  const windows = process.platform === 'win32';
+  const wrapper = join(root, windows ? 'failing-graph.cmd' : 'failing-graph.sh');
+  writeFileSync(
+    wrapper,
+    windows
+      ? `@echo off\r\n"${process.execPath}" "${fake}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(fake)} "$@"\n`,
+    windows ? {} : { mode: 0o755 }
+  );
+  const child = join(root, 'probe-failure.mjs');
+  writeFileSync(child, `
+    import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
+    const result = await executeTidyTool({
+      action: 'fix', apply: true, paths: ${JSON.stringify(Object.keys(sources))}, engines: ['__none__'],
+    }, { cwd: ${JSON.stringify(root)} });
+    console.log(JSON.stringify(result));
+  `);
+  const result = await runProcess(process.execPath, [child], {
+    cwd: root,
+    env: { ...process.env, MIXDOG_GRAPH_BIN: wrapper },
+    timeoutMs: 30_000,
+  });
+  assert.equal(result.code, 0, result.stderr);
+  const envelope = JSON.parse(result.stdout);
+  const report = parseResult(envelope);
+  assert.equal(envelope.isError, true);
+  assert.equal(report.ok, false);
+  assert.equal(report.status, 'failed');
+  assert.equal(report.structural.matchesCount, 2);
+  assert.deepEqual(report.structural.applied, []);
+  assert.match(report.structural.error.message, /scan interrupted/);
+  for (const [file, source] of Object.entries(sources)) assert.equal(readFileSync(join(root, file), 'utf8'), source);
 });
 
 test('unsupported actions and escaping paths fail as tool errors, not throws', async () => {
@@ -380,7 +462,7 @@ test('a >200-file scoped check never walks cwd and results pages the stored matc
     const out = {
       big: await run({ action: 'check', paths: ['src/in'], engines: ['__none__'] }),
       page: await run({ action: 'results', offset: 20, limit: 10 }),
-      empty: await run({ action: 'check', languages: ['python'], engines: ['__none__'] }),
+      empty: await run({ action: 'check', paths: ['src/in'], languages: ['python'], engines: ['__none__'] }),
     };
     process.stdout.write(JSON.stringify(out));
     `

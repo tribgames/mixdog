@@ -24,7 +24,7 @@ export const TOOL_DEFS = [
           type: 'array',
           items: { type: 'string' },
           description:
-            'Project-relative files or directories to limit the run to; omitted = every git-tracked file (ls-files --cached). Untracked files are not scanned.',
+            'User-selected files or directories; required for scan/check/fix. Ask when the scope is missing; use "." only for an explicitly requested whole project. Includes tracked and non-ignored untracked files; never derives scope from a diff or commit.',
         },
         languages: {
           type: 'array',

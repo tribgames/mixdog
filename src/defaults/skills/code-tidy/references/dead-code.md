@@ -60,9 +60,13 @@ found" and never settle it by installing the package.
    project's own package manager.
 
 Group edits by file so one batch never touches a file another batch edits.
-After each batch run the project's typecheck and tests; on failure revert
-that batch's files (`git checkout -- <files>` or targeted edits) and report,
-do not patch forward.
+Run the narrowest documented checks for each meaningful behavior group and
+the documented final tests/typecheck once after the round. Reuse unaffected
+results. On failure, stop and undo only this run's edits with targeted patches;
+preserve pre-existing and concurrent changes. Never restore entire files with
+`git checkout`, `reset`, or `restore`, and never stash automatically. If safe
+separation is unclear, leave the files intact and report the blocker instead
+of discarding work or patching forward.
 
 ## Report
 

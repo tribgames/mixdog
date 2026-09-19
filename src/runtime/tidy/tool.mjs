@@ -107,10 +107,10 @@ function normalizeScope(paths, cwd) {
       return normalized;
     }
     const rel = relative(cwd, value).replaceAll('\\', '/');
-    if (!rel || rel.startsWith('..')) {
+    if (rel.startsWith('..')) {
       throw new TidyToolError(`paths must stay inside the project: ${value}`);
     }
-    return rel;
+    return rel || '.';
   });
 }
 
@@ -260,7 +260,7 @@ async function runStructural({
     applied: [],
     ...(ruleErrors.length ? { error: ruleErrors[0], ruleErrors } : {}),
   };
-  if (!apply || structural.matches.length === 0) return structural;
+  if (!apply || structural.error || structural.matches.length === 0) return structural;
   return applyStructuralPlan(structural, { cwd, sessionId, signal });
 }
 
@@ -311,7 +311,7 @@ async function scanAction({ cwd, scope, languageFilter, engineFilter, signal, st
       ...(detected.note ? [detected.note] : []),
       ...(resolution.config.error ? [resolution.config.error] : []),
       ...(resolution.unknownEngines ? [`unknown engines ignored: ${resolution.unknownEngines.join(', ')}`] : []),
-      ...(detected.languages.length === 0 ? ['no tracked file of a known language in scope'] : []),
+      ...(detected.languages.length === 0 ? ['no non-ignored file of a known language in scope'] : []),
       // Scan does not run structural rules, but an outdated binary that would
       // fail check/fix is named here so it cannot look like a clean project.
       ...(await outdatedGraphNote(detected)),
@@ -344,8 +344,11 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
     extensions: detected.extensions,
   });
 
+  const enginesFailed = results.some((result) => result.error || result.truncated);
   const structural =
-    args.structural === false ? null : await runStructuralForDetected(detected, { cwd, apply, sessionId, signal });
+    args.structural === false
+      ? null
+      : await runStructuralForDetected(detected, { cwd, apply: apply && !enginesFailed, sessionId, signal });
 
   rememberTidyRun(cwd, sessionId, {
     languages: detected.languages,
@@ -493,6 +496,9 @@ export async function executeTidyTool(args = {}, { cwd = process.cwd(), signal =
       throw new TidyToolError(`Unsupported tidy action "${action}"; use ${TIDY_ACTIONS.join(', ')}`);
     }
     const scope = normalizeScope(list(args.paths), cwd);
+    if (['scan', 'check', 'fix'].includes(action) && scope.length === 0) {
+      throw new TidyToolError('paths requires a user-selected scope; ask for files or directories, or use "." for an explicitly requested whole project');
+    }
     const languageFilter = list(args.languages);
     const engineFilter = list(args.engines);
     if (action === 'scan') {

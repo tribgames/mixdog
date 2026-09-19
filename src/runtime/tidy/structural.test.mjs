@@ -91,6 +91,7 @@ test('exit 1 is an internal error reported alongside whatever was emitted', () =
   assert.equal(parsed.matches.length, 2);
   assert.equal(parsed.error.kind, 'internal');
   assert.match(parsed.error.message, /panic/);
+  assert.ok(parsed.matches.every((match) => match.fix === null && match.manual === true));
 });
 
 test('a record without a file is dropped rather than half-normalized', () => {

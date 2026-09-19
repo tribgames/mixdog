@@ -58,11 +58,12 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
     filesChanged: checkResult.changedFiles || [],
     diagnostics: checkResult.diagnostics || [],
     ...(checkResult.stderrTail ? { stderrTail: checkResult.stderrTail } : {}),
+    ...(checkResult.error ? { error: checkResult.error } : {}),
     ...(checkResult.truncated ? { truncated: true } : {}),
     ...(checkResult.counts ? { counts: checkResult.counts } : {}),
     ...(checkResult.note ? { note: checkResult.note } : {}),
   };
-  if (mode !== 'fix' || !apply) {
+  if (mode !== 'fix' || !apply || result.error || result.truncated) {
     if (mode === 'fix') result.dryRun = true;
     return result;
   }
@@ -74,15 +75,20 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
     return result;
   }
   const before = new Map(candidates.map((file) => [file, fileDigest(fullPathFor(cwd, file))]));
-  const fixResult = await runner.fix({
-    files: candidates,
-    cwd,
-    bin: engine.command,
-    args: engine.args || [],
-    timeoutMs,
-    signal,
-    modulePath: engine.modulePath,
-  });
+  let fixResult;
+  try {
+    fixResult = await runner.fix({
+      files: candidates,
+      cwd,
+      bin: engine.command,
+      args: engine.args || [],
+      timeoutMs,
+      signal,
+      modulePath: engine.modulePath,
+    });
+  } catch (error) {
+    result.error = error?.message || String(error);
+  }
   const changed = candidates.filter((file) => fileDigest(fullPathFor(cwd, file)) !== before.get(file));
   // The engine wrote in place; run the same invalidation trio a pipeline write
   // would have run for each file it touched.
@@ -90,8 +96,10 @@ async function runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sess
     changed.map((file) => fullPathFor(cwd, file)),
     { sessionId }
   );
-  result.applied = true;
   result.filesChanged = changed;
+  if (fixResult?.error) result.error = fixResult.error;
+  if (fixResult?.truncated) result.truncated = true;
+  result.applied = !result.error && !result.truncated;
   if (fixResult?.stderrTail) result.stderrTail = fixResult.stderrTail;
   if (fixResult?.diagnostics?.length) result.diagnostics = fixResult.diagnostics;
   return result;
@@ -114,8 +122,7 @@ export async function runEngineSuite({
   // exactly the files the report counted for its languages.
   extensions = null,
 } = {}) {
-  const concurrency = apply ? 1 : CHECK_CONCURRENCY;
-  return mapLimit(engines, concurrency, async (engine) => {
+  const run = async (engine) => {
     try {
       return await runOne({ engine, files, cwd, mode, apply, timeoutMs, signal, sessionId, extensions });
     } catch (error) {
@@ -128,5 +135,13 @@ export async function runEngineSuite({
         error: error?.message || String(error),
       };
     }
-  });
+  };
+  if (!apply) return mapLimit(engines, CHECK_CONCURRENCY, run);
+  const results = [];
+  for (const engine of engines) {
+    const result = await run(engine);
+    results.push(result);
+    if (result.error || result.truncated) break;
+  }
+  return results;
 }

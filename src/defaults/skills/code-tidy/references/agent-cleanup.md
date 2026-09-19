@@ -64,7 +64,7 @@ here.
 
 | Category | Flag | Keep | Fix |
 |---|---|---|---|
-| Obvious comments | restating the code, section dividers, commented-out code, vague TODOs, narration of the change or of the caller | WHY comments (business rule, workaround, invariant), ticket links, regex/algorithm notes, BDD markers | delete |
+| Obvious comments | restating the code, section dividers, commented-out code, vague TODOs, narration of the change or of the caller | WHY comments (business rule, workaround, invariant), ticket links, regex/algorithm notes, BDD markers, license/attribution notices, tool directives, public API docs | delete only with high confidence; preserve token boundaries and significant line breaks |
 | Over-defensive code | null checks on guaranteed values, try/catch around code that cannot throw, type checks on statically typed params, defaults for required params, validation duplicated inside a boundary, broad catch-all | I/O error handling, nullable DB fields, a top-level catch-all that logs and rethrows | remove only when a test proves the guard redundant; narrow broad catches to the expected error |
 | Fake resilience | a fallback that turns a missing input or a failed call into a plausible value (`?? 0`, an empty-object default, a stub record); a catch that only rethrows the same error; a catch that logs without the error and continues | a default the caller's contract names, a retry or degraded mode the docs describe | surface the failure instead: propagate the error or return the empty case the contract defines |
 | Excessive complexity | nesting > 3, nested ternaries, 4+ predicates in one condition, > 5 positional params, functions > 50 lines doing several things, clever one-liners, a 4+ branch ladder comparing one value against constants, a hand-rolled loop the language has an idiom for (`for i in range(len(xs))`, an index loop over a collection, `count() > 0` for "any") | a hot path that intentionally uses a dense idiom | guard clauses, early returns, explicit if/else, an options object, a lookup table, the language's own idiom, extract by responsibility |
@@ -132,7 +132,10 @@ explicit candidate inventory using stable candidate IDs:
   registered in the inventory, a verified nit or false positive is marked `kept`
   with the recorded reason—never silently erase an ID. An unresolved finding
   remains `unfinished`; uncertainty is not evidence for keeping it. Confidence is `low` when
-  `git blame` and surrounding comments do not explain why the code exists.
+  current code, callers, contracts, and tests do not explain why the code exists.
+  Consult history only to resolve a specific remaining question. Medium/low
+  confidence candidates stay unfinished until that question is resolved; apply
+  approval does not authorize guessing that they are safe to delete.
 - **Statuses & Reconciliation Invariants**:
   - `completed`: verified done, with evidence of what and how changed.
   - `kept`: preserved with concrete evidence (documented keep rule, external contract, or registered nit).
@@ -142,8 +145,8 @@ explicit candidate inventory using stable candidate IDs:
 
 | Tier | Meaning | Examples | Handling |
 |---|---|---|---|
-| SAFE | provably no behavior change | unused import, commented-out code, pass-through wrapper, redundant type assertion, obvious comment, history comment | apply, run tests once after the batch |
-| CAREFUL | same semantics, structure changes | rename a local, flatten a ternary, guard clause, extract a helper, split responsibilities while preserving entry points, consolidate duplicates, name a magic number | apply one source unit at a time (including required new modules), tests after each unit, revert that change on failure |
+| SAFE | provably no behavior change | unused import, commented-out code, pass-through wrapper, redundant type assertion, obvious comment, history comment | apply as one batch; verify the affected behavior without repeating unchanged checks |
+| CAREFUL | same semantics, structure changes | rename a local, flatten a ternary, guard clause, extract a helper, split responsibilities while preserving entry points, consolidate duplicates, name a magic number | apply one source unit at a time (including required new modules); targeted verification at behavior boundaries, final checks once; undo only this run's edits on failure |
 | RISKY | may change behavior or a contract | public API or export rename, route/DB column/config key rename, error-handling change, concurrency change, N+1 restructuring, altitude fix in shared infrastructure | report only, with the test coverage status; never auto-apply |
 
 Conflict resolution when lenses disagree: correctness > the user's stated
@@ -167,7 +170,7 @@ written in the conversation, not to a file, unless the user asks for a
 document.
 
 ```text
-Scope: <diff vs HEAD | paths | branch> · Mode: report|apply
+Scope: <user-selected paths | explicit whole project> · Mode: report|apply
 Round: Round <N> <completed|partial> · Overall: <complete|partial>
 Inventory: Total <N> · Completed <X> · Kept <Y> · Unfinished <Z> (X + Y + Z = N)
 Stages: baseline / engines / structural / ladder + lenses / tiered changes / final verification

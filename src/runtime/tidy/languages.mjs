@@ -87,7 +87,7 @@ function normalizeRel(value) {
 }
 
 /**
- * Scope filter: a tracked path is in scope when it equals, or sits under, one
+ * Scope filter: a path is in scope when it equals, or sits under, one
  * of the requested paths. An empty scope list means "everything".
  */
 export function withinScope(rel, scopes) {
@@ -159,12 +159,23 @@ export function parseGraphLangs(stdout) {
 }
 
 /** git-tracked files under `cwd`, filtered to the requested scope paths. */
-export async function listTrackedFiles({ cwd, paths = [], signal = null, timeoutMs = 20_000 } = {}) {
-  const result = await runProcess('git', ['-c', 'core.quotepath=false', 'ls-files', '--cached', '-z'], {
-    cwd,
-    signal,
-    timeoutMs,
-  });
+export async function listScopedFiles({ cwd, paths = [], signal = null, timeoutMs = 20_000 } = {}) {
+  const result = await runProcess(
+    'git',
+    [
+      '-c',
+      'core.quotepath=false',
+      '--literal-pathspecs',
+      'ls-files',
+      '--cached',
+      '--others',
+      '--exclude-standard',
+      '-z',
+      '--',
+      ...paths,
+    ],
+    { cwd, signal, timeoutMs }
+  );
   if (result.code !== 0) {
     return {
       files: [],
@@ -192,7 +203,7 @@ export async function detectLanguages({
   graphLangs = null,
   signal = null,
 } = {}) {
-  const { files, error } = await listTrackedFiles({ cwd, paths, signal });
+  const { files, error } = await listScopedFiles({ cwd, paths, signal });
   const graphExtensions = graphLangs?.extensions instanceof Map ? graphLangs.extensions : null;
   const languageOf = (rel) => languageWith(rel, graphExtensions);
   const filtered = languageFilter.length > 0 ? files.filter((rel) => languageFilter.includes(languageOf(rel))) : files;

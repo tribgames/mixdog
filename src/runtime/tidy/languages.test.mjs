@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -136,4 +136,28 @@ test('the graph capability table wins over the static registry when present', as
   });
   assert.deepEqual(withGraph.languages, [{ id: 'python', files: 2 }]);
   assert.equal(withGraph.source, 'graph-binary');
+});
+
+test('explicit scopes include new files without staging and exclude ignored files and siblings', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'tidy-new-files-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'src'));
+  writeFileSync(join(root, '.gitignore'), 'src/ignored.js\n');
+  writeFileSync(join(root, 'src', 'tracked.js'), 'export const old = 1;\n');
+  for (const args of [['init'], ['add', '.']]) {
+    const result = await runProcess('git', args, { cwd: root, timeoutMs: 30_000 });
+    assert.equal(result.code, 0, result.stderr);
+  }
+  writeFileSync(join(root, 'src', 'new.js'), 'export const fresh = 2;\n');
+  writeFileSync(join(root, 'src', 'literal[1].js'), 'export const literal = 3;\n');
+  writeFileSync(join(root, 'src', 'ignored.js'), 'export const ignored = 4;\n');
+  writeFileSync(join(root, 'outside.js'), 'export const outside = 5;\n');
+
+  const directory = await detectLanguages({ cwd: root, paths: ['src'] });
+  assert.deepEqual(directory.files.sort(), ['src/literal[1].js', 'src/new.js', 'src/tracked.js']);
+  assert.deepEqual(directory.languages, [{ id: 'javascript', files: 3 }]);
+  const explicit = await detectLanguages({ cwd: root, paths: ['src/literal[1].js'] });
+  assert.deepEqual(explicit.files, ['src/literal[1].js']);
+  const status = await runProcess('git', ['status', '--porcelain', '--', 'src/new.js'], { cwd: root });
+  assert.equal(status.stdout.trim(), '?? src/new.js');
 });

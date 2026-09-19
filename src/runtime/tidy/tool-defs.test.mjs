@@ -23,7 +23,9 @@ test('tidy exposes one action-routed schema with no hidden fields', () => {
     'structural',
   ]);
   assert.match(tool.inputSchema.properties.action.description, /results:/);
-  assert.match(tool.inputSchema.properties.paths.description, /ls-files --cached/);
+  assert.match(tool.inputSchema.properties.paths.description, /User-selected/);
+  assert.match(tool.inputSchema.properties.paths.description, /required for scan\/check\/fix/);
+  assert.match(tool.inputSchema.properties.paths.description, /non-ignored untracked/);
   assert.equal(tool.inputSchema.properties.limit.maximum, 100);
   for (const [name, schema] of Object.entries(tool.inputSchema.properties)) {
     assert.equal(schema.minLength, undefined, `${name} must not pin minLength`);

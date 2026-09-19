@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 
 import { classifyHistoryComment, isHistorySentence, refineHistoryCommentMatches } from './history-comment.mjs';
 import { applyReplacements } from './apply.mjs';
@@ -213,6 +214,46 @@ test('a pure-history /** */ block is autofixed', () => {
   assert.equal(refined[0].manual, false);
   assert.equal(refined[0].fix.byteOffset[0], 0);
   assert.ok(refined[0].fix.byteOffset[1] >= end);
+});
+
+test('embedded history comments preserve parsing and runtime behavior', () => {
+  const fixtures = [
+    { source: 'function/* Moved from old.js */f(){ return 7; } f();', expected: 7 },
+    { source: 'function f(){ return /* Moved from old.js\n*/ 7; } f();', expected: undefined },
+    { source: 'function f(){ return /* Moved from old.js\r\n*/ 7; } f();', expected: undefined },
+    { source: 'function f(){ return /* Moved from old.js\u2028*/ 7; } f();', expected: undefined },
+    { source: 'let n = 2; n +/* Moved from old.js */+n;', expected: 4 },
+  ];
+  for (const { source, expected } of fixtures) {
+    const start = source.indexOf('/*');
+    const end = source.indexOf('*/', start) + 2;
+    const { refined, after } = applyHistoryFixes(source, [
+      hit('a.js', Buffer.byteLength(source.slice(0, start)), Buffer.byteLength(source.slice(0, end))),
+    ]);
+    assert.equal(runInNewContext(source), expected);
+    assert.equal(runInNewContext(after), expected);
+    assert.equal(after, source);
+    assert.equal(refined[0].manual, true);
+    assert.equal(refined[0].fix, null);
+  }
+});
+
+test('standalone history block removal preserves its line terminators', () => {
+  const source = '/** Moved from old.js.\r\n * Previously lived in other.js.\r\n */\r\n7;\r\n';
+  const end = source.indexOf('*/') + 2;
+  const { after } = applyHistoryFixes(source, [hit('a.js', 0, end)]);
+  assert.equal(after, '\r\n\r\n\r\n7;\r\n');
+  assert.equal(runInNewContext(after), 7);
+});
+
+test('history phrases do not authorize deleting licenses or tool directives', () => {
+  for (const protectedText of ['SPDX-License-Identifier: MIT', '@license Copyright 2026', 'eslint-disable no-alert']) {
+    const source = `/* ${protectedText}\n * Moved from old.js.\n */\n7;\n`;
+    const end = source.indexOf('*/') + 2;
+    const { refined, after } = applyHistoryFixes(source, [hit('a.js', 0, end)]);
+    assert.equal(after, source);
+    assert.ok(refined.every((match) => match.fix === null && match.manual === true));
+  }
 });
 
 test('the structural report counts manual history comments separately from autofixes', () => {

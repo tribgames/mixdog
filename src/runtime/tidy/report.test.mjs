@@ -218,6 +218,40 @@ test('a structural rule error is not a clean report', () => {
   assert.equal(report.structural.matchesCount, 0);
 });
 
+test('engine failures and incomplete output cannot be reported as success', () => {
+  for (const failure of [{ error: 'engine failed' }, { truncated: true }]) {
+    const report = buildTidyReport({
+      action: 'check',
+      results: [{ id: 'biome', filesChecked: 0, diagnostics: [], filesChanged: [], ...failure }],
+    });
+    assert.equal(report.ok, false);
+    assert.equal(report.status, 'failed');
+    assert.equal(tidyToolResult(report).isError, true);
+  }
+});
+
+test('write rejections preserve partial completion instead of claiming success', () => {
+  const report = buildTidyReport({
+    action: 'fix',
+    structural: {
+      matches: [],
+      applied: [{ file: 'a.js', fixes: 1 }],
+      rejected: [{ file: 'b.js', reason: 'overlap' }],
+    },
+  });
+  assert.equal(report.ok, false);
+  assert.equal(report.status, 'partial');
+});
+
+test('lint findings alone are a completed check, not an engine failure', () => {
+  const report = buildTidyReport({
+    action: 'check',
+    results: [{ id: 'biome', diagnostics: [{ severity: 'error', message: 'unused import' }] }],
+  });
+  assert.equal(report.ok, true);
+  assert.equal(report.status, 'complete');
+});
+
 test('the tool result is one JSON text block, like the other runtime tools', () => {
   const ok = tidyToolResult({ ok: true, action: 'scan' });
   assert.equal(ok.content.length, 1);

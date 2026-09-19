@@ -1,7 +1,7 @@
 ---
 name: code-tidy
-description: Format, lint, apply structural rules, and clean up recent changes with the tidy tool.
-when_to_use: 'Format, lint, tidy, simplify, deslop, or clean up a codebase or recent changes: remove AI slop, dead code, and needless complexity without changing behavior; not feature work, bug hunting, or adding formatter configs.'
+description: Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.
+when_to_use: 'Format, lint, tidy, simplify, deslop, or clean up user-selected code: remove AI slop, dead code, and needless complexity without changing behavior; not feature work, bug hunting, or adding formatter configs.'
 metadata:
   requires: tidy
 dependencies:
@@ -41,21 +41,28 @@ agent layer to that lens; the deterministic layers still run.
 Maintain candidate inventory and progress under the shared delivery policy.
 
 ## 2. Scope and investigation
-Default scope is the recent change, not the tree:
-1. `git status --short` (untracked files) plus `git diff --name-only HEAD`
-   (staged and unstaged). Empty → the merge-base diff against the default
-   branch. Still empty → the files the user named or edited this session.
-   Nothing at all → say there is nothing to tidy and stop.
-2. Drop deleted, binary, generated, vendored files and lockfiles. Add the test
-   file covering each changed source even when that test was not itself
-   changed: suite bloat accumulates where the change never landed.
-3. Widen only when the user asks ("the whole tree", a directory, a branch).
-4. Pass the list as `paths` on every `tidy` call so engines, rules, and the
-   agent layer see the same files. Result: the report names the scope.
-5. **Establish the baseline before any edit**: run the project's tests and
-   typecheck. Green, or explicitly listed pre-existing failures excluded from
-   the change, is the baseline. A broken runner blocks changes that require
-   it; continue independent work and report the blocked scope as unfinished.
+1. **Get the scope from the user.** Accept named files, directories, a feature
+   area resolved to confirmed paths, or an explicitly requested whole project.
+   If absent or ambiguous, ask before scanning or editing. Never infer scope
+   from recent changes, a diff, a branch, a commit, or session activity.
+2. Recommend that the user commit their existing work before an apply run, so
+   it starts from a clean checkpoint; do not commit for them or make this a
+   requirement for read-only investigation. Use Git mainly for one initial
+   status check and a final scoped diff. A dirty tree requires preserving the
+   existing edits, not automatically stashing or discarding them.
+3. Drop deleted, binary, generated, vendored files and lockfiles unless the
+   user explicitly included them. Read and run direct consumers and covering
+   tests as needed; editing them outside the selected area needs approval.
+   New, non-ignored files are included without staging. Never widen the edit
+   scope silently.
+4. Pass the approved paths on every `scan`/`check`/`fix`; use `paths:["."]`
+   only for an explicitly requested whole project. Result: every layer sees
+   the same scope, which the report names.
+5. **Establish the baseline before any edit** with the narrowest documented
+   tests and typecheck covering the approved behavior. Reuse current results
+   when their inputs have not changed. Record pre-existing failures separately.
+   A broken runner blocks changes requiring it; continue independent work and
+   report the blocked scope as unfinished.
 6. **Complete read-only investigation before cleanup**: run all applicable
    investigation checks (tidy scan/check, structural rules, dead-code detection,
    lens analysis) read-only to gather the complete candidate inventory before
@@ -81,10 +88,10 @@ Default scope is the recent change, not the tree:
 3. **Hard rule — never install toolchain engines** (rustfmt, gofmt, dart,
    swift, zig, mix, dotnet): report `installHint`. Managed engines download
    only through tidy (`auto`, `approveDownloads`, or `action:'install'`). → manual
-4. Engines, then structural rules, each dry-run then apply, with the
-   project's tests/typecheck after every apply and a stop on failure:
-   - engine `check` with `structural:false`;
-   - engine `fix` with `structural:false`, then the same call with `apply:true`;
+4. Engines, then structural rules, each dry-run then apply:
+   - engine `fix` with `structural:false` is the read-only plan; do not repeat
+     an equivalent `check` before it;
+   - the same call with `apply:true` only when the plan is complete and approved;
    - `tidy action:'fix' structural:true`, then `apply:true`.
    `structural` defaults to true on check/fix, so engine steps must pass
    `structural:false` or structural fixes land during the engine write. A
@@ -95,6 +102,9 @@ Default scope is the recent change, not the tree:
    has nothing to do. Keep the engine pass separable from the agent edits: a
    reformat folded into semantic changes makes the diff unreviewable, so
    report them as distinct change sets.
+   Stop writes on an engine or structural failure, truncation, or rejected
+   edit; a partial result is not success. Do not retry unchanged input or
+   continue applying other findings from the failed plan.
 
 ## 4. Agent-level cleanup
 Read `references/agent-cleanup.md` first: it owns the deletion ladder, the
@@ -109,21 +119,27 @@ definitions, and the final report template. This section owns the order.
    only survivors go through the four lenses (reuse, quality, efficiency,
    altitude). Every finding carries `file:line` evidence, a cost, a
    confidence, and a risk tier; findings without evidence are dropped, and
-   `git blame` precedes any removal (unexplained intent is `confidence: low`).
+   consult history only when code, contracts, and tests leave intent unclear;
+   `git blame` is not a mandatory step for each removal. Unresolved intent
+   lowers confidence and blocks deletion, rather than justifying it.
    When this session can delegate to parallel workers, run one lens per
    worker with the complete diff and the repo path — workers report findings,
    never edit. Otherwise run the lenses yourself in sequence and say so in
-   the report. Result: one merged, deduplicated finding list.
+   the report. For a small, single-concern scope, cover the applicable lenses
+   in one review rather than dispatching separate workers for each lens.
+   Result: one merged, deduplicated finding list.
 3. **Execute in approved bounded rounds.**
    - Retain the complete candidate inventory across rounds; never silently
      narrow scope or overwrite the backlog with the completed subset. Newly
      discovered candidates (such as cascade findings) are appended with new IDs.
    - Independent modules may be cleaned in parallel across tasks; within any
      file or module, CAREFUL source units must be edited sequentially.
-   - Apply by tier: SAFE as one batch with tests after it; CAREFUL one source
-     unit at a time with tests after each unit, reverting on failure; RISKY
+   - Apply by tier: SAFE as one batch; CAREFUL one source unit at a time; RISKY
      reported, never auto-applied. Within a tier: comments → dead code →
      defensive code → duplication → complexity → abstraction → performance.
+     Use targeted checks at meaningful behavior boundaries and run the
+     documented final tests/typecheck once after the round. Do not rerun
+     unaffected checks after every comment or mechanical edit.
    - Structural items from the table below are CAREFUL; dead code follows
      `references/dead-code.md`.
    - After the last tier lands in a round, re-run `tidy check` over the same
@@ -164,6 +180,11 @@ split remains unfinished, with its specific blocker.
 - An empty catch or ignored error that may be intentional — flag it.
 - Complexity a comment or `git blame` explains: compat shims, staged
   migrations, isolation around vendored code.
+- License, copyright and SPDX notices; compiler, linter and bundler directives;
+  public API documentation; security and compatibility explanations. A history
+  phrase alone is not permission to remove attribution. Embedded block comments
+  may separate tokens or carry significant line breaks: leave them for manual
+  review, and preserve parsing and behavior when editing any comment.
 - The project's own idioms: `AGENTS.md`/`CLAUDE.md`/lint config beat a
   generic idiom; clarity beats fewer lines; nested ternaries are flattened,
   never introduced.
@@ -171,8 +192,11 @@ split remains unfinished, with its specific blocker.
 ## 6. Pitfalls
 - Missing toolchain engine → `installHint` only; continue other engines.
 - User declines downloads → skip those engines; say so.
-- Tests/typecheck fail after apply → revert that change; do not start the
-  next layer until the baseline is green again.
+- Tests/typecheck fail after apply → stop and undo only this run's edits with
+  targeted patches while preserving prior or concurrent work. Never use
+  automatic `git checkout`, `reset`, `restore`, or `stash` as rollback. If the
+  edits cannot be separated safely, leave them intact and report the blocker.
+  Do not continue until the affected verification is green again.
 - Formatter config missing and the user did not ask to add one → tidy
   defaults / detected engines; never write a config file.
 - Structural engine unavailable (missing or outdated mixdog-graph) → `check` /
