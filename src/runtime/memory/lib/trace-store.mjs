@@ -5,9 +5,12 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 // Isolated from memory schema; shares the same PG instance.
 
 import { ensurePgInstance, checkedConnect, closePgInstance } from './pg/adapter.mjs';
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 import { cleanupTraceWhenDisabled, traceEnabled } from './trace-mode.mjs';
 import { sessionIndexSql } from './pg/compact-indexes.mjs';
+import { collectAgentCallRows } from './trace-store/agent-call-rows.mjs';
+import { summarizeAgentSessions } from './trace-store/agent-session-summary.mjs';
+import { insertLlmRows, insertToolRows, upsertAgentSessions } from './trace-store/agent-call-inserts.mjs';
 
 const dbs = new Map();
 const opening = new Map();
@@ -269,74 +272,9 @@ async function initAgentTables(client) {
 // ---------------------------------------------------------------------------
 // insertAgentCalls — batch insert tool rows + upsert session summary
 // ---------------------------------------------------------------------------
-const TOOL_ARGS_MAX_BYTES = 65536; // 64 KB cap; oversized → sha256 + truncated preview
-
-import { createHash as _createHash } from 'crypto';
-function _capToolArgsSync(args) {
-  if (args == null) return null;
-  const raw = typeof args === 'string' ? args : JSON.stringify(args);
-  if (Buffer.byteLength(raw, 'utf8') <= TOOL_ARGS_MAX_BYTES) {
-    if (typeof args !== 'string') return args;
-    // tool_args is JSONB in PG; round-trip parse for string inputs, but a
-    // plain non-JSON string (e.g. a bare path) would otherwise throw and
-    // fail the whole insert batch. Treat unparseable as the raw string.
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw;
-    }
-  }
-  return { _oversized: true, sha256: _createHash('sha256').update(raw).digest('hex'), preview: raw.slice(0, 512) };
-}
-
 export async function insertAgentCalls(db, events) {
   if (!db || !Array.isArray(events) || events.length === 0) return { calls: 0, llm: 0 };
-  const toolRows = [];
-  const llmRows = [];
-  for (const ev of events) {
-    let ts = ev.ts;
-    if (typeof ts === 'string') ts = Date.parse(ts);
-    ts = Number(ts);
-    if (!Number.isFinite(ts)) ts = Date.now();
-    const tsIso = new Date(ts).toISOString();
-    const sid = ev.session_id ?? ev.sessionId ?? null;
-    if (!sid) continue;
-    const iter = ev.iteration != null ? Number(ev.iteration) : null;
-    if (ev.kind === 'tool') {
-      const tool_name = ev.tool_name ?? ev.toolName ?? null;
-      const tool_kind = ev.tool_kind ?? ev.toolKind ?? null;
-      const tool_ms = ev.tool_ms ?? ev.toolMs ?? null;
-      const tool_args = ev.tool_args ?? ev.toolArgs ?? null;
-      const result_kind = ev.result_kind ?? ev.resultKind ?? null;
-      const result_error_category = ev.result_error_category ?? ev.resultErrorCategory ?? null;
-      const result_error_first_line = ev.result_error_first_line ?? ev.resultErrorFirstLine ?? null;
-      toolRows.push({
-        session_id: sid,
-        iteration: iter,
-        ts: tsIso,
-        tool_name,
-        tool_kind,
-        tool_ms: tool_ms != null ? Number(tool_ms) : null,
-        tool_args: _capToolArgsSync(tool_args),
-        result_kind,
-        result_error_category,
-        result_error_first_line,
-      });
-    } else if (ev.kind === 'usage_raw' || (ev.input_tokens != null && ev.output_tokens != null)) {
-      llmRows.push({
-        session_id: sid,
-        iteration: iter,
-        ts: tsIso,
-        model: ev.model ?? null,
-        input_tokens: ev.input_tokens ?? ev.inputTokens ?? null,
-        output_tokens: ev.output_tokens ?? ev.outputTokens ?? null,
-        cached_tokens: ev.cached_tokens ?? ev.cachedTokens ?? null,
-        cache_write_tokens: ev.cache_write_tokens ?? ev.cacheWriteTokens ?? null,
-        prompt_tokens: ev.prompt_tokens ?? ev.promptTokens ?? null,
-        response_id: ev.response_id ?? ev.responseId ?? null,
-      });
-    }
-  }
+  const { toolRows, llmRows } = collectAgentCallRows(events);
 
   // Wrap all three inserts in a single transaction — one flush/fsync.
   // checkedConnect ensures search_path = trace, public on fresh connections;
@@ -345,177 +283,9 @@ export async function insertAgentCalls(db, events) {
   const client = await checkedConnect(db._pool, 'trace');
   try {
     await client.query('BEGIN');
-
-    if (toolRows.length > 0) {
-      await client.query(
-        `INSERT INTO agent_calls (session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)
-       SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
-              u.tool_name, u.tool_kind, u.tool_ms::int, u.tool_args::jsonb,
-              u.result_kind, u.result_error_category, u.result_error_first_line
-       FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::text[],$6::int[],$7::text[],$8::text[],$9::text[],$10::text[])
-            AS u(session_id,iteration,ts,tool_name,tool_kind,tool_ms,tool_args,result_kind,result_error_category,result_error_first_line)`,
-        [
-          toolRows.map((r) => r.session_id),
-          toolRows.map((r) => r.iteration),
-          toolRows.map((r) => r.ts),
-          toolRows.map((r) => r.tool_name),
-          toolRows.map((r) => r.tool_kind),
-          toolRows.map((r) => r.tool_ms),
-          toolRows.map((r) => (r.tool_args != null ? JSON.stringify(r.tool_args) : null)),
-          toolRows.map((r) => r.result_kind),
-          toolRows.map((r) => r.result_error_category),
-          toolRows.map((r) => r.result_error_first_line),
-        ]
-      );
-    }
-
-    if (llmRows.length > 0) {
-      await client.query(
-        `INSERT INTO agent_llm (session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)
-       SELECT u.session_id, u.iteration::int, u.ts::timestamptz,
-              u.model, u.input_tokens::int, u.output_tokens::int,
-              u.cached_tokens::int, u.cache_write_tokens::int,
-              u.prompt_tokens::int, u.response_id
-       FROM unnest($1::text[],$2::int[],$3::text[],$4::text[],$5::int[],$6::int[],$7::int[],$8::int[],$9::int[],$10::text[])
-            AS u(session_id,iteration,ts,model,input_tokens,output_tokens,cached_tokens,cache_write_tokens,prompt_tokens,response_id)`,
-        [
-          llmRows.map((r) => r.session_id),
-          llmRows.map((r) => r.iteration),
-          llmRows.map((r) => r.ts),
-          llmRows.map((r) => r.model),
-          llmRows.map((r) => r.input_tokens),
-          llmRows.map((r) => r.output_tokens),
-          llmRows.map((r) => r.cached_tokens),
-          llmRows.map((r) => r.cache_write_tokens),
-          llmRows.map((r) => r.prompt_tokens),
-          llmRows.map((r) => r.response_id),
-        ]
-      );
-    }
-
-    // Upsert session summaries — accumulate from tool+llm rows in this batch
-    const sessionMap = new Map();
-    for (const r of toolRows) {
-      const s = sessionMap.get(r.session_id) ?? {
-        tool_calls: 0,
-        llm_calls: 0,
-        max_iteration: 0,
-        total_input: 0n,
-        total_output: 0n,
-        ts0: r.ts,
-        ts1: r.ts,
-        agent: null,
-        model: null,
-      };
-      s.tool_calls += 1;
-      if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration;
-      if (r.ts < s.ts0) s.ts0 = r.ts;
-      if (r.ts > s.ts1) s.ts1 = r.ts;
-      sessionMap.set(r.session_id, s);
-    }
-    for (const r of llmRows) {
-      const s = sessionMap.get(r.session_id) ?? {
-        tool_calls: 0,
-        llm_calls: 0,
-        max_iteration: 0,
-        total_input: 0n,
-        total_output: 0n,
-        ts0: r.ts,
-        ts1: r.ts,
-        agent: null,
-        model: null,
-      };
-      s.llm_calls += 1;
-      s.total_input += BigInt(r.input_tokens ?? 0);
-      s.total_output += BigInt(r.output_tokens ?? 0);
-      if (r.model) s.model = r.model;
-      if (r.iteration != null && r.iteration > s.max_iteration) s.max_iteration = r.iteration;
-      if (r.ts < s.ts0) s.ts0 = r.ts;
-      if (r.ts > s.ts1) s.ts1 = r.ts;
-      sessionMap.set(r.session_id, s);
-    }
-    // Also pick up agent from preset_assign events in the same batch
-    for (const ev of events) {
-      if (ev.kind === 'preset_assign' && ev.agent) {
-        const sid = ev.session_id ?? ev.sessionId ?? null;
-        if (!sid) continue;
-        const s = sessionMap.get(sid);
-        if (s) s.agent = ev.agent;
-      }
-    }
-    // Fix 5 — upsert sessions for preset_assign-only batches (no tool/llm rows yet)
-    for (const ev of events) {
-      if (ev.kind !== 'preset_assign') continue;
-      const sid = ev.session_id ?? ev.sessionId ?? null;
-      if (!sid) continue;
-      if (sessionMap.has(sid)) continue; // already populated from tool/llm rows above
-      let ts = ev.ts;
-      if (typeof ts === 'string') ts = Date.parse(ts);
-      ts = Number(ts);
-      if (!Number.isFinite(ts)) ts = Date.now();
-      const tsIso = new Date(ts).toISOString();
-      sessionMap.set(sid, {
-        tool_calls: 0,
-        llm_calls: 0,
-        max_iteration: 0,
-        total_input: 0n,
-        total_output: 0n,
-        ts0: tsIso,
-        ts1: tsIso,
-        agent: ev.agent ?? null,
-        model: ev.model ?? null,
-      });
-    }
-
-    // Coalesce agent_sessions upserts: batch all sessions in one unnest INSERT.
-    // Also within the same transaction.
-    if (sessionMap.size > 0) {
-      const sids = [],
-        agents = [],
-        models = [],
-        ts0s = [],
-        ts1s = [],
-        tcalls = [],
-        lcalls = [],
-        maxiters = [],
-        tinputs = [],
-        toutputs = [];
-      for (const [sid, s] of sessionMap) {
-        sids.push(sid);
-        agents.push(s.agent);
-        models.push(s.model);
-        ts0s.push(s.ts0);
-        ts1s.push(s.ts1);
-        tcalls.push(s.tool_calls);
-        lcalls.push(s.llm_calls);
-        maxiters.push(s.max_iteration);
-        tinputs.push(String(s.total_input));
-        toutputs.push(String(s.total_output));
-      }
-      await client.query(
-        `
-      INSERT INTO agent_sessions (session_id, agent, model, started_at, last_seen_at, tool_calls, llm_calls, max_iteration, total_input_tokens, total_output_tokens)
-      SELECT u.session_id, u.agent, u.model,
-             u.started_at::timestamptz, u.last_seen_at::timestamptz,
-             u.tool_calls::int, u.llm_calls::int, u.max_iteration::int,
-             u.total_input_tokens::bigint, u.total_output_tokens::bigint
-      FROM unnest($1::text[],$2::text[],$3::text[],$4::text[],$5::text[],$6::int[],$7::int[],$8::int[],$9::text[],$10::text[])
-           AS u(session_id,agent,model,started_at,last_seen_at,tool_calls,llm_calls,max_iteration,total_input_tokens,total_output_tokens)
-      ON CONFLICT (session_id) DO UPDATE SET
-        agent               = COALESCE(EXCLUDED.agent, agent_sessions.agent),
-        model               = COALESCE(EXCLUDED.model, agent_sessions.model),
-        started_at          = LEAST(agent_sessions.started_at, EXCLUDED.started_at),
-        last_seen_at        = GREATEST(agent_sessions.last_seen_at, EXCLUDED.last_seen_at),
-        tool_calls          = agent_sessions.tool_calls + EXCLUDED.tool_calls,
-        llm_calls           = agent_sessions.llm_calls  + EXCLUDED.llm_calls,
-        max_iteration       = GREATEST(agent_sessions.max_iteration, EXCLUDED.max_iteration),
-        total_input_tokens  = agent_sessions.total_input_tokens  + EXCLUDED.total_input_tokens,
-        total_output_tokens = agent_sessions.total_output_tokens + EXCLUDED.total_output_tokens
-    `,
-        [sids, agents, models, ts0s, ts1s, tcalls, lcalls, maxiters, tinputs, toutputs]
-      );
-    }
-
+    await insertToolRows(client, toolRows);
+    await insertLlmRows(client, llmRows);
+    await upsertAgentSessions(client, summarizeAgentSessions(events, toolRows, llmRows));
     await client.query('COMMIT');
   } catch (err) {
     try {

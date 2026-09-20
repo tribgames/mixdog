@@ -776,6 +776,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                     const expanded = !collapsedAutomations.has(key);
                     const working = runs.some((run) => workingSessionIds?.has(run.id) === true);
                     const unread = runs.some((run) => unreadSessionIds?.has(run.id) === true);
+                    const ExpandGlyph = expanded ? ChevronDown : ChevronRight;
                     return (
                       <div className="automation-group" key={key}>
                         {/* The group header is a PURE disclosure (user decision):
@@ -797,10 +798,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                                 role="status"
                                 aria-label={t('{{name}} is working', { name })}
                               />
-                            ) : expanded ? (
-                              <ChevronDown size={14} aria-hidden="true" />
                             ) : (
-                              <ChevronRight size={14} aria-hidden="true" />
+                              <ExpandGlyph size={14} aria-hidden="true" />
                             )}
                           </span>
                           <span className="session-row-copy">
@@ -1350,7 +1349,7 @@ const SessionRow = React.memo(function SessionRow({
         )}
       </button>
       <div className="session-row-actions" inert={editing ? true : undefined} aria-hidden={editing ? true : undefined}>
-        {session.archived === true ? (
+        {session.archived === true && (
           <>
             <button
               type="button"
@@ -1393,7 +1392,8 @@ const SessionRow = React.memo(function SessionRow({
               <Trash2 size={confirmingDelete ? 12 : 13} />
             </button>
           </>
-        ) : (
+        )}
+        {session.archived !== true && (
           <button
             type="button"
             className="session-row-action session-row-archive"

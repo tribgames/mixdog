@@ -65,8 +65,11 @@ import {
   REMOTE_WAKE_EVENT,
   clearRemoteConnectionState,
   remoteConnectionInterruptedError,
+  reportRemoteConnectionIssue,
+  setRemoteConnectionPhase,
   setRemoteConnectionState,
   shouldRunRemoteHeartbeat,
+  type RemoteConnectionIssue,
 } from './remote-connection-state';
 
 const DISABLED_UPDATER: DesktopUpdaterState = { status: 'disabled' };
@@ -222,6 +225,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let openPromise: Promise<WebSocket> | null = null;
   let openingSocket: WebSocket | null = null;
   let openingStartedAt = 0;
+  let retireConnection: ((code?: number, reason?: string) => void) | null = null;
   // Last visible-session registration. The relay gates per-session transcript
   // frames on a PER CLIENT set, and a reconnect starts a fresh client record
   // with an empty one, so the shim replays this on every reopen.
@@ -305,6 +309,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const viewBaselines = createRemoteViewBaselineCache();
   const viewSync = createRemoteViewSync({
     synchronize: async () => {
+      setRemoteConnectionPhase('sync');
       const retained = viewBaselines.begin();
       try {
         return await invoke('synchronizeViews', [lastVisibleSessionIds, retained.offer]);
@@ -322,7 +327,10 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         window.dispatchEvent(new Event('mixdog:remote-reconnected'));
       }
     },
-    error: (error) => console.warn('[mixdog-remote] view synchronization failed; retrying', error),
+    error: (error) => {
+      reportRemoteConnectionIssue('sync-failed', error);
+      console.warn('[mixdog-remote] view synchronization failed; retrying', error);
+    },
     interrupted: remoteConnectionInterruptedError,
   });
   let approvalVerificationInFlight = false;
@@ -347,6 +355,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // an empty token and turning a healthy in-progress claim into a 401 reset.
   const waitForCredential = (): Promise<void> => {
     if (currentToken() && e2eePairing) return Promise.resolve();
+    setRemoteConnectionPhase('approval');
     return new Promise((resolve) => {
       const ready = () => {
         if (!currentToken() || !e2eePairing) return;
@@ -422,6 +431,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     // connect(). Parallel registrations would each rotate this browser's
     // credential server-side, invalidating each other mid-pairing.
     registrationInFlight ??= (async () => {
+      setRemoteConnectionPhase('registration');
       const endpoint = serverBase
         ? new URL('/client/register', serverBase).toString()
         : new URL('/client/register', location.origin).toString();
@@ -719,7 +729,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       } else if (!mobile) {
         cardBody = threeSteps;
       } else {
-        cardBody = (ios ? threeSteps : twoSteps) + '<button type="button" data-role="install" hidden></button>';
+        cardBody = `${ios ? threeSteps : twoSteps}<button type="button" data-role="install" hidden></button>`;
       }
       layer.innerHTML =
         '<style>' +
@@ -915,6 +925,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   const applyStatePayload = (payload: unknown): SessionSnapshot | null => {
     const decoded = stateDecoder.decode(payload);
     if (!decoded.ok) {
+      reportRemoteConnectionIssue('state-gap');
       requestResync();
       return null;
     }
@@ -1121,6 +1132,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         ? { ok: true, items: message.payload as DesktopSessionSummary[] }
         : sessionsDecoder.decode(message.payload);
       if (!decoded.ok) {
+        reportRemoteConnectionIssue('sessions-gap');
         requestResync();
         return;
       }
@@ -1130,6 +1142,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         ? { ok: true, items: message.payload as DesktopAgentPoolRow[] }
         : agentPoolDecoder.decode(message.payload);
       if (!decoded.ok) {
+        reportRemoteConnectionIssue('agents-gap');
         requestResync();
         return;
       }
@@ -1150,6 +1163,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
         const decoded = decoder.decode(payload.wire);
         if (!decoded.ok) {
+          reportRemoteConnectionIssue('transcript-gap');
           requestResync();
           return;
         }
@@ -1239,12 +1253,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   // surface. A close with calls in flight keeps the normal, visible path.
   const quietRecycledSockets = new WeakSet<WebSocket>();
   const recycleIdleSocket = (ws: WebSocket): void => {
+    reportRemoteConnectionIssue('heartbeat-timeout');
     if (pending.size === 0) quietRecycledSockets.add(ws);
-    try {
-      ws.close();
-    } catch {
-      /* reconnect loop takes over */
-    }
+    retireConnection?.();
   };
   window.setInterval(() => {
     if (backgroundSuspended || !shouldRunRemoteHeartbeat(document.visibilityState)) {
@@ -1278,9 +1289,9 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
   let backgroundSuspended = document.visibilityState === 'hidden';
   let resyncOnWake = backgroundSuspended;
   let reconnectTimer: number | null = null;
-  const backgroundClosedSockets = new WeakSet<WebSocket>();
   const suspendRemoteConnection = (): void => {
     if (!isInstalledMobileWebAppSurface() || !token || !e2eePairing) return;
+    setRemoteConnectionPhase('background');
     backgroundSuspended = true;
     resyncOnWake = true;
     awaitingPong = false;
@@ -1290,17 +1301,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       reconnectTimer = null;
     }
     setRemoteConnectionState('connecting');
-    const closeForBackground = (target: WebSocket | null): void => {
-      if (!target || target.readyState === WebSocket.CLOSED) return;
-      backgroundClosedSockets.add(target);
-      try {
-        target.close(1000, 'background');
-      } catch {
-        /* page suspension owns cleanup */
-      }
-    };
-    closeForBackground(socket);
-    if (openingSocket !== socket) closeForBackground(openingSocket);
+    retireConnection?.(1000, 'background');
   };
   const wakeProbe = (event?: Event): void => {
     if (document.visibilityState === 'hidden') {
@@ -1313,15 +1314,15 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       resyncOnWake = true;
       retryMs = 500;
-      // A browser can leave a failed VPS handshake in CONNECTING for minutes.
-      // Once the app is foregrounded, retire an old attempt so connect() does
-      // not keep returning its permanently pending promise.
-      if (openingSocket?.readyState === WebSocket.CONNECTING && Date.now() - openingStartedAt >= 1_500) {
-        try {
-          openingSocket.close();
-        } catch {
-          /* close handler retries */
-        }
+      // Neither a stalled handshake nor a delayed close event may keep
+      // connect() pinned to the previous attempt after a foreground wake.
+      const attempt = openingSocket ?? ws;
+      if (
+        attempt &&
+        (attempt.readyState >= WebSocket.CLOSING ||
+          (attempt.readyState === WebSocket.CONNECTING && Date.now() - openingStartedAt >= 1_500))
+      ) {
+        retireConnection?.();
       }
       void connect().catch(() => {
         /* the retry loop keeps running */
@@ -1414,6 +1415,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       await ensureClientRegistration();
     } catch (error) {
       const status = (error as { status?: number } | null)?.status;
+      reportRemoteConnectionIssue('registration-failed', error, status);
       // 401/403/409: this credential was revoked or its slot is gone — only a
       // new approval fixes it. Anything else (network, 429, 5xx) retries.
       if (status === 401 || status === 403 || status === 409) {
@@ -1425,27 +1427,49 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       }
       throw error instanceof Error ? error : new Error(String(error));
     }
+    if (backgroundSuspended) throw remoteConnectionInterruptedError();
     openPromise ??= new Promise<WebSocket>((resolve, reject) => {
+      setRemoteConnectionPhase('websocket');
       const ws = new WebSocket(wsUrl());
       openingSocket = ws;
       openingStartedAt = Date.now();
       ws.binaryType = 'arraybuffer';
       let opened = false;
+      let closed = false;
+      let failureReported = false;
       let handshakeTimer: number | null = null;
-      const openingTimer = window.setTimeout(() => {
-        if (opened || ws.readyState !== WebSocket.CONNECTING) return;
+      const reportFailure = (issue: RemoteConnectionIssue, error?: unknown, code?: number): void => {
+        failureReported = true;
+        reportRemoteConnectionIssue(issue, error, code);
+      };
+      // Browser suspension can postpone onclose indefinitely. Detach this
+      // attempt before asking the network to close, and ignore its late work.
+      const retire = (code?: number, reason?: string): void => {
+        if (closed) return;
+        finishClose();
         try {
-          ws.close();
+          ws.close(code, reason);
         } catch {
-          /* close handler retries */
+          /* this attempt is already detached */
         }
+      };
+      retireConnection = retire;
+      const expireHandshake = (): void => {
+        if (closed) return;
+        reportFailure('encryption-timeout');
+        retire();
+      };
+      const openingTimer = window.setTimeout(() => {
+        if (closed || opened || ws.readyState !== WebSocket.CONNECTING) return;
+        reportFailure('websocket-timeout');
+        retire();
       }, 12_000);
       const finishOpen = () => {
         // The relay can preserve this browser socket while the desktop leg
         // redials. In that case a fresh E2EE challenge makes the already-open
         // socket temporarily unready, then this same completion path restores
         // its subscriptions without requiring a browser reconnect.
-        if (opened && connectionReady) return;
+        if (closed || (opened && connectionReady)) return;
         const firstReady = !opened;
         const reconnected = everConnected;
         if (firstReady) {
@@ -1530,6 +1554,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
       };
       ws.onopen = () => {
+        if (closed) return;
         socket = ws;
         connectionReady = false;
         secureChannel = null;
@@ -1539,15 +1564,14 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           finishOpen();
           return;
         }
-        handshakeTimer = window.setTimeout(() => {
-          try {
-            ws.close();
-          } catch {
-            /* reconnect loop handles it */
-          }
-        }, 10_000);
+        setRemoteConnectionPhase('encryption');
+        handshakeTimer = window.setTimeout(expireHandshake, 10_000);
+      };
+      ws.onerror = () => {
+        if (!closed && !failureReported) reportRemoteConnectionIssue('websocket-error');
       };
       ws.onmessage = (event) => {
+        if (closed) return;
         // Traffic on ANY lane, encrypted or clear, refreshes the keepalive
         // window; only real silence may cost a probe.
         lastTrafficAt = Date.now();
@@ -1555,6 +1579,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           if (event.data instanceof ArrayBuffer) {
             if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
             const decrypted = await secureChannel.decryptJson(event.data);
+            if (closed) return;
             if (!decrypted || typeof decrypted !== 'object') return;
             const message = decrypted as Record<string, unknown>;
             if (message.type === 'e2ee-ready' && message.version === 1) {
@@ -1622,20 +1647,17 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             // Handles are per desktop leg; a new challenge starts a new map.
             compactSessionNames.clear();
             if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
-            handshakeTimer = window.setTimeout(() => {
-              try {
-                ws.close();
-              } catch {
-                /* reconnect loop handles it */
-              }
-            }, 10_000);
+            setRemoteConnectionPhase('encryption');
+            handshakeTimer = window.setTimeout(expireHandshake, 10_000);
             const handshake = await createRelayE2EEClientHandshake(e2eePairing, clear);
+            if (closed) return;
             secureChannel = handshake.channel;
             ws.send(JSON.stringify({ ...handshake.hello, viewSync: 1 }));
             return;
           }
           if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
           const decrypted = await secureChannel.decryptJson(clear);
+          if (closed) return;
           if (!decrypted || typeof decrypted !== 'object') return;
           const message = decrypted as Record<string, unknown>;
           if (message.type === 'e2ee-ready' && message.version === 1) {
@@ -1646,15 +1668,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           }
           if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
           handleMessage(message, true);
-        })().catch(() => {
-          try {
-            ws.close();
-          } catch {
-            /* reconnect loop handles it */
-          }
+        })().catch((error) => {
+          if (closed) return;
+          reportFailure('frame-failed', error);
+          retire();
         });
       };
-      ws.onclose = (event) => {
+      const finishClose = (event?: CloseEvent): void => {
+        if (closed) return;
+        if (event && !backgroundSuspended && !failureReported) {
+          reportFailure('websocket-closed', undefined, event.code);
+        }
+        closed = true;
+        retireConnection = null;
         viewSync.close();
         window.clearTimeout(openingTimer);
         if (handshakeTimer !== null) window.clearTimeout(handshakeTimer);
@@ -1665,6 +1691,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         secureChannel = null;
         relayBinaryFrames = false;
         clearWakePongTimer();
+        awaitingPong = false;
         resyncOnWake = true;
         // A new connection starts a fresh delta lane; a stale base revision
         // must never accidentally match the new encoder's numbering.
@@ -1676,18 +1703,8 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         for (const entry of [...pending.values()]) entry.reject(failure);
         pending.clear();
         if (!opened) reject(failure);
-        if (isInvalidRemotePairingClose(event)) {
+        if (event && isInvalidRemotePairingClose(event)) {
           resetApprovalAndAsk(earlyUiT('This device is no longer approved ({{status}}).', { status: event.code }));
-          return;
-        }
-        if (backgroundClosedSockets.delete(ws)) {
-          setRemoteConnectionState('connecting');
-          if (!backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
-            retryMs = 500;
-            void connect().catch(() => {
-              /* foreground retry loop takes over */
-            });
-          }
           return;
         }
         if (quietRecycle) {
@@ -1704,6 +1721,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         }
         scheduleReconnect();
       };
+      ws.onclose = finishClose;
     });
     return openPromise;
   };

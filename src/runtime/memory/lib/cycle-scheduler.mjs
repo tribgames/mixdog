@@ -1,14 +1,13 @@
-// Background cycle scheduling cluster, extracted from index.mjs (pass 3).
+// Background cycle scheduling cluster.
 //
-// This owns the mutually-referential cycle machinery that pass-2 flagged as
-// entangled: cycle-health ledger (_cycleHealth), the run-state file, the
-// cycle1 outer coalesce layer (_startCycle1Run/_awaitCycle1Run), the scheduled
-// enqueue/retry paths for cycle1/2, checkCycles(), and the self-rescheduling
-// tick loop. index.mjs keeps lifecycle ownership by injecting live getters
-// (getDb/getConfig/setConfig) plus the cycle runners and LLM adapters.
+// Owns the mutually-referential cycle machinery: the cycle-health ledger and
+// run-state file, the cycle1 outer coalesce layer, the scheduled enqueue /
+// retry paths for cycle1/2, checkCycles(), and the self-rescheduling tick
+// loop. The phases live under cycle-scheduler/. index.mjs keeps lifecycle
+// ownership by injecting live getters (getDb/getConfig/setConfig) plus the
+// cycle runners and LLM adapters.
 //
-// Factory contract — everything the extracted functions closed over in the
-// facade is passed in:
+// Factory contract — everything the phases close over is passed in:
 //   getDb()            -> live db handle (null before _initStore)
 //   getConfig()        -> live mainConfig
 //   setConfig(cfg)     -> checkCycles re-reads config each tick (poll-on-use)
@@ -20,29 +19,16 @@
 //   runCycle1 / runCycle2 / parseInterval / flushRawEmbeddings
 //   claimAndMarkScheduledCycle / resolveCoalesceMaxRetries /
 //     scheduleCoalescedCycleRetry -> coalesced queue primitives
-//   scheduledCycle{1,2,3}Signature -> queue signatures
+//   scheduledCycle{1,2}Signature -> queue signatures
 //   cycleStateFile -> path to memory-cycle-state.json
-import fs from 'node:fs';
+import { createCycleHealthLedger } from './cycle-scheduler/health-ledger.mjs';
+import { createCycle1Runs } from './cycle-scheduler/cycle1-runs.mjs';
+import { createCycle2Runs } from './cycle-scheduler/cycle2-runs.mjs';
+import { createScheduledEnqueue } from './cycle-scheduler/scheduled-enqueue.mjs';
+import { createBacklogProbe } from './cycle-scheduler/backlog-probe.mjs';
+import { createCycleTickLoop } from './cycle-scheduler/tick-loop.mjs';
 
-const CYCLE1_OMITTED_COOLDOWN_MS = 60 * 60 * 1000;
-const BACKLOG_WARN_COOLDOWN_MS = 10 * 60_000;
-const BACKLOG_WARN_PENDING = 500;
-const BACKLOG_WARN_FAILURES = 5;
-// Max back-to-back cycle2 passes per scheduled slot (config: cycle2.catchup_passes).
-const CYCLE2_CATCHUP_PASSES = 4;
-const CYCLE2_CATCHUP_PASSES_MAX = 10;
-
-function resolveCycle2CatchupPasses(config) {
-  const raw = Number(config?.catchup_passes ?? CYCLE2_CATCHUP_PASSES);
-  if (!Number.isFinite(raw)) return CYCLE2_CATCHUP_PASSES;
-  return Math.min(CYCLE2_CATCHUP_PASSES_MAX, Math.max(1, Math.floor(raw)));
-}
-
-export function periodicCycleDue(lastRun, cyclesStartedAt, intervalMs, now = Date.now()) {
-  const persistedLastRun = Number(lastRun) || 0;
-  const anchor = persistedLastRun > 0 ? persistedLastRun : Number(cyclesStartedAt) || 0;
-  return Number(intervalMs) > 0 && Number(now) - anchor >= Number(intervalMs);
-}
+export { periodicCycleDue } from './cycle-scheduler/tick-loop.mjs';
 
 export function createCycleScheduler(deps) {
   const {
@@ -70,459 +56,69 @@ export function createCycleScheduler(deps) {
     cycleStateFile,
   } = deps;
 
-  // ── Cycle health state ────────────────────────────────────────────────────
-  const _cycleHealth = {
-    cycle1: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
-    cycle2: { last_success_at: 0, last_error_at: 0, last_error: null, consecutive_failures: 0 },
-  };
-  let _cycleRunning = null; // { cycle, started_at }
-  let _cycleBacklogSnapshot = { unchunked: 0, cycle2_pending: 0, at: 0 };
-  let _lastBacklogWarnAt = 0;
+  const ledger = createCycleHealthLedger({ cycleStateFile, log });
+  const queue = { memoryCyclesEnabled, resolveCoalesceMaxRetries, scheduleCoalescedCycleRetry };
+  const cycle1 = createCycle1Runs({
+    ledger,
+    getDb,
+    dataDir,
+    log,
+    getCycle1CallLlm,
+    runCycle1,
+    setCycleLastRun,
+    ...queue,
+  });
+  const cycle2 = createCycle2Runs({ ledger, getDb, log, getCycle2CallLlm, runCycle2, setCycleLastRun, ...queue });
+  const enqueue = createScheduledEnqueue({
+    getDb,
+    getConfig,
+    claimAndMarkScheduledCycle,
+    scheduledCycle1Signature,
+    scheduledCycle2Signature,
+    scheduleScheduledCycle1: cycle1.scheduleScheduledCycle1,
+    scheduleScheduledCycle2: cycle2.scheduleScheduledCycle2,
+  });
+  const backlog = createBacklogProbe({ getDb, ledger, log, flushRawEmbeddings });
+  const tick = createCycleTickLoop({
+    readMainConfig,
+    setConfig,
+    memoryCyclesEnabled,
+    parseInterval,
+    getCycleLastRun,
+    enqueue,
+    probeBacklog: backlog.probe,
+    ledger,
+    cancelRetries: () => cancelCoalescedCycleRetries?.(getDb()),
+    log,
+  });
 
-  // ── Cycle1 outer coalesce layer + tick loop state ─────────────────────────
-  let _cycle1InFlight = null;
-  let _cycle2InFlight = false;
-  let _rawEmbedFlushInFlight = false;
-  let _checkCyclesInFlight = false;
-  let _cyclesActive = false;
-  let _cycleInterval = null;
-  let _cyclesStartedAt = 0;
-
-  function _writeCycleStateFile() {
-    try {
-      fs.writeFileSync(
-        cycleStateFile,
-        JSON.stringify({
-          running: _cycleRunning,
-          backlog: _cycleBacklogSnapshot,
-          cycles: _cycleHealth,
-          updatedAt: Date.now(),
-        })
-      );
-    } catch {
-      /* best-effort; statusline just shows nothing */
-    }
-  }
-
-  function markCycleRunning(cycle) {
-    // pid lets the statusline drop a phantom "running" marker as soon as
-    // this daemon dies mid-cycle, instead of waiting out the stale guard.
-    _cycleRunning = { cycle, started_at: Date.now(), pid: process.pid };
-    _writeCycleStateFile();
-  }
-
-  function markCycleDone(cycle, ok, err = null) {
-    const h = _cycleHealth[cycle];
-    if (h) {
-      const now = Date.now();
-      if (ok) {
-        h.last_success_at = now;
-        h.consecutive_failures = 0;
-        h.last_error = null;
-      } else {
-        h.last_error_at = now;
-        h.consecutive_failures += 1;
-        h.last_error = String(err || 'unknown').slice(0, 200);
-      }
-      if (!ok && h.consecutive_failures >= BACKLOG_WARN_FAILURES) {
-        _warnCycleHealth(`${cycle} failing repeatedly (consecutive=${h.consecutive_failures}, last="${h.last_error}")`);
-      }
-    }
-    if (_cycleRunning?.cycle === cycle) _cycleRunning = null;
-    _writeCycleStateFile();
-  }
-
-  function _warnCycleHealth(msg) {
-    const now = Date.now();
-    if (now - _lastBacklogWarnAt < BACKLOG_WARN_COOLDOWN_MS) return;
-    _lastBacklogWarnAt = now;
-    log(`[cycle-health] WARN ${msg}\n`);
-  }
-
-  async function recordCycle1Result(result) {
-    const now = Date.now();
-    await setCycleLastRun('cycle1_heartbeat', now);
-    const skipped = result?.skippedInFlight === true;
-    const coalescedNoop = result?.coalescedRetryNoop === true;
-    const allFailed =
-      !skipped &&
-      Number(result?.chunks ?? 0) === 0 &&
-      Number(result?.processed ?? 0) === 0 &&
-      Number(result?.skipped ?? 0) > 0;
-    if (!skipped && !coalescedNoop && !allFailed) {
-      await setCycleLastRun('cycle1', now);
-    }
-    if (!skipped && !coalescedNoop) markCycleDone('cycle1', !allFailed, allFailed ? 'all rows skipped' : null);
-  }
-
-  function _startCycle1Run(config = {}, options = {}) {
-    if (typeof options?.callLlm !== 'function') {
-      options = { ...options, callLlm: getCycle1CallLlm() };
-    }
-    markCycleRunning('cycle1');
-    _cycle1InFlight = (async () => {
-      try {
-        const result = await runCycle1(getDb(), config, options, dataDir);
-        if (typeof options?.onCoalescedSuccess !== 'function') {
-          await recordCycle1Result(result);
-        }
-        return result;
-      } catch (err) {
-        markCycleDone('cycle1', false, err?.message || err);
-        throw err;
-      } finally {
-        if (_cycleRunning?.cycle === 'cycle1') {
-          _cycleRunning = null;
-          _writeCycleStateFile();
-        }
-        if (_cycle1InFlight === promise) _cycle1InFlight = null;
-      }
-    })();
-    const promise = _cycle1InFlight;
-    return _cycle1InFlight;
-  }
-
-  async function _awaitCycle1Run(config = {}, options = {}) {
-    const target = _cycle1InFlight || _startCycle1Run(config, options);
-    const callerDeadlineMs = Number(options.callerDeadlineMs) || 0;
-    if (callerDeadlineMs <= 0) return await target;
-    let timer;
-    const deadlinePromise = new Promise((resolve) => {
-      timer = setTimeout(() => {
-        resolve({
-          processed: 0,
-          chunks: 0,
-          skipped: 0,
-          sessions: 0,
-          skippedInFlight: true,
-          timedOutWaiting: true,
-          callerDeadlineMs,
-        });
-      }, callerDeadlineMs);
-    });
-    try {
-      return await Promise.race([target, deadlinePromise]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  function periodicCycle1Config() {
-    return {
-      min_batch: 20,
-      session_cap: 4,
-      batch_size: 50,
-      max_packets: 4,
-      concurrency: 4,
-      ...(getConfig()?.cycle1 || {}),
-    };
-  }
-
-  async function enqueueScheduledCycle(kind, intervalMs, signature, config = {}) {
-    const timeoutMs = Math.max(0, Number(config?.timeout) || 600_000);
-    const claimLeaseMs = Math.min(intervalMs, Math.max(60_000, timeoutMs + 60_000));
-    const claim = await claimAndMarkScheduledCycle(getDb(), kind, intervalMs, signature, {
-      reason: 'scheduled',
-      spacingMs: claimLeaseMs,
-    });
-    return claim.claimed === true;
-  }
-
-  async function enqueueScheduledCycle1(intervalMs, _reason = 'scheduled') {
-    const config = periodicCycle1Config();
-    const signature = scheduledCycle1Signature(config);
-    if (await enqueueScheduledCycle('cycle1', intervalMs, signature, config)) {
-      scheduleScheduledCycle1(config, signature);
-    }
-  }
-
-  async function enqueueScheduledCycle2(intervalMs, _reason = 'scheduled') {
-    const config = getConfig()?.cycle2 || {};
-    const signature = scheduledCycle2Signature(config);
-    if (await enqueueScheduledCycle('cycle2', intervalMs, signature, config)) {
-      scheduleScheduledCycle2(config, signature);
-    }
-  }
-
-  function scheduleScheduledCycle1(config, signature, attempt = 0) {
-    const maxRetries = resolveCoalesceMaxRetries(config, 3);
-    if (attempt > maxRetries) {
-      log('[cycle1] scheduled queue retry cap reached\n');
-      return;
-    }
-    scheduleCoalescedCycleRetry(
-      getDb(),
-      'cycle1',
-      async () => {
-        if (!memoryCyclesEnabled()) return;
-        if (_cycle1InFlight) {
-          scheduleScheduledCycle1(config, signature, attempt + 1);
-          return;
-        }
-        const result = await _awaitCycle1Run(config, {
-          coalescedRetry: true,
-          onCoalescedSuccess: recordCycle1Result,
-        });
-        if (result?.skippedInFlight) scheduleScheduledCycle1(config, signature, attempt + 1);
-      },
-      config,
-      signature
-    );
-  }
-
-  function scheduleScheduledCycle2(config, signature, attempt = 0) {
-    const maxRetries = resolveCoalesceMaxRetries(config, 3);
-    if (attempt > maxRetries) {
-      log('[cycle2] scheduled queue retry cap reached\n');
-      return;
-    }
-    scheduleCoalescedCycleRetry(
-      getDb(),
-      'cycle2',
-      async () => {
-        if (!memoryCyclesEnabled()) return;
-        if (_cycle2InFlight) {
-          scheduleScheduledCycle2(config, signature, attempt + 1);
-          return;
-        }
-        _cycle2InFlight = true;
-        markCycleRunning('cycle2');
-        try {
-          // Catch-up drain: one scheduled slot may run several back-to-back
-          // passes while pending roots remain, so a backlog above the batch
-          // size drains in one interval instead of one batch per hour.
-          const drainPasses = resolveCycle2CatchupPasses(config);
-          for (let pass = 0; pass < drainPasses; pass++) {
-            let c2Options = {
-              coalescedRetry: true,
-              catchUpDrainPass: pass > 0,
-              onCoalescedSuccess: _finalizeCycle2Run,
-            };
-            if (typeof c2Options?.callLlm !== 'function') {
-              c2Options = { ...c2Options, callLlm: getCycle2CallLlm() };
-            }
-            const result = await runCycle2(getDb(), config, c2Options);
-            if (result?.skippedInFlight) {
-              scheduleScheduledCycle2(config, signature, attempt + 1);
-              break;
-            }
-            if (result?.coalescedRetryNoop) {
-              log('[cycle2] scheduled queue noop\n');
-              break;
-            }
-            if (result?.ok === false) {
-              await _finalizeCycle2Run(result);
-              break;
-            }
-            const pendingRes = await getDb().query(
-              `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND cycle2_reviewed_at IS NULL AND duplicate_of IS NULL`
-            );
-            const pendingLeft = Number(pendingRes?.rows?.[0]?.c ?? 0);
-            log(
-              `[cycle2] catch-up pass ${pass + 1}/${drainPasses}: ` +
-                `processed=${Number(result?.processed ?? 0)} pending=${pendingLeft}\n`
-            );
-            if (pendingLeft <= 0) break;
-            if (pass + 1 >= drainPasses) break;
-          }
-        } catch (err) {
-          log(`[cycle2] scheduled queue failed: ${err?.message || err}\n`);
-          markCycleDone('cycle2', false, err?.message || err);
-        } finally {
-          _cycle2InFlight = false;
-          if (_cycleRunning?.cycle === 'cycle2') {
-            _cycleRunning = null;
-            _writeCycleStateFile();
-          }
-        }
-      },
-      config,
-      signature
-    );
-  }
-
-  async function _finalizeCycle2Run(result) {
-    if (result?.skippedInFlight) {
-      log('[cycle2] skipped: in flight\n');
-      return;
-    }
-    if (result.ok) {
-      await setCycleLastRun('cycle2', Date.now());
-      await setCycleLastRun('cycle2_last_error', '');
-      log('[cycle2] completed\n');
-      markCycleDone('cycle2', true);
-    } else {
-      const err = result.error || 'unknown error';
-      await setCycleLastRun('cycle2_last_error', err);
-      log(`[cycle2] failed: ${err}\n`);
-      markCycleDone('cycle2', false, err);
-    }
-  }
-
-  async function checkCycles() {
-    const mainConfig = readMainConfig();
-    setConfig(mainConfig);
-    const cyclesOn = memoryCyclesEnabled();
-    const db = getDb();
-
-    const cycle1Ms = parseInterval(mainConfig?.cycle1?.interval || '10m');
-    const cycle2Ms = parseInterval(mainConfig?.cycle2?.interval || '1h');
-
-    const now = Date.now();
-    const last = await getCycleLastRun();
-
-    if (cyclesOn) {
-      if (periodicCycleDue(last.cycle1, _cyclesStartedAt, cycle1Ms, now)) {
-        await enqueueScheduledCycle1(cycle1Ms, 'scheduled');
-      }
-
-      if (periodicCycleDue(last.cycle2, _cyclesStartedAt, cycle2Ms, now)) {
-        await enqueueScheduledCycle2(cycle2Ms, 'scheduled');
-      }
-    }
-
-    try {
-      const unchunked = Number(
-        (
-          await db.query(
-            `SELECT COUNT(*) c FROM entries WHERE chunk_root IS NULL AND NULLIF(btrim(session_id), '') IS NOT NULL`
-          )
-        ).rows[0]?.c ?? 0
-      );
-      const unchunkedEligible = Number(
-        (
-          await db.query(
-            `SELECT COUNT(*) c FROM entries
-         WHERE chunk_root IS NULL
-           AND NULLIF(btrim(session_id), '') IS NOT NULL
-           AND (reviewed_at IS NULL OR reviewed_at < $1)`,
-            [now - CYCLE1_OMITTED_COOLDOWN_MS]
-          )
-        ).rows[0]?.c ?? 0
-      );
-      const cycle2Pending = Number(
-        (
-          await db.query(
-            `SELECT COUNT(*) c FROM entries WHERE is_root = 1 AND cycle2_reviewed_at IS NULL AND duplicate_of IS NULL`
-          )
-        ).rows[0]?.c ?? 0
-      );
-      _cycleBacklogSnapshot = {
-        unchunked,
-        unchunked_eligible: unchunkedEligible,
-        cycle2_pending: cycle2Pending,
-        at: now,
-      };
-      _writeCycleStateFile();
-      if (unchunked > BACKLOG_WARN_PENDING || cycle2Pending > BACKLOG_WARN_PENDING) {
-        _warnCycleHealth(
-          `backlog unchunked=${unchunked} eligible=${unchunkedEligible} cycle2_pending=${cycle2Pending}`
-        );
-      }
-      if (unchunked > 0 && !_rawEmbedFlushInFlight) {
-        _rawEmbedFlushInFlight = true;
-        flushRawEmbeddings(db, { limit: 200 })
-          .then((r) => {
-            if (r.attempted > 0) log(`[embed] raw fallback flush attempted=${r.attempted} embedded=${r.embedded}\n`);
-          })
-          .catch((err) => log(`[embed] raw fallback flush failed: ${err?.message || err}\n`))
-          .finally(() => {
-            _rawEmbedFlushInFlight = false;
-          });
-      }
-    } catch {
-      /* counts are best-effort; never fail the tick */
-    }
-  }
-
-  async function _runCheckCyclesGuarded() {
-    if (_checkCyclesInFlight) return;
-    _checkCyclesInFlight = true;
-    try {
-      await checkCycles();
-    } catch (e) {
-      log(`[cycle-tick] error: ${e.message}\n`);
-    } finally {
-      _checkCyclesInFlight = false;
-    }
-  }
-
-  function _scheduleNextCheck() {
-    _cycleInterval = setTimeout(async () => {
-      _cycleInterval = null;
-      try {
-        await _runCheckCyclesGuarded();
-      } catch (e) {
-        log(`[cycle-tick] re-arm guard caught: ${e?.message || e}\n`);
-      } finally {
-        if (_cyclesActive) _scheduleNextCheck();
-      }
-    }, 60_000);
-  }
-
-  function startCycles() {
-    if (_cyclesActive) return;
-    _cyclesActive = true;
-    _cyclesStartedAt = Date.now();
-    // Boot reset: a previous daemon that crashed mid-run leaves the state
-    // file's `running` marker set, and the statusline keeps showing a
-    // phantom "Memory cycle running" spinner until its 10-minute stale
-    // guard kicks in. No cycle can be running when this scheduler starts,
-    // so clear the marker (health/backlog reset to this process's state).
-    _cycleRunning = null;
-    _writeCycleStateFile();
-    // Hydrate health success timestamps from the persisted per-cycle last-run
-    // meta. Without this, a restart re-inits _cycleHealth to last_success_at=0
-    // and the state file reports 0 until the next run.
-    Promise.resolve(getCycleLastRun())
-      .then((last) => {
-        if (last?.cycle1 > 0 && !_cycleHealth.cycle1.last_success_at) _cycleHealth.cycle1.last_success_at = last.cycle1;
-        if (last?.cycle2 > 0 && !_cycleHealth.cycle2.last_success_at) _cycleHealth.cycle2.last_success_at = last.cycle2;
-        _writeCycleStateFile();
-      })
-      .catch(() => {});
-    _scheduleNextCheck();
-  }
-
-  function stopCycles() {
-    _cyclesActive = false;
-    if (_cycleInterval) {
-      clearTimeout(_cycleInterval);
-      _cycleInterval = null;
-    }
-    try {
-      cancelCoalescedCycleRetries?.(getDb());
-    } catch {}
-  }
-
-  // Full-shutdown reset — baseline stop() cleared these module-level flags so
-  // a later init() starts from a clean slate instead of coalescing onto (or
-  // skipping behind) pre-stop in-flight work / stale running state.
+  // Full-shutdown reset so a later init() starts from a clean slate instead of
+  // coalescing onto (or skipping behind) pre-stop in-flight work / stale
+  // running state.
   function resetInFlight() {
-    _cycle1InFlight = null;
-    _cycle2InFlight = false;
-    _checkCyclesInFlight = false;
-    _rawEmbedFlushInFlight = false;
-    _cycleRunning = null;
-    _cyclesStartedAt = 0;
+    cycle1.reset();
+    cycle2.reset();
+    backlog.reset();
+    tick.reset();
+    ledger.resetRunning();
   }
 
   return {
     // health/state accessors (HTTP /health, statusline)
-    getCycleHealth: () => _cycleHealth,
-    getCycleRunning: () => _cycleRunning,
-    getCycleBacklogSnapshot: () => _cycleBacklogSnapshot,
+    getCycleHealth: () => ledger.health,
+    getCycleRunning: ledger.getRunning,
+    getCycleBacklogSnapshot: ledger.getBacklog,
     // cycle1 in-flight handle (rebuild drain in index.mjs)
-    getCycle1InFlight: () => _cycle1InFlight,
+    getCycle1InFlight: cycle1.getInFlight,
     // run primitives used by MCP action handlers
-    startCycle1Run: _startCycle1Run,
-    awaitCycle1Run: _awaitCycle1Run,
-    finalizeCycle2Run: _finalizeCycle2Run,
-    periodicCycle1Config,
+    startCycle1Run: cycle1.startCycle1Run,
+    awaitCycle1Run: cycle1.awaitCycle1Run,
+    finalizeCycle2Run: cycle2.finalizeCycle2Run,
+    periodicCycle1Config: enqueue.periodicCycle1Config,
     // lifecycle
-    startCycles,
-    stopCycles,
+    startCycles: tick.start,
+    stopCycles: tick.stop,
     resetInFlight,
-    checkCycles,
+    checkCycles: tick.checkCycles,
   };
 }

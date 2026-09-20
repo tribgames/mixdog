@@ -16,7 +16,7 @@ import {
   type UsageApi,
   type UsageRecord,
 } from './usage-dashboard-store';
-import { displayUsagePercent } from './usage-percent';
+import { displayUsagePercent, usageToneClass } from './usage-percent';
 import { formatUsageResetRemaining, usageResetPresentation } from './usage-reset-time';
 import { useUsageResetVerification } from './use-usage-reset-verification';
 import { ProviderAccountPicker } from './ProviderAccountPicker';
@@ -250,6 +250,25 @@ function codexResetAttempt(offerRevision: string): string {
   return idempotencyKey;
 }
 
+function resetOutcomeNotice(status: unknown, outcome: unknown): string {
+  if (status === 'offerChanged') return t('Reset availability changed. Review the latest Codex usage.');
+  if (outcome === 'reset') return '';
+  if (outcome === 'alreadyRedeemed') return t('Reset already applied.');
+  if (outcome === 'nothingToReset') return t('No eligible rate-limit window is exhausted.');
+  return t('No reset credit is available.');
+}
+
+function subscriptionStateText(loadingFirst: boolean, connected: boolean): string {
+  if (loadingFirst) return t('Loading…');
+  return connected ? t('Connected') : t('Not connected');
+}
+
+function emptyMeterText(checking: boolean, loadingFirst: boolean, connected: boolean): string {
+  if (checking) return t('Loading usage…');
+  if (loadingFirst) return t('Loading…');
+  return connected ? t('No current quota window') : t('Connect to load usage');
+}
+
 function clearCodexResetAttempt(offerRevision: string): void {
   try {
     const stored = record(JSON.parse(window.localStorage.getItem(SIDEBAR_CODEX_RESET_ATTEMPT_KEY) || 'null'));
@@ -381,17 +400,7 @@ export function SidebarUsage({
       }
       clearCodexResetAttempt(codexResetOffer);
       setResetConfirming(null);
-      setResetNotice(
-        result.status === 'offerChanged'
-          ? t('Reset availability changed. Review the latest Codex usage.')
-          : outcome === 'reset'
-            ? ''
-            : outcome === 'alreadyRedeemed'
-              ? t('Reset already applied.')
-              : outcome === 'nothingToReset'
-                ? t('No eligible rate-limit window is exhausted.')
-                : t('No reset credit is available.')
-      );
+      setResetNotice(resetOutcomeNotice(result.status, outcome));
     } catch (cause) {
       // Keep the durable idempotency key: retrying an unknown provider outcome
       // must reuse the same operation rather than spend a second credit.
@@ -478,13 +487,7 @@ export function SidebarUsage({
                       <ProviderAccountPicker api={api} provider={subscription.provider} />
                     )}
                     {windows.length === 0 && !checking && (
-                      <small>
-                        {!available && awaitingFirstUsage
-                          ? t('Loading…')
-                          : connected
-                            ? t('Connected')
-                            : t('Not connected')}
-                      </small>
+                      <small>{subscriptionStateText(!available && awaitingFirstUsage, connected)}</small>
                     )}
                   </span>
                   <span className="sidebar-usage-meters">
@@ -499,12 +502,7 @@ export function SidebarUsage({
                       });
                       const effectivePercent = resetPresentation.percent;
                       const displayedPercent = displayUsagePercent(effectivePercent);
-                      const tone =
-                        effectivePercent !== null && effectivePercent >= 90
-                          ? ' tone-danger'
-                          : effectivePercent !== null && effectivePercent >= 70
-                            ? ' tone-warning'
-                            : '';
+                      const tone = usageToneClass(effectivePercent);
                       const resetSentence =
                         resetPresentation.resetTextOverride === null ? resetText(window.resetAt) : '';
                       return (
@@ -522,15 +520,7 @@ export function SidebarUsage({
                     })}
                     {windows.length === 0 && (
                       <span className="sidebar-usage-meter sidebar-usage-meter-empty">
-                        <small>
-                          {checking
-                            ? t('Loading usage…')
-                            : !available && awaitingFirstUsage
-                              ? t('Loading…')
-                              : connected
-                                ? t('No current quota window')
-                                : t('Connect to load usage')}
-                        </small>
+                        <small>{emptyMeterText(checking, !available && awaitingFirstUsage, connected)}</small>
                       </span>
                     )}
                   </span>
@@ -549,6 +539,7 @@ export function SidebarUsage({
                 <div className="sidebar-usage-reset-list">
                   {codexResetRows.map((credit, index) => {
                     const creditKey = codexResetKeys[index];
+                    const confirmLabel = resetting ? t('Using…') : t('Confirm');
                     return (
                       <div className="sidebar-usage-reset-row" key={creditKey}>
                         <div className="sidebar-usage-reset-summary">
@@ -581,7 +572,7 @@ export function SidebarUsage({
                                 disabled={resetting}
                                 onClick={() => void consumeCodexReset()}
                               >
-                                {resetting ? t('Using…') : t('Confirm')}
+                                {confirmLabel}
                               </button>
                             </div>
                           </div>

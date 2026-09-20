@@ -48,18 +48,15 @@ export function renderShellCompletionEnvelope({
   // and invites a success reading. Foreground shell results already separate
   // the two; background completions state the same outcome explicitly.
   const normalizedStatus = String(status || '').toLowerCase();
-  const outcome =
-    normalizedStatus === 'completed'
-      ? exitCode === 0
-        ? 'success'
-        : typeof exitCode === 'number'
-          ? 'command-failed'
-          : 'completed'
-      : normalizedStatus === 'failed'
-        ? 'not-completed'
-        : normalizedStatus === 'cancelled' || normalizedStatus === 'canceled'
-          ? 'cancelled'
-          : null;
+  let outcome = null;
+  if (normalizedStatus === 'completed') {
+    if (exitCode === 0) outcome = 'success';
+    else outcome = typeof exitCode === 'number' ? 'command-failed' : 'completed';
+  } else if (normalizedStatus === 'failed') {
+    outcome = 'not-completed';
+  } else if (normalizedStatus === 'cancelled' || normalizedStatus === 'canceled') {
+    outcome = 'cancelled';
+  }
   const header = [
     `[task_id: ${jobId}]`,
     `[status: ${status}]`,

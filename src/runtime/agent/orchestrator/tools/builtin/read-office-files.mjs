@@ -3,7 +3,7 @@
 // minimal ZIP central-directory reader (stored + deflate entries via
 // node:zlib) and a tag-level pass over the document, slide, and sheet XML.
 // No external dependencies.
-import { readFile, stat } from 'fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { inflateRawSync } from 'node:zlib';
 
 // Whole-container read cap. Office decks with embedded media can be large;
@@ -81,11 +81,9 @@ function decodeXmlEntities(text) {
 // looked like prose with a gap. The marker says what sits there, and repeats
 // the description the file gives a reader who cannot see it.
 function drawingMarker(xml) {
-  const kind = /<c:chart\b|\bchart"|<cx:chart\b/.test(xml)
-    ? 'chart'
-    : /<dgm:relIds\b|diagramData/.test(xml)
-      ? 'diagram'
-      : 'image';
+  let kind = 'image';
+  if (/<c:chart\b|\bchart"|<cx:chart\b/.test(xml)) kind = 'chart';
+  else if (/<dgm:relIds\b|diagramData/.test(xml)) kind = 'diagram';
   const descr = decodeXmlEntities(
     /<(?:wp|pic|p|xdr):(?:docPr|cNvPr)\b[^>]*\bdescr="([^"]+)"/.exec(xml)?.[1] || ''
   ).trim();
@@ -579,8 +577,7 @@ export async function extractOoxmlText(fullPath, { maxOutputBytes = 100 * 1024 }
         // A hidden sheet is content the workbook does not show; reading
         // it as an ordinary sheet presents withheld data as the answer.
         const state = (/\bstate="([^"]*)"/.exec(attributes)?.[1] || '').toLowerCase();
-        const label =
-          state === 'hidden' || state === 'veryhidden' ? ` (${state === 'hidden' ? 'hidden' : 'very hidden'})` : '';
+        const label = { hidden: ' (hidden)', veryhidden: ' (very hidden)' }[state] ?? '';
         const name = `${decodeXmlEntities(/\bname="([^"]*)"/.exec(attributes)?.[1] || '')}${label}`;
         const relationshipId = /\br:id="([^"]+)"/.exec(attributes)?.[1] || '';
         const part = relationships.get(relationshipId);

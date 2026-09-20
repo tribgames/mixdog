@@ -56,11 +56,9 @@ export function useAppWorkspaceNavigation({
   // The visible pane model is authoritative for shortcuts. An in-flight
   // session request may belong to the pane we just left and must not pull
   // traversal back toward that pane's last selected tab.
-  const focusedActiveTabKey = focusedPaneSelection
-    ? navigationKey(focusedPaneSelection)
-    : requestedSessionId
-      ? navigationKey({ kind: 'session', id: requestedSessionId })
-      : activeTabKey;
+  let focusedActiveTabKey = activeTabKey;
+  if (focusedPaneSelection) focusedActiveTabKey = navigationKey(focusedPaneSelection);
+  else if (requestedSessionId) focusedActiveTabKey = navigationKey({ kind: 'session', id: requestedSessionId });
 
   useEffect(() => {
     if (!focusedActiveTabKey) return;

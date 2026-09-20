@@ -366,7 +366,11 @@ function fuzzyLineMatch(actualBytes, expectedBytes, expected, fuzz) {
   if (byteTrimPatchWhitespace(actualBytes).equals(byteTrimPatchWhitespace(expectedBytes))) return 'trim';
   const actualStr = decodeValidUtf8OrNull(actualBytes);
   const expectedStr = actualStr === null ? null : decodeValidUtf8OrNull(expectedBytes);
-  if (actualStr !== null && expectedStr !== null && normalizeTypographic(actualStr) === normalizeTypographic(expectedStr)) {
+  if (
+    actualStr !== null &&
+    expectedStr !== null &&
+    normalizeTypographic(actualStr) === normalizeTypographic(expectedStr)
+  ) {
     return 'norm';
   }
   return null;

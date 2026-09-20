@@ -85,9 +85,11 @@ export function ToolActivityGroup({
   const pending = items.some((item) => !toolItemDone(item));
   const categoryGroups = useMemo(() => desktopToolActivityCategoryGroups(items), [items]);
   // A single call carries no count: "Skill mixdog-refs" not "Skill mixdog-refs 1".
-  const categorySummary = categoryGroups
-    .map((group) => (group.count > 1 ? `${group.label} ${group.count}` : group.label))
-    .join(' · ');
+  const categorySummary = (() => {
+    const summary = new Map<string, number>();
+    for (const group of categoryGroups) summary.set(group.label, (summary.get(group.label) || 0) + group.count);
+    return [...summary].map(([groupLabel, count]) => (count > 1 ? `${groupLabel} ${count}` : groupLabel)).join(' · ');
+  })();
   const label = categorySummary || t('Tool use');
 
   return (
@@ -201,6 +203,19 @@ function ToolActivityDetails({
           item,
           index: itemIndex++,
         }));
+        const singleItem = groupItems.length === 1 && group.count === 1 ? groupItems[0] : null;
+        if (singleItem) {
+          const key = activityItemKey(singleItem.item, singleItem.index);
+          return (
+            <ToolActivityItem
+              key={key}
+              item={singleItem.item}
+              open={openItem === key}
+              onToggle={() => toggleItem(key)}
+              contentId={`${contentId}-item-${singleItem.index}`}
+            />
+          );
+        }
         const categoryOpen = openCategory === group.unitKey;
         const categoryPending = group.items.some((item) => !toolItemDone(item));
         const categoryContentId = `${contentId}-category-${groupIndex}`;
@@ -254,6 +269,11 @@ function ToolActivityDetails({
 const TOOL_ACTIVITY_MARKDOWN_HINT = /(?:^|\n)\s{0,3}(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)|\n\s*\|[^\n]*\|\s*(?:\n|$)/;
 const TOOL_ACTIVITY_MARKDOWN_MAX = 20_000;
 const ToolMarkdownBody = lazy(preloadMarkdownBody);
+
+function structuredKindLabel(kind: string): string {
+  if (kind === 'questions') return TOOL_DETAIL_LABELS.questions;
+  return kind === 'todos' ? TOOL_DETAIL_LABELS.todos : TOOL_DETAIL_LABELS.plan;
+}
 
 function toolActivityLooksMarkdown(text: string): boolean {
   return text.length <= TOOL_ACTIVITY_MARKDOWN_MAX && TOOL_ACTIVITY_MARKDOWN_HINT.test(text);
@@ -397,13 +417,7 @@ function ToolActivityItem({
           )}
           {presentation.structuredRows.length > 0 && (
             <section className="tool-activity-item-section">
-              <span>
-                {presentation.structuredKind === 'questions'
-                  ? TOOL_DETAIL_LABELS.questions
-                  : presentation.structuredKind === 'todos'
-                    ? TOOL_DETAIL_LABELS.todos
-                    : TOOL_DETAIL_LABELS.plan}
-              </span>
+              <span>{structuredKindLabel(presentation.structuredKind)}</span>
               <div className="tool-activity-structured-list">
                 {presentation.structuredRows.map((row, index) => (
                   <div className="tool-activity-structured-row" data-status={row.status} key={`${row.text}:${index}`}>

@@ -19,11 +19,9 @@ export function catalogHttpError(status, text = '') {
 }
 
 export function catalogDiagnostic(error) {
-  const code = Object.hasOwn(MESSAGES, error?.code)
-    ? error.code
-    : error?.name === 'TimeoutError'
-      ? 'MEDIA_CATALOG_TIMEOUT'
-      : 'MEDIA_CATALOG_UNAVAILABLE';
+  let code = 'MEDIA_CATALOG_UNAVAILABLE';
+  if (Object.hasOwn(MESSAGES, error?.code)) code = error.code;
+  else if (error?.name === 'TimeoutError') code = 'MEDIA_CATALOG_TIMEOUT';
   return { code, message: MESSAGES[code] };
 }
 

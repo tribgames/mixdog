@@ -1,6 +1,6 @@
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'fs';
-import { execFileSync } from 'child_process';
-import { basename, join } from 'path';
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { basename, join } from 'node:path';
 import { ensureDir, readJsonFile, removeFileIfExists } from './state-file.mjs';
 import { isPidAlive } from '../../shared/pid-liveness.mjs';
 import { updateJsonAtomicSync, withFileLockSync } from '../../shared/atomic-file.mjs';
@@ -288,12 +288,9 @@ function refreshActiveInstance(instanceId, meta, options) {
           // Clear session-scoped gateway metrics when the transcript changes —
           // a new session must not inherit the previous session's context
           // usage before the gateway re-advertises.
+          const nonEmptyString = (value) => (typeof value === 'string' && value ? value : null);
           const metricTranscript =
-            typeof prevForPreserve?.gateway_transcript_path === 'string' && prevForPreserve.gateway_transcript_path
-              ? prevForPreserve.gateway_transcript_path
-              : typeof prevForPreserve?.transcriptPath === 'string' && prevForPreserve.transcriptPath
-                ? prevForPreserve.transcriptPath
-                : null;
+            nonEmptyString(prevForPreserve?.gateway_transcript_path) ?? nonEmptyString(prevForPreserve?.transcriptPath);
           if (
             typeof meta?.transcriptPath === 'string' &&
             meta.transcriptPath &&

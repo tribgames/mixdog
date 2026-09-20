@@ -424,12 +424,18 @@ const SETUP_ACTION_HANDLERS = {
     if (kind === 'mcp') return { mcp: mcpRows(status) };
     return status || {};
   },
-  add_plugin: async (rt, args) => ({ plugin: (await rt.addPlugin(requireText(args.source, 'source')))?.plugin || null }),
-  update_plugin: async (rt, args) => ({ plugin: (await rt.updatePlugin(requireText(args.name, 'name')))?.plugin || null }),
+  add_plugin: async (rt, args) => ({
+    plugin: (await rt.addPlugin(requireText(args.source, 'source')))?.plugin || null,
+  }),
+  update_plugin: async (rt, args) => ({
+    plugin: (await rt.updatePlugin(requireText(args.name, 'name')))?.plugin || null,
+  }),
   set_plugin_enabled: async (rt, args) => ({
     plugin: (await rt.setPluginEnabled(requireText(args.name, 'name'), requireBoolean(args.enabled)))?.plugin || null,
   }),
-  remove_plugin: async (rt, args) => ({ plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null }),
+  remove_plugin: async (rt, args) => ({
+    plugin: (await rt.removePlugin(requireText(args.name, 'name')))?.plugin || null,
+  }),
 };
 
 const READ_ONLY_SETUP_ACTIONS = new Set([

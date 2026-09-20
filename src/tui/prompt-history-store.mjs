@@ -173,7 +173,7 @@ async function writeBehindFlush(filePath) {
     pendingTimers.delete(filePath);
   }
   const pend = pendingAppends.get(filePath);
-  if (!pend || !pend.length) return;
+  if (!pend?.length) return;
   // Claim this window; appends arriving during the async write accumulate fresh
   // and reconcile against the file we are about to write.
   pendingAppends.set(filePath, []);

@@ -31,7 +31,7 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
   };
 
   const expiredProjection = (goal, at) => {
-    if (!goal || goal.status !== 'active' || !(goal.timeLimitMs > 0) || activeElapsedMs(goal, at) < goal.timeLimitMs)
+    if (goal?.status !== 'active' || !(goal.timeLimitMs > 0) || activeElapsedMs(goal, at) < goal.timeLimitMs)
       return false;
     stopActiveClock(goal, at);
     goal.status = 'duration_reached';
@@ -79,7 +79,7 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
   };
 
   const warningState = (goal, at) => {
-    if (!goal || goal.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return null;
+    if (goal?.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return null;
     const remainingMs = Math.max(0, Number(goal.timeLimitMs) - activeElapsedMs(goal, at));
     if (remainingMs <= 0) return null;
     return {
@@ -100,7 +100,7 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
       if (closed) return;
       const current = readRecord(id).goal;
       const state = warningState(current, now());
-      if (!state || !state.crossedMs || state.crossedMs !== target) return;
+      if (!state?.crossedMs || state.crossedMs !== target) return;
       current.deadlineWarnedMs = Math.min(normalizeDeadlineWarnedMs(current.deadlineWarnedMs), target);
       current.warningRevision = Math.max(0, Math.floor(Number(current.warningRevision) || 0)) + 1;
       current.updatedAt = now();
@@ -114,7 +114,7 @@ export function createGoalDeadlines({ now, readRecord, withMutation, commit, onS
     if (closed) return;
     clearDeadline(sessionId);
     const goal = readRecord(sessionId).goal;
-    if (!goal || goal.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return;
+    if (goal?.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return;
     const at = now();
     const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, at));
     if (remainingMs <= 0) {

@@ -9,7 +9,7 @@ test('semantic background feedback reports target points without replaying input
   timeout: 30000,
 }, async () => {
   const sourcePath = fileURLToPath(new URL('./sources/input.ps1', import.meta.url));
-  const program = String.raw`
+  const program = `
 $ErrorActionPreference = 'Stop'
 $source = [IO.File]::ReadAllText($env:FEEDBACK_SOURCE_PATH)
 $ast = [Management.Automation.Language.Parser]::ParseInput($source, [ref]$null, [ref]$null)

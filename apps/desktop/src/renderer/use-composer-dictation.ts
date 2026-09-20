@@ -75,6 +75,20 @@ function stopLevelMeter(meter: DictationMeter | null, level: { current: number }
   });
 }
 
+function microphoneFailureText(reason: unknown): string {
+  const name = reason instanceof DOMException ? reason.name : '';
+  if (name === 'NotAllowedError') {
+    return (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
+      ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
+      : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.';
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return 'No microphone was detected. Connect one and try again.';
+  }
+  if (name === 'NotReadableError') return 'The microphone is busy in another app. Close it and try again.';
+  return reason instanceof Error ? reason.message : String(reason);
+}
+
 export function useComposerDictation({
   transitioningRef,
   textarea,
@@ -223,7 +237,11 @@ export function useComposerDictation({
             );
             const text = String(result?.value ?? '').trim();
             if (text) {
-              setDraft((current) => (current ? `${current}${/\s$/.test(current) ? '' : ' '}${text}` : text));
+              setDraft((current) => {
+                if (!current) return text;
+                const separator = /\s$/.test(current) ? '' : ' ';
+                return `${current}${separator}${text}`;
+              });
               // Editing a transcript needs the caret; sending it directly does
               // not (and must not reopen the mobile keyboard).
               if (!session.submitOnStop) {
@@ -251,20 +269,7 @@ export function useComposerDictation({
       setRecordingSince(Date.now());
       setDictationState('recording');
     } catch (reason) {
-      const name = reason instanceof DOMException ? reason.name : '';
-      showNotice(
-        name === 'NotAllowedError'
-          ? (window as unknown as { mixdogRemoteServer?: string }).mixdogRemoteServer
-            ? 'Microphone access is blocked. Allow microphone access for this site in your browser settings and reload.'
-            : 'Microphone access is blocked. Allow microphone access for desktop apps in Windows Settings → Privacy & security → Microphone.'
-          : name === 'NotFoundError' || name === 'OverconstrainedError'
-            ? 'No microphone was detected. Connect one and try again.'
-            : name === 'NotReadableError'
-              ? 'The microphone is busy in another app. Close it and try again.'
-              : reason instanceof Error
-                ? reason.message
-                : String(reason)
-      );
+      showNotice(microphoneFailureText(reason));
       setDictationState('idle');
     } finally {
       dictationPreparing.current = false;

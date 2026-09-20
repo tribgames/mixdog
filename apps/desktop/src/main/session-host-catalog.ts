@@ -21,7 +21,9 @@ const CATALOG_STORE_ENTRIES = new Set([
 ]);
 
 export function catalogRelevantStoreEntry(filename: string | Buffer | null | undefined): boolean {
-  const name = typeof filename === 'string' ? filename : filename ? String(filename) : '';
+  let name = '';
+  if (typeof filename === 'string') name = filename;
+  else if (filename) name = String(filename);
   // Windows reports nested changes as "dir\\file"; only the top segment matters.
   const top = name.split(/[\\/]/, 1)[0];
   return top === '' || CATALOG_STORE_ENTRIES.has(top);

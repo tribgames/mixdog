@@ -130,13 +130,15 @@ export function selectBrowserTarget(
   });
   const described = describeBrowserTarget(target);
   if (!matches.length) {
-    const sameRole =
-      target.role && byRole.length
-        ? ` Elements with role ${target.role}: ${byRole
-            .slice(0, MAX_LISTED_CANDIDATES)
-            .map((element) => JSON.stringify(redactBrowserText(element.name || '')))
-            .join(', ')}${byRole.length > MAX_LISTED_CANDIDATES ? ', …' : ''}.`
-        : '';
+    let sameRole = '';
+    if (target.role && byRole.length) {
+      const listed = byRole
+        .slice(0, MAX_LISTED_CANDIDATES)
+        .map((element) => JSON.stringify(redactBrowserText(element.name || '')))
+        .join(', ');
+      const more = byRole.length > MAX_LISTED_CANDIDATES ? ', …' : '';
+      sameRole = ` Elements with role ${target.role}: ${listed}${more}.`;
+    }
     throw new BrowserActionabilityError(
       `no element matched target ${described} among ${scope.unfiltered ?? elements.length} candidate element(s).` +
         `${sameRole} Loosen the target or take a snapshot to read the page.`,

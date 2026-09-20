@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SERVER_BY_LANGUAGE, lspDocumentLanguageId } from './language-server-manager.ts';
+import { LanguageServerManager, SERVER_BY_LANGUAGE, lspDocumentLanguageId } from './language-server-manager.ts';
 import { editorLanguageIdForPath } from '../shared/editor-languages.ts';
 
 test('every default language server is keyed by a language id the editor actually reports', () => {
@@ -30,4 +30,22 @@ test('JSX documents open on the wire as their react languages, not as plain Type
   // An explicit react id or another language is passed through untouched.
   assert.equal(lspDocumentLanguageId('src/App.tsx', 'typescriptreact'), 'typescriptreact');
   assert.equal(lspDocumentLanguageId('src/App.tsx', 'plaintext'), 'plaintext');
+});
+
+test('manager keeps unsupported documents out of the process lifecycle', async () => {
+  const manager = new LanguageServerManager({});
+  try {
+    assert.deepEqual(
+      await manager.document('missing-project', 'missing-project', {
+        kind: 'open',
+        projectPath: 'missing-project',
+        relPath: 'file.unknown',
+        languageId: 'unknown',
+        version: 1,
+      }),
+      { available: false, status: 'unsupported', server: '' }
+    );
+  } finally {
+    await manager.dispose();
+  }
 });

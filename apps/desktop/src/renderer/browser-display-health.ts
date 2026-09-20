@@ -15,11 +15,8 @@ export function createBrowserDisplayHealth() {
       if (since === undefined || (transition && geometry !== nextGeometry)) since = now;
       geometry = nextGeometry;
       if (now - since < (transition ? 10_000 : 2500)) return '';
-      return transition
-        ? 'Browser display did not recover after the page changed.'
-        : error instanceof Error
-          ? error.message
-          : String(error);
+      if (transition) return 'Browser display did not recover after the page changed.';
+      return error instanceof Error ? error.message : String(error);
     },
   };
 }

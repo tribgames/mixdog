@@ -53,6 +53,13 @@ function cleanContextPercent(value) {
   return Math.max(10, Math.min(100, Math.round(percent / 10) * 10));
 }
 
+/** The route's fast flag: an explicit request, else the saved choice, else the preset or the provider preference. */
+function resolveFast({ hasExplicitFast, explicitFast, saved, presetFast = false, preference }) {
+  if (hasExplicitFast) return explicitFast;
+  if (hasOwn(saved, 'fast')) return saved.fast === true;
+  return presetFast || preference();
+}
+
 export function makeResolveRoute(resolveDefaultProvider) {
   return function resolveRoute(config, { provider, model, effort, fast, modelParameters, contextPercent } = {}) {
     const explicitProvider = clean(provider);
@@ -76,11 +83,13 @@ export function makeResolveRoute(resolveDefaultProvider) {
             model: m,
             preset,
             effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-            fast: hasExplicitFast
-              ? explicitFast
-              : hasOwn(saved, 'fast')
-                ? saved.fast === true
-                : preset.fast === true || fastPreferenceFor(config, p, m),
+            fast: resolveFast({
+              hasExplicitFast,
+              explicitFast,
+              saved,
+              presetFast: preset.fast === true,
+              preference: () => fastPreferenceFor(config, p, m),
+            }),
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
@@ -105,11 +114,13 @@ export function makeResolveRoute(resolveDefaultProvider) {
             model: m,
             preset,
             effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-            fast: hasExplicitFast
-              ? explicitFast
-              : hasOwn(saved, 'fast')
-                ? saved.fast === true
-                : preset.fast === true || fastPreferenceFor(config, p, m),
+            fast: resolveFast({
+              hasExplicitFast,
+              explicitFast,
+              saved,
+              presetFast: preset.fast === true,
+              preference: () => fastPreferenceFor(config, p, m),
+            }),
             modelParameters: hasExplicitModelParameters
               ? cleanModelParameters(modelParameters)
               : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
@@ -129,11 +140,7 @@ export function makeResolveRoute(resolveDefaultProvider) {
       model: m,
       preset: null,
       effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort),
-      fast: hasExplicitFast
-        ? explicitFast
-        : hasOwn(saved, 'fast')
-          ? saved.fast === true
-          : fastPreferenceFor(config, p, m),
+      fast: resolveFast({ hasExplicitFast, explicitFast, saved, preference: () => fastPreferenceFor(config, p, m) }),
       modelParameters: hasExplicitModelParameters
         ? cleanModelParameters(modelParameters)
         : cleanModelParameters(saved.modelParameters),
@@ -263,10 +270,13 @@ export function normalizeSystemShellConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
   const command = clean(raw.command);
   const envCommand = clean(process.env.MIXDOG_SHELL);
+  let source = 'auto';
+  if (command) source = 'config';
+  else if (envCommand) source = 'env';
   return {
     command,
     effective: command || envCommand || '',
-    source: command ? 'config' : envCommand ? 'env' : 'auto',
+    source,
   };
 }
 
@@ -361,7 +371,7 @@ export function setRecapEnabledInConfig(configLike, enabled) {
     const modules = { ...next.modules };
     delete modules.memory;
     next.modules = modules;
-  } else if (next.modules && next.modules.memory && typeof next.modules.memory === 'object') {
+  } else if (next.modules?.memory && typeof next.modules.memory === 'object') {
     const modules = { ...next.modules };
     const memoryMod = { ...modules.memory };
     delete memoryMod.enabled;
@@ -424,7 +434,10 @@ export function parseDurationMs(input) {
   const n = Number(match[1]);
   if (!Number.isFinite(n) || n <= 0) return null;
   const unit = match[2] || 'm';
-  const mult = unit === 'h' ? 3_600_000 : unit === 'm' ? 60_000 : unit === 's' ? 1000 : 1;
+  let mult = 1;
+  if (unit === 'h') mult = 3_600_000;
+  else if (unit === 'm') mult = 60_000;
+  else if (unit === 's') mult = 1000;
   return Math.max(60_000, Math.round(n * mult));
 }
 

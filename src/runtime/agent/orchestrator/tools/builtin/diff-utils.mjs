@@ -112,10 +112,15 @@ export function computeUnifiedDiff(a, b, ctx, fromLabel, toLabel) {
   }
   if (current) hunks.push(current);
 
+  // Unified-diff range: an empty side points before its start, a single line omits the count.
+  const hunkRange = (start, count) => {
+    if (count === 0) return `${start - 1},0`;
+    return count === 1 ? `${start}` : `${start},${count}`;
+  };
   const out = [`--- ${fromLabel}`, `+++ ${toLabel}`];
   for (const h of hunks) {
-    const aHdr = h.aCount === 0 ? `${h.aStart - 1},0` : h.aCount === 1 ? `${h.aStart}` : `${h.aStart},${h.aCount}`;
-    const bHdr = h.bCount === 0 ? `${h.bStart - 1},0` : h.bCount === 1 ? `${h.bStart}` : `${h.bStart},${h.bCount}`;
+    const aHdr = hunkRange(h.aStart, h.aCount);
+    const bHdr = hunkRange(h.bStart, h.bCount);
     out.push(`@@ -${aHdr} +${bHdr} @@`);
     for (const [sign, line] of h.lines) out.push(`${sign}${line}`);
   }

@@ -84,12 +84,7 @@ export function captureTurnCheckpointContextState(session, messages, currentUser
       kind === 'provider'
         ? Math.max(0, Math.round(Number(session.contextPressureBaselineRequestReserveTokens) || 0))
         : 0,
-    boundary:
-      kind === 'provider'
-        ? session.contextPressureBaselineBoundary === 'request'
-          ? 'request'
-          : 'complete'
-        : 'complete',
+    boundary: kind === 'provider' && session.contextPressureBaselineBoundary === 'request' ? 'request' : 'complete',
     updatedAt: Math.max(
       0,
       Math.round(
@@ -171,12 +166,10 @@ export function restoreTurnCheckpointContextState(session, checkpoint) {
   session.contextPressureBaselineUpdatedAt = Math.max(0, Math.round(Number(state.updatedAt) || Date.now()));
   session.contextPressureBaselineSource =
     state.kind === 'post_compact' ? 'checkpoint_post_compact' : 'checkpoint_provider';
-  session.lastContextTokens =
-    state.kind === 'post_compact'
-      ? 0
-      : Number(state.inputTokens) > 0
-        ? Number(state.inputTokens)
-        : Math.max(0, usedTokens - session.contextPressureBaselineOutputTokens);
+  let lastContextTokens = Math.max(0, usedTokens - session.contextPressureBaselineOutputTokens);
+  if (state.kind === 'post_compact') lastContextTokens = 0;
+  else if (Number(state.inputTokens) > 0) lastContextTokens = Number(state.inputTokens);
+  session.lastContextTokens = lastContextTokens;
   session.lastContextTokensUpdatedAt = session.contextPressureBaselineUpdatedAt;
   // The recovered pressure snapshot remains usable by compaction. Its source
   // distinguishes it from a measured prompt in the independent display lane.

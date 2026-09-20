@@ -51,7 +51,7 @@ function protectedTailStart(messages, tailTurns = PRUNE_TAIL_TURNS) {
   return 0;
 }
 
-function pruneToolOutputText(text, maxChars, toolCallId) {
+function pruneToolOutputText(text, maxChars, _toolCallId) {
   const value = String(text ?? '');
   if (value.length <= maxChars) return value;
   return compactOffloadedToolResultText(value);

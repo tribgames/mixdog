@@ -1,3 +1,10 @@
+/** The review verdict ladder shared by document and presentation acceptance. */
+export function reviewStatus(reviewed, complete, acknowledged) {
+  if (!reviewed) return 'not-reviewed';
+  if (!complete) return 'needs-work';
+  return acknowledged ? 'accepted' : 'not-acknowledged';
+}
+
 // Rendering produces evidence, not an approval. Checks differ by document medium.
 export const DOCUMENT_VISUAL_CHECKS = Object.freeze({
   docx: ['hierarchy', 'pagination', 'legibility'],
@@ -77,13 +84,7 @@ export function reviewDocumentPages(format, design, state) {
     pages,
     complete,
     acknowledged: complete && current && design?.reviewed === true,
-    status: !entries.length
-      ? 'not-reviewed'
-      : !complete
-        ? 'needs-work'
-        : current && design?.reviewed === true
-          ? 'accepted'
-          : 'not-acknowledged',
+    status: reviewStatus(entries.length > 0, complete, current && design?.reviewed === true),
     ...(blockers.length ? { blockers } : {}),
     basis: 'current-render-and-page-observations',
     authority: 'agent-self-review',

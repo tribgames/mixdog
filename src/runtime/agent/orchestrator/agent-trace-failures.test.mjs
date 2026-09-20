@@ -107,30 +107,29 @@ test('historical failure reclassification preserves the original log bytes', () 
   try {
     mkdirSync(join(directory, 'history'));
     const path = join(directory, 'history', 'tool-failures.jsonl');
-    const original =
-      [
-        {
-          ts: 1,
-          tool_name: 'goal',
-          category: 'runtime/failure',
-          error_preview: 'Error: goal task exceeds 500 characters',
-        },
-        {
-          ts: 2,
-          tool_name: 'browser',
-          category: 'runtime/failure',
-          error_preview: 'Error: browser action "locate" does not accept input field(s): maxChars',
-        },
-        {
-          ts: 3,
-          tool_name: 'media',
-          category: 'runtime/failure',
-          error_preview:
-            'Error: {"ok":false,"error":"generation failed on gemini/model: Gemini image failed (503): high demand"}',
-        },
-      ]
-        .map((row) => JSON.stringify(row))
-        .join('\n') + '\n';
+    const original = `${[
+      {
+        ts: 1,
+        tool_name: 'goal',
+        category: 'runtime/failure',
+        error_preview: 'Error: goal task exceeds 500 characters',
+      },
+      {
+        ts: 2,
+        tool_name: 'browser',
+        category: 'runtime/failure',
+        error_preview: 'Error: browser action "locate" does not accept input field(s): maxChars',
+      },
+      {
+        ts: 3,
+        tool_name: 'media',
+        category: 'runtime/failure',
+        error_preview:
+          'Error: {"ok":false,"error":"generation failed on gemini/model: Gemini image failed (503): high demand"}',
+      },
+    ]
+      .map((row) => JSON.stringify(row))
+      .join('\n')}\n`;
     writeFileSync(path, original);
     const result = spawnSync(process.execPath, ['scripts/tool-failures.mjs', '--data-dir', directory, '--json'], {
       cwd: process.cwd(),

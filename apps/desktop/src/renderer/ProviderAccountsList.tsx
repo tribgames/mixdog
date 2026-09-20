@@ -112,13 +112,13 @@ export function ProviderAccountsList({
     void load();
     const changed = () => void load();
     window.addEventListener(PROVIDER_ACCOUNTS_CHANGED, changed);
-    const unsubscribe = listOnly ? subscribeUsageDashboard(changed) : () => {};
+    const unsubscribe = subscribeUsageDashboard(changed);
     return () => {
       generation.current += 1;
       unsubscribe();
       window.removeEventListener(PROVIDER_ACCOUNTS_CHANGED, changed);
     };
-  }, [load, listOnly]);
+  }, [load]);
 
   const change = async (value: Record<string, unknown>) => {
     if (mutating.current) return;

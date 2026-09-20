@@ -328,6 +328,7 @@ export function diffFileStatus(section) {
   if (/^new file mode /m.test(text) || /^---\s+\/dev\/null(?:\s|$)/m.test(text)) return 'A';
   if (/^deleted file mode /m.test(text) || /^\+\+\+\s+\/dev\/null(?:\s|$)/m.test(text)) return 'D';
   if (/^(old mode|new mode) /m.test(text)) return 'T';
+  if (/^… \[diff truncated for display\]$/m.test(text)) return 'M';
   return '';
 }
 

@@ -1,6 +1,23 @@
 import type { captureMode, frameElements } from './analysis';
 import type { ScreenshotCapture } from '../shared/types';
 
+function accessibilityStatus(
+  mode: ReturnType<typeof captureMode>,
+  visualOnlyCacheHit: boolean,
+  accessibilityError: string,
+  semanticAccessibilityAvailable: boolean
+) {
+  if (mode === 'vision') return 'not_requested';
+  if (visualOnlyCacheHit) return 'visual_only_cached';
+  if (accessibilityError) return 'error';
+  return semanticAccessibilityAvailable ? 'available' : 'empty';
+}
+
+function pixelStatus(pixelUnavailable: unknown, mode: ReturnType<typeof captureMode>) {
+  if (pixelUnavailable) return 'unavailable';
+  return mode === 'ax' ? 'not_requested' : 'available';
+}
+
 export function captureResultPayload(input: {
   captureOk: boolean;
   mode: ReturnType<typeof captureMode>;
@@ -55,16 +72,12 @@ export function captureResultPayload(input: {
     ...(generation !== null ? { generation } : {}),
     total_elements: totalElements + ocrElementCount,
     returned_elements: elements.length,
-    accessibility_status:
-      mode === 'vision'
-        ? 'not_requested'
-        : visualOnlyCacheHit
-          ? 'visual_only_cached'
-          : accessibilityError
-            ? 'error'
-            : semanticAccessibilityAvailable
-              ? 'available'
-              : 'empty',
+    accessibility_status: accessibilityStatus(
+      mode,
+      visualOnlyCacheHit,
+      accessibilityError,
+      semanticAccessibilityAvailable
+    ),
     ...(visualOnlyCacheHit ? { accessibility_cache: 'visual_only' } : {}),
     ...(accessibilityError ? { accessibility_error: accessibilityError } : {}),
     ...(changes ? { changes } : {}),
@@ -74,7 +87,7 @@ export function captureResultPayload(input: {
     ...(truncatedAccessibilityElements ? { truncated_elements: truncatedAccessibilityElements } : {}),
     ...(mode !== 'vision' ? { elements } : {}),
     ...(ocrPayload ? { ocr: ocrPayload } : {}),
-    pixel_status: screenshot?.pixelUnavailable ? 'unavailable' : mode === 'ax' ? 'not_requested' : 'available',
+    pixel_status: pixelStatus(screenshot?.pixelUnavailable, mode),
     ...(screenshot?.pixelUnavailable
       ? { pixel_unavailable: screenshot.pixelUnavailable, escalation: 'recapture' }
       : {}),

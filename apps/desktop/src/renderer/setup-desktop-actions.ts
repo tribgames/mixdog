@@ -75,7 +75,10 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
   return saved({ settings: await api.readSettings() });
 }
 
-async function builtinAction(action: string, { args, api, mutate, invoke, saved }: SetupActionContext): Promise<Values> {
+async function builtinAction(
+  action: string,
+  { args, api, mutate, invoke, saved }: SetupActionContext
+): Promise<Values> {
   const name = String(args.name);
   const enabled = action === 'install_builtin' || args.enabled === true;
   if (name === 'voice') {

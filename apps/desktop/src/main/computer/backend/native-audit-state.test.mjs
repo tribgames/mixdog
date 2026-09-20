@@ -61,7 +61,7 @@ ${pointerMethods}
 `
     );
     await writeFile(join(directory, 'runtime.ps1'), PS_RUNTIME);
-    const script = String.raw`
+    const script = `
 $ErrorActionPreference='Stop'
 Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $env:AUDIT_FIXTURE 'fixture.cs')))
 function Get-SessionState($id) { return @{} }

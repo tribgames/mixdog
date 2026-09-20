@@ -27,8 +27,8 @@ import { cacheGet, cacheSet, runResultCacheInFlight, statPathsForMtime } from '.
 import { recordLocalSearchCacheHit } from './local-search-telemetry.mjs';
 import { parseGrepCountLine } from './lib/search-input-helpers.mjs';
 import { statReachable } from './fs-reachability.mjs';
-// Fan-out / chunk-merge / rescue sub-flows extracted from this file; each
-// receives `executeGrepTool` as a parameter to avoid an import cycle.
+// Fan-out / chunk-merge / rescue sub-flows; each receives `executeGrepTool`
+// as a parameter to avoid an import cycle.
 import { runGrepPathFanout } from './lib/grep-path-fanout.mjs';
 import { runGrepPatternFanout } from './lib/grep-pattern-fanout.mjs';
 import { runGrepChunkMerge } from './lib/grep-chunk-merge.mjs';
@@ -120,9 +120,7 @@ export async function executeGrepTool(args, workDir, executeChildBuiltinTool, re
 
 function dedupedPathList(paths) {
   const seen = new Set();
-  return paths
-    .map((p) => (typeof p === 'string' ? p.trim() : ''))
-    .filter((p) => p && !seen.has(p) && seen.add(p));
+  return paths.map((p) => (typeof p === 'string' ? p.trim() : '')).filter((p) => p && !seen.has(p) && seen.add(p));
 }
 
 // Read-only search: grep no longer records a whole-file read snapshot.

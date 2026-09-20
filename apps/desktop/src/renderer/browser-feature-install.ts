@@ -12,7 +12,8 @@ const BROWSER_FEATURE_INSTALLED_KEY = 'mixdog.desktop.browser-feature-installed.
 function readStoredBrowserFeatureInstalled(): boolean | null {
   try {
     const stored = window.localStorage.getItem(BROWSER_FEATURE_INSTALLED_KEY);
-    return stored === 'true' ? true : stored === 'false' ? false : null;
+    if (stored === 'true') return true;
+    return stored === 'false' ? false : null;
   } catch {
     return null;
   }

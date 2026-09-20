@@ -100,7 +100,7 @@ function parseGrepContentLine(line) {
   const text = String(line || '');
   if (!text || text === '--' || text.startsWith('... [')) return null;
   const split = splitGrepLinePrefix(text);
-  if (!split || split.delimiter !== ':') return null;
+  if (split?.delimiter !== ':') return null;
   const content = text.slice(split.markerEnd);
   return { path: split.path, lineNo: split.lineNo, content };
 }

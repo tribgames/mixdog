@@ -451,6 +451,19 @@ export function _withRegisteredProviderForTest(name, instance, fn) {
     else providers.delete(name);
   }
 }
+// Async variant for callbacks that run a whole turn against the registered
+// instance (askSession looks the provider up after its first await).
+export async function _withRegisteredProviderForTestAsync(name, instance, fn) {
+  const hadProvider = providers.has(name);
+  const priorProvider = providers.get(name);
+  providers.set(name, instance);
+  try {
+    return await fn();
+  } finally {
+    if (hadProvider) providers.set(name, priorProvider);
+    else providers.delete(name);
+  }
+}
 // How one provider refreshes its catalog: its own _refreshModelCache when it
 // has one, else a plain listModels; anything else has no catalog to refresh.
 // Shared by the startup refresh and the 24h/forced refresh below.

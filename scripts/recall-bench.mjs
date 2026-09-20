@@ -125,7 +125,7 @@ async function runCase(memoryModule, kase, priorRows = new Map()) {
   const topNContains = expectObj && Array.isArray(expectObj.topNContains) ? expectObj.topNContains : null;
   const cutoffN = expectObj && Number.isInteger(expectObj.topN) ? expectObj.topN : 5;
   const quality = topNContains ? scoreTopNContains(parsed.items, topNContains, cutoffN) : null;
-  const recency = expectObj && expectObj.recencyOrdered ? scoreRecencyOrdered(parsed.items) : null;
+  const recency = expectObj?.recencyOrdered ? scoreRecencyOrdered(parsed.items) : null;
   const allContainNeedles = expectObj && Array.isArray(expectObj.allContain) ? expectObj.allContain : null;
   const allContain = allContainNeedles ? scoreAllContain(parsed.items, allContainNeedles) : null;
   const temporal = expectObj?.withinPeriod
@@ -271,7 +271,7 @@ async function main() {
   }
 
   if (jsonMode) {
-    process.stdout.write(JSON.stringify({ cases: rows.map(({ parsed, ...row }) => row) }, null, 2) + '\n');
+    process.stdout.write(`${JSON.stringify({ cases: rows.map(({ parsed, ...row }) => row) }, null, 2)}\n`);
   } else {
     printSummary(rows);
   }

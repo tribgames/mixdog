@@ -27,6 +27,34 @@ function harness(t) {
   return async (element) => act(async () => root.render(element));
 }
 
+for (const listOnly of [true, false]) {
+  test(`usage updates synchronize automatic account selection in ${listOnly ? 'popup' : 'settings'}`, async (t) => {
+    const render = harness(t);
+    let selectedId = 'a';
+    const api = {
+      async invokeCapability({ capability }) {
+        assert.equal(capability, 'getProviderAccounts');
+        return {
+          value: {
+            selectedId,
+            auto: true,
+            accounts: ['a', 'b'].map((id) => ({ id, label: id, authenticated: true })),
+          },
+        };
+      },
+    };
+    await render(React.createElement(ProviderAccountsList, { api, provider: 'anthropic-oauth', listOnly }));
+    assert.equal(document.querySelector('.provider-accounts-list .is-selected').dataset.accountId, 'a');
+    selectedId = 'b';
+    await act(async () => {
+      publishUsageDashboard({
+        rows: [{ id: 'anthropic-oauth', authenticated: true, windows: [{ label: '7D Fable', usedPct: 8 }] }],
+      });
+    });
+    assert.equal(document.querySelector('.provider-accounts-list .is-selected').dataset.accountId, 'b');
+  });
+}
+
 test('inline accounts support click selection, drag-and-drop priority, keyboard reorder and auto toggle', async (t) => {
   const render = harness(t);
   let pool = {

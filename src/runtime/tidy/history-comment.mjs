@@ -231,7 +231,9 @@ export function refineHistoryCommentMatches(matches, { sourceFor } = {}) {
   const refined = [];
   for (const [file, fileMatches] of byFile) {
     const source = sourceFor ? sourceFor(file) : null;
-    const buf = Buffer.isBuffer(source) ? source : typeof source === 'string' ? Buffer.from(source, 'utf8') : null;
+    let buf = null;
+    if (Buffer.isBuffer(source)) buf = source;
+    else if (typeof source === 'string') buf = Buffer.from(source, 'utf8');
     if (!buf) {
       for (const match of fileMatches) refined.push({ ...match, fix: null, manual: true });
       continue;

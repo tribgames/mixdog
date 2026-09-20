@@ -1,4 +1,4 @@
-// Terminal chrome, extracted from App.jsx: the debounced resize listener
+// Terminal chrome: the debounced resize listener
 // (leading-edge + trailing settle, no-op on unchanged dimensions) and the
 // one-shot extended-keyboard enable (kitty + modifyOtherKeys).
 import { useEffect } from 'react';

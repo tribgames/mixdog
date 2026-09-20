@@ -283,6 +283,7 @@ export function openTabInPaneLeaf(
         const tabs = leaf.tabs
           .map((tab, index) => (index === replaced ? selection : tab))
           .filter((tab, index) => index === replaced || navigationKey(tab) !== key);
+        const replacedPreviewKey = preview ? key : undefined;
         return {
           ...leaf,
           tabs,
@@ -290,7 +291,7 @@ export function openTabInPaneLeaf(
           // must not steal the group back from a tab the user selected while
           // the submit acknowledgement was in flight.
           activeKey: leaf.activeKey === replaceKey ? key : leaf.activeKey,
-          previewKey: leaf.previewKey === replaceKey ? (preview ? key : undefined) : leaf.previewKey,
+          previewKey: leaf.previewKey === replaceKey ? replacedPreviewKey : leaf.previewKey,
         };
       }
     }
@@ -307,26 +308,26 @@ export function openTabInPaneLeaf(
       // Reopening an externally selected file may carry a freshly minted
       // permission token. Conversely, pane focus routes omit the token and
       // must not erase the one already attached to the tab.
-      const nextSelection =
-        existing.kind === 'file' && selection.kind === 'file'
-          ? {
-              ...selection,
-              ...(selection.accessToken || existing.accessToken
-                ? { accessToken: selection.accessToken || existing.accessToken }
-                : {}),
-            }
-          : existing;
+      let nextSelection = existing;
+      if (existing.kind === 'file' && selection.kind === 'file') {
+        const accessToken = selection.accessToken || existing.accessToken;
+        nextSelection = accessToken ? { ...selection, accessToken } : { ...selection };
+      }
       const selectionChanged =
         nextSelection !== existing &&
         (nextSelection.kind !== 'file' ||
           existing.kind !== 'file' ||
           nextSelection.accessToken !== existing.accessToken);
       const resolvedKey = navigationKey(nextSelection);
-      const previewKey = preview ? leaf.previewKey : leaf.previewKey === resolvedKey ? undefined : leaf.previewKey;
-      const tabs = placeAt(
-        selectionChanged ? leaf.tabs.map((tab, index) => (index === existingIndex ? nextSelection : tab)) : leaf.tabs,
-        resolvedKey
-      );
+      let previewKey = leaf.previewKey;
+      if (!preview && leaf.previewKey === resolvedKey) previewKey = undefined;
+      let retabbed: readonly WorkspaceSelection[] = leaf.tabs;
+      if (selectionChanged) {
+        const replaced = [...leaf.tabs];
+        replaced[existingIndex] = nextSelection;
+        retabbed = replaced;
+      }
+      const tabs = placeAt(retabbed, resolvedKey);
       if (leaf.activeKey === resolvedKey && !selectionChanged && previewKey === leaf.previewKey && tabs === leaf.tabs)
         return leaf;
       return { ...leaf, tabs, activeKey: resolvedKey, previewKey };
@@ -389,10 +390,11 @@ export function reorderTabInPaneLeaf(
     // against the CURRENT list with the source still in
     // place — tab half rule, container drop = count — so an index past the
     // source shifts down by one after removal.
-    const to =
-      typeof target === 'number'
-        ? Math.max(0, Math.min(target > from ? target - 1 : target, keys.length - 1))
-        : keys.indexOf(target);
+    let to = typeof target === 'string' ? keys.indexOf(target) : -1;
+    if (typeof target === 'number') {
+      const dropIndex = target > from ? target - 1 : target;
+      to = Math.max(0, Math.min(dropIndex, keys.length - 1));
+    }
     if (from < 0 || to < 0 || from === to) return leaf;
     const tabs = [...leaf.tabs];
     const [moved] = tabs.splice(from, 1);
@@ -811,7 +813,7 @@ export function movePaneTabToRootEdge(
  *  dots, which stays stable while the user drags one handle. */
 export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): PaneNode {
   const target = paneNodeAtPath(root, path);
-  if (!target || target.type !== 'split') return root;
+  if (target?.type !== 'split') return root;
   const nextRatio = clampPaneRatio(ratio);
   const walk = (node: PaneNode, segments: string[]): PaneNode => {
     if (node.type !== 'split') return node;
@@ -848,7 +850,7 @@ export function setPaneSplitRatio(root: PaneNode, path: string, ratio: number): 
   for (let index = segments.length - 1; index >= 0; index -= 1) {
     const parentPath = segments.slice(0, index).join('.');
     const parent = paneNodeAtPath(root, parentPath);
-    if (!parent || parent.type !== 'split' || parent.direction === target.direction) break;
+    if (parent?.type !== 'split' || parent.direction === target.direction) break;
     const siblingSegment = segments[index] === 'first' ? 'second' : 'first';
     const sibling = alignParallel(parent[siblingSegment]);
     if (sibling === parent[siblingSegment]) continue;
@@ -903,86 +905,82 @@ export function neighborPaneLeafId(root: PaneNode, leafId: string): string | nul
 export function parseWorkspaceSelection(value: unknown): WorkspaceSelection | null {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) return null;
+  const text = (key: string): string => {
+    const raw = record[key];
+    return typeof raw === 'string' ? raw : '';
+  };
   switch (record.kind) {
-    case 'new':
-      return typeof record.draftId === 'string' && record.draftId
-        ? { kind: 'new', draftId: record.draftId }
-        : { kind: 'new' };
-    case 'project':
-      return typeof record.path === 'string' && record.path ? { kind: 'project', path: record.path } : null;
-    case 'session':
-      return typeof record.id === 'string' && record.id
-        ? {
-            kind: 'session',
-            id: record.id,
-            ...(typeof record.title === 'string' && record.title ? { title: record.title } : {}),
-          }
-        : null;
-    case 'agent-session':
-      return typeof record.id === 'string' && record.id && typeof record.title === 'string' && record.title
-        ? ({
-            kind: 'session',
-            id: record.id,
-            title: record.title,
-            legacyAgentSelection: true,
-          } as MigratedAgentSelection)
-        : null;
-    case 'file':
-      return typeof record.project === 'string' && record.project && typeof record.rel === 'string' && record.rel
-        ? {
-            kind: 'file',
-            project: record.project,
-            rel: record.rel,
-            ...(typeof record.accessToken === 'string' && record.accessToken
-              ? { accessToken: record.accessToken }
-              : {}),
-          }
-        : null;
-    case 'studio':
-      return typeof record.id === 'string' && record.id ? { kind: 'studio', id: record.id } : null;
-    case 'terminal':
-      return typeof record.id === 'string' && record.id
-        ? {
-            kind: 'terminal',
-            id: record.id,
-            ...(typeof record.cwd === 'string' && record.cwd ? { cwd: record.cwd } : {}),
-          }
-        : null;
-    case 'pull-request':
-      return typeof record.project === 'string' &&
-        record.project &&
-        Number.isInteger(record.number) &&
-        Number(record.number) > 0 &&
-        (record.mode === 'overview' || record.mode === 'changes')
-        ? {
-            kind: 'pull-request',
-            project: record.project,
-            number: Number(record.number),
-            mode: record.mode,
-            ...(typeof record.title === 'string' && record.title ? { title: record.title } : {}),
-            ...(typeof record.instanceId === 'string' && record.instanceId ? { instanceId: record.instanceId } : {}),
-          }
-        : null;
-    case 'diff':
-      return typeof record.project === 'string' &&
-        record.project &&
-        typeof record.rel === 'string' &&
-        record.rel &&
-        (record.source === 'staged' ||
-          record.source === 'unstaged' ||
-          record.source === 'commit' ||
-          record.source === 'session') &&
-        ((record.source !== 'commit' && record.source !== 'session') ||
-          (typeof record.hash === 'string' && record.hash))
-        ? {
-            kind: 'diff',
-            project: record.project,
-            rel: record.rel,
-            source: record.source,
-            ...(typeof record.hash === 'string' && record.hash ? { hash: record.hash } : {}),
-            ...(record.untracked === true ? { untracked: true } : {}),
-          }
-        : null;
+    case 'new': {
+      const draftId = text('draftId');
+      return draftId ? { kind: 'new', draftId } : { kind: 'new' };
+    }
+    case 'project': {
+      const path = text('path');
+      return path ? { kind: 'project', path } : null;
+    }
+    case 'session': {
+      const id = text('id');
+      if (!id) return null;
+      const title = text('title');
+      return { kind: 'session', id, ...(title ? { title } : {}) };
+    }
+    case 'agent-session': {
+      const id = text('id');
+      const title = text('title');
+      if (!id || !title) return null;
+      return { kind: 'session', id, title, legacyAgentSelection: true } as MigratedAgentSelection;
+    }
+    case 'file': {
+      const project = text('project');
+      const rel = text('rel');
+      if (!project || !rel) return null;
+      const accessToken = text('accessToken');
+      return { kind: 'file', project, rel, ...(accessToken ? { accessToken } : {}) };
+    }
+    case 'studio': {
+      const id = text('id');
+      return id ? { kind: 'studio', id } : null;
+    }
+    case 'terminal': {
+      const id = text('id');
+      if (!id) return null;
+      const cwd = text('cwd');
+      return { kind: 'terminal', id, ...(cwd ? { cwd } : {}) };
+    }
+    case 'pull-request': {
+      const project = text('project');
+      const number = Number(record.number);
+      const mode = record.mode;
+      if (!project || !Number.isInteger(record.number) || number <= 0) return null;
+      if (mode !== 'overview' && mode !== 'changes') return null;
+      const title = text('title');
+      const instanceId = text('instanceId');
+      return {
+        kind: 'pull-request',
+        project,
+        number,
+        mode,
+        ...(title ? { title } : {}),
+        ...(instanceId ? { instanceId } : {}),
+      };
+    }
+    case 'diff': {
+      const project = text('project');
+      const rel = text('rel');
+      const source = record.source;
+      if (!project || !rel) return null;
+      if (source !== 'staged' && source !== 'unstaged' && source !== 'commit' && source !== 'session') return null;
+      const hash = text('hash');
+      if ((source === 'commit' || source === 'session') && !hash) return null;
+      return {
+        kind: 'diff',
+        project,
+        rel,
+        source,
+        ...(hash ? { hash } : {}),
+        ...(record.untracked === true ? { untracked: true } : {}),
+      };
+    }
     default:
       return null;
   }
@@ -1001,11 +999,9 @@ export function parsePaneLayout(value: unknown): PaneNode | null {
       if (!id || seenIds.has(id)) return null;
       // Legacy single-selection leaves (pre-tab-group) migrate to a
       // one-tab group instead of invalidating the stored layout.
-      const rawTabs = Array.isArray(record.tabs)
-        ? record.tabs
-        : record.selection !== undefined
-          ? [record.selection]
-          : [];
+      let rawTabs: unknown[] = [];
+      if (Array.isArray(record.tabs)) rawTabs = record.tabs;
+      else if (record.selection !== undefined) rawTabs = [record.selection];
       const tabs: WorkspaceSelection[] = [];
       const keys = new Set<string>();
       for (const value of rawTabs) {

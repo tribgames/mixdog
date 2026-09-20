@@ -48,13 +48,10 @@ export async function continuePendingComputerWork(initial, command, send, signal
           progress.completed_steps === progress.total_steps &&
           progress.pending_work?.uncertain_step === undefined,
       };
-      const target = command.window_id
-        ? { window_id: command.window_id }
-        : command.app
-          ? { app: command.app }
-          : command.window
-            ? { window: command.window }
-            : null;
+      let target = null;
+      if (command.window_id) target = { window_id: command.window_id };
+      else if (command.app) target = { app: command.app };
+      else if (command.window) target = { window: command.window };
       if (!target) {
         return {
           text: JSON.stringify({

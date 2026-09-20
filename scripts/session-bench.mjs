@@ -748,12 +748,12 @@ function broadToolResults(tools) {
 function readFragmentationRuns(tools) {
   const readRows = tools.filter((r) => field(r, 'tool_name') === 'read');
   const readFragmentation = [];
-  for (const [path, rrows] of groupBy(readRows, (r) => String((toolArgs(r) || {}).path || '')).entries()) {
+  for (const [path, rrows] of groupBy(readRows, (r) => String(toolArgs(r)?.path || '')).entries()) {
     if (!path || path.includes(',')) continue;
     const lineReads = rrows
       .map((r) => ({
         row: r,
-        line: Number((toolArgs(r) || {}).line || (toolArgs(r) || {}).offset || 0),
+        line: Number(toolArgs(r)?.line || toolArgs(r)?.offset || 0),
         ts: Number(r.ts || 0),
       }))
       .filter((x) => Number.isFinite(x.line) && x.line > 0)
@@ -870,7 +870,7 @@ function readonlyStallRuns(tools) {
       const flushRun = () => {
         const turns = new Set(run.map((r) => num(r, 'iteration')).filter((n) => n != null)).size;
         if (turns >= READONLY_STALL_MIN_RUN) {
-          const pathCounts = countBy(run, (r) => summarizePathArg((toolArgs(r) || {}).path))
+          const pathCounts = countBy(run, (r) => summarizePathArg(toolArgs(r)?.path))
             .filter(([p]) => p)
             .slice(0, 3);
           readonlyStalls.push({
@@ -2010,7 +2010,9 @@ function renderSlowTurns(report, lines) {
 
 function renderTokenAmplification(report, lines) {
   lines.push('Token amplification');
-  const sessionTable = [['agent', 'turns', 'prompt first→last', 'max', 'Δprompt', 'out', 'uncached', 'cache', 'session']];
+  const sessionTable = [
+    ['agent', 'turns', 'prompt first→last', 'max', 'Δprompt', 'out', 'uncached', 'cache', 'session'],
+  ];
   for (const s of report.tokens.sessions.slice(0, Math.min(opts.limit, 8))) {
     sessionTable.push([
       s.agent || '-',

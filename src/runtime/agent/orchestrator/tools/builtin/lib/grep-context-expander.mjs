@@ -526,7 +526,7 @@ export async function expandGrepAnchorContextOutput({
   const total = anchors.length;
   if (total === 0) return { text: '', total: 0, shown: 0, omitted: 0, sourceComplete: true };
   const window = selectAnchors(anchors, headLimit, offset);
-  let notice = pagingNotice({
+  const notice = pagingNotice({
     ...window,
     total,
     totalKnown,

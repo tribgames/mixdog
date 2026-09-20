@@ -1,7 +1,7 @@
 // Composer support surfaces that are not the input itself: the project-context
 // pill, the attachment budget model, prompt-history persistence, and the
-// queued-follow-up list. Extracted from Composer.tsx so that file holds the
-// editor and its interaction handlers.
+// queued-follow-up list. Composer.tsx holds the editor and its interaction
+// handlers.
 import { Folder, X } from 'lucide-react';
 
 import type { DesktopProjectSummary } from '../shared/contract';
@@ -55,13 +55,7 @@ export function promptHistoryStorageKey(scope: string) {
 
 function normalizedHistoryAttachment(value: unknown): ComposerAttachment | null {
   const entry = asRecord(value);
-  if (
-    !entry ||
-    entry.kind !== 'text' ||
-    typeof entry.data !== 'string' ||
-    typeof entry.token !== 'string' ||
-    !entry.token
-  )
+  if (entry?.kind !== 'text' || typeof entry.data !== 'string' || typeof entry.token !== 'string' || !entry.token)
     return null;
   return {
     id: Number(entry.id) || 0,

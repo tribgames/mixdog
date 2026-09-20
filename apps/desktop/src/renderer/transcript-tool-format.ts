@@ -3,17 +3,17 @@ import { formatElapsed, oneLine } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
 
 export const TOOL_DETAIL_LABELS = {
-  arguments: 'Arguments',
-  content: 'Content',
-  before: 'Before',
-  after: 'After',
-  answer: 'Answer',
-  questions: 'Questions',
-  todos: 'Todos',
-  plan: 'Plan',
-  running: 'Running',
-  completed: 'Completed',
-  failed: 'Failed',
+  arguments: t('Arguments'),
+  content: t('Content'),
+  before: t('Before'),
+  after: t('After'),
+  answer: t('Answer'),
+  questions: t('Questions'),
+  todos: t('Todos'),
+  plan: t('Plan'),
+  running: t('Running'),
+  completed: t('Completed'),
+  failed: t('Failed'),
 } as const;
 
 const TOOL_ACTIVITY_RESULT_COUNT_KEYS = new Map([
@@ -313,7 +313,8 @@ const TOOL_SUBJECTS = byToolName<ToolSubjectFormatter>([
   [['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill', 'update_plan'], () => ''],
   [
     ['task'],
-    (args) => toolActivityCompact([toolActivityFirstText(args, 'action'), toolActivityFirstText(args, 'task_id', 'id')]),
+    (args) =>
+      toolActivityCompact([toolActivityFirstText(args, 'action'), toolActivityFirstText(args, 'task_id', 'id')]),
   ],
   [
     ['agent', 'bridge'],
@@ -415,7 +416,7 @@ export function toolActivityFieldLabel(key: string): string {
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
     .replace(/[_-]+/g, ' ')
     .trim();
-  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : key;
+  return text ? t(`${text[0].toUpperCase()}${text.slice(1)}`) : key;
 }
 
 export function toolActivityFieldValue(key: string, value: unknown): string {
@@ -450,7 +451,10 @@ export function toolActivityRedactInlineSecrets(text: string, args: Record<strin
 // name; the detail view skips them.
 const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   [['read'], ['file_path', 'filePath', 'path', 'file', 'offset', 'limit', 'pages']],
-  [['view_image', 'read_mcp_resource'], ['file_path', 'filePath', 'path', 'file', 'uri']],
+  [
+    ['view_image', 'read_mcp_resource'],
+    ['file_path', 'filePath', 'path', 'file', 'uri'],
+  ],
   [
     ['edit', 'strreplace', 'str_replace', 'str_replace_editor', 'search_replace'],
     ['file_path', 'filePath', 'path', 'file', 'target'],
@@ -463,11 +467,23 @@ const TOOL_REPRESENTED_KEYS = byToolName<readonly string[]>([
   [['grep'], ['pattern', 'query', 'path', 'glob']],
   [['glob'], ['pattern', 'glob', 'path']],
   [['find'], ['query', 'fuzzy', 'path']],
-  [['list', 'ls'], ['path', 'dir', 'cwd', 'limit']],
-  [['web_search', 'web_search_call', 'search_query', 'image_query'], ['query', 'keywords']],
-  [['web_fetch', 'fetch'], ['url', 'uri']],
+  [
+    ['list', 'ls'],
+    ['path', 'dir', 'cwd', 'limit'],
+  ],
+  [
+    ['web_search', 'web_search_call', 'search_query', 'image_query'],
+    ['query', 'keywords'],
+  ],
+  [
+    ['web_fetch', 'fetch'],
+    ['url', 'uri'],
+  ],
   [['load_tool'], ['names', 'select', 'query', 'q', 'text']],
-  [['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill'], ['name', 'skill', 'skill_name', 'query', 'q']],
+  [
+    ['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill'],
+    ['name', 'skill', 'skill_name', 'query', 'q'],
+  ],
   [['task'], ['action', 'task_id', 'id']],
   [
     ['agent', 'bridge'],

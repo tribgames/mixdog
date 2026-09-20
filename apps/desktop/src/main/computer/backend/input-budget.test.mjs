@@ -37,7 +37,7 @@ test('the native typing guard refuses excess text before resolving any window', 
   skip: process.platform !== 'win32',
   timeout: 10_000,
 }, async () => {
-  const script = String.raw`
+  const script = `
 $ErrorActionPreference='Stop'
 [Console]::InputEncoding=[Text.UTF8Encoding]::new($false)
 $source=[Console]::In.ReadToEnd()

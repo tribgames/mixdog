@@ -1,7 +1,7 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 /** Truthy env: 1, true, yes, on (case-insensitive). */
 function isTruthyEnv(value) {
@@ -31,7 +31,7 @@ function _detectFromSourceCheckout() {
     // src/lib/mixdog-debug.cjs → repo root two levels up. Use module.filename
     // instead of __dirname so esbuild's ESM TUI bundle does not emit a free
     // __dirname identifier (ReferenceError in node ESM).
-    const moduleDir = module && module.filename ? path.dirname(module.filename) : process.cwd();
+    const moduleDir = module?.filename ? path.dirname(module.filename) : process.cwd();
     const roots = [path.resolve(moduleDir, '..', '..'), process.cwd()];
     _cachedFromSource = roots.some((root) => fs.existsSync(path.join(root, '.git')));
   } catch {
@@ -110,7 +110,7 @@ const DEFAULT_STALE_LOG_SIBLING_MAX = 50;
 const DEFAULT_STALE_LOG_MIN_AGE_MS = 5 * 60 * 1000;
 
 function isStalePluginLogSibling(name) {
-  if (!name || !name.endsWith('.log')) return false;
+  if (!name?.endsWith('.log')) return false;
   if (CANONICAL_PLUGIN_LOG_NAMES.has(name)) return false;
   return STALE_PLUGIN_LOG_SIBLING_RE.some((re) => re.test(name));
 }

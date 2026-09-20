@@ -10,7 +10,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..',
 
 test('config migration removes retired local endpoints and persists Local Provider install state', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-local-provider-config-'));
-  const source = String.raw`
+  const source = `
     import assert from 'node:assert/strict';
     import { readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';

@@ -60,5 +60,6 @@ child.on('error', (error) => {
 });
 child.on('close', (code) => {
   if (emptySelection) process.stderr.write('선택한 범위에 실행할 테스트가 없습니다.\n');
-  process.exitCode = tapFailed || emptySelection ? 1 : Number.isInteger(code) ? code : 1;
+  const childExitCode = Number.isInteger(code) ? code : 1;
+  process.exitCode = tapFailed || emptySelection ? 1 : childExitCode;
 });

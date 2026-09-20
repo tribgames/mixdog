@@ -19,7 +19,7 @@ after(async () => {
   await closeNativePatchServerForTests();
 });
 
-function fixture(text = Array.from({ length: 20 }, (_, i) => `LINE_${i + 1}`).join('\n') + '\n') {
+function fixture(text = `${Array.from({ length: 20 }, (_, i) => `LINE_${i + 1}`).join('\n')}\n`) {
   const dir = mkdtempSync(join(root, 'case-'));
   const file = join(dir, 'working.txt');
   writeFileSync(join(dir, 'original.txt'), text);
@@ -101,7 +101,7 @@ for (const base of [0, 1]) {
   for (const streamed of [false, true]) {
     test(`byte-cap continuation resumes at the first incomplete row (base=${base}, streamed=${streamed})`, async () => {
       const lines = Array.from({ length: 30 }, (_, i) => `ROW_${i + 1}_${'x'.repeat(80)}`);
-      const fx = fixture(lines.join('\n') + '\n');
+      const fx = fixture(`${lines.join('\n')}\n`);
       const output = String(
         await executeBuiltinTool('read', readArgs(fx.file, base, base, 30), fx.dir, {
           sessionId: fx.sessionId,
@@ -147,7 +147,7 @@ for (const budgets of [
 ]) {
   test(`cached reads respect a changed output budget (${budgets.join(' -> ')})`, async () => {
     const lines = Array.from({ length: 20 }, (_, i) => `ROW_${i + 1}_${'x'.repeat(80)}`);
-    const fx = fixture(lines.join('\n') + '\n');
+    const fx = fixture(`${lines.join('\n')}\n`);
     const outputs = [];
     for (const [i, budget] of budgets.entries()) {
       outputs.push(
@@ -208,7 +208,7 @@ test('builtin execution preserves nested caller arguments and repeated execution
 for (const forceReadRangeStream of [false, true]) {
   test(`cached deep ranges cannot hide same-size same-mtime external rewrites (streamed=${forceReadRangeStream})`, async () => {
     const lines = Array.from({ length: 2000 }, (_, i) => `ROW_${i + 1}_${'x'.repeat(80)}`);
-    const fx = fixture(lines.join('\n') + '\n');
+    const fx = fixture(`${lines.join('\n')}\n`);
     const time = new Date('2025-01-01T00:00:00.000Z');
     utimesSync(fx.file, time, time);
     const args = { file_path: fx.file, offset: 1800, limit: 1 };
@@ -217,7 +217,7 @@ for (const forceReadRangeStream of [false, true]) {
     assert.deepEqual(rows(first), [[1800, lines[1799]]]);
     const before = statSync(fx.file);
     lines[1799] = lines[1799].replace(/x$/, 'y');
-    writeFileSync(fx.file, lines.join('\n') + '\n');
+    writeFileSync(fx.file, `${lines.join('\n')}\n`);
     utimesSync(fx.file, time, time);
     const after = statSync(fx.file);
     assert.equal(after.size, before.size);

@@ -25,7 +25,14 @@ import { SourceControlViewControls, type SourceControlView } from './SourceContr
 import { buildSourceControlCommitMenu } from './source-control-history-menu';
 import { useSourceControlFiles } from './use-source-control-files';
 import { useSurfaceActive, useSurfaceNavigationReset } from './surface-activity';
-import { gitRemoteWebUrl, indexOnly, pathsFor, pullRequestUrl, RowSpacer, type SourceControlDiffRequest } from './source-control-support';
+import {
+  gitRemoteWebUrl,
+  indexOnly,
+  pathsFor,
+  pullRequestUrl,
+  RowSpacer,
+  type SourceControlDiffRequest,
+} from './source-control-support';
 import {
   absoluteFilePath,
   branchActions,
@@ -40,7 +47,12 @@ import {
   stashActions,
   stashReasons,
 } from './source-control-actions';
-import { ChangedFilesHeader, OperationBanner, RemoteActionButtons, viewSortMenuItems } from './source-control-changes-header';
+import {
+  ChangedFilesHeader,
+  OperationBanner,
+  RemoteActionButtons,
+  viewSortMenuItems,
+} from './source-control-changes-header';
 import { HistoryList, type MenuPoint } from './source-control-history-list';
 import { useSourceControlBranches } from './use-source-control-branches';
 import { useSourceControlCommit } from './use-source-control-commit';
@@ -418,7 +430,7 @@ export function SourceControlDock({
   // itself lives ONLY there now (user: PR은 완전히 분리).
   const prAhead = status?.ahead ?? 0;
   const prUrl =
-    status && status.upstream && prAhead === 0 && !status.operation && !status.detached
+    status?.upstream && prAhead === 0 && !status.operation && !status.detached
       ? pullRequestUrl(status.remoteUrl || '', status.branch)
       : '';
 

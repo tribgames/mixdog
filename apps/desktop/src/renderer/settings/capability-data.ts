@@ -205,18 +205,18 @@ async function readAllCapabilitySettings(
     next[LOADED_SECTIONS_KEY] = [...loadedSections];
     onPartial?.({ ...next });
   };
-  const prepared = SECTION_READS.map(([key, capability, args = []]) => ({
-    key,
-    request: {
-      capability: capability as DesktopReadCapability,
-      args:
-        force && capability === 'listWebSearchModels'
-          ? [{ ...record(args[0]), force: true }]
-          : force && capability === 'getProviderSetup'
-            ? [{ refresh: true }]
-            : [...args],
-    } satisfies DesktopCapabilityReadRequest,
-  }));
+  const prepared = SECTION_READS.map(([key, capability, args = []]) => {
+    let readArgs: unknown[] = [...args];
+    if (force && capability === 'listWebSearchModels') readArgs = [{ ...record(args[0]), force: true }];
+    else if (force && capability === 'getProviderSetup') readArgs = [{ refresh: true }];
+    return {
+      key,
+      request: {
+        capability: capability as DesktopReadCapability,
+        args: readArgs,
+      } satisfies DesktopCapabilityReadRequest,
+    };
+  });
   const readIndividually = async () => {
     if (!api.invokeCapability) return;
     await Promise.all(
@@ -262,13 +262,8 @@ async function readAllCapabilitySettings(
           });
           chunk.forEach((entry, position) => {
             const result = results[position];
-            publish(
-              entry.key,
-              result?.ok
-                ? result.value
-                : { error: result && 'error' in result ? result.error : 'Capability read did not return a result.' },
-              result?.ok === true
-            );
+            const failure = result && 'error' in result ? result.error : 'Capability read did not return a result.';
+            publish(entry.key, result?.ok ? result.value : { error: failure }, result?.ok === true);
           });
         })
       );

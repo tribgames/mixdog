@@ -120,7 +120,9 @@ export function mountedSliceAwaitingMeasure(mountedSlice, frameColumns, toolOutp
   for (const item of mountedSlice) {
     if (!item || shouldSuppressFullyFailedToolItem(item) || item.kind === 'assistant') continue;
     const entry = transcriptMeasuredRowsCache.get(item);
-    if (!measurementMatches(entry, { columns: frameColumns, toolExpanded, variantKey: transcriptItemVariantKey(item) })) {
+    if (
+      !measurementMatches(entry, { columns: frameColumns, toolExpanded, variantKey: transcriptItemVariantKey(item) })
+    ) {
       return true;
     }
   }
@@ -149,7 +151,8 @@ function measureMountedRow(item, yoga, { frameColumns, toolOutputExpanded }) {
   const toolExpanded = toolOutputExpanded ? 1 : 0;
   const variantKey = transcriptItemVariantKey(item);
   const prev = transcriptMeasuredRowsCache.get(item);
-  if (prev?.rows === measured && measurementMatches(prev, { columns: frameColumns, toolExpanded, variantKey })) return null;
+  if (prev?.rows === measured && measurementMatches(prev, { columns: frameColumns, toolExpanded, variantKey }))
+    return null;
   transcriptMeasuredRowsCache.set(item, { rows: measured, columns: frameColumns, toolExpanded, variantKey });
   // First mount (no prior entry): this frame's row index already used the
   // estimate. Only report a change when Yoga actually corrects it.
@@ -213,7 +216,10 @@ function pruneMeasureMaps(state) {
  * forced on release. Otherwise skipped when the layout inputs are unchanged
  * since the last harvest, unless a bump asked for a confirmation pass.
  */
-export function harvestMeasuredRows(state, { dragActive, inputs, frameColumns, toolOutputExpanded, bumpMeasuredRowsVersion }) {
+export function harvestMeasuredRows(
+  state,
+  { dragActive, inputs, frameColumns, toolOutputExpanded, bumpMeasuredRowsVersion }
+) {
   if (!TRANSCRIPT_MEASURED_ROWS) return;
   const gate = state.gate;
   if (dragActive) {

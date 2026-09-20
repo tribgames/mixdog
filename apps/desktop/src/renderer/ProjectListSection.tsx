@@ -313,11 +313,12 @@ export function ProjectListSection({
               {editError && <ErrorNotice error={editError} />}
               {/* Memories save per row, so the common editor only closes; the
               footer Save exists for the project alias alone. */}
-              {editTarget.path === null ? (
+              {editTarget.path === null && (
                 <button type="button" className="secondary" disabled={memoryBusy} onClick={closeEdit}>
                   {t('Close')}
                 </button>
-              ) : (
+              )}
+              {editTarget.path !== null && (
                 <>
                   <button
                     type="button"
@@ -486,124 +487,127 @@ export function ProjectListSection({
                       </div>
                     </div>
                   )}
-                  {memoriesLoading ? (
-                    <p className="projects-memory-empty">{t('Loading…')}</p>
-                  ) : memories.length ? (
+                  {memoriesLoading && <p className="projects-memory-empty">{t('Loading…')}</p>}
+                  {!memoriesLoading && memories.length > 0 && (
                     <div className="core-memory-list">
-                      {memories.map((entry) => (
-                        <div className="core-memory-edit" key={entry.id}>
-                          <div className="projects-memory-row-head">
-                            <span className="projects-memory-index">#{entry.id}</span>
-                            <label>
-                              {t('Scope')}
-                              <select
-                                aria-label={t('Memory scope')}
-                                disabled={memoryBusy || memoriesLoading}
-                                value={moveTargets[entry.id] ?? editTarget.path ?? ''}
-                                onChange={(event) =>
-                                  setMoveTargets((current) => ({ ...current, [entry.id]: event.target.value }))
+                      {memories.map((entry) => {
+                        const moveTarget = moveTargets[entry.id] ?? editTarget.path ?? '';
+                        return (
+                          <div className="core-memory-edit" key={entry.id}>
+                            <div className="projects-memory-row-head">
+                              <span className="projects-memory-index">#{entry.id}</span>
+                              <label>
+                                {t('Scope')}
+                                <select
+                                  aria-label={t('Memory scope')}
+                                  disabled={memoryBusy || memoriesLoading}
+                                  value={moveTarget}
+                                  onChange={(event) =>
+                                    setMoveTargets((current) => ({ ...current, [entry.id]: event.target.value }))
+                                  }
+                                >
+                                  <option value="">{t('Common')}</option>
+                                  {projects.map((project) => (
+                                    <option key={project.path} value={project.path}>
+                                      {project.alias || project.name || displayProjectFolder(project.path)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            <textarea
+                              aria-label={t('Memory text')}
+                              value={memoryDrafts[entry.id] ?? entry.summary}
+                              rows={3}
+                              disabled={memoryBusy || memoriesLoading}
+                              onChange={(event) => {
+                                const value = event.currentTarget.value;
+                                setMemoryDrafts((current) => ({
+                                  ...current,
+                                  [entry.id]: value,
+                                }));
+                              }}
+                            />
+                            <div className="core-memory-actions">
+                              <button
+                                type="button"
+                                disabled={
+                                  memoryBusy ||
+                                  !(memoryDrafts[entry.id] ?? entry.summary).trim() ||
+                                  ((memoryDrafts[entry.id] ?? entry.summary).trim() === entry.summary &&
+                                    (moveTargets[entry.id] ?? editTarget.path ?? '') === (editTarget.path ?? ''))
                                 }
+                                onClick={() => {
+                                  if (!editTarget) return;
+                                  setMemoryBusy(true);
+                                  setEditError('');
+                                  const summary = (memoryDrafts[entry.id] ?? entry.summary).trim();
+                                  void onMemoryControl({
+                                    action: 'core',
+                                    op: 'edit',
+                                    id: entry.id,
+                                    index_revision: entry.indexRevision,
+                                    element: entry.singleSentence ? summary : entry.element,
+                                    summary,
+                                    verbatim: true,
+                                    ...memoryScope(editTarget.path),
+                                    ...(moveTarget === ''
+                                      ? { target_project_id: 'common' }
+                                      : { target_cwd: moveTarget }),
+                                  })
+                                    .then((value) => {
+                                      const failure = memoryResultError(value);
+                                      if (failure) throw new Error(failure);
+                                      return refreshMemories(editTarget.path);
+                                    })
+                                    .catch((reason) =>
+                                      setEditError(reason instanceof Error ? reason.message : String(reason))
+                                    )
+                                    .finally(() => setMemoryBusy(false));
+                                }}
                               >
-                                <option value="">{t('Common')}</option>
-                                {projects.map((project) => (
-                                  <option key={project.path} value={project.path}>
-                                    {project.alias || project.name || displayProjectFolder(project.path)}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                          </div>
-                          <textarea
-                            aria-label={t('Memory text')}
-                            value={memoryDrafts[entry.id] ?? entry.summary}
-                            rows={3}
-                            disabled={memoryBusy || memoriesLoading}
-                            onChange={(event) => {
-                              const value = event.currentTarget.value;
-                              setMemoryDrafts((current) => ({
-                                ...current,
-                                [entry.id]: value,
-                              }));
-                            }}
-                          />
-                          <div className="core-memory-actions">
-                            <button
-                              type="button"
-                              disabled={
-                                memoryBusy ||
-                                !(memoryDrafts[entry.id] ?? entry.summary).trim() ||
-                                ((memoryDrafts[entry.id] ?? entry.summary).trim() === entry.summary &&
-                                  (moveTargets[entry.id] ?? editTarget.path ?? '') === (editTarget.path ?? ''))
-                              }
-                              onClick={() => {
-                                if (!editTarget) return;
-                                setMemoryBusy(true);
-                                setEditError('');
-                                const summary = (memoryDrafts[entry.id] ?? entry.summary).trim();
-                                void onMemoryControl({
-                                  action: 'core',
-                                  op: 'edit',
-                                  id: entry.id,
-                                  index_revision: entry.indexRevision,
-                                  element: entry.singleSentence ? summary : entry.element,
-                                  summary,
-                                  verbatim: true,
-                                  ...memoryScope(editTarget.path),
-                                  ...((moveTargets[entry.id] ?? editTarget.path ?? '') === ''
-                                    ? { target_project_id: 'common' }
-                                    : { target_cwd: moveTargets[entry.id] ?? editTarget.path }),
-                                })
-                                  .then((value) => {
-                                    const failure = memoryResultError(value);
-                                    if (failure) throw new Error(failure);
-                                    return refreshMemories(editTarget.path);
+                                {t('Save')}
+                              </button>
+                              <button
+                                type="button"
+                                className="danger"
+                                disabled={memoryBusy}
+                                onClick={() => {
+                                  if (confirmDeleteMemory !== entry.id) {
+                                    setConfirmDeleteMemory(entry.id);
+                                    return;
+                                  }
+                                  if (!editTarget) return;
+                                  setMemoryBusy(true);
+                                  setEditError('');
+                                  void onMemoryControl({
+                                    action: 'core',
+                                    op: 'delete',
+                                    id: entry.id,
+                                    index_revision: entry.indexRevision,
+                                    ...memoryScope(editTarget.path),
                                   })
-                                  .catch((reason) =>
-                                    setEditError(reason instanceof Error ? reason.message : String(reason))
-                                  )
-                                  .finally(() => setMemoryBusy(false));
-                              }}
-                            >
-                              {t('Save')}
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              disabled={memoryBusy}
-                              onClick={() => {
-                                if (confirmDeleteMemory !== entry.id) {
-                                  setConfirmDeleteMemory(entry.id);
-                                  return;
-                                }
-                                if (!editTarget) return;
-                                setMemoryBusy(true);
-                                setEditError('');
-                                void onMemoryControl({
-                                  action: 'core',
-                                  op: 'delete',
-                                  id: entry.id,
-                                  index_revision: entry.indexRevision,
-                                  ...memoryScope(editTarget.path),
-                                })
-                                  .then((value) => {
-                                    const failure = memoryResultError(value);
-                                    if (failure) throw new Error(failure);
-                                    return refreshMemories(editTarget.path);
-                                  })
-                                  .then(() => setConfirmDeleteMemory(null))
-                                  .catch((reason) =>
-                                    setEditError(reason instanceof Error ? reason.message : String(reason))
-                                  )
-                                  .finally(() => setMemoryBusy(false));
-                              }}
-                            >
-                              {confirmDeleteMemory === entry.id ? t('Confirm delete') : t('Delete')}
-                            </button>
+                                    .then((value) => {
+                                      const failure = memoryResultError(value);
+                                      if (failure) throw new Error(failure);
+                                      return refreshMemories(editTarget.path);
+                                    })
+                                    .then(() => setConfirmDeleteMemory(null))
+                                    .catch((reason) =>
+                                      setEditError(reason instanceof Error ? reason.message : String(reason))
+                                    )
+                                    .finally(() => setMemoryBusy(false));
+                                }}
+                              >
+                                {confirmDeleteMemory === entry.id ? t('Confirm delete') : t('Delete')}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  ) : (
+                  )}
+                  {!memoriesLoading && memories.length === 0 && (
                     <p className="projects-memory-empty">{t('No memories yet.')}</p>
                   )}
                 </div>
@@ -627,9 +631,8 @@ export function ProjectListSection({
           </button>
         </div>
       )}
-      {!projectsReady && projects.length === 0 ? (
-        <InitialSurface />
-      ) : visible.length ? (
+      {!projectsReady && projects.length === 0 && <InitialSurface />}
+      {(projectsReady || projects.length > 0) && visible.length > 0 && (
         <div className="schedules-list projects-list">
           {visible.map((project) => {
             const title = project.alias?.trim() || project.name?.trim() || displayProjectFolder(project.path);
@@ -653,7 +656,8 @@ export function ProjectListSection({
             );
           })}
         </div>
-      ) : (
+      )}
+      {(projectsReady || projects.length > 0) && visible.length === 0 && (
         <div className="schedules-empty">
           <Folder size={40} strokeWidth={1.5} aria-hidden="true" />
           <p>

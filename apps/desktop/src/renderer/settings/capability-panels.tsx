@@ -172,6 +172,25 @@ function OutputStylePanel({ data, pending, run }: PanelContext) {
   );
 }
 
+function updaterInstallLabel(state: PanelContext['updaterState']): string {
+  switch (state.status) {
+    case 'ready':
+      return t('Update to v{{version}}', { version: state.version });
+    case 'installing':
+      return t('Installing v{{version}}…', { version: state.version });
+    case 'downloading':
+      return t('Downloading v{{version}}…', { version: state.version });
+    case 'checking':
+      return 'Checking for update…';
+    case 'up-to-date':
+      return 'Up to date';
+    case 'error':
+      return 'Update unavailable';
+    default:
+      return 'Check for update';
+  }
+}
+
 function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, installDesktopUpdate }: PanelContext) {
   const update = record(data.update);
   const version = 'version' in updaterState ? updaterState.version : String(update.latestVersion || '');
@@ -180,20 +199,7 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
     updaterState.status === 'checking' ||
     updaterState.status === 'downloading' ||
     updaterState.status === 'installing';
-  const installLabel =
-    updaterState.status === 'ready'
-      ? t('Update to v{{version}}', { version: updaterState.version })
-      : updaterState.status === 'installing'
-        ? t('Installing v{{version}}…', { version: updaterState.version })
-        : updaterState.status === 'downloading'
-          ? t('Downloading v{{version}}…', { version: updaterState.version })
-          : updaterState.status === 'checking'
-            ? 'Checking for update…'
-            : updaterState.status === 'up-to-date'
-              ? 'Up to date'
-              : updaterState.status === 'error'
-                ? 'Update unavailable'
-                : 'Check for update';
+  const installLabel = updaterInstallLabel(updaterState);
   return (
     <Group title="Update">
       <ResourceRow

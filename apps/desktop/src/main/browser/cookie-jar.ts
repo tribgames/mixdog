@@ -28,6 +28,13 @@ export interface BrowserCookieJar {
   flushStore(): Promise<void>;
 }
 
+const CHROME_SAME_SITE: Partial<Record<string, 'no_restriction' | 'lax' | 'strict'>> = {
+  None: 'no_restriction',
+  Lax: 'lax',
+  Strict: 'strict',
+};
+const CDP_SAME_SITE: Partial<Record<string, 'None' | 'Lax'>> = { no_restriction: 'None', lax: 'Lax' };
+
 export function storedCookieSetDetails(cookie: BrowserCookie): BrowserCookieSetDetails {
   if (!cookie.domain) throw new Error('Stored cookie has no domain.');
   const host = cookie.domain.replace(/^\./, '');
@@ -143,14 +150,7 @@ function fromProtocol(cookie: ProtocolCookie): BrowserCookie {
     secure: cookie.secure,
     httpOnly: cookie.httpOnly,
     session: cookie.session,
-    sameSite:
-      cookie.sameSite === 'None'
-        ? 'no_restriction'
-        : cookie.sameSite === 'Lax'
-          ? 'lax'
-          : cookie.sameSite === 'Strict'
-            ? 'strict'
-            : 'unspecified',
+    sameSite: CHROME_SAME_SITE[String(cookie.sameSite)] ?? 'unspecified',
     ...(!cookie.session ? { expirationDate: cookie.expires } : {}),
     ...(partitionKey ? { partitionKey } : {}),
   };
@@ -249,9 +249,7 @@ export function createBrowserCookieJar(partition: Session): BrowserCookieJar & {
         httpOnly: details.httpOnly === true,
         ...(details.expirationDate !== undefined ? { expires: details.expirationDate } : {}),
         ...(details.sameSite && details.sameSite !== 'unspecified'
-          ? {
-              sameSite: details.sameSite === 'no_restriction' ? 'None' : details.sameSite === 'lax' ? 'Lax' : 'Strict',
-            }
+          ? { sameSite: CDP_SAME_SITE[details.sameSite] ?? 'Strict' }
           : {}),
         partitionKey,
       });

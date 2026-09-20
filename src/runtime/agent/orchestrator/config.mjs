@@ -206,8 +206,8 @@ export function loadConfig(options = {}) {
       // would self-spawn through the in-process tool adapter. Strip on
       // ingress so user-edited configs cannot brick the agent boot.
       const mcpServers = raw.mcpServers && typeof raw.mcpServers === 'object' ? { ...raw.mcpServers } : {};
-      if (mcpServers['mixdog'] || mcpServers['trib-plugin']) {
-        delete mcpServers['mixdog'];
+      if (mcpServers.mixdog || mcpServers['trib-plugin']) {
+        delete mcpServers.mixdog;
         delete mcpServers['trib-plugin'];
         raw.mcpServers = mcpServers;
         try {
@@ -218,7 +218,7 @@ export function loadConfig(options = {}) {
             const cur = { ...current };
             // updateSection already supplies the agent section.
             const curMcp = cur.mcpServers && typeof cur.mcpServers === 'object' ? { ...cur.mcpServers } : {};
-            delete curMcp['mixdog'];
+            delete curMcp.mixdog;
             delete curMcp['trib-plugin'];
             cur.mcpServers = curMcp;
             return cur;
@@ -314,7 +314,9 @@ export function loadConfig(options = {}) {
 }
 /** In-lock patch of `skills.disabled` only (avoids whole-config lost-update). */
 function buildSkillsDisabledPatch(disabledNames) {
-  const names = disabledNames instanceof Set ? [...disabledNames] : Array.isArray(disabledNames) ? disabledNames : [];
+  let names = [];
+  if (disabledNames instanceof Set) names = [...disabledNames];
+  else if (Array.isArray(disabledNames)) names = disabledNames;
   const nextSkills = normalizeSkillsConfig({ disabled: names });
   const build = (current) => {
     const cur = { ...current };

@@ -70,16 +70,14 @@ export function prefetchEditorPane(): Promise<unknown> {
  * signal, and because every prefetch here returns the same shared promise the
  * real open awaits, an unfinished one simply merges into that load.
  */
+const SURFACE_PREFETCH: Partial<Record<WorkspaceSelection['kind'], () => Promise<unknown>>> = {
+  file: prefetchEditorPane,
+  diff: prefetchDiffView,
+  terminal: prefetchTerminalPane,
+};
+
 export function prefetchSurfaceForSelection(selection: WorkspaceSelection): void {
-  const promise =
-    selection.kind === 'file'
-      ? prefetchEditorPane()
-      : selection.kind === 'diff'
-        ? prefetchDiffView()
-        : selection.kind === 'terminal'
-          ? prefetchTerminalPane()
-          : null;
-  void promise?.catch(() => undefined);
+  void SURFACE_PREFETCH[selection.kind]?.().catch(() => undefined);
 }
 
 type EditorIntentHost = typeof window & {

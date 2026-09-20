@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mergeNormalizedContentEntries } from '../loop/steering.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
 import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
@@ -113,8 +113,9 @@ export function completionWasDelivered(entry, site) {
 
 /** Canonical tagger for deferred tool and agent completion notifications. */
 export function markCompletionEntry(text, options = {}) {
-  const value =
-    typeof text === 'string' ? text : text && typeof text === 'object' ? text.text || text.content || '' : '';
+  let value = '';
+  if (typeof text === 'string') value = text;
+  else if (text && typeof text === 'object') value = text.text || text.content || '';
   const content = String(value ?? '');
   const executionId = String(options?.executionId || options?.meta?.execution_id || '').trim();
   const identity = executionId ? `execution:${executionId}` : `content:${content}`;
@@ -177,13 +178,10 @@ export function normalizePendingMessageEntry(entry) {
           enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
         }
       : null;
-  const content = Object.hasOwn(entry, 'content')
-    ? entry.content
-    : typeof entry.message === 'string'
-      ? entry.message
-      : typeof entry.text === 'string'
-        ? entry.text
-        : null;
+  let content = null;
+  if (Object.hasOwn(entry, 'content')) content = entry.content;
+  else if (typeof entry.message === 'string') content = entry.message;
+  else if (typeof entry.text === 'string') content = entry.text;
   if (content == null) return null;
   const text = typeof entry.text === 'string' ? entry.text.trim() : promptContentText(content).trim();
   let out = null;

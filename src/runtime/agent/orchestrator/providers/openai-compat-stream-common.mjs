@@ -1,7 +1,30 @@
 import { randomBytes } from 'node:crypto';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, providerTimeoutError, streamStalledError } from '../stall-policy.mjs';
+import { typedStatusFrom } from './retry-classifier.mjs';
 
 // Shared lifecycle and replay boundaries for both OpenAI-compatible protocols.
+
+/**
+ * The SDK surfaces an in-band `{"error": …}` stream chunk as an APIError that
+ * carries the provider's error payload but NO HTTP status. Attach the same
+ * wire-error contract the Responses event handlers use so classifyError()
+ * default-retries it under the bounded budgets (fatal typed codes stay
+ * terminal) instead of failing the turn as 'unknown'. Nothing is synthesized
+ * from message text; a typed status on the payload still outranks the marker.
+ */
+export function markInBandWireError(err) {
+  const detail = err?.error;
+  if (!err || !detail || typeof detail !== 'object' || err.providerWireError === true) return err;
+  try {
+    err.providerWireError = true;
+    err.providerError = detail;
+    const typed = typedStatusFrom(err, detail);
+    if (typed && !err.httpStatus) err.httpStatus = typed;
+    const code = detail.code ?? detail.type ?? null;
+    if (code != null && code !== '' && !err.providerErrorCode) err.providerErrorCode = String(code);
+  } catch {}
+  return err;
+}
 export function synthLeakedOpenAICall(recovered) {
   let args = recovered?.arguments;
   if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
@@ -88,7 +111,7 @@ export async function nextAsyncWithWatchdog(
   } catch (err) {
     if (idleTimedOut)
       throw streamStalledError(idleLabel || 'compat SSE', idleMs, { emittedToolCall: didEmitToolCall() });
-    throw err;
+    throw markInBandWireError(err);
   } finally {
     if (idleTimer) clearTimeout(idleTimer);
     idleReject = null;

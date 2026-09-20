@@ -270,7 +270,7 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
     setScrollOffset((offset) => Math.min(Math.max(0, offset), maxScrollOffset));
   }, [maxScrollOffset]);
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     if (isLoading || !scrollable) return;
     if (key.upArrow) {
       setScrollOffset((offset) => Math.max(0, offset - 1));

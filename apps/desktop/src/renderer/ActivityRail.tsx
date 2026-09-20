@@ -22,7 +22,7 @@ import {
   subscribeUsageDashboard,
   type UsageApi,
 } from './usage-dashboard-store';
-import { displayUsagePercent } from './usage-percent';
+import { displayUsagePercent, usageToneClass } from './usage-percent';
 import type { SidebarPanelKey } from './app-shell-components';
 import {
   SIDEBAR_GROUP_MIME,
@@ -36,6 +36,33 @@ import { viewGroupContainerDropProps } from './view-group-layout';
 import { useDockVisibilityMenu, type DockIconEntry } from './dock-icon-visibility';
 
 type ActivityRailSurface = 'projects' | 'schedules' | 'webhooks' | 'settings';
+function usagePinGlyph(rows: ReturnType<typeof useUsageRailPin>['usagePinRows'], loading: boolean) {
+  if (rows.length) {
+    return (
+      <span className="rail-usage-pin-stack" aria-hidden="true">
+        {rows.map((entry) => {
+          const percent = displayUsagePercent(entry.percent) ?? 0;
+          // Glanceable readout (user: 프로그래스 중간에): icon, then the
+          // flyout's meter grammar in miniature, then the number — bar
+          // and number reflect the provider's final quota window.
+          const tone = usageToneClass(entry.percent);
+          return (
+            <span className={`rail-usage-pin-brand${tone}`} key={entry.key} data-usage-pin={entry.key}>
+              <ProviderIcon provider={entry.provider} />
+              <i>
+                <i style={{ width: `${percent}%` }} />
+              </i>
+              <small>{percent}%</small>
+            </span>
+          );
+        })}
+      </span>
+    );
+  }
+  if (loading) return <InitialSurface variant="icon" />;
+  return <span className="codicon codicon-pie-chart" aria-hidden="true" />;
+}
+
 export function ActivityRail({
   activeSurface,
   sidebarOpen,
@@ -292,15 +319,10 @@ export function ActivityRail({
                       event.dataTransfer.dropEffect = 'move';
                       const bounds = event.currentTarget.getBoundingClientRect();
                       const ratio = (event.clientY - bounds.top) / Math.max(1, bounds.height);
-                      const placement: SidebarViewPlacement = groupDrag
-                        ? ratio < 0.5
-                          ? 'before'
-                          : 'after'
-                        : ratio < 0.25
-                          ? 'before'
-                          : ratio > 0.75
-                            ? 'after'
-                            : 'inside';
+                      let placement: SidebarViewPlacement = 'inside';
+                      if (groupDrag) placement = ratio < 0.5 ? 'before' : 'after';
+                      else if (ratio < 0.25) placement = 'before';
+                      else if (ratio > 0.75) placement = 'after';
                       setRailDrop({ target: rootId, placement });
                     }}
                     onDragLeave={(event) => {
@@ -362,30 +384,7 @@ export function ActivityRail({
           {/* Pie-slice glyph: the classic usage/quota mark — gauge, columns and
             gantt bars all read clipped or generic at 20px (user feedback).
             Pinned, the same button becomes the brand stack. */}
-          {usagePinRows.length ? (
-            <span className="rail-usage-pin-stack" aria-hidden="true">
-              {usagePinRows.map((entry) => {
-                const percent = displayUsagePercent(entry.percent) ?? 0;
-                // Glanceable readout (user: 프로그래스 중간에): icon, then the
-                // flyout's meter grammar in miniature, then the number — bar
-                // and number reflect the provider's final quota window.
-                const tone = entry.percent >= 90 ? ' tone-danger' : entry.percent >= 70 ? ' tone-warning' : '';
-                return (
-                  <span className={`rail-usage-pin-brand${tone}`} key={entry.key} data-usage-pin={entry.key}>
-                    <ProviderIcon provider={entry.provider} />
-                    <i>
-                      <i style={{ width: `${percent}%` }} />
-                    </i>
-                    <small>{percent}%</small>
-                  </span>
-                );
-              })}
-            </span>
-          ) : usagePinLoading ? (
-            <InitialSurface variant="icon" />
-          ) : (
-            <span className="codicon codicon-pie-chart" aria-hidden="true" />
-          )}
+          {usagePinGlyph(usagePinRows, usagePinLoading)}
         </button>
       )}
       {desktopFeatureEnabled('settings') && isVisible('settings') && (

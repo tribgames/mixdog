@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom';
 
 import type { DesktopModelOption } from '../shared/contract';
 import { t, tExisting } from './i18n';
+import { wrappedNavigationIndex } from './list-navigation';
 import { useMobileBack } from './mobile-back';
 import { BOOT_WARMUP, scheduleBootWarmup } from './boot-warmup';
 import { commitImmediateOverlay, useImmediateOverlayClickGuard } from './immediate-overlay';
@@ -251,14 +252,14 @@ export function RouteEditor({
   const visible = open && surfaceActive;
   const mounted = (open || closing) && surfaceActive;
   const shownContextPercent = contextDraft ?? contextPercent;
-  const shownContextTokens =
-    shownContextPercent === contextPercent
-      ? contextTokens
-      : shownContextPercent === contextDefaultPercent && contextDefaultTokens
-        ? contextDefaultTokens
-        : contextMaxTokens
-          ? Math.max(1, Math.floor((contextMaxTokens * shownContextPercent) / 100))
-          : contextTokens;
+  let shownContextTokens = contextTokens;
+  if (shownContextPercent !== contextPercent) {
+    if (shownContextPercent === contextDefaultPercent && contextDefaultTokens) {
+      shownContextTokens = contextDefaultTokens;
+    } else if (contextMaxTokens) {
+      shownContextTokens = Math.max(1, Math.floor((contextMaxTokens * shownContextPercent) / 100));
+    }
+  }
   const defaultContextTokens =
     contextDefaultTokens ||
     (contextMaxTokens ? Math.max(1, Math.floor((contextMaxTokens * contextDefaultPercent) / 100)) : contextTokens);
@@ -555,12 +556,7 @@ export function RouteEditor({
     event.preventDefault();
     event.stopPropagation();
     const current = buttons.indexOf(event.currentTarget);
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? buttons.length - 1
-          : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    const next = wrappedNavigationIndex(event.key, current, buttons.length, event.key === 'ArrowDown' ? 1 : -1);
     buttons[next]?.focus({ preventScroll: true });
     return true;
   };
@@ -883,7 +879,7 @@ export function RouteEditor({
             data-drilled={drilled ? '' : undefined}
             data-state={closing ? 'closing' : 'open'}
           >
-            {drilled && pane ? (
+            {drilled && pane && (
               <div className="route-sheet-pane" key={`pane:${pane}`}>
                 {paneHeader(paneLabel(pane), pane)}
                 {pane === 'model' ? (
@@ -907,7 +903,8 @@ export function RouteEditor({
                   paneBody(pane)
                 )}
               </div>
-            ) : (
+            )}
+            {!(drilled && pane) && (
               <div className="route-sheet-rows" key="rows">
                 {row('model', t('Model'), triggerModel)}
                 {rows.includes('effort') &&

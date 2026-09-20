@@ -64,7 +64,10 @@ function engineLanguages(engine: DesktopTidyEngine): string {
 }
 
 // Languages, version and (for managed engines) the payload size.
-function installedEngineDescription(engine: DesktopTidyEngine, installEngine?: DesktopTidyInstallEngine | null): string {
+function installedEngineDescription(
+  engine: DesktopTidyEngine,
+  installEngine?: DesktopTidyInstallEngine | null
+): string {
   const parts: string[] = [];
   if (engine.languages?.length) parts.push(engine.languages.join(', '));
   const version = engine.version || installEngine?.version;
@@ -150,7 +153,12 @@ export function engineRowState({
     installEngine?.status === 'installed' ||
     installEngine?.status === 'present';
   if (isInstalled) {
-    return { tag: null, description: installedEngineDescription(engine, installEngine), tone: 'ok', state: 'installed' };
+    return {
+      tag: null,
+      description: installedEngineDescription(engine, installEngine),
+      tone: 'ok',
+      state: 'installed',
+    };
   }
   if (isInstallingActive && installEngine && engineDownloading(installEngine)) {
     return {

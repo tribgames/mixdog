@@ -172,12 +172,10 @@ async function providerSource(lane) {
       },
     };
   }
-  const auth =
-    lane === 'gemini'
-      ? { token: resolveGeminiKey() }
-      : lane === 'antigravity-oauth'
-        ? await resolveAntigravityAuth()
-        : await resolveXaiAuth(lane);
+  let auth;
+  if (lane === 'gemini') auth = { token: resolveGeminiKey() };
+  else if (lane === 'antigravity-oauth') auth = await resolveAntigravityAuth();
+  else auth = await resolveXaiAuth(lane);
   // API-key and OAuth catalogs must not leak availability across credentials.
   // Persist only a one-way scope hash, never a key or a bearer. Antigravity
   // bearers rotate hourly; the Cloud project identifies that account instead.

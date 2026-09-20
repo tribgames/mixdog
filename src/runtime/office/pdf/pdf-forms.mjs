@@ -34,7 +34,9 @@ export function rectanglesOverlap(left, right) {
 // instead of failing as an empty one.
 function adoptFormFieldShape(field) {
   if (!field || typeof field !== 'object') return field;
-  const rect = Array.isArray(field.rect) ? field.rect : Array.isArray(field.box) ? field.box : null;
+  let rect = null;
+  if (Array.isArray(field.rect)) rect = field.rect;
+  else if (Array.isArray(field.box)) rect = field.box;
   if (rect && rect.length >= 4 && field.x === undefined && field.y === undefined) {
     const [x, y, width, height] = rect.map(Number);
     Object.assign(field, { x, y, width, height });

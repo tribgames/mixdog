@@ -1,7 +1,7 @@
-import { createReadStream } from 'fs';
-import { open, readFile } from 'fs/promises';
-import { createInterface } from 'readline';
-import { inspectBinaryFile } from './binary-file.mjs';
+import { createReadStream } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
+import { createInterface } from 'node:readline';
+import { inspectBinaryFile, isBinaryFile } from './binary-file.mjs';
 import { hashText } from './hash-utils.mjs';
 import { normalizeOutputPath, countDisplayLines } from './path-utils.mjs';
 import { normalizeErrorMessage } from './path-diagnostics.mjs';
@@ -400,16 +400,16 @@ export async function executeSummaryTool(args, workDir, readStateScope, helpers 
 
   let stats;
   try {
-    stats =
-      meta.st.size > READ_MAX_SIZE_BYTES
-        ? {
-            lines: await countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st),
-            words: '-',
-            bytes: meta.st.size,
-          }
-        : meta.st.size > READ_STREAM_RANGE_MIN_BYTES
-          ? await countTextStatsStreaming(meta.fullPath, meta.st.size)
-          : null;
+    stats = null;
+    if (meta.st.size > READ_MAX_SIZE_BYTES) {
+      stats = {
+        lines: await countLogicalLinesBytesSync(meta.fullPath, meta.st.size, meta.st),
+        words: '-',
+        bytes: meta.st.size,
+      };
+    } else if (meta.st.size > READ_STREAM_RANGE_MIN_BYTES) {
+      stats = await countTextStatsStreaming(meta.fullPath, meta.st.size);
+    }
     if (!stats) {
       const opened = await openForRead(args.path, workDir, {});
       stats = {

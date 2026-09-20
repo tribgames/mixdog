@@ -3,6 +3,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 
 import { t } from './i18n';
 import {
+  currentRemoteConnectionDiagnostic,
   currentRemoteConnectionState,
   REMOTE_WAKE_EVENT,
   subscribeRemoteConnectionState,
@@ -17,6 +18,7 @@ const DISCONNECTED_AFTER_MS = 10_000;
 
 export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}) {
   const state = useSyncExternalStore(subscribeRemoteConnectionState, currentRemoteConnectionState, () => null);
+  const diagnostic = useSyncExternalStore(subscribeRemoteConnectionState, currentRemoteConnectionDiagnostic, () => '');
   const waiting = state === 'reconnecting' || state === 'syncing' || (boot && state === 'connecting');
   const [disconnected, setDisconnected] = useState(false);
   useEffect(() => {
@@ -24,12 +26,11 @@ export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}
     if (!waiting) return () => {};
     const timer = window.setTimeout(() => setDisconnected(true), DISCONNECTED_AFTER_MS);
     return () => window.clearTimeout(timer);
-  }, [state, waiting]);
+  }, [waiting]);
   if (!waiting || !disconnected) return null;
 
-  // No wording on purpose: the dim layer and the glyph ARE the message, and the
-  // layer exists to block input against a desktop that cannot answer it. A tap
-  // retries at once instead of waiting out the remaining reconnect backoff.
+  // The temporary diagnostic identifies the failing phase without revealing
+  // private payloads. A tap still retries instead of waiting out the backoff.
   return (
     <button
       type="button"
@@ -38,6 +39,7 @@ export function RemoteConnectionBanner({ boot = false }: { boot?: boolean } = {}
       onClick={() => window.dispatchEvent(new Event(REMOTE_WAKE_EVENT))}
     >
       <WifiOff aria-hidden="true" />
+      {diagnostic && <span className="remote-connection-diagnostic">{diagnostic}</span>}
     </button>
   );
 }

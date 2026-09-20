@@ -97,7 +97,7 @@ async function sweepIdleSessions({ includeTombstones = true, sweepIdle = true } 
       );
     }
   } catch (e) {
-    process.stderr.write(`[agent-session] idle sweep error: ${(e && e.message) || e}\n`);
+    process.stderr.write(`[agent-session] idle sweep error: ${e?.message || e}\n`);
   }
 }
 
@@ -138,7 +138,7 @@ export function sweepTombstones() {
     }
     return tombstonesCleaned;
   } catch (e) {
-    process.stderr.write(`[session-sweep] tombstone sweep error: ${(e && e.message) || e}\n`);
+    process.stderr.write(`[session-sweep] tombstone sweep error: ${e?.message || e}\n`);
     return 0;
   }
 }

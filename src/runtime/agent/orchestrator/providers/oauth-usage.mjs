@@ -661,7 +661,9 @@ function scopedAnthropicWindows(data, source) {
     if (window) byLabel.set(label, window);
   }
   for (const entry of Array.isArray(data.limits) ? data.limits : []) {
-    if (!entry || entry.is_active === false) continue;
+    // is_active selects the highlighted limit, not whether its measurement
+    // exists. Fable still reports a percentage while another limit is active.
+    if (!entry) continue;
     const scope = entry.scope?.model || entry.scope?.surface;
     const label = scopedWindowLabel(scope?.display_name || scope?.id);
     if (!label) continue;
@@ -675,14 +677,14 @@ function scopedAnthropicWindows(data, source) {
 // entries are reported separately).
 function anthropicLimitWindows(limits, source) {
   return limits
-    .filter((x) => x && x.is_active !== false && !x.scope?.model && !x.scope?.surface)
+    .filter((x) => x && !x.scope?.model && !x.scope?.surface)
     .map((x) => windowFromPercent(limitWindowLabel(x), { percent: x.percent, resets_at: x.resets_at }, source))
     .filter(Boolean);
 }
 
 // The extra-usage (pay-as-you-go) window when it is enabled, else null.
 function anthropicExtraUsageWindow(extraUsage) {
-  if (!extraUsage || extraUsage.is_enabled !== true) return null;
+  if (extraUsage?.is_enabled !== true) return null;
   return windowFromPercent(
     'EXTRA',
     {

@@ -175,11 +175,10 @@ export function formatV4AHunkLocator(hunk) {
 
 export function formatV4AAnchorMissHint(sourceLines, hunk) {
   const anchors = (hunk?.anchors || []).filter(Boolean);
-  const nearest =
-    anchors.length > 0 ? anchors.map((anchor) => nearestPatchLineHint(sourceLines, anchor, 0)).find(Boolean) : null;
-  return anchors.length === 0
-    ? ' use an existing @@ anchor from the current file or add exact context lines.'
-    : ` use an existing @@ anchor from the current file or add exact context lines; no stubs.${nearest ? ` nearest anchor candidate: ${nearest}.` : ''}`;
+  if (anchors.length === 0) return ' use an existing @@ anchor from the current file or add exact context lines.';
+  const nearest = anchors.map((anchor) => nearestPatchLineHint(sourceLines, anchor, 0)).find(Boolean);
+  const nearestNote = nearest ? ` nearest anchor candidate: ${nearest}.` : '';
+  return ` use an existing @@ anchor from the current file or add exact context lines; no stubs.${nearestNote}`;
 }
 
 export function formatV4AContextMissHint(sourceLines, stats, anchorLine) {

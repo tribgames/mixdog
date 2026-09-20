@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { countJsonNextCalls } from './tools/next-call-utils.mjs';
 import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
 import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
@@ -208,9 +208,9 @@ function summarizeToolArgs(toolName, args) {
 function stableTraceStringify(value) {
   if (value === null || value === undefined) return JSON.stringify(value);
   if (typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(stableTraceStringify).join(',') + ']';
+  if (Array.isArray(value)) return `[${value.map(stableTraceStringify).join(',')}]`;
   const keys = Object.keys(value).sort();
-  return '{' + keys.map((k) => `${JSON.stringify(k)}:${stableTraceStringify(value[k])}`).join(',') + '}';
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableTraceStringify(value[k])}`).join(',')}}`;
 }
 
 function hashTraceValue(value) {
@@ -577,12 +577,8 @@ function traceAgentTool({
   // Hash the FULL args, not the summary: summaries drop payload fields
   // (e.g. apply_patch keeps only base_path), which made every patch in a
   // session collide to one hash and broke duplicate/retry detection.
-  const toolArgsHash =
-    toolArgs && typeof toolArgs === 'object'
-      ? hashTraceValue(toolArgs)
-      : summarizedArgs
-        ? hashTraceValue(summarizedArgs)
-        : null;
+  const hashedArgs = toolArgs && typeof toolArgs === 'object' ? toolArgs : summarizedArgs;
+  const toolArgsHash = hashedArgs ? hashTraceValue(hashedArgs) : null;
   // Keep a short redacted error preview on the tool row itself so trace
   // analysis can see WHY a call failed without joining the failure log.
   const errorFirstLine =

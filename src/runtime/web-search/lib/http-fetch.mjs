@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync } from 'node:fs';
 import dns from 'node:dns';
 import { Agent, fetch as undiciFetch } from 'undici';
 
@@ -193,10 +193,11 @@ function abortRace(promise, signal) {
 async function pinnedLoopbackFetch(url, options = {}) {
   const parsed = assertLoopbackUrl(url);
   const host = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+  const literalFamily = host.includes(':') ? 6 : 4;
   const addresses =
     host === 'localhost'
       ? await abortRace(dns.promises.lookup(host, { all: true }), options.signal)
-      : [{ address: host, family: host.includes(':') ? 6 : 4 }];
+      : [{ address: host, family: literalFamily }];
   if (!addresses.length || addresses.some((entry) => !loopbackHost(entry.address))) {
     throw new Error(`Blocked non-loopback local_fetch resolution: ${host}`);
   }

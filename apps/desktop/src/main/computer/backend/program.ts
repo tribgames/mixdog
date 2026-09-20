@@ -16,7 +16,7 @@ import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtim
 
 export { RESPONSE_MARKER } from '../shared/common';
 
-export const ABORT_CLEANUP_PROGRAM = String.raw`
+export const ABORT_CLEANUP_PROGRAM = `
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 using System;

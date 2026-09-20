@@ -10,7 +10,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..',
 
 test('sync and async config writes preserve user fields without persisting secrets or probe failures', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-config-persistence-'));
-  const source = String.raw`
+  const source = `
     import assert from 'node:assert/strict';
     import { readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';
@@ -111,7 +111,7 @@ test('sync and async config writes preserve user fields without persisting secre
 
 test('read-time canonicalization cannot restore settings removed by a newer writer', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-config-rebase-'));
-  const source = String.raw`
+  const source = `
     import assert from 'node:assert/strict';
     import fs from 'node:fs';
     import { syncBuiltinESMExports } from 'node:module';
@@ -167,7 +167,7 @@ test('read-time canonicalization cannot restore settings removed by a newer writ
 
 test('saving a secrets-less snapshot keeps a signed-in OAuth provider usable', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-config-oauth-probe-'));
-  const source = String.raw`
+  const source = `
     import assert from 'node:assert/strict';
     import { readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';

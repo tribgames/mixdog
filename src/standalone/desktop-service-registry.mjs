@@ -20,7 +20,7 @@ async function loadDesktopServiceModule(moduleUrl) {
 }
 
 function subscriberToken(ctx) {
-  return ctx && ctx.clientToken ? String(ctx.clientToken) : '';
+  return ctx?.clientToken ? String(ctx.clientToken) : '';
 }
 
 function desktopEventKey(desktopId, message) {
@@ -34,12 +34,9 @@ function desktopEventKey(desktopId, message) {
   // key. Name (and terminal id) keep each producer on its own key.
   if (kind === 'desktop-event') {
     const name = String(message?.name || '');
-    const terminalId =
-      name === 'terminal-data'
-        ? String(message?.value?.id || '')
-        : name === 'session-runtime-released'
-          ? String(message?.value?.sessionId || '')
-          : '';
+    let terminalId = '';
+    if (name === 'terminal-data') terminalId = String(message?.value?.id || '');
+    else if (name === 'session-runtime-released') terminalId = String(message?.value?.sessionId || '');
     return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
   }
   return `desktop-event:${desktopId}:${kind}`;

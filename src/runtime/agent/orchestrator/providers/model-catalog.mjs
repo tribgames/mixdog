@@ -14,8 +14,8 @@
  * native endpoint exposed (usually nothing beyond the id).
  */
 
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
@@ -285,7 +285,7 @@ function readDiskCatalog(filePath) {
 async function _loadCatalogImpl(fetchFn = fetch) {
   try {
     const res = await fetchFn(CATALOG_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     try {
       writeJsonAtomicSync(
@@ -318,7 +318,7 @@ async function _loadCatalogImpl(fetchFn = fetch) {
 async function _loadCatalogInjected(fetchFn) {
   try {
     const res = await fetchFn(CATALOG_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
     process.stderr.write(`[model-catalog] injected fetch failed: ${err.message}\n`);
@@ -367,7 +367,7 @@ function mdCachePath() {
 async function _loadModelsDevImpl(fetchFn = fetch) {
   try {
     const res = await fetchFn(MODELSDEV_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     try {
       writeJsonAtomicSync(
@@ -399,7 +399,7 @@ async function _loadModelsDevImpl(fetchFn = fetch) {
 async function _loadModelsDevInjected(fetchFn) {
   try {
     const res = await fetchFn(MODELSDEV_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
     process.stderr.write(`[model-catalog] models.dev injected fetch failed: ${err.message}\n`);
@@ -448,7 +448,7 @@ function modelsDevDisplayName(row) {
 
 // Capabilities share the metadata schema; prices stay in their native $/M unit.
 function _modelsDevMetadata(row) {
-  const c = (row && row.cost) || {};
+  const c = row?.cost || {};
   const out = {
     max_input_tokens: row?.limit?.context,
     max_output_tokens: row?.limit?.output,
@@ -548,7 +548,7 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog) {
     }
     for (const prefix of _bedrockAllowed(mappedProvider) ? _CATALOG_BEDROCK_PREFIXES : []) {
       if (meta) break;
-      const v1 = catalog[prefix + id + '-v1:0'];
+      const v1 = catalog[`${prefix + id}-v1:0`];
       if (v1) meta = { ..._normalize(v1), pricingSource: 'litellm' };
     }
   }

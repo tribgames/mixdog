@@ -1,4 +1,4 @@
-// Dependency-light helpers extracted from the agent-tool facade.
+// Dependency-light helpers for the agent-tool facade.
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
@@ -273,7 +273,7 @@ function formatElapsedMs(ms) {
   return remMin ? `${hr}h${remMin}m` : `${hr}h`;
 }
 
-export function elapsedFromStamps(startedAt, finishedAt, status) {
+export function elapsedFromStamps(startedAt, finishedAt, _status) {
   const start = Date.parse(clean(startedAt));
   if (!Number.isFinite(start)) return null;
   const finish = Date.parse(clean(finishedAt));

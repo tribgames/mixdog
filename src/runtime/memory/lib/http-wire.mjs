@@ -1,4 +1,4 @@
-// HTTP wire helpers extracted from index.mjs. All pure request/response
+// HTTP wire helpers. All pure request/response
 // utilities with no module state — no db, _traceDb, or timer dependencies.
 // index.mjs imports these; behavior and signatures are unchanged.
 import { readJsonRequestBody } from '../../shared/http-request-body.mjs';

@@ -12,8 +12,6 @@ import {
   titleWord,
   truncateSingleLine,
   truncateToolText,
-  displayAgentName,
-  displayModelName,
 } from './tool-primitives.mjs';
 
 function countNonEmptyLines(text) {
@@ -129,13 +127,10 @@ function summarizeUpdateResult(text, args) {
   }
   if (changed.length === 1) {
     const item = changed[0];
-    const action = isDryRun
-      ? 'Checked'
-      : item.action === 'delete'
-        ? 'Deleted'
-        : item.action === 'add' || item.action === 'create' || item.action === 'created'
-          ? 'Created'
-          : 'Updated';
+    let action = 'Updated';
+    if (isDryRun) action = 'Checked';
+    else if (item.action === 'delete') action = 'Deleted';
+    else if (['add', 'create', 'created'].includes(item.action)) action = 'Created';
     return compactParts([`${action} ${displayToolPath(item.path)}`, formatLineDelta(parseLineDelta(item.delta))]);
   }
   if (changed.length > 1) {
@@ -184,7 +179,7 @@ function firstAgentResultLine(text) {
   for (const line of String(raw ?? '').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
-    if (/^agent result\b/i.test(trimmed)) continue;
+    if (/^(?:agent result|background task)\b/i.test(trimmed)) continue;
     if (
       /^<\/?(?:final-answer|task-id|tool-use-id|output-file|result|status|summary|usage|total_tokens|tool_uses|duration_ms|worktree|worktreePath|worktreeBranch)[^>]*>$/i.test(
         trimmed
@@ -192,7 +187,7 @@ function firstAgentResultLine(text) {
     )
       continue;
     if (
-      /^(?:agent task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused):\s*/i.test(
+      /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i.test(
         trimmed
       )
     )
@@ -213,8 +208,6 @@ function summarizeGenericResult(text) {
       const parsed = JSON.parse(trimmed);
       if (Array.isArray(parsed)) return `${parsed.length} ${pluralize(parsed.length, 'item')}`;
       if (parsed && typeof parsed === 'object') {
-        const status = firstText(parsed.status, parsed.state, parsed.result, parsed.message);
-        if (status) return truncateSingleLine(titleStatus(status), AGENT_SURFACE_BRIEF_MAX);
         if (parsed.cwd) return truncateSingleLine(parsed.cwd, AGENT_SURFACE_BRIEF_MAX);
         if (typeof parsed.ok === 'boolean') return parsed.ok ? 'Ok' : 'Failed';
         for (const key of [
@@ -230,6 +223,11 @@ function summarizeGenericResult(text) {
           if (Array.isArray(parsed[key]))
             return `${parsed[key].length} ${pluralize(parsed[key].length, (key.slice(0, -1) || 'item').toLowerCase())}`;
         }
+        // A status/state object is a transport envelope, not a successful
+        // result body. Leave it to the card's terminal-status rendering.
+        if (firstText(parsed.status, parsed.state)) return null;
+        const message = firstText(parsed.result, parsed.message);
+        if (message) return truncateSingleLine(message, AGENT_SURFACE_BRIEF_MAX);
       }
     } catch {
       return null;
@@ -241,7 +239,14 @@ function summarizeGenericResult(text) {
     trimmed
       .split('\n')
       .map((item) => item.trim())
-      .find(Boolean) ||
+      .find(
+        (item) =>
+          item &&
+          !/^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i.test(
+            item
+          ) &&
+          !/^\[[a-z-]+:\s*[^\]]*\]$/i.test(item)
+      ) ||
     '';
   if (!line || line === '{' || line === '[') return null;
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {
@@ -292,6 +297,198 @@ export function extractErrorCause(resultText) {
   return truncateSingleLine(stripInlineMarkdown(picked), AGENT_SURFACE_BRIEF_MAX);
 }
 
+// ── Per-tool result summarizers ─────────────────────────────────────────────
+// Each receives { text, trimmed, args, normalized } and returns a one-liner or
+// null when nothing reliable can be derived.
+
+function summarizeLineCount({ text, trimmed }, { zero, singular, plural }) {
+  if (!trimmed || !looksLineOriented(text)) return null;
+  if (looksLikeZeroResultText(text)) return zero;
+  const n = countNonEmptyLines(text);
+  if (n === 0) return null;
+  return `${n} ${pluralize(n, singular, plural)}`;
+}
+
+function summarizeReadResult({ text, trimmed }) {
+  if (/^\[image:/i.test(trimmed)) return 'Image';
+  if (!trimmed) return null;
+  const n = text.split('\n').length;
+  return `${n} ${pluralize(n, 'line')}`;
+}
+
+function summarizePatchResult({ text, args }) {
+  const updateSummary = summarizeUpdateResult(text, args);
+  if (updateSummary) return updateSummary;
+  // Prefer explicit additions/removals hints if the result text states them.
+  const add = /(\d+)\s+addition/i.exec(text);
+  const rem = /(\d+)\s+removal/i.exec(text);
+  if (add || rem) {
+    const a = add ? Number(add[1]) : 0;
+    const r = rem ? Number(rem[1]) : 0;
+    return `+${a} -${r}`;
+  }
+  // Else count unified-diff style +/- lines (ignore +++/--- file headers).
+  let a = 0;
+  let r = 0;
+  for (const line of text.split('\n')) {
+    if (/^\+\+\+|^---/.test(line)) continue;
+    if (/^\+/.test(line)) a += 1;
+    else if (/^-/.test(line)) r += 1;
+  }
+  if (a > 0 || r > 0) return `+${a} -${r}`;
+  return null;
+}
+
+function summarizeShellResult({ text, trimmed }) {
+  if (!trimmed) return '(No Output)';
+  const job = /^\[(?:task_id|job):\s*([^\]]+)\]/im.exec(text);
+  const status = /^\[status:\s*([^\]]+)\]/im.exec(text);
+  const exit = /^\[exit(?:\s+code)?:\s*([^\]]+)\]/im.exec(text);
+  if (job || status || exit) {
+    return compactParts([job ? job[1] : '', status ? titleStatus(status[1]) : '', exit ? `Exit ${exit[1]}` : '']);
+  }
+  const firstLine =
+    trimmed
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) || trimmed;
+  return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
+}
+
+function summarizeCodeGraphResult({ text }) {
+  const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
+  if (match) return `${match[1]} ${String(match[2]).toLowerCase()}`;
+  if (looksLikeZeroResultText(text)) return 'No results';
+  return null;
+}
+
+function summarizeFetchResult({ text, trimmed, args, normalized }) {
+  // Channel `fetch` (Discord message fetch — args carry channel/messageId/limit,
+  // never url/uri) is not a WEB fetch: the status/size probes would miss and
+  // the result fall to raw JSON, so it takes the generic JSON/text summarizer.
+  if (normalized === 'fetch') {
+    const a = parseToolArgs(args);
+    const isChannelFetch =
+      !firstText(a.url, a.uri) && Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
+    if (isChannelFetch) {
+      const n = countNonEmptyLines(text);
+      if (trimmed && looksLineOriented(text) && n > 0) return `${n} ${pluralize(n, 'message')}`;
+      return summarizeGenericResult(text);
+    }
+  }
+  // Status: require a status-like context (HTTP NNN, "Status: NNN",
+  // or "NNN OK"/"NNN Not Found") rather than any bare 3-digit number.
+  const status =
+    /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text) ||
+    /\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)/.exec(
+      text
+    );
+  const size = /\b(\d+(?:\.\d+)?\s?(?:[KMGT]?B|bytes))\b/i.exec(text);
+  if (size && status) return `${size[1]} · HTTP ${status[1]}`;
+  if (size) return size[1];
+  if (status) return `HTTP ${status[1]}`;
+  return null;
+}
+
+function summarizeSearchResult({ text, trimmed }) {
+  const match = /(\d+)\s+results?/i.exec(text);
+  if (match) {
+    const n = Number(match[1]);
+    return `${n} ${pluralize(n, 'result')}`;
+  }
+  return trimmed ? firstAgentResultLine(text) || null : null;
+}
+
+function summarizeMemoryResult({ text, trimmed }) {
+  if (!trimmed || trimmed === '(no results)' || looksLikeZeroResultText(text)) return 'No Results';
+  let n = 0;
+  for (const line of text.split('\n')) {
+    if (/#\d+\s*$/.test(line)) n += 1;
+  }
+  if (n > 0) return `${n} ${pluralize(n, 'Memory', 'Memories')}`;
+  return summarizeGenericResult(text);
+}
+
+function summarizeSkillResult({ text, trimmed, args, normalized }) {
+  const parsedArgs = parseToolArgs(args);
+  const target = firstText(parsedArgs.name, parsedArgs.skill, parsedArgs.skill_name);
+  if (normalized === 'skills_list') {
+    const count = /(\d+)\s+skills?/i.exec(text);
+    if (count) return `${Number(count[1]) || count[1]} ${pluralize(Number(count[1]) || 0, 'skill')}`;
+    const lines = countNonEmptyLines(text);
+    return lines > 0 ? `${lines} ${pluralize(lines, 'skill')}` : null;
+  }
+  if (target) {
+    const verb = normalized === 'skill' || normalized === 'skill_view' ? 'Loaded' : 'Used';
+    return `${verb} ${truncateToolText(target, 80)}`;
+  }
+  return trimmed ? firstAgentResultLine(text) || null : null;
+}
+
+// Status-check (list/status) envelopes start with "agents: N" / "tasks: M" (or
+// "(no agents or tasks)") and collapse to a tight count summary instead of
+// leaking the raw "agents: 3 …" worker dump into the card.
+function summarizeAgentCounts(text) {
+  if (/^\(no agents or tasks\)$/im.test(text)) return 'No agents or tasks';
+  const agentsCount = /^agents:\s*(\d+)/im.exec(text);
+  const tasksCount = /^tasks:\s*(\d+)/im.exec(text);
+  if (!agentsCount && !tasksCount) return null;
+  const a = agentsCount ? Number(agentsCount[1]) : 0;
+  const t = tasksCount ? Number(tasksCount[1]) : 0;
+  const parts = [];
+  if (agentsCount) parts.push(`${a} ${pluralize(a, 'agent')}`);
+  if (tasksCount && t > 0) parts.push(`${t} ${pluralize(t, 'task')}`);
+  return compactParts(parts) || 'No agents or tasks';
+}
+
+function summarizeAgentResult({ text }) {
+  const counts = summarizeAgentCounts(text);
+  if (counts) return counts;
+  const answerLine = firstAgentResultLine(text);
+  // Agent/task result cards show only a one-liner; full report via ctrl+o.
+  if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
+  return null;
+}
+
+const summarizeGeneric = ({ text }) => summarizeGenericResult(text);
+
+const TOOL_RESULT_SUMMARIZERS = new Map(
+  [
+    [['read', 'view_image', 'read_mcp_resource'], summarizeReadResult],
+    [['apply_patch'], summarizePatchResult],
+    [['grep'], (result) => summarizeLineCount(result, { zero: '0 matches', singular: 'match', plural: 'matches' })],
+    [['glob'], (result) => summarizeLineCount(result, { zero: '0 files', singular: 'file', plural: 'files' })],
+    [
+      ['find'],
+      (result) => summarizeLineCount(result, { zero: '0 candidates', singular: 'candidate', plural: 'candidates' }),
+    ],
+    [
+      ['list', 'ls'],
+      (result) => summarizeLineCount(result, { zero: '0 entries', singular: 'entry', plural: 'entries' }),
+    ],
+    [['shell', 'bash', 'bash_session', 'shell_command', 'job_wait'], summarizeShellResult],
+    [['code_graph'], summarizeCodeGraphResult],
+    [['web_fetch', 'fetch'], summarizeFetchResult],
+    [['search_query', 'image_query', 'web_search', 'web_search_call'], summarizeSearchResult],
+    [['recall', 'search_memories', 'memory'], summarizeMemoryResult],
+    [
+      [
+        'remember',
+        'save_memory',
+        'update_memory',
+        'request_user_input',
+        'update_plan',
+        'cwd',
+        'list_mcp_resources',
+        'list_mcp_resource_templates',
+      ],
+      summarizeGeneric,
+    ],
+    [['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill'], summarizeSkillResult],
+    [['agent', 'task'], summarizeAgentResult],
+  ].flatMap(([names, summarize]) => names.map((name) => [name, summarize]))
+);
+
 /**
  * Derive a short semantic one-liner for a completed tool call using only the
  * tool name, parsed args, and the raw result text. Returns null when nothing
@@ -299,231 +496,17 @@ export function extractErrorCause(resultText) {
  */
 export function summarizeToolResult(name, args, resultText, isError = false) {
   if (isError) {
-    // Audit HIGH: errors used to disable semantic summaries entirely, leaving
-    // the UI with a raw first line or a bare "Failed". Surface the extracted
-    // cause so the collapsed card answers "why" without ctrl+o.
-    const cause = extractErrorCause(resultText);
-    return cause || null;
+    // Errors surface the extracted cause so the collapsed card answers "why"
+    // without ctrl+o, instead of a raw first line or a bare "Failed".
+    return extractErrorCause(resultText) || null;
   }
   const text = String(resultText ?? '');
   const trimmed = text.trim();
   if (/^(?:undefined|null)$/i.test(trimmed)) return null;
   if (isMcpToolName(name)) return trimmed ? firstAgentResultLine(text) || null : null;
   const normalized = normalizeToolName(name);
-
-  switch (normalized) {
-    case 'read':
-    case 'view_image':
-    case 'read_mcp_resource': {
-      if (/^\[image:/i.test(trimmed)) return 'Image';
-      if (!trimmed) return null;
-      const n = text.split('\n').length;
-      return `${n} ${pluralize(n, 'line')}`;
-    }
-    case 'apply_patch': {
-      const updateSummary = summarizeUpdateResult(text, args);
-      if (updateSummary) return updateSummary;
-      // Prefer explicit additions/removals hints if the result text states them.
-      const add = /(\d+)\s+addition/i.exec(text);
-      const rem = /(\d+)\s+removal/i.exec(text);
-      if (add || rem) {
-        const a = add ? Number(add[1]) : 0;
-        const r = rem ? Number(rem[1]) : 0;
-        return `+${a} -${r}`;
-      }
-      // Else count unified-diff style +/- lines (ignore +++/--- file headers).
-      let a = 0;
-      let r = 0;
-      for (const line of text.split('\n')) {
-        if (/^\+\+\+|^---/.test(line)) continue;
-        if (/^\+/.test(line)) a += 1;
-        else if (/^-/.test(line)) r += 1;
-      }
-      if (a > 0 || r > 0) return `+${a} -${r}`;
-      return null;
-    }
-    case 'grep': {
-      if (!trimmed || !looksLineOriented(text)) return null;
-      if (looksLikeZeroResultText(text)) return '0 matches';
-      const n = countNonEmptyLines(text);
-      if (n === 0) return null;
-      return `${n} ${pluralize(n, 'match', 'matches')}`;
-    }
-    case 'glob': {
-      if (!trimmed || !looksLineOriented(text)) return null;
-      if (looksLikeZeroResultText(text)) return '0 files';
-      const n = countNonEmptyLines(text);
-      if (n === 0) return null;
-      return `${n} ${pluralize(n, 'file')}`;
-    }
-    case 'find': {
-      if (!trimmed || !looksLineOriented(text)) return null;
-      if (looksLikeZeroResultText(text)) return '0 candidates';
-      const n = countNonEmptyLines(text);
-      if (n === 0) return null;
-      return `${n} ${pluralize(n, 'candidate')}`;
-    }
-    case 'list':
-    case 'ls': {
-      if (!trimmed || !looksLineOriented(text)) return null;
-      if (looksLikeZeroResultText(text)) return '0 entries';
-      const n = countNonEmptyLines(text);
-      if (n === 0) return null;
-      return `${n} ${pluralize(n, 'entry', 'entries')}`;
-    }
-    case 'shell':
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-    case 'job_wait': {
-      if (!trimmed) return '(No Output)';
-      const job = /^\[(?:task_id|job):\s*([^\]]+)\]/im.exec(text);
-      const status = /^\[status:\s*([^\]]+)\]/im.exec(text);
-      const exit = /^\[exit:\s*([^\]]+)\]/im.exec(text);
-      if (job || status || exit) {
-        return compactParts([job ? job[1] : '', status ? titleStatus(status[1]) : '', exit ? `Exit ${exit[1]}` : '']);
-      }
-      const firstLine =
-        trimmed
-          .split('\n')
-          .map((line) => line.trim())
-          .find(Boolean) || trimmed;
-      return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
-    }
-    case 'code_graph': {
-      const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
-      if (match) return `${match[1]} ${String(match[2]).toLowerCase()}`;
-      if (looksLikeZeroResultText(text)) return 'No results';
-      return null;
-    }
-    case 'web_fetch':
-    case 'fetch': {
-      // Audit HIGH: channel `fetch` (Discord message fetch — args carry
-      // channel/messageId/limit, never url/uri) was summarized as a WEB fetch,
-      // so its result missed both the status/size probes and fell to raw JSON.
-      // Route it to the generic JSON/text summarizer instead.
-      if (normalized === 'fetch') {
-        const a = parseToolArgs(args);
-        const isChannelFetch =
-          !firstText(a.url, a.uri) &&
-          Boolean(firstText(a.channel, a.channelId, a.chatId, a.messageId) || a.limit != null);
-        if (isChannelFetch) {
-          const n = countNonEmptyLines(text);
-          if (trimmed && looksLineOriented(text) && n > 0) return `${n} ${pluralize(n, 'message')}`;
-          return summarizeGenericResult(text);
-        }
-      }
-      // Status: require a status-like context (HTTP NNN, "Status: NNN",
-      // or "NNN OK"/"NNN Not Found") rather than any bare 3-digit number.
-      const status =
-        /(?:HTTP[\s/]*\d?\.?\d?\s*|status[:\s]+)([1-5]\d{2})\b/i.exec(text) ||
-        /\b([1-5]\d{2})\s+(?:OK|Not\s+Found|Forbidden|Moved|Found|Created|No\s+Content|Bad\s+Request|Unauthorized|Internal)/.exec(
-          text
-        );
-      const size = /\b(\d+(?:\.\d+)?\s?(?:[KMGT]?B|bytes))\b/i.exec(text);
-      if (size && status) return `${size[1]} · HTTP ${status[1]}`;
-      if (size) return size[1];
-      if (status) return `HTTP ${status[1]}`;
-      return null;
-    }
-    case 'search_query':
-    case 'image_query':
-    case 'web_search':
-    case 'web_search_call': {
-      const match = /(\d+)\s+results?/i.exec(text);
-      if (match) {
-        const n = Number(match[1]);
-        return `${n} ${pluralize(n, 'result')}`;
-      }
-      return trimmed ? firstAgentResultLine(text) || null : null;
-    }
-    case 'recall':
-    case 'search_memories':
-    case 'memory': {
-      if (!trimmed || trimmed === '(no results)' || looksLikeZeroResultText(text)) return 'No Results';
-      let n = 0;
-      for (const line of text.split('\n')) {
-        if (/#\d+\s*$/.test(line)) n += 1;
-      }
-      if (n > 0) return `${n} ${pluralize(n, 'Memory', 'Memories')}`;
-      return summarizeGenericResult(text);
-    }
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-    case 'request_user_input':
-    case 'update_plan':
-    case 'cwd':
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-      return summarizeGenericResult(text);
-    case 'skill':
-    case 'skill_execute':
-    case 'skill_view':
-    case 'skills_list':
-    case 'use_skill': {
-      const parsedArgs = parseToolArgs(args);
-      const target = firstText(parsedArgs.name, parsedArgs.skill, parsedArgs.skill_name);
-      if (normalized === 'skills_list') {
-        const count = /(\d+)\s+skills?/i.exec(text);
-        if (count) return `${Number(count[1]) || count[1]} ${pluralize(Number(count[1]) || 0, 'skill')}`;
-        const lines = countNonEmptyLines(text);
-        return lines > 0 ? `${lines} ${pluralize(lines, 'skill')}` : null;
-      }
-      if (target) {
-        const verb = normalized === 'skill' || normalized === 'skill_view' ? 'Loaded' : 'Used';
-        return `${verb} ${truncateToolText(target, 80)}`;
-      }
-      return trimmed ? firstAgentResultLine(text) || null : null;
-    }
-    case 'agent':
-    case 'task': {
-      // Status-check (list/status) envelopes start with "agents: N" / "tasks: M"
-      // (or "(no agents or tasks)"). Collapse them to a tight count summary
-      // instead of leaking the raw "agents: 3 …" worker dump into the card.
-      if (/^\(no agents or tasks\)$/im.test(text)) return 'No agents or tasks';
-      const agentsCount = /^agents:\s*(\d+)/im.exec(text);
-      const tasksCount = /^tasks:\s*(\d+)/im.exec(text);
-      if (agentsCount || tasksCount) {
-        const a = agentsCount ? Number(agentsCount[1]) : 0;
-        const t = tasksCount ? Number(tasksCount[1]) : 0;
-        const parts = [];
-        if (agentsCount) parts.push(`${a} ${pluralize(a, 'agent')}`);
-        if (tasksCount && t > 0) parts.push(`${t} ${pluralize(t, 'task')}`);
-        return compactParts(parts) || 'No agents or tasks';
-      }
-      const answerLine = firstAgentResultLine(text);
-      // Agent/task result cards show only a one-liner; full report via ctrl+o.
-      if (answerLine) return truncateSingleLine(stripInlineMarkdown(answerLine), AGENT_SURFACE_BRIEF_MAX);
-      const task = /^agent task:\s*(\S+)/im.exec(text);
-      const statusMatch = /^status:\s*([^\s(]+)/im.exec(text);
-      // Defensive twin of the render-side guard: an envelope that still says
-      // "status: undefined"/"null" must not surface a titleized "Undefined".
-      const status = statusMatch && !/^(?:undefined|null)$/i.test(statusMatch[1]) ? statusMatch : null;
-      const agent = /^agent:\s*(.+)$/im.exec(text);
-      const preset = /^preset:\s*(.+)$/im.exec(text);
-      const model = /^model:\s*(.+)$/im.exec(text);
-      const limits = /^limits:\s*(.+)$/im.exec(text);
-      const agentModel = compactParts([
-        displayAgentName(agent ? agent[1] : ''),
-        displayModelName(model ? model[1] : ''),
-      ]);
-      if (agentModel) return agentModel;
-      const parts = [
-        task ? task[1] : '',
-        agent ? agent[1] : '',
-        preset ? preset[1] : '',
-        model ? model[1] : '',
-        status ? titleStatus(status[1]) : '',
-        limits ? limits[1] : '',
-      ].filter(Boolean);
-      if (parts.length) return compactParts(parts);
-      if (task) return status ? `${task[1]} ${titleStatus(status[1])}` : task[1];
-      return null;
-    }
-    default:
-      return null;
-  }
+  const summarize = TOOL_RESULT_SUMMARIZERS.get(normalized);
+  return summarize ? summarize({ text, trimmed, args, normalized }) : null;
 }
 
 function truncateAgentSurfaceBrief(value, max = AGENT_SURFACE_BRIEF_MAX) {

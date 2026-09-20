@@ -69,8 +69,11 @@ export function addDocxDecisionCallout(output, state, text, design, { label = ''
   const caption = label || presetLabels(text).recommendation;
   const colors = design.tokens.colors;
   const tone = STATE_ROLES.includes(emphasis) && colors[`${emphasis}Weak`] && colors[`${emphasis}Text`] ? emphasis : '';
-  const fillColor = tone ? colors[`${tone}Weak`] : emphasis === 'accent' ? colors.accent : colors.inverse;
-  const foreground = tone ? colors[`${tone}Text`] : emphasis === 'accent' ? colors.onAccent : colors.onInverse;
+  const accentEmphasis = emphasis === 'accent';
+  const fallbackFill = accentEmphasis ? colors.accent : colors.inverse;
+  const fallbackForeground = accentEmphasis ? colors.onAccent : colors.onInverse;
+  const fillColor = tone ? colors[`${tone}Weak`] : fallbackFill;
+  const foreground = tone ? colors[`${tone}Text`] : fallbackForeground;
   const { table } = pushTable(output, state, [[caption], [String(text)]], design, 'callout');
   output.push({
     op: 'set_table_cell_style',
@@ -110,7 +113,8 @@ function metricValueText(entry) {
   const unit = String(entry?.unit || '').trim();
   // A Korean counter closes on the figure (12명); a Latin unit takes the space
   // it is read with (47,210 orders).
-  const suffix = unit ? `${/^[A-Za-z(]/.test(unit) ? ' ' : ''}${unit}` : '';
+  const unitGap = /^[A-Za-z(]/.test(unit) ? ' ' : '';
+  const suffix = unit ? `${unitGap}${unit}` : '';
   const value = entry?.value;
   if (typeof value !== 'number' || !Number.isFinite(value)) return `${String(value ?? '')}${suffix}`;
   const format = officeNumberFormat(entry);
@@ -245,7 +249,7 @@ export function addDocxRoadmap(output, state, steps, design) {
 export function addDocxSectionTable(output, state, values, design, variant = 'default') {
   if (!values.length) return false;
   const colors = design.tokens.colors;
-  const resolvedVariant = variant === 'decision-gates' ? 'gates' : variant === 'metrics' ? 'metrics' : variant;
+  const resolvedVariant = variant === 'decision-gates' ? 'gates' : variant;
   if (resolvedVariant === 'metrics' && values.length > 2) {
     const metricRows = values.slice(1, 6).filter((row) => Array.isArray(row) && row.length >= 3);
     if (metricRows.length >= 3) {
@@ -326,27 +330,22 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       const metricValue = resolvedVariant === 'metrics' && column === 2;
       const releaseCell = resolvedVariant === 'gates' && column === 2;
       const stopCell = resolvedVariant === 'gates' && column === 3;
+      // A release gate is a positive state, a stop gate a critical one: the state fields and words, never a literal tint.
+      let fillColor = row % 2 === 0 ? colors.canvas : colors.surface;
+      if (releaseCell) fillColor = colors.positiveWeak || colors.surface;
+      else if (stopCell) fillColor = colors.criticalWeak || colors.surface2 || colors.surface;
+      let color = colors.ink;
+      if (metricValue) color = colors.accent;
+      else if (releaseCell) color = colors.positiveText || colors.accent;
+      else if (stopCell) color = colors.criticalText || colors.accent2;
       output.push({
         op: 'set_table_cell_style',
         table,
         row,
         col: column,
         properties: {
-          // A release gate is a positive state, a stop gate a critical one: the state fields and words, never a literal tint.
-          fillColor: releaseCell
-            ? colors.positiveWeak || colors.surface
-            : stopCell
-              ? colors.criticalWeak || colors.surface2 || colors.surface
-              : row % 2 === 0
-                ? colors.canvas
-                : colors.surface,
-          color: metricValue
-            ? colors.accent
-            : releaseCell
-              ? colors.positiveText || colors.accent
-              : stopCell
-                ? colors.criticalText || colors.accent2
-                : colors.ink,
+          fillColor,
+          color,
           bold: column === 1 || metricValue,
           verticalAlignment: 'center',
         },

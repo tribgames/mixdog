@@ -43,7 +43,7 @@ function customToolArgumentsFromInput(name, input) {
 }
 
 export function customToolCallFromResponseItem(item) {
-  if (!item || item.type !== 'custom_tool_call') return null;
+  if (item?.type !== 'custom_tool_call') return null;
   const id = item.call_id || item.id || '';
   const name = item.name || '';
   if (!id || !name) return null;

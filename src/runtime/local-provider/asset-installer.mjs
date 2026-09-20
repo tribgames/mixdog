@@ -170,13 +170,11 @@ async function extractZip(zipPath, destination, signal) {
     child.once('error', (error) => {
       failure = error;
     });
-    child.once('close', (code) =>
-      failure
-        ? reject(failure)
-        : code === 0
-          ? resolve()
-          : reject(new Error(`[local-provider] runtime extraction failed: ${log || `status ${code}`}`))
-    );
+    child.once('close', (code) => {
+      if (failure) reject(failure);
+      else if (code === 0) resolve();
+      else reject(new Error(`[local-provider] runtime extraction failed: ${log || `status ${code}`}`));
+    });
   });
 }
 

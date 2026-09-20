@@ -40,7 +40,9 @@ export function nearestTranscriptSelectionRow<T extends { top: number; bottom: n
   let best: T | null = null;
   let bestDistance = Infinity;
   for (const row of rows) {
-    const distance = y < row.top ? row.top - y : y > row.bottom ? y - row.bottom : 0;
+    let distance = 0;
+    if (y < row.top) distance = row.top - y;
+    else if (y > row.bottom) distance = y - row.bottom;
     if (distance < bestDistance) {
       best = row;
       bestDistance = distance;

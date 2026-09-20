@@ -268,8 +268,9 @@ async function main() {
   }
 
   const results = [];
+  const positiveTag = positiveCap > 0 ? `-p${positiveCap}` : '';
   for (const modelKey of modelKeys) {
-    const corpusTag = corpusLimit > 0 ? `${corpusLimit}${positiveCap > 0 ? `-p${positiveCap}` : ''}` : 'full';
+    const corpusTag = corpusLimit > 0 ? `${corpusLimit}${positiveTag}` : 'full';
     const outputPath = join(RESULT_DIR, `${modelKey}-${corpusTag}.json`);
     process.stdout.write(`\n[embedding-bench] running ${modelKey}\n`);
     try {
@@ -307,7 +308,7 @@ async function main() {
     resultPath,
   };
   await writeFile(resultPath, JSON.stringify(aggregate, null, 2));
-  if (hasFlag('json')) process.stdout.write(JSON.stringify(aggregate, null, 2) + '\n');
+  if (hasFlag('json')) process.stdout.write(`${JSON.stringify(aggregate, null, 2)}\n`);
   else printSummary(aggregate);
 }
 

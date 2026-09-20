@@ -471,8 +471,10 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
       // it means an older peer inlined whole fields, so the two readings must
       // stay apart.
       const compactFrame = record.__v === COMPACT_WIRE_VERSION;
-      const patchPrefix = Object.hasOwn(patch, 'prefix') ? patch.prefix : compactFrame ? items.length : undefined;
-      const patchAppend = Object.hasOwn(patch, 'append') ? patch.append : compactFrame ? [] : undefined;
+      const defaultPrefix = compactFrame ? items.length : undefined;
+      const defaultAppend = compactFrame ? [] : undefined;
+      const patchPrefix = Object.hasOwn(patch, 'prefix') ? patch.prefix : defaultPrefix;
+      const patchAppend = Object.hasOwn(patch, 'append') ? patch.append : defaultAppend;
       if (
         revision === null ||
         patch.base !== revision ||
@@ -527,11 +529,8 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
         }
         // An append-only compact patch leaves the splice point out: it is
         // exactly the length of the text this decoder already holds.
-        const tailPrefix = Object.hasOwn(tailPatch, 'prefix')
-          ? tailPatch.prefix
-          : compactFrame
-            ? previousText.length
-            : undefined;
+        const defaultTailPrefix = compactFrame ? previousText.length : undefined;
+        const tailPrefix = Object.hasOwn(tailPatch, 'prefix') ? tailPatch.prefix : defaultTailPrefix;
         if (
           !streamingTail ||
           !tail ||

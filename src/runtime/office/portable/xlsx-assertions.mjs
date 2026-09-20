@@ -101,7 +101,7 @@ function cellsForAssertion(document, assertion) {
   });
 }
 
-function issue(assertion, index, code, message, path = '/') {
+function issue(_assertion, index, code, message, path = '/') {
   return {
     severity: 'error',
     code,

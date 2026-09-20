@@ -16,7 +16,7 @@ const sourcePath = join(directory, 'backend.ps1');
 await writeFile(sourcePath, powershellHostProgram(), 'utf8');
 
 async function nativeFixture(body) {
-  const script = String.raw`
+  const script = `
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $tokens = $null; $errors = $null
@@ -46,7 +46,7 @@ ${body}
 }
 
 test('terminating a process needs repeated intent and spares a window that still answers', windows, async () => {
-  const result = await nativeFixture(String.raw`
+  const result = await nativeFixture(`
 Add-Type -TypeDefinition @'
 using System;
 public static class MixWin32 {
@@ -202,7 +202,7 @@ foreach ($code in 2, 5, 31, 1223, 87) {
 });
 
 test('background value input skips a browser tab that only echoes the write', windows, async () => {
-  const result = await nativeFixture(String.raw`
+  const result = await nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -TypeDefinition @'
 using System;
@@ -236,7 +236,7 @@ $msaa = Test-BackgroundValueTarget @{ Kind = 'msaa' }
 });
 
 test('background type reaches a value-settable element without a native keyboard target', windows, async () => {
-  const result = await nativeFixture(String.raw`
+  const result = await nativeFixture(`
 Add-Type -TypeDefinition @'
 using System;
 public static class MixWin32 {
@@ -291,7 +291,7 @@ test(
   'native post-input observation survives a closed dialog without weakening pre-dispatch checks',
   windows,
   async () => {
-    const result = await nativeFixture(String.raw`
+    const result = await nativeFixture(`
 Add-Type -TypeDefinition @'
 using System;
 public class Info { public string OwnerId = "hwnd:0x2"; }
@@ -335,7 +335,7 @@ $after = Get-InputRecoveryState @{ window_id = 'hwnd:0x1'; after_input = $true }
 );
 
 test('menu dispatch stays in its live branch or an owned popup, never another app', windows, async () => {
-  const rows = await nativeFixture(String.raw`
+  const rows = await nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll',
@@ -451,7 +451,7 @@ $rows | ConvertTo-Json -Compress -Depth 5
 });
 
 test('MSAA menu paths never initialize an unavailable UIA provider', windows, async () => {
-  const result = await nativeFixture(String.raw`
+  const result = await nativeFixture(`
 Add-Type @'
 using System.Collections.Generic;
 public sealed class MsaaMenuFixture {
@@ -481,7 +481,7 @@ $reply = Do-InvokeMenu @{action='invoke_menu';window_id='hwnd:0x1';path=@('Windo
 });
 
 test('foreground drift during preparation prevents the input body from running', windows, async () => {
-  const result = await nativeFixture(String.raw`
+  const result = await nativeFixture(`
 Add-Type @'
 using System;
 public static class MixInputObservation {
@@ -528,7 +528,7 @@ test(
   'accessibility scrolling checks authorization again after provider lookup and before every increment',
   windows,
   async () => {
-    const result = await nativeFixture(String.raw`
+    const result = await nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll',
@@ -580,7 +580,7 @@ test(
   'ref click uses native messages only when no semantic pattern exists, never after an uncertain semantic attempt',
   windows,
   async () => {
-    const rows = await nativeFixture(String.raw`
+    const rows = await nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type @'
@@ -623,7 +623,7 @@ test(
   'ref clicks expand and collapse through UIA and reject disabled UIA/MSAA controls before input',
   windows,
   async () => {
-    const rows = await nativeFixture(String.raw`
+    const rows = await nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
 Add-Type -ReferencedAssemblies @('System.dll',

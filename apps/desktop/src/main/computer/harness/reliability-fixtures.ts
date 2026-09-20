@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const WPF = String.raw`
+const WPF = `
 Add-Type -AssemblyName PresentationFramework
 $window = New-Object Windows.Window
 $window.Title = 'Mixdog WPF Reliability Fixture'
@@ -23,7 +23,7 @@ $timer.Start()
 $null = $window.ShowDialog()
 `;
 
-const EXCEL = String.raw`
+const EXCEL = `
 $excel = $null; $book = $null
 try {
   $excel = New-Object -ComObject Excel.Application

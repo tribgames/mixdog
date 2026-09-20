@@ -209,10 +209,12 @@ test('download attachment still preserves exact bytes and enforces size and in-f
     let reads = 0;
     globalThis.downloadFileFixture = {
       open: async () => ({
-        stat: async () => ({
-          size: variant === 'too-large' ? 9 : ++stats > 1 && variant === 'changed' ? 5 : 4,
-          isFile: () => true,
-        }),
+        stat: async () => {
+          let size = 4;
+          if (variant === 'too-large') size = 9;
+          else if (++stats > 1 && variant === 'changed') size = 5;
+          return { size, isFile: () => true };
+        },
         read: async (buffer) => {
           reads++;
           if (variant === 'short-read') return { bytesRead: 0 };

@@ -9,8 +9,8 @@ import { COMPUTER_CORE_ACTION_SCHEMA } from '../../../../../../src/runtime/compu
 const HOST_ACTION_LISTS = [
   'host/command-router.ts',
   'host/sequence-runner.ts',
-  'host/input-resolution.ts',
-  'session/state.ts',
+  'host/action-sets.ts',
+  'session/element-aliases.ts',
   'backend/worker-pool.ts',
   'backend/sources/runtime.ps1',
   'backend/sources/sequence.ps1',

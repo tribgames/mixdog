@@ -1,10 +1,10 @@
-import { statSync, lstatSync, realpathSync, createWriteStream } from 'fs';
-import * as fsPromises from 'fs/promises';
-import { basename, dirname, join } from 'path';
-import { performance } from 'perf_hooks';
-import { randomBytes } from 'crypto';
-import { Readable } from 'stream';
-import { pipeline } from 'stream/promises';
+import { statSync, lstatSync, realpathSync, createWriteStream } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
+import { performance } from 'node:perf_hooks';
+import { randomBytes } from 'node:crypto';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { getAbortSignalForSession } from '../../session/abort-lookup.mjs';
 import { hashText } from './hash-utils.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
@@ -92,80 +92,68 @@ export function symlinkWriteTarget(targetPath) {
   }
 }
 
-export async function atomicWrite(
-  targetPath,
-  content,
-  { mode, signal, sessionId, flags, fsync, preserveMetadata = false, expectedTargetSnapshot } = {}
-) {
-  const traceStart = ioTraceStart();
-  let resolvedSignal = signal;
-  if (!resolvedSignal && sessionId) {
-    try {
-      resolvedSignal = await getAbortSignalForSession(sessionId);
-    } catch {
-      resolvedSignal = null;
-    }
-  }
-  const abortReason = () => {
-    const r = resolvedSignal?.reason;
-    if (r instanceof Error) return r;
-    if (typeof r === 'string' && r) return new Error(r);
-    return new Error('atomicWrite aborted');
-  };
-  if (resolvedSignal?.aborted) throw abortReason();
-
-  // Write THROUGH a leaf symlink: resolve it first so the rename replaces the
-  // file the link points at, not the link. Resolving also keeps the temp file
-  // beside the real target, so the rename stays on one filesystem.
-  const writeTarget = symlinkWriteTarget(targetPath) ?? targetPath;
-  const dir = dirname(writeTarget);
-  const rnd = randomBytes(4).toString('hex');
-  const tmp = join(dir, `.${basename(writeTarget)}.mixdog-tmp-${rnd}`);
-  let effectiveMode = mode;
-  let existingStat = null;
+async function unlinkQuietly(path) {
   try {
-    existingStat = statSync(writeTarget);
+    await fsPromises.unlink(path);
   } catch {
-    /* target doesn't exist */
+    /* already gone */
   }
-  if (effectiveMode === undefined && existingStat) {
-    effectiveMode = existingStat.mode & 0o777;
+}
+
+function statOrNull(path) {
+  try {
+    return statSync(path);
+  } catch {
+    return null;
   }
-  if (effectiveMode === undefined) effectiveMode = 0o644;
+}
 
-  const contentByteLength = Buffer.isBuffer(content)
-    ? content.length
-    : Buffer.byteLength(String(content ?? ''), 'utf-8');
-  const useStreaming = contentByteLength > STREAMING_THRESHOLD_BYTES;
+function payloadByteLength(content) {
+  return Buffer.isBuffer(content) ? content.length : Buffer.byteLength(String(content ?? ''), 'utf-8');
+}
 
+async function resolveWriteSignal(signal, sessionId) {
+  if (signal || !sessionId) return signal;
+  try {
+    return await getAbortSignalForSession(sessionId);
+  } catch {
+    return null;
+  }
+}
+
+function abortReasonOf(signal) {
+  const r = signal?.reason;
+  if (r instanceof Error) return r;
+  if (typeof r === 'string' && r) return new Error(r);
+  return new Error('atomicWrite aborted');
+}
+
+// The payload lands in a 'wx' temp file: an existing temp file (random
+// collision or a pre-existing symlink at the temp path) is rejected instead of
+// silently truncated. randomBytes(4) keeps collisions astronomically unlikely,
+// but 'wx' makes the guarantee explicit and protects against symlink-attack
+// scenarios on shared tmp dirs.
+async function writeTempFile(tmp, content, { mode, fsync }) {
   let fh = null;
   try {
-    if (useStreaming) {
+    if (payloadByteLength(content) > STREAMING_THRESHOLD_BYTES) {
       // Streaming path: avoid buffering the entire payload through
-      // fh.writeFile (which copies into a single Buffer). createWriteStream
-      // on 'wx' still rejects collisions / pre-existing symlinks.
-      const ws = createWriteStream(tmp, { flags: 'wx', mode: effectiveMode });
-      const source = Buffer.isBuffer(content)
-        ? Readable.from([content])
-        : typeof content === 'string'
-          ? Readable.from([Buffer.from(content, 'utf-8')])
-          : content; // assume it's a Readable already
+      // fh.writeFile (which copies into a single Buffer).
+      const ws = createWriteStream(tmp, { flags: 'wx', mode });
+      let source = content; // assume it's a Readable unless it is bytes/text
+      if (Buffer.isBuffer(content)) source = Readable.from([content]);
+      else if (typeof content === 'string') source = Readable.from([Buffer.from(content, 'utf-8')]);
       await pipeline(source, ws);
-      if (atomicWriteShouldFsync(fsync)) {
+      if (fsync) {
         fh = await fsPromises.open(tmp, 'r+');
         await fh.sync();
         await fh.close();
         fh = null;
       }
     } else {
-      // 'wx' rejects an existing temp file (random collision or a
-      // pre-existing symlink at the temp path) instead of silently
-      // truncating it. randomBytes(4) keeps collisions astronomically
-      // unlikely, but 'wx' makes the guarantee explicit and protects
-      // against symlink-attack scenarios on shared tmp dirs.
-      fh = await fsPromises.open(tmp, 'wx', effectiveMode);
+      fh = await fsPromises.open(tmp, 'wx', mode);
       await fh.writeFile(content);
-      if (atomicWriteShouldFsync(fsync)) await fh.sync();
+      if (fsync) await fh.sync();
       await fh.close();
       fh = null;
     }
@@ -175,132 +163,140 @@ export async function atomicWrite(
     } catch {
       /* already closed */
     }
-    try {
-      await fsPromises.unlink(tmp);
-    } catch {
-      /* already gone */
-    }
+    await unlinkQuietly(tmp);
     throw writeErr;
   }
+}
 
-  // Opt-in metadata preservation: capture utimes/owner from the existing
-  // target and apply to the temp file before rename. Skip chown on Windows
-  // (process.geteuid is absent). Best-effort — failures are non-fatal.
-  if (preserveMetadata && existingStat) {
+// Opt-in metadata preservation: utimes/owner of the existing target applied to
+// the temp file before rename. Skip chown on Windows (process.geteuid is
+// absent). Best-effort — failures are non-fatal.
+async function preserveTargetMetadata(tmp, existingStat) {
+  try {
+    await fsPromises.utimes(tmp, existingStat.atime, existingStat.mtime);
+  } catch {
+    /* best-effort */
+  }
+  if (process.platform !== 'win32' && typeof process.geteuid === 'function') {
     try {
-      await fsPromises.utimes(tmp, existingStat.atime, existingStat.mtime);
+      await fsPromises.chown(tmp, existingStat.uid, existingStat.gid);
     } catch {
-      /* best-effort */
+      /* best-effort: requires privilege or same-owner */
     }
-    if (process.platform !== 'win32' && typeof process.geteuid === 'function') {
+  }
+}
+
+// 'wx' create: the target must still be absent right before the rename. The
+// empty placeholder this leaves is removed by cleanupEmptyWxTarget when a later
+// step fails.
+async function assertExclusiveCreate(writeTarget, targetPath, tmp) {
+  let excl = null;
+  try {
+    excl = await fsPromises.open(writeTarget, 'wx');
+    await excl.close();
+  } catch {
+    if (excl)
       try {
-        await fsPromises.chown(tmp, existingStat.uid, existingStat.gid);
+        await excl.close();
       } catch {
-        /* best-effort: requires privilege or same-owner */
+        /* already closed */
       }
-    }
+    await unlinkQuietly(tmp);
+    throw Object.assign(new Error(`create target already exists (race detected): ${targetPath}`), {
+      code: 'EEXIST',
+      __skip: true,
+    });
   }
+}
 
-  if (flags === 'wx') {
-    let excl = null;
-    try {
-      excl = await fsPromises.open(writeTarget, 'wx');
-      await excl.close();
-    } catch {
-      if (excl)
-        try {
-          await excl.close();
-        } catch {
-          /* already closed */
-        }
+async function assertTargetUnchanged(writeTarget, expectedTargetSnapshot, tmp) {
+  if (!expectedTargetSnapshotChanged(statOrNull(writeTarget), expectedTargetSnapshot)) return;
+  await unlinkQuietly(tmp);
+  const err = new Error(`target changed between preflight and rename (TOCTOU): ${writeTarget}`);
+  err.code = 'ESTALE_TARGET';
+  throw err;
+}
+
+// Directory fsync makes the rename itself durable across power-loss. It is a
+// no-op / unsupported on Windows; EPERM / EISDIR / EINVAL are swallowed there.
+async function fsyncDirectory(dir) {
+  let dirHandle = null;
+  try {
+    dirHandle = await fsPromises.open(dir, 'r');
+    await dirHandle.sync();
+  } catch {
+    /* unsupported on this platform — best effort */
+  } finally {
+    if (dirHandle)
       try {
-        await fsPromises.unlink(tmp);
+        await dirHandle.close();
       } catch {
-        /* already gone */
+        /* already closed */
       }
-      throw Object.assign(new Error(`create target already exists (race detected): ${targetPath}`), {
-        code: 'EEXIST',
-        __skip: true,
-      });
-    }
   }
+}
 
-  if (resolvedSignal?.aborted) {
-    try {
-      await fsPromises.unlink(tmp);
-    } catch {
-      /* already gone */
-    }
-    if (flags === 'wx') await cleanupEmptyWxTarget(writeTarget);
-    throw abortReason();
-  }
-
+// Rename the temp file into place, retrying transient Windows sharing errors.
+// Resolves to the attempt count; a TOCTOU mismatch or the final failure
+// removes the temp file (and an empty 'wx' placeholder) before throwing.
+async function renameIntoPlace({ tmp, writeTarget, expectedTargetSnapshot, flags }) {
   let lastErr = null;
   const maxAttempts = process.platform === 'win32' ? WINDOWS_RENAME_RETRY_BACKOFFS_MS.length + 1 : 1;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (expectedTargetSnapshot) {
-      let currentStat = null;
-      try {
-        currentStat = statSync(writeTarget);
-      } catch {
-        currentStat = null;
-      }
-      if (expectedTargetSnapshotChanged(currentStat, expectedTargetSnapshot)) {
-        try {
-          await fsPromises.unlink(tmp);
-        } catch {
-          /* already gone */
-        }
-        const err = new Error(`target changed between preflight and rename (TOCTOU): ${writeTarget}`);
-        err.code = 'ESTALE_TARGET';
-        throw err;
-      }
-    }
+    if (expectedTargetSnapshot) await assertTargetUnchanged(writeTarget, expectedTargetSnapshot, tmp);
     try {
       await fsPromises.rename(tmp, writeTarget);
-      // When fsync is requested, also fsync the parent directory so
-      // the rename itself is durable across power-loss. Directory
-      // fsync is a no-op / unsupported on Windows; swallow EPERM /
-      // EISDIR / EINVAL there.
-      if (atomicWriteShouldFsync(fsync)) {
-        let dirHandle = null;
-        try {
-          dirHandle = await fsPromises.open(dir, 'r');
-          await dirHandle.sync();
-        } catch {
-          /* unsupported on this platform — best effort */
-        } finally {
-          if (dirHandle)
-            try {
-              await dirHandle.close();
-            } catch {
-              /* already closed */
-            }
-        }
-      }
-      ioTraceDone('atomic_write', traceStart, {
-        pathHash: hashText(targetPath).slice(0, 12),
-        bytes: Buffer.isBuffer(content) ? content.length : Buffer.byteLength(String(content ?? ''), 'utf-8'),
-        flags: flags || '',
-        fsync: atomicWriteShouldFsync(fsync),
-        attempts: attempt + 1,
-      });
-      return;
+      return attempt + 1;
     } catch (err) {
       lastErr = err;
-      const code = err && err.code;
-      if (process.platform === 'win32' && WINDOWS_RENAME_RETRY_CODES.has(code) && attempt < maxAttempts - 1) {
+      if (process.platform === 'win32' && WINDOWS_RENAME_RETRY_CODES.has(err?.code) && attempt < maxAttempts - 1) {
         await sleep(WINDOWS_RENAME_RETRY_BACKOFFS_MS[attempt] + Math.floor(Math.random() * 40));
         continue;
       }
       break;
     }
   }
-  try {
-    await fsPromises.unlink(tmp);
-  } catch {
-    /* already gone */
-  }
+  await unlinkQuietly(tmp);
   if (flags === 'wx') await cleanupEmptyWxTarget(writeTarget);
   throw lastErr;
+}
+
+export async function atomicWrite(
+  targetPath,
+  content,
+  { mode, signal, sessionId, flags, fsync, preserveMetadata = false, expectedTargetSnapshot } = {}
+) {
+  const traceStart = ioTraceStart();
+  const resolvedSignal = await resolveWriteSignal(signal, sessionId);
+  if (resolvedSignal?.aborted) throw abortReasonOf(resolvedSignal);
+
+  // Write THROUGH a leaf symlink: resolve it first so the rename replaces the
+  // file the link points at, not the link. Resolving also keeps the temp file
+  // beside the real target, so the rename stays on one filesystem.
+  const writeTarget = symlinkWriteTarget(targetPath) ?? targetPath;
+  const dir = dirname(writeTarget);
+  const tmp = join(dir, `.${basename(writeTarget)}.mixdog-tmp-${randomBytes(4).toString('hex')}`);
+  const existingStat = statOrNull(writeTarget);
+  let effectiveMode = mode;
+  if (effectiveMode === undefined && existingStat) effectiveMode = existingStat.mode & 0o777;
+  if (effectiveMode === undefined) effectiveMode = 0o644;
+  const shouldFsync = atomicWriteShouldFsync(fsync);
+
+  await writeTempFile(tmp, content, { mode: effectiveMode, fsync: shouldFsync });
+  if (preserveMetadata && existingStat) await preserveTargetMetadata(tmp, existingStat);
+  if (flags === 'wx') await assertExclusiveCreate(writeTarget, targetPath, tmp);
+  if (resolvedSignal?.aborted) {
+    await unlinkQuietly(tmp);
+    if (flags === 'wx') await cleanupEmptyWxTarget(writeTarget);
+    throw abortReasonOf(resolvedSignal);
+  }
+  const attempts = await renameIntoPlace({ tmp, writeTarget, expectedTargetSnapshot, flags });
+  if (shouldFsync) await fsyncDirectory(dir);
+  ioTraceDone('atomic_write', traceStart, {
+    pathHash: hashText(targetPath).slice(0, 12),
+    bytes: payloadByteLength(content),
+    flags: flags || '',
+    fsync: shouldFsync,
+    attempts,
+  });
 }

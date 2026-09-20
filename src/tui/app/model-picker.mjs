@@ -1,32 +1,18 @@
 /*
  * model-picker.mjs — the Model picker cluster (openModelPicker).
  *
- * A dependency-injection
- * factory. Every function body is the original App logic verbatim, with closure
- * identifiers threaded through the factory argument. The nested effort helpers
- * (preferredEffort/effortItemsFor/modelDefaultEffort/…) stay inside the opener.
- * Deps pointing at a later-defined App fn (openProviderSetupPicker) thread as a
- * lazy getter wrapper so it resolves the live opener at call time; live UI
+ * A dependency-injection factory. openModelPicker claims the panel surface,
+ * resolves the catalog (model-picker/catalog-load), paints the provider list
+ * and opens one provider's model list (model-picker/provider-models-list,
+ * whose selections live in route-selection and whose footer is model-footer).
+ * Deps pointing at a later-defined App fn (openProviderSetupPicker) thread as
+ * a lazy getter wrapper so it resolves the live opener at call time; live UI
  * state (getState) is read through a getter so it always reflects the current
  * render.
  */
-import { theme } from '../theme.mjs';
-import {
-  normalizeModelOptions,
-  providerDisplayName,
-  effortDisplayLabel,
-  fastDisplayLabel,
-  formatContextWindow,
-  modelContextWindow,
-  buildModelProviderItems,
-  buildProviderModelItems,
-} from './model-options.mjs';
-
-// Cached picker opens stay instant, but a catalog older than this is treated as
-// stale: cached rows render immediately and a background force refresh updates
-// the picker in place. Avoids the "stale /model & /agents catalog" without
-// paying a remote provider-list round-trip on every open.
-const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+import { normalizeModelOptions, buildModelProviderItems } from './model-options.mjs';
+import { createModelCatalog } from './model-picker/catalog-load.mjs';
+import { openProviderModelsPicker, saveSelectedRoute } from './model-picker/provider-models-list.mjs';
 
 export function createModelPicker({
   store,
@@ -40,18 +26,8 @@ export function createModelPicker({
   modelSwitchNotice,
   openProviderSetupPicker,
 }) {
-  let providerModelsTtlRefreshPromise = null;
-  // A saved route changes each row's remembered effort/Fast, never the catalog
-  // itself. Dropping the cached rows after a save forced the NEXT open to paint
-  // a "Loading models..." panel before the list (the picker looked like it
-  // closed and reopened). Marking them stale keeps that open instant — cached
-  // rows paint at once — and the TTL path force-refreshes in the background.
-  const markModelCatalogStale = () => {
-    for (const ref of [providerModelsCacheRef, webSearchModelsCacheRef]) {
-      const models = Array.isArray(ref?.current?.models) ? ref.current.models : null;
-      if (models && models.length > 0) ref.current = { models, at: 0 };
-    }
-  };
+  const catalog = createModelCatalog({ store, providerModelsCacheRef, webSearchModelsCacheRef });
+
   const openModelPicker = async (options = {}) => {
     const state = getState();
     // Surface claim for this picker (panel-surface.mjs): every paint — the
@@ -64,7 +40,6 @@ export function createModelPicker({
     setProviderPrompt(null);
     setSettingsPrompt(null);
     modelPickerRequestRef.current += 1;
-    let providerListHighlightProvider = null;
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const returnLabel = String(options.returnLabel || 'Agents');
     const returnOnNestedCancel = options.returnOnNestedCancel === true;
@@ -73,56 +48,24 @@ export function createModelPicker({
       if (returnTo) returnTo();
       else own.close();
     };
-    const paintModelPicker = (panel) => own.paint(panel);
-    const cacheRef = options.cacheRef === 'webSearch' ? webSearchModelsCacheRef : providerModelsCacheRef;
-    const loadModels = typeof options.loadModels === 'function' ? options.loadModels : store.listProviderModels;
-    let providerModels = Array.isArray(cacheRef.current.models) ? cacheRef.current.models : [];
-    let refreshModelsPromise = null;
-    let renderedQuickModels = false;
-    if (!providerModels.length || options.refreshModels === true) {
-      paintModelPicker({
+    const paint = (panel) => own.paint(panel);
+    const listHelp = returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back';
+    const loaded = await catalog.loadCatalog(options, () =>
+      paint({
         title: options.title || 'Model',
         description: options.loadingDescription || 'Loading models...',
-        help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',
+        help: listHelp,
         loading: true,
         items: [],
         onCancel: cancelModelPicker,
-      });
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      try {
-        if (options.refreshModels !== true && options.cacheRef !== 'webSearch') {
-          refreshModelsPromise = Promise.resolve(loadModels({ force: false }));
-          providerModels = await loadModels({ quick: true });
-          renderedQuickModels = Array.isArray(providerModels) && providerModels.length > 0;
-          if (!renderedQuickModels) {
-            providerModels = await refreshModelsPromise;
-          }
-        } else {
-          providerModels = await loadModels({ force: options.refreshModels === true });
-        }
-        cacheRef.current = { models: providerModels, at: Date.now() };
-      } catch (e) {
-        store.pushNotice(`could not list models: ${e?.message || e}`, 'error');
-        return;
-      }
-    }
-
-    // Served straight from a non-empty UI cache: if that cache is older than the
-    // TTL, render the cached rows now and quietly force a background refresh so
-    // the catalog can't drift stale. Never applies to the web-search cache (its own
-    // quick paths refresh differently) or explicit refreshModels opens.
-    const cacheAt = Number(cacheRef.current.at) || 0;
-    const cacheIsStale =
-      providerModels.length > 0 &&
-      options.refreshModels !== true &&
-      options.cacheRef !== 'webSearch' &&
-      !refreshModelsPromise &&
-      Date.now() - cacheAt > MODEL_CACHE_TTL_MS;
-
+      })
+    );
+    if (!loaded) return;
+    const { providerModels } = loaded;
     if (!providerModels || providerModels.length === 0) {
       store.pushNotice(options.emptyNotice || 'no provider models available; open /providers to sign in', 'warn');
       // Delegation is a paint by proxy: the empty-catalog fallback opens
-      // Providers, so it must prove ownership exactly like paintModelPicker.
+      // Providers, so it must prove ownership exactly like paint().
       if (!own.owns()) return;
       void openProviderSetupPicker({
         title: 'Providers',
@@ -142,376 +85,45 @@ export function createModelPicker({
       modelParameters: state.modelParameters,
       contextPercent: state.contextPercent,
     };
-    const renderModelPicker = (renderOptions = {}) => {
+    const view = {
+      options,
+      state,
+      models,
+      activeRoute,
+      returnTo,
+      returnLabel,
+      returnOnNestedCancel,
+      cancelModelPicker,
+      paint,
+    };
+    const saveRoute = (selected, { routeInput, effort }) =>
+      saveSelectedRoute({
+        store,
+        options,
+        own,
+        handoffPanel,
+        markCatalogStale: catalog.markModelCatalogStale,
+        modelSwitchNotice,
+        routeInput,
+        selected,
+        effort,
+      });
+    let providerListHighlightProvider = null;
+    const renderProviderList = (renderOptions = {}) => {
       if (renderOptions.highlightProvider) {
         providerListHighlightProvider = renderOptions.highlightProvider;
       }
       const highlightProvider = renderOptions.highlightProvider || providerListHighlightProvider || null;
-      const openProviderModelsPicker = (provider) => {
-        if (!provider) return;
-        const providerModels = models.filter((model) => model.provider === provider);
-        const preferredEffort = (values = []) => {
-          const allowed = values.filter(Boolean);
-          for (const value of ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra']) {
-            if (allowed.includes(value)) return value;
-          }
-          return allowed[0] || null;
-        };
-        const effortItemsFor = (model) =>
-          Array.isArray(model?.effortOptions) && model.effortOptions.length > 0 ? model.effortOptions : [];
-        const modelEffortValues = (model) =>
-          effortItemsFor(model)
-            .map((effort) => effort.value)
-            .filter(Boolean);
-        const modelDefaultEffort = (model) => {
-          const values = modelEffortValues(model);
-          if (!values.length) return null;
-          const currentRoute = options.currentRoute || null;
-          if (
-            currentRoute?.provider === model.provider &&
-            currentRoute?.model === model.id &&
-            currentRoute.effort &&
-            values.includes(currentRoute.effort)
-          )
-            return currentRoute.effort;
-          if (
-            model.provider === state.provider &&
-            model.id === state.model &&
-            state.effort &&
-            values.includes(state.effort)
-          )
-            return state.effort;
-          if (model.savedEffort && values.includes(model.savedEffort)) return model.savedEffort;
-          if (model.defaultEffort && values.includes(model.defaultEffort)) return model.defaultEffort;
-          return preferredEffort(values);
-        };
-        const selectedEfforts = new Map();
-        const modelKey = (model) => `${model?.provider || ''}\n${model?.id || ''}`;
-        const getSelectedEffort = (model) => {
-          if (!model) return null;
-          const key = modelKey(model);
-          if (selectedEfforts.has(key)) return selectedEfforts.get(key);
-          const effort = modelDefaultEffort(model);
-          selectedEfforts.set(key, effort);
-          return effort;
-        };
-        const setSelectedEffort = (model, effort) => {
-          if (!model) return;
-          selectedEfforts.set(modelKey(model), effort || null);
-        };
-        const selectedFast = new Map();
-        const selectedModelParameters = new Map();
-        const selectedContextPercent = new Map();
-        const modelParametersFor = (model) => {
-          const key = modelKey(model);
-          if (selectedModelParameters.has(key)) return selectedModelParameters.get(key);
-          const currentRoute = options.currentRoute || null;
-          const current =
-            currentRoute?.provider === model.provider && currentRoute?.model === model.id
-              ? currentRoute.modelParameters
-              : null;
-          const saved = model.savedModelParameters || {};
-          const defaults = { ...(model.defaultModelParameters || {}), ...saved, ...(current || {}) };
-          const values = Object.fromEntries(
-            (model.modelParameterOptions || []).flatMap((parameter) => {
-              const selected = parameter.options?.some((option) => option.value === defaults[parameter.id])
-                ? defaults[parameter.id]
-                : parameter.options?.[0]?.value;
-              return selected ? [[parameter.id, selected]] : [];
-            })
-          );
-          selectedModelParameters.set(key, values);
-          return values;
-        };
-        const contextSelectionFor = (model) => {
-          const key = modelKey(model);
-          const defaultWindow = modelContextWindow(model);
-          const maxWindow = Math.max(defaultWindow, Number(model?.maxContextWindow) || 0);
-          if (!maxWindow) return null;
-          const defaultPercent = Math.max(10, Math.min(100, Math.round((defaultWindow / maxWindow) * 10) * 10));
-          if (!selectedContextPercent.has(key)) {
-            const currentRoute = options.currentRoute || null;
-            const requested =
-              currentRoute?.provider === model.provider && currentRoute?.model === model.id
-                ? currentRoute.contextPercent
-                : model.provider === state.provider && model.id === state.model
-                  ? state.contextPercent
-                  : model.savedContextPercent;
-            const percent =
-              Number.isFinite(Number(requested)) && Number(requested) > 0
-                ? Math.max(10, Math.min(100, Math.round(Number(requested) / 10) * 10))
-                : defaultPercent;
-            selectedContextPercent.set(key, percent);
-          }
-          const percent = selectedContextPercent.get(key);
-          return {
-            percent,
-            defaultPercent,
-            tokens: percent === defaultPercent ? defaultWindow : Math.floor((maxWindow * percent) / 100),
-          };
-        };
-        const changeContext = (model, direction = 1) => {
-          const context = contextSelectionFor(model);
-          if (!context) return;
-          const next = Math.max(10, Math.min(100, context.percent + direction * 10));
-          selectedContextPercent.set(modelKey(model), next);
-          renderProviderModels();
-        };
-        const fastAvailableFor = (model, effort = getSelectedEffort(model)) => {
-          if (!model?.fastCapable) return false;
-          if (Array.isArray(model.parameterVariants) && model.parameterVariants.length) {
-            const parameters = modelParametersFor(model);
-            return model.parameterVariants.some(
-              (variant) =>
-                variant.fast === 'true' &&
-                (!effort || !variant.effort || variant.effort === effort) &&
-                Object.entries(parameters).every(([key, value]) => !variant[key] || variant[key] === value)
-            );
-          }
-          const fastEfforts = Array.isArray(model.fastEfforts) ? model.fastEfforts : [];
-          return fastEfforts.length === 0 || fastEfforts.includes(effort || '');
-        };
-        const modelDefaultFast = (model) => {
-          if (!fastAvailableFor(model)) return false;
-          const currentRoute = options.currentRoute || null;
-          if (
-            currentRoute?.provider === model.provider &&
-            currentRoute?.model === model.id &&
-            typeof currentRoute.fast === 'boolean'
-          )
-            return currentRoute.fast;
-          if (model.provider === state.provider && model.id === state.model && typeof state.fast === 'boolean')
-            return state.fast;
-          if (typeof model.savedFast === 'boolean') return model.savedFast;
-          return model.fastPreferred === true;
-        };
-        const getSelectedFast = (model) => {
-          if (!model || !fastAvailableFor(model)) return false;
-          const key = modelKey(model);
-          if (selectedFast.has(key)) return selectedFast.get(key) === true;
-          const fast = modelDefaultFast(model);
-          selectedFast.set(key, fast);
-          return fast;
-        };
-        const toggleFast = (model) => {
-          if (!fastAvailableFor(model)) return;
-          selectedFast.set(modelKey(model), !getSelectedFast(model));
-          renderProviderModels();
-        };
-        const providerEffortItems = () => {
-          const seen = new Set();
-          const out = [];
-          for (const effort of providerModels.flatMap((model) => effortItemsFor(model))) {
-            if (!effort?.value || seen.has(effort.value)) continue;
-            seen.add(effort.value);
-            out.push(effort);
-          }
-          return out;
-        };
-        const effortLabel = (value) => {
-          const found = providerEffortItems().find((effort) => effort.value === value);
-          return effortDisplayLabel(found?.label || value || '');
-        };
-        const effortGlyph = (value) => {
-          if (value === 'none') return '○';
-          if (value === 'low') return '◔';
-          if (value === 'medium') return '◑';
-          if (value === 'high') return '◕';
-          if (value === 'max') return '◆';
-          if (value === 'ultra') return '✦';
-          return '●';
-        };
-        const effortColor = (value) => {
-          if (value === 'none') return theme.inactive;
-          if (value === 'low') return theme.warning;
-          if (value === 'medium') return theme.claude;
-          if (value === 'high') return theme.error;
-          if (value === 'max') return theme.permission;
-          if (value === 'ultra') return theme.permission;
-          return theme.error;
-        };
-        const modelFooter = (model = null) => {
-          const items = model ? effortItemsFor(model) : providerEffortItems();
-          const values = items.map((effort) => effort.value).filter(Boolean);
-          const context = model ? contextSelectionFor(model) : null;
-          const contextLine = context
-            ? {
-                glyph: '▣',
-                color: context.percent === context.defaultPercent ? theme.inactive : theme.permission,
-                text: `${context.percent}% · ${formatContextWindow(context.tokens)}${context.percent === context.defaultPercent ? ' · Default' : ''} · C/Shift+C Adjust`,
-              }
-            : null;
-          const fastCapable = fastAvailableFor(model);
-          const fastOn = fastCapable && getSelectedFast(model);
-          const fastLine = fastCapable
-            ? {
-                glyph: fastOn ? '●' : '○',
-                color: fastOn ? theme.fastMode : theme.inactive,
-                text: `${fastDisplayLabel(fastOn)} · Tab Toggle`,
-              }
-            : null;
-          const parameterLines = (model?.modelParameterOptions || [])
-            .filter((parameter) => parameter.id !== 'context')
-            .map((parameter) => {
-              const value = modelParametersFor(model)[parameter.id] || '';
-              return {
-                glyph: '◇',
-                color: theme.inactive,
-                text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · T Toggle`,
-              };
-            });
-          if (!values.length)
-            return [...(contextLine ? [contextLine] : []), ...(fastLine ? [fastLine] : []), ...parameterLines];
-          let selectedEffort = getSelectedEffort(model);
-          if (!values.includes(selectedEffort)) {
-            selectedEffort = modelDefaultEffort(model);
-            setSelectedEffort(model, selectedEffort);
-          }
-          const effortLine = {
-            glyph: effortGlyph(selectedEffort),
-            color: effortColor(selectedEffort),
-            text: `${effortLabel(selectedEffort)} Effort ←/→ To Adjust`,
-          };
-          return [
-            effortLine,
-            ...(contextLine ? [contextLine] : []),
-            ...(fastLine ? [fastLine] : []),
-            ...parameterLines,
-          ];
-        };
-        const coerceEffort = (model) => {
-          const values = modelEffortValues(model);
-          if (!values.length) return null;
-          const selectedEffort = getSelectedEffort(model);
-          return values.includes(selectedEffort) ? selectedEffort : modelDefaultEffort(model);
-        };
-        const cycleEffort = (model, direction = 1) => {
-          const values = modelEffortValues(model);
-          if (values.length === 0) return;
-          const selectedEffort = getSelectedEffort(model);
-          const currentValue = values.includes(selectedEffort) ? selectedEffort : modelDefaultEffort(model);
-          const current = values.includes(currentValue) ? values.indexOf(currentValue) : 0;
-          setSelectedEffort(model, values[(current + direction + values.length) % values.length] || null);
-          renderProviderModels();
-        };
-        const applyModel = (item) => {
-          const selected =
-            item?._model || models.find((m) => m.provider === item?._provider && m.id === item?._modelId);
-          if (!selected) return;
-          const effort = coerceEffort(selected);
-          const fastCapable = fastAvailableFor(selected, effort);
-          const routeInput = {
-            provider: selected.provider,
-            model: selected.id,
-            ...(effort ? { effort } : {}),
-            ...(contextSelectionFor(selected) ? { contextPercent: contextSelectionFor(selected).percent } : {}),
-            ...(selected.fastCapable ? { fast: fastCapable && getSelectedFast(selected) } : {}),
-            ...((selected.modelParameterOptions || []).length ? { modelParameters: modelParametersFor(selected) } : {}),
-          };
-          // The keypress owns the hop: paint the destination and hand the
-          // surface back on the spot. Waiting for the write to ack first left a
-          // "Switching model..." panel (or a closed picker with an unchanged
-          // statusline) on screen for as long as the runtime took — provider
-          // readiness, config save, empty-session rebuild. store.setRoute
-          // previews the route immediately and reverts it if the write fails.
-          const handBackSurface = () => {
-            if (typeof options.onAfterSelect === 'function') options.onAfterSelect();
-          };
-          if (typeof options.onSelectRoute === 'function') {
-            const savePromise = Promise.resolve(options.onSelectRoute(routeInput, selected, effort));
-            if (typeof options.onImmediateSelect === 'function') {
-              options.onImmediateSelect(routeInput, selected, effort);
-            } else {
-              own.paint(handoffPanel);
-            }
-            handBackSurface();
-            markModelCatalogStale();
-            void savePromise.catch((e) => {
-              store.pushNotice(`Couldn’t save model: ${e?.message || e}`, 'error');
-            });
-            return;
-          }
-          own.paint(handoffPanel);
-          handBackSurface();
-          markModelCatalogStale();
-          store.pushNotice(modelSwitchNotice(), 'info');
-          void store
-            .setRoute(routeInput)
-            .then((ok) => {
-              if (ok === false) store.pushNotice('Model switch is already running', 'warn');
-            })
-            .catch((e) => {
-              store.pushNotice(`Couldn’t switch model: ${e?.message || e}`, 'error');
-            });
-        };
-        const renderProviderModels = () => {
-          const providerModelItems = buildProviderModelItems(models, provider, activeRoute);
-          const providerModelInitialIndex = Math.max(
-            0,
-            providerModelItems.findIndex(
-              (item) => item._provider === activeRoute?.provider && item._modelId === activeRoute?.model
-            )
-          );
-          paintModelPicker({
-            title: providerDisplayName(provider),
-            description: options.modelDescription || 'Select a model. Adjust Effort with ←/→.',
-            footer: (item) => modelFooter(item?._model),
-            help:
-              returnOnNestedCancel && returnTo
-                ? `↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc ${returnLabel}`
-                : '↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save · Esc Back',
-            indexMode: 'always',
-            initialIndex: providerModelInitialIndex,
-            pickerKey: `model-picker:provider-models:${provider}`,
-            items: providerModelItems,
-            onSelect: (_value, item) => applyModel(item),
-            onLeft: (item) => {
-              if (item?._model) cycleEffort(item._model, -1);
-            },
-            onRight: (item) => {
-              if (item?._model) cycleEffort(item._model, 1);
-            },
-            onTab: (item) => {
-              if (item?._model) toggleFast(item._model);
-            },
-            onKey: (input, _key, item) => {
-              const model = item?._model;
-              if (!model || !['c', 'C', 't', 'T'].includes(input)) return;
-              if (input.toLowerCase() === 'c') {
-                changeContext(model, input === 'C' ? -1 : 1);
-                return;
-              }
-              const wanted = 'thinking';
-              const definition = (model.modelParameterOptions || []).find((parameter) => parameter.id === wanted);
-              if (!definition?.options?.length) return;
-              const parameters = modelParametersFor(model);
-              const current = Math.max(
-                0,
-                definition.options.findIndex((option) => option.value === parameters[wanted])
-              );
-              parameters[wanted] = definition.options[(current + 1) % definition.options.length].value;
-              selectedModelParameters.set(modelKey(model), { ...parameters });
-              if (!fastAvailableFor(model)) selectedFast.set(modelKey(model), false);
-              renderProviderModels();
-            },
-            onCancel: () => {
-              if (returnOnNestedCancel && returnTo) cancelModelPicker();
-              else renderModelPicker({ highlightProvider: provider });
-            },
-          });
-        };
-        renderProviderModels();
-      };
       const providerItems = buildModelProviderItems(models, activeRoute);
       const providerHighlight = highlightProvider || activeRoute?.provider || null;
       const providerInitialIndex = Math.max(
         0,
         providerItems.findIndex((item) => item._provider === providerHighlight)
       );
-      paintModelPicker({
+      paint({
         title: options.title || 'Model',
         description: options.providerDescription || 'Choose a provider.',
-        help: returnTo ? `↑/↓ Select · Enter Open · Esc ${returnLabel}` : '↑/↓ Select · Enter Open · Esc Back',
+        help: listHelp,
         indexMode: 'always',
         labelWidth: 18,
         metaWidth: 20,
@@ -519,7 +131,13 @@ export function createModelPicker({
         pickerKey: `model-picker:providers:${providerHighlight || 'default'}`,
         items: providerItems,
         onSelect: (_value, item) => {
-          if (item?._provider) openProviderModelsPicker(item._provider);
+          if (!item?._provider) return;
+          openProviderModelsPicker({
+            view,
+            provider: item._provider,
+            onBack: () => renderProviderList({ highlightProvider: item._provider }),
+            saveRoute,
+          });
         },
         onHighlight: (_value, item) => {
           if (item?._provider) providerListHighlightProvider = item._provider;
@@ -528,29 +146,8 @@ export function createModelPicker({
       });
     };
 
-    renderModelPicker();
-    // Freshness policy: an open picker keeps the catalog it first rendered.
-    // Background refreshes only update the cache, so fresh rows apply on the
-    // NEXT open (re-entry) instead of re-sorting the list mid-selection.
-    const adoptFreshModels = (freshModels) => {
-      if (!Array.isArray(freshModels) || freshModels.length === 0) return;
-      cacheRef.current = { models: freshModels, at: Date.now() };
-    };
-    if (renderedQuickModels && refreshModelsPromise) {
-      void refreshModelsPromise.then(adoptFreshModels).catch(() => {});
-    } else if (cacheIsStale) {
-      if (!providerModelsTtlRefreshPromise) {
-        providerModelsTtlRefreshPromise = Promise.resolve(loadModels({ force: true }))
-          .then((freshModels) => {
-            adoptFreshModels(freshModels);
-            return freshModels;
-          })
-          .finally(() => {
-            providerModelsTtlRefreshPromise = null;
-          });
-      }
-      void providerModelsTtlRefreshPromise.catch(() => {});
-    }
+    renderProviderList();
+    catalog.scheduleBackgroundRefresh(loaded);
   };
 
   return { openModelPicker };

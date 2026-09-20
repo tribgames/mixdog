@@ -1,7 +1,7 @@
 import { Check, FileDiff, FileText, Undo2, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
-import { ErrorNotice } from './ErrorNotice';
+import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { GitDiffBody } from './ReviewPane';
 import { findPatch, PATCH_CACHE_LIMIT } from './TranscriptView';
 import { readDiffStyle, TURN_REVIEW_DIFF_STYLE_KEY, type TranscriptItem, writeDiffStyle } from './desktop-types';
@@ -231,7 +231,7 @@ function summarizeTurnReviewOperations(items: TranscriptItem[], turnStart: numbe
   let deletions = 0;
   for (let index = turnStart + 1; index < items.length; index++) {
     const item = items[index];
-    if (!item || item.kind !== 'tool' || !toolPublishesPatch(item)) continue;
+    if (item?.kind !== 'tool' || !toolPublishesPatch(item)) continue;
     const count = Math.max(1, Number(item.count || 1));
     if (item.isError === true || Number(item.errorCount || 0) >= count) continue;
     if (parseToolArgs(item.args)?.dry_run === true) continue;
@@ -278,9 +278,8 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   active?: boolean;
   busy?: boolean;
   onOpenFile?: (project: string, rel: string) => void;
-  /** True while this scope's FIRST authoritative worker read is still in
-   *  flight: the bar may still appear, change, or leave when it lands, so the
-   *  host can keep its slot reserved until then. Delivered before paint. */
+  /** True until the authoritative read for the current boundary settles,
+   *  including a queued completion refresh. Delivered before paint. */
   onPendingChange?: (pending: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -374,6 +373,23 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // Only probe once the transcript shows turn activity: a fresh/empty session
   // has no child review and passive mounts must not fire capability calls.
   const hasTurnActivity = reviewScope.hasActivity;
+  // Refresh on turn boundaries, not every streaming transcript publication.
+  const turnBoundaryKey = useMemo(() => {
+    for (let index = items.length - 1; index >= 0; index--) {
+      const item = items[index];
+      if (!item) continue;
+      if (item.kind === 'turndone' || item.kind === 'statusdone' || item.kind === 'tool') {
+        return `${String(item.id ?? index)}:${String(item.completedAt ?? item.completedCount ?? '')}`;
+      }
+    }
+    return '';
+  }, [items]);
+  const reviewBoundaryKey = JSON.stringify([turnScopeKey, turnBoundaryKey, busy]);
+  const initialBoundary = useRef({ scope: turnScopeKey, key: reviewBoundaryKey });
+  if (initialBoundary.current.scope !== turnScopeKey) {
+    initialBoundary.current = { scope: turnScopeKey, key: reviewBoundaryKey };
+  }
+  const [settledBoundary, setSettledBoundary] = useState('');
   // The scope whose authoritative read has come back (or could not run). A
   // scope already answered in the shared cache is settled from its first
   // render, so revisiting a session never re-reserves the slot.
@@ -391,7 +407,10 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         | undefined;
       const requestedScope = turnScopeKey;
       const settle = () => {
-        if (activeScope.current === requestedScope) setSettledScope(requestedScope);
+        if (activeScope.current === requestedScope) {
+          setSettledScope(requestedScope);
+          setSettledBoundary(reviewBoundaryKey);
+        }
       };
       if (!sessionId || !api?.invokeCapability) {
         settle();
@@ -444,10 +463,12 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         if (!value || value.supported === false) {
           return;
         }
-        const leadPatch = value.authoritative === true ? (typeof value.patch === 'string' ? value.patch : '') : null;
-        const snapshotKind = value.authoritative === true ? String(value.snapshotKind || '') : '';
-        const checkpointId = value.authoritative === true ? String(value.checkpointId || '') : '';
-        const files = (value.authoritative === true && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
+        const authoritative = value.authoritative === true;
+        const patchText = typeof value.patch === 'string' ? value.patch : '';
+        const leadPatch = authoritative ? patchText : null;
+        const snapshotKind = authoritative ? String(value.snapshotKind || '') : '';
+        const checkpointId = authoritative ? String(value.checkpointId || '') : '';
+        const files = (authoritative && Array.isArray(value.files) ? value.files : []).flatMap((row) => {
           const path = String(row?.path || '');
           if (!path) return [];
           return [
@@ -493,15 +514,16 @@ export const TurnReviewBar = memo(function TurnReviewBar({
         // refresh retries. A transient read must never permanently lock Revert.
       } finally {
         capabilityRequestInFlight.current = false;
-        settle();
         const pending = pendingCapabilityRefresh.current;
         pendingCapabilityRefresh.current = null;
         if (pending && activeScope.current === pending.scopeKey) {
           void refreshAgentReviewsRef.current(pending.refreshWorktree);
+        } else {
+          settle();
         }
       }
     },
-    [sessionId, turnScopeKey]
+    [sessionId, turnScopeKey, reviewBoundaryKey]
   );
   refreshAgentReviewsRef.current = refreshAgentReviews;
   const reviewPending = reviewScopePending({
@@ -511,6 +533,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     scopeKey: turnScopeKey,
     settledScope,
     cached: leadReviewCheckpointIdCache.has(turnScopeKey),
+    refreshPending: reviewBoundaryKey !== initialBoundary.current.key && settledBoundary !== reviewBoundaryKey,
   });
   // Layout effect: the host reads this in the same pre-paint pass, so the
   // reservation and the resolved bar land in one committed frame.
@@ -518,17 +541,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     onPendingChange?.(reviewPending);
   }, [onPendingChange, reviewPending]);
   useLayoutEffect(() => () => onPendingChange?.(false), [onPendingChange]);
-  // Refresh on turn boundaries, not every streaming transcript publication.
-  const turnBoundaryKey = useMemo(() => {
-    for (let index = items.length - 1; index >= 0; index--) {
-      const item = items[index];
-      if (!item) continue;
-      if (item.kind === 'turndone' || item.kind === 'statusdone' || item.kind === 'tool') {
-        return `${String(item.id ?? index)}:${String(item.completedAt ?? item.completedCount ?? '')}`;
-      }
-    }
-    return '';
-  }, [items]);
   useEffect(() => {
     // A tool/turn boundary is the authoritative point at which the visible
     // count must catch up. If an older request is still running, the callback
@@ -574,7 +586,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
     let latestUiDiff: string | null = null;
     for (let index = reviewScope.startIndex + 1; index < items.length; index++) {
       const item = items[index];
-      if (!item || item.kind !== 'tool') continue;
+      if (item?.kind !== 'tool') continue;
       if (Object.hasOwn(item, 'uiDiff')) {
         latestUiDiff = typeof item.uiDiff === 'string' ? item.uiDiff : '';
         continue;
@@ -651,21 +663,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // diff. The collapsed headline mirrors the activity cards' edit workload so
   // replaced/deleted intermediate lines do not disappear into a net +N count.
   const headlineStats = operationSummary.hasLineStats ? operationSummary : summary;
-  const sources = useMemo(
-    () => [
-      ...(transcriptSummary.files.size > 0
-        ? [
-            {
-              key: authoritativeWorktreeSnapshot ? 'turn' : 'lead',
-              label: authoritativeWorktreeSnapshot ? 'Turn' : 'Lead',
-              summary: transcriptSummary,
-            },
-          ]
-        : []),
-      ...agentSources,
-    ],
-    [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]
-  );
+  const sources = useMemo(() => {
+    const transcriptSource = {
+      key: authoritativeWorktreeSnapshot ? 'turn' : 'lead',
+      label: authoritativeWorktreeSnapshot ? 'Turn' : 'Lead',
+      summary: transcriptSummary,
+    };
+    return [...(transcriptSummary.files.size > 0 ? [transcriptSource] : []), ...agentSources];
+  }, [transcriptSummary, agentSources, authoritativeWorktreeSnapshot]);
   const reviewVisible = summary.files.size > 0;
   const requestedCheckpointId = reviewScope.key === 'none' ? authoritativeCheckpointId : reviewScope.key;
   const checkpointMatches = !authoritativeCheckpointId || authoritativeCheckpointId === requestedCheckpointId;
@@ -857,9 +862,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
                                     setRevertedBoundary(turnBoundaryKey);
                                     await refreshAgentReviews();
                                   })
-                                  .catch((reason: unknown) =>
-                                    setRevertError(reason instanceof Error ? reason.message : String(reason))
-                                  );
+                                  .catch((reason: unknown) => setRevertError(errorMessageText(reason)));
                               }}
                             >
                               <Check size={12} />

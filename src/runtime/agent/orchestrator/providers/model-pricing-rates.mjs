@@ -47,13 +47,14 @@ export function litellmPricing(entry) {
 export function modelsDevPricing(cost) {
   // Structured tiers supersede the older context_over_200k compatibility
   // field; it can coexist with a tier whose actual boundary is not 200k.
-  const tiers = Array.isArray(cost?.tiers)
-    ? cost.tiers
-        .filter((row) => row?.tier?.type === 'context' && Number.isFinite(row.tier.size) && row.tier.size > 0)
-        .map((row) => ({ aboveInputTokens: row.tier.size, ...rates(row, MODELSDEV_KEYS, 1) }))
-    : cost?.context_over_200k
-      ? [{ aboveInputTokens: 200000, ...rates(cost.context_over_200k, MODELSDEV_KEYS, 1) }]
-      : [];
+  let tiers = [];
+  if (Array.isArray(cost?.tiers)) {
+    tiers = cost.tiers
+      .filter((row) => row?.tier?.type === 'context' && Number.isFinite(row.tier.size) && row.tier.size > 0)
+      .map((row) => ({ aboveInputTokens: row.tier.size, ...rates(row, MODELSDEV_KEYS, 1) }));
+  } else if (cost?.context_over_200k) {
+    tiers = [{ aboveInputTokens: 200000, ...rates(cost.context_over_200k, MODELSDEV_KEYS, 1) }];
+  }
   return {
     ...rates(cost, MODELSDEV_KEYS, 1),
     pricingTiers: tiers.sort((a, b) => a.aboveInputTokens - b.aboveInputTokens),

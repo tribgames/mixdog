@@ -1,4 +1,4 @@
-// Tool schema/kind classification + measured-usage ordering, extracted from tool-catalog.mjs.
+// Tool schema/kind classification + measured-usage ordering.
 import { clean } from './session-text.mjs';
 import { estimateToolSchemaTokens, toolSchemaSignature } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import {

@@ -2,7 +2,12 @@
 // selected commit's detail state.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopGitCommitDetails, DesktopGitLogEntry } from '../shared/contract';
-import { HISTORY_PAGE_SIZE, HISTORY_PREFETCH_ROWS, SCM_COMMIT_ROW_HEIGHT, useRowWindow } from './source-control-support';
+import {
+  HISTORY_PAGE_SIZE,
+  HISTORY_PREFETCH_ROWS,
+  SCM_COMMIT_ROW_HEIGHT,
+  useRowWindow,
+} from './source-control-support';
 
 export function useSourceControlHistory({
   api,

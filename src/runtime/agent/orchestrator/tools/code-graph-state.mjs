@@ -46,7 +46,7 @@ export function markCodeGraphDirtyPaths(paths) {
     let matchedThisPath = false;
     for (const root of knownRoots) {
       const canonRoot = canonicalGraphPath(root);
-      if (absPath.startsWith(canonRoot + '/') || absPath.startsWith(canonRoot + '\\') || absPath === canonRoot) {
+      if (absPath.startsWith(`${canonRoot}/`) || absPath.startsWith(`${canonRoot}\\`) || absPath === canonRoot) {
         affectedRoots.add(root);
         matchedThisPath = true;
       }

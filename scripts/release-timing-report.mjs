@@ -79,7 +79,10 @@ export function buildReleaseTimingReport(currentPayload, baselinePayload = []) {
     ...slowest.map((row) => {
       const baseline = baselineByKey.get(row.key);
       const change = baseline ? percentChange(row.seconds, baseline.seconds) : null;
-      return `| ${row.key.replaceAll('|', '\\|')} | ${row.seconds}s | ${baseline ? `${baseline.seconds}s` : 'n/a'} | ${change === null ? 'n/a' : `${change > 0 ? '+' : ''}${change}%`} |`;
+      const sign = change !== null && change > 0 ? '+' : '';
+      const changeText = change === null ? 'n/a' : `${sign}${change}%`;
+      const baselineText = baseline ? `${baseline.seconds}s` : 'n/a';
+      return `| ${row.key.replaceAll('|', '\\|')} | ${row.seconds}s | ${baselineText} | ${changeText} |`;
     }),
     '',
   ].join('\n');

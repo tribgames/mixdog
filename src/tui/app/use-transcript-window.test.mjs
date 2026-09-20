@@ -88,7 +88,11 @@ function Harness({ items, revision, refs, control }) {
         marginBottom: -view.transcriptWindow.effectiveScrollOffset,
       },
       ...view.renderedTranscriptItems.map((item) =>
-        React.createElement(Box, { key: item.id, ref: view.transcriptMeasureRef(item) }, React.createElement(Text, null, item.text))
+        React.createElement(
+          Box,
+          { key: item.id, ref: view.transcriptMeasureRef(item) },
+          React.createElement(Text, null, item.text)
+        )
       ),
       view.transcriptWindow.bottomSpacerRows > 0
         ? React.createElement(Box, { height: view.transcriptWindow.bottomSpacerRows, flexShrink: 0 })
@@ -112,7 +116,8 @@ test('transcript window follows the tail, then holds the reading anchor while ro
   });
   const refs = makeRefs();
   const control = {};
-  const element = (count, revision) => React.createElement(Harness, { items: makeItems(count), revision, refs, control });
+  const element = (count, revision) =>
+    React.createElement(Harness, { items: makeItems(count), revision, refs, control });
   const view = render(element(200, 1), {
     stdout,
     stdin,

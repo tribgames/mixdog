@@ -132,10 +132,10 @@ export function installProcessSignalCleanup({
     }
     running = false;
     if (shouldExit) {
-      await finishProcessLifecycleAsync(
-        cleanupFailed ? 'forced-cleanup' : error ? 'catchable-fatal-error' : 'clean-shutdown',
-        code
-      );
+      let lifecycleOutcome = 'clean-shutdown';
+      if (cleanupFailed) lifecycleOutcome = 'forced-cleanup';
+      else if (error) lifecycleOutcome = 'catchable-fatal-error';
+      await finishProcessLifecycleAsync(lifecycleOutcome, code);
       try {
         process.exit(code);
       } catch {}

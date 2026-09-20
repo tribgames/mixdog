@@ -17,6 +17,22 @@ export const READ_ACTIONS = new Set(computerActionsWith('hostRead'));
 // that could change the desktop, before the command reaches a dispatch path.
 export const OBSERVE_ONLY_ALLOWED_ACTIONS = new Set(computerActionsWith('observeOnly'));
 
+/** Pointer actions that land on frame-bound x/y when no ref is given. */
+export const PIXEL_INPUT_ACTIONS = new Set([
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
+  'mouse_move',
+]);
+
+/** Keyboard actions whose foreground delivery keeps focus on the target for
+ *  the follow-up instead of restoring the previous foreground. */
+export const FOREGROUND_KEY_ACTIONS = new Set(['key', 'key_down', 'key_up', 'type']);
+
 export function isComputerLifecycleControl(command: ComputerCommand): boolean {
   return computerActionHas(String(command.action || ''), 'lifecycle');
 }

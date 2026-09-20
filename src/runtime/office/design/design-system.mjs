@@ -113,16 +113,13 @@ export function applyPdfDesign(blocks = [], designRequest = {}, { library = null
       headingIndex += 1;
       const level = Number(block.level) || 0;
       const title = level === 1 || (!level && headingIndex === 1);
+      let headingSize = design.format.heading;
+      if (title) headingSize = design.format.title;
+      else if (level >= 3) headingSize = Math.round(design.format.heading * 0.85 * 2) / 2;
       return {
         ...block,
         font: block.font || type.display,
-        size:
-          block.size ||
-          (title
-            ? design.format.title
-            : level >= 3
-              ? Math.round(design.format.heading * 0.85 * 2) / 2
-              : design.format.heading),
+        size: block.size || headingSize,
         color: block.color || (headingIndex === 1 ? colors.ink : colors.accent),
         after: block.after ?? (headingIndex === 1 ? 18 : 10),
       };

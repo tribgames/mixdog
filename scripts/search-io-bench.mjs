@@ -47,12 +47,10 @@ try {
       )
     );
   }
+  const rowMarks = { 29970: 'ALPHA_MARK', 29980: 'BETA_MARK' };
   await fs.writeFile(
     file,
-    Array.from(
-      { length: 30000 },
-      (_, i) => `${i === 29970 ? 'ALPHA_MARK' : i === 29980 ? 'BETA_MARK' : 'row'} ${i} ${'x'.repeat(240)}\n`
-    ).join('')
+    Array.from({ length: 30000 }, (_, i) => `${rowMarks[i] ?? 'row'} ${i} ${'x'.repeat(240)}\n`).join('')
   );
   await warmNativeSearchServer();
   const cases = [

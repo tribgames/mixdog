@@ -7,7 +7,7 @@
  * the process-exit drain fence. openai-oauth-ws.mjs imports acquire/release/
  * _sendFrame and re-exports the drain hooks for legacy import paths.
  */
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -136,13 +136,15 @@ function _cfCookieAccountKey(auth) {
 export function _cfCookieHeader(auth) {
   if (!_envOn('MIXDOG_OAI_CF_COOKIES')) return null;
   const jar = _cfCookieJar.get(_cfCookieAccountKey(auth));
-  if (!jar || !jar.size) return null;
+  if (!jar?.size) return null;
   return [...jar.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
 export function _cfCookieCapture(auth, setCookieHeaders) {
   if (!_envOn('MIXDOG_OAI_CF_COOKIES')) return;
-  const list = Array.isArray(setCookieHeaders) ? setCookieHeaders : setCookieHeaders ? [setCookieHeaders] : [];
+  let list = [];
+  if (Array.isArray(setCookieHeaders)) list = setCookieHeaders;
+  else if (setCookieHeaders) list = [setCookieHeaders];
   if (!list.length) return;
   const key = _cfCookieAccountKey(auth);
   let jar = _cfCookieJar.get(key);

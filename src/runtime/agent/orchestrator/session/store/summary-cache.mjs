@@ -1,5 +1,5 @@
-import { readdirSync } from 'fs';
-import { join } from 'path';
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { getStoreDir } from './paths-heartbeat.mjs';
 import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';

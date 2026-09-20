@@ -65,7 +65,7 @@ export async function updateSessionGeneratedTitle(id, title, stage) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 100);
-  const normalizedStage = stage === 'third' ? 'third' : stage === 'first' ? 'first' : '';
+  const normalizedStage = stage === 'third' || stage === 'first' ? stage : '';
   if (!normalized || !normalizedStage) return false;
   if (session.titleLocked === true) return false;
   if (session.generatedTitleStage === 'third') return false;
@@ -93,80 +93,85 @@ export async function updateSessionManualTitle(id, title) {
   return true;
 }
 // --- Clear messages (keep system prompt + provider/model/cwd) ---
-export async function clearSessionMessages(sessionId, options = {}) {
-  const session = loadSession(sessionId);
-  if (!session) return false;
-  // Don't resurrect a closed session just to clear its messages.
-  if (session.closed === true) return false;
-  const clearOptions = options && typeof options === 'object' ? options : {};
-  const compactBeforeClear = clearOptions.compact === true;
-  const keep = [];
+const isCompactSummaryMessage = (m) =>
+  m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX);
+
+function bestEffortStderr(line) {
+  try {
+    process.stderr.write(line);
+  } catch {
+    /* best-effort */
+  }
+}
+
+// Token/provider accounting a cleared transcript starts from; shared by the
+// live session and the cold fork of its outgoing transcript.
+function clearedTokenAccounting(now) {
+  return {
+    providerState: undefined,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCachedReadTokens: 0,
+    totalCacheWriteTokens: 0,
+    lastInputTokens: 0,
+    lastOutputTokens: 0,
+    lastCachedReadTokens: 0,
+    lastCacheWriteTokens: 0,
+    lastContextTokens: 0,
+    lastContextTokensUpdatedAt: now,
+    lastContextTokensStaleAfterCompact: false,
+  };
+}
+
+// Optional pre-clear compaction. Returns the post-compaction messages and the
+// compaction failure (if any); with requireCompactSuccess a failure stamps the
+// session and throws so the conversation is kept.
+async function compactBeforeClear(session, sessionId, clearOptions) {
   let messages = Array.isArray(session.messages) ? session.messages : [];
-  const beforeMessageTokens = estimateMessagesTokens(messages);
   let clearCompactError = null;
-  if (compactBeforeClear && messages.length >= 3) {
+  if (messages.length >= 3) {
     try {
       const compactResult = await runSessionCompaction(session, { mode: 'manual', force: true, sessionId });
-      if (compactResult?.error) {
-        clearCompactError = new Error(compactResult.error);
-      }
+      if (compactResult?.error) clearCompactError = new Error(compactResult.error);
     } catch (err) {
       clearCompactError = err;
-      try {
-        process.stderr.write(`[session] auto-clear pre-compact failed (sess=${sessionId}): ${err?.message || err}\n`);
-      } catch {
-        /* best-effort */
-      }
+      bestEffortStderr(`[session] auto-clear pre-compact failed (sess=${sessionId}): ${err?.message || err}\n`);
     }
     messages = Array.isArray(session.messages) ? session.messages : [];
   }
-  if (compactBeforeClear && clearOptions.requireCompactSuccess === true) {
-    const hasRetainedSummary = messages.some(
-      (m) => m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX)
-    );
-    if (!hasRetainedSummary && !clearCompactError) {
-      clearCompactError = new Error('compact produced no retained summary');
-    }
+  if (clearOptions.requireCompactSuccess !== true) return { messages, clearCompactError };
+  if (!clearCompactError && !messages.some(isCompactSummaryMessage)) {
+    clearCompactError = new Error('compact produced no retained summary');
   }
-  if (clearCompactError && clearOptions.requireCompactSuccess === true) {
-    const now = Date.now();
-    session.compaction = {
-      ...(session.compaction || {}),
-      lastStage: 'auto_clear_failed',
-      lastCheckedAt: now,
-      lastChanged: false,
-      lastClearAt: session.compaction?.lastClearAt || null,
-      lastClearCompactError: clearCompactError?.message || String(clearCompactError),
-    };
-    session.updatedAt = now;
-    await saveSessionAsync(session, { expectedGeneration: session.generation });
-    throw new Error(`auto-clear compact failed; conversation kept: ${session.compaction.lastClearCompactError}`);
-  }
-  const preserveCompactSummary = compactBeforeClear && clearOptions.keepCompactSummary !== false;
-  for (let i = 0; i < messages.length; i += 1) {
-    const m = messages[i];
-    if (!m) continue;
-    if (m.role === 'system') {
-      // BP1/BP2/BP3 all ride `role:'system'` blocks now (BP3 sessionMarker
-      // moved off the `<system-reminder>` user wrapper), so the stable
-      // memory/meta layer is preserved here unconditionally — no sentinel
-      // scan / dummy-assistant pairing needed anymore.
-      keep.push(m);
-      continue;
-    }
-    if (
-      preserveCompactSummary &&
-      m.role === 'user' &&
-      typeof m.content === 'string' &&
-      m.content.startsWith(SUMMARY_PREFIX)
-    ) {
-      keep.push(m);
-    }
-  }
+  if (!clearCompactError) return { messages, clearCompactError };
+  const now = Date.now();
+  session.compaction = {
+    ...(session.compaction || {}),
+    lastStage: 'auto_clear_failed',
+    lastCheckedAt: now,
+    lastChanged: false,
+    lastClearAt: session.compaction?.lastClearAt || null,
+    lastClearCompactError: clearCompactError?.message || String(clearCompactError),
+  };
+  session.updatedAt = now;
+  await saveSessionAsync(session, { expectedGeneration: session.generation });
+  throw new Error(`auto-clear compact failed; conversation kept: ${session.compaction.lastClearCompactError}`);
+}
+
+// Messages that survive a clear: the system layer, plus the compact summary
+// when it is carried forward. BP1/BP2/BP3 all ride `role:'system'` blocks now
+// (BP3 sessionMarker moved off the `<system-reminder>` user wrapper), so the
+// stable memory/meta layer is preserved unconditionally — no sentinel scan /
+// dummy-assistant pairing needed anymore.
+function retainedMessagesAfterClear(messages, preserveCompactSummary) {
+  return messages.filter((m) => m && (m.role === 'system' || (preserveCompactSummary && isCompactSummaryMessage(m))));
+}
+
+// ONE scale with the context gauge: anchor the pre-clear number on the
+// provider-billed prompt whenever a live baseline still covers this
+// transcript, and fall back to the calibrated estimate otherwise.
+function clearTokenAccounting(session, messages, keep, beforeMessageTokens) {
   const afterMessageTokens = estimateMessagesTokens(keep);
-  // ONE scale with the context gauge: anchor the pre-clear number on the
-  // provider-billed prompt whenever a live baseline still covers this
-  // transcript, and fall back to the calibrated estimate otherwise.
   const clearPolicy = resolveSessionCompactionPolicy(session);
   const beforeTokens =
     (clearPolicy
@@ -176,120 +181,106 @@ export async function clearSessionMessages(sessionId, options = {}) {
   const afterTokens = postClearPolicy
     ? currentContextEstimateTokens(afterMessageTokens, postClearPolicy)
     : estimateTranscriptContextUsage(keep, session.tools || [], { provider: session.provider });
-  const now = Date.now();
-  // --- Fork the outgoing transcript to a separate resumable session BEFORE
-  // the wipe below. Runs for every clear path (plain /clear, auto-clear,
-  // compact_clear) using the ORIGINAL `messages` (post-compact-gating, i.e.
-  // whatever survived the requireCompactSuccess throw above), so the
-  // conversation about to be discarded stays reachable via /resume under a
-  // fresh id. Skipped for scratch sessions with no real user turn — nothing
-  // worth resuming. Best-effort: any failure here must never block the
-  // clear itself (mirrors the pre-compact failure handling above).
-  // ALSO skipped when the clear carries a compact summary forward
-  // (compact_clear/auto-clear): the outgoing transcript is just the compact
-  // product whose content the live session retains via the summary, so the
-  // fork duplicated it as a confusing extra Recent row ("Re-attached after
-  // compaction…" — user report). Plain /clear (no summary kept) still forks.
-  const summaryCarriedForward = keep.some(
-    (m) => m?.role === 'user' && typeof m.content === 'string' && m.content.startsWith(SUMMARY_PREFIX)
-  );
-  if (hasUserConversationMessage(messages) && !summaryCarriedForward) {
-    try {
-      const forkId = mintSessionId();
-      const fork = {
-        ...session,
-        id: forkId,
-        messages: messages.map((m) => (m && typeof m === 'object' ? { ...m } : m)),
-        closed: false,
-        status: 'idle',
-        generation: 0,
-        createdAt: now,
-        updatedAt: now,
-        lastUsedAt: now,
-        lastHeartbeatAt: null,
-        mcpPid: process.pid,
-        // Strip runtime/liveness/routing state — the fork is a cold
-        // snapshot, not a live process-owned session.
-        clientHostPid: null,
-        providerState: undefined,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCachedReadTokens: 0,
-        totalCacheWriteTokens: 0,
-        lastInputTokens: 0,
-        lastOutputTokens: 0,
-        lastCachedReadTokens: 0,
-        lastCacheWriteTokens: 0,
-        lastContextTokens: 0,
-        lastContextTokensUpdatedAt: now,
-        lastContextTokensStaleAfterCompact: false,
-      };
-      delete fork.liveTurnMessages;
-      setLiveSession(fork);
-      void saveSessionAsync(fork)
-        .then(() => {
-          // The fork is a cold snapshot kept for /resume. Once durable on
-          // disk it must not pin a full transcript copy (image bytes
-          // included) in the same-process cache for the rest of the
-          // process lifetime — this was the largest _liveSessions leak
-          // (one whole conversation retained per clear).
-          evictLiveSession(forkId);
-        })
-        .catch((err) => {
-          try {
-            process.stderr.write(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`);
-          } catch {
-            /* best-effort */
-          }
-        });
-    } catch (err) {
-      try {
-        process.stderr.write(`[session] clear-fork failed (sess=${sessionId}): ${err?.message || err}\n`);
-      } catch {
-        /* best-effort */
-      }
-    }
+  return { beforeTokens, afterTokens, beforeMessageTokens, afterMessageTokens, postClearPolicy };
+}
+
+// Fork the outgoing transcript to a separate resumable session BEFORE the wipe,
+// so the conversation about to be discarded stays reachable via /resume under a
+// fresh id. Best-effort: any failure here must never block the clear itself.
+function forkOutgoingTranscript(session, messages, now) {
+  try {
+    const forkId = mintSessionId();
+    const fork = {
+      ...session,
+      id: forkId,
+      messages: messages.map((m) => (m && typeof m === 'object' ? { ...m } : m)),
+      closed: false,
+      status: 'idle',
+      generation: 0,
+      createdAt: now,
+      updatedAt: now,
+      lastUsedAt: now,
+      lastHeartbeatAt: null,
+      mcpPid: process.pid,
+      // Strip runtime/liveness/routing state — the fork is a cold
+      // snapshot, not a live process-owned session.
+      clientHostPid: null,
+      ...clearedTokenAccounting(now),
+    };
+    delete fork.liveTurnMessages;
+    setLiveSession(fork);
+    void saveSessionAsync(fork)
+      .then(() => {
+        // The fork is a cold snapshot kept for /resume. Once durable on
+        // disk it must not pin a full transcript copy (image bytes
+        // included) in the same-process cache for the rest of the
+        // process lifetime — this was the largest _liveSessions leak
+        // (one whole conversation retained per clear).
+        evictLiveSession(forkId);
+      })
+      .catch((err) => {
+        bestEffortStderr(`[session] clear-fork save failed (sess=${forkId}): ${err?.message || err}\n`);
+      });
+  } catch (err) {
+    bestEffortStderr(`[session] clear-fork failed (sess=${session.id}): ${err?.message || err}\n`);
   }
+}
+
+export async function clearSessionMessages(sessionId, options = {}) {
+  const session = loadSession(sessionId);
+  if (!session) return false;
+  // Don't resurrect a closed session just to clear its messages.
+  if (session.closed === true) return false;
+  const clearOptions = options && typeof options === 'object' ? options : {};
+  const compact = clearOptions.compact === true;
+  const beforeMessageTokens = estimateMessagesTokens(Array.isArray(session.messages) ? session.messages : []);
+  const { messages, clearCompactError } = compact
+    ? await compactBeforeClear(session, sessionId, clearOptions)
+    : { messages: Array.isArray(session.messages) ? session.messages : [], clearCompactError: null };
+  const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
+  const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
+  const now = Date.now();
+  // The fork runs for every clear path (plain /clear, auto-clear,
+  // compact_clear) using the ORIGINAL `messages` (post-compact-gating, i.e.
+  // whatever survived the requireCompactSuccess throw). Skipped for scratch
+  // sessions with no real user turn — nothing worth resuming. ALSO skipped
+  // when the clear carries a compact summary forward (compact_clear /
+  // auto-clear): the outgoing transcript is just the compact product whose
+  // content the live session retains via the summary, so the fork duplicated
+  // it as a confusing extra Recent row ("Re-attached after compaction…" —
+  // user report). Plain /clear (no summary kept) still forks.
+  const summaryCarriedForward = keep.some(isCompactSummaryMessage);
+  if (hasUserConversationMessage(messages) && !summaryCarriedForward) forkOutgoingTranscript(session, messages, now);
+
   session.messages = keep;
   // Clear truncates the transcript wholesale; drop the provider prefix
   // snapshot so the next send re-baselines instead of history_shrink.
   delete session._providerPrefixGuardState;
   resetSessionBp3Environment(session);
-  session.totalInputTokens = 0;
-  session.totalOutputTokens = 0;
-  session.totalCachedReadTokens = 0;
-  session.totalCacheWriteTokens = 0;
-  session.lastInputTokens = 0;
-  session.lastOutputTokens = 0;
-  session.lastCachedReadTokens = 0;
-  session.lastCacheWriteTokens = 0;
-  session.lastContextTokens = 0;
-  session.lastContextTokensUpdatedAt = now;
-  session.lastContextTokensStaleAfterCompact = false;
-  session.providerState = undefined;
+  Object.assign(session, clearedTokenAccounting(now));
   session.compaction = {
     ...(session.compaction || {}),
     lastStage: 'auto_clear',
-    lastBeforeTokens: beforeTokens,
-    lastAfterTokens: afterTokens,
-    lastBeforeMessageTokens: beforeMessageTokens,
-    lastAfterMessageTokens: afterMessageTokens,
-    lastPressureTokens: beforeTokens,
-    currentEstimatedTokens: afterTokens,
+    lastBeforeTokens: tokens.beforeTokens,
+    lastAfterTokens: tokens.afterTokens,
+    lastBeforeMessageTokens: tokens.beforeMessageTokens,
+    lastAfterMessageTokens: tokens.afterMessageTokens,
+    lastPressureTokens: tokens.beforeTokens,
+    currentEstimatedTokens: tokens.afterTokens,
     lastCheckedAt: now,
-    lastChanged: beforeTokens !== afterTokens,
+    lastChanged: tokens.beforeTokens !== tokens.afterTokens,
     lastClearAt: now,
-    lastClearBeforeTokens: beforeTokens,
-    lastClearAfterTokens: afterTokens,
-    lastClearBeforeMessageTokens: beforeMessageTokens,
-    lastClearAfterMessageTokens: afterMessageTokens,
+    lastClearBeforeTokens: tokens.beforeTokens,
+    lastClearAfterTokens: tokens.afterTokens,
+    lastClearBeforeMessageTokens: tokens.beforeMessageTokens,
+    lastClearAfterMessageTokens: tokens.afterMessageTokens,
     lastClearCompactError: clearCompactError?.message || null,
   };
-  if (summaryCarriedForward && postClearPolicy) {
-    recordContextUsageSnapshot(session, postClearPolicy, {
+  if (summaryCarriedForward && tokens.postClearPolicy) {
+    recordContextUsageSnapshot(session, tokens.postClearPolicy, {
       messages: keep,
-      usedTokens: afterTokens,
-      messageTokensEst: afterMessageTokens,
+      usedTokens: tokens.afterTokens,
+      messageTokensEst: tokens.afterMessageTokens,
       source: 'post_clear',
       updatedAt: now,
     });

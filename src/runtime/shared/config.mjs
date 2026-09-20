@@ -2,9 +2,9 @@
  * Unified config reader/writer.
  * Single file: mixdog-config.json with sections such as channels, agent, and memory.
  */
-import { readFileSync, statSync, mkdirSync, existsSync } from 'fs';
-import { join, dirname } from 'path';
-import { createRequire } from 'module';
+import { readFileSync, statSync, mkdirSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { createRequire } from 'node:module';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
 import {
@@ -488,7 +488,7 @@ export const SECRET_ACCOUNTS = Object.freeze({
 
 function _envKey(account) {
   // 'agent.openai.apiKey' → 'MIXDOG_AGENT_OPENAI_APIKEY'
-  return 'MIXDOG_' + account.replace(/[.\s]+/g, '_').toUpperCase();
+  return `MIXDOG_${account.replace(/[.\s]+/g, '_').toUpperCase()}`;
 }
 
 function _readSecret(account) {
@@ -538,7 +538,7 @@ export function saveSecret(account, value) {
     const stdEnv = agentMatch ? AGENT_PROVIDER_ENV[agentMatch[1]] : null;
     const envHint = stdEnv ? `${stdEnv} (or ${envKey})` : envKey;
     const e = new Error(
-      `[config] could not save secret to the OS keychain: ${err && err.message ? err.message : err}\n` +
+      `[config] could not save secret to the OS keychain: ${err?.message ? err.message : err}\n` +
         `  No usable keychain provider on this host (common on WSL / headless Linux without libsecret).\n` +
         `  Set the ${envHint} environment variable instead — the runtime reads it directly.`
     );

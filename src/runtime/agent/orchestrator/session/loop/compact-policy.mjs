@@ -1,5 +1,5 @@
 // Compaction policy resolution, pressure/target budgeting, telemetry
-// persistence, and event emission — extracted from loop.mjs.
+// persistence, and event emission.
 // The fresh-context runner drives the handoff pipeline against live session
 // state.
 import {
@@ -103,7 +103,14 @@ function compactBoundaryFor(sessionRef, cfg) {
 // 1%-of-boundary (up to 1,024-token) gap above the effective post-compact
 // target. Explicit sub-boundary limits and agent triggers retain
 // their established precedence/behavior.
-function workerTriggerTokens({ sessionRef, policy, compactBoundaryTokens, legacyTargetBudget, singleShot, configuredReserve }) {
+function workerTriggerTokens({
+  sessionRef,
+  policy,
+  compactBoundaryTokens,
+  legacyTargetBudget,
+  singleShot,
+  configuredReserve,
+}) {
   const minMainTrigger = Math.min(
     compactBoundaryTokens,
     (legacyTargetBudget || 0) + compactTriggerMarginTokens(compactBoundaryTokens)

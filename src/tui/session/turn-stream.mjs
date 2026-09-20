@@ -320,7 +320,11 @@ export function resetStreamedText(stream, { chars, reasoning } = {}) {
     if (stream.currentAssistantText) {
       stream.updateStreamingTail(
         stream.currentAssistantId,
-        { text: stream.currentAssistantText, at: stream.getState().streamingTail?.at || Date.now(), ...stream.routeMeta },
+        {
+          text: stream.currentAssistantText,
+          at: stream.getState().streamingTail?.at || Date.now(),
+          ...stream.routeMeta,
+        },
         {},
         { resetText: true }
       );
@@ -358,6 +362,11 @@ export function closeThinkingForToolBatch(stream, spinnerMode) {
 
 export async function applyStageChange(stream, stage, detail = null) {
   const { getState, set } = stream;
+  if (stage === 'account-changed') {
+    // A selection change is UI state, not a spinner phase or transcript item.
+    set({ providerAccountChange: detail });
+    return;
+  }
   if (!getState().spinner) return;
   const value = String(stage || '');
   if (value === 'compacting') {
@@ -423,7 +432,9 @@ export function settleFinalText(stream, finalText) {
     stream.currentAssistantText = remainder;
     stream.settleStreamingTail(id, { text: remainder });
   } else if (stream.currentAssistantId && (stream.currentAssistantText.trim() || stream.assistantText.trim())) {
-    stream.settleStreamingTail(stream.currentAssistantId, { text: stream.currentAssistantText || stream.assistantText });
+    stream.settleStreamingTail(stream.currentAssistantId, {
+      text: stream.currentAssistantText || stream.assistantText,
+    });
   }
 }
 

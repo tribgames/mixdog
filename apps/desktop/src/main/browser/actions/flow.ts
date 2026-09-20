@@ -59,12 +59,13 @@ export const flowActions = defineBrowserActions({
     signal?.throwIfAborted();
     if (!matched) {
       const waited = describeBrowserPostcondition(expected);
-      const outcome = command.internalStep
-        ? { text: '' }
-        : await reply.snapshotResult(guest, command, signal, { targetIsBackground }).catch((error) => {
-            if (signal?.aborted) throw signal.reason || error;
-            return { text: `Final snapshot failed: ${error instanceof Error ? error.message : String(error)}` };
-          });
+      let outcome = { text: '' };
+      if (!command.internalStep) {
+        outcome = await reply.snapshotResult(guest, command, signal, { targetIsBackground }).catch((error) => {
+          if (signal?.aborted) throw signal.reason || error;
+          return { text: `Final snapshot failed: ${error instanceof Error ? error.message : String(error)}` };
+        });
+      }
       signal?.throwIfAborted();
       throw new Error(
         [`Wait timed out after ${timeoutMs}ms without matching ${waited}.`, observationFailure, outcome.text]

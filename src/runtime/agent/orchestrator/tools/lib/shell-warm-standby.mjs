@@ -58,7 +58,7 @@ function envSignature(env) {
 }
 
 function _slotAlive(slot) {
-  return Boolean(slot && slot.native?.child && slot.native.child.exitCode == null && !slot.native.child.killed);
+  return Boolean(slot?.native?.child && slot.native.child.exitCode == null && !slot.native.child.killed);
 }
 
 function psQuote(value) {

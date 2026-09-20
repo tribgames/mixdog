@@ -1,5 +1,5 @@
-import { readFile, stat } from 'fs/promises';
-import { extname } from 'path';
+import { readFile, stat } from 'node:fs/promises';
+import { extname } from 'node:path';
 import { API_IMAGE_MAX_BASE64_SIZE, imageMetadataText, resizeImageBuffer } from './read-image-resize.mjs';
 
 // Image extensions that Read renders as image blocks.

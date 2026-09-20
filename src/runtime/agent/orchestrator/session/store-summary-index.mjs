@@ -2,11 +2,11 @@
  * Session summary index: the compact `session-summaries.json` sidecar that
  * lists every session's lightweight metadata (preview, counts, lifecycle) so
  * the status aggregator and session listers avoid parsing every full session
- * file. Extracted from store.mjs verbatim; store.mjs re-exports these so
+ * file. store.mjs re-exports these so
  * importers stay unchanged.
  */
-import { mkdirSync } from 'fs';
-import { join } from 'path';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { updateJsonAtomicSync, updateJsonAtomic, writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import {

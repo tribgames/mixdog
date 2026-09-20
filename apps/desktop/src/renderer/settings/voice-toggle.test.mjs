@@ -732,15 +732,9 @@ test('runtime-backed Built-ins stay installed through OFF and ON', async () => {
 
   try {
     await render();
+    const featureLabels = { voice: 'Voice transcription', git: 'Git & GitHub', tidy: 'Code Tidy' };
     for (const id of ['memory', 'git', 'office', 'tidy', 'voice']) {
-      const label =
-        id === 'voice'
-          ? 'Voice transcription'
-          : id === 'git'
-            ? 'Git & GitHub'
-            : id === 'tidy'
-              ? 'Code Tidy'
-              : id[0].toUpperCase() + id.slice(1);
+      const label = featureLabels[id] ?? id[0].toUpperCase() + id.slice(1);
       await openFeature(id);
       let toggle = labelled(id, 'input', label);
       assert.equal(toggle.checked, true, `${id} starts on`);

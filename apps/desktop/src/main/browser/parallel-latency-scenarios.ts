@@ -36,7 +36,7 @@ export async function runBrowserParallelLatencyScenarios(
         steps: [
           { action: 'fill', target: { name: 'Name', exact: true }, text: value },
           { action: 'click', target: { name: 'Save', exact: true } },
-          { action: 'wait', text: 'Saved ' + value },
+          { action: 'wait', text: `Saved ${value}` },
         ],
       });
     const sequentialAt = performance.now();

@@ -2,7 +2,7 @@
 // model-less first turn and refresh the route's effort / Fast / context
 // fields from provider metadata.
 import { ensureProviderEnabled } from './config-helpers.mjs';
-import { clean, hasOwn } from './session-text.mjs';
+import { clean } from './session-text.mjs';
 import { effortItemsFor } from './effort.mjs';
 import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 import { resolveRouteContextState, resolveRouteEffortState, routeModelDisplay } from './route-state.mjs';

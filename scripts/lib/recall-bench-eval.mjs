@@ -202,11 +202,8 @@ export function evaluateCase(kase, outcome, quality, recency, allContain, within
   const expectObj = kase.expect && typeof kase.expect === 'object' ? kase.expect : {};
   const expectKind = expectObj.kind || kase.expect;
   const allowEmpty = expectObj.allowEmpty === true;
-  const minResults = Number.isInteger(expectObj.minResults)
-    ? Math.max(0, expectObj.minResults)
-    : expectKind === 'empty' || allowEmpty
-      ? 0
-      : 1;
+  const defaultMinResults = expectKind === 'empty' || allowEmpty ? 0 : 1;
+  const minResults = Number.isInteger(expectObj.minResults) ? Math.max(0, expectObj.minResults) : defaultMinResults;
   const maxResults = Number.isInteger(expectObj.maxResults) ? Math.max(0, expectObj.maxResults) : null;
   if (outcome.isError) warnings.push('error result');
   if (outcome.ms > 3000) warnings.push(`latency ${outcome.ms}ms > 3000ms`);

@@ -12,17 +12,14 @@ dependencies:
 
 # Code tidy (tidy tool)
 
-Three layers, cheapest and safest first: the project's formatters and linters
-through `tidy`, then the structural rule packs, then agent-level cleanup of
-the code in scope. Every layer preserves behavior and public API; this is a
-cleanup pass, not a bug hunt. The schema owns action fields; this file owns
-scope, order, approvals, and what must not change.
+Use the applicable layers, cheapest and safest first: project formatters and
+linters through `tidy`, structural rule packs, then agent-level cleanup.
+Every layer preserves behavior and public API; this is not a bug hunt.
+The schema owns action fields; this file owns scope, order, and boundaries.
 
-The cleanup enforces an explicit three-phase contract:
-**investigation (find all items) - execution - reporting (what was completed, how each item changed, and what remains)**.
-Investigation determines the entire candidate inventory before editing; work executes
-in approved bounded rounds; each report reconciles every candidate, reporting round
-completion separately from overall completion to prevent silent scope leaks.
+Investigate the full selected scope before editing, execute approved bounded
+rounds, then report the outcome. `references/agent-cleanup.md` owns candidate
+tracking, risk classification, completion criteria, and the closing report.
 
 ## 1. Which job
 **Hard rule — tidy owns format/lint/structure/cleanup, not feature work.**
@@ -35,10 +32,13 @@ add or rewrite `biome.json`, `.prettierrc`, `.clang-format`, or similar unless
 the user asks. → manual
 **Mode**: `apply` unless the user asks to check, review, or "just report" —
 report-only requests stay read-only across all layers and never edit; the report
-lists what would change.
-**Focus**: an explicit focus ("only dead code", "efficiency") restricts the
-agent layer to that lens; the deterministic layers still run.
-Maintain candidate inventory and progress under the shared delivery policy.
+lists what would change. Apply still follows the active workflow's approval rules.
+**Focus**: an explicit restriction applies to every layer. "Formatting only"
+excludes lint fixes and structural or semantic cleanup; "only dead code"
+excludes unrelated formatting and refactoring. Skip unrelated investigations
+and fixes, but retain checks needed to verify the requested work. If a tool
+cannot isolate that operation, use evidenced targeted edits or report the
+limitation and ask before widening the work.
 
 ## 2. Scope and investigation
 1. **Get the scope from the user.** Accept named files, directories, a feature
@@ -67,14 +67,12 @@ Maintain candidate inventory and progress under the shared delivery policy.
    investigation checks (tidy scan/check, structural rules, dead-code detection,
    lens analysis) read-only to gather the complete candidate inventory before
    any edits.
-   - Register candidates per `references/agent-cleanup.md`: assign stable IDs,
-     group equal root causes without losing member locations, and distinguish
-     mechanical threshold hits from confirmed cleanups and kept items. Every
-     threshold hit requires planned action, an evidenced keep under the documented keep rules,
-     or an unfinished status with a concrete blocker.
-   - Truncated results, timeouts, failed diagnostic checks, or scope leakage
-     mean an **unfinished investigation**, not a clean state. The entire inventory
-     must be accounted for before claiming investigation complete.
+   - Classify and track all candidates using `references/agent-cleanup.md`.
+   - Read every result page with `tidy action:'results'` and the returned paging
+     information before another check/fix replaces the cached run. Pagination
+     is not engine truncation; do not rerun engines just to see remaining rows.
+   - Actual engine truncation, timeouts, failed diagnostic checks, or scope
+     leakage mean an **unfinished investigation**, not a clean state.
    - Partial implementation while investigation is blocked is permitted only if
      the user explicitly approves that specific unblocked subset.
 
@@ -88,14 +86,21 @@ Maintain candidate inventory and progress under the shared delivery policy.
 3. **Hard rule — never install toolchain engines** (rustfmt, gofmt, dart,
    swift, zig, mix, dotnet): report `installHint`. Managed engines download
    only through tidy (`auto`, `approveDownloads`, or `action:'install'`). → manual
-4. Engines, then structural rules, each dry-run then apply:
-   - engine `fix` with `structural:false` is the read-only plan; do not repeat
-     an equivalent `check` before it;
-   - the same call with `apply:true` only when the plan is complete and approved;
-   - `tidy action:'fix' structural:true`, then `apply:true`.
-   `structural` defaults to true on check/fix, so engine steps must pass
-   `structural:false` or structural fixes land during the engine write. A
-   dry-run with no changes skips that apply. Rules without a fix
+4. Plan the approved deterministic work with `fix` without `apply:true`;
+   do not repeat an equivalent `check` first. Use one combined plan when both
+   engines and structural rules are in scope:
+   - `structural:false` disables structural rules, not engine lint fixes.
+   - `structural:true` (the default) runs ordinary engines as well as rules;
+     it is not a structure-only pass. Do not precede it with a redundant
+     engine-only pass. The current tool has no structure-only selector.
+   - For restricted work, follow the Focus boundary above rather than using
+     a combined apply that also changes unrelated code.
+5. Treat the engine dry run as diagnostics and candidate files, not a preview
+   of the exact resulting patch. Apply recalculates work; it does not replay a
+   frozen preview. If inputs or approved operations change before writing,
+   refresh the affected plan. Use `apply:true` only after the complete plan is
+   approved, then review the actual changes against that scope.
+6. A dry run with no proposed fixes skips apply. Rules without a fix
    (`no-empty-catch`, `no-nested-ternary`, `no-any-cast`,
    `no-boolean-literal-compare`, `no-debug-statement`, `todo-marker`) are
    diagnostics for the agent layer, not changes. Skip a layer the scan shows
@@ -115,7 +120,7 @@ definitions, and the final report template. This section owns the order.
    the behavior you will touch gets either the narrowest regression test that
    pins its observable output, or only SAFE-tier changes — say which. Prose
    files (skills, prompts, docs) have no behavior to pin.
-2. **Ladder, then lenses.** Run the deletion ladder on every changed unit;
+2. **Ladder, then lenses.** Run the deletion ladder on every selected source unit;
    only survivors go through the four lenses (reuse, quality, efficiency,
    altitude). Every finding carries `file:line` evidence, a cost, a
    confidence, and a risk tier; findings without evidence are dropped, and
@@ -123,15 +128,12 @@ definitions, and the final report template. This section owns the order.
    `git blame` is not a mandatory step for each removal. Unresolved intent
    lowers confidence and blocks deletion, rather than justifying it.
    When this session can delegate to parallel workers, run one lens per
-   worker with the complete diff and the repo path — workers report findings,
-   never edit. Otherwise run the lenses yourself in sequence and say so in
+   worker with the approved scope, relevant source, and repo path — workers
+   report findings, never edit. Otherwise run the lenses yourself and say so in
    the report. For a small, single-concern scope, cover the applicable lenses
    in one review rather than dispatching separate workers for each lens.
    Result: one merged, deduplicated finding list.
 3. **Execute in approved bounded rounds.**
-   - Retain the complete candidate inventory across rounds; never silently
-     narrow scope or overwrite the backlog with the completed subset. Newly
-     discovered candidates (such as cascade findings) are appended with new IDs.
    - Independent modules may be cleaned in parallel across tasks; within any
      file or module, CAREFUL source units must be edited sequentially.
    - Apply by tier: SAFE as one batch; CAREFUL one source unit at a time; RISKY
@@ -151,25 +153,27 @@ definitions, and the final report template. This section owns the order.
    task. Principles cannot pick between two rewrites → apply neither, record
    both.
 
-| Structural threshold | Action |
+The following are investigation signals, not permission for an automatic rewrite.
+Use the shared candidate classification and risk tiers before acting.
+
+| Structural signal | Decision |
 |---|---|
-| File > 1,000 lines | Split by responsibility |
-| Function > 50 lines, or nesting > 3 | Extract |
-| Duplicated small helpers across files | Consolidate into a shared module |
-| Comments describing history (`extracted verbatim`, `moved from`, `behavior-preserving move`) | Delete |
-| Underscore-prefixed names exported across modules | Rename |
-| Dead code / unused exports | Remove |
+| File > 1,000 lines | Identify separable responsibilities and verify the cost of splitting |
+| Function > 50 lines, or nesting > 3 | Confirm mixed responsibilities or avoidable nesting before extracting |
+| Duplicated small helpers across files | Consolidate only when intent and behavior match |
+| Comments describing history (`extracted verbatim`, `moved from`, `behavior-preserving move`) | Remove only when no protected content or parsing behavior is lost |
+| Underscore-prefixed names exported across modules | Treat a rename as a RISKY contract change; report, never auto-rename |
+| Dead code / unused exports | Verify through the dead-code procedure before removing |
 
 Do not "improve" names, control flow, or types beyond the ladder, the lenses,
 and this table.
 
-Size alone does not make a split RISKY. A responsibility-based split that
-preserves behavior and public entry points is CAREFUL: name the responsibilities,
-extract one source unit at a time with the new modules it requires, and verify
-its direct consumers before the next extraction. Moving the entire oversized
-body elsewhere or cutting it into numbered chunks does not satisfy the split.
-If a documented keep rule applies, record the evidence; otherwise an unperformed
-split remains unfinished, with its specific blocker.
+Size alone neither mandates a split nor makes one RISKY. A confirmed
+responsibility-based split preserving behavior and entry points is CAREFUL:
+extract one source unit at a time with its required modules, and verify direct
+consumers. Moving the entire body elsewhere or cutting it into numbered chunks
+does not resolve the finding. An unperformed confirmed split stays unfinished;
+size-only keep decisions need the evidence required by the shared inventory.
 
 ## 5. Keep — never remove or rename
 - Validation and error handling at a trust boundary (user input, external
@@ -178,8 +182,9 @@ split remains unfinished, with its specific blocker.
   wire strings — contracts; a rename is RISKY even when the name is bad.
 - Anything on the never-dead list in `references/dead-code.md`.
 - An empty catch or ignored error that may be intentional — flag it.
-- Complexity a comment or `git blame` explains: compat shims, staged
-  migrations, isolation around vendored code.
+- Complexity serving a current compatibility obligation, staged migration,
+  or vendored-code isolation. Use the legacy retirement procedure in
+  `references/dead-code.md` before treating an old path as obsolete.
 - License, copyright and SPDX notices; compiler, linter and bundler directives;
   public API documentation; security and compatibility explanations. A history
   phrase alone is not permission to remove attribution. Embedded block comments
@@ -203,36 +208,21 @@ split remains unfinished, with its specific blocker.
   `fix` fail with a rebuild remedy; `scan` still succeeds and names the binary
   in `notes`. Retry with `structural:false` for formatters/linters only; never
   treat missing structural matches as clean.
-- Diff over ~2000 changed lines → split the agent layer per directory or
-  commit before running the lenses; one huge pass truncates.
+- A selected area too large for one review → partition the agent layer by
+  directory or responsibility, retaining the overall inventory. Do not infer
+  a smaller scope from a diff or ask for commits to divide the review.
 - A dead-code scanner report is a candidate list, not proof → verify per
   `references/dead-code.md` before deleting.
 
 ## 7. Final report and reconciliation
-The final report is the closing reply to the user at the end of each round —
-not a separate document or file unless the user asks for one. Use the final
-report template and inventory reconciliation rules in
-`references/agent-cleanup.md`.
-
-1. **Separate round completion from whole cleanup completion.**
-   Always state the current round outcome separately from overall cleanup status.
-   Never claim the entire cleanup is complete when further rounds or unfinished
-   items remain.
-2. **Reconcile every candidate ID.**
-   Account for every candidate ID under completed, kept, or unfinished per
-   `references/agent-cleanup.md`. All candidate IDs must reconcile across rounds.
-3. **Verification record.**
-   Report test counts (passed, failed, pre-existing excluded, skipped), typecheck,
-   and lint diagnostics. Never mark skipped or failed checks as passed.
-4. **Completion criteria.**
-   Declare overall cleanup complete only when every candidate ID in the full
-   inventory is verified completed or evidenced as kept across all stages. A
-   finished round with remaining inventory items is reported as **round complete,
-   overall partial**, naming the remaining items and next round.
+Close each round in the conversation using the inventory reconciliation,
+completion criteria, and report template in `references/agent-cleanup.md`.
+Do not create a separate report file unless requested.
 
 ## 8. References
 - `references/agent-cleanup.md` — before section 4: ladder, lenses, slop
   categories with keep/fix rules, test-suite slop, risk tiers, final report
   template.
 - `references/dead-code.md` — before removing any unused symbol, file, or
-  dependency: candidate sources, verification, never-dead list, order.
+  dependency, or retiring a legacy path: candidate sources, usage and side-effect
+  verification, compatibility retirement, never-dead list, removal order.

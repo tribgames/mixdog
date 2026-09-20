@@ -1,9 +1,8 @@
 // Agent-scoped role markdown and 4-BP system prompt composition.
-// Extracted from collect.mjs so skill catalog loading is not mixed into
-// role-specific prompt assembly.
 
-import { existsSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { compareCodePoints } from '../../../shared/code-point-order.mjs';
 import { mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
 import { listHiddenAgentsByKind, getAgentCatalogShareAgents } from '../internal-agents.mjs';
@@ -115,7 +114,7 @@ function loadAgentSections(pluginRoot) {
       byName.set(name, `## ${name}\n\n${body}`);
     }
   }
-  return [...byName.entries()].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([, text]) => text);
+  return [...byName.entries()].sort((a, b) => compareCodePoints(a[0], b[0])).map(([, text]) => text);
 }
 
 // Empty by design: scoped agent markdown already rides BP2 for every provider.
@@ -157,8 +156,9 @@ function selectRoleInstructionSections({
   if (classification.maintenance.has(agent)) {
     const selfRules = selfHiddenRuleSection(hiddenPairs, agent);
     const fromAgent = agentSections.find((s) => s.startsWith(`## ${agent}\n`));
+    const fallbackRules = fromAgent ? [fromAgent] : [];
     return {
-      agentRuleSectionsToEmit: selfRules.length ? selfRules : fromAgent ? [fromAgent] : [],
+      agentRuleSectionsToEmit: selfRules.length ? selfRules : fallbackRules,
       agentSectionsToEmit: [],
     };
   }

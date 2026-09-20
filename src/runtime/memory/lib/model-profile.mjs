@@ -77,7 +77,7 @@ export function writeProfilePoint(record) {
     // Fire-and-forget: any error is swallowed so instrumentation never
     // breaks a live call path.
     ensureDir()
-      .then(() => appendFile(PROFILE_PATH, line + '\n'))
+      .then(() => appendFile(PROFILE_PATH, `${line}\n`))
       .catch(() => {});
   } catch {
     // never throw from instrumentation

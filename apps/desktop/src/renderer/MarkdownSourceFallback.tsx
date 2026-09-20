@@ -241,10 +241,9 @@ export function MarkdownSourceFallback({
 }) {
   return (
     <>
-      {sourceParts(text).map((part, index) =>
-        part.kind === 'text' ? (
-          sourceTextNodes(part.text, `text-${index}`)
-        ) : (
+      {sourceParts(text).map((part, index) => {
+        if (part.kind === 'text') return sourceTextNodes(part.text, `text-${index}`);
+        return (
           <div className="markdown-code markdown-code-fallback" key={`code-${index}`}>
             <header>
               <span>{part.language}</span>
@@ -254,8 +253,8 @@ export function MarkdownSourceFallback({
               <code className={part.language ? `language-${part.language}` : undefined}>{part.text}</code>
             </pre>
           </div>
-        )
-      )}
+        );
+      })}
     </>
   );
 }

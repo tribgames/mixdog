@@ -1,12 +1,12 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-import { parentPort, workerData } from 'worker_threads';
-import { createRequire } from 'module';
-import { join } from 'path';
-import { mkdirSync } from 'fs';
-import os from 'os';
-import { execFile } from 'child_process';
-import { promisify } from 'util';
+import { parentPort, workerData } from 'node:worker_threads';
+import { createRequire } from 'node:module';
+import { join } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import os from 'node:os';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { compressEmbeddingModelCache } from './embedding-model-cache-compression.mjs';
 import {

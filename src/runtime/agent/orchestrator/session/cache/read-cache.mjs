@@ -181,7 +181,7 @@ export function tryReadCached({ sessionId, args, cwd }) {
     const map = _bySession.get(sessionId);
     if (!map) return null;
     const entry = map.get(parsed.key);
-    if (!entry || entry.kind !== 'array') return null;
+    if (entry?.kind !== 'array') return null;
     if (!_arrayStatsValid(entry.statsByAbs)) {
       map.delete(parsed.key);
       _ridxPruneKey(sessionId, parsed.key);

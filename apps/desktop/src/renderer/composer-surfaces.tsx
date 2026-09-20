@@ -8,7 +8,7 @@ import { ComposerPalette } from './ComposerPalette';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { ProgressSpinner } from './ProgressSpinner';
-import { desktopComposerSlashCommands, desktopSlashCommandDescription } from './slash-commands';
+import { type desktopComposerSlashCommands, desktopSlashCommandDescription } from './slash-commands';
 import { oneLine } from './text-format';
 import type { DictationState } from './use-composer-dictation';
 
@@ -180,9 +180,7 @@ export function MentionPalette({
           </button>
         );
       })}
-      {results.length === 0 && (
-        <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>
-      )}
+      {results.length === 0 && <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>}
     </ComposerPalette>
   );
 }

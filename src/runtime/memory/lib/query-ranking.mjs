@@ -124,7 +124,8 @@ export function rankLatestRecallRows(rows, query) {
         .toLowerCase() === normalizedQuery,
   }));
   const maxCoverage = annotated.reduce((max, candidate) => Math.max(max, candidate.coverage), 0);
-  const latestCoverageFloor = strictEntityCoverage ? maxCoverage : maxCoverage > 1 ? maxCoverage - 1 : maxCoverage;
+  const relaxedCoverage = maxCoverage > 1 ? maxCoverage - 1 : maxCoverage;
+  const latestCoverageFloor = strictEntityCoverage ? maxCoverage : relaxedCoverage;
   return annotated
     .sort((a, b) => {
       if (a.selfEcho !== b.selfEcho) return a.selfEcho ? 1 : -1;
@@ -255,8 +256,9 @@ export function prioritizeHistoricalRootEvidence(rows) {
   for (const row of source) {
     const ownId = String(row?.id ?? '');
     const parentId = String(row?.chunk_root ?? '');
-    const key =
-      Number(row?.is_root) === 1 ? `root:${ownId}` : rootIds.has(parentId) ? `root:${parentId}` : `row:${ownId}`;
+    let key = `row:${ownId}`;
+    if (Number(row?.is_root) === 1) key = `root:${ownId}`;
+    else if (rootIds.has(parentId)) key = `root:${parentId}`;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(row);
   }

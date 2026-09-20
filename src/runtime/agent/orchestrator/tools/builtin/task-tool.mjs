@@ -1,4 +1,4 @@
-// Generic background-task tool (status/wait/cancel), extracted from bash-tool.mjs.
+// Generic background-task tool (status/wait/cancel).
 import {
   buildJobNotFoundMessage,
   peekShellJob,

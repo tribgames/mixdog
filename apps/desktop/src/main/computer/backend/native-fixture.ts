@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-const NATIVE_TEXT_FIXTURE_SOURCE = String.raw`
+const NATIVE_TEXT_FIXTURE_SOURCE = `
 using System;
 using System.Drawing;
 using System.Windows.Forms;

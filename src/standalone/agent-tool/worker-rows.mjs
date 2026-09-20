@@ -38,11 +38,9 @@ export function tagTombstoneKey(row = {}) {
 }
 
 export function normalizeTagTombstones(value, { cap = true, priorityKeys = null } = {}) {
-  const source = Array.isArray(value?.tombstones)
-    ? value.tombstones
-    : value?.tombstones && typeof value.tombstones === 'object'
-      ? Object.values(value.tombstones)
-      : [];
+  let source = [];
+  if (Array.isArray(value?.tombstones)) source = value.tombstones;
+  else if (value?.tombstones && typeof value.tombstones === 'object') source = Object.values(value.tombstones);
   const now = Date.now();
   const cutoff = now - TAG_TOMBSTONE_TTL_MS;
   const rows = source

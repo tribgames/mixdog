@@ -93,8 +93,22 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
     case 'terminal':
       return <Terminal size={size} />;
     default:
+      // Chat/new-task tabs keep the bubble icon (user: 탭 앞 아이콘은 롤백).
       return <MessageCircle size={size} />;
   }
+}
+
+function menuFileTarget(selection: WorkspaceTab['selection']) {
+  if (selection.kind === 'file') {
+    return { project: selection.project, rel: selection.rel, accessToken: selection.accessToken };
+  }
+  if (selection.kind === 'diff') return { project: selection.project, rel: selection.rel, accessToken: undefined };
+  return null;
+}
+
+function absoluteFilePath(project: string, rel: string): string {
+  const separator = project.includes('\\') ? '\\' : '/';
+  return `${project.replace(/[\\/]+$/, '')}${separator}${rel.replace(/[\\/]+/g, separator)}`;
 }
 
 /* Browser-style tab-strip layout —
@@ -461,7 +475,7 @@ export function WorkspaceTabStrip({
   const handleNativeDrop = useCallback(
     (event: React.DragEvent<HTMLElement>) => {
       const drag = currentPaneDrag();
-      if (!drag || drag.kind !== 'tab' || drag.sourceLeafId !== paneId) return;
+      if (drag?.kind !== 'tab' || drag.sourceLeafId !== paneId) return;
       event.preventDefault();
       event.stopPropagation();
       const index = dropIndexAt(event.clientX, event.target);
@@ -528,7 +542,7 @@ export function WorkspaceTabStrip({
             sessions live in the left drawer. Tapping does
             nothing; long-press keeps the tab menu for closing. The + and the
             dock toggles beside it are the desktop's. */}
-      {mobile ? (
+      {mobile &&
         (() => {
           const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0];
           const working = tabIsWorking(activeTab, true, activeBusy, workingSessionIds);
@@ -554,14 +568,14 @@ export function WorkspaceTabStrip({
                   role="status"
                   aria-label={t('{{name}} is working', { name: activeTab?.title ?? '' })}
                 />
-              ) : activeTab ? (
-                tabGlyph(activeTab)
-              ) : null}
+              ) : (
+                activeTab && tabGlyph(activeTab)
+              )}
               <span>{activeTab?.title ?? ''}</span>
             </button>
           );
-        })()
-      ) : (
+        })()}
+      {!mobile && (
         <nav
           ref={tabStrip}
           className={`workspace-tabs${dragScroll ? ' drag-scroll' : ''}`}
@@ -687,20 +701,8 @@ export function WorkspaceTabStrip({
                       role="status"
                       aria-label={t('{{name}} is working', { name: tab.title })}
                     />
-                  ) : tab.selection.kind === 'project' ? (
-                    <Folder size={14} />
-                  ) : tab.selection.kind === 'file' ? (
-                    <FileText size={14} />
-                  ) : tab.selection.kind === 'diff' ? (
-                    <FileDiff size={14} />
-                  ) : tab.selection.kind === 'studio' ? (
-                    <Sparkles size={14} />
-                  ) : tab.selection.kind === 'terminal' ? (
-                    <Terminal size={14} />
                   ) : (
-                    /* Chat/new-task tabs keep the bubble icon
-                                 (user: 탭 앞 아이콘은 롤백). */
-                    <MessageCircle size={14} />
+                    tabGlyph(tab)
                   )}
                   <span>{tab.title}</span>
                   {unread && !working && (
@@ -751,103 +753,85 @@ export function WorkspaceTabStrip({
               size of the codicon X in the tabs beside it. */}
         <Plus size={18} strokeWidth={2} aria-hidden="true" />
       </button>
-      {tabMenu
-        ? (() => {
-            const menuIndex = tabs.findIndex((row) => row.key === tabMenu.key);
-            const menuTab = tabs[menuIndex];
-            if (!menuTab) return null;
-            const others = tabs.filter((row) => row.key !== menuTab.key);
-            const toRight = tabs.slice(menuIndex + 1);
-            const fileTarget =
-              menuTab.selection.kind === 'file'
-                ? {
-                    project: menuTab.selection.project,
-                    rel: menuTab.selection.rel,
-                    accessToken: menuTab.selection.accessToken,
-                  }
-                : menuTab.selection.kind === 'diff'
-                  ? {
-                      project: menuTab.selection.project,
-                      rel: menuTab.selection.rel,
-                      accessToken: undefined,
-                    }
-                  : null;
-            const items: Array<{ label: string; disabled?: boolean; run: () => void }> = [
-              { label: 'Close', run: () => onCloseTab(menuTab) },
-              {
-                label: 'Close Others',
-                disabled: !others.length,
-                run: () => {
-                  for (const row of others) onCloseTab(row);
-                },
+      {tabMenu &&
+        (() => {
+          const menuIndex = tabs.findIndex((row) => row.key === tabMenu.key);
+          const menuTab = tabs[menuIndex];
+          if (!menuTab) return null;
+          const others = tabs.filter((row) => row.key !== menuTab.key);
+          const toRight = tabs.slice(menuIndex + 1);
+          const fileTarget = menuFileTarget(menuTab.selection);
+          const items: Array<{ label: string; disabled?: boolean; run: () => void }> = [
+            { label: 'Close', run: () => onCloseTab(menuTab) },
+            {
+              label: 'Close Others',
+              disabled: !others.length,
+              run: () => {
+                for (const row of others) onCloseTab(row);
               },
-              {
-                label: 'Close to the Right',
-                disabled: !toRight.length,
-                run: () => {
-                  for (const row of toRight) onCloseTab(row);
-                },
+            },
+            {
+              label: 'Close to the Right',
+              disabled: !toRight.length,
+              run: () => {
+                for (const row of toRight) onCloseTab(row);
               },
-              ...(onPinTab && menuTab.preview ? [{ label: 'Keep Open', run: () => onPinTab(menuTab) }] : []),
-              ...(fileTarget
-                ? [
-                    {
-                      label: 'Copy Path',
-                      run: () => {
-                        const separator = fileTarget.project.includes('\\') ? '\\' : '/';
-                        const absolute = `${fileTarget.project.replace(/[\\/]+$/, '')}${separator}${fileTarget.rel.replace(
-                          /[\\/]+/g,
-                          separator
-                        )}`;
-                        void navigator.clipboard?.writeText(absolute)?.then(undefined, () => {});
-                      },
+            },
+            ...(onPinTab && menuTab.preview ? [{ label: 'Keep Open', run: () => onPinTab(menuTab) }] : []),
+            ...(fileTarget
+              ? [
+                  {
+                    label: 'Copy Path',
+                    run: () => {
+                      const absolute = absoluteFilePath(fileTarget.project, fileTarget.rel);
+                      void navigator.clipboard?.writeText(absolute)?.then(undefined, () => {});
                     },
-                    {
-                      label: 'Copy Relative Path',
-                      run: () => {
-                        void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
-                      },
+                  },
+                  {
+                    label: 'Copy Relative Path',
+                    run: () => {
+                      void navigator.clipboard?.writeText(fileTarget.rel)?.then(undefined, () => {});
                     },
-                    {
-                      label: 'Reveal in Explorer',
-                      run: () => {
-                        void window.mixdogDesktop?.revealFile?.(
-                          fileTarget.project,
-                          fileTarget.rel,
-                          fileTarget.accessToken
-                        );
-                      },
+                  },
+                  {
+                    label: 'Reveal in Explorer',
+                    run: () => {
+                      void window.mixdogDesktop?.revealFile?.(
+                        fileTarget.project,
+                        fileTarget.rel,
+                        fileTarget.accessToken
+                      );
                     },
-                  ]
-                : []),
-            ];
-            return createPortal(
-              <div
-                ref={tabMenuNode}
-                className="workspace-tab-new-menu workspace-tab-context-menu"
-                role="menu"
-                aria-label={t('{{title}} tab actions', { title: menuTab.title })}
-                style={{ left: tabMenu.left, top: tabMenu.top }}
-              >
-                {items.map((item) => (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    key={item.label}
-                    disabled={item.disabled}
-                    onClick={() => {
-                      setTabMenu(null);
-                      item.run();
-                    }}
-                  >
-                    <span>{t(item.label)}</span>
-                  </button>
-                ))}
-              </div>,
-              document.body
-            );
-          })()
-        : null}
+                  },
+                ]
+              : []),
+          ];
+          return createPortal(
+            <div
+              ref={tabMenuNode}
+              className="workspace-tab-new-menu workspace-tab-context-menu"
+              role="menu"
+              aria-label={t('{{title}} tab actions', { title: menuTab.title })}
+              style={{ left: tabMenu.left, top: tabMenu.top }}
+            >
+              {items.map((item) => (
+                <button
+                  type="button"
+                  role="menuitem"
+                  key={item.label}
+                  disabled={item.disabled}
+                  onClick={() => {
+                    setTabMenu(null);
+                    item.run();
+                  }}
+                >
+                  <span>{t(item.label)}</span>
+                </button>
+              ))}
+            </div>,
+            document.body
+          );
+        })()}
       {/* Keep the pane's three-control corner zone even when this surface
             owns no controls (for example Studio or a file). Tabs and + must
             never grow into a region that can later gain dock toggles. */}

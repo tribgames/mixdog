@@ -117,20 +117,19 @@ export function describeCursorOAuthCredentials() {
   const expiring = expiresAt > 0 && expiresAt <= Date.now() + REFRESH_SKEW_MS;
   const refreshable = Boolean(tokens.refresh_token);
   const reauthRequired = expired && !refreshable;
+  const status =
+    [
+      [reauthRequired, 'Reauth Required'],
+      [expired, 'Refresh Required'],
+      [expiring, 'Refresh Soon'],
+      [refreshable, 'Valid'],
+    ].find(([hit]) => hit)?.[1] ?? 'Access Only';
   return {
     authenticated: !reauthRequired,
     usable: !expired,
     refreshable,
     reauthRequired,
-    status: reauthRequired
-      ? 'Reauth Required'
-      : expired
-        ? 'Refresh Required'
-        : expiring
-          ? 'Refresh Soon'
-          : refreshable
-            ? 'Valid'
-            : 'Access Only',
+    status,
     detail: tokens.source || 'Cursor OAuth',
     expiresAt: expiresAt || null,
   };

@@ -94,14 +94,18 @@ async function slideChartParts(zip, slidePath, shapeBlocks) {
 function shapeFonts(shapeXml) {
   return [
     ...new Set(
-      [...shapeXml.matchAll(/<a:latin\b[^>]*\btypeface="([^"]+)"/gi)].map((match) => xmlDecode(match[1])).filter(Boolean)
+      [...shapeXml.matchAll(/<a:latin\b[^>]*\btypeface="([^"]+)"/gi)]
+        .map((match) => xmlDecode(match[1]))
+        .filter(Boolean)
     ),
   ];
 }
 
 function shapeColors(shapeXml) {
   return [
-    ...new Set([...shapeXml.matchAll(/<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/gi)].map((match) => match[1].toUpperCase())),
+    ...new Set(
+      [...shapeXml.matchAll(/<a:srgbClr\b[^>]*\bval="([0-9A-Fa-f]{6})"/gi)].map((match) => match[1].toUpperCase())
+    ),
   ];
 }
 

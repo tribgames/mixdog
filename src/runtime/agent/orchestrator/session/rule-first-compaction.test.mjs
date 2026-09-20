@@ -100,6 +100,7 @@ test('conversation summary uses 10% with the existing minimum without changing c
     [20_000, 4_000],
     [40_000, 4_000],
     [200_000, 20_000],
+    [500_000, 50_000],
     [1_000_000, 100_000],
   ]) {
     const session = { ...fixture(), contextWindow };

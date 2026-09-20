@@ -93,7 +93,7 @@ export function reviewDeclaredRelations(shapes, maximumGap) {
     }
     if (relation?.role !== 'value') continue;
     const label = index.get(relation.label);
-    if (!label || label.relation?.role !== 'label') {
+    if (label?.relation?.role !== 'label') {
       issues.push({
         code: 'shape_relation_invalid',
         path,

@@ -1,3 +1,10 @@
+/** Meter tone class for a quota percentage: danger from 90 %, warning from 70 %. */
+export function usageToneClass(percent: number | null): string {
+  if (percent === null) return '';
+  if (percent >= 90) return ' tone-danger';
+  return percent >= 70 ? ' tone-warning' : '';
+}
+
 export function displayUsagePercent(value: unknown): number | null {
   const parsed = Number(value);
   if (value === null || value === undefined || value === '' || !Number.isFinite(parsed)) {

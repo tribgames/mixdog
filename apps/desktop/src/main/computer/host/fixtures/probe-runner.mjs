@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 import { powershellHostProgram } from '../../backend/program.ts';
 
 export async function runComputerProbe(probe) {
-  let script = "[Console]::Error.WriteLine('probe:compile-host')\n" + powershellHostProgram();
+  let script = `[Console]::Error.WriteLine('probe:compile-host')\n${powershellHostProgram()}`;
   const requestLoop = 'while ($true) {\n  $line = $__stdin.ReadLine()';
   if (!script.includes(requestLoop)) throw new Error('native request-loop insertion point is missing');
   script = script.replace(requestLoop, () => `${probe}\n${requestLoop}`);
@@ -14,7 +14,7 @@ export async function runComputerProbe(probe) {
   const path = join(directory, 'probe.ps1');
   try {
     // Windows PowerShell needs a BOM for literal non-ASCII fixture text.
-    await writeFile(path, '\uFEFF' + script);
+    await writeFile(path, `\uFEFF${script}`);
     const { stdout } = await promisify(execFile)(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path],

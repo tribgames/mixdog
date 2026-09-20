@@ -441,6 +441,47 @@ export function LiveActivity({
   );
 }
 
+function translateStatusLabel(label: string): string {
+  switch (label) {
+    case 'Auto-clear complete':
+      return t('Auto-clear complete');
+    case 'Auto-clear skipped':
+      return t('Auto-clear skipped');
+    case 'Compact complete':
+      return t('Compact complete');
+    case 'Compact complete (overflow recovery)':
+      return t('Compact complete (overflow recovery)');
+    case 'Compact checked':
+      return t('Compact checked');
+    case 'Compact skipped':
+      return t('Compact skipped');
+    case 'Compact failed':
+      return t('Compact failed');
+    case 'Compact failed (overflow retry)':
+      return t('Compact failed (overflow retry)');
+    case 'Session inherited':
+      return t('Session inherited');
+    default:
+      return label ? t(label) : '';
+  }
+}
+
+function translateStatusDetail(detail: unknown): string {
+  const text = String(detail || '').trim();
+  if (!text) return '';
+  if (text.startsWith('conversation kept · ')) {
+    const reason = text.slice('conversation kept · '.length);
+    return t('Conversation kept · {{reason}}', { reason: t(reason) || reason });
+  }
+  if (text === 'Continuing with the previous context.') {
+    return t('Continuing with the previous context.');
+  }
+  if (text === 'no active session') {
+    return t('No active session');
+  }
+  return t(text) || text;
+}
+
 export function CompletionStatus({ item, animate = false }: { item: TranscriptItem; animate?: boolean }) {
   const tone = completionTone(item);
   const label = String(item.label || item.status || '');
@@ -458,7 +499,9 @@ export function CompletionStatus({ item, animate = false }: { item: TranscriptIt
     let fallback = t('Cancelled');
     if (tone === 'failed') fallback = t('Failed');
     else if (elapsed) fallback = t('Cancelled after {{elapsed}}', { elapsed });
-    const visible = tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? label || fallback : fallback;
+    const translated = translateStatusLabel(label);
+    const visible =
+      tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? translated || label || fallback : fallback;
     return (
       <div className={`turn-status ${tone}`} role="status" data-animate={animate ? 'true' : undefined}>
         <X className="turn-status-icon" size={16} aria-hidden="true" />
@@ -467,11 +510,13 @@ export function CompletionStatus({ item, animate = false }: { item: TranscriptIt
     );
   }
   if (tone === 'compaction') {
+    const displayLabel = translateStatusLabel(label) || label || t('Conversation compacted');
+    const displayDetail = translateStatusDetail(item.detail);
     return (
       <div className="compaction-divider" role="status" data-animate={animate ? 'true' : undefined}>
         <FoldVertical className="compaction-icon" size={16} aria-hidden="true" />
-        <span>{label || t('Conversation compacted')}</span>
-        {item.detail && <small>{item.detail}</small>}
+        <span>{displayLabel}</span>
+        {displayDetail && <small>{displayDetail}</small>}
       </div>
     );
   }
@@ -489,13 +534,14 @@ export function CompletionStatus({ item, animate = false }: { item: TranscriptIt
       completionLabel = elapsed ? t('{{verb}} for {{elapsed}}', { verb: t(doneVerb), elapsed }) : t(doneVerb);
     }
   } else {
-    completionLabel = label || t('Complete');
+    completionLabel = translateStatusLabel(label) || label || t('Complete');
   }
+  const displayDetail = translateStatusDetail(item.detail);
   return (
     <div className="turn-status complete" role="status" data-animate={animate ? 'true' : undefined}>
       <MxIcon name="check" className="turn-status-icon" size={16} />
       <span>{completionLabel}</span>
-      {item.kind === 'statusdone' && item.detail && <small>· {item.detail}</small>}
+      {item.kind === 'statusdone' && displayDetail && <small>· {displayDetail}</small>}
     </div>
   );
 }

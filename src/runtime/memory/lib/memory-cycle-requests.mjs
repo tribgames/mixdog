@@ -183,17 +183,17 @@ export async function consumeCycleRequests(db, kind, signature = 'default') {
   });
 }
 
+/** The first finite candidate (direct config, nested config, env); else the fallback. */
+function firstFiniteNumber(candidates, fallback) {
+  const hit = candidates.find((value) => Number.isFinite(value));
+  return hit === undefined ? fallback : hit;
+}
+
 export function resolveCoalesceMaxDrains(config, fallback = 1) {
   const direct = Number(config?.coalesce_max_drains);
   const nested = Number(config?.coalesce?.max_drains);
   const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_MAX_DRAINS);
-  const value = Number.isFinite(direct)
-    ? direct
-    : Number.isFinite(nested)
-      ? nested
-      : Number.isFinite(env)
-        ? env
-        : fallback;
+  const value = firstFiniteNumber([direct, nested, env], fallback);
   return Math.max(0, Math.min(10, Math.floor(value)));
 }
 
@@ -201,13 +201,7 @@ function resolveCoalesceRetryDelayMs(config, fallback = 1000) {
   const direct = Number(config?.coalesce_retry_delay_ms);
   const nested = Number(config?.coalesce?.retry_delay_ms);
   const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS);
-  const value = Number.isFinite(direct)
-    ? direct
-    : Number.isFinite(nested)
-      ? nested
-      : Number.isFinite(env)
-        ? env
-        : fallback;
+  const value = firstFiniteNumber([direct, nested, env], fallback);
   return Math.max(50, Math.min(60_000, Math.floor(value)));
 }
 
@@ -215,13 +209,7 @@ export function resolveCoalesceMaxRetries(config, fallback = 3) {
   const direct = Number(config?.coalesce_max_retries);
   const nested = Number(config?.coalesce?.max_retries);
   const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_MAX_RETRIES);
-  const value = Number.isFinite(direct)
-    ? direct
-    : Number.isFinite(nested)
-      ? nested
-      : Number.isFinite(env)
-        ? env
-        : fallback;
+  const value = firstFiniteNumber([direct, nested, env], fallback);
   return Math.max(0, Math.min(10, Math.floor(value)));
 }
 

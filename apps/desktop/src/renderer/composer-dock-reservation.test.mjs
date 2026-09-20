@@ -52,6 +52,11 @@ test('a scope is pending only while a worker read will actually run', () => {
   assert.equal(reviewScopePending({ ...base, settledScope: 's1:turn-3' }), false, 'a settled read is final');
   assert.equal(reviewScopePending({ ...base, settledScope: 's1:turn-2' }), true, 'a new scope asks again');
   assert.equal(reviewScopePending({ ...base, cached: true }), false, 'a revisit answers from the shared cache');
+  assert.equal(
+    reviewScopePending({ ...base, cached: true, settledScope: base.scopeKey, refreshPending: true }),
+    true,
+    'a previous answer cannot release the slot before the completion refresh'
+  );
   assert.equal(reviewScopePending({ ...base, active: false }), false, 'an unfocused pane never asks');
   assert.equal(reviewScopePending({ ...base, hasTurnActivity: false }), false, 'an empty turn never asks');
   assert.equal(reviewScopePending({ ...base, sessionId: '' }), false, 'a draft never asks');

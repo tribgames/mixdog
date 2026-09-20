@@ -2,8 +2,8 @@ import { gitCommandMutates } from '../../tools/builtin/git-command-policy.mjs';
 import { githubRequestMutates } from '../../../../github/contract.mjs';
 import { isAbsolute, normalize, resolve } from 'node:path';
 
-// Tool-name classification + intra-turn signature helpers, extracted from
-// loop.mjs. These drive cross-turn read dedup, scoped caching, shell routing,
+// Tool-name classification + intra-turn signature helpers.
+// These drive cross-turn read dedup, scoped caching, shell routing,
 // and duplicate-call detection. Strips the MCP prefix so direct calls and
 // MCP-wrapped calls share the same cache.
 const MCP_TOOL_PREFIX = 'mcp__plugin_mixdog_mixdog__';

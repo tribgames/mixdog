@@ -1,4 +1,4 @@
-// Project navigation actions, extracted from App.tsx: entering a project,
+// Project navigation actions: entering a project,
 // starting a task inside one, and the registry edits the Projects page makes.
 // A Projects-panel row no longer opens anything (user: 클릭 없애 그냥), so the
 // NEW TASK draft staging that used to live here is gone.

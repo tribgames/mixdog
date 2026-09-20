@@ -1,5 +1,5 @@
-// Shared low-level helpers for the cycle2 cluster (extracted from
-// memory-cycle2.mjs). Logging, cancellation, concurrency and store faults.
+// Shared low-level helpers for the cycle2 cluster: logging, cancellation,
+// concurrency and store faults.
 // No cycle2 business logic; safe to import from any cycle2 sub-module.
 
 import { __mixdogMemoryLog } from './memory-log.mjs';

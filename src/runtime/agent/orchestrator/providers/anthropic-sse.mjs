@@ -4,32 +4,17 @@
  * Shared by both Anthropic providers. anthropic-oauth.mjs retains its public
  * re-exports for provider test and integration entry points.
  */
-import { randomBytes } from 'crypto';
-import { runAbortable } from '../../../shared/abort-race.mjs';
-import {
-  PROVIDER_FIRST_BYTE_TIMEOUT_MS,
-  PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-  PROVIDER_SSE_IDLE_TIMEOUT_MS,
-  streamStalledError,
-} from '../stall-policy.mjs';
 import {
   classifyMidstreamError,
   MIDSTREAM_RETRY_POLICY,
   sleepWithAbort,
   typedStatusFrom,
 } from './retry-classifier.mjs';
-import { makeInvalidToolArgsMarker } from './openai-compat-stream.mjs';
-import { scanLeakedToolCalls, createToolCallDedupe } from './anthropic-leaked-toolcall.mjs';
-import {
-  NATIVE_SERVER_TOOL_CALL_BLOCK_TYPES,
-  NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES,
-} from './lib/anthropic-native-blocks.mjs';
 import { frameProviderSseChunk, releaseProviderSseStream, retainProviderSseStream } from './stream-json-pool.mjs';
 import { splitSseRegion } from './lib/sse-framing.mjs';
 import { stampStreamOutcome, STREAM_TRANSPORTS, STREAM_OUTCOME_VERSION } from './lib/stream-outcome.mjs';
-import { createProviderReplay } from './lib/provider-replay.mjs';
-import { isAnthropicThinkingBlock, sanitizeAnthropicReplayEntries } from './lib/anthropic-replay-blocks.mjs';
-import { anthropicFallbackProviderMetadata, parseAnthropicFallbackBlock } from './anthropic-server-fallback.mjs';
+import { createAnthropicSseTurn } from './anthropic-sse-turn.mjs';
+import { createAnthropicSseWatchdogs } from './anthropic-sse-watchdogs.mjs';
 
 /** Bounded mid-stream SSE retries (transient stream loss); shared with anthropic.mjs.
  *  Sourced from the single shared retry-budget table (MIDSTREAM_RETRY_POLICY.sse). */
@@ -126,21 +111,53 @@ function _anthropicSseError(event) {
   return err;
 }
 
-// Anthropic NATIVE (server-side) tool blocks. Anthropic runs these itself and
-// returns both the CALL block (`server_tool_use`, streamed `input`) and its
-// RESULT block (`web_search_tool_result`, …, delivered whole). They are never
-// dispatched to the agent loop, so they only survive a continuation turn if
-// they are captured here and replayed verbatim in original block order. The
-// type sets are shared with the non-streaming normalizer so both transports
-// classify identically (see lib/anthropic-native-blocks.mjs).
-
-// Detach the provider payload from the parser's event object without altering
-// any field (opaque server-tool result payloads must round-trip byte-exact).
-function cloneNativeBlock(block) {
+// Fold one framed SSE record into the turn. Returns true when the stream loop
+// must stop reading (a terminal frame). A malformed record is skipped exactly
+// like the former per-event JSON.parse throw — and, unlike a whole-batch
+// rejection, the well-formed records beside it still run.
+function applyAnthropicSseEvent(framedEvent, { turn, watchdogs, state, progress }) {
+  const event = framedEvent.value;
   try {
-    return structuredClone(block);
-  } catch {
-    return { ...block };
+    if (framedEvent.name === 'error' || event?.type === 'error' || event?.error) {
+      throw _anthropicSseError(event);
+    }
+    switch (event.type) {
+      case 'message_start':
+        if (!event.message) return false;
+        watchdogs.clearFirstMessageTimer();
+        if (state) state.sawMessageStart = true;
+        // The transport idle is first armed here, so it only ever guards
+        // MID-stream silence; the first-byte window owns everything before.
+        watchdogs.resetIdleTimer();
+        // Transport activity was already reported for the raw chunk; this
+        // reports the semantic message boundary.
+        progress('semantic');
+        turn.onMessageStart(event.message);
+        return false;
+      case 'content_block_start':
+        turn.onContentBlockStart(event.index, event.content_block);
+        return false;
+      case 'content_block_delta':
+        turn.onContentBlockDelta(event.index, event.delta);
+        return false;
+      case 'content_block_stop':
+        turn.onContentBlockStop(event.index);
+        return false;
+      case 'message_delta':
+        return turn.onMessageDelta(event);
+      case 'message_stop':
+        turn.onMessageStop();
+        // Anthropic streams can keep emitting `:ping` keepalive frames after
+        // `message_stop`; waiting for EOF would hang the reader loop
+        // indefinitely, so reading stops the moment the message ends.
+        return true;
+      default:
+        return false;
+    }
+  } catch (err) {
+    if (err?.code === 'EANTHROPIC_SSE_ERROR') throw err;
+    /* skip malformed events */
+    return false;
   }
 }
 
@@ -161,446 +178,56 @@ export async function parseSSEStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const streamKey = `anthropic-sse#${++_sseStreamSequence}`;
-  // Transport-idle window. The legacy semanticIdleTimeoutMs seam remains as
-  // a fallback for existing tests/callers, but production uses the shared
-  // byte/event inactivity policy.
-  const configuredIdleTimeoutMs = state?.transportIdleTimeoutMs ?? state?.semanticIdleTimeoutMs;
-  const SSE_IDLE_TIMEOUT_MS =
-    Number.isFinite(Number(configuredIdleTimeoutMs)) && Number(configuredIdleTimeoutMs) > 0
-      ? Number(configuredIdleTimeoutMs)
-      : PROVIDER_SSE_IDLE_TIMEOUT_MS;
-  const idleWatchdogEnabled =
-    typeof state?.transportIdleWatchdogEnabled === 'boolean'
-      ? state.transportIdleWatchdogEnabled
-      : PROVIDER_SSE_IDLE_WATCHDOG_ENABLED;
-  const SSE_FIRST_MESSAGE_TIMEOUT_MS =
-    Number.isFinite(Number(state?.firstMessageTimeoutMs)) && Number(state.firstMessageTimeoutMs) > 0
-      ? Number(state.firstMessageTimeoutMs)
-      : PROVIDER_FIRST_BYTE_TIMEOUT_MS;
-  let content = '';
-  let hasThinkingContent = false;
-  const contentBlockTypes = new Set();
-  // Ordered extended-thinking blocks, keyed by content_block index. Each
-  // holds the accumulated thinking text + signature exactly as received so
-  // it can be round-tripped verbatim on tool-continuation turns (required
-  // back on tool_use turns; empty thinking + signature is valid).
-  const thinkingBlocks = new Map();
-  // Ordered NATIVE (server-side) tool blocks, keyed by content_block index.
-  // Anthropic executes these itself — they are never dispatched to the agent
-  // loop as client tool calls — but they are part of the assistant turn and
-  // MUST be replayed verbatim, in original block order, on a continuation
-  // turn (pause_turn): a `web_search_tool_result` is only valid immediately
-  // after the `server_tool_use` block that produced it.
-  const nativeServerToolBlocks = new Map();
-  // Streamed `input` JSON for native server-tool CALL blocks (same
-  // input_json_delta transport as client tool_use, separate index space).
-  const pendingNativeToolInputs = new Map();
-  // In-flight tool INPUT state: a client `tool_use` (pendingToolInputs) or an
-  // Anthropic-native `server_tool_use` (pendingNativeToolInputs) whose
-  // streamed input_json has not reached content_block_stop. While either is
-  // non-empty the assistant turn cannot be terminal: the arguments are
-  // incomplete, so the call was never pushed and never dispatched.
-  const _toolInputInFlight = () => pendingToolInputs.size > 0 || pendingNativeToolInputs.size > 0;
-  // Set when a terminal frame (message_stop) arrived while input was still in
-  // flight — used only to word the truncated-stream failure precisely.
-  let sawTerminalFrameWithPendingInput = false;
-  // Ordered assistant content builders. Shared by the SUCCESS return and the
-  // truncation failure so a cut-off turn preserves exactly the same completed
-  // native/client blocks (verbatim, in original content_block order) that a
-  // successful turn would have replayed.
-  // A native CALL block is seeded at content_block_start and only gains its
-  // parsed `input` at content_block_stop, so a block whose input JSON is
-  // still streaming is INCOMPLETE and must never enter the replay list: it
-  // would be replayed with empty/partial arguments. Completed blocks only.
-  const _completedNativeBlocks = () =>
-    [...nativeServerToolBlocks.entries()].filter(([index]) => !pendingNativeToolInputs.has(index));
-  // Every block of this turn in provider content_block index space, EMPTY
-  // text blocks included. They never reach the wire (the API rejects an empty
-  // text block outright), but the reducer has to see them: an empty text
-  // block between two thinking blocks is the only evidence that the model
-  // produced two SEPARATE thinking runs, and silently fusing those runs is a
-  // permanent 400 on every later request (anthropic-replay-blocks.mjs).
-  const _replayBlockEntries = () => [
-    ...thinkingBlocks.entries(),
-    ...[...textBlocks.entries()].map(([index, text]) => [
-      index,
-      { type: 'text', text: typeof text === 'string' ? text : '' },
-    ]),
-    ..._completedNativeBlocks(),
-    ...clientToolUseBlocks.entries(),
-  ];
-  let _mergedThinkingDropped = 0;
-  const _noteReplayDrop = (kind, block) => {
-    if (kind !== 'merged_thinking') return;
-    _mergedThinkingDropped += 1;
-    if (_mergedThinkingDropped > 1) return;
+  const progress = (kind) => {
     try {
-      process.stderr.write(
-        `[anthropic] dropped a ${block?.type || 'thinking'} block separated only by an empty ` +
-          'text block; replaying it would merge two thinking runs into one\n'
-      );
-    } catch {
-      /* best-effort */
-    }
-  };
-  const _orderedThinkingBlocks = () => {
-    if (!thinkingBlocks.size) return undefined;
-    const kept = sanitizeAnthropicReplayEntries(_replayBlockEntries(), _noteReplayDrop).filter(
-      isAnthropicThinkingBlock
-    );
-    return kept.length ? kept : undefined;
-  };
-  const _orderedAssistantBlocks = () => {
-    const entries = _replayBlockEntries();
-    if (!entries.length) return undefined;
-    // A leaked plain-text tool call has no provider content_block index.
-    // Falling back to the legacy flattened projection is safer than
-    // claiming an exact replay while silently omitting that synthetic call.
-    if (toolCalls.length > 0 && clientToolUseBlocks.size !== toolCalls.length) return undefined;
-    const blocks = sanitizeAnthropicReplayEntries(entries, _noteReplayDrop);
-    return blocks.length ? blocks : undefined;
-  };
-  // Per-index raw text, kept only so the ordered native-block replay list
-  // below can interleave text exactly where the provider emitted it.
-  const textBlocks = new Map();
-  // Client tool_use blocks that were actually dispatched, kept for the same
-  // ordered replay list (deduped/skipped calls are intentionally absent).
-  const clientToolUseBlocks = new Map();
-  let model = '';
-  const toolCalls = [];
-  const usage = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, raw: null };
-  const updateUsage = (raw) => {
-    // Final usage can revise any slot. Omitted fields preserve the earlier
-    // report; explicit zero replaces it. Update before terminal early exits.
-    if (raw.input_tokens != null) usage.inputTokens = raw.input_tokens;
-    if (raw.output_tokens != null) usage.outputTokens = raw.output_tokens;
-    if (raw.cache_read_input_tokens != null) usage.cachedTokens = raw.cache_read_input_tokens;
-    if (raw.cache_creation_input_tokens != null) usage.cacheWriteTokens = raw.cache_creation_input_tokens;
-    usage.raw = { ...(usage.raw || {}), ...raw };
-    // Input excludes cache; all three slots contribute to prompt volume.
-    usage.promptTokens = usage.inputTokens + usage.cachedTokens + usage.cacheWriteTokens;
-  };
-  let stopReason = null;
-  let stopDetails;
-  const fallbackEvents = [];
-  let buffer = '';
-  let idleTimedOut = false;
-  let firstMessageTimedOut = false;
-  let idleTimer = null;
-  let firstMessageTimer = null;
-  let currentEvent = '';
-
-  const pendingToolInputs = new Map();
-
-  // Leaked tool-call guard. The model (esp. Opus via OAuth) occasionally
-  // emits a tool call as plain text tags inside `text_delta` instead of a
-  // native `tool_use` block. `leakBuffer` is a minimal rolling window that
-  // only holds back text when a partial sentinel prefix is present, so a
-  // tag split across chunk boundaries is still detected while ordinary text
-  // still streams promptly. The guard is additive: the native tool_use path
-  // (content_block_start/input_json_delta/content_block_stop) is untouched.
-  const _knownTools =
-    knownToolNames instanceof Set ? knownToolNames : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
-  const _leakGuardEnabled = _knownTools.size > 0;
-  const _isKnownTool = (name) => _knownTools.has(name);
-  let leakBuffer = '';
-  // Running markdown fence/inline-code state threaded across text_delta
-  // chunks (Fix 1): a tool-call tag inside a ```code fence``` or inline span
-  // is a doc example, not a real call — the guard emits it as text.
-  let leakFenceState;
-  // Cross-path fingerprint dedupe (Fix 2): a synthesized text-leaked call and
-  // an identical native tool_use block must dispatch onToolCall exactly once.
-  const _toolDedupe = createToolCallDedupe();
-
-  // Synthesize + dispatch a recovered leaked call exactly like the native
-  // content_block_stop path (push into toolCalls, flag state, eager
-  // onToolCall). A generated id uses the same `toolu_`-prefixed shape as
-  // Anthropic's native tool-call ids.
-  const dispatchLeakedCall = (recovered) => {
-    let args = recovered?.arguments;
-    if (args === null || typeof args !== 'object' || Array.isArray(args)) args = {};
-    // Skip if an identical native (or prior synthetic) call already fired.
-    if (!_toolDedupe.shouldDispatch(recovered.name, args)) return;
-    const call = {
-      id: `toolu_leaked_${randomBytes(8).toString('hex')}`,
-      name: recovered.name,
-      arguments: args,
-    };
-    toolCalls.push(call);
-    if (state) state.emittedToolCall = true;
-    try {
-      onToolCall?.(call);
-    } catch {}
-    try {
-      onStreamDelta?.('tool');
+      onStreamDelta?.(kind);
     } catch {}
   };
-
-  // Feed accumulated text through the scanner. On `final` nothing is held
-  // back so legitimate text is never lost at stream end.
-  const pumpLeakBuffer = (final) => {
-    if (!_leakGuardEnabled) return;
-    if (!leakBuffer && !final) return;
-    const { emit, calls, rest, fenceState } = scanLeakedToolCalls(leakBuffer, {
-      isKnownTool: _isKnownTool,
-      final,
-      fenceState: leakFenceState,
-    });
-    leakBuffer = rest;
-    leakFenceState = fenceState;
-    if (emit) {
-      content += emit;
-      try {
-        onStreamDelta?.('text');
-      } catch {}
-      if (onTextDelta) {
-        if (state) {
-          state.emittedText = true;
-          state.emittedTextChars = (Number(state.emittedTextChars) || 0) + emit.length;
-        }
-        try {
-          onTextDelta(emit);
-        } catch {}
-      }
-    }
-    for (const c of calls) dispatchLeakedCall(c);
+  const turn = createAnthropicSseTurn({ state, onStreamDelta, onToolCall, onTextDelta, knownToolNames });
+  const watchdogs = createAnthropicSseWatchdogs({
+    state,
+    reader,
+    signal,
+    abortStream,
+    attachStallPartial: turn.attachStallPartial,
+  });
+  const abortedError = () => {
+    _captureMidstreamAbort(state, signal.reason);
+    return signal.reason instanceof Error ? signal.reason : new Error('Anthropic OAuth SSE stream aborted');
   };
-
-  // Holds the in-flight reader.read() race rejector so the idle timer can
-  // force-unblock the loop even when reader.cancel() fails to settle the
-  // pending read (undici half-open socket). See resetIdleTimer below.
-  let idleReject = null;
-
-  const firstMessageTimeoutError = () => {
-    const err = new Error(
-      `Anthropic OAuth SSE stream produced no message_start within ${SSE_FIRST_MESSAGE_TIMEOUT_MS}ms`
-    );
-    err.code = 'EEMPTYSTREAM';
-    err.isEmptyStream = true;
-    err.firstByteTimeout = true;
-    return err;
-  };
-
-  const clearFirstMessageTimer = () => {
-    if (firstMessageTimer) {
-      clearTimeout(firstMessageTimer);
-      firstMessageTimer = null;
-    }
-  };
-
-  const armFirstMessageTimer = () => {
-    if (!(SSE_FIRST_MESSAGE_TIMEOUT_MS > 0)) return;
-    clearFirstMessageTimer();
-    firstMessageTimer = setTimeout(() => {
-      if (state?.sawMessageStart) return;
-      firstMessageTimedOut = true;
-      const err = firstMessageTimeoutError();
-      try {
-        abortStream?.(err);
-      } catch (abortErr) {
-        try {
-          process.stderr.write(
-            `[anthropic-oauth] sse first-message abortStream failed: ${abortErr?.message ?? String(abortErr)}\n`
-          );
-        } catch {}
-      }
-      try {
-        const _c = reader.cancel('SSE first message timeout');
-        if (_c && typeof _c.catch === 'function') _c.catch(() => {});
-      } catch (cancelErr) {
-        try {
-          process.stderr.write(
-            `[anthropic-oauth] sse first-message cancel failed: ${cancelErr?.message ?? String(cancelErr)}\n`
-          );
-        } catch {}
-      }
-      if (idleReject) {
-        const r = idleReject;
-        idleReject = null;
-        r(err);
-      }
-    }, SSE_FIRST_MESSAGE_TIMEOUT_MS);
-    try {
-      firstMessageTimer.unref?.();
-    } catch {}
-  };
-
-  // Attach the partial stream state to a mid-stream stall error so the agent
-  // loop can decide SUCCESS vs FAILURE. The recurring "worker finished but
-  // owner never notified" case is a FINAL no-tool summary stream that wedges
-  // ping-only after the real work (tool calls) already completed in earlier
-  // iterations: there is streamed `content`, no pending tool_use, and no
-  // emitted tool call this iteration. The loop treats that as a successful
-  // partial-final (deliver the summary we have) instead of dropping it. A
-  // stall WITH a pending/emitted tool call stays a hard failure (a tool whose
-  // input never completed must never be reported as done).
-  const _attachStallPartial = (err) => {
-    try {
-      err.partialContent = content;
-      err.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
-      // `_toolInputInFlight()` is the single authority for "arguments
-      // never finished streaming": a client tool_use OR an Anthropic
-      // NATIVE server_tool_use whose input JSON is still open. A mixed
-      // turn (dispatched client call, then an incomplete server_tool_use)
-      // must stay a continuation failure — promoting it would report a
-      // native call that never ran as part of a finished turn.
-      err.pendingToolUse = _toolInputInFlight();
-      err.partialModel = model || undefined;
-      err.partialUsage = usage;
-      err.partialStopReason = stopReason || undefined;
-      err.partialHasThinking = hasThinkingContent;
-      // A stalled continuation must carry the SAME ordered block state a
-      // successful turn returns: Anthropic requires the verbatim thinking
-      // blocks (signatures intact) back before tool_use on the next turn,
-      // and a native server_tool_use call is only valid immediately
-      // followed by its result block. Without these the recovered
-      // tool-call turn replays with the native/thinking state dropped.
-      err.partialThinkingBlocks = _orderedThinkingBlocks();
-      err.partialAssistantBlocks = _orderedAssistantBlocks();
-    } catch {
-      /* best-effort enrichment */
-    }
-    // Canonical stream-outcome contract. Anthropic historically attached
-    // ONLY the partial-state fields above, so retry/fallback/persistence
-    // consumers had to guess; the record makes terminal-vs-continuation,
-    // observed text/reasoning and tool exposure explicit and fail-closed.
-    try {
-      stampStreamOutcome(err, {
-        transport: STREAM_TRANSPORTS.SSE,
-        provider: 'anthropic',
-        terminalObserved: state?.sawCompleted === true,
-        continuation: state?.sawCompleted !== true,
-        textEmitted: state?.emittedText === true,
-        textObservedChars: content.length,
-        // Buffered/empty thinking blocks are not exposure; only
-        // relayed reasoning text is.
-        reasoningEmitted: state?.emittedThinking === true,
-        toolCallsStarted: state?.partialToolCall === true,
-        toolCallsComplete: toolCalls.length,
-        toolCallsDispatched: state?.emittedToolCall === true ? Math.max(1, toolCalls.length) : 0,
-        pendingToolInput: _toolInputInFlight(),
-        stallObserved: true,
-      });
-    } catch {
-      /* stamping is best-effort */
-    }
-    return err;
-  };
-
-  const resetIdleTimer = () => {
-    if (!idleWatchdogEnabled) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      idleTimedOut = true;
-      try {
-        abortStream?.();
-      } catch (err) {
-        try {
-          process.stderr.write(`[anthropic-oauth] sse idle abortStream failed: ${err?.message ?? String(err)}\n`);
-        } catch {}
-      }
-      try {
-        const _c = reader.cancel('SSE idle timeout');
-        if (_c && typeof _c.catch === 'function') _c.catch(() => {});
-      } catch (err) {
-        try {
-          process.stderr.write(`[anthropic-oauth] sse idle cancel failed: ${err?.message ?? String(err)}\n`);
-        } catch {}
-      }
-      // Force-reject the in-flight reader.read() race even when reader.cancel()
-      // fails to settle the pending read: without this the await below stays
-      // pending forever and the SSE idle timeout never unblocks the loop —
-      // the 391s-hang root cause.
-      if (idleReject) {
-        const e = _attachStallPartial(
-          streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS, { emittedToolCall: !!state?.emittedToolCall })
-        );
-        const r = idleReject;
-        idleReject = null;
-        r(e);
-      }
-      // Only actual transport silence trips this. Anthropic keepalives prove
-      // that the generation connection is still alive.
-    }, SSE_IDLE_TIMEOUT_MS);
-    try {
-      idleTimer.unref?.();
-    } catch {}
-  };
-
   const onAbort = () => {
     try {
       const _c = reader.cancel('SSE aborted');
       if (_c && typeof _c.catch === 'function') _c.catch(() => {});
     } catch {}
   };
+  let buffer = '';
+  let currentEvent = '';
   retainProviderSseStream(streamKey);
   try {
     // Reader ownership begins at getReader() above, so even a signal that
     // was already aborted must pass through this try/finally cleanup path.
     if (signal) {
-      if (signal.aborted) {
-        _captureMidstreamAbort(state, signal.reason);
-        throw signal.reason instanceof Error ? signal.reason : new Error('Anthropic OAuth SSE stream aborted');
-      }
+      if (signal.aborted) throw abortedError();
       signal.addEventListener('abort', onAbort, { once: true });
     }
-    // Do not arm the transport-idle timer before the
-    // stream has produced its first event. A slow first response is governed
-    // by armFirstMessageTimer() (first-byte window) alone; arming the
-    // transport idle here could let it win and mis-abort a legitimately slow
-    // first response as a stall. The transport idle is first armed at
-    // `message_start` (see below), so it only ever guards MID-stream silence.
-    armFirstMessageTimer();
+    watchdogs.armFirstMessageTimer();
     streamLoop: while (true) {
       let chunk;
       try {
-        // Race the read against the idle timer's rejector so a stuck
-        // reader.read() (cancel did not settle it) still unblocks here.
-        chunk = await runAbortable(
-          signal,
-          () =>
-            new Promise((resolve, reject) => {
-              idleReject = reject;
-              reader.read().then(resolve, reject);
-            }),
-          'Anthropic OAuth SSE stream aborted'
-        );
+        chunk = await watchdogs.read();
       } catch (err) {
-        if (idleTimedOut) {
-          throw _attachStallPartial(
-            streamStalledError('Anthropic OAuth SSE', SSE_IDLE_TIMEOUT_MS, {
-              emittedToolCall: !!state?.emittedToolCall,
-            })
-          );
-        }
-        if (firstMessageTimedOut) {
-          throw firstMessageTimeoutError();
-        }
-        if (signal?.aborted) {
-          _captureMidstreamAbort(state, signal.reason);
-          throw signal.reason instanceof Error ? signal.reason : new Error('Anthropic OAuth SSE stream aborted');
-        }
-        throw err;
-      } finally {
-        idleReject = null;
+        throw watchdogs.readFailure() ?? (signal?.aborted ? abortedError() : err);
       }
       const { done, value } = chunk;
       if (done) break;
-      if (state?.sawMessageStart) resetIdleTimer();
-      try {
-        onStreamDelta?.('transport');
-      } catch {}
+      if (state?.sawMessageStart) watchdogs.resetIdleTimer();
+      progress('transport');
       buffer += decoder.decode(value, { stream: true });
-      // ONE unit of work per network chunk. The previous loop split the
-      // chunk into a line array and awaited a JSON parse per SSE event,
-      // so a single readable chunk cost O(events) allocations and
-      // O(events) microtask hops on the shared daemon event loop. The
-      // pool now frames + parses the whole chunk (in a worker once it is
-      // worth the round-trip, otherwise inline and synchronously).
-      // Framing rules — `:` keepalive comments, blank record separators,
-      // sticky `event:` names, trimmed `data:` payloads — are unchanged;
-      // `region` holds only complete records and the trailing partial
-      // line stays in `buffer`, exactly as split()/pop() left it.
+      // ONE unit of work per network chunk: the pool frames + parses the
+      // whole chunk (in a worker once it is worth the round-trip, otherwise
+      // inline and synchronously). `region` holds only complete records and
+      // the trailing partial line stays in `buffer`.
       const { region, rest } = splitSseRegion(buffer);
       buffer = rest;
       if (!region) continue;
@@ -611,483 +238,16 @@ export async function parseSSEStream(
       const framed = frameProviderSseChunk(region, { currentEvent, streamKey });
       const framedChunk = typeof framed?.then === 'function' ? await framed : framed;
       currentEvent = framedChunk.currentEvent;
-
       for (const framedEvent of framedChunk.events) {
-        // A malformed record is skipped exactly like the former
-        // per-event JSON.parse throw — and, unlike a whole-batch
-        // rejection, the well-formed records beside it still run.
         if (framedEvent.error) continue;
-        const event = framedEvent.value;
-        try {
-          if (framedEvent.name === 'error' || event?.type === 'error' || event?.error) {
-            throw _anthropicSseError(event);
-          }
-
-          if (event.type === 'message_start' && event.message) {
-            clearFirstMessageTimer();
-            if (state) state.sawMessageStart = true;
-            resetIdleTimer();
-            // Transport activity was already reported for the raw
-            // chunk; this reports the semantic message boundary.
-            try {
-              onStreamDelta?.('semantic');
-            } catch {}
-            if (event.message.model) model = event.message.model;
-            if (event.message.usage) {
-              updateUsage(event.message.usage);
-            }
-          }
-
-          if (event.type === 'content_block_start') {
-            const block = event.content_block;
-            const fallback = parseAnthropicFallbackBlock(block);
-            if (fallback) {
-              fallbackEvents.push(fallback);
-              model = fallback.fallbackModel;
-              contentBlockTypes.add('fallback');
-              try {
-                onStreamDelta?.('semantic');
-              } catch {}
-            }
-            if (block?.type === 'tool_use') {
-              if (state) state.partialToolCall = true;
-              pendingToolInputs.set(event.index, {
-                id: block.id || '',
-                name: block.name || '',
-                inputJson: '',
-              });
-            }
-            if (block?.type === 'text') {
-              // Seed the ordered text slot (a text block may open
-              // with a non-empty `text` before any delta).
-              textBlocks.set(
-                event.index,
-                (textBlocks.get(event.index) || '') + (typeof block.text === 'string' ? block.text : '')
-              );
-            }
-            if (NATIVE_SERVER_TOOL_CALL_BLOCK_TYPES.has(block?.type)) {
-              // Verbatim seed; `input` is completed from the
-              // streamed input_json_delta at content_block_stop.
-              nativeServerToolBlocks.set(event.index, cloneNativeBlock(block));
-              pendingNativeToolInputs.set(event.index, '');
-              try {
-                onStreamDelta?.('tool');
-              } catch {}
-            } else if (NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES.has(block?.type)) {
-              // Server-tool RESULT blocks arrive whole (no deltas);
-              // keep the payload byte-for-byte for replay.
-              nativeServerToolBlocks.set(event.index, cloneNativeBlock(block));
-              try {
-                onStreamDelta?.('tool');
-              } catch {}
-            }
-            if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
-              if (block.type === 'redacted_thinking') {
-                // Opaque redacted payload: real reasoning
-                // content, exposed as a block.
-                if (state) state.emittedThinking = true;
-                // Redacted blocks round-trip EXACTLY as
-                // {type:'redacted_thinking',data} — no thinking/
-                // signature fields (the API rejects the extras).
-                // `data` carries the opaque payload verbatim.
-                thinkingBlocks.set(event.index, {
-                  type: 'redacted_thinking',
-                  data: typeof block.data === 'string' ? block.data : '',
-                });
-                hasThinkingContent = true;
-                try {
-                  onStreamDelta?.('reasoning');
-                } catch {}
-              } else {
-                // Seed an ordered thinking block; deltas below
-                // append text + signature into this same slot.
-                thinkingBlocks.set(event.index, {
-                  type: 'thinking',
-                  thinking: typeof block.thinking === 'string' ? block.thinking : '',
-                  signature: typeof block.signature === 'string' ? block.signature : '',
-                });
-              }
-            }
-          }
-
-          if (event.type === 'content_block_delta') {
-            const delta = event.delta;
-            if (delta?.type) contentBlockTypes.add(delta.type);
-            // Time-to-first-token: stamp the first content delta
-            // (text / thinking / tool input_json) exactly once so
-            // the SSE trace can separate first-byte latency from
-            // total stream/generation time. Without this stamp
-            // ttftMs was always null and reported as 0ms.
-            if (state && !state.ttftAt) state.ttftAt = Date.now();
-            if (delta?.type === 'text_delta') {
-              // Ordered verbatim text for native-block replay —
-              // independent of the leak-guard's visible-stream
-              // bookkeeping below (which may hold text back).
-              textBlocks.set(event.index, (textBlocks.get(event.index) || '') + (delta.text || ''));
-              // Live text relay (gateway): forward the explicit
-              // text chunk. thinking/signature/input_json deltas
-              // intentionally stay off this path.
-              // Invariant: once a non-empty chunk has been relayed
-              // live it cannot be withdrawn, so flag the attempt so
-              // the mid-stream retry loop treats any later failure
-              // as final (a retry would concatenate attempts).
-              if (_leakGuardEnabled) {
-                // Route text through the leaked-tool-call guard.
-                // It appends to `content`, forwards visible text
-                // via onTextDelta, and synthesizes/dispatches any
-                // recovered known-tool call — suppressing the
-                // tags from the visible stream. A partial sentinel
-                // is held in leakBuffer until the next chunk.
-                leakBuffer += delta.text || '';
-                pumpLeakBuffer(false);
-              } else {
-                content += delta.text || '';
-                if (delta.text && onTextDelta) {
-                  if (state) {
-                    state.emittedText = true;
-                    state.emittedTextChars = (Number(state.emittedTextChars) || 0) + delta.text.length;
-                  }
-                  try {
-                    onTextDelta(delta.text);
-                  } catch {}
-                }
-                if (delta.text) {
-                  try {
-                    onStreamDelta?.('text');
-                  } catch {}
-                }
-              }
-            }
-            if (delta?.type === 'thinking_delta' || delta?.type === 'signature_delta') {
-              // Only actual reasoning TEXT counts as exposed
-              // reasoning. An empty thinking block (a
-              // signature-only delta from a display-omitted
-              // model) shows the user nothing, so it must not
-              // deny a replay.
-              if (state && delta.type === 'thinking_delta' && delta.thinking) {
-                state.emittedThinking = true;
-              }
-              // Extended-thinking block: provider reasoning without
-              // user-visible text. Track presence so a final turn
-              // that emitted ONLY thinking (no text_delta, no
-              // tool_use) can be classified by the loop as
-              // synthesis-stalled rather than silent empty.
-              hasThinkingContent = true;
-              // Accumulate the block content in order so it can be
-              // returned intact and round-tripped on the next turn.
-              // A signature_delta may arrive before any thinking_delta
-              // seeded the slot (display-omitted models emit only a
-              // signature) — lazily create it.
-              let tb = thinkingBlocks.get(event.index);
-              if (!tb) {
-                tb = { type: 'thinking', thinking: '', signature: '' };
-                thinkingBlocks.set(event.index, tb);
-              }
-              if (delta.type === 'thinking_delta') {
-                tb.thinking += delta.thinking || '';
-              } else {
-                tb.signature += delta.signature || '';
-              }
-              if (
-                (delta.type === 'thinking_delta' && delta.thinking) ||
-                (delta.type === 'signature_delta' && delta.signature)
-              ) {
-                try {
-                  onStreamDelta?.('reasoning');
-                } catch {}
-              }
-            }
-            if (delta?.type === 'input_json_delta') {
-              if (pendingNativeToolInputs.has(event.index)) {
-                pendingNativeToolInputs.set(
-                  event.index,
-                  pendingNativeToolInputs.get(event.index) + (delta.partial_json || '')
-                );
-                try {
-                  onStreamDelta?.('tool');
-                } catch {}
-              }
-              if (state) state.partialToolCall = true;
-              const pending = pendingToolInputs.get(event.index);
-              if (pending) {
-                pending.inputJson += delta.partial_json || '';
-              }
-              try {
-                onStreamDelta?.('tool');
-              } catch {}
-            }
-          }
-
-          if (event.type === 'content_block_stop') {
-            if (pendingNativeToolInputs.has(event.index)) {
-              const rawInput = pendingNativeToolInputs.get(event.index);
-              pendingNativeToolInputs.delete(event.index);
-              const nativeBlock = nativeServerToolBlocks.get(event.index);
-              if (nativeBlock) {
-                let input = nativeBlock.input && typeof nativeBlock.input === 'object' ? nativeBlock.input : {};
-                if (rawInput) {
-                  try {
-                    input = JSON.parse(rawInput);
-                  } catch (parseErr) {
-                    process.stderr.write(
-                      `[anthropic-oauth] native server-tool input JSON.parse failed (type=${nativeBlock.type}, id=${nativeBlock.id || ''}): ${parseErr?.message || parseErr}\n`
-                    );
-                    input = {};
-                  }
-                }
-                if (input === null || typeof input !== 'object' || Array.isArray(input)) input = {};
-                nativeBlock.input = input;
-              }
-            }
-            const pending = pendingToolInputs.get(event.index);
-            if (pending) {
-              // Bare JSON.parse threw straight up into the
-              // surrounding broad catch, which swallowed the
-              // whole tool_call — the loop never saw it and
-              // the assistant turn ended with an unmatched
-              // tool_use id. Wrap the parse so a malformed
-              // input still produces a tool_call (with an
-              // invalid-args marker and a logged error) instead
-              // of a silent drop or accidental `{}` dispatch.
-              let parsedArgs = {};
-              if (pending.inputJson) {
-                try {
-                  parsedArgs = JSON.parse(pending.inputJson);
-                } catch (parseErr) {
-                  process.stderr.write(
-                    `[anthropic-oauth] tool args JSON.parse failed (id=${pending.id}, name=${pending.name}): ${parseErr?.message || parseErr}\n`
-                  );
-                  parsedArgs = makeInvalidToolArgsMarker(
-                    pending.inputJson,
-                    parseErr instanceof Error ? parseErr.message : String(parseErr)
-                  );
-                }
-              }
-              // Tool arguments must be a plain object. Anthropic's
-              // tool_use input is always a JSON object, but a
-              // malformed stream could parse to an array/string/
-              // number — wrap those as {} to keep the contract
-              // (invariant-based, no heuristic coercion).
-              if (parsedArgs === null || typeof parsedArgs !== 'object' || Array.isArray(parsedArgs)) {
-                process.stderr.write(
-                  `[anthropic-oauth] tool args not a plain object (id=${pending.id}, name=${pending.name}, type=${Array.isArray(parsedArgs) ? 'array' : typeof parsedArgs}); using {}\n`
-                );
-                parsedArgs = {};
-              }
-              const call = {
-                id: pending.id,
-                name: pending.name,
-                arguments: parsedArgs,
-              };
-              pendingToolInputs.delete(event.index);
-              // Eager dispatch: let the loop start this tool
-              // before message_stop arrives. The loop keys
-              // pending promises by call.id so order is safe.
-              // Fix 2: skip the ENTIRE call (push + dispatch) when a
-              // text-leaked synthetic of the same (name,args) already
-              // fired — otherwise the duplicate stays in `toolCalls`
-              // and the loop executes the side-effecting tool twice.
-              // An invalid-args marker never fingerprint-collides with
-              // a real recovered call, so malformed native calls still
-              // dispatch (the marker path is unaffected).
-              if (_toolDedupe.shouldDispatch(call.name, call.arguments, call.id)) {
-                toolCalls.push(call);
-                // Ordered replay copy of the dispatched call —
-                // skipped/deduped calls stay out so a replayed
-                // turn never carries an orphan tool_use.
-                clientToolUseBlocks.set(event.index, {
-                  type: 'tool_use',
-                  id: call.id,
-                  name: call.name,
-                  input: call.arguments,
-                });
-                if (state) state.emittedToolCall = true;
-                // Eager dispatch: let the loop start this tool
-                // before message_stop arrives. The loop keys
-                // pending promises by call.id so order is safe.
-                try {
-                  onToolCall?.(call);
-                } catch {}
-              }
-              try {
-                onStreamDelta?.('tool');
-              } catch {}
-            }
-          }
-
-          if (event.type === 'message_delta') {
-            if (event.delta?.stop_reason) {
-              stopReason = event.delta.stop_reason;
-            }
-            if (event.delta && (event.delta.stop_details != null || event.delta.category != null)) {
-              const details = event.delta.stop_details;
-              stopDetails =
-                details && typeof details === 'object' && !Array.isArray(details)
-                  ? {
-                      ...details,
-                      ...(event.delta.category != null ? { category: event.delta.category } : {}),
-                    }
-                  : {
-                      ...(details != null ? { value: details } : {}),
-                      ...(event.delta.category != null ? { category: event.delta.category } : {}),
-                    };
-            }
-            if (event.usage) {
-              updateUsage(event.usage);
-            }
-            // A terminal stop_reason while ANY tool input is still
-            // streaming ends the turn truncated, immediately: the
-            // model declared it stopped sampling, so the pending
-            // tool arguments can never complete. Do not wait for
-            // message_stop/EOF (which may never arrive, or would
-            // arrive as ping-only wedge) — enter the canonical
-            // truncation failure now, with zero dispatch for the
-            // incomplete call.
-            if (event.delta?.stop_reason && _toolInputInFlight()) {
-              sawTerminalFrameWithPendingInput = true;
-              break streamLoop;
-            }
-            // Early terminal on a tool_use stop_reason is only valid
-            // when NO tool input is still streaming — client
-            // (pendingToolInputs) or Anthropic-native server tool
-            // (pendingNativeToolInputs). An in-flight input means the
-            // arguments never completed, so the turn is truncated,
-            // not finished (the guard after the loop owns it).
-            if (stopReason === 'tool_use' && toolCalls.length > 0 && !_toolInputInFlight()) {
-              if (state) state.sawCompleted = true;
-              break streamLoop;
-            }
-          }
-          if (event.type === 'message_stop') {
-            // A terminal frame does NOT finish a turn whose tool
-            // input is still incomplete. `message_stop` while a
-            // tool_use/server_tool_use input_json is mid-flight means
-            // the model's arguments were cut off: nothing was
-            // dispatched for that call and no partial success may be
-            // promoted. Leave sawCompleted false and fall through to
-            // the truncated-stream guard below, which throws the
-            // canonical TruncatedStreamError (pendingToolUse:true).
-            if (_toolInputInFlight()) {
-              sawTerminalFrameWithPendingInput = true;
-            } else if (state) {
-              state.sawCompleted = true;
-            }
-            // Anthropic streams can keep emitting `:ping` keepalive
-            // frames after `message_stop`; if we wait for EOF the
-            // outer reader.read() loop hangs indefinitely. Break
-            // out of streamLoop the moment the message ends.
-            break streamLoop;
-          }
-        } catch (err) {
-          if (err?.code === 'EANTHROPIC_SSE_ERROR') throw err;
-          /* skip malformed events */
-        }
+        if (applyAnthropicSseEvent(framedEvent, { turn, watchdogs, state, progress })) break streamLoop;
       }
     }
-
-    // Stream ended: flush any held-back leaked-tool-call buffer. `final`
-    // holds nothing back, so a trailing partial sentinel that never
-    // resolved into a real call is surfaced as ordinary text — legitimate
-    // user-visible content is never lost on the failure path.
-    pumpLeakBuffer(true);
-
-    // Truncated-stream guard: if the reader loop exited (EOF or break)
-    // after message_start but without seeing message_stop / a tool_use
-    // stop_reason, the assistant turn was cut off mid-flight. Returning
-    // success here would silently surface partial content (or a partially
-    // streamed tool_use whose input_json never completed) as final.
-    // Throw a typed truncated-stream error so the loop can decide whether
-    // to retry, surface, or escalate instead of accepting the partial.
-    if (state?.sawMessageStart && !state?.sawCompleted) {
-      const pendingToolUse = _toolInputInFlight();
-      const err = Object.assign(
-        new Error(
-          (sawTerminalFrameWithPendingInput
-            ? `Anthropic OAuth SSE stream truncated: terminal frame with incomplete tool input`
-            : `Anthropic OAuth SSE stream truncated: message_start without message_stop`) +
-            (pendingToolUse ? ` (pending tool_use input)` : '')
-        ),
-        {
-          name: 'TruncatedStreamError',
-          code: 'TRUNCATED_STREAM',
-          truncatedStream: true,
-          pendingToolUse,
-          stopReason,
-        }
-      );
-      // Completed client tool calls / native server-tool blocks captured
-      // before the cut-off ride on the error so the interrupted-turn
-      // persistence path keeps them; the INCOMPLETE call is absent (it was
-      // never pushed and never dispatched). `partialAssistantBlocks` is
-      // the SAME ordered native/client block list the success path
-      // returns as `assistantBlocks` — a native server_tool_use call and
-      // its result block are only valid in original order, so truncation
-      // must not drop the completed ones.
-      try {
-        err.partialContent = content;
-        err.partialToolCalls = toolCalls.length ? toolCalls.slice() : undefined;
-        err.partialModel = model || undefined;
-        err.partialUsage = usage;
-        err.partialHasThinking = hasThinkingContent;
-        err.partialThinkingBlocks = _orderedThinkingBlocks();
-        err.partialAssistantBlocks = _orderedAssistantBlocks();
-        err.partialProviderReplay = createProviderReplay('anthropic', err.partialAssistantBlocks);
-        err.partialStopReason = stopReason || undefined;
-      } catch {
-        /* best-effort enrichment */
-      }
-      // Truncation is a continuation, never a terminal turn. A pending
-      // tool_use input alone stays replay-safe (nothing was dispatched);
-      // exposed text/reasoning or a complete tool call is not.
-      try {
-        stampStreamOutcome(err, {
-          transport: STREAM_TRANSPORTS.SSE,
-          provider: 'anthropic',
-          terminalObserved: false,
-          continuation: true,
-          truncatedStream: true,
-          textEmitted: state?.emittedText === true,
-          textObservedChars: content.length,
-          reasoningEmitted: state?.emittedThinking === true,
-          toolCallsStarted: state?.partialToolCall === true && toolCalls.length > 0,
-          toolCallsComplete: toolCalls.length,
-          toolCallsDispatched: state?.emittedToolCall === true ? Math.max(1, toolCalls.length) : 0,
-          pendingToolInput: pendingToolUse,
-        });
-      } catch {
-        /* stamping is best-effort */
-      }
-      throw err;
-    }
-
-    const assistantBlocks = _orderedAssistantBlocks();
-    return {
-      content,
-      model,
-      toolCalls: toolCalls.length ? toolCalls : undefined,
-      usage,
-      stopReason,
-      stopDetails,
-      hasThinkingContent,
-      contentBlockTypes: Array.from(contentBlockTypes),
-      // Ordered extended-thinking blocks (verbatim thinking text +
-      // signature) for round-tripping on tool-continuation turns. Emitted
-      // in content_block index order. Empty thinking + signature is a
-      // valid block (display-omitted models) and is kept intact.
-      thinkingBlocks: _orderedThinkingBlocks(),
-      // Complete ordered assistant content, emitted ONLY when the turn
-      // used Anthropic native server tools. Those blocks cannot be
-      // reconstructed from content/toolCalls/thinkingBlocks, so the loop
-      // replays this list verbatim (see toAnthropicMessages'
-      // assistantBlocks branch). Absent for every ordinary turn, which
-      // keeps the existing text/thinking/tool_use lowering untouched.
-      assistantBlocks,
-      providerReplay: createProviderReplay('anthropic', assistantBlocks),
-      providerMetadata: anthropicFallbackProviderMetadata(fallbackEvents),
-    };
+    turn.flushLeak();
+    if (state?.sawMessageStart && !state?.sawCompleted) throw turn.truncatedError();
+    return turn.result();
   } finally {
-    if (idleTimer) clearTimeout(idleTimer);
-    clearFirstMessageTimer();
+    watchdogs.dispose();
     try {
       releaseProviderSseStream(streamKey);
     } catch {}

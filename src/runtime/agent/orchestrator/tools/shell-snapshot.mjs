@@ -304,11 +304,10 @@ async function getOrCreateSnapshot(shellPath) {
   try {
     mkdirSync(dir, { recursive: true });
   } catch {}
-  const shellTag = shellPath.toLowerCase().includes('zsh')
-    ? 'zsh'
-    : shellPath.toLowerCase().includes('bash')
-      ? 'bash'
-      : 'sh';
+  const lowerShell = shellPath.toLowerCase();
+  let shellTag = 'sh';
+  if (lowerShell.includes('zsh')) shellTag = 'zsh';
+  else if (lowerShell.includes('bash')) shellTag = 'bash';
   const snapshotPath = join(dir, `snapshot-${shellTag}-${Date.now()}-${randomUUID().slice(0, 6)}.sh`);
   const result = await _runSnapshot(shellPath, snapshotPath, configExists);
   if (result) _cache.set(cacheKey, result);

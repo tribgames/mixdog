@@ -707,7 +707,8 @@ export function encodeMessage(type, value = {}) {
       parts.push(...encodeMapField(descriptor.no, descriptor.type.map, fieldValue));
       continue;
     }
-    const values = descriptor.repeated ? (Array.isArray(fieldValue) ? fieldValue : []) : [fieldValue];
+    let values = [fieldValue];
+    if (descriptor.repeated) values = Array.isArray(fieldValue) ? fieldValue : [];
     for (const item of values) {
       if (shouldWrite(descriptor.type, item)) parts.push(encodeField(descriptor.no, descriptor.type, item));
     }

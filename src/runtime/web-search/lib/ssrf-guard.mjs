@@ -1,5 +1,5 @@
-import dns from 'dns';
-import net from 'net';
+import dns from 'node:dns';
+import net from 'node:net';
 import { Agent, fetch as undiciFetch } from 'undici';
 
 // Shared URL guard for the web-search runtime and bounded fetch consumers.
@@ -285,7 +285,7 @@ export async function pinnedFetch(url, options = {}) {
       // hostname argument and unconditionally hand back the pre-validated IP,
       // so DNS rebinding cannot flip the address between assert and connect.
       lookup: (_hostname, opts, cb) => {
-        if (opts && opts.all) {
+        if (opts?.all) {
           cb(
             null,
             addresses.map(({ address, family }) => ({ address, family }))

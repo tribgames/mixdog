@@ -352,7 +352,7 @@ export async function executeListTool(args, workDir, options = {}) {
   }
   const request = listRequest(args, workDir);
   if (request.error) return request.error;
-  const { inputPath, fullPath, sort, headLimit, offset, needsGlobalStat, meta } = request;
+  const { inputPath, fullPath, sort, needsGlobalStat, meta } = request;
   const cacheKey = listCacheKey(request);
   const cached = cacheGet(cacheKey);
   if (cached !== null) return cached;

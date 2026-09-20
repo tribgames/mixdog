@@ -85,7 +85,8 @@ async function resolveSoffice(refresh = false): Promise<{ path: string; version:
 
 export async function libreOfficeStatus(refresh = false): Promise<DesktopLibreOfficeStatus> {
   const soffice = await resolveSoffice(refresh);
-  return soffice ? { installed: true, ...(soffice.version ? { version: soffice.version } : {}) } : { installed: false };
+  if (!soffice) return { installed: false };
+  return { installed: true, ...(soffice.version ? { version: soffice.version } : {}) };
 }
 
 export async function installLibreOffice({

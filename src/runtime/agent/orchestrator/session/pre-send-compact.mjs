@@ -252,9 +252,7 @@ function acknowledgeGoalReminder(sessionRef, run) {
 }
 
 function isCompactAbort(signal, err) {
-  return (
-    signal?.aborted === true || err?.name === 'AbortError' || err?.code === 'ABORT_ERR' || err?.code === 'ABORT'
-  );
+  return signal?.aborted === true || err?.name === 'AbortError' || err?.code === 'ABORT_ERR' || err?.code === 'ABORT';
 }
 
 // A failed compact pass ends the send. A genuine cancellation/abort surfaced
@@ -304,7 +302,9 @@ function throwCompactFailure(ctx, run, compactErr) {
   const { sessionRef, sessionId, signal, model } = state;
   acknowledgeGoalReminder(sessionRef, run);
   if (isCompactAbort(signal, compactErr)) {
-    writeStderr(`[loop] pre-send compact cancelled (sess=${sessionId || 'unknown'}): ${compactErr?.message || compactErr}\n`);
+    writeStderr(
+      `[loop] pre-send compact cancelled (sess=${sessionId || 'unknown'}): ${compactErr?.message || compactErr}\n`
+    );
     throw compactErr;
   }
   reportCompactFailure(ctx, run, compactErr);
@@ -368,7 +368,7 @@ function adoptCompactedTranscript(ctx, run) {
 }
 
 function reportCompactOutcome(ctx, run) {
-  const { state, compactPolicy, decision } = ctx;
+  const { state, compactPolicy } = ctx;
   const { messages, sessionRef } = state;
   const changed = ctx.compactChanged || run.summaryChanged;
   const { freshContextResult } = run;
@@ -425,7 +425,13 @@ async function compactBeforeSend(ctx) {
   ctx.reactiveOverflowRetryPending = false;
   await runCompactHook(ctx, 'preCompactHook');
   compactTelemetry(ctx, 'compacting', { trigger: decision.compactTrigger });
-  const run = { compacted: null, summaryChanged: false, freshContextResult: null, freshContextError: null, inlineGoalReminder: null };
+  const run = {
+    compacted: null,
+    summaryChanged: false,
+    freshContextResult: null,
+    freshContextError: null,
+    inlineGoalReminder: null,
+  };
   try {
     try {
       markPendingGoalReminder(sessionRef, 'compaction');
@@ -437,7 +443,9 @@ async function compactBeforeSend(ctx) {
       await compactTranscript(ctx, run);
     } catch (freshErr) {
       run.freshContextError = freshErr;
-      writeStderr(`[loop] fresh-context compact failed (sess=${sessionId || 'unknown'}): ${freshErr?.message || freshErr}\n`);
+      writeStderr(
+        `[loop] fresh-context compact failed (sess=${sessionId || 'unknown'}): ${freshErr?.message || freshErr}\n`
+      );
       throw freshErr;
     }
     run.summaryChanged = messagesArrayChanged(messages, run.compacted);

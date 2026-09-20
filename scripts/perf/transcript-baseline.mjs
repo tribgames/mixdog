@@ -24,7 +24,10 @@ export function legacyTokenFloors(s) {
   return floor;
 }
 
-const text = (item) => (typeof item.text === 'string' ? item.text : item.text == null ? '' : String(item.text));
+const text = (item) => {
+  if (typeof item.text === 'string') return item.text;
+  return item.text == null ? '' : String(item.text);
+};
 const ownsId = (item) => item.id !== undefined && item.id !== null;
 const signature = (item) =>
   [item.kind, item.status, item.label, item.tone, item.verb, item.count, item.completedCount, item.detail]
@@ -43,13 +46,12 @@ export function legacyAlignment(previous, incoming) {
         b = incoming[overlap];
       const at = text(a),
         bt = text(b);
-      const compatible =
-        a.kind === b.kind &&
-        (a.kind === 'tool'
-          ? String(a.name ?? '') === String(b.name ?? '')
-          : a.kind === 'user' || a.kind === 'assistant'
-            ? at === bt || (at.length > 0 && bt.length > 0 && (at.startsWith(bt) || bt.startsWith(at)))
-            : true);
+      let kindCompatible = true;
+      if (a.kind === 'tool') kindCompatible = String(a.name ?? '') === String(b.name ?? '');
+      else if (a.kind === 'user' || a.kind === 'assistant') {
+        kindCompatible = at === bt || (at.length > 0 && bt.length > 0 && (at.startsWith(bt) || bt.startsWith(at)));
+      }
+      const compatible = a.kind === b.kind && kindCompatible;
       if (a !== b && !compatible) break;
       if (ownsId(a) && ownsId(b) && String(a.id) === String(b.id)) idMatches++;
       if (

@@ -149,7 +149,7 @@ export async function readEndpointSecret(name, { dataDir } = {}) {
  * re-registration is a clean redefinition, mirroring upsertSchedule.
  */
 export async function upsertEndpoint(def, { dataDir } = {}) {
-  if (!def || !def.name) throw new Error('upsertEndpoint: def.name is required');
+  if (!def?.name) throw new Error('upsertEndpoint: def.name is required');
   const db = await getDb(dataDir);
   const params = [
     def.name,

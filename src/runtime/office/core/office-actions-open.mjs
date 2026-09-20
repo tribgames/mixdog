@@ -53,23 +53,21 @@ export async function openCreateOrAttachOffice({ action, args, cwd, dataDir, sig
     );
   }
   const operationArgs = signal ? { ...args, __signal: signal } : args;
-  const session =
-    action === 'create'
-      ? await createSession(operationArgs, cwd, dataDir)
-      : await openSession(action === 'attach' ? { ...operationArgs, mode: 'attach' } : operationArgs, cwd, dataDir);
+  let session;
+  if (action === 'create') session = await createSession(operationArgs, cwd, dataDir);
+  else if (action === 'attach') session = await openSession({ ...operationArgs, mode: 'attach' }, cwd, dataDir);
+  else session = await openSession(operationArgs, cwd, dataDir);
   await ensureOfficeSessionDesign(session, args, dataDir, { created: session.created === true });
   session.activeSignal = signal;
   let initialEditSettled = false;
   const initialOperations = initialOfficeOperations(args);
   try {
-    const initialEdit = initialOperations.length
-      ? await applyBatch(session, {
-          ...args,
-          operations: initialOperations,
-          __cwd: cwd,
-          ...(args.finalize === true ? { save: true } : {}),
-        })
-      : null;
+    let initialEdit = null;
+    if (initialOperations.length) {
+      const batchArgs = { ...args, operations: initialOperations, __cwd: cwd };
+      if (args.finalize === true) batchArgs.save = true;
+      initialEdit = await applyBatch(session, batchArgs);
+    }
     initialEditSettled = true;
     if (args.finalize === true) {
       const completed = await finalize(
@@ -96,28 +94,29 @@ export async function openCreateOrAttachOffice({ action, args, cwd, dataDir, sig
         images
       );
     }
-    const initial =
-      args.snapshotAfter === false || (initialEdit && args.snapshotAfter !== true)
-        ? {
-            session: session.id,
-            mode: session.mode,
-            backend: session.backend,
-            fileKind: session.fileKind,
-            source: session.source,
-            output: session.target,
-            ownership: session.ownership,
-            visible: session.visible,
-            appPid: session.appPid,
-            windowHwnd: session.windowHwnd,
-            foregroundActivated: session.foregroundActivated === true,
-            backgroundIsolation: session.backgroundIsolation || null,
-            documentId: session.documentId,
-            batch: initialEdit,
-          }
-        : {
-            ...(await snapshot(session, args)),
-            ...(initialEdit ? { batch: initialEdit } : {}),
-          };
+    const skipSnapshot = args.snapshotAfter === false || (initialEdit && args.snapshotAfter !== true);
+    let initial;
+    if (skipSnapshot) {
+      initial = {
+        session: session.id,
+        mode: session.mode,
+        backend: session.backend,
+        fileKind: session.fileKind,
+        source: session.source,
+        output: session.target,
+        ownership: session.ownership,
+        visible: session.visible,
+        appPid: session.appPid,
+        windowHwnd: session.windowHwnd,
+        foregroundActivated: session.foregroundActivated === true,
+        backgroundIsolation: session.backgroundIsolation || null,
+        documentId: session.documentId,
+        batch: initialEdit,
+      };
+    } else {
+      initial = { ...(await snapshot(session, args)) };
+      if (initialEdit) initial.batch = initialEdit;
+    }
     delete session.activeSignal;
     return toolResult(
       finalizeOfficeResult(

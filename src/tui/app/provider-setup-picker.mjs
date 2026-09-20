@@ -1,23 +1,22 @@
 /*
  * provider-setup-picker.mjs — the Provider setup picker cluster.
  *
- * A dependency-injection
- * factory. Every function body is the original App logic verbatim, with closure
- * identifiers threaded through the factory argument. The internal action openers
- * (openApiProviderActions/openOAuthProviderActions/openLocalProviderActions/
- * startOAuthLogin) stay nested inside openProviderSetupPicker so they keep
- * closing over the per-open `setup`/`items`/`returnTo`. Refs and cache
- * invalidation thread directly.
+ * openProviderSetupPicker claims the panel surface once per open, loads the
+ * provider setup and paints the main list. The per-provider action panels
+ * live in provider-setup/ (api-key-actions, oauth-actions) and receive the
+ * per-open `flow`: the claim, the paint/release sinks, the remembered row and
+ * the list re-open, so a daemon ack landing after Esc can neither paint nor
+ * navigate.
  */
-import { theme } from '../theme.mjs';
-import { providerStatusLabel, providerDetailText, providerKindLabel } from './app-format.mjs';
-import { providerDisplayRank } from './model-options.mjs';
-import { openInBrowser } from '../../runtime/shared/open-url.mjs';
+import { openApiProviderActions } from './provider-setup/api-key-actions.mjs';
+import { openOAuthProviderActions } from './provider-setup/oauth-actions.mjs';
+import {
+  buildProviderItems,
+  providerMainInitialIndex,
+  providerStatusFooter,
+} from './provider-setup/provider-items.mjs';
 
-const keyConsoleUrl = (provider) => {
-  const url = String(provider?.url || '').trim();
-  return /^https:\/\//.test(url) ? url : '';
-};
+const providerFooter = (item) => providerStatusFooter(item?._provider);
 
 export function createProviderSetupPicker({
   store,
@@ -28,6 +27,40 @@ export function createProviderSetupPicker({
   oauthSubmitRef,
   clearModelCaches,
 }) {
+  /** Fetches the provider setup behind a placeholder frame; null when the
+   *  fetch failed (already reported). */
+  const loadProviderSetup = async (own, options, onCancel) => {
+    own.paint({
+      title: options.title || 'Providers',
+      description: options.description || 'Choose a provider to configure.',
+      labelWidth: 18,
+      metaWidth: 10,
+      pickerKey: 'providers-loading',
+      initialIndex: 0,
+      items: [
+        {
+          value: 'checking',
+          label: 'Checking Providers',
+          meta: '',
+          description: 'please wait',
+          _type: 'loading',
+        },
+      ],
+      onSelect: () => {},
+      onCancel: () => {
+        own.close();
+        if (onCancel) onCancel();
+      },
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      return await store.getProviderSetup();
+    } catch (e) {
+      store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
+      return null;
+    }
+  };
+
   const openProviderSetupPicker = async (options = {}) => {
     const returnTo = typeof options.returnTo === 'function' ? options.returnTo : null;
     const onContinue = typeof options.onContinue === 'function' ? options.onContinue : returnTo;
@@ -48,44 +81,11 @@ export function createProviderSetupPicker({
     // Onboarding (and any caller) can pass a preloaded provider setup so we skip
     // the "Checking Providers" placeholder frame that otherwise flashes before
     // the real list — that swap is what looked like a jump on Step 1 entry.
-    const ownsSurface = () => own.owns();
-    const paintProviders = (panel) => own.paint(panel);
-    // The flow itself handing the picker surface to a prompt (Enter on a row):
-    // still ours, so clear-and-continue instead of going stale. Esc paths use
-    // own.close() — leaving IS the handover.
-    const releaseSurface = () => own.paint(null);
     let setup = options.preloadedSetup && typeof options.preloadedSetup === 'object' ? options.preloadedSetup : null;
     options.preloadedSetup = null;
     if (!setup) {
-      paintProviders({
-        title: options.title || 'Providers',
-        description: options.description || 'Choose a provider to configure.',
-        labelWidth: 18,
-        metaWidth: 10,
-        pickerKey: 'providers-loading',
-        initialIndex: 0,
-        items: [
-          {
-            value: 'checking',
-            label: 'Checking Providers',
-            meta: '',
-            description: 'please wait',
-            _type: 'loading',
-          },
-        ],
-        onSelect: () => {},
-        onCancel: () => {
-          own.close();
-          if (onCancel) onCancel();
-        },
-      });
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        setup = await store.getProviderSetup();
-      } catch (e) {
-        store.pushNotice(`providers failed: ${e?.message || e}`, 'error');
-        return;
-      }
+      setup = await loadProviderSetup(own, options, onCancel);
+      if (!setup) return;
     }
 
     const items = [];
@@ -97,452 +97,35 @@ export function createProviderSetupPicker({
         _type: 'continue',
       });
     }
-    const providerIsActive = (provider) =>
-      provider?.reauthRequired !== true &&
-      (provider?.usable === true ||
-        (provider?.usable == null && (provider?.enabled || provider?.authenticated || provider?.detected)));
-    const providerFooter = (item) => {
-      const provider = item?._provider;
-      if (!provider) return '';
-      const active = providerIsActive(provider);
-      return [
-        {
-          glyph: active ? '●' : '○',
-          color: active ? theme.success : theme.inactive,
-          text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)]
-            .filter(Boolean)
-            .join(' · '),
-        },
-      ];
-    };
-    const providerItemRank = (item) => providerDisplayRank(item._providerId || item.value);
-    const providerItems = [];
-    for (const p of setup.api || []) {
-      providerItems.push({
-        value: `api:${p.id}`,
-        label: p.name,
-        meta: providerStatusLabel(p),
-        description: '',
-        _type: 'api-key',
-        _providerId: p.id,
-        _providerName: p.name,
-        _provider: p,
-        _authenticated: p.authenticated,
-        _url: p.url,
-      });
-    }
-    for (const p of setup.oauth || []) {
-      providerItems.push({
-        value: `oauth:${p.id}`,
-        label: p.name,
-        meta: providerStatusLabel(p),
-        description: '',
-        _type: 'oauth',
-        _providerId: p.id,
-        _providerName: p.name,
-        _provider: p,
-        _authenticated: p.authenticated,
-      });
-    }
-    providerItems.sort((a, b) => {
-      const rank = providerItemRank(a) - providerItemRank(b);
-      if (rank !== 0) return rank;
-      return String(a.label || '').localeCompare(String(b.label || ''), 'en', { sensitivity: 'base' });
-    });
-    items.push(...providerItems);
+    items.push(...buildProviderItems(setup));
 
-    const rememberProviderSelection = (providerItem) => {
-      if (!providerItem?.value) return;
-      options.highlightProviderValue = providerItem.value;
-    };
-    const providerMainInitialIndex = () => {
-      const value = options.highlightProviderValue;
-      if (!value) return 0;
-      const idx = items.findIndex((item) => item.value === value);
-      return idx >= 0 ? idx : 0;
+    const flow = {
+      store,
+      setProviderPrompt,
+      clearModelCaches,
+      oauthSubmitRef,
+      returnTo,
+      ownsSurface: () => own.owns(),
+      paint: (panel) => own.paint(panel),
+      // The flow itself handing the picker surface to a prompt (Enter on a
+      // row): still ours, so clear-and-continue instead of going stale. Esc
+      // paths use own.close() — leaving IS the handover.
+      releaseSurface: () => own.paint(null),
+      rememberProviderSelection: (providerItem) => {
+        if (!providerItem?.value) return;
+        options.highlightProviderValue = providerItem.value;
+      },
+      reopenProviders: () => {
+        // Reached from acks as well as key presses: a stale ack must not
+        // restart the whole cluster over the user's surface.
+        if (!own.owns()) return;
+        void Promise.resolve(openProviderSetupPicker(options)).catch((e) =>
+          store.pushNotice(`providers failed: ${e?.message || e}`, 'error')
+        );
+      },
     };
 
-    const reopenProviders = () => {
-      // Reached from acks as well as key presses: a stale ack must not restart
-      // the whole cluster over the user's surface.
-      if (!ownsSurface()) return;
-      void Promise.resolve(openProviderSetupPicker(options)).catch((e) =>
-        store.pushNotice(`providers failed: ${e?.message || e}`, 'error')
-      );
-    };
-    const providerActionFooter = (provider) =>
-      provider
-        ? [
-            {
-              glyph: providerIsActive(provider) ? '●' : '○',
-              color: providerIsActive(provider) ? theme.success : theme.inactive,
-              text: [providerKindLabel(provider), providerStatusLabel(provider), providerDetailText(provider)]
-                .filter(Boolean)
-                .join(' · '),
-            },
-          ]
-        : '';
-    const setApiKeyPrompt = (providerItem) => {
-      if (!ownsSurface()) return;
-      setProviderPrompt({
-        kind: 'api-key',
-        providerId: providerItem._providerId,
-        label: providerItem._providerName,
-        mode: providerItem._authenticated ? 'replace' : 'set',
-        envName: providerItem._provider?.envName || '',
-        source: providerDetailText(providerItem._provider),
-        keyUrl: keyConsoleUrl(providerItem._provider),
-        afterSave: returnTo,
-      });
-    };
-    const openApiProviderActions = (providerItem) => {
-      // Reached from acks (forget-key failure, usage-login back-out) as well as
-      // key presses: prove ownership at the sink so every caller is covered.
-      if (!ownsSurface()) return;
-      rememberProviderSelection(providerItem);
-      const provider = providerItem._provider || {};
-      const hasAuth = providerItem._authenticated || provider.authenticated;
-      const hasStoredKey = provider.stored || (!provider.env && hasAuth);
-      const apiActions = [];
-      apiActions.push({
-        value: 'set-key',
-        label: hasAuth ? 'Replace API key' : 'Add API key',
-        description: provider.envName ? `masked input · ${provider.envName}` : 'masked input · stored in OS keychain',
-        _action: 'set-key',
-      });
-      const keyUrl = keyConsoleUrl(provider);
-      if (keyUrl && !hasAuth) {
-        apiActions.push({
-          value: 'get-key',
-          label: 'Get API key (browser)',
-          description: keyUrl,
-          _action: 'get-key',
-        });
-      }
-      if (hasStoredKey) {
-        apiActions.push({
-          value: 'forget-key',
-          label: 'Delete API key',
-          description: provider.env
-            ? 'remove keychain key; env key remains active'
-            : 'remove stored key for this provider',
-          _action: 'forget-key',
-        });
-      }
-      if (providerItem._providerId === 'opencode-go') {
-        apiActions.push({
-          value: 'usage-login-browser',
-          label: 'Usage login (browser)',
-          description: 'open browser; auth cookie captured automatically',
-          _action: 'usage-login-browser',
-        });
-      }
-      paintProviders({
-        title: `Provider · ${providerItem._providerName}`,
-        description: 'Choose an API-key action.',
-        footer: () => providerActionFooter(provider),
-        help: '↑/↓ Select · Enter Choose · Esc Providers',
-        indexMode: 'always',
-        labelWidth: 22,
-        pickerKey: `providers-action:${providerItem.value}`,
-        initialIndex: 0,
-        items: apiActions,
-        onSelect: (_detailValue, detail) => {
-          releaseSurface();
-          if (detail._action === 'set-key') {
-            setApiKeyPrompt(providerItem);
-            return;
-          }
-          if (detail._action === 'get-key') {
-            // Opener is best-effort (open-url.mjs); the URL stays visible in
-            // the key prompt hint so a failed open still leaves it readable.
-            openInBrowser(keyUrl);
-            store.pushNotice(`opened ${keyUrl}`, 'info');
-            setApiKeyPrompt(providerItem);
-            return;
-          }
-          if (detail._action === 'forget-key') {
-            // Daemon RPC: only navigate once the removal is acknowledged, and
-            // return to these actions (not an empty panel) when it fails.
-            void Promise.resolve(store.forgetProviderAuth?.(providerItem._providerId))
-              .then(() => {
-                clearModelCaches('all');
-                reopenProviders();
-              })
-              .catch((e) => {
-                store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-                openApiProviderActions(providerItem);
-              });
-          }
-          if (detail._action === 'usage-login-browser') {
-            let backedOut = false;
-            const waitItems = [
-              {
-                value: 'waiting',
-                label: 'Waiting for login',
-                meta: 'Running',
-                description: 'sign in via the browser window',
-                _action: 'waiting',
-              },
-              {
-                value: 'back',
-                label: 'Back',
-                meta: '',
-                description: 'return to provider actions',
-                _action: 'back',
-              },
-            ];
-            paintProviders({
-              title: `Provider · ${providerItem._providerName}`,
-              description: 'Opening browser. Sign in at opencode.ai/auth; the auth cookie is captured automatically.',
-              footer: () => providerActionFooter(provider),
-              help: '↑/↓ Select · Enter Choose · Esc Providers',
-              indexMode: 'never',
-              labelWidth: 22,
-              metaWidth: 12,
-              pickerKey: `providers-usage-login:${providerItem.value}`,
-              initialIndex: 0,
-              items: waitItems,
-              onSelect: (_value, item) => {
-                if (item?._action === 'back') {
-                  backedOut = true;
-                  openApiProviderActions(providerItem);
-                }
-              },
-              onCancel: () => {
-                backedOut = true;
-                openApiProviderActions(providerItem);
-              },
-            });
-            void store
-              .loginOpenCodeGoUsage()
-              .then(() => {
-                store.pushNotice('OpenCode Go usage auth captured', 'info');
-                if (!backedOut) reopenProviders();
-              })
-              .catch((e) => {
-                store.pushNotice(`OpenCode Go usage login failed: ${e?.message || e}`, 'error');
-                if (!backedOut) openApiProviderActions(providerItem);
-              });
-            return;
-          }
-        },
-        onCancel: reopenProviders,
-      });
-    };
-
-    const startOAuthLogin = (providerItem) => {
-      const provider = providerItem._provider || {};
-      const showOAuthProgress = (
-        message = 'Opening login flow. Complete it in the browser if prompted.',
-        opts = {}
-      ) => {
-        const onBack = typeof opts.onBack === 'function' ? opts.onBack : () => openOAuthProviderActions(providerItem);
-        const actions = [
-          {
-            value: 'waiting',
-            label: opts.waitLabel || 'Waiting for login',
-            meta: 'Running',
-            description: opts.waitDescription || 'finish the browser/OAuth prompt',
-            _action: 'waiting',
-          },
-          {
-            value: 'back',
-            label: 'Back',
-            meta: '',
-            description: 'return to provider actions',
-            _action: 'back',
-          },
-        ];
-        paintProviders({
-          title: `Provider · ${providerItem._providerName}`,
-          description: message,
-          footer: () => providerActionFooter(provider),
-          help: '↑/↓ Select · Enter Choose · Esc Providers',
-          indexMode: 'never',
-          labelWidth: 22,
-          metaWidth: 12,
-          pickerKey: `providers-oauth-progress:${providerItem.value}`,
-          initialIndex: 0,
-          items: actions,
-          onSelect: (_value, item) => {
-            if (item?._action === 'back') onBack();
-          },
-          onCancel: onBack,
-        });
-      };
-      const showOAuthResult = (ok, message = '') => {
-        setProviderPrompt(null);
-        paintProviders({
-          title: `Provider · ${providerItem._providerName}`,
-          description: message || (ok ? 'Login complete.' : 'Login did not complete.'),
-          footer: () => providerActionFooter(provider),
-          help: ok ? 'Enter Refresh Providers · Esc Providers' : 'Enter Back · Esc Providers',
-          indexMode: 'never',
-          labelWidth: 22,
-          metaWidth: 12,
-          pickerKey: `providers-oauth-result:${providerItem.value}:${ok ? 'ok' : 'fail'}`,
-          initialIndex: 0,
-          items: [
-            {
-              value: ok ? 'success' : 'back',
-              label: ok ? 'Success' : 'Back',
-              meta: ok ? 'Done' : 'Ready',
-              description: ok ? 'refresh provider status' : 'return to provider actions',
-              _action: ok ? 'success' : 'back',
-            },
-          ],
-          onSelect: () => {
-            if (ok) reopenProviders();
-            else openOAuthProviderActions(providerItem);
-          },
-          onCancel: () => {
-            if (ok) reopenProviders();
-            else openOAuthProviderActions(providerItem);
-          },
-        });
-      };
-      let backedOut = false;
-      showOAuthProgress('Opening login flow. Complete it in the browser if prompted.', {
-        onBack: () => {
-          backedOut = true;
-          openOAuthProviderActions(providerItem);
-        },
-      });
-      if (typeof store.beginOAuthProviderLogin === 'function') {
-        let handled = false;
-        const providerName = providerItem._providerName || providerItem._providerId || 'OAuth';
-        const finish = (ok, message = '') => {
-          if (handled) return;
-          handled = true;
-          if (ok) clearModelCaches('all');
-          if (backedOut) {
-            if (message) store.pushNotice(message, ok ? 'info' : 'error');
-            return;
-          }
-          showOAuthResult(ok, message || (ok ? `${providerName} login complete.` : `${providerName} login failed.`));
-        };
-        void store
-          .beginOAuthProviderLogin(providerItem._providerId)
-          .then((login) => {
-            if (typeof login?.completeCode === 'function') {
-              // Post-await handover to the OAuth code prompt: only if this flow
-              // still owns the surface (Esc during beginOAuthProviderLogin).
-              if (!ownsSurface()) return;
-              releaseSurface();
-              const manualUrl = login?.manualUrl || '';
-              setProviderPrompt({
-                kind: 'oauth-code',
-                providerId: providerItem._providerId,
-                providerName,
-                label: `${providerName} OAuth code`,
-                hint: manualUrl
-                  ? 'If the browser callback does not finish, open the URL below manually and paste code#state.'
-                  : `Paste the authorization code or full redirect URL for ${providerName}.`,
-                // Shown inside the live panel only — never written to the
-                // transcript, so it cannot linger in scrollback after the flow.
-                detail: manualUrl,
-                login,
-                afterSave: returnTo,
-                successReturn: () => {
-                  showOAuthResult(true, `${providerName} login complete.`);
-                },
-                failureReturn: (e) => {
-                  showOAuthResult(false, `${providerName} code failed: ${e?.message || e}`);
-                },
-                cancelReturn: () => {
-                  openOAuthProviderActions(providerItem);
-                },
-              });
-              store.pushNotice(
-                `browser opened for ${providerName}; paste code/redirect here if callback does not finish`,
-                'info'
-              );
-            } else {
-              store.pushNotice(`browser opened for ${providerName}; finish signing in there`, 'info');
-            }
-            login.waitForCallback
-              ?.then((result) => {
-                if (result && !oauthSubmitRef.current) finish(true, `${providerName} login complete`);
-              })
-              .catch((e) => finish(false, `${providerName} login failed: ${e?.message || e}`));
-          })
-          .catch((e) => {
-            store.pushNotice(`${providerName} login failed: ${e?.message || e}`, 'error');
-            openOAuthProviderActions(providerItem);
-          });
-        return;
-      }
-      void store
-        .loginOAuthProvider(providerItem._providerId)
-        .then(() => {
-          clearModelCaches('all');
-          if (backedOut) {
-            store.pushNotice(`${providerItem._providerName} login complete`, 'info');
-            return;
-          }
-          showOAuthResult(true, `${providerItem._providerName} login complete.`);
-        })
-        .catch((e) => {
-          if (backedOut) {
-            store.pushNotice(`oauth login failed: ${e?.message || e}`, 'error');
-            return;
-          }
-          showOAuthResult(false, `OAuth login failed: ${e?.message || e}`);
-        });
-    };
-    const openOAuthProviderActions = (providerItem) => {
-      if (!ownsSurface()) return;
-      rememberProviderSelection(providerItem);
-      const provider = providerItem._provider || {};
-      const hasAuth = providerItem._authenticated || provider.authenticated || provider.reauthRequired === true;
-      const oauthActions = [];
-      oauthActions.push({
-        value: 'login-oauth',
-        label: hasAuth ? 'Re-login' : 'Login',
-        description: providerDetailText(provider) || 'open browser or OAuth flow',
-        _action: 'login-oauth',
-      });
-      if (hasAuth) {
-        oauthActions.push({
-          value: 'forget-oauth',
-          label: 'Forget login',
-          description: 'remove stored OAuth credentials',
-          _action: 'forget-oauth',
-        });
-      }
-      paintProviders({
-        title: `Provider · ${providerItem._providerName}`,
-        description: 'Choose an OAuth login action.',
-        footer: () => providerActionFooter(provider),
-        help: '↑/↓ Select · Enter Choose · Esc Providers',
-        indexMode: 'always',
-        labelWidth: 22,
-        pickerKey: `providers-action:${providerItem.value}`,
-        initialIndex: 0,
-        items: oauthActions,
-        onSelect: (_detailValue, detail) => {
-          if (detail._action === 'login-oauth') {
-            startOAuthLogin(providerItem);
-            return;
-          }
-          if (detail._action === 'forget-oauth') {
-            void Promise.resolve(store.forgetProviderAuth?.(providerItem._providerId))
-              .then(() => {
-                clearModelCaches('all');
-                reopenProviders();
-              })
-              .catch((e) => {
-                store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-                openOAuthProviderActions(providerItem);
-              });
-          }
-        },
-        onCancel: reopenProviders,
-      });
-    };
-
-    paintProviders({
+    flow.paint({
       title: options.title || 'Providers',
       description: options.description || 'Choose a provider. Enter opens provider actions.',
       footer: providerFooter,
@@ -552,29 +135,28 @@ export function createProviderSetupPicker({
       labelWidth: 18,
       metaWidth: 12,
       pickerKey: `providers-main:${options.highlightProviderValue || 'root'}`,
-      initialIndex: providerMainInitialIndex(),
+      initialIndex: providerMainInitialIndex(items, options.highlightProviderValue),
       items,
       confirmBar: options.confirmBar || null,
       onHighlight: (_value, item) => {
-        if (item?._providerId) rememberProviderSelection(item);
+        if (item?._providerId) flow.rememberProviderSelection(item);
       },
       onSelect: (_value, item) => {
         // In-flow navigation (Enter on a provider row): the flow keeps the
         // surface, so clear-and-continue — own.close() would supersede this
         // very flow and paintProviders would then reject the action panel the
         // user just asked for. Esc (onCancel below) does close.
-        releaseSurface();
+        flow.releaseSurface();
         if (item._type === 'continue') {
           onContinue?.();
           return;
         }
         if (item._type === 'api-key') {
-          openApiProviderActions(item);
+          openApiProviderActions(flow, item);
           return;
         }
         if (item._type === 'oauth') {
-          openOAuthProviderActions(item);
-          return;
+          openOAuthProviderActions(flow, item);
         }
       },
       onCancel: () => {

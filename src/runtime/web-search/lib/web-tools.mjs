@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs from 'node:fs';
 
 import { isWSL } from '../../shared/wsl.mjs';
 import { startChildGuardian } from '../../shared/child-guardian.mjs';

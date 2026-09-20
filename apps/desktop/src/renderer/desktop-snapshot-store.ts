@@ -91,11 +91,9 @@ const DOCK_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
 function dockToolItem(snapshot: Snapshot) {
   const items = Array.isArray(snapshot.items) ? snapshot.items : [];
   const tail = snapshot.streamingTail;
-  return tail?.kind === 'tool'
-    ? tail
-    : items.length > 0 && items[items.length - 1]?.kind === 'tool'
-      ? items[items.length - 1]
-      : null;
+  if (tail?.kind === 'tool') return tail;
+  const last = items[items.length - 1];
+  return last?.kind === 'tool' ? last : null;
 }
 
 function snapshotFieldsEqual(left: Snapshot, right: Snapshot, fields: ReadonlyArray<keyof Snapshot>): boolean {

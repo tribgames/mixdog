@@ -1,4 +1,4 @@
-// Row-estimate helpers for transcript items, extracted from transcript-window.mjs.
+// Row-estimate helpers for transcript items.
 import {
   measureMarkdownRenderedRows,
   measureStreamingMarkdownRenderedRows,

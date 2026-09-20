@@ -85,6 +85,14 @@ function reviewToken(session, version, rendered) {
   return `${session.id}:${version}:${digest.digest('hex')}`;
 }
 
+const MICROSOFT_OFFICE_APPS = { docx: 'Microsoft Word', xlsx: 'Microsoft Excel', pptx: 'Microsoft PowerPoint' };
+
+/** The engine that rasterized a session's pages. */
+function rendererName(session) {
+  if (session.format === 'pdf') return 'pdfjs';
+  return session.backend === 'microsoft-office-com' ? MICROSOFT_OFFICE_APPS[session.format] : 'LibreOffice';
+}
+
 export async function renderOfficePreview(
   session,
   args,
@@ -99,13 +107,8 @@ export async function renderOfficePreview(
   // is authoritative enough for cross-revision page reuse.
   const incremental = cacheable(session) && session.format === 'pptx' && session.backend === 'mixdog-ooxml';
   const signatures = incremental ? await pptxPageSignatures(session.target) : null;
-  const retained = signatures
-    ? await reusablePptxPages(
-        session.pageRenderCache?.target === session.target ? session.pageRenderCache : null,
-        signatures,
-        requested
-      )
-    : new Map();
+  const pageRenderCache = session.pageRenderCache?.target === session.target ? session.pageRenderCache : null;
+  const retained = signatures ? await reusablePptxPages(pageRenderCache, signatures, requested) : new Map();
   const wantedPages = signatures ? requested.pages || signatures.map((entry) => entry.page) : null;
   if (
     wantedPages &&
@@ -163,12 +166,7 @@ export async function renderOfficePreview(
     backend: session.backend,
     output: requested.output,
     format: 'pdf',
-    renderer:
-      session.format === 'pdf'
-        ? 'pdfjs'
-        : session.backend === 'microsoft-office-com'
-          ? { docx: 'Microsoft Word', xlsx: 'Microsoft Excel', pptx: 'Microsoft PowerPoint' }[session.format]
-          : 'LibreOffice',
+    renderer: rendererName(session),
     pageCount: rendered.pageCount,
     visualCoverage: rendered.visualCoverage,
     images: rendered.images.map(({ data, pageImages, ...image }) => image),

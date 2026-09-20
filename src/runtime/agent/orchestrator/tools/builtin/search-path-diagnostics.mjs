@@ -3,8 +3,8 @@
  * grep/glob in search-tool.mjs. search-tool.mjs re-exports these for unchanged
  * importers so it can stay a thin executor.
  */
-import { statSync } from 'fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
+import { statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { findDirectoryByBasename, findFileByBasename, listSiblings } from './path-diagnostics.mjs';
 import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 
@@ -221,7 +221,7 @@ export function relativePathPrefix(pathPrefix, workDir) {
   const absFwd = String(pathPrefix || '').replace(/\\/g, '/');
   const haystack = process.platform === 'win32' ? absFwd.toLocaleLowerCase() : absFwd;
   const needle = process.platform === 'win32' ? cwdFwd.toLocaleLowerCase() : cwdFwd;
-  if (haystack.startsWith(needle + '/') || haystack === needle) {
+  if (haystack.startsWith(`${needle}/`) || haystack === needle) {
     return absFwd.slice(cwdFwd.length + 1) || '.';
   }
   return pathPrefix;
@@ -230,7 +230,7 @@ export function relativePathPrefix(pathPrefix, workDir) {
 export function relativeSearchResultPath(path, workDir) {
   const normalizedWorkDir = normalizeOutputPath(workDir);
   const normalizedAbs = normalizeOutputPath(path);
-  if (normalizedAbs.startsWith(normalizedWorkDir + '/') || normalizedAbs.startsWith(normalizedWorkDir + '\\')) {
+  if (normalizedAbs.startsWith(`${normalizedWorkDir}/`) || normalizedAbs.startsWith(`${normalizedWorkDir}\\`)) {
     return normalizedAbs.slice(normalizedWorkDir.length + 1);
   }
   return normalizedAbs;
@@ -258,7 +258,7 @@ export function basePathDiagnostic(basePaths, workDir, statCache = null) {
       // rg runs already stat'd this same resolved root) instead of re-stating.
       let st = null;
       let err = null;
-      const cached = statCache && statCache.get(resolved);
+      const cached = statCache?.get(resolved);
       if (cached) {
         st = cached.st;
         err = cached.err;

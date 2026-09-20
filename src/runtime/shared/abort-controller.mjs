@@ -4,7 +4,7 @@
  * `createAbortController()` raises the signal's max listener cap so long-running
  * sessions with many per-iteration handlers don't trip Node's default warning.
  */
-import { setMaxListeners } from 'events';
+import { setMaxListeners } from 'node:events';
 
 const DEFAULT_MAX_LISTENERS = 50;
 

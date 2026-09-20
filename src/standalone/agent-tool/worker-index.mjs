@@ -1,342 +1,66 @@
 // Worker-index persistence for the agent tool: the on-disk row store (tag →
-// session), its mtime-keyed parse cache, the batched atomic writer and the
-// tag-map projection. Extracted from agent-tool.mjs, which now owns spawn /
-// dispatch flow only. The tag Maps are passed in by reference so the facade
-// and this store observe the same live state.
-import { readFileSync, statSync } from 'node:fs';
+// session) and its tag-map projection. agent-tool.mjs owns spawn / dispatch
+// flow only. The tag Maps are passed in by reference so the facade and this
+// store observe the same live state. The pieces live under ./worker-index/:
+//   row-shape      — one row shape; session → row projection
+//   row-store      — the file, its parse cache, the locked writer
+//   mutation-batch — spawn-path writes coalesced onto one microtask
+//   row-liveness   — stale-active detection and idle settlement
 import { resolve } from 'node:path';
 
-import { updateJsonAtomicSync } from '../../runtime/shared/atomic-file.mjs';
-import { resolveAgentTerminalReapMs } from '../../session-runtime/config-helpers.mjs';
 import { WORKER_INDEX_FILE } from './tool-def.mjs';
-import { agentTagOf, clean, positiveInt, registerExitFlush, rowMatchesContext, runtimeAlive } from './helpers.mjs';
-import {
-  applyWorkerRowUpsert,
-  isLeadPoolAgent,
-  normalizeTagTombstones,
-  tagTombstoneKey,
-  workerRowKey,
-} from './worker-rows.mjs';
-
-const ACTIVE_WORKER_STATUS =
-  /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
-const WORKER_POOL_FRESH_MS = 2 * 60 * 1000;
+import { clean, positiveInt, registerExitFlush, rowMatchesContext } from './helpers.mjs';
+import { applyWorkerRowUpsert, workerRowKey } from './worker-rows.mjs';
+import { createMutationBatch } from './worker-index/mutation-batch.mjs';
+import { createRowLiveness, isActiveWorkerRow } from './worker-index/row-liveness.mjs';
+import { normalizeWorkerRows, workerRowFromSession } from './worker-index/row-shape.mjs';
+import { createWorkerRowStore } from './worker-index/row-store.mjs';
 
 export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds }) {
-  const pendingMutators = [];
+  const file = dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
+  const store = createWorkerRowStore(file);
+  const batch = createMutationBatch(store.write);
+  const liveness = createRowLiveness({ dataDir, cfgMod });
+  // Rows this process marked active; settled to idle on exit so a crash of
+  // the host never leaves them "running" forever.
   const activeWorkerKeys = new Set();
-  let flushTimer = null;
-  // Mtime-keyed parse cache. A single spawn calls refreshTagsFromSessions /
-  // resolveTag / nextTag, which each re-read and re-parse this file; across a
-  // parallel fanout that is O(spawns^2) synchronous reads of the same bytes.
-  let cache = null; // { mtimeMs, size, rows, tombstones }
-  let cacheDirty = true;
-
-  function workerIndexPath() {
-    return dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
-  }
-
-  // Reaping is an explicit lifecycle mutation owned by tag-registry. Silently
-  // filtering an expired row here would skip its tombstone and make persisted
-  // state disagree with the reusable-tag lease.
-  function keepWorkerRow(row = {}) {
-    return Boolean(clean(row.tag) && clean(row.sessionId));
-  }
-
-  function normalizeWorkerRows(value) {
-    const source = Array.isArray(value?.workers)
-      ? value.workers
-      : value?.workers && typeof value.workers === 'object'
-        ? Object.values(value.workers)
-        : Array.isArray(value)
-          ? value
-          : [];
-    return source
-      .filter((row) => row && typeof row === 'object')
-      .map((row) => ({
-        tag: clean(row.tag),
-        sessionId: clean(row.sessionId),
-        parentSessionId: clean(row.parentSessionId) || null,
-        ownerSessionId: clean(row.ownerSessionId || row.parentSessionId) || null,
-        agent: clean(row.agent) || null,
-        provider: clean(row.provider) || null,
-        model: clean(row.model) || null,
-        preset: clean(row.preset) || null,
-        effort: clean(row.effort) || null,
-        fast: row.fast === true ? true : row.fast === false ? false : null,
-        status: clean(row.status) || 'idle',
-        stage: clean(row.stage) || clean(row.status) || 'idle',
-        createdAt: clean(row.createdAt) || null,
-        updatedAt: clean(row.updatedAt) || null,
-        lastUsedAt: clean(row.lastUsedAt) || null,
-        finishedAt: clean(row.finishedAt) || null,
-        turnStartedAt: clean(row.turnStartedAt) || null,
-        reapAt: clean(row.reapAt) || null,
-        clientHostPid: positiveInt(row.clientHostPid),
-        runtimePid: positiveInt(row.runtimePid),
-        cwd: clean(row.cwd) || null,
-        task_id: clean(row.task_id || row.taskId) || null,
-        error: clean(row.error) || null,
-        permission: clean(row.permission) || null,
-        toolPermission: clean(row.toolPermission) || null,
-        messages: positiveInt(row.messages) || 0,
-        tools: positiveInt(row.tools) || 0,
-      }))
-      .filter((row) => !isLeadPoolAgent(row.agent))
-      .filter((row) => !isLeadPoolAgent(row.agent) && keepWorkerRow(row));
-  }
-
-  function invalidateCache() {
-    cacheDirty = true;
-  }
-
-  function readAllWorkerRows() {
-    const file = workerIndexPath();
-    if (!file) return [];
-    let st = null;
-    try {
-      st = statSync(file);
-    } catch {
-      cache = null;
-      return [];
-    }
-    if (!cacheDirty && cache && cache.mtimeMs === st.mtimeMs && cache.size === st.size) {
-      return cache.rows;
-    }
-    let rows = [];
-    let tombstones = [];
-    try {
-      const parsed = JSON.parse(readFileSync(file, 'utf8'));
-      rows = normalizeWorkerRows(parsed);
-      tombstones = normalizeTagTombstones(parsed);
-    } catch {
-      rows = [];
-      tombstones = [];
-    }
-    cache = { mtimeMs: st.mtimeMs, size: st.size, rows, tombstones };
-    cacheDirty = false;
-    return rows;
-  }
-
-  function readAllTagTombstones() {
-    readAllWorkerRows();
-    return cache?.tombstones || [];
-  }
-
-  function readTagTombstones(context = {}) {
-    return readAllTagTombstones().filter((row) => rowMatchesContext(row, context));
-  }
 
   function readWorkerRows(context = {}) {
-    const rows = readAllWorkerRows();
+    const rows = store.readAll();
     if (rows.length === 0) return rows;
     return rows.filter((row) => rowMatchesContext(row, context));
   }
 
-  // Single writer path: every mutation re-reads under the file lock, applies
-  // the caller's mutator over keyed maps, then republishes rows + tombstones.
-  function writeWorkerRows(mutator) {
-    const file = workerIndexPath();
-    if (!file || typeof mutator !== 'function') return null;
-    try {
-      const result = updateJsonAtomicSync(
-        file,
-        (cur) => {
-          const byKey = new Map();
-          for (const row of normalizeWorkerRows(cur)) {
-            const key = workerRowKey(row);
-            if (key) byKey.set(key, row);
-          }
-          const tombstonesByKey = new Map();
-          for (const row of normalizeTagTombstones(cur, { cap: false })) {
-            tombstonesByKey.set(tagTombstoneKey(row), row);
-          }
-          const priorityTombstoneKeys = new Set();
-          mutator(byKey, tombstonesByKey, priorityTombstoneKeys);
-          const workers = {};
-          for (const row of [...byKey.values()].filter(keepWorkerRow)) {
-            const key = workerRowKey(row);
-            if (key) workers[key] = row;
-          }
-          const tombstones = {};
-          for (const row of normalizeTagTombstones(
-            { tombstones: [...tombstonesByKey.values()] },
-            { priorityKeys: priorityTombstoneKeys }
-          )) {
-            tombstones[tagTombstoneKey(row)] = row;
-          }
-          return { version: 2, updatedAt: new Date().toISOString(), workers, tombstones };
-        },
-        { lock: true }
-      );
-      // This process just rewrote the index; force the next read to re-parse
-      // even if the new mtime/size happen to collide with the cached stat.
-      invalidateCache();
-      return result;
-    } catch {
-      return null;
-    }
-  }
-
-  function workerHeartbeatFresh(sessionId, now) {
-    const id = clean(sessionId);
-    if (!dataDir || !id) return false;
-    try {
-      const mtimeMs = statSync(resolve(dataDir, 'sessions', `${id}.hb`)).mtimeMs || 0;
-      return mtimeMs > 0 && now - mtimeMs <= WORKER_POOL_FRESH_MS;
-    } catch {
-      return false;
-    }
-  }
-
-  function staleActiveWorkerRow(row, now) {
-    const active = ACTIVE_WORKER_STATUS.test(clean(row?.status)) || ACTIVE_WORKER_STATUS.test(clean(row?.stage));
-    if (!active) return false;
-    if (positiveInt(row.runtimePid) && !runtimeAlive(row.runtimePid)) return true;
-    if (workerHeartbeatFresh(row.sessionId, now)) return false;
-    const updated = Date.parse(clean(row.updatedAt)) || 0;
-    return !(updated > 0 && now - updated <= WORKER_POOL_FRESH_MS);
-  }
-
-  function terminalReapAt(row, now) {
-    let reapMs = null;
-    try {
-      reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row?.provider);
-    } catch {
-      reapMs = null;
-    }
-    return reapMs == null ? null : new Date(now + reapMs).toISOString();
-  }
-
-  function idleWorkerRow(row, now, touch = false) {
-    const stamp = new Date(now).toISOString();
-    return {
-      ...row,
-      status: 'idle',
-      stage: 'idle',
-      turnStartedAt: null,
-      finishedAt: touch ? stamp : clean(row.finishedAt) || clean(row.updatedAt) || stamp,
-      updatedAt: touch ? stamp : clean(row.updatedAt) || stamp,
-      reapAt: touch ? terminalReapAt(row, now) : clean(row.reapAt) || terminalReapAt(row, now),
-    };
-  }
-
-  // Spawn-path writes are batched onto one microtask so a parallel fanout pays
-  // a single locked rewrite instead of one per worker.
-  function flushWorkerIndexMutations() {
-    if (flushTimer) {
-      try {
-        clearImmediate(flushTimer);
-      } catch {
-        /* already fired */
-      }
-      flushTimer = null;
-    }
-    if (pendingMutators.length === 0) return;
-    const batch = pendingMutators.splice(0, pendingMutators.length);
-    writeWorkerRows((byKey) => {
-      for (const mutator of batch) {
-        try {
-          mutator(byKey);
-        } catch {
-          /* one bad row never drops the batch */
-        }
-      }
-    });
-  }
-
-  function queueWorkerIndexMutation(mutator) {
-    if (typeof mutator !== 'function') return false;
-    if (!workerIndexPath()) return false;
-    pendingMutators.push(mutator);
-    if (!flushTimer) {
-      flushTimer = setImmediate(flushWorkerIndexMutations);
-      flushTimer.unref?.();
-    }
-    return true;
-  }
-
-  function workerRowFromSession(session, fallbackTag = '', extra = {}) {
-    const tag = agentTagOf(session) || clean(fallbackTag) || clean(extra.tag);
-    const sessionId = clean(session?.id || extra.sessionId);
-    if (!tag || !sessionId) return null;
-    const runtime = mgr.getSessionRuntime?.(sessionId);
-    const status = clean(extra.status) || (session?.closed === true ? 'closed' : clean(session?.status) || 'idle');
-    const stage = clean(extra.stage) || clean(runtime?.stage) || status;
-    const nowIso = new Date().toISOString();
-    return {
-      tag,
-      sessionId,
-      parentSessionId: clean(extra.parentSessionId) || clean(session?.parentSessionId) || null,
-      ownerSessionId:
-        clean(extra.ownerSessionId || extra.parentSessionId) ||
-        clean(session?.ownerSessionId || session?.parentSessionId) ||
-        null,
-      agent: clean(extra.agent) || clean(session?.agent) || null,
-      provider: clean(extra.provider) || clean(session?.provider) || null,
-      model: clean(extra.model) || clean(session?.model) || null,
-      preset: clean(extra.preset) || clean(session?.presetName) || null,
-      effort: clean(extra.effort) || clean(session?.effort) || null,
-      fast: extra.fast === true || extra.fast === false ? extra.fast : session?.fast === true ? true : null,
-      status,
-      stage,
-      createdAt: clean(session?.createdAt) || clean(extra.createdAt) || nowIso,
-      updatedAt: clean(extra.updatedAt) || nowIso,
-      lastUsedAt: clean(session?.lastUsedAt) || null,
-      finishedAt: clean(extra.finishedAt) || null,
-      // Turn dispatch stamps this; terminal upserts leave it null and the
-      // merge in applyWorkerRowUpsert preserves the running turn's value.
-      turnStartedAt: clean(extra.turnStartedAt) || null,
-      // Active/new work clears the previous lease. Terminal settlement writes
-      // the new absolute deadline immediately afterwards via scheduleReap().
-      reapAt: clean(extra.reapAt) || null,
-      clientHostPid: positiveInt(extra.clientHostPid) || positiveInt(session?.clientHostPid),
-      runtimePid: positiveInt(extra.runtimePid) || process.pid,
-      cwd: clean(session?.cwd) || clean(extra.cwd) || null,
-      task_id: clean(extra.task_id || extra.taskId) || null,
-      error: clean(extra.error) || null,
-      permission: clean(session?.permission) || null,
-      toolPermission: clean(session?.toolPermission) || null,
-      messages: Array.isArray(session?.messages) ? session.messages.length : 0,
-      tools: Array.isArray(session?.tools) ? session.tools.length : 0,
-    };
-  }
-
   // Every upsert also projects the row into the in-memory tag maps so tag
   // lookups never wait on a disk round-trip.
+  function bindTag(row) {
+    tags.set(row.tag, row.sessionId);
+    if (row.agent) tagAgents.set(row.tag, row.agent);
+    if (row.cwd) tagCwds.set(row.tag, row.cwd);
+  }
+
   function upsertWorkerRow(row, { defer = false } = {}) {
     const normalized = normalizeWorkerRows({ workers: [row] })[0];
     if (!normalized) return false;
     const key = workerRowKey(normalized);
-    if (ACTIVE_WORKER_STATUS.test(normalized.status) || ACTIVE_WORKER_STATUS.test(normalized.stage))
-      activeWorkerKeys.add(key);
+    if (isActiveWorkerRow(normalized)) activeWorkerKeys.add(key);
     else activeWorkerKeys.delete(key);
-    const bindTag = !isLeadPoolAgent(normalized.agent);
-    if (bindTag) {
-      tags.set(normalized.tag, normalized.sessionId);
-      if (normalized.agent) tagAgents.set(normalized.tag, normalized.agent);
-      if (normalized.cwd) tagCwds.set(normalized.tag, normalized.cwd);
-    }
-    if (defer) return queueWorkerIndexMutation((byKey) => applyWorkerRowUpsert(byKey, normalized));
-    writeWorkerRows((byKey) => {
+    bindTag(normalized);
+    if (defer) return file ? batch.queue((byKey) => applyWorkerRowUpsert(byKey, normalized)) : false;
+    store.write((byKey) => {
       applyWorkerRowUpsert(byKey, normalized);
     });
     return true;
   }
 
-  function upsertWorkerSession(session, fallbackTag = '', extra = {}) {
-    return upsertWorkerRow(workerRowFromSession(session, fallbackTag, extra));
-  }
-
-  function upsertWorkerSessionDeferred(session, fallbackTag = '', extra = {}) {
-    return upsertWorkerRow(workerRowFromSession(session, fallbackTag, extra), { defer: true });
-  }
+  const rowFromSession = (session, fallbackTag = '', extra = {}) =>
+    workerRowFromSession(session, fallbackTag, extra, (sessionId) => mgr.getSessionRuntime?.(sessionId));
 
   function removeWorkerRow({ tag = '', sessionId = '' } = {}) {
     const targetTag = clean(tag);
     const targetSessionId = clean(sessionId);
-    flushWorkerIndexMutations();
-    writeWorkerRows((byKey) => {
+    batch.flush();
+    store.write((byKey) => {
       for (const [key, row] of [...byKey.entries()]) {
         if ((targetSessionId && row.sessionId === targetSessionId) || (targetTag && row.tag === targetTag)) {
           byKey.delete(key);
@@ -347,23 +71,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
 
   function refreshTagsFromIndex(context = {}) {
     const rows = readWorkerRows(context);
-    for (const row of rows) {
-      if (!row.tag || !row.sessionId) continue;
-      if (isLeadPoolAgent(row.agent)) {
-        // Lead pool rows are status projections, not agent-tool children.
-        // Purge a projection left by older code so closeAll cannot mistake
-        // the owning desktop session for a worker and close it.
-        if (tags.get(row.tag) === row.sessionId) {
-          tags.delete(row.tag);
-          tagAgents.delete(row.tag);
-          tagCwds.delete(row.tag);
-        }
-        continue;
-      }
-      tags.set(row.tag, row.sessionId);
-      if (row.agent) tagAgents.set(row.tag, row.agent);
-      if (row.cwd) tagCwds.set(row.tag, row.cwd);
-    }
+    for (const row of rows) bindTag(row);
     return rows;
   }
 
@@ -372,34 +80,32 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     const keys = [...activeWorkerKeys];
     activeWorkerKeys.clear();
     const now = Date.now();
-    writeWorkerRows((byKey) => {
+    store.write((byKey) => {
       for (const key of keys) {
         const current = byKey.get(key);
         if (!current || positiveInt(current.runtimePid) !== process.pid) continue;
-        const active =
-          ACTIVE_WORKER_STATUS.test(clean(current.status)) || ACTIVE_WORKER_STATUS.test(clean(current.stage));
-        if (active) byKey.set(key, idleWorkerRow(current, now, true));
+        if (isActiveWorkerRow(current)) byKey.set(key, liveness.idleRow(current, now, true));
       }
     });
   }
 
   function recoverStaleWorkerRows() {
     const now = Date.now();
-    const stale = readAllWorkerRows().filter((row) => staleActiveWorkerRow(row, now));
+    const stale = store.readAll().filter((row) => liveness.isStaleActive(row, now));
     if (!stale.length) return false;
-    writeWorkerRows((byKey) => {
+    store.write((byKey) => {
       for (const row of stale) {
         const key = workerRowKey(row);
         const current = byKey.get(key);
-        if (!current || !staleActiveWorkerRow(current, now)) continue;
-        byKey.set(key, idleWorkerRow(current, now));
+        if (!current || !liveness.isStaleActive(current, now)) continue;
+        byKey.set(key, liveness.idleRow(current, now));
       }
     });
     return true;
   }
 
   function flushWorkerIndexOnExit() {
-    flushWorkerIndexMutations();
+    batch.flush();
     flushActiveWorkerRows();
   }
 
@@ -407,19 +113,21 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   registerExitFlush(flushWorkerIndexOnExit);
 
   return {
-    workerIndexPath,
-    invalidateWorkerRowsCache: invalidateCache,
-    readAllWorkerRows,
-    readAllTagTombstones,
-    readTagTombstones,
+    workerIndexPath: () => file,
+    invalidateWorkerRowsCache: store.invalidate,
+    readAllWorkerRows: store.readAll,
+    readAllTagTombstones: store.readTombstones,
+    readTagTombstones: (context = {}) => store.readTombstones().filter((row) => rowMatchesContext(row, context)),
     readWorkerRows,
-    writeWorkerRows,
-    flushWorkerIndexMutations,
-    queueWorkerIndexMutation,
-    workerRowFromSession,
+    writeWorkerRows: store.write,
+    flushWorkerIndexMutations: batch.flush,
+    queueWorkerIndexMutation: (mutator) => (file ? batch.queue(mutator) : false),
+    workerRowFromSession: rowFromSession,
     upsertWorkerRow,
-    upsertWorkerSession,
-    upsertWorkerSessionDeferred,
+    upsertWorkerSession: (session, fallbackTag = '', extra = {}) =>
+      upsertWorkerRow(rowFromSession(session, fallbackTag, extra)),
+    upsertWorkerSessionDeferred: (session, fallbackTag = '', extra = {}) =>
+      upsertWorkerRow(rowFromSession(session, fallbackTag, extra), { defer: true }),
     removeWorkerRow,
     refreshTagsFromIndex,
     flushActiveWorkerRows,

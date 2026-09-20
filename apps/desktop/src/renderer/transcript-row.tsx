@@ -278,7 +278,9 @@ export const TranscriptRow = memo(
       const tone = item.tone === 'error' || item.tone === 'warn' ? item.tone : '';
       return (
         <div className={`notice ${tone}`} role={item.tone === 'error' ? 'alert' : 'status'}>
-          {item.text}
+          {item.text === 'The model refused to respond (safety refusal) — retry or rephrase your prompt.'
+            ? t('The model refused to respond (safety refusal) — retry or rephrase your prompt.')
+            : item.text}
         </div>
       );
     }

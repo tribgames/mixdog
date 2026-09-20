@@ -8,6 +8,12 @@ import { BrowserWindow, type NativeImage } from 'electron';
 
 const OVERLAY_RENDER_TIMEOUT_MS = 5_000;
 
+function markColor(source: unknown): string {
+  if (source === 'ocr') return '#72e06a';
+  if (source === 'msaa') return '#ffb020';
+  return '#29d3ff';
+}
+
 export async function renderSomOverlay(
   image: { mimeType: string; data: string },
   width: number,
@@ -26,7 +32,7 @@ export async function renderSomOverlay(
       if (bounds.length !== 4 || bounds.some((value) => !Number.isFinite(value))) return '';
       const [x, y, w, h] = bounds;
       const mark = Number(element.mark);
-      const color = element.source === 'ocr' ? '#72e06a' : element.source === 'msaa' ? '#ffb020' : '#29d3ff';
+      const color = markColor(element.source);
       const badgeWidth = Math.max(20, String(mark).length * 8 + 10);
       const badgeX = Math.max(0, Math.min(width - badgeWidth, x));
       const badgeY = Math.max(0, y - 20);

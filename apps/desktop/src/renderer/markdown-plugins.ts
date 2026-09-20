@@ -455,7 +455,7 @@ function linkifyText(value: string): HastLikeNode[] | null {
 function inlineCodeLink(code: HastLikeNode, next: HastLikeNode | undefined): HastLikeNode | null {
   if (code.type !== 'element' || code.tagName !== 'code' || skipsPathLinks(code)) return null;
   const only = code.children?.length === 1 ? code.children[0] : null;
-  if (!only || only.type !== 'text' || typeof only.value !== 'string') return null;
+  if (only?.type !== 'text' || typeof only.value !== 'string') return null;
   const mention = codeMention(only.value);
   if (!mention) return null;
   let location: MentionLocation = mention;

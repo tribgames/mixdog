@@ -307,7 +307,7 @@ export function PaneWorkspace({
     let enterCounter = 0;
     const isSourceStripReorder = (event: DragEvent): boolean => {
       const drag = currentPaneDrag();
-      if (!drag || drag.kind !== 'tab' || !drag.sourceLeafId) return false;
+      if (drag?.kind !== 'tab' || !drag.sourceLeafId) return false;
       const target = event.target instanceof Element ? event.target : null;
       const strip = target?.closest('.workspace-tabs-shell');
       const pane = strip?.closest<HTMLElement>('[data-pane-id]');

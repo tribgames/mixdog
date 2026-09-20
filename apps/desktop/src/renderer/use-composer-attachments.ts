@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from 'react';
 import type { RecordValue } from './desktop-types';
 import { absolutePathsForDragPayload, localFilesFromPaths } from './file-drag';
 import { attachmentFromFile, attachmentPolicyError, isSupportedComposerImagePath } from './composer-attachments';

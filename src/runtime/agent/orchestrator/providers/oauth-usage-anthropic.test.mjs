@@ -29,7 +29,7 @@ test('scoped weekly windows are reported next to the all-model windows', () => {
         resets_at: resetsAt,
         scope: { surface: { id: 'oauth_apps', display_name: 'OAuth apps' } },
       },
-      { kind: 'weekly_model', percent: 90, resets_at: resetsAt, is_active: false, scope: { model: { id: 'retired' } } },
+      { kind: 'weekly_model', is_active: false, scope: { model: { id: 'unmeasured' } } },
     ],
   });
   assert.deepEqual(
@@ -60,4 +60,42 @@ test('the limits[] fallback still covers unscoped windows only once', () => {
       ['7D Opus', 30],
     ]
   );
+});
+
+test('Fable remains visible when the active limit changes, with or without legacy windows', () => {
+  const sessionReset = '2026-09-20T05:10:00Z';
+  const weeklyReset = '2026-09-26T23:00:00Z';
+  for (const legacy of [true, false]) {
+    for (const active of [false, true, false]) {
+      const percent = active ? 100 : 8;
+      const snapshot = normalizeAnthropicUsage({
+        ...(legacy
+          ? {
+              five_hour: { utilization: 17, resets_at: sessionReset },
+              seven_day: { utilization: 4, resets_at: weeklyReset },
+            }
+          : {}),
+        limits: [
+          { kind: 'session', percent: 17, resets_at: sessionReset, is_active: !active },
+          { kind: 'weekly_all', percent: 4, resets_at: weeklyReset, is_active: false },
+          {
+            kind: 'weekly_scoped',
+            percent,
+            resets_at: weeklyReset,
+            is_active: active,
+            scope: { model: { id: null, display_name: 'Fable' }, surface: null },
+          },
+        ],
+      });
+      assert.deepEqual(
+        snapshot.quotaWindows.map(({ label, usedPct }) => [label, usedPct]),
+        [
+          ['5H', 17],
+          ['7D', 4],
+          ['7D Fable', percent],
+        ]
+      );
+      assert.equal(snapshot.quotaWindows[2].resetAt, Date.parse(weeklyReset));
+    }
+  }
 });

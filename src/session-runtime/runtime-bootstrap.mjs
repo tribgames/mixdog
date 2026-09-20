@@ -1,7 +1,7 @@
 // Session-runtime boot sequence: prepare the standalone environment, then load
-// the runtime module graph. Extracted from createMixdogSessionRuntime so the
-// factory keeps wiring only; the two steps stay separate exports because the
-// runtime creates provider-readiness state between them.
+// the runtime module graph. createMixdogSessionRuntime keeps wiring only; the
+// two steps stay separate exports because the runtime creates
+// provider-readiness state between them.
 import { performance } from 'node:perf_hooks';
 import { ensureStandaloneEnvironment } from '../standalone/seeds.mjs';
 import { listOfficeJournals } from '../runtime/office/core/journal.mjs';

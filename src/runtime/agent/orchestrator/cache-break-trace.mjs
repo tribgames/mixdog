@@ -77,8 +77,9 @@ function formatCacheBreakLine(record = {}) {
 
 export function traceCacheBreak(record = {}, options = {}) {
   const payload = buildCacheBreakPayload(record);
-  const traceFn =
-    options.traceFn === null ? null : typeof options.traceFn === 'function' ? options.traceFn : appendAgentTrace;
+  let traceFn = appendAgentTrace;
+  if (options.traceFn === null) traceFn = null;
+  else if (typeof options.traceFn === 'function') traceFn = options.traceFn;
   if (traceFn) {
     try {
       traceFn({

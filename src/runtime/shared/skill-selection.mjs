@@ -7,7 +7,9 @@ export function skillSelectionHeader(name) {
 
 export function selectedSkillName(prompt) {
   const first = Array.isArray(prompt) ? prompt[0] : prompt;
-  const text = typeof first === 'string' ? first : first?.type === 'text' ? first.text : '';
+  let text = '';
+  if (typeof first === 'string') text = first;
+  else if (first?.type === 'text') text = first.text;
   if (typeof text !== 'string') return null;
   const match = /^Skill: ("(?:[^"\\\r\n]|\\.)*")\r?\n\r?\n/.exec(text);
   if (!match) return null;

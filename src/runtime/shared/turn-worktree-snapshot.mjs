@@ -348,26 +348,123 @@ async function changedWorktreePaths(state) {
   };
 }
 
-async function captureTreeUnlocked(state) {
+async function captureTreeUnlocked(state, toolPaths = []) {
   await ensureState(state);
   const { paths, excludedUntracked } = await changedWorktreePaths(state);
-  if (paths.length > 0) {
-    await runGit(shadowArgs(state, ['add', '--all', '--sparse', '--pathspec-from-file=-', '--pathspec-file-nul']), {
-      cwd: state.root,
-      input: `${paths.join('\0')}\0`,
-    });
+  const explicit = new Set(toolPaths);
+  for (const rel of explicit) {
+    try {
+      const stat = await lstat(resolve(state.root, rel));
+      if (stat.isFile() || stat.isSymbolicLink()) paths.push(rel);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
   }
-  if (excludedUntracked.length > 0) {
+  if (paths.length > 0) {
+    await runGit(
+      shadowArgs(state, ['add', '--force', '--all', '--sparse', '--pathspec-from-file=-', '--pathspec-file-nul']),
+      {
+        cwd: state.root,
+        input: `${[...new Set(paths)].join('\0')}\0`,
+      }
+    );
+  }
+  const excluded = excludedUntracked.filter((rel) => !explicit.has(rel));
+  if (excluded.length > 0) {
     // A small untracked file may already live in the persistent shadow index
     // from an earlier turn. If it later grows past the bound, remove only its
     // index entry so neither hashing nor turn-relative restore sees stale data.
     await runGit(shadowArgs(state, ['update-index', '--force-remove', '-z', '--stdin']), {
       cwd: state.root,
-      input: `${excludedUntracked.join('\0')}\0`,
+      input: `${excluded.join('\0')}\0`,
     });
   }
   const tree = await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root });
   return clean(tree.stdout);
+}
+
+/** Only explicit tool targets bypass ignore/size filters. Their first-before
+ * bytes fill holes in the shadow baseline, not the user's repository index. */
+export function recordTurnWorktreeFileChange(snapshot, fullPath, before) {
+  if (!snapshot) return;
+  const rel = relative(snapshot.root, resolve(fullPath)).replace(/\\/g, '/');
+  if (!rel || isAbsolute(rel) || rel.split('/').includes('..')) return;
+  if (snapshot.toolPaths.has(rel)) return;
+  snapshot.toolPaths.add(rel);
+  snapshot.pendingBaselines.set(rel, before);
+}
+
+async function applyBaselineFilesUnlocked(state, tree, entries) {
+  if (entries.length === 0) return { tree, files: [] };
+  const saved = clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout);
+  const files = [];
+  try {
+    await runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root });
+    for (const entry of entries) {
+      const path = safeRelativePath(state.root, entry.path);
+      let oid = entry.oid || null;
+      if (entry.content !== undefined && entry.content !== null) {
+        oid = clean(
+          (
+            await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin']), {
+              cwd: state.root,
+              input: entry.content,
+            })
+          ).stdout
+        );
+      }
+      if (oid) {
+        await runGit(shadowArgs(state, ['update-index', '--add', '--cacheinfo', '100644', oid, path]), {
+          cwd: state.root,
+        });
+      } else {
+        await runGit(shadowArgs(state, ['update-index', '--force-remove', '--', path]), { cwd: state.root });
+      }
+      files.push({ path, oid });
+    }
+    return {
+      tree: clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout),
+      files,
+    };
+  } finally {
+    await runGit(shadowArgs(state, ['read-tree', saved]), { cwd: state.root });
+  }
+}
+
+async function materializeToolBaselines(snapshot) {
+  const pending = [...snapshot.pendingBaselines];
+  if (pending.length === 0) return;
+  const { state } = snapshot;
+  const paths = pending.map(([path]) => path);
+  const listed = await runGit(
+    shadowArgs(state, ['ls-tree', '-r', '-z', '--name-only', snapshot.baselineTree, '--', ...paths]),
+    {
+      cwd: state.root,
+    }
+  );
+  const present = new Set(listed.stdout.split('\0').map(pathKey));
+  const ignoredResult = await runGit(['check-ignore', '--no-index', '-z', '--stdin'], {
+    cwd: state.root,
+    input: `${paths.join('\0')}\0`,
+    allowFailure: true,
+  });
+  if (ignoredResult.code > 1) throw commandError(['check-ignore'], ignoredResult.stderr, ignoredResult.code);
+  const ignored = new Set(ignoredResult.stdout.split('\0').map(pathKey));
+  const missing = pending
+    .filter(
+      ([path, content]) =>
+        !present.has(pathKey(path)) &&
+        (content === null ||
+          (!state.sourceTracked.has(pathKey(path)) &&
+            (ignored.has(pathKey(path)) || content.length > MAX_UNTRACKED_FILE_BYTES)))
+    )
+    .map(([path, content]) => ({ path, content }));
+  const applied = await applyBaselineFilesUnlocked(state, snapshot.baselineTree, missing);
+  snapshot.baselineTree = applied.tree;
+  for (const entry of applied.files) snapshot.baselineFiles.set(pathKey(entry.path), entry);
+  for (const [path] of pending) snapshot.pendingBaselines.delete(path);
+  // A changed baseline can change the diff even when the current tree did not.
+  snapshot.currentTree = '';
 }
 
 function parseNameStatus(text) {
@@ -506,6 +603,9 @@ export async function createTurnWorktreeSnapshot(worktree) {
       files: [],
       patchTruncated: false,
       scopePaths: null,
+      toolPaths: new Set(),
+      pendingBaselines: new Map(),
+      baselineFiles: new Map(),
     };
   });
 }
@@ -513,7 +613,7 @@ export async function createTurnWorktreeSnapshot(worktree) {
 /** Re-open a recorded baseline after the runtime lost its in-memory tracker.
  *  The tree object is the durable half of a review; `paths` scopes both this
  *  diff and any later revert to what the recording session actually owns. */
-export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths = null } = {}) {
+export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths = null, baselineFiles = [] } = {}) {
   const tree = clean(baselineTree);
   if (!tree) return null;
   const root = await repositoryRoot(worktree).catch(() => null);
@@ -529,18 +629,22 @@ export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths
     });
     if (kind.code !== 0 || clean(kind.stdout) !== 'tree') return null;
     const scopePaths = Array.isArray(paths) && paths.length > 0 ? [...new Set(paths)] : null;
+    const applied = await applyBaselineFilesUnlocked(state, tree, baselineFiles || []);
     const snapshot = {
       state,
       root,
-      baselineTree: tree,
+      baselineTree: applied.tree,
       currentTree: tree,
       patch: '',
       files: [],
       patchTruncated: false,
       scopePaths,
+      toolPaths: new Set(scopePaths || []),
+      pendingBaselines: new Map(),
+      baselineFiles: new Map(applied.files.map((entry) => [pathKey(entry.path), entry])),
     };
-    const currentTree = await captureTreeUnlocked(state);
-    Object.assign(snapshot, await diffTreesUnlocked(state, tree, currentTree, scopePaths));
+    const currentTree = await captureTreeUnlocked(state, snapshot.toolPaths);
+    Object.assign(snapshot, await diffTreesUnlocked(state, snapshot.baselineTree, currentTree, scopePaths));
     return snapshot;
   });
 }
@@ -548,7 +652,8 @@ export async function resumeTurnWorktreeSnapshot(worktree, baselineTree, { paths
 export async function refreshTurnWorktreeSnapshot(snapshot) {
   if (!snapshot?.state || !snapshot.baselineTree) return null;
   return await withStateLock(snapshot.state, async () => {
-    const currentTree = await captureTreeUnlocked(snapshot.state);
+    await materializeToolBaselines(snapshot);
+    const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
     if (currentTree === snapshot.currentTree) return snapshot;
     const review = await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths);
     Object.assign(snapshot, review);
@@ -590,7 +695,7 @@ async function revertPathsUnlocked(snapshot, targets) {
   for (const target of targets) {
     await restorePathFromTree(snapshot, target);
   }
-  const currentTree = await captureTreeUnlocked(snapshot.state);
+  const currentTree = await captureTreeUnlocked(snapshot.state, snapshot.toolPaths);
   Object.assign(
     snapshot,
     await diffTreesUnlocked(snapshot.state, snapshot.baselineTree, currentTree, snapshot.scopePaths)
@@ -600,6 +705,7 @@ async function revertPathsUnlocked(snapshot, targets) {
 
 export async function revertTurnWorktreeFile(snapshot, value) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
+  await refreshTurnWorktreeSnapshot(snapshot);
   return await withStateLock(snapshot.state, async () => {
     const rel = safeRelativePath(snapshot.root, value);
     const entry = snapshot.files.find(
@@ -614,6 +720,7 @@ export async function revertTurnWorktreeFile(snapshot, value) {
 
 export async function revertTurnWorktreeSnapshot(snapshot) {
   if (!snapshot?.state || !snapshot.baselineTree) throw new Error('turn worktree snapshot is unavailable');
+  await refreshTurnWorktreeSnapshot(snapshot);
   return await withStateLock(snapshot.state, async () => {
     // Resolve and validate every path before the first mutation. Renames and
     // copies contribute both sides so the worktree returns to the exact

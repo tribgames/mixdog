@@ -1,7 +1,6 @@
 // Shared catalog-driven max_tokens resolution for both Anthropic providers
-// (OAuth and API-key). Extracted from anthropic-oauth.mjs so anthropic.mjs
-// (the API-key twin) gets the same sonnet-5+ / haiku fix instead of drifting
-// with its own hardcoded table.
+// (OAuth and API-key), so anthropic.mjs (the API-key twin) never drifts with
+// its own hardcoded table.
 //
 // Resolution order:
 //   1. MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS env override, if set to a positive

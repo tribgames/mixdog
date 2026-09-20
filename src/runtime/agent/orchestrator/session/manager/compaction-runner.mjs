@@ -421,7 +421,11 @@ function compactionOutcome(session, freshContextResult, changed, now) {
 // Observability parity with the loop's pre-send pass: record the
 // out-of-loop mutation as compact_meta (observed live: a 403k→10k post-turn
 // compact traced as intentional_transition: null with no compact_meta).
-function traceCommittedCompaction(plan, compactStartedAt, { messages, compacted, beforeEncoded, afterEncoded, changed }) {
+function traceCommittedCompaction(
+  plan,
+  compactStartedAt,
+  { messages, compacted, beforeEncoded, afterEncoded, changed }
+) {
   let beforePrefixHash = null;
   try {
     beforePrefixHash = messagePrefixHash(messages);

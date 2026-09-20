@@ -19,6 +19,12 @@ async function readError(res) {
   return text.slice(0, 400);
 }
 
+/** One reference edits that image; several composite into a new one. */
+function referenceParams(refs) {
+  if (refs.length === 1) return { image: refs[0] };
+  return refs.length > 1 ? { images: refs } : {};
+}
+
 function sizeParams({ aspectRatio, resolution }) {
   const params = {};
   const aspect = String(aspectRatio || 'auto');
@@ -43,8 +49,7 @@ export async function generateImage({ lane, model, prompt, options = {}, referen
     prompt,
     n: 1,
     response_format: 'b64_json',
-    // One reference edits that image; several composite into a new one.
-    ...(refs.length === 1 ? { image: refs[0] } : refs.length > 1 ? { images: refs } : {}),
+    ...referenceParams(refs),
     ...sizeParams(options),
   };
   const route = refs.length ? 'images/edits' : 'images/generations';

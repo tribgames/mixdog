@@ -181,13 +181,20 @@ function recordEditSnapshot(fullPath, options, contentHash = null, preMutationSt
 // shared per-call side channel so tool cards render edit results with the
 // same diff markup. Lazy import breaks the orchestrator→builtin→adapters
 // module cycle; failures never affect the edit result.
-async function recordEditUiDiff(options, workDir, fullPath, before, after) {
+async function recordEditUiDiff(options, workDir, fullPath, before, after, encoding) {
   const callId = options?.toolCallId;
   const sessionId = options?.sessionId || options?.readStateScope;
   if (!callId || !sessionId) return;
   try {
     const { registerEditToolUiDiff } = await import('../patch/orchestrator.mjs');
-    registerEditToolUiDiff({ callId, sessionId, basePath: workDir, fullPath, before, after });
+    registerEditToolUiDiff({
+      callId,
+      sessionId,
+      basePath: workDir,
+      fullPath,
+      before: before === null ? null : encodeEditContent(before, encoding),
+      after: after === null ? null : encodeEditContent(after, encoding),
+    });
   } catch {
     /* best-effort display channel */
   }
@@ -356,8 +363,7 @@ function encodeEditText(text, enc) {
 function encodeEditContent(text, enc) {
   const body = encodeEditText(text, enc);
   if (!enc?.bomLen) return body;
-  const bom =
-    enc.encoding === 'utf16le' ? UTF16LE_BOM_BYTES : enc.encoding === 'utf16be' ? UTF16BE_BOM_BYTES : UTF8_BOM_BYTES;
+  const bom = { utf16le: UTF16LE_BOM_BYTES, utf16be: UTF16BE_BOM_BYTES }[enc.encoding] ?? UTF8_BOM_BYTES;
   return Buffer.concat([bom, body]);
 }
 
@@ -469,42 +475,31 @@ function readEditTextForDisplay(fullPath, enc) {
   }
 }
 
-async function adaptStrReplace(args, workDir, options) {
-  let oldStr = args?.old_string;
-  let newStr = args?.new_string;
-  if (typeof oldStr !== 'string' || typeof newStr !== 'string') return null;
-  if (oldStr === newStr) return 'Error: old_string and new_string are exactly the same';
-  const replaceAll = args?.replace_all === true || String(args?.replace_all || '').toLowerCase() === 'true';
-  const target = await resolveTargetPath(args, workDir);
-  if (!target) return null;
-  if (target.error) return target.error;
-  const fullPath = target.full;
-  if (oldStr.length === 0 && !existsSync(fullPath)) {
-    try {
-      mkdirSync(dirname(fullPath), { recursive: true });
-    } catch {
-      /* surfaced by atomicWrite */
-    }
-    try {
-      await atomicWrite(fullPath, newStr, {
-        sessionId: editScope(options),
-        signal: options?.signal,
-        expectedTargetSnapshot: { exists: false },
-      });
-    } catch (err) {
-      if (err?.code === 'ESTALE_TARGET') {
-        return `Error: ${fullPath} was created concurrently; read it before editing`;
+// ── str_replace: the edit target record + the steps that mutate it ──────────
+
+const SAME_STRINGS_ERROR = 'Error: old_string and new_string are exactly the same';
+
+function targetSnapshot(statBefore) {
+  return statBefore
+    ? {
+        exists: true,
+        size: statBefore.size,
+        mtimeMs: statBefore.mtimeMs,
+        ctimeMs: statBefore.ctimeMs,
+        ino: statBefore.ino,
       }
-      throw err;
-    }
-    invalidateAfterWrite(fullPath);
-    recordEditSnapshot(fullPath, options);
-    await recordEditUiDiff(options, workDir, fullPath, null, newStr);
-    return `Created ${fullPath} (${Buffer.byteLength(newStr, 'utf8')} bytes)`;
-  }
-  let content;
-  let fileEnc = { encoding: 'utf8', bomLen: 0 };
+    : { exists: false };
+}
+
+/**
+ * Read and decode the edit target. Codec by DETECTION (BOM, else NUL parity),
+ * not by BOM presence: a BOM-less UTF-16 file must not be spliced as UTF-8.
+ * Returns `{ error }` when the bytes cannot be read or are not decidable text.
+ */
+function readEditTarget(fullPath) {
   let statBefore = null;
+  let content;
+  let fileEnc;
   try {
     try {
       statBefore = statSync(fullPath);
@@ -512,183 +507,160 @@ async function adaptStrReplace(args, workDir, options) {
       /* readFileSync below surfaces the real error */
     }
     const rawBuf = readFileSync(fullPath);
-    // Codec by DETECTION (BOM, else NUL parity), not by BOM presence: a
-    // BOM-less UTF-16 file must not be spliced as UTF-8.
     fileEnc = detectPatchTargetCodec(rawBuf);
     content = fileEnc.certain ? decodeEditBuffer(rawBuf, fileEnc) : null;
   } catch (err) {
-    return `Error: cannot read ${fullPath} (${err?.message || err})`;
+    return { error: `Error: cannot read ${fullPath} (${err?.message || err})` };
   }
   if (typeof content !== 'string') {
+    return {
+      error:
+        `Error: cannot edit ${normalizeOutputPath(fullPath)}: its bytes are not decidable text` +
+        ' (invalid UTF-8, malformed UTF-16 with an odd trailing byte, or NUL bytes without a' +
+        ' consistent UTF-16 pattern), so any edit would alter bytes outside the replacement.' +
+        ' Convert the encoding first.',
+    };
+  }
+  return { content, fileEnc, statBefore };
+}
+
+/**
+ * Write the edited bytes through atomicWrite and record the edit (read-cache
+ * invalidation, edit snapshot, UI diff). A target that changed on disk since
+ * `edit.statBefore` is reported as `staleMessage`, never written over.
+ * Returns null on success.
+ */
+async function commitEdit(edit, { bytes, after, staleMessage }) {
+  const { fullPath, workDir, options, content, fileEnc, statBefore } = edit;
+  try {
+    await atomicWrite(fullPath, bytes, {
+      sessionId: editScope(options),
+      signal: options?.signal,
+      expectedTargetSnapshot: targetSnapshot(statBefore),
+    });
+  } catch (err) {
+    if (err?.code === 'ESTALE_TARGET') return `Error: ${fullPath} ${staleMessage}`;
+    throw err;
+  }
+  invalidateAfterWrite(fullPath);
+  recordEditSnapshot(fullPath, options, null, statBefore);
+  await recordEditUiDiff(options, workDir, fullPath, content, after, fileEnc);
+  return null;
+}
+
+async function createEditTarget(edit, newStr) {
+  const { fullPath } = edit;
+  try {
+    mkdirSync(dirname(fullPath), { recursive: true });
+  } catch {
+    /* surfaced by atomicWrite */
+  }
+  const stale = await commitEdit(edit, {
+    bytes: newStr,
+    after: newStr,
+    staleMessage: 'was created concurrently; read it before editing',
+  });
+  return stale ?? `Created ${fullPath} (${Buffer.byteLength(newStr, 'utf8')} bytes)`;
+}
+
+/**
+ * Dialect normalization: trailing-whitespace hygiene on the replacement,
+ * typographic rematch of old_string onto the file's actual bytes, and
+ * trailing-newline absorption for deletions.
+ */
+function normalizeEditDialect(edit, oldStr, newStr, replaceAll) {
+  const { fullPath, content } = edit;
+  // Replacement-text trailing-whitespace hygiene; markdown keeps
+  // trailing double-space hard line breaks.
+  if (!/\.(md|mdx)$/i.test(fullPath)) {
+    newStr = newStr.replace(/[ \t]+(?=\r?\n|$)/g, '');
+  }
+  // Typographic rematch: old_string missed byte-exact but matches after
+  // 1:1 normalization of dashes/curly quotes/odd spaces. Rebase
+  // old_string onto the file's actual bytes and mirror the file's curly
+  // quote style into the replacement; replace_all requires every span to
+  // be byte-identical so no occurrence is silently skipped.
+  if (oldStr.length > 0 && !content.includes(oldStr)) {
+    const normContent = normalizeTypographicChars(content);
+    const normOld = normalizeTypographicChars(oldStr);
+    const spans = [];
+    for (
+      let at = normContent.indexOf(normOld);
+      at !== -1 && spans.length < 64;
+      at = normContent.indexOf(normOld, at + 1)
+    ) {
+      spans.push(content.slice(at, at + oldStr.length));
+    }
+    if (spans.length > 0 && spans[0] !== oldStr && (!replaceAll || spans.every((span) => span === spans[0]))) {
+      newStr = applyFileQuoteStyle(spans[0], newStr);
+      oldStr = spans[0];
+    }
+  }
+  // Deleting a block absorbs its trailing newline so the deletion does
+  // not leave an empty line behind.
+  if (newStr === '' && oldStr.length > 0 && !oldStr.endsWith('\n')) {
+    if (content.includes(`${oldStr}\r\n`)) oldStr += '\r\n';
+    else if (content.includes(`${oldStr}\n`)) oldStr += '\n';
+  }
+  return { oldStr, newStr };
+}
+
+const STALE_DURING_EDIT = 'changed on disk during the edit; read it again';
+
+/**
+ * Batch sequential occupation (tool-batch `_editSeqGroups`): this call is
+ * the next member of a same-anchor edit batch and exactly `expected`
+ * occurrences of old_string must remain. Deterministically consume the
+ * FIRST remaining occurrence (document order == call order, the contract
+ * apply_patch hunks already have). Exact byte matching only; any count
+ * drift falls through (null) to the native engine's strict ambiguity reject.
+ */
+async function applyEditOccupation(edit, oldStr, editPlan) {
+  const { content, fileEnc, fullPath } = edit;
+  const at = editPlan.positions[0];
+  const next = `${content.slice(0, at)}${editPlan.replacements[0]}${content.slice(at + oldStr.length)}`;
+  const stale = await commitEdit(edit, {
+    bytes: encodeEditContent(next, fileEnc),
+    after: next,
+    staleMessage: STALE_DURING_EDIT,
+  });
+  return stale ?? `Updated ${fullPath} (1 replacement)`;
+}
+
+/**
+ * In-process apply, used whenever the native engine cannot be trusted with
+ * these bytes: a non-UTF-8 codec (its EDIT protocol is UTF-8), an
+ * old_string rebased onto the file's line endings, or per-occurrence
+ * replacement text. The splice copies the file verbatim around each
+ * matched span, so no byte outside a replacement can change.
+ */
+async function applyEditInProcess(edit, oldStr, editPlan, replaceAll) {
+  const { content, fileEnc, fullPath } = edit;
+  const occurrences = editPlan.positions.length;
+  if (occurrences === 0) {
+    const message = 'old_string not found';
+    return `Error: edit failed (${message})${formatEditFailureExcerpt(content, oldStr, message)}`;
+  }
+  if (occurrences > 1 && !replaceAll) {
+    const message = `old_string found ${occurrences} times`;
     return (
-      `Error: cannot edit ${normalizeOutputPath(fullPath)}: its bytes are not decidable text` +
-      ' (invalid UTF-8, malformed UTF-16 with an odd trailing byte, or NUL bytes without a' +
-      ' consistent UTF-16 pattern), so any edit would alter bytes outside the replacement.' +
-      ' Convert the encoding first.'
+      `Error: edit failed (${message}; pass replace_all:true or extend old_string)` +
+      formatEditFailureExcerpt(content, oldStr, message)
     );
   }
-  if (oldStr.length === 0) {
-    if (content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty`;
-    try {
-      await atomicWrite(fullPath, encodeEditContent(newStr, fileEnc), {
-        sessionId: editScope(options),
-        signal: options?.signal,
-        expectedTargetSnapshot: {
-          exists: true,
-          size: statBefore.size,
-          mtimeMs: statBefore.mtimeMs,
-          ctimeMs: statBefore.ctimeMs,
-          ino: statBefore.ino,
-        },
-      });
-    } catch (err) {
-      if (err?.code === 'ESTALE_TARGET') {
-        return `Error: ${fullPath} changed on disk during the edit; read it again`;
-      }
-      throw err;
-    }
-    invalidateAfterWrite(fullPath);
-    recordEditSnapshot(fullPath, options, null, statBefore);
-    await recordEditUiDiff(options, workDir, fullPath, content, newStr);
-    return `Updated ${fullPath} (filled empty file)`;
-  }
-  // Dialect normalization (skipped for same-anchor batch members whose
-  // occurrence accounting is bound to the original old_string):
-  if (!options?.editOccurrence) {
-    // Replacement-text trailing-whitespace hygiene; markdown keeps
-    // trailing double-space hard line breaks.
-    if (!/\.(md|mdx)$/i.test(fullPath)) {
-      newStr = newStr.replace(/[ \t]+(?=\r?\n|$)/g, '');
-    }
-    // Typographic rematch: old_string missed byte-exact but matches after
-    // 1:1 normalization of dashes/curly quotes/odd spaces. Rebase
-    // old_string onto the file's actual bytes and mirror the file's curly
-    // quote style into the replacement; replace_all requires every span to
-    // be byte-identical so no occurrence is silently skipped.
-    if (oldStr.length > 0 && !content.includes(oldStr)) {
-      const normContent = normalizeTypographicChars(content);
-      const normOld = normalizeTypographicChars(oldStr);
-      const spans = [];
-      for (
-        let at = normContent.indexOf(normOld);
-        at !== -1 && spans.length < 64;
-        at = normContent.indexOf(normOld, at + 1)
-      ) {
-        spans.push(content.slice(at, at + oldStr.length));
-      }
-      if (spans.length > 0 && spans[0] !== oldStr && (!replaceAll || spans.every((span) => span === spans[0]))) {
-        newStr = applyFileQuoteStyle(spans[0], newStr);
-        oldStr = spans[0];
-      }
-    }
-    // Deleting a block absorbs its trailing newline so the deletion does
-    // not leave an empty line behind.
-    if (newStr === '' && oldStr.length > 0 && !oldStr.endsWith('\n')) {
-      if (content.includes(`${oldStr}\r\n`)) oldStr += '\r\n';
-      else if (content.includes(`${oldStr}\n`)) oldStr += '\n';
-    }
-    if (oldStr === newStr) return 'Error: old_string and new_string are exactly the same';
-  }
-  // EOL planning runs for EVERY edit (batch members included): a CRLF file is
-  // the Windows default, the rebase is 1:1 over the same match positions, and
-  // the replacement adopts the convention of the span it replaces.
-  const editPlan = planEdit(content, oldStr, newStr, {
-    absorbTrailingNewline: !options?.editOccurrence,
+  const applied = replaceAll ? occurrences : 1;
+  const next = applyEditPlan(content, oldStr, editPlan, replaceAll);
+  const stale = await commitEdit(edit, {
+    bytes: encodeEditContent(next, fileEnc),
+    after: next,
+    staleMessage: STALE_DURING_EDIT,
   });
-  oldStr = editPlan.oldStr;
-  if (editPlan.positions.length > 0 && editPlan.replacements.every((replacement) => replacement === oldStr)) {
-    return 'Error: old_string and new_string are exactly the same';
-  }
-  // Batch sequential occupation (tool-batch `_editSeqGroups`): this call is
-  // the next member of a same-anchor edit batch and exactly `expected`
-  // occurrences of old_string must remain. Deterministically consume the
-  // FIRST remaining occurrence (document order == call order, the contract
-  // apply_patch hunks already have). Exact byte matching only; any count
-  // drift falls through to the native engine's strict ambiguity reject.
-  const _occupation = options?.editOccurrence;
-  if (_occupation && !replaceAll && Number.isInteger(_occupation.expected) && _occupation.expected >= 2) {
-    const positions = editPlan.positions;
-    if (positions.length === _occupation.expected) {
-      const at = positions[0];
-      const next = `${content.slice(0, at)}${editPlan.replacements[0]}${content.slice(at + oldStr.length)}`;
-      try {
-        await atomicWrite(fullPath, encodeEditContent(next, fileEnc), {
-          sessionId: editScope(options),
-          signal: options?.signal,
-          expectedTargetSnapshot: statBefore
-            ? {
-                exists: true,
-                size: statBefore.size,
-                mtimeMs: statBefore.mtimeMs,
-                ctimeMs: statBefore.ctimeMs,
-                ino: statBefore.ino,
-              }
-            : { exists: false },
-        });
-      } catch (err) {
-        if (err?.code === 'ESTALE_TARGET') {
-          return `Error: ${fullPath} changed on disk during the edit; read it again`;
-        }
-        throw err;
-      }
-      invalidateAfterWrite(fullPath);
-      recordEditSnapshot(fullPath, options, null, statBefore);
-      await recordEditUiDiff(options, workDir, fullPath, content, next);
-      return `Updated ${fullPath} (1 replacement)`;
-    }
-  }
-  // In-process apply, used whenever the native engine cannot be trusted with
-  // these bytes: a non-UTF-8 codec (its EDIT protocol is UTF-8), an
-  // old_string rebased onto the file's line endings, or per-occurrence
-  // replacement text. The splice copies the file verbatim around each
-  // matched span, so no byte outside a replacement can change.
-  // An unverified native edit session never receives work: the in-process
-  // apply below is the fallback, so a stale/spoofed engine cannot touch bytes.
-  const nativeEditVerified = await nativeEditSessionSatisfiesContract();
-  // A symlinked target never reaches the native engine either: it writes the
-  // path it is handed, which would replace the link with a regular file. The
-  // in-process apply goes through atomicWrite, which writes through the link.
-  const symlinkedTarget = symlinkWriteTarget(fullPath) !== null;
-  if (!nativeEditVerified || symlinkedTarget || fileEnc.encoding !== 'utf8' || editPlan.rebased || !editPlan.uniform) {
-    const occurrences = editPlan.positions.length;
-    if (occurrences === 0) {
-      const message = 'old_string not found';
-      return `Error: edit failed (${message})${formatEditFailureExcerpt(content, oldStr, message)}`;
-    }
-    if (occurrences > 1 && !replaceAll) {
-      const message = `old_string found ${occurrences} times`;
-      return (
-        `Error: edit failed (${message}; pass replace_all:true or extend old_string)` +
-        formatEditFailureExcerpt(content, oldStr, message)
-      );
-    }
-    const applied = replaceAll ? occurrences : 1;
-    const next = applyEditPlan(content, oldStr, editPlan, replaceAll);
-    try {
-      await atomicWrite(fullPath, encodeEditContent(next, fileEnc), {
-        sessionId: editScope(options),
-        signal: options?.signal,
-        expectedTargetSnapshot: statBefore
-          ? {
-              exists: true,
-              size: statBefore.size,
-              mtimeMs: statBefore.mtimeMs,
-              ctimeMs: statBefore.ctimeMs,
-              ino: statBefore.ino,
-            }
-          : { exists: false },
-      });
-    } catch (err) {
-      if (err?.code === 'ESTALE_TARGET') {
-        return `Error: ${fullPath} changed on disk during the edit; read it again`;
-      }
-      throw err;
-    }
-    invalidateAfterWrite(fullPath);
-    recordEditSnapshot(fullPath, options, null, statBefore);
-    await recordEditUiDiff(options, workDir, fullPath, content, next);
-    return `Updated ${fullPath} (${applied} replacement${applied === 1 ? '' : 's'})`;
-  }
+  return stale ?? `Updated ${fullPath} (${applied} replacement${applied === 1 ? '' : 's'})`;
+}
+
+/** The verified native engine performs the splice; we prove what it edited. */
+async function applyEditNative(edit, oldStr, newStr, editPlan, replaceAll) {
+  const { fullPath, workDir, options, content, fileEnc, statBefore } = edit;
   let result;
   try {
     result = await runServerEdit({
@@ -716,11 +688,82 @@ async function adaptStrReplace(args, workDir, options) {
   const editedExactlyWhatWeRead =
     typeof result?.contentHash === 'string' && expectedAfter !== null && result.contentHash === hashText(expectedAfter);
   recordEditSnapshot(fullPath, options, result.contentHash, editedExactlyWhatWeRead ? statBefore : null);
-  {
-    const after = readEditTextForDisplay(fullPath, fileEnc);
-    if (typeof after === 'string') await recordEditUiDiff(options, workDir, fullPath, content, after);
-  }
+  const after = readEditTextForDisplay(fullPath, fileEnc);
+  if (typeof after === 'string') await recordEditUiDiff(options, workDir, fullPath, content, after, fileEnc);
   return `Updated ${fullPath} (${result.replacements} replacement${result.replacements === 1 ? '' : 's'})`;
+}
+
+/**
+ * Whether these bytes must be spliced in-process. An unverified native edit
+ * session never receives work (a stale/spoofed engine cannot touch bytes), and
+ * a symlinked target never reaches it either: it writes the path it is handed,
+ * which would replace the link with a regular file, whereas atomicWrite writes
+ * through the link.
+ */
+async function requiresInProcessEdit(edit, editPlan) {
+  const nativeEditVerified = await nativeEditSessionSatisfiesContract();
+  const symlinkedTarget = symlinkWriteTarget(edit.fullPath) !== null;
+  return (
+    !nativeEditVerified || symlinkedTarget || edit.fileEnc.encoding !== 'utf8' || editPlan.rebased || !editPlan.uniform
+  );
+}
+
+async function adaptStrReplace(args, workDir, options) {
+  let oldStr = args?.old_string;
+  let newStr = args?.new_string;
+  if (typeof oldStr !== 'string' || typeof newStr !== 'string') return null;
+  if (oldStr === newStr) return SAME_STRINGS_ERROR;
+  const replaceAll = args?.replace_all === true || String(args?.replace_all || '').toLowerCase() === 'true';
+  const target = await resolveTargetPath(args, workDir);
+  if (!target) return null;
+  if (target.error) return target.error;
+  const fullPath = target.full;
+  if (oldStr.length === 0 && !existsSync(fullPath)) {
+    return createEditTarget(
+      { fullPath, workDir, options, content: null, fileEnc: undefined, statBefore: null },
+      newStr
+    );
+  }
+  const read = readEditTarget(fullPath);
+  if (read.error) return read.error;
+  const edit = { fullPath, workDir, options, ...read };
+  if (oldStr.length === 0) {
+    if (edit.content.length > 0) return `Error: cannot create ${fullPath}: file already exists and is not empty`;
+    const stale = await commitEdit(edit, {
+      bytes: encodeEditContent(newStr, edit.fileEnc),
+      after: newStr,
+      staleMessage: STALE_DURING_EDIT,
+    });
+    return stale ?? `Updated ${fullPath} (filled empty file)`;
+  }
+  // Dialect normalization is skipped for same-anchor batch members whose
+  // occurrence accounting is bound to the original old_string.
+  const occupation = options?.editOccurrence;
+  if (!occupation) {
+    ({ oldStr, newStr } = normalizeEditDialect(edit, oldStr, newStr, replaceAll));
+    if (oldStr === newStr) return SAME_STRINGS_ERROR;
+  }
+  // EOL planning runs for EVERY edit (batch members included): a CRLF file is
+  // the Windows default, the rebase is 1:1 over the same match positions, and
+  // the replacement adopts the convention of the span it replaces.
+  const editPlan = planEdit(edit.content, oldStr, newStr, { absorbTrailingNewline: !occupation });
+  oldStr = editPlan.oldStr;
+  if (editPlan.positions.length > 0 && editPlan.replacements.every((replacement) => replacement === oldStr)) {
+    return SAME_STRINGS_ERROR;
+  }
+  if (
+    occupation &&
+    !replaceAll &&
+    Number.isInteger(occupation.expected) &&
+    occupation.expected >= 2 &&
+    editPlan.positions.length === occupation.expected
+  ) {
+    return applyEditOccupation(edit, oldStr, editPlan);
+  }
+  if (await requiresInProcessEdit(edit, editPlan)) {
+    return applyEditInProcess(edit, oldStr, editPlan, replaceAll);
+  }
+  return applyEditNative(edit, oldStr, newStr, editPlan, replaceAll);
 }
 
 async function adaptWrite(args, workDir, options) {

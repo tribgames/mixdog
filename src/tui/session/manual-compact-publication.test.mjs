@@ -30,12 +30,11 @@ for (const outcome of ['success', 'no-change', 'error-result', 'throw']) {
       draft = { ...draft, ...patch };
       publisher.emit();
     };
-    const result =
-      outcome === 'success'
-        ? { changed: true, beforeTokens: 1_000, afterTokens: 100 }
-        : outcome === 'no-change'
-          ? { changed: false, reason: 'nothing to compact' }
-          : { changed: false, error: 'memory unavailable' };
+    const results = {
+      success: { changed: true, beforeTokens: 1_000, afterTokens: 100 },
+      'no-change': { changed: false, reason: 'nothing to compact' },
+    };
+    const result = results[outcome] ?? { changed: false, error: 'memory unavailable' };
     let resolveCompact;
     let rejectCompact;
     let signalStarted;
@@ -82,10 +81,8 @@ for (const outcome of ['success', 'no-change', 'error-result', 'throw']) {
       assert.equal(api.getState().commandBusy, false);
       assert.equal(api.getState().commandStatus, null);
       if (outcome !== 'throw') {
-        assert.equal(
-          api.getState().items.at(-1).label,
-          outcome === 'success' ? 'Compact complete' : outcome === 'no-change' ? 'Compact checked' : 'Compact failed'
-        );
+        const labels = { success: 'Compact complete', 'no-change': 'Compact checked' };
+        assert.equal(api.getState().items.at(-1).label, labels[outcome] ?? 'Compact failed');
       }
     } finally {
       publisher.dispose();

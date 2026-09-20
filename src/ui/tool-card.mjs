@@ -94,5 +94,5 @@ function collapse(s) {
 function truncate(s, max) {
   const str = String(s);
   if (str.length <= max) return str;
-  return max <= 3 ? '.'.repeat(Math.max(0, max)) : str.slice(0, Math.max(0, max - 3)) + '...';
+  return max <= 3 ? '.'.repeat(Math.max(0, max)) : `${str.slice(0, Math.max(0, max - 3))}...`;
 }

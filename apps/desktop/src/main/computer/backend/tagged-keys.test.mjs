@@ -15,7 +15,7 @@ test('tagged key streams preserve grouping, repeats and literal escapes; invalid
     await writeFile(
       join(directory, 'native.cs'),
       MIXDOG_HOST_CSHARP +
-        String.raw`
+        `
 public class FakeKeySink : IMixKeySink {
   public string Events = "";
   public bool FailTap, FailUp;
@@ -28,7 +28,7 @@ public class FakeKeySink : IMixKeySink {
     );
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing

@@ -77,11 +77,11 @@ function scheduleStableSurfaceCommit(commit: () => void): () => void {
   let cancelled = false;
   let frame = 0;
   let fontTimer = 0;
+  const now = () => (typeof performance === 'undefined' ? Date.now() : performance.now());
   const requestFrame =
     typeof window.requestAnimationFrame === 'function'
       ? window.requestAnimationFrame.bind(window)
-      : (callback: FrameRequestCallback) =>
-          window.setTimeout(() => callback(typeof performance === 'undefined' ? Date.now() : performance.now()), 16);
+      : (callback: FrameRequestCallback) => window.setTimeout(() => callback(now()), 16);
   const cancelFrame =
     typeof window.cancelAnimationFrame === 'function'
       ? window.cancelAnimationFrame.bind(window)
@@ -243,11 +243,12 @@ export function DesktopBootGate({
   }, [barrier, revealed, timedOut]);
   useEffect(() => () => barrier.dispose(), [barrier]);
 
+  const brandHandoff = enabled ? 'desktop' : 'browser';
   return (
     <div
       className="desktop-boot-gate"
       data-ready={handoffComplete ? 'true' : 'false'}
-      data-brand-handoff={handoffComplete ? (enabled ? 'desktop' : 'browser') : undefined}
+      data-brand-handoff={handoffComplete ? brandHandoff : undefined}
       data-timeout={timedOut ? 'true' : undefined}
       data-pending={enabled && !handoffComplete ? surfaces.pending : undefined}
     >
@@ -315,7 +316,8 @@ export function PaneSurfaceCover({
   showSpinner?: boolean;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
-  return revealed ? null : (
+  if (revealed) return null;
+  return (
     <div className="pane-surface-cover">
       {showSpinner ? (
         <DesktopLoadingSurface label={label} />

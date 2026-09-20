@@ -1,7 +1,7 @@
 /**
  * OpenAI Codex OAuth model-catalog transforms.
  *
- * Extracted from openai-oauth.mjs: pure catalog helpers — API-shape
+ * Pure catalog helpers — API-shape
  * normalization, family classification, version comparison, and the
  * per-family "latest" pass. No module state; openai-oauth.mjs re-exports
  * _displayCodexModel for existing importers.
@@ -80,18 +80,15 @@ export function _normalizeCodexModel(m) {
     ...(typeof m?.supports_image_generation === 'boolean'
       ? { supportsImageGeneration: m.supports_image_generation }
       : {}),
-    ...(Array.isArray(m?.supported_tools)
-      ? {
-          supportedTools: m.supported_tools
-            .map((tool) => (typeof tool === 'string' ? tool : tool?.type))
-            .filter(Boolean),
-        }
-      : {}),
+    ...(Array.isArray(m?.supported_tools) ? { supportedTools: toolTypeNames(m.supported_tools) } : {}),
     serviceTiers,
     defaultServiceTier: m?.default_service_tier || null,
     additionalSpeedTiers,
   };
 }
+
+// The catalog lists tools either as bare type strings or as { type } records.
+const toolTypeNames = (tools) => tools.map((tool) => (typeof tool === 'string' ? tool : tool?.type)).filter(Boolean);
 
 // Compare two model ids by the X.Y version embedded in `gpt-X.Y`. Mirrors
 // anthropic-oauth's _compareVersion; these ids have no trailing date so

@@ -134,6 +134,8 @@ function snapshotRows(path, format, rows, options = {}) {
       totalCells += 1;
     }
   }
+  const rangeSuffix = options.range ? `!${options.range}` : '';
+  const nextOffset = offset + cells.length < totalCells ? offset + cells.length : null;
   return {
     format,
     path,
@@ -153,12 +155,12 @@ function snapshotRows(path, format, rows, options = {}) {
       ? {
           pagination: {
             unit: 'populated-cell',
-            scope: `${name}${options.range ? `!${options.range}` : ''}`,
+            scope: `${name}${rangeSuffix}`,
             offset,
             limit,
             returned: cells.length,
             total: totalCells,
-            nextOffset: offset + cells.length < totalCells ? offset + cells.length : null,
+            nextOffset,
           },
         }
       : {}),
@@ -279,11 +281,14 @@ export async function issuesTabular(path, format, options = {}) {
   // every well-formed row — the header included — read as broken.
   const tally = new Map();
   for (const width of widths) tally.set(width, (tally.get(width) || 0) + 1);
+  const firstRowWidth = widths[0];
+  const preferFirstRow = (left, right) => {
+    if (left === firstRowWidth) return -1;
+    if (right === firstRowWidth) return 1;
+    return right - left;
+  };
   const expectedColumns =
-    [...tally.entries()].sort(
-      (left, right) =>
-        right[1] - left[1] || (left[0] === widths[0] ? -1 : right[0] === widths[0] ? 1 : right[0] - left[0])
-    )[0]?.[0] ?? 0;
+    [...tally.entries()].sort((left, right) => right[1] - left[1] || preferFirstRow(left[0], right[0]))[0]?.[0] ?? 0;
   for (let row = 0; row < rows.length; row += 1) {
     if (rows[row].length !== expectedColumns) {
       const extra = rows[row].length > expectedColumns;

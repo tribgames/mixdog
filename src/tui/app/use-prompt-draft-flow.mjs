@@ -1,4 +1,4 @@
-// Prompt draft + slash palette flow, extracted from App.jsx: keystroke-time
+// Prompt draft + slash palette flow: keystroke-time
 // draft sync (slash-token lift, history-nav reset, argument hints), the four
 // text-entry prompt cancel paths, and accept/complete/cancel for the slash
 // palette.

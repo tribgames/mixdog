@@ -14,6 +14,7 @@ import {
   USAGE_DASHBOARD_RETRY_DELAY_MS as RETRY,
 } from './usage-dashboard-store.ts';
 import { createRendererClock } from '../../scripts/test-renderer-clock.mjs';
+import { applyStageChange } from '../../../../src/tui/session/turn-stream.mjs';
 
 function bind(t, clock) {
   const win = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -73,6 +74,128 @@ const otherProvider = {
   windows: [{ label: '7D', usedPct: 3 }],
 };
 const switchedRow = () => getUsageDashboardSnapshot().dashboard.rows[0];
+
+for (const oldFirst of [true, false]) {
+  test(`automatic account changes synchronize usage and reject old responses (${oldFirst ? 'old first' : 'old last'})`, async (t) => {
+    const clock = createRendererClock();
+    bind(t, clock);
+    const exhausted = { ...otherProvider, windows: [{ label: '7D Fable', usedPct: 100 }] };
+    const fresh = { ...otherProvider, windows: [{ label: '7D Fable', usedPct: 8 }] };
+    publishUsageDashboard({ rows: [oldAccount, exhausted] });
+    const states = new Set();
+    const sessions = new Set();
+    const requests = [];
+    const api = {
+      subscribeState(listener) {
+        states.add(listener);
+        return () => states.delete(listener);
+      },
+      subscribeSessionState(listener) {
+        sessions.add(listener);
+        return () => sessions.delete(listener);
+      },
+      invokeCapability(args) {
+        return new Promise((resolve) => requests.push({ args, resolve }));
+      },
+    };
+    const release = holdUsageDashboardCadence(api);
+    const prior = refreshUsageDashboard(api, { force: true });
+    const spinner = oldFirst ? null : { mode: 'responding' };
+    let state = { spinner };
+    const stream = {
+      getState: () => state,
+      set(patch) {
+        state = { ...state, ...patch };
+        for (const listener of states) listener(state);
+        for (const listener of sessions) listener({ sessionId: 'lead', snapshot: state, frameSource: 'live' });
+      },
+    };
+    await applyStageChange(stream, 'account-changed', {
+      provider: 'anthropic-oauth',
+      accountId: 'new-account',
+      at: clock.now,
+    });
+    assert.equal(state.spinner, spinner, 'account changes do not change the turn phase');
+    assert.equal(requests.length, 2, 'both state lanes share one immediate refresh');
+    assert.deepEqual(requests[1].args.args[0].refreshProviders, ['anthropic-oauth']);
+    assert.deepEqual(getUsageDashboardSnapshot().dashboard.rows[0], oldAccount);
+    assert.deepEqual(getUsageDashboardSnapshot().dashboard.rows[1].windows, []);
+    assert.equal(getUsageDashboardSnapshot().dashboard.rows[1].status, 'checking');
+    if (oldFirst) {
+      requests[0].resolve({ value: { rows: [oldAccount, exhausted] } });
+      await prior;
+      assert.deepEqual(getUsageDashboardSnapshot().dashboard.rows[1].windows, []);
+    }
+    requests[1].resolve({ value: { rows: [oldAccount, fresh] } });
+    await clock.settle();
+    if (!oldFirst) {
+      requests[0].resolve({ value: { rows: [oldAccount, exhausted] } });
+      await prior;
+    }
+    assert.deepEqual(getUsageDashboardSnapshot().dashboard.rows, [oldAccount, fresh]);
+    assert.deepEqual(JSON.parse(clock.storage.get(CACHE_KEY)).rows, [oldAccount, fresh]);
+    for (const listener of states) listener(state);
+    for (const listener of sessions) {
+      listener({
+        sessionId: 'older-session',
+        snapshot: { providerAccountChange: { provider: 'anthropic-oauth', accountId: 'old', at: clock.now - 1 } },
+        frameSource: 'replay',
+      });
+    }
+    assert.equal(requests.length, 2, 'repeated and older frames cannot restart an account check');
+    const retiredListener = [...states][0];
+    release();
+    await clock.settle();
+    assert.equal(states.size, 0);
+    assert.equal(sessions.size, 0);
+    retiredListener({
+      providerAccountChange: { provider: 'anthropic-oauth', accountId: 'late', at: clock.now + 1 },
+    });
+    assert.equal(requests.length, 2);
+    assert.equal(clock.timers.size, 0);
+  });
+}
+
+test('automatic account subscriptions move to the current host API', async (t) => {
+  const clock = createRendererClock();
+  bind(t, clock);
+  publishUsageDashboard({ rows: [oldAccount] });
+  const makeApi = () => {
+    const callbacks = new Set();
+    let calls = 0;
+    return {
+      callbacks,
+      get calls() {
+        return calls;
+      },
+      subscribeState(listener) {
+        callbacks.add(listener);
+        return () => callbacks.delete(listener);
+      },
+      async invokeCapability() {
+        calls += 1;
+        return { value: { rows: [oldAccount] } };
+      },
+    };
+  };
+  const oldApi = makeApi();
+  const newApi = makeApi();
+  const releaseOld = holdUsageDashboardCadence(oldApi);
+  const oldListener = [...oldApi.callbacks][0];
+  const releaseNew = holdUsageDashboardCadence(newApi);
+  assert.equal(oldApi.callbacks.size, 0);
+  assert.equal(newApi.callbacks.size, 1);
+  const state = { providerAccountChange: { provider: 'openai-oauth', accountId: 'b', at: clock.now } };
+  oldListener(state);
+  for (const listener of newApi.callbacks) listener(state);
+  await clock.settle();
+  assert.equal(oldApi.calls, 0);
+  assert.equal(newApi.calls, 1);
+  releaseOld();
+  releaseNew();
+  await clock.settle();
+  assert.equal(newApi.callbacks.size, 0);
+});
 
 for (const oldFirst of [true, false]) {
   test(`account switching immediately refreshes without accepting old responses (${oldFirst ? 'old first' : 'old last'})`, async (t) => {
@@ -137,19 +260,15 @@ for (const failure of ['offline', 'timeout', 'empty', 'malformed', 'missing-api'
     publishUsageDashboard({ rows: [oldAccount, otherProvider] });
     applyAccountUsageWindows('openai-oauth', undefined);
     let lateResolve;
-    const api =
-      failure === 'missing-api'
-        ? {}
-        : {
-            invokeCapability() {
-              if (failure === 'timeout')
-                return new Promise((resolve) => {
-                  lateResolve = resolve;
-                });
-              if (failure === 'offline') return Promise.reject(new Error('offline'));
-              return Promise.resolve({ value: failure === 'empty' ? { rows: [] } : {} });
-            },
-          };
+    const invokeCapability = () => {
+      if (failure === 'timeout')
+        return new Promise((resolve) => {
+          lateResolve = resolve;
+        });
+      if (failure === 'offline') return Promise.reject(new Error('offline'));
+      return Promise.resolve({ value: failure === 'empty' ? { rows: [] } : {} });
+    };
+    const api = failure === 'missing-api' ? {} : { invokeCapability };
     const request = refreshUsageDashboardAfterAuth(api, ['openai-oauth']);
     if (failure === 'timeout') await clock.advance(TIMEOUT);
     await request;

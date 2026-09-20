@@ -36,6 +36,21 @@ function stringArray(value: unknown): string[] {
   return [...new Set(value.map((entry) => String(entry || '').trim()).filter(Boolean))];
 }
 
+function parameterOptionValues(value: unknown): Array<{ value: string; label: string; contextWindow?: number }> {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+    const option = raw as Record<string, unknown>;
+    const optionValue = String(option.value || '').trim();
+    const optionLabel = String(option.label || optionValue).trim();
+    if (!optionValue || !optionLabel) return [];
+    const contextWindow = Number(option.contextWindow);
+    const entry: { value: string; label: string; contextWindow?: number } = { value: optionValue, label: optionLabel };
+    if (Number.isFinite(contextWindow) && contextWindow > 0) entry.contextWindow = contextWindow;
+    return [entry];
+  });
+}
+
 function parameterOptions(value: unknown): DesktopModelOption['modelParameterOptions'] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
@@ -43,25 +58,9 @@ function parameterOptions(value: unknown): DesktopModelOption['modelParameterOpt
     const parameter = entry as Record<string, unknown>;
     const id = String(parameter.id || '').trim();
     const label = String(parameter.label || id).trim();
-    const kind = parameter.kind === 'boolean' ? 'boolean' : parameter.kind === 'enum' ? 'enum' : null;
-    const options = Array.isArray(parameter.options)
-      ? parameter.options.flatMap((raw) => {
-          if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
-          const option = raw as Record<string, unknown>;
-          const optionValue = String(option.value || '').trim();
-          const optionLabel = String(option.label || optionValue).trim();
-          const contextWindow = Number(option.contextWindow);
-          return optionValue && optionLabel
-            ? [
-                {
-                  value: optionValue,
-                  label: optionLabel,
-                  ...(Number.isFinite(contextWindow) && contextWindow > 0 ? { contextWindow } : {}),
-                },
-              ]
-            : [];
-        })
-      : [];
+    let kind: 'boolean' | 'enum' | null = null;
+    if (parameter.kind === 'boolean' || parameter.kind === 'enum') kind = parameter.kind;
+    const options = parameterOptionValues(parameter.options);
     return id && label && kind && options.length ? [{ id, label, kind, options }] : [];
   });
 }
@@ -222,11 +221,10 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   const quickSettled = quick.catch(() => []);
   const full = quickSettled
     .then(() => api.listProviderModels?.({ quick: false }) ?? [])
-    .then((models) =>
-      isCurrent()
-        ? writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models
-        : normalizeModelCatalog(models)
-    );
+    .then((models) => {
+      if (!isCurrent()) return normalizeModelCatalog(models);
+      return writeCachedModelCatalog(Array.isArray(models) ? models : [], scope).models;
+    });
   const setup = api.invokeCapability
     ? quickSettled
         .then(() =>

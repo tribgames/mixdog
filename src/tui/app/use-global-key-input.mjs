@@ -1,4 +1,4 @@
-// Global key input, extracted from App.jsx. Everything the app handles
+// Global key input. Everything the app handles
 // before PromptInput sees a key: tool-approval y/n, copy-first Ctrl+C with
 // region-aware selection sources, Ctrl+O expand, shift-arrow grid-selection
 // moves, panel Escapes, and PageUp/PageDown transcript paging.

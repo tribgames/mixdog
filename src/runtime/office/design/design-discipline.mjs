@@ -127,15 +127,22 @@ function hexToHsl(value) {
   const delta = maximum - minimum;
   if (delta === 0) return { hue: 0, saturation: 0, lightness: lightness * 100 };
   const saturation = delta / (1 - Math.abs(2 * lightness - 1));
-  let hue =
-    maximum === red
-      ? ((green - blue) / delta) % 6
-      : maximum === green
-        ? (blue - red) / delta + 2
-        : (red - green) / delta + 4;
+  let hue = (red - green) / delta + 4;
+  if (maximum === red) hue = ((green - blue) / delta) % 6;
+  else if (maximum === green) hue = (blue - red) / delta + 2;
   hue = (hue * 60 + 360) % 360;
   return { hue, saturation: saturation * 100, lightness: lightness * 100 };
 }
+
+// RGB order per 60° hue segment, from the chroma and its secondary component.
+const HUE_SEGMENT_RGB = [
+  (chroma, secondary) => [chroma, secondary, 0],
+  (chroma, secondary) => [secondary, chroma, 0],
+  (chroma, secondary) => [0, chroma, secondary],
+  (chroma, secondary) => [0, secondary, chroma],
+  (chroma, secondary) => [secondary, 0, chroma],
+  (chroma, secondary) => [chroma, 0, secondary],
+];
 
 export function hslToHex(hue, saturation, lightness) {
   const h = ((Number(hue) % 360) + 360) % 360;
@@ -144,18 +151,8 @@ export function hslToHex(hue, saturation, lightness) {
   const chroma = (1 - Math.abs(2 * l - 1)) * s;
   const segment = h / 60;
   const secondary = chroma * (1 - Math.abs((segment % 2) - 1));
-  const [red, green, blue] =
-    segment < 1
-      ? [chroma, secondary, 0]
-      : segment < 2
-        ? [secondary, chroma, 0]
-        : segment < 3
-          ? [0, chroma, secondary]
-          : segment < 4
-            ? [0, secondary, chroma]
-            : segment < 5
-              ? [secondary, 0, chroma]
-              : [chroma, 0, secondary];
+  const segmentRgb = HUE_SEGMENT_RGB[Math.floor(segment)] ?? HUE_SEGMENT_RGB[5];
+  const [red, green, blue] = segmentRgb(chroma, secondary);
   const offset = l - chroma / 2;
   return rgbToHex([red, green, blue].map((channel) => (channel + offset) * 255));
 }

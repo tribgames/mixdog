@@ -42,7 +42,7 @@ function sessionMessagesSnapshotChanged(before, after) {
 }
 
 function isCompactedOutgoingFinalAssistantMessage(message) {
-  if (!message || message.role !== 'assistant') return false;
+  if (message?.role !== 'assistant') return false;
   if (message.emptyFinal === true) return true;
   return true;
 }
@@ -101,7 +101,7 @@ function applyCompactFailurePersistToSession(
     const overflow = error?.code === 'AGENT_CONTEXT_OVERFLOW';
     activeSession.compaction = {
       ...prev,
-      lastStage: prev.lastStage === 'overflow_failed' ? 'overflow_failed' : overflow ? 'overflow_failed' : 'failed',
+      lastStage: prev.lastStage === 'overflow_failed' || overflow ? 'overflow_failed' : 'failed',
       lastCheckedAt: Date.now(),
       lastError: prev.lastError || cause?.message || error?.message || null,
       lastFreshContextError: prev.lastFreshContextError || cause?.message || error?.message || null,

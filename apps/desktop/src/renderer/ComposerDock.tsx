@@ -13,7 +13,7 @@ import { TurnReviewBar } from './TurnReview';
  * and the follow hook re-pins the tail before paint. The dock therefore lets
  * each slot change geometry exactly once per real change:
  *   - the review slot is RESERVED while a diff can still arrive — a live
- *     file-touching turn, or a scope whose first authoritative worker read is
+ *     file-touching turn, or a boundary whose authoritative worker read is
  *     still in flight — so the result fills existing geometry instead of
  *     resizing the viewport a second time;
  *   - the draft context bar leaves through a measured collapse instead of an

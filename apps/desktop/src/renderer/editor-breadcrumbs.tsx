@@ -18,6 +18,7 @@ import type { EditorFileLoad } from './editor-file-loader';
 import type { EditorOutlineItem } from './editor-language-store';
 import { normalizedFilePath } from './editor-lsp-conversion';
 import { t } from './i18n';
+import { wrappedNavigationIndex } from './list-navigation';
 import {
   breadcrumbPickerAnchor,
   type BreadcrumbFileItem,
@@ -133,16 +134,9 @@ export function EditorBreadcrumbs({
         })
         .catch((reason) => {
           if (generation !== pickerGeneration.current) return;
+          const error = reason instanceof Error ? reason.message : String(reason);
           setPicker((current) =>
-            current?.kind === 'files'
-              ? {
-                  ...current,
-                  rows: [],
-                  activeIndex: 0,
-                  loading: false,
-                  error: reason instanceof Error ? reason.message : String(reason),
-                }
-              : current
+            current?.kind === 'files' ? { ...current, rows: [], activeIndex: 0, loading: false, error } : current
           );
         });
     },
@@ -219,12 +213,7 @@ export function EditorBreadcrumbs({
       if (!count) return;
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Home' || event.key === 'End') {
         event.preventDefault();
-        const next =
-          event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? count - 1
-              : (picker.activeIndex + (event.key === 'ArrowDown' ? 1 : -1) + count) % count;
+        const next = wrappedNavigationIndex(event.key, picker.activeIndex, count, event.key === 'ArrowDown' ? 1 : -1);
         focusRow(next);
         return;
       }
@@ -278,114 +267,103 @@ export function EditorBreadcrumbs({
       if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight' && event.key !== 'Home' && event.key !== 'End')
         return;
       event.preventDefault();
-      const next =
-        event.key === 'Home'
-          ? 0
-          : event.key === 'End'
-            ? count - 1
-            : (focusIndex + (event.key === 'ArrowRight' ? 1 : -1) + count) % count;
+      const next = wrappedNavigationIndex(event.key, focusIndex, count, event.key === 'ArrowRight' ? 1 : -1);
       setFocusIndex(next);
       buttonRefs.current[next]?.focus();
     },
     [focusIndex, onFocusEditor, segments.length, symbols.length]
   );
 
-  const portal = picker
-    ? createPortal(
-        <div
-          ref={pickerRef}
-          className="editor-breadcrumb-picker"
-          role="dialog"
-          aria-label={picker.kind === 'files' ? 'File Breadcrumbs' : 'Symbol Breadcrumbs'}
-          style={{
-            left: picker.anchor.x,
-            top: picker.anchor.y,
-            width: picker.anchor.width,
-            maxHeight: picker.anchor.maxHeight,
-          }}
-          onKeyDown={handlePickerKeyDown}
-        >
-          {picker.kind === 'files' && (
-            <div className="editor-breadcrumb-picker-header">
+  const portal =
+    picker &&
+    createPortal(
+      <div
+        ref={pickerRef}
+        className="editor-breadcrumb-picker"
+        role="dialog"
+        aria-label={picker.kind === 'files' ? 'File Breadcrumbs' : 'Symbol Breadcrumbs'}
+        style={{
+          left: picker.anchor.x,
+          top: picker.anchor.y,
+          width: picker.anchor.width,
+          maxHeight: picker.anchor.maxHeight,
+        }}
+        onKeyDown={handlePickerKeyDown}
+      >
+        {picker.kind === 'files' && (
+          <div className="editor-breadcrumb-picker-header">
+            <button
+              type="button"
+              aria-label={t('Parent Folder')}
+              disabled={!picker.directory}
+              onClick={() => {
+                const parent = picker.directory.split('/').slice(0, -1).join('/');
+                showFiles(picker.anchor, parent, picker.directory);
+              }}
+            >
+              <ChevronLeft size={14} aria-hidden="true" />
+            </button>
+            <span title={picker.directory || projectPath}>{picker.directory || projectPath}</span>
+          </div>
+        )}
+        <div className="editor-breadcrumb-picker-tree" role="tree">
+          {picker.kind === 'files' && picker.loading && (
+            <p>
+              <ProgressSpinner size={14} className="editor-pane-spinner" /> {t('Loading…')}
+            </p>
+          )}
+          {picker.kind === 'files' && !picker.loading && picker.error && <p>{picker.error}</p>}
+          {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
+            <p>{t('No files found.')}</p>
+          )}
+          {picker.kind === 'symbols' && !picker.rows.length && <p>{t('No symbols found.')}</p>}
+          {picker.rows.map((item, index) => {
+            const fileItem = picker.kind === 'files' ? (item as BreadcrumbFileItem) : null;
+            const symbolItem = picker.kind === 'symbols' ? (item as EditorOutlineItem) : null;
+            const selected = index === picker.activeIndex;
+            let RowGlyph = Braces;
+            if (fileItem) RowGlyph = fileItem.dir ? Folder : FileIcon;
+            return (
               <button
+                key={fileItem?.relPath || symbolItem?.key || index}
+                ref={(node) => {
+                  rowRefs.current[index] = node;
+                }}
                 type="button"
-                aria-label={t('Parent Folder')}
-                disabled={!picker.directory}
+                role="treeitem"
+                aria-selected={selected}
+                className={selected ? 'selected' : ''}
+                style={symbolItem ? { paddingLeft: `${8 + symbolItem.level * 14}px` } : undefined}
+                onFocus={() =>
+                  setPicker((current) =>
+                    current ? ({ ...current, activeIndex: index } as BreadcrumbPickerState) : current
+                  )
+                }
+                onMouseEnter={() =>
+                  setPicker((current) =>
+                    current ? ({ ...current, activeIndex: index } as BreadcrumbPickerState) : current
+                  )
+                }
                 onClick={() => {
-                  const parent = picker.directory.split('/').slice(0, -1).join('/');
-                  showFiles(picker.anchor, parent, picker.directory);
+                  if (fileItem) {
+                    openFile(fileItem);
+                    return;
+                  }
+                  if (!symbolItem) return;
+                  setPicker(null);
+                  onRevealSymbol(symbolItem);
                 }}
               >
-                <ChevronLeft size={14} aria-hidden="true" />
+                <RowGlyph size={14} aria-hidden="true" />
+                <span>{fileItem?.name || symbolItem?.name}</span>
+                {symbolItem?.detail && <small>{symbolItem.detail}</small>}
               </button>
-              <span title={picker.directory || projectPath}>{picker.directory || projectPath}</span>
-            </div>
-          )}
-          <div className="editor-breadcrumb-picker-tree" role="tree">
-            {picker.kind === 'files' && picker.loading && (
-              <p>
-                <ProgressSpinner size={14} className="editor-pane-spinner" /> {t('Loading…')}
-              </p>
-            )}
-            {picker.kind === 'files' && !picker.loading && picker.error && <p>{picker.error}</p>}
-            {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
-              <p>{t('No files found.')}</p>
-            )}
-            {picker.kind === 'symbols' && !picker.rows.length && <p>{t('No symbols found.')}</p>}
-            {picker.rows.map((item, index) => {
-              const fileItem = picker.kind === 'files' ? (item as BreadcrumbFileItem) : null;
-              const symbolItem = picker.kind === 'symbols' ? (item as EditorOutlineItem) : null;
-              const selected = index === picker.activeIndex;
-              return (
-                <button
-                  key={fileItem?.relPath || symbolItem?.key || index}
-                  ref={(node) => {
-                    rowRefs.current[index] = node;
-                  }}
-                  type="button"
-                  role="treeitem"
-                  aria-selected={selected}
-                  className={selected ? 'selected' : ''}
-                  style={symbolItem ? { paddingLeft: `${8 + symbolItem.level * 14}px` } : undefined}
-                  onFocus={() =>
-                    setPicker((current) =>
-                      current ? ({ ...current, activeIndex: index } as BreadcrumbPickerState) : current
-                    )
-                  }
-                  onMouseEnter={() =>
-                    setPicker((current) =>
-                      current ? ({ ...current, activeIndex: index } as BreadcrumbPickerState) : current
-                    )
-                  }
-                  onClick={() =>
-                    fileItem
-                      ? openFile(fileItem)
-                      : symbolItem &&
-                        (() => {
-                          setPicker(null);
-                          onRevealSymbol(symbolItem);
-                        })()
-                  }
-                >
-                  {fileItem ? (
-                    fileItem.dir ? (
-                      <Folder size={14} aria-hidden="true" />
-                    ) : (
-                      <FileIcon size={14} aria-hidden="true" />
-                    )
-                  ) : (
-                    <Braces size={14} aria-hidden="true" />
-                  )}
-                  <span>{fileItem?.name || symbolItem?.name}</span>
-                  {symbolItem?.detail && <small>{symbolItem.detail}</small>}
-                </button>
-              );
-            })}
-          </div>
-        </div>,
-        document.body
-      )
-    : null;
+            );
+          })}
+        </div>
+      </div>,
+      document.body
+    );
 
   return (
     <>

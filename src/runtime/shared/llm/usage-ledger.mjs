@@ -187,6 +187,14 @@ function usageRecordId(row) {
   return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
 }
 
+/** Where a row's cost came from: local runs are free, subscriptions have no invoice, a provider figure beats the catalog. */
+export function usageCostSource({ kind, costUsd, subscription, reported = false }) {
+  if (kind === 'local') return 'local';
+  if (costUsd === null) return 'unpriced';
+  if (subscription) return 'subscription';
+  return reported ? 'provider' : 'catalog';
+}
+
 export function makeUsageRecord(args) {
   const provider = text(args.provider);
   const model = text(args.model);
@@ -205,7 +213,18 @@ export function makeUsageRecord(args) {
   // quota/cost ticks must not be mistaken for an API bill.
   const subscription = kind === 'oauth' || kind === 'quota-api';
   const reported = args.inputTokensKnown !== false && !subscription && kind !== 'local' && supplied;
-  const costUsd = kind === 'local' ? 0 : reported ? Number(args.costUsd) : priced.costUsd;
+  let costUsd = priced.costUsd;
+  if (kind === 'local') costUsd = 0;
+  else if (reported) costUsd = Number(args.costUsd);
+  let rates = priced.rates;
+  if (reported || kind === 'local') {
+    rates = {
+      requestedModel: priced.rates.requestedModel,
+      pricingModel: priced.rates.pricingModel,
+      pricingProvider: provider,
+      pricingSource: kind === 'local' ? 'local' : 'provider',
+    };
+  }
   const row = {
     ts,
     day: usageRollupDayKey(ts),
@@ -219,25 +238,8 @@ export function makeUsageRecord(args) {
     cacheRead: number(args.cacheReadTokens),
     cacheWrite: number(args.cacheWriteTokens),
     costUsd,
-    costSource:
-      kind === 'local'
-        ? 'local'
-        : costUsd === null
-          ? 'unpriced'
-          : subscription
-            ? 'subscription'
-            : reported
-              ? 'provider'
-              : 'catalog',
-    rates:
-      reported || kind === 'local'
-        ? {
-            requestedModel: priced.rates.requestedModel,
-            pricingModel: priced.rates.pricingModel,
-            pricingProvider: provider,
-            pricingSource: kind === 'local' ? 'local' : 'provider',
-          }
-        : priced.rates,
+    costSource: usageCostSource({ kind, costUsd, subscription, reported }),
+    rates,
     responseId: text(args.responseId),
     origin: args.origin || 'live',
     durationMs: number(args.durationMs),
@@ -412,7 +414,8 @@ export class UsageLedger {
     const fromTs = fromMs ?? (fromDay === '0000-01-01' ? 0 : new Date(`${fromDay}T00:00:00`).getTime());
     const end = toDay === '9999-12-31' ? null : new Date(`${toDay}T00:00:00`);
     if (end) end.setDate(end.getDate() + 1);
-    const toTs = toMs == null ? (end ? end.getTime() : Number.MAX_SAFE_INTEGER) : toMs + 1;
+    let toTs = toMs + 1;
+    if (toMs == null) toTs = end ? end.getTime() : Number.MAX_SAFE_INTEGER;
     const empty = () => ({
       turns: 0,
       input: 0,
@@ -606,12 +609,8 @@ export class UsageLedger {
             'unmeasuredTurns',
           ])
             target[field] += number(source[field]);
-          target.costKnownTurns +=
-            source.costKnownTurns == null
-              ? number(source.costUsd) > 0 || route.kind === 'local'
-                ? number(source.turns)
-                : 0
-              : number(source.costKnownTurns);
+          if (source.costKnownTurns != null) target.costKnownTurns += number(source.costKnownTurns);
+          else if (number(source.costUsd) > 0 || route.kind === 'local') target.costKnownTurns += number(source.turns);
           target.costBilled += number(source.costBilled);
           target.costEstimated += number(source.costEstimated ?? source.costUsd);
           target.sessionsComplete = false;

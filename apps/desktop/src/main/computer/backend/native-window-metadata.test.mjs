@@ -13,7 +13,7 @@ test('native metadata identifies the process parent and reads OBJID_MENU without
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-native-window-metadata-'));
   try {
     await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP);
-    const script = String.raw`
+    const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing

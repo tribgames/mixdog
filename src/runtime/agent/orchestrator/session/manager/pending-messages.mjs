@@ -1,6 +1,6 @@
 // Steering / pending-message queue with sync buffering and atomic persistence.
-import { join } from 'path';
-import { readFileSync } from 'fs';
+import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
 import { loadSession, readSessionLifecycleStateFromDisk, saveSessionAsync } from '../store.mjs';
@@ -225,14 +225,7 @@ function normalizeTuiSteeringQueueEntry(entry) {
     return text || null;
   }
   if (!entry || typeof entry !== 'object') return null;
-  const rawText =
-    typeof entry.text === 'string'
-      ? entry.text
-      : typeof entry.message === 'string'
-        ? entry.message
-        : typeof entry.content === 'string'
-          ? entry.content
-          : '';
+  const rawText = [entry.text, entry.message, entry.content].find((value) => typeof value === 'string') ?? '';
   if (rawText.trim()) {
     const text = rawText.trim();
     const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : null;
@@ -243,13 +236,9 @@ function normalizeTuiSteeringQueueEntry(entry) {
       message: text,
       enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
     };
-    return entry.notificationKind === COMPLETION_NOTIFICATION_KIND
-      ? {
-          ...normalized,
-          notificationKind: COMPLETION_NOTIFICATION_KIND,
-          ...(completionExecutionId(entry) ? { executionId: completionExecutionId(entry) } : {}),
-        }
-      : normalized;
+    if (entry.notificationKind !== COMPLETION_NOTIFICATION_KIND) return normalized;
+    const executionId = completionExecutionId(entry);
+    return { ...normalized, notificationKind: COMPLETION_NOTIFICATION_KIND, ...(executionId ? { executionId } : {}) };
   }
   return null;
 }
@@ -748,7 +737,7 @@ export function releasePendingMessages(sessionId, deliveredEntries) {
   // falls back to the map when the two agree — a newer claim/ack that
   // replaced or removed the map state can never re-open an old release.
   const claimToken = (entry) =>
-    entryLifecycleToken(entry) || (claim && claim.entries.has(pendingMessageId(entry)) ? claim.token : null);
+    entryLifecycleToken(entry) || (claim?.entries.has(pendingMessageId(entry)) ? claim.token : null);
   const releasedIds = [];
   const restored = [];
   for (const entry of Array.isArray(deliveredEntries) ? deliveredEntries : []) {
@@ -985,12 +974,11 @@ export function enqueuePendingMessage(sessionId, message) {
   // Completion ids are content/execution-addressed by markCompletionEntry:
   // preserving them makes fallback retries idempotent, while genuine
   // user/steering ids remain freshly generated and session-local.
-  const entry = normalized
-    ? {
-        ...normalized,
-        id: isCompletionNotificationEntry(normalized) && normalized.id ? normalized.id : newPendingMessageId(),
-      }
-    : null;
+  let entry = null;
+  if (normalized) {
+    const keepId = isCompletionNotificationEntry(normalized) && normalized.id;
+    entry = { ...normalized, id: keepId ? normalized.id : newPendingMessageId() };
+  }
   if (!sessionId || !entry) return 0;
   // A terminal task read may ACK before an async fallback enqueue settles.
   // Treat that completion as already delivered and never publish it.

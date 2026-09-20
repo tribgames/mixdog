@@ -37,7 +37,7 @@ test('resident native program parses and its C# compiles without touching the de
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference = 'Stop'
 $tokens = $null; $errors = $null
 [void][System.Management.Automation.Language.Parser]::ParseFile(
@@ -58,7 +58,7 @@ test('native typing retains a completed preparatory click when text input is uns
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference = 'Stop'
 foreach ($source in @('input.ps1','runtime.ps1')) {
   $tokens = $null; $errors = $null
@@ -112,7 +112,7 @@ test('native authority and drag endpoint guards reject before any desktop effect
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 using System;
@@ -168,7 +168,7 @@ test('all foreground native actions keep one intervention scope even on failure,
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference = 'Stop'
 Add-Type @"
 public static class MixInputObservation {
@@ -209,7 +209,7 @@ test('foreground feedback reports completed theme restoration and restores on bo
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;
@@ -275,7 +275,7 @@ test('detached watchdog launcher runs with a hidden console and no desktop input
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -298,7 +298,7 @@ test('background key grammar is completely validated before any target input', {
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -327,7 +327,7 @@ test('native background failures distinguish unsupported preflight from possibly
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 . (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
 $results=@()
@@ -352,7 +352,7 @@ test('background press lifetimes release once after uncertain delivery and prese
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -363,7 +363,7 @@ Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.
     {
       'native.cs':
         MIXDOG_HOST_CSHARP +
-        String.raw`
+        `
 public static class ReleaseFixture {
   public static string Run() {
     foreach(string scenario in new string[] {"success", "rejected", "press_unknown", "held_failure", "release_failure", "both_fail"}) {
@@ -402,7 +402,7 @@ test('response envelopes keep pointer accounting for failed requests and clear t
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;
@@ -453,7 +453,7 @@ test('background cleanup uncertainty reaches the safety guard instead of ordinar
   skip: process.platform !== 'win32',
 }, async () => {
   const output = await isolatedProgram(
-    String.raw`
+    `
 $ErrorActionPreference='Stop'
 . (Join-Path $env:AUDIT_DIRECTORY 'input.ps1')
 try {

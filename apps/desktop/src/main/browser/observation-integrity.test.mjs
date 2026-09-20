@@ -228,7 +228,7 @@ test('document traversal includes open shadow roots and uses child target contex
     sessions: () => new Map([['child', { type: 'iframe', frameId: 'child-frame' }]]),
     cdp: {
       guestDebugger: async () => new EventEmitter(),
-      call: async (_guest, method, params, _signal, options) => {
+      call: async (_guest, method, _params, _signal, options) => {
         calls.push([method, options?.sessionId]);
         if (method === 'Page.getFrameTree')
           return { frameTree: { frame: { id: options?.sessionId ? 'child-frame' : 'root' } } };

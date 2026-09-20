@@ -47,8 +47,8 @@ export async function spawnShellWithRetry({ shell, argv, spawnOptions, shellArg,
           console.error(
             '[shell-spawn-retry] ' +
               JSON.stringify({
-                code: (err && err.code) || null,
-                syscall: (err && err.syscall) || null,
+                code: err?.code || null,
+                syscall: err?.syscall || null,
                 shell,
                 cwd,
                 activeSpawnCount: activeShellSpawns,

@@ -123,7 +123,7 @@ export async function getSchedule(name, { dataDir } = {}) {
  * must be provided (enforced by the table's XOR CHECK constraint).
  */
 export async function upsertSchedule(def, { dataDir } = {}) {
-  if (!def || !def.name) throw new Error('upsertSchedule: def.name is required');
+  if (!def?.name) throw new Error('upsertSchedule: def.name is required');
   if (!def.prompt) throw new Error('upsertSchedule: def.prompt is required');
   const db = await getDb(dataDir);
   const params = [

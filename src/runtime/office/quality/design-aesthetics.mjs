@@ -73,12 +73,9 @@ function paletteDiscipline(metric, role) {
   // all (a text page in Sequoia or Coatue) is a normal frontier page, and a
   // single hue owning the whole page (dominance 1.0) is the common case.
   const accentRange = ['opening', 'closing', 'section'].includes(role) ? [0.05, 0.8] : [0.03, 0.7];
-  const hueScore =
-    metric.paletteHueCount === 0
-      ? 0.8
-      : metric.paletteHueCount <= 3
-        ? 1
-        : clamp(1 - (metric.paletteHueCount - 3) * 0.14);
+  let hueScore = clamp(1 - (metric.paletteHueCount - 3) * 0.14);
+  if (metric.paletteHueCount === 0) hueScore = 0.8;
+  else if (metric.paletteHueCount <= 3) hueScore = 1;
   const dominantScore = metric.paletteHueCount === 0 ? 0.8 : rangeFit(metric.paletteDominance, [0.4, 1]);
   return clamp(rangeFit(metric.accentCoverage, accentRange) * 0.4 + hueScore * 0.35 + dominantScore * 0.25);
 }

@@ -280,7 +280,8 @@ function findFilesRequest(args, workDir) {
   const before = parseModifiedTime(args.modified_before);
   // An unparseable date must FAIL, not silently disable the filter — a
   // caller who passed a filter believes the listing is filtered.
-  if (args.modified_after && after === null) return { error: invalidWindowError('modified_after', args.modified_after) };
+  if (args.modified_after && after === null)
+    return { error: invalidWindowError('modified_after', args.modified_after) };
   if (args.modified_before && before === null) {
     return { error: invalidWindowError('modified_before', args.modified_before) };
   }
@@ -469,7 +470,10 @@ function findResultLine(match, fullPath) {
   return `${displayRelPath(match.path, fullPath)}\t${formatListSize(match.type, match.size)}\t${formatMtime(match.mtimeMs)}`;
 }
 
-function renderFindResult(request, { matches, unstatted, truncatedByCap, filtersNeedStat, walkIncomplete, walkTimedOut }) {
+function renderFindResult(
+  request,
+  { matches, unstatted, truncatedByCap, filtersNeedStat, walkIncomplete, walkTimedOut }
+) {
   const { fullPath, sortMode, offset, headLimit } = request;
   matches.sort(findComparator(sortMode));
   const windowed = offset > 0 ? matches.slice(offset) : matches;

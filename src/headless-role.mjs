@@ -124,7 +124,7 @@ export async function runHeadlessRole({
   let drainTrace = null;
   let taskId = null;
   let lastOutput = '';
-  const cleanup = (reason = 'headless-exit') => {
+  const cleanup = (_reason = 'headless-exit') => {
     if (cleanupPromise) return cleanupPromise;
     cleanupPromise = (async () => {
       const deadline = Date.now() + HEADLESS_SHUTDOWN_TIMEOUT_MS - HEADLESS_CLEANUP_RESERVE_MS;

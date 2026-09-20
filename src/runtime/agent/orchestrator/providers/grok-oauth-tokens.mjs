@@ -1,4 +1,4 @@
-// Grok OAuth discovery, token storage/refresh, and proxy identity, extracted from grok-oauth.mjs.
+// Grok OAuth discovery, token storage/refresh, and proxy identity.
 /**
  * Grok CLI OAuth provider ("Grok Build").
  *
@@ -14,9 +14,9 @@
  * preset wired for the Responses API — with the proxy URL + CLI headers
  * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
-import { randomUUID } from 'crypto';
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join, resolve } from 'path';
+import { randomUUID } from 'node:crypto';
+import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';

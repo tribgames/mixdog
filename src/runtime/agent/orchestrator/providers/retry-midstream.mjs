@@ -69,9 +69,10 @@ function stallReason(err, state) {
 
 // The Responses WebSocket emits its hard 60-minute retirement as a top-level
 // `event.error`, not `response.failed`. openai-ws-stream preserves that typed
-// object on err.payload; recognize only the documented code here so unknown
-// pre-response error events remain terminal rather than becoming text-based
-// retry guesses.
+// object on err.payload; only the documented code earns this specific bucket.
+// Other pre-response error events surface to the loop, where the wire-error
+// contract (typed fatal-code deny-list / default-retry) decides — never
+// message text.
 function isWebSocketConnectionLimit(err) {
   for (const field of [err?.payload?.code, err?.payload?.type]) {
     const key = typeof field === 'string' ? field.trim().toLowerCase() : '';

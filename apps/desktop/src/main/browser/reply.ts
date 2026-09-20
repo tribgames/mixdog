@@ -7,40 +7,27 @@
  */
 import type { WebContents } from 'electron';
 
-import { persistFrameImage } from '../frame-files';
 import {
   type BrowserCommand,
   type BrowserCommandResult,
   type BrowserSnapshotResultOptions,
   EFFECT_REPORT_ACTIONS,
   normalizeBrowserAction,
-  POSTCONDITION_POLL_MS,
 } from './command';
 import { browserDocumentChanged } from './documents';
 import type { TrackedBrowserDownload } from './downloads';
 import type { BrowserGuestStateStore } from './guest-state';
-import {
-  describeBrowserPostcondition,
-  normalizeBrowserPostcondition,
-  normalizeBrowserSettleMs,
-  type BrowserPostcondition,
-} from './postcondition';
-import { isBrowserStaleRefError, recoverBrowserRef, type BrowserRefSet } from './ref-recovery';
+import { type BrowserPostcondition, describeBrowserPostcondition } from './postcondition';
+import type { BrowserRefSet } from './ref-recovery';
+import { createRefRecovery, decorateRecovery, refRecoveryFor } from './reply-ref-recovery';
+import { attachFrame, attachScreenshot } from './reply-screenshot';
+import { awaitReplyReady, type ReplyWait } from './reply-wait';
 import type { BrowserScreenshotCapture } from './screenshot';
-import { pause } from './settle';
 import { formatSnapshot } from './snapshot-format';
-import { measureBrowserPhase } from './timing';
 
-/** Refs a command may address, and which of them were transparently swapped
- *  for a fresh equivalent before dispatch. */
-export interface BrowserRefRecoveryContext {
-  source?: BrowserRefSet;
-  replacements: Map<string, string>;
-  attempted: Set<string>;
-  notes: string[];
-  /** Snapshot-free targets the host resolved to refs for this command. */
-  resolvedTargets: string[];
-}
+export type { BrowserRefRecoveryContext } from './reply-ref-recovery';
+
+type SnapshotPayload = Parameters<typeof formatSnapshot>[0];
 
 export interface BrowserReplyHost {
   state: BrowserGuestStateStore;
@@ -51,11 +38,7 @@ export interface BrowserReplyHost {
     options?: { background?: boolean; requireQuiet?: boolean; previousUrl?: string }
   ): Promise<unknown>;
   postconditionMatchesGuest(guest: WebContents, expected: BrowserPostcondition, signal?: AbortSignal): Promise<boolean>;
-  captureSnapshotPayload(
-    guest: WebContents,
-    command: BrowserCommand,
-    signal?: AbortSignal
-  ): Promise<Parameters<typeof formatSnapshot>[0]>;
+  captureSnapshotPayload(guest: WebContents, command: BrowserCommand, signal?: AbortSignal): Promise<SnapshotPayload>;
   captureScreenshot(
     guest: WebContents,
     background: boolean,
@@ -73,57 +56,15 @@ export function unreportedDownloads(downloads: TrackedBrowserDownload[], reporte
 }
 
 export function createBrowserReply(host: BrowserReplyHost) {
-  const {
-    state,
-    settleAfterAction,
-    postconditionMatchesGuest,
-    captureSnapshotPayload,
-    captureScreenshot,
-    bindVisualGrounding,
-    downloadsForGuest,
-  } = host;
+  const { state, captureSnapshotPayload, downloadsForGuest } = host;
 
   /** Format the page report, folding in downloads the page has not yet
    *  mentioned and marking them reported. */
-  function reportSnapshot(
-    guest: WebContents,
-    payload: Parameters<typeof formatSnapshot>[0],
-    briefAgainst?: BrowserRefSet
-  ): string {
+  function reportSnapshot(guest: WebContents, payload: SnapshotPayload, briefAgainst?: BrowserRefSet): string {
     const record = state.for(guest);
     const downloads = unreportedDownloads(downloadsForGuest(guest), record.downloadsReportedAt);
     record.downloadsReportedAt = Date.now();
     return state.redactText(guest, formatSnapshot(payload, record, { downloads, briefAgainst }));
-  }
-
-  function refRecoveryFor(guest: WebContents): BrowserRefRecoveryContext {
-    return {
-      source: state.peek(guest)?.refSet,
-      replacements: new Map(),
-      attempted: new Set(),
-      notes: [],
-      resolvedTargets: [],
-    };
-  }
-
-  /** Where a screenshot goes: into the reply, or beside the run when the caller
-   *  asked to keep pixels out of the conversation. A frame that cannot be
-   *  written stays in the reply rather than disappearing. */
-  function attachFrame(
-    result: BrowserCommandResult,
-    command: BrowserCommand,
-    capture: { mimeType: string; data: string },
-    frameId: string
-  ): BrowserCommandResult {
-    if (String(command.image_output || 'inline') === 'file') {
-      const stored = persistFrameImage('browser', String(command.session_id || 'browser'), frameId, capture);
-      if (stored) {
-        result.text += `\n\nFrame written to ${stored.path} (${stored.bytes} bytes).`;
-        return result;
-      }
-    }
-    result.image = { mimeType: capture.mimeType, data: capture.data };
-    return result;
   }
 
   function dialogResult(guest: WebContents): BrowserCommandResult | null {
@@ -166,79 +107,17 @@ export function createBrowserReply(host: BrowserReplyHost) {
     return `${redacted.slice(0, maxChars)}\n[truncated: ${redacted.length - maxChars} more characters]`;
   }
 
-  async function snapshotResult(
+  /** What the reply says besides the snapshot: waits that completed, pages
+   *  that opened, and a gesture the page visibly ignored. */
+  function effectNotes(
     guest: WebContents,
-    command: BrowserCommand = { action: 'snapshot' },
-    signal?: AbortSignal,
-    options: BrowserSnapshotResultOptions = {}
-  ): Promise<BrowserCommandResult> {
-    const dialog = dialogResult(guest);
-    if (dialog) return dialog;
-    const settleMs = normalizeBrowserSettleMs(command.settleMs);
-    const expected = options.expected === undefined ? normalizeBrowserPostcondition(command.expect) : options.expected;
-    let postconditionElapsed = 0;
-    let postconditionMatched = true;
-    let announcePostcondition: () => void = () => undefined;
-    const postconditionSatisfied = new Promise<void>((resolve) => {
-      announcePostcondition = resolve;
-    });
-    const waitForPostcondition = async (): Promise<void> => {
-      if (!expected) return;
-      const startedAt = Date.now();
-      for (;;) {
-        if (signal?.aborted) throw signal.reason || new Error('browser command cancelled');
-        postconditionElapsed = Date.now() - startedAt;
-        if (await postconditionMatchesGuest(guest, expected, signal)) {
-          announcePostcondition();
-          break;
-        }
-        if (postconditionElapsed >= expected.timeoutMs) {
-          postconditionMatched = false;
-          break;
-        }
-        // The poll interval is the floor on how fast a verified action can
-        // return; each probe is one small page evaluation.
-        await pause(POSTCONDITION_POLL_MS, signal);
-      }
-    };
-    // A condition that was already true before the gesture proves nothing
-    // about this one, so it may never cut the settle short.
-    const settleUntil = expected && !options.preexistingPostcondition ? postconditionSatisfied : undefined;
-    await measureBrowserPhase('wait', () =>
-      Promise.all([
-        options.settleAction
-          ? settleAfterAction(guest, signal, settleUntil, {
-              background: options.targetIsBackground,
-              requireQuiet: Boolean(expected && options.preexistingPostcondition),
-              // Where the page was before the gesture: a URL that changed
-              // without a load means the view is still being replaced.
-              previousUrl: options.baseline?.url,
-            })
-          : Promise.resolve(),
-        settleMs ? pause(settleMs, signal) : Promise.resolve(),
-        waitForPostcondition(),
-      ])
-    );
-    // Deliberately NOT deduplicated against the previous snapshot. Identical
-    // page text is common precisely when a gesture reproduces the same result
-    // ("Mouse dragged" twice), and that text is the only evidence the gesture
-    // landed. Trading it for tokens would break the verify-after-dispatch
-    // contract, so repetition stays.
-    const payload = await captureSnapshotPayload(guest, command, signal);
-    const action = normalizeBrowserAction(command);
+    action: string,
+    payload: SnapshotPayload,
+    options: BrowserSnapshotResultOptions,
+    wait: ReplyWait
+  ) {
+    const { settleMs, expected, postconditionElapsed } = wait;
     const baseline = options.baseline;
-    const snapshot = reportSnapshot(
-      guest,
-      payload,
-      command.brief === true ? (options.reportBaseline ?? baseline) : undefined
-    );
-    if (expected && !postconditionMatched) {
-      throw new Error(
-        `Postcondition failed after ${postconditionElapsed}ms; ` +
-          `the ${action || 'browser'} action executed once and was not retried. ` +
-          `Expected ${describeBrowserPostcondition(expected)}.\n\n${snapshot}`
-      );
-    }
     // A gesture the page ignored looks exactly like one that worked unless
     // the reply says so; repeating it would not help, a different target
     // might. Scroll is judged by position, everything else by the document.
@@ -253,7 +132,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
     // looking for a covering element instead of the page that just opened.
     const openedPages = state.for(guest).openedPopups.splice(0);
     const unchanged = reacted === false && baseline?.url === payload.url && openedPages.length === 0;
-    const notes = [
+    return [
       settleMs && `Explicit settle completed after ${settleMs}ms.`,
       expected && options.preexistingPostcondition
         ? 'Postcondition was already true before this action, so it proves nothing about it; the action executed once. Verify with a condition only this action makes true.'
@@ -265,92 +144,56 @@ export function createBrowserReply(host: BrowserReplyHost) {
         `No observable change: the document, URL, and control values are the same as before this ${action}. ` +
           "Do not repeat the same gesture; check the element's states or covering elements, or choose another target.",
     ].filter(Boolean);
+  }
+
+  async function snapshotResult(
+    guest: WebContents,
+    command: BrowserCommand = { action: 'snapshot' },
+    signal?: AbortSignal,
+    options: BrowserSnapshotResultOptions = {}
+  ): Promise<BrowserCommandResult> {
+    const dialog = dialogResult(guest);
+    if (dialog) return dialog;
+    const wait = await awaitReplyReady(host, guest, command, options, signal);
+    // Deliberately NOT deduplicated against the previous snapshot. Identical
+    // page text is common precisely when a gesture reproduces the same result
+    // ("Mouse dragged" twice), and that text is the only evidence the gesture
+    // landed. Trading it for tokens would break the verify-after-dispatch
+    // contract, so repetition stays.
+    const payload = await captureSnapshotPayload(guest, command, signal);
+    const action = normalizeBrowserAction(command);
+    const snapshot = reportSnapshot(
+      guest,
+      payload,
+      command.brief === true ? (options.reportBaseline ?? options.baseline) : undefined
+    );
+    if (wait.expected && !wait.postconditionMatched) {
+      throw new Error(
+        `Postcondition failed after ${wait.postconditionElapsed}ms; ` +
+          `the ${action || 'browser'} action executed once and was not retried. ` +
+          `Expected ${describeBrowserPostcondition(wait.expected)}.\n\n${snapshot}`
+      );
+    }
+    const notes = effectNotes(guest, action, payload, options, wait);
     const result: BrowserCommandResult = {
-      outcome: expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
+      outcome: wait.expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
       text: notes.length ? `${notes.join(' ')}\n\n${snapshot}` : snapshot,
     };
     if (options.includeScreenshot || command.includeScreenshot === true) {
-      const refSet = state.peek(guest)?.refSet;
-      if (!refSet) throw new Error('browser screenshot could not bind to the fresh snapshot');
-      const capture = await captureScreenshot(guest, options.targetIsBackground === true, command, signal);
-      if (state.peek(guest)?.refSet !== refSet) {
-        throw new Error('page changed during screenshot capture; take a fresh snapshot');
-      }
-      if (capture.fullPage) {
-        result.text += `\n\nFull-page screenshot: ${capture.width}x${capture.height} px; inspection-only and not coordinate-bound.`;
-      } else {
-        bindVisualGrounding(guest, refSet, capture);
-        result.text += `\n\nVisual screenshot: ${refSet.snapshotId} is ${capture.width}x${capture.height} image px; viewport ${refSet.viewportWidth}x${refSet.viewportHeight} CSS px. Coordinate actions require this snapshotId and use image-pixel coordinates.`;
-      }
-      attachFrame(result, command, capture, refSet.snapshotId);
+      await attachScreenshot(host, guest, command, result, options, signal);
     }
     return result;
   }
 
-  /** Recover a ref for a read-only operation or input preflight. Mutations and
-   * their post-dispatch verification must execute outside this callback. */
-  async function withRefRecovery<T>(
-    guest: WebContents,
-    context: BrowserRefRecoveryContext,
-    sourceRef: string,
-    operation: (ref: string) => Promise<T>,
-    signal?: AbortSignal
-  ): Promise<T> {
-    const source = context.source?.refs.get(sourceRef);
-    if (!source) {
-      throw new Error(`ref ${sourceRef} is not from the latest snapshot; take a fresh snapshot first`);
-    }
-    const effectiveRef = context.replacements.get(sourceRef) || sourceRef;
-    try {
-      return await operation(effectiveRef);
-    } catch (error) {
-      if (!isBrowserStaleRefError(error) || context.attempted.has(sourceRef)) throw error;
-      context.attempted.add(sourceRef);
-      if (guest.getURL() !== source.url) {
-        throw new Error(`ref ${sourceRef} became stale after navigation; automatic recovery will not cross URLs`);
-      }
-      const dialog = dialogResult(guest);
-      if (dialog) throw new Error(dialog.text);
-      const freshPayload = await captureSnapshotPayload(guest, { action: 'snapshot', maxElements: 500 }, signal);
-      const fresh = state.peek(guest)?.refSet;
-      if (!fresh) throw error;
-      for (const [originalRef, fingerprint] of context.source?.refs || []) {
-        const recovered = recoverBrowserRef(fingerprint, fresh);
-        if (recovered.ref) context.replacements.set(originalRef, recovered.ref);
-      }
-      const recovered = recoverBrowserRef(source, fresh);
-      if (!recovered.ref) {
-        throw new Error(
-          `ref ${sourceRef} became stale; automatic recovery stopped because ${recovered.reason}.\n\n` +
-            reportSnapshot(guest, freshPayload)
-        );
-      }
-      context.replacements.set(sourceRef, recovered.ref);
-      context.notes.push(`${sourceRef} -> ${recovered.ref}`);
-      return await operation(recovered.ref);
-    }
-  }
-
-  function decorateRecovery(result: BrowserCommandResult, context: BrowserRefRecoveryContext): BrowserCommandResult {
-    const prefix = [
-      context.resolvedTargets.length && `Target resolved before input dispatch: ${context.resolvedTargets.join(', ')}`,
-      context.notes.length &&
-        `Automatic ref recovery before input dispatch (no action replay): ${context.notes.join(', ')}`,
-    ].filter(Boolean);
-    if (!prefix.length) return result;
-    return {
-      ...result,
-      text: `${prefix.join('\n')}\n\n${result.text}`,
-    };
-  }
+  const recovery = createRefRecovery(host, { dialogResult, reportSnapshot });
 
   return {
-    refRecoveryFor,
+    refRecoveryFor: (guest: WebContents) => refRecoveryFor(state, guest),
     attachFrame,
     dialogResult,
     formatEvaluationValue,
     snapshotResult,
-    withRefRecovery,
+    withRefRecovery: recovery.withRefRecovery,
     decorateRecovery,
   };
 }

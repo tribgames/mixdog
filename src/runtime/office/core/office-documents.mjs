@@ -93,7 +93,9 @@ export function operationDocumentPaths(format, operation, result = {}) {
     return ['/'];
   }
   if (format === 'pdf') {
-    const pages = Array.isArray(operation.pages) ? operation.pages : operation.page ? [operation.page] : [];
+    let pages = [];
+    if (Array.isArray(operation.pages)) pages = operation.pages;
+    else if (operation.page) pages = [operation.page];
     return pages.length ? pages.map((page) => `/page[${Number(page)}]`) : ['/'];
   }
   return ['/'];

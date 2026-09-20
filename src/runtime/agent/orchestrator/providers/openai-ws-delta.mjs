@@ -2,7 +2,7 @@
  * openai-ws-delta.mjs — request/response item matching + incremental-input
  * delta computation for the OpenAI OAuth WebSocket transport.
  *
- * Extracted from openai-ws-stream.mjs (no behavior change): the pure helpers
+ * The pure helpers
  * that decide whether a warm socket can send only the input tail
  * (_computeDelta / _sansInput / _logicalResponseItemMatch / ...). No socket or
  * stream state — deterministic functions over request bodies + prior-response
@@ -39,8 +39,8 @@ export function _stableStringify(obj) {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) return JSON.stringify(obj);
   const keys = Object.keys(obj).sort();
   const parts = [];
-  for (const k of keys) parts.push(JSON.stringify(k) + ':' + _stableStringify(obj[k]));
-  return '{' + parts.join(',') + '}';
+  for (const k of keys) parts.push(`${JSON.stringify(k)}:${_stableStringify(obj[k])}`);
+  return `{${parts.join(',')}}`;
 }
 
 export function _cloneJson(value) {
@@ -227,13 +227,17 @@ export function _requestInputMismatchDiagnostics(currentInput, previousInput) {
     inputPrefixMismatchIndex: index,
     inputPrefixMismatchPreviousCount: previous.length,
     inputPrefixMismatchCurrentCount: current.length,
-    inputPrefixMismatchExpectedType:
-      expected?.type || (expected?.role === 'assistant' ? 'message' : expected ? 'unknown' : 'missing'),
+    inputPrefixMismatchExpectedType: _diagnosticItemType(expected),
     inputPrefixMismatchExpectedHash: _normalizedResponseItemDiagnosticHash(expected),
-    inputPrefixMismatchActualType:
-      actual?.type || (actual?.role === 'assistant' ? 'message' : actual ? 'unknown' : 'missing'),
+    inputPrefixMismatchActualType: _diagnosticItemType(actual),
     inputPrefixMismatchActualHash: _normalizedResponseItemDiagnosticHash(actual),
   };
+}
+
+function _diagnosticItemType(item) {
+  if (item?.type) return item.type;
+  if (item?.role === 'assistant') return 'message';
+  return item ? 'unknown' : 'missing';
 }
 
 function _responseOutputMismatchDiagnostics(inputItem, responseItem, replayItemCount, responseItemCount) {
@@ -376,7 +380,7 @@ export function _computeDelta({ entry, body, traceProvider }) {
   if (!deltaOptIn) {
     return { mode: 'full', reason: 'full_default', frame: buildFrame(body) };
   }
-  if (!entry || !entry.lastRequestSansInput || !entry.lastResponseId) {
+  if (!entry?.lastRequestSansInput || !entry.lastResponseId) {
     return { mode: 'full', reason: 'no_anchor', frame: buildFrame(body) };
   }
   // Public OpenAI resolves previous_response_id out of its response STORE, so

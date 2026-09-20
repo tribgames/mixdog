@@ -11,17 +11,18 @@ const PPTX_COMPOSITION_MODES = new Set(['model', 'legacy']);
 function resolvePptxDeckPlan(input, tokens, artDirection) {
   const source = plainObject(input.deck) ? input.deck : {};
   const direction = artDirection?.applyTokens ? artDirection.selected?.deck || {} : {};
-  const backgroundMode = PPTX_BACKGROUND_MODES.has(String(source.backgroundMode || '').toLowerCase())
-    ? String(source.backgroundMode).toLowerCase()
-    : PPTX_BACKGROUND_MODES.has(String(direction.backgroundMode || '').toLowerCase())
-      ? String(direction.backgroundMode).toLowerCase()
-      : 'sandwich';
-  const defaults =
-    backgroundMode === 'dark'
-      ? { cover: 'inverse', content: 'inverse', section: 'inverse', closing: 'inverse' }
-      : backgroundMode === 'light'
-        ? { cover: 'canvas', content: 'canvas', section: 'canvas', closing: 'canvas' }
-        : { cover: 'inverse', content: 'canvas', section: 'inverse', closing: 'inverse' };
+  const knownBackgroundMode = (value) => {
+    const mode = String(value || '').toLowerCase();
+    return PPTX_BACKGROUND_MODES.has(mode) ? mode : null;
+  };
+  const backgroundMode =
+    knownBackgroundMode(source.backgroundMode) ?? knownBackgroundMode(direction.backgroundMode) ?? 'sandwich';
+  let defaults = { cover: 'inverse', content: 'canvas', section: 'inverse', closing: 'inverse' };
+  if (backgroundMode === 'dark') {
+    defaults = { cover: 'inverse', content: 'inverse', section: 'inverse', closing: 'inverse' };
+  } else if (backgroundMode === 'light') {
+    defaults = { cover: 'canvas', content: 'canvas', section: 'canvas', closing: 'canvas' };
+  }
   const requestedRoles = plainObject(source.roles) ? source.roles : {};
   const roles = Object.fromEntries(
     Object.entries(defaults).map(([key, fallback]) => {
@@ -294,6 +295,15 @@ function compactLibrary(library) {
       warning: '',
     };
   }
+  let template = null;
+  if (library.template) {
+    template = {
+      id: String(library.template.id || ''),
+      version: String(library.template.version || ''),
+      source: String(library.template.source || ''),
+    };
+    if (library.coverage) template.coverage = clone(library.coverage);
+  }
   return {
     source: String(library.source || 'mixdog-starter'),
     pack: library.pack
@@ -303,14 +313,7 @@ function compactLibrary(library) {
           keyId: String(library.pack.keyId || ''),
         }
       : null,
-    template: library.template
-      ? {
-          id: String(library.template.id || ''),
-          version: String(library.template.version || ''),
-          source: String(library.template.source || ''),
-          ...(library.coverage ? { coverage: clone(library.coverage) } : {}),
-        }
-      : null,
+    template,
     templateIndexRevision: String(library.templateIndexRevision || ''),
     recentCompositionCount: Array.isArray(library.recentCompositions) ? library.recentCompositions.length : 0,
     pinned: library.pinned === true,
@@ -348,10 +351,19 @@ export function officeDesignCatalog(format = '', { library = null } = {}) {
   }));
 }
 
+/** pptx-only design fields: the slide plans and the authoring brief (plan lines + fact sheet) parsed from the script; the review holds the saved deck to it. */
+function pptxDesignFields(input) {
+  const fields = { slidePlans: Array.isArray(input.slidePlans) ? clone(input.slidePlans) : [] };
+  if (plainObject(input.brief)) fields.brief = clone(input.brief);
+  return fields;
+}
+
 export function resolveOfficeDesign(format, request = {}, { library = null } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   if (!FORMATS.has(normalizedFormat)) throw new Error(`Unsupported Office design format: ${format}`);
-  const input = typeof request === 'string' ? { profile: request } : plainObject(request) ? request : {};
+  let input = {};
+  if (typeof request === 'string') input = { profile: request };
+  else if (plainObject(request)) input = request;
   const packs = resolvedDesignPacks(library);
   const libraryDefault = library?.pack?.defaultProfiles?.[normalizedFormat];
   const profile = String(
@@ -417,14 +429,7 @@ export function resolveOfficeDesign(format, request = {}, { library = null } = {
     },
     format: clone(pack.formats[normalizedFormat] || {}),
     ...(deck ? { deck } : {}),
-    ...(normalizedFormat === 'pptx'
-      ? {
-          slidePlans: Array.isArray(input.slidePlans) ? clone(input.slidePlans) : [],
-          // The authoring brief (plan lines + fact sheet) parsed from the script; the
-          // review holds the saved deck to it.
-          ...(plainObject(input.brief) ? { brief: clone(input.brief) } : {}),
-        }
-      : {}),
+    ...(normalizedFormat === 'pptx' ? pptxDesignFields(input) : {}),
     compositions: Array.isArray(input.compositions) ? clone(input.compositions) : [],
     review: {
       required:

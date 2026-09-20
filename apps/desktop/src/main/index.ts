@@ -493,12 +493,14 @@ unsubscribeServiceSettings = serviceClient.subscribeDesktopEvents(({ name, value
       try {
         if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
         const sessionId = typeof args[0] === 'string' ? args[0] : '';
-        const result =
-          method === 'frame'
-            ? await browserHost.remoteBrowserFrame(sessionId, typeof args[1] === 'string' ? args[1] : '')
-            : method === 'control'
-              ? await browserHost.remoteBrowserControl(sessionId, args[1] as DesktopRemoteBrowserControl)
-              : browserHost.releaseSession(sessionId);
+        let result: unknown;
+        if (method === 'frame') {
+          result = await browserHost.remoteBrowserFrame(sessionId, typeof args[1] === 'string' ? args[1] : '');
+        } else if (method === 'control') {
+          result = await browserHost.remoteBrowserControl(sessionId, args[1] as DesktopRemoteBrowserControl);
+        } else {
+          result = browserHost.releaseSession(sessionId);
+        }
         await serviceClient.invokeDesktopOperation('browserRemoteResolve', [id, true, result ?? null, null]);
       } catch (error) {
         await serviceClient
@@ -1020,10 +1022,13 @@ async function createWindow(): Promise<void> {
     }
     const composerAction = normalizeRendererComposerActionDiagnostic(payload);
     const longTask = composerAction ? null : normalizeRendererLongTaskDiagnostic(payload);
-    diagnostics?.write(
-      composerAction ? 'renderer-composer-action' : longTask ? 'renderer-long-task' : 'renderer-error',
-      composerAction ?? longTask ?? normalizeRendererDiagnostic(payload)
-    );
+    if (composerAction) {
+      diagnostics?.write('renderer-composer-action', composerAction);
+    } else if (longTask) {
+      diagnostics?.write('renderer-long-task', longTask);
+    } else {
+      diagnostics?.write('renderer-error', normalizeRendererDiagnostic(payload));
+    }
   };
   ipcMain.on(DESKTOP_IPC.rendererDiagnostic, onRendererDiagnostic);
   diagnostics?.write('ipc-ready', {

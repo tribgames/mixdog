@@ -1,7 +1,6 @@
-// Provider init de-dup, extracted from the agent-tool facade as a factory so
-// the closure state (`_providerState` / `_providerInitPending`) stays private
-// per agent instance. Behavior-preserving: function bodies are identical to the
-// originals; only `reg` and the chain-gate timeout are injected.
+// Provider init de-dup, a factory so the closure state (`_providerState` /
+// `_providerInitPending`) stays private per agent instance; only `reg` and
+// the chain-gate timeout are injected.
 //
 // Provider init de-dup. Four goals that must not conflict:
 //   (a) a parallel spawn fanout that all targets the SAME provider with the

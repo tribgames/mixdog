@@ -22,6 +22,8 @@ import {
   revertTurnReviewFile,
 } from '../src/runtime/shared/turn-snapshot.mjs';
 import { _setTurnSnapshotStoreRootForTest } from '../src/runtime/shared/turn-snapshot-store.mjs';
+import { executeBuiltinTool } from '../src/runtime/agent/orchestrator/tools/builtin.mjs';
+import { executePatchTool } from '../src/runtime/agent/orchestrator/tools/patch.mjs';
 
 function git(cwd, args) {
   execFileSync('git', args, { cwd, stdio: 'pipe' });
@@ -51,6 +53,144 @@ async function exists(path) {
     return false;
   }
 }
+
+test('explicit ignored edits survive review, restart and undo without capturing other ignored files', async () => {
+  for (const tool of ['edit', 'apply_patch']) {
+    const root = await createRepository();
+    const store = await createDirectory('mixdog-ignored-review-store-');
+    _resetTurnSnapshotForTest();
+    _setTurnSnapshotStoreRootForTest(store);
+    try {
+      await writeFile(join(root, '.gitignore'), 'ignored/\n');
+      await mkdir(join(root, 'ignored'));
+      await writeFile(join(root, 'ignored', 'modified.txt'), 'before\n');
+      await writeFile(join(root, 'ignored', 'deleted.txt'), 'delete me\n');
+      await writeFile(join(root, 'ignored', 'unrelated.txt'), 'outside\n');
+      const sessionId = `ignored-${tool}`;
+      await beginTurnSnapshot(root, sessionId);
+      const execute = tool === 'edit' ? executeBuiltinTool : executePatchTool;
+      const args =
+        tool === 'edit'
+          ? { file_path: 'ignored/modified.txt', old_string: 'before', new_string: 'after' }
+          : { patch: '*** Begin Patch\n*** Update File: ignored/modified.txt\n@@\n-before\n+after\n*** End Patch\n' };
+      assert.doesNotMatch(
+        String(await execute(tool, args, root, { sessionId, toolCallId: `${sessionId}-modify` })),
+        /^Error[\s:]/
+      );
+      const addition =
+        tool === 'edit'
+          ? { file_path: 'ignored/added.txt', old_string: '', new_string: 'added\n' }
+          : { patch: '*** Begin Patch\n*** Add File: ignored/added.txt\n+added\n*** End Patch\n' };
+      assert.doesNotMatch(
+        String(await execute(tool, addition, root, { sessionId, toolCallId: `${sessionId}-add` })),
+        /^Error[\s:]/
+      );
+      assert.doesNotMatch(
+        String(
+          await executePatchTool(
+            'apply_patch',
+            {
+              patch: '*** Begin Patch\n*** Delete File: ignored/deleted.txt\n*** End Patch\n',
+            },
+            root,
+            { sessionId, toolCallId: `${sessionId}-delete` }
+          )
+        ),
+        /^Error[\s:]/
+      );
+      const expected = [
+        ['ignored/added.txt', 'A'],
+        ['ignored/deleted.txt', 'D'],
+        ['ignored/modified.txt', 'M'],
+      ];
+      const review = await getTurnReviewDiff(root, sessionId);
+      assert.deepEqual(
+        review.files.map((file) => [file.path, file.status]),
+        expected
+      );
+      assert.match(review.patch, /-before\n\+after/);
+      await completeTurnSnapshot(sessionId);
+      _resetTurnSnapshotForTest();
+      const resumed = await getSessionReviewDiff(root, sessionId);
+      assert.deepEqual(
+        resumed.files.map((file) => [file.path, file.status]),
+        expected
+      );
+      await revertTurnReview(root, sessionId);
+      assert.equal(await readFile(join(root, 'ignored', 'modified.txt'), 'utf8'), 'before\n');
+      assert.equal(await readFile(join(root, 'ignored', 'deleted.txt'), 'utf8'), 'delete me\n');
+      assert.equal(await exists(join(root, 'ignored', 'added.txt')), false);
+      assert.equal(await readFile(join(root, 'ignored', 'unrelated.txt'), 'utf8'), 'outside\n');
+      assert.deepEqual((await getSessionReviewDiff(root, sessionId)).files, []);
+    } finally {
+      _resetTurnSnapshotForTest();
+      _setTurnSnapshotStoreRootForTest('');
+      await rm(store, { recursive: true, force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('large explicit untracked files retain their original baseline and every changed-file row', async () => {
+  const root = await createRepository();
+  const store = await createDirectory('mixdog-large-review-store-');
+  _resetTurnSnapshotForTest();
+  _setTurnSnapshotStoreRootForTest(store);
+  try {
+    const before = `${'x'.repeat(2100000)}\nbefore\n`;
+    await writeFile(join(root, 'large.txt'), before);
+    await beginTurnSnapshot(root, 'large-explicit');
+    const options = { sessionId: 'large-explicit', toolCallId: 'large-modify' };
+    assert.doesNotMatch(
+      String(
+        await executeBuiltinTool(
+          'edit',
+          {
+            file_path: 'large.txt',
+            old_string: 'before',
+            new_string: 'after',
+          },
+          root,
+          options
+        )
+      ),
+      /^Error[\s:]/
+    );
+    await executeBuiltinTool(
+      'edit',
+      {
+        file_path: 'z-small.txt',
+        old_string: '',
+        new_string: 'small\n',
+      },
+      root,
+      { ...options, toolCallId: 'large-add-small' }
+    );
+    const review = await getTurnReviewDiff(root, 'large-explicit');
+    assert.deepEqual(
+      review.files.map((file) => [file.path, file.status]),
+      [
+        ['large.txt', 'M'],
+        ['z-small.txt', 'A'],
+      ]
+    );
+    assert.equal(review.patchTruncated, true);
+    await completeTurnSnapshot('large-explicit');
+    _resetTurnSnapshotForTest();
+    assert.deepEqual(
+      (await getSessionReviewDiff(root, 'large-explicit')).files.map((file) => file.path),
+      ['large.txt', 'z-small.txt']
+    );
+    await revertTurnReview(root, 'large-explicit');
+    assert.equal(await readFile(join(root, 'large.txt'), 'utf8'), before);
+    assert.equal(await exists(join(root, 'z-small.txt')), false);
+  } finally {
+    _resetTurnSnapshotForTest();
+    _setTurnSnapshotStoreRootForTest('');
+    await rm(store, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test('a sibling session turn leaves a completed review revertable', async () => {
   const root = await createRepository();

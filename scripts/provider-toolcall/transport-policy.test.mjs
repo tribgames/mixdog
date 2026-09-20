@@ -263,7 +263,10 @@ test('stream progress excludes transport and response acknowledgements from visi
     'tool'
   );
 
-  const turnSource = readFileSync(new URL('../../src/session-runtime/session-turn-api.mjs', import.meta.url), 'utf8');
+  const turnSource = readFileSync(
+    new URL('../../src/session-runtime/turn/turn-run/ask-callbacks.mjs', import.meta.url),
+    'utf8'
+  );
   const recoverySource = readFileSync(
     new URL('../../src/runtime/agent/orchestrator/session/send-with-recovery.mjs', import.meta.url),
     'utf8'

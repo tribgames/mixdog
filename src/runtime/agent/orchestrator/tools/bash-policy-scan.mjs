@@ -27,7 +27,7 @@ function _extractSubstitutionBodies(s) {
   let m;
   while ((m = re.exec(s)) !== null) {
     const body = m[1] != null ? m[1] : m[2];
-    if (body && body.trim()) out.push(body);
+    if (body?.trim()) out.push(body);
   }
   return out;
 }

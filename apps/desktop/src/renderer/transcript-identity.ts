@@ -91,12 +91,9 @@ export function adoptTranscriptIdentity(
       acceptedAlignment && prevItems && consumed < prevItems.length
         ? (prevItems[consumed] as TranscriptItem)
         : undefined;
-    const donor =
-      previous?.tail && alignedRow(previous.tail, incomingTail)
-        ? previous.tail
-        : leftover && alignedRow(leftover, incomingTail)
-          ? leftover
-          : undefined;
+    let donor: TranscriptItem | undefined;
+    if (previous?.tail && alignedRow(previous.tail, incomingTail)) donor = previous.tail;
+    else if (leftover && alignedRow(leftover, incomingTail)) donor = leftover;
     if (donor && hasOwnId(donor) && !sameRowId(donor, incomingTail)) {
       adoptedTail = { ...incomingTail, id: donor.id };
     }
@@ -137,14 +134,11 @@ export function createTranscriptIdentityReconciler(): TranscriptIdentityReconcil
       // baseline therefore keeps the aligned SUPERSET; a genuine rewrite
       // (clear, compaction, branch/fork resume) fails alignment on content
       // and replaces it untouched.
-      const baselineItems =
-        previous && previous.items.length > 0
-          ? nextItems.length === 0
-            ? previous.items
-            : (adopted.offset || 0) > 0
-              ? [...previous.items.slice(0, adopted.offset), ...nextItems]
-              : nextItems
-          : nextItems;
+      let baselineItems: readonly TranscriptItem[] = nextItems;
+      if (previous && previous.items.length > 0) {
+        if (nextItems.length === 0) baselineItems = previous.items;
+        else if ((adopted.offset || 0) > 0) baselineItems = [...previous.items.slice(0, adopted.offset), ...nextItems];
+      }
       sessions.set(sessionId, { items: baselineItems, tail: nextTail });
       while (sessions.size > IDENTITY_SESSION_LIMIT) {
         const oldest = sessions.keys().next().value;

@@ -76,7 +76,7 @@ function elfArch(buffer) {
   const eiClass = buffer[4];
   const eiData = buffer[5];
   if (eiData !== 1 && eiData !== 2) return null;
-  const headerSize = eiClass === 1 ? 52 : eiClass === 2 ? 64 : 0;
+  const headerSize = { 1: 52, 2: 64 }[eiClass] ?? 0;
   if (!headerSize || buffer.length < headerSize) return null;
   const littleEndian = eiData === 1;
   const machine = littleEndian ? buffer.readUInt16LE(18) : buffer.readUInt16BE(18);

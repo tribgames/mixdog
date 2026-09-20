@@ -233,15 +233,16 @@ export function auditDocxRedlining(currentXml, originalXml, { author = '' } = {}
   const after = paragraphLines(undone);
   const untrackedEdits = before.join('\n') === after.join('\n') ? null : lineDiff(before, after);
   const expected = String(author || '').trim();
+  const foreignSpan = (span) => ({
+    type: span.tag === 'ins' ? 'insertion' : 'deletion',
+    author: span.author,
+    text: excerpt(span.text),
+  });
   const foreignAuthors = expected
     ? [...fresh]
         .filter((span) => span.author !== expected)
         .slice(0, 10)
-        .map((span) => ({
-          type: span.tag === 'ins' ? 'insertion' : 'deletion',
-          author: span.author,
-          text: excerpt(span.text),
-        }))
+        .map(foreignSpan)
     : [];
   const reasons = [];
   if (untrackedEdits) {
@@ -433,7 +434,9 @@ export function resolveDocxRevisions(documentXml, { resolution = 'accept', targe
       output += source.slice(cursor, span.start);
       cursor = span.end;
       const inner = rebuild(span.children, span.innerStart, span.innerEnd);
-      const addressed = wanted ? span.id === wanted : owner ? span.author === owner : !target || target === mine;
+      let addressed = !target || target === mine;
+      if (wanted) addressed = span.id === wanted;
+      else if (owner) addressed = span.author === owner;
       if (!addressed) {
         output += `${source.slice(span.start, span.innerStart)}${inner}${source.slice(span.innerEnd, span.end)}`;
         continue;

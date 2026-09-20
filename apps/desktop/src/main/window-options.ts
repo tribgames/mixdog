@@ -67,14 +67,17 @@ function themeId(value: unknown): string {
 export function setDesktopTitleBarTheme(window: DesktopTitleBarWindow, value: unknown, systemPreference = false): void {
   const resolved = themeId(value);
   const light = resolved === 'light';
+  let band: 'system' | 'light' | 'dark' = 'dark';
+  if (systemPreference) band = 'system';
+  else if (light) band = 'light';
   titleBarThemes.set(window as object, light);
-  pinNativeThemeSource(systemPreference ? 'system' : light ? 'light' : 'dark');
+  pinNativeThemeSource(band);
   window.setBackgroundColor(light ? DESKTOP_LIGHT_BACKGROUND_COLOR : DESKTOP_BACKGROUND_COLOR);
   // Remember the applied band for the NEXT launch: the window constructor
   // reads it so a light-theme start never flashes the dark default band
   // (user-reported titlebar/tab pop right after launch).
   if (titleBarThemePersistPath) {
-    writeFile(titleBarThemePersistPath, systemPreference ? 'system' : light ? 'light' : 'dark', () => {
+    writeFile(titleBarThemePersistPath, band, () => {
       /* best effort */
     });
   }

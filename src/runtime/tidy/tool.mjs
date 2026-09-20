@@ -497,7 +497,9 @@ export async function executeTidyTool(args = {}, { cwd = process.cwd(), signal =
     }
     const scope = normalizeScope(list(args.paths), cwd);
     if (['scan', 'check', 'fix'].includes(action) && scope.length === 0) {
-      throw new TidyToolError('paths requires a user-selected scope; ask for files or directories, or use "." for an explicitly requested whole project');
+      throw new TidyToolError(
+        'paths requires a user-selected scope; ask for files or directories, or use "." for an explicitly requested whole project'
+      );
     }
     const languageFilter = list(args.languages);
     const engineFilter = list(args.engines);

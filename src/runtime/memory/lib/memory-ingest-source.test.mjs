@@ -46,7 +46,7 @@ test('transcript ingestion stores code-only, URL-only and table bodies verbatim 
   const path = join(directory, 'session.jsonl');
   await writeFile(
     path,
-    bodies
+    `${bodies
       .map((content, i) =>
         JSON.stringify({
           type: i % 2 ? 'assistant' : 'user',
@@ -54,7 +54,7 @@ test('transcript ingestion stores code-only, URL-only and table bodies verbatim 
           message: { content },
         })
       )
-      .join('\n') + '\n',
+      .join('\n')}\n`,
     { flag: 'wx' }
   );
   const db = store();

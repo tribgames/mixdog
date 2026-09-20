@@ -1,4 +1,4 @@
-import { useRef, type MutableRefObject } from 'react';
+import { useRef, type MutableRefObject, type ReactNode } from 'react';
 import type { NavigationSelection, WorkspaceSelection } from './navigation';
 import { paneActiveSelection, type PaneLeaf } from './pane-layout';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -29,6 +29,15 @@ type UtilitySelection = Extract<
 >;
 
 const BACKGROUND_PANE_STARTUP_DELAY_MS = 1_500;
+const UTILITY_STARTUP_DELAY_MS: Partial<Record<string, number>> = {
+  diff: DIFF_STARTUP_DELAY_MS,
+  terminal: TERMINAL_STARTUP_DELAY_MS,
+};
+const UTILITY_STARTUP_LABELS: Partial<Record<string, string>> = {
+  studio: 'Preparing Studio…',
+  diff: 'Loading diff…',
+  terminal: 'Loading terminal…',
+};
 
 /** Tabs that own a persistent utility surface (one mounted pane each). */
 function isUtilitySelection(selection: WorkspaceSelection): selection is UtilitySelection {
@@ -235,23 +244,28 @@ export function useAppPersistentPaneSurfaces({
   const paneUtilitySurfacePortals = [...utilitySurfaceDescriptors.values()].map((descriptor) => {
     const { key, leafId, selection: utilitySelection } = descriptor;
     const utilityActive = descriptor.active;
-    const baseStartupDelayMs =
-      utilitySelection.kind === 'studio'
-        ? 0
-        : utilitySelection.kind === 'diff'
-          ? DIFF_STARTUP_DELAY_MS
-          : utilitySelection.kind === 'terminal'
-            ? TERMINAL_STARTUP_DELAY_MS
-            : 0;
+    const baseStartupDelayMs = UTILITY_STARTUP_DELAY_MS[utilitySelection.kind] ?? 0;
     const startupDelayMs = baseStartupDelayMs + (descriptor.focused ? 0 : BACKGROUND_PANE_STARTUP_DELAY_MS);
-    const startupLabel =
-      utilitySelection.kind === 'studio'
-        ? 'Preparing Studio…'
-        : utilitySelection.kind === 'diff'
-          ? 'Loading diff…'
-          : utilitySelection.kind === 'terminal'
-            ? 'Loading terminal…'
-            : 'Loading pull request…';
+    const startupLabel = UTILITY_STARTUP_LABELS[utilitySelection.kind] ?? 'Loading pull request…';
+    let surface: ReactNode;
+    if (utilitySelection.kind === 'studio') {
+      surface = <ReadyStudioPane active={utilityActive} sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />;
+    } else if (utilitySelection.kind === 'terminal') {
+      surface = (
+        <ReadyTerminalPane cwd={utilitySelection.cwd || null} terminalId={utilitySelection.id} active={utilityActive} />
+      );
+    } else if (utilitySelection.kind === 'diff') {
+      surface = <ReadyGitDiffPane selection={utilitySelection} active={utilityActive} onOpenFile={openFileTab} />;
+    } else {
+      surface = (
+        <PullRequestEditor
+          projectPath={utilitySelection.project}
+          number={utilitySelection.number}
+          mode={utilitySelection.mode}
+          active={utilityActive}
+        />
+      );
+    }
     return (
       <PersistentPanePortal
         key={key}
@@ -270,24 +284,7 @@ export function useAppPersistentPaneSurfaces({
           startupDelayMs={startupDelayMs}
           fallback={<DesktopLoadingSurface label={startupLabel} />}
         >
-          {utilitySelection.kind === 'studio' ? (
-            <ReadyStudioPane active={utilityActive} sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />
-          ) : utilitySelection.kind === 'terminal' ? (
-            <ReadyTerminalPane
-              cwd={utilitySelection.cwd || null}
-              terminalId={utilitySelection.id}
-              active={utilityActive}
-            />
-          ) : utilitySelection.kind === 'diff' ? (
-            <ReadyGitDiffPane selection={utilitySelection} active={utilityActive} onOpenFile={openFileTab} />
-          ) : (
-            <PullRequestEditor
-              projectPath={utilitySelection.project}
-              number={utilitySelection.number}
-              mode={utilitySelection.mode}
-              active={utilityActive}
-            />
-          )}
+          {surface}
         </DeferredPersistentSurface>
       </PersistentPanePortal>
     );

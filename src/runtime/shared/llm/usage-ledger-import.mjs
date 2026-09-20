@@ -29,7 +29,9 @@ export function importTraceRow(row) {
   if (input == null || output == null) return null;
   const provider = row.provider || payload.provider;
   if (!provider || !row.model) return null;
-  const ts = typeof row.ts === 'number' ? row.ts : /^\d+$/.test(String(row.ts)) ? Number(row.ts) : Date.parse(row.ts);
+  let ts = Date.parse(row.ts);
+  if (typeof row.ts === 'number') ts = row.ts;
+  else if (/^\d+$/.test(String(row.ts))) ts = Number(row.ts);
   return makeUsageRecord({
     ts,
     provider,

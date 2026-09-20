@@ -20,6 +20,17 @@ const EMPTY_ITEMS: Record<DesktopBrowserImportItem, boolean> = {
   history: false,
 };
 
+function progressStateLabel(state: string): string {
+  if (state === 'completed') return t('Completed');
+  return state === 'failed' ? t('Failed') : t('In progress');
+}
+
+function ProgressStateIcon({ state }: { state: string }) {
+  if (state === 'completed') return <Check size={16} />;
+  if (state === 'failed') return <AlertTriangle size={16} />;
+  return <LoaderCircle size={16} className="is-spinning" />;
+}
+
 function supportedItems(source: DesktopBrowserImportSource | undefined): Record<DesktopBrowserImportItem, boolean> {
   return {
     passwords: source?.supports.passwords === true,
@@ -203,16 +214,39 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
     const selected = supported && items[item];
     const showProgress = (busy || finished) && selected;
     const progressState = itemProgress?.state || (busy ? 'running' : 'failed');
+    const passwordReason = item === 'passwords' ? selectedSource?.passwordSupportReason : '';
+    const unsupportedReason = supported ? '' : selectedSource?.supportReasons?.[item] || passwordReason || '';
+    const importedCount = itemProgress?.count
+      ? ` · ${t('{{total}} imported', { total: itemProgress.count.toLocaleString(uiFormatLocale()) })}`
+      : '';
+    let control: React.ReactNode = (
+      <input
+        type="checkbox"
+        checked={supported && items[item]}
+        disabled={!supported || loading}
+        onChange={(event) =>
+          setItems((current) => ({
+            ...current,
+            [item]: event.target.checked,
+          }))
+        }
+      />
+    );
+    if (showProgress) {
+      control = (
+        <span className={`browser-import-state is-${progressState}`} aria-label={progressStateLabel(progressState)}>
+          <ProgressStateIcon state={progressState} />
+        </span>
+      );
+    } else if (busy || finished) {
+      control = <span className="browser-import-skipped">{t('Excluded')}</span>;
+    }
     return (
       <label className={`browser-import-item${supported ? '' : ' is-disabled'}`}>
         <span className="browser-import-item-icon">{icon}</span>
         <span className="browser-import-item-label">
           <strong>{label}</strong>
-          {!supported &&
-          (selectedSource?.supportReasons?.[item] ||
-            (item === 'passwords' ? selectedSource?.passwordSupportReason : '')) ? (
-            <small>{selectedSource?.supportReasons?.[item] || selectedSource?.passwordSupportReason}</small>
-          ) : null}
+          {unsupportedReason ? <small>{unsupportedReason}</small> : null}
           {showProgress && progressState === 'completed' ? (
             <small>
               {t('{{total}} imported', { total: itemProgress?.count?.toLocaleString(uiFormatLocale()) || '0' })}
@@ -221,51 +255,20 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
           {showProgress && progressState === 'failed' ? (
             <small>
               {t('Failed to import')}
-              {itemProgress?.count
-                ? ` · ${t('{{total}} imported', { total: itemProgress.count.toLocaleString(uiFormatLocale()) })}`
-                : ''}
+              {importedCount}
             </small>
           ) : null}
         </span>
-        {showProgress ? (
-          <span
-            className={`browser-import-state is-${progressState}`}
-            aria-label={
-              progressState === 'completed'
-                ? t('Completed')
-                : progressState === 'failed'
-                  ? t('Failed')
-                  : t('In progress')
-            }
-          >
-            {progressState === 'completed' ? (
-              <Check size={16} />
-            ) : progressState === 'failed' ? (
-              <AlertTriangle size={16} />
-            ) : (
-              <LoaderCircle size={16} className="is-spinning" />
-            )}
-          </span>
-        ) : busy || finished ? (
-          <span className="browser-import-skipped">{t('Excluded')}</span>
-        ) : (
-          <input
-            type="checkbox"
-            checked={supported && items[item]}
-            disabled={!supported || loading}
-            onChange={(event) =>
-              setItems((current) => ({
-                ...current,
-                [item]: event.target.checked,
-              }))
-            }
-          />
-        )}
+        {control}
       </label>
     );
   };
 
   if (!open) return null;
+
+  let description = t('Select data to import into the built-in browser');
+  if (busy) description = t('Importing browser data…');
+  else if (finished) description = error ? t('Some data could not be imported') : t('Browser data imported');
 
   return (
     <div
@@ -285,15 +288,7 @@ export function BrowserImportDialog({ open, onClose }: BrowserImportDialogProps)
         <header>
           <div>
             <h2 id="browser-import-title">{t('Import from browser')}</h2>
-            <p id="browser-import-description">
-              {busy
-                ? t('Importing browser data…')
-                : finished
-                  ? error
-                    ? t('Some data could not be imported')
-                    : t('Browser data imported')
-                  : t('Select data to import into the built-in browser')}
-            </p>
+            <p id="browser-import-description">{description}</p>
           </div>
           {!busy && (
             <button type="button" className="browser-pane-nav-button" onClick={requestClose} aria-label={t('Close')}>

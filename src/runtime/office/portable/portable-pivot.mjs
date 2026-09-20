@@ -39,17 +39,21 @@ function displayOrder(field) {
   return [...field.items.keys()].sort((left, right) => field.items[left].localeCompare(field.items[right], 'en'));
 }
 
+function sharedItemsXml(field) {
+  if (field.numeric) {
+    const integer = field.integer ? ' containsInteger="1"' : '';
+    return (
+      `<sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1"` +
+      `${integer} minValue="${field.min}" maxValue="${field.max}"/>`
+    );
+  }
+  const items = field.items.map((item) => `<s v="${xmlEncode(item)}"/>`).join('');
+  return `<sharedItems count="${field.items.length}">${items}</sharedItems>`;
+}
+
 function cacheDefinitionXml(fields, records, sourceSheet, sourceRef, recordsRelationshipId) {
   const cacheFields = fields
-    .map((field) => {
-      const shared = field.numeric
-        ? `<sharedItems containsSemiMixedTypes="0" containsString="0" containsNumber="1"` +
-          `${field.integer ? ' containsInteger="1"' : ''} minValue="${field.min}" maxValue="${field.max}"/>`
-        : `<sharedItems count="${field.items.length}">` +
-          field.items.map((item) => `<s v="${xmlEncode(item)}"/>`).join('') +
-          '</sharedItems>';
-      return `<cacheField name="${xmlEncode(field.name)}" numFmtId="0">${shared}</cacheField>`;
-    })
+    .map((field) => `<cacheField name="${xmlEncode(field.name)}" numFmtId="0">${sharedItemsXml(field)}</cacheField>`)
     .join('');
   return (
     `${XML_HEADER}<pivotCacheDefinition xmlns="${SPREADSHEET_MAIN}"` +
@@ -142,7 +146,7 @@ function pivotTableXml({ name, cacheId, fields, rowField, columnField, valueFiel
   const rowOrder = rowField >= 0 ? displayOrder(fields[rowField]) : [];
   const columnOrder = columnField >= 0 ? displayOrder(fields[columnField]) : [];
   const pivotFields = fields
-    .map((field, index) => {
+    .map((_field, index) => {
       if (index === rowField) return `<pivotField axis="axisRow" showAll="0">${axisItemsXml(rowOrder)}</pivotField>`;
       if (index === columnField)
         return `<pivotField axis="axisCol" showAll="0">${axisItemsXml(columnOrder)}</pivotField>`;
@@ -158,22 +162,24 @@ function pivotTableXml({ name, cacheId, fields, rowField, columnField, valueFiel
         '<i t="grand"><x/></i></rowItems>'
       : '<rowItems count="1"><i/></rowItems>';
 
-  const columnSection =
-    columnField >= 0
-      ? `<colFields count="1"><field x="${columnField}"/></colFields>` +
-        `<colItems count="${columnOrder.length + 1}">${axisEntriesXml(columnOrder.length)}` +
-        '<i t="grand"><x/></i></colItems>'
-      : valueFields.length > 1
-        ? '<colFields count="1"><field x="-2"/></colFields>' +
-          `<colItems count="${valueFields.length}">` +
-          valueFields
-            .map(
-              (_, position) =>
-                `<i${position ? ` i="${position}"` : ''}>${position === 0 ? '<x/>' : `<x v="${position}"/>`}</i>`
-            )
-            .join('') +
-          '</colItems>'
-        : '<colItems count="1"><i/></colItems>';
+  const valueItemXml = (position) => {
+    const index = position ? ` i="${position}"` : '';
+    const value = position === 0 ? '<x/>' : `<x v="${position}"/>`;
+    return `<i${index}>${value}</i>`;
+  };
+  let columnSection = '<colItems count="1"><i/></colItems>';
+  if (columnField >= 0) {
+    columnSection =
+      `<colFields count="1"><field x="${columnField}"/></colFields>` +
+      `<colItems count="${columnOrder.length + 1}">${axisEntriesXml(columnOrder.length)}` +
+      '<i t="grand"><x/></i></colItems>';
+  } else if (valueFields.length > 1) {
+    columnSection =
+      '<colFields count="1"><field x="-2"/></colFields>' +
+      `<colItems count="${valueFields.length}">` +
+      valueFields.map((_, position) => valueItemXml(position)).join('') +
+      '</colItems>';
+  }
 
   const dataFields =
     `<dataFields count="${valueFields.length}">` +

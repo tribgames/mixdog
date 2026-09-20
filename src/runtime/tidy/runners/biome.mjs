@@ -232,13 +232,10 @@ function rowsToResult(rows, cwd, truncated) {
     if (category.startsWith('format')) changedFiles.push(file);
     const kind = payloadFixKind(row, category);
     const rdjson = row?.code && typeof row.code === 'object' && typeof row.code.value === 'string';
-    const codeFix = category.startsWith('format')
-      ? true
-      : Array.isArray(row?.suggestions)
-        ? row.suggestions.length > 0
-        : rdjson
-          ? false
-          : undefined;
+    let codeFix;
+    if (category.startsWith('format')) codeFix = true;
+    else if (Array.isArray(row?.suggestions)) codeFix = row.suggestions.length > 0;
+    else if (rdjson) codeFix = false;
     diagnostics.push(
       diagnostic({
         file,
@@ -304,8 +301,9 @@ export function biomeCounts(diagnostics = [], changedFiles = []) {
   for (const finding of diagnostics) {
     const severity = finding?.severity === 'error' || finding?.severity === 'warning' ? finding.severity : 'info';
     bySeverity[severity] += 1;
-    const kind =
-      finding?.fixKind === 'unsafe' ? 'unsafe' : finding?.fixKind === 'safe' || finding?.fixable ? 'safe' : 'manual';
+    let kind = 'manual';
+    if (finding?.fixKind === 'unsafe') kind = 'unsafe';
+    else if (finding?.fixKind === 'safe' || finding?.fixable) kind = 'safe';
     byFixability[kind] += 1;
     if (kind === 'safe') byFixability.fixable += 1;
     else byFixability.unfixable += 1;

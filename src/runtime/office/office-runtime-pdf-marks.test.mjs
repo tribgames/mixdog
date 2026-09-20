@@ -240,7 +240,9 @@ test('PDF preview_fields outlines fields and proposed boxes on a copy', async (t
   // Labels are drawn in the first installed Unicode face that covers them (pdf-fonts.mjs): Hangul
   // where Malgun Gothic exists, Greek where only DejaVu does, Latin where no Unicode face is installed.
   const fontPath = await unicodeFontPath();
-  const fieldName = !fontPath ? 'Name' : /DejaVuSans/i.test(fontPath) ? 'Όνομα' : '성명';
+  let fieldName = '성명';
+  if (!fontPath) fieldName = 'Name';
+  else if (/DejaVuSans/i.test(fontPath)) fieldName = 'Όνομα';
   const cwd = await workspace(t);
   const path = join(cwd, 'form.pdf');
   const created = value(

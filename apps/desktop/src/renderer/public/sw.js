@@ -217,7 +217,7 @@ async function pruneSharedPayloads(cache) {
     try {
       const stored = await cache.match(key);
       const index = stored ? await stored.json() : null;
-      createdAt = Number(index && index.createdAt) || 0;
+      createdAt = Number(index?.createdAt) || 0;
     } catch {
       createdAt = 0;
     }
@@ -348,7 +348,7 @@ self.addEventListener('push', (event) => {
   }
   const title = (payload && typeof payload.title === 'string' && payload.title.trim()) || 'Mixdog';
   const supplied = payload && typeof payload.body === 'string' ? payload.body.trim() : '';
-  const sessionId = payload && payload.data && typeof payload.data.sessionId === 'string' ? payload.data.sessionId : '';
+  const sessionId = payload?.data && typeof payload.data.sessionId === 'string' ? payload.data.sessionId : '';
   event.waitUntil(
     (async () => {
       // What the session actually said travels verbatim; only the stand-in for

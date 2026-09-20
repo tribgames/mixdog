@@ -14,6 +14,11 @@ test('tool loop sources carry no behavior-steering injected instructions', () =>
   const steeringSources = [
     'src/runtime/agent/orchestrator/session/agent-loop.mjs',
     'src/runtime/agent/orchestrator/session/loop/no-tool-turn.mjs',
+    'src/runtime/agent/orchestrator/session/loop/no-tool-turn/segments.mjs',
+    'src/runtime/agent/orchestrator/session/loop/no-tool-turn/output-limit.mjs',
+    'src/runtime/agent/orchestrator/session/loop/no-tool-turn/refusal.mjs',
+    'src/runtime/agent/orchestrator/session/loop/no-tool-turn/continuation.mjs',
+    'src/runtime/agent/orchestrator/session/loop/no-tool-turn/empty-nudge.mjs',
     'src/runtime/agent/orchestrator/session/tool-batch.mjs',
     'src/runtime/agent/orchestrator/session/tool-batch/plan.mjs',
     'src/runtime/agent/orchestrator/session/tool-batch/pre-dispatch.mjs',
@@ -22,8 +27,14 @@ test('tool loop sources carry no behavior-steering injected instructions', () =>
     'src/runtime/agent/orchestrator/session/tool-batch/finalize.mjs',
     'src/runtime/agent/orchestrator/session/tool-batch/flush.mjs',
     'src/runtime/agent/orchestrator/session/eager-dispatch.mjs',
+    'src/runtime/agent/orchestrator/session/eager-dispatch/admission.mjs',
+    'src/runtime/agent/orchestrator/session/eager-dispatch/barriers.mjs',
+    'src/runtime/agent/orchestrator/session/eager-dispatch/entry.mjs',
     'src/runtime/agent/orchestrator/session/loop/stored-tool-args.mjs',
     'src/runtime/agent/orchestrator/tools/patch/orchestrator.mjs',
+    'src/runtime/agent/orchestrator/tools/patch/apply-patch/codex-batch.mjs',
+    'src/runtime/agent/orchestrator/tools/patch/sequence.mjs',
+    'src/runtime/agent/orchestrator/tools/patch/sequence/report.mjs',
   ]
     .map((file) => readFileSync(join(root, file), 'utf8'))
     .join('\n');
@@ -82,7 +93,12 @@ test('setRoute stays next-session-only and refreshes cache fields on live-apply'
   const runtimeSrc = [readMjsSources('src/mixdog-session-runtime.mjs'), readMjsSources('src/session-runtime')].join(
     '\n'
   );
-  const setRouteBlock = runtimeSrc.match(/async setRoute\(next, options = \{\}\) \{[\s\S]*?\n {4}\},\n/)?.[0] || '';
+  // The empty-session recreate lives in recreateEmptySession (model-route/);
+  // the guard covers the setRoute body and that helper together.
+  const setRouteBlock = [
+    runtimeSrc.match(/async (?:function )?setRoute\(next, options = \{\}\) \{[\s\S]*?\n {2,4}\};?,?\n/)?.[0] || '',
+    runtimeSrc.match(/async function recreateEmptySession\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || '',
+  ].join('\n');
   if (!/applyToCurrentSession = options\?\.applyToCurrentSession === true/.test(setRouteBlock)) {
     throw new Error(
       'setRoute must default applyToCurrentSession to false (model changes apply to the next session only)'

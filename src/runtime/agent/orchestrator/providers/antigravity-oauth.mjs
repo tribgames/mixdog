@@ -167,10 +167,14 @@ export class AntigravityOAuthProvider {
     // Picker ids name a tier family; the wire id carries the chosen effort.
     const route = resolveAntigravityWireModel(model || DEFAULT_ANTIGRAVITY_MODEL, sendOpts?.effort);
     const useModel = route.model;
-    const opts =
-      route.effort === sendOpts?.effort
-        ? sendOpts || {}
-        : { ...sendOpts, effort: route.effort, thinkingLevel: route.effort == null ? null : sendOpts?.thinkingLevel };
+    let opts = sendOpts || {};
+    if (route.effort !== sendOpts?.effort) {
+      opts = {
+        ...sendOpts,
+        effort: route.effort,
+        thinkingLevel: route.effort == null ? null : sendOpts?.thinkingLevel,
+      };
+    }
     const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
     // Streamed text is kept so a retirement notice can be told apart from
     // a truncated stream when the gateway omits the finishReason.
@@ -393,11 +397,9 @@ export class AntigravityOAuthProvider {
     // Thought signatures are only valid for the model family that minted
     // them; the request builder consults this when the route changes.
     if (providerReplay) providerReplay.requestContext = { model: useModel };
-    let nativeToolCalls = onToolCall
-      ? streamedNativeToolCalls.length
-        ? streamedNativeToolCalls
-        : undefined
-      : parseToolCalls(responseParts);
+    let nativeToolCalls;
+    if (!onToolCall) nativeToolCalls = parseToolCalls(responseParts);
+    else if (streamedNativeToolCalls.length) nativeToolCalls = streamedNativeToolCalls;
     if (!onToolCall && textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
     let toolCalls = nativeToolCalls;
     if (leakedToolCalls.length) {

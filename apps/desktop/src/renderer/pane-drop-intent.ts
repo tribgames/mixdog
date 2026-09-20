@@ -286,7 +286,13 @@ export function resolvePaneDropIntent(
     !sessionDrag && sourceLeafId && !pointedStrip ? paneOuterDropZone(panelRect, frame.x, frame.y) : null;
   const hierarchyTarget =
     canDetachAtRoot && outerZone
-      ? paneHierarchyDropTarget(panelRect, outerZone, frame.x, frame.y, paneHierarchyCandidates(panelElement, panelRect))
+      ? paneHierarchyDropTarget(
+          panelRect,
+          outerZone,
+          frame.x,
+          frame.y,
+          paneHierarchyCandidates(panelElement, panelRect)
+        )
       : null;
   const outerDirection = outerZone === 'left' || outerZone === 'right' ? 'row' : 'column';
   if (

@@ -173,7 +173,7 @@ function _maybeWarnSlow(waitedMs, laneName, lane) {
  * @returns {Promise<() => void>}
  */
 export function acquire(signal = null, laneName = 'search', options = {}) {
-  if (signal && signal.aborted) {
+  if (signal?.aborted) {
     return Promise.reject(signal.reason ?? _abortError());
   }
   const normalizedLaneName = _laneName(laneName);
@@ -203,7 +203,7 @@ export function acquire(signal = null, laneName = 'search', options = {}) {
 }
 
 function _acquireLocal(signal, normalizedLaneName, lane, ownerKey, waitTimeoutMs) {
-  if (signal && signal.aborted) {
+  if (signal?.aborted) {
     return Promise.reject(signal.reason ?? _abortError());
   }
   const admitted = Promise.withResolvers();

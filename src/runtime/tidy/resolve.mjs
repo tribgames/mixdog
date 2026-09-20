@@ -275,12 +275,9 @@ export async function resolveEngines({
   const config = readTidyConfig(cwd);
   const policy = resolveDownloadPolicy(config, env);
   const loadedManifest = manifest || readEnginesManifest();
-  const requested =
-    engineIds.length > 0
-      ? engineIds.filter((id) => ENGINE_IDS.includes(id))
-      : languages.length > 0
-        ? enginesForLanguages(languages)
-        : [];
+  let requested = [];
+  if (engineIds.length > 0) requested = engineIds.filter((id) => ENGINE_IDS.includes(id));
+  else if (languages.length > 0) requested = enginesForLanguages(languages);
   const unknown = engineIds.filter((id) => !ENGINE_IDS.includes(id));
 
   const resolved = requested.map((id) => {

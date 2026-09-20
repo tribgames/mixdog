@@ -1,4 +1,4 @@
-// Cycle LLM dispatch adapters, extracted from index.mjs (pass 3).
+// Cycle LLM dispatch adapters.
 //
 // Each cycleN scheduler/handler routes its LLM work through the provider's
 // process-singleton agent broker. The memory process owns PG/embeddings only;

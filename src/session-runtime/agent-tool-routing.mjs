@@ -12,11 +12,9 @@ export function createRoutedAgentTool({ rt, agentTool, executeAgentControl = nul
   const routedAgentTool = {
     ...agentTool,
     execute(args, context = {}) {
-      return typeof executeAgentControl === 'function'
-        ? executeAgentControl(args, context)
-        : remoteAgentControlEnabled()
-          ? executeRemoteAgentControl(args, context)
-          : agentTool.execute(args, context);
+      if (typeof executeAgentControl === 'function') return executeAgentControl(args, context);
+      if (remoteAgentControlEnabled()) return executeRemoteAgentControl(args, context);
+      return agentTool.execute(args, context);
     },
     closeAll(reason, scope = {}) {
       if (typeof executeAgentControl !== 'function' && !remoteAgentControlEnabled()) {

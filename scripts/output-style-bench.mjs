@@ -90,18 +90,12 @@ function measureOutputText(text) {
   const sentenceText = withoutCode.replace(/[*_~]+/g, '');
   const sentenceMarks = sentenceText.match(/[.!?。！？]+(?=\s|$)/g) || [];
   const semicolons = (withoutCode.match(/[;；]/g) || []).length;
-  const shape =
-    tableRows >= 2
-      ? 'table'
-      : numberedItems > 0
-        ? 'steps'
-        : bullets > 0 && (headings > 0 || sectionLabels > 0)
-          ? 'sections+bullets'
-          : bullets > 0
-            ? 'bullets'
-            : paragraphs > 1
-              ? 'paragraphs'
-              : 'prose';
+  let shape = 'prose';
+  if (tableRows >= 2) shape = 'table';
+  else if (numberedItems > 0) shape = 'steps';
+  else if (bullets > 0 && (headings > 0 || sectionLabels > 0)) shape = 'sections+bullets';
+  else if (bullets > 0) shape = 'bullets';
+  else if (paragraphs > 1) shape = 'paragraphs';
   return {
     chars: trimmed.length,
     lines: lines.length,

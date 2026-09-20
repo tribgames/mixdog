@@ -14,7 +14,7 @@
  * address reservations through it. This module owns every transition over that
  * map, so release/disarm ordering exists in exactly one place.
  */
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { envFlag } from '../../../shared/env.mjs';
@@ -65,12 +65,9 @@ export function codexStartupPrefixHash(body) {
  */
 export function resolveStartupPrewarmTarget(opts) {
   const session = opts.session && typeof opts.session === 'object' ? opts.session : null;
-  const messages = Array.isArray(opts.messages)
-    ? opts.messages
-    : Array.isArray(session?.messages)
-      ? session.messages
-      : null;
-  const tools = Array.isArray(opts.tools) ? opts.tools : Array.isArray(session?.tools) ? session.tools : [];
+  const firstArray = (...candidates) => candidates.find(Array.isArray);
+  const messages = firstArray(opts.messages, session?.messages) ?? null;
+  const tools = firstArray(opts.tools, session?.tools) ?? [];
   const model = opts.model || session?.model || null;
   return {
     poolKey: opts.sessionId || null,

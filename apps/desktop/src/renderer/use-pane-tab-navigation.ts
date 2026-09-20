@@ -1,6 +1,15 @@
 import { useRef, type Dispatch, type SetStateAction } from 'react';
 import type { NavigationSelection, WorkspaceSelection, WorkspaceTab } from './navigation';
 
+const MONACO_TYPING_SURFACE = "[data-surface-active='true'] .monaco-editor textarea.inputarea";
+const TYPING_SURFACE_SELECTORS: Partial<Record<string, string>> = {
+  terminal: "[data-surface-active='true'] .xterm-helper-textarea",
+  studio: "[data-surface-active='true'] textarea",
+  file: MONACO_TYPING_SURFACE,
+  diff: MONACO_TYPING_SURFACE,
+  'pull-request': MONACO_TYPING_SURFACE,
+};
+
 export function usePaneTabNavigation({
   focusedLeafId,
   activeTabKey,
@@ -26,14 +35,7 @@ export function usePaneTabNavigation({
       setComposerFocusRequest((value) => value + 1);
       return;
     }
-    const selector =
-      selection.kind === 'terminal'
-        ? "[data-surface-active='true'] .xterm-helper-textarea"
-        : selection.kind === 'studio'
-          ? "[data-surface-active='true'] textarea"
-          : selection.kind === 'file' || selection.kind === 'diff' || selection.kind === 'pull-request'
-            ? "[data-surface-active='true'] .monaco-editor textarea.inputarea"
-            : '';
+    const selector = TYPING_SURFACE_SELECTORS[selection.kind] ?? '';
     if (!selector) return;
     if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
       document.activeElement.blur();

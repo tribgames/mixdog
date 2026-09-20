@@ -344,7 +344,10 @@ function standaloneUnit(r, render, { preserveSource, pendingMarks }) {
 function rowUnits(r, render, options) {
   if (r?._dupStub) {
     return [
-      entryUnit(r, `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed)${render.timeSourceMark(r)} #${r.id}`),
+      entryUnit(
+        r,
+        `[${formatTs(r.ts)}] (near-duplicate of #${r._dupOf} — collapsed)${render.timeSourceMark(r)} #${r.id}`
+      ),
     ];
   }
   if (r?._compactBody) return [entryUnit(r, String(r.summary ?? ''))];

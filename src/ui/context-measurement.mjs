@@ -39,7 +39,7 @@ export function contextMeasurementStats(context) {
     currentContextTokens: known ? Number(measurement.tokens) : null,
     // Retained for old transports, but estimates no longer enter the display lane.
     currentEstimatedContextTokens: 0,
-    currentContextSource: known ? 'last_api_request' : measurement.source === 'unavailable' ? 'unavailable' : 'pending',
+    currentContextSource: measurementSource(known, measurement.source),
     currentContextUpdatedAt: measurement.updatedAt || null,
   };
 }
@@ -65,16 +65,19 @@ export function measuredContextUsage(input = {}) {
     limit,
     percent: contextPercent(used, limit),
     known,
-    source: known ? 'last_api_request' : source === 'unavailable' ? 'unavailable' : 'pending',
+    source: measurementSource(known, source),
     updatedAt: stats.currentContextUpdatedAt || null,
     estimated: false,
   };
 }
 
+/** A known measurement is the last API request; otherwise the transport says unavailable or still pending. */
+function measurementSource(known, source) {
+  if (known) return 'last_api_request';
+  return source === 'unavailable' ? 'unavailable' : 'pending';
+}
+
 export function contextMeasurementLabel(source) {
-  return source === 'last_api_request'
-    ? 'Last measured input'
-    : source === 'unavailable'
-      ? 'Usage unavailable'
-      : 'Awaiting measurement';
+  if (source === 'last_api_request') return 'Last measured input';
+  return source === 'unavailable' ? 'Usage unavailable' : 'Awaiting measurement';
 }

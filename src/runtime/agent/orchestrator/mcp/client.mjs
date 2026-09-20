@@ -1,113 +1,33 @@
-import { readFileSync, existsSync, mkdirSync } from 'fs';
-import { writeFile } from 'fs/promises';
-import { basename, join, resolve } from 'path';
-import { pathToFileURL } from 'url';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
+import { mkdirSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { smartReadTruncate } from '../tools/builtin/read-formatting.mjs';
 import { shutdownStdioChild, killStdioChildTreeFast } from './child-tree.mjs';
-import { readServicePort, markServiceUnreachable, isConnRefuseError } from '../../../shared/service-discovery.mjs';
 import { makeToolEnvelope, normalizeToolEnvelope } from '../session/tool-envelope.mjs';
 import { classifyResultKind } from '../session/result-classification.mjs';
 import { createKeyedSingleflight } from './reconnect-singleflight.mjs';
 import { createOwnerFairGate } from '../../../shared/owner-fair-gate.mjs';
 import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.mjs';
-import { resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 import { positiveInt } from '../../../shared/numbers.mjs';
-// --- Types ---
-/** Known auto-detect targets: port file path relative to tmpdir.
- *  Note: `mixdog` used to self-loopback via active-instance.json's
- *  httpPort, but that path went through channels' owner HTTP server which
- *  only exposes a subset of tools. The plugin's own tools are now injected
- *  in-process through agent's toolExecutor (see orchestrator/internal-tools),
- *  so this registry is for genuinely external port-based MCP targets only. */
-const AUTO_DETECT_PORTS = {
-  'mixdog-memory': { discovery: 'memory', endpoint: '/mcp' },
-};
-const DEFAULT_MCP_CALL_TIMEOUT_MS = 120000;
-// Per-server STARTUP handshake budget (connect + listTools): 10s.
-const DEFAULT_MCP_STARTUP_TIMEOUT_MS = 10000;
+import { resolveMcpCallTimeoutMs, resolveMcpTransportKind, scrubMcpConnectionMessage } from './client-config.mjs';
+import { createMcpTransport } from './client-transport.mjs';
+import { runBoundedHandshake } from './client-handshake.mjs';
 
-function isLoopbackMcpHost(hostname) {
-  const host = String(hostname || '')
-    .toLowerCase()
-    .replace(/^\[|\]$/g, '');
-  return host === 'localhost' || host === '::1' || /^127(?:\.\d{1,3}){3}$/.test(host);
-}
-
-export function normalizeMcpTransportUrl(raw, kind = 'http') {
-  let parsed;
-  try {
-    parsed = new URL(String(raw || '').trim());
-  } catch {
-    throw new Error(`MCP ${kind} URL is invalid`);
-  }
-  if (parsed.username || parsed.password) {
-    throw new Error('MCP URLs must not contain credentials');
-  }
-  const websocket = kind === 'ws';
-  const encrypted = websocket
-    ? parsed.protocol === 'wss:' || parsed.protocol === 'https:'
-    : parsed.protocol === 'https:';
-  const localPlaintext =
-    isLoopbackMcpHost(parsed.hostname) &&
-    (websocket ? parsed.protocol === 'ws:' || parsed.protocol === 'http:' : parsed.protocol === 'http:');
-  if (!encrypted && !localPlaintext) {
-    throw new Error(
-      websocket
-        ? 'MCP WebSocket URLs must use wss://; ws:// is allowed only for loopback'
-        : 'MCP URLs must use https://; http:// is allowed only for loopback'
-    );
-  }
-  parsed.hash = '';
-  return parsed.toString();
-}
-
-export function mcpUrlForLog(raw) {
-  try {
-    const parsed = new URL(String(raw || ''));
-    const hadQuery = Boolean(parsed.search);
-    parsed.username = '';
-    parsed.password = '';
-    parsed.search = '';
-    parsed.hash = '';
-    return `${parsed.toString()}${hadQuery ? '?[query-redacted]' : ''}`;
-  } catch {
-    return '[invalid MCP URL]';
-  }
-}
-
-function replaceSecret(text, value) {
-  const secret = String(value || '');
-  return secret.length >= 4 ? text.split(secret).join('[redacted]') : text;
-}
-
-export function scrubMcpConnectionMessage(value, cfg = {}) {
-  let text = String(value || '');
-  const rawUrl = expandEnvVars(String(cfg?.url || ''));
-  if (rawUrl) {
-    text = text.split(rawUrl).join(mcpUrlForLog(rawUrl));
-    try {
-      const parsed = new URL(rawUrl);
-      text = replaceSecret(text, parsed.username);
-      text = replaceSecret(text, parsed.password);
-      for (const paramValue of parsed.searchParams.values()) {
-        text = replaceSecret(text, paramValue);
-      }
-    } catch {
-      /* invalid URL is reported without echoing it */
-    }
-  }
-  const headers = resolveMcpHttpHeaders(cfg);
-  for (const [name, headerValue] of Object.entries(headers)) {
-    if (/authorization|cookie|token|secret|api[-_]?key|signature/i.test(name)) {
-      text = replaceSecret(text, headerValue);
-    }
-  }
-  return text
-    .replace(/\b(https?|wss?):\/\/[^/\s@]+@/giu, '$1://[redacted]@')
-    .replace(/([?&](?:access_token|api[_-]?key|auth|secret|signature|token)=)[^&\s'"]+/giu, '$1[redacted]');
-}
+// Config interpretation (transport kind, URL policy, env expansion, headers,
+// timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
+// existing importer resolves unchanged.
+export {
+  normalizeMcpTransportUrl,
+  mcpUrlForLog,
+  scrubMcpConnectionMessage,
+  resolveMcpStdioEnvironment,
+  resolveMcpHttpHeaders,
+  resolveMcpTransportKind,
+  resolveMcpStartupTimeoutMs,
+} from './client-config.mjs';
 // --- State ---
 const servers = new Map();
 const reconnects = createKeyedSingleflight();
@@ -174,105 +94,6 @@ async function loadMcpSdk() {
     ToolListChangedNotificationSchema: typesMod.ToolListChangedNotificationSchema,
   }));
   return mcpSdkPromise;
-}
-/**
- * Expand `${VAR}` and `${env:VAR}` references in string values using the
- * provided env map (defaults to process.env). Recurses into arrays/objects.
- * Unknown vars expand to an empty string. No shell execution.
- */
-function expandEnvVars(value, env = process.env) {
-  if (typeof value === 'string') {
-    return value.replace(/\$\{(?:env:)?([A-Za-z_][A-Za-z0-9_]*)\}/g, (_m, name) => {
-      const v = env?.[name];
-      return v == null ? '' : String(v);
-    });
-  }
-  if (Array.isArray(value)) {
-    return value.map((v) => expandEnvVars(v, env));
-  }
-  if (value && typeof value === 'object') {
-    const out = {};
-    for (const [k, v] of Object.entries(value)) {
-      out[k] = expandEnvVars(v, env);
-    }
-    return out;
-  }
-  return value;
-}
-
-const DEFAULT_STDIO_ENV_KEYS =
-  process.platform === 'win32'
-    ? [
-        'APPDATA',
-        'HOMEDRIVE',
-        'HOMEPATH',
-        'LOCALAPPDATA',
-        'PATH',
-        'PROCESSOR_ARCHITECTURE',
-        'SYSTEMDRIVE',
-        'SYSTEMROOT',
-        'TEMP',
-        'TMP',
-        'USERDOMAIN',
-        'USERNAME',
-        'USERPROFILE',
-      ]
-    : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
-
-export function resolveMcpStdioEnvironment(cfg = {}, env = process.env) {
-  const explicit = cfg.env && typeof cfg.env === 'object' && !Array.isArray(cfg.env) ? expandEnvVars(cfg.env, env) : {};
-  if (!Array.isArray(cfg.env_vars)) return { ...env, ...explicit };
-  const inherited = {};
-  const keys = new Set([
-    ...DEFAULT_STDIO_ENV_KEYS,
-    ...cfg.env_vars.map((value) => String(value).trim()).filter(Boolean),
-  ]);
-  for (const requested of keys) {
-    const actual =
-      process.platform === 'win32'
-        ? Object.keys(env || {}).find((key) => key.toLowerCase() === requested.toLowerCase())
-        : requested;
-    if (actual && env?.[actual] != null) inherited[actual] = String(env[actual]);
-  }
-  return { ...inherited, ...explicit };
-}
-
-export function resolveMcpHttpHeaders(cfg = {}, env = process.env) {
-  const headers = {};
-  const envHeaders =
-    cfg.env_http_headers && typeof cfg.env_http_headers === 'object' && !Array.isArray(cfg.env_http_headers)
-      ? cfg.env_http_headers
-      : {};
-  for (const [header, envName] of Object.entries(envHeaders)) {
-    const value = env?.[String(envName)];
-    if (value != null && String(value)) headers[String(header)] = String(value);
-  }
-  const bearerEnv = String(cfg.bearer_token_env_var || '').trim();
-  if (bearerEnv && env?.[bearerEnv] != null && String(env[bearerEnv])) {
-    headers.Authorization = `Bearer ${String(env[bearerEnv])}`;
-  }
-  const explicit =
-    cfg.headers && typeof cfg.headers === 'object' && !Array.isArray(cfg.headers)
-      ? expandEnvVars(cfg.headers, env)
-      : {};
-  return { ...headers, ...explicit };
-}
-/**
- * Resolve the canonical transport kind for an MCP server config entry.
- * Returns one of: 'autoDetect' | 'stdio' | 'http' | 'sse' | 'ws'.
- * Throws when no transport can be determined.
- */
-export function resolveMcpTransportKind(cfg) {
-  if (cfg?.autoDetect) return 'autoDetect';
-  if (cfg?.type != null && cfg.type !== '') {
-    let t = String(cfg.type).toLowerCase();
-    if (t === 'streamable-http' || t === 'streamablehttp') t = 'http';
-    if (t === 'stdio' || t === 'http' || t === 'sse' || t === 'ws') return t;
-  }
-  if (cfg?.transport === 'http') return 'http';
-  if (cfg?.command) return 'stdio';
-  if (cfg?.url) return 'http';
-  throw new Error(`Invalid config: need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
 }
 // --- Public API ---
 /**
@@ -656,46 +477,8 @@ function normalizeMcpToolResult(result) {
   return text;
 }
 
-// MCP per-tool-call timeout. Default 2min: a hung/unresponsive MCP server
-// (e.g. a busy editor) must not stall a tool call indefinitely. Genuinely
-// long-running tools can raise/disable it via MIXDOG_MCP_CALL_TIMEOUT_MS or a
-// per-server timeoutMs/callTimeoutMs config value (0/off/none/false disables).
-// On expiry we close the transport so the next dispatch reconnects fresh, but
-// we do not retry the timed-out call automatically (avoids side-effect dupes).
-function resolveMcpCallTimeoutMs(cfg = {}, env = process.env) {
-  const raw =
-    cfg?.timeoutMs ?? cfg?.timeout_ms ?? cfg?.callTimeoutMs ?? cfg?.call_timeout_ms ?? env?.MIXDOG_MCP_CALL_TIMEOUT_MS;
-  if (raw == null || raw === '' || raw === false) return DEFAULT_MCP_CALL_TIMEOUT_MS;
-  if (typeof raw === 'string' && /^(0|off|none|false)$/i.test(raw.trim())) return 0;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MCP_CALL_TIMEOUT_MS;
-  return Math.round(parsed);
-}
-
 function isMcpToolCallTimeoutError(err) {
   return err?.code === 'EMCPTOOLTIMEOUT';
-}
-
-// MCP per-server STARTUP timeout: bounds the connect + listTools handshake so a
-// slow or hung server can't stall boot or the first turn. Default 10s.
-// Per-server override: startupTimeoutMs / startupTimeoutSec. Global
-// env: MIXDOG_MCP_STARTUP_TIMEOUT_MS. A value of 0/off/none/false disables it.
-export function resolveMcpStartupTimeoutMs(cfg = {}, env = process.env) {
-  const rawMs = cfg?.startupTimeoutMs ?? cfg?.startup_timeout_ms;
-  const rawSec = cfg?.startupTimeoutSec ?? cfg?.startup_timeout_sec;
-  const rawEnv = env?.MIXDOG_MCP_STARTUP_TIMEOUT_MS;
-  let raw;
-  let scale = 1;
-  if (rawMs != null && rawMs !== '') raw = rawMs;
-  else if (rawSec != null && rawSec !== '') {
-    raw = rawSec;
-    scale = 1000;
-  } else if (rawEnv != null && rawEnv !== '') raw = rawEnv;
-  else return DEFAULT_MCP_STARTUP_TIMEOUT_MS;
-  if (raw === 0 || (typeof raw === 'string' && /^(0|off|none|false)$/i.test(raw.trim()))) return 0;
-  const parsed = Number(raw) * scale;
-  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MCP_STARTUP_TIMEOUT_MS;
-  return Math.round(parsed);
 }
 
 // Caller-driven cancellation (hook timeout, aborted turn, closed pane).
@@ -949,7 +732,7 @@ export async function disconnectMcpServer(name, options = {}) {
 async function _closeServer(server) {
   const transport = server?.transport;
   // Live stdio transports expose the spawned ChildProcess on _process.
-  if (transport && transport._process) {
+  if (transport?._process) {
     try {
       await shutdownStdioChild(transport);
     } catch {
@@ -974,179 +757,25 @@ async function connectServer(
 ) {
   scopeId = normalizeMcpScopeId(scopeId);
   _knownMcpScopes.add(scopeId);
-  const {
-    Client,
-    StdioClientTransport,
-    StreamableHTTPClientTransport,
-    SSEClientTransport,
-    WebSocketClientTransport,
-    ListRootsRequestSchema,
-    ToolListChangedNotificationSchema,
-  } = await loadMcpSdk();
+  const sdk = await loadMcpSdk();
   if (genAtStart !== currentConnectAbortGeneration(scopeId)) {
     // disconnectAll() ran while the SDK was loading: nothing spawned yet —
     // abort before creating a transport/child at all.
     throw new Error(`MCP server "${name}" connect aborted by shutdown`);
   }
-  const projectRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
-  const client = new Client(
-    { name: `mixdog-agent/${name}`, version: '1.0.0' },
-    { capabilities: projectRoot ? { roots: { listChanged: false } } : {} }
-  );
-  if (projectRoot && ListRootsRequestSchema) {
-    client.setRequestHandler(ListRootsRequestSchema, async () => {
-      const rootPath = resolve(projectRoot);
-      return {
-        roots: [
-          {
-            uri: pathToFileURL(rootPath).href,
-            name: basename(rootPath) || rootPath,
-          },
-        ],
-      };
-    });
-  }
-  let transport;
-  const kind = resolveMcpTransportKind(cfg);
-  // When the autoDetect port comes from a discovery advert (not the legacy
-  // port file), remember { service, port } so a connect/handshake failure can
-  // distrust it — a pid-live advert can point at a recycled-pid corpse port,
-  // and this transport has no other health probe of its own.
-  let _autoDetectAdvert = null;
-  // Auto-detect: read port from a running service's port file
-  if (kind === 'autoDetect') {
-    const spec = AUTO_DETECT_PORTS[cfg.autoDetect];
-    if (!spec) throw new Error(`Unknown autoDetect target: "${cfg.autoDetect}"`);
-    // Read the pid-validated single-writer discovery advert.
-    let port = spec.discovery ? readServicePort(spec.discovery, { requirePid: false }) : null;
-    if (port && spec.discovery) _autoDetectAdvert = { service: spec.discovery, port };
-    let portFile = null;
-    if (!port && spec.file) {
-      portFile = spec.dir === 'mixdog' ? join(resolveRuntimeRoot(), spec.file) : join(tmpdir(), spec.dir, spec.file);
-      if (!existsSync(portFile)) {
-        throw new Error(`autoDetect server "${name}": port file missing (${portFile})`);
-      }
-      const raw = readFileSync(portFile, 'utf-8').trim();
-      if (spec.portField) {
-        try {
-          const json = JSON.parse(raw);
-          const v = json[spec.portField];
-          port = typeof v === 'number' && Number.isFinite(v) ? v : Number(v);
-          if (!Number.isFinite(port)) {
-            throw new Error(`autoDetect server "${name}": portField "${spec.portField}" is not numeric in ${portFile}`);
-          }
-        } catch (jsonErr) {
-          if (jsonErr instanceof Error && jsonErr.message.startsWith('autoDetect server')) throw jsonErr;
-          throw new Error(`autoDetect server "${name}": invalid JSON in port file ${portFile}`);
-        }
-      } else {
-        port = parseInt(raw, 10);
-      }
-    }
-    if (!port) throw new Error(`autoDetect server "${name}": live service advert missing`);
-    if (!Number.isFinite(port) || port < 1 || port > 65535) {
-      throw new Error(`autoDetect server "${name}": invalid port value${portFile ? ` in ${portFile}` : ''}`);
-    }
-    const url = `http://127.0.0.1:${port}${spec.endpoint}`;
-    transport = new StreamableHTTPClientTransport(new URL(url));
-    mcpLog(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
-  } else if (kind === 'http') {
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'http');
-    const headers = resolveMcpHttpHeaders(cfg);
-    const opts = headers && Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
-    transport = opts
-      ? new StreamableHTTPClientTransport(new URL(url), opts)
-      : new StreamableHTTPClientTransport(new URL(url));
-    mcpLog(`[mcp-client] Connecting "${name}" via HTTP: ${mcpUrlForLog(url)}\n`);
-  } else if (kind === 'sse') {
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'sse');
-    const headers = resolveMcpHttpHeaders(cfg);
-    const opts = headers && Object.keys(headers).length > 0 ? { requestInit: { headers } } : undefined;
-    transport = opts ? new SSEClientTransport(new URL(url), opts) : new SSEClientTransport(new URL(url));
-    mcpLog(`[mcp-client] Connecting "${name}" via SSE: ${mcpUrlForLog(url)}\n`);
-  } else if (kind === 'ws') {
-    // WebSocketClientTransport ctor takes only a URL; headers are ignored.
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'ws');
-    transport = new WebSocketClientTransport(new URL(url));
-    mcpLog(`[mcp-client] Connecting "${name}" via WebSocket: ${mcpUrlForLog(url)}\n`);
-  } else if (kind === 'stdio') {
-    transport = new StdioClientTransport({
-      command: expandEnvVars(String(cfg.command ?? '')),
-      args: Array.isArray(cfg.args) ? expandEnvVars(cfg.args) : cfg.args,
-      cwd: cfg.cwd,
-      env: resolveMcpStdioEnvironment(cfg),
-      stderr: cfg.stderr ?? 'pipe',
-    });
-    transport.stderr?.on?.('data', (chunk) => {
-      mcpLog(`[mcp:${name}:stderr] ${scrubMcpConnectionMessage(chunk, cfg)}`);
-    });
-  } else {
-    throw new Error(
-      `Invalid config for "${name}": need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`
-    );
-  }
+  const client = createMcpClient(sdk, name, cfg);
+  const { transport, autoDetectAdvert } = createMcpTransport({ name, cfg, sdk, log: mcpLog });
   const pending = { scopeId, name, client, transport };
   _pendingConnects.add(pending);
   try {
-    // Bound the connect + listTools handshake so a slow/hung server can't
-    // stall boot or the first turn. On expiry we tear down the pending
-    // transport/child (nothing leaks) and fail this server like any other
-    // connect failure — the parallel Promise.allSettled means other servers
-    // are unaffected.
-    const startupTimeoutMs = resolveMcpStartupTimeoutMs(cfg);
-    let startupTimer = null;
-    let startupTimedOut = false;
-    const handshake = (async () => {
-      await client.connect(transport);
-      const instructionsRaw = typeof client.getInstructions === 'function' ? client.getInstructions() : undefined;
-      const instr = typeof instructionsRaw === 'string' ? instructionsRaw.trim() : '';
-      const capabilities = client.getServerCapabilities?.() || {};
-      const result = capabilities.tools ? await client.listTools() : { tools: [] };
-      return { instructions: instr, toolsResult: result, capabilities };
-    })();
-    let instructions;
-    let toolsResult;
-    let capabilities;
-    try {
-      if (startupTimeoutMs > 0) {
-        const guard = new Promise((_, rej) => {
-          startupTimer = setTimeout(() => {
-            startupTimedOut = true;
-            const err = new Error(
-              `MCP server "${name}" startup exceeded ${startupTimeoutMs}ms budget — raise per-server "startupTimeoutSec"/"startupTimeoutMs" or env MIXDOG_MCP_STARTUP_TIMEOUT_MS`
-            );
-            err.code = 'EMCPSTARTUPTIMEOUT';
-            rej(err);
-          }, startupTimeoutMs);
-        });
-        ({ instructions, toolsResult, capabilities } = await Promise.race([handshake, guard]));
-      } else {
-        ({ instructions, toolsResult, capabilities } = await handshake);
-      }
-    } catch (err) {
-      // A discovery-advert port that fails to connect is a corpse (recycled
-      // pid): distrust it so the next connect falls back to the legacy port
-      // file instead of re-trusting the same advert. Connection-level errors
-      // ONLY — a startup/handshake timeout is a slow-but-alive server.
-      if (_autoDetectAdvert && isConnRefuseError(err))
-        markServiceUnreachable(_autoDetectAdvert.service, _autoDetectAdvert.port);
-      if (startupTimedOut) {
-        // Tear down the pending transport/child so a hung handshake never
-        // leaks a stdio process or socket — fire-and-forget (like the
-        // tool-call timeout path) so a slow tree-kill never delays this
-        // server's failure or the parallel batch's resolution.
-        try {
-          _closeServer({ client, transport }).catch(() => {});
-        } catch {
-          /* ignore */
-        }
-        // Never let the late handshake settle into an unhandled rejection.
-        handshake.catch(() => {});
-      }
-      throw err;
-    } finally {
-      if (startupTimer) clearTimeout(startupTimer);
-    }
+    const { instructions, toolsResult, capabilities } = await runBoundedHandshake({
+      name,
+      cfg,
+      client,
+      transport,
+      autoDetectAdvert,
+      closeServer: _closeServer,
+    });
     if (!toolsResult || !Array.isArray(toolsResult.tools)) {
       throw new Error(`[mcp-client] ListTools returned invalid shape for "${name}": missing or non-array tools field`);
     }
@@ -1159,14 +788,7 @@ async function connectServer(
       }
       throw new Error(`MCP server "${name}" connect aborted by shutdown`);
     }
-    const protocolTools = toolsResult.tools.map((t) => ({
-      name: `mcp__${name}__${t.name}`,
-      description: t.description || '',
-      inputSchema: t.inputSchema || { type: 'object', properties: {} },
-      ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
-    }));
-    const tools = [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
-    const toolNames = tools.map((t) => t.name);
+    const tools = mcpServerTools(name, capabilities, toolsResult.tools);
     const registryKey = mcpServerRegistryKey(scopeId, name);
     servers.set(registryKey, {
       scopeId,
@@ -1180,31 +802,63 @@ async function connectServer(
       capabilities,
       generation: genAtStart,
     });
-    if (capabilities?.tools?.listChanged && ToolListChangedNotificationSchema) {
-      client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
-        const live = servers.get(registryKey);
-        if (!live || live.client !== client) return;
-        try {
-          const refreshed = await client.listTools();
-          const refreshedProtocolTools = (refreshed.tools || []).map((tool) => ({
-            name: `mcp__${name}__${tool.name}`,
-            description: tool.description || '',
-            inputSchema: tool.inputSchema || { type: 'object', properties: {} },
-            ...(tool.annotations && typeof tool.annotations === 'object' ? { annotations: tool.annotations } : {}),
-          }));
-          live.tools = [...refreshedProtocolTools, ...mcpFeatureTools(name, capabilities, refreshedProtocolTools)];
-          _invalidateMcpToolFieldMemo();
-        } catch (error) {
-          mcpLog(
-            `[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg)}\n`
-          );
-        }
-      });
+    if (capabilities?.tools?.listChanged && sdk.ToolListChangedNotificationSchema) {
+      client.setNotificationHandler(sdk.ToolListChangedNotificationSchema, () =>
+        refreshServerTools(registryKey, client, name, cfg, capabilities)
+      );
     }
     _invalidateMcpToolFieldMemo();
-    mcpLog(`[mcp] connected: ${tools.length} tools — ${toolNames.join(', ')}\n`);
+    mcpLog(`[mcp] connected: ${tools.length} tools — ${tools.map((t) => t.name).join(', ')}\n`);
   } finally {
     _pendingConnects.delete(pending);
+  }
+}
+
+/** The SDK client for one server, advertising the project root when known. */
+function createMcpClient(sdk, name, cfg) {
+  const projectRoot = String(cfg?._mixdogProjectRoot || cfg?.cwd || '').trim();
+  const client = new sdk.Client(
+    { name: `mixdog-agent/${name}`, version: '1.0.0' },
+    { capabilities: projectRoot ? { roots: { listChanged: false } } : {} }
+  );
+  if (projectRoot && sdk.ListRootsRequestSchema) {
+    client.setRequestHandler(sdk.ListRootsRequestSchema, async () => {
+      const rootPath = resolve(projectRoot);
+      return {
+        roots: [
+          {
+            uri: pathToFileURL(rootPath).href,
+            name: basename(rootPath) || rootPath,
+          },
+        ],
+      };
+    });
+  }
+  return client;
+}
+
+/** Protocol tools under the `mcp__<server>__` prefix plus the feature tools. */
+function mcpServerTools(name, capabilities, rawTools) {
+  const protocolTools = (rawTools || []).map((t) => ({
+    name: `mcp__${name}__${t.name}`,
+    description: t.description || '',
+    inputSchema: t.inputSchema || { type: 'object', properties: {} },
+    ...(t.annotations && typeof t.annotations === 'object' ? { annotations: t.annotations } : {}),
+  }));
+  return [...protocolTools, ...mcpFeatureTools(name, capabilities, protocolTools)];
+}
+
+async function refreshServerTools(registryKey, client, name, cfg, capabilities) {
+  const live = servers.get(registryKey);
+  if (!live || live.client !== client) return;
+  try {
+    const refreshed = await client.listTools();
+    live.tools = mcpServerTools(name, capabilities, refreshed.tools);
+    _invalidateMcpToolFieldMemo();
+  } catch (error) {
+    mcpLog(
+      `[mcp-client] Failed to refresh tools for "${name}": ${scrubMcpConnectionMessage(error?.message || error, cfg)}\n`
+    );
   }
 }
 

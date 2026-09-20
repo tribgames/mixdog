@@ -57,7 +57,9 @@ function pruneFrames(directory: string, protectedPath?: string): void {
 }
 
 function decodedBase64Bytes(data: string): number {
-  const padding = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  let padding = 0;
+  if (data.endsWith('==')) padding = 2;
+  else if (data.endsWith('=')) padding = 1;
   return Math.max(0, Math.floor((data.length * 3) / 4) - padding);
 }
 

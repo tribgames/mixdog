@@ -154,7 +154,8 @@
   display: none;
 }
 .turn-review-slot[data-reserved="true"] {
-  min-height: 28px;
+  /* Match .turn-review-head, including its controls, before the result lands. */
+  min-height: 32px;
   margin-bottom: 8px;
 }
 .turn-review-slot:has(.turn-review-bar) {

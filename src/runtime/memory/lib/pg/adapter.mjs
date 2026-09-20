@@ -92,7 +92,7 @@ function installPoolErrorHandler(pool, label, { onConnectionLoss } = {}) {
 //   db.exec(sql)                    → multi-statement; resolves on completion
 //   db.transaction(async tx => …)  → auto BEGIN/COMMIT, ROLLBACK on throw
 
-import { resolve } from 'path';
+import { resolve } from 'node:path';
 import { ensurePgInstance as supervisorEnsure } from './supervisor.mjs';
 
 // ---------------------------------------------------------------------------
@@ -138,7 +138,9 @@ async function _initClient(client, schema) {
   // memory.entries from a trace-schema connection, or recall × trace JOIN
   // analytics) MUST use fully-qualified names (memory.entries / trace.trace_events).
   // Relying on search_path silently in cross-schema code = bug magnet.
-  const sp = schema === 'trace' ? 'trace, public' : schema === 'scheduler' ? 'scheduler, public' : 'memory, public';
+  let sp = 'memory, public';
+  if (schema === 'trace') sp = 'trace, public';
+  else if (schema === 'scheduler') sp = 'scheduler, public';
   await client.query(`SET search_path = ${sp}`);
   await client.query(`SET default_transaction_isolation TO 'read committed'`);
   // Mark seen only after all init statements succeed; failure leaves client

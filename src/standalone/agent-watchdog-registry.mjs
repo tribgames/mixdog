@@ -1,5 +1,5 @@
-// Idle-progress watchdogs for running agent sessions, extracted from
-// agent-tool.mjs. One shared 1s timer sweeps every watched session, so a burst
+// Idle-progress watchdogs for running agent sessions.
+// One shared 1s timer sweeps every watched session, so a burst
 // of agents costs a single interval; the timer stops as soon as the last
 // watchdog is released. Abort policy itself lives in the runtime module.
 import {

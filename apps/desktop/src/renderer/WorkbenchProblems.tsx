@@ -169,13 +169,9 @@ export const WorkbenchProblemsSeverityActions = memo(function WorkbenchProblemsS
 });
 
 function ProblemSeverityIcon({ severity }: { severity: number }) {
-  return severity === 1 ? (
-    <CircleX size={16} aria-hidden="true" />
-  ) : severity === 2 ? (
-    <TriangleAlert size={16} aria-hidden="true" />
-  ) : (
-    <Info size={16} aria-hidden="true" />
-  );
+  if (severity === 1) return <CircleX size={16} aria-hidden="true" />;
+  if (severity === 2) return <TriangleAlert size={16} aria-hidden="true" />;
+  return <Info size={16} aria-hidden="true" />;
 }
 
 export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({

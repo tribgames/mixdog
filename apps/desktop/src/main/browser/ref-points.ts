@@ -10,35 +10,17 @@ import { BrowserActionabilityError, waitForBrowserActionable } from './actionabi
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
+import { createBrowserHitTarget } from './hit-target';
 import { browserRefElementSource } from './ref-access';
+import { probeRefPoint } from './ref-point-probe';
+import { probeRefRect } from './ref-rect-probe';
 import type { BrowserRefSet } from './ref-recovery';
-import { BROWSER_REF_RECT, browserRefRectExpression } from './ref-rect';
+import { bindVisualGrounding, type VisualGrounding, visualPoint } from './ref-visual-grounding';
 import type { AccessibilityRefSnapshot } from './snapshot-capture';
 import { formatSnapshot, type SnapshotDiagnosticsView } from './snapshot-format';
-import { browserRefPointExpression } from './snapshot-scripts';
-import { createBrowserHitTarget } from './hit-target';
-import { BROWSER_STABLE_RECT } from './stable-rect';
 import { timedBrowserOperation } from './timing';
 
-interface RefRectMeasurement {
-  error?: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-}
-
-/** The screenshot a coordinate action is allowed to be expressed in. */
-export interface VisualGrounding {
-  snapshotId: string;
-  revision?: string;
-  capturedAt?: number;
-  url: string;
-  imageWidth: number;
-  imageHeight: number;
-  viewportWidth: number;
-  viewportHeight: number;
-}
+export type { VisualGrounding } from './ref-visual-grounding';
 
 export interface BrowserRefPointHost {
   callAccessibilityRef<T>(
@@ -72,10 +54,7 @@ export interface BrowserRefPointHost {
 
 export function createBrowserRefPoints(host: BrowserRefPointHost) {
   const {
-    callAccessibilityRef,
-    evaluate,
     cdp,
-    frameOffsetForSession,
     captureSnapshotPayload,
     diagnostics: diagnosticsFor,
     accessibilityRefs: accessibilityRefsByGuest,
@@ -106,18 +85,21 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
       throw new Error('input target is stale; take a fresh snapshot');
     return hitTarget.guard(guest, { objectId: resolved.result.objectId }, signal);
   }
+
+  /** A covered ref waits for the blocker to clear. When it does not, the
+   *  refusal carries a fresh snapshot so the blocker can be dismissed by ref. */
   async function resolveRefPoint(
     guest: WebContents,
     ref: string,
     signal?: AbortSignal
   ): Promise<{ x: number; y: number }> {
     try {
-      return await waitForBrowserActionable(() => probeRefPoint(guest, ref, signal), signal);
+      return await waitForBrowserActionable(() => probeRefPoint(host, guest, ref, signal), signal);
     } catch (error) {
       if (!(error instanceof BrowserActionabilityError) || error.reason !== 'covered') throw error;
       // Capture guidance only after the wait expires. Capturing during each
       // probe would retire the ref we are still waiting to click.
-      let fresh;
+      let fresh: Awaited<ReturnType<BrowserRefPointHost['captureSnapshotPayload']>> | null;
       try {
         fresh = await captureSnapshotPayload(guest, { action: 'snapshot', maxElements: 500 }, signal);
       } catch (captureError) {
@@ -131,319 +113,26 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
     }
   }
 
-  async function probeRefPoint(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal
-  ): Promise<{ x: number; y: number }> {
-    const accessibility = await callAccessibilityRef<{
-      error?: string;
-      covering?: string;
-      rx?: number;
-      ry?: number;
-      x?: number;
-      y?: number;
-      via?: string;
-    }>(
-      guest,
-      ref,
-      `async function() {
-      const target = this;
-      if (!target || !target.isConnected) return { error: 'stale' };
-      if (target.disabled || target.getAttribute?.('aria-disabled') === 'true') return { error: 'disabled' };
-      const view = target.ownerDocument?.defaultView || window;
-      const hidden = (node) => {
-        const style = view.getComputedStyle(node);
-        return style.display === 'none' || style.visibility === 'hidden';
-      };
-      if (hidden(target)) return { error: 'not-actionable' };
-      const targetRect = await (${BROWSER_STABLE_RECT})(target);
-      if (!targetRect) return { error: 'moving' };
-      // A transparent, pointer-events:none, or 1px control is how custom
-      // checkboxes hide the native input; the label is what a person clicks,
-      // and clicking it activates the control. Opacity alone never disqualifies.
-      const labels = target.labels ? Array.from(target.labels) : [];
-      const candidates = [target, ...labels.filter((label) => (
-        label !== target && label.isConnected && !hidden(label)
-      ))];
-      const points = [[0.5, 0.5], [0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]];
-      const controlSelector = 'a[href],button,input,select,textarea,summary,[role="button"],[role="link"]';
-      const controlFor = (value) => value?.matches?.(controlSelector)
-        ? value
-        : value?.closest?.(controlSelector);
-      const labelControl = (value) => value?.closest?.('label')?.control || null;
-      const sameDestination = (left, right) => {
-        if (!left || !right || left === right
-          || left.matches?.('a[href]') !== true || right.matches?.('a[href]') !== true) return false;
-        try {
-          return new URL(left.href, location.href).href === new URL(right.href, location.href).href;
-        } catch {
-          return false;
-        }
-      };
-      let covering = null;
-      let visible = false;
-      for (const candidate of candidates) {
-        const rect = candidate === target ? targetRect : candidate.getBoundingClientRect();
-        if (rect.width < 1 || rect.height < 1) continue;
-        visible = true;
-        for (const [rx, ry] of points) {
-          const localX = rect.left + rect.width * rx;
-          const localY = rect.top + rect.height * ry;
-          let hit = candidate.ownerDocument.elementFromPoint(localX, localY);
-          while (hit?.shadowRoot) {
-            const nested = hit.shadowRoot.elementFromPoint?.(localX, localY);
-            if (!nested || nested === hit) break;
-            hit = nested;
-          }
-          const targetControl = controlFor(target);
-          const hitControl = controlFor(hit);
-          const related = hit && (
-            hit === target
-            || hit === candidate
-            || (candidate.contains(hit) && (!hitControl || hitControl === targetControl))
-            || (targetControl && hitControl === targetControl)
-            || sameDestination(targetControl, hitControl)
-            || labelControl(hit) === target
-          );
-          if (!related) {
-            covering = hit || covering;
-            continue;
-          }
-          let frameView = view;
-          let px = localX;
-          let py = localY;
-          for (;;) {
-            let frame;
-            try { frame = frameView.frameElement; } catch { break; }
-            if (!frame) break;
-            const parent = frame.ownerDocument;
-            const frameRect = frame.getBoundingClientRect();
-            px += frameRect.left + frame.clientLeft;
-            py += frameRect.top + frame.clientTop;
-            if (parent.elementFromPoint(px, py) !== frame) return { error: 'covered', covering: 'parent frame overlay' };
-            frameView = parent.defaultView;
-          }
-          return candidate === target ? { rx, ry } : { x: px, y: py, via: 'label' };
-        }
-      }
-      if (!visible) return { error: 'not-visible' };
-      const label = covering
-        ? ((covering.tagName || 'element').toLowerCase() + ' "'
-          + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
-            .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"')
-        : 'another element';
-      return { error: 'covered', covering: label };
-    }`,
-      [],
-      signal
-    );
-    let point: { error?: string; covering?: string; x?: number; y?: number };
-    if (accessibility.handled) {
-      const target = accessibilityRefsByGuest.get(guest)?.refs.get(ref);
-      if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-      if (accessibility.value?.error) {
-        point = accessibility.value;
-      } else if (typeof accessibility.value?.x === 'number' && typeof accessibility.value?.y === 'number') {
-        // The landing spot is the control's label, so the page already
-        // measured it; only the cross-origin frame offset is left to add.
-        const local = { x: accessibility.value.x, y: accessibility.value.y };
-        const frameOffset = await frameOffsetForSession(guest, target.sessionId, signal, local);
-        point = { x: frameOffset.x + local.x, y: frameOffset.y + local.y };
-      } else {
-        const box = await cdp.call<{
-          model?: { content?: number[]; border?: number[] };
-        }>(guest, 'DOM.getBoxModel', { backendNodeId: target.backendNodeId }, signal, { sessionId: target.sessionId });
-        const quad = box.model?.content || box.model?.border || [];
-        if (quad.length < 8) {
-          point = { error: 'not-visible' };
-        } else {
-          const rx = accessibility.value?.rx ?? 0.5;
-          const ry = accessibility.value?.ry ?? 0.5;
-          const topX = quad[0] + (quad[2] - quad[0]) * rx;
-          const topY = quad[1] + (quad[3] - quad[1]) * rx;
-          const bottomX = quad[6] + (quad[4] - quad[6]) * rx;
-          const bottomY = quad[7] + (quad[5] - quad[7]) * rx;
-          const frameOffset = await frameOffsetForSession(guest, target.sessionId, signal, {
-            x: topX + (bottomX - topX) * ry,
-            y: topY + (bottomY - topY) * ry,
-          });
-          point = {
-            x: frameOffset.x + topX + (bottomX - topX) * ry,
-            y: frameOffset.y + topY + (bottomY - topY) * ry,
-          };
-        }
-      }
-    } else {
-      point = await evaluate<{
-        error?: string;
-        covering?: string;
-        x?: number;
-        y?: number;
-      }>(guest, browserRefPointExpression(ref), signal);
-    }
-    if (!point || point.error || typeof point.x !== 'number' || typeof point.y !== 'number') {
-      if (point?.error === 'covered') {
-        throw new BrowserActionabilityError(
-          `ref ${ref} is covered by ${point.covering || 'another element'}; input was not dispatched.`,
-          'covered'
-        );
-      }
-      if (point?.error === 'not-visible') {
-        throw new BrowserActionabilityError(`ref ${ref} is not visible; take a fresh snapshot first`, 'hidden');
-      }
-      if (point?.error === 'disabled') {
-        throw new BrowserActionabilityError(`ref ${ref} is disabled`, 'disabled');
-      }
-      if (point?.error === 'moving') {
-        throw new BrowserActionabilityError(
-          `ref ${ref} is still moving; wait briefly and take a fresh snapshot`,
-          'moving'
-        );
-      }
-      if (point?.error === 'not-actionable') {
-        throw new BrowserActionabilityError(
-          `ref ${ref} is not actionable (hidden, transparent, or pointer events disabled)`,
-          'hidden'
-        );
-      }
-      throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-    }
-    return { x: point.x, y: point.y };
-  }
-
-  /** The element's box, for a screenshot crop rather than a gesture. */
-  async function probeRefRect(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal
-  ): Promise<{ x: number; y: number; width: number; height: number }> {
-    const accessibility = await callAccessibilityRef<RefRectMeasurement>(
-      guest,
-      ref,
-      `async function() { return (${BROWSER_REF_RECT})(this); }`,
-      [],
-      signal
-    );
-    let measured: RefRectMeasurement;
-    if (accessibility.handled) {
-      const target = accessibilityRefsByGuest.get(guest)?.refs.get(ref);
-      if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-      measured = accessibility.value;
-      if (!measured?.error && typeof measured?.x === 'number' && typeof measured?.y === 'number') {
-        // The page measured its own realm; only the cross-origin frame offset
-        // is left to add. A picture dispatches nothing, so the offset is taken
-        // without the hit test that guards input against a covered frame.
-        const frameOffset = await frameOffsetForSession(guest, target.sessionId, signal);
-        measured = { ...measured, x: frameOffset.x + measured.x, y: frameOffset.y + measured.y };
-      }
-    } else {
-      measured = await evaluate<RefRectMeasurement>(guest, browserRefRectExpression(ref), signal);
-    }
-    if (
-      !measured ||
-      measured.error ||
-      typeof measured.x !== 'number' ||
-      typeof measured.y !== 'number' ||
-      !measured.width ||
-      !measured.height
-    ) {
-      if (measured?.error === 'moving') {
-        throw new BrowserActionabilityError(`ref ${ref} is still moving; wait briefly and try again`, 'moving');
-      }
-      if (measured?.error === 'not-visible') {
-        throw new BrowserActionabilityError(`ref ${ref} is not visible; take a fresh snapshot first`, 'hidden');
-      }
-      throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-    }
-    return { x: measured.x, y: measured.y, width: measured.width, height: measured.height };
-  }
-
-  function resolveRefRect(
-    guest: WebContents,
-    ref: string,
-    signal?: AbortSignal
-  ): Promise<{ x: number; y: number; width: number; height: number }> {
-    return waitForBrowserActionable(() => probeRefRect(guest, ref, signal), signal);
-  }
-
-  function bindVisualGrounding(
-    guest: WebContents,
-    refSet: BrowserRefSet,
-    capture: { width: number; height: number }
-  ): void {
-    visualGroundingByGuest.set(guest, {
-      snapshotId: refSet.snapshotId,
-      revision: refSet.revision,
-      capturedAt: Date.now(),
-      url: refSet.url,
-      imageWidth: capture.width,
-      imageHeight: capture.height,
-      viewportWidth: refSet.viewportWidth,
-      viewportHeight: refSet.viewportHeight,
-    });
-  }
-
-  async function visualPoint(
-    guest: WebContents,
-    command: BrowserCommand,
-    xValue: unknown,
-    yValue: unknown,
-    label: string,
-    signal?: AbortSignal
-  ): Promise<{ x: number; y: number }> {
-    const grounding = visualGroundingByGuest.get(guest);
-    if (!grounding || !command.snapshotId || command.snapshotId !== grounding.snapshotId) {
-      throw new Error(`${label} requires snapshotId from the latest snapshot(mode=both) or locate result`);
-    }
-    if (
-      !grounding.capturedAt ||
-      Date.now() - grounding.capturedAt > 30_000 ||
-      (host.revision && grounding.revision !== (await host.revision(guest, signal)))
-    ) {
-      visualGroundingByGuest.delete(guest);
-      throw new Error(`${label} visual grounding is stale; take a fresh snapshot(mode=both)`);
-    }
-    const x = Number(xValue);
-    const y = Number(yValue);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      throw new Error(`${label} requires finite screenshot x and y coordinates`);
-    }
-    if (x < 0 || y < 0 || x >= grounding.imageWidth || y >= grounding.imageHeight) {
-      throw new Error(
-        `${label} coordinates must be inside the ${grounding.imageWidth}x${grounding.imageHeight} screenshot`
-      );
-    }
-    const current = await evaluate<{ url: string; width: number; height: number }>(
-      guest,
-      `(() => ({
-      url: String(location.href),
-      width: Math.round(window.innerWidth),
-      height: Math.round(window.innerHeight),
-    }))()`,
-      signal
-    );
-    if (
-      current.url !== grounding.url ||
-      current.width !== grounding.viewportWidth ||
-      current.height !== grounding.viewportHeight
-    ) {
-      visualGroundingByGuest.delete(guest);
-      throw new Error(
-        `${label} visual grounding is stale because the page or viewport changed; call snapshot with mode=both again`
-      );
-    }
-    return {
-      x: (x * grounding.viewportWidth) / grounding.imageWidth,
-      y: (y * grounding.viewportHeight) / grounding.imageHeight,
-    };
+  function resolveRefRect(guest: WebContents, ref: string, signal?: AbortSignal) {
+    return waitForBrowserActionable(() => probeRefRect(host, guest, ref, signal), signal);
   }
 
   return {
     resolveRefPoint: timedBrowserOperation('actionability', resolveRefPoint),
     resolveRefRect: timedBrowserOperation('actionability', resolveRefRect),
-    bindVisualGrounding,
-    visualPoint: timedBrowserOperation('actionability', visualPoint),
+    bindVisualGrounding: (guest: WebContents, refSet: BrowserRefSet, capture: { width: number; height: number }) =>
+      bindVisualGrounding(visualGroundingByGuest, guest, refSet, capture),
+    visualPoint: timedBrowserOperation(
+      'actionability',
+      (
+        guest: WebContents,
+        command: BrowserCommand,
+        xValue: unknown,
+        yValue: unknown,
+        label: string,
+        signal?: AbortSignal
+      ) => visualPoint(host, guest, command, xValue, yValue, label, signal)
+    ),
     guardRef: timedBrowserOperation('actionability', guardRef),
   };
 }

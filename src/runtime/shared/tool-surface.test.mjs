@@ -7,6 +7,7 @@ import {
   formatAggregateHeader,
   formatToolActionHeader,
   isTaskWaitToolCall,
+  toolWorkUnit,
   toolLoadingTargets,
 } from './tool-surface.mjs';
 import { deriveToolCardModel } from './tool-card-model.mjs';
@@ -100,4 +101,19 @@ test('task wait display policy is scoped to the wait action', () => {
   assert.equal(isTaskWaitToolCall('functions.task', '{"action":"WAIT","task_id":"task_1"}'), true);
   assert.equal(isTaskWaitToolCall('task', { action: 'read', task_id: 'task_1' }), false);
   assert.equal(isTaskWaitToolCall('shell', { action: 'wait' }), false);
+});
+
+test('desktop-specialized tools share their category and work-unit identity', () => {
+  for (const [name, category] of [
+    ['browser', 'Browser'],
+    ['browser_devtools', 'Browser'],
+    ['computer', 'Computer'],
+    ['office', 'Office'],
+    ['media', 'Media'],
+    ['tidy', 'Tidy'],
+    ['bridge', 'Agent'],
+  ]) {
+    assert.equal(classifyToolCategory(name), category);
+    assert.equal(toolWorkUnit(name).category, category);
+  }
 });

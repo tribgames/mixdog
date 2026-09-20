@@ -42,6 +42,10 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
                   ? t('Runtime')
                   : String(models.find((model) => model.id === modelId)?.name || modelId);
               const running = operation.state === 'running' || operation.state === 'cancelling';
+              let description = t('Paused · downloaded files are kept');
+              if (operation.state === 'failed') description = t('Failed');
+              else if (operation.state === 'cancelling') description = t('Stopping download…');
+              else if (running) description = '';
               return (
                 <div className="local-provider-installation" key={String(operation.jobId || `${phase}:${modelId}`)}>
                   {running && (
@@ -54,15 +58,7 @@ export function LocalProviderOperations({ status, actions }: { status: RecordVal
                   )}
                   <ExtensionItemRow
                     title={name}
-                    description={
-                      operation.state === 'failed'
-                        ? t('Failed')
-                        : operation.state === 'cancelling'
-                          ? t('Stopping download…')
-                          : running
-                            ? ''
-                            : t('Paused · downloaded files are kept')
-                    }
+                    description={description}
                     control={
                       running ? (
                         <ExtensionAction

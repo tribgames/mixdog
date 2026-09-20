@@ -1,4 +1,4 @@
-// Grok OAuth browser login + PKCE exchange, extracted from grok-oauth.mjs.
+// Grok OAuth browser login + PKCE exchange.
 /**
  * Grok CLI OAuth provider ("Grok Build").
  *
@@ -14,8 +14,8 @@
  * preset wired for the Responses API — with the proxy URL + CLI headers
  * injected via config.extraHeaders, bearer swapped for the OAuth access token.
  */
-import { createServer } from 'http';
-import { randomBytes } from 'crypto';
+import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 
 // --- Constants ---

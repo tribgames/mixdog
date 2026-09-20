@@ -4,33 +4,17 @@
  * and idle reclamation. Everything that decides whether a command may run and
  * what happens to a session's desktop state when it stops lives here.
  */
-import { spawn } from 'node:child_process';
-import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
-import { assertSafeComputerSessionId } from '../input/guards';
-import { ABORT_CLEANUP_PROGRAM } from '../backend/program';
-import { MAX_COMPUTER_WORKERS, waitForComputerWorkerExit } from '../backend/worker-capacity';
 import type { createWorkerPool } from '../backend/worker-pool';
-import type { createSessionState } from '../session/state';
 import type { createCaptureEngine } from '../observation/capture';
 import { computerUseCoordinator as defaultCoordinator, type ComputerUseCoordinator } from '../session/coordinator';
-import { HOST_WARMUP_SESSION_ID } from './action-sets';
-import type { ExecutionState, InputRecoveryState } from './execution-state';
+import type { createSessionState } from '../session/state';
+import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { createComputerCommandQueue } from './command-queue';
-import { waitForResumeBarrier } from './resume-barrier';
-
-const ABORT_CLEANUP_TIMEOUT_MS = 5_000;
-/** Stop holds this long for retired workers to actually exit before it may
- * declare the host quiet. */
-const STOP_WORKER_EXIT_TIMEOUT_MS = 5_000;
-// Resident workers remain warm longer than target leases. A window lease is
-// deliberately short-lived in the coordinator so an abandoned session
-// cannot reserve a user's app for this whole worker-idle period.
-const WORKER_IDLE_STALE_MS = 60_000;
-// Near the worker limit the relaxed window is useless: the pool refuses the
-// next session while its own finished ones stay warm, and a caller cannot
-// release a session it does not own. Reclaim briefly idle workers instead.
-const WORKER_IDLE_PRESSURE_MS = 5_000;
-const WORKER_PRESSURE_COUNT = Math.ceil(MAX_COMPUTER_WORKERS * 0.75);
+import type { ExecutionState, InputRecoveryState } from './execution-state';
+import { createSessionAbort } from './lifecycle-abort';
+import { createSessionStop } from './lifecycle-stop';
+import { claimComputerTargets } from './lifecycle-target-leases';
+import { createWorkerReclaim } from './lifecycle-worker-reclaim';
 
 type WorkerPool = ReturnType<typeof createWorkerPool>;
 type SessionState = ReturnType<typeof createSessionState>;
@@ -61,380 +45,45 @@ export interface SessionLifecycleHost
   pauseWaitMs?: number;
 }
 
+/** What every lifecycle stage shares: the host, the coordinator that owns
+ *  leases and pauses, the execution state, and the cleanup job per session. */
+export interface LifecycleContext {
+  host: SessionLifecycleHost;
+  coordinator: ComputerUseCoordinator;
+  execution: ExecutionState;
+  cleanupJobs: Map<string, Promise<ComputerCommandResult>>;
+}
+
 export function createSessionLifecycle(host: SessionLifecycleHost) {
-  const computerUseCoordinator = host.coordinator || defaultCoordinator;
-  const cleanupJobs = new Map<string, Promise<ComputerCommandResult>>();
-  const {
-    powerShellBySession,
-    workerLastUsedAt,
-    retirePowerShell,
-    callPowerShell,
-    cancelElevatedSession,
-    elevatedSessionIds,
-    sessionIdFor,
-    releaseSessionState,
-    invalidateWorkerGeneration,
-    releaseCaptureSession,
-    execution,
-    runCommand,
-    recaptureRequiredReply,
-  } = host;
-  const { activeExecutionsBySession, sessionAbortEpochs, sessionRecoveryBySession, commandChainsBySession } = execution;
+  const coordinator = host.coordinator || defaultCoordinator;
+  const context: LifecycleContext = { host, coordinator, execution: host.execution, cleanupJobs: new Map() };
   const queue = createComputerCommandQueue({
-    coordinator: computerUseCoordinator,
-    execution,
-    sessionIdFor,
-    runCommand,
-    recaptureRequiredReply,
-    takeOver: takeOverComputer,
+    coordinator,
+    execution: host.execution,
+    sessionIdFor: host.sessionIdFor,
+    runCommand: host.runCommand,
+    recaptureRequiredReply: host.recaptureRequiredReply,
+    // Takeover is composed after the queue that reports it; resolved per call.
+    takeOver: (reason?: string) => stop.takeOverComputer(reason),
     recordDiagnostic: host.recordDiagnostic,
     pauseWaitMs: host.pauseWaitMs,
   });
-  const { runForegroundExclusive, executeSerialized } = queue;
-
-  function onSessionWorkerRetired(
-    sessionId: string,
-    child?: Parameters<typeof waitForComputerWorkerExit>[0],
-    interruptedInput = true
-  ): void {
-    invalidateWorkerGeneration(sessionId);
-    // A failed read invalidates refs, not the caller's entire capture. A new
-    // worker may finish a pixel-only observation; it must never replay input.
-    if (!interruptedInput) return;
-    if (computerUseCoordinator.hasPendingCleanup(sessionId)) return;
-    void abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, child).catch(() => {
-      /* failed cleanup remains latched in the coordinator */
-    });
-  }
-
-  function reapIdleSessionWorkers(now = Date.now()): void {
-    // A finished command leaves its activity behind as "thinking" so the overlay
-    // can show an idle session. Treating that as active exempted every session
-    // that ever ran a command, so no idle worker was ever reclaimed.
-    const activeSessions = new Set(
-      computerUseCoordinator
-        .snapshot()
-        .activities.filter((activity) => activity.phase !== 'thinking')
-        .map((activity) => activity.sessionId)
-    );
-    for (const [sessionId, child] of powerShellBySession) {
-      if (
-        activeSessions.has(sessionId) ||
-        activeExecutionsBySession.has(sessionId) ||
-        commandChainsBySession.has(sessionId) ||
-        cleanupJobs.has(sessionId)
-      )
-        continue;
-      const idleLimit =
-        powerShellBySession.size >= WORKER_PRESSURE_COUNT ? WORKER_IDLE_PRESSURE_MS : WORKER_IDLE_STALE_MS;
-      if (now - (workerLastUsedAt.get(sessionId) || 0) < idleLimit) continue;
-      // Under worker pressure this reclaim runs sooner than the lease grace
-      // period. Releasing the process must not hand this session's reserved
-      // windows to another agent while its claim is still valid.
-      if (computerUseCoordinator.hasLiveTargetLease(sessionId)) continue;
-      if (host.hasUnconfirmedBackgroundInput?.(sessionId)) {
-        // Input without a release receipt still owes the full cleanup barrier.
-        void abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, child).catch(() => {
-          /* cleanup remains blocked until the host is replaced */
-        });
-        continue;
-      }
-      // Routine reclaim: an idle session holds no input, so retiring its worker
-      // must not raise the global barrier that guards a user takeover — that
-      // barrier refuses every other session's next command until it clears.
-      retirePowerShell(child, new Error('computer_worker_reclaimed: idle session worker was released'));
-      releaseSessionState(sessionId, releaseCaptureSession);
-      computerUseCoordinator.cancelSession(sessionId);
-    }
-  }
-
-  async function claimComputerTargets(command: ComputerCommand, windowIds: Array<string | undefined>): Promise<void> {
-    const sessionId = sessionIdFor(command);
-    const lease = await computerUseCoordinator.acquireTargets(sessionId, windowIds);
-    if (lease.status === 'acquired') {
-      if (lease.queued) {
-        throw new Error(
-          `computer_target_available_recapture_required: ${lease.windowIds.join(', ')} lease acquired` +
-            ` after ${lease.waitedMs}ms; discard the stale action and capture fresh state`
-        );
-      }
-      return;
-    }
-    if (lease.status === 'user_takeover') {
-      throw new Error('computer_user_takeover: queued target request was cancelled because the user took control');
-    }
-    if (lease.status === 'cancelled') {
-      throw new Error('computer_session_aborted: queued target request was cancelled');
-    }
-    throw new Error(
-      `computer_target_in_use: ${lease.windowIds.join(', ')} is reserved by another agent;` +
-        ` queue_position=${lease.queuePosition}; retry from a fresh capture`
-    );
-  }
-
-  function releaseTargetClaims(sessionId: string): void {
-    computerUseCoordinator.cancelSession(sessionId);
-  }
-
-  async function releaseComputerSession(command: ComputerCommand): Promise<ComputerCommandResult> {
-    assertSafeComputerSessionId(command);
-    const sessionId = sessionIdFor(command);
-    const child = powerShellBySession.get(sessionId);
-    try {
-      if (child && !child.killed && !computerUseCoordinator.snapshot().userControlActive) {
-        await callPowerShell({
-          action: 'release_session',
-          session_id: sessionId,
-          read_only: false,
-        });
-      }
-    } finally {
-      await abortComputerSession({ action: 'session_abort', session_id: sessionId }, false, child);
-    }
-    return { text: 'computer session released' };
-  }
-
-  /** `sweep` runs the owned-input release even without a recorded target:
-   * Stop's recovery must release whatever the host still holds. */
-  async function cleanupAbortedInput(
-    recovery?: InputRecoveryState,
-    restoreDesktop = true,
-    sweep = false
-  ): Promise<boolean> {
-    if (host.cleanupInput) return host.cleanupInput(recovery, restoreDesktop);
-    if (!sweep && !recovery?.targetWindowId) return true;
-    return await new Promise<boolean>((resolve) => {
-      const child = spawn(
-        'powershell.exe',
-        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ABORT_CLEANUP_PROGRAM],
-        {
-          windowsHide: true,
-          stdio: 'ignore',
-          env: {
-            ...process.env,
-            MIXDOG_COMPUTER_INPUT_MARKER: host.inputMarker,
-            MIXDOG_ABORT_TARGET: restoreDesktop ? recovery?.targetWindowId || '' : '',
-            MIXDOG_ABORT_RESTORE: restoreDesktop ? recovery?.restoreWindowId || '' : '',
-            MIXDOG_ABORT_CURSOR_X: String(recovery?.cursorX ?? 0),
-            MIXDOG_ABORT_CURSOR_Y: String(recovery?.cursorY ?? 0),
-          },
-        }
-      );
-      let settled = false;
-      const finish = (confirmed: boolean) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(confirmed);
-      };
-      const timer = setTimeout(() => {
-        try {
-          child.kill();
-        } catch {
-          /* already gone */
-        }
-        finish(false);
-      }, ABORT_CLEANUP_TIMEOUT_MS);
-      child.once('error', () => finish(false));
-      child.once('exit', (code) => finish(code === 0));
-    });
-  }
-
-  async function abortComputerSession(
-    command: ComputerCommand,
-    restoreDesktop = false,
-    retiredChild?: Parameters<typeof waitForComputerWorkerExit>[0],
-    preserveQueued = false
-  ): Promise<ComputerCommandResult> {
-    assertSafeComputerSessionId(command);
-    const sessionId = sessionIdFor(command);
-    // Stop must cancel parked requests even when pause cleanup is already running.
-    if (!preserveQueued) queue.cancelSession(sessionId);
-    const existing = cleanupJobs.get(sessionId);
-    if (existing) return existing;
-    const finishCleanup = computerUseCoordinator.beginCleanup(sessionId);
-    const job = (async (): Promise<ComputerCommandResult> => {
-      let confirmed = false;
-      try {
-        const activeExecution = activeExecutionsBySession.get(sessionId);
-        const recovery = activeExecution?.recovery || sessionRecoveryBySession.get(sessionId);
-        if (activeExecution) activeExecution.aborted = true;
-        const elevatedStopped = cancelElevatedSession(sessionId);
-        const child = retiredChild || powerShellBySession.get(sessionId);
-        if (child && !child.killed) {
-          retirePowerShell(
-            child as NonNullable<ReturnType<typeof powerShellBySession.get>>,
-            new Error('computer_session_aborted: command stopped by session cancellation')
-          );
-        }
-        const residentStopped = waitForComputerWorkerExit(child);
-        activeExecutionsBySession.delete(sessionId);
-        releaseSessionState(sessionId, releaseCaptureSession);
-        const stopped = await Promise.all([elevatedStopped, residentStopped]);
-        if (!stopped.every(Boolean)) {
-          computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed', [sessionId]);
-          throw new Error('computer_abort_cleanup_unconfirmed: input workers have not confirmed termination');
-        }
-        if (host.hasUnconfirmedBackgroundInput?.(sessionId)) {
-          computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed', [sessionId]);
-          throw new Error(
-            'computer_abort_cleanup_unconfirmed: background message sender stopped without a release receipt; input may remain held'
-          );
-        }
-        const cleaned = await runForegroundExclusive(sessionId, () => cleanupAbortedInput(recovery, restoreDesktop), {
-          requireFreshAfterWait: false,
-          allowWhileUserControl: true,
-        });
-        if (!cleaned) {
-          computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed', [sessionId]);
-          throw new Error('computer_abort_cleanup_unconfirmed: input cleanup did not finish successfully');
-        }
-        confirmed = true;
-        sessionRecoveryBySession.delete(sessionId);
-        releaseTargetClaims(sessionId);
-        if (!commandChainsBySession.has(sessionId)) sessionAbortEpochs.delete(sessionId);
-        return { text: 'computer session aborted; input state and session resources were released' };
-      } finally {
-        finishCleanup(confirmed);
-        host.recordDiagnostic?.(sessionId, {
-          action: 'session_abort',
-          stage: 'cleanup',
-          ok: confirmed,
-          input_recovery: { ok: confirmed },
-        });
-      }
-    })();
-    cleanupJobs.set(sessionId, job);
-    try {
-      return await job;
-    } finally {
-      if (cleanupJobs.get(sessionId) === job) cleanupJobs.delete(sessionId);
-    }
-  }
-
-  function takeOverComputer(reason = 'user_takeover'): void {
-    const queuedOrActiveSessionIds = new Set([...commandChainsBySession.keys(), ...activeExecutionsBySession.keys()]);
-    const sessionIds = new Set([
-      ...computerUseCoordinator.pauseForUser(reason, queuedOrActiveSessionIds),
-      ...queuedOrActiveSessionIds,
-    ]);
-    for (const sessionId of sessionIds) {
-      void abortComputerSession(
-        { action: 'session_abort', session_id: sessionId },
-        false,
-        undefined,
-        reason === 'user_input_active' || reason === 'user_pause'
-      ).catch(() => {
-        console.warn('computer_abort_cleanup_unconfirmed: user takeover cancellation failed');
-      });
-    }
-  }
-
-  async function stopAllComputerSessions(resume = true, turnsStopped?: Promise<void>): Promise<void> {
-    const generation = computerUseCoordinator.snapshot().takeoverGeneration;
-    const sessionIds = new Set([
-      ...powerShellBySession.keys(),
-      ...elevatedSessionIds(),
-      ...activeExecutionsBySession.keys(),
-      ...commandChainsBySession.keys(),
-      ...cleanupJobs.keys(),
-      ...(computerUseCoordinator.snapshot().pausedSessionIds ?? []),
-      ...computerUseCoordinator.snapshot().activities.map((activity) => activity.sessionId),
-    ]);
-    const stopNative = async (): Promise<void> => {
-      const stopped = await Promise.allSettled(
-        [...sessionIds]
-          .filter((sessionId) => sessionId !== HOST_WARMUP_SESSION_ID)
-          .map((sessionId) =>
-            abortComputerSession({
-              action: 'session_abort',
-              session_id: sessionId,
-            })
-          )
-      );
-      if (
-        stopped.some((result) => result.status === 'rejected') ||
-        computerUseCoordinator.snapshot().cleanupState === 'failed'
-      ) {
-        await recoverLatchedCleanup();
-      }
-    };
-    // Daemon cancellation cannot serialize or bypass native cleanup. Either
-    // failure keeps the pause latched, including late replies after a timeout.
-    await Promise.all([stopNative(), turnsStopped]);
-    if (resume) computerUseCoordinator.resumeAfterUserTakeover(generation);
-  }
-
-  /** Stop is the way out of a latched cleanup failure. It waits for every
-   * retired worker to actually exit, releases any input the host still owns,
-   * and only that evidence clears the barrier; a click alone never does. */
-  async function recoverLatchedCleanup(): Promise<void> {
-    const workersExited = host.waitForResidentWorkersExit
-      ? await host.waitForResidentWorkersExit(STOP_WORKER_EXIT_TIMEOUT_MS)
-      : true;
-    if (!workersExited || elevatedSessionIds().length > 0) {
-      throw new Error(
-        'computer_abort_cleanup_unconfirmed: input workers are still running; press Ctrl+Alt+Esc (emergency Stop) again once they exit'
-      );
-    }
-    if (!(await cleanupAbortedInput(undefined, false, true))) {
-      throw new Error('computer_abort_cleanup_unconfirmed: held input could not be released');
-    }
-    // The global ownership ledger cannot prove a target-local window message
-    // released its key/button. Worker exit must not erase that uncertainty.
-    if (host.hasUnconfirmedBackgroundInput?.()) {
-      throw new Error(
-        'computer_background_cleanup_unconfirmed: target-local input release is unconfirmed; user recovery of the affected window is required before an approved host restart'
-      );
-    }
-    if (!computerUseCoordinator.clearFailedCleanup()) {
-      throw new Error(
-        'computer_cleanup_pending: a session cleanup is still running; press Ctrl+Alt+Esc (emergency Stop) again'
-      );
-    }
-  }
+  const abort = createSessionAbort(context, queue);
+  const reclaim = createWorkerReclaim(context, abort.abortComputerSession);
+  const stop = createSessionStop(context, queue, abort.abortComputerSession);
 
   return {
-    async resumeAfterTakeover(
-      generation: number,
-      signal?: AbortSignal,
-      recheck?: () => Promise<boolean>
-    ): Promise<void> {
-      const snapshot = computerUseCoordinator.snapshot();
-      if (!snapshot.userControlActive || snapshot.takeoverGeneration !== generation) {
-        throw new Error('computer_resume_stale: use the current user resume control');
-      }
-      await waitForResumeBarrier(
-        Promise.all([...cleanupJobs.values()]).then(() => queue.drainActive()),
-        signal
-      );
-      if (recheck && !(await recheck())) throw new Error('computer_resume_stale: input changed while resuming');
-      if (signal?.aborted) throw new Error('computer_resume_cancelled: resume request cancelled');
-      if (
-        !computerUseCoordinator.snapshot().userControlActive ||
-        computerUseCoordinator.snapshot().takeoverGeneration !== generation
-      ) {
-        throw new Error('computer_resume_stale: another interruption superseded the resume request');
-      }
-      // Cleanup may finish before a late read/capture continuation. Discard
-      // that generation's observations again, never replay its commands.
-      for (const sessionId of snapshot.pausedSessionIds ?? []) {
-        releaseSessionState(sessionId, releaseCaptureSession);
-      }
-      computerUseCoordinator.resumeAfterUserTakeover(generation);
-    },
-    async waitForCleanup(): Promise<boolean> {
-      const results = await Promise.allSettled([...cleanupJobs.values()]);
-      return results.every((result) => result.status === 'fulfilled');
-    },
-    onSessionWorkerRetired,
-    reapIdleSessionWorkers,
-    claimComputerTargets,
-    releaseComputerSession,
-    abortComputerSession,
-    takeOverComputer,
-    stopAllComputerSessions,
-    executeSerialized,
+    resumeAfterTakeover: stop.resumeAfterTakeover,
+    waitForCleanup: stop.waitForCleanup,
+    onSessionWorkerRetired: reclaim.onSessionWorkerRetired,
+    reapIdleSessionWorkers: reclaim.reapIdleSessionWorkers,
+    claimComputerTargets: (command: ComputerCommand, windowIds: Array<string | undefined>) =>
+      claimComputerTargets(coordinator, host.sessionIdFor(command), windowIds),
+    releaseComputerSession: abort.releaseComputerSession,
+    abortComputerSession: abort.abortComputerSession,
+    takeOverComputer: stop.takeOverComputer,
+    stopAllComputerSessions: stop.stopAllComputerSessions,
+    executeSerialized: queue.executeSerialized,
   };
 }
 

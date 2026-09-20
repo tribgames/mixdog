@@ -5,10 +5,10 @@
  * input that goes through the OS. One PowerShell child owns the P/Invoke
  * surface; the probe writes one command per line and waits for its `ok`.
  */
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
-import { writeFileSync, mkdtempSync } from 'fs';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { writeFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const DRIVER_SCRIPT = `
 Add-Type @"

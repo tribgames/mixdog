@@ -79,41 +79,30 @@ function readCachedDockGitState(projectPath: string): DockGitState {
   );
 }
 
+function loadDockGitState(projectPath: string): Promise<DockGitState> {
+  const gitStatus = window.mixdogDesktop?.gitStatus;
+  if (typeof gitStatus !== 'function') {
+    return Promise.resolve({ projectPath, status: null, loading: false, ready: true, error: '' });
+  }
+  // Source Control/Search only consume repository, branch and changed-file
+  // shape. Line totals belong to Review surfaces, so making this dock wait
+  // for two numstat passes and every untracked file read was pure latency.
+  return gitStatus(projectPath, { skipLineStats: true }).then(
+    (status) => ({ projectPath, status: status ?? null, loading: false, ready: true, error: '' }),
+    (reason) => ({
+      projectPath,
+      status: null,
+      loading: false,
+      ready: true,
+      error: reason instanceof Error ? reason.message : String(reason),
+    })
+  );
+}
+
 function requestDockGitState(projectPath: string): Promise<DockGitState> {
   const pending = dockGitRequests.get(projectPath);
   if (pending) return pending;
-  const gitStatus = window.mixdogDesktop?.gitStatus;
-  const request = (
-    typeof gitStatus !== 'function'
-      ? Promise.resolve({
-          projectPath,
-          status: null,
-          loading: false,
-          ready: true,
-          error: '',
-        } satisfies DockGitState)
-      : // Source Control/Search only consume repository, branch and changed-file
-        // shape. Line totals belong to Review surfaces, so making this dock wait
-        // for two numstat passes and every untracked file read was pure latency.
-        gitStatus(projectPath, { skipLineStats: true }).then(
-          (status) =>
-            ({
-              projectPath,
-              status: status ?? null,
-              loading: false,
-              ready: true,
-              error: '',
-            }) satisfies DockGitState,
-          (reason) =>
-            ({
-              projectPath,
-              status: null,
-              loading: false,
-              ready: true,
-              error: reason instanceof Error ? reason.message : String(reason),
-            }) satisfies DockGitState
-        )
-  ).then((state) => {
+  const request = loadDockGitState(projectPath).then((state) => {
     dockGitCache.set(projectPath, state);
     return state;
   });
@@ -269,6 +258,112 @@ const SearchPane = memo(function SearchPane({
   const contentsMode = searchMode === 'contents';
   const totalNameHits = nameResults.reduce((sum, result) => sum + result.paths.length, 0);
   const totalMatches = contentResults.reduce((sum, result) => sum + result.matchCount, 0);
+  const renderNameResults = () => {
+    if (totalNameHits === 0) return <p className="utility-dock-empty">{t('No matching files.')}</p>;
+    return (
+      <div className="workbench-search-results" role="tree" aria-label={t('File name results')}>
+        <p className="workbench-search-summary">
+          {totalNameHits === 1 ? t('1 file') : t('{{count}} files', { count: totalNameHits })}
+        </p>
+        {nameResults.flatMap(({ project, paths }) =>
+          paths.map((relPath) => {
+            const normalized = relPath.replace(/\\/g, '/');
+            const split = normalized.lastIndexOf('/');
+            const name = split >= 0 ? normalized.slice(split + 1) : normalized;
+            const parent = split >= 0 ? normalized.slice(0, split) : '';
+            return (
+              <button
+                type="button"
+                role="treeitem"
+                className="workbench-search-name-row"
+                key={`${project}:${relPath}`}
+                onPointerEnter={scheduleEditorPanePrefetch}
+                onFocus={scheduleEditorPanePrefetch}
+                onClick={() => onOpenFile?.(project, relPath, 'preview')}
+              >
+                <SetiFileIcon name={name} />
+                <b>{name}</b>
+                <small>{parent}</small>
+              </button>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+  const renderContentResults = () => {
+    if (contentResults.length === 0) return <p className="utility-dock-empty">{t('No results found.')}</p>;
+    return (
+      <div className="workbench-search-results" role="tree" aria-label={t('Search results')}>
+        <p className="workbench-search-summary">
+          {totalMatches === 1 ? t('1 result') : t('{{count}} results', { count: totalMatches })}
+        </p>
+        {contentResults.flatMap(({ project, files, limitHit }) =>
+          files.map((file) => {
+            const normalized = file.relPath.replace(/\\/g, '/');
+            const split = normalized.lastIndexOf('/');
+            const name = split >= 0 ? normalized.slice(split + 1) : normalized;
+            const parent = split >= 0 ? normalized.slice(0, split) : '';
+            return (
+              <details open className="workbench-search-file" key={`${project}:${file.relPath}`}>
+                <summary>
+                  <SetiFileIcon name={name} />
+                  <b>{name}</b>
+                  <small>{parent}</small>
+                  <i>{file.matches.length}</i>
+                </summary>
+                {file.matches.map((match, index) => (
+                  <button
+                    type="button"
+                    role="treeitem"
+                    key={`${match.line}:${match.column}:${index}`}
+                    onPointerEnter={scheduleEditorPanePrefetch}
+                    onFocus={scheduleEditorPanePrefetch}
+                    onClick={() =>
+                      onOpenFileAt
+                        ? onOpenFileAt(project, file.relPath, match.line)
+                        : onOpenFile?.(project, file.relPath, 'preview')
+                    }
+                  >
+                    <span>{match.line}</span>
+                    <code>{match.preview || match.matchText}</code>
+                  </button>
+                ))}
+                {limitHit && <p className="utility-dock-empty">{t('Result limit reached.')}</p>}
+              </details>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+  const renderBody = () => {
+    if (searching) {
+      if (searchLoading) return <p className="utility-dock-empty">{t('Searching…')}</p>;
+      if (searchError) return <ErrorNotice error={searchError} role="status" />;
+      return contentsMode ? renderContentResults() : renderNameResults();
+    }
+    if (contentsMode) {
+      return (
+        <p className="utility-dock-empty">
+          {folders.length === 0 ? t('Open a project to search files.') : t('Search project files by name or contents.')}
+        </p>
+      );
+    }
+    if (folders.length === 0) return <p className="utility-dock-empty">{t('Open a project to browse its files.')}</p>;
+    return (
+      <FilesRootPane
+        projectPath={projectPath}
+        gitStatus={gitStatus}
+        changed={EMPTY_CHANGED_FILES}
+        activeFileKey=""
+        active={active}
+        readinessKey={`search-files:${projectPath}`}
+        onReadyChange={ignoreFilesReadyChange}
+        onOpenFile={onOpenFile}
+      />
+    );
+  };
   return (
     <div className="workbench-explorer">
       {/* Workspace open/add/save toolbar removed on purpose: Mixdog exposes
@@ -299,110 +394,24 @@ const SearchPane = memo(function SearchPane({
           </button>
         </div>
       </div>
-      {searching ? (
-        searchLoading ? (
-          <p className="utility-dock-empty">{t('Searching…')}</p>
-        ) : searchError ? (
-          <ErrorNotice error={searchError} role="status" />
-        ) : !contentsMode ? (
-          totalNameHits === 0 ? (
-            <p className="utility-dock-empty">{t('No matching files.')}</p>
-          ) : (
-            <div className="workbench-search-results" role="tree" aria-label={t('File name results')}>
-              <p className="workbench-search-summary">
-                {totalNameHits === 1 ? t('1 file') : t('{{count}} files', { count: totalNameHits })}
-              </p>
-              {nameResults.flatMap(({ project, paths }) =>
-                paths.map((relPath) => {
-                  const normalized = relPath.replace(/\\/g, '/');
-                  const split = normalized.lastIndexOf('/');
-                  const name = split >= 0 ? normalized.slice(split + 1) : normalized;
-                  const parent = split >= 0 ? normalized.slice(0, split) : '';
-                  return (
-                    <button
-                      type="button"
-                      role="treeitem"
-                      className="workbench-search-name-row"
-                      key={`${project}:${relPath}`}
-                      onPointerEnter={scheduleEditorPanePrefetch}
-                      onFocus={scheduleEditorPanePrefetch}
-                      onClick={() => onOpenFile?.(project, relPath, 'preview')}
-                    >
-                      <SetiFileIcon name={name} />
-                      <b>{name}</b>
-                      <small>{parent}</small>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          )
-        ) : contentResults.length === 0 ? (
-          <p className="utility-dock-empty">{t('No results found.')}</p>
-        ) : (
-          <div className="workbench-search-results" role="tree" aria-label={t('Search results')}>
-            <p className="workbench-search-summary">
-              {totalMatches === 1 ? t('1 result') : t('{{count}} results', { count: totalMatches })}
-            </p>
-            {contentResults.flatMap(({ project, files, limitHit }) =>
-              files.map((file) => {
-                const normalized = file.relPath.replace(/\\/g, '/');
-                const split = normalized.lastIndexOf('/');
-                const name = split >= 0 ? normalized.slice(split + 1) : normalized;
-                const parent = split >= 0 ? normalized.slice(0, split) : '';
-                return (
-                  <details open className="workbench-search-file" key={`${project}:${file.relPath}`}>
-                    <summary>
-                      <SetiFileIcon name={name} />
-                      <b>{name}</b>
-                      <small>{parent}</small>
-                      <i>{file.matches.length}</i>
-                    </summary>
-                    {file.matches.map((match, index) => (
-                      <button
-                        type="button"
-                        role="treeitem"
-                        key={`${match.line}:${match.column}:${index}`}
-                        onPointerEnter={scheduleEditorPanePrefetch}
-                        onFocus={scheduleEditorPanePrefetch}
-                        onClick={() =>
-                          onOpenFileAt
-                            ? onOpenFileAt(project, file.relPath, match.line)
-                            : onOpenFile?.(project, file.relPath, 'preview')
-                        }
-                      >
-                        <span>{match.line}</span>
-                        <code>{match.preview || match.matchText}</code>
-                      </button>
-                    ))}
-                    {limitHit && <p className="utility-dock-empty">{t('Result limit reached.')}</p>}
-                  </details>
-                );
-              })
-            )}
-          </div>
-        )
-      ) : contentsMode ? (
-        <p className="utility-dock-empty">
-          {folders.length === 0 ? t('Open a project to search files.') : t('Search project files by name or contents.')}
-        </p>
-      ) : folders.length === 0 ? (
-        <p className="utility-dock-empty">{t('Open a project to browse its files.')}</p>
-      ) : (
-        <FilesRootPane
-          projectPath={projectPath}
-          gitStatus={gitStatus}
-          changed={EMPTY_CHANGED_FILES}
-          activeFileKey=""
-          active={active}
-          readinessKey={`search-files:${projectPath}`}
-          onReadyChange={ignoreFilesReadyChange}
-          onOpenFile={onOpenFile}
-        />
-      )}
+      {renderBody()}
     </div>
   );
 });
+
+function utilityDockLoadingLabel(tab: UtilityDockTab): string {
+  if (tab === 'search') return t('Preparing Search…');
+  if (tab === 'source-control') return t('Preparing Source Control…');
+  if (tab === 'pull-requests') return t('Preparing Pull Requests…');
+  return t('Preparing Agents…');
+}
+
+function utilityDockTabTitle(tab: UtilityDockTab): string {
+  if (tab === 'agents') return t('Agents');
+  if (tab === 'search') return t('Search');
+  if (tab === 'pull-requests') return t('Pull Requests');
+  return t('Source Control');
+}
 
 export const UtilityDock = memo(function UtilityDock({
   open,
@@ -495,10 +504,10 @@ export const UtilityDock = memo(function UtilityDock({
       live = false;
     };
   }, [open]);
-  const baseFolders = useMemo(
-    () => (workspaceFolders?.length ? workspaceFolders : projectPath ? [{ path: projectPath }] : []),
-    [projectPath, workspaceFolders]
-  );
+  const baseFolders = useMemo(() => {
+    if (workspaceFolders?.length) return workspaceFolders;
+    return projectPath ? [{ path: projectPath }] : [];
+  }, [projectPath, workspaceFolders]);
   const baseProjectPath =
     projectPath || baseFolders[0]?.path || String(snapshot.currentProject || snapshot.project || '');
   const dockProjectPath = onSelectProject ? baseProjectPath : localProjectOverride || baseProjectPath;
@@ -546,20 +555,19 @@ export const UtilityDock = memo(function UtilityDock({
     () => dockProjectOptions.map((option) => ({ value: option.path, label: option.name })),
     [dockProjectOptions]
   );
-  const projectSelectControl = useMemo(
-    () =>
-      dockProjectOptions.length > 0 ? (
-        <OpenSelect
-          ariaLabel={t('Switch project')}
-          className="dock-project-select"
-          value={dockProjectPath}
-          displayValue={dockProjectPath ? undefined : t('Select project')}
-          options={dockProjectSelectOptions}
-          onChange={selectDockProject}
-        />
-      ) : null,
-    [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]
-  );
+  const projectSelectControl = useMemo(() => {
+    if (dockProjectOptions.length === 0) return null;
+    return (
+      <OpenSelect
+        ariaLabel={t('Switch project')}
+        className="dock-project-select"
+        value={dockProjectPath}
+        displayValue={dockProjectPath ? undefined : t('Select project')}
+        options={dockProjectSelectOptions}
+        onChange={selectDockProject}
+      />
+    );
+  }, [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]);
   const projectKey = dockProjectPath;
   const surfaceKeys: Record<UtilityDockTab, string> = {
     agents: 'agents',
@@ -730,14 +738,7 @@ export const UtilityDock = memo(function UtilityDock({
     if (!selectedSurfaceDataReady) return;
     reportBootSurfaceStage(metricSurface, presentedTab, 'data');
   }, [contentReady, metricSurface, open, presentedTab, selectedSurfaceDataReady]);
-  const loadingLabel =
-    presentedTab === 'search'
-      ? t('Preparing Search…')
-      : presentedTab === 'source-control'
-        ? t('Preparing Source Control…')
-        : presentedTab === 'pull-requests'
-          ? t('Preparing Pull Requests…')
-          : t('Preparing Agents…');
+  const loadingLabel = utilityDockLoadingLabel(presentedTab);
   // Instant switching (user: 탭 전환이 즉시 되어야 한다): a tab the user has
   // actually opened keeps its layer mounted for the life of the dock, so a
   // round trip re-presents the SAME DOM with its tree/SCM/PR expansion,
@@ -757,15 +758,7 @@ export const UtilityDock = memo(function UtilityDock({
   }, [committedTabs, mountedTabs]);
   const paneMounted = (pane: UtilityDockTab) => contentReady && mountedTabs.has(pane);
   const paneActive = (pane: UtilityDockTab) => open && presentedGroup.includes(pane);
-  const dockTitle =
-    title ||
-    (presentedTab === 'agents'
-      ? t('Agents')
-      : presentedTab === 'search'
-        ? t('Search')
-        : presentedTab === 'pull-requests'
-          ? t('Pull Requests')
-          : t('Source Control'));
+  const dockTitle = title || utilityDockTabTitle(presentedTab);
   if (!desktopUtilityDockTabEnabled(tab)) return null;
   return (
     <aside

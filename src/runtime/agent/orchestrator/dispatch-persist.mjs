@@ -17,8 +17,8 @@
  * read. Writes are best-effort — never let persist IO break the caller.
  */
 
-import fs from 'fs';
-import path, { join } from 'path';
+import fs from 'node:fs';
+import path, { join } from 'node:path';
 import { writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 
 const TTL_MS = 30 * 60_000;

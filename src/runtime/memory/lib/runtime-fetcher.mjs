@@ -27,10 +27,10 @@ import {
   statSync,
   unlinkSync,
   writeFileSync,
-} from 'fs';
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path';
-import { fileURLToPath } from 'url';
-import { spawnSync } from 'child_process';
+} from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { spawnSync } from 'node:child_process';
 import { renameWithRetrySync, writeFileAtomicSync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 import { downloadToFileWithRetry } from '../../shared/bounded-download.mjs';
 import { platformKey, verifySha256File } from '../../shared/native-asset.mjs';

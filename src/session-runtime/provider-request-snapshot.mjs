@@ -1,4 +1,4 @@
-// Provider request-tool resolution + JSON-safe snapshot machinery, extracted from tool-catalog.mjs.
+// Provider request-tool resolution + JSON-safe snapshot machinery.
 import { clean } from './session-text.mjs';
 import { isDeferredToolAvailable } from './deferred-tool-availability.mjs';
 import { finalizeProviderRequestTools } from './provider-request-tools.mjs';

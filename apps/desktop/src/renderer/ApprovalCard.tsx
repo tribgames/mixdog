@@ -41,8 +41,9 @@ export function ApprovalCard({
     .map(asRecord)
     .filter((image): image is Record<string, unknown> => Boolean(image?.path))
     .slice(0, 4);
-  const actionLabel =
-    action === 'commit' ? t('Commit changes') : action === 'rollback' ? t('Roll back') : t('Discard recovery');
+  let actionLabel = t('Discard recovery');
+  if (action === 'commit') actionLabel = t('Commit changes');
+  else if (action === 'rollback') actionLabel = t('Roll back');
   const [resolving, setResolving] = useState(false);
   const [approvalError, setApprovalError] = useState('');
   const dialog = useRef<HTMLElement>(null);

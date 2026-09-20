@@ -1,10 +1,9 @@
-import { createReadStream } from 'fs';
-import * as fsPromises from 'fs/promises';
-import { createInterface } from 'readline';
+import { createReadStream } from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
+import { createInterface } from 'node:readline';
 import { capShellOutput } from './shell-output.mjs';
 import {
   READ_LARGE_TAIL_MAX_BYTES,
-  READ_MAX_LINE_COLLECT_BYTES,
   READ_MAX_OUTPUT_BYTES,
   READ_MAX_SCAN_BYTES,
   READ_STREAM_TIMEOUT_MS,
@@ -21,12 +20,8 @@ import { displayLineForRead } from './read-lines.mjs';
 import { readLargeHeadWindowSync, readLargeTailWindowSync } from './read-windows.mjs';
 import { mergeReadRanges } from './read-ranges.mjs';
 import { hashText } from './hash-utils.mjs';
-import {
-  getReadRangeIndex,
-  maybeRecordReadRangeAnchor,
-  nearestReadRangeAnchor,
-  scheduleReadRangeIndexPersist,
-} from './read-range-index.mjs';
+import { getReadRangeIndex, nearestReadRangeAnchor, scheduleReadRangeIndexPersist } from './read-range-index.mjs';
+import { createReadLineCollector } from './read-line-collector.mjs';
 
 function streamingHooks(hooks = {}) {
   return {
@@ -58,18 +53,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   const MAX_CHUNK_BYTES = 1024 * 1024;
   let chunkBytes = MIN_CHUNK_BYTES;
   let buf = Buffer.allocUnsafe(chunkBytes);
-  const collected = [];
   let position = anchor.byteOffset;
-  let lineIdx = anchor.line;
-  let currentLineBytes = 0;
-  let collectedBytes = 0;
-  let truncated = false;
-  let stoppedAtLimit = false;
-  let firstEmitted = 0;
-  let lastEmitted = 0;
-  let pendingParts = [];
-  let pendingBytes = 0;
-  let lineCollectCapped = false;
   let prefixHash = rangeIndex?.prefixHash || '';
   const maxOutputBytes =
     Number(hooks.maxOutputBytes) > 0
@@ -77,80 +61,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
       : READ_MAX_OUTPUT_BYTES;
   const bodyOutputBytes = Math.max(1, maxOutputBytes - Math.min(384, Math.floor(maxOutputBytes / 3)));
   const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
-  let bytesScanned = anchor.byteOffset;
-
-  const shouldCollectLine = () => lineIdx >= offset && collected.length < limit;
-  const renderLine = (lineBuf) => {
-    if (lineBuf.length > 0 && lineBuf[lineBuf.length - 1] === 13) {
-      lineBuf = lineBuf.subarray(0, lineBuf.length - 1);
-    }
-    let line = lineBuf.toString('utf-8');
-    if (lineIdx === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
-    // Per-line truncation mirrors the non-streamed path
-    // (read-formatting.renderReadLine): a single multi-MB line
-    // would otherwise blow past READ_MAX_OUTPUT_BYTES on its
-    // own and force the whole window to truncate. renderReadLine
-    // applies the same head/tail cap and "[line truncated]"
-    // marker so the rendered byte count stays bounded.
-    const rendered = renderReadLine(lineIdx + 1, line);
-    // Cap is byte-oriented (READ_MAX_OUTPUT_BYTES). String .length counts
-    // UTF-16 code units and underestimates bytes for non-ASCII output, so
-    // measure with Buffer.byteLength to keep the rendered slice <= cap.
-    // Truncation drops the entire rendered line (codepoint-safe by
-    // construction), so no mid-codepoint cut can occur here.
-    collectedBytes += Buffer.byteLength(rendered, 'utf8') + 1;
-    if (collectedBytes > bodyOutputBytes) {
-      truncated = true;
-      return false;
-    }
-    collected.push(rendered);
-    if (firstEmitted === 0) firstEmitted = lineIdx + 1;
-    lastEmitted = lineIdx + 1;
-    return true;
-  };
-  const finishLine = (finalSegment = null, nextLineStartByte = null) => {
-    if (shouldCollectLine()) {
-      const finalLen = finalSegment ? finalSegment.length : 0;
-      let lineBuf;
-      if (lineCollectCapped) {
-        lineBuf = Buffer.concat(pendingParts, pendingBytes);
-        lineBuf = Buffer.from(lineBuf.toString('utf-8').slice(0, READ_MAX_LINE_COLLECT_BYTES));
-      } else if (pendingParts.length === 0) {
-        lineBuf = finalSegment || Buffer.alloc(0);
-      } else if (finalLen > 0 && pendingBytes + finalLen <= READ_MAX_LINE_COLLECT_BYTES) {
-        lineBuf = Buffer.concat([...pendingParts, finalSegment], pendingBytes + finalLen);
-      } else if (finalLen > 0) {
-        const room = Math.max(0, READ_MAX_LINE_COLLECT_BYTES - pendingBytes);
-        lineBuf =
-          room > 0
-            ? Buffer.concat(
-                [...pendingParts, finalSegment.subarray(0, Math.min(room, finalLen))],
-                pendingBytes + Math.min(room, finalLen)
-              )
-            : Buffer.concat(pendingParts, pendingBytes);
-      } else {
-        lineBuf = Buffer.concat(pendingParts, pendingBytes);
-      }
-      pendingParts = [];
-      pendingBytes = 0;
-      lineCollectCapped = false;
-      if (!renderLine(lineBuf)) return false;
-      if (Number.isFinite(limit) && collected.length >= limit) {
-        stoppedAtLimit = true;
-        lineIdx++;
-        if (nextLineStartByte !== null) maybeRecordReadRangeAnchor(rangeIndex, lineIdx, nextLineStartByte);
-        currentLineBytes = 0;
-        return false;
-      }
-    } else {
-      pendingParts = [];
-      pendingBytes = 0;
-    }
-    lineIdx++;
-    if (nextLineStartByte !== null) maybeRecordReadRangeAnchor(rangeIndex, lineIdx, nextLineStartByte);
-    currentLineBytes = 0;
-    return true;
-  };
+  const lines = createReadLineCollector({ offset, limit, bodyOutputBytes, rangeIndex, startLine: anchor.line });
 
   let stop = false;
   while (!stop) {
@@ -165,8 +76,7 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     if (bytesRead === 0) break;
     const chunkStart = position;
     position += bytesRead;
-    bytesScanned = position;
-    if (bytesScanned > READ_MAX_SCAN_BYTES) {
+    if (position > READ_MAX_SCAN_BYTES) {
       throw new Error(`read scan exceeds ${READ_MAX_SCAN_BYTES} bytes`);
     }
     if (!prefixHash && chunkStart === 0) {
@@ -177,22 +87,19 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
       }
     }
     let start = 0;
-    if (lineIdx < offset) {
-      while (lineIdx < offset && start < bytesRead) {
+    if (lines.lineIdx < offset) {
+      // Seek phase: count lines up to the window, recording byte anchors.
+      while (lines.lineIdx < offset && start < bytesRead) {
         const nl = buf.indexOf(10, start);
         if (nl === -1 || nl >= bytesRead) {
-          currentLineBytes += bytesRead - start;
+          lines.notePartial(bytesRead - start);
           start = bytesRead;
           break;
         }
-        currentLineBytes += nl - start;
-        lineIdx++;
-        const nextLineStartByte = chunkStart + nl + 1;
-        maybeRecordReadRangeAnchor(rangeIndex, lineIdx, nextLineStartByte);
-        currentLineBytes = 0;
+        lines.skipLine(chunkStart + nl + 1);
         start = nl + 1;
       }
-      if (lineIdx < offset) {
+      if (lines.lineIdx < offset) {
         chunkBytes = Math.min(MAX_CHUNK_BYTES, chunkBytes * 2);
         continue;
       }
@@ -201,55 +108,32 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
     while (start < bytesRead) {
       const nl = buf.indexOf(10, start);
       if (nl === -1 || nl >= bytesRead) break;
-      const segment = buf.subarray(start, nl);
-      currentLineBytes += segment.length;
-      if (!finishLine(segment, chunkStart + nl + 1)) {
+      if (!lines.finishLine(buf.subarray(start, nl), chunkStart + nl + 1)) {
         stop = true;
         break;
       }
       start = nl + 1;
     }
     if (stop) break;
-    if (start < bytesRead) {
-      const segment = buf.subarray(start, bytesRead);
-      currentLineBytes += segment.length;
-      if (shouldCollectLine() && segment.length > 0) {
-        if (pendingBytes >= READ_MAX_LINE_COLLECT_BYTES) {
-          lineCollectCapped = true;
-        } else {
-          const room = READ_MAX_LINE_COLLECT_BYTES - pendingBytes;
-          const take = Math.min(segment.length, room);
-          if (take > 0) {
-            pendingParts.push(Buffer.from(segment.subarray(0, take)));
-            pendingBytes += take;
-          }
-          if (take < segment.length) lineCollectCapped = true;
-        }
-      }
-    }
+    if (start < bytesRead) lines.appendPartial(buf.subarray(start, bytesRead));
   }
-  if (!stop && currentLineBytes > 0) finishLine();
+  if (!stop) lines.finishTail();
 
-  let out = collected.join('\n');
-  const readOffsetBase = hooks.readOffsetBase ?? 1;
-  if (truncated) {
-    const nextOffset = (lastEmitted || offset) + readOffsetBase;
-    out += `\n\n... [output truncated at ${Math.max(1, Math.round(maxOutputBytes / 1024))} KB; pass offset:${nextOffset} to continue] ...`;
-  } else if (stoppedAtLimit) {
-    out += `${out ? '\n' : ''}... [range limit reached; next offset: ${offset + collected.length + readOffsetBase}]`;
-  } else if (!out && offset >= lineIdx) {
-    out = `(no lines in range; file has ${lineIdx} lines)`;
-  }
   ioTraceDone('read_range_stream', traceStart, {
     pathHash: hashText(fullPath).slice(0, 12),
     offset,
     limit: Number.isFinite(limit) ? limit : 'inf',
     anchorLine: anchor.line,
     anchorByte: anchor.byteOffset,
-    emitted: collected.length,
+    emitted: lines.count,
     bytes: stForIndex?.size || 0,
   });
-  return { text: out, firstEmitted, lastEmitted, prefixHash };
+  return {
+    text: lines.text({ maxOutputBytes, readOffsetBase: hooks.readOffsetBase ?? 1 }),
+    firstEmitted: lines.firstEmitted,
+    lastEmitted: lines.lastEmitted,
+    prefixHash,
+  };
 }
 
 async function tryWindowedSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {

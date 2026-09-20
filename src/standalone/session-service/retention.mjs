@@ -1,0 +1,158 @@
+/**
+ * retention.mjs — when a daemon-owned session runtime may be reclaimed.
+ *
+ * A turn belongs to the DAEMON, not to whoever is watching it: closing the
+ * desktop window or restarting the TUI must never interrupt work. A runtime
+ * whose last view left is RETAINED while it is busy and evicted only after it
+ * has been idle and unwatched for idleEvictMs. With a view release no longer
+ * destroying anything, the sweep here is the ONLY reclaim path besides
+ * shutdown. A watched-but-idle session keeps its runtime and drops only the
+ * wire projection (snapshotCache / itemCache / fieldCache / publishedSnapshot
+ * — a SECOND full copy of the transcript that used to be pinned for the
+ * daemon's lifetime by merely leaving a tab open); the next change rebuilds
+ * it as one full frame.
+ */
+import { hasActiveBackgroundTasks } from '../../runtime/shared/background-tasks.mjs';
+
+/**
+ * @param {object} deps
+ * @param {Set<object>} deps.sessions
+ * @param {() => boolean} deps.isClosed
+ * @param {(entry: object) => string} deps.currentSessionId  late-bound (projection)
+ * @param {(entry: object, reason: string, options?: object) => Promise<object>} deps.destroy  late-bound (entries)
+ */
+export function createSessionRetention({
+  sessions,
+  isClosed,
+  idleEvictMs,
+  evictSweepMs,
+  projectionIdleMs,
+  currentSessionId,
+  destroy,
+}) {
+  let evictTimer = null;
+
+  function stateBusy(state) {
+    return (
+      state?.busy === true || state?.commandBusy === true || (Array.isArray(state?.queued) && state.queued.length > 0)
+    );
+  }
+
+  function updateEntryBusy(entry, state) {
+    const next = stateBusy(state);
+    entry.busy = next;
+    return next;
+  }
+
+  function sessionBusy(entry) {
+    const sessionId = currentSessionId(entry);
+    // Detached views do not make their background commands disposable. Keep
+    // the owner runtime (and daemon self-shutdown guard) live until the task
+    // reaches a terminal state and its completion can be delivered back into
+    // this session.
+    if (sessionId && hasActiveBackgroundTasks({ callerSessionId: sessionId })) return true;
+    if (typeof entry?.busy === 'boolean') return entry.busy;
+    try {
+      return updateEntryBusy(entry, entry.runtime.getState?.() || {});
+    } catch {
+      // A session runtime we cannot read is never assumed idle — losing a live
+      // turn is far worse than holding an extra process for one sweep.
+      return true;
+    }
+  }
+
+  function liveBusyCount() {
+    let count = 0;
+    for (const entry of sessions) {
+      if (sessionBusy(entry)) count += 1;
+    }
+    return count;
+  }
+
+  function releaseProjection(entry) {
+    if (!entry) return;
+    entry.snapshotSource = null;
+    entry.snapshotCache = null;
+    entry.fieldCache?.clear?.();
+    entry.itemCache?.clear?.();
+    entry.fieldCache = null;
+    entry.itemCache = null;
+    entry.publishedSnapshot = null;
+    entry.publishedSessionId = '';
+  }
+
+  function startEvictionSweep() {
+    if (evictTimer || isClosed()) return;
+    evictTimer = setInterval(() => {
+      const now = Date.now();
+      for (const entry of [...sessions]) {
+        // A client came back to it: watched session RUNTIMES are never
+        // reclaimed. Their projection still is — an idle watched session keeps
+        // the runtime and drops only the wire clone of its transcript, which
+        // the next publish rebuilds as a full frame.
+        if (entry.subscribers?.size > 0) {
+          entry.retainedAt = null;
+          if (!sessionBusy(entry) && now - (entry.lastPublishedAt || 0) >= projectionIdleMs) {
+            releaseProjection(entry);
+          }
+          continue;
+        }
+        if (!entry.retainedAt) continue;
+        if (sessionBusy(entry)) {
+          entry.retainedAt = now;
+          continue;
+        }
+        if (now - entry.retainedAt < idleEvictMs) continue;
+        // Eviction is a MEMORY reclaim, never a user teardown: the runtime's
+        // agent workers and background jobs are daemon-owned work that must
+        // survive the owner's idle eviction (observed: switching desktop tabs
+        // evicted the Lead after 2 minutes and its teardown closed every idle
+        // worker with reap time left — and cancelled running ones).
+        void destroy(entry, 'idle and unwatched', { keepBackgroundWork: true });
+      }
+      stopEvictionSweepIfIdle();
+    }, evictSweepMs);
+    evictTimer.unref?.();
+  }
+
+  function stopEvictionSweepIfIdle() {
+    if (!evictTimer) return;
+    for (const entry of sessions) {
+      if (entry.disposed) continue;
+      const watchers = entry.subscribers?.size || 0;
+      if (entry.retainedAt && watchers === 0) return;
+      // A watched session holding a projection still has memory to reclaim.
+      if (watchers > 0 && (entry.snapshotCache || entry.publishedSnapshot)) return;
+    }
+    clearInterval(evictTimer);
+    evictTimer = null;
+  }
+
+  function stopSweep() {
+    if (!evictTimer) return;
+    clearInterval(evictTimer);
+    evictTimer = null;
+  }
+
+  /** Put an unwatched entry on the idle clock (callers name the budget). */
+  function retainUnwatched(entry, _reason = 'headless session budget') {
+    if (!entry || entry.disposed || (entry.subscribers?.size || 0) > 0) return;
+    entry.headless = true;
+    entry.retainedAt = Date.now();
+    releaseProjection(entry);
+    startEvictionSweep();
+  }
+
+  return {
+    stateBusy,
+    updateEntryBusy,
+    sessionBusy,
+    liveBusyCount,
+    releaseProjection,
+    startEvictionSweep,
+    stopEvictionSweepIfIdle,
+    stopSweep,
+    sweepActive: () => evictTimer !== null,
+    retainUnwatched,
+  };
+}

@@ -1,5 +1,6 @@
 // Session tool schema resolution. Lead and Agent share one full-capability
 // catalog; Agent removes only the recursive `agent` control tool.
+import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
 import { getMcpTools } from '../../mcp/client.mjs';
 import { getInternalTools } from '../../internal-tools.mjs';
 import { BUILTIN_TOOLS } from '../../tools/builtin/builtin-tools.mjs';
@@ -36,11 +37,7 @@ function _getMcpTools(mcpScopeId = null, cwd = null) {
     // agentHidden can be read during deny filtering.
     annotations: t.annotations || {},
   }));
-  return [...mcp, ...internal].sort((a, b) => {
-    const an = a?.name || '';
-    const bn = b?.name || '';
-    return an < bn ? -1 : an > bn ? 1 : 0;
-  });
+  return [...mcp, ...internal].sort((a, b) => compareCodePoints(a?.name || '', b?.name || ''));
 }
 
 // Canonical route order (mirrors the shared Tool Workflow and the deferred
@@ -212,7 +209,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
       const readTools = ALL_BUILTIN_SESSION_TOOLS.filter((t) => READONLY_TOOL_NAMES.has(t.name));
       return orderSessionTools(_dedupByName([...readTools, ...mcp, ...skillTools]));
     }
-    case 'full':
+    // 'full' and any unknown spec.
     default:
       return orderSessionTools(_dedupByName([...ALL_BUILTIN_SESSION_TOOLS, ...mcp, ...skillTools]));
   }

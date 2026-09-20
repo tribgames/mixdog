@@ -79,15 +79,13 @@ export async function untrackedPatch(cwd: string, path: string): Promise<string>
     const lines = text.split('\n');
     if (lines.at(-1) === '') lines.pop();
     if (!lines.length) return '';
-    return (
-      [
-        `diff --git a/${path} b/${path}`,
-        '--- /dev/null',
-        `+++ b/${path}`,
-        `@@ -0,0 +1,${lines.length} @@`,
-        ...lines.map((line) => `+${line}`),
-      ].join('\n') + '\n'
-    );
+    return `${[
+      `diff --git a/${path} b/${path}`,
+      '--- /dev/null',
+      `+++ b/${path}`,
+      `@@ -0,0 +1,${lines.length} @@`,
+      ...lines.map((line) => `+${line}`),
+    ].join('\n')}\n`;
   } catch {
     return '';
   }

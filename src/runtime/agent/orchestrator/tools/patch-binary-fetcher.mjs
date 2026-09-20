@@ -102,7 +102,7 @@ export const ensurePatchBinary = singleFlight(async (dataDir, options = {}) => {
   const manifest = await loadManifest(dataDir, options);
   const pkey = platformKey();
   const asset = manifest.assets?.[pkey];
-  if (!asset || !asset.url || !validSha256(asset.sha256) || !manifestVersion(manifest)) {
+  if (!asset?.url || !validSha256(asset.sha256) || !manifestVersion(manifest)) {
     // Unsupported platform/arch (e.g. win32-arm64): the manifest has no
     // downloadable asset for this {os}-{arch}. apply_patch is native-only
     // (no JS apply fallback), so this is terminal — surface a single clear,

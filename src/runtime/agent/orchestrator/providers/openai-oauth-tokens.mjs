@@ -1,7 +1,7 @@
 /**
  * openai-oauth-tokens.mjs — ChatGPT OAuth credential store for openai-oauth.
  *
- * Extracted from openai-oauth.mjs: token path resolution, atomic persistence,
+ * Token path resolution, atomic persistence,
  * the refresh exchange, and the in-process + cross-process serialization that
  * keeps concurrent turns from racing a single-use refresh token. The provider
  * keeps only the send-path policy (when a refresh is due, how long a failed
@@ -12,8 +12,8 @@
  * pair, so /providers and every existing importer resolve unchanged. The login
  * flow is wired here because this module owns the token store it writes into.
  */
-import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
-import { join, resolve } from 'path';
+import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';

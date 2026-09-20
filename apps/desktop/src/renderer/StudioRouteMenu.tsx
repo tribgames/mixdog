@@ -50,6 +50,11 @@ export interface StudioSliderRow {
 
 const CLOSE_DURATION = 110;
 
+function authTypeLabel(authType: unknown): string {
+  if (authType === 'oauth') return t('Account');
+  return authType === 'api-key' ? t('API key') : '';
+}
+
 function viewportBox() {
   const visual = window.visualViewport;
   return {
@@ -440,9 +445,7 @@ export function StudioRouteMenu({
                   <span className="model-provider-heading">
                     <ProviderIcon provider={group.id} />
                     <span>{group.label}</span>
-                    <small>
-                      {group.authType === 'oauth' ? t('Account') : group.authType === 'api-key' ? t('API key') : ''}
-                    </small>
+                    <small>{authTypeLabel(group.authType)}</small>
                   </span>
                 </h3>
                 <div className="model-items">
@@ -483,30 +486,29 @@ export function StudioRouteMenu({
           </div>
         </div>
       )}
-      {activeRow &&
-        activeRow.options.map((option) => {
-          const selected = option.value === activeRow.value;
-          return (
-            <button
-              type="button"
-              key={option.value}
-              className="route-sheet-option"
-              role="menuitemradio"
-              aria-checked={selected}
-              disabled={activeRow.disabled}
-              onClick={() => {
-                if (!selected) activeRow.onPick(option.value);
-              }}
-            >
-              <span>{option.label}</span>
-              {selected && (
-                <span className="route-selection-check">
-                  <Check size={14} aria-hidden="true" />
-                </span>
-              )}
-            </button>
-          );
-        })}
+      {activeRow?.options.map((option) => {
+        const selected = option.value === activeRow.value;
+        return (
+          <button
+            type="button"
+            key={option.value}
+            className="route-sheet-option"
+            role="menuitemradio"
+            aria-checked={selected}
+            disabled={activeRow.disabled}
+            onClick={() => {
+              if (!selected) activeRow.onPick(option.value);
+            }}
+          >
+            <span>{option.label}</span>
+            {selected && (
+              <span className="route-selection-check">
+                <Check size={14} aria-hidden="true" />
+              </span>
+            )}
+          </button>
+        );
+      })}
       {pane === 'slider' && slider && (
         <label className="route-sheet-slider">
           <input

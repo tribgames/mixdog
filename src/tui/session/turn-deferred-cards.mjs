@@ -27,7 +27,7 @@ export function createDeferredCardRegistry({
   // 'user' kind, so no promptHistory rebuild is needed.
   const appendItemsBatch = (newItems, extra = {}) => {
     if (!isCurrentTurn()) return;
-    if (!newItems || !newItems.length) {
+    if (!newItems?.length) {
       set(extra);
       return;
     }

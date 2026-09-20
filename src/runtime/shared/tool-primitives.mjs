@@ -242,7 +242,8 @@ export function displayAgentName(value) {
 
 export function displayModelName(model, provider, displayHint) {
   const text = String(model ?? '').trim();
-  const modelId = text ? (text.includes('/') ? text.split('/').filter(Boolean).at(-1) || text : text) : '';
+  let modelId = text;
+  if (text.includes('/')) modelId = text.split('/').filter(Boolean).at(-1) || text;
   const shown = sharedDisplayModelName(modelId, provider, displayHint);
   return shown || modelId;
 }

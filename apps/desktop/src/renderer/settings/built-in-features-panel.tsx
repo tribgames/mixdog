@@ -110,35 +110,35 @@ function FeatureControl({
   const { feature, installed, enabled, ready, available, busy, action, progressPercent } = state;
   const installing = action?.status === 'installing';
   const failed = action?.status === 'failed';
-  return (
-    <span className="built-in-feature-control">
-      {!ready ? (
-        <span className="built-in-feature-control-placeholder" aria-hidden="true" />
-      ) : installing ? (
-        <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />
-      ) : !installed && feature.id === 'localProvider' ? (
-        <span>{t('Install through chat')}</span>
-      ) : !installed ? (
-        <button
-          type="button"
-          className="extensions-action"
-          disabled={!available || busy}
-          aria-label={t('Install {{name}}', { name: t(feature.title) })}
-          onClick={onInstall}
-        >
-          {t(failed ? 'Retry' : 'Install')}
-        </button>
-      ) : (
-        <CompactSwitch
-          label={t(feature.title)}
-          checked={enabled}
-          optimistic={false}
-          disabled={!available || busy}
-          onChange={onToggle}
-        />
-      )}
-    </span>
+  let control = (
+    <CompactSwitch
+      label={t(feature.title)}
+      checked={enabled}
+      optimistic={false}
+      disabled={!available || busy}
+      onChange={onToggle}
+    />
   );
+  if (!ready) {
+    control = <span className="built-in-feature-control-placeholder" aria-hidden="true" />;
+  } else if (installing) {
+    control = <SlotProgress percent={progressPercent} label={t('Installing {{name}}…', { name: t(feature.title) })} />;
+  } else if (!installed && feature.id === 'localProvider') {
+    control = <span>{t('Install through chat')}</span>;
+  } else if (!installed) {
+    control = (
+      <button
+        type="button"
+        className="extensions-action"
+        disabled={!available || busy}
+        aria-label={t('Install {{name}}', { name: t(feature.title) })}
+        onClick={onInstall}
+      >
+        {t(failed ? 'Retry' : 'Install')}
+      </button>
+    );
+  }
+  return <span className="built-in-feature-control">{control}</span>;
 }
 
 /** The parent feature owns activation; bundled skills are read-only children. */
@@ -428,14 +428,18 @@ export function BuiltInFeaturesPanel({
         : feature.platform !== 'windows' || windows;
     // Every entry waits for its own status source before painting a control,
     // so an Install pill never flashes into a toggle (or back).
-    const ready =
-      feature.id === 'git'
-        ? gitStatus !== null && sectionLoaded(data, 'toolModules')
-        : feature.id === 'browser' || feature.id === 'computer'
-          ? settings !== null
-          : feature.id === 'voice'
-            ? sectionLoaded(data, 'voice')
-            : sectionLoaded(data, 'toolModules');
+    let ready = sectionLoaded(data, 'toolModules');
+    if (feature.id === 'git') ready = gitStatus !== null && sectionLoaded(data, 'toolModules');
+    else if (feature.id === 'browser' || feature.id === 'computer') ready = settings !== null;
+    else if (feature.id === 'voice') ready = sectionLoaded(data, 'voice');
+    let progressPercent: number | null = null;
+    if (feature.id === 'localProvider') {
+      progressPercent = installationPercent(localProviderInstallation(localProvider, 'runtime'));
+    } else if (feature.id === 'voice' || feature.id === 'memory') {
+      progressPercent = progress.percent;
+    } else if (feature.id === 'tidy') {
+      progressPercent = tidy.installStatus?.percent ?? tidy.status?.installing?.percent ?? null;
+    }
     return {
       feature,
       bundledSkills: bundledSkills[feature.id] || [],
@@ -445,14 +449,7 @@ export function BuiltInFeaturesPanel({
       available,
       busy,
       action: action?.id === feature.id ? action : null,
-      progressPercent:
-        feature.id === 'localProvider'
-          ? installationPercent(localProviderInstallation(localProvider, 'runtime'))
-          : feature.id === 'voice' || feature.id === 'memory'
-            ? progress.percent
-            : feature.id === 'tidy'
-              ? (tidy.installStatus?.percent ?? tidy.status?.installing?.percent ?? null)
-              : null,
+      progressPercent,
       localProvider,
       info: record(feature.id === 'voice' ? voice.info : record(toolModules[feature.id]).info),
     };

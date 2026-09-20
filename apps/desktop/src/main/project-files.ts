@@ -121,7 +121,10 @@ export async function listProjectDirIn(root: string, relDir: string): Promise<Ar
   const entries = await readdir(target, { withFileTypes: true });
   return entries
     .map((entry) => ({ name: entry.name, dir: entry.isDirectory() }))
-    .sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+    .sort((a, b) => {
+      if (a.dir === b.dir) return a.name.localeCompare(b.name);
+      return a.dir ? -1 : 1;
+    });
 }
 
 /** Editor tab: read a project text file (1 MB cap, binary sniff). */

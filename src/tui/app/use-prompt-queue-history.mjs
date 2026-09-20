@@ -1,4 +1,4 @@
-// Exit + queued-prompt/history plumbing, extracted from App.jsx: the clean
+// Exit + queued-prompt/history plumbing: the clean
 // two-phase exit (final frame flush, store dispose race, hard-exit timer),
 // queued-message restore into the draft, the engine-published prompt
 // history with its local-scan fallback, and history-nav reset.

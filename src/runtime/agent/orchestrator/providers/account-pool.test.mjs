@@ -44,6 +44,7 @@ test('persisted order controls quota failover and preserves selection across rel
   const ids = setup(provider);
   changeProviderAccounts(provider, { order: [ids[0], ids[2], ids[1]] });
   const calls = [];
+  const accountChanges = [];
   const gateway = createAccountPoolProvider(provider, () => ({
     async send(messages, model, _tools, _opts) {
       const id = currentProviderAccountId(provider);
@@ -64,12 +65,23 @@ test('persisted order controls quota failover and preserves selection across rel
     [{ role: 'assistant', content: 'keep this', providerReplay: { accountId: ids[0], items: [] } }],
     'same-model',
     [],
-    { sessionId: 'visible-session' }
+    {
+      sessionId: 'visible-session',
+      onStageChange(stage, detail) {
+        if (stage !== 'account-changed') return;
+        assert.equal(readProviderAccountPool(provider).selectedId, ids[2]);
+        accountChanges.push(detail);
+      },
+    }
   );
   assert.deepEqual(calls, [ids[0], ids[2]]);
   assert.equal(result.content, 'done');
   assert.equal(cloneProviderReplay(result.providerReplay).accountId, ids[2]);
   assert.equal(result.providerState.providerAccountId, ids[2]);
+  assert.equal(accountChanges.length, 1);
+  assert.equal(accountChanges[0].provider, provider);
+  assert.equal(accountChanges[0].accountId, ids[2]);
+  assert.ok(accountChanges[0].at > 0);
   assert.equal(
     JSON.parse(readFileSync(join(dir, 'provider-accounts.json'), 'utf8')).providers[provider].selectedId,
     ids[2]
@@ -424,6 +436,7 @@ test('failed free-account fallback retains the paid selection; successful fallba
     const controller = new AbortController();
     const unavailable = Object.assign(new Error('Model unavailable for this account'), { status: 403 });
     const calls = [];
+    const accountChanges = [];
     const gateway = createAccountPoolProvider(provider, () => ({
       async send() {
         const id = currentProviderAccountId(provider);
@@ -436,7 +449,12 @@ test('failed free-account fallback retains the paid selection; successful fallba
         return { content: 'done' };
       },
     }));
-    const pending = gateway.send([], 'model', [], { signal: controller.signal });
+    const pending = gateway.send([], 'model', [], {
+      signal: controller.signal,
+      onStageChange(stage, detail) {
+        if (stage === 'account-changed') accountChanges.push(detail);
+      },
+    });
     const rejection = outcome === 'unavailable' ? (error) => error === unavailable : { name: 'AbortError' };
     const completion = outcome === 'manual' ? pending : assert.rejects(pending, rejection);
     await entered.promise;
@@ -447,5 +465,6 @@ test('failed free-account fallback retains the paid selection; successful fallba
     await completion;
     assert.deepEqual(calls, [paid, free]);
     assert.equal(readProviderAccountPool(provider).selectedId, outcome === 'manual' ? manual : paid);
+    assert.deepEqual(accountChanges, [], 'failed or superseded retries cannot announce an account switch');
   }
 });

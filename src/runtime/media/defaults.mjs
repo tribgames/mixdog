@@ -7,8 +7,8 @@
  * the daemon, and the TUI all answer the same way, and it survives restarts —
  * the Studio's own localStorage draft never reaches the runtime.
  */
-import { mkdirSync, readFileSync } from 'fs';
-import { dirname, join } from 'path';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync } from '../shared/atomic-file.mjs';
 import { MEDIA_KINDS } from './tool-defs.mjs';

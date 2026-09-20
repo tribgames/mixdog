@@ -56,3 +56,15 @@ test('patch summaries and card aggregation preserve only actual edit counts', ()
   assert.equal(formatAggregateDetail([created, modified]), '+293 lines · -2 lines');
   assert.equal(formatAggregateDetail(['Created report-20260920.md']), 'Created report-20260920.md');
 });
+
+test('shell exit summaries accept both wire marker spellings', () => {
+  assert.equal(summarizeToolResult('shell', {}, '[exit: 2]'), 'Exit 2');
+  assert.equal(summarizeToolResult('shell', {}, '[exit code: 2]'), 'Exit 2');
+  assert.equal(summarizeToolResult('shell', {}, '[status: failed]\n[exit code: 2]'), 'Failed · Exit 2');
+});
+
+test('status envelopes do not become successful agent or JSON result bodies', () => {
+  assert.equal(summarizeToolResult('agent', {}, 'agent task: task-1\nstatus: completed\nmodel: gpt-5'), null);
+  assert.equal(summarizeToolResult('request_user_input', {}, '{"status":"completed","message":"ok"}'), null);
+  assert.equal(summarizeToolResult('web_search', {}, 'background task\ntask_id: t1\nstatus: running'), null);
+});

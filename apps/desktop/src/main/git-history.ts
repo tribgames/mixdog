@@ -20,14 +20,10 @@ export function gitDiff(
   untracked = false
 ): Promise<string> {
   if (untracked) return untrackedPatch(cwd, path);
-  return run(cwd, [
-    '--no-optional-locks',
-    'diff',
-    ...DISPLAY_DIFF_ARGS,
-    ...(staged ? ['--cached'] : worktreeOnly ? [] : ['HEAD']),
-    '--',
-    path,
-  ]);
+  let baseArgs = ['HEAD'];
+  if (staged) baseArgs = ['--cached'];
+  else if (worktreeOnly) baseArgs = [];
+  return run(cwd, ['--no-optional-locks', 'diff', ...DISPLAY_DIFF_ARGS, ...baseArgs, '--', path]);
 }
 
 export interface GitReviewFile {
@@ -309,7 +305,7 @@ export async function gitReview(cwd: string): Promise<GitReviewResult> {
     }
     for (const field of numstat.split('\0').filter(Boolean)) {
       const match = /^(\d+|-)\t(\d+|-)\t(.*)$/.exec(field);
-      const entry = match && match[3] ? files.get(match[3]) : undefined;
+      const entry = match?.[3] ? files.get(match[3]) : undefined;
       if (!match || !entry) continue;
       entry.additions = match[1] === '-' ? 0 : Number(match[1]);
       entry.deletions = match[2] === '-' ? 0 : Number(match[2]);

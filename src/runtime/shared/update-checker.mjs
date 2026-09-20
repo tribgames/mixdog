@@ -177,7 +177,7 @@ export async function checkLatestVersion({ force = false, dataDir } = {}) {
   // Re-read the cache here: a force:true call skips the read above, but a
   // stale answer still beats none when the network is down.
   const staleCache = cache || readCache(dataDir);
-  if (staleCache && staleCache.latestVersion) {
+  if (staleCache?.latestVersion) {
     return {
       currentVersion,
       latestVersion: staleCache.latestVersion,

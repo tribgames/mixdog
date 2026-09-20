@@ -152,24 +152,29 @@ export function desktopThemeOptions(): Array<{ value: DesktopThemePreference; la
 /** Onboarding theme cards: raw registry palette for the mini chrome preview.
  *  Aliases resolve; unknown ids return null and the card stays neutral. */
 export function themePreviewPalette(value: unknown): Record<string, string> | null {
-  const requested = themeId(value);
-  const resolved = registry[requested] ? requested : aliases[requested];
-  return resolved && registry[resolved] ? { ...registry[resolved].palette } : null;
+  const resolved = resolveRegisteredThemeId(themeId(value));
+  return resolved ? { ...registry[resolved].palette } : null;
+}
+
+/** Registered theme id for a requested id, following aliases; null when unknown. */
+function resolveRegisteredThemeId(requested: string): string | null {
+  if (registry[requested]) return requested;
+  const alias = aliases[requested];
+  return alias && registry[alias] ? alias : null;
+}
+
+function resolveThemePreference(preference: DesktopThemePreference): string {
+  if (preference === 'white') return 'light';
+  if (preference === 'system') {
+    if (typeof window.matchMedia !== 'function') return DEFAULT_THEME_ID;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? DEFAULT_THEME_ID : 'light';
+  }
+  return preference !== 'dark' && registry[preference] ? preference : DEFAULT_THEME_ID;
 }
 
 export function applyDesktopThemePreference(preference: DesktopThemePreference): string {
   systemPreferenceActive = preference === 'system';
-  const resolved =
-    preference === 'white'
-      ? 'light'
-      : preference === 'system' && typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? DEFAULT_THEME_ID
-          : 'light'
-        : preference !== 'system' && preference !== 'dark' && registry[preference]
-          ? preference
-          : DEFAULT_THEME_ID;
-  return applyDesktopTheme(resolved);
+  return applyDesktopTheme(resolveThemePreference(preference));
 }
 
 // Whether the LAST applied preference was 'system': the main process then
@@ -185,12 +190,7 @@ export function setDesktopThemePreference(preference: DesktopThemePreference): s
 }
 
 export function applyDesktopTheme(value: unknown): string {
-  const requested = themeId(value);
-  const resolved = registry[requested]
-    ? requested
-    : registry[aliases[requested]]
-      ? aliases[requested]
-      : DEFAULT_THEME_ID;
+  const resolved = resolveRegisteredThemeId(themeId(value)) ?? DEFAULT_THEME_ID;
   const root = document.documentElement;
   suppressThemeSwapTransitions(root);
   root.dataset.mixdogTheme = resolved;

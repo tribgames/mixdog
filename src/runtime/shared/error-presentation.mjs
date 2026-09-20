@@ -53,14 +53,8 @@ function unwrap(value) {
   }
   const envelope = parsed && typeof parsed === 'object' ? parsed : value;
   const nested = envelope?.error;
-  const message =
-    typeof nested === 'string'
-      ? nested
-      : typeof nested?.message === 'string'
-        ? nested.message
-        : typeof envelope?.message === 'string'
-          ? envelope.message
-          : raw;
+  const stringOrNull = (value) => (typeof value === 'string' ? value : null);
+  const message = stringOrNull(nested) ?? stringOrNull(nested?.message) ?? stringOrNull(envelope?.message) ?? raw;
   const status = Number(
     value?.httpStatus ||
       value?.status ||

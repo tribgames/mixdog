@@ -35,12 +35,13 @@ export function normalizeAutomationAttachments(value) {
         throw new Error('image/PDF attachments are too large together (8 MB max)');
       }
     }
+    let defaultMimeType = 'text/plain';
+    if (kind === 'pdf') defaultMimeType = 'application/pdf';
+    else if (kind === 'image') defaultMimeType = 'image/png';
     out.push({
       kind,
       name: String(entry.name || '').slice(0, 200) || `attachment-${out.length + 1}`,
-      mimeType: String(
-        entry.mimeType || (kind === 'pdf' ? 'application/pdf' : kind === 'image' ? 'image/png' : 'text/plain')
-      ),
+      mimeType: String(entry.mimeType || defaultMimeType),
       data,
     });
   }
@@ -56,7 +57,7 @@ export function automationPromptContent(promptText, attachments) {
   let text = String(promptText || '');
   const textFiles = rows.filter((entry) => entry?.kind === 'text' && entry.data);
   if (textFiles.length) {
-    text += '\n\n' + textFiles.map((entry) => `--- Attached file: ${entry.name} ---\n${entry.data}`).join('\n\n');
+    text += `\n\n${textFiles.map((entry) => `--- Attached file: ${entry.name} ---\n${entry.data}`).join('\n\n')}`;
   }
   const parts = [];
   for (const entry of rows) {

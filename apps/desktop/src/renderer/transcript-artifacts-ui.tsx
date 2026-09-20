@@ -1,5 +1,5 @@
 import { FileText, FolderOpen, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { showDesktopToast } from './desktop-toasts';
 import { errorMessageText } from './ErrorNotice';
@@ -9,6 +9,15 @@ import { MxIcon } from './MxIcon';
 import { mediaUrl } from './studio-support';
 import { requestTranscriptRowMeasure } from './transcript-measure';
 import { transcriptArtifacts, type TranscriptArtifact } from './transcript-artifacts';
+
+/** file:// href for a local artifact path; a Windows drive segment stays unencoded. */
+function artifactHref(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .split('/')
+    .map((part, index) => (index === 0 && /^[a-z]:$/i.test(part) ? part : encodeURIComponent(part)))
+    .join('/');
+}
 
 function GeneratedMedia({ artifact }: { artifact: TranscriptArtifact }) {
   const [failed, setFailed] = useState(false);
@@ -30,38 +39,44 @@ function GeneratedMedia({ artifact }: { artifact: TranscriptArtifact }) {
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
   };
+  let media: ReactNode;
+  if (failed || !original) {
+    media = <FileText size={24} aria-hidden="true" />;
+  } else if (artifact.kind === 'video') {
+    media = (
+      <video
+        src={original}
+        poster={preview || undefined}
+        controls
+        preload="none"
+        playsInline
+        onError={() => setFailed(true)}
+        aria-label={artifact.name}
+      />
+    );
+  } else {
+    media = (
+      <button
+        type="button"
+        className="transcript-artifact-image"
+        aria-label={t('Open image')}
+        onClick={() => setExpanded(true)}
+      >
+        <img
+          src={preview || original}
+          alt={artifact.name}
+          loading="lazy"
+          onError={(event) => {
+            if (event.currentTarget.src !== original) event.currentTarget.src = original;
+            else setFailed(true);
+          }}
+        />
+      </button>
+    );
+  }
   return (
     <figure className="transcript-artifact-media">
-      {!failed &&
-        original &&
-        (artifact.kind === 'video' ? (
-          <video
-            src={original}
-            poster={preview || undefined}
-            controls
-            preload="none"
-            playsInline
-            onError={() => setFailed(true)}
-            aria-label={artifact.name}
-          />
-        ) : (
-          <button
-            type="button"
-            className="transcript-artifact-image"
-            aria-label={t('Open image')}
-            onClick={() => setExpanded(true)}
-          >
-            <img
-              src={preview || original}
-              alt={artifact.name}
-              loading="lazy"
-              onError={(event) => {
-                if (event.currentTarget.src !== original) event.currentTarget.src = original;
-                else setFailed(true);
-              }}
-            />
-          </button>
-        ))}
+      <div className="transcript-artifact-frame">{media}</div>
       <figcaption>
         <span title={artifact.path || artifact.name}>{artifact.name}</span>
         {/* Same icon-only action grammar as the response copy control: transparent
@@ -136,11 +151,7 @@ export function TranscriptArtifacts({ items }: { items: readonly TranscriptItem[
             key={artifact.key}
             className="transcript-artifact-file"
             title={artifact.path}
-            href={artifact.path
-              .replace(/\\/g, '/')
-              .split('/')
-              .map((part, index) => (index === 0 && /^[a-z]:$/i.test(part) ? part : encodeURIComponent(part)))
-              .join('/')}
+            href={artifactHref(artifact.path)}
           >
             <FileText size={16} aria-hidden="true" />
             <span>{artifact.name}</span>

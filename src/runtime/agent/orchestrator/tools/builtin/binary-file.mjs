@@ -1,5 +1,5 @@
-import { closeSync, openSync, readSync } from 'fs';
-import { open } from 'fs/promises';
+import { closeSync, openSync, readSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 
 const HEAD_CAP = 64 * 1024;
 const TAIL_SIZE = 4 * 1024;

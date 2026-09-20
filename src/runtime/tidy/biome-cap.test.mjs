@@ -332,12 +332,9 @@ test('biome check classifies safe/unsafe/manual the way explain and --write do',
     run: async (_bin, args) => {
       if (args[0] === 'explain') {
         const name = args[1];
-        const line =
-          name === 'useFlatMap'
-            ? '- Fix: safe'
-            : name === 'useNodejsImportProtocol'
-              ? '- Fix: unsafe'
-              : '- No fix available.';
+        let line = '- No fix available.';
+        if (name === 'useFlatMap') line = '- Fix: safe';
+        else if (name === 'useNodejsImportProtocol') line = '- Fix: unsafe';
         return { code: 0, stdout: `Summary\n- Name: ${name}\n${line}\n`, stderr: '', truncated: false, error: '' };
       }
       return {

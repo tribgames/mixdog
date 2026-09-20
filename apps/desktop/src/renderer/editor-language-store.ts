@@ -257,6 +257,12 @@ export function clearActiveEditorDocument(uri: string): void {
   publish();
 }
 
+function problemSeverity(markerSeverity: number): 1 | 2 | 3 | 4 {
+  if (markerSeverity >= 8) return 1;
+  if (markerSeverity >= 4) return 2;
+  return markerSeverity >= 2 ? 3 : 4;
+}
+
 export function setNativeEditorProblems(
   projectPath: string,
   relPath: string,
@@ -270,7 +276,7 @@ export function setNativeEditorProblems(
       relPath,
       uri,
       origin: 'native',
-      severity: marker.severity >= 8 ? 1 : marker.severity >= 4 ? 2 : marker.severity >= 2 ? 3 : 4,
+      severity: problemSeverity(marker.severity),
       message: marker.message,
       source: marker.source || '',
       code: markerCode(marker.code),

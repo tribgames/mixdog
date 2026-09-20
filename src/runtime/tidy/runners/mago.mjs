@@ -62,7 +62,9 @@ export function parseMagoLintJson(stdout, cwd) {
   } catch {
     return [];
   }
-  const issues = Array.isArray(payload?.issues) ? payload.issues : Array.isArray(payload) ? payload : [];
+  let issues = [];
+  if (Array.isArray(payload?.issues)) issues = payload.issues;
+  else if (Array.isArray(payload)) issues = payload;
   return issues.map((issue) => {
     const annotation = Array.isArray(issue?.annotations) ? issue.annotations[0] : null;
     const span = annotation?.span;

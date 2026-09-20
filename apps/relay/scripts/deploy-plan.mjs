@@ -50,7 +50,8 @@ async function walkFiles(input, files = [], knownType = '') {
   if (!type) {
     try {
       const metadata = await stat(input);
-      type = metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other';
+      if (metadata.isDirectory()) type = 'directory';
+      else type = metadata.isFile() ? 'file' : 'other';
     } catch (error) {
       if (error?.code === 'ENOENT') return files;
       throw error;

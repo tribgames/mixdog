@@ -51,12 +51,9 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
 
   function traceFrame(client, frame, stage, { bytes, queuedAt } = {}, force = false) {
     if (typeof onDiagnostic !== 'function') return;
-    const message =
-      frame?.type === 'desktop-event' && frame.message?.kind === 'session-state'
-        ? frame.message
-        : frame?.type === 'session-state'
-          ? frame
-          : null;
+    let message = null;
+    if (frame?.type === 'desktop-event' && frame.message?.kind === 'session-state') message = frame.message;
+    else if (frame?.type === 'session-state') message = frame;
     if (!message || typeof message.sessionId !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(message.sessionId)) return;
     const traceId =
       typeof message.readTraceId === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(message.readTraceId)

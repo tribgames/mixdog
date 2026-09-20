@@ -1,4 +1,4 @@
-import { statSync, readFileSync } from 'fs';
+import { statSync, readFileSync } from 'node:fs';
 import { getPluginData } from '../../config.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from '../lifecycle-scan.mjs';
 import { shareJsonStrings } from '../../../../shared/json-snapshot.mjs';

@@ -1,9 +1,8 @@
 // Skill discovery, cache, resource loading, envelopes, manifests, and the
-// Skill meta-tool. Extracted from collect.mjs so role-prompt assembly no
-// longer shares a god-file with the catalog.
+// Skill meta-tool.
 
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { basename, dirname, join } from 'path';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { maxMtimeRecursive } from '../cache-mtime.mjs';
 import { mixdogHome, resolvePluginData, mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { pluginSkillsRoots } from '../../../shared/plugin-manifest.mjs';
@@ -182,7 +181,9 @@ function normalizeSkillNameKey(name) {
 function requiredFeatures(frontmatter) {
   const metadata = frontmatter?.metadata;
   const raw = metadata && typeof metadata === 'object' ? metadata.requires : null;
-  const list = Array.isArray(raw) ? raw : raw == null ? [] : String(raw).split(',');
+  let list = [];
+  if (Array.isArray(raw)) list = raw;
+  else if (raw != null) list = String(raw).split(',');
   return list.map((value) => String(value || '').trim()).filter(Boolean);
 }
 

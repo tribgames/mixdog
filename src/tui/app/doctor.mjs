@@ -197,7 +197,9 @@ function reportRegistry(label) {
     const active = entries.filter((entry) => entry.enabled !== false && entry.activeHere !== false);
     const disabled = entries.filter((entry) => entry.enabled === false).length;
     const outside = entries.filter((entry) => entry.enabled !== false && entry.activeHere === false).length;
-    const broken = active.filter((entry) => entry.broken || entry.error || entry.invalid || entry.dependencyIssues?.length);
+    const broken = active.filter(
+      (entry) => entry.broken || entry.error || entry.invalid || entry.dependencyIssues?.length
+    );
     let detail = `${active.length}/${entries.length} active`;
     if (disabled) detail += ` · ${disabled} disabled`;
     if (outside) detail += ` · ${outside} outside this project`;
@@ -207,7 +209,11 @@ function reportRegistry(label) {
 }
 
 function reportHooks(hooks, row) {
-  if (typeof hooks.enabled !== 'boolean' || !Array.isArray(hooks.configuredEvents) || !Number.isFinite(hooks.ruleCount)) {
+  if (
+    typeof hooks.enabled !== 'boolean' ||
+    !Array.isArray(hooks.configuredEvents) ||
+    !Number.isFinite(hooks.ruleCount)
+  ) {
     row('warn', 'status unavailable');
     return;
   }

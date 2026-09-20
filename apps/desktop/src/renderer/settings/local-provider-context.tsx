@@ -4,6 +4,11 @@ import type { RecordValue } from './capability-data';
 import type { LocalProviderActions } from './local-provider-operations';
 import { ExtensionAction } from './extension-detail';
 
+function applyHint(waiting: boolean, active: boolean): string | undefined {
+  if (waiting) return t('Apply after current requests finish');
+  return active ? t('Apply and reload') : undefined;
+}
+
 export function LocalProviderContext({
   model,
   status,
@@ -42,9 +47,7 @@ export function LocalProviderContext({
           disabled={actions.busy || !valid || draft === saved}
           onClick={() => void actions.setContext(String(model.id), tokens)}
         >
-          <span title={waiting ? t('Apply after current requests finish') : active ? t('Apply and reload') : undefined}>
-            {t('Apply')}
-          </span>
+          <span title={applyHint(waiting, active)}>{t('Apply')}</span>
         </ExtensionAction>
       </div>
       {!valid && <small role="alert">{t('Enter an integer from 512 to {{maximum}}.', { maximum })}</small>}

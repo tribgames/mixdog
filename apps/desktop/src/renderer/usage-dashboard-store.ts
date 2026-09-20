@@ -15,11 +15,13 @@
 //               is dropped without publishing, persisting, or retrying.
 //   * request id — monotonic per request; only the owning request may release
 //               the pending slot, so an old finally cannot clear a newer one.
-import type { DesktopApi } from '../shared/contract';
+import type { DesktopApi, SessionSnapshot } from '../shared/contract';
 import { readGlobalCapabilities } from './global-capability-reads';
 import { startVisibleRefreshCadence } from './visible-refresh-cadence';
 
-export type UsageApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'readCapabilities'>>;
+export type UsageApi = Partial<
+  Pick<DesktopApi, 'invokeCapability' | 'readCapabilities' | 'subscribeState' | 'subscribeSessionState'>
+>;
 export type UsageRecord = Record<string, unknown>;
 
 /** Lifecycle of the LIVE result, independent of what currently paints:
@@ -81,6 +83,9 @@ let retryUsed = false;
 let cadenceHolders = 0;
 let releaseCadence: (() => void) | null = null;
 let cadenceApi: UsageApi | undefined;
+let accountChangesApi: UsageApi | undefined;
+let releaseAccountChanges: (() => void) | null = null;
+const latestAccountChanges = new Map<string, { accountId: string; at: number }>();
 let retirementQueued = false;
 const timers = new Set<number>();
 
@@ -212,6 +217,9 @@ function clearTimers(): void {
 function stopCadence(): void {
   const release = releaseCadence;
   releaseCadence = null;
+  releaseAccountChanges?.();
+  releaseAccountChanges = null;
+  accountChangesApi = undefined;
   try {
     release?.();
   } catch {
@@ -239,6 +247,7 @@ function ensureHost(): Window | null {
   stopCadence();
   cadenceHolders = 0;
   cadenceApi = undefined;
+  latestAccountChanges.clear();
   listeners = new Set();
   host = active;
   hostGeneration += 1;
@@ -369,14 +378,11 @@ function finishUsageChecks(win: Window): void {
   if (!rows?.some((row) => row.status === 'checking')) return;
   const dashboard: UsageRecord = {
     ...snapshot.dashboard,
-    rows: rows.map((row) =>
-      row.status === 'checking'
-        ? {
-            ...row,
-            status: Array.isArray(row.windows) && row.windows.length > 0 ? 'partial' : 'unavailable',
-          }
-        : row
-    ),
+    rows: rows.map((row) => {
+      if (row.status !== 'checking') return row;
+      const status = Array.isArray(row.windows) && row.windows.length > 0 ? 'partial' : 'unavailable';
+      return { ...row, status };
+    }),
   };
   writeCache(win, dashboard);
   publish({ ...snapshot, dashboard });
@@ -564,6 +570,37 @@ function scheduleRetirement(): void {
   });
 }
 
+function bindAccountChanges(win: Window, api: UsageApi): void {
+  if (accountChangesApi === api) return;
+  releaseAccountChanges?.();
+  accountChangesApi = api;
+  let released = false;
+  const receive = (state: SessionSnapshot) => {
+    if (released || host !== win || cadenceHolders === 0) return;
+    const change = state?.providerAccountChange;
+    if (!change?.provider || !change.accountId || !Number.isFinite(change.at)) return;
+    const previous = latestAccountChanges.get(change.provider);
+    if (
+      previous &&
+      (change.at < previous.at || (change.at === previous.at && change.accountId === previous.accountId))
+    ) {
+      return;
+    }
+    latestAccountChanges.set(change.provider, { accountId: change.accountId, at: change.at });
+    // Read the CURRENT selection, not meters embedded in a possibly replayed
+    // session frame. Retire old requests before the confirming account read.
+    applyAccountUsageWindows(change.provider, undefined);
+    void refreshUsageDashboardAfterAuth(api, [change.provider]);
+  };
+  const releaseState = api.subscribeState?.(receive);
+  const releaseSessions = api.subscribeSessionState?.(({ snapshot: state }) => receive(state));
+  releaseAccountChanges = () => {
+    released = true;
+    releaseState?.();
+    releaseSessions?.();
+  };
+}
+
 /** Keeps the single refresh cadence alive while at least one holder (the always
  *  mounted rail, plus the popup when open) needs it. */
 export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void {
@@ -573,6 +610,7 @@ export function holdUsageDashboardCadence(api: UsageApi | undefined): () => void
   // A same-window API swap (host bridge replaced) becomes the cadence API, so
   // neither the cadence nor the retry can keep a retired bridge alive.
   if (typeof api?.invokeCapability === 'function' || typeof api?.readCapabilities === 'function') cadenceApi = api;
+  if (win && cadenceApi) bindAccountChanges(win, cadenceApi);
   if (
     win &&
     releaseCadence === null &&

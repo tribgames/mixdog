@@ -1,8 +1,10 @@
-// Native-engine dispatch + failure-context formatting for apply_patch. Moved
-// verbatim from patch.mjs; native protocol, cache/snapshot side effects, and
-// output formatting are unchanged.
+// apply_patch dispatch: the native engine (proofs, snapshots and report in
+// dispatch/*.mjs), the JS engine fallback, and failure-context formatting.
 
 import { readFileSync, lstatSync, statSync, realpathSync, mkdirSync } from 'node:fs';
+import { capturePreMutationStats, nativeEncodingError, predictBodyProofs } from './dispatch/native-proofs.mjs';
+import { invalidateNativeCaches, recordNativeSnapshots, writtenNativeEntries } from './dispatch/native-snapshots.mjs';
+import { formatNativeSummary, traceNativeApply } from './dispatch/native-report.mjs';
 import { unlink } from 'node:fs/promises';
 import { dirname as pathDirname } from 'node:path';
 import { performance } from 'node:perf_hooks';
@@ -14,8 +16,6 @@ import {
 } from '../builtin.mjs';
 import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { isSpecialFileStat } from '../builtin/device-paths.mjs';
-import { getReadSnapshot } from '../builtin/read-snapshot-runtime.mjs';
-import { snapshotCoversFullFile } from '../builtin/snapshot-helpers.mjs';
 import { hashText } from '../builtin/hash-utils.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 import {
@@ -25,14 +25,7 @@ import {
   parsedEntryResolvedPath,
   countHunkChanges,
 } from './paths.mjs';
-import {
-  NATIVE_PATCH_TRANSPORT_DEAD,
-  runServerApply,
-  scheduleNativePatchIdleClose,
-  nativePatchTraceEnabled,
-  patchTraceEnabled,
-  ioTrace,
-} from './native-server.mjs';
+import { NATIVE_PATCH_TRANSPORT_DEAD, runServerApply, scheduleNativePatchIdleClose } from './native-server.mjs';
 import {
   extractNativeFailurePath,
   nativeFailureMatchesEntry,
@@ -56,7 +49,6 @@ import {
   spliceTextLinesForPatch,
   joinTextLinesForPatch,
   setFinalNewlineForPatch,
-  patchTargetEncodingError,
   detectDominantEol,
   decodePatchTargetBuffer,
   encodePatchTargetContent,
@@ -120,56 +112,22 @@ export async function dispatchNativePatch({
   parsed,
 }) {
   const nativeStart = performance.now();
-  // Pre-write identity of every target. The read-snapshot recorder needs it to
-  // decide whether the session's earlier full read still described this file
-  // when the patch landed — otherwise an external change made before the patch
-  // would stay hidden behind "[file unchanged]".
-  const preMutationStats = new Map();
-  // Encoding gate, same rule as the JS writer: the native engine rewrites files
-  // as UTF-8, so a target that is not valid UTF-8 must be refused rather than
-  // silently transcoded. (UTF-16 targets are routed away before this point.)
-  for (const entry of entries || []) {
-    if (entry.kind === 'create' || entry.kind === 'delete') continue;
-    const encodingError = patchTargetEncodingError(entry.fullPath, entry.displayPath);
-    if (encodingError) return `Error: ${encodingError}`;
-  }
-  if (!dryRun) {
-    for (const entry of entries || []) {
-      try {
-        preMutationStats.set(entry.fullPath, lstatSync(entry.fullPath));
-      } catch {
-        /* absent target */
-      }
-    }
-  }
-  // Body-knowledge proof for the "[file unchanged]" fast path. A stat captured
-  // before the engine runs cannot vouch for the bytes it actually patched, so
-  // predict the post-apply content from bytes we verify against the session's
-  // read snapshot; after the apply, the engine's own content hash must equal
-  // that prediction. Only computed where the fast path could be inherited.
-  const bodyProofs = new Map();
-  if (!dryRun && readStateScope) {
-    for (const entry of entries || []) {
-      if (entry.kind === 'create' || entry.kind === 'delete') continue;
-      const prior = getReadSnapshot(entry.fullPath, readStateScope);
-      if (!prior?.contentHash) continue;
-      if (prior.bodyDelivered !== true && !snapshotCoversFullFile(prior)) continue;
-      try {
-        const { text } = decodePatchTargetBuffer(readFileSync(entry.fullPath), entry.displayPath);
-        if (hashText(text) !== prior.contentHash) continue; // already stale — claim nothing
-        const parsedEntry = findParsedForRow(entry, parsed, basePath);
-        if (!parsedEntry) continue;
-        const updated = applyUnifiedHunksToLines(splitTextLinesForPatch(text), parsedEntry.hunks || [], {
-          fuzz: Number.isFinite(fuzz) ? fuzz : 0,
-          displayPath: entry.displayPath,
-          eol: detectDominantEol(text),
-        });
-        bodyProofs.set(entry.fullPath, hashText(joinTextLinesForPatch(updated)));
-      } catch {
-        /* no proof — the fast path stays off for this file */
-      }
-    }
-  }
+  const encodingError = nativeEncodingError(entries);
+  if (encodingError) return `Error: ${encodingError}`;
+  const preMutationStats = dryRun ? new Map() : capturePreMutationStats(entries);
+  // The JS engine predicts the post-apply hash for the body-knowledge proof.
+  const predictAppliedHash = (entry, text) => {
+    const parsedEntry = findParsedForRow(entry, parsed, basePath);
+    if (!parsedEntry) return null;
+    const updated = applyUnifiedHunksToLines(splitTextLinesForPatch(text), parsedEntry.hunks || [], {
+      fuzz: Number.isFinite(fuzz) ? fuzz : 0,
+      displayPath: entry.displayPath,
+      eol: detectDominantEol(text),
+    });
+    return hashText(joinTextLinesForPatch(updated));
+  };
+  const bodyProofs = dryRun ? new Map() : predictBodyProofs(entries, readStateScope, predictAppliedHash);
+  const failureContext = (failedPath) => formatNativeFailureContext(parsed, basePath, failedPath, { fuzz });
   let stats;
   try {
     stats = await runServerApply(basePath, nativePatchStr, { fuzz, rejectPartial, dryRun, signal });
@@ -199,114 +157,20 @@ export async function dispatchNativePatch({
       }
     }
     const msg = err?.message || String(err);
-    const failedPath = extractNativeFailurePath(msg, parsed);
-    return `Error: native patch failed — ${msg}${formatNativeFailureContext(parsed, basePath, failedPath, { fuzz })}`;
+    return `Error: native patch failed — ${msg}${failureContext(extractNativeFailurePath(msg, parsed))}`;
   }
-  const afterInvalidateStart = performance.now();
-  const failedDisplaySet = new Set();
-  for (const f of stats.failures || []) {
-    if (!f?.path) continue;
-    failedDisplaySet.add(normalizeOutputPath(f.path));
-    failedDisplaySet.add(normalizeOutputPath(stripDiffPrefix(f.path)));
-  }
-  const writtenEntries = entries.filter((entry) => !failedDisplaySet.has(entry.displayPath));
-  const fullPaths = writtenEntries.map((entry) => entry.fullPath);
-  if (!dryRun) invalidateBuiltinResultCache(fullPaths);
-  const afterInvalidate = performance.now();
-  if (!dryRun) markCodeGraphDirtyPaths(fullPaths);
-  const afterDirty = performance.now();
+  const writtenEntries = writtenNativeEntries(entries, stats);
+  const timings = { invalidateMs: 0, dirtyMs: 0, snapshotMs: 0, totalJsMs: 0 };
   if (!dryRun) {
-    for (let i = 0; i < writtenEntries.length; i++) {
-      const entry = writtenEntries[i];
-      if (entry.kind === 'delete') {
-        clearReadSnapshotForPath(entry.fullPath, readStateScope);
-      } else {
-        const contentHash = stats.contentHashes?.[i] || null;
-        // Only a matching prediction proves the engine patched the bytes this
-        // session had read; otherwise the pre-mutation stat is not evidence.
-        const proof = bodyProofs.get(entry.fullPath);
-        const provenSameBytes = !!proof && !!contentHash && proof === contentHash;
-        // ONE consistent observation of the result, stat FIRST: a write that
-        // lands after the stat breaks the hash (claim dropped); one that lands
-        // after the read leaves the recorded stat older than the file, so the
-        // fast path fails closed at read time. Without that pairing an external
-        // write between the apply and this record could inherit bodyDelivered.
-        let observedStat = null;
-        let observationConsistent = false;
-        if (provenSameBytes) {
-          try {
-            observedStat = lstatSync(entry.fullPath);
-            const observed = decodePatchTargetBuffer(readFileSync(entry.fullPath), entry.displayPath);
-            observationConsistent = hashText(observed.text) === contentHash;
-          } catch {
-            observationConsistent = false;
-          }
-        }
-        const snapshotMeta = {
-          source: 'apply_patch_native',
-          isPartialView: false,
-          preMutationStat: observationConsistent ? preMutationStats.get(entry.fullPath) || null : null,
-        };
-        if (observationConsistent && observedStat) snapshotMeta.st = observedStat;
-        if (contentHash) snapshotMeta.contentHash = contentHash;
-        recordReadSnapshotForPath(entry.fullPath, readStateScope, snapshotMeta);
-      }
-    }
+    Object.assign(timings, invalidateNativeCaches(writtenEntries.map((entry) => entry.fullPath)));
+    const snapshotStart = performance.now();
+    recordNativeSnapshots(writtenEntries, stats, { readStateScope, preMutationStats, bodyProofs });
+    timings.snapshotMs = performance.now() - snapshotStart;
   }
-  const afterSnapshot = performance.now();
-  ioTrace('apply_patch_native', {
-    files: writtenEntries.length,
-    dryRun,
-    partial: stats.partial,
-    failed: stats.failures.length,
-    roundtripMs: Number(stats.roundtripMs.toFixed(3)),
-    rustTotalMs: Number(stats.totalMs.toFixed(3)),
-    invalidateMs: Number((afterInvalidate - afterInvalidateStart).toFixed(3)),
-    dirtyMs: Number((afterDirty - afterInvalidate).toFixed(3)),
-    snapshotMs: Number((afterSnapshot - afterDirty).toFixed(3)),
-    contentHashes: (stats.contentHashes || []).filter(Boolean).length,
-  });
-  if (nativePatchTraceEnabled()) {
-    process.stderr.write(
-      `[patch-native-trace] files=${writtenEntries.length} partial=${stats.partial ? 1 : 0} failed=${stats.failures.length} roundtrip_ms=${stats.roundtripMs.toFixed(3)} rust_total_ms=${stats.totalMs.toFixed(3)} rust_hash_ms=${stats.hashMs.toFixed(3)} invalidate_ms=${(afterInvalidate - afterInvalidateStart).toFixed(3)} dirty_ms=${(afterDirty - afterInvalidate).toFixed(3)} snapshot_ms=${(afterSnapshot - afterDirty).toFixed(3)} total_js_ms=${(afterSnapshot - nativeStart).toFixed(3)} content_hashes=${(stats.contentHashes || []).filter(Boolean).length}\n`
-    );
-  }
-  if (patchTraceEnabled()) {
-    process.stderr.write(
-      `[patch-native] applied files=${writtenEntries.length} partial=${stats.partial ? 1 : 0} ms=${stats.totalMs.toFixed(3)}\n`
-    );
-  }
+  timings.totalJsMs = performance.now() - nativeStart;
+  traceNativeApply({ writtenEntries, stats, dryRun, timings });
   scheduleNativePatchIdleClose();
-  const verb = dryRun ? 'checked' : 'applied';
-  const verbLabel = dryRun ? 'Checked' : 'Applied';
-  const countLabel = (count, singular, plural = `${singular}s`) => `${count} ${count === 1 ? singular : plural}`;
-  const kindLabel = (kind) => {
-    const text = String(kind || '').trim();
-    return text ? `${text.charAt(0).toUpperCase()}${text.slice(1).toLowerCase()}` : 'Update';
-  };
-  const summary = stats.partial
-    ? `Error: Patch Partially ${verbLabel} (${countLabel(writtenEntries.length, 'File')} ${verb} · ${countLabel(stats.failures.length, 'File')} Skipped) (Native)`
-    : `${verbLabel} ${countLabel(writtenEntries.length, 'File')} (Native)${dryRun ? ' Dry Run' : ''}`;
-  const lines = [summary];
-  for (const entry of writtenEntries) {
-    const added = entry.added || 0;
-    const removed = entry.removed || 0;
-    const parts = [];
-    if (added > 0) parts.push(`+${added}`);
-    if (removed > 0) parts.push(`-${removed}`);
-    const detail = parts.join('/');
-    lines.push(
-      detail
-        ? `  OK ${kindLabel(entry.kind)} ${entry.displayPath} — ${detail}`
-        : `  OK ${kindLabel(entry.kind)} ${entry.displayPath}`
-    );
-  }
-  for (const f of stats.failures || []) {
-    lines.push(
-      `  SKIP ${f.path || '(unknown)'} — ${f.reason}${formatNativeFailureContext(parsed, basePath, f.path, { fuzz })}`
-    );
-  }
-  return lines.join('\n');
+  return formatNativeSummary({ writtenEntries, stats, dryRun, failureContext });
 }
 
 function entryPathKey(fullPath) {

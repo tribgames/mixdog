@@ -8,7 +8,7 @@
  */
 import WebSocket from 'ws';
 import { errText } from '../../../shared/err-text.mjs';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { appendFileSync, chmodSync } from 'node:fs';
 import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
@@ -469,36 +469,31 @@ function _buildHandshakeHeaders({ auth, sessionToken, cacheKey: _cacheKey, codex
   // forcing a routing shard via that header alternates cold caches across
   // parallel workers; the automatic prompt-prefix cache holds up better
   // when each handshake is unpinned.
-  const headers =
-    auth.type === 'xai'
-      ? {
-          Authorization: `Bearer ${auth.apiKey}`,
-        }
-      : auth.type === 'openai-direct'
-        ? {
-            Authorization: `Bearer ${auth.apiKey}`,
-            'OpenAI-Beta': 'responses_websockets=2026-02-06',
-          }
-        : {
-            Authorization: `Bearer ${auth.access_token}`,
-            'chatgpt-account-id': auth.account_id || '',
-            originator: codexOriginator(),
-            'OpenAI-Beta': 'responses_websockets=2026-02-06',
-            // The reference client merges provider http_headers ("version")
-            // plus default headers (User-Agent) into the WS handshake.
-            // The backend fingerprints
-            // clients on these; missing them can route us onto a different
-            // (colder) cache-node class than codex.
-            'User-Agent': codexUserAgent(),
-            version: codexVersionHeader(),
-            // codex advertises enabled beta features on every request incl.
-            // the WS handshake (client.rs:1038-1041 via build_responses_headers,
-            // session/mod.rs:1006-1027). With a default config the list is
-            // exactly "remote_compaction_v2" (features/src/lib.rs: the only
-            // always-advertised Stable default-on feature). Servers gate
-            // behavior (plausibly incl. x-codex-turn-state issuance) on it.
-            'x-codex-beta-features': _codexBetaFeatures(),
-          };
+  const oauthHandshakeHeaders = () => ({
+    Authorization: `Bearer ${auth.access_token}`,
+    'chatgpt-account-id': auth.account_id || '',
+    originator: codexOriginator(),
+    'OpenAI-Beta': 'responses_websockets=2026-02-06',
+    // The reference client merges provider http_headers ("version")
+    // plus default headers (User-Agent) into the WS handshake.
+    // The backend fingerprints
+    // clients on these; missing them can route us onto a different
+    // (colder) cache-node class than codex.
+    'User-Agent': codexUserAgent(),
+    version: codexVersionHeader(),
+    // codex advertises enabled beta features on every request incl.
+    // the WS handshake (client.rs:1038-1041 via build_responses_headers,
+    // session/mod.rs:1006-1027). With a default config the list is
+    // exactly "remote_compaction_v2" (features/src/lib.rs: the only
+    // always-advertised Stable default-on feature). Servers gate
+    // behavior (plausibly incl. x-codex-turn-state issuance) on it.
+    'x-codex-beta-features': _codexBetaFeatures(),
+  });
+  let headers;
+  if (auth.type === 'xai') headers = { Authorization: `Bearer ${auth.apiKey}` };
+  else if (auth.type === 'openai-direct') {
+    headers = { Authorization: `Bearer ${auth.apiKey}`, 'OpenAI-Beta': 'responses_websockets=2026-02-06' };
+  } else headers = oauthHandshakeHeaders();
   const isOpenAiOauth = auth.type !== 'xai' && auth.type !== 'openai-direct';
   if (isOpenAiOauth && (sessionToken || _cacheKey)) {
     // Codex uses one caller-owned UUIDv7 identity everywhere. Prefer the
@@ -524,7 +519,7 @@ function _buildHandshakeHeaders({ auth, sessionToken, cacheKey: _cacheKey, codex
   // Probe knobs (cache-route hunt 2026-07-04): see jar block at top of file.
   if (isOpenAiOauth) {
     const jar = _cfCookieHeader(auth);
-    if (jar) headers['Cookie'] = jar;
+    if (jar) headers.Cookie = jar;
     if (_envOn('MIXDOG_OAI_SESSION_AFFINITY') && (_cacheKey || sessionToken)) {
       headers['x-session-affinity'] = String(_cacheKey || sessionToken);
     }
@@ -543,9 +538,13 @@ function _mintSessionToken(cacheKey, auth) {
   return cacheKey || 'mixdog-default';
 }
 
+const WS_URL_BY_AUTH = { xai: XAI_WS_URL, 'openai-direct': OPENAI_WS_URL };
+/** The auth kind an error label names; anything but xAI/direct is the OAuth (Codex) path. */
+const _wsAuthKind = (auth) => (auth?.type === 'xai' || auth?.type === 'openai-direct' ? auth.type : 'openai-oauth');
+
 function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeaders }) {
   const headers = _buildHandshakeHeaders({ auth, sessionToken, cacheKey, codexHeaders });
-  const baseUrl = auth.type === 'xai' ? XAI_WS_URL : auth.type === 'openai-direct' ? OPENAI_WS_URL : CODEX_WS_URL;
+  const baseUrl = WS_URL_BY_AUTH[auth.type] ?? CODEX_WS_URL;
   const _wsOpenStart = Date.now();
   if (process.env.MIXDOG_DEBUG_AGENT) {
     process.stderr.write(
@@ -602,9 +601,7 @@ function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeader
       settle(
         false,
         Object.assign(
-          new Error(
-            `${_wsErrLabel(auth?.type === 'xai' ? 'xai' : auth?.type === 'openai-direct' ? 'openai-direct' : 'openai-oauth')} acquire timed out before open (${WS_ACQUIRE_TIMEOUT_MS}ms)`
-          ),
+          new Error(`${_wsErrLabel(_wsAuthKind(auth))} acquire timed out before open (${WS_ACQUIRE_TIMEOUT_MS}ms)`),
           { code: 'EWSACQUIRETIMEOUT', acquireTimeoutMs: WS_ACQUIRE_TIMEOUT_MS }
         )
       );
@@ -671,12 +668,10 @@ function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeader
       } catch {}
       settle(
         false,
-        Object.assign(
-          new Error(
-            `${_wsErrLabel(auth?.type === 'xai' ? 'xai' : auth?.type === 'openai-direct' ? 'openai-direct' : 'openai-oauth')} handshake closed before open (code=${code})`
-          ),
-          { wsCloseCode: code, wsCloseReason: reason && reason.toString ? reason.toString('utf-8') : '' }
-        )
+        Object.assign(new Error(`${_wsErrLabel(_wsAuthKind(auth))} handshake closed before open (code=${code})`), {
+          wsCloseCode: code,
+          wsCloseReason: reason?.toString ? reason.toString('utf-8') : '',
+        })
       );
     });
     socket.once('unexpected-response', (_req, res) => {
@@ -697,12 +692,10 @@ function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeader
         } catch {}
         settle(
           false,
-          Object.assign(
-            new Error(
-              `${_wsErrLabel(auth?.type === 'xai' ? 'xai' : auth?.type === 'openai-direct' ? 'openai-direct' : 'openai-oauth')} handshake ${status}: ${body.slice(0, 200)}`
-            ),
-            { httpStatus: status, httpBody: body }
-          )
+          Object.assign(new Error(`${_wsErrLabel(_wsAuthKind(auth))} handshake ${status}: ${body.slice(0, 200)}`), {
+            httpStatus: status,
+            httpBody: body,
+          })
         );
       });
     });
@@ -714,11 +707,7 @@ function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeader
         const reason = externalSignal.reason;
         settle(
           false,
-          reason instanceof Error
-            ? reason
-            : new Error(
-                `${_wsErrLabel(auth?.type === 'xai' ? 'xai' : auth?.type === 'openai-direct' ? 'openai-direct' : 'openai-oauth')} handshake aborted`
-              )
+          reason instanceof Error ? reason : new Error(`${_wsErrLabel(_wsAuthKind(auth))} handshake aborted`)
         );
       };
       if (externalSignal.aborted) {
@@ -733,203 +722,180 @@ function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeader
 
 let _openSocketImpl = _openSocket;
 
+const _acquireTrace = (line) => {
+  if (process.env.MIXDOG_DEBUG_AGENT) process.stderr.write(`[agent-trace] ${line}\n`);
+};
+
+// Prune dead entries and idle sockets from an obsolete auth/cache boundary.
+// Busy incompatible entries are left alone until their owner releases them,
+// but can never be selected by this acquire.
+function _pruneStaleEntries(poolKey, arr, compatibility) {
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const incompatibleIdle = !arr[i].busy && !_entryCompatible(arr[i], compatibility);
+    if (!_isOpen(arr[i]) || arr[i].closing || incompatibleIdle) {
+      if (incompatibleIdle) {
+        try {
+          arr[i].socket.close(1000, 'pool_boundary_changed');
+        } catch {}
+      }
+      _clearIdle(arr[i]);
+      _clearLiveness(arr[i]);
+      arr.splice(i, 1);
+    }
+  }
+  if (arr.length === 0) _wsPool.delete(poolKey);
+}
+
+// Reuse an idle open entry (cache-warm path). An entry with no observed
+// activity within the freshness window is ping-probed under a short bound
+// before hand-out; a dead one is evicted and the scan retries the next idle
+// entry so a busy caller is never handed a wedged socket. Null when no idle
+// entry survives.
+async function _takeIdleEntry(poolKey, arr, compatibility, acqStart) {
+  for (;;) {
+    const idle = _selectIdleEntry(arr, compatibility);
+    if (!idle) return null;
+    _clearIdle(idle);
+    _clearLiveness(idle);
+    // Reserve the entry BEFORE awaiting the probe: _pingProbe yields the
+    // event loop, so without this a second concurrent acquire could scan
+    // the same still-idle entry and both would take it. Marking busy up
+    // front makes the find() above skip it; on probe failure it is
+    // evicted (removed from arr) so the loop continues cleanly.
+    idle.busy = true;
+    _setTransportReferenced(idle, true);
+    if (WS_PING_ENABLED && Date.now() - (idle.lastAliveAt || 0) >= WS_LIVENESS_STALE_MS) {
+      const alive = await _pingProbe(idle, WS_PONG_TIMEOUT_MS);
+      if (!alive) {
+        _acquireTrace(`acquire-evict-dead poolKey=${poolKey} reason=missed_pong elapsed=${Date.now() - acqStart}ms`);
+        _evictDead(poolKey, idle);
+        continue;
+      }
+    }
+    idle.lastAliveAt = Date.now();
+    // Defensive: pre-existing pooled entries created before the
+    // prefix-hash field was introduced may not have it set. Normalize
+    // to null so the first delta check reads a deterministic value
+    // (and falls back to full-create instead of silently passing).
+    if (idle.lastInputPrefixHash === undefined) idle.lastInputPrefixHash = null;
+    if (idle.lastRequestInput === undefined) idle.lastRequestInput = null;
+    if (idle.lastResponseItems === undefined) idle.lastResponseItems = null;
+    _acquireTrace(`acquire-reuse poolKey=${poolKey} openSockets=${arr.length} elapsed=${Date.now() - acqStart}ms`);
+    return idle;
+  }
+}
+
+// Open a new handshake and wrap it as a busy pool entry. A handshake is scoped
+// to a physical connection, while turn state belongs to one logical turn, so
+// every new socket opens without turn state; request metadata restores it
+// later only when the turn id matches. Drain may complete while the handshake
+// awaits 'open': that late socket is closed, never returned or pooled.
+async function _openPoolEntry({ auth, cacheKey, codexHeaders, externalSignal, compatibility, ephemeral, acqStart }) {
+  const sessionToken = _mintSessionToken(cacheKey, auth);
+  if (!ephemeral) {
+    const tokenHash = createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8);
+    _acquireTrace(`acquire-new tokenHash=${tokenHash} elapsed=${Date.now() - acqStart}ms`);
+  }
+  const { socket } = await _openSocketImpl({ auth, sessionToken, externalSignal, cacheKey, codexHeaders });
+  if (_drainComplete) {
+    try {
+      socket.close(1000, 'drain-complete');
+    } catch {}
+    throw new Error('WS pool drained — process exiting');
+  }
+  const entry = {
+    socket,
+    busy: true,
+    idleTimer: null,
+    lastResponseId: null,
+    lastRequestSansInput: null,
+    lastRequestInput: null,
+    lastResponseItems: null,
+    lastInputLen: 0,
+    lastInputPrefixHash: null,
+    releaseSequence: 0,
+    ...compatibility,
+    turnState: null,
+    turnStateTurnId: null,
+    closing: false,
+    ephemeral,
+    sessionToken,
+    lastAliveAt: Date.now(),
+    pingTimer: null,
+    probing: false,
+  };
+  socket.on('pong', () => {
+    entry.lastAliveAt = Date.now();
+  });
+  socket.on('message', () => {
+    entry.lastAliveAt = Date.now();
+  });
+  return entry;
+}
+
+function _onEntryClosed(poolKey, entry) {
+  entry.closing = true;
+  retireCodexTurnStateOwner(entry.turnStateScope || poolKey, entry);
+  _releasePoolOwner(poolKey, entry);
+  _untrackUnpooled(entry);
+  if (!entry.ephemeral) _removeFromPool(poolKey, entry);
+}
+
 export async function acquireWebSocket({ auth, poolKey, cacheKey, codexHeaders, forceFresh, externalSignal }) {
   const _acqStart = Date.now();
-  if (process.env.MIXDOG_DEBUG_AGENT) {
-    process.stderr.write(
-      `[agent-trace] acquire-start poolKey=${poolKey} cacheKey=${cacheKey} forceFresh=${forceFresh} externalAborted=${!!externalSignal?.aborted} ts=${_acqStart}\n`
-    );
-  }
+  _acquireTrace(
+    `acquire-start poolKey=${poolKey} cacheKey=${cacheKey} forceFresh=${forceFresh} externalAborted=${!!externalSignal?.aborted} ts=${_acqStart}`
+  );
   if (externalSignal?.aborted) {
     throw _acquireAbortError(externalSignal);
   }
   const ownerClaim = await _claimPoolOwner(poolKey, externalSignal);
+  const acquired = (entry, reused) => {
+    _bindPoolOwner(poolKey, ownerClaim, entry);
+    return { entry, reused, ownerWaitMs: ownerClaim?.waitMs || 0 };
+  };
   try {
-    if (poolKey && !forceFresh) {
+    const compatibility = _poolCompatibility(auth, cacheKey);
+    const pooled = Boolean(poolKey) && !forceFresh;
+    if (pooled) {
       const arr = _wsPool.get(poolKey) || [];
-      const compatibility = _poolCompatibility(auth, cacheKey);
-      // Prune dead entries and idle sockets from an obsolete auth/cache
-      // boundary. Busy incompatible entries are left alone until their owner
-      // releases them, but can never be selected by this acquire.
-      for (let i = arr.length - 1; i >= 0; i--) {
-        const incompatibleIdle = !arr[i].busy && !_entryCompatible(arr[i], compatibility);
-        if (!_isOpen(arr[i]) || arr[i].closing || incompatibleIdle) {
-          if (incompatibleIdle) {
-            try {
-              arr[i].socket.close(1000, 'pool_boundary_changed');
-            } catch {}
-          }
-          _clearIdle(arr[i]);
-          _clearLiveness(arr[i]);
-          arr.splice(i, 1);
-        }
-      }
-      if (arr.length === 0) _wsPool.delete(poolKey);
-      // Reuse an idle open entry (cache-warm path). An entry with no observed
-      // activity within the freshness window is ping-probed under a short
-      // bound before hand-out; a dead one is evicted and the scan retries the
-      // next idle entry so a busy caller is never handed a wedged socket.
-      let idle;
-      while ((idle = _selectIdleEntry(arr, compatibility))) {
-        _clearIdle(idle);
-        _clearLiveness(idle);
-        // Reserve the entry BEFORE awaiting the probe: _pingProbe yields the
-        // event loop, so without this a second concurrent acquire could scan
-        // the same still-idle entry and both would take it. Marking busy up
-        // front makes the find() above skip it; on probe failure it is
-        // evicted (removed from arr) so the loop continues cleanly.
-        idle.busy = true;
-        _setTransportReferenced(idle, true);
-        if (WS_PING_ENABLED && Date.now() - (idle.lastAliveAt || 0) >= WS_LIVENESS_STALE_MS) {
-          const alive = await _pingProbe(idle, WS_PONG_TIMEOUT_MS);
-          if (!alive) {
-            if (process.env.MIXDOG_DEBUG_AGENT) {
-              process.stderr.write(
-                `[agent-trace] acquire-evict-dead poolKey=${poolKey} reason=missed_pong elapsed=${Date.now() - _acqStart}ms\n`
-              );
-            }
-            _evictDead(poolKey, idle);
-            continue;
-          }
-        }
-        idle.lastAliveAt = Date.now();
-        // Defensive: pre-existing pooled entries created before the
-        // prefix-hash field was introduced may not have it set. Normalize
-        // to null so the first delta check reads a deterministic value
-        // (and falls back to full-create instead of silently passing).
-        if (idle.lastInputPrefixHash === undefined) idle.lastInputPrefixHash = null;
-        if (idle.lastRequestInput === undefined) idle.lastRequestInput = null;
-        if (idle.lastResponseItems === undefined) idle.lastResponseItems = null;
-        if (process.env.MIXDOG_DEBUG_AGENT) {
-          process.stderr.write(
-            `[agent-trace] acquire-reuse poolKey=${poolKey} openSockets=${arr.length} elapsed=${Date.now() - _acqStart}ms\n`
-          );
-        }
-        _bindPoolOwner(poolKey, ownerClaim, idle);
-        return { entry: idle, reused: true, ownerWaitMs: ownerClaim?.waitMs || 0 };
-      }
-      // All entries busy and bucket at cap: fall through to ephemeral socket.
+      _pruneStaleEntries(poolKey, arr, compatibility);
+      const idle = await _takeIdleEntry(poolKey, arr, compatibility, _acqStart);
+      if (idle) return acquired(idle, true);
+      // All entries busy and bucket at cap: fall through to an ephemeral
+      // socket — never pooled, still owned by this session.
       if (arr.length >= MAX_POOLED_SOCKETS_PER_KEY) {
-        if (process.env.MIXDOG_DEBUG_AGENT) {
-          process.stderr.write(
-            `[agent-trace] acquire-ephemeral cacheKey=${cacheKey} reason=cap elapsed=${Date.now() - _acqStart}ms\n`
-          );
-        }
-        const ephSessionToken = _mintSessionToken(cacheKey, auth);
-        const { socket } = await _openSocketImpl({
+        _acquireTrace(`acquire-ephemeral cacheKey=${cacheKey} reason=cap elapsed=${Date.now() - _acqStart}ms`);
+        const entry = await _openPoolEntry({
           auth,
-          sessionToken: ephSessionToken,
-          externalSignal,
           cacheKey,
           codexHeaders,
-        });
-        // Drain-complete fence: same invariant as the normal acquire path —
-        // if drain fired during the await, do NOT push an ephemeral entry
-        // back into the pool.
-        if (_drainComplete) {
-          try {
-            socket.close(1000, 'drain-complete');
-          } catch {}
-          throw new Error('WS pool drained — process exiting');
-        }
-        const entry = {
-          socket,
-          busy: true,
-          idleTimer: null,
-          lastResponseId: null,
-          lastRequestSansInput: null,
-          lastRequestInput: null,
-          lastResponseItems: null,
-          lastInputLen: 0,
-          lastInputPrefixHash: null,
-          releaseSequence: 0,
-          ...compatibility,
-          turnState: null,
-          closing: false,
+          externalSignal,
+          compatibility,
           ephemeral: true,
-          sessionToken: ephSessionToken,
-        };
-        entry.lastAliveAt = Date.now();
-        entry.pingTimer = null;
-        entry.probing = false;
-        socket.on('pong', () => {
-          entry.lastAliveAt = Date.now();
+          acqStart: _acqStart,
         });
-        socket.on('message', () => {
-          entry.lastAliveAt = Date.now();
-        });
-        socket.on('close', () => {
-          entry.closing = true;
-          retireCodexTurnStateOwner(entry.turnStateScope || poolKey, entry);
-          _releasePoolOwner(poolKey, entry);
-          _untrackUnpooled(entry);
-        });
-        // Cap-overflow ephemeral: never pooled, still owned by this session.
+        entry.socket.on('close', () => _onEntryClosed(poolKey, entry));
         _trackUnpooled(entry, poolKey);
-        _bindPoolOwner(poolKey, ownerClaim, entry);
-        return { entry, reused: false, ownerWaitMs: ownerClaim?.waitMs || 0 };
+        return acquired(entry, false);
       }
     }
-    // A handshake is scoped to a physical connection, while turn state belongs
-    // to one logical turn. Every new socket therefore opens without turn state;
-    // request metadata restores it later only when the turn id matches.
-    const sessionToken = _mintSessionToken(cacheKey, auth);
-    const compatibility = _poolCompatibility(auth, cacheKey);
-    if (process.env.MIXDOG_DEBUG_AGENT) {
-      process.stderr.write(
-        `[agent-trace] acquire-new tokenHash=${createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8)} elapsed=${Date.now() - _acqStart}ms\n`
-      );
-    }
-    const { socket } = await _openSocketImpl({ auth, sessionToken, externalSignal, cacheKey, codexHeaders });
-    // Drain may complete while the normal handshake is awaiting 'open'. Never
-    // return or insert that late socket into the already-drained process pool.
-    if (_drainComplete) {
-      try {
-        socket.close(1000, 'drain-complete');
-      } catch {}
-      throw new Error('WS pool drained — process exiting');
-    }
-    const entry = {
-      socket,
-      busy: true,
-      idleTimer: null,
-      lastResponseId: null,
-      lastRequestSansInput: null,
-      lastRequestInput: null,
-      lastResponseItems: null,
-      lastInputLen: 0,
-      lastInputPrefixHash: null,
-      releaseSequence: 0,
-      ...compatibility,
-      turnState: null,
-      turnStateTurnId: null,
-      closing: false,
+    const entry = await _openPoolEntry({
+      auth,
+      cacheKey,
+      codexHeaders,
+      externalSignal,
+      compatibility,
       ephemeral: false,
-      sessionToken,
-    };
-    entry.lastAliveAt = Date.now();
-    entry.pingTimer = null;
-    entry.probing = false;
-    socket.on('pong', () => {
-      entry.lastAliveAt = Date.now();
-    });
-    socket.on('message', () => {
-      entry.lastAliveAt = Date.now();
+      acqStart: _acqStart,
     });
     // A forceFresh or poolKey-less socket is never inserted into the reuse map,
     // but it is still this process's socket — register it as unpooled so
     // session close and drain can reach it.
-    if (poolKey && !forceFresh) _getPoolArr(poolKey).push(entry);
+    if (pooled) _getPoolArr(poolKey).push(entry);
     else _trackUnpooled(entry, poolKey);
-    socket.on('close', () => {
-      entry.closing = true;
-      retireCodexTurnStateOwner(entry.turnStateScope || poolKey, entry);
-      _releasePoolOwner(poolKey, entry);
-      _untrackUnpooled(entry);
-      _removeFromPool(poolKey, entry);
-    });
-    _bindPoolOwner(poolKey, ownerClaim, entry);
-    return { entry, reused: false, ownerWaitMs: ownerClaim?.waitMs || 0 };
+    entry.socket.on('close', () => _onEntryClosed(poolKey, entry));
+    return acquired(entry, false);
   } catch (err) {
     _releasePoolOwner(poolKey, ownerClaim);
     throw err;

@@ -936,14 +936,15 @@ function prefixFirstAndRest(value, firstPrefix, restPrefix) {
   return [`${firstPrefix}${lines[0] ?? ''}`, ...lines.slice(1).map((line) => `${restPrefix}${line}`)].join(EOL);
 }
 
-function formatListItem(token, listBaseIndent, orderedListNumber, parent, depth = 0, width = 0) {
+function formatListItem(token, listBaseIndent, orderedListNumber, _parent, depth = 0, width = 0) {
   const { listBullet } = colorizers();
   const markerPlain = orderedListNumber === null ? '-' : `${getListNumber(depth, orderedListNumber)}.`;
   const marker = listBullet(markerPlain);
   // GFM task item: [ ]/[x] IS the item's meaning. marked strips the checkbox
   // from the item text, so without re-emitting it here a done and a pending
   // item render identically.
-  const checkbox = token.task ? chalk.dim(token.checked ? '[x] ' : '[ ] ') : '';
+  const checkboxMark = token.checked ? '[x] ' : '[ ] ';
+  const checkbox = token.task ? chalk.dim(checkboxMark) : '';
   const markerPrefix = `${' '.repeat(listBaseIndent)}${marker} ${checkbox}`;
   const continuationPrefix = ' '.repeat(stripAnsi(markerPrefix).length);
   const nestedListIndent = continuationPrefix.length;

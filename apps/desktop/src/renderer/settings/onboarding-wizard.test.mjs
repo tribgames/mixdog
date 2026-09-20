@@ -7,6 +7,7 @@ const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', 
   url: 'https://mixdog.test/',
   pretendToBeVisual: true,
 });
+const domGlobals = { window: dom.window, document: dom.window.document };
 for (const name of [
   'window',
   'document',
@@ -16,7 +17,7 @@ for (const name of [
   'MutationObserver',
   'CustomEvent',
 ]) {
-  globalThis[name] = name === 'window' ? dom.window : name === 'document' ? dom.window.document : dom.window[name];
+  globalThis[name] = domGlobals[name] ?? dom.window[name];
 }
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });

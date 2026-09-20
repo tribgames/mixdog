@@ -1,4 +1,4 @@
-// Session catalog freshness, extracted from App.tsx: the sidebar list state,
+// Session catalog freshness: the sidebar list state,
 // the optimistic rename/archive/delete overlay, and the three ways a fresh catalog
 // arrives (initial/manual refresh, main-process push, safety-net poll).
 import { startTransition, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
@@ -90,7 +90,8 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
         const existing = current.find((row) => row.id === session.id);
         const staged = existing ? { ...existing, ...session } : session;
         pendingCreates.current.set(session.id, staged);
-        return existing ? current.map((row) => (row.id === session.id ? staged : row)) : [staged, ...current];
+        if (!existing) return [staged, ...current];
+        return current.map((row) => (row.id === session.id ? staged : row));
       });
     },
     [setSessions]

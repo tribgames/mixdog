@@ -10,7 +10,11 @@ import type {
   DesktopSubmitOptions,
   SessionSnapshot,
 } from '../shared/contract';
-import { resolveDesktopSlashCommand, type CommandSurface as CommandSurfaceName, type SettingsSection } from './slash-commands';
+import {
+  resolveDesktopSlashCommand,
+  type CommandSurface as CommandSurfaceName,
+  type SettingsSection,
+} from './slash-commands';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
 
 export type SlashExecutorDeps = {
@@ -114,7 +118,9 @@ async function commandCapability<T>(run: SlashRun, capability: DesktopCapability
   const { deps } = run;
   if (deps.draftMode && capability === 'setEffort' && deps.onDraftModelSelection && deps.provider && deps.model) {
     const nextEffort = String(args[0] || deps.effort);
-    deps.onDraftModelSelection(modelSelection(deps, { effort: nextEffort, ...(deps.fastCapable ? { fast: deps.fast } : {}) }));
+    deps.onDraftModelSelection(
+      modelSelection(deps, { effort: nextEffort, ...(deps.fastCapable ? { fast: deps.fast } : {}) })
+    );
     return nextEffort as T;
   }
   if (deps.draftMode && capability !== 'listPresets' && capability !== 'getUsageDashboard') {
@@ -177,7 +183,9 @@ async function runAutoClear(run: SlashRun, argument: string) {
     await commandCapability<unknown>(run, statusQuery ? 'getAutoClear' : 'setAutoClear', statusQuery ? [] : [patch])
   );
   if (run.failed) return;
-  run.deps.showNotice(`Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs ? ` · idle ${status.idleMs}ms` : ''}`);
+  run.deps.showNotice(
+    `Auto-clear ${status?.enabled ? 'on' : 'off'}${status?.idleMs ? ` · idle ${status.idleMs}ms` : ''}`
+  );
 }
 
 async function runOutputStyle(run: SlashRun, argument: string) {

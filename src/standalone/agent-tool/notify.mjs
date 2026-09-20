@@ -1,6 +1,5 @@
-// Owner/worker completion-notification helpers, extracted from the agent-tool
-// facade as a factory so the mgr-bound closures stay per agent instance.
-// Behavior-preserving: bodies identical to the originals; deps injected.
+// Owner/worker completion-notification helpers, a factory so the mgr-bound
+// closures stay per agent instance; deps are injected.
 import {
   modelVisibleToolCompletionMessage,
   toolCompletionInstruction,
@@ -63,7 +62,7 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
     }
   }
 
-  function workerNotifyFn(workerSessionId, notifyContext = {}) {
+  function workerNotifyFn(workerSessionId, _notifyContext = {}) {
     const workerId = clean(workerSessionId);
     return (text, meta = {}) => {
       // Tool completions produced inside a Subagent belong to that Subagent's
@@ -84,7 +83,7 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
     // An abnormal-empty finish carries an `error` — the early preview must NOT
     // present it as a benign `completed` card, or the Lead sees success before
     // the later `failed` reconcile lands. Mirror the terminal status/instruction.
-    const earlyStatus = resultValue && resultValue.error ? 'failed' : 'completed';
+    const earlyStatus = resultValue?.error ? 'failed' : 'completed';
     const snapshot = {
       ...job,
       status: earlyStatus,
@@ -93,7 +92,7 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
       result: resultValue,
       resultType: job.resultType || 'agent_task_result',
       meta: sanitizeTaskMeta(job.meta || {}),
-      ...(resultValue && resultValue.error ? { error: resultValue.error } : {}),
+      ...(resultValue?.error ? { error: resultValue.error } : {}),
     };
     // An early notification is only a header-only *preview*: it fires before
     // the worker's session is persisted to signal the running→completed

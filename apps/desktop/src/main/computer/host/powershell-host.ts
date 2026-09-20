@@ -38,9 +38,11 @@ import {
   type ChromeRemoteDebuggingSetup,
   type ChromeRemoteDebuggingTarget,
 } from '../session/chrome-setup';
-import { computerUseCoordinator, type ComputerUseCursorEffect } from '../session/coordinator';
+import { computerUseCoordinator } from '../session/coordinator';
 import { createExecutionState } from './execution-state';
 import { createWindowReads } from './window-reads';
+import { readDisplays } from './display-reads';
+import { publishPointerProgress } from './pointer-cursor';
 import { createSessionLifecycle } from './session-lifecycle';
 import { createInputResolution } from './input-resolution';
 import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
@@ -49,7 +51,7 @@ import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
 import { loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
-import { configureCursorDiagnostics, recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
+import { configureCursorDiagnostics } from '../overlay/cursor-diagnostics';
 
 export type { ChromeRemoteDebuggingSetup, ChromeRemoteDebuggingTarget };
 
@@ -108,15 +110,6 @@ export function createPowerShellComputerHost(
     },
   });
   const policy = authorization.policy;
-  /** The cursor effect each pointer-progress phase paints; a bare move
-   *  depends on whether a button is held. */
-  const PHASE_CURSOR_EFFECTS: Record<string, ComputerUseCursorEffect> = {
-    release: 'click',
-    prepare: 'prepare',
-    press: 'press',
-    scroll: 'scroll',
-    type: 'type',
-  };
   configureCursorDiagnostics(join(mixdogDataDirectory(), 'computer-cursor-diagnostics.json'));
   const diagnose = (event: string, data: Record<string, unknown> = {}): void => {
     try {
@@ -134,32 +127,7 @@ export function createPowerShellComputerHost(
     onSessionRetired: (sessionId, child, interruptedInput) =>
       lifecycle.onSessionWorkerRetired(sessionId, child, interruptedInput),
     maxWorkers: options.maxWorkers,
-    onPointerProgress: (sessionId, x, y, held, mode, phase, windowId) => {
-      const state = computerUseCoordinator.snapshot();
-      if (state.userControlActive) {
-        recordCursorDiagnostic('ignored_user_control');
-        return;
-      }
-      if (state.cleanupState !== 'ready') {
-        recordCursorDiagnostic('ignored_cleanup');
-        return;
-      }
-      if (!state.activities.some((activity) => activity.sessionId === sessionId)) {
-        recordCursorDiagnostic('ignored_no_activity');
-        return;
-      }
-      recordCursorDiagnostic('published');
-      computerUseCoordinator.showCursor({
-        sessionId,
-        windowId,
-        x,
-        y,
-        tracking: true,
-        action: phase,
-        effect: PHASE_CURSOR_EFFECTS[phase] ?? (held ? 'drag' : 'move'),
-        mode,
-      });
-    },
+    onPointerProgress: publishPointerProgress,
   });
   const { callPowerShell, powerShellBySession, retirePowerShell } = workerPool;
 
@@ -177,17 +145,7 @@ export function createPowerShellComputerHost(
     assertExecutionNotAborted,
     readComputerWindows,
     readInputState: () => computerUseCoordinator.snapshot(),
-    readDisplays: () => {
-      const primaryId = screen.getPrimaryDisplay().id;
-      return screen.getAllDisplays().map((display, index) => ({
-        index,
-        id: String(display.id),
-        primary: display.id === primaryId,
-        scale_factor: display.scaleFactor,
-        width: display.size.width,
-        height: display.size.height,
-      }));
-    },
+    readDisplays,
     isObserveOnly: () => observeOnly,
   });
   const captureEngine = createCaptureEngine({

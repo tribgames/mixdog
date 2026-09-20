@@ -3,7 +3,7 @@
 // can surface whether a session is actually alive vs stuck. Never persisted —
 // heartbeats would otherwise churn the session JSON on every SSE delta.
 //
-// Extracted from manager.mjs (pass-3). The Map and its timer companion are
+// The Map and its timer companion are
 // module-level singletons — preserving the baseline's single-process shape.
 // manager.mjs owns askSession's controller/generation lifecycle and calls the
 // accessors below via imports; a small set of accessors that need the session
@@ -196,7 +196,9 @@ export function markSessionTransportActivity(id) {
   publishHeartbeat(id, now);
 }
 function _normalizeModelProgressKind(kind) {
-  const value = typeof kind === 'string' ? kind : kind && typeof kind.kind === 'string' ? kind.kind : 'semantic';
+  let value = 'semantic';
+  if (typeof kind === 'string') value = kind;
+  else if (kind && typeof kind.kind === 'string') value = kind.kind;
   if (value === 'transport' || value === 'reasoning' || value === 'text' || value === 'tool') {
     return value;
   }

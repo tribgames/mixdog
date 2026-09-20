@@ -1,7 +1,7 @@
 // Wire projection for one provider request: the stored transcript is projected
 // into the exact message array the provider sees, and that same array is what
-// the prefix guard classifies. Extracted from agentLoop so the loop body wires
-// state instead of owning three projection passes plus their telemetry.
+// the prefix guard classifies, so the loop body wires state instead of owning
+// three projection passes plus their telemetry.
 import { projectSyntheticUserEnvelopes } from '../synthetic-user-envelope.mjs';
 import { projectProviderEvidence } from '../evidence-union.mjs';
 import { prepareProviderPrefixGuard } from '../provider-prefix-guard.mjs';
@@ -84,12 +84,9 @@ export function projectProviderRequest({
     // those and disable only the unsafe pass.
     pathAliases: false,
   });
-  const mutationSource =
-    opts.cacheBreakIntent === 'transcript_rebuild'
-      ? 'transcript_rebuild'
-      : evidenceProjection.stats.changedToolResults > 0
-        ? 'evidence_union'
-        : null;
+  let mutationSource = null;
+  if (opts.cacheBreakIntent === 'transcript_rebuild') mutationSource = 'transcript_rebuild';
+  else if (evidenceProjection.stats.changedToolResults > 0) mutationSource = 'evidence_union';
   const prefixGuardCandidate = prepareProviderPrefixGuard(
     prefixGuardState,
     evidenceProjection.messages,

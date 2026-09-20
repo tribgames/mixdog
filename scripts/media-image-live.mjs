@@ -184,12 +184,10 @@ for (let offset = 0; offset < pending.length; offset += 3) {
           prompt: item.mode === 'edit' ? 'Change the blue circle to a red circle. Keep the white background.' : prompt,
           signal: AbortSignal.timeout(240_000),
         };
-        const result =
-          item.lane === 'openai-oauth'
-            ? await openai(item, references)
-            : item.lane === 'gemini'
-              ? await geminiImage(input)
-              : await grokImage(input);
+        let result;
+        if (item.lane === 'openai-oauth') result = await openai(item, references);
+        else if (item.lane === 'gemini') result = await geminiImage(input);
+        else result = await grokImage(input);
         row.file = `${item.lane}-${item.model}-${item.mode}.png`;
         await fs.writeFile(path.join(directory, row.file), result.bytes);
         Object.assign(row, {

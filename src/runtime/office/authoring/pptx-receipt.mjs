@@ -22,7 +22,8 @@ function luminance(hex) {
 function backgroundRole(slide) {
   const l = luminance(slide?.background?.color);
   if (l === null) return '';
-  return l < 0.2 ? 'dark' : l > 0.6 ? 'light' : 'mid';
+  if (l < 0.2) return 'dark';
+  return l > 0.6 ? 'light' : 'mid';
 }
 
 function saturation(hex) {
@@ -486,16 +487,15 @@ export function slideReceipt(slide) {
   // connectors); the rest is a text page. The reference decks (thirteen, 400 pages) run beats on one page in eight
   // and evidence on two of three; the deck's shares sit in deck.shape and the sequence in deck.rhythm.grammar.
   // Evidence first: a chart on a dark page is an evidence page of a dark deck (Krafton), not a beat.
-  receipt.grammar =
+  const evidencePage =
     receipt.charts + receipt.tables + receipt.pictures + receipt.groups > 0 ||
     constructs.length >= 3 ||
     specs.stat ||
     specs.structure ||
-    specs.chevrons
-      ? 'evidence'
-      : receipt.background === 'dark' || beatField
-        ? 'beat'
-        : 'text';
+    specs.chevrons;
+  if (evidencePage) receipt.grammar = 'evidence';
+  else if (receipt.background === 'dark' || beatField) receipt.grammar = 'beat';
+  else receipt.grammar = 'text';
   // Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
   // a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
   // alignment and gap readings and are counted instead.
@@ -633,7 +633,7 @@ function colourPacing(receipt, colours) {
   }
   const planned = receipt.deck?.rhythm?.planned || [];
   const quietAnchors = receipt.slides
-    .filter((slide, index) => /^anchor/i.test(String(planned[index] || '')) && quiet[index])
+    .filter((_slide, index) => /^anchor/i.test(String(planned[index] || '')) && quiet[index])
     .map((slide) => slide.slide);
   return { colourSpread: Number(spread.toFixed(1)), median: Number(median.toFixed(1)), longestQuiet, quietAnchors };
 }

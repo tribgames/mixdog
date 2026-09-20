@@ -159,7 +159,13 @@ async function executeHeadlessPrompt(
   }
 ) {
   // Live handles the shutdown path reads at exit time, not at creation.
-  const run = { boundary: null, runtime: null, signalCleanup: null, unsubscribeNotification: null, completionPending: false };
+  const run = {
+    boundary: null,
+    runtime: null,
+    signalCleanup: null,
+    unsubscribeNotification: null,
+    completionPending: false,
+  };
   const outcome = { code: 1, result: null, resultText: '', executionError: null };
   const cleanup = headlessCleanup(run, {
     writeErr,
@@ -257,7 +263,10 @@ function taskScopeFor(session) {
 // exit path share a single run: close the runtime, drain the trace, release
 // the usage ledger, stop the daemon and memory runtimes, then remove the
 // pristine root.
-function headlessCleanup(run, { writeErr, hasActiveTasks, usageLedgerCleanup, daemonRuntimeCleanup, memoryRuntimeCleanup }) {
+function headlessCleanup(
+  run,
+  { writeErr, hasActiveTasks, usageLedgerCleanup, daemonRuntimeCleanup, memoryRuntimeCleanup }
+) {
   let cleanupPromise = null;
   const shutdown = async (reason) => {
     const { runtime, boundary } = run;
@@ -291,7 +300,9 @@ function headlessCleanup(run, { writeErr, hasActiveTasks, usageLedgerCleanup, da
       resourceCleanupFailed = !ok;
     }
     if (boundary) {
-      const ok = await attemptShutdownStep(errors, () => memoryRuntimeCleanup({ waitForExit: true, timeoutMs: 10_000 }));
+      const ok = await attemptShutdownStep(errors, () =>
+        memoryRuntimeCleanup({ waitForExit: true, timeoutMs: 10_000 })
+      );
       if (!ok) resourceCleanupFailed = true;
     }
     await attemptShutdownStep(errors, () => removeBoundaryRoot(boundary, resourceCleanupFailed, writeErr));
@@ -335,7 +346,19 @@ function removeBoundaryRoot(boundary, preserveRoot, writeErr) {
 // handle lands on `run` so the shutdown path can see whatever was reached.
 async function startHeadlessRuntime(
   run,
-  { provider, model, effort, fast, cwd, webSearch, lifecycle, boundaryFactory, runtimeFactory, installSignalCleanupFn, cleanup }
+  {
+    provider,
+    model,
+    effort,
+    fast,
+    cwd,
+    webSearch,
+    lifecycle,
+    boundaryFactory,
+    runtimeFactory,
+    installSignalCleanupFn,
+    cleanup,
+  }
 ) {
   run.boundary = boundaryFactory({ provider, model, effort, fast });
   // Fire-and-forget search prewarm, matching the long-lived host. Warm both

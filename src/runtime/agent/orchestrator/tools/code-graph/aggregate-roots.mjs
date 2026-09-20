@@ -217,6 +217,13 @@ export function _boundedExactFileAggregateRoot(args, baseCwd) {
 // is the answer, and adopting it is the same recovery read and grep already
 // perform for a misplaced path. Ambiguity (several holders, none, an absolute
 // anchor, a wildcard) keeps refusing.
+/** `files` remapped whether it arrives as an array or one string; other shapes pass through untouched. */
+function mapFilesArg(files, map, { skipBlank = false } = {}) {
+  if (Array.isArray(files)) return files.map(map);
+  if (typeof files === 'string' && (!skipBlank || files.trim())) return map(files);
+  return files;
+}
+
 export function _relocateAggregateAnchorsUnderChildProject(args, baseCwd) {
   if (!_hasAggregateFileArgs(args)) return null;
   const files = _collectGraphFileList(args);
@@ -244,11 +251,7 @@ export function _relocateAggregateAnchorsUnderChildProject(args, baseCwd) {
     args: {
       ...args,
       file: typeof args?.file === 'string' && args.file.trim() ? remap(args.file) : args?.file,
-      files: Array.isArray(args?.files)
-        ? args.files.map(remap)
-        : typeof args?.files === 'string' && args.files.trim()
-          ? remap(args.files)
-          : args?.files,
+      files: mapFilesArg(args?.files, remap, { skipBlank: true }),
     },
   };
 }
@@ -305,10 +308,6 @@ export function _absolutizeAggregateFileArgs(args, baseCwd) {
   return {
     ...args,
     file: typeof args?.file === 'string' ? absolutize(args.file) : args?.file,
-    files: Array.isArray(args?.files)
-      ? args.files.map(absolutize)
-      : typeof args?.files === 'string'
-        ? absolutize(args.files)
-        : args?.files,
+    files: mapFilesArg(args?.files, absolutize),
   };
 }

@@ -2,15 +2,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { constants as fsConstants } from 'node:fs';
 import { access, readFile, stat } from 'node:fs/promises';
 import { delimiter, extname, isAbsolute, join, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { childEnvironment } from './child-environment';
-import {
-  createMessageConnection,
-  StreamMessageReader,
-  StreamMessageWriter,
-  type MessageConnection,
-} from 'vscode-jsonrpc/node.js';
 
 import type {
   DesktopLspCapabilities,
@@ -20,38 +14,10 @@ import type {
   DesktopLspServerState,
   DesktopLspStatusEvent,
 } from '../shared/contract';
-import { projectEntryPathIn } from './project-files';
-
-// @ts-expect-error The shared runtime helper is plain ESM and has no declaration file.
-import { shutdownStdioChild } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
-
-interface LanguageServerSpec {
-  id: string;
-  name: string;
-  command: string;
-  args: string[];
-  projectCandidates?: (root: string) => string[];
-}
-
-interface ServerSession {
-  key: string;
-  projectPath: string;
-  root: string;
-  spec: LanguageServerSpec;
-  child: ChildProcessWithoutNullStreams;
-  connection: MessageConnection;
-  baseCapabilities: DesktopLspCapabilities;
-  registrations: Map<string, DynamicCapabilityRegistration>;
-  languageIds: Set<string>;
-  documents: Map<string, { languageId: string; relPath: string; version: number }>;
-  idleTimer: NodeJS.Timeout | null;
-  closing: boolean;
-}
-
-interface DynamicCapabilityRegistration {
-  method: string;
-  registerOptions: Record<string, unknown>;
-}
+import { LanguageServerProcessManager } from './language-server-process';
+import { LanguageServerRouter } from './language-server-routing';
+import { LanguageServerState } from './language-server-state';
+import type { DynamicCapabilityRegistration, LanguageServerSpec } from './language-server-types';
 
 const TYPESCRIPT_LANGUAGE_SERVER: LanguageServerSpec = {
   id: 'typescript-language-server',
@@ -59,8 +25,6 @@ const TYPESCRIPT_LANGUAGE_SERVER: LanguageServerSpec = {
   command: 'typescript-language-server',
   args: ['--stdio'],
 };
-const LANGUAGE_SERVER_IDLE_MS = 30_000;
-
 /** Wire language for didOpen. Monaco has no JSX languages, so a `.tsx` model
  *  reports `typescript`; typescript-language-server turns that id into a
  *  plain-TS script kind and flags every JSX element as a syntax error
@@ -136,14 +100,9 @@ function parseProjectLanguageServerConfig(value: unknown, root: string): Readonl
   const record = objectRecord(value);
   const rawServers = record?.servers;
   const serverMap = objectRecord(rawServers);
-  const rows = Array.isArray(rawServers)
-    ? rawServers
-    : serverMap
-      ? Object.entries(serverMap).map(([id, server]) => ({
-          id,
-          ...(objectRecord(server) ?? {}),
-        }))
-      : null;
+  let rows: unknown[] | null = null;
+  if (Array.isArray(rawServers)) rows = rawServers;
+  else if (serverMap) rows = Object.entries(serverMap).map(([id, server]) => ({ id, ...(objectRecord(server) ?? {}) }));
   if (!rows || rows.length > 64) throw new TypeError('LSP servers configuration is invalid.');
   const byLanguage: Record<string, LanguageServerSpec> = {};
   for (const [index, raw] of rows.entries()) {
@@ -184,26 +143,6 @@ function parseProjectLanguageServerConfig(value: unknown, root: string): Readonl
     }
   }
   return Object.freeze(byLanguage);
-}
-
-function sessionKey(root: string, spec: LanguageServerSpec): string {
-  const normalized = process.platform === 'win32' ? root.toLocaleLowerCase() : root;
-  return `${normalized}\0${spec.id}`;
-}
-
-function publicState(
-  spec: LanguageServerSpec | null,
-  status: DesktopLspServerState['status'],
-  detail?: string,
-  capabilities?: DesktopLspCapabilities
-): DesktopLspServerState {
-  return {
-    available: status === 'ready',
-    status,
-    server: spec?.name || '',
-    ...(detail ? { detail } : {}),
-    ...(capabilities ? { capabilities } : {}),
-  };
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
@@ -298,35 +237,6 @@ function normalizeLanguageServerCapabilities(value: unknown): DesktopLspCapabili
   };
 }
 
-const DYNAMIC_CAPABILITY_METHODS = new Set([
-  'textDocument/completion',
-  'textDocument/signatureHelp',
-  'textDocument/hover',
-  'textDocument/declaration',
-  'textDocument/definition',
-  'textDocument/typeDefinition',
-  'textDocument/implementation',
-  'textDocument/references',
-  'textDocument/documentHighlight',
-  'textDocument/linkedEditingRange',
-  'textDocument/documentSymbol',
-  'textDocument/codeLens',
-  'textDocument/rename',
-  'textDocument/codeAction',
-  'textDocument/formatting',
-  'textDocument/rangeFormatting',
-  'textDocument/onTypeFormatting',
-  'textDocument/documentLink',
-  'textDocument/documentColor',
-  'textDocument/foldingRange',
-  'textDocument/selectionRange',
-  'textDocument/semanticTokens',
-  'textDocument/inlayHint',
-  'textDocument/prepareCallHierarchy',
-  'workspace/symbol',
-  'workspace/executeCommand',
-]);
-
 function boundedStrings(value: unknown, maximumEntries = 256): string[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -400,7 +310,7 @@ function dynamicRegistrationMatches(options: Record<string, unknown>, languageId
     if (typeof filter.pattern === 'string') {
       if (!documentPath) return false;
       const matcher = globPatternRegExp(filter.pattern.replace(/\\/g, '/'));
-      if (!matcher || !matcher.test(documentPath)) return false;
+      if (!matcher?.test(documentPath)) return false;
     }
     return true;
   });
@@ -686,8 +596,8 @@ async function resolveExecutable(spec: LanguageServerSpec, root: string): Promis
     if (await executableFile(candidate)) return candidate;
   }
   if (isAbsolute(spec.command) || /[\\/]/.test(spec.command)) return null;
-  const extensions =
-    process.platform === 'win32' ? (extname(spec.command) ? [''] : ['.exe', '.cmd', '.bat', '']) : [''];
+  const windowsExtensions = extname(spec.command) ? [''] : ['.exe', '.cmd', '.bat', ''];
+  const extensions = process.platform === 'win32' ? windowsExtensions : [''];
   for (const directory of String(process.env.PATH || '')
     .split(delimiter)
     .filter(Boolean)) {
@@ -807,517 +717,45 @@ class LanguageServerRegistry {
 }
 
 export class LanguageServerManager {
-  private readonly sessions = new Map<string, ServerSession>();
-  private readonly starting = new Map<string, Promise<ServerSession | null>>();
-  private readonly states = new Map<string, DesktopLspServerState>();
-  private readonly missingUntil = new Map<string, number>();
-  private readonly restartFailures = new Map<string, { count: number; retryAt: number }>();
-  private readonly diagnosticListeners = new Set<(event: DesktopLspDiagnosticEvent) => void>();
-  private readonly statusListeners = new Set<(event: DesktopLspStatusEvent) => void>();
   private readonly registry: LanguageServerRegistry;
+  private readonly state: LanguageServerState;
+  private readonly process: LanguageServerProcessManager;
+  private readonly router: LanguageServerRouter;
 
   constructor(specs: Readonly<Record<string, LanguageServerSpec>> = SERVER_BY_LANGUAGE) {
     this.registry = new LanguageServerRegistry(specs);
-  }
-
-  private specFor(root: string, languageId: string): Promise<LanguageServerSpec | null> {
-    return this.registry.specFor(root, languageId);
-  }
-
-  private recordRestartFailure(key: string): number {
-    const count = Math.min(6, (this.restartFailures.get(key)?.count ?? 0) + 1);
-    const delayMs = Math.min(30_000, 1_000 * 2 ** (count - 1));
-    this.restartFailures.set(key, { count, retryAt: Date.now() + delayMs });
-    return delayMs;
+    this.state = new LanguageServerState({
+      specFor: (root, languageId) => this.registry.specFor(root, languageId),
+      capabilitiesWithDynamicRegistrations,
+    });
+    this.process = new LanguageServerProcessManager(this.state, {
+      resolveExecutable,
+      spawnServer,
+      withTimeout,
+      languageServerInitializationOptions,
+      normalizeLanguageServerCapabilities,
+      relativeDocumentPath,
+      objectRecord,
+    });
+    this.router = new LanguageServerRouter(this.state, this.process, {
+      capabilitiesWithDynamicRegistrations,
+      methodSupported,
+      languageServerRequestParams,
+      withTimeout,
+      lspDocumentLanguageId,
+    });
   }
 
   subscribeDiagnostics(listener: (event: DesktopLspDiagnosticEvent) => void): () => void {
-    this.diagnosticListeners.add(listener);
-    return () => this.diagnosticListeners.delete(listener);
+    return this.state.subscribeDiagnostics(listener);
   }
 
   subscribeStatus(listener: (event: DesktopLspStatusEvent) => void): () => void {
-    this.statusListeners.add(listener);
-    return () => this.statusListeners.delete(listener);
-  }
-
-  private emitStatus(
-    projectPath: string,
-    languageId: string,
-    spec: LanguageServerSpec | null,
-    status: DesktopLspServerState['status'],
-    detail?: string,
-    capabilities?: DesktopLspCapabilities,
-    relPath?: string
-  ): DesktopLspServerState {
-    const state = publicState(spec, status, detail, capabilities);
-    if (spec) this.states.set(sessionKey(projectPath, spec), state);
-    const event: DesktopLspStatusEvent = {
-      projectPath,
-      languageId,
-      ...(relPath ? { relPath } : {}),
-      ...state,
-    };
-    for (const listener of this.statusListeners) listener(event);
-    return state;
-  }
-
-  private emitDiagnostics(event: DesktopLspDiagnosticEvent): void {
-    for (const listener of this.diagnosticListeners) listener(event);
-  }
-
-  private refreshCapabilities(session: ServerSession): void {
-    const emittedLanguages = new Set<string>();
-    for (const [uri, document] of session.documents) {
-      const capabilities = capabilitiesWithDynamicRegistrations(
-        session.baseCapabilities,
-        session.registrations.values(),
-        document.languageId,
-        uri
-      );
-      emittedLanguages.add(document.languageId);
-      this.emitStatus(
-        session.projectPath,
-        document.languageId,
-        session.spec,
-        'ready',
-        undefined,
-        capabilities,
-        document.relPath
-      );
-    }
-    for (const languageId of session.languageIds) {
-      if (emittedLanguages.has(languageId)) continue;
-      const capabilities = capabilitiesWithDynamicRegistrations(
-        session.baseCapabilities,
-        session.registrations.values(),
-        languageId
-      );
-      this.emitStatus(session.projectPath, languageId, session.spec, 'ready', undefined, capabilities);
-    }
-  }
-
-  private async ensure(
-    projectPath: string,
-    root: string,
-    languageId: string,
-    spec: LanguageServerSpec
-  ): Promise<ServerSession | null> {
-    const key = sessionKey(root, spec);
-    const live = this.sessions.get(key);
-    if (live && !live.closing) {
-      if (live.idleTimer) clearTimeout(live.idleTimer);
-      live.idleTimer = null;
-      return live;
-    }
-    const pending = this.starting.get(key);
-    if (pending) return pending;
-    if ((this.missingUntil.get(key) || 0) > Date.now()) return null;
-    if ((this.restartFailures.get(key)?.retryAt || 0) > Date.now()) return null;
-    const start = this.start(projectPath, root, languageId, spec, key).finally(() => this.starting.delete(key));
-    this.starting.set(key, start);
-    return start;
-  }
-
-  private async start(
-    projectPath: string,
-    root: string,
-    languageId: string,
-    spec: LanguageServerSpec,
-    key: string
-  ): Promise<ServerSession | null> {
-    this.emitStatus(projectPath, languageId, spec, 'starting');
-    const executable = await resolveExecutable(spec, root);
-    if (!executable) {
-      this.missingUntil.set(key, Date.now() + 30_000);
-      this.emitStatus(projectPath, languageId, spec, 'missing');
-      return null;
-    }
-    const child = spawnServer(executable, spec.args, root);
-    let stderr = '';
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (chunk) => {
-      stderr = `${stderr}${String(chunk)}`.slice(-4_000);
-    });
-    const connection = createMessageConnection(
-      new StreamMessageReader(child.stdout),
-      new StreamMessageWriter(child.stdin)
-    );
-    connection.onError(() => undefined);
-    let session: ServerSession | null = null;
-    const workspaceFolders = [
-      {
-        uri: pathToFileURL(root).toString(),
-        name: root.split(/[\\/]/).at(-1) || root,
-      },
-    ];
-    connection.onRequest('workspace/configuration', (payload: unknown) => {
-      const items = objectRecord(payload)?.items;
-      return Array.isArray(items) ? items.map(() => null) : [];
-    });
-    connection.onRequest('workspace/workspaceFolders', () => workspaceFolders);
-    connection.onRequest('window/workDoneProgress/create', () => null);
-    connection.onRequest('client/registerCapability', (payload: unknown) => {
-      if (!session) return null;
-      const rows = objectRecord(payload)?.registrations;
-      if (!Array.isArray(rows)) return null;
-      let changed = false;
-      for (const raw of rows.slice(0, 256)) {
-        const registration = objectRecord(raw);
-        const id = typeof registration?.id === 'string' ? registration.id : '';
-        const method = typeof registration?.method === 'string' ? registration.method : '';
-        if (!id || id.length > 256 || !DYNAMIC_CAPABILITY_METHODS.has(method)) continue;
-        session.registrations.set(id, {
-          method,
-          registerOptions: objectRecord(registration?.registerOptions) ?? {},
-        });
-        changed = true;
-      }
-      if (changed) this.refreshCapabilities(session);
-      return null;
-    });
-    connection.onRequest('client/unregisterCapability', (payload: unknown) => {
-      if (!session) return null;
-      const record = objectRecord(payload);
-      const rows = record?.unregisterations ?? record?.unregistrations;
-      if (!Array.isArray(rows)) return null;
-      let changed = false;
-      for (const raw of rows.slice(0, 256)) {
-        const registration = objectRecord(raw);
-        const id = typeof registration?.id === 'string' ? registration.id : '';
-        if (id && session.registrations.delete(id)) changed = true;
-      }
-      if (changed) this.refreshCapabilities(session);
-      return null;
-    });
-    connection.onRequest('workspace/applyEdit', () => ({
-      applied: false,
-      failureReason: 'Server-initiated edits require an explicit editor action.',
-    }));
-    connection.onNotification('textDocument/publishDiagnostics', (payload: unknown) => {
-      if (!session || !payload || typeof payload !== 'object') return;
-      const record = payload as Record<string, unknown>;
-      const uri = String(record.uri || '');
-      const relPath = relativeDocumentPath(root, uri);
-      if (!relPath) return;
-      const diagnostics = Array.isArray(record.diagnostics)
-        ? (record.diagnostics.slice(0, 2_000) as DesktopLspDiagnosticEvent['diagnostics'])
-        : [];
-      this.emitDiagnostics({
-        projectPath,
-        relPath,
-        uri,
-        server: spec.name,
-        diagnostics,
-      });
-    });
-    connection.listen();
-    const closed = () => {
-      if (!session || session.closing) return;
-      this.sessions.delete(key);
-      const delayMs = this.recordRestartFailure(key);
-      this.emitStatus(
-        projectPath,
-        languageId,
-        spec,
-        'stopped',
-        [stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 200), `Retrying after ${Math.ceil(delayMs / 1_000)}s.`]
-          .filter(Boolean)
-          .join(' ')
-      );
-    };
-    child.once('exit', closed);
-    child.once('error', closed);
-    try {
-      const initializationOptions = languageServerInitializationOptions(spec);
-      const initialization = await withTimeout(
-        connection.sendRequest('initialize', {
-          processId: process.pid,
-          clientInfo: { name: 'Mixdog Desktop', version: '0.9' },
-          rootUri: pathToFileURL(root).toString(),
-          rootPath: root,
-          workspaceFolders,
-          ...(initializationOptions ? { initializationOptions } : {}),
-          capabilities: {
-            workspace: {
-              workspaceFolders: true,
-              applyEdit: false,
-              executeCommand: { dynamicRegistration: true },
-              symbol: { dynamicRegistration: true },
-              configuration: true,
-            },
-            textDocument: {
-              synchronization: { didSave: true, dynamicRegistration: true },
-              // Servers gate their push diagnostics on this capability:
-              // typescript-language-server sends NOTHING without it (verified
-              // standalone — user: Problems에 아무것도 안 뜸).
-              publishDiagnostics: {
-                relatedInformation: true,
-                versionSupport: false,
-                tagSupport: { valueSet: [1, 2] },
-                codeDescriptionSupport: true,
-                dataSupport: true,
-              },
-              completion: {
-                dynamicRegistration: true,
-                completionItem: {
-                  snippetSupport: true,
-                  commitCharactersSupport: true,
-                  insertReplaceSupport: true,
-                  deprecatedSupport: true,
-                  documentationFormat: ['markdown', 'plaintext'],
-                  resolveSupport: {
-                    properties: ['detail', 'documentation', 'additionalTextEdits'],
-                  },
-                },
-                completionList: {
-                  itemDefaults: ['commitCharacters', 'editRange', 'insertTextFormat', 'insertTextMode'],
-                },
-              },
-              signatureHelp: {
-                dynamicRegistration: true,
-                signatureInformation: {
-                  documentationFormat: ['markdown', 'plaintext'],
-                  parameterInformation: { labelOffsetSupport: true },
-                  activeParameterSupport: true,
-                },
-                contextSupport: true,
-              },
-              hover: { dynamicRegistration: true, contentFormat: ['markdown', 'plaintext'] },
-              declaration: { dynamicRegistration: true, linkSupport: true },
-              definition: { dynamicRegistration: true, linkSupport: true },
-              typeDefinition: { dynamicRegistration: true, linkSupport: true },
-              implementation: { dynamicRegistration: true, linkSupport: true },
-              references: { dynamicRegistration: true },
-              documentHighlight: { dynamicRegistration: true },
-              linkedEditingRange: { dynamicRegistration: true },
-              documentSymbol: {
-                dynamicRegistration: true,
-                hierarchicalDocumentSymbolSupport: true,
-              },
-              codeLens: { dynamicRegistration: true },
-              rename: { dynamicRegistration: true, prepareSupport: true },
-              codeAction: {
-                dynamicRegistration: true,
-                dataSupport: true,
-                resolveSupport: { properties: ['edit', 'command'] },
-                codeActionLiteralSupport: {
-                  codeActionKind: { valueSet: ['', 'quickfix', 'refactor', 'source'] },
-                },
-              },
-              formatting: { dynamicRegistration: true },
-              rangeFormatting: { dynamicRegistration: true },
-              onTypeFormatting: { dynamicRegistration: true },
-              documentLink: {
-                dynamicRegistration: true,
-                tooltipSupport: true,
-              },
-              colorProvider: { dynamicRegistration: true },
-              foldingRange: {
-                dynamicRegistration: true,
-                lineFoldingOnly: true,
-                foldingRangeKind: { valueSet: ['comment', 'imports', 'region'] },
-              },
-              selectionRange: { dynamicRegistration: true },
-              semanticTokens: {
-                dynamicRegistration: true,
-                requests: { range: true, full: { delta: true } },
-                tokenTypes: [
-                  'namespace',
-                  'type',
-                  'class',
-                  'enum',
-                  'interface',
-                  'struct',
-                  'typeParameter',
-                  'parameter',
-                  'variable',
-                  'property',
-                  'enumMember',
-                  'event',
-                  'function',
-                  'method',
-                  'macro',
-                  'keyword',
-                  'modifier',
-                  'comment',
-                  'string',
-                  'number',
-                  'regexp',
-                  'operator',
-                  'decorator',
-                ],
-                tokenModifiers: [
-                  'declaration',
-                  'definition',
-                  'readonly',
-                  'static',
-                  'deprecated',
-                  'abstract',
-                  'async',
-                  'modification',
-                  'documentation',
-                  'defaultLibrary',
-                ],
-                formats: ['relative'],
-                overlappingTokenSupport: false,
-                multilineTokenSupport: false,
-              },
-              inlayHint: {
-                dynamicRegistration: true,
-                resolveSupport: {
-                  properties: ['tooltip', 'textEdits', 'label.tooltip', 'label.location', 'label.command'],
-                },
-              },
-              callHierarchy: { dynamicRegistration: true },
-            },
-          },
-        }),
-        10_000,
-        `${spec.name} did not finish initializing.`
-      );
-      const capabilities = normalizeLanguageServerCapabilities(initialization);
-      session = {
-        key,
-        projectPath,
-        root,
-        spec,
-        child,
-        connection,
-        baseCapabilities: capabilities,
-        registrations: new Map(),
-        languageIds: new Set([languageId]),
-        documents: new Map(),
-        idleTimer: null,
-        closing: false,
-      };
-      this.sessions.set(key, session);
-      this.restartFailures.delete(key);
-      connection.sendNotification('initialized', {});
-      this.states.set(key, this.emitStatus(projectPath, languageId, spec, 'ready', undefined, capabilities));
-      return session;
-    } catch (error) {
-      if (session) {
-        session.closing = true;
-        this.sessions.delete(key);
-      }
-      try {
-        connection.dispose();
-      } catch {
-        /* failed initialization */
-      }
-      await shutdownStdioChild({ _process: child, pid: child.pid }, { graceMs: 200 }).catch(() => false);
-      const delayMs = this.recordRestartFailure(key);
-      const stderrDetail = stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 500);
-      this.emitStatus(
-        projectPath,
-        languageId,
-        spec,
-        'error',
-        [
-          error instanceof Error ? error.message : String(error),
-          stderrDetail,
-          `Retrying after ${Math.ceil(delayMs / 1_000)}s.`,
-        ]
-          .filter(Boolean)
-          .join(' ')
-      );
-      return null;
-    }
-  }
-
-  private scheduleIdle(session: ServerSession): void {
-    if (session.documents.size || session.closing) return;
-    if (session.idleTimer) clearTimeout(session.idleTimer);
-    session.idleTimer = setTimeout(() => {
-      void this.stop(session);
-    }, LANGUAGE_SERVER_IDLE_MS);
-    session.idleTimer.unref?.();
+    return this.state.subscribeStatus(listener);
   }
 
   async document(projectPath: string, root: string, input: DesktopLspDocumentInput): Promise<DesktopLspServerState> {
-    let spec: LanguageServerSpec | null;
-    try {
-      spec = await this.specFor(root, input.languageId);
-    } catch (error) {
-      return this.emitStatus(
-        projectPath,
-        input.languageId,
-        null,
-        'error',
-        error instanceof Error ? error.message : String(error)
-      );
-    }
-    if (!spec) return publicState(null, 'unsupported');
-    const uri = pathToFileURL(projectEntryPathIn(root, input.relPath)).toString();
-    const key = sessionKey(root, spec);
-    // A late renderer cleanup must never start a server merely to close a
-    // document. This also makes parked editor teardown safe after idle stop.
-    const session =
-      input.kind === 'close'
-        ? (this.sessions.get(key) ?? null)
-        : await this.ensure(projectPath, root, input.languageId, spec);
-    if (!session) {
-      return this.states.get(key) ?? publicState(spec, input.kind === 'close' ? 'stopped' : 'missing');
-    }
-    session.languageIds.add(input.languageId);
-    const documentCapabilities = () =>
-      capabilitiesWithDynamicRegistrations(
-        session.baseCapabilities,
-        session.registrations.values(),
-        input.languageId,
-        uri
-      );
-    const known = session.documents.has(uri);
-    if (input.kind === 'close') {
-      if (known) {
-        session.connection.sendNotification('textDocument/didClose', { textDocument: { uri } });
-        session.documents.delete(uri);
-        this.emitDiagnostics({
-          projectPath,
-          relPath: input.relPath,
-          uri,
-          server: spec.name,
-          diagnostics: [],
-        });
-      }
-      this.scheduleIdle(session);
-      return publicState(spec, 'ready', undefined, documentCapabilities());
-    }
-    if (!known) {
-      // A crashed/restarted server lost its documents map; promote any
-      // change/save on an unopened document back to didOpen so requests
-      // and diagnostics keep working without reopening the tab.
-      session.connection.sendNotification('textDocument/didOpen', {
-        textDocument: {
-          uri,
-          languageId: lspDocumentLanguageId(input.relPath, input.languageId),
-          version: input.version,
-          text: input.content || '',
-        },
-      });
-      session.documents.set(uri, {
-        languageId: input.languageId,
-        relPath: input.relPath,
-        version: input.version,
-      });
-    } else if (input.kind === 'save') {
-      session.connection.sendNotification('textDocument/didSave', {
-        textDocument: { uri },
-        text: input.content || '',
-      });
-    } else {
-      session.connection.sendNotification('textDocument/didChange', {
-        textDocument: { uri, version: input.version },
-        contentChanges: [{ text: input.content || '' }],
-      });
-      session.documents.set(uri, {
-        languageId: input.languageId,
-        relPath: input.relPath,
-        version: input.version,
-      });
-    }
-    return publicState(spec, 'ready', undefined, documentCapabilities());
+    return this.router.document(projectPath, root, input);
   }
 
   async request(
@@ -1328,79 +766,10 @@ export class LanguageServerManager {
     method: string,
     params: Readonly<Record<string, unknown>>
   ): Promise<DesktopLspRequestResult> {
-    let spec: LanguageServerSpec | null;
-    try {
-      spec = await this.specFor(root, languageId);
-    } catch (error) {
-      return {
-        available: false,
-        status: 'error',
-        server: '',
-        detail: error instanceof Error ? error.message : String(error),
-      };
-    }
-    if (!spec) return { available: false, status: 'unsupported', server: '' };
-    const session = await this.ensure(projectPath, root, languageId, spec);
-    if (!session) {
-      const state = this.states.get(sessionKey(root, spec)) ?? publicState(spec, 'missing');
-      return { available: false, status: state.status, server: state.server, detail: state.detail };
-    }
-    const uri = pathToFileURL(projectEntryPathIn(root, relPath)).toString();
-    const capabilities = capabilitiesWithDynamicRegistrations(
-      session.baseCapabilities,
-      session.registrations.values(),
-      languageId,
-      uri
-    );
-    if (!methodSupported(method, capabilities)) {
-      return publicState(spec, 'ready', `${spec.name} does not support ${method}.`, capabilities);
-    }
-    try {
-      const result = await withTimeout(
-        session.connection.sendRequest(method, languageServerRequestParams(uri, method, params)),
-        15_000,
-        `${spec.name} request timed out.`
-      );
-      return {
-        available: true,
-        status: 'ready',
-        server: spec.name,
-        capabilities,
-        result,
-      };
-    } catch (error) {
-      return {
-        available: true,
-        status: 'error',
-        server: spec.name,
-        capabilities,
-        detail: error instanceof Error ? error.message : String(error),
-      };
-    }
-  }
-
-  private async stop(session: ServerSession): Promise<void> {
-    if (session.closing) return;
-    session.closing = true;
-    if (session.idleTimer) clearTimeout(session.idleTimer);
-    this.sessions.delete(session.key);
-    try {
-      await withTimeout(session.connection.sendRequest('shutdown'), 1_000, 'shutdown timeout');
-      session.connection.sendNotification('exit');
-    } catch {
-      // Forceful tree cleanup below covers an unresponsive server.
-    }
-    try {
-      session.connection.dispose();
-    } catch {
-      /* already closed */
-    }
-    await shutdownStdioChild({ _process: session.child, pid: session.child.pid }, { graceMs: 500 }).catch(() => false);
+    return this.router.request(projectPath, root, relPath, languageId, method, params);
   }
 
   async dispose(): Promise<void> {
-    const sessions = [...this.sessions.values()];
-    await Promise.all(sessions.map((session) => this.stop(session)));
-    this.sessions.clear();
+    return this.process.dispose();
   }
 }

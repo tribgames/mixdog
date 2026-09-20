@@ -2,6 +2,26 @@ import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import test from 'node:test';
 import { consumeCompatChatCompletionStream, consumeCompatResponsesStream } from './openai-compat-stream.mjs';
+import { classifyError } from './retry-classifier.mjs';
+import { readStreamOutcome } from './lib/stream-outcome.mjs';
+
+// The SDK shape for an in-band `{"error": …}` stream chunk: the payload is
+// attached, the status is absent.
+function inBandApiError(error) {
+  return Object.assign(new Error(error.message), { name: 'APIError', status: undefined, error });
+}
+
+function failingStream(error) {
+  return {
+    [Symbol.asyncIterator]() {
+      return {
+        next: async () => {
+          throw error;
+        },
+      };
+    },
+  };
+}
 
 async function bounded(promise) {
   let timer;
@@ -53,6 +73,40 @@ const protocols = [
     event: { type: 'response.output_text.delta', delta: 'visible partial' },
   },
 ];
+
+for (const { name, consume } of protocols) {
+  test(`${name} in-band server error chunk default-retries under the wire-error contract`, async () => {
+    const wire = { message: 'Our servers are currently overloaded. Please try again later.', type: 'server_error' };
+    const err = await bounded(
+      consume(failingStream(inBandApiError(wire)), { label: name }).then(
+        () => assert.fail('expected the stream to reject'),
+        (error) => error
+      )
+    );
+    assert.equal(err.providerWireError, true);
+    assert.equal(err.providerError, wire);
+    assert.equal(err.providerErrorCode, 'server_error');
+    assert.equal(err.httpStatus, undefined, 'no status is synthesized from text');
+    assert.equal(readStreamOutcome(err).replaySafe, true, 'nothing was exposed');
+    assert.equal(classifyError(err), 'transient');
+  });
+
+  test(`${name} in-band fatal error chunk stays terminal`, async () => {
+    const wire = {
+      message: 'You exceeded your current quota.',
+      type: 'insufficient_quota',
+      code: 'insufficient_quota',
+    };
+    const err = await bounded(
+      consume(failingStream(inBandApiError(wire)), { label: name }).then(
+        () => assert.fail('expected the stream to reject'),
+        (error) => error
+      )
+    );
+    assert.equal(err.providerWireError, true);
+    assert.equal(classifyError(err), 'permanent');
+  });
+}
 
 for (const { name, consume, event } of protocols) {
   for (const interruption of ['cancel', 'idle']) {

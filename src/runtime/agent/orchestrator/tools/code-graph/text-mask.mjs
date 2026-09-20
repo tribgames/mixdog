@@ -148,301 +148,255 @@ function _interpolationOpenerAt(src, i, kind) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Scanner. `s` is the mutable scan state:
+//   src, out        — raw source and the byte-aligned masked copy
+//   i               — cursor
+//   lang            — language id (drives the comment/string predicates)
+//   blockComment    — inside `/* … */`
+//   prevToken       — ECMAScript token context for the `/`-disambiguation:
+//                     'expr' = expression-start (regex literal may follow),
+//                     'value' = value/operand (`/` is division). Start of
+//                     file = expression context.
+//   stack           — scanner frames; top describes the current state:
+//     { kind: 'string', delim }       — inside single-line string literal (mask body)
+//     { kind: 'triple', delim }       — inside triple-quote string (mask body)
+//     { kind: 'luablock', close }     — inside a Lua long-bracket comment
+//     { kind: 'interp', depth, open, close }
+//                                     — inside a string interpolation
+//                                       (`${…}`, f-string `{…}`, bash `$( … )`;
+//                                       code mode, bytes preserved so caller
+//                                       analysis sees fn-calls inside)
+//   Empty stack = top-level code.
+// Every step consumes at least one byte.
+
+function blank(s, start, count) {
+  for (let j = start; j < start + count && j < s.src.length; j++) {
+    if (s.src[j] !== '\n') s.out[j] = ' ';
+  }
+}
+
+function blankOne(s) {
+  if (s.src[s.i] !== '\n') s.out[s.i] = ' ';
+  s.i++;
+}
+
+function maskToLineEnd(s) {
+  while (s.i < s.src.length && s.src[s.i] !== '\n') {
+    s.out[s.i] = ' ';
+    s.i++;
+  }
+}
+
+function closeFrame(s, consumed) {
+  blank(s, s.i, consumed);
+  s.i += consumed;
+  s.stack.pop();
+  s.prevToken = 'value';
+}
+
+function enterInterpolation(s, frame) {
+  const nextIndex = _handleInterpolationInString(s.src, s.out, s.i, frame, s.stack);
+  if (nextIndex < 0) return false;
+  s.i = nextIndex;
+  s.prevToken = 'expr';
+  return true;
+}
+
+function blockCommentStep(s) {
+  if (s.src.startsWith('*/', s.i)) {
+    blank(s, s.i, 2);
+    s.i += 2;
+    s.blockComment = false;
+    return;
+  }
+  blankOne(s);
+}
+
+function tripleStep(s, frame) {
+  if (s.src.startsWith(frame.delim, s.i)) return closeFrame(s, frame.delim.length);
+  // Triple-quoted literals interpolate too (python f"""…""", kotlin """…""").
+  if (enterInterpolation(s, frame)) return;
+  blankOne(s);
+}
+
+// Lua long-bracket comment `--[=*[ ... ]=*]` — mask until the EXACT matching
+// close delimiter (`]` + same number of `=` + `]`) recorded on the frame, so
+// `--[==[ ]] ]==]` closes only at `]==]`.
+function luaBlockStep(s, frame) {
+  if (frame.close && s.src.startsWith(frame.close, s.i)) return closeFrame(s, frame.close.length);
+  blankOne(s);
+}
+
+function stringStep(s, frame) {
+  const { src } = s;
+  const d = frame.delim;
+  if (enterInterpolation(s, frame)) return;
+  // In bash single-quotes `'...'`, backslash is literal (no escape) — the
+  // string closes at the first `'`. Skip the escape consumption there so
+  // `'\'` is not mis-read as an escaped quote. bash `"..."` and all other
+  // langs keep backslash-escape handling.
+  const bashLiteralSingle = frame.lang === 'bash' && d === "'";
+  if (!bashLiteralSingle && src[s.i] === '\\' && (d === "'" || d === '"' || d === '`')) {
+    blank(s, s.i, 2);
+    s.i += 2;
+    return;
+  }
+  if (src[s.i] === d) return closeFrame(s, 1);
+  // JS forbids a raw newline inside '...' or "..." — defensive reset. bash
+  // quoted strings legally span newlines, so do NOT reset bash frames.
+  if (src[s.i] === '\n' && frame.lang !== 'bash' && (d === "'" || d === '"')) {
+    s.stack.pop();
+    s.prevToken = 'value';
+    s.i++;
+    return;
+  }
+  blankOne(s);
+}
+
+// Code mode inside an interpolation. Bytes preserved; track the frame's own
+// delimiter depth so masking resumes once the expression closes.
+function interpStep(s, frame) {
+  const c = s.src[s.i];
+  if (c === frame.open) {
+    frame.depth++;
+    s.prevToken = 'expr';
+    s.i++;
+    return;
+  }
+  if (c === frame.close) {
+    frame.depth--;
+    s.i++;
+    if (frame.depth === 0) s.stack.pop();
+    s.prevToken = 'value';
+    return;
+  }
+  codeStep(s, false);
+}
+
+// Top-level-only openers: hash comments, Lua comments and triple-quoted
+// strings. Returns true when it consumed bytes.
+function topLevelOpenerStep(s) {
+  const { src, lang } = s;
+  const i = s.i;
+  if (_supportsHashComments(lang) && src[i] === '#') {
+    // Bash `#` is a comment ONLY at line start or after whitespace. When it
+    // follows a non-space char it is part of `${var#pat}` / `${var##pat}`
+    // parameter expansion (or `$#`, `arr[#]`, etc.), NOT a comment — masking
+    // there would erase the rest of the line. `#!` shebang sits at file
+    // start (a line start) so it is still masked.
+    if (lang === 'bash') {
+      const prev = i > 0 ? src[i - 1] : '\n';
+      const atCommentPos = prev === '\n' || prev === ' ' || prev === '\t' || prev === '\r';
+      if (!atCommentPos) {
+        s.prevToken = 'value';
+        s.i++;
+        return true;
+      }
+    }
+    maskToLineEnd(s);
+    return true;
+  }
+  // Lua comments: `--[=*[ ... ]=*]` long-bracket block and `--` line. Lua is
+  // neither slash nor hash (see comment predicates), so it needs this
+  // dedicated branch. Checked before number/operator handling so the leading
+  // `--` is consumed as a comment, not as two minus operators.
+  if (lang === 'lua' && src.startsWith('--', i)) {
+    // Long-bracket opener: `--` then `[` + zero-or-more `=` + `[`. The level
+    // (`=` count) selects the matching close `]` + same `=` + `]`.
+    const lb = /^--\[(=*)\[/.exec(src.slice(i, i + 64));
+    if (lb) {
+      blank(s, i, lb[0].length);
+      s.i += lb[0].length;
+      s.stack.push({ kind: 'luablock', close: `]${lb[1]}]` });
+      return true;
+    }
+    // Plain `--` line comment (no long-bracket opener follows).
+    maskToLineEnd(s);
+    return true;
+  }
+  for (const delim of ["'''", '"""']) {
+    const supported =
+      delim === "'''" ? _supportsTripleSingleQuoteStrings(lang) : _supportsTripleDoubleQuoteStrings(lang);
+    if (supported && src.startsWith(delim, i)) {
+      blank(s, i, 3);
+      s.i += 3;
+      s.stack.push({ kind: 'triple', delim, lang, interp: _stringInterpKind(lang, delim, src, i) });
+      return true;
+    }
+  }
+  return false;
+}
+
+// Ordinary code token: identifier, number, whitespace or punctuation. Only
+// updates the `/`-disambiguation context.
+function tokenStep(s) {
+  const { src } = s;
+  const c = src[s.i];
+  if (_isWordStartChar(c)) {
+    const start = s.i;
+    while (s.i < src.length && _isWordChar(src[s.i])) s.i++;
+    s.prevToken = REGEX_PRECEDENT_KEYWORDS.has(src.substring(start, s.i)) ? 'expr' : 'value';
+    return;
+  }
+  if (c >= '0' && c <= '9') {
+    while (s.i < src.length && (src[s.i] === '.' || (src[s.i] >= '0' && src[s.i] <= '9'))) s.i++;
+    s.prevToken = 'value';
+    return;
+  }
+  if (c === ' ' || c === '\t' || c === '\r' || c === '\n') {
+    s.i++;
+    return;
+  }
+  s.prevToken = REGEX_PRECEDENT_CHARS.has(c) ? 'expr' : 'value';
+  s.i++;
+}
+
+// Code mode shared by top-level and interpolation frames: slash comments,
+// regex literals, string openers, then ordinary tokens. Top-level additionally
+// recognises the hash/Lua comment and triple-quote openers.
+function codeStep(s, topLevel) {
+  const { src, lang } = s;
+  const i = s.i;
+  if (_supportsSlashComments(lang) && src.startsWith('/*', i)) {
+    blank(s, i, 2);
+    s.i += 2;
+    s.blockComment = true;
+    return;
+  }
+  if (_supportsSlashComments(lang) && src.startsWith('//', i)) return maskToLineEnd(s);
+  if (topLevel && topLevelOpenerStep(s)) return;
+  if (src[i] === '/' && _isJsLike(lang) && s.prevToken === 'expr') {
+    s.i = _maskJsRegexLiteral(src, s.out, i);
+    s.prevToken = 'value';
+    return;
+  }
+  if (
+    src[i] === '"' ||
+    (_supportsSingleQuoteStrings(lang) && src[i] === "'") ||
+    (_supportsBacktickStrings(lang) && src[i] === '`')
+  ) {
+    s.stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
+    blankOne(s);
+    return;
+  }
+  tokenStep(s);
+}
+
 export function _maskNonCodeText(text, lang) {
   const src = String(text || '');
-  const out = src.split('');
-  let i = 0;
-  let blockComment = false;
-  // Stack of scanner frames. Top describes current state:
-  //   { kind: 'string', delim }       — inside single-line string literal (mask body)
-  //   { kind: 'triple', delim }       — inside triple-quote string (mask body)
-  //   { kind: 'interp', depth, open, close }
-  //                                   — inside a string interpolation
-  //                                     (`${…}`, f-string `{…}`, bash `$( … )`;
-  //                                     code mode, bytes preserved so caller
-  //                                     analysis sees fn-calls inside)
-  // Empty stack = top-level code.
-  const stack = [];
-  const top = () => (stack.length ? stack[stack.length - 1] : null);
-  // prevToken tracks ECMAScript token context for the `/`-disambiguation:
-  //   'expr'  = expression-start (regex literal may follow)
-  //   'value' = value/operand (`/` is division)
-  // Start of file = expression context.
-  let prevToken = 'expr';
-  while (i < src.length) {
-    if (blockComment) {
-      if (src.startsWith('*/', i)) {
-        out[i] = ' ';
-        if (i + 1 < out.length) out[i + 1] = ' ';
-        i += 2;
-        blockComment = false;
-        continue;
-      }
-      if (src[i] !== '\n') out[i] = ' ';
-      i++;
+  const s = { src, out: src.split(''), i: 0, lang, stack: [], prevToken: 'expr', blockComment: false };
+  while (s.i < src.length) {
+    if (s.blockComment) {
+      blockCommentStep(s);
       continue;
     }
-    const t = top();
-    if (t && t.kind === 'triple') {
-      if (src.startsWith(t.delim, i)) {
-        for (let j = 0; j < t.delim.length; j++) {
-          if (src[i + j] !== '\n') out[i + j] = ' ';
-        }
-        i += t.delim.length;
-        stack.pop();
-        prevToken = 'value';
-        continue;
-      }
-      // Triple-quoted literals interpolate too (python f"""…""", kotlin """…""").
-      const nextIndex = _handleInterpolationInString(src, out, i, t, stack);
-      if (nextIndex >= 0) {
-        i = nextIndex;
-        prevToken = 'expr';
-        continue;
-      }
-      if (src[i] !== '\n') out[i] = ' ';
-      i++;
-      continue;
-    }
-    if (t && t.kind === 'luablock') {
-      // Lua long-bracket comment `--[=*[ ... ]=*]` — mask until the EXACT
-      // matching close delimiter (`]` + same number of `=` + `]`) recorded
-      // on the frame, so `--[==[ ]] ]==]` closes only at `]==]`.
-      if (t.close && src.startsWith(t.close, i)) {
-        for (let j = 0; j < t.close.length; j++) {
-          if (src[i + j] !== '\n') out[i + j] = ' ';
-        }
-        i += t.close.length;
-        stack.pop();
-        prevToken = 'value';
-        continue;
-      }
-      if (src[i] !== '\n') out[i] = ' ';
-      i++;
-      continue;
-    }
-    if (t && t.kind === 'string') {
-      const d = t.delim;
-      {
-        const nextIndex = _handleInterpolationInString(src, out, i, t, stack);
-        if (nextIndex >= 0) {
-          i = nextIndex;
-          prevToken = 'expr';
-          continue;
-        }
-      }
-      // In bash single-quotes `'...'`, backslash is literal (no escape) — the
-      // string closes at the first `'`. Skip the escape consumption there so
-      // `'\'` is not mis-read as an escaped quote. bash `"..."` and all other
-      // langs keep backslash-escape handling.
-      const bashLiteralSingle = t.lang === 'bash' && d === "'";
-      if (!bashLiteralSingle && src[i] === '\\' && (d === "'" || d === '"' || d === '`')) {
-        if (src[i] !== '\n') out[i] = ' ';
-        if (i + 1 < src.length && src[i + 1] !== '\n') out[i + 1] = ' ';
-        i += 2;
-        continue;
-      }
-      if (src[i] === d) {
-        if (src[i] !== '\n') out[i] = ' ';
-        i++;
-        stack.pop();
-        prevToken = 'value';
-        continue;
-      }
-      // JS forbids a raw newline inside '...' or "..." — defensive reset. bash
-      // quoted strings legally span newlines, so do NOT reset bash frames.
-      if (src[i] === '\n' && t.lang !== 'bash' && (d === "'" || d === '"')) {
-        stack.pop();
-        prevToken = 'value';
-        i++;
-        continue;
-      }
-      if (src[i] !== '\n') out[i] = ' ';
-      i++;
-      continue;
-    }
-    if (t && t.kind === 'interp') {
-      // Code mode inside the interpolation. Bytes preserved; track the frame's
-      // own delimiter depth so masking resumes once the expression closes.
-      if (src[i] === t.open) {
-        t.depth++;
-        prevToken = 'expr';
-        i++;
-        continue;
-      }
-      if (src[i] === t.close) {
-        t.depth--;
-        i++;
-        if (t.depth === 0) stack.pop();
-        prevToken = 'value';
-        continue;
-      }
-      if (_supportsSlashComments(lang) && src.startsWith('/*', i)) {
-        out[i] = ' ';
-        if (i + 1 < out.length) out[i + 1] = ' ';
-        i += 2;
-        blockComment = true;
-        continue;
-      }
-      if (_supportsSlashComments(lang) && src.startsWith('//', i)) {
-        while (i < src.length && src[i] !== '\n') {
-          out[i] = ' ';
-          i++;
-        }
-        continue;
-      }
-      if (src[i] === '/' && _isJsLike(lang) && prevToken === 'expr') {
-        i = _maskJsRegexLiteral(src, out, i);
-        prevToken = 'value';
-        continue;
-      }
-      if (
-        src[i] === '"' ||
-        (_supportsSingleQuoteStrings(lang) && src[i] === "'") ||
-        (_supportsBacktickStrings(lang) && src[i] === '`')
-      ) {
-        if (src[i] !== '\n') out[i] = ' ';
-        stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
-        i++;
-        continue;
-      }
-      if (_isWordStartChar(src[i])) {
-        const start = i;
-        while (i < src.length && _isWordChar(src[i])) i++;
-        const word = src.substring(start, i);
-        prevToken = REGEX_PRECEDENT_KEYWORDS.has(word) ? 'expr' : 'value';
-        continue;
-      }
-      if (src[i] >= '0' && src[i] <= '9') {
-        while (i < src.length && (src[i] === '.' || (src[i] >= '0' && src[i] <= '9'))) i++;
-        prevToken = 'value';
-        continue;
-      }
-      if (src[i] === ' ' || src[i] === '\t' || src[i] === '\r' || src[i] === '\n') {
-        i++;
-        continue;
-      }
-      if (REGEX_PRECEDENT_CHARS.has(src[i])) {
-        prevToken = 'expr';
-      } else {
-        prevToken = 'value';
-      }
-      i++;
-      continue;
-    }
-    // Top-level code.
-    if (_supportsSlashComments(lang) && src.startsWith('/*', i)) {
-      out[i] = ' ';
-      if (i + 1 < out.length) out[i + 1] = ' ';
-      i += 2;
-      blockComment = true;
-      continue;
-    }
-    if (_supportsSlashComments(lang) && src.startsWith('//', i)) {
-      while (i < src.length && src[i] !== '\n') {
-        out[i] = ' ';
-        i++;
-      }
-      continue;
-    }
-    if (_supportsHashComments(lang) && src[i] === '#') {
-      // Bash `#` is a comment ONLY at line start or after whitespace. When it
-      // follows a non-space char it is part of `${var#pat}` / `${var##pat}`
-      // parameter expansion (or `$#`, `arr[#]`, etc.), NOT a comment — masking
-      // there would erase the rest of the line. `#!` shebang sits at file
-      // start (a line start) so it is still masked.
-      if (lang === 'bash') {
-        const prev = i > 0 ? src[i - 1] : '\n';
-        const atCommentPos = prev === '\n' || prev === ' ' || prev === '\t' || prev === '\r';
-        if (!atCommentPos) {
-          prevToken = 'value';
-          i++;
-          continue;
-        }
-      }
-      while (i < src.length && src[i] !== '\n') {
-        out[i] = ' ';
-        i++;
-      }
-      continue;
-    }
-    // Lua comments: `--[=*[ ... ]=*]` long-bracket block and `--` line. Lua is
-    // neither slash nor hash (see comment predicates), so it needs this
-    // dedicated branch. Checked before number/operator handling so the leading
-    // `--` is consumed as a comment, not as two minus operators.
-    if (lang === 'lua' && src.startsWith('--', i)) {
-      // Long-bracket opener: `--` then `[` + zero-or-more `=` + `[`. The level
-      // (`=` count) selects the matching close `]` + same `=` + `]`.
-      const lb = /^--\[(=*)\[/.exec(src.slice(i, i + 64));
-      if (lb) {
-        const open = lb[0];
-        for (let j = 0; j < open.length; j++) {
-          if (src[i + j] !== '\n') out[i + j] = ' ';
-        }
-        i += open.length;
-        stack.push({ kind: 'luablock', close: `]${lb[1]}]` });
-        continue;
-      }
-      // Plain `--` line comment (no long-bracket opener follows).
-      while (i < src.length && src[i] !== '\n') {
-        out[i] = ' ';
-        i++;
-      }
-      continue;
-    }
-    if (_supportsTripleSingleQuoteStrings(lang) && src.startsWith("'''", i)) {
-      out[i] = ' ';
-      if (i + 1 < out.length) out[i + 1] = ' ';
-      if (i + 2 < out.length) out[i + 2] = ' ';
-      i += 3;
-      stack.push({ kind: 'triple', delim: "'''", lang, interp: _stringInterpKind(lang, "'''", src, i - 3) });
-      continue;
-    }
-    if (_supportsTripleDoubleQuoteStrings(lang) && src.startsWith('"""', i)) {
-      out[i] = ' ';
-      if (i + 1 < out.length) out[i + 1] = ' ';
-      if (i + 2 < out.length) out[i + 2] = ' ';
-      i += 3;
-      stack.push({ kind: 'triple', delim: '"""', lang, interp: _stringInterpKind(lang, '"""', src, i - 3) });
-      continue;
-    }
-    if (src[i] === '/' && _isJsLike(lang) && prevToken === 'expr') {
-      i = _maskJsRegexLiteral(src, out, i);
-      prevToken = 'value';
-      continue;
-    }
-    if (
-      src[i] === '"' ||
-      (_supportsSingleQuoteStrings(lang) && src[i] === "'") ||
-      (_supportsBacktickStrings(lang) && src[i] === '`')
-    ) {
-      if (src[i] !== '\n') out[i] = ' ';
-      stack.push({ kind: 'string', delim: src[i], lang, interp: _stringInterpKind(lang, src[i], src, i) });
-      i++;
-      continue;
-    }
-    if (_isWordStartChar(src[i])) {
-      const start = i;
-      while (i < src.length && _isWordChar(src[i])) i++;
-      const word = src.substring(start, i);
-      prevToken = REGEX_PRECEDENT_KEYWORDS.has(word) ? 'expr' : 'value';
-      continue;
-    }
-    if (src[i] >= '0' && src[i] <= '9') {
-      while (i < src.length && (src[i] === '.' || (src[i] >= '0' && src[i] <= '9'))) i++;
-      prevToken = 'value';
-      continue;
-    }
-    if (src[i] === ' ' || src[i] === '\t' || src[i] === '\r' || src[i] === '\n') {
-      i++;
-      continue;
-    }
-    if (REGEX_PRECEDENT_CHARS.has(src[i])) {
-      prevToken = 'expr';
-    } else {
-      prevToken = 'value';
-    }
-    i++;
+    const frame = s.stack.length ? s.stack[s.stack.length - 1] : null;
+    if (frame?.kind === 'triple') tripleStep(s, frame);
+    else if (frame?.kind === 'luablock') luaBlockStep(s, frame);
+    else if (frame?.kind === 'string') stringStep(s, frame);
+    else if (frame?.kind === 'interp') interpStep(s, frame);
+    else codeStep(s, true);
   }
-  return out.join('');
+  return s.out.join('');
 }

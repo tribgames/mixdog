@@ -4,40 +4,22 @@
  * demand, and a dropped connection is treated as the caller's abort.
  */
 import { randomBytes } from 'node:crypto';
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
+import { createServer, type Server } from 'node:http';
 import { createBridgeDiscovery } from '../../bridge/discovery-file';
-import {
-  bridgeDiscoveryPublicIdentity,
-  createBridgeDiscoveryRecord,
-  sameBridgeDiscovery,
-  type BridgeDiscoveryRecord,
-} from '../../bridge/discovery-ownership';
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
 import { computerUseCoordinator } from '../session/coordinator';
-import type { createWorkerPool } from '../backend/worker-pool';
-import { isComputerLifecycleControl } from './action-sets';
-import type { SessionLifecycle } from './session-lifecycle';
-import { assertPublicComputerRequest } from './request-policy';
-import {
-  MAX_COMPUTER_REQUEST_BYTES,
-  MAX_COMPUTER_RESPONSE_BYTES,
-  validateComputerReply,
-} from '../../../../../../src/runtime/computer-bridge/limits.mjs';
+import { createBridgeServerState, type BridgeServerHost } from './bridge-server-contract';
+import { publishBridgeDiscovery } from './bridge-server-discovery';
+import { createBridgeRequestHandler } from './bridge-server-request';
 
-const HEARTBEAT_MS = 60_000;
+export type { BridgeServerHost } from './bridge-server-contract';
 
-type WorkerPool = ReturnType<typeof createWorkerPool>;
-
-export interface BridgeServerHost
-  extends Pick<WorkerPool, 'powerShellBySession' | 'elevatedSessionIds'>,
-    Pick<SessionLifecycle, 'abortComputerSession' | 'executeSerialized' | 'reapIdleSessionWorkers'> {
-  dataDirectory(): string;
-  isBridgeWanted(): boolean;
-  isDisposed(): boolean;
-  diagnose(event: string, data?: Record<string, unknown>): void;
-  waitForCleanup?(): Promise<boolean>;
-  waitForUser?(command: ComputerCommand, signal: AbortSignal): Promise<ComputerCommandResult>;
+function closeServer(active: Server): Promise<void> {
+  return new Promise<void>((resolve) => {
+    active.close(() => resolve());
+    active.closeAllConnections?.();
+    setTimeout(resolve, 250).unref?.();
+  });
 }
 
 export function createBridgeServer(host: BridgeServerHost) {
@@ -45,187 +27,74 @@ export function createBridgeServer(host: BridgeServerHost) {
     powerShellBySession,
     elevatedSessionIds,
     abortComputerSession,
-    executeSerialized,
     reapIdleSessionWorkers,
     dataDirectory,
     isBridgeWanted,
     isDisposed,
     diagnose,
   } = host;
-  const { respond, writeDiscovery, heartbeatDiscovery, removeDiscovery } = createBridgeDiscovery({
+  const discovery = createBridgeDiscovery({
     fileName: 'computer-bridge.json',
     dataDirectory,
   });
+  const state = createBridgeServerState();
 
-  let heartbeat: NodeJS.Timeout | null = null;
-  let server: Server | null = null;
-  let bridgeStopPromise: Promise<void> | null = null;
-  let bridgeGeneration = 0;
-  let bridgeDiscoveryRecord: BridgeDiscoveryRecord | null = null;
-  let activeRequests = 0;
-
-  async function readRequestBody(request: IncomingMessage): Promise<string> {
-    const chunks: Buffer[] = [];
-    let bytes = 0;
-    for await (const chunk of request) {
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      bytes += buffer.length;
-      if (bytes > MAX_COMPUTER_REQUEST_BYTES) throw new Error('computer request exceeds byte limit');
-      chunks.push(buffer);
-    }
-    return Buffer.concat(chunks, bytes).toString('utf8');
+  /** Every live session is aborted; the coordinator resets only once the
+   *  aborts settled and input cleanup is confirmed. */
+  async function releaseSessions(): Promise<void> {
+    const stopped = await Promise.allSettled(
+      [...new Set([...powerShellBySession.keys(), ...elevatedSessionIds()])]
+        .filter((sessionId) => sessionId !== CHROME_SETUP_SESSION_ID)
+        .map((sessionId) =>
+          abortComputerSession({
+            action: 'session_abort',
+            session_id: sessionId,
+          })
+        )
+    );
+    const cleanupConfirmed = (await host.waitForCleanup?.()) ?? true;
+    if (cleanupConfirmed && stopped.every((result) => result.status === 'fulfilled')) computerUseCoordinator.reset();
+    else computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed');
   }
 
   async function stopBridge(): Promise<void> {
-    if (bridgeStopPromise) return await bridgeStopPromise;
-    bridgeStopPromise = (async () => {
-      bridgeGeneration += 1;
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
-      const activeDiscovery = bridgeDiscoveryRecord;
-      bridgeDiscoveryRecord = null;
-      if (activeDiscovery) removeDiscovery(activeDiscovery);
-      const activeServer = server;
-      server = null;
-      if (activeServer) {
-        await new Promise<void>((resolve) => {
-          activeServer.close(() => resolve());
-          activeServer.closeAllConnections?.();
-          setTimeout(resolve, 250).unref?.();
-        });
-      }
-      const stopped = await Promise.allSettled(
-        [...new Set([...powerShellBySession.keys(), ...elevatedSessionIds()])]
-          .filter((sessionId) => sessionId !== CHROME_SETUP_SESSION_ID)
-          .map((sessionId) =>
-            abortComputerSession({
-              action: 'session_abort',
-              session_id: sessionId,
-            })
-          )
-      );
-      const cleanupConfirmed = (await host.waitForCleanup?.()) ?? true;
-      if (cleanupConfirmed && stopped.every((result) => result.status === 'fulfilled')) computerUseCoordinator.reset();
-      else computerUseCoordinator.pauseForUser('input_cleanup_unconfirmed');
+    if (state.stopPromise) return await state.stopPromise;
+    state.stopPromise = (async () => {
+      state.generation += 1;
+      if (state.heartbeat) clearInterval(state.heartbeat);
+      state.heartbeat = null;
+      const activeDiscovery = state.discoveryRecord;
+      state.discoveryRecord = null;
+      if (activeDiscovery) discovery.removeDiscovery(activeDiscovery);
+      const activeServer = state.server;
+      state.server = null;
+      if (activeServer) await closeServer(activeServer);
+      await releaseSessions();
     })();
     try {
-      await bridgeStopPromise;
+      await state.stopPromise;
     } finally {
-      bridgeStopPromise = null;
+      state.stopPromise = null;
       if (isBridgeWanted() && !isDisposed()) startBridge();
     }
   }
 
-  function handleRequest(
-    activeToken: string,
-    generation: number
-  ): (request: IncomingMessage, response: ServerResponse) => void {
-    return (request, response) => {
-      void (async () => {
-        if (request.method === 'GET' && request.url === '/health') {
-          if (String(request.headers.authorization || '') !== `Bearer ${activeToken}`) {
-            respond(response, 401, { ok: false, error: 'unauthorized' });
-            return;
-          }
-          const identity = bridgeDiscoveryRecord;
-          if (!identity || identity.token !== activeToken || identity.generation !== generation) {
-            respond(response, 503, { ok: false, error: 'bridge generation is not active' });
-            return;
-          }
-          respond(response, 200, {
-            ok: true,
-            identity: bridgeDiscoveryPublicIdentity(identity),
-          });
-          return;
-        }
-        if (request.method !== 'POST' || request.url !== '/command') {
-          respond(response, 404, { ok: false, error: 'not found' });
-          return;
-        }
-        if (String(request.headers.authorization || '') !== `Bearer ${activeToken}`) {
-          respond(response, 401, { ok: false, error: 'unauthorized' });
-          return;
-        }
-        let command: ComputerCommand;
-        try {
-          const value: unknown = JSON.parse(await readRequestBody(request));
-          assertPublicComputerRequest(value);
-          command = value;
-        } catch (error) {
-          respond(response, 400, { ok: false, error: `invalid request: ${(error as Error).message}` });
-          return;
-        }
-        // A dropped connection is the only cancellation signal left when the
-        // runtime dies before it can send session_abort. Without this the queued
-        // input keeps driving the user's desktop until the command timeout.
-        if (activeRequests >= (isComputerLifecycleControl(command) ? 40 : 32)) {
-          respond(response, 429, { ok: false, error: 'computer_capacity_exhausted: too many active requests' });
-          return;
-        }
-        activeRequests++;
-        // The heartbeat alone reclaims too late: a burst of short sessions can
-        // exhaust the worker limit between two beats, and the caller owns none
-        // of those sessions. Reclaim on the request path as well.
-        reapIdleSessionWorkers();
-        let clientGone = false;
-        const requestAbort = new AbortController();
-        const abortOnDisconnect = (): void => {
-          if (clientGone) return;
-          clientGone = true;
-          requestAbort.abort();
-          if (command.action === 'wait_for_user') return;
-          if (isComputerLifecycleControl(command)) return;
-          void abortComputerSession(command).catch(() => {
-            /* host already idle */
-          });
-        };
-        request.once('aborted', abortOnDisconnect);
-        response.once('close', () => {
-          if (!response.writableEnded) abortOnDisconnect();
-        });
-        try {
-          let value: ComputerCommandResult;
-          if (command.action === 'wait_for_user' && host.waitForUser) {
-            value = await host.waitForUser(command, requestAbort.signal);
-          } else if (command.action === 'session_abort') value = await abortComputerSession(command);
-          else value = await executeSerialized(command);
-          validateComputerReply(value);
-          if (Buffer.byteLength(JSON.stringify(value)) > MAX_COMPUTER_RESPONSE_BYTES) {
-            throw new Error('computer response exceeds byte limit; input may have executed and was not replayed');
-          }
-          if (!clientGone) respond(response, 200, { ok: true, value });
-        } catch (error) {
-          if (!clientGone) {
-            respond(response, 200, { ok: false, error: (error as Error).message || String(error) });
-          }
-        } finally {
-          activeRequests--;
-          request.removeListener('aborted', abortOnDisconnect);
-        }
-      })().catch(() => {
-        try {
-          response.destroy();
-        } catch {
-          /* already gone */
-        }
-      });
-    };
-  }
-
   function startBridge(): void {
-    if (isDisposed() || !isBridgeWanted() || server || bridgeStopPromise) return;
-    const generation = ++bridgeGeneration;
+    if (isDisposed() || !isBridgeWanted() || state.server || state.stopPromise) return;
+    const generation = ++state.generation;
     const activeToken = randomBytes(24).toString('base64url');
     const startedAt = Date.now();
     diagnose('computer-bridge-start', { generation });
-    const created = createServer(handleRequest(activeToken, generation));
+    const created = createServer(
+      createBridgeRequestHandler({ host, state, respond: discovery.respond }, activeToken, generation)
+    );
     created.maxConnections = 64;
     created.headersTimeout = 10_000;
     created.requestTimeout = 30_000;
     created.keepAliveTimeout = 5_000;
-    server = created;
+    state.server = created;
     const stillCurrent = (): boolean =>
-      !isDisposed() && isBridgeWanted() && server === created && bridgeGeneration === generation;
+      !isDisposed() && isBridgeWanted() && state.server === created && state.generation === generation;
     created.listen(0, '127.0.0.1', () => {
       const address = created.address();
       const port = address && typeof address === 'object' ? address.port : 0;
@@ -234,58 +103,17 @@ export function createBridgeServer(host: BridgeServerHost) {
         generation,
         durationMs: Date.now() - startedAt,
       });
-      const discoveryRecord = createBridgeDiscoveryRecord({
-        port,
-        token: activeToken,
-        generation,
-        startedAt,
-      });
-      // Discovery describes the authenticated bridge, not a pre-spawned worker.
-      // The first command still passes through the normal admission and safety gates.
-      bridgeDiscoveryRecord = discoveryRecord;
-      void writeDiscovery(discoveryRecord)
-        .then((ownership) => {
-          if (!stillCurrent()) return;
-          if (!stillCurrent() || !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)) return;
-          if (ownership !== 'owned') {
-            console.warn(`computer bridge discovery ${ownership}; heartbeat will retry`);
-          }
-          heartbeat = setInterval(() => {
-            if (!stillCurrent()) return;
-            void heartbeatDiscovery(discoveryRecord)
-              .then((status) => {
-                if (
-                  status !== 'lost' ||
-                  !stillCurrent() ||
-                  !sameBridgeDiscovery(bridgeDiscoveryRecord, discoveryRecord)
-                )
-                  return;
-                void stopBridge().catch((error) => {
-                  console.error('computer bridge restart after endpoint loss failed:', error);
-                });
-              })
-              .catch((error) => {
-                console.error('computer bridge discovery heartbeat failed:', error);
-              });
-            reapIdleSessionWorkers();
-          }, HEARTBEAT_MS);
-          heartbeat.unref?.();
-          diagnose('computer-bridge-ready', {
-            generation,
-            durationMs: Date.now() - startedAt,
-            ownership,
-          });
-        })
-        .catch((error) => {
-          if (!stillCurrent()) return;
-          console.error('computer bridge discovery write failed:', error);
-          diagnose('computer-bridge-failed', {
-            generation,
-            durationMs: Date.now() - startedAt,
-            phase: 'discovery',
-            errorName: error instanceof Error ? error.name : typeof error,
-          });
-        });
+      publishBridgeDiscovery(
+        {
+          state,
+          writeDiscovery: discovery.writeDiscovery,
+          heartbeatDiscovery: discovery.heartbeatDiscovery,
+          reapIdleSessionWorkers,
+          diagnose,
+          restart: stopBridge,
+        },
+        { port, token: activeToken, generation, startedAt, stillCurrent }
+      );
     });
   }
 

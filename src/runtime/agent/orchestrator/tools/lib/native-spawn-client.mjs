@@ -729,7 +729,7 @@ export function cancelNativeTasks({ ownerSessionId = null } = {}) {
 export function waitNativeTask(jobId, timeoutMs = 30_000, signal = null) {
   const key = String(jobId || '');
   const current = getNativeTask(key);
-  if (!current || current.status !== 'running') return Promise.resolve(current);
+  if (current?.status !== 'running') return Promise.resolve(current);
   if (signal?.aborted) return Promise.resolve(current);
   return new Promise((resolve) => {
     let timer = null;
@@ -817,7 +817,7 @@ export function trackNativeForegroundTask({
 } = {}) {
   const requestId = Number(child?._id) || 0;
   const server = _server;
-  if (!server || server.caps?.trackedForeground !== true || !requestId) return null;
+  if (server?.caps?.trackedForeground !== true || !requestId) return null;
   return requestNativeTaskState(
     jobId,
     {

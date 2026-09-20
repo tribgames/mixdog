@@ -5,9 +5,9 @@ import {
 } from '../../shared/tool-execution-contract.mjs';
 
 // Side-effect-free helpers for fresh-context ingest_session hydration.
-// Extracted from memory/index.mjs so the pure logic (stable identity, sensitive
-// redaction, role/content shaping) can be unit-tested without importing the
-// MCP server entrypoint and its heavy boot-time side effects.
+// The pure logic (stable identity, sensitive redaction, role/content shaping)
+// is unit-tested without importing the MCP server entrypoint and its heavy
+// boot-time side effects.
 
 // Roles we persist from an in-memory session transcript (conversation only).
 // Map provider/runtime spellings onto canonical roles; only user/assistant are

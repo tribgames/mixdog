@@ -1,11 +1,10 @@
 // session-hooks.mjs — attaches the standard hook-bus bridge properties
 // (beforeToolHook / afterToolHook / afterToolFailureHook / afterToolBatchHook /
 // preCompactHook / postCompactHook) onto a freshly created session object.
-// Extracted from mixdog-session-runtime.mjs createCurrentSession(): a
-// self-contained cluster whose only couplings are the hooks bus and the
+// A self-contained cluster whose only couplings are the hooks bus and the
 // facade's hookCommonPayload / currentCwd accessor + the session itself. All
-// properties are non-enumerable/configurable/writable exactly as before so the
-// loop/manager can read them by name without changing session enumeration.
+// properties are non-enumerable/configurable/writable so the loop/manager can
+// read them by name without changing session enumeration.
 
 export function attachSessionHooks(session, { hooks, hookCommonPayload, getCwd }) {
   const currentCwd = () => getCwd();

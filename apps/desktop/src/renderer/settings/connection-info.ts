@@ -18,7 +18,7 @@ const DEFAULT_CONNECTION_INFO_TIMEOUT_MS = 2_000;
 export function connectionInfoReady(
   value: DesktopRemoteAccessInfo | null | undefined
 ): value is DesktopRemoteAccessInfo {
-  return Boolean(value && value.relayBrowserQrSvg);
+  return Boolean(value?.relayBrowserQrSvg);
 }
 
 function cacheEntry(api: ConnectionInfoApi): ConnectionInfoCacheEntry {

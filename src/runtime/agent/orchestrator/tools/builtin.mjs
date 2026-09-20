@@ -1,4 +1,4 @@
-import { performance } from 'perf_hooks';
+import { performance } from 'node:perf_hooks';
 import { classifyResultKind } from '../session/result-classification.mjs';
 import { coerceShapeFlex, normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from './builtin/path-utils.mjs';
 import {
@@ -358,7 +358,8 @@ const _LOCATOR_BUDGET_TOOLS = new Set(['find', 'glob', 'list']);
 function _locatorTargets(toolName, args) {
   const raw = toolName === 'find' ? args?.query : args?.path;
   const values = (Array.isArray(raw) ? raw : [raw]).map((value) => String(value ?? '').trim()).filter(Boolean);
-  return values.length ? values : [toolName === 'find' ? '' : '.'];
+  if (values.length) return values;
+  return [toolName === 'find' ? '' : '.'];
 }
 
 function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
@@ -369,7 +370,7 @@ function _locatorBudgetFooter(toolName, args, keptLines, capBytes) {
   for (const line of keptLines) {
     const section = header.exec(line);
     if (section) {
-      const matched = targets.findIndex((target) => target === section[1]);
+      const matched = targets.indexOf(section[1]);
       targetIndex = matched >= 0 ? matched : Math.min(targetIndex + 1, targets.length - 1);
       visibleEntries = 0;
       continue;
@@ -485,18 +486,18 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
   const _explicitCap = Number(options?.toolOutputMaxBytes) > 0 ? Math.trunc(Number(options.toolOutputMaxBytes)) : null;
   const _locatorCap = _explicitCap ? Math.min(_explicitCap, LOCATOR_OUTPUT_MAX_BYTES) : LOCATOR_OUTPUT_MAX_BYTES;
   const _grepCap = _explicitCap ? Math.min(_explicitCap, GREP_OUTPUT_MAX_BYTES) : GREP_OUTPUT_MAX_BYTES;
-  const _budgetedResult =
-    toolName === 'grep'
-      ? capLineOrientedToolOutput(
-          _withNotices,
-          _grepCap,
-          (kept) => `[grep output capped at ${_grepCap} bytes; ${kept.length} line(s) shown, remainder omitted]`
-        )
-      : _LOCATOR_BUDGET_TOOLS.has(toolName)
-        ? capLineOrientedToolOutput(_withNotices, _locatorCap, (kept) =>
-            _locatorBudgetFooter(toolName, args, kept, _locatorCap)
-          )
-        : _withNotices;
+  let _budgetedResult = _withNotices;
+  if (toolName === 'grep') {
+    _budgetedResult = capLineOrientedToolOutput(
+      _withNotices,
+      _grepCap,
+      (kept) => `[grep output capped at ${_grepCap} bytes; ${kept.length} line(s) shown, remainder omitted]`
+    );
+  } else if (_LOCATOR_BUDGET_TOOLS.has(toolName)) {
+    _budgetedResult = capLineOrientedToolOutput(_withNotices, _locatorCap, (kept) =>
+      _locatorBudgetFooter(toolName, args, kept, _locatorCap)
+    );
+  }
   // Any provider-facing reduction happens later, after the complete result
   // has been durably persisted by tool-result-offload.
   const _finalResult = _budgetedResult;

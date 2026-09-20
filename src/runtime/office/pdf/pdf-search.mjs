@@ -33,7 +33,10 @@ function layoutLines(page) {
   }
   // Row order follows the normal to the reading direction, not display y:
   // rotating a page must not turn its last row into the first match.
-  const rowPosition = (line) => line.key * (line.vertical ? (line.reversed ? 1 : -1) : line.reversed ? -1 : 1);
+  const rowPosition = (line) => {
+    if (line.vertical) return line.key * (line.reversed ? 1 : -1);
+    return line.key * (line.reversed ? -1 : 1);
+  };
   return lines.sort((left, right) => rowPosition(left) - rowPosition(right));
 }
 

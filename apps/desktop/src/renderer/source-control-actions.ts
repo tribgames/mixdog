@@ -122,7 +122,11 @@ export function stashActions(ctx: SourceControlActionContext) {
 // branch list too.
 export function branchActions(
   ctx: SourceControlActionContext,
-  { branchQuery, closePicker, exitMergeMode }: { branchQuery: string; closePicker: () => void; exitMergeMode: () => void }
+  {
+    branchQuery,
+    closePicker,
+    exitMergeMode,
+  }: { branchQuery: string; closePicker: () => void; exitMergeMode: () => void }
 ) {
   const { api, projectPath, run } = ctx;
   return {
@@ -148,10 +152,14 @@ export function branchActions(
       void run('branch-create', () => api?.gitCreateBranch?.(projectPath, name.trim()), closePicker);
     },
     mergeIntoCurrent: (branch: DesktopGitBranch) =>
-      void run(`branch-merge:${branch.name}`, () => api?.gitMergeBranch?.(projectPath, branch.name), () => {
-        closePicker();
-        exitMergeMode();
-      }),
+      void run(
+        `branch-merge:${branch.name}`,
+        () => api?.gitMergeBranch?.(projectPath, branch.name),
+        () => {
+          closePicker();
+          exitMergeMode();
+        }
+      ),
   };
 }
 

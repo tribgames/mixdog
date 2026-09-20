@@ -267,7 +267,20 @@ export async function runPageQc(
     skipped: 0,
     failed: 0,
   };
-  const ctx = { deck, total, provider, model, effort, target, vision, callOffice, measureDeck, run, createRuntime, report };
+  const ctx = {
+    deck,
+    total,
+    provider,
+    model,
+    effort,
+    target,
+    vision,
+    callOffice,
+    measureDeck,
+    run,
+    createRuntime,
+    report,
+  };
   await withChildFeatures(async () => {
     for (const page of selected) await qcPage(ctx, page);
   });

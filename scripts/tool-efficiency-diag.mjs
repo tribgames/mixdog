@@ -32,7 +32,10 @@ for (const f of files) {
     } catch {}
   }
 }
-const F = (r, n) => (r[n] != null ? r[n] : r.payload && r.payload[n] != null ? r.payload[n] : null);
+const F = (r, n) => {
+  if (r[n] != null) return r[n];
+  return r.payload && r.payload[n] != null ? r.payload[n] : null;
+};
 const bySess = new Map();
 for (const r of rows) {
   const k = r.sessionId || r.session_id || '?';

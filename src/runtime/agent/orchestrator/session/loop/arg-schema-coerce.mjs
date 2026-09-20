@@ -14,7 +14,9 @@ const STRUCTURAL_TYPES = new Set(['object', 'array', 'number', 'integer', 'boole
 function declaredTypes(property, depth = 0) {
   const types = new Set();
   if (!property || typeof property !== 'object' || depth > 3) return types;
-  const listed = Array.isArray(property.type) ? property.type : property.type ? [property.type] : [];
+  let listed = [];
+  if (Array.isArray(property.type)) listed = property.type;
+  else if (property.type) listed = [property.type];
   for (const entry of listed) types.add(String(entry));
   for (const branches of [property.anyOf, property.oneOf, property.allOf]) {
     if (!Array.isArray(branches)) continue;

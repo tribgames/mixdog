@@ -64,7 +64,11 @@ export function RemoteActionButtons({
                 button's label, so it caps instead. */}
             {badged && (
               <span className="dock-scm-ahead-behind" data-i18n-skip data-direction={direction} aria-hidden="true">
-                {entry.key === 'push' ? <ArrowUp size={8} aria-hidden="true" /> : <ArrowDown size={8} aria-hidden="true" />}
+                {entry.key === 'push' ? (
+                  <ArrowUp size={8} aria-hidden="true" />
+                ) : (
+                  <ArrowDown size={8} aria-hidden="true" />
+                )}
                 {count > 99 ? '99+' : count}
               </span>
             )}
@@ -93,7 +97,9 @@ export function OperationBanner({
     <div className="dock-scm-operation" role="status">
       <div>
         <b>{t('{{operation}} in progress', { operation: label })}</b>
-        <small>{conflictCount ? t('{{count}} unresolved conflicts', { count: conflictCount }) : t('All conflicts resolved')}</small>
+        <small>
+          {conflictCount ? t('{{count}} unresolved conflicts', { count: conflictCount }) : t('All conflicts resolved')}
+        </small>
       </div>
       <button type="button" disabled={Boolean(busy) || conflictCount > 0} onClick={onContinue}>
         {t('Continue')}
@@ -120,7 +126,12 @@ export function viewSortMenuItems(sortKey: string, chooseSortKey: (key: SortKey)
   return [
     { id: 'sort-path', label: 'Sort by Path', checked: sortKey === 'path', onSelect: () => chooseSortKey('path') },
     { id: 'sort-name', label: 'Sort by Name', checked: sortKey === 'name', onSelect: () => chooseSortKey('name') },
-    { id: 'sort-status', label: 'Sort by Status', checked: sortKey === 'status', onSelect: () => chooseSortKey('status') },
+    {
+      id: 'sort-status',
+      label: 'Sort by Status',
+      checked: sortKey === 'status',
+      onSelect: () => chooseSortKey('status'),
+    },
   ];
 }
 
@@ -156,8 +167,8 @@ function IconAction({
 
 // Tri-state select-all row; the shared filter box lives in the view controls
 // above Changes | History. The row is also the list's ACTION header: Stage
-// All, Unstage All and Discard All moved here from the deleted "…" menu, with
-// Stash / Pop Stash and View & Sort beside them. It is a plain row (not a
+// Stage All, Unstage All and Discard All sit here with Stash / Pop Stash and
+// View & Sort beside them. It is a plain row (not a
 // <label>) so those buttons cannot toggle the checkbox by label activation;
 // the checkbox keeps the same accessible name it always had. No visible count
 // line: the Changes tab above already carries the counter.

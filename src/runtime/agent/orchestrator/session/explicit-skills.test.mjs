@@ -79,7 +79,7 @@ const bodies = (session) =>
 
 test('only a leading explicit selection is syntax, with multimodal content and escaped names supported', () => {
   const name = 'a "quoted" skill';
-  assert.equal(selectedSkillName(skillSelectionHeader(name) + 'Work'), name);
+  assert.equal(selectedSkillName(`${skillSelectionHeader(name)}Work`), name);
   assert.equal(
     selectedSkillName([
       { type: 'text', text: skillSelectionHeader(name) },
@@ -105,7 +105,7 @@ test('explicit preparation is append-only and the first model request has the bo
   await withSkill(async ({ root }) => {
     for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter']) {
       const session = newSession(provider, root);
-      const prompt = skillSelectionHeader('selected-guide') + 'Create the document.';
+      const prompt = `${skillSelectionHeader('selected-guide')}Create the document.`;
       session.messages.push({ role: 'user', content: prompt });
       const prefix = structuredClone(session.messages);
       const tools = requestTools(session);
@@ -163,7 +163,7 @@ test('explicit preparation is append-only and the first model request has the bo
 test('repeat, resume and edited skills reuse only current bodies without rewriting previous requests', async () => {
   await withSkill(async ({ root, write }) => {
     let session = newSession('openai-oauth', root);
-    const prompt = skillSelectionHeader('selected-guide') + 'Work';
+    const prompt = `${skillSelectionHeader('selected-guide')}Work`;
     session.messages.push({ role: 'user', content: prompt });
     await prepareExplicitSkills(prompt, session.messages, session);
     const calls = session.messages.filter((message) => message.toolCalls?.length).length;
@@ -190,7 +190,7 @@ test('ordinary follow-up turns advertise reusable skills without executing anoth
   await withSkill(async ({ root }) => {
     for (const provider of ['openai-oauth', 'anthropic-oauth']) {
       const session = newSession(provider, root);
-      const selected = skillSelectionHeader('selected-guide') + 'Start the task.';
+      const selected = `${skillSelectionHeader('selected-guide')}Start the task.`;
       session.messages.push({ role: 'user', content: selected });
       await prepareExplicitSkills(selected, session.messages, session);
       session.messages.push({ role: 'assistant', content: 'Ready.' });
@@ -286,8 +286,8 @@ test('queued selections are prepared before continuation, while task notificatio
           if (sends !== 1 || drained) return [];
           drained = true;
           return [
-            { mode: 'task-notification', content: skillSelectionHeader('not-installed') + 'Finished.' },
-            { mode: 'prompt', content: skillSelectionHeader('selected-guide') + 'Next task' },
+            { mode: 'task-notification', content: `${skillSelectionHeader('not-installed')}Finished.` },
+            { mode: 'prompt', content: `${skillSelectionHeader('selected-guide')}Next task` },
           ];
         },
       }

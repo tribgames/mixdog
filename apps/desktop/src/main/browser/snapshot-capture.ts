@@ -8,78 +8,22 @@ import type { WebContents } from 'electron';
 
 import {
   buildAccessibilitySnapshot,
-  type AccessibilityNode,
   type AccessibilityPageInfo,
-  type AccessibilityTargetSnapshot,
   type BrowserSnapshotPayload as SnapshotPayload,
-  type FileInputFacts,
 } from './accessibility';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './command';
 import type { GuestSlot } from './guest-state';
 import { redactBrowserText } from './redaction';
-import { browserRefElementSource } from './ref-access';
 import { createBrowserRefSet, type BrowserRefSet } from './ref-recovery';
+import { type BrowserTargetSession, readAccessibilityTargets } from './snapshot-accessibility-read';
+import { createFrameOffsetResolver } from './snapshot-frame-offset';
+import { type AccessibilityRef, type AccessibilityRefSnapshot, createSnapshotRefCalls } from './snapshot-ref-calls';
 import { browserSnapshotExpression } from './snapshot-scripts';
 import { timedBrowserOperation } from './timing';
-import { createBrowserReadPool, settleBrowserReads } from './parallel-read';
 
-const MAX_ACCESSIBILITY_TARGETS = 32;
-
-interface DomSnapshotDocument {
-  frameId?: number;
-  nodes?: {
-    backendNodeId?: number[];
-    nodeName?: number[];
-    attributes?: number[][];
-  };
-  layout?: { nodeIndex?: number[]; bounds?: number[][] };
-}
-
-/** File inputs by backend node, read from the DOM snapshot's attributes: the
- *  accessibility tree calls them buttons, which hides that `upload` is the
- *  gesture they want and whether they take one file or several. */
-export function fileInputsFromDomSnapshot(
-  strings: string[],
-  documents: DomSnapshotDocument[]
-): Map<number, FileInputFacts> {
-  const fileInputs = new Map<number, FileInputFacts>();
-  for (const document of documents) {
-    const backendNodeIds = document.nodes?.backendNodeId || [];
-    const nodeNames = document.nodes?.nodeName || [];
-    const attributes = document.nodes?.attributes || [];
-    nodeNames.forEach((nameIndex, nodeIndex) => {
-      if (String(strings[nameIndex] || '').toUpperCase() !== 'INPUT') return;
-      const pairs = attributes[nodeIndex] || [];
-      let type = '';
-      let accept = '';
-      let multiple = false;
-      for (let index = 0; index + 1 < pairs.length; index += 2) {
-        const attributeName = String(strings[pairs[index]] || '').toLowerCase();
-        const attributeValue = String(strings[pairs[index + 1]] ?? '');
-        if (attributeName === 'type') type = attributeValue.trim().toLowerCase();
-        else if (attributeName === 'accept') accept = attributeValue.replace(/\s+/g, ' ').trim();
-        else if (attributeName === 'multiple') multiple = true;
-      }
-      const backendNodeId = backendNodeIds[nodeIndex];
-      if (type === 'file' && Number.isFinite(backendNodeId)) {
-        fileInputs.set(backendNodeId, { accept, multiple });
-      }
-    });
-  }
-  return fileInputs;
-}
-
-/** One ref, bound to the CDP node and target session that produced it. */
-export interface AccessibilityRef {
-  backendNodeId: number;
-  sessionId?: string;
-}
-
-export interface AccessibilityRefSnapshot {
-  snapshotId: string;
-  refs: Map<string, AccessibilityRef>;
-}
+export { fileInputsFromDomSnapshot } from './snapshot-accessibility-read';
+export type { AccessibilityRef, AccessibilityRefSnapshot } from './snapshot-ref-calls';
 
 export interface BrowserSnapshotCaptureHost {
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal, timeoutMs?: number): Promise<T>;
@@ -87,14 +31,7 @@ export interface BrowserSnapshotCaptureHost {
   /** The CDP target sessions this page has attached, for frame geometry, and
    *  the fault line a degraded snapshot reports through. */
   diagnostics(guest: WebContents): {
-    cdpSessions: Map<
-      string,
-      {
-        frameId?: string;
-        parentSessionId?: string;
-        ready?: Promise<unknown>;
-      }
-    >;
+    cdpSessions: Map<string, BrowserTargetSession>;
     fault: string;
   };
   /** Cleared whenever a fresh snapshot invalidates image-bound coordinates. */
@@ -106,6 +43,37 @@ export interface BrowserSnapshotCaptureHost {
   accessibilityRefs: GuestSlot<AccessibilityRefSnapshot>;
   refSets: GuestSlot<BrowserRefSet>;
   maxElements: number;
+}
+
+/** One read of the body: innerText reflows the page, and a long document is
+ *  exactly where a second read would hurt. The excerpt stops at a cap; the
+ *  report has to say so rather than let a long page read as a short one. */
+function pageInfoExpression(snapshotTextChars: number): string {
+  return `(() => {
+      const raw = String(document.body ? (document.body.innerText || document.body.textContent || '') : '');
+      const normalized = raw.slice(0, ${snapshotTextChars * 4}).replace(/\\s+/g, ' ').trim();
+      return {
+        url: String(location.href),
+        title: String(document.title || ''),
+        scrollY: Math.round(window.scrollY),
+        scrollHeight: Math.round(document.documentElement.scrollHeight),
+        viewportHeight: Math.round(window.innerHeight),
+        viewportWidth: Math.round(window.innerWidth),
+        text: normalized.slice(0, ${snapshotTextChars}),
+        textClipped: raw.length > ${snapshotTextChars * 4} || normalized.length > ${snapshotTextChars},
+      };
+    })()`;
+}
+
+function snapshotMaxElements(command: BrowserCommand, fallback: number): number {
+  return Math.min(
+    500,
+    Math.max(1, Number.isFinite(command.maxElements) ? Math.trunc(command.maxElements as number) : fallback)
+  );
+}
+
+function appendWarning(payload: SnapshotPayload, warning: string): void {
+  payload.warnings = [...(payload.warnings || []), warning];
 }
 
 export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
@@ -120,6 +88,12 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
     visualGrounding: visualGroundingByGuest,
     maxElements: SNAPSHOT_MAX_ELEMENTS,
   } = host;
+  const refCalls = createSnapshotRefCalls({ cdp, evaluate, accessibilityRefs: accessibilityRefsByGuest });
+  const frameOffsetForSession = createFrameOffsetResolver({
+    cdp,
+    sessions: (guest) => diagnosticsFor(guest).cdpSessions,
+  });
+
   async function captureAccessibilitySnapshot(
     guest: WebContents,
     command: BrowserCommand,
@@ -127,343 +101,43 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
   ): Promise<SnapshotPayload> {
     const diagnostics = diagnosticsFor(guest);
     const snapshotTextChars = snapshotTextLimit(command);
-    const pageInfoPromise = evaluate<AccessibilityPageInfo>(
-      guest,
-      `(() => {
-      // One read of the body: innerText reflows the page, and a long document
-      // is exactly where a second read would hurt.
-      const raw = String(document.body ? (document.body.innerText || document.body.textContent || '') : '');
-      const normalized = raw.slice(0, ${snapshotTextChars * 4}).replace(/\\s+/g, ' ').trim();
-      return {
-        url: String(location.href),
-        title: String(document.title || ''),
-        scrollY: Math.round(window.scrollY),
-        scrollHeight: Math.round(document.documentElement.scrollHeight),
-        viewportHeight: Math.round(window.innerHeight),
-        viewportWidth: Math.round(window.innerWidth),
-        text: normalized.slice(0, ${snapshotTextChars}),
-        // The excerpt stops at a cap; the report has to say so rather than
-        // let a long page read as a short one.
-        textClipped: raw.length > ${snapshotTextChars * 4} || normalized.length > ${snapshotTextChars},
-      };
-    })()`,
-      signal
-    );
-    const childTargets = [...diagnostics.cdpSessions.entries()];
-    const omittedTargets = Math.max(0, childTargets.length - (MAX_ACCESSIBILITY_TARGETS - 1));
-    const targets = [
-      { sessionId: undefined as string | undefined, ready: Promise.resolve() },
-      ...childTargets.slice(0, MAX_ACCESSIBILITY_TARGETS - 1).map(([sessionId, target]) => ({
-        sessionId,
-        ready: target.ready,
-      })),
-    ];
-    let omittedFrames = 0;
-    const snapshotsPromise = (async (): Promise<AccessibilityTargetSnapshot[]> => {
-      const read = createBrowserReadPool();
-      const readFrame = createBrowserReadPool();
-      return (
-        await settleBrowserReads(
-          targets.map(async ({ sessionId, ready }) => {
-            try {
-              await ready;
-              return await read(async () => {
-                let layoutError = '';
-                const [axTree, domSnapshot] = await Promise.all([
-                  cdp.call<{ nodes?: AccessibilityNode[] }>(guest, 'Accessibility.getFullAXTree', {}, signal, {
-                    sessionId,
-                  }),
-                  cdp
-                    .call<{
-                      documents?: DomSnapshotDocument[];
-                      strings?: string[];
-                    }>(
-                      guest,
-                      'DOMSnapshot.captureSnapshot',
-                      { computedStyles: [], includeDOMRects: true, includePaintOrder: true },
-                      signal,
-                      { sessionId }
-                    )
-                    .catch((error) => {
-                      layoutError = redactBrowserText((error as Error).message || String(error));
-                      return { documents: [], strings: [] };
-                    }),
-                ]);
-                const bounds = new Map<number, number[]>();
-                const fileInputs = fileInputsFromDomSnapshot(domSnapshot.strings || [], domSnapshot.documents || []);
-                for (const document of domSnapshot.documents || []) {
-                  const backendNodeIds = document.nodes?.backendNodeId || [];
-                  const nodeIndexes = document.layout?.nodeIndex || [];
-                  const boxes = document.layout?.bounds || [];
-                  nodeIndexes.forEach((nodeIndex, index) => {
-                    const backendNodeId = backendNodeIds[nodeIndex];
-                    const box = boxes[index];
-                    if (Number.isFinite(backendNodeId) && Array.isArray(box) && box.length >= 4) {
-                      bounds.set(backendNodeId, box);
-                    }
-                  });
-                }
-                const mainSnapshot: AccessibilityTargetSnapshot = {
-                  sessionId,
-                  nodes: axTree.nodes || [],
-                  bounds,
-                  fileInputs,
-                  ...(layoutError ? { layoutError } : {}),
-                };
-                // getFullAXTree defaults to the target's main frame, not every
-                // same-process document included by DOMSnapshot.
-                const documents = domSnapshot.documents || [];
-                omittedFrames += Math.max(0, documents.length - 64);
-                const frameSnapshots = await settleBrowserReads(
-                  documents.slice(1, 64).map((document) =>
-                    readFrame(async (): Promise<AccessibilityTargetSnapshot> => {
-                      const frameId =
-                        document.frameId === undefined ? undefined : domSnapshot.strings?.[document.frameId];
-                      try {
-                        if (!frameId) throw new Error('frame document has no frame identity');
-                        const tree = await cdp.call<{ nodes?: AccessibilityNode[] }>(
-                          guest,
-                          'Accessibility.getFullAXTree',
-                          { frameId },
-                          signal,
-                          { sessionId }
-                        );
-                        return { sessionId, frameId, nodes: tree.nodes || [], bounds, fileInputs };
-                      } catch (error) {
-                        return {
-                          sessionId,
-                          frameId,
-                          nodes: [],
-                          bounds,
-                          error: redactBrowserText((error as Error).message || String(error)),
-                        };
-                      }
-                    })
-                  )
-                );
-                return [mainSnapshot, ...frameSnapshots];
-              });
-            } catch (error) {
-              return [
-                {
-                  sessionId,
-                  nodes: [],
-                  bounds: new Map<number, number[]>(),
-                  error: redactBrowserText((error as Error).message || String(error)),
-                },
-              ];
-            }
-          })
-        )
-      ).flat();
-    })();
-    const [pageInfo, snapshots] = await Promise.all([pageInfoPromise, snapshotsPromise]);
-    if (!snapshots.some((snapshot) => snapshot.nodes.length > 0)) {
+    const pageInfoPromise = evaluate<AccessibilityPageInfo>(guest, pageInfoExpression(snapshotTextChars), signal);
+    const [pageInfo, targets] = await Promise.all([
+      pageInfoPromise,
+      readAccessibilityTargets(cdp, guest, diagnostics.cdpSessions, signal),
+    ]);
+    if (!targets.snapshots.some((snapshot) => snapshot.nodes.length > 0)) {
       throw new Error('CDP accessibility tree is unavailable');
     }
 
     const snapshotId = nextSnapshotId(guest);
-    const maxElements = Math.min(
-      500,
-      Math.max(
-        1,
-        Number.isFinite(command.maxElements) ? Math.trunc(command.maxElements as number) : SNAPSHOT_MAX_ELEMENTS
-      )
-    );
     const built = buildAccessibilitySnapshot({
       pageInfo,
-      targets: snapshots,
+      targets: targets.snapshots,
       snapshotId,
       query: command.query,
       viewportOnly: command.viewportOnly,
-      maxElements,
+      maxElements: snapshotMaxElements(command, SNAPSHOT_MAX_ELEMENTS),
       textChars: snapshotTextChars,
     });
-    if (omittedTargets) {
-      built.payload.warnings = [
-        ...(built.payload.warnings || []),
-        `${omittedTargets} additional cross-origin frame target(s) were omitted from this snapshot.`,
-      ];
+    if (targets.omittedTargets) {
+      appendWarning(
+        built.payload,
+        `${targets.omittedTargets} additional cross-origin frame target(s) were omitted from this snapshot.`
+      );
     }
-    if (omittedFrames) {
-      built.payload.warnings = [
-        ...(built.payload.warnings || []),
-        `${omittedFrames} additional frame document(s) were omitted from this snapshot.`,
-      ];
+    if (targets.omittedFrames) {
+      appendWarning(
+        built.payload,
+        `${targets.omittedFrames} additional frame document(s) were omitted from this snapshot.`
+      );
     }
     const refs = new Map<string, AccessibilityRef>();
     for (const ref of built.refs) {
-      refs.set(ref.ref, {
-        backendNodeId: ref.backendNodeId,
-        sessionId: ref.sessionId,
-      });
+      refs.set(ref.ref, { backendNodeId: ref.backendNodeId, sessionId: ref.sessionId });
     }
     accessibilityRefsByGuest.set(guest, { snapshotId, refs });
     return built.payload;
-  }
-
-  async function callAccessibilityRef<T>(
-    guest: WebContents,
-    ref: string,
-    functionDeclaration: string,
-    args: unknown[],
-    signal?: AbortSignal,
-    timeoutMs?: number
-  ): Promise<{ handled: false } | { handled: true; value: T }> {
-    const snapshot = accessibilityRefsByGuest.get(guest);
-    if (!snapshot) return { handled: false };
-    const target = snapshot.refs.get(ref);
-    if (!target) throw new Error(`ref ${ref} is stale or unknown; take a fresh snapshot first`);
-    const call = { sessionId: target.sessionId, timeoutMs };
-    const resolved = await cdp.call<{
-      object?: { objectId?: string };
-    }>(guest, 'DOM.resolveNode', { backendNodeId: target.backendNodeId }, signal, call);
-    const objectId = resolved.object?.objectId;
-    if (!objectId) throw new Error(`ref ${ref} is stale or detached; take a fresh snapshot first`);
-    try {
-      const response = await cdp.call<{
-        result?: { value?: T };
-        exceptionDetails?: { text?: string; exception?: { description?: string } };
-      }>(
-        guest,
-        'Runtime.callFunctionOn',
-        {
-          objectId,
-          functionDeclaration,
-          arguments: args.map((value) => ({ value })),
-          returnByValue: true,
-          awaitPromise: true,
-          userGesture: true,
-        },
-        signal,
-        call
-      );
-      if (response.exceptionDetails) {
-        throw new Error(
-          redactBrowserText(
-            response.exceptionDetails.exception?.description ||
-              response.exceptionDetails.text ||
-              'element action failed'
-          )
-        );
-      }
-      return { handled: true, value: response.result?.value as T };
-    } finally {
-      void cdp
-        .guestDebugger(guest)
-        .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId }, target.sessionId))
-        .catch(() => undefined);
-    }
-  }
-
-  async function evaluateRefScript(
-    guest: WebContents,
-    ref: string,
-    script: string,
-    signal: AbortSignal | undefined,
-    timeoutMs: number
-  ): Promise<unknown> {
-    const accessibility = await callAccessibilityRef<unknown>(
-      guest,
-      ref,
-      `async function(script) {
-        const element = this;
-        return await eval(script);
-      }`,
-      [script],
-      signal,
-      timeoutMs
-    );
-    if (accessibility.handled) return accessibility.value;
-    return await evaluate<unknown>(
-      guest,
-      `(async () => {
-      ${browserRefElementSource(ref)}
-      return await (async function(script) {
-        const element = this;
-        return await eval(script);
-      }).call(element, ${JSON.stringify(script)});
-    })()`,
-      signal,
-      timeoutMs
-    );
-  }
-
-  async function frameOffsetForSession(
-    guest: WebContents,
-    initialSessionId: string | undefined,
-    signal?: AbortSignal,
-    localPoint?: { x: number; y: number }
-  ): Promise<{ x: number; y: number }> {
-    let sessionId = initialSessionId;
-    let x = 0;
-    let y = 0;
-    const seen = new Set<string>();
-    const sessions = diagnosticsFor(guest).cdpSessions;
-    while (sessionId && !seen.has(sessionId)) {
-      seen.add(sessionId);
-      const target = sessions.get(sessionId);
-      if (!target?.frameId) break;
-      const parent = { sessionId: target.parentSessionId };
-      const owner = await cdp.call<{ backendNodeId?: number }>(
-        guest,
-        'DOM.getFrameOwner',
-        { frameId: target.frameId },
-        signal,
-        parent
-      );
-      if (!Number.isFinite(owner.backendNodeId)) break;
-      const box = await cdp.call<{
-        model?: { content?: number[]; border?: number[] };
-      }>(guest, 'DOM.getBoxModel', { backendNodeId: owner.backendNodeId }, signal, parent);
-      const quad = box.model?.content || box.model?.border || [];
-      if (quad.length < 8) break;
-      x += quad[0];
-      y += quad[1];
-      if (localPoint) {
-        const resolved = await cdp.call<{ object?: { objectId?: string } }>(
-          guest,
-          'DOM.resolveNode',
-          { backendNodeId: owner.backendNodeId },
-          signal,
-          parent
-        );
-        const objectId = resolved.object?.objectId;
-        if (!objectId) throw new Error('parent frame could not be verified before input');
-        try {
-          const checked = await cdp.call<{ result?: { value?: boolean }; exceptionDetails?: unknown }>(
-            guest,
-            'Runtime.callFunctionOn',
-            {
-              objectId,
-              functionDeclaration: `function(x, y) {
-                for (let node = this; node; node = node.parentElement) {
-                  if (this.ownerDocument.defaultView.getComputedStyle(node).transform !== 'none') return false;
-                }
-                let hit = this.ownerDocument.elementFromPoint(x, y);
-                while (hit?.shadowRoot) {
-                  const next = hit.shadowRoot.elementFromPoint(x, y);
-                  if (!next || next === hit) break;
-                  hit = next;
-                }
-                return hit === this;
-              }`,
-              arguments: [{ value: x + localPoint.x }, { value: y + localPoint.y }],
-              returnByValue: true,
-            },
-            signal,
-            parent
-          );
-          if (checked.exceptionDetails || checked.result?.value !== true) {
-            throw new Error('parent frame is covered or transformed; input was not dispatched');
-          }
-        } finally {
-          void cdp.call(guest, 'Runtime.releaseObject', { objectId }, undefined, parent).catch(() => undefined);
-        }
-      }
-      sessionId = target.parentSessionId;
-    }
-    return { x, y };
   }
 
   async function captureSnapshotPayload(
@@ -510,8 +184,8 @@ export function createBrowserSnapshotCapture(host: BrowserSnapshotCaptureHost) {
 
   return {
     captureAccessibilitySnapshot,
-    callAccessibilityRef,
-    evaluateRefScript,
+    callAccessibilityRef: refCalls.callAccessibilityRef,
+    evaluateRefScript: refCalls.evaluateRefScript,
     frameOffsetForSession,
     captureSnapshotPayload: timedBrowserOperation('snapshot', captureSnapshotPayload),
   };

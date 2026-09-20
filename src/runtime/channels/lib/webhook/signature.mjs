@@ -1,4 +1,4 @@
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 
 const SIGNATURE_HEADERS = {
   github: { header: 'x-hub-signature-256', prefix: 'sha256=' },

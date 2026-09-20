@@ -6,6 +6,12 @@ export function asRecord(value: unknown): RecordValue | null {
   return value !== null && typeof value === 'object' ? (value as RecordValue) : null;
 }
 
+/** Last `/`-separated segment of a repository-relative path. */
+export function fileBaseName(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash >= 0 ? path.slice(slash + 1) : path;
+}
+
 export function displayProject(project: Project | null | undefined) {
   if (!project) return { name: '', path: '' };
   const chunks = project.replace(/[\\/]+$/, '').split(/[\\/]/);

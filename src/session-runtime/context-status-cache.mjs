@@ -37,7 +37,12 @@ export function createContextStatusCache({ getNativeTools }) {
   // runtime calls invalidate() on catalog/route changes.
   let requestToolsMemo = null;
 
-  function keyFor(session, route, env, { messages, messagesRevision, requestProvider, requestTools, requestToolsSignature }) {
+  function keyFor(
+    session,
+    route,
+    env,
+    { messages, messagesRevision, requestProvider, requestTools, requestToolsSignature }
+  ) {
     const compaction = session?.compaction || {};
     const lastMessage = messages[messages.length - 1] || null;
     return {

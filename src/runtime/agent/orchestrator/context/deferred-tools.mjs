@@ -1,6 +1,4 @@
 // Deferred-pool and MCP-instruction manifests injected into BP2.
-// Extracted from collect.mjs so skill discovery and prompt composition
-// no longer share a god-file with session-surface mutation.
 
 export function compactPromptManifestText(value, max = 250) {
   const text = String(value || '')
@@ -161,7 +159,7 @@ export function stripDeferredToolManifestBlock(text) {
 function rebuildDeferredToolManifestBlock(text, manifest) {
   let out = String(text || '').replace(MCP_INSTRUCTIONS_BLOCK_RE, '');
   let replaced = false;
-  out = out.replace(DEFERRED_TOOLS_BLOCK_RE, (match, sep) => {
+  out = out.replace(DEFERRED_TOOLS_BLOCK_RE, (_match, sep) => {
     if (replaced) return '';
     replaced = true;
     return `${sep || ''}${manifest}`;

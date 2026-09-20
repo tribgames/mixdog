@@ -41,7 +41,7 @@ export function createSessionOAuthFlowRegistry({ ttlMs = DEFAULT_FLOW_TTL_MS } =
   let sequence = 0;
 
   function finishFlow(flow, state, error = null, result = null) {
-    if (!flow || flow.state !== 'pending') return false;
+    if (flow?.state !== 'pending') return false;
     flow.state = state;
     flow.error = error;
     flow.result = result;
@@ -88,7 +88,7 @@ export function createSessionOAuthFlowRegistry({ ttlMs = DEFAULT_FLOW_TTL_MS } =
     flow.timeout = setTimeout(
       () => {
         const current = flows.get(id);
-        if (!current || current.state !== 'pending') return;
+        if (current?.state !== 'pending') return;
         finishFlow(current, 'expired', 'OAuth login expired.');
         cancelFlow(current, 'expired');
       },
@@ -101,7 +101,7 @@ export function createSessionOAuthFlowRegistry({ ttlMs = DEFAULT_FLOW_TTL_MS } =
       void Promise.resolve(started.waitForCallback)
         .then((result) => {
           const current = flows.get(id);
-          if (!current || current.state !== 'pending') return;
+          if (current?.state !== 'pending') return;
           if (result) {
             finishFlow(current, 'complete', null, true);
           } else if (!current.completing) {
@@ -110,7 +110,7 @@ export function createSessionOAuthFlowRegistry({ ttlMs = DEFAULT_FLOW_TTL_MS } =
         })
         .catch((error) => {
           const current = flows.get(id);
-          if (!current || current.state !== 'pending' || current.completing) return;
+          if (current?.state !== 'pending' || current.completing) return;
           finishFlow(current, 'failed', error instanceof Error ? error.message : String(error));
         });
     }

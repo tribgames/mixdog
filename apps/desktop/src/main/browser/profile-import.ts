@@ -206,7 +206,7 @@ export async function prepareChromeForImport(
   const initialProcessIds = await browserProcessIds(tasklist, target.imageName);
   if (!initialProcessIds.length) return;
   const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const closeScript = String.raw`
+  const closeScript = `
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;
@@ -439,11 +439,10 @@ export class BrowserProfileImportService {
     ]);
     const passwordSupport = Boolean(passwordImporter && safeStorage.isEncryptionAvailable());
     const cookieSupport = Boolean(cookieImporter);
-    const passwordSupportReason = !passwordImporter
-      ? 'The native password importer is not installed in this build.'
-      : !safeStorage.isEncryptionAvailable()
-        ? 'Windows credential encryption is unavailable.'
-        : undefined;
+    let passwordSupportReason: string | undefined;
+    if (!passwordImporter) passwordSupportReason = 'The native password importer is not installed in this build.';
+    else if (!safeStorage.isEncryptionAvailable())
+      passwordSupportReason = 'Windows credential encryption is unavailable.';
     const cookieSupportReason = !cookieImporter
       ? 'The native cookie importer is not installed in this build.'
       : undefined;
@@ -626,12 +625,10 @@ export class BrowserProfileImportService {
       // and fail — which is why a combined import dropped only the second item.
       for (const item of items) {
         try {
-          const count =
-            item === 'cookies'
-              ? await this.importCookies(profile.id)
-              : item === 'history'
-                ? await this.importHistory(profile.id, request.jobId)
-                : await this.importPasswords(profile.id);
+          let count: number;
+          if (item === 'cookies') count = await this.importCookies(profile.id);
+          else if (item === 'history') count = await this.importHistory(profile.id, request.jobId);
+          else count = await this.importPasswords(profile.id);
           counts[item] = count;
           onProgress({ jobId: request.jobId, item, state: 'completed', count });
         } catch (error) {

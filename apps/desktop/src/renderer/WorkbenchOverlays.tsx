@@ -342,28 +342,17 @@ export function WorkbenchQuickAccess({
     onOpenFile(row.path, fileQuery.line);
   };
   const selected = rows[selectedIndex];
-  const listMessage = loading
-    ? t('Searching…')
-    : error ||
-      (commandMode
-        ? t('No commands match.')
-        : projectSymbolMode
-          ? activeDocument
-            ? t('No project symbols match.')
-            : t('Open a file to search project symbols.')
-          : symbolMode
-            ? activeDocument
-              ? t('No symbols match.')
-              : t('Open a file to go to a symbol.')
-            : lineMode
-              ? activeDocument
-                ? t('Type a line number.')
-                : t('Open a file to go to a line.')
-              : fileQuery.query
-                ? t('No files match.')
-                : projectPath
-                  ? t('No recently opened files.')
-                  : t('Open a project to search files.'));
+  const emptyListMessage = () => {
+    if (commandMode) return t('No commands match.');
+    if (projectSymbolMode) {
+      return activeDocument ? t('No project symbols match.') : t('Open a file to search project symbols.');
+    }
+    if (symbolMode) return activeDocument ? t('No symbols match.') : t('Open a file to go to a symbol.');
+    if (lineMode) return activeDocument ? t('Type a line number.') : t('Open a file to go to a line.');
+    if (fileQuery.query) return t('No files match.');
+    return projectPath ? t('No recently opened files.') : t('Open a project to search files.');
+  };
+  const listMessage = loading ? t('Searching…') : error || emptyListMessage();
 
   return createPortal(
     <div
@@ -418,93 +407,32 @@ export function WorkbenchQuickAccess({
           />
         </div>
         <div className="workbench-quick-results" role="listbox" aria-label={commandMode ? t('Commands') : t('Files')}>
-          {rows.length ? (
-            rows.map((row, index) => {
-              const active = index === selectedIndex;
-              if (row.kind === 'command') {
-                return (
-                  <button
-                    type="button"
-                    role="option"
-                    key={row.key}
-                    aria-selected={active}
-                    aria-disabled={row.command.enabled === false}
-                    className={active ? 'active' : ''}
-                    onMouseEnter={() => setSelectedIndex(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => runRow(row)}
-                  >
-                    <CommandIcon size={14} aria-hidden="true" />
-                    <span>
-                      <small>{row.command.category}</small>
-                      {row.command.label}
-                    </span>
-                    {row.command.shortcut && <kbd>{row.command.shortcut}</kbd>}
-                  </button>
-                );
-              }
-              if (row.kind === 'project-symbol') {
-                return (
-                  <button
-                    type="button"
-                    role="option"
-                    key={row.key}
-                    aria-selected={active}
-                    className={active ? 'active' : ''}
-                    onMouseEnter={() => setSelectedIndex(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => runRow(row)}
-                  >
-                    <Braces size={14} aria-hidden="true" />
-                    <span>
-                      <b>{row.name}</b>
-                      <small>{row.detail}</small>
-                    </span>
-                  </button>
-                );
-              }
-              if (row.kind === 'symbol') {
-                return (
-                  <button
-                    type="button"
-                    role="option"
-                    key={row.key}
-                    aria-selected={active}
-                    className={active ? 'active' : ''}
-                    onMouseEnter={() => setSelectedIndex(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => runRow(row)}
-                  >
-                    <Braces size={14} aria-hidden="true" />
-                    <span>
-                      <b>{row.item.name}</b>
-                      {row.item.detail && <small>{row.item.detail}</small>}
-                    </span>
-                    <kbd>{`Ln ${row.item.line}`}</kbd>
-                  </button>
-                );
-              }
-              if (row.kind === 'line') {
-                return (
-                  <button
-                    type="button"
-                    role="option"
-                    key={row.key}
-                    aria-selected={active}
-                    className={active ? 'active' : ''}
-                    onMouseEnter={() => setSelectedIndex(index)}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => runRow(row)}
-                  >
-                    <Search size={14} aria-hidden="true" />
-                    <span>{t('Go to line {{line}}', { line: row.line })}</span>
-                  </button>
-                );
-              }
-              const normalized = row.path.replace(/\\/g, '/');
-              const split = normalized.lastIndexOf('/');
-              const name = split >= 0 ? normalized.slice(split + 1) : normalized;
-              const parent = split >= 0 ? normalized.slice(0, split) : '';
+          {rows.length === 0 && <p role="status">{listMessage}</p>}
+          {rows.map((row, index) => {
+            const active = index === selectedIndex;
+            if (row.kind === 'command') {
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  key={row.key}
+                  aria-selected={active}
+                  aria-disabled={row.command.enabled === false}
+                  className={active ? 'active' : ''}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runRow(row)}
+                >
+                  <CommandIcon size={14} aria-hidden="true" />
+                  <span>
+                    <small>{row.command.category}</small>
+                    {row.command.label}
+                  </span>
+                  {row.command.shortcut && <kbd>{row.command.shortcut}</kbd>}
+                </button>
+              );
+            }
+            if (row.kind === 'project-symbol') {
               return (
                 <button
                   type="button"
@@ -516,17 +444,75 @@ export function WorkbenchQuickAccess({
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => runRow(row)}
                 >
-                  <FileText size={14} aria-hidden="true" />
+                  <Braces size={14} aria-hidden="true" />
                   <span>
-                    <b>{name}</b>
-                    {parent && <small>{parent}</small>}
+                    <b>{row.name}</b>
+                    <small>{row.detail}</small>
                   </span>
                 </button>
               );
-            })
-          ) : (
-            <p role="status">{listMessage}</p>
-          )}
+            }
+            if (row.kind === 'symbol') {
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  key={row.key}
+                  aria-selected={active}
+                  className={active ? 'active' : ''}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runRow(row)}
+                >
+                  <Braces size={14} aria-hidden="true" />
+                  <span>
+                    <b>{row.item.name}</b>
+                    {row.item.detail && <small>{row.item.detail}</small>}
+                  </span>
+                  <kbd>{`Ln ${row.item.line}`}</kbd>
+                </button>
+              );
+            }
+            if (row.kind === 'line') {
+              return (
+                <button
+                  type="button"
+                  role="option"
+                  key={row.key}
+                  aria-selected={active}
+                  className={active ? 'active' : ''}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => runRow(row)}
+                >
+                  <Search size={14} aria-hidden="true" />
+                  <span>{t('Go to line {{line}}', { line: row.line })}</span>
+                </button>
+              );
+            }
+            const normalized = row.path.replace(/\\/g, '/');
+            const split = normalized.lastIndexOf('/');
+            const name = split >= 0 ? normalized.slice(split + 1) : normalized;
+            const parent = split >= 0 ? normalized.slice(0, split) : '';
+            return (
+              <button
+                type="button"
+                role="option"
+                key={row.key}
+                aria-selected={active}
+                className={active ? 'active' : ''}
+                onMouseEnter={() => setSelectedIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => runRow(row)}
+              >
+                <FileText size={14} aria-hidden="true" />
+                <span>
+                  <b>{name}</b>
+                  {parent && <small>{parent}</small>}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </section>
     </div>,
@@ -582,13 +568,9 @@ export function UnsavedChangesDialog({
         return;
       }
       const current = controls.indexOf(document.activeElement as HTMLButtonElement);
-      const next = event.shiftKey
-        ? current <= 0
-          ? controls.length - 1
-          : current - 1
-        : current < 0 || current === controls.length - 1
-          ? 0
-          : current + 1;
+      let next: number;
+      if (event.shiftKey) next = current <= 0 ? controls.length - 1 : current - 1;
+      else next = current < 0 || current === controls.length - 1 ? 0 : current + 1;
       event.preventDefault();
       controls[next]?.focus();
     };

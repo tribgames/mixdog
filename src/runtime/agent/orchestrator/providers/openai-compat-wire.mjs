@@ -183,9 +183,10 @@ export function nativeResponsesTools(opts) {
 export function knownToolNamesFromOpenAITools(tools) {
   return new Set(
     (Array.isArray(tools) ? tools : [])
-      .map((t) =>
-        typeof t?.function?.name === 'string' ? t.function.name : typeof t?.name === 'string' ? t.name : null
-      )
+      .map((t) => {
+        if (typeof t?.function?.name === 'string') return t.function.name;
+        return typeof t?.name === 'string' ? t.name : null;
+      })
       .filter(Boolean)
   );
 }
@@ -318,7 +319,7 @@ export function collectCompatResponseSearchSources(response) {
   return { citations, webSearchCalls };
 }
 
-function toResponsesInputMessage(m, pendingToolMedia = null, customToolCallNameById = null) {
+function toResponsesInputMessage(m, pendingToolMedia = null, _customToolCallNameById = null) {
   if (m.role === 'tool') {
     const { output, mediaContent } = splitToolContentForXaiResponses(m.content);
     // xai path: never emit `custom_tool_call_output` (the `custom` variant
@@ -400,11 +401,11 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
   const input = [];
   const reasoningByMessageIndex = new Map();
   if (statelessContinuation) {
-    const history = Array.isArray(state?.encryptedReasoningHistory)
-      ? state.encryptedReasoningHistory
-      : Array.isArray(state?.encryptedReasoningItems)
-        ? [{ messageIndex: seen, items: state.encryptedReasoningItems }]
-        : [];
+    let history = [];
+    if (Array.isArray(state?.encryptedReasoningHistory)) history = state.encryptedReasoningHistory;
+    else if (Array.isArray(state?.encryptedReasoningItems)) {
+      history = [{ messageIndex: seen, items: state.encryptedReasoningItems }];
+    }
     for (const entry of history) {
       const index = Number(entry?.messageIndex);
       if (!Number.isInteger(index) || index < 0 || !Array.isArray(entry?.items)) continue;

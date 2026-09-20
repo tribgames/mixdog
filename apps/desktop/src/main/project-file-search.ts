@@ -75,7 +75,8 @@ export function ignoreRules(source: string, base: string): IgnoreRule[] {
 export function ignoredPath(path: string, directory: boolean, rules: readonly IgnoreRule[]): boolean {
   let ignored = false;
   for (const rule of rules) {
-    const candidate = rule.base ? (path.startsWith(`${rule.base}/`) ? path.slice(rule.base.length + 1) : null) : path;
+    let candidate: string | null = path;
+    if (rule.base) candidate = path.startsWith(`${rule.base}/`) ? path.slice(rule.base.length + 1) : null;
     if (candidate !== null && (!rule.directoryOnly || directory) && rule.matcher.test(candidate)) {
       ignored = rule.ignored;
     }

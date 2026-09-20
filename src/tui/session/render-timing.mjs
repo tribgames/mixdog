@@ -1,7 +1,6 @@
 /**
  * src/tui/session/render-timing.mjs - render-throttle timing helper.
  *
- * Extracted from session-local.mjs (no behavior change originally).
  *
  * Ink renders through a maxFps throttle (120fps in index.jsx, ≈8.3ms). A plain
  * setImmediate only yields to the event loop; if Ink already painted within the

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { DURATION_UNIT_MS } from './lib/parse-since.mjs';
 
 function argValue(name, fallback = null) {
   const idx = process.argv.indexOf(name);
@@ -24,7 +25,7 @@ function parseDuration(value, fallback = null) {
   if (!match) throw new Error(`invalid duration: ${raw}`);
   const n = Number(match[1]);
   const unit = match[2].toLowerCase();
-  const mult = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : 3_600_000;
+  const mult = DURATION_UNIT_MS[unit];
   return Math.max(1, Math.floor(n * mult));
 }
 

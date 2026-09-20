@@ -1,6 +1,6 @@
-import { join } from 'path';
-import { appendFileSync } from 'fs';
-import { appendFile } from 'fs/promises';
+import { join } from 'node:path';
+import { appendFileSync } from 'node:fs';
+import { appendFile } from 'node:fs/promises';
 import { DATA_DIR } from '../config.mjs';
 
 const WEBHOOK_LOG = join(DATA_DIR, 'webhook.log');

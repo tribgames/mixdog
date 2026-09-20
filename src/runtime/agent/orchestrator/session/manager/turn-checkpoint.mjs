@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from 'fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
 import {
   appendJournalLines,
@@ -198,10 +198,8 @@ export function recoverTurnCheckpoint(session) {
   });
   const current = Array.isArray(session.messages) ? session.messages : [];
   const start = findTurnStart(current, checkpoint.currentUserContent);
-  session.messages =
-    checkpoint.fullTranscript === true
-      ? finalized.messages
-      : [...(start >= 0 ? current.slice(0, start) : current), ...finalized.messages];
+  const kept = start >= 0 ? current.slice(0, start) : current;
+  session.messages = checkpoint.fullTranscript === true ? finalized.messages : [...kept, ...finalized.messages];
   // Re-anchor provider usage / post-compact replacement state to the exact
   // canonical checkpoint representation. If a legacy or corrupted checkpoint
   // cannot prove alignment, retain the last provider reading for display but

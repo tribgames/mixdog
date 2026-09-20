@@ -1,22 +1,15 @@
 /**
  * src/session-runtime/internal-tool-executor.mjs - name-dispatched executor
- * for the lead runtime's internal (non-MCP) tools: bridges, office/media,
- * setup, web search, memory, code graph, tool search, cwd, skills, goals,
- * agents, and channels.
+ * for the lead runtime's internal (non-MCP) tools. Handlers live by family in
+ * internal-tool-executor/*.mjs (bridges, features, knowledge, workspace); this
+ * applies the model-call feature guards, dispatches by name, and falls through
+ * to channel tools.
  */
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { executeBrowserTool } from '../runtime/browser-bridge/client.mjs';
-import { createBridgeFirstUseGate } from './bridge-first-use-gate.mjs';
-import { executeComputerTool } from '../runtime/computer-bridge/client.mjs';
-import { executeMediaTool } from '../runtime/media/tool.mjs';
-import { executeTidyTool } from '../runtime/tidy/tool.mjs';
-import { featureEnvOverride } from './config-helpers.mjs';
-import { refreshDeferredMcpToolCatalog, renderToolSearch } from './tool-catalog.mjs';
 import { clean } from './session-text.mjs';
-import { STANDALONE_DATA_DIR } from './runtime-paths.mjs';
-import { listProjects } from '../standalone/projects.mjs';
-import { dispatchWebSearchRuntimeTool, memoryToolArgsForCaller } from './runtime-tool-routing.mjs';
+import { createBridgeToolHandlers } from './internal-tool-executor/bridge-tools.mjs';
+import { createFeatureToolHandlers } from './internal-tool-executor/feature-tools.mjs';
+import { createKnowledgeToolHandlers } from './internal-tool-executor/knowledge-tools.mjs';
+import { createWorkspaceToolHandlers } from './internal-tool-executor/workspace-tools.mjs';
 
 export function createInternalToolExecutor({
   rt,
@@ -40,182 +33,40 @@ export function createInternalToolExecutor({
   applyResolvedCwd,
   skillToolContent,
 }) {
-  const bridgeFirstUseGate = createBridgeFirstUseGate({ getConfig: () => rt.config });
+  const handlers = {
+    ...createBridgeToolHandlers({ rt }),
+    ...createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, mediaToolEnabled, tidyToolEnabled }),
+    ...createKnowledgeToolHandlers({
+      rt,
+      getWebSearchModule,
+      getMemoryModule,
+      getCodeGraphModule,
+      notifyFnForSession,
+      runNativeWebSearch,
+      activeToolSurface,
+      mcpStatus,
+      skillToolContent,
+    }),
+    ...createWorkspaceToolHandlers({ rt, goalRuntime, agentTool, notifyFnForSession, applyResolvedCwd }),
+  };
+
+  // Settings-disabled features are refused for model-initiated calls before
+  // any handler runs; the tool list is refreshed by a new session.
+  const guardModelCall = (name) => {
+    if ((name === 'web_search' || name === 'web_fetch') && !webSearchEnabled()) {
+      throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
+    }
+    if ((name === 'memory' || name === 'recall') && !memoryToolsEnabled()) {
+      throw new Error(
+        'memory tools are disabled in settings; background memory and manual core memory remain available'
+      );
+    }
+  };
+
   return async (name, args, callerCtx = {}) => {
     const callerCwd = clean(callerCtx?.callerCwd) || rt.currentCwd;
-    // Browser Use and Computer Use ask the user once per session before their
-    // first live call; the answer is the tool result when it is no.
-    const firstUseDenial = async () => {
-      const denial = await bridgeFirstUseGate({
-        name,
-        args,
-        cwd: callerCwd,
-        sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
-        toolCallId: callerCtx?.toolCallId || null,
-        toolApprovalHook: callerCtx?.toolApprovalHook,
-        invocationSource: callerCtx?.invocationSource,
-      });
-      return denial ? { content: [{ type: 'text', text: denial }], isError: true } : null;
-    };
-    if (callerCtx?.invocationSource === 'model-tool') {
-      if ((name === 'web_search' || name === 'web_fetch') && !webSearchEnabled()) {
-        throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
-      }
-      if ((name === 'memory' || name === 'recall') && !memoryToolsEnabled()) {
-        throw new Error(
-          'memory tools are disabled in settings; background memory and manual core memory remain available'
-        );
-      }
-    }
-    // `browser` and `browser_devtools` are one bridge; the tool name only
-    // scopes which actions the validator admits.
-    if (name === 'browser' || name === 'browser_devtools') {
-      if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_BROWSER') === false) {
-        throw new Error('the browser tool is disabled in this environment');
-      }
-      const denied = await firstUseDenial();
-      if (denied) return denied;
-      return await executeBrowserTool(args, {
-        tool: name,
-        sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
-        turnId: callerCtx?.turnId || rt.session?.usageMetricsTurnId,
-        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
-      });
-    }
-    if (name === 'computer') {
-      if (callerCtx?.invocationSource === 'model-tool' && featureEnvOverride('MIXDOG_FEATURE_COMPUTER') === false) {
-        throw new Error('the computer tool is disabled in this environment');
-      }
-      const denied = await firstUseDenial();
-      if (denied) return denied;
-      return await executeComputerTool(args, {
-        sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
-        cwd: callerCwd,
-        requestApproval: callerCtx?.toolApprovalHook,
-        toolCallId: callerCtx?.toolCallId || null,
-        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
-      });
-    }
-    if (name === 'office') {
-      if (callerCtx?.invocationSource === 'model-tool' && !officeToolsEnabled()) {
-        throw new Error('office is disabled in settings; start a new session to refresh the tool list');
-      }
-      const { executeOfficeTool } = await import('../runtime/office/index.mjs');
-      return await executeOfficeTool(args, {
-        cwd: callerCwd,
-        dataDir: STANDALONE_DATA_DIR,
-        requestApproval: callerCtx?.toolApprovalHook,
-        sessionId: callerCtx?.sessionId,
-        toolCallId: callerCtx?.toolCallId,
-        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
-      });
-    }
-    if (name === 'media') {
-      if (callerCtx?.invocationSource === 'model-tool' && !mediaToolEnabled()) {
-        throw new Error('media is disabled in settings; start a new session to refresh the tool list');
-      }
-      return await executeMediaTool(args, {
-        cwd: callerCwd,
-        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
-      });
-    }
-    if (name === 'tidy') {
-      if (callerCtx?.invocationSource === 'model-tool' && !tidyToolEnabled()) {
-        throw new Error('tidy is disabled in settings; start a new session to refresh the tool list');
-      }
-      return await executeTidyTool(args, {
-        cwd: callerCwd,
-        sessionId: callerCtx?.sessionId || callerCtx?.callerSessionId || rt.session?.id,
-        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
-      });
-    }
-    if (name === 'setup') {
-      return await setupTool.execute(args || {}, {
-        signal: callerCtx?.signal || rt.session?.controller?.signal || null,
-      });
-    }
-    if (name === 'web_search' || name === 'web_fetch' || name === 'local_fetch' || name === 'image_fetch') {
-      return dispatchWebSearchRuntimeTool(name, args, callerCtx, {
-        getWebSearchModule,
-        getCurrentCwd: () => rt.currentCwd,
-        getSession: () => rt.session,
-        notifyFnForSession,
-        runNativeWebSearch,
-      });
-    }
-    if (name === 'recall' || name === 'memory' || name === 'search_memories') {
-      const memoryMod = await getMemoryModule();
-      if (!memoryMod?.handleToolCall) throw new Error('memory runtime is not available');
-      return await memoryMod.handleToolCall(
-        name,
-        memoryToolArgsForCaller(args, callerCwd),
-        callerCtx?.signal || rt.session?.controller?.signal || null
-      );
-    }
-    if (name === 'code_graph') {
-      const codeGraphMod = await getCodeGraphModule();
-      if (!codeGraphMod?.executeCodeGraphTool) throw new Error('code_graph runtime is not available');
-      return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
-    }
-    if (name === 'tool_search' || name === 'load_tool') {
-      const surface = activeToolSurface();
-      refreshDeferredMcpToolCatalog(surface, rt.config);
-      return renderToolSearch(args, surface, rt.mode, { mcpStatus });
-    }
-    if (name === 'cwd') {
-      const action = clean(args?.action || (args?.path ? 'set' : 'get')).toLowerCase();
-      let currentCwd = callerCwd;
-      if (action === 'list') {
-        return JSON.stringify(
-          {
-            cwd: currentCwd,
-            projects: listProjects().map((project) => ({ name: project.name, path: project.path })),
-          },
-          null,
-          2
-        );
-      }
-      if (action === 'set') {
-        const rawPath = clean(args?.path);
-        if (!rawPath) throw new Error('cwd: path is required for action=set');
-        const nextCwd = resolve(callerCwd || process.cwd(), rawPath);
-        const stat = statSync(nextCwd);
-        if (!stat.isDirectory()) throw new Error(`cwd: not a directory: ${nextCwd}`);
-        currentCwd =
-          typeof callerCtx?.setCallerCwd === 'function'
-            ? clean(await callerCtx.setCallerCwd(nextCwd)) || nextCwd
-            : applyResolvedCwd(nextCwd, { persistProjectSelection: true });
-      } else if (action !== 'get') {
-        throw new Error(`cwd: unknown action "${action}"`);
-      }
-      return JSON.stringify(
-        {
-          cwd: currentCwd,
-          sessionId: callerCtx?.callerSessionId || rt.session?.id || null,
-        },
-        null,
-        2
-      );
-    }
-    if (name === 'Skill') {
-      return skillToolContent(args?.name, activeToolSurface(), rt.mode);
-    }
-    if (name === 'goal') {
-      return await goalRuntime.executeTool(name, args || {}, {
-        callerSessionId: callerCtx?.callerSessionId || rt.session?.id || rt.reservedSessionId || null,
-      });
-    }
-    if (name === 'agent') {
-      const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
-      return await agentTool.execute(args, {
-        callerCwd,
-        invocationSource: 'model-tool',
-        callerSessionId,
-        clientHostPid: callerCtx?.clientHostPid || rt.session?.clientHostPid || process.pid,
-        signal: callerCtx?.signal,
-        notifyFn: notifyFnForSession(callerSessionId),
-      });
-    }
+    if (callerCtx?.invocationSource === 'model-tool') guardModelCall(name);
+    if (Object.hasOwn(handlers, name)) return handlers[name](args, { name, callerCtx, callerCwd });
     if (channels.isChannelTool(name)) {
       if (!channelsEnabled()) throw new Error('channels are disabled in settings');
       return await channels.execute(name, args || {});

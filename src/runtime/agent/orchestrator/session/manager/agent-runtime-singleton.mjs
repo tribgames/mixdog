@@ -1,5 +1,5 @@
 // manager/agent-runtime-singleton.mjs
-// Agent Runtime injection singleton extracted from manager.mjs. Injected via
+// Agent Runtime injection singleton. Injected via
 // setAgentRuntime() during plugin init; read by createSession/resumeSession
 // and askSession's cache-stat recorder.
 //

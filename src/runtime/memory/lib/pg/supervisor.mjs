@@ -176,7 +176,7 @@ function rotateLogIfNeeded(logPath) {
   try {
     const st = statSync(logPath);
     if (st.size > PG_LOG_MAX_BYTES) {
-      const archive = logPath + '.1';
+      const archive = `${logPath}.1`;
       try {
         unlinkSync(archive);
       } catch {}

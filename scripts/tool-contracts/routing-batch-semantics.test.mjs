@@ -14,7 +14,7 @@ function fixture(files) {
 
 test('one read array preserves separate windows of the same file and other files', async () => {
   const cwd = fixture({
-    'alpha.txt': Array.from({ length: 10 }, (_, i) => `ALPHA_${i + 1}`).join('\n') + '\n',
+    'alpha.txt': `${Array.from({ length: 10 }, (_, i) => `ALPHA_${i + 1}`).join('\n')}\n`,
     'beta.txt': 'BETA_1\nBETA_2\n',
   });
   const args = {

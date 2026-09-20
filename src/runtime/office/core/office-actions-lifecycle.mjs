@@ -1,75 +1,15 @@
-import { callMicrosoftOffice, closeMicrosoftOfficeSession } from '../com/com-adapter.mjs';
+// Session lifecycle actions: save, close, and finalize — the gated pipeline
+// recalculate → review → hold checks → save → validate → close (see
+// office-finalize/*.mjs for each stage).
 import { recalculateForReview } from './office-recalculation.mjs';
-import { summarizeOfficeCompositions } from '../design/composition-system.mjs';
-import { recordOfficeCompositionHistory } from '../design/library/design-library.mjs';
-import { documentSessionKey, documentSessions, isMicrosoftOfficeSession, sessions } from './office-core.mjs';
-import { pptxVisualReviewAcknowledged, reviewPptxVisualCritique } from '../quality/design-review-critique.mjs';
-import { assessPresentationAcceptance } from '../quality/presentation-acceptance.mjs';
-import { assessDocumentAcceptance, reviewDocumentPages } from '../quality/document-acceptance.mjs';
-import { validate } from './office-actions-inspect.mjs';
-import { qa } from './office-actions-render.mjs';
+import { reviewForFinalize } from './office-finalize/review-stage.mjs';
+import { finalizeHold, reviewHold } from './office-finalize/holds.mjs';
+import { closeForFinalize, saveForFinalize, validateForFinalize } from './office-finalize/commit-stage.mjs';
 
-// A script-authored deck is judged by the model looking at rendered slides;
-// the heuristic design reviews still report, but only file integrity and
-// missing review coverage can hold the deck back.
-const AUTHORED_ADVISORY_SOURCES = new Set([
-  'design-review',
-  'aesthetic-review',
-  'frontier-design-review',
-  'text-metrics',
-]);
+export { closeSession, save } from './office-finalize/session-save.mjs';
 
-function blocksFinalize(issue, { failOn, authored }) {
-  if (authored && AUTHORED_ADVISORY_SOURCES.has(String(issue?.source || ''))) return false;
-  return issue?.severity === 'error' || (failOn === 'warning' && issue?.severity === 'warning');
-}
-
-export async function save(session) {
-  if (session.transaction) throw new Error('Commit or roll back the active Office transaction before saving');
-  if (isMicrosoftOfficeSession(session)) {
-    const result = await callMicrosoftOffice(
-      {
-        action: 'save',
-        session: session.id,
-        format: session.format,
-        mode: session.mode,
-        path: session.target,
-      },
-      { signal: session.activeSignal || null }
-    );
-    if (!result.ok) throw new Error(result.error || 'Microsoft Office save failed');
-  }
-  return { ok: true, session: session.id, saved: true, path: session.target };
-}
-
-export async function closeSession(session, { save: shouldSave = false, signal = null } = {}) {
-  if (session.transaction) throw new Error('Commit or roll back the active Office transaction before closing');
-  let cleanup = null;
-  if (isMicrosoftOfficeSession(session)) {
-    const closed = await closeMicrosoftOfficeSession(session.id, { save: shouldSave, signal });
-    if (!closed.ok) throw new Error(closed.error || 'Microsoft Office session close failed');
-    cleanup = closed.cleanup || null;
-  } else if (shouldSave) {
-    await save(session);
-  }
-  sessions.delete(session.id);
-  if (documentSessions.get(documentSessionKey(session.target)) === session.id) {
-    documentSessions.delete(documentSessionKey(session.target));
-  }
-  return {
-    ok: true,
-    session: session.id,
-    closed: true,
-    path: session.target,
-    ownership: session.ownership,
-    ...(cleanup ? { cleanup } : {}),
-  };
-}
-
-export async function finalize(session, args, cwd, signal) {
-  if (session.transaction) throw new Error('Commit or roll back the active Office transaction before finalizing');
-  const stepMetrics = {};
-  const timedStep = async (name, operation) => {
+function createStepTimer(stepMetrics) {
+  return async (name, operation) => {
     const startedAt = performance.now();
     try {
       return await operation();
@@ -77,202 +17,48 @@ export async function finalize(session, args, cwd, signal) {
       stepMetrics[`${name}Ms`] = Math.max(0, Number((performance.now() - startedAt).toFixed(2)));
     }
   };
+}
+
+export async function finalize(session, args, cwd, signal) {
+  if (session.transaction) throw new Error('Commit or roll back the active Office transaction before finalizing');
+  const stepMetrics = {};
+  const timedStep = createStepTimer(stepMetrics);
   const authored = session.authored === true || session.design?.authoring === 'native';
   const failOn = String(args.failOn || (session.created && !authored ? 'warning' : 'error')).toLowerCase();
-  const requiresVisualReview = session.format === 'pptx' && session.designState?.requiresVisualReview === true;
-  const recalculation = await timedStep('recalculation', () => recalculateForReview(session, signal));
+  const context = {
+    session,
+    failOn,
+    stepMetrics,
+    requiresVisualReview: session.format === 'pptx' && session.designState?.requiresVisualReview === true,
+    recalculation: await timedStep('recalculation', () => recalculateForReview(session, signal)),
+  };
+  const { recalculation } = context;
   if (recalculation?.needed && !recalculation.recalculated) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'recalculation_failed',
-      failOn,
-      recalculation,
-      stepMetrics,
+    return finalizeHold(context, 'recalculation_failed', {
       nextAction: recalculation.reason || 'Open the workbook in Microsoft Office background mode and finalize again.',
-    };
+    });
   }
-  const reviewed =
-    args.review === false
-      ? null
-      : await timedStep('review', async () => await qa(session, args, cwd, { reuseRender: true }));
-  const reviewImages = Array.isArray(reviewed?._images) ? reviewed._images : [];
-  const review = reviewed ? { ...reviewed } : null;
-  const visualCritique =
-    session.format === 'pptx'
-      ? reviewPptxVisualCritique({
-          critique: args.design?.critique,
-          pageCount: Number(review?.preview?.pageCount || session.designState?.renderedPageCount || 0),
-          requireChecks: session.authoredBrief?.present === true,
-        })
-      : null;
-  if (review && visualCritique) review.visualCritique = visualCritique;
-  const reviewToken = session.designState?.reviewToken || '';
-  const visualReviewAcknowledged = pptxVisualReviewAcknowledged({
-    reviewed: args.design?.reviewed === true,
-    providedToken: args.design?.reviewToken,
-    expectedToken: reviewToken,
-    renderedVersion: session.designState?.renderedVersion,
-    snapshotVersion: session.snapshotVersion,
-    coverageComplete: session.designState?.renderedCoverage?.complete === true,
-    critiqueOk: visualCritique?.ok === true,
-  });
-  if (session.format === 'pptx' && review?.review?.quality) {
-    const quality = review.review.quality;
-    Object.assign(
-      quality,
-      assessPresentationAcceptance(quality.evidence, {
-        acknowledged: visualReviewAcknowledged,
-        critique: visualCritique,
-      })
-    );
-  }
-  const documentVisualReview = reviewDocumentPages(session.format, args.design, {
-    ...session.designState,
-    snapshotVersion: session.snapshotVersion,
-  });
-  if (documentVisualReview && review) {
-    review.visualReview = documentVisualReview;
-    if (review.review?.quality) {
-      Object.assign(
-        review.review.quality,
-        assessDocumentAcceptance(review.review.quality.evidence, documentVisualReview)
-      );
-    }
-  }
-  if (review) delete review._images;
-  const issuesAfter = review?.issuesAfter || [];
-  const blockingIssues = issuesAfter.filter((issue) => blocksFinalize(issue, { failOn, authored }));
-  const advisoryIssues = authored
-    ? issuesAfter.filter(
-        (issue) => !blockingIssues.includes(issue) && ['error', 'warning'].includes(String(issue?.severity || ''))
-      )
-    : [];
-  if (review && authored) review.advisoryIssues = advisoryIssues;
-  if (blockingIssues.length) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'review_issues',
-      failOn,
-      blockingIssues,
-      recalculation,
-      review,
-      stepMetrics,
-      nextAction: 'Fix the reported issues with one batch, then call finalize again.',
-      _images: reviewImages,
-    };
-  }
-  // Zero formula errors is a hard rule: a recalculation that found any holds
-  // the workbook even when the review was skipped.
-  if (Number(recalculation?.totalErrors || 0) > 0) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'formula_errors',
-      failOn,
-      recalculation,
-      review,
-      stepMetrics,
-      nextAction:
-        'Recalculation found formula errors; recalculation.errorSummary lists the cells by error type. Trace each to its inputs, fix the formula, then finalize again.',
-      _images: reviewImages,
-    };
-  }
-  if (requiresVisualReview && !visualReviewAcknowledged) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'visual_review_required',
-      failOn,
-      recalculation,
-      review,
-      stepMetrics,
-      reviewToken,
-      visualCritique,
-      nextAction:
-        'Inspect every rendered slide and submit one distinct critique per slide with verdict, hierarchy, balance, legibility, cohesion, evidence, note, and fixes. Polish any failed slide, render again if changed, then finalize with the review token.',
-      _images: reviewImages,
-    };
-  }
-  if (documentVisualReview && args.review !== false && !documentVisualReview.acknowledged) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'visual_review_required',
-      failOn,
-      recalculation,
-      review,
-      stepMetrics,
-      reviewToken,
-      visualReview: documentVisualReview,
-      nextAction: `${documentVisualReview.blockers?.length ? `Review not accepted — ${documentVisualReview.blockers.join(' · ')}. ` : ''}Inspect the actual pages for ${documentVisualReview.checks.join(', ')}. Record specific keep/fix observations, not checkbox assertions. Correct material issues and rerender. Then submit design.reviewed:true, design.reviewToken and design.critique with one {page, verdict:'pass', note} per page; unresolved fixes cannot be accepted. This records agent review, not user approval.`,
-      _images: reviewImages,
-    };
-  }
-  const saved = await timedStep('save', async () => {
-    const reuseSavedBatch = args.__alreadySaved === true && Number(reviewed?.fixesApplied || 0) === 0;
-    if (reuseSavedBatch) {
-      return {
-        ok: true,
-        session: session.id,
-        saved: true,
-        skipped: true,
-        path: session.target,
-      };
-    }
-    return save(session);
-  });
-  const validation = await timedStep(
-    'validation',
-    async () =>
-      await validate(session, {
-        ...args,
-        __postSave: isMicrosoftOfficeSession(session) && session.mode === 'background',
-        __skipNative: false,
-        __skipNativeIssues: false,
-      })
-  );
+  const stage = await reviewForFinalize(session, args, cwd, { timedStep, failOn, authored });
+  const { review, reviewImages } = stage;
+  const hold = reviewHold(context, args, stage);
+  if (hold) return hold;
+
+  const saved = await timedStep('save', async () => saveForFinalize(session, args, stage.reviewed));
+  const validation = await timedStep('validation', async () => await validateForFinalize(session, args));
   if (!validation.ok) {
-    return {
-      ok: false,
-      finalized: false,
-      session: session.id,
-      reason: 'validation_failed',
-      failOn,
-      recalculation,
+    return finalizeHold(context, 'validation_failed', {
       review,
       validation,
       design: session.design,
-      stepMetrics,
       nextAction: 'Fix the validation failure, then call finalize again.',
       _images: reviewImages,
-    };
+    });
   }
-  const composition = summarizeOfficeCompositions(session.format, session.designState?.compositions || []);
-  const closed = await timedStep('close', async () => await closeSession(session, { save: false, signal }));
-  let compositionHistory = null;
-  let compositionHistoryWarning = '';
-  if (session.created && composition.fingerprint) {
-    try {
-      compositionHistory = await recordOfficeCompositionHistory(session.dataDir, {
-        documentPath: session.target,
-        format: session.format,
-        profile: session.design?.profile,
-        purpose: session.design?.purpose,
-        expressionMode: session.design?.expressionMode,
-        fingerprint: composition.fingerprint,
-        compositionIds: composition.compositionIds,
-      });
-    } catch (error) {
-      compositionHistoryWarning = error?.message || String(error);
-    }
-  }
+  const { composition, closed, compositionHistory, compositionHistoryWarning } = await closeForFinalize(
+    session,
+    signal,
+    { timedStep }
+  );
   return {
     ok: true,
     finalized: true,

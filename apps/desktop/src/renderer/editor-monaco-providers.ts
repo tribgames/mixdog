@@ -54,6 +54,45 @@ export interface EditorGraphContextRef {
 }
 
 export const graphContextsByModel = new Map<string, EditorGraphContextRef>();
+
+function signatureParameterLabel(rawLabel: unknown): string | [number, number] | null {
+  if (typeof rawLabel === 'string') return rawLabel;
+  if (Array.isArray(rawLabel) && rawLabel.length === 2) return [Number(rawLabel[0]), Number(rawLabel[1])];
+  return null;
+}
+
+function lspDiagnosticSeverity(severity: number) {
+  if (severity >= monaco.MarkerSeverity.Error) return 1;
+  if (severity >= monaco.MarkerSeverity.Warning) return 2;
+  return 3;
+}
+
+function inlayHintLabel(rawLabel: unknown, modelUri: string) {
+  if (typeof rawLabel === 'string') return rawLabel;
+  if (!Array.isArray(rawLabel)) return '';
+  return rawLabel.flatMap((item) => {
+    const part = recordOf(item);
+    if (!part || typeof part.value !== 'string') return [];
+    const location = recordOf(part.location);
+    const locationContext = graphContextsByModel.get(modelUri)?.current;
+    const locations = locationContext && location ? lspLocations(location, locationContext) : [];
+    return [
+      {
+        label: part.value,
+        tooltip: markupText(part.tooltip) || undefined,
+        command: lspCommand(part.command, modelUri),
+        location: locations[0],
+      },
+    ];
+  });
+}
+
+function inlayHintKind(value: unknown) {
+  const kind = Number(value);
+  if (kind === 1) return monaco.languages.InlayHintKind.Type;
+  if (kind === 2) return monaco.languages.InlayHintKind.Parameter;
+  return undefined;
+}
 export const graphContextsByEditor = new WeakMap<import('monaco-editor').editor.ICodeEditor, EditorGraphContextRef>();
 const graphProviderLanguages = new Set<string>();
 export const lspReadyLanguages = new Set<string>();
@@ -183,13 +222,7 @@ function signatureHelpFromLsp(value: unknown): import('monaco-editor').languages
     if (!signature || typeof signature.label !== 'string') return [];
     const parameters = (Array.isArray(signature.parameters) ? signature.parameters : []).flatMap((parameter) => {
       const row = recordOf(parameter);
-      const rawLabel = row?.label;
-      const label =
-        typeof rawLabel === 'string'
-          ? rawLabel
-          : Array.isArray(rawLabel) && rawLabel.length === 2
-            ? ([Number(rawLabel[0]), Number(rawLabel[1])] as [number, number])
-            : null;
+      const label = signatureParameterLabel(row?.label);
       if (label === null) return [];
       return [
         {
@@ -675,7 +708,8 @@ export function ensureGraphProviders(languageId: string): void {
             context: { triggerKind: 1 },
           });
           const record = recordOf(result);
-          const items = Array.isArray(result) ? result : Array.isArray(record?.items) ? record.items : [];
+          const listItems = Array.isArray(record?.items) ? record.items : [];
+          const items = Array.isArray(result) ? result : listItems;
           const word = model.getWordUntilPosition(position);
           const fallbackRange = new monaco.Range(
             position.lineNumber,
@@ -936,12 +970,7 @@ export function ensureGraphProviders(languageId: string): void {
                   start: { line: marker.startLineNumber - 1, character: marker.startColumn - 1 },
                   end: { line: marker.endLineNumber - 1, character: marker.endColumn - 1 },
                 },
-                severity:
-                  marker.severity >= monaco.MarkerSeverity.Error
-                    ? 1
-                    : marker.severity >= monaco.MarkerSeverity.Warning
-                      ? 2
-                      : 3,
+                severity: lspDiagnosticSeverity(marker.severity),
                 message: marker.message,
                 ...(marker.source ? { source: marker.source } : {}),
                 ...(code !== undefined ? { code } : {}),
@@ -1134,16 +1163,10 @@ export function ensureGraphProviders(languageId: string): void {
             const row = recordOf(item);
             const start = Number(row?.startLine);
             const end = Number(row?.endLine);
-            return Number.isFinite(start) && Number.isFinite(end) && end > start
-              ? [
-                  {
-                    start: start + 1,
-                    end: end + 1,
-                    kind:
-                      typeof row?.kind === 'string' ? monaco.languages.FoldingRangeKind.fromValue(row.kind) : undefined,
-                  },
-                ]
-              : [];
+            if (!(Number.isFinite(start) && Number.isFinite(end) && end > start)) return [];
+            const kind =
+              typeof row?.kind === 'string' ? monaco.languages.FoldingRangeKind.fromValue(row.kind) : undefined;
+            return [{ start: start + 1, end: end + 1, kind }];
           });
         },
       });
@@ -1245,37 +1268,12 @@ export function ensureGraphProviders(languageId: string): void {
       ): import('monaco-editor').languages.InlayHint | null => {
         const position = monacoPosition(raw.position);
         if (!position) return null;
-        const rawLabel = raw.label;
-        const label =
-          typeof rawLabel === 'string'
-            ? rawLabel
-            : Array.isArray(rawLabel)
-              ? rawLabel.flatMap((item) => {
-                  const part = recordOf(item);
-                  if (!part || typeof part.value !== 'string') return [];
-                  const location = recordOf(part.location);
-                  const locationContext = graphContextsByModel.get(modelUri)?.current;
-                  const locations = locationContext && location ? lspLocations(location, locationContext) : [];
-                  return [
-                    {
-                      label: part.value,
-                      tooltip: markupText(part.tooltip) || undefined,
-                      command: lspCommand(part.command, modelUri),
-                      location: locations[0],
-                    },
-                  ];
-                })
-              : '';
+        const label = inlayHintLabel(raw.label, modelUri);
         if (!label || (Array.isArray(label) && !label.length)) return null;
         const hint: import('monaco-editor').languages.InlayHint = {
           label,
           position,
-          kind:
-            Number(raw.kind) === 1
-              ? monaco.languages.InlayHintKind.Type
-              : Number(raw.kind) === 2
-                ? monaco.languages.InlayHintKind.Parameter
-                : undefined,
+          kind: inlayHintKind(raw.kind),
           tooltip: markupText(raw.tooltip) || undefined,
           textEdits: lspTextEdits(raw.textEdits),
           paddingLeft: raw.paddingLeft === true,
@@ -1371,11 +1369,11 @@ export function ensureGraphProviders(languageId: string): void {
         }
         const rel = target.slice(root.length).replace(/^\/+/, '');
         if (!rel) return false;
-        const line = selectionOrPosition
-          ? 'lineNumber' in selectionOrPosition
-            ? selectionOrPosition.lineNumber
-            : selectionOrPosition.startLineNumber
-          : 1;
+        let line = 1;
+        if (selectionOrPosition) {
+          line =
+            'lineNumber' in selectionOrPosition ? selectionOrPosition.lineNumber : selectionOrPosition.startLineNumber;
+        }
         context.onOpenAt(rel, line);
         return true;
       },

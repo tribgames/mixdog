@@ -99,8 +99,18 @@ function aggregateCallEntry(callKey, name, args, category) {
 // appendItems, patchItem, itemIndexById, markToolCallActive, markToolCallDone,
 // flushToolResults.
 export function createTurnToolCards(deps) {
-  const { isCurrentTurn, flags, pushItem, appendItems, getState, set, itemIndexById, nextId, patchItem, markToolCallDone } =
-    deps;
+  const {
+    isCurrentTurn,
+    flags,
+    pushItem,
+    appendItems,
+    getState,
+    set,
+    itemIndexById,
+    nextId,
+    patchItem,
+    markToolCallDone,
+  } = deps;
   const cards = {
     ...deps,
     cardByCallId: new Map(),
@@ -120,7 +130,15 @@ export function createTurnToolCards(deps) {
   };
   // Cards enter the transcript in call order once their headers are ready
   // (see turn-deferred-cards.mjs).
-  cards.deferredCards = createDeferredCardRegistry({ isCurrentTurn, flags, pushItem, appendItems, getState, set, itemIndexById });
+  cards.deferredCards = createDeferredCardRegistry({
+    isCurrentTurn,
+    flags,
+    pushItem,
+    appendItems,
+    getState,
+    set,
+    itemIndexById,
+  });
   // Consecutive same-bucket calls merge into one aggregate card (see
   // turn-aggregate-cards.mjs).
   cards.aggregates = createAggregateCardTracker({

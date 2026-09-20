@@ -1,7 +1,9 @@
 import type { TranscriptItem } from './desktop-types';
 
-const itemText = (item: TranscriptItem): string =>
-  typeof item.text === 'string' ? item.text : item.text == null ? '' : String(item.text);
+const itemText = (item: TranscriptItem): string => {
+  if (typeof item.text === 'string') return item.text;
+  return item.text == null ? '' : String(item.text);
+};
 
 export const hasOwnId = (item: TranscriptItem): boolean => item.id !== undefined && item.id !== null;
 export const sameRowId = (a: TranscriptItem, b: TranscriptItem): boolean =>

@@ -107,18 +107,16 @@ export function LiveWorkIndicator({
     stop?: { kind: 'agent' | 'shell'; id: string };
   }[] = [];
   for (const agent of agents) {
+    // A cancel that could not be confirmed keeps its row — the process may
+    // still be alive — but it says so instead of borrowing the work timer.
+    let detail = elapsed(agent.turnStartedAt || agent.startedAt) || agent.status;
+    if (agent.state === 'cancel-unconfirmed') detail = t('Cancel unconfirmed');
+    else if (agent.queued) detail = t('Queued');
     rows.push({
       key: agent.key,
       kind: 'agent',
       label: agent.role,
-      // A cancel that could not be confirmed keeps its row — the process may
-      // still be alive — but it says so instead of borrowing the work timer.
-      detail:
-        agent.state === 'cancel-unconfirmed'
-          ? t('Cancel unconfirmed')
-          : agent.queued
-            ? t('Queued')
-            : elapsed(agent.turnStartedAt || agent.startedAt) || agent.status,
+      detail,
       ...(agent.state === 'cancel-unconfirmed'
         ? { title: t('Cancel was delivered, but the process could not be confirmed stopped.') }
         : {}),

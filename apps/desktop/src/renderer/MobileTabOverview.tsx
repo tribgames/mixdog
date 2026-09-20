@@ -220,11 +220,8 @@ export function MobileTabOverview({
                     <b>{tab.title || t('New task')}</b>
                   </span>
                   <p className="mobile-tab-card-preview">{text}</p>
-                  {working ? (
-                    <span className="mobile-tab-card-state is-working">{t('Working…')}</span>
-                  ) : unread ? (
-                    <span className="mobile-tab-card-state is-unread">{t('Updated')}</span>
-                  ) : null}
+                  {working && <span className="mobile-tab-card-state is-working">{t('Working…')}</span>}
+                  {!working && unread && <span className="mobile-tab-card-state is-unread">{t('Updated')}</span>}
                 </button>
                 {/* Sibling, not a nested button: the close target owns the
                   trailing corner at a full 44dp while its glyph stays small. */}

@@ -1,4 +1,4 @@
-import { isConversationUsageSource } from '../runtime/shared/llm/usage-rollup.mjs';
+import { isConversationUsageSource, knownCostTurns } from '../runtime/shared/llm/usage-rollup.mjs';
 
 const HOUR_MS = 60 * 60 * 1000;
 const amount = (value) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : 0);
@@ -74,11 +74,7 @@ export function hourlySeries(records, period, conversationOnly = false) {
         amount(usage.input) + amount(usage.output) + amount(usage.cacheRead) + amount(usage.cacheWrite),
         amount(usage.costUsd),
         amount(usage.unmeasuredTurns),
-        usage.costKnownTurns == null
-          ? amount(usage.costUsd) > 0
-            ? amount(usage.turns)
-            : 0
-          : amount(usage.costKnownTurns)
+        knownCostTurns(usage, amount)
       );
   }
   if (unknown.turns || unknown.tokens || unknown.costUsd) buckets.push(unknown);

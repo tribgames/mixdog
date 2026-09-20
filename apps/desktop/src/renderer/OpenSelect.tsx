@@ -275,12 +275,9 @@ export function OpenSelect({
   const moveActive = (direction: 1 | -1, boundary?: 'first' | 'last') => {
     if (!enabledIndexes.length) return;
     const currentIndex = enabledIndexes.indexOf(active);
-    const next =
-      boundary === 'first'
-        ? enabledIndexes[0]
-        : boundary === 'last'
-          ? enabledIndexes.at(-1)!
-          : enabledIndexes[(Math.max(0, currentIndex) + direction + enabledIndexes.length) % enabledIndexes.length];
+    let next = enabledIndexes[(Math.max(0, currentIndex) + direction + enabledIndexes.length) % enabledIndexes.length];
+    if (boundary === 'first') next = enabledIndexes[0];
+    else if (boundary === 'last') next = enabledIndexes[enabledIndexes.length - 1];
     setActive(next);
     queueMicrotask(() => {
       const item = menu.current?.querySelectorAll<HTMLElement>('.mx-menu-item')[next];
@@ -299,7 +296,8 @@ export function OpenSelect({
     ).filter((element) => !menu.current?.contains(element) && element.getClientRects().length > 0);
     const index = focusable.indexOf(trigger.current!);
     const offset = backward ? -1 : 1;
-    const origin = index >= 0 ? index : backward ? 0 : -1;
+    let origin = backward ? 0 : -1;
+    if (index >= 0) origin = index;
     const next = focusable.length
       ? focusable[(origin + offset + focusable.length) % focusable.length]
       : trigger.current;
@@ -356,11 +354,18 @@ export function OpenSelect({
     else moveActive(event.key === 'ArrowDown' ? 1 : -1);
   };
 
+  let triggerStyle = 'default';
+  if (routeStyle) triggerStyle = 'route';
+  else if (settingsStyle) triggerStyle = 'settings';
+  let chevron = <MxIcon name="chevron-down" size={16} />;
+  if (routeStyle) chevron = <MxIcon name="chevron-down" size={14} />;
+  else if (settingsStyle) chevron = <MxIcon name="chevron-grabber-vertical" size={14} />;
+
   return (
     <div
       ref={root}
       className={`mx-select-root ${routeStyle ? 'route-select' : ''} ${className}`.trim()}
-      data-trigger-style={routeStyle ? 'route' : settingsStyle ? 'settings' : 'default'}
+      data-trigger-style={triggerStyle}
     >
       {name && <input type="hidden" name={name} value={current} required={required} />}
       <button
@@ -396,13 +401,7 @@ export function OpenSelect({
         <span className="mx-select-value" data-i18n-skip={skipI18n}>
           {shownLabel(triggerLabel)}
         </span>
-        {routeStyle ? (
-          <MxIcon name="chevron-down" size={14} />
-        ) : settingsStyle ? (
-          <MxIcon name="chevron-grabber-vertical" size={14} />
-        ) : (
-          <MxIcon name="chevron-down" size={16} />
-        )}
+        {chevron}
       </button>
       {menuOpen &&
         createPortal(
@@ -411,7 +410,7 @@ export function OpenSelect({
             id={listboxId}
             className="mx-menu"
             role="listbox"
-            data-trigger-style={routeStyle ? 'route' : settingsStyle ? 'settings' : 'default'}
+            data-trigger-style={triggerStyle}
             data-i18n-skip={skipI18n}
             aria-label={ariaLabel}
             style={position}

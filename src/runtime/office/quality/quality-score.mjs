@@ -47,8 +47,8 @@ export function scoreOfficeReleaseQuality({
   );
   const structuralScore = clamp(1 - structuralPenalty);
   const score = aesthetics ? renderScore * 0.72 + structuralScore * 0.28 : structuralScore * 0.55;
-  const pageCoverage =
-    expectedPages > 0 ? clamp(Number(renderedPages) / Number(expectedPages)) : renderedPages > 0 ? 1 : 0;
+  let pageCoverage = renderedPages > 0 ? 1 : 0;
+  if (expectedPages > 0) pageCoverage = clamp(Number(renderedPages) / Number(expectedPages));
   const normalizedFormat = String(format || '').toLowerCase();
   const normalizedPlanCoverage = normalizedFormat === 'pptx' ? clamp(planCoverage) : 1;
   const confidence =
@@ -76,9 +76,7 @@ export function scoreOfficeReleaseQuality({
   };
   // Preserve diagnostic scores for comparison, but never present pixel statistics
   // as an aesthetic verdict. Finalize supplies the independently checked review.
-  return normalizedFormat === 'pptx'
-    ? { ...quality, ...assessPresentationAcceptance(quality.evidence) }
-    : DOCUMENT_VISUAL_CHECKS[normalizedFormat]
-      ? { ...quality, ...assessDocumentAcceptance(quality.evidence) }
-      : quality;
+  if (normalizedFormat === 'pptx') return { ...quality, ...assessPresentationAcceptance(quality.evidence) };
+  if (DOCUMENT_VISUAL_CHECKS[normalizedFormat]) return { ...quality, ...assessDocumentAcceptance(quality.evidence) };
+  return quality;
 }

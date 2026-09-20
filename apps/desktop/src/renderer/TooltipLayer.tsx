@@ -27,6 +27,7 @@ function tooltipParts(text: string) {
 }
 
 type TooltipSide = 'top' | 'bottom' | 'left' | 'right';
+const OPPOSITE_SIDE: Record<TooltipSide, TooltipSide> = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
 
 interface TooltipPosition {
   left: number;
@@ -96,26 +97,18 @@ export function TooltipLayer() {
     };
     let side: TooltipSide =
       tooltip.preferredSide || (room.bottom >= height || room.bottom >= room.top ? 'bottom' : 'top');
-    const opposite: TooltipSide =
-      side === 'bottom' ? 'top' : side === 'top' ? 'bottom' : side === 'left' ? 'right' : 'left';
+    const opposite = OPPOSITE_SIDE[side];
     const needed = side === 'left' || side === 'right' ? width : height;
     if (room[side] < needed && room[opposite] > room[side]) side = opposite;
 
     const horizontal = side === 'left' || side === 'right';
-    const left = clamp(
-      horizontal
-        ? side === 'right'
-          ? tooltip.anchorRight + TARGET_GAP
-          : tooltip.anchorLeft - TARGET_GAP - width
-        : tooltip.anchorCenter - width / 2,
-      bounds.left + VIEWPORT_PADDING,
-      bounds.right - VIEWPORT_PADDING - width
-    );
-    const idealTop = horizontal
-      ? (tooltip.anchorTop + tooltip.anchorBottom - height) / 2
-      : side === 'bottom'
-        ? tooltip.anchorBottom + TARGET_GAP
-        : tooltip.anchorTop - TARGET_GAP - height;
+    let idealLeft = tooltip.anchorCenter - width / 2;
+    if (side === 'right') idealLeft = tooltip.anchorRight + TARGET_GAP;
+    else if (side === 'left') idealLeft = tooltip.anchorLeft - TARGET_GAP - width;
+    const left = clamp(idealLeft, bounds.left + VIEWPORT_PADDING, bounds.right - VIEWPORT_PADDING - width);
+    let idealTop = tooltip.anchorTop - TARGET_GAP - height;
+    if (horizontal) idealTop = (tooltip.anchorTop + tooltip.anchorBottom - height) / 2;
+    else if (side === 'bottom') idealTop = tooltip.anchorBottom + TARGET_GAP;
     const top = clamp(idealTop, bounds.top + VIEWPORT_PADDING, bounds.bottom - VIEWPORT_PADDING - height);
     setPosition({ left, top, side });
   }, [tooltip]);
@@ -204,7 +197,7 @@ export function TooltipLayer() {
       // pointerdown dismissal, leaving it floating once the button moved or
       // re-rendered (user: lingering description bubbles). Only keyboard
       // focus reveals tooltips.
-      if (target && target.matches(':focus-visible')) reveal(target, FOCUS_DELAY_MS);
+      if (target?.matches(':focus-visible')) reveal(target, FOCUS_DELAY_MS);
     };
     const onFocusOut = (event: FocusEvent) => {
       if (tooltipTarget(event.target)) cancel();

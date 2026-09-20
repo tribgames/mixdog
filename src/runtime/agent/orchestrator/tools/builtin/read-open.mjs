@@ -1,5 +1,5 @@
-import { lstat, open, readFile, realpath, stat } from 'fs/promises';
-import { dirname } from 'path';
+import { lstat, open, readFile, realpath, stat } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 import { findSimilarFileAsync, listSiblingsAsync, normalizeErrorMessage } from './path-diagnostics.mjs';
 import { inspectBinaryFile } from './binary-file.mjs';
@@ -144,8 +144,7 @@ export async function openTextPathForReadMeta(filePath, workDir, opts = {}) {
       findSimilarFileAsync(fullPath),
       listSiblingsAsync(dirname(fullPath)),
     ]);
-    const hint =
-      (similar ? ` Did you mean "${normalizeOutputPath(similar)}"?` : '') + ` Siblings: [${siblings.join(', ')}].`;
+    const hint = `${similar ? ` Did you mean "${normalizeOutputPath(similar)}"?` : ''} Siblings: [${siblings.join(', ')}].`;
     const msg = normalizeErrorMessage(err instanceof Error ? err.message : String(err)) + hint;
     throw Object.assign(new Error(msg), { code: 'ENOENT' });
   }

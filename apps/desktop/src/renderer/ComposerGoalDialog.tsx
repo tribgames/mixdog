@@ -92,11 +92,11 @@ export function ComposerGoalDialog({
               setBusy(true);
               setError('');
               try {
+                const trimmedObjective = objective.trim();
+                const timeFlag = duration ? ` --time ${duration}m` : '';
                 const accepted = onSave
-                  ? await onSave({ objective: objective.trim(), timeLimitMs: duration * 60_000, timeMode })
-                  : await onStart?.(
-                      `/goal ${objective.trim()}${duration ? ` --time ${duration}m` : ''} --time-mode ${timeMode}`
-                    );
+                  ? await onSave({ objective: trimmedObjective, timeLimitMs: duration * 60_000, timeMode })
+                  : await onStart?.(`/goal ${trimmedObjective}${timeFlag} --time-mode ${timeMode}`);
                 if (accepted) onClose();
                 else setError(t('Goal could not be started. Your input has been kept.'));
               } catch (reason) {

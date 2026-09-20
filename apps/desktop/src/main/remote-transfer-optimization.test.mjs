@@ -54,7 +54,7 @@ test('desktop-driven push lanes reach only the browsers that opened them', () =>
 
 test('compact frames omit unchanged sections and stay lossless', () => {
   const TAIL_EPOCH = Symbol.for('mixdog.streaming-tail-text-epoch');
-  const items = Array.from({ length: 30 }, (unused, id) => ({
+  const items = Array.from({ length: 30 }, (_unused, id) => ({
     id,
     kind: 'assistant',
     text: 'settled turn '.repeat(8),
@@ -343,7 +343,7 @@ test('a remote transcript drops provider replay blocks and keeps item identity',
 });
 
 test('remote join, history backfill and reconnect retain user prompts before long tool activity', () => {
-  const items = Array.from({ length: 400 }, (unused, index) => ({
+  const items = Array.from({ length: 400 }, (_unused, index) => ({
     id: `i${index}`,
     kind: index === 0 ? 'user' : 'tool',
     content: `turn ${index}`,
@@ -375,7 +375,7 @@ test('remote join, history backfill and reconnect retain user prompts before lon
 });
 
 test('a transcript shorter than the window is sent whole', () => {
-  const items = Array.from({ length: 12 }, (unused, index) => ({ id: `i${index}` }));
+  const items = Array.from({ length: 12 }, (_unused, index) => ({ id: `i${index}` }));
   const wire = encodeRelayClientSessionState(new Map(), 's', { sessionId: 's', items }, true);
   assert.equal(wire.items.length, 12);
   assert.equal(Object.hasOwn(wire, 'transcriptWindowStart'), false);
@@ -387,7 +387,7 @@ test('a remote transcript with nothing to drop is returned unchanged', () => {
 });
 
 test('dropped replay blocks cost a remote client nothing on later frames', () => {
-  const items = Array.from({ length: 40 }, (unused, index) => ({
+  const items = Array.from({ length: 40 }, (_unused, index) => ({
     id: `i${index}`,
     role: index % 2 ? 'assistant' : 'user',
     content: `turn ${index}`,
@@ -402,7 +402,7 @@ test('dropped replay blocks cost a remote client nothing on later frames', () =>
 });
 
 test('a cold view re-read from disk does not re-send the transcript', () => {
-  const items = Array.from({ length: 120 }, (unused, id) => ({
+  const items = Array.from({ length: 120 }, (_unused, id) => ({
     id,
     kind: id % 2 ? 'assistant' : 'user',
     text: 'settled turn '.repeat(60),

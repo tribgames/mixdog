@@ -111,7 +111,9 @@ export function normalizeOfficeContentModel(value) {
     // The references are the point of a claim: naming them "facts" instead of
     // factIds used to bind the claim to nothing at all, and the deck then
     // reported the figure it carried as unsourced.
-    const references = Array.isArray(claim.factIds) ? claim.factIds : Array.isArray(claim.facts) ? claim.facts : [];
+    let references = [];
+    if (Array.isArray(claim.factIds)) references = claim.factIds;
+    else if (Array.isArray(claim.facts)) references = claim.facts;
     const factRefs = [...new Set(references.map((entry) => safeId(entry, `claim ${id} fact reference`)))];
     for (const factId of factRefs) {
       if (!factIds.has(factId)) throw new Error(`Office content claim ${id} references unknown fact ${factId}`);

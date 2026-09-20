@@ -64,7 +64,7 @@ function proxyConfigured() {
     // Any non-default global dispatcher (constructor name other than the plain
     // `Agent` undici installs by default) is treated as custom — ProxyAgent,
     // EnvHttpProxyAgent, MockAgent, or a user subclass — and we step aside.
-    if (g && g.constructor && g.constructor.name !== 'Agent') return true;
+    if (g?.constructor && g.constructor.name !== 'Agent') return true;
   } catch {
     /* getGlobalDispatcher unavailable — treat as no proxy */
   }

@@ -251,7 +251,9 @@ function _finalize(signals) {
   const replayUnsafe = visibleOutput || sideEffectDispatched || s.dispatchAmbiguous === true || s.unsafeMarker === true;
   const replaySafe = !replayUnsafe && s.userAbort !== true;
   // A terminal frame that declared `end_turn=false` keeps the turn open.
-  const continuation = s.declaredContinuation === true ? true : terminalObserved ? false : s.continuation === true;
+  let continuation = s.continuation === true;
+  if (s.declaredContinuation === true) continuation = true;
+  else if (terminalObserved) continuation = false;
   return Object.freeze({
     version: STREAM_OUTCOME_VERSION,
     provider: s.provider || null,

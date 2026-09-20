@@ -34,7 +34,7 @@ public class FakeCursorTheme : MixCursorThemeApi {
     );
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing

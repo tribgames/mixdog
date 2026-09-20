@@ -23,7 +23,7 @@ function ensureListener() {
   if (listening) return;
   listening = true;
   process.on('message', (message) => {
-    if (!message || message.type !== 'agent-control-result') return;
+    if (message?.type !== 'agent-control-result') return;
     const controlId = String(message.controlId || '');
     const request = pending.get(controlId);
     if (!request) return;

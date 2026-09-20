@@ -90,6 +90,7 @@ export function EditorPaneDocumentSurface({
       <div className="editor-pane-document" ref={scrollRef}>
         {pageNumbers.map((page) => {
           const image = loaded.get(page);
+          const onLoad = page === 1 ? onFirstPageLoad : undefined;
           return (
             <div
               key={page}
@@ -103,7 +104,7 @@ export function EditorPaneDocumentSurface({
                 <img
                   src={`data:${image.mime};base64,${image.base64}`}
                   alt={t('Preview page {{page}}', { page })}
-                  onLoad={page === 1 ? onFirstPageLoad : undefined}
+                  onLoad={onLoad}
                 />
               ) : (
                 <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />

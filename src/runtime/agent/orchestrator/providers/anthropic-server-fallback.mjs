@@ -1,5 +1,6 @@
 function normalizedModelId(value) {
-  const raw = typeof value === 'string' ? value : value && typeof value === 'object' ? value.model : '';
+  if (typeof value === 'string') return value.trim();
+  const raw = value && typeof value === 'object' ? value.model : '';
   return typeof raw === 'string' ? raw.trim() : '';
 }
 

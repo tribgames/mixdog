@@ -18,7 +18,7 @@ test('watchdog protocol preserves late restoration evidence without concurrent r
       join(directory, 'protocol.cs'),
       MIXDOG_INPUT_TRANSPORT_CSHARP +
         loadComputerSource('CursorTheme.cs') +
-        String.raw`
+        `
 public class FakeSnapshot { public bool Ready = true; public long Sequence; }
 public static class MixInputObservation {
   public static System.IntPtr Marker = new System.IntPtr(1);
@@ -84,7 +84,7 @@ public static class CursorProtocolFixture {
     );
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference='Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll') -TypeDefinition (

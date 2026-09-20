@@ -361,9 +361,14 @@ export function scanLeakedToolCalls(buffer, { isKnownTool, final, harmony = fals
  * @param {boolean} [opts.harmony]  Opt-in gpt-oss/harmony channel detection.
  * @returns {{ enabled:boolean, push:(delta:string, final?:boolean)=>{text:string,calls:Array<{name:string,arguments:object}>}, flush:()=>{text:string,calls:Array<{name:string,arguments:object}>} }}
  */
+/** The known tool names as a Set, whatever shape the caller handed in. */
+export function knownToolNameSet(knownToolNames) {
+  if (knownToolNames instanceof Set) return knownToolNames;
+  return new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
+}
+
 export function createLeakGuard({ knownToolNames, harmony = false } = {}) {
-  const known =
-    knownToolNames instanceof Set ? knownToolNames : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
+  const known = knownToolNameSet(knownToolNames);
   const enabled = known.size > 0;
   const isKnownTool = (name) => known.has(name);
   let buffer = '';

@@ -1,4 +1,4 @@
-// Transcript spill buffer + session runtime item state, extracted from session-local.mjs.
+// Transcript spill buffer + session runtime item state.
 /**
  * src/tui/session-local.mjs - the session runtime<->React bridge (React-free).
  *
@@ -11,11 +11,15 @@
  * queue-helpers) and are re-exported here so the public surface is unchanged.
  * This file keeps the stateful session store + notification plan.
  */
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
+import {
+  cleanupStaleTranscriptSpillDirs,
+  createSpillDirectories,
+  writeOwnerRegistry,
+} from './transcript-spill/spill-dir.mjs';
+import { createSpillWriter } from './transcript-spill/spill-writer.mjs';
 import {
   toolResultText,
   toolAggregateDetailFallback,
@@ -38,52 +42,14 @@ export const nextId = () => `it_${++_idSeq}`;
 export const TRANSCRIPT_LIVE_ITEM_CAP = 512;
 export const TRANSCRIPT_SPILL_CHUNK_ITEMS = 128;
 const TRANSCRIPT_RESTORE_OVERLAP_ITEMS = 64;
-const TRANSCRIPT_SPILL_STALE_MS = 24 * 60 * 60 * 1000;
-const TRANSCRIPT_SPILL_HEARTBEAT_MS = 10_000;
-const TRANSCRIPT_PROCESS_NONCE = randomUUID();
 
-export function cleanupStaleTranscriptSpillDirs({
-  root = tmpdir(),
-  now = Date.now(),
-  staleMs = TRANSCRIPT_SPILL_STALE_MS,
-} = {}) {
-  try {
-    for (const entry of readdirSync(root, { withFileTypes: true })) {
-      if (!entry.isDirectory() || !entry.name.startsWith('mixdog-transcript-')) continue;
-      const path = join(root, entry.name);
-      try {
-        const ownerPid = Number(/^mixdog-transcript-(\d+)-/.exec(entry.name)?.[1]);
-        let pidAlive = false;
-        if (ownerPid > 0) {
-          try {
-            process.kill(ownerPid, 0);
-            pidAlive = true;
-          } catch {}
-        }
-        if (!pidAlive) {
-          rmSync(path, { recursive: true, force: true });
-          continue;
-        }
-        // A fresh heartbeat proves the owning process is running. A stale one
-        // is ambiguous (suspended owner vs PID reuse), so retain it for the
-        // generous staleMs grace period, then reclaim it even if that PID is
-        // currently alive. This avoids both short suspension data loss and
-        // immortal crash leftovers after PID reuse.
-        let heartbeatAge;
-        try {
-          heartbeatAge = now - statSync(join(path, 'heartbeat')).mtimeMs;
-        } catch {
-          heartbeatAge = now - statSync(path).mtimeMs;
-        }
-        if (heartbeatAge <= staleMs) continue;
-        rmSync(path, { recursive: true, force: true });
-      } catch {}
-    }
-  } catch {}
-}
+export { cleanupStaleTranscriptSpillDirs };
 
 // Serialized pages deliberately release the old item object graph while
 // keeping every byte restorable. Only `items` is render-live and walkable.
+// This buffer owns the page list, the reading cursor and snapshots; the spill
+// directory lifecycle and the worker-backed page writer live under
+// ./transcript-spill/.
 export function createTranscriptSpillBuffer({
   cap = TRANSCRIPT_LIVE_ITEM_CAP,
   chunkSize = TRANSCRIPT_SPILL_CHUNK_ITEMS,
@@ -93,205 +59,39 @@ export function createTranscriptSpillBuffer({
   onWarning = (message) => tuiDebug(message),
   writeTimeoutMs = 5000,
 } = {}) {
-  // Publish this process instance's nonce BEFORE cleanup. If the OS reused our
-  // PID after a crash, the old directory's owner nonce now differs from the
-  // live registry and cannot be mistaken for this process.
   try {
-    writeFileSync(
-      join(tmpdir(), `mixdog-transcript-owner-${process.pid}.json`),
-      JSON.stringify({ pid: process.pid, nonce: TRANSCRIPT_PROCESS_NONCE }),
-      'utf8'
-    );
+    writeOwnerRegistry();
   } catch {}
   cleanupStaleTranscriptSpillDirs();
   const pages = [];
   let cursor = null;
   let spillDir = null;
   let pageSequence = 0;
-  let spillWorker = null;
-  let workerSpawnCount = 0;
-  let activeWrite = null;
-  let activeWriteTimer = null;
   let warningEmitted = false;
   let spillDisabled = false;
-  const writeQueue = [];
-  const heartbeatTimers = new Map();
   const snapshots = new Set();
-  const cleanupRecords = (records, directory) => {
-    for (const record of records) {
-      record.cancelled = true;
-    }
-    if (directory) {
-      const timer = heartbeatTimers.get(directory);
-      if (timer) clearInterval(timer);
-      heartbeatTimers.delete(directory);
-      try {
-        rmSync(directory, { recursive: true, force: true });
-      } catch {}
-    }
-  };
-  const ensureSpillDir = () => {
-    if (spillDir) return spillDir;
-    const root = tmpdir();
-    writeFileSync(
-      join(root, `mixdog-transcript-owner-${process.pid}.json`),
-      JSON.stringify({ pid: process.pid, nonce: TRANSCRIPT_PROCESS_NONCE }),
-      'utf8'
-    );
-    spillDir = mkdtempSync(join(root, `mixdog-transcript-${process.pid}-${TRANSCRIPT_PROCESS_NONCE}-`));
-    writeFileSync(
-      join(spillDir, 'owner.json'),
-      JSON.stringify({ pid: process.pid, nonce: TRANSCRIPT_PROCESS_NONCE }),
-      'utf8'
-    );
-    const heartbeat = join(spillDir, 'heartbeat');
-    writeFileSync(heartbeat, String(Date.now()), 'utf8');
-    const heartbeatTimer = setInterval(() => {
-      try {
-        writeFileSync(heartbeat, String(Date.now()), 'utf8');
-      } catch {}
-    }, TRANSCRIPT_SPILL_HEARTBEAT_MS);
-    heartbeatTimer.unref?.();
-    heartbeatTimers.set(spillDir, heartbeatTimer);
-    return spillDir;
-  };
-  const workerSource = `
-    const { parentPort } = require('node:worker_threads');
-    const { renameSync, writeFileSync } = require('node:fs');
-    parentPort.on('message', ({ id, targetPath, tempPath, items }) => {
-      try {
-        writeFileSync(tempPath, JSON.stringify(items), 'utf8');
-        renameSync(tempPath, targetPath);
-        parentPort.postMessage({ id, ok: true });
-      } catch (error) {
-        parentPort.postMessage({ id, ok: false, error: String(error && error.message || error) });
-      }
-    });`;
-  const ensureWorker = () => {
-    if (spillWorker) return spillWorker;
-    try {
-      const worker = workerFactory(workerSource);
-      spillWorker = worker;
-      workerSpawnCount += 1;
-      worker.stdout?.on?.('data', (chunk) => {
-        try {
-          process.stderr.write(chunk);
-        } catch {
-          /* best-effort */
-        }
-      });
-      worker.stderr?.on?.('data', (chunk) => {
-        try {
-          process.stderr.write(chunk);
-        } catch {
-          /* best-effort */
-        }
-      });
-      worker.on('message', (result) => {
-        if (spillWorker !== worker || result?.id !== activeWrite?.id) return;
-        finishWrite(result?.ok === true, result?.error);
-      });
-      const failWorker = (error) => {
-        if (spillWorker !== worker) return;
-        if (activeWriteTimer) clearTimeout(activeWriteTimer);
-        activeWriteTimer = null;
-        const failed = activeWrite;
-        activeWrite = null;
-        spillWorker = null;
-        try {
-          worker.terminate?.();
-        } catch {}
-        if (failed) retryOrPin(failed, error?.message);
-        pumpWrites();
-      };
-      worker.on('error', failWorker);
-      worker.on('exit', (code) => {
-        failWorker(new Error(`spill worker exited (${code})`));
-      });
-      worker.unref?.();
-    } catch (error) {
-      spillWorker = null;
-      if (activeWrite) {
-        const failed = activeWrite;
-        activeWrite = null;
-        retryOrPin(failed, error?.message);
-      }
-    }
-    return spillWorker;
-  };
-  const retryOrPin = (record, error) => {
-    if (record.cancelled) return;
-    record.attempts += 1;
-    if (record.attempts <= 2) {
-      writeQueue.unshift(record);
-      return;
-    }
-    record.pinned = true;
-    spillDisabled = true;
-    for (const queued of writeQueue.splice(0)) {
-      if (!queued.cancelled) queued.pinned = true;
-    }
-    if (!warningEmitted) {
+  const dirs = createSpillDirectories();
+  const writer = createSpillWriter({
+    workerFactory,
+    writeTimeoutMs,
+    onPinned: (error) => {
+      spillDisabled = true;
+      if (warningEmitted) return;
       warningEmitted = true;
       try {
         onWarning(`transcript spill write failed; history pinned in memory (${error || 'unknown error'})`);
       } catch {}
+    },
+  });
+  const cleanupRecords = (records, directory) => {
+    for (const record of records) {
+      record.cancelled = true;
     }
+    dirs.release(directory);
   };
-  const finishWrite = (ok, error) => {
-    if (activeWriteTimer) clearTimeout(activeWriteTimer);
-    activeWriteTimer = null;
-    const record = activeWrite;
-    activeWrite = null;
-    if (record && !record.cancelled) {
-      if (ok) record.pendingItems = null;
-      else retryOrPin(record, error);
-    }
-    pumpWrites();
-  };
-  const pumpWrites = () => {
-    if (activeWrite) return;
-    while (writeQueue.length && writeQueue[0].cancelled) writeQueue.shift();
-    if (!writeQueue.length) return;
-    activeWrite = writeQueue.shift();
-    const worker = ensureWorker();
-    if (!worker) {
-      if (activeWrite) {
-        const failed = activeWrite;
-        activeWrite = null;
-        retryOrPin(failed, 'worker unavailable');
-      }
-      queueMicrotask(pumpWrites);
-      return;
-    }
-    // Pages are capped at chunkSize (128 by default), so the structured-clone
-    // post cost is bounded. Serialization and filesystem I/O stay in the worker.
-    // Every attempt writes a distinct temporary file; atomic rename is the sole
-    // commit point. A timed-out old worker can therefore expose only a complete
-    // page (the retry payload is identical), never a partial target JSON file.
-    const tempPath = `${activeWrite.path}.attempt-${activeWrite.attempts}-${randomUUID()}.tmp`;
-    worker.postMessage({
-      id: activeWrite.id,
-      targetPath: activeWrite.path,
-      tempPath,
-      items: activeWrite.pendingItems,
-    });
-    activeWriteTimer = setTimeout(
-      () => {
-        if (!activeWrite || spillWorker !== worker) return;
-        const failed = activeWrite;
-        activeWrite = null;
-        activeWriteTimer = null;
-        spillWorker = null;
-        try {
-          worker.terminate?.();
-        } catch {}
-        retryOrPin(failed, `write timed out after ${writeTimeoutMs}ms`);
-        pumpWrites();
-      },
-      Math.max(1, Number(writeTimeoutMs) || 5000)
-    );
-    activeWriteTimer.unref?.();
+  const ensureSpillDir = () => {
+    spillDir ||= dirs.create();
+    return spillDir;
   };
   const encode = (items) => {
     const page = join(ensureSpillDir(), `${++pageSequence}.json`);
@@ -303,11 +103,16 @@ export function createTranscriptSpillBuffer({
       attempts: 0,
       pinned: false,
     };
-    writeQueue.push(record);
-    pumpWrites();
+    writer.enqueue(record);
     return record;
   };
   const decode = (record) => record.pendingItems || JSON.parse(readFileSync(record.path, 'utf8'));
+  const restoredWithOverlap = (liveItems) => {
+    const restored = decode(pages[cursor]);
+    let following = Array.isArray(liveItems) ? liveItems : [];
+    if (cursor + 1 < pages.length) following = decode(pages[cursor + 1]);
+    return [...restored, ...following.slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
+  };
   return {
     get hasOlder() {
       return cursor == null ? pages.length > 0 : cursor > 0;
@@ -370,22 +175,14 @@ export function createTranscriptSpillBuffer({
       snapshots.clear();
       cursor = null;
       spillDir = null;
-      for (const timer of heartbeatTimers.values()) clearInterval(timer);
-      heartbeatTimers.clear();
-      writeQueue.length = 0;
-      activeWrite = null;
-      if (activeWriteTimer) clearTimeout(activeWriteTimer);
-      activeWriteTimer = null;
-      try {
-        spillWorker?.terminate();
-      } catch {}
-      spillWorker = null;
+      dirs.stopHeartbeats();
+      writer.dispose();
     },
     get workerCount() {
-      return workerSpawnCount;
+      return writer.workerCount;
     },
     get pendingWriteCount() {
-      return writeQueue.length + (activeWrite ? 1 : 0);
+      return writer.pendingCount;
     },
     get pinnedPageCount() {
       return pages.filter((page) => page.pinned).length;
@@ -406,10 +203,7 @@ export function createTranscriptSpillBuffer({
       const nextCursor = cursor == null ? pages.length - 1 : cursor - 1;
       if (nextCursor < 0) return null;
       cursor = nextCursor;
-      const restored = decode(pages[cursor]);
-      const following =
-        cursor + 1 < pages.length ? decode(pages[cursor + 1]) : Array.isArray(liveItems) ? liveItems : [];
-      return [...restored, ...following.slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
+      return restoredWithOverlap(liveItems);
     },
     restoreNewer(liveItems) {
       if (cursor == null) return null;
@@ -419,10 +213,7 @@ export function createTranscriptSpillBuffer({
         return { items: null, atLive: true };
       }
       cursor = nextCursor;
-      const restored = decode(pages[cursor]);
-      const following =
-        cursor + 1 < pages.length ? decode(pages[cursor + 1]) : Array.isArray(liveItems) ? liveItems : [];
-      return [...restored, ...following.slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
+      return restoredWithOverlap(liveItems);
     },
   };
 }

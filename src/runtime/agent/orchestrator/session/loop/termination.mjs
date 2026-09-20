@@ -1,4 +1,4 @@
-// Loop termination-reason classification, extracted from loop.mjs.
+// Loop termination-reason classification.
 // Pure function over the final response + loop-end flags. No behavior change:
 // the classification ladder is verbatim from the tail of agentLoop.
 import { HIDDEN_AGENT_NAMES } from './hidden-agents.mjs';

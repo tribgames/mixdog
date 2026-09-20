@@ -103,6 +103,16 @@ export function addXlsxDecisionPanel(
     cursor += 1;
     gateRows.forEach((values, rowIndex) => {
       values.forEach((value, columnIndex) => {
+        // Release is a positive state, Stop a critical one: the state fields and words, never a literal tint.
+        let color = colors.ink;
+        let fillColor = rowIndex % 2 === 0 ? colors.canvas : colors.surface2;
+        if (columnIndex === 1) {
+          color = colors.positiveText || colors.accent;
+          fillColor = colors.positiveWeak || colors.surface;
+        } else if (columnIndex === 2) {
+          color = colors.criticalText || colors.accent2;
+          fillColor = colors.criticalWeak || colors.surface2;
+        }
         mergedBlock(output, {
           sheet,
           startColumn: spans[columnIndex][0],
@@ -113,21 +123,8 @@ export function addXlsxDecisionPanel(
             fontName: type.body,
             fontSize: 10,
             bold: columnIndex === 0,
-            // Release is a positive state, Stop a critical one: the state fields and words, never a literal tint.
-            color:
-              columnIndex === 1
-                ? colors.positiveText || colors.accent
-                : columnIndex === 2
-                  ? colors.criticalText || colors.accent2
-                  : colors.ink,
-            fillColor:
-              columnIndex === 1
-                ? colors.positiveWeak || colors.surface
-                : columnIndex === 2
-                  ? colors.criticalWeak || colors.surface2
-                  : rowIndex % 2 === 0
-                    ? colors.canvas
-                    : colors.surface2,
+            color,
+            fillColor,
             verticalAlignment: 'center',
             wrapText: true,
           },

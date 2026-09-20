@@ -509,7 +509,6 @@ const __queryHandlers = createQueryHandlers({
   log: __mixdogMemoryLog,
   resolveProjectScope,
   embeddingOnDemandCanStart,
-  getBootTimestamp: () => _bootTimestamp,
   getTraceDb: () => _traceDb,
 });
 const { handleSearch, dumpSessionRootChunks, entryStats } = __queryHandlers;

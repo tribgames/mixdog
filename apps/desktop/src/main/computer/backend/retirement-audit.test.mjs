@@ -177,7 +177,7 @@ test('capture cleanup failure unpublishes the worker before resolving its origin
         error: 'capture_timeout|fixture',
         result: { capture_cleanup: { status } },
       };
-      original.stdout.write(RESPONSE_MARKER + JSON.stringify(reply) + '\n');
+      original.stdout.write(`${RESPONSE_MARKER + JSON.stringify(reply)}\n`);
       assert.deepEqual(await pending, reply);
       assert.equal(original.exitCode, null, 'the exit acknowledgment is deliberately delayed');
       assert.equal(pool.powerShellBySession.has('a'), status === 'confirmed');

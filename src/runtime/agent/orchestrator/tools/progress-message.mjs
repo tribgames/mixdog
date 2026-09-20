@@ -17,7 +17,7 @@ function _t(value, max = 60) {
 // Count-aware noun so a label never reads "1 files" or "3 query/queries".
 // English progress strings only; default plural appends "s".
 function _plural(n, one, many) {
-  return `${n} ${n === 1 ? one : many || one + 's'}`;
+  return `${n} ${n === 1 ? one : many || `${one}s`}`;
 }
 
 export function formatToolStartProgress(name, args = {}) {
@@ -75,10 +75,11 @@ export function formatToolStartProgress(name, args = {}) {
     }
     case 'office':
       return a.path ? `office ${_t(a.action || 'command')} ${_t(a.path)}` : `office ${_t(a.action || 'command')}`;
-    case 'media':
-      return a.action === 'generate'
-        ? `generating ${_t(a.kind || 'media')}${a.path ? ` ${_t(a.path)}` : ''}`
-        : `media ${_t(a.action || 'command')}`;
+    case 'media': {
+      if (a.action !== 'generate') return `media ${_t(a.action || 'command')}`;
+      const pathNote = a.path ? ` ${_t(a.path)}` : '';
+      return `generating ${_t(a.kind || 'media')}${pathNote}`;
+    }
 
     // ── agent module: agent / models ─────────────────────────────────
     case 'agent': {

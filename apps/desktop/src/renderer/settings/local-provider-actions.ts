@@ -32,10 +32,13 @@ export function useLocalProviderActions(run: PanelContext['run'], pending: Panel
     busy: working || Boolean(pending),
     error,
     cancel: (jobId: string) => void invoke('cancelLocalProviderInstallation', [jobId]),
-    resume: (phase: string, modelId?: string) =>
-      void (phase === 'verify' || phase === 'repair'
-        ? invoke('startLocalProviderModelMaintenance', [modelId, phase])
-        : invoke('startLocalProviderInstallation', phase === 'model' ? [phase, modelId] : [phase])),
+    resume: (phase: string, modelId?: string) => {
+      if (phase === 'verify' || phase === 'repair') {
+        void invoke('startLocalProviderModelMaintenance', [modelId, phase]);
+        return;
+      }
+      void invoke('startLocalProviderInstallation', phase === 'model' ? [phase, modelId] : [phase]);
+    },
     setIdleTtl: (seconds: number) => void invoke('setLocalProviderIdleTtl', [seconds]),
     setContext: (modelId: string, tokens: number | null) => invoke('setLocalProviderContext', [modelId, tokens]),
     details: (modelId: string) => invoke('getLocalProviderModelDetails', [modelId]),

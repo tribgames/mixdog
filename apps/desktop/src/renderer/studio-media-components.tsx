@@ -121,19 +121,22 @@ export function StudioDetailViewer({
   const displayUrl = assetUrl(asset.id, 'display') || previewUrl || thumbUrl;
   const originalUrl = assetUrl(asset.id, 'original') || previewUrl;
   const posterUrl = assetUrl(asset.id, 'thumb') || thumbUrl || undefined;
+  const videoKey = mediaForeground ? 'foreground' : 'suspended';
+  const videoSrc = mediaForeground ? originalUrl : undefined;
+  const videoPreload = mediaForeground && localTransport ? 'metadata' : 'none';
   return (
     <div className="studio-detail" role="dialog" aria-label={t('Generated media detail')} onClick={onClose}>
       <div className="studio-detail-card" onClick={(event) => event.stopPropagation()}>
         <div className="studio-detail-stage">
           {asset.kind === 'video' ? (
             <video
-              key={mediaForeground ? 'foreground' : 'suspended'}
-              src={mediaForeground ? originalUrl : undefined}
+              key={videoKey}
+              src={videoSrc}
               poster={posterUrl}
               controls={mediaForeground}
               autoPlay={mediaForeground && localTransport}
               playsInline
-              preload={mediaForeground && localTransport ? 'metadata' : 'none'}
+              preload={videoPreload}
               onError={() => onUrlBroken(asset.id, 'original')}
             />
           ) : (

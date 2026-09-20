@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { executeBuiltinTool } from '../builtin.mjs';
 import { mergeOverlappingReadEntries } from './read-batch.mjs';
 
-const lines = (n) => Array.from({ length: n }, (_, i) => `L${i + 1} ${'x'.repeat(24)}`).join('\n') + '\n';
+const lines = (n) => `${Array.from({ length: n }, (_, i) => `L${i + 1} ${'x'.repeat(24)}`).join('\n')}\n`;
 const count = (text, re) => (text.match(re) || []).length;
 
 test('overlapping windows of one file render once; adjacent windows stay separate', async () => {

@@ -307,11 +307,11 @@ export async function resolveOfficeDesignLibrary({
   });
   const config = await loadConfig(dataDir, configOverride);
   const explicitUpgrade = request?.upgradeLibrary === true;
-  const currentBinding =
-    !created && !explicitUpgrade
-      ? (await readOfficeDesignBinding(dataDir, documentPath)) ||
-        (sourcePath ? await readOfficeDesignBinding(dataDir, sourcePath) : null)
-      : null;
+  let currentBinding = null;
+  if (!created && !explicitUpgrade) {
+    currentBinding = await readOfficeDesignBinding(dataDir, documentPath);
+    if (!currentBinding && sourcePath) currentBinding = await readOfficeDesignBinding(dataDir, sourcePath);
+  }
   if (currentBinding) {
     let pack = null;
     let warning = '';
@@ -369,7 +369,9 @@ export async function resolveOfficeDesignLibrary({
   if (explicitSelector && !template) {
     throw new Error(`Office design template is not indexed or does not match ${normalizedFormat}: ${selector}`);
   }
-  const source = template ? template.source : pack ? 'remote-pack' : 'mixdog-starter';
+  let source = 'mixdog-starter';
+  if (template) source = template.source;
+  else if (pack) source = 'remote-pack';
   const binding = bindingFor({
     pack,
     template,

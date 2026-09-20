@@ -70,7 +70,7 @@ test('legacy reuse still rejects mixed sessions and expanded summaries', () => {
   });
   const expanded = assessChunkQuality({
     ...root,
-    summary: root.members.map((member) => member.content).join('\n') + 'extra',
+    summary: `${root.members.map((member) => member.content).join('\n')}extra`,
   });
   assert.equal(mixed.usable, false);
   assert.ok(mixed.reasons.includes('mixed_sessions'));

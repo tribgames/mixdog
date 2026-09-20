@@ -1,7 +1,7 @@
 /**
  * src/tui/session/context-state.mjs - route/context/agent-status derivations.
  *
- * Extracted from session-local.mjs unchanged. These read the live runtime + store
+ * These read the live runtime + store
  * snapshot. The two sync helpers stage immutable draft patches through
  * updateState; callers still follow with set(...) to schedule publication.
  */

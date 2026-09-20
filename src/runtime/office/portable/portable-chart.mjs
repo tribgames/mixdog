@@ -117,7 +117,8 @@ function dataPointShapes(family, colors) {
 function dataLabels({ showValues, position, color, numberFormat, family }) {
   if (!showValues) return '';
   const resolved = LABEL_POSITIONS[String(position || '').toLowerCase()] || '';
-  const usable = family.axes && family.grouping !== 'stacked' ? resolved : resolved === 'outEnd' ? 'ctr' : resolved;
+  const outEndAllowed = family.axes && family.grouping !== 'stacked';
+  const usable = !outEndAllowed && resolved === 'outEnd' ? 'ctr' : resolved;
   const label = hex(color);
   return (
     '<c:dLbls>' +
@@ -155,8 +156,18 @@ function categoryAxis({ hidden = false } = {}) {
   );
 }
 
+/** Per-point colors: the series' own list, a default cycle for pie and doughnut slices, else none. */
+function pointColorsFor(family, entry, rows) {
+  if (Array.isArray(entry.pointColors) && entry.pointColors.length) return entry.pointColors;
+  if (family.element === 'pieChart' || family.element === 'doughnutChart') {
+    return rows.map((_, point) => DEFAULT_SERIES_COLORS[point % DEFAULT_SERIES_COLORS.length]);
+  }
+  return null;
+}
+
 function valueAxis({ numberFormat, zeroBaseline, hidden = false, min = null, max = null, gridlines = true }) {
-  const low = min == null ? (zeroBaseline ? 0 : null) : min;
+  let low = min;
+  if (min == null) low = zeroBaseline ? 0 : null;
   return (
     `<c:valAx><c:axId val="${VALUE_AXIS_ID}"/>` +
     '<c:scaling><c:orientation val="minMax"/>' +
@@ -226,14 +237,7 @@ export function chartXml({
         `<c:tx>${stringReference(nameFormula, [entry.name ?? `Series ${index + 1}`])}</c:tx>` +
         seriesShape(family, entry.color || DEFAULT_SERIES_COLORS[index % DEFAULT_SERIES_COLORS.length]) +
         (family.element === 'barChart' ? '<c:invertIfNegative val="0"/>' : '') +
-        dataPointShapes(
-          family,
-          Array.isArray(entry.pointColors) && entry.pointColors.length
-            ? entry.pointColors
-            : family.element === 'pieChart' || family.element === 'doughnutChart'
-              ? rows.map((_, point) => DEFAULT_SERIES_COLORS[point % DEFAULT_SERIES_COLORS.length])
-              : null
-        ) +
+        dataPointShapes(family, pointColorsFor(family, entry, rows)) +
         dataLabels({
           showValues,
           position: dataLabelPosition,
@@ -248,19 +252,19 @@ export function chartXml({
       );
     })
     .join('');
-  const grouping =
-    family.element === 'barChart'
-      ? `<c:grouping val="${family.grouping || 'clustered'}"/>`
-      : family.element === 'lineChart' || family.element === 'areaChart'
-        ? `<c:grouping val="${family.grouping || 'standard'}"/>`
-        : '';
+  let grouping = '';
+  if (family.element === 'barChart') grouping = `<c:grouping val="${family.grouping || 'clustered'}"/>`;
+  else if (family.element === 'lineChart' || family.element === 'areaChart') {
+    grouping = `<c:grouping val="${family.grouping || 'standard'}"/>`;
+  }
+  const gapWidth = family.grouping === 'stacked' ? 60 : 90;
   const plot =
     `<c:${family.element}>` +
     (family.direction ? `<c:barDir val="${family.direction}"/>` : '') +
     grouping +
     '<c:varyColors val="0"/>' +
     plots +
-    (family.element === 'barChart' ? `<c:gapWidth val="${family.grouping === 'stacked' ? 60 : 90}"/>` : '') +
+    (family.element === 'barChart' ? `<c:gapWidth val="${gapWidth}"/>` : '') +
     (family.element === 'barChart' && family.grouping === 'stacked' ? '<c:overlap val="100"/>' : '') +
     (family.element === 'barChart' && family.grouping !== 'stacked' ? '<c:overlap val="-20"/>' : '') +
     (family.axes ? `<c:axId val="${CATEGORY_AXIS_ID}"/><c:axId val="${VALUE_AXIS_ID}"/>` : '') +

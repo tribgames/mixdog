@@ -209,7 +209,7 @@ function absorbReadEchoedPathInteger(a, field) {
   if (typeof value !== 'string') return;
   const match = /^(\d+)(?:\s+├──path──|\s*usepath\?)(.+)$/s.exec(value.trim());
   if (!match) return;
-  const target = typeof a.file_path === 'string' ? a.file_path : typeof a.path === 'string' ? a.path : '';
+  const target = [a.file_path, a.path].find((value) => typeof value === 'string') ?? '';
   if (!target || comparableEchoPath(match[2]) !== comparableEchoPath(target)) return;
   a[field] = Number(match[1]);
 }
@@ -257,7 +257,10 @@ function maybeZipPathWindowArrays(a) {
   const lims = coerceWindowArray(a.limit);
   if (!offs && !lims) return;
   const n = a.path.length;
-  const pick = (arr, i) => (arr ? (arr.length === 1 ? arr[0] : arr[i]) : undefined);
+  const pick = (arr, i) => {
+    if (!arr) return undefined;
+    return arr.length === 1 ? arr[0] : arr[i];
+  };
   // Single path + multiple windows -> regions of the SAME path (the model
   // asked for several spans of one file).
   const k = Math.max(offs?.length || 0, lims?.length || 0);
@@ -780,7 +783,9 @@ function guardShell(a) {
 }
 
 function guardTask(a) {
-  const action = typeof a.action === 'string' ? a.action.trim().toLowerCase() : hasOwn(a, 'action') ? a.action : '';
+  let action = '';
+  if (typeof a.action === 'string') action = a.action.trim().toLowerCase();
+  else if (hasOwn(a, 'action')) action = a.action;
   if (!hasOwn(a, 'action')) {
     return 'Error: task requires explicit "action"';
   }
@@ -1009,13 +1014,9 @@ function dropUndefinedArgs(args) {
 // whitespace. These tools already define an absent path as the current
 // Project, so canonicalize that unambiguous shape instead of failing the call.
 // Leave non-string values intact for the per-tool guards to reject.
+const OPTIONAL_PATH_ARG_KEYS = { glob: ['path', 'root'], grep: ['path', 'root'], find: ['path'], list: ['path'] };
 function normalizeOptionalEmptyPathArgs(toolName, args) {
-  const keys =
-    toolName === 'glob' || toolName === 'grep'
-      ? ['path', 'root']
-      : toolName === 'find' || toolName === 'list'
-        ? ['path']
-        : [];
+  const keys = OPTIONAL_PATH_ARG_KEYS[toolName] ?? [];
   for (const key of keys) {
     if (typeof args[key] === 'string' && args[key].trim().length === 0) {
       delete args[key];
@@ -1127,7 +1128,7 @@ export function validateBuiltinArgs(toolName, args) {
   try {
     return guard(args) || null;
   } catch (err) {
-    return `Error: ${toolName} argument validation failed: ${err && err.message ? err.message : String(err)}`;
+    return `Error: ${toolName} argument validation failed: ${err?.message ? err.message : String(err)}`;
   }
 }
 

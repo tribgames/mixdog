@@ -33,10 +33,10 @@
 // writer produced, so recovery/projection semantics are unchanged. A crash-torn
 // trailing line is discarded: replay stops at the first unparsable record and
 // keeps the durable prefix.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs';
-import { appendFile, unlink, writeFile } from 'fs/promises';
-import { randomBytes } from 'crypto';
-import { join } from 'path';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFile, unlink, writeFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { renameWithRetrySync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';

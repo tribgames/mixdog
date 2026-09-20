@@ -1,4 +1,4 @@
-// Stored tool-call argument compaction/restoration, extracted from loop.mjs.
+// Stored tool-call argument compaction/restoration.
 // Long body/command args are truncated with a sha256-tagged head/tail preview
 // when persisted into assistant history. A FAILED call restores its full text
 // (command/script AND mutation bodies): the failed mutation rolled back, so its
@@ -13,7 +13,7 @@
 // because the collapsed tokens only come back at the cached rate over the
 // REMAINING turns, and a task rarely has enough of them left. Bodies now stay
 // verbatim in history, so the prefix — and its cache — survives the session.
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 const STORED_TOOL_ARG_BODY_KEY_RE = /^(?:content|old_string|new_string|patch|rewrite)$/i;
 const STORED_TOOL_ARG_LONG_KEY_RE = /^(?:command|script)$/i;
@@ -72,11 +72,11 @@ function compactStoredToolArgString(value, key = '', opts = {}) {
   // Body markers are status-only. Recovery policy belongs to the shared
   // rules; embedding an action here made models re-read successful edits.
   const targets = /^patch$/i.test(key) ? _compactedPatchTargets(value) : '';
-  const marker = isBody
-    ? targets
-      ? `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; already applied to ${targets}; do not copy or repeat]`
-      : `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; already applied; do not copy or repeat]`
-    : `[mixdog compacted ${key || 'string'}: ${value.length} chars, sha256:${hash}; do not copy]`;
+  let marker = `[mixdog compacted ${key || 'string'}: ${value.length} chars, sha256:${hash}; do not copy]`;
+  if (isBody) {
+    const applied = targets ? `already applied to ${targets}` : 'already applied';
+    marker = `[mixdog compacted ${key}: ${value.length} chars, sha256:${hash}; ${applied}; do not copy or repeat]`;
+  }
   // Body args (patch / old_string / new_string / content / rewrite) are
   // apply_patch / edit inputs. Keeping a head/tail preview leaves real patch
   // fragments (a "*** Begin Patch" opening, diff lines) inside a SUCCESSFUL

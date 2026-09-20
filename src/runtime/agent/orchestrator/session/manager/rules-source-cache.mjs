@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
 
 // A maximum mtime cannot identify a source revision: deletion/rollback can
 // lower it, and an unchanged newer file can hide edits to every other source.
@@ -9,7 +10,7 @@ import { join } from 'node:path';
 function sourceRevision(paths) {
   const hash = createHash('sha256');
   let readable = true;
-  const record = (value) => hash.update(JSON.stringify(value) + '\n');
+  const record = (value) => hash.update(`${JSON.stringify(value)}\n`);
   const failed = (path, error) => {
     record([path, error?.code || 'unreadable']);
     if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') readable = false;
@@ -32,7 +33,7 @@ function sourceRevision(paths) {
       failed(path, error);
       return;
     }
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    entries.sort((a, b) => compareCodePoints(a.name, b.name));
     for (const entry of entries) {
       if (entry.isDirectory() || /\.(md|json)$/.test(entry.name)) {
         walk(join(path, entry.name), depth - 1);

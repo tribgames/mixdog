@@ -1,8 +1,8 @@
-import { closeSync, openSync, readSync, statSync, unlinkSync } from 'fs';
+import { closeSync, openSync, readSync, statSync, unlinkSync } from 'node:fs';
 import { assertPathReachable, assertPathsReachable } from './fs-reachability.mjs';
-import { isAbsolute, join, resolve } from 'path';
-import { tmpdir } from 'os';
-import { randomUUID } from 'crypto';
+import { isAbsolute, join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { cwdRelativePath, normalizeInputPath, normalizeOutputPath, resolveAgainstCwd } from './path-utils.mjs';
 
 // Hard-block patterns live exclusively in ../shell-policy.mjs (BLOCKED_PATTERNS /
@@ -685,6 +685,12 @@ const LONG_INLINE_SCRIPT_RE =
   /\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')/i;
 const POWERSHELL_FILE_SEMANTIC_RE = /\$(?:PSScriptRoot|PSCommandPath|MyInvocation)\b|^\s*(?:param\s*\(|#requires\b)/im;
 
+/** File extension a hoisted inline script gets: Python, or the Node module kind the flags declare. */
+function inlineScriptExtension(isNode, esm) {
+  if (!isNode) return '.py';
+  return esm ? '.mjs' : '.cjs';
+}
+
 export function planInlineScriptHoist(command) {
   const text = String(command || '');
   if (!text.trim()) return null;
@@ -696,7 +702,7 @@ export function planInlineScriptHoist(command) {
   const flags = String(rawFlags || '');
   const isNode = /^node/i.test(exe);
   const esm = /--input-type=module/.test(flags);
-  const extension = isNode ? (esm ? '.mjs' : '.cjs') : '.py';
+  const extension = inlineScriptExtension(isNode, esm);
   // `--input-type` only describes an inline body; the extension carries the
   // module kind for a file, so the flag is dropped with the body.
   const keptFlags = flags.replace(/\s+--input-type=\w+/g, '');
@@ -725,7 +731,7 @@ export function planLongInlineScriptFileTransport(
   const flags = String(rawFlags || '');
   const isNode = /^node/i.test(exe);
   const esm = /--input-type=module/.test(flags);
-  const extension = isNode ? (esm ? '.mjs' : '.cjs') : '.py';
+  const extension = inlineScriptExtension(isNode, esm);
   const keptFlags = flags.replace(/\s+--input-type=\w+/g, '');
   let body = doubleBody;
   if (body === undefined) {
@@ -1064,5 +1070,5 @@ export function consumeFilterTeeCapture(teePath, { maxBytes = 16384 } = {}) {
   } catch {
     /* best-effort cleanup */
   }
-  return out && out.trim() ? out : null;
+  return out?.trim() ? out : null;
 }

@@ -29,7 +29,7 @@ export async function pptxPageSignatures(path) {
     const xml = await zipText(zip, slide.path);
     if (/^[\s\S]*?<p:sld\b[^>]*\bshow="(?:0|false)"/.test(xml)) hidden.add(slide.path);
     const rels = await zipText(zip, partRelationshipPath(slide.path));
-    locals.set(slide.path, digest(xml + '\0' + rels));
+    locals.set(slide.path, digest(`${xml}\0${rels}`));
     const linked = [];
     for (const match of rels.matchAll(/<Relationship\b([^>]+)\/?>/g)) {
       if (xmlAttribute(match[1], 'TargetMode') === 'External') continue;

@@ -350,7 +350,9 @@ export function ResourceRow({
   actions?: ReactNode;
   className?: string;
 }) {
-  const state = status ? settingsStatus(status) : selected ? settingsStatus('Active') : null;
+  let state: ReturnType<typeof settingsStatus> | null = null;
+  if (status) state = settingsStatus(status);
+  else if (selected) state = settingsStatus('Active');
   return (
     <div className={`settings-resource ${className}`.trim()} aria-current={selected ? 'true' : undefined}>
       <div>
@@ -374,7 +376,8 @@ export function ResourceRow({
 
 function MetricGrid({ items }: { items: Array<{ label: string; value: unknown; tone?: string }> }) {
   const visible = items.filter((item) => item.value !== undefined && item.value !== null && item.value !== '');
-  return visible.length ? (
+  if (!visible.length) return <Empty text="No status data available." />;
+  return (
     <div className="settings-metric-grid">
       {visible.map((item) => (
         <div key={item.label} className={item.tone ? `tone-${item.tone}` : ''}>
@@ -383,8 +386,6 @@ function MetricGrid({ items }: { items: Array<{ label: string; value: unknown; t
         </div>
       ))}
     </div>
-  ) : (
-    <Empty text="No status data available." />
   );
 }
 
@@ -446,7 +447,7 @@ export function UsageDashboard({ value }: { value: unknown }) {
           { label: 'Errors', value: count(total.errorCount), tone: Number(total.errorCount) > 0 ? 'danger' : 'good' },
         ]}
       />
-      {providers.length ? (
+      {providers.length > 0 && (
         <div>
           {providers.map((provider, index) => (
             <ResourceRow
@@ -458,9 +459,8 @@ export function UsageDashboard({ value }: { value: unknown }) {
             />
           ))}
         </div>
-      ) : (
-        <Empty text="No provider usage rows." />
       )}
+      {providers.length === 0 && <Empty text="No provider usage rows." />}
     </div>
   );
 }

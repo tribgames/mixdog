@@ -7,8 +7,8 @@
  * refreshed Cloud project. A login without a project id is useless: every
  * content request carries `project`.
  */
-import { createServer } from 'http';
-import { randomBytes } from 'crypto';
+import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import {
@@ -212,9 +212,8 @@ async function provisionProject(context, tierId) {
   }
   if (operation.error != null) {
     const { code, message } = operation.error;
-    const detail = message
-      ? `${typeof code === 'number' ? `${code}: ` : ''}${message}`
-      : JSON.stringify(operation.error);
+    const codePrefix = typeof code === 'number' ? `${code}: ` : '';
+    const detail = message ? `${codePrefix}${message}` : JSON.stringify(operation.error);
     throw new Error(`[antigravity-oauth] onboardUser operation failed: ${_scrubTokens(detail)}`);
   }
   if (!operation.response || typeof operation.response['@type'] !== 'string') {

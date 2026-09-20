@@ -8,7 +8,7 @@ import { t } from './i18n';
 import type { DesktopGitBranch, DesktopGitStatus } from '../shared/contract';
 import { commitImmediateOverlay } from './immediate-overlay';
 import { touchPrimaryPointer } from './surface-input-focus';
-import type { ScmContextMenuItem } from './ScmContextMenu';
+import { actionTitle, type ScmContextMenuItem } from './ScmContextMenu';
 
 interface BranchCapabilities {
   list: boolean;
@@ -23,6 +23,12 @@ interface PointerClickGuard {
   markPointerActivation(): void;
   consumePointerClick(): boolean;
   clearPointerActivation(): void;
+}
+
+function deleteBlockedReason(branch: DesktopGitBranch): string | undefined {
+  if (branch.current) return 'The checked-out branch cannot be deleted';
+  if (branch.remote) return 'A remote branch cannot be deleted from here';
+  return undefined;
 }
 
 export function SourceControlBranchPicker({
@@ -166,20 +172,22 @@ export function SourceControlBranchPicker({
                               label: 'Checkout',
                               disabled:
                                 Boolean(busy) || branch.current || Boolean(status.operation) || !capabilities.checkout,
-                              title: branch.current
-                                ? 'This branch is already checked out'
-                                : operationReason || (capabilities.checkout ? undefined : missingChannel('Checkout')),
+                              title: actionTitle(
+                                branch.current ? 'This branch is already checked out' : operationReason,
+                                capabilities.checkout,
+                                () => missingChannel('Checkout')
+                              ),
                               onSelect: () => guarded(() => onCheckout(branch)),
                             },
                             {
                               id: 'rename',
                               label: 'Rename…',
                               disabled: Boolean(busy) || branch.remote || !capabilities.rename,
-                              title: branch.remote
-                                ? 'A remote branch cannot be renamed from here'
-                                : capabilities.rename
-                                  ? undefined
-                                  : missingChannel('Renaming a branch'),
+                              title: actionTitle(
+                                branch.remote ? 'A remote branch cannot be renamed from here' : undefined,
+                                capabilities.rename,
+                                () => missingChannel('Renaming a branch')
+                              ),
                               onSelect: () => guarded(() => onRename(branch)),
                             },
                             {
@@ -187,13 +195,9 @@ export function SourceControlBranchPicker({
                               label: 'Delete…',
                               danger: true,
                               disabled: Boolean(busy) || branch.remote || branch.current || !capabilities.delete,
-                              title: branch.current
-                                ? 'The checked-out branch cannot be deleted'
-                                : branch.remote
-                                  ? 'A remote branch cannot be deleted from here'
-                                  : capabilities.delete
-                                    ? undefined
-                                    : missingChannel('Deleting a branch'),
+                              title: actionTitle(deleteBlockedReason(branch), capabilities.delete, () =>
+                                missingChannel('Deleting a branch')
+                              ),
                               onSelect: () => guarded(() => onDelete(branch)),
                             },
                             {
@@ -207,9 +211,9 @@ export function SourceControlBranchPicker({
                                 !capabilities.merge ||
                                 !status.branch ||
                                 status.detached,
-                              title:
-                                operationReason ||
-                                (capabilities.merge ? undefined : missingChannel('Merging a branch')),
+                              title: actionTitle(operationReason, capabilities.merge, () =>
+                                missingChannel('Merging a branch')
+                              ),
                               onSelect: () => guarded(() => onMerge(branch)),
                             },
                           ])}

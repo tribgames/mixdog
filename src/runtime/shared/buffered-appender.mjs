@@ -238,7 +238,7 @@ export function drainPathSync(path) {
  */
 export function hasInFlightWrite(path) {
   const q = queues.get(path);
-  return Boolean(q && q.inFlight);
+  return Boolean(q?.inFlight);
 }
 
 try {

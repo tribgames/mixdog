@@ -72,7 +72,7 @@ test('compresses large payloads inside the envelope and stays readable without i
     event: 'sessionState',
     payload: {
       sessionId: 'session',
-      items: Array.from({ length: 120 }, (unused, id) => ({
+      items: Array.from({ length: 120 }, (_unused, id) => ({
         id,
         kind: id % 2 ? 'assistant' : 'user',
         text: 'the quick brown fox jumps over the lazy dog. '.repeat(12),

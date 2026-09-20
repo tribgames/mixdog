@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 export function createOAuthPkce(verifierBytes = 32) {
   const verifier = randomBytes(verifierBytes).toString('base64url');

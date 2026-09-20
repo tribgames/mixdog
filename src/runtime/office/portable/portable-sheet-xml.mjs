@@ -51,7 +51,9 @@ export function safeWorkbookTableName(value) {
   const cleaned = String(value || '')
     .replace(/\s+/g, '_')
     .replace(/[^\p{L}\p{N}_.]/gu, '');
-  const named = /^[\p{L}_]/u.test(cleaned) ? cleaned : cleaned ? `_${cleaned}` : '';
+  let named = '';
+  if (/^[\p{L}_]/u.test(cleaned)) named = cleaned;
+  else if (cleaned) named = `_${cleaned}`;
   const bounded = named.slice(0, 255);
   if (!bounded) return 'Table1';
   // R, C, and anything shaped like A1 are reserved; Excel refuses the workbook.
@@ -120,9 +122,7 @@ function renumberWorksheetRow(rowXml, index) {
 function replaceSheetData(xml, inner) {
   const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
   if (!sheetData) throw new Error('Worksheet is missing sheetData');
-  return (
-    `${xml.slice(0, sheetData.index)}<sheetData>${inner}</sheetData>` + xml.slice(sheetData.index + sheetData[0].length)
-  );
+  return `${xml.slice(0, sheetData.index)}<sheetData>${inner}</sheetData>${xml.slice(sheetData.index + sheetData[0].length)}`;
 }
 
 export function shiftWorksheetRows(xml, from, count) {
@@ -262,7 +262,9 @@ export function freezePaneXml(row, column) {
   const xSplit = Math.max(0, (Number(column) || 0) - 1);
   if (!ySplit && !xSplit) return '';
   const topLeft = `${columnLabel(xSplit + 1)}${ySplit + 1}`;
-  const activePane = ySplit && xSplit ? 'bottomRight' : ySplit ? 'bottomLeft' : 'topRight';
+  let activePane = 'topRight';
+  if (ySplit && xSplit) activePane = 'bottomRight';
+  else if (ySplit) activePane = 'bottomLeft';
   return (
     `<pane${xSplit ? ` xSplit="${xSplit}"` : ''}${ySplit ? ` ySplit="${ySplit}"` : ''}` +
     ` topLeftCell="${topLeft}" activePane="${activePane}" state="frozen"/>`
@@ -379,7 +381,9 @@ export function formattedNumberWidth(value, format = '') {
   const code = String(format || '').trim();
   if (!code || /^general$/i.test(code) || code === '@') return displayWidth(String(number));
   const sections = formatSections(code);
-  const chosen = number < 0 ? (sections[1] ?? sections[0]) : number === 0 ? (sections[2] ?? sections[0]) : sections[0];
+  let chosen = sections[0];
+  if (number < 0) chosen = sections[1] ?? sections[0];
+  else if (number === 0) chosen = sections[2] ?? sections[0];
   const section = chosen ?? '';
   if (DATE_TOKENS.test(section.replace(/"[^"]*"/g, ''))) return dateWidth(section);
   let literals = '';

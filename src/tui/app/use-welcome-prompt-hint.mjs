@@ -1,4 +1,4 @@
-// Welcome-screen prompt hint, extracted from App.jsx. A random starter tip is
+// Welcome-screen prompt hint. A random starter tip is
 // pinned per process; setup problems (no provider/model, solo workflow,
 // unsupported default web-search route, error toasts) override it with a targeted
 // conditional hint. Dismissal only fires while the hint row is actually on

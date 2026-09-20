@@ -109,7 +109,7 @@ test('code_graph outlines, symbol lookups, and reference ownership', async () =>
     {
       mode: 'references',
       file: 'src/runtime/agent/orchestrator/tools/code-graph/dispatch.mjs',
-      symbol: '_filterSymbolOutline',
+      symbol: '_graphForMode',
       limit: 20,
     },
     root

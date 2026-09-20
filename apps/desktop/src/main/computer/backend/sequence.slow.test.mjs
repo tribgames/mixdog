@@ -12,7 +12,7 @@ test('native step batching preserves guard order, post-input settling and failur
   skip: process.platform !== 'win32',
   timeout: 200_000,
 }, async () => {
-  const payload = await runComputerProbe(String.raw`
+  const payload = await runComputerProbe(`
 $script:events = New-Object System.Collections.ArrayList
 $script:failAfter = $false
 function Do-WindowSnapshot {

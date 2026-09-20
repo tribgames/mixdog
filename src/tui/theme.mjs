@@ -85,7 +85,7 @@ export function emitTerminalBackground(rgbString) {
   try {
     const m = /^rgb\((\d+),(\d+),(\d+)\)$/.exec(String(rgbString || '').replace(/\s+/g, ''));
     if (!m) {
-      if (process.stdout && process.stdout.isTTY) process.stdout.write('\x1b]111\x07');
+      if (process.stdout?.isTTY) process.stdout.write('\x1b]111\x07');
       return;
     }
     const hex = (n) =>
@@ -94,7 +94,7 @@ export function emitTerminalBackground(rgbString) {
         .padStart(2, '0');
     // OSC 11 ; rgb:RR/GG/BB  (BEL-terminated). Many terminals also accept #RRGGBB.
     const seq = `\x1b]11;rgb:${hex(m[1])}${hex(m[1])}/${hex(m[2])}${hex(m[2])}/${hex(m[3])}${hex(m[3])}\x07`;
-    if (process.stdout && process.stdout.isTTY) process.stdout.write(seq);
+    if (process.stdout?.isTTY) process.stdout.write(seq);
   } catch {
     /* terminals that ignore OSC 11 are harmless */
   }
@@ -151,7 +151,7 @@ export async function loadThemeSettingFromConfig() {
   try {
     const { readConfig } = await loadConfigModule();
     const cfg = readConfig() || {};
-    const stored = cfg && cfg.ui && typeof cfg.ui === 'object' ? cfg.ui.theme : null;
+    const stored = cfg?.ui && typeof cfg.ui === 'object' ? cfg.ui.theme : null;
     const storedKey = String(stored || '').trim();
     if (storedKey && (THEME_REGISTRY[storedKey] || THEME_ALIASES[storedKey])) {
       applyPalette(resolveThemeId(storedKey));

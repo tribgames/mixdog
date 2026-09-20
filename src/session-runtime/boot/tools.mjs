@@ -53,7 +53,8 @@ export function wireTools(boot) {
 }
 
 function wireAgent(boot) {
-  const { rt, params, cfgMod, reg, mgr, hooks, hookCommonPayload, awaitKeychainPrewarm, notifySessionCompletion } = boot;
+  const { rt, params, cfgMod, reg, mgr, hooks, hookCommonPayload, awaitKeychainPrewarm, notifySessionCompletion } =
+    boot;
   const agentToolStartedAt = performance.now();
   const agentTool = createStandaloneAgent({
     cfgMod,
@@ -97,7 +98,9 @@ function wireGoalRuntime(boot) {
   const goalRuntime = createGoalRuntime({
     dataDir: dataDirOf(cfgMod),
     generateTitle: async (source, options = {}) => {
-      const { generateSessionTitle } = await import('../../runtime/agent/orchestrator/agent-runtime/title-completion.mjs');
+      const { generateSessionTitle } = await import(
+        '../../runtime/agent/orchestrator/agent-runtime/title-completion.mjs'
+      );
       return generateSessionTitle(source, options);
     },
   });

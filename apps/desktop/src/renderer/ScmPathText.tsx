@@ -144,11 +144,10 @@ function measurerFor(element: HTMLElement): ((value: string) => number) | null {
   const context = measureContext(element.ownerDocument);
   if (!context) return null;
   const style = view.getComputedStyle(element);
-  const font =
-    style.font && style.font.trim()
-      ? style.font
-      : `${style.fontStyle || 'normal'} ${style.fontWeight || '400'}` +
-        ` ${style.fontSize || '12.5px'} ${style.fontFamily || 'sans-serif'}`;
+  const font = style.font?.trim()
+    ? style.font
+    : `${style.fontStyle || 'normal'} ${style.fontWeight || '400'}` +
+      ` ${style.fontSize || '12.5px'} ${style.fontFamily || 'sans-serif'}`;
   return (value: string) => {
     const key = `${font}\u0000${value}`;
     const memo = widthMemo.get(key);

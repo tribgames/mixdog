@@ -1,10 +1,10 @@
 // Codex client-metadata for the openai-oauth WebSocket transport: the
 // installation/session/thread/turn identity block that rides every frame, its
 // handshake-header projection, and the per-turn x-codex-turn-state guard.
-// Extracted from openai-oauth-ws.mjs, which now owns transport flow only.
-import { createHash, randomUUID } from 'crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+// openai-oauth-ws.mjs owns the transport flow only.
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { activateCodexTurnState } from './openai-turn-state.mjs';
 
@@ -98,7 +98,7 @@ function _codexInstallationId(sendOpts) {
 // The identity block is rebuilt per request: never cached on the pooled
 // socket, or a later turn would
 // replay the first turn's identity.
-function _codexMetadataBase(entry, { poolKey, cacheKey, sendOpts, handshake = false } = {}) {
+function _codexMetadataBase(_entry, { poolKey, cacheKey, sendOpts, handshake = false } = {}) {
   const rawSessionId =
     _cleanMetaString(
       sendOpts?.codexSessionId ||

@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { actionableFailureCount } from './smoke-loop-failure-summary.mjs';
+import { DURATION_UNIT_MS } from './lib/parse-since.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DURATION_MS = 5 * 60 * 60 * 1000;
@@ -28,7 +29,7 @@ function parseDuration(value, fallback) {
   if (!match) throw new Error(`invalid duration: ${raw}`);
   const n = Number(match[1]);
   const unit = match[2].toLowerCase();
-  const mult = unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : 3_600_000;
+  const mult = DURATION_UNIT_MS[unit];
   return Math.max(1, Math.floor(n * mult));
 }
 

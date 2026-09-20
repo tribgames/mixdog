@@ -30,12 +30,9 @@ export function loadSkillToolDependencies(envelope, session, mode) {
     if (denial) unavailable.push(`${name} (${denial})`);
     else allowed.push(name);
   }
-  const selectedMode =
-    session?.toolSpec === 'readonly' || session?.toolSpec?.includes?.('tools:readonly')
-      ? 'readonly'
-      : mode ||
-        session?.deferredSurfaceMode ||
-        (session?.toolSpec === 'full' || session?.toolSpec === 'mcp' ? 'full' : 'readonly');
+  const readonlySpec = session?.toolSpec === 'readonly' || session?.toolSpec?.includes?.('tools:readonly');
+  const specMode = session?.toolSpec === 'full' || session?.toolSpec === 'mcp' ? 'full' : 'readonly';
+  const selectedMode = readonlySpec ? 'readonly' : mode || session?.deferredSurfaceMode || specMode;
   const selection = allowed.length ? selectDeferredTools(session, allowed, selectedMode, { exact: true }) : null;
   const loaded = [...(selection?.added || []), ...(selection?.already || [])];
   for (const item of selection?.blocked || []) unavailable.push(`${item.name} (${item.reason})`);

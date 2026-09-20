@@ -219,14 +219,16 @@ export function normalizePaneSideDocks(
         ? (entry.view as WorkbenchSideViewId)
         : null;
     const view = storedView ?? firstRoot;
-    const surface =
-      storedSurface === PANE_DOCK_BROWSER_SURFACE || storedSurface === PANE_DOCK_TERMINAL_SURFACE
-        ? sessionSurfaces.has(storedSurface)
-          ? storedSurface
-          : ''
-        : diff && (storedSurface === PANE_DOCK_DIFF_SURFACE || storedSurface === navigationKey(diff))
-          ? PANE_DOCK_DIFF_SURFACE
-          : '';
+    let surface:
+      | typeof PANE_DOCK_BROWSER_SURFACE
+      | typeof PANE_DOCK_TERMINAL_SURFACE
+      | typeof PANE_DOCK_DIFF_SURFACE
+      | '' = '';
+    if (storedSurface === PANE_DOCK_BROWSER_SURFACE || storedSurface === PANE_DOCK_TERMINAL_SURFACE) {
+      if (sessionSurfaces.has(storedSurface)) surface = storedSurface;
+    } else if (diff && (storedSurface === PANE_DOCK_DIFF_SURFACE || storedSurface === navigationKey(diff))) {
+      surface = PANE_DOCK_DIFF_SURFACE;
+    }
     const open = (entry ? entry.open === true : defaultOpen) && (view !== null || surface !== '');
     next[leafId] = { open, view, surface, diff };
   }
@@ -651,34 +653,32 @@ export function PaneSideDock({
   const pairMin = DESKTOP_UTILITY_DOCK_MIN_WIDTH + PANE_SIDE_DOCK_DIFF_MIN_WIDTH;
   const twoDepth = paneDiffStacks(diffShowing, sheetAvail, pairMin, isMobileRemoteSurface());
   const pairShowing = diffShowing && !twoDepth;
-  const columnMin = sessionSurfaceShowing
-    ? PANE_SIDE_DOCK_BROWSER_MIN_WIDTH
-    : pairShowing
-      ? pairMin
-      : DESKTOP_UTILITY_DOCK_MIN_WIDTH;
+  let columnMin = DESKTOP_UTILITY_DOCK_MIN_WIDTH;
+  if (sessionSurfaceShowing) columnMin = PANE_SIDE_DOCK_BROWSER_MIN_WIDTH;
+  else if (pairShowing) columnMin = pairMin;
   const fullTakeover = openNow && cellWidth > 0 && sheetAvail < columnMin;
   // Overlay decision: the diff PAIR never shrinks inline (user: 두개 합산이
   // 더 커지면 오버레이) — the moment panel+diff no longer fit beside the
   // conversation floor, the whole unit floats over the pane. View/browser
   // modes shrink toward their own minimum first.
-  const overlay =
-    fullTakeover ||
-    (openNow &&
-      (pairShowing
-        ? room < panelDesired + diffDesired
-        : sessionSurfaceShowing
-          ? room < PANE_SIDE_DOCK_BROWSER_MIN_WIDTH
-          : room < columnMin));
-  const avail = fullTakeover ? cellWidth : overlay ? Math.max(columnMin, sheetAvail) : room;
-  const asideWidth = Math.round(
-    fullTakeover
-      ? cellWidth
-      : sessionSurfaceShowing
-        ? Math.max(PANE_SIDE_DOCK_BROWSER_MIN_WIDTH, Math.min(browserPref, avail))
-        : pairShowing
-          ? Math.max(DESKTOP_UTILITY_DOCK_MIN_WIDTH, Math.min(panelDesired, avail - PANE_SIDE_DOCK_DIFF_MIN_WIDTH))
-          : Math.max(DESKTOP_UTILITY_DOCK_MIN_WIDTH, Math.min(panelPref, avail))
-  );
+  let inlineFloor = columnMin;
+  if (pairShowing) inlineFloor = panelDesired + diffDesired;
+  else if (sessionSurfaceShowing) inlineFloor = PANE_SIDE_DOCK_BROWSER_MIN_WIDTH;
+  const overlay = fullTakeover || (openNow && room < inlineFloor);
+  let avail = room;
+  if (fullTakeover) avail = cellWidth;
+  else if (overlay) avail = Math.max(columnMin, sheetAvail);
+  let asideTarget = Math.max(DESKTOP_UTILITY_DOCK_MIN_WIDTH, Math.min(panelPref, avail));
+  if (fullTakeover) asideTarget = cellWidth;
+  else if (sessionSurfaceShowing) {
+    asideTarget = Math.max(PANE_SIDE_DOCK_BROWSER_MIN_WIDTH, Math.min(browserPref, avail));
+  } else if (pairShowing) {
+    asideTarget = Math.max(
+      DESKTOP_UTILITY_DOCK_MIN_WIDTH,
+      Math.min(panelDesired, avail - PANE_SIDE_DOCK_DIFF_MIN_WIDTH)
+    );
+  }
+  const asideWidth = Math.round(asideTarget);
   const diffWidth = pairShowing
     ? Math.round(Math.max(PANE_SIDE_DOCK_DIFF_MIN_WIDTH, Math.min(diffDesired, avail - asideWidth)))
     : 0;
@@ -693,119 +693,111 @@ export function PaneSideDock({
   // persistent layer stacked over the panel body. In the narrow 2뎁스 stage
   // the diff rides the same layer, with a back step to the list (user:
   // 디프소스를 사이드탭 패널에 올리고 뒤로가기).
-  const twoDepthDiff =
-    dockBodyMounted && twoDepth && entry.diff ? (
-      <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
-        <div className="pane-dock-diff-back">
-          <button type="button" onClick={onCloseDiff}>
-            <ArrowLeft size={14} aria-hidden="true" />
-            <span>{t('Back')}</span>
-          </button>
-        </div>
-        <DeferredPersistentSurface
-          active
-          startupDelayMs={DIFF_STARTUP_DELAY_MS}
-          fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
-        >
-          <ReadyGitDiffPane
-            selection={entry.diff}
-            active={diffShowing}
-            onOpenFile={openFileTab}
-            onClose={onCloseDiff}
-          />
-        </DeferredPersistentSurface>
+  const twoDepthDiff = dockBodyMounted && twoDepth && entry.diff && (
+    <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
+      <div className="pane-dock-diff-back">
+        <button type="button" onClick={onCloseDiff}>
+          <ArrowLeft size={14} aria-hidden="true" />
+          <span>{t('Back')}</span>
+        </button>
       </div>
-    ) : null;
+      <DeferredPersistentSurface
+        active
+        startupDelayMs={DIFF_STARTUP_DELAY_MS}
+        fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
+      >
+        <ReadyGitDiffPane selection={entry.diff} active={diffShowing} onOpenFile={openFileTab} onClose={onCloseDiff} />
+      </DeferredPersistentSurface>
+    </div>
+  );
   const browserSurface = dockBodyMounted ? (renderBrowserSurface?.(browserShowing) ?? null) : null;
   const terminalSurface = dockBodyMounted ? (renderTerminalSurface?.(terminalShowing) ?? null) : null;
-  const surfaces =
-    browserSurface || terminalSurface || twoDepthDiff ? (
-      <>
-        {browserSurface && (
-          <div
-            className="workbench-side-surface-slot"
-            data-surface-active={browserShowing ? 'true' : 'false'}
-            inert={browserShowing ? undefined : true}
-            aria-hidden={browserShowing ? undefined : true}
-          >
-            {browserSurface}
-          </div>
-        )}
-        {terminalSurface && (
-          <div
-            className="workbench-side-surface-slot"
-            data-surface-active={terminalShowing ? 'true' : 'false'}
-            inert={terminalShowing ? undefined : true}
-            aria-hidden={terminalShowing ? undefined : true}
-          >
-            {terminalSurface}
-          </div>
-        )}
-        {twoDepthDiff}
-      </>
-    ) : undefined;
+  const surfaces = (browserSurface || terminalSurface || twoDepthDiff) && (
+    <>
+      {browserSurface && (
+        <div
+          className="workbench-side-surface-slot"
+          data-surface-active={browserShowing ? 'true' : 'false'}
+          inert={browserShowing ? undefined : true}
+          aria-hidden={browserShowing ? undefined : true}
+        >
+          {browserSurface}
+        </div>
+      )}
+      {terminalSurface && (
+        <div
+          className="workbench-side-surface-slot"
+          data-surface-active={terminalShowing ? 'true' : 'false'}
+          inert={terminalShowing ? undefined : true}
+          aria-hidden={terminalShowing ? undefined : true}
+        >
+          {terminalSurface}
+        </div>
+      )}
+      {twoDepthDiff}
+    </>
+  );
   // File Diff: PAIRED to the LEFT of the panel view under the same header
   // selection; a project-tool click replaces the file in place. The narrow
   // 2뎁스 stage retires the pair column — the diff stacks over the panel.
   const columnDiff = entry.diff ?? retainedDiff;
   if (pairShowing && diffWidth > 0) shownDiffWidth.current = diffWidth;
   const columnWidth = pairShowing ? diffWidth : shownDiffWidth.current || diffDesired;
-  const diffColumn =
-    dockBodyMounted && columnDiff && !twoDepth ? (
+  const diffColumn = dockBodyMounted && columnDiff && !twoDepth && (
+    <div
+      className="pane-dock-diff-column"
+      hidden={!diffShowing}
+      inert={diffShowing ? undefined : true}
+      style={{ '--pane-dock-diff-width': `${columnWidth}px` } as React.CSSProperties}
+    >
       <div
-        className="pane-dock-diff-column"
-        hidden={!diffShowing}
-        inert={diffShowing ? undefined : true}
-        style={{ '--pane-dock-diff-width': `${columnWidth}px` } as React.CSSProperties}
-      >
-        <div
-          className="pane-dock-diff-resize"
-          role="separator"
-          aria-orientation="vertical"
-          onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
-            if (event.button !== 0) return;
-            diffResizeStart.current = { x: event.clientX, width: diffWidth };
-            diffDragPending.current = null;
-            event.currentTarget.setPointerCapture(event.pointerId);
-          }}
-          onPointerMove={(event) => {
-            const start = diffResizeStart.current;
-            if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-            const next = Math.max(
-              PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
-              Math.min(PANE_SIDE_DOCK_DIFF_MAX_WIDTH, Math.round(start.width + (start.x - event.clientX)))
-            );
-            diffDragPending.current = next;
-            setDiffPref(next);
-          }}
-          onPointerUp={(event) => {
-            if (!diffResizeStart.current) return;
-            diffResizeStart.current = null;
-            try {
-              event.currentTarget.releasePointerCapture(event.pointerId);
-            } catch {}
-            commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, diffDragPending.current ?? diffWidth);
-            diffDragPending.current = null;
-          }}
-        />
-        <div className="pane-dock-diff-body">
-          <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
-            <DeferredPersistentSurface
-              active
-              startupDelayMs={DIFF_STARTUP_DELAY_MS}
-              fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
-            >
-              <ReadyGitDiffPane
-                selection={columnDiff}
-                active={diffShowing}
-                onOpenFile={openFileTab}
-                onClose={onCloseDiff}
-              />
-            </DeferredPersistentSurface>
-          </div>
+        className="pane-dock-diff-resize"
+        role="separator"
+        aria-orientation="vertical"
+        onPointerDown={(event: ReactPointerEvent<HTMLDivElement>) => {
+          if (event.button !== 0) return;
+          diffResizeStart.current = { x: event.clientX, width: diffWidth };
+          diffDragPending.current = null;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const start = diffResizeStart.current;
+          if (!start || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+          const next = Math.max(
+            PANE_SIDE_DOCK_DIFF_MIN_WIDTH,
+            Math.min(PANE_SIDE_DOCK_DIFF_MAX_WIDTH, Math.round(start.width + (start.x - event.clientX)))
+          );
+          diffDragPending.current = next;
+          setDiffPref(next);
+        }}
+        onPointerUp={(event) => {
+          if (!diffResizeStart.current) return;
+          diffResizeStart.current = null;
+          try {
+            event.currentTarget.releasePointerCapture(event.pointerId);
+          } catch {}
+          commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, diffDragPending.current ?? diffWidth);
+          diffDragPending.current = null;
+        }}
+      />
+      <div className="pane-dock-diff-body">
+        <div className="workbench-side-surface-slot" data-surface-active={diffShowing ? 'true' : 'false'}>
+          <DeferredPersistentSurface
+            active
+            startupDelayMs={DIFF_STARTUP_DELAY_MS}
+            fallback={<DesktopLoadingSurface label={t('Loading diff…')} />}
+          >
+            <ReadyGitDiffPane
+              selection={columnDiff}
+              active={diffShowing}
+              onOpenFile={openFileTab}
+              onClose={onCloseDiff}
+            />
+          </DeferredPersistentSurface>
         </div>
       </div>
-    ) : null;
+    </div>
+  );
   // ONE header line for the whole unit (user: 헤더 한 줄), spanning
   // [diff | panel] at the PANE strip's height. The child icons moved to the
   // pane strip's right end (PaneDockToggles), so the header names only the

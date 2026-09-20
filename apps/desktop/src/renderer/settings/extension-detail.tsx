@@ -489,8 +489,8 @@ export function scopeOf(row: RecordValue): { scope: string[] | null; inheritedSc
   const scope = Array.isArray(row.scope) ? row.scope.map(String) : null;
   const inheritedScope = Array.isArray(row.inheritedScope) ? row.inheritedScope.map(String) : null;
   return {
-    scope: scope && scope.length ? scope : null,
-    inheritedScope: inheritedScope && inheritedScope.length ? inheritedScope : null,
+    scope: scope?.length ? scope : null,
+    inheritedScope: inheritedScope?.length ? inheritedScope : null,
   };
 }
 

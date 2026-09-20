@@ -44,7 +44,7 @@ export function QueuedCommands({ queued, columns, compact = false }) {
             oneLine.length > contentWidth
               ? contentWidth <= 1
                 ? '…'.repeat(contentWidth)
-                : oneLine.slice(0, Math.max(1, contentWidth - 1)) + '…'
+                : `${oneLine.slice(0, Math.max(1, contentWidth - 1))}…`
               : oneLine;
         }
         return (

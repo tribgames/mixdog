@@ -1,0 +1,75 @@
+import { registerBackgroundTask, renderBackgroundTask } from '../../../../../shared/background-tasks.mjs';
+import { killShellJob, watchBackgroundShellJob } from '../shell-jobs.mjs';
+import { renderBackgroundPartialOutput } from '../shell-output.mjs';
+import { normalizeOutputPath } from '../path-utils.mjs';
+import { cleanupArtifactOnTaskSettled, consumeTeeArtifact } from './transport-artifacts.mjs';
+import { _backgroundResultLines, _prependDestructiveWarning } from './result-format.mjs';
+
+const DEFAULT_BACKGROUND_MESSAGE =
+  'auto-backgrounded; still running — judge from the partial output whether waiting can finish in budget, or diagnose and pursue an alternative.';
+
+function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
+  try {
+    return registerBackgroundTask({
+      taskId: result.jobId,
+      startedAtMs,
+      surface: 'shell',
+      operation: 'shell',
+      label: String(command).replace(/\s+/g, ' ').slice(0, 120),
+      input: { command, cwd },
+      context: {
+        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+        callerSessionId: options?.callerSessionId || options?.sessionId || null,
+        routingSessionId: options?.routingSessionId || options?.sessionId || null,
+        clientHostPid: options?.clientHostPid,
+      },
+      meta: {
+        task_id: result.jobId,
+        stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,
+        // Both streams render as one body, so the task record carries the
+        // stdout path only.
+        stderr: null,
+        cwd,
+        timeoutMs: result.backgroundTimeoutMs || 0,
+      },
+      resultType: 'shell_task_result',
+      cancel: () => killShellJob(result.jobId),
+    });
+  } catch {
+    return null;
+  }
+}
+
+// Auto-backgrounded: the command outlived autoBackgroundMs and is still
+// running, now promoted as a tracked shell-job. Surface the task_id + partial
+// output for manual task control instead of keeping the tool call open until
+// the hard timeout.
+export function renderBackgroundedResult({ result, command, cwd, options, startedAtMs, teePlan, stdout, stderr }) {
+  let task = null;
+  if (result.jobId) {
+    task = registerPromotedTask({ result, command, cwd, options, startedAtMs });
+    try {
+      watchBackgroundShellJob(result.jobId, {
+        notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,
+        callerSessionId: options?.callerSessionId || options?.sessionId,
+        routingSessionId: options?.routingSessionId || options?.sessionId,
+        clientHostPid: options?.clientHostPid,
+      });
+    } catch {
+      /* best effort */
+    }
+  }
+  // The promoted producer is still writing into the tee file, so it cannot be
+  // consumed here — but it must not survive the command either. Consume (and
+  // delete) it when the task settles.
+  if (teePlan) cleanupArtifactOnTaskSettled(teePlan.teePath, result.jobId, consumeTeeArtifact);
+  let taskBlock = null;
+  if (task) taskBlock = renderBackgroundTask(task);
+  else if (result.jobId) taskBlock = `[task_id: ${result.jobId}]`;
+  const lines = _backgroundResultLines({
+    taskBlock,
+    message: result.backgroundMessage || DEFAULT_BACKGROUND_MESSAGE,
+    partialOutput: renderBackgroundPartialOutput(stdout, stderr),
+  });
+  return _prependDestructiveWarning(command, lines.join('\n'));
+}

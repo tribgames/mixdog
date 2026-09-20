@@ -32,7 +32,7 @@ function isHookApprovalDenialToolResult(text) {
 }
 
 export function isHookApprovalDenialToolItem(item) {
-  if (!item || item.kind !== 'tool') return false;
+  if (item?.kind !== 'tool') return false;
   // A genuine hook denial is always surfaced as an ERROR result. Gating on
   // isError stops a successful result whose body happens to contain the denial
   // phrase (e.g. reading the hook source) from rendering a phantom "Denied".
@@ -49,7 +49,7 @@ export function formatHookDenialDetail(text) {
 }
 
 export function isFullyFailedToolBatch(item) {
-  if (!item || item.kind !== 'tool') return false;
+  if (item?.kind !== 'tool') return false;
   const args = parseToolArgs(item.args);
   const hasTaskId = Boolean(args.task_id || args.taskId);
   const status = String(args.status || '').toLowerCase();
@@ -59,11 +59,8 @@ export function isFullyFailedToolBatch(item) {
   const count = Math.max(1, Number(item.count || 1));
   const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
   const explicit = Number(item.errorCount);
-  const failed = Number.isFinite(explicit)
-    ? Math.max(0, Math.min(count, Math.floor(explicit)))
-    : item.isError
-      ? count
-      : 0;
+  let failed = item.isError ? count : 0;
+  if (Number.isFinite(explicit)) failed = Math.max(0, Math.min(count, Math.floor(explicit)));
   return done >= count && failed >= count;
 }
 

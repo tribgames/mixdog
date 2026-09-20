@@ -26,6 +26,12 @@ function isValidNewMessage(m) {
   return !!m && typeof m === 'object' && m.role === 'user' && typeof m.content === 'string' && m.content.length > 0;
 }
 
+/** An explicit failure outranks an explicit success on the same envelope. */
+function explicitOutcomeFields(options) {
+  if (options.explicitFailure === true) return { explicitFailure: true };
+  return options.explicitSuccess === true ? { explicitSuccess: true } : {};
+}
+
 /**
  * Build a tool-result envelope. `result` is the short stub/data the model
  * sees as the tool_result; `newMessages` are appended (as their own
@@ -36,11 +42,7 @@ export function makeToolEnvelope(result, newMessages = [], options = {}) {
     [TOOL_ENVELOPE_MARKER]: true,
     result,
     newMessages: Array.isArray(newMessages) ? newMessages.filter(isValidNewMessage) : [],
-    ...(options.explicitFailure === true
-      ? { explicitFailure: true }
-      : options.explicitSuccess === true
-        ? { explicitSuccess: true }
-        : {}),
+    ...explicitOutcomeFields(options),
   };
 }
 

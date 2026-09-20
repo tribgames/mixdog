@@ -3,9 +3,10 @@ import { markStoreFault } from './memory-cycle2-shared.mjs';
 // Review and graph changes commit together. Original content, summaries and
 // legacy status values are never deleted or rewritten by maintenance.
 export async function applyHistoryReview(db, row, action, prior = null, now = Date.now()) {
-  const relations = (Array.isArray(action) ? action : action === 'keep' ? [] : [{ action, prior }])
-    .slice()
-    .sort((a, b) => Number(a.prior.older_ts) - Number(b.prior.older_ts));
+  let requested = [{ action, prior }];
+  if (Array.isArray(action)) requested = action;
+  else if (action === 'keep') requested = [];
+  const relations = requested.slice().sort((a, b) => Number(a.prior.older_ts) - Number(b.prior.older_ts));
   try {
     return await db.transaction(async (tx) => {
       const ids = [Number(row.id), ...relations.map((item) => Number(item.prior.older_id))];

@@ -1,5 +1,5 @@
-// provider.send wrapper with stall/overflow recovery, extracted from
-// agent-loop.mjs. Returns { action } so the loop keeps control of the
+// provider.send wrapper with stall/overflow recovery.
+// Returns { action } so the loop keeps control of the
 // while-loop: proceed carries the response, retry signals a reactive
 // context-overflow compact retry (caller re-enters the pre-send compact
 // pass), and unrecoverable errors throw. Behavior identical to the inline
@@ -134,7 +134,16 @@ function beginFreshTransportAttempt(opts, retryMax) {
 }
 
 export async function sendWithRecovery(ctx) {
-  const { provider, messages, model, sendTools, opts, sessionId, transportRetriesUsed = 0, transportRetryMax = 0 } = ctx;
+  const {
+    provider,
+    messages,
+    model,
+    sendTools,
+    opts,
+    sessionId,
+    transportRetriesUsed = 0,
+    transportRetryMax = 0,
+  } = ctx;
   // Establishes the in-request stall window the provider layer shares through
   // opts. A fresh replay below resets it: the loop's own TRANSPORT_RETRY_MAX
   // is what bounds replays, not a window already spent detecting the stall.
@@ -701,7 +710,11 @@ function repairThinkingReplay(recoveryMessages, state) {
   return { action: 'retry_replay_repair' };
 }
 
-function imageStripEligible(sendErr, outcome, { recoveryMessages, imageStripUsed, transportRetriesUsed, relayWitness }) {
+function imageStripEligible(
+  sendErr,
+  outcome,
+  { recoveryMessages, imageStripUsed, transportRetriesUsed, relayWitness }
+) {
   return (
     transportRetriesUsed < TRANSPORT_RETRY_MAX &&
     (shouldStripImagesForRetry(sendErr, {

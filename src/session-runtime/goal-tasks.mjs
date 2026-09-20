@@ -63,10 +63,12 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
       throw new Error(`goal task ${index + 1} has an invalid status`);
     if (strict && !['work', 'verification'].includes(rawKind))
       throw new Error(`goal task ${index + 1} has an invalid kind`);
+    let status = source.satisfied === true ? 'completed' : 'pending';
+    if (GOAL_TASK_STATUSES.includes(rawStatus)) status = rawStatus;
     return {
       id,
       text,
-      status: GOAL_TASK_STATUSES.includes(rawStatus) ? rawStatus : source.satisfied === true ? 'completed' : 'pending',
+      status,
       kind: rawKind === 'verification' ? 'verification' : 'work',
     };
   });

@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, existsSync as fsExistsSync, statSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { readdirSync, readFileSync, existsSync as fsExistsSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { DATA_DIR } from './config.mjs';
 import { ensureDir } from './state-file.mjs';
 import { logEvent } from './executor.mjs';
@@ -297,7 +297,7 @@ ${p.item.prompt}`
     try {
       renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
     } catch (err) {
-      if (err && err.code && err.code !== 'ENOENT') {
+      if (err?.code && err.code !== 'ENOENT') {
         logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
       }
     }
@@ -356,7 +356,7 @@ ${p.item.prompt}`
       return claimed;
     } catch (err) {
       // ENOENT: another tick grabbed it; EEXIST: target collision (very rare).
-      if (err && err.code && err.code !== 'ENOENT' && err.code !== 'EEXIST') {
+      if (err?.code && err.code !== 'ENOENT' && err.code !== 'EEXIST') {
         logEvent(`queue: claim failed for ${file}: ${err.message ?? err}`);
       }
       return null;
@@ -381,7 +381,7 @@ ${p.item.prompt}`
         renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
         count++;
       } catch (err) {
-        if (err && err.code && err.code !== 'ENOENT') {
+        if (err?.code && err.code !== 'ENOENT') {
           logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
         }
       }

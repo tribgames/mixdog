@@ -1,9 +1,9 @@
 'use strict';
 
-const { spawn, spawnSync } = require('child_process');
-const { randomBytes } = require('crypto');
-const path = require('path');
-const fs = require('fs');
+const { spawn, spawnSync } = require('node:child_process');
+const { randomBytes } = require('node:crypto');
+const path = require('node:path');
+const fs = require('node:fs');
 const { resolvePluginData } = require('./plugin-paths.cjs');
 
 const SERVICE = 'mixdog';
@@ -205,7 +205,7 @@ function secretsDir() {
 }
 
 function dpApiFile(account) {
-  return path.join(secretsDir(), account + '.dpapi');
+  return path.join(secretsDir(), `${account}.dpapi`);
 }
 
 function writeOwnerOnlyAtomicSync(file, text) {
@@ -466,7 +466,7 @@ async function _prewarmSecretsOnce() {
     if (rows.length === 0) return;
     const r = await powershellAsync(
       PS_UNPROTECT_BATCH,
-      rows.map((row) => `${row.account}|${row.b64}`).join('\n') + '\n'
+      `${rows.map((row) => `${row.account}|${row.b64}`).join('\n')}\n`
     );
     if (r.error || r.status !== 0) return;
     const generations = new Map(rows.map((row) => [row.account, row.generation]));

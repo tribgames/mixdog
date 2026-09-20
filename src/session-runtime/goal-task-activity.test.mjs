@@ -109,10 +109,11 @@ test('full task transitions and newly started tasks also resume paused work', as
       const f = fixture(t);
       await f.create();
       await f.call({ action: 'pause', blocker: 'Need approval to start' });
+      const startFirst = (task, index) => (index ? task : { ...task, status: 'in_progress' });
       const tasks =
         action === 'update_tasks'
           ? [{ text: 'Approved addition', status: 'in_progress', kind: 'work' }]
-          : f.snapshot().tasks.map((task, index) => (index ? task : { ...task, status: 'in_progress' }));
+          : f.snapshot().tasks.map(startFirst);
       const reply = await f.call({ action, tasks });
       assert.equal(reply.goal.status, 'active');
       assert.equal(f.snapshot().tasks.find((task) => task.kind === 'verification').status, 'awaiting_approval');

@@ -7,17 +7,11 @@
  * openai-compat.mjs and openai-compat-xai.mjs cache-trace writers. Isolating
  * them here breaks the former import cycle between those two modules.
  */
-import { traceHash, stableTraceStringify, traceTextShape } from './trace-utils.mjs';
+import { traceHash, traceContentShape, traceTextShape } from './trace-utils.mjs';
 
 export function summarizeTraceMessages(messages) {
   const summaries = (messages || []).map((m, index) => {
-    const content =
-      typeof m?.content === 'string'
-        ? { type: 'text', ...traceTextShape(m.content) }
-        : {
-            type: m?.content == null ? 'null' : typeof m.content,
-            hash: traceHash(stableTraceStringify(m?.content ?? null)),
-          };
+    const content = traceContentShape(m?.content);
     const toolCalls = Array.isArray(m?.tool_calls)
       ? m.tool_calls.map((tc) => ({
           name: tc?.function?.name || null,

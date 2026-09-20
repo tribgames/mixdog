@@ -35,15 +35,15 @@ export function sourceControlRemoteActions({
   const remoteName = (status?.upstreamName || '').split('/')[0] || 'origin';
   const aheadCount = status?.ahead ?? 0;
   const behindCount = status?.behind ?? 0;
-  const fetchReason = busy
-    ? 'Another Git action is running'
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
-      : !canFetch
-        ? missingChannel('Fetching')
-        : !status?.remote
-          ? 'Add a remote before fetching'
-          : '';
+  // Shared gate for every remote action: a running action, an unfinished
+  // Git operation, a missing channel, then a missing remote — in that order.
+  const remoteGate = (capable: boolean, action: string, verb: string): string => {
+    if (busy) return 'Another Git action is running';
+    if (status?.operation) return `Finish the in-progress ${status.operation.replace('-', ' ')} first`;
+    if (!capable) return missingChannel(action);
+    return status?.remote ? '' : `Add a remote before ${verb}`;
+  };
+  const fetchReason = remoteGate(canFetch, 'Fetching', 'fetching');
   const fetchEntry: SourceControlRemoteAction = {
     key: 'fetch',
     runKey: 'fetch',
@@ -55,17 +55,8 @@ export function sourceControlRemoteActions({
     icon: <RefreshCw size={14} aria-hidden="true" />,
     perform: onFetch,
   };
-  const pushReason = busy
-    ? 'Another Git action is running'
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
-      : !canPush
-        ? missingChannel('Pushing')
-        : !status?.remote
-          ? 'Add a remote before pushing'
-          : status.detached
-            ? 'Cannot push a detached HEAD'
-            : '';
+  let pushReason = remoteGate(canPush, 'Pushing', 'pushing');
+  if (!pushReason && status?.detached) pushReason = 'Cannot push a detached HEAD';
   const pushEntry: SourceControlRemoteAction = {
     key: 'push',
     runKey: 'push',
@@ -77,19 +68,8 @@ export function sourceControlRemoteActions({
     icon: <ArrowUp size={14} aria-hidden="true" />,
     perform: onPush,
   };
-  const rowPushReason = busy
-    ? 'Another Git action is running'
-    : status?.operation
-      ? `Finish the in-progress ${status.operation.replace('-', ' ')} first`
-      : !canPush
-        ? missingChannel('Pushing')
-        : !status?.remote
-          ? 'Add a remote before pushing'
-          : status.detached
-            ? 'Cannot push a detached HEAD'
-            : !status.upstream
-              ? 'Publish the branch before pushing'
-              : '';
+  let rowPushReason = pushReason;
+  if (!rowPushReason && !status?.upstream) rowPushReason = 'Publish the branch before pushing';
 
   return {
     remoteName,

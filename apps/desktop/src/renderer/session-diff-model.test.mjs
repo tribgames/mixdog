@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildSessionDiffRows } from './session-diff-model.ts';
+import { boundReviewPatch } from '../../../../src/runtime/shared/review-diff.mjs';
+
+test('omitted large hunks keep modified, added and deleted rows in the session pane', () => {
+  const patch = [
+    `diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+${'x'.repeat(70000)}\n`,
+    'diff --git a/b.txt b/b.txt\nnew file mode 100644\n--- /dev/null\n+++ b/b.txt\n',
+    'diff --git a/c.txt b/c.txt\ndeleted file mode 100644\n--- a/c.txt\n+++ /dev/null\n',
+  ].join('');
+  const rows = buildSessionDiffRows({ supported: true, files: [], patch: boundReviewPatch(patch, 65536).patch });
+  assert.deepEqual(
+    rows.map((row) => [row.path, row.status]),
+    [
+      ['a.txt', 'M'],
+      ['b.txt', 'A'],
+      ['c.txt', 'D'],
+    ]
+  );
+});
 
 test('session diff rows follow the scoped capability file set', () => {
   const rows = buildSessionDiffRows({

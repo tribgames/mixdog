@@ -170,7 +170,14 @@ async function executeSerially(batch, call, exec) {
   exec.executionStartedAt = Date.now();
   exec.serialExecutionStartedAt = exec.executionStartedAt;
   exec.localSearchTelemetry = {};
-  exec.result = await executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, invocationOptions(batch, call, exec));
+  exec.result = await executeToolFn(
+    call.name,
+    call.arguments,
+    cwd,
+    sessionId,
+    sessionRef,
+    invocationOptions(batch, call, exec)
+  );
   exec.toolEndedAt = Date.now();
   classifyExecuted(call, exec);
 }
@@ -218,15 +225,27 @@ function recordExecutionInterval(exec) {
 // rejected edit had no side effects, so re-execution is safe.
 async function retryAmbiguousEdit(batch, call, exec) {
   const group = editSeqGroupFor(batch.plan, call);
-  if (group && exec.resultKind === 'error' && typeof exec.result === 'string' && /old_string found \d+ times/.test(exec.result)) {
+  if (
+    group &&
+    exec.resultKind === 'error' &&
+    typeof exec.result === 'string' &&
+    /old_string found \d+ times/.test(exec.result)
+  ) {
     const remaining = group.total - group.applied;
     if (remaining >= 1) {
       const retryStartedAt = Date.now();
       try {
-        const retry = await batch.executeToolFn(call.name, call.arguments, batch.cwd, batch.sessionId, batch.sessionRef, {
-          ...invocationOptions(batch, call, exec),
-          ...(remaining >= 2 ? { editOccurrence: { expected: remaining } } : {}),
-        });
+        const retry = await batch.executeToolFn(
+          call.name,
+          call.arguments,
+          batch.cwd,
+          batch.sessionId,
+          batch.sessionRef,
+          {
+            ...invocationOptions(batch, call, exec),
+            ...(remaining >= 2 ? { editOccurrence: { expected: remaining } } : {}),
+          }
+        );
         if (classifyToolReturn(retry, call.name) !== 'error') {
           exec.result = retry;
           exec.resultKind = 'normal';

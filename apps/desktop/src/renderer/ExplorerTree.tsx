@@ -101,14 +101,11 @@ export const FilesRootPane = memo(function FilesRootPane({
     }
     return { gitFiles: files, gitDirs: parents };
   }, [gitStatus]);
-  const gitClassOf = (badge?: string) =>
-    !badge
-      ? ''
-      : badge === 'U' || badge === 'A' || badge === '?'
-        ? ' git-added'
-        : badge === 'D'
-          ? ' git-deleted'
-          : ' git-modified';
+  const gitClassOf = (badge?: string) => {
+    if (!badge) return '';
+    if (badge === 'U' || badge === 'A' || badge === '?') return ' git-added';
+    return badge === 'D' ? ' git-deleted' : ' git-modified';
+  };
   // Selection, focus, and clipboard state for the multi-select list.
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [focusedRel, setFocusedRel] = useState('');
@@ -160,7 +157,10 @@ export const FilesRootPane = memo(function FilesRootPane({
     setFocusedRel(rel);
   };
   /** What an action addresses: the selection, or the focused row alone. */
-  const selectionRels = () => (selected.size > 0 ? [...selected] : focusedRel ? [focusedRel] : []);
+  const selectionRels = () => {
+    if (selected.size > 0) return [...selected];
+    return focusedRel ? [focusedRel] : [];
+  };
   // Explorer-style right-click menu state. Declared BEFORE the empty-project
   // early return below: with hooks after that return, a projectPath flip
   // (pane focus swaps between draft/EMPTY and session snapshots) changed the
@@ -264,16 +264,14 @@ export const FilesRootPane = memo(function FilesRootPane({
     setEditValue(name);
     setEditing({ mode: 'rename', parentRel: explorerParentRel(rel), rel, initial: name, dir });
   };
+  /** Directory a row addresses: itself for folders, its parent for files. */
+  const rowDirRel = (row: (typeof navRows)[number] | undefined) => {
+    if (!row) return '';
+    return row.dir ? row.rel : row.parentRel;
+  };
   const beginCreate = (dir: boolean, explicitParent?: string) => {
     const focusedRow = navRows.find((row) => row.rel === focusedRel);
-    const parentRel =
-      explicitParent !== undefined
-        ? explicitParent
-        : focusedRow
-          ? focusedRow.dir
-            ? focusedRow.rel
-            : focusedRow.parentRel
-          : '';
+    const parentRel = explicitParent !== undefined ? explicitParent : rowDirRel(focusedRow);
     expandDir(parentRel);
     if (!parentRel && showRootHeader) {
       const root = dirs.get('');
@@ -282,10 +280,11 @@ export const FilesRootPane = memo(function FilesRootPane({
     setEditValue('');
     setEditing({ mode: dir ? 'new-folder' : 'new-file', parentRel, rel: '', initial: '', dir });
   };
+  const editOriginalName = editing?.mode === 'rename' ? editing.initial : '';
   const editProblem = editing
     ? validateExplorerName({
         name: editValue,
-        originalName: editing.mode === 'rename' ? editing.initial : '',
+        originalName: editOriginalName,
         siblings: (dirs.get(editing.parentRel)?.entries || []).map((entry) => entry.name),
         allowSegments: editing.mode !== 'rename',
       })
@@ -351,10 +350,7 @@ export const FilesRootPane = memo(function FilesRootPane({
     const rels = selectionRels();
     if (rels.length) setClipboard({ rels, cut });
   };
-  const pasteTargetRel = () => {
-    const row = navRows.find((candidate) => candidate.rel === focusedRel);
-    return row ? (row.dir ? row.rel : row.parentRel) : '';
-  };
+  const pasteTargetRel = () => rowDirRel(navRows.find((candidate) => candidate.rel === focusedRel));
   /** After a copy/move: reveal the destination and re-list both sides. */
   const settleTransfer = (targetDirRel: string, rels: readonly string[]) => {
     expandDir(targetDirRel);
@@ -494,47 +490,47 @@ export const FilesRootPane = memo(function FilesRootPane({
       .at(-1) || projectPath;
   const rootExpanded = dirs.get('')?.expanded === true;
   const rootVisible = !showRootHeader || rootExpanded;
-  const headerPortal = headerSlot
-    ? createPortal(
-        <>
-          <button
-            type="button"
-            aria-label={t('New file')}
-            data-tooltip={t('New File…')}
-            onClick={() => beginCreate(false)}
-          >
-            <FilePlus size={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label={t('New folder')}
-            data-tooltip={t('New Folder…')}
-            onClick={() => beginCreate(true)}
-          >
-            <FolderPlus size={16} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label={t('Refresh files')}
-            data-tooltip={t('Refresh Explorer')}
-            disabled={refreshing}
-            onClick={() => void refreshTree()}
-          >
-            <RefreshCw size={16} className={refreshing ? 'spin' : undefined} aria-hidden="true" />
-          </button>
-          <button
-            type="button"
-            aria-label={t('Collapse all folders')}
-            data-tooltip={t('Collapse All')}
-            disabled={!canCollapseAll}
-            onClick={collapseAll}
-          >
-            <ListCollapse size={16} aria-hidden="true" />
-          </button>
-        </>,
-        headerSlot
-      )
-    : null;
+  const headerPortal =
+    headerSlot &&
+    createPortal(
+      <>
+        <button
+          type="button"
+          aria-label={t('New file')}
+          data-tooltip={t('New File…')}
+          onClick={() => beginCreate(false)}
+        >
+          <FilePlus size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          aria-label={t('New folder')}
+          data-tooltip={t('New Folder…')}
+          onClick={() => beginCreate(true)}
+        >
+          <FolderPlus size={16} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          aria-label={t('Refresh files')}
+          data-tooltip={t('Refresh Explorer')}
+          disabled={refreshing}
+          onClick={() => void refreshTree()}
+        >
+          <RefreshCw size={16} className={refreshing ? 'spin' : undefined} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          aria-label={t('Collapse all folders')}
+          data-tooltip={t('Collapse All')}
+          disabled={!canCollapseAll}
+          onClick={collapseAll}
+        >
+          <ListCollapse size={16} aria-hidden="true" />
+        </button>
+      </>,
+      headerSlot
+    );
   const editRowNode = (level: number): ReactNode =>
     editing ? (
       <ExplorerEditRow
@@ -683,15 +679,13 @@ export const FilesRootPane = memo(function FilesRootPane({
         {/* Seti grammar: folders carry only the twistie, files a themed glyph. */}
         {!row.dir && <SetiFileIcon name={row.name} className="dock-file-icon" />}
         <span>{row.name}</span>
-        {row.dir ? (
-          gitDirs.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />
-        ) : badge ? (
+        {row.dir && gitDirs.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />}
+        {!row.dir && badge && (
           <em className="dock-file-badge" aria-label={t('Git status {{badge}}', { badge })}>
             {badge}
           </em>
-        ) : (
-          changed.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />
         )}
+        {!row.dir && !badge && changed.has(row.rel) && <i className="dock-file-changed" aria-hidden="true" />}
       </button>
     );
   };
@@ -796,8 +790,10 @@ export const FilesRootPane = memo(function FilesRootPane({
           (() => {
             const menu = visibleMenu;
             const multi = !menu.background && selected.size > 1 && selected.has(menu.rel);
-            const pasteTarget = menu.background ? '' : menu.isDir ? menu.rel : menu.parent;
+            let pasteTarget = '';
+            if (!menu.background) pasteTarget = menu.isDir ? menu.rel : menu.parent;
             const copyRels = multi ? [...selected] : [menu.rel];
+            const deleteLabel = multi ? `Delete ${selected.size} items` : 'Delete';
             const item = (
               label: string,
               onClick: () => void,
@@ -882,7 +878,7 @@ export const FilesRootPane = memo(function FilesRootPane({
                     {item('Copy relative path', () => void copyTextToClipboard(copyRels.join('\n')))}
                     {sep('row-path')}
                     {!multi && item('Rename…', () => beginRename(menu.rel, menu.name, menu.isDir), { hint: 'F2' })}
-                    {item(multi ? `Delete ${selected.size} items` : 'Delete', deleteSelection, {
+                    {item(deleteLabel, deleteSelection, {
                       hint: 'Del',
                       danger: true,
                     })}

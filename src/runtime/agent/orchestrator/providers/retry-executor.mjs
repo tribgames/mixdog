@@ -206,6 +206,13 @@ function retryWaitMs(attempt, { nextDelayMs, nextDelayReason }, { backoffMs, ret
     : jitterDelayMs(rawWait, retryJitterRatio, retryJitterMode);
 }
 
+/** The `, delay 1200ms (reason)` suffix of a retry log line; '' without a finite delay. */
+export function retryDelayLabel(delayMs, delayReason) {
+  if (!Number.isFinite(Number(delayMs))) return '';
+  const note = delayReason ? ` (${delayReason})` : '';
+  return `, delay ${delayMs}ms${note}`;
+}
+
 export async function withRetry(fn, opts = {}) {
   const retry = retryOptions(opts);
   const { maxAttempts, signal, onRetry, perAttemptTimeoutMs, perAttemptLabel, sleepFn } = retry;

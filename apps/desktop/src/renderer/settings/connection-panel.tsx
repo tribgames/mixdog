@@ -13,6 +13,11 @@ import {
 const CONNECTION_RETRY_MS = 2_000;
 const CONNECTION_STALLED_ATTEMPTS = 5;
 
+function unpairLabel(busy: boolean, confirming: boolean): string {
+  if (busy) return 'Unpairing…';
+  return confirming ? 'Confirm unpair' : 'Unpair';
+}
+
 export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(() => getCachedConnectionInfo(api));
   const [rotating, setRotating] = useState(false);
@@ -169,11 +174,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
                           .finally(() => setRevokingClient(''));
                       }}
                     >
-                      {revokingClient === client.id
-                        ? 'Unpairing…'
-                        : confirmClient === client.id
-                          ? 'Confirm unpair'
-                          : 'Unpair'}
+                      {unpairLabel(revokingClient === client.id, confirmClient === client.id)}
                     </ActionButton>
                   }
                 />
@@ -207,7 +208,7 @@ export function ConnectionPanel({ api }: { api: CapabilityApi }) {
                     .finally(() => setRotating(false));
                 }}
               >
-                {rotating ? 'Unpairing…' : confirmRotate ? 'Confirm unpair' : 'Unpair'}
+                {unpairLabel(rotating, confirmRotate)}
               </ActionButton>
             }
           />

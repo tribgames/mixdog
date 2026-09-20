@@ -12,7 +12,7 @@ test('native window capture reads only its off-screen fixture surface and preser
   timeout: 40_000,
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-window-surface-'));
-  const harness = String.raw`
+  const harness = `
 public sealed class SurfaceFixture : System.Windows.Forms.Form {
   public int Prints;
   public SurfaceFixture() {
@@ -59,7 +59,7 @@ public static class SurfaceChecks {
   }
 }
 `;
-  const script = String.raw`
+  const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing
@@ -94,7 +94,7 @@ try {
 } finally { $window.Dispose() }
 `;
   try {
-    await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP + '\n' + harness);
+    await writeFile(join(directory, 'native.cs'), `${MIXDOG_HOST_CSHARP}\n${harness}`);
     await writeFile(join(directory, 'check.ps1'), script);
     const { stdout } = await promisify(execFile)(
       'powershell.exe',

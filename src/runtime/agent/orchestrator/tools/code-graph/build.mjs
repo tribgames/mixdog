@@ -550,7 +550,7 @@ export function _spawnCodeGraphWorker(
         }
         w.once('message', (msg) => {
           try {
-            if (msg && msg.ok && msg.graph && typeof msg.signature === 'string') {
+            if (msg?.ok && msg.graph && typeof msg.signature === 'string') {
               const genStillCurrent = getGeneration(graphCwd) === genAtStart;
               if (genStillCurrent && cacheResult) {
                 setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });

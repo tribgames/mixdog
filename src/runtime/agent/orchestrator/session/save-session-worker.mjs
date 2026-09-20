@@ -5,7 +5,7 @@
  * Single-threaded message queue serializes all writes — generation
  * race protection is preserved by ordering.
  */
-import { parentPort } from 'worker_threads';
+import { parentPort } from 'node:worker_threads';
 
 // Route every stray stdout/stderr print through the parent as a `{ __log }`
 // message instead of worker stdio. Piped worker stdio (stdout:true) keeps the

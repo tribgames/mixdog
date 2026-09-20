@@ -4,7 +4,7 @@
 // for cache-key computation and trace hash comparison.
 // Used by gemini.mjs and openai-compat.mjs.
 
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 export function traceHash(value) {
   return createHash('sha256')
@@ -22,7 +22,7 @@ export function stableTraceStringify(value, seen = new WeakSet()) {
   if (seen.has(value)) return JSON.stringify('[Circular]');
   seen.add(value);
   if (Array.isArray(value)) {
-    const serialized = '[' + value.map((v) => stableTraceStringify(v, seen)).join(',') + ']';
+    const serialized = `[${value.map((v) => stableTraceStringify(v, seen)).join(',')}]`;
     seen.delete(value);
     return serialized;
   }
@@ -30,10 +30,10 @@ export function stableTraceStringify(value, seen = new WeakSet()) {
   for (const key of Object.keys(value).sort()) {
     const v = value[key];
     if (typeof v === 'undefined' || typeof v === 'function') continue;
-    parts.push(JSON.stringify(key) + ':' + stableTraceStringify(v, seen));
+    parts.push(`${JSON.stringify(key)}:${stableTraceStringify(v, seen)}`);
   }
   seen.delete(value);
-  return '{' + parts.join(',') + '}';
+  return `{${parts.join(',')}}`;
 }
 
 export function summarizeTraceTools(tools) {
@@ -47,4 +47,10 @@ export function summarizeTraceTools(tools) {
 export function traceTextShape(text) {
   const value = String(text ?? '');
   return { chars: value.length, hash: traceHash(value) };
+}
+
+/** Text content keeps its text shape; anything else is typed and hashed. */
+export function traceContentShape(content) {
+  if (typeof content === 'string') return { type: 'text', ...traceTextShape(content) };
+  return { type: content == null ? 'null' : typeof content, hash: traceHash(stableTraceStringify(content ?? null)) };
 }

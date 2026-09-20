@@ -206,7 +206,10 @@ function emitAssistant(ctx, text, at = Date.now()) {
   if (!value.trim()) return;
   flushReasoning(ctx, at);
   ctx.state.lastAssistantText = value;
-  ctx.out.itemCompleted({ id: ctx.out.nextItemId('message'), type: 'agent_message', text: value, status: 'completed' }, at);
+  ctx.out.itemCompleted(
+    { id: ctx.out.nextItemId('message'), type: 'agent_message', text: value, status: 'completed' },
+    at
+  );
 }
 
 function startTool({ state, out }, call, at = Date.now()) {
@@ -286,7 +289,10 @@ function toolBatchStarted({ state, out }) {
 
 function toolBatchCompleted({ state, out }, detail = {}) {
   const completedAt = Date.now();
-  const batch = state.activeToolBatch || { id: `tool_batch_${state.providerRequestCount || 1}`, startedAt: completedAt };
+  const batch = state.activeToolBatch || {
+    id: `tool_batch_${state.providerRequestCount || 1}`,
+    startedAt: completedAt,
+  };
   state.activeToolBatch = null;
   out.turnEvent(
     'tool.batch.completed',
@@ -385,7 +391,13 @@ function fail(ctx, error) {
   );
   resultEvent(
     ctx,
-    { subtype: 'error_during_execution', isError: true, durationMs, usage, fields: { stop_reason: null, errors: [message] } },
+    {
+      subtype: 'error_during_execution',
+      isError: true,
+      durationMs,
+      usage,
+      fields: { stop_reason: null, errors: [message] },
+    },
     completedAt
   );
 }

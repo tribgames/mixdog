@@ -326,7 +326,9 @@ export function deleteToLineStart(draft) {
 export function deleteToLineEnd(draft) {
   if (selectionRange(draft)) return replaceSelection(draft, '');
   const end = lineEnd(draft.value, draft.cursor);
-  const deleteEnd = end > draft.cursor ? end : draft.value[draft.cursor] === '\n' ? draft.cursor + 1 : draft.cursor;
+  let deleteEnd = draft.cursor;
+  if (end > draft.cursor) deleteEnd = end;
+  else if (draft.value[draft.cursor] === '\n') deleteEnd = draft.cursor + 1;
   if (deleteEnd === draft.cursor) return draft;
   return {
     value: draft.value.slice(0, draft.cursor) + draft.value.slice(deleteEnd),

@@ -310,8 +310,7 @@ function toolSequence(sorted, iters) {
   return sequence;
 }
 
-const isWinStylePath = (raw, base) =>
-  /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
+const isWinStylePath = (raw, base) => /^[A-Za-z]:[\\/]/.test(raw) || /^[A-Za-z]:[\\/]/.test(base) || raw.includes('\\');
 
 // Read targets resolve with the Windows resolver when either side looks
 // Windows-styled, so drive-letter windows compare across hosts.

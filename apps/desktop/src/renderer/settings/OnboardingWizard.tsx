@@ -394,19 +394,14 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
     const defaultRoute = mainRouteTouched ? mainRoute : null;
     const explicitWebSearchRoute = webSearchRouteTouched ? webSearchRoute : null;
     const hasAgentRoutes = Object.keys(agentRoutes).length > 0;
+    const completion = {
+      ...(defaultRoute ? { defaultRoute } : {}),
+      ...(explicitWebSearchRoute ? { webSearchRoute: explicitWebSearchRoute } : {}),
+      ...(hasAgentRoutes ? { agentRoutes } : {}),
+    };
     const result =
       defaultRoute || explicitWebSearchRoute || hasAgentRoutes
-        ? await run(
-            'completeOnboarding',
-            [
-              {
-                ...(defaultRoute ? { defaultRoute } : {}),
-                ...(explicitWebSearchRoute ? { webSearchRoute: explicitWebSearchRoute } : {}),
-                ...(hasAgentRoutes ? { agentRoutes } : {}),
-              },
-            ],
-            'finish-onboarding'
-          )
+        ? await run('completeOnboarding', [completion], 'finish-onboarding')
         : await run('skipOnboarding', [], 'finish-onboarding');
     if (result !== undefined) {
       clearResume();
@@ -552,7 +547,7 @@ export function OnboardingWizard({ api, onDone }: { api: DesktopApi; onDone(): v
                   key={entry.id}
                   type="button"
                   title={entry.label()}
-                  className={`onboarding-progress-bar${index === step ? ' active' : index < step ? ' complete' : ''}`}
+                  className={`onboarding-progress-bar${progressBarState(index, step)}`}
                   aria-label={t('Go to step {{step}}: {{label}}', { step: index + 1, label: entry.label() })}
                   aria-current={index === step ? 'step' : undefined}
                   disabled={Boolean(pending)}
@@ -814,13 +809,7 @@ function ProviderStep({
                         : ''
                     }`}
                   >
-                    {t(
-                      provider.reauthRequired
-                        ? String(provider.status || 'Reauth required')
-                        : provider.authenticated && /^(valid|set|access only)$/i.test(String(provider.status || ''))
-                          ? 'Connected'
-                          : String(provider.status || (provider.authenticated ? 'Connected' : 'Not connected'))
-                    )}
+                    {t(providerStatusText(provider))}
                   </small>
                 </div>
                 <span className="onboarding-provider-action">
@@ -966,11 +955,9 @@ function ModelStep({
   const agentRow = (agent: RecordValue) => {
     const id = String(agent.id);
     const saved = record(agent.route);
-    const route = Object.hasOwn(agentRoutes, id)
-      ? agentRoutes[id]
-      : saved.provider && saved.model
-        ? (saved as unknown as DesktopModelSelection)
-        : null;
+    let route: DesktopModelSelection | null = null;
+    if (Object.hasOwn(agentRoutes, id)) route = agentRoutes[id];
+    else if (saved.provider && saved.model) route = saved as unknown as DesktopModelSelection;
     return (
       <label key={id}>
         <span>
@@ -1226,15 +1213,16 @@ function GitStep({ api }: { api: DesktopApi }) {
   const busyAny = Boolean(busy) || identityBusy;
   const flowLive = flowState === 'pending' || flowState === 'code';
 
-  const pill: [string, string] = loading
-    ? ['neutral', t('Checking…')]
-    : !status?.installed
-      ? ['warn', t('CLI not installed')]
-      : authenticated
-        ? ['ok', t('Connected')]
-        : ['warn', t('Not connected')];
+  const pill = githubPill(loading, Boolean(status?.installed), authenticated);
   const login = String(status?.login || account?.name || '');
   const showAvatar = authenticated && Boolean(login) && !avatarFailed;
+  let connectedNote = t('GitHub is connected. Set up your commit identity to finish Git setup.');
+  if (identityBusy) connectedNote = t('Saving…');
+  else if (identityReady) connectedNote = t('Commits and pull requests are ready to go.');
+  const connectHint =
+    !status?.installed && !loading
+      ? t('Mixdog installs the GitHub CLI and signs you in — one click, no terminal needed.')
+      : t('Sign in opens github.com with a one-time code — Mixdog links your commits automatically.');
   return (
     <div className="onboarding-star-card onboarding-connect-card">
       <span className={`onboarding-connect-icon${showAvatar ? ' avatar' : ''}`} aria-hidden="true">
@@ -1253,23 +1241,13 @@ function GitStep({ api }: { api: DesktopApi }) {
         {authenticated ? (
           <>
             {Boolean(account?.email) && <p className="onboarding-connect-mail">{account?.email}</p>}
-            <p>
-              {identityBusy
-                ? t('Saving…')
-                : identityReady
-                  ? t('Commits and pull requests are ready to go.')
-                  : t('GitHub is connected. Set up your commit identity to finish Git setup.')}
-            </p>
+            <p>{connectedNote}</p>
           </>
         ) : (
-          <p>
-            {!status?.installed && !loading
-              ? t('Mixdog installs the GitHub CLI and signs you in — one click, no terminal needed.')
-              : t('Sign in opens github.com with a one-time code — Mixdog links your commits automatically.')}
-          </p>
+          <p>{connectHint}</p>
         )}
       </div>
-      {authenticated ? (
+      {authenticated && (
         <div className="onboarding-star-actions">
           {!identityReady && (
             <button type="button" className="primary" disabled={busyAny} onClick={() => void syncIdentity()}>
@@ -1278,7 +1256,8 @@ function GitStep({ api }: { api: DesktopApi }) {
           )}
           <small>{t('Manage in Settings → Git.')}</small>
         </div>
-      ) : (
+      )}
+      {!authenticated && (
         <div className="onboarding-star-actions">
           {!loading && !status?.installed && (
             <>
@@ -1378,6 +1357,40 @@ const SURFACE_PREVIEW: Record<string, { deep: string; base: string; text: string
   white: { deep: '#f5f5f5', base: '#ffffff', text: '#17181a', border: 'rgba(0,0,0,.14)' },
 };
 
+function progressBarState(index: number, step: number): string {
+  if (index === step) return ' active';
+  return index < step ? ' complete' : '';
+}
+
+function providerStatusText(provider: { reauthRequired?: unknown; status?: unknown; authenticated?: unknown }): string {
+  if (provider.reauthRequired) return String(provider.status || 'Reauth required');
+  if (provider.authenticated && /^(valid|set|access only)$/i.test(String(provider.status || ''))) return 'Connected';
+  return String(provider.status || (provider.authenticated ? 'Connected' : 'Not connected'));
+}
+
+function githubPill(loading: boolean, installed: boolean, authenticated: boolean): [string, string] {
+  if (loading) return ['neutral', t('Checking…')];
+  if (!installed) return ['warn', t('CLI not installed')];
+  return authenticated ? ['ok', t('Connected')] : ['warn', t('Not connected')];
+}
+
+function starLabel(starred: boolean, busy: boolean): string {
+  if (starred) return t('Starred');
+  return busy ? t('Starring…') : t('Star');
+}
+
+function ThemePreview({ id }: { id: DesktopThemePreference }) {
+  if (id === 'system') {
+    return (
+      <span className="onboarding-theme-split">
+        <ThemeChromeMock id="basic" surface="dark" />
+        <ThemeChromeMock id="light" surface="white" />
+      </span>
+    );
+  }
+  return <ThemeChromeMock id={id === 'white' ? 'light' : 'basic'} surface={String(id)} />;
+}
+
 function ThemeStep({ mode, onSelect }: { mode: DesktopThemePreference; onSelect(next: DesktopThemePreference): void }) {
   return (
     <div className="onboarding-theme-grid">
@@ -1389,14 +1402,7 @@ function ThemeStep({ mode, onSelect }: { mode: DesktopThemePreference; onSelect(
           onClick={() => onSelect(entry.id)}
         >
           <span className="onboarding-theme-preview" aria-hidden="true">
-            {entry.id === 'system' ? (
-              <span className="onboarding-theme-split">
-                <ThemeChromeMock id="basic" surface="dark" />
-                <ThemeChromeMock id="light" surface="white" />
-              </span>
-            ) : (
-              <ThemeChromeMock id={entry.id === 'white' ? 'light' : 'basic'} surface={String(entry.id)} />
-            )}
+            <ThemePreview id={entry.id} />
           </span>
           <span className="onboarding-theme-name">
             <b>{entry.label()}</b>
@@ -1572,7 +1578,7 @@ function StarStep({ api }: { api: DesktopApi }) {
           onClick={star}
         >
           <Star size={14} fill={starred ? 'currentColor' : 'none'} />
-          {starred ? t('Starred') : busy ? t('Starring…') : t('Star')}
+          {starLabel(starred, busy)}
         </button>
       </div>
     </div>

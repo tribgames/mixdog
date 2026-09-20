@@ -2,7 +2,8 @@ import type { HTMLAttributes } from 'react';
 import { Check, FileText, Undo2 } from 'lucide-react';
 
 import type { DesktopGitFile } from '../shared/contract';
-import type { ScmContextMenuItem } from './ScmContextMenu';
+import { actionTitle, type ScmContextMenuItem } from './ScmContextMenu';
+import { fileBaseName } from './text-format';
 import { ScmPathText } from './ScmPathText';
 import { ScmStatusIcon } from './ScmStatusIcon';
 import { statusKind } from './source-control-support';
@@ -50,11 +51,11 @@ export function changedFileMenuItems({
       label: 'Discard changes…',
       danger: true,
       disabled: busy || file.conflicted || !canRevert,
-      title: file.conflicted
-        ? 'Resolve the conflict before discarding this file'
-        : !canRevert
-          ? missingChannel('Discarding changes')
-          : undefined,
+      title: actionTitle(
+        file.conflicted ? 'Resolve the conflict before discarding this file' : undefined,
+        canRevert,
+        () => missingChannel('Discarding changes')
+      ),
       onSelect: () => guarded(onDiscard),
     },
     {
@@ -69,22 +70,22 @@ export function changedFileMenuItems({
       id: 'ignore-folder',
       label: 'Ignore folder (add to .gitignore)',
       disabled: busy || !canIgnore || !folder,
-      title: folder
-        ? canIgnore
-          ? undefined
-          : missingChannel('Ignoring a folder')
-        : 'This file sits at the repository root, so it has no folder to ignore',
+      title: actionTitle(
+        folder ? undefined : 'This file sits at the repository root, so it has no folder to ignore',
+        canIgnore,
+        () => missingChannel('Ignoring a folder')
+      ),
       onSelect: () => guarded(() => onIgnore(folder)),
     },
     {
       id: 'ignore-extension',
       label: `Ignore all ${extension || 'extensionless'} files (add to .gitignore)`,
       disabled: busy || !canIgnore || !extension,
-      title: extension
-        ? canIgnore
-          ? undefined
-          : missingChannel('Ignoring a file type')
-        : 'This file has no extension, so there is no file type to ignore',
+      title: actionTitle(
+        extension ? undefined : 'This file has no extension, so there is no file type to ignore',
+        canIgnore,
+        () => missingChannel('Ignoring a file type')
+      ),
       onSelect: () => guarded(() => onIgnore(file.path, 'extension')),
     },
     {
@@ -141,11 +142,8 @@ export function SourceControlFileRow({
   onResolve(): void;
   onDiscard(): void;
 }) {
-  const slash = file.path.lastIndexOf('/');
-  const fileName = slash >= 0 ? file.path.slice(slash + 1) : file.path;
-  const oldSlash = file.oldPath?.lastIndexOf('/') ?? -1;
-  const oldFileName = file.oldPath ? (oldSlash >= 0 ? file.oldPath.slice(oldSlash + 1) : file.oldPath) : '';
-  const displayName = file.oldPath ? `${oldFileName} → ${fileName}` : fileName;
+  const fileName = fileBaseName(file.path);
+  const displayName = file.oldPath ? `${fileBaseName(file.oldPath)} → ${fileName}` : fileName;
   const kind = statusKind(file);
   return (
     <div

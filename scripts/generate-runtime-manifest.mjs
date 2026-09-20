@@ -176,7 +176,7 @@ const manifest = {
   assets: assetsMap,
 };
 
-const manifestJson = JSON.stringify(manifest, null, 2) + '\n';
+const manifestJson = `${JSON.stringify(manifest, null, 2)}\n`;
 console.log('Manifest:', manifestJson);
 
 // ---------------------------------------------------------------------------

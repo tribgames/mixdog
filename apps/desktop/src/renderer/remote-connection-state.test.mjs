@@ -10,6 +10,7 @@ const dom = new JSDOM('<!doctype html><html><body><main></main></body></html>', 
 });
 globalThis.window = dom.window;
 globalThis.document = dom.window.document;
+globalThis.Event = dom.window.Event;
 Object.defineProperty(globalThis, 'navigator', {
   configurable: true,
   value: dom.window.navigator,
@@ -18,8 +19,11 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const {
   clearRemoteConnectionState,
+  currentRemoteConnectionDiagnostic,
   currentRemoteConnectionState,
   remoteConnectionInterruptedError,
+  reportRemoteConnectionIssue,
+  setRemoteConnectionPhase,
   setRemoteConnectionState,
   shouldRunRemoteHeartbeat,
   subscribeRemoteConnectionState,
@@ -55,7 +59,7 @@ test('a transient disconnect carries no user-facing wording', () => {
   assert.equal(error.message, '');
 });
 
-test('only a reconnect past the threshold blocks the surface, and it says nothing', async () => {
+test('a persistent disconnect shows diagnostics without resetting its countdown or retry behavior', async () => {
   clearRemoteConnectionState();
   const mount = document.querySelector('main');
   const root = createRoot(mount);
@@ -88,9 +92,15 @@ test('only a reconnect past the threshold blocks the surface, and it says nothin
     // A short gap — every background return costs one — stays invisible.
     await act(async () => {
       setRemoteConnectionState('reconnecting');
+      setRemoteConnectionPhase('websocket');
     });
     assert.equal(document.querySelector('.remote-connection-overlay'), null);
     assert.ok(pendingDisconnect);
+    const countdown = pendingDisconnect;
+    await act(async () => {
+      reportRemoteConnectionIssue('websocket-timeout');
+    });
+    assert.equal(pendingDisconnect, countdown, 'diagnostic updates must not postpone the disconnect display');
 
     // Recovering inside the window cancels the countdown instead of banking it.
     await act(async () => {
@@ -101,23 +111,56 @@ test('only a reconnect past the threshold blocks the surface, and it says nothin
 
     await act(async () => {
       setRemoteConnectionState('reconnecting');
+      setRemoteConnectionPhase('encryption');
+      reportRemoteConnectionIssue('encryption-timeout');
     });
     await act(async () => {
       pendingDisconnect?.();
     });
     const overlay = document.querySelector('.remote-connection-overlay');
     assert.ok(overlay);
-    assert.equal(overlay.textContent, '');
+    assert.equal(overlay.textContent, 'VPS diag 1\nphase: encryption\nlast: encryption / encryption-timeout');
     assert.equal(overlay.getAttribute('aria-label'), 'Retry');
+    let retries = 0;
+    const onRetry = () => retries++;
+    window.addEventListener('mixdog:remote-wake', onRetry);
+    await act(async () => overlay.click());
+    window.removeEventListener('mixdog:remote-wake', onRetry);
+    assert.equal(retries, 1);
 
     await act(async () => {
       setRemoteConnectionState('connected');
     });
     assert.equal(document.querySelector('.remote-connection-overlay'), null);
+    assert.equal(currentRemoteConnectionDiagnostic(), 'VPS diag 1\nphase: connected\nlast: -');
   } finally {
     window.setTimeout = realSetTimeout;
     window.clearTimeout = realClearTimeout;
     await act(async () => root.unmount());
     clearRemoteConnectionState();
   }
+});
+
+test('diagnostics retain the failing phase across retries and never display arbitrary error data', () => {
+  clearRemoteConnectionState();
+  try {
+    setRemoteConnectionPhase('registration');
+    reportRemoteConnectionIssue('registration-failed', new Error('https://relay.test/?token=private-key'), 403);
+    setRemoteConnectionPhase('websocket');
+    assert.equal(
+      currentRemoteConnectionDiagnostic(),
+      'VPS diag 1\nphase: websocket\nlast: registration / registration-failed / code=403 / Error'
+    );
+    setRemoteConnectionPhase('sync');
+    reportRemoteConnectionIssue('sync-failed', { name: 'private-key', message: 'private transcript text' });
+    assert.equal(currentRemoteConnectionDiagnostic(), 'VPS diag 1\nphase: sync\nlast: sync / sync-failed / Error');
+    reportRemoteConnectionIssue('frame-failed', new Error('View baseline is no longer available.'));
+    assert.equal(
+      currentRemoteConnectionDiagnostic(),
+      'VPS diag 1\nphase: sync\nlast: sync / frame-failed / View baseline is no longer available.'
+    );
+  } finally {
+    clearRemoteConnectionState();
+  }
+  assert.equal(currentRemoteConnectionDiagnostic(), '');
 });

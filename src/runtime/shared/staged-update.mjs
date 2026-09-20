@@ -348,7 +348,7 @@ function bestStagedVersion(currentVersion) {
     } catch {
       continue;
     }
-    if (!m || !m.version) continue;
+    if (!m?.version) continue;
     const pkgDir = m.pkgDir || join(verDir, PKG_SUBDIR);
     if (!existsSync(join(pkgDir, 'package.json')) || !existsSync(join(pkgDir, 'src', 'cli.mjs'))) continue;
     if (!isNewerVersion(m.version, cur)) continue;

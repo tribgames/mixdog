@@ -68,7 +68,7 @@ test('eager dispatch serializes Git mutations, file edits, and shell verificatio
 test('same-file edits serialize while different-file edits stay parallel', async () => {
   const firstEditGate = gate();
   const events = [];
-  const executeToolFn = async (name, args) => {
+  const executeToolFn = async (_name, args) => {
     events.push(`start:${args.file_path}#${args.old_string}`);
     if (args.old_string === 'a1') await firstEditGate.promise;
     events.push(`end:${args.file_path}#${args.old_string}`);

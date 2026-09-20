@@ -41,11 +41,14 @@ async function run(exe, args, outputFile = null) {
         detail = (detail + value).slice(-12000);
       });
       child.on('error', no);
-      child.on('exit', (code, signal) =>
-        code === 0
-          ? yes(detail)
-          : no(new Error(`${exe}: exit=${code} signal=${signal}\n${detail}${outputFile ? `\nLog: ${outputFile}` : ''}`))
-      );
+      child.on('exit', (code, signal) => {
+        if (code === 0) {
+          yes(detail);
+          return;
+        }
+        const log = outputFile ? `\nLog: ${outputFile}` : '';
+        no(new Error(`${exe}: exit=${code} signal=${signal}\n${detail}${log}`));
+      });
     });
   } finally {
     await output?.close();

@@ -23,7 +23,7 @@ test('elevated cleanup extracts authenticated literal native source without exec
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-owned-source-'));
   try {
     await writeFile(join(directory, 'host.ps1'), powershellHostProgram());
-    const script = String.raw`
+    const script = `
 $ErrorActionPreference = 'Stop'
 ${ELEVATED_INPUT_SOURCE}
 $source = Read-OwnedInputSource ([IO.File]::ReadAllBytes((Join-Path $env:AUDIT_DIRECTORY 'host.ps1')))
@@ -76,7 +76,7 @@ test('elevated supervisor cancels only its harmless child and acknowledges its a
 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-supervisor-'));
   // Exercise the production supervisor without UAC or any desktop input.
-  const script = String.raw`
+  const script = `
 $ErrorActionPreference = 'Stop'
 $tokens = $null
 $errors = $null

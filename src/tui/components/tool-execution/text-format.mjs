@@ -68,7 +68,7 @@ export function truncateToWidth(text, maxWidth) {
   const chars = Array.from(str);
   let out = '';
   for (const ch of chars) {
-    if (displayWidth(out + ch + '…') > maxWidth) break;
+    if (displayWidth(`${out + ch}…`) > maxWidth) break;
     out += ch;
   }
   return `${out}…`;

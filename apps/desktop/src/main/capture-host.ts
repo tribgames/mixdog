@@ -388,26 +388,22 @@ export class CaptureService implements DesktopService {
         { length: 320 },
         (_line, line) => `const switchLine${line} = ${line};`
       ).join('\n')}\n\`\`\``;
-      const items =
-        suffix === 'B'
-          ? Array.from({ length: 96 }, (_, index) => ({
-              id: `${sessionId}-row-${index}`,
-              kind: index % 2 === 0 ? 'user' : 'assistant',
-              text: index === 95 ? longScript : `Switch B transcript row ${index}`,
-            }))
-          : suffix === 'A'
-            ? Array.from({ length: 88 }, (_, index) => ({
-                id: `${sessionId}-row-${index}`,
-                kind: index % 2 === 0 ? 'user' : 'assistant',
-                text: `Switch A transcript row ${index} ${'variable height '.repeat(index % 5)}`,
-              }))
-            : [
-                {
-                  id: `${sessionId}-row`,
-                  kind: 'assistant',
-                  text: `Switch ${suffix} transcript`,
-                },
-              ];
+      let items: Array<{ id: string; kind: string; text: string }>;
+      if (suffix === 'B') {
+        items = Array.from({ length: 96 }, (_, index) => ({
+          id: `${sessionId}-row-${index}`,
+          kind: index % 2 === 0 ? 'user' : 'assistant',
+          text: index === 95 ? longScript : `Switch B transcript row ${index}`,
+        }));
+      } else if (suffix === 'A') {
+        items = Array.from({ length: 88 }, (_, index) => ({
+          id: `${sessionId}-row-${index}`,
+          kind: index % 2 === 0 ? 'user' : 'assistant',
+          text: `Switch A transcript row ${index} ${'variable height '.repeat(index % 5)}`,
+        }));
+      } else {
+        items = [{ id: `${sessionId}-row`, kind: 'assistant', text: `Switch ${suffix} transcript` }];
+      }
       const snapshot = {
         ...((this.snapshot || {}) as Record<string, unknown>),
         toasts: [],

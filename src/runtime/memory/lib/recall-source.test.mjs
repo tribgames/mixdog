@@ -65,7 +65,6 @@ function handlers(rows = [root, member, raw]) {
     log: () => {},
     resolveProjectScope: () => 'all',
     embeddingOnDemandCanStart: () => false,
-    getBootTimestamp: () => 0,
     getTraceDb: () => null,
   });
 }

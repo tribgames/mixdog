@@ -80,10 +80,16 @@ function softDeadlineMs(hardDeadlineMs) {
   return Math.max(1, hardDeadlineMs - margin);
 }
 
+const walkErrorDetailSuffix = (details) => (details.length > 0 ? `; ${details.join('; ')}` : '');
+
 function processFailure(error, server, detail = '') {
   if (error?.code === 'NATIVE_SEARCH_PROCESS_EXIT') return error;
   const stderr = String(server?.stderrTail || '').trim();
-  const cause = error instanceof Error ? `${error.code ? `${error.code}: ` : ''}${error.message}` : '';
+  let cause = '';
+  if (error instanceof Error) {
+    const code = error.code ? `${error.code}: ` : '';
+    cause = `${code}${error.message}`;
+  }
   const suffix = [detail, cause, stderr ? `stderr: ${stderr}` : ''].filter(Boolean).join('; ');
   return codedError(
     'NATIVE_SEARCH_PROCESS_EXIT',
@@ -696,9 +702,7 @@ export async function tryServeSearch(argsList, execOptions = {}, opts = {}) {
     // the model sees WHY the result may be missing matches.
     ...(scanErrors > 0
       ? {
-          rgStderr:
-            `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing` +
-            (walkErrorDetails.length > 0 ? `; ${walkErrorDetails.join('; ')}` : ''),
+          rgStderr: `${scanErrors} file(s) could not be read (permission or I/O error); matches from those files are missing${walkErrorDetailSuffix(walkErrorDetails)}`,
         }
       : {}),
     queueMs: Math.max(0, Number(response.queueMs) || 0),

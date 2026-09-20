@@ -259,9 +259,13 @@ export function resolveOfficeArtDirection(
   const selected = candidates[0];
   const hasSubject = Boolean(rawSubject || requested.seed || requested.id);
   const disabled = request.artDirection === false || requested.enabled === false;
+  let source = 'profile-default';
+  if (disabled) source = 'disabled';
+  else if (requested.id) source = 'explicit';
+  else if (hasSubject) source = 'content-seeded';
   return {
     format: String(format || '').toLowerCase(),
-    source: disabled ? 'disabled' : requested.id ? 'explicit' : hasSubject ? 'content-seeded' : 'profile-default',
+    source,
     seedFingerprint: hash(seed).slice(0, 16),
     subjectDomain: domain.id,
     applyTokens: !disabled && hasSubject,

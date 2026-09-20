@@ -26,7 +26,15 @@ export type HistoryRowProps = {
 // own push BUTTON, so it cannot be a <button> itself (nested interactive
 // content); it keeps the button role, the single tab stop and Enter/Space
 // activation instead.
-export function HistoryRow({ entry, remoteName, pushBlocked, pushReason, onOpen, onOpenMenu, onPush }: HistoryRowProps) {
+export function HistoryRow({
+  entry,
+  remoteName,
+  pushBlocked,
+  pushReason,
+  onOpen,
+  onOpenMenu,
+  onPush,
+}: HistoryRowProps) {
   const refs = entry.refs ?? [];
   const summary = (entry.subject ?? '').trim();
   const author = (entry.author ?? '').trim();

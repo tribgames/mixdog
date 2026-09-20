@@ -134,11 +134,9 @@ export async function extractDocument(url, body, contentType = '') {
     mime === 'application/xhtml+xml' ||
     (!mime && /^\s*(?:<!doctype html|<html[\s>]|<head[\s>]|<body[\s>])/i.test(body));
   if (!isHtml) {
-    const format = /json/.test(mime)
-      ? 'json'
-      : /markdown/.test(mime) || /\.md(?:own)?$/i.test(new URL(url).pathname)
-        ? 'markdown'
-        : 'text';
+    let format = 'text';
+    if (/json/.test(mime)) format = 'json';
+    else if (/markdown/.test(mime) || /\.md(?:own)?$/i.test(new URL(url).pathname)) format = 'markdown';
     return buildContentPayload(url, '', body, 'raw', { format, contentType: mime });
   }
   const { JSDOM } = await loadDom();

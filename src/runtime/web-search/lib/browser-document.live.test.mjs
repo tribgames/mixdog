@@ -32,7 +32,7 @@ mock.module(new URL('./ssrf-guard.mjs', import.meta.url).href, {
         return new Response(null, { status: 302, headers: { location: 'https://example.org/landing' } });
       }
       if (parsed.pathname === '/landing')
-        return html(render(content + ' Final landing page.'), { 'set-cookie': 'landing=1; Secure; Path=/' });
+        return html(render(`${content} Final landing page.`), { 'set-cookie': 'landing=1; Secure; Path=/' });
       if (parsed.pathname === '/dynamic') return html(render(content));
       if (parsed.pathname === '/challenge' || parsed.pathname === '/challenge-pass') {
         if (parsed.pathname === '/challenge-pass' && browser) return html(render(content));

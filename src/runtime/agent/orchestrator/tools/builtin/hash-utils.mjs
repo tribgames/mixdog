@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 export function hashText(text) {
   if (Buffer.isBuffer(text)) return createHash('sha256').update(text).digest('hex');

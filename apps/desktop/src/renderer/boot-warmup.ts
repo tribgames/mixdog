@@ -139,7 +139,7 @@ export function scheduleBootWarmup(task: BootWarmupTask): () => void {
   pending.push(task);
   pump();
   return () => {
-    const index = pending.findIndex((entry) => entry === task);
+    const index = pending.indexOf(task);
     if (index >= 0) pending.splice(index, 1);
   };
 }

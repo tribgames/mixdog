@@ -126,7 +126,10 @@ export function readStoredDraftPaneEntries(): { rows: Array<[string, DraftPanePr
  *  fallback chrome until focused, then snapped to "Select model" because the
  *  freshly-seeded entry was empty (user report). */
 export function writeStoredDraftPanePrefs(entries: Map<string, DraftPanePrefs>, last: DraftPanePrefs | null): void {
-  window.localStorage.setItem(DRAFT_PANE_PREFS_KEY, JSON.stringify([...entries.entries()].slice(-PERSISTED_DRAFT_ENTRY_CAP)));
+  window.localStorage.setItem(
+    DRAFT_PANE_PREFS_KEY,
+    JSON.stringify([...entries.entries()].slice(-PERSISTED_DRAFT_ENTRY_CAP))
+  );
   if (last) window.localStorage.setItem(LAST_NEW_TASK_PREFS_KEY, JSON.stringify(last));
 }
 

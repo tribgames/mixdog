@@ -68,7 +68,7 @@ export function _findDirProjectRoot(dir, { stopAtUserBoundary = false, boundarie
   const stops = stopAtUserBoundary ? new Set((boundaries || _userBoundaryDirs()).map(_dirKey)) : null;
   let d = pathResolve(dir);
   while (d && d !== dirname(d)) {
-    if (stops && stops.has(_dirKey(d))) return null;
+    if (stops?.has(_dirKey(d))) return null;
     if (_PROJECT_ROOT_SENTINELS.some((s) => existsSync(join(d, s)))) return d;
     d = dirname(d);
   }

@@ -21,12 +21,14 @@ function tileStyle(tile: JustifiedTile, lastRow: boolean, gridWidth: number): CS
     : { flexGrow: ratio, flexBasis: 0, aspectRatio: String(ratio) };
 }
 
+function tileSize(width: number): 'tiny' | 'compact' | 'wide' {
+  if (width < 130) return 'tiny';
+  return width < 210 ? 'compact' : 'wide';
+}
+
 function pendingBox(tile: JustifiedTile, entry: StudioMediaJob, rowHeight: number) {
   const width = Math.floor(tile.width || rowHeight * mediaFrameRatio(entry));
-  return {
-    width,
-    size: width < 130 ? 'tiny' : width < 210 ? 'compact' : 'wide',
-  };
+  return { width, size: tileSize(width) };
 }
 
 function jobProgress(entry: StudioMediaJob): number {
@@ -205,7 +207,7 @@ export function StudioGallery({
                     data-size={box.size}
                     style={tileStyle(tile, rowIndex === layoutRows.length - 1, gridWidth)}
                   >
-                    {pending.status === 'failed' ? (
+                    {pending.status === 'failed' && (
                       <div className="studio-tile-open">
                         <ErrorNotice
                           error={pending.error || t('Generation failed')}
@@ -213,7 +215,8 @@ export function StudioGallery({
                           onDismiss={() => onDismiss(pending.id)}
                         />
                       </div>
-                    ) : (
+                    )}
+                    {pending.status !== 'failed' && (
                       <>
                         <div
                           className="studio-tile-open"

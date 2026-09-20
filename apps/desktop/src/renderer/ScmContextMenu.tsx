@@ -27,6 +27,12 @@ export interface ScmContextMenuItem {
   title?: string;
 }
 
+/** Item tooltip: the blocking reason when there is one, else the missing-channel note for an unsupported action. */
+export function actionTitle(blocked: string | undefined, capable: boolean, missing: () => string): string | undefined {
+  if (blocked) return blocked;
+  return capable ? undefined : missing();
+}
+
 export interface ScmContextMenuState {
   /** Accessible name AND the open-menu identity (drives aria-expanded). */
   label: string;

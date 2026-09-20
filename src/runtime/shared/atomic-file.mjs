@@ -9,7 +9,7 @@ import {
   renameSync,
   unlinkSync,
   writeFileSync,
-} from 'fs';
+} from 'node:fs';
 import {
   link as linkAsync,
   mkdir as mkdirAsync,
@@ -19,8 +19,8 @@ import {
   unlink as unlinkAsync,
   writeFile as writeFileAsync,
 } from 'node:fs/promises';
-import { dirname, basename, join } from 'path';
-import { randomBytes } from 'crypto';
+import { dirname, basename, join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 import { DEFAULT_BACKOFFS_MS, withFileLock, withFileLockSync } from './file-lock.mjs';
 import {
   enforceOwnerOnlyAclWin32 as _enforceOwnerOnlyAclWin32,
@@ -217,7 +217,7 @@ export function writeFileAtomicSync(filePath, data, opts = {}) {
 }
 
 export function writeJsonAtomicSync(filePath, value, opts = {}) {
-  return writeFileAtomicSync(filePath, JSON.stringify(value, null, opts.compact ? 0 : 2) + '\n', opts);
+  return writeFileAtomicSync(filePath, `${JSON.stringify(value, null, opts.compact ? 0 : 2)}\n`, opts);
 }
 
 function recoverJsonMutationRead(error) {
@@ -325,7 +325,7 @@ export async function writeFileAtomicAsync(filePath, data, opts = {}) {
 }
 
 export function writeJsonAtomicAsync(filePath, value, opts = {}) {
-  return writeFileAtomicAsync(filePath, JSON.stringify(value, null, opts.compact ? 0 : 2) + '\n', opts);
+  return writeFileAtomicAsync(filePath, `${JSON.stringify(value, null, opts.compact ? 0 : 2)}\n`, opts);
 }
 
 // Async read-modify-write. Same lock path (`${filePath}.lock`) and protocol

@@ -68,11 +68,9 @@ test('stored credential cancellation reaches every CDP phase and prevents later 
           options.beforeDispatch();
           sent.push(method);
           if (sent.length === abortAt) controller.abort(reason);
-          return method === 'Page.getFrameTree'
-            ? { frameTree: { frame: { id: 'main' } } }
-            : method === 'Page.createIsolatedWorld'
-              ? { executionContextId: 7 }
-              : { result: { value: { usernameFilled: true, passwordFilled: true } } };
+          if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main' } } };
+          if (method === 'Page.createIsolatedWorld') return { executionContextId: 7 };
+          return { result: { value: { usernameFilled: true, passwordFilled: true } } };
         },
       },
       rememberSecret() {},

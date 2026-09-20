@@ -15,11 +15,8 @@ export function createRemoteStateLane(compact: boolean, send: (payload: unknown,
   mailbox = createLatestStateMailbox((sequence, { snapshot, critical, baselineSend }) => {
     const wire = encoder.encode(snapshot);
     const payload = compact ? { e: 'S', w: wire } : { event: 'state', payload: wire };
-    const delivered = isNoDelta(wire)
-      ? Promise.resolve()
-      : baselineSend
-        ? baselineSend(payload)
-        : send(payload, !critical);
+    let delivered: Promise<void> = Promise.resolve();
+    if (!isNoDelta(wire)) delivered = baselineSend ? baselineSend(payload) : send(payload, !critical);
     lastDelivery = delivered;
     void delivered.catch(() => undefined).finally(() => mailbox.acknowledge(sequence));
   });

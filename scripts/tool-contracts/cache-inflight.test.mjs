@@ -161,7 +161,7 @@ test('user cancellation still stops an invalidated in-flight query', async () =>
   const pending = runResultCacheInFlight(
     key,
     ({ signal }) =>
-      new Promise((resolve, reject) => {
+      new Promise((_resolve, reject) => {
         signal.addEventListener(
           'abort',
           () => {

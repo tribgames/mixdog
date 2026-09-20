@@ -187,7 +187,7 @@ test('inspection reports empty target semantics and bounds each provider call', 
 test('focus recovery falls back to the owner when the action closed its window', () => {
   // The owner is recorded while the window still exists: a destroyed handle can
   // no longer name it, and that is exactly the case this fallback exists for.
-  assert.match(hostSource, /restore_owner_window_id = \$restoreOwnerId/);
+  assert.match(hostSource, /restore_owner_window_id\s*=\s*\$restoreOwnerId/);
   const start = hostSource.indexOf('function Restore-InputRecoveryState($req)');
   assert.ok(start > 0);
   const body = hostSource.slice(start, start + 1_200);
@@ -206,7 +206,7 @@ test('waiting on a condition never invalidates the refs the caller holds', () =>
   // must do neither, or a bounded wait would kill the caller's refs.
   assert.equal(body.includes('$state.Map.Clear()'), false);
   assert.equal(body.includes('$state.Generation'), false);
-  assert.match(hostSource, /'window_predicates'\{ return Get-WindowPredicates \$req \}/);
+  assert.match(hostSource, /'window_predicates'\s*\{\s*return Get-WindowPredicates \$req\s*\}/);
   // Read classification on both sides of the host, so a wait stays read-only.
   assert.equal(hostSource.split("'window_predicates'").length - 1 >= 4, true);
 });

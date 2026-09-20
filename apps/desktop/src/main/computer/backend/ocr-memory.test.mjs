@@ -13,7 +13,7 @@ test('OCR decodes generated pixels without creating screenshot files', {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-ocr-memory-'));
   try {
     await writeFile(join(directory, 'host.ps1'), powershellHostProgram());
-    const script = String.raw`
+    const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Runtime.WindowsRuntime

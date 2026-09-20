@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Globe, LoaderCircle, Maximize2, Minimize2, Plus, X } from 'lucide-react';
 import type { DesktopBrowserTab } from '../shared/contract';
 import { t } from './i18n';
+import { wrappedNavigationIndex } from './list-navigation';
+
+const ARROW_OFFSETS: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
 
 export function BrowserTabStrip({
   tabs,
@@ -50,22 +53,18 @@ export function BrowserTabStrip({
         aria-label={t('Browser tabs')}
         aria-busy={busy}
         onKeyDown={(event) => {
-          const offset = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+          const offset = ARROW_OFFSETS[event.key] ?? 0;
           if ((!offset && event.key !== 'Home' && event.key !== 'End') || !tabs.length) return;
           event.preventDefault();
           const index = tabs.findIndex((tab) => tab.active);
-          const next =
-            event.key === 'Home'
-              ? 0
-              : event.key === 'End'
-                ? tabs.length - 1
-                : (index + offset + tabs.length) % tabs.length;
+          const next = wrappedNavigationIndex(event.key, index, tabs.length, offset);
           void run(() => onSelect(tabs[next].id));
           strip.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
         }}
       >
         {tabs.map((tab) => {
           const title = tab.title || (tab.url && tab.url !== 'about:blank' ? tab.url : t('New tab'));
+          const TabGlyph = tab.kind === 'popup' ? ExternalLink : Globe;
           return (
             <div
               key={tab.id}
@@ -89,10 +88,8 @@ export function BrowserTabStrip({
               >
                 {tab.loading ? (
                   <LoaderCircle size={13} className="is-spinning" aria-hidden="true" />
-                ) : tab.kind === 'popup' ? (
-                  <ExternalLink size={13} aria-hidden="true" />
                 ) : (
-                  <Globe size={13} aria-hidden="true" />
+                  <TabGlyph size={13} aria-hidden="true" />
                 )}
                 <span>{title}</span>
                 {tab.kind === 'popup' && <small>{t('Popup')}</small>}

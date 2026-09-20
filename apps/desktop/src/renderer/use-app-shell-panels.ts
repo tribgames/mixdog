@@ -280,15 +280,12 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
   const retrySidebarPanel = useCallback(
     (panel: SidebarPanelKey) => {
       // A fresh lazy component is the only way back from a rejected loader.
-      setSidebarPanes((current) =>
-        panel === 'schedules'
-          ? { ...current, schedules: createSchedulesPane() }
-          : panel === 'webhooks'
-            ? { ...current, webhooks: createWebhooksPane() }
-            : panel === 'projects'
-              ? { ...current, projects: createProjectsPane() }
-              : { ...current, extensions: createExtensionsPane() }
-      );
+      setSidebarPanes((current) => {
+        if (panel === 'schedules') return { ...current, schedules: createSchedulesPane() };
+        if (panel === 'webhooks') return { ...current, webhooks: createWebhooksPane() };
+        if (panel === 'projects') return { ...current, projects: createProjectsPane() };
+        return { ...current, extensions: createExtensionsPane() };
+      });
       setFailedSidebarPanels((current) => {
         if (!current.has(panel)) return current;
         const next = new Set(current);

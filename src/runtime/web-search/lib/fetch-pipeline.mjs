@@ -162,7 +162,9 @@ export async function runFetchPipeline(
     // timer ordering (coarse on Windows) decides which fires first, so a stage
     // timeout at the deadline is the total deadline.
     const stageTimedOutAtDeadline = error?.code === 'STAGE_TIMEOUT' && Date.now() >= deadline - 10;
-    const failure = overall.aborted ? overall.reason : stageTimedOutAtDeadline ? timeout : error;
+    let failure = error;
+    if (overall.aborted) failure = overall.reason;
+    else if (stageTimedOutAtDeadline) failure = timeout;
     const result = new Error(failure?.message || String(failure));
     result.code = signal?.aborted ? 'FETCH_CANCELLED' : fetchFailureKind(failure);
     if (failure?.status) result.status = failure.status;

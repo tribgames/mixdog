@@ -79,7 +79,9 @@ test('check runs read-only and reports one result row per runnable engine', asyn
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'check', paths: ['.'], structural: false }, { cwd: root }));
+  const report = parseResult(
+    await executeTidyTool({ action: 'check', paths: ['.'], structural: false }, { cwd: root })
+  );
   assert.equal(report.action, 'check');
   assert.ok(Array.isArray(report.results));
   assert.equal(report.structural, undefined);
@@ -225,7 +227,9 @@ test('a failed structural group prevents every structural write', async (t) => {
   };
   for (const [file, source] of Object.entries(sources)) writeFileSync(join(root, file), source);
   const fake = join(root, 'failing-graph.mjs');
-  writeFileSync(fake, `
+  writeFileSync(
+    fake,
+    `
     import { readFileSync } from 'node:fs';
     import { join } from 'node:path';
     process.stdin.resume();
@@ -253,7 +257,8 @@ test('a failed structural group prevents every structural write', async (t) => {
         process.exitCode = 1;
       }
     }
-  `);
+  `
+  );
   const windows = process.platform === 'win32';
   const wrapper = join(root, windows ? 'failing-graph.cmd' : 'failing-graph.sh');
   writeFileSync(
@@ -264,13 +269,16 @@ test('a failed structural group prevents every structural write', async (t) => {
     windows ? {} : { mode: 0o755 }
   );
   const child = join(root, 'probe-failure.mjs');
-  writeFileSync(child, `
+  writeFileSync(
+    child,
+    `
     import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
     const result = await executeTidyTool({
       action: 'fix', apply: true, paths: ${JSON.stringify(Object.keys(sources))}, engines: ['__none__'],
     }, { cwd: ${JSON.stringify(root)} });
     console.log(JSON.stringify(result));
-  `);
+  `
+  );
   const result = await runProcess(process.execPath, [child], {
     cwd: root,
     env: { ...process.env, MIXDOG_GRAPH_BIN: wrapper },

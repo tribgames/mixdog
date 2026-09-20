@@ -165,7 +165,15 @@ export async function sendProviderRequest(state, round) {
       signal: state.signal,
     })
   );
-  return { result, providerMessages, prefixGuardCandidate, sendStartedAt, sendEndedAt: Date.now(), preSendMs, toolResumeMs };
+  return {
+    result,
+    providerMessages,
+    prefixGuardCandidate,
+    sendStartedAt,
+    sendEndedAt: Date.now(),
+    preSendMs,
+    toolResumeMs,
+  };
 }
 
 /** Consume a recovery verdict; true when the loop must start the next round

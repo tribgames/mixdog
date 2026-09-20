@@ -59,11 +59,13 @@ export async function executeComputerSequenceSteps(
       completedSteps += 1;
       onCompleted?.(completedSteps);
     }
+    let status: 'succeeded' | 'uncertain' | 'failed' = 'succeeded';
+    if (failed) status = payload.input_may_have_executed === true ? 'uncertain' : 'failed';
     rows.push({
       index: index + 1,
       action: stepAction,
       ok: !failed,
-      status: failed ? (payload.input_may_have_executed === true ? 'uncertain' : 'failed') : 'succeeded',
+      status,
       effect: payload.effect || 'unverifiable',
       verified: payload.verified === true,
       path: payload.path || 'unknown',

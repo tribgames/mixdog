@@ -141,6 +141,9 @@ export function normalizeAntigravityCatalog(rawModels) {
     const display =
       tiered || !efforts.length ? family.base : `${family.base} (${efforts[0][0].toUpperCase()}${efforts[0].slice(1)})`;
     const kind = familyKind(family.base);
+    let reasoningLevels = [];
+    if (tiered) reasoningLevels = efforts;
+    else if (bareGemini3) reasoningLevels = [...BARE_GEMINI3_LEVELS];
     models.push({
       id,
       name: display,
@@ -151,7 +154,7 @@ export function normalizeAntigravityCatalog(rawModels) {
       supportsVision: family.supportsVision,
       supportsReasoning: family.supportsReasoning,
       supportsFunctionCalling: true,
-      reasoningLevels: tiered ? efforts : bareGemini3 ? [...BARE_GEMINI3_LEVELS] : [],
+      reasoningLevels,
       wire,
     });
   }
@@ -177,7 +180,9 @@ export function resolveAntigravityWireModel(model, effort, models = antigravityC
   if (record.wire && typeof record.wire === 'object') {
     const levels = Object.keys(record.wire);
     const wanted = String(effort || '').toLowerCase();
-    const level = levels.includes(wanted) ? wanted : levels.includes('high') ? 'high' : levels[levels.length - 1];
+    let level = levels[levels.length - 1];
+    if (levels.includes(wanted)) level = wanted;
+    else if (levels.includes('high')) level = 'high';
     return { model: record.wire[level], effort: null };
   }
   const wire = typeof record.wire === 'string' && record.wire ? record.wire : id;

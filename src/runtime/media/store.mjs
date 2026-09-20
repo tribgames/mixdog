@@ -6,10 +6,10 @@
  * (newest first) and is written atomically under a file lock because the
  * desktop and CLI can generate concurrently.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, statSync } from 'fs';
-import { dirname, join, resolve, sep } from 'path';
-import { randomUUID } from 'crypto';
-import { spawn } from 'child_process';
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, statSync } from 'node:fs';
+import { dirname, join, resolve, sep } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync, withFileLockSync } from '../shared/atomic-file.mjs';
 import { cacheRendition, ensureRendition, removeRenditions, renditionSpec } from './renditions.mjs';
@@ -405,11 +405,9 @@ export function mediaOpenCommand(path, { reveal = false, platform = process.plat
   if (reveal && platform === 'win32') return ['explorer.exe', ['/select,', path]];
   if (reveal && platform === 'darwin') return ['open', ['-R', path]];
   const target = reveal ? dirname(path) : path;
-  return platform === 'win32'
-    ? ['cmd', ['/c', 'start', '', target]]
-    : platform === 'darwin'
-      ? ['open', [target]]
-      : ['xdg-open', [target]];
+  if (platform === 'win32') return ['cmd', ['/c', 'start', '', target]];
+  if (platform === 'darwin') return ['open', [target]];
+  return ['xdg-open', [target]];
 }
 
 function openWithOs(path, options) {

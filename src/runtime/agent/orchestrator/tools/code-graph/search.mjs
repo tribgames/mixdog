@@ -191,7 +191,7 @@ export async function _prewarmReferenceSourceText(graph, symbol, language, optio
 export function _cheapReferenceSearch(
   graph,
   symbol,
-  cwd,
+  _cwd,
   { language = null, fileRel = null, scopeRelPrefix = null, nodes = null } = {}
 ) {
   const escaped = String(symbol || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -712,9 +712,8 @@ export function _declarationOutsideScope(
       continue;
     }
     const known = graph.nodes.get(target.rel);
-    const declared = known
-      ? (Array.isArray(known.symbols) ? known.symbols : []).find((item) => item?.name === name)
-      : null;
+    const knownSymbols = known && Array.isArray(known.symbols) ? known.symbols : [];
+    const declared = knownSymbols.find((item) => item?.name === name);
     if (declared) {
       return {
         rel: target.rel,

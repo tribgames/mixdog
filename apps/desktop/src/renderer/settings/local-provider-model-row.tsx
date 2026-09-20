@@ -32,16 +32,14 @@ export function LocalProviderModelRow({
       .map(record)
       .some((job) => job.modelId === id && ['running', 'cancelling'].includes(String(job.state)));
   const broken = model.installed !== true || record(model.verification).valid === false;
-  const label =
-    model.installed !== true
-      ? t('Needs repair')
-      : record(model.verification).valid === false
-        ? t('Integrity check failed')
-        : inUse && status.starting
-          ? t('Loading model…')
-          : inUse
-            ? t('Running')
-            : t('Installed');
+  let label = t('Installed');
+  if (model.installed !== true) label = t('Needs repair');
+  else if (record(model.verification).valid === false) label = t('Integrity check failed');
+  else if (inUse && status.starting) label = t('Loading model…');
+  else if (inUse) label = t('Running');
+  let tone: 'warn' | 'ok' | 'muted' = 'muted';
+  if (broken) tone = 'warn';
+  else if (inUse) tone = 'ok';
   const requestDelete = async () => {
     const receipt = record(await actions.details(id));
     if (!receipt.confirmationToken || !Array.isArray(receipt.files)) return;
@@ -63,7 +61,7 @@ export function LocalProviderModelRow({
         icon={<Cpu size={15} aria-hidden="true" />}
         title={name}
         description={details}
-        tone={broken ? 'warn' : inUse ? 'ok' : 'muted'}
+        tone={tone}
         status={label}
         control={
           <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>

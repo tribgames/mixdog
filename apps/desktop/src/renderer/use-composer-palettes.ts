@@ -7,7 +7,9 @@ import { desktopComposerSlashCommands } from './slash-commands';
 export type MentionMatch = { start: number; end: number; query: string };
 
 export function scrollSelectedOptionIntoView(panel: RefObject<HTMLDivElement | null>) {
-  panel.current?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
+  panel.current
+    ?.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')
+    ?.scrollIntoView?.({ block: 'nearest' });
 }
 
 function mentionMatchAt(draft: string, caretOffset: number): MentionMatch | null {

@@ -2,7 +2,7 @@
  * openai-ws-events.mjs — usage assembly + event/close parsing helpers for the
  * OpenAI OAuth WebSocket transport.
  *
- * Extracted from openai-ws-stream.mjs (no behavior change): the pure,
+ * The pure,
  * socket-free helpers used by the _streamResponse loop to combine warmup +
  * actual usage, parse server event frames, derive incomplete reasons, and map
  * WS close codes to HTTP status. openai-ws-stream.mjs re-exports these so
@@ -74,16 +74,6 @@ export function _parseEvent(raw) {
   } catch {
     return null;
   }
-}
-
-export function _incompleteReasonFromEvent(event) {
-  const reasonObj =
-    event?.response?.incomplete_details || event?.incomplete_details || event?.response?.status_details || null;
-  return String(reasonObj?.reason || event?.response?.status || 'incomplete');
-}
-
-export function _isMaxOutputIncompleteReason(reason) {
-  return /^(?:max_output_tokens|max_tokens|length|output_token_limit)$/i.test(String(reason || '').trim());
 }
 
 export function _httpStatusFromWsClose(code, reason) {

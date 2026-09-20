@@ -4,11 +4,21 @@
 // 127.0.0.1 only). A TUI uses this to talk to the shared channel front door
 // instead of forking its own worker: tool calls go over POST /call and the
 // worker->parent notify path arrives on a persistent SSE stream (GET /events),
-// replacing the old node-IPC `{type:'notify'}` messages.
+// replacing the old node-IPC `{type:'notify'}` messages. The pieces live under
+// ./channel-client/:
+//   daemon-request — one JSON request, the health probe, the /call wrapper
+//   registration   — pid verification, passive register/re-register, deregister
+//   notify-stream  — the SSE request plus its stable/liveness timers
+//   reconnect      — bounded retry with a lifecycle generation
 import http from 'node:http';
-import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { isPidAlive, parsePid } from '../runtime/shared/pid-liveness.mjs';
+import { createChannelCall, probeChannelHealth } from './channel-client/daemon-request.mjs';
+import { createNotifyStream } from './channel-client/notify-stream.mjs';
+import { createReconnectLoop } from './channel-client/reconnect.mjs';
+import { createRegistrationClient, staleDiscoveryError } from './channel-client/registration.mjs';
+
+export { probeChannelHealth };
 
 function parsePort(value) {
   const n = Number(value);
@@ -32,101 +42,9 @@ export function readChannelDiscovery(discoveryPath) {
   return { port, pid, token: String(endpoint.token) };
 }
 
-function request({ port, method = 'GET', path = '/', token, body = null, timeoutMs = 10_000, agent = undefined }) {
-  return new Promise((resolve, reject) => {
-    const payload = body == null ? null : JSON.stringify(body);
-    let req = null;
-    let response = null;
-    let ended = false;
-    let settled = false;
-    const finish = (fn, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(deadline);
-      fn(value);
-    };
-    const fail = (error) => finish(reject, error instanceof Error ? error : new Error(String(error)));
-    const lifecycleTimeout = () => {
-      const error = new Error(`daemon request timed out: ${method} ${path}`);
-      fail(error);
-      try {
-        response?.destroy?.(error);
-      } catch {}
-      try {
-        req?.destroy?.(error);
-      } catch {}
-    };
-    // http.request's timeout is socket-idle only. This deadline covers headers
-    // and the entire response body so a truncated post-header response cannot
-    // leave reconnect registration pending forever.
-    const deadline = setTimeout(lifecycleTimeout, timeoutMs);
-    deadline.unref?.();
-    req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port,
-        path,
-        method,
-        agent,
-        headers: {
-          ...(token ? { 'X-Mixdog-Daemon-Token': token } : {}),
-          ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
-        },
-        timeout: timeoutMs,
-      },
-      (res) => {
-        response = res;
-        if (settled) {
-          try {
-            res.resume?.();
-          } catch {}
-          return;
-        }
-        let data = '';
-        res.setEncoding('utf8');
-        res.on('data', (chunk) => {
-          if (!settled) data += chunk;
-        });
-        res.once('aborted', () => fail(new Error(`daemon response aborted: ${method} ${path}`)));
-        res.once('error', (error) => fail(error));
-        res.once('end', () => {
-          ended = true;
-          let parsed = null;
-          try {
-            parsed = data ? JSON.parse(data) : null;
-          } catch {}
-          if (res.statusCode && res.statusCode >= 400) {
-            const err = new Error(parsed?.error || data || `HTTP ${res.statusCode}`);
-            err.statusCode = res.statusCode;
-            fail(err);
-            return;
-          }
-          finish(resolve, parsed ?? {});
-        });
-        res.once('close', () => {
-          if (!ended && !settled) fail(new Error(`daemon response closed before end: ${method} ${path}`));
-        });
-      }
-    );
-    req.on('error', fail);
-    req.on('timeout', lifecycleTimeout);
-    if (payload) req.write(payload);
-    req.end();
-  });
-}
-
-export async function probeChannelHealth({ port, token, timeoutMs = 800 } = {}) {
-  try {
-    const health = await request({ port, token, path: '/health', timeoutMs });
-    return health?.status === 'ok' ? health : null;
-  } catch {
-    return null;
-  }
-}
-
-// Attach to a live daemon described by `discovery` ({port, token}). Registers
-// this client, opens the notify SSE stream, and returns a handle whose call()
-// dispatches channel tools over HTTP. onNotify receives the SAME
+// Attach to a live daemon described by `discovery` ({port, pid, token}).
+// Registers this client, opens the notify SSE stream, and returns a handle
+// whose call() dispatches channel tools over HTTP. onNotify receives the SAME
 // `{type:'notify', method, params}` shape the old IPC path delivered, so the
 // TUI-side onNotify handler stays unchanged (thin glue).
 export async function attachChannel({
@@ -142,386 +60,66 @@ export async function attachChannel({
   if (!discovery?.port || !discovery?.token || !expectedPid)
     throw new Error('daemon discovery {port, pid, token} required');
   const { port, token: serverToken } = discovery;
-  const callAgent = new http.Agent({
-    keepAlive: true,
-    keepAliveMsecs: 5_000,
-    maxSockets: 16,
-    maxFreeSockets: 4,
+  const callAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 16, maxFreeSockets: 4 });
+  const controlAgent = new http.Agent({ keepAlive: true, keepAliveMsecs: 5_000, maxSockets: 4, maxFreeSockets: 2 });
+  const registry = createRegistrationClient({
+    port,
+    serverToken,
+    agent: controlAgent,
+    expectedPid,
+    leadPid,
+    cwd,
+    restoreSessionId,
   });
-  const controlAgent = new http.Agent({
-    keepAlive: true,
-    keepAliveMsecs: 5_000,
-    maxSockets: 4,
-    maxFreeSockets: 2,
-  });
-  const staleDiscoveryError = (reason) => {
-    const err = new Error(reason);
-    err.daemonDiscoveryStale = true;
-    return err;
-  };
-  const isExpectedDaemon = (health) => Number(health?.pid) === expectedPid;
 
-  const initialHealth = await probeChannelHealth({ port, token: serverToken, timeoutMs: 800 });
-  if (!isExpectedDaemon(initialHealth)) throw staleDiscoveryError('daemon discovery pid does not match health');
-
-  let reg;
-  // A stable registration id even on the FIRST attach: if this response is
-  // lost, the daemon reaps the never-acknowledged token through its replay TTL
-  // instead of holding an unreapable client against a live pid forever (which
-  // blocks daemon self-shutdown).
-  const initialRegistrationId = randomUUID();
-  try {
-    reg = await request({
-      port,
-      token: serverToken,
-      method: 'POST',
-      path: '/client/register',
-      // Channel attachment observes the current owner and never claims the
-      // manual routing seat merely by opening the transport.
-      body: {
-        leadPid,
-        cwd,
-        passive: true,
-        restoreSessionId,
-        registrationId: initialRegistrationId,
-      },
-      timeoutMs: 3000,
-      agent: controlAgent,
-    });
-  } catch (err) {
-    if (err?.statusCode === 401 || err?.statusCode === 403) {
-      const stale = staleDiscoveryError(`daemon register rejected (${err.statusCode})`);
-      stale.daemonAuthRejected = true;
-      throw stale;
-    }
-    throw err;
-  }
-  let clientToken = reg?.token;
-  if (!clientToken) throw new Error('daemon register returned no client token');
-
-  let sseReq = null;
-  let closed = false;
-  let fatal = false;
-  let reconnectTimer = null;
-  let reconnectProbe = false;
-  let reconnectRegistration = null;
-  let reconnectRegistrationId = null;
-  let reconnectReplaceToken = null;
-  let lifecycle = 0;
-  let stableTimer = null;
-  let livenessTimer = null;
+  if (!(await registry.probeExpectedDaemon())) throw staleDiscoveryError('daemon discovery pid does not match health');
+  let clientToken = await registry.registerInitial();
   let closePromise = null;
-  // The daemon writes a `: ka` comment every 15s. A half-open socket delivers
-  // no bytes and no FIN, so without this deadline the stream stays "connected"
-  // forever and the client never reconnects.
-  const STREAM_LIVENESS_MS = 45_000;
-  // Bounded reconnect is only for a verified-live daemon's transient SSE loss.
-  // A stale/dead endpoint signals onFatal immediately so the owner re-reads
-  // discovery instead of spinning against the captured port.
-  let reconnectAttempts = 0;
-  const MAX_RECONNECTS = 5;
-  const STABLE_STREAM_MS = 5_000;
-
-  async function deregister(token, { registrationId = null, replaceToken = null, preserveRemoteIntent = false } = {}) {
-    if (!token) return;
-    try {
-      await request({
-        port,
-        token: serverToken,
-        method: 'POST',
-        path: '/client/deregister',
-        body: {
-          token,
-          ...(registrationId
-            ? {
-                registrationId,
-                replaceToken,
-                leadPid,
-                cwd,
-                restoreSessionId,
-              }
-            : {}),
-          ...(preserveRemoteIntent ? { preserveRemoteIntent: true } : {}),
-        },
-        timeoutMs: 1500,
-        agent: controlAgent,
-      });
-    } catch {
-      /* best-effort; daemon sweep reaps us */
-    }
-  }
-
-  function clearStableTimer() {
-    if (stableTimer) {
-      try {
-        clearTimeout(stableTimer);
-      } catch {}
-      stableTimer = null;
-    }
-  }
-
-  function clearLivenessTimer() {
-    if (livenessTimer) {
-      try {
-        clearTimeout(livenessTimer);
-      } catch {}
-      livenessTimer = null;
-    }
-  }
 
   function signalFatal(reason) {
-    if (closed || fatal) return;
-    fatal = true;
-    closed = true;
-    lifecycle++;
-    if (reconnectTimer) {
-      try {
-        clearTimeout(reconnectTimer);
-      } catch {}
-      reconnectTimer = null;
-    }
-    clearStableTimer();
-    clearLivenessTimer();
-    try {
-      sseReq?.destroy?.();
-    } catch {}
+    if (reconnect.isStopped()) return;
+    reconnect.stop();
+    stream.stop();
     log(`sse stale endpoint (${reason}); signalling re-attach`);
     try {
       onFatal(reason);
     } catch {}
   }
+  const stream = createNotifyStream({
+    port,
+    serverToken,
+    getClientToken: () => clientToken,
+    onNotify,
+    log,
+    onLoss: (reason) => reconnect.handleLoss(reason),
+    onFatal: signalFatal,
+    onStable: () => reconnect.resetBudget(),
+  });
+  const reconnect = createReconnectLoop({
+    log,
+    probeDaemon: registry.probeExpectedDaemon,
+    reregister: registry.reregister,
+    deregister: registry.deregister,
+    getClientToken: () => clientToken,
+    adoptClientToken: (token) => {
+      clientToken = token;
+    },
+    openStream: stream.open,
+    onFatal: signalFatal,
+  });
+  stream.open();
 
-  // A stream ending can be a transient connection loss, but must not leave this
-  // client retrying a dead discovery endpoint. Verify that the original daemon
-  // is still alive before spending the bounded reconnect budget on it.
-  function handleStreamLoss(reason) {
-    if (closed || fatal || reconnectTimer || reconnectProbe) return;
-    reconnectProbe = true;
-    void probeChannelHealth({ port, token: serverToken, timeoutMs: 800 }).then((health) => {
-      reconnectProbe = false;
-      if (closed || fatal) return;
-      if (!isExpectedDaemon(health)) {
-        signalFatal(reason);
-        return;
-      }
-      scheduleReconnect(reason);
-    });
-  }
-
-  function openStream() {
-    if (closed) return;
-    // A liveness expiry is a transient stream loss (reconnect), not a dead
-    // endpoint: keep the destroy() it triggers off the fatal path.
-    let livenessLost = false;
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port,
-        path: `/events?token=${encodeURIComponent(clientToken)}`,
-        method: 'GET',
-        headers: { Accept: 'text/event-stream', 'X-Mixdog-Daemon-Token': serverToken },
-      },
-      (res) => {
-        if (req !== sseReq || closed) {
-          res.resume();
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          // A token rejection means this port now belongs to a different daemon;
-          // re-read discovery now rather than re-registering against it.
-          if (res.statusCode === 401 || res.statusCode === 403) {
-            signalFatal('bad sse status ' + res.statusCode);
-          } else {
-            handleStreamLoss('bad sse status ' + res.statusCode);
-          }
-          return;
-        }
-        res.setEncoding('utf8');
-        // A bare 200 followed by an immediate end is not a stable stream. Only
-        // reset the bounded reconnect budget after this exact stream stays live.
-        clearStableTimer();
-        stableTimer = setTimeout(() => {
-          if (!closed && !fatal && req === sseReq) reconnectAttempts = 0;
-        }, STABLE_STREAM_MS);
-        stableTimer.unref?.();
-        const armLiveness = () => {
-          clearLivenessTimer();
-          livenessTimer = setTimeout(() => {
-            if (closed || fatal || req !== sseReq) return;
-            livenessLost = true;
-            handleStreamLoss(`sse liveness timeout after ${STREAM_LIVENESS_MS}ms`);
-            try {
-              req.destroy(new Error('channel SSE liveness timeout'));
-            } catch {}
-          }, STREAM_LIVENESS_MS);
-          livenessTimer.unref?.();
-        };
-        armLiveness();
-        let buf = '';
-        res.on('data', (chunk) => {
-          if (req !== sseReq || closed) return;
-          // Any byte, including a `: ka` keepalive comment, proves liveness.
-          armLiveness();
-          buf += chunk;
-          let idx;
-          while ((idx = buf.indexOf('\n\n')) >= 0) {
-            const raw = buf.slice(0, idx);
-            buf = buf.slice(idx + 2);
-            for (const line of raw.split('\n')) {
-              if (!line.startsWith('data:')) continue; // skip ': ka' keepalives
-              const json = line.slice(5).trim();
-              if (!json) continue;
-              let msg = null;
-              try {
-                msg = JSON.parse(json);
-              } catch {
-                continue;
-              }
-              if (msg?.type === 'notify') {
-                try {
-                  onNotify(msg);
-                } catch (e) {
-                  log(`onNotify threw: ${e?.message || e}`);
-                }
-              }
-            }
-          }
-        });
-        res.on('end', () => {
-          if (req === sseReq) {
-            clearStableTimer();
-            clearLivenessTimer();
-            handleStreamLoss('sse ended');
-          }
-        });
-        res.on('error', () => {
-          if (req === sseReq) {
-            clearStableTimer();
-            clearLivenessTimer();
-            handleStreamLoss('sse error');
-          }
-        });
-      }
-    );
-    req.on('error', () => {
-      if (req !== sseReq || livenessLost) return;
-      signalFatal('sse req error');
-    });
-    sseReq = req;
-    req.end();
-  }
-
-  function scheduleReconnect(reason) {
-    if (closed || reconnectTimer) return;
-    if (++reconnectAttempts > MAX_RECONNECTS) {
-      signalFatal(`giving up after ${reconnectAttempts} attempts (${reason})`);
-      return;
-    }
-    log(`sse reconnect scheduled (${reason}, attempt ${reconnectAttempts})`);
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      if (closed || fatal) return;
-      // Re-register (the daemon may have pruned us) then reopen the stream.
-      // Re-register mints a fresh client token (the old one was pruned); adopt
-      // it so the reopened stream and subsequent calls target the live entry.
-      // A reconnect is passive and must not claim the ownership seat.
-      const generation = lifecycle;
-      const registrationId = (reconnectRegistrationId ||= randomUUID());
-      const replaceToken = (reconnectReplaceToken ||= clientToken);
-      const registration = request({
-        port,
-        token: serverToken,
-        method: 'POST',
-        path: '/client/register',
-        body: {
-          leadPid,
-          cwd,
-          passive: true,
-          replaceToken,
-          registrationId,
-          restoreSessionId,
-        },
-        timeoutMs: 3000,
-        agent: controlAgent,
-      })
-        .then(async (r) => {
-          const freshToken = r?.token;
-          if (!freshToken) return false;
-          if (closed || fatal || generation !== lifecycle) {
-            await deregister(freshToken);
-            return false;
-          }
-          clientToken = freshToken;
-          reconnectRegistrationId = null;
-          reconnectReplaceToken = null;
-          return true;
-        })
-        .catch(() => false);
-      reconnectRegistration = registration;
-      void registration.finally(() => {
-        if (reconnectRegistration === registration) reconnectRegistration = null;
-        if (!closed && !fatal && generation === lifecycle) openStream();
-      });
-    }, 1000);
-    reconnectTimer.unref?.();
-  }
-
-  openStream();
-
-  async function call(name, args = {}, { timeoutMs = 120_000, callId = null } = {}) {
-    let out;
-    try {
-      out = await request({
-        port,
-        token: serverToken,
-        method: 'POST',
-        path: '/call',
-        // callId (stable across a logical call's retries) lets the daemon dedup
-        // a retried transport failure to a single side-effect.
-        body: { token: clientToken, name, args: args || {}, ...(callId ? { callId } : {}) },
-        timeoutMs,
-        agent: callAgent,
-      });
-    } catch (err) {
-      // Transport failure (daemon dead/restarted/unreachable) — tag so the
-      // worker's execute() drops this stale attach and re-attaches, instead of
-      // surfacing it as a tool error. Tool errors come back as {error} (200).
-      err.daemonTransportError = true;
-      throw err;
-    }
-    if (out && out.error) {
-      // Preserve the daemon's machine-readable classification across the wire.
-      const err = new Error(out.error);
-      if (out.code) err.code = String(out.code);
-      throw err;
-    }
-    return out?.result;
-  }
+  const call = createChannelCall({ port, serverToken, agent: callAgent, getClientToken: () => clientToken });
 
   async function close(reason = 'client close', options = {}) {
     if (closePromise) return closePromise;
-    closed = true;
-    lifecycle++;
-    if (reconnectTimer) {
-      try {
-        clearTimeout(reconnectTimer);
-      } catch {}
-      reconnectTimer = null;
-    }
-    clearStableTimer();
-    clearLivenessTimer();
-    try {
-      sseReq?.destroy?.();
-    } catch {}
     // A re-register already in flight can mint a fresh token after close().
     // Await it so its stale branch deregisters that token before close resolves.
-    const pendingRegistration = reconnectRegistration;
-    const registrationId = reconnectRegistrationId;
-    const replaceToken = reconnectReplaceToken;
+    const { pending, registrationId, replaceToken } = reconnect.stop();
+    stream.stop();
     closePromise = (async () => {
-      if (pendingRegistration) await pendingRegistration;
-      await deregister(clientToken, {
+      if (pending) await pending;
+      await registry.deregister(clientToken, {
         registrationId,
         replaceToken,
         preserveRemoteIntent: options.preserveRemoteIntent === true,

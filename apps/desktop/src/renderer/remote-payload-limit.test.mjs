@@ -122,7 +122,7 @@ const relayFrames = (socket, accept) => {
       while (frames.length <= index) {
         await Promise.race([
           new Promise((resume) => waiting.push(resume)),
-          new Promise((unused, reject) =>
+          new Promise((_unused, reject) =>
             setTimeout(() => reject(new Error(`no frame ${index} within 2s`)), 2_000).unref?.()
           ),
         ]);
@@ -185,7 +185,7 @@ const legFrames = (socket) => {
       }
       await Promise.race([
         new Promise((resume) => waiting.push(resume)),
-        new Promise((unused, reject) =>
+        new Promise((_unused, reject) =>
           setTimeout(() => reject(new Error('no matching desktop frame within 5s')), 5_000).unref?.()
         ),
       ]);
@@ -236,7 +236,7 @@ const withDesktop = async (run) => {
         while (legs.length <= index) {
           await Promise.race([
             new Promise((resume) => waiting.push(resume)),
-            new Promise((unused, reject) =>
+            new Promise((_unused, reject) =>
               setTimeout(() => reject(new Error(`no desktop connection ${index} within 8s`)), 8_000).unref?.()
             ),
           ]);
@@ -1093,7 +1093,10 @@ test('a relay notice teaches the limit, names no call, and is never broadcast', 
 });
 
 test("the browser is advertised the relay's published ceilings", async () => {
-  const source = await readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8');
+  const [source, lifecycle] = await Promise.all([
+    readFile(new URL('../main/remote-relay.ts', import.meta.url), 'utf8'),
+    readFile(new URL('../main/remote-relay-client-lifecycle.ts', import.meta.url), 'utf8'),
+  ]);
   // Learned from the genuine capabilities frame, per connection…
   assert.match(source, /relayPublishedCeilings\s*=\s*readRelayUplinkCeilings\(envelope\)/);
   assert.match(
@@ -1102,7 +1105,7 @@ test("the browser is advertised the relay's published ceilings", async () => {
   );
   // …and handed on unchanged: the policy ceiling for the frame as sent, the
   // relay's own ceilings for the frame as routed.
-  assert.match(source, /const\s+uplink\s*=\s*relayUplinkLimits\(\)/);
+  assert.match(lifecycle, /const\s+uplink\s*=\s*deps\.relayRoutingCapsPayload\(\)/);
   assert.match(
     source,
     /maxFrameBytes:\s*relayFrameLimit\(\),[\s\S]{0,400}?maxRoutedBytes:\s*uplink\.capacity,\s*\.\.\.relayUplinkCeilingFields\(uplink\),/
@@ -1113,8 +1116,8 @@ test("the browser is advertised the relay's published ceilings", async () => {
   // ONE shape for both frames, so the handshake and a later update can never
   // describe the same connection differently.
   assert.match(
-    source,
-    /type:\s*['"]e2ee-ready['"],\s*version:\s*1,\s*(?:\.\.\.\(client\.viewSync\s*\?\s*\{\s*viewSync:\s*1\s*\}\s*:\s*\{\s*\}\s*\),\s*)?\.\.\.relayRoutingCapsPayload\(uplink\),/
+    lifecycle,
+    /type:\s*['"]e2ee-ready['"],\s*version:\s*1,\s*(?:\.\.\.\(client\.viewSync\s*\?\s*\{\s*viewSync:\s*1\s*\}\s*:\s*\{\s*\}\s*\),\s*)?\.\.\.uplink,/
   );
   // A republished capabilities frame reaches the phones already attached, and
   // only when it says something new.

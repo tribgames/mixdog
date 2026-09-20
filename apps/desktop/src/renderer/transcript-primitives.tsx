@@ -116,7 +116,9 @@ export function CopyControl({
     }
   };
   const copied = status === 'copied';
-  const feedback = copied ? t('Copied') : status === 'failed' ? t('Copy failed') : '';
+  let feedback = '';
+  if (copied) feedback = t('Copied');
+  else if (status === 'failed') feedback = t('Copy failed');
   return (
     <button
       type="button"

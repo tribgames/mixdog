@@ -353,7 +353,7 @@ function pauseLeg(socket) {
 }
 
 function resumeLeg(socket) {
-  if (!socket || !socket.legPausedUplink) return;
+  if (!socket?.legPausedUplink) return;
   socket.legPausedUplink = false;
   clearTimeout(socket.legResumeTimer);
   socket.legResumeTimer = null;
@@ -450,8 +450,11 @@ function consumeIngressBytes(socket, chunk) {
     offset += take;
     if (state.headerBytes === 2) {
       const marker = state.header[1] & 0x7f;
-      state.headerNeeded =
-        2 + (marker === 126 ? 2 : marker === 127 ? 8 : 0) + ((state.header[1] & 0x80) === 0x80 ? 4 : 0);
+      let extendedLengthBytes = 0;
+      if (marker === 126) extendedLengthBytes = 2;
+      else if (marker === 127) extendedLengthBytes = 8;
+      const maskBytes = (state.header[1] & 0x80) === 0x80 ? 4 : 0;
+      state.headerNeeded = 2 + extendedLengthBytes + maskBytes;
     }
     if (state.headerBytes < state.headerNeeded) continue;
     startIngressFrame(socket);

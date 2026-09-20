@@ -77,7 +77,8 @@ export async function recordCallOutcome(batch, call, exec, sigs, ctSig) {
 // wedge the tool loop.
 async function fireToolFailureHook(batch, call, result) {
   const { opts, sessionRef } = batch;
-  const hook = typeof opts.afterToolFailureHook === 'function' ? opts.afterToolFailureHook : sessionRef?.afterToolFailureHook;
+  const hook =
+    typeof opts.afterToolFailureHook === 'function' ? opts.afterToolFailureHook : sessionRef?.afterToolFailureHook;
   if (typeof hook !== 'function') return;
   try {
     await hook({

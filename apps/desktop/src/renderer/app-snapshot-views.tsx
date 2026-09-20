@@ -1,7 +1,7 @@
 // Snapshot-scoped view slices: each subscribes to the shared desktop snapshot
 // store through its OWN equality comparator, so a header-only change never
-// re-renders the conversation (and vice versa). Extracted from App.tsx, which
-// keeps composition and session flow.
+// re-renders the conversation (and vice versa). App.tsx keeps composition and
+// session flow.
 import React, {
   memo,
   useCallback,
@@ -25,7 +25,7 @@ import {
   desktopStreamingTailSnapshotsEqual,
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
-import { EMPTY_SNAPSHOT, EMPTY_TRANSCRIPT_ITEMS, type Snapshot, type TranscriptItem } from './desktop-types';
+import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-types';
 import { PaneSurfaceCover } from './PaneSurfaceGate';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { useSessionLaneRead } from './use-session-lane-read';
@@ -43,7 +43,8 @@ import {
 } from './first-submit-stability';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 import { SessionGoalIsland } from './SessionGoalIsland';
-import { ContextUsageIndicator, TranscriptRow } from './TranscriptView';
+import { ContextUsageIndicator } from './TranscriptView';
+import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 
 let utilityDockModulePromise: Promise<typeof import('./UtilityDock')> | null = null;
 function loadUtilityDockModule() {
@@ -93,12 +94,12 @@ type DraftConversationProps = Omit<
   transcriptPending?: boolean;
 };
 
-type PaneStreamingTailProps = {
+type PaneLaneProps = {
   sessionId: string;
   hidden: boolean;
 };
 
-const PaneRuntimeProgress = memo(function PaneRuntimeProgress({ sessionId, hidden }: PaneStreamingTailProps) {
+const PaneRuntimeProgress = memo(function PaneRuntimeProgress({ sessionId, hidden }: PaneLaneProps) {
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
@@ -114,26 +115,27 @@ const PaneRuntimeProgress = memo(function PaneRuntimeProgress({ sessionId, hidde
   ) : null;
 });
 
-const PaneStreamingTail = memo(function PaneStreamingTail({ sessionId, hidden }: PaneStreamingTailProps) {
+const PaneAssistantRow = memo(function PaneAssistantRow({
+  sessionId,
+  hidden,
+  ...props
+}: PaneLaneProps & TranscriptAssistantRowProps) {
   const lane = useSessionLane(
     sessionId,
     defaultSessionLaneStore,
     desktopStreamingTailSnapshotsEqual,
-    !hidden && Boolean(sessionId)
+    props.live && !hidden && Boolean(sessionId)
   );
-  const snapshot = lane ?? EMPTY_SNAPSHOT;
-  const tail = snapshot.streamingTail as TranscriptItem | null | undefined;
-  if (hidden) return null;
-  if (!tail) return null;
-  const items = Array.isArray(snapshot.items) ? snapshot.items : EMPTY_TRANSCRIPT_ITEMS;
-  const settledIndex = tail.id == null ? -1 : items.findIndex((item) => item?.id === tail.id);
-  if (settledIndex >= 0 && settledIndex !== items.length - 1) return null;
-  const index = settledIndex >= 0 ? settledIndex : items.length;
-  return (
-    <div className="transcript-live-part" data-streaming-tail="true" data-index={index}>
-      <TranscriptRow item={tail} disclosureScope={String(snapshot.sessionId || 'new-task')} />
-    </div>
-  );
+  const latest = useRef(props.item);
+  const tail = lane?.streamingTail as TranscriptItem | null | undefined;
+  if (!props.live || latest.current.id !== props.item.id) latest.current = props.item;
+  if (props.live) {
+    const incoming = tail?.id === props.item.id ? tail : lane?.items?.find((item) => item?.id === props.item.id);
+    if (incoming) latest.current = incoming;
+  }
+  // A lane may clear its tail before the shell publishes the settled row.
+  // Retain its last body instead of unmounting it during that handoff.
+  return <TranscriptAssistantRow {...props} item={props.live ? latest.current : props.item} />;
 });
 
 export const DraftConversation = memo(function DraftConversation({
@@ -156,7 +158,7 @@ export const DraftConversation = memo(function DraftConversation({
 // its own lane and a draft reads only its local draft props.
 type PaneConversationProps = Omit<
   React.ComponentProps<typeof Conversation>,
-  'snapshot' | 'routeSnapshot' | 'streamingTailSlot' | 'runtimeProgressSlot' | 'transcriptPending'
+  'snapshot' | 'routeSnapshot' | 'renderAssistantRow' | 'runtimeProgressSlot' | 'transcriptPending'
 > & {
   focused: boolean;
   sessionId: string;
@@ -227,9 +229,8 @@ export const PaneConversation = memo(function PaneConversation({
     desktopConversationShellSnapshotsEqual,
     !hidden && presentedSessionId !== sessionId
   );
-  const routeSnapshot = presentedSessionId
-    ? ((presentedSessionId === sessionId ? lane : presentedLane) ?? EMPTY_SNAPSHOT)
-    : EMPTY_SNAPSHOT;
+  const presentedLaneSnapshot = presentedSessionId === sessionId ? lane : presentedLane;
+  const routeSnapshot = presentedSessionId ? (presentedLaneSnapshot ?? EMPTY_SNAPSHOT) : EMPTY_SNAPSHOT;
   const paneSnapshot = hidden ? EMPTY_SNAPSHOT : routeSnapshot;
   const paintGate = conversationSwitchPaintGate(heldPaintId, incomingPaintId, {
     hidden,
@@ -304,7 +305,7 @@ export const PaneConversation = memo(function PaneConversation({
         transcriptPending={timelinePending}
         reviewActive={focused && !hidden}
         warmPaintHandoff={warmDraftHandoff}
-        streamingTailSlot={<PaneStreamingTail sessionId={sessionId} hidden={hidden} />}
+        renderAssistantRow={(row) => <PaneAssistantRow {...row} sessionId={sessionId} hidden={hidden} />}
         runtimeProgressSlot={<PaneRuntimeProgress sessionId={sessionId} hidden={hidden} />}
         {...props}
         goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}

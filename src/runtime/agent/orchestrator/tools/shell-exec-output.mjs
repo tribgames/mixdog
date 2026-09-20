@@ -60,7 +60,7 @@ export function stripAnsi(s) {
 
 const UNSAFE_TEXT_CONTROL_RE = /[\u0001-\u0006\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u007F]/g;
 
-function inspectShellTextChunk(value, channel = 'stdout') {
+function inspectShellTextChunk(value, _channel = 'stdout') {
   const text = String(value ?? '');
   if (!text) return { text: '', binary: false, bytes: 0 };
   const bytes = Buffer.byteLength(text, 'utf8');
@@ -352,7 +352,7 @@ export class TaskOutput {
 
   _recordWriteError(stage, err) {
     if (this.writeError) return;
-    const msg = err && err.message ? err.message : String(err);
+    const msg = err?.message ? err.message : String(err);
     this.writeError = `[output-capture-error: ${stage}] ${msg}`;
   }
 
@@ -414,7 +414,8 @@ export class TaskOutput {
   getLiveTail(maxChars = 4000) {
     try {
       const merge = (out, err) => {
-        const merged = err ? `${out}${out && err ? '\n' : ''}${err}` : out;
+        const separator = out && err ? '\n' : '';
+        const merged = err ? `${out}${separator}${err}` : out;
         return merged.length > maxChars ? merged.slice(-maxChars) : merged;
       };
       if (!this.spilled) return merge(this.stdoutBuf, this.stderrBuf);

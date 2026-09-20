@@ -82,7 +82,9 @@ function emptySessionSnapshot(id: string): SessionSnapshot {
 // delta encoder downstream reads as "already sent".
 function rebuiltProjection(prior: SessionSnapshot | null, full: unknown, id: string): SessionSnapshot | null {
   const rebuilt =
-    full && typeof full === 'object' ? ({ ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot) : null;
+    full && typeof full === 'object'
+      ? ({ ...(full as Record<string, unknown>), sessionId: id } as SessionSnapshot)
+      : null;
   if (!rebuilt) return prior;
   return prior ? reconcileSessionProjection(prior, rebuilt) : rebuilt;
 }

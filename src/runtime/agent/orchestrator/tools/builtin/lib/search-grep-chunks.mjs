@@ -33,7 +33,7 @@ function deriveGrepCountLinesFromMatchContent(lines) {
   const byPath = new Map();
   for (const line of lines) {
     const split = splitGrepLinePrefix(line);
-    if (!split || split.delimiter !== ':') continue;
+    if (split?.delimiter !== ':') continue;
     if (!byPath.has(split.path)) byPath.set(split.path, new Set());
     byPath.get(split.path).add(split.lineNo);
   }
@@ -49,7 +49,7 @@ function isGrepMatchLine(line) {
 
 function grepMatchAnchorKey(line) {
   const split = splitGrepLinePrefix(line);
-  if (!split || split.delimiter !== ':') return '';
+  if (split?.delimiter !== ':') return '';
   return `${split.path}\0${split.lineNo}`;
 }
 

@@ -48,7 +48,7 @@ const _WRAP_CHAIN =
   [...WRAPPER_NAMES].join('|') +
   ')\\s+(?:(?:[-+]\\S*|\\d+[smhd]?|\\d+m\\d+s?)\\s+)*)' +
   ')*';
-const _CMD_START = '(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|[<>]\\(\\s*|`\\s*)' + _WRAP_CHAIN;
+const _CMD_START = `(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|[<>]\\(\\s*|\`\\s*)${_WRAP_CHAIN}`;
 // Wrapper chain for the token-level rm guard. Same shape as _WRAP_CHAIN
 // (backtrack-safe: every unit ends in \s+) but also peels `command`, the
 // bash builtin that execs its first non-option argument. Lets the rm guard
@@ -71,15 +71,15 @@ const BLOCKED_PATTERNS = [
   // `--force-with-lease` / `--force-if-includes` variants pass.
   /\bgit\s+push\b[^\n]*?\s--force(?![\w-])/i,
   /\bformat\s+[a-z]:/i,
-  new RegExp(_CMD_START + '(?:shutdown|reboot|halt)\\b', 'i'),
-  new RegExp(_CMD_START + 'mkfs(?:\\.|\\b)', 'i'),
+  new RegExp(`${_CMD_START}(?:shutdown|reboot|halt)\\b`, 'i'),
+  new RegExp(`${_CMD_START}mkfs(?:\\.|\\b)`, 'i'),
   // Raw-device WRITES only. `if=/dev/…` is a read (`dd if=/dev/zero of=file`
   // is the ordinary way to create a fixed-size file), and the standard sinks
   // below cannot destroy anything, so the block is scoped to a device target
   // that can actually overwrite a disk. Raw-device READS still surface as a
   // non-blocking destructive warning.
-  new RegExp(_CMD_START + 'dd\\s+[^\\n]*\\bof=/dev/(?!(?:null|zero|stdout|stderr|full|tty)\\b)', 'i'),
-  new RegExp(_CMD_START + 'diskpart\\b[^\\n]*\\bclean\\b', 'i'),
+  new RegExp(`${_CMD_START}dd\\s+[^\\n]*\\bof=/dev/(?!(?:null|zero|stdout|stderr|full|tty)\\b)`, 'i'),
+  new RegExp(`${_CMD_START}diskpart\\b[^\\n]*\\bclean\\b`, 'i'),
   /:\(\)\s*\{[^}]*:\|:&[^}]*\};\s*:/, // bash fork-bomb signature
 ];
 
@@ -130,7 +130,7 @@ export function decodePowerShellEncodedCommand(command) {
 function _rmRecursiveForceUnsafe(command) {
   const text = String(command || '');
   const RM_RE = new RegExp(
-    '(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|`\\s*)' + _RM_WRAP_CHAIN + '\\brm\\s+([^|;&\\n`)]+)',
+    `(?:^|[;&|\\n(){}]\\s*|\\$[\\({]\\s*|\`\\s*)${_RM_WRAP_CHAIN}\\brm\\s+([^|;&\\n\`)]+)`,
     'gi'
   );
   for (const m of text.matchAll(RM_RE)) {

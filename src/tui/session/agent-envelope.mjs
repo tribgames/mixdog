@@ -132,11 +132,16 @@ export function parseBackgroundTaskEnvelope(text) {
   const errorOnlyBody = isBackgroundErrorOnlyBody(body, errorText);
   const resultBody = body && !errorOnlyBody ? body : '';
   const nonTerminal = /^(running|pending|queued)$/i.test(status);
+  let envelopeType = fields.operation || 'status';
+  if (body) envelopeType = nonTerminal ? 'progress' : 'result';
+  const statusLine = [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : '']
+    .filter(Boolean)
+    .join(' · ');
   return {
     name,
     label: status || 'notification',
     args: {
-      type: body ? (nonTerminal ? 'progress' : 'result') : fields.operation || 'status',
+      type: envelopeType,
       status,
       task_id: taskId || undefined,
       surface,
@@ -153,11 +158,7 @@ export function parseBackgroundTaskEnvelope(text) {
       startedAt: fields.started || fields.startedat || undefined,
       finishedAt: fields.finished || fields.finishedat || undefined,
     },
-    result:
-      resultBody ||
-      (!errorText
-        ? [status ? `status: ${status}` : '', taskId ? `task_id: ${taskId}` : ''].filter(Boolean).join(' · ')
-        : ''),
+    result: resultBody || (errorText ? '' : statusLine),
     rawResult: value,
     isError:
       /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(status) ||

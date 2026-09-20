@@ -50,11 +50,9 @@ export function buildRecaptureRequiredPayload(
   const code = recaptureRequirementCode(message);
   if (!code) return undefined;
   const freshObservation = isFreshRecaptureObservation(observation, expectedWindowId);
-  const reportedObservation = freshObservation
-    ? observation
-    : observation?.ok !== true && observation
-      ? failedRecaptureObservation(observation)
-      : undefined;
+  let reportedObservation: Record<string, unknown> | undefined;
+  if (freshObservation) reportedObservation = observation;
+  else if (observation?.ok !== true && observation) reportedObservation = failedRecaptureObservation(observation);
   return {
     ok: false,
     action,

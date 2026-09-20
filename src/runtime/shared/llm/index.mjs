@@ -43,6 +43,6 @@ export function resolveMaintenancePreset(task, agentConfig) {
   }
   // Canonical default route (DEFAULT_MAINTENANCE is now route-shaped).
   const def = DEFAULT_MAINTENANCE[task];
-  if (def && def.provider && def.model) return { ...def };
+  if (def?.provider && def.model) return { ...def };
   return null;
 }

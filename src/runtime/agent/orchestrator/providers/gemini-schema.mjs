@@ -37,11 +37,9 @@ function explicitGeminiMediaPart(part) {
 // so preserve explicit Gemini wire parts before using the shared fallback.
 function normalizeGeminiParts(content) {
   if (typeof content === 'string') return normalizeContentForGeminiParts(content);
-  const parts = Array.isArray(content)
-    ? content
-    : content && typeof content === 'object' && Array.isArray(content.content)
-      ? content.content
-      : [content];
+  let parts = [content];
+  if (Array.isArray(content)) parts = content;
+  else if (content && typeof content === 'object' && Array.isArray(content.content)) parts = content.content;
   const out = [];
   for (const part of parts) {
     const media = explicitGeminiMediaPart(part);
@@ -185,7 +183,9 @@ function schemaFallback(reason) {
 }
 
 function typeInfo(schema) {
-  const declared = Array.isArray(schema?.type) ? schema.type : typeof schema?.type === 'string' ? [schema.type] : [];
+  let declared = [];
+  if (Array.isArray(schema?.type)) declared = schema.type;
+  else if (typeof schema?.type === 'string') declared = [schema.type];
   const nonNull = [...new Set(declared.filter((type) => type !== 'null'))];
   let type = nonNull[0] || null;
   if (nonNull.length > 1) {
@@ -638,7 +638,7 @@ export function toGeminiToolConfig(toolChoice) {
 }
 
 function toGeminiToolContent(message, toolNameByCallId, capabilities) {
-  const functionName = (toolNameByCallId && toolNameByCallId.get(message.toolCallId)) || message.toolCallId || '';
+  const functionName = toolNameByCallId?.get(message.toolCallId) || message.toolCallId || '';
   const { response, mediaParts } = splitGeminiToolContent(message.content);
   const media = toGeminiFunctionResponseMedia(mediaParts);
   if (media.refs.length) response.media = media.refs;
@@ -657,7 +657,7 @@ function toGeminiToolContent(message, toolNameByCallId, capabilities) {
   };
 }
 
-function toGeminiContent(message, toolNameByCallId, capabilities) {
+function toGeminiContent(message, _toolNameByCallId, capabilities) {
   if (!message || message.role === 'system') return null;
   const orderedReplay =
     message.role === 'assistant' ? providerReplayItems(message, ['gemini', 'antigravity']) : undefined;

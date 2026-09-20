@@ -108,13 +108,6 @@ test('desktop and mobile tool groups share details and a static task icon', asyn
           ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
       });
       assert.equal(group?.querySelectorAll('.tool-activity-details').length, 1);
-      assert.equal(group?.querySelectorAll('.tool-activity-category').length, 1);
-      assert.equal(group?.querySelectorAll('.tool-activity-item').length, 0);
-      await act(async () => {
-        group
-          ?.querySelector('.tool-activity-category-header')
-          ?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-      });
       assert.equal(group?.querySelectorAll('.tool-activity-item').length, 1);
       assert.equal(group?.querySelectorAll('.tool-card').length, 0);
     } finally {
@@ -253,8 +246,9 @@ test('desktop activity drills through repeated categories but keeps singleton to
       ids: items.map((item) => item.id),
     })),
     [
-      { category: 'Git', count: 2, ids: ['git-1', 'git-2'] },
+      { category: 'Git', count: 1, ids: ['git-1'] },
       { category: 'Shell', count: 1, ids: ['shell-1'] },
+      { category: 'Git', count: 1, ids: ['git-2'] },
     ]
   );
 });
@@ -475,6 +469,32 @@ test('desktop activity keeps failures visible and suppresses image marker bodies
   assert.equal(image.title, 'Image');
   assert.equal(image.resultLabel, 'Image');
   assert.equal(image.hasDetails, false);
+});
+
+test('desktop activity prefers display results and hides successful mutation envelopes', () => {
+  const patch = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'patch',
+    name: 'apply_patch',
+    args: { patch: '*** Begin Patch\n*** Update File: src/a.ts\n@@\n-old\n+new\n*** End Patch' },
+    result: 'OK Modify src/a.ts — +1 -1',
+    rawResult: 'apply_patch: applied 1 section(s)\nOK Modify src/a.ts — +1 -1',
+    uiDiff: 'diff --git a/src/a.ts b/src/a.ts\n@@\n-old\n+new',
+    completedAt: 1,
+  });
+  assert.equal(patch.outputText, '');
+  assert.equal(patch.diffPatch.includes('src/a.ts'), true);
+});
+
+test('desktop activity keeps agent action and response titles specific', () => {
+  const spawn = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'agent-spawn',
+    name: 'agent',
+    args: { type: 'spawn', agent: 'worker', model: 'gpt-6', tag: 'review' },
+    completedAt: 1,
+  });
+  assert.match(spawn.title, /^Spawn Worker/);
 });
 
 test('expanded tool detail stays in the runtime English while chips localize', () => {

@@ -178,7 +178,7 @@ function allowed(controls, key) {
 function validateChoice(controls, key, value, label) {
   const list = allowed(controls, key);
   if (!value) return;
-  if (!list || !list.includes(value))
+  if (!list?.includes(value))
     throw new MediaToolError(
       `${label} "${value}" is not supported by this model${list ? `; use one of ${list.join(', ')}` : ''}`
     );

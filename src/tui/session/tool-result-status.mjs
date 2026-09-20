@@ -1,11 +1,10 @@
 /**
  * src/tui/session/tool-result-status.mjs — pure tool-result status + aggregate
- * text helpers extracted from the session runtime.
+ * text helpers for the session runtime.
  *
- * These functions were function-declared inside the closure but reference only
- * their arguments plus toolErrorDisplay (imported below) — no session state —
- * so they move out verbatim as free functions. session-local.mjs imports them and
- * keeps calling them unchanged.
+ * These functions reference only their arguments plus toolErrorDisplay
+ * (imported below) — no session state — so they live here as free functions;
+ * session-local.mjs imports them.
  */
 import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
 import { normalizeToolTerminalStatus, toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
@@ -252,11 +251,9 @@ export function stringUiDiffPatch(value) {
 export function toolResultDisplay(message, rawText, toolName) {
   const outcome = toolCallOutcome({ ...message, toolName }, rawText);
   const isError = outcome.isCallError;
-  const text = isError
-    ? toolErrorDisplay(rawText, toolName || 'tool')
-    : outcome.exitCode != null
-      ? stripShellExitHeader(rawText)
-      : rawText;
+  let text = rawText;
+  if (isError) text = toolErrorDisplay(rawText, toolName || 'tool');
+  else if (outcome.exitCode != null) text = stripShellExitHeader(rawText);
   return { ...outcome, isError, text };
 }
 

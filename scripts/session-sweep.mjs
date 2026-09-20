@@ -22,9 +22,9 @@
  *
  * This tool NEVER deletes. It only prints a report.
  */
-import { existsSync, readdirSync, statSync } from 'fs';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getPluginData } from '../src/runtime/agent/orchestrator/config.mjs';
 import { summaryIndexPath, listStoredSessionSummaries } from '../src/runtime/agent/orchestrator/session/store.mjs';
 
@@ -304,7 +304,7 @@ function main() {
   L.push(`index rows after    : ${rebuiltIndexRows}  (= surviving files; rebuild reindexes all remaining)`);
   L.push('');
   L.push('DRY-RUN ONLY — this tool performed no unlink and no disk writes.');
-  process.stdout.write(L.join('\n') + '\n');
+  process.stdout.write(`${L.join('\n')}\n`);
 }
 
 main();

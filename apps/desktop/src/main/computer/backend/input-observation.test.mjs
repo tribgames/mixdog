@@ -15,7 +15,7 @@ test('native input ledger uses event origin, retains physical intervention, and 
     await writeFile(join(directory, 'native.cs'), MIXDOG_HOST_CSHARP);
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Drawing

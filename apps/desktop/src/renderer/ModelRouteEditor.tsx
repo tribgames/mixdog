@@ -38,11 +38,12 @@ export function ModelRouteEditor({
   const modelParameters = preferredModelParameters(selected, value.modelParameters || {});
   const fastAvailable = modelFastAvailable(selected, effort, modelParameters);
   const fast = fastAvailable && (typeof value.fast === 'boolean' ? value.fast : selected?.fastPreferred === true);
-  const triggerModel = selected
-    ? labelForModel?.(selected) || modelDisplayName(selected.model, selected.provider, selected.display)
-    : model && !catalogLoaded
-      ? modelDisplayName(model, provider)
-      : t('Select model');
+  let triggerModel = t('Select model');
+  if (selected) {
+    triggerModel = labelForModel?.(selected) || modelDisplayName(selected.model, selected.provider, selected.display);
+  } else if (model && !catalogLoaded) {
+    triggerModel = modelDisplayName(model, provider);
+  }
   const selectionFor = (
     option: DesktopModelOption,
     patch: Partial<DesktopModelSelection> = {}

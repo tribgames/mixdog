@@ -129,11 +129,10 @@ export function GithubPanel({
         next = githubRecord(results[0].data);
         nextComments = results[1];
       } else if (section === 'repositories' || section === 'actions' || section === 'releases') {
-        const result = await request(
-          section === 'repositories'
-            ? { action: 'repo.view', repo: String(item.full_name) }
-            : { action: section === 'actions' ? 'run.view' : 'release.view', id: Number(item.id) }
-        );
+        let viewRequest: GithubRequest = { action: 'release.view', id: Number(item.id) };
+        if (section === 'repositories') viewRequest = { action: 'repo.view', repo: String(item.full_name) };
+        else if (section === 'actions') viewRequest = { action: 'run.view', id: Number(item.id) };
+        const result = await request(viewRequest);
         next = githubRecord(result.data);
       }
       if (generation !== epoch.current) return;
@@ -281,14 +280,15 @@ export function GithubPanel({
       {error && <ErrorNotice error={error} />}
       {notice && <p role="status">{notice}</p>}
       {loading && <p role="status">{t('Loading…')}</p>}
-      {form ? (
+      {form && (
         <GithubActionForm
           key={`${form.action}:${form.id || form.number || ''}`}
           request={form}
           onSubmit={mutate}
           onClose={() => setForm(null)}
         />
-      ) : detail ? (
+      )}
+      {!form && detail && (
         <>
           <GithubDetail
             section={section}
@@ -339,7 +339,8 @@ export function GithubPanel({
             </section>
           )}
         </>
-      ) : (
+      )}
+      {!form && !detail && (
         <>
           {!loading && !error && items.length === 0 && <p>{t('No items on this page.')}</p>}
           <div className="github-list" role="list">

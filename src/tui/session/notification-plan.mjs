@@ -22,13 +22,10 @@ export function notificationQueueKey(event, text, parsed) {
     const taskId = String(synthetic.args?.task_id || '').trim();
     const executionId = String(meta.execution_id || '').trim();
     const tag = String(synthetic.args?.tag || '').trim();
-    const resultId = taskId
-      ? `task:${taskId}`
-      : executionId
-        ? `exec:${executionId}`
-        : tag
-          ? `tag:${tag}:${shortTextFingerprint(synthetic.result || text)}`
-          : '';
+    let resultId = '';
+    if (taskId) resultId = `task:${taskId}`;
+    else if (executionId) resultId = `exec:${executionId}`;
+    else if (tag) resultId = `tag:${tag}:${shortTextFingerprint(synthetic.result || text)}`;
     const agent = String(synthetic.args?.agent || '').trim();
     if (resultId || agent) return ['agent-result', resultId, agent].filter(Boolean).join(':');
   }

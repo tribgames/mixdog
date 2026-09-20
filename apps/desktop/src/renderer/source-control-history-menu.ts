@@ -56,21 +56,22 @@ export function buildSourceControlCommitMenu({
   const busy = Boolean(historyBusyReason);
   const unavailable = (capable: boolean, action: string) =>
     historyBusyReason || (capable ? undefined : missingChannel(action));
+  let amendBlocked: string | undefined;
+  if (!isTipCommit) amendBlocked = 'Only the most recent commit can be amended';
+  else if (conflictCount > 0) amendBlocked = 'Resolve conflicts before amending';
+  let undoBlocked: string | undefined;
+  if (!isTipCommit) undoBlocked = 'Only the most recent commit can be undone';
+  else if (entry.pushed) undoBlocked = 'This commit is already pushed, so it cannot be undone here';
+  const noTagTitle = tagsKnown ? 'This commit carries no tag to delete' : 'Tag data is unavailable';
+  let copyTagsTitle: string | undefined = 'Tag data is unavailable';
+  if (tagsKnown) copyTagsTitle = tags.length ? undefined : 'This commit carries no tag to copy';
 
   return [
     {
       id: 'amend',
       label: 'Amend commit…',
       disabled: busy || !isTipCommit || statusUnborn || conflictCount > 0 || !capabilities.amend,
-      title:
-        historyBusyReason ||
-        (!isTipCommit
-          ? 'Only the most recent commit can be amended'
-          : conflictCount > 0
-            ? 'Resolve conflicts before amending'
-            : capabilities.amend
-              ? undefined
-              : missingChannel('Amending a commit')),
+      title: historyBusyReason || amendBlocked || unavailable(capabilities.amend, 'Amending a commit'),
       onSelect: actions.amend,
     },
     {
@@ -78,15 +79,7 @@ export function buildSourceControlCommitMenu({
       label: 'Undo commit…',
       danger: true,
       disabled: busy || !isTipCommit || entry.pushed || !capabilities.undo,
-      title:
-        historyBusyReason ||
-        (!isTipCommit
-          ? 'Only the most recent commit can be undone'
-          : entry.pushed
-            ? 'This commit is already pushed, so it cannot be undone here'
-            : capabilities.undo
-              ? undefined
-              : missingChannel('Undoing a commit')),
+      title: historyBusyReason || undoBlocked || unavailable(capabilities.undo, 'Undoing a commit'),
       onSelect: actions.undo,
     },
     {
@@ -145,7 +138,7 @@ export function buildSourceControlCommitMenu({
             label: 'Delete tag',
             separatorBefore: true,
             disabled: true,
-            title: tagsKnown ? 'This commit carries no tag to delete' : 'Tag data is unavailable',
+            title: noTagTitle,
           },
         ]),
     {
@@ -165,7 +158,7 @@ export function buildSourceControlCommitMenu({
       id: 'copy-tags',
       label: tags.length > 1 ? 'Copy tags' : 'Copy tag',
       disabled: tags.length === 0,
-      title: tagsKnown ? (tags.length ? undefined : 'This commit carries no tag to copy') : 'Tag data is unavailable',
+      title: copyTagsTitle,
       onSelect: () => actions.copyTags(tags),
     },
     {

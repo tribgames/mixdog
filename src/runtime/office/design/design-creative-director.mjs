@@ -32,6 +32,12 @@ function narrativeRole(operation, index, total) {
   return index < total / 2 ? 'context' : 'implication';
 }
 
+function focalPointFor(role, evidence) {
+  if (role === 'opening') return 'thesis';
+  if (role === 'decision-close') return 'decision';
+  return evidence.evidenceKind === 'narrative' ? 'message' : 'evidence';
+}
+
 function recommendedVisual(operation, role) {
   const evidence = evidenceKind(operation);
   if (evidence === 'chart') return 'annotated-chart';
@@ -85,14 +91,7 @@ export function directOfficeStory(format, operations = [], design = {}) {
       implication: compact(operation.takeaway || operation.subtitle || operation.body, 220),
       evidence,
       recommendedVisual: recommendedVisual(operation, role),
-      focalPoint:
-        role === 'opening'
-          ? 'thesis'
-          : role === 'decision-close'
-            ? 'decision'
-            : evidence.evidenceKind === 'narrative'
-              ? 'message'
-              : 'evidence',
+      focalPoint: focalPointFor(role, evidence),
       density: ['opening', 'decision-close'].includes(role) ? 'light' : 'balanced',
       motif,
     };

@@ -2,7 +2,12 @@
 // lossless offload, then per call trace → cache write → staged tool_result
 // → cross-turn record. Cache and transcript therefore receive the same body.
 import { takeApplyPatchUiDiff } from '../../tools/patch.mjs';
-import { traceAgentShellOutput, traceAgentTool, traceAgentToolFailure, traceAgentToolOutput } from '../../agent-trace.mjs';
+import {
+  traceAgentShellOutput,
+  traceAgentTool,
+  traceAgentToolFailure,
+  traceAgentToolOutput,
+} from '../../agent-trace.mjs';
 import { isOffloadedToolResultText, maybeOffloadToolResultBatch } from '../tool-result-offload.mjs';
 import { setReadCached, setScopedToolCached } from '../read-dedup.mjs';
 import { _stripMcpPrefix, _isReadTool, _isScopedCacheableTool, _isShellTool } from '../loop/tool-classify.mjs';
@@ -143,9 +148,15 @@ function traceCompleted(batch, completed, result, postprocessStartedAt) {
 function writeCaches(batch, completed, result) {
   const { sessionId, sessionRef, cwd, epoch } = batch;
   const { call } = completed;
-  const outcomeMap = sessionRef?._scopedCacheOutcomeByCallId instanceof Map ? sessionRef._scopedCacheOutcomeByCallId : null;
+  const outcomeMap =
+    sessionRef?._scopedCacheOutcomeByCallId instanceof Map ? sessionRef._scopedCacheOutcomeByCallId : null;
   const scopedCacheable = completed.scopedCacheHit === null && _isScopedCacheableTool(call.name);
-  if (sessionId && completed.executeOk && completed.resultKind === 'normal' && completed.mutationEpoch === epoch.mutation) {
+  if (
+    sessionId &&
+    completed.executeOk &&
+    completed.resultKind === 'normal' &&
+    completed.mutationEpoch === epoch.mutation
+  ) {
     if (scopedCacheable) {
       const outcome = outcomeMap?.get(call.id);
       setScopedToolCached({

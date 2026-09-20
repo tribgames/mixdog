@@ -388,12 +388,10 @@ export function usePaneWorkspace(initialSelection: WorkspaceSelection | null = n
         return { layout: leaf, focusedLeafId: leaf.id };
       }
       const layout = rebalancePaneAxes(collapsedLayout, collapseDirection);
-      const focusedLeafId =
-        collapsing && prev.focusedLeafId === leafId
-          ? fallback && findPaneLeaf(layout, fallback)
-            ? fallback
-            : paneLeaves(layout)[0].id
-          : prev.focusedLeafId;
+      let focusedLeafId = prev.focusedLeafId;
+      if (collapsing && prev.focusedLeafId === leafId) {
+        focusedLeafId = fallback && findPaneLeaf(layout, fallback) ? fallback : paneLeaves(layout)[0].id;
+      }
       return { layout, focusedLeafId };
     });
   }, []);

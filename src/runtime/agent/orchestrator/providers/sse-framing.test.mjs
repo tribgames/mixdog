@@ -669,7 +669,7 @@ const TURN_EVENTS = [
 
 function turnText() {
   return TURN_EVENTS.map(
-    (event, index) => (index % 3 === 0 ? ': ping\n\n' : '') + `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
+    (event, index) => `${index % 3 === 0 ? ': ping\n\n' : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
   ).join('');
 }
 

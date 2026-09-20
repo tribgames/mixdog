@@ -127,7 +127,7 @@ async function _run({ timeoutMs, onStatus }) {
           return false;
         }
       })();
-      if (auth && auth.value && (wsMatch || onWorkspace)) {
+      if (auth?.value && (wsMatch || onWorkspace)) {
         status('Auth cookie captured.');
         return { authCookie: auth.value, workspaceId: wsMatch?.[1] || null };
       }

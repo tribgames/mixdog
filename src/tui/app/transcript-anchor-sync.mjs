@@ -57,7 +57,8 @@ export function syncReadingAnchorAfterCommit({
   const currentPosition = rows(scrollPositionRef.current);
   const currentOffset = rows(scrollOffset);
   const maxScroll = rows(maxRows);
-  const pin = (resumeFollow) => pinScrollToBottom(refs, { stopSmoothScroll, currentOffset, setScrollOffset, resumeFollow });
+  const pin = (resumeFollow) =>
+    pinScrollToBottom(refs, { stopSmoothScroll, currentOffset, setScrollOffset, resumeFollow });
   // ── Positional follow restore ────────────────────────────────────────
   // The follow arm is a FLAG, but the tail position is the truth. Any commit
   // that does not SHRINK content while the viewport sits exactly at the tail
@@ -162,7 +163,8 @@ export function clampScrollToOverflow(refs, { maxRows, scrollOffset, setScrollOf
     transcriptAnchorDirtyRef.current = false;
     followingRef.current = true;
   }
-  if (scrollTargetRef.current <= maxScroll && scrollPositionRef.current <= maxScroll && scrollOffset <= maxScroll) return;
+  if (scrollTargetRef.current <= maxScroll && scrollPositionRef.current <= maxScroll && scrollOffset <= maxScroll)
+    return;
   stopSmoothScroll();
   const next = Math.max(0, Math.min(maxScroll, scrollTargetRef.current));
   scrollTargetRef.current = next;

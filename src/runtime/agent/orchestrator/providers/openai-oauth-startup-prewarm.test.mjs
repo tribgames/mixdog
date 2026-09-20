@@ -50,7 +50,7 @@ function fakeEntry() {
     entry: {
       socket: {
         readyState: 1,
-        close: (code, reason) => closes.push(reason),
+        close: (_code, reason) => closes.push(reason),
         once: (event, fn) => {
           listeners.set(event, fn);
         },

@@ -20,8 +20,8 @@
  *     never scanned: an unregistered scratch file may be the save worker's or
  *     another process's ACTIVE commit, which no registry here can see.
  */
-import { unlinkSync } from 'fs';
-import { basename } from 'path';
+import { unlinkSync } from 'node:fs';
+import { basename } from 'node:path';
 import { _renameWithRetrySync } from './serialize.mjs';
 
 // `<id>.json.<12 hex>.tmp` — exactly what the store mints
@@ -270,17 +270,16 @@ export function serializeSessionSaveFault() {
  */
 export function applySessionSaveFault(serialized) {
   _syncedFaultApplied = true;
-  _syncedFault =
-    serialized && _faultInjectionEnabled()
-      ? {
-          ids: serialized.ids === '*' ? '*' : _idSet(serialized.ids),
-          remaining:
-            serialized.remaining === null || serialized.remaining === undefined
-              ? Infinity
-              : Number(serialized.remaining),
-          code: serialized.code || 'EIO',
-        }
-      : null;
+  _syncedFault = null;
+  if (serialized && _faultInjectionEnabled()) {
+    const remaining =
+      serialized.remaining === null || serialized.remaining === undefined ? Infinity : Number(serialized.remaining);
+    _syncedFault = {
+      ids: serialized.ids === '*' ? '*' : _idSet(serialized.ids),
+      remaining,
+      code: serialized.code || 'EIO',
+    };
+  }
 }
 
 function _effectiveFaultState() {
@@ -291,7 +290,9 @@ function _effectiveFaultState() {
   }
   // A synced realm is fully governed by its owner — never by a programmatic
   // call that never happened there.
-  const state = _syncedFaultApplied ? _syncedFault : _programmaticFault.ids ? _programmaticFault : null;
+  let state = null;
+  if (_syncedFaultApplied) state = _syncedFault;
+  else if (_programmaticFault.ids) state = _programmaticFault;
   return state && state.remaining > 0 ? state : null;
 }
 

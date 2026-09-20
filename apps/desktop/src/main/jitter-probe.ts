@@ -9,8 +9,8 @@
  * supposed to be pinned to the bottom. A stable follow has ~0 reversals and
  * a bottom distance that stays near 0 the whole time.
  */
-import { writeFileSync, mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { assistantMarkdown, coldHistoryItems, paragraph, probeItems } from './jitter-probe-fixtures';
 import {
@@ -1616,6 +1616,7 @@ diff --git a/src/probe.ts b/src/probe.ts
       const spaceHeightDelta = clicked && card ? card.spaceHeight - clicked.before.spaceHeight : null;
       const rowHeightDelta = clicked && card ? card.rowHeight - clicked.before.rowHeight : null;
       const cardHeightDelta = clicked && card ? card.cardHeight - clicked.before.cardHeight : null;
+      const pinnedScrollHeightDelta = pinned ? (scrollHeightDelta ?? 0) : 0;
       return {
         label,
         prepared,
@@ -1629,8 +1630,7 @@ diff --git a/src/probe.ts b/src/probe.ts
         spaceHeightDelta,
         rowHeightDelta,
         cardHeightDelta,
-        scrollError:
-          scrollDelta === null || scrollHeightDelta === null ? null : scrollDelta - (pinned ? scrollHeightDelta : 0),
+        scrollError: scrollDelta === null || scrollHeightDelta === null ? null : scrollDelta - pinnedScrollHeightDelta,
         rowGeometryError: rowHeightDelta === null || cardHeightDelta === null ? null : rowHeightDelta - cardHeightDelta,
         spaceGeometryError:
           spaceHeightDelta === null || cardHeightDelta === null ? null : spaceHeightDelta - cardHeightDelta,

@@ -2,6 +2,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
+import { parseSince } from './lib/parse-since.mjs';
 import { isInclusiveProvider } from '../src/runtime/shared/llm/cost.mjs';
 
 function argValue(name, fallback = null) {
@@ -52,26 +53,6 @@ function defaultTraceFiles() {
   );
 }
 
-function parseSince(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return null;
-  if (/^now$/i.test(raw)) return Date.now();
-  if (/^\d+$/.test(raw)) {
-    const n = Number(raw);
-    return n > 10_000_000_000 ? n : n * 1000;
-  }
-  const rel = raw.match(/^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/i);
-  if (rel) {
-    const n = Number(rel[1]);
-    const unit = rel[2].toLowerCase();
-    const mult =
-      unit === 'ms' ? 1 : unit === 's' ? 1000 : unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
-    return Date.now() - n * mult;
-  }
-  const parsed = Date.parse(raw);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
 function readRows(file) {
   if (!existsSync(file)) return [];
   return readFileSync(file, 'utf8')
@@ -87,7 +68,7 @@ function readRows(file) {
 }
 
 function payload(row) {
-  return row && row.payload && typeof row.payload === 'object' ? row.payload : {};
+  return row?.payload && typeof row.payload === 'object' ? row.payload : {};
 }
 
 function field(row, name) {

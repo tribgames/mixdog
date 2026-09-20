@@ -28,7 +28,7 @@ export function uiTranslationTemplates(keys: string[]): readonly Template[] {
         names.push(match[1]);
         cursor = match.index! + match[0].length;
       }
-      expression += key.slice(cursor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$';
+      expression += `${key.slice(cursor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
       return [{ key, names, expression: new RegExp(expression), specificity: literal.length }];
     })
     .sort((a, b) => b.specificity - a.specificity);

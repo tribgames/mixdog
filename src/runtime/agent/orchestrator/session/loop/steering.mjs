@@ -1,4 +1,4 @@
-// Steering-message normalization/merge helpers extracted from loop.mjs.
+// Steering-message normalization/merge helpers.
 // Merges queued steering entries into a single content payload + display text.
 
 function steeringContentText(content) {
@@ -19,11 +19,9 @@ function steeringContentText(content) {
 
 function steeringEntryMetadata(entry) {
   if (!entry || typeof entry !== 'object') return {};
-  const sourceIds = Array.isArray(entry.ids)
-    ? entry.ids
-    : entry.id !== undefined && entry.id !== null
-      ? [entry.id]
-      : [];
+  let sourceIds = [];
+  if (Array.isArray(entry.ids)) sourceIds = entry.ids;
+  else if (entry.id !== undefined && entry.id !== null) sourceIds = [entry.id];
   const ids = [...new Set(sourceIds.filter((id) => id !== undefined && id !== null))];
   const submittedAt = Number(entry.submittedAt);
   return {
@@ -167,13 +165,13 @@ export function createSteeringDrain({ messages, opts, sessionId, onSkillPrompt }
       const submissionIds = Array.isArray(merged.ids) ? merged.ids : [];
       const submittedAt = Number(merged.submittedAt);
       const injectedAt = Date.now();
-      const steeringTranscriptMeta =
-        merged.transcriptMeta && typeof merged.transcriptMeta === 'object'
-          ? {
-              at: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : injectedAt,
-              ...merged.transcriptMeta,
-            }
-          : null;
+      let steeringTranscriptMeta = null;
+      if (merged.transcriptMeta && typeof merged.transcriptMeta === 'object') {
+        steeringTranscriptMeta = {
+          at: Number.isFinite(submittedAt) && submittedAt > 0 ? submittedAt : injectedAt,
+          ...merged.transcriptMeta,
+        };
+      }
       if (Number.isFinite(submittedAt) && submittedAt > 0) {
         maxQueueWaitMs = Math.max(maxQueueWaitMs, injectedAt - submittedAt);
       }

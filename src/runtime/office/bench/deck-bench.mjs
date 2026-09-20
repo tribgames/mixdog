@@ -67,9 +67,12 @@ async function main() {
     const previous = [...past].reverse().find((entry) => entry.deck === deck);
     const delta = previous && typeof previous.score === 'number' ? result.score - previous.score : null;
     results.push(result);
-    console.log(
-      `\n${deck}  score ${result.score}${delta === null ? '' : ` (${delta >= 0 ? '+' : ''}${delta} vs ${previous.at.slice(0, 16).replace('T', ' ')})`}  ${result.slides} slides`
-    );
+    let deltaNote = '';
+    if (delta !== null) {
+      const sign = delta >= 0 ? '+' : '';
+      deltaNote = ` (${sign}${delta} vs ${previous.at.slice(0, 16).replace('T', ' ')})`;
+    }
+    console.log(`\n${deck}  score ${result.score}${deltaNote}  ${result.slides} slides`);
     for (const check of result.checks) {
       const bar = '█'.repeat(Math.round(check.score * 10)).padEnd(10, '·');
       console.log(

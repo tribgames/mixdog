@@ -11,6 +11,10 @@ import type {
 import type { createBrowserPageClient } from './browser-page-client';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
 
+const POINTER_BUTTONS: Partial<Record<number, 'middle' | 'right'>> = { 1: 'middle', 2: 'right' };
+const POINTER_BUTTON_BITS: Partial<Record<number, number>> = { 0: 1, 1: 4 };
+const COMMAND_KEY_SHORTCUTS: Partial<Record<string, string>> = { l: 'address', '0': 'zoom-reset', '-': 'zoom-out' };
+
 export function useBrowserPageInput(
   client: ReturnType<typeof createBrowserPageClient>,
   image: RefObject<HTMLElement | null>,
@@ -47,11 +51,7 @@ export function useBrowserPageInput(
     const button =
       phase === 'mouseMoved'
         ? ([...pressed.current.values()].at(-1) ?? 'none')
-        : event.button === 2
-          ? 'right'
-          : event.button === 1
-            ? 'middle'
-            : 'left';
+        : (POINTER_BUTTONS[event.button] ?? 'left');
     if (phase === 'mousePressed' && button !== 'none') {
       pressed.current.set(event.button, button);
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -77,7 +77,7 @@ export function useBrowserPageInput(
     if (!lastPoint.current) return;
     for (const [index, button] of pressed.current) {
       pressed.current.delete(index);
-      const buttons = [...pressed.current.keys()].reduce((bits, key) => bits | (key === 0 ? 1 : key === 1 ? 4 : 2), 0);
+      const buttons = [...pressed.current.keys()].reduce((bits, key) => bits | (POINTER_BUTTON_BITS[key] ?? 2), 0);
       client.fire({
         type: 'pointer',
         phase: 'mouseReleased',
@@ -103,7 +103,9 @@ export function useBrowserPageInput(
         if (event.deltaY) client.shortcut(event.deltaY < 0 ? 'zoom-in' : 'zoom-out');
         return;
       }
-      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? event.currentTarget.clientHeight : 1;
+      let unit = 1;
+      if (event.deltaMode === 1) unit = 16;
+      else if (event.deltaMode === 2) unit = event.currentTarget.clientHeight;
       const frame = client.frame()!;
       const bounds = image.current!.getBoundingClientRect();
       const scale = Math.min(bounds.width / frame.width, bounds.height / frame.height);
@@ -135,7 +137,7 @@ export function useBrowserPageInput(
       }
       if (command && ['+', '=', '-', '0', 'l'].includes(key)) {
         event.preventDefault();
-        client.shortcut(key === 'l' ? 'address' : key === '0' ? 'zoom-reset' : key === '-' ? 'zoom-out' : 'zoom-in');
+        client.shortcut(COMMAND_KEY_SHORTCUTS[key] ?? 'zoom-in');
         return;
       }
       if (event.altKey && ['arrowleft', 'arrowright'].includes(key)) {

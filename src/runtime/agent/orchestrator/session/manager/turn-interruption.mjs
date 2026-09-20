@@ -1,6 +1,7 @@
 import { sanitizeToolPairs } from '../context-utils.mjs';
 import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
+import { journalDelta } from './turn-interruption-journal.mjs';
 
 const INTERRUPT_MESSAGE = '[Request interrupted by user]';
 const INTERRUPT_MESSAGE_FOR_TOOL_USE = '[Request interrupted by user for tool use]';
@@ -21,7 +22,7 @@ const INTERRUPTED_TOOL_RESULT = 'Cancelled';
 const USER_CANCEL_ABORT_REASONS = new Set(['cli-abort', 'user-cancel', 'turn-abort']);
 
 function assistantToolCallIds(message) {
-  if (!message || message.role !== 'assistant') return [];
+  if (message?.role !== 'assistant') return [];
   const ids = [];
   const seen = new Set();
   const add = (id) => {
@@ -159,43 +160,41 @@ function finalizeInterruptedTurn({
   // The synthetic marker is omitted when a queued user submission
   // interrupted the active request; that queued message is the boundary.
   if (abortReason !== 'interrupt' && abortReason !== 'provider-error') {
+    let content = SESSION_INTERRUPT_MESSAGE;
+    if (abortReason === 'process-crash') content = PROCESS_RESTART_INTERRUPT_MESSAGE;
+    else if (userCancelled) content = phase === 'tools' ? INTERRUPT_MESSAGE_FOR_TOOL_USE : INTERRUPT_MESSAGE;
     pairedMessages.push({
       role: 'user',
-      content:
-        abortReason === 'process-crash'
-          ? PROCESS_RESTART_INTERRUPT_MESSAGE
-          : userCancelled
-            ? phase === 'tools'
-              ? INTERRUPT_MESSAGE_FOR_TOOL_USE
-              : INTERRUPT_MESSAGE
-            : SESSION_INTERRUPT_MESSAGE,
+      content,
     });
   }
   return { messages: pairedMessages, responsePreserved: true, userTurnPreserved: true };
 }
 
 export function createTurnInterruptionTracker() {
-  let responseStarted = false;
-  let partialAssistantContent = '';
-  let tombstonedAssistantContent = '';
-  let partialReasoningContent = '';
-  let phase = 'streaming';
-  const observedToolCalls = new Map();
-  const observedToolResults = new Map();
-  // Epochs make the checkpoint journal's delta encoding sound WITHOUT
-  // comparing whole buffers on every flush: an epoch bump means "this buffer
-  // changed in a way that is not a plain append", so the encoder falls back
-  // to a full (still small) set record instead of an append record.
-  let textEpoch = 0;
-  let reasoningEpoch = 0;
-  let tombEpoch = 0;
-  let callsEpoch = 0;
+  const state = {
+    responseStarted: false,
+    partialAssistantContent: '',
+    tombstonedAssistantContent: '',
+    partialReasoningContent: '',
+    phase: 'streaming',
+    observedToolCalls: new Map(),
+    observedToolResults: new Map(),
+    // Epochs make the checkpoint journal's delta encoding sound WITHOUT
+    // comparing whole buffers on every flush: an epoch bump means "this buffer
+    // changed in a way that is not a plain append", so the encoder falls back
+    // to a full (still small) set record instead of an append record.
+    textEpoch: 0,
+    reasoningEpoch: 0,
+    tombEpoch: 0,
+    callsEpoch: 0,
+  };
 
   return {
     recordTextDelta(chunk) {
       const value = String(chunk ?? '');
       if (!value) return;
-      responseStarted = true;
+      state.responseStarted = true;
       // The replayed attempt has started producing its OWN text, so the
       // retracted tail it replaces is no longer what the user is looking
       // at. Dropping it here keeps exactly one copy of the opening
@@ -204,67 +203,67 @@ export function createTurnInterruptionTracker() {
       // commit a replayed attempt's discarded stream at all; the
       // tombstone exists only for the window between a retraction and
       // its replacement.
-      if (tombstonedAssistantContent) {
-        tombstonedAssistantContent = '';
-        tombEpoch += 1;
+      if (state.tombstonedAssistantContent) {
+        state.tombstonedAssistantContent = '';
+        state.tombEpoch += 1;
       }
-      partialAssistantContent += value;
+      state.partialAssistantContent += value;
     },
     tombstoneText(chars) {
       const count = Math.max(0, Number(chars) || 0);
       if (!count) return;
-      const cutAt = Math.max(0, partialAssistantContent.length - count);
+      const cutAt = Math.max(0, state.partialAssistantContent.length - count);
       // REPLACE, never accumulate: consecutive retractions belong to
       // successive attempts at the SAME answer, so keeping the earlier
       // tombstone alongside the newer one is what multiplied the visible
       // text across retries.
-      tombstonedAssistantContent = partialAssistantContent.slice(cutAt);
-      partialAssistantContent = partialAssistantContent.slice(0, cutAt);
-      textEpoch += 1;
-      tombEpoch += 1;
+      state.tombstonedAssistantContent = state.partialAssistantContent.slice(cutAt);
+      state.partialAssistantContent = state.partialAssistantContent.slice(0, cutAt);
+      state.textEpoch += 1;
+      state.tombEpoch += 1;
     },
     restoreTombstonedText() {
-      if (!tombstonedAssistantContent) return false;
+      if (!state.tombstonedAssistantContent) return false;
       // Append-only for the partial buffer (no textEpoch bump); only the
       // tombstone side is structurally reset.
-      partialAssistantContent += tombstonedAssistantContent;
-      tombstonedAssistantContent = '';
-      tombEpoch += 1;
+      state.partialAssistantContent += state.tombstonedAssistantContent;
+      state.tombstonedAssistantContent = '';
+      state.tombEpoch += 1;
       return true;
     },
     hasResponseStarted() {
-      return responseStarted;
+      return state.responseStarted;
     },
     recordReasoningDelta(chunk) {
       const value = String(chunk ?? '');
       if (!value) return;
-      responseStarted = true;
-      partialReasoningContent += value;
+      state.responseStarted = true;
+      state.partialReasoningContent += value;
     },
     recordAssistantText(text) {
       const value = String(text ?? '');
       if (!value.trim()) return;
-      responseStarted = true;
+      state.responseStarted = true;
       // Buffered providers report the whole segment here; streaming
       // providers already accumulated the same segment via text deltas.
-      if (!partialAssistantContent.trim()) partialAssistantContent += value;
+      if (!state.partialAssistantContent.trim()) state.partialAssistantContent += value;
     },
     markAssistantMessageCommitted() {
-      partialAssistantContent = '';
-      tombstonedAssistantContent = '';
-      partialReasoningContent = '';
-      observedToolCalls.clear();
-      textEpoch += 1;
-      reasoningEpoch += 1;
-      tombEpoch += 1;
-      callsEpoch += 1;
+      state.partialAssistantContent = '';
+      state.tombstonedAssistantContent = '';
+      state.partialReasoningContent = '';
+      state.observedToolCalls.clear();
+      state.textEpoch += 1;
+      state.reasoningEpoch += 1;
+      state.tombEpoch += 1;
+      state.callsEpoch += 1;
     },
     recordToolCalls(calls, { eagerStarted = false } = {}) {
       for (const call of Array.isArray(calls) ? calls : []) {
         if (!call?.id) continue;
-        responseStarted = true;
-        const prior = observedToolCalls.get(call.id);
-        observedToolCalls.set(call.id, {
+        state.responseStarted = true;
+        const prior = state.observedToolCalls.get(call.id);
+        state.observedToolCalls.set(call.id, {
           call: { ...call },
           eagerStarted: prior?.eagerStarted === true || eagerStarted === true,
         });
@@ -273,9 +272,9 @@ export function createTurnInterruptionTracker() {
     recordToolResult(message) {
       const callId = message?.toolCallId;
       if (!callId) return;
-      responseStarted = true;
+      state.responseStarted = true;
       if (message.__earlyNotify === true) {
-        observedToolResults.set(callId, {
+        state.observedToolResults.set(callId, {
           role: 'tool',
           content: message.content == null ? '' : message.content,
           toolCallId: callId,
@@ -283,135 +282,47 @@ export function createTurnInterruptionTracker() {
         });
       } else {
         // The authoritative result is already present in outgoing.
-        observedToolResults.delete(callId);
+        state.observedToolResults.delete(callId);
       }
     },
     markProviderSendStarted() {
-      phase = 'streaming';
+      state.phase = 'streaming';
     },
     markToolPhaseStarted() {
-      phase = 'tools';
-      responseStarted = true;
+      state.phase = 'tools';
+      state.responseStarted = true;
     },
     snapshot() {
       return {
-        responseStarted,
+        responseStarted: state.responseStarted,
         // A reset acknowledged by the UI temporarily tombstones text.
         // A process crash cannot complete that replacement, so retain
         // the same visible bytes the normal error path restores.
-        partialAssistantContent: partialAssistantContent + tombstonedAssistantContent,
-        partialReasoningContent,
-        phase,
-        observedToolCalls: [...observedToolCalls.entries()],
-        observedToolResults: [...observedToolResults.entries()],
+        partialAssistantContent: state.partialAssistantContent + state.tombstonedAssistantContent,
+        partialReasoningContent: state.partialReasoningContent,
+        phase: state.phase,
+        observedToolCalls: [...state.observedToolCalls.entries()],
+        observedToolResults: [...state.observedToolResults.entries()],
       };
     },
     /**
-     * Delta against an opaque cursor from a previous call (null = seed).
-     * The checkpoint journal uses this instead of snapshot() so a flush
-     * serializes only what changed: appended text/reasoning, newly observed
-     * tool calls/results, and phase/responseStarted transitions. Cost is
-     * O(new bytes + observed tool entries), never O(turn).
-     * Returns { changed, delta, cursor }.
+     * Delta against an opaque cursor from a previous call (null = seed). The
+     * checkpoint journal uses this instead of snapshot() so a flush serializes
+     * only what changed (see turn-interruption-journal.mjs).
      */
     journalDelta(cursor) {
-      const prev = cursor && typeof cursor === 'object' ? cursor : null;
-      const prevCalls = prev?.calls instanceof Map ? prev.calls : new Map();
-      const prevResults = prev?.results instanceof Map ? prev.results : new Map();
-      const delta = {};
-      let changed = false;
-      if (prev ? prev.responseStarted !== responseStarted : responseStarted) {
-        delta.rs = responseStarted;
-        changed = true;
-      }
-      if (prev ? prev.phase !== phase : phase !== 'streaming') {
-        delta.ph = phase;
-        changed = true;
-      }
-      if (!prev || prev.textEpoch !== textEpoch || partialAssistantContent.length < prev.textLen) {
-        if (prev || partialAssistantContent) {
-          delta.ts = partialAssistantContent;
-          changed = true;
-        }
-      } else if (partialAssistantContent.length > prev.textLen) {
-        delta.ta = partialAssistantContent.slice(prev.textLen);
-        changed = true;
-      }
-      if (!prev || prev.reasoningEpoch !== reasoningEpoch || partialReasoningContent.length < prev.reasoningLen) {
-        if (prev || partialReasoningContent) {
-          delta.qs = partialReasoningContent;
-          changed = true;
-        }
-      } else if (partialReasoningContent.length > prev.reasoningLen) {
-        delta.qa = partialReasoningContent.slice(prev.reasoningLen);
-        changed = true;
-      }
-      if (!prev || prev.tombEpoch !== tombEpoch) {
-        if (prev || tombstonedAssistantContent) {
-          delta.tb = tombstonedAssistantContent;
-          changed = true;
-        }
-      }
-      // A cleared call map is a structural reset: journal the clear and
-      // re-emit whatever was recorded after it.
-      const callsReset = Boolean(prev) && prev.callsEpoch !== callsEpoch;
-      if (callsReset) {
-        delta.cc = true;
-        changed = true;
-      }
-      const callSet = [];
-      for (const [id, entry] of observedToolCalls) {
-        if (!callsReset && prevCalls.get(id) === entry) continue;
-        callSet.push([id, entry]);
-      }
-      if (callSet.length > 0) {
-        delta.cs = callSet;
-        changed = true;
-      }
-      const resultSet = [];
-      for (const [id, entry] of observedToolResults) {
-        if (prevResults.get(id) === entry) continue;
-        resultSet.push([id, entry]);
-      }
-      if (resultSet.length > 0) {
-        delta.os = resultSet;
-        changed = true;
-      }
-      const resultDeleted = [];
-      for (const id of prevResults.keys()) {
-        if (!observedToolResults.has(id)) resultDeleted.push(id);
-      }
-      if (resultDeleted.length > 0) {
-        delta.od = resultDeleted;
-        changed = true;
-      }
-      return {
-        changed,
-        delta,
-        cursor: {
-          responseStarted,
-          phase,
-          textEpoch,
-          textLen: partialAssistantContent.length,
-          reasoningEpoch,
-          reasoningLen: partialReasoningContent.length,
-          tombEpoch,
-          callsEpoch,
-          calls: new Map(observedToolCalls),
-          results: new Map(observedToolResults),
-        },
-      };
+      return journalDelta(state, cursor);
     },
     finalize({ turnOutgoing, currentUserContent, abortReason = null }) {
       return finalizeInterruptedTurn({
         turnOutgoing,
         currentUserContent,
-        responseStarted,
-        partialAssistantContent,
-        partialReasoningContent,
-        observedToolCalls,
-        observedToolResults,
-        phase,
+        responseStarted: state.responseStarted,
+        partialAssistantContent: state.partialAssistantContent,
+        partialReasoningContent: state.partialReasoningContent,
+        observedToolCalls: state.observedToolCalls,
+        observedToolResults: state.observedToolResults,
+        phase: state.phase,
         abortReason,
       });
     },

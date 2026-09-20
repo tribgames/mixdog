@@ -17,6 +17,34 @@ interface AppToolProjectProps {
   projects: DesktopProjectSummary[];
 }
 
+function activeProjectPathFor({
+  navigationSelection,
+  selectedSessionProjectPath,
+  newTaskProjectPath,
+  effectiveDraftProjectPath,
+  registeredProjectPath,
+}: Pick<
+  AppToolProjectProps,
+  | 'navigationSelection'
+  | 'selectedSessionProjectPath'
+  | 'newTaskProjectPath'
+  | 'effectiveDraftProjectPath'
+  | 'registeredProjectPath'
+>): string {
+  if (navigationSelection.kind === 'session') return registeredProjectPath(selectedSessionProjectPath);
+  if (navigationSelection.kind === 'project') return navigationSelection.path;
+  return effectiveDraftProjectPath(newTaskProjectPath);
+}
+
+function focusedPaneProjectPathFor(selection: AppToolProjectProps['focusedPaneSelection']): string {
+  if (!selection) return '';
+  if (selection.kind === 'file' || selection.kind === 'diff' || selection.kind === 'pull-request') {
+    return selection.project;
+  }
+  if (selection.kind === 'terminal' && selection.cwd) return selection.cwd;
+  return '';
+}
+
 export function useAppToolProject({
   navigationSelection,
   focusedPaneSelection,
@@ -27,20 +55,14 @@ export function useAppToolProject({
   preferredDraftProjectPath,
   projects,
 }: AppToolProjectProps) {
-  const activeProjectPath =
-    navigationSelection.kind === 'session'
-      ? registeredProjectPath(selectedSessionProjectPath)
-      : navigationSelection.kind === 'project'
-        ? navigationSelection.path
-        : effectiveDraftProjectPath(newTaskProjectPath);
-  const focusedPaneProjectPath =
-    focusedPaneSelection?.kind === 'file' ||
-    focusedPaneSelection?.kind === 'diff' ||
-    focusedPaneSelection?.kind === 'pull-request'
-      ? focusedPaneSelection.project
-      : focusedPaneSelection?.kind === 'terminal' && focusedPaneSelection.cwd
-        ? focusedPaneSelection.cwd
-        : '';
+  const activeProjectPath = activeProjectPathFor({
+    navigationSelection,
+    selectedSessionProjectPath,
+    newTaskProjectPath,
+    effectiveDraftProjectPath,
+    registeredProjectPath,
+  });
+  const focusedPaneProjectPath = focusedPaneProjectPathFor(focusedPaneSelection);
   const activeToolProjectPath = focusedPaneProjectPath || activeProjectPath;
   const [lastToolProjectPath, setLastToolProjectPath] = useState(() => {
     try {

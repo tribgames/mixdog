@@ -48,7 +48,13 @@ function wireMcp(boot) {
       },
       state: mcpState,
     });
-  Object.assign(boot, { mcpStatus, getMcpServerConfig, connectConfiguredMcp, awaitInitialMcpConnect, normalizeMcpServerInput });
+  Object.assign(boot, {
+    mcpStatus,
+    getMcpServerConfig,
+    connectConfiguredMcp,
+    awaitInitialMcpConnect,
+    normalizeMcpServerInput,
+  });
 }
 
 function wireHooks(boot) {
@@ -187,7 +193,14 @@ function wireSkills(boot) {
         ];
       },
     });
-  Object.assign(boot, { skillsStatus, skillContent, skillToolContent, addGlobalSkill, saveSkillDocument, invalidateSkills });
+  Object.assign(boot, {
+    skillsStatus,
+    skillContent,
+    skillToolContent,
+    addGlobalSkill,
+    saveSkillDocument,
+    invalidateSkills,
+  });
 }
 
 // cwd resolution/apply + plugins-status + core-memory context

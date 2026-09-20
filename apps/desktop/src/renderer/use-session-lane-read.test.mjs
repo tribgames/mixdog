@@ -42,9 +42,8 @@ for (const outcome of ['accepted-without-frame', 'pending', 'rejected', 'resume-
         read,
         reconcileOnMount: outcome !== 'resume-owned',
       });
-      return state.readUnavailable
-        ? React.createElement('button', { onClick: state.retryRead }, 'Retry')
-        : React.createElement('span', null, hasLane ? 'Transcript restored' : 'Loading');
+      if (state.readUnavailable) return React.createElement('button', { onClick: state.retryRead }, 'Retry');
+      return React.createElement('span', null, hasLane ? 'Transcript restored' : 'Loading');
     }
     const root = createRoot(document.getElementById('root'));
     const render = async (props = {}) => act(async () => root.render(React.createElement(Pane, props)));

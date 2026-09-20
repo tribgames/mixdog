@@ -165,7 +165,10 @@ async function main() {
   } else {
     console.log(`patch-replay: ${passed} passed · ${failed} still fail · ${skipped} legacy-skipped`);
     for (const r of results) {
-      console.log(`- ${r.id}: ${r.skipped ? 'legacy-skip' : r.ok ? 'PASS' : 'still fails'}`);
+      let verdict = 'still fails';
+      if (r.skipped) verdict = 'legacy-skip';
+      else if (r.ok) verdict = 'PASS';
+      console.log(`- ${r.id}: ${verdict}`);
       if (r.skipped) console.log(`    skip: ${r.skipReason}`);
       else if (!r.ok) console.log(`    after: ${r.after}`);
     }

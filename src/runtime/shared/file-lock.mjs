@@ -63,7 +63,8 @@ function describeLockHolder(lockPath) {
     const stat = statSync(lockPath);
     const owner = readLockOwner(lockPath);
     const ageMs = Math.max(0, Math.round(Date.now() - stat.mtimeMs));
-    const live = owner.pid === null ? 'unknown' : ownerIsLive(owner) ? 'live' : 'dead';
+    let live = 'unknown';
+    if (owner.pid !== null) live = ownerIsLive(owner) ? 'live' : 'dead';
     const token = owner.token === null ? '?' : String(owner.token).slice(0, 8);
     return `holder pid=${owner.pid ?? '?'} token=${token} age=${ageMs}ms ${live}`;
   } catch {

@@ -50,20 +50,18 @@ function GoalGlyph({ status, working }: { status: GoalDisplayStatus; working: bo
   return <MxIcon name="goal" size={16} />;
 }
 
+const GOAL_TASK_GLYPHS = {
+  completed: 'check',
+  in_progress: 'in-progress',
+  // Dropped work is retired, not finished: an X separates it from a check
+  // so a scoped-out row never reads as an accomplishment.
+  dropped: 'close-small',
+  // Parked on the user, not stalled by us.
+  awaiting_approval: 'paused',
+} as const;
+
 function GoalTaskGlyph({ status }: { status?: GoalTask['status'] }) {
-  const name =
-    status === 'completed'
-      ? 'check'
-      : status === 'in_progress'
-        ? 'in-progress'
-        : // Dropped work is retired, not finished: an X separates it from a check
-          // so a scoped-out row never reads as an accomplishment.
-          status === 'dropped'
-          ? 'close-small'
-          : // Parked on the user, not stalled by us.
-            status === 'awaiting_approval'
-            ? 'paused'
-            : 'pending';
+  const name = (status && GOAL_TASK_GLYPHS[status as keyof typeof GOAL_TASK_GLYPHS]) || 'pending';
   return <MxIcon name={name} size={14} />;
 }
 
@@ -104,14 +102,10 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     displayStatus === 'responding' ||
     (displayStatus === 'active' &&
       (backgroundWorking || Boolean((snapshot.busy || snapshot.commandBusy) && !snapshot.toolApproval)));
-  const activityLabel =
-    displayStatus === 'responding'
-      ? t('Responding')
-      : displayStatus === 'paused'
-        ? t('Paused')
-        : displayStatus === 'active'
-          ? t('Working')
-          : undefined;
+  let activityLabel: string | undefined;
+  if (displayStatus === 'responding') activityLabel = t('Responding');
+  else if (displayStatus === 'paused') activityLabel = t('Paused');
+  else if (displayStatus === 'active') activityLabel = t('Working');
 
   useEffect(() => {
     setOpen(false);

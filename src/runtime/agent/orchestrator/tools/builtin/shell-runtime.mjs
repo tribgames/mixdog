@@ -1,5 +1,5 @@
-import { existsSync } from 'fs';
-import { basename, delimiter, dirname, join } from 'path';
+import { existsSync } from 'node:fs';
+import { basename, delimiter, dirname, join } from 'node:path';
 
 let _resolvedShell = null;
 let _configuredShell = null;
@@ -66,7 +66,7 @@ function allExistingPathsFromPath(commandName) {
 }
 
 function firstExistingPathFromPath(commandName, excludeRe = null) {
-  return allExistingPathsFromPath(commandName).find((candidate) => !excludeRe || !excludeRe.test(candidate)) || null;
+  return allExistingPathsFromPath(commandName).find((candidate) => !excludeRe?.test(candidate)) || null;
 }
 
 // Well-known pwsh (PowerShell 7+) install roots, probed on the filesystem when

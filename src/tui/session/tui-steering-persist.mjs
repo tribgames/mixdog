@@ -1,7 +1,7 @@
 // Lead TUI busy-input steering queue — disk mirror of in-memory `pending`
 // (same store as manager pending-messages, lead-scoped session key).
-import { randomBytes } from 'crypto';
-import { join } from 'path';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { updateJsonAtomic } from '../../runtime/shared/atomic-file.mjs';
 import { promptContentText } from './queue-helpers.mjs';

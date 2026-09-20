@@ -9,16 +9,18 @@ export function localModelState(id) {
   return state ? structuredClone(state) : {};
 }
 
+/** Tool support tri-state: false when either flag denies, true when both affirm, else unknown. */
+function toolCapability(caps) {
+  if (caps.supports_tools === false || caps.supports_tool_calls === false) return false;
+  if (caps.supports_tools === true && caps.supports_tool_calls === true) return true;
+  return null;
+}
+
 export function recordLocalModelLoad(id, props, loadTimeMs) {
   const state = stateFor(id);
   const caps = props?.chat_template_caps || {};
   state.capabilities = {
-    tools:
-      caps.supports_tools === false || caps.supports_tool_calls === false
-        ? false
-        : caps.supports_tools === true && caps.supports_tool_calls === true
-          ? true
-          : null,
+    tools: toolCapability(caps),
     images: false,
     audio: false,
     video: false,

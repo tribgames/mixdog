@@ -383,6 +383,22 @@ export function projectTranscriptRows({
   });
 }
 
+const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'statusdone', 'notice']);
+
+/** Whether the turn produced assistant or tool output before it ended — a
+ *  retry then continues from that output instead of resubmitting the prompt. */
+export function turnSampledOutput(
+  items: readonly TranscriptItem[],
+  turnKeys: readonly string[],
+  turnKey: string
+): boolean {
+  for (let index = 0; index < items.length; index += 1) {
+    if ((turnKeys[index] || '') !== turnKey) continue;
+    if (!TURN_CHROME_KINDS.has(String(items[index]?.kind || ''))) return true;
+  }
+  return false;
+}
+
 /** The user prompt that opened a turn — the retry action resubmits it. */
 export function turnPromptText(items: readonly TranscriptItem[], turnKeys: readonly string[], turnKey: string): string {
   for (let index = 0; index < items.length; index += 1) {

@@ -10,6 +10,12 @@ type Field = {
   options?: string[];
   required?: boolean;
 };
+function fieldText(value: unknown): string {
+  if (Array.isArray(value)) return value.join(', ');
+  if (value && typeof value === 'object') return JSON.stringify(value, null, 2);
+  return String(value ?? '');
+}
+
 const title: Field = { key: 'title', label: 'Title', required: true };
 const body: Field = { key: 'body', label: 'Description', type: 'area' };
 const draft: Field = { key: 'draft', label: 'Draft', type: 'check' };
@@ -148,48 +154,52 @@ export function GithubActionForm({
       )}
       {fields.map((field) => {
         const value = values[field.key];
-        const textValue = Array.isArray(value)
-          ? value.join(', ')
-          : value && typeof value === 'object'
-            ? JSON.stringify(value, null, 2)
-            : String(value ?? '');
+        const textValue = fieldText(value);
         const change = (next: unknown) => setValues((current) => ({ ...current, [field.key]: next }));
+        let control = (
+          <input
+            value={textValue}
+            disabled={busy}
+            required={field.required}
+            maxLength={1000}
+            onChange={(event) => change(event.currentTarget.value)}
+          />
+        );
+        if (field.type === 'check') {
+          control = (
+            <input
+              type="checkbox"
+              checked={value === true}
+              disabled={busy}
+              onChange={(event) => change(event.currentTarget.checked)}
+            />
+          );
+        } else if (field.options) {
+          control = (
+            <select value={textValue} disabled={busy} onChange={(event) => change(event.currentTarget.value)}>
+              {field.options.map((option) => (
+                <option key={option} value={option}>
+                  {t(option)}
+                </option>
+              ))}
+            </select>
+          );
+        } else if (field.type === 'area') {
+          control = (
+            <textarea
+              value={textValue}
+              rows={5}
+              maxLength={60000}
+              disabled={busy}
+              required={field.required}
+              onChange={(event) => change(event.currentTarget.value)}
+            />
+          );
+        }
         return (
           <label key={field.key}>
             <span>{t(field.label)}</span>
-            {field.type === 'check' ? (
-              <input
-                type="checkbox"
-                checked={value === true}
-                disabled={busy}
-                onChange={(event) => change(event.currentTarget.checked)}
-              />
-            ) : field.options ? (
-              <select value={textValue} disabled={busy} onChange={(event) => change(event.currentTarget.value)}>
-                {field.options.map((option) => (
-                  <option key={option} value={option}>
-                    {t(option)}
-                  </option>
-                ))}
-              </select>
-            ) : field.type === 'area' ? (
-              <textarea
-                value={textValue}
-                rows={5}
-                maxLength={60000}
-                disabled={busy}
-                required={field.required}
-                onChange={(event) => change(event.currentTarget.value)}
-              />
-            ) : (
-              <input
-                value={textValue}
-                disabled={busy}
-                required={field.required}
-                maxLength={1000}
-                onChange={(event) => change(event.currentTarget.value)}
-              />
-            )}
+            {control}
           </label>
         );
       })}

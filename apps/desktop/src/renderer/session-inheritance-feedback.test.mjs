@@ -1,11 +1,46 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
+import i18n from './i18n.ts';
 import { CompletionStatus, ContextUsageIndicator } from './transcript-status.tsx';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
+
+const koCatalog = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));
+i18n.addResourceBundle('ko', 'translation', koCatalog, true, true);
+
+test('auto-clear and compact completion render polished localized labels', async () => {
+  const previousLang = i18n.language;
+  try {
+    await i18n.changeLanguage('ko');
+    const autoClearMarkup = renderToStaticMarkup(
+      React.createElement(CompletionStatus, {
+        item: { kind: 'statusdone', label: 'Auto-clear complete' },
+      })
+    );
+    assert.match(autoClearMarkup, /유휴 세션 정리 완료/);
+
+    const autoClearSkippedMarkup = renderToStaticMarkup(
+      React.createElement(CompletionStatus, {
+        item: { kind: 'statusdone', label: 'Auto-clear skipped', detail: 'conversation kept · nothing to compact' },
+      })
+    );
+    assert.match(autoClearSkippedMarkup, /자동 정리 생략됨 \(대화 유지\)/);
+    assert.match(autoClearSkippedMarkup, /대화 내용 보존/);
+
+    const compactMarkup = renderToStaticMarkup(
+      React.createElement(CompletionStatus, {
+        item: { kind: 'statusdone', label: 'Compact complete', detail: '2s' },
+      })
+    );
+    assert.match(compactMarkup, /대화 맥락 정리 완료/);
+  } finally {
+    await i18n.changeLanguage(previousLang);
+  }
+});
 
 test('inheritance completion renders a distinct, accessible conversation boundary', () => {
   const markup = renderToStaticMarkup(

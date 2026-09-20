@@ -1,15 +1,15 @@
 /**
  * OpenAI ChatGPT OAuth PKCE login flow.
  *
- * Extracted from openai-oauth.mjs: PKCE generation, authorization-code
+ * PKCE generation, authorization-code
  * exchange, the localhost callback server, and interactive login helpers.
  * openai-oauth.mjs re-exports beginOAuthLogin/loginOAuth as a facade so
  * existing importers resolve unchanged. Token persistence + JWT parsing stay
  * owned by openai-oauth.mjs and are injected here to avoid a circular import
  * of its module-level token store state.
  */
-import { createServer } from 'http';
-import { randomBytes } from 'crypto';
+import { createServer } from 'node:http';
+import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 
 const TOKEN_URL = 'https://auth.openai.com/oauth/token';

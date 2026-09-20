@@ -83,14 +83,10 @@ export function desktopSessionSummaries(
       // Runtime listSessions already removes worker/agent sessions. Preserve
       // explicit desktop grouping, while admitting legacy CLI/TUI lead sessions
       // so the desktop sidebar is a complete view of Mixdog conversation history.
-      const classification: DesktopSessionClassification =
-        meta?.classification === 'project'
-          ? 'project'
-          : meta?.classification === 'task'
-            ? 'task'
-            : cwd && !isDesktopTaskWorkspace(cwd)
-              ? 'project'
-              : 'task';
+      const storedClassification = meta?.classification;
+      let classification: DesktopSessionClassification;
+      if (storedClassification === 'project' || storedClassification === 'task') classification = storedClassification;
+      else classification = cwd && !isDesktopTaskWorkspace(cwd) ? 'project' : 'task';
       const storedProjectPath = typeof meta?.projectPath === 'string' ? meta.projectPath.trim() : '';
       const projectPath = classification === 'project' ? cwd || storedProjectPath : '';
       if (classification === 'project' && (!projectPath || projectPath.includes('\0'))) return [];
@@ -142,13 +138,9 @@ export function desktopSessionSummaries(
           ...(working ? { working: true } : {}),
           ...(ownWorking ? { leadWorking: true } : {}),
           ...(agentWorking ? { agentWorking: true } : {}),
-          ...(automationType
-            ? {
-                sourceType: automationType,
-                ...(sourceName ? { sourceName } : {}),
-                ...(sourceDelivery ? { sourceDelivery } : {}),
-              }
-            : {}),
+          ...(automationType ? { sourceType: automationType } : {}),
+          ...(automationType && sourceName ? { sourceName } : {}),
+          ...(automationType && sourceDelivery ? { sourceDelivery } : {}),
           ...(provider ? { provider } : {}),
           ...(model ? { model } : {}),
         },

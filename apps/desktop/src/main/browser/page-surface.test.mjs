@@ -133,10 +133,8 @@ test('debugger initialization cannot retarget a local edit or bypass a newly ope
           },
         },
       });
-      await assert.rejects(
-        surface.control('owner', { ...input, documentId: 'p1:1' }, controller.signal),
-        reason === 'cancel' ? /cancelled/ : reason === 'dialog' ? /dialog is blocking/ : /page changed/
-      );
+      const expected = { cancel: /cancelled/, dialog: /dialog is blocking/ }[reason] ?? /page changed/;
+      await assert.rejects(surface.control('owner', { ...input, documentId: 'p1:1' }, controller.signal), expected);
       assert.deepEqual(sent, []);
     }
   }

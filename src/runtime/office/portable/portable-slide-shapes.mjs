@@ -146,9 +146,9 @@ function paragraphXml(paragraph, defaults) {
     '</a:pPr>';
   const text = String(paragraph.text ?? '');
   const run = runProperties(paragraph, defaults);
+  const preserveSpace = /^\s|\s$/.test(text) ? ' xml:space="preserve"' : '';
   const body = text
-    ? `<a:r><a:rPr${run.attributes}>${run.children}</a:rPr>` +
-      `<a:t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ''}>${xmlEncode(text)}</a:t></a:r>`
+    ? `<a:r><a:rPr${run.attributes}>${run.children}</a:rPr>` + `<a:t${preserveSpace}>${xmlEncode(text)}</a:t></a:r>`
     : `<a:endParaRPr${run.attributes}>${run.children}</a:endParaRPr>`;
   return `<a:p>${properties}${body}</a:p>`;
 }
@@ -169,7 +169,9 @@ export function textBodyXml({
       return ` ${['lIns', 'tIns', 'rIns', 'bIns'][index]}="${toEmu(value)}"`;
     })
     .join('');
-  const fit = autofit === 'shrink' ? '<a:normAutofit/>' : autofit === 'resize' ? '<a:spAutoFit/>' : '<a:noAutofit/>';
+  let fit = '<a:noAutofit/>';
+  if (autofit === 'shrink') fit = '<a:normAutofit/>';
+  else if (autofit === 'resize') fit = '<a:spAutoFit/>';
   const body = paragraphs.length
     ? paragraphs.map((paragraph) => paragraphXml(paragraph, defaults)).join('')
     : paragraphXml({ text: '' }, defaults);
@@ -200,11 +202,10 @@ export function shapeXml({
   textBody = '',
   textBox = false,
 }) {
-  const fill = Object.hasOwn(properties, 'fillColor')
-    ? solidFill(properties.fillColor, properties.fillTransparency) || '<a:noFill/>'
-    : textBox
-      ? '<a:noFill/>'
-      : '';
+  let fill = textBox ? '<a:noFill/>' : '';
+  if (Object.hasOwn(properties, 'fillColor')) {
+    fill = solidFill(properties.fillColor, properties.fillTransparency) || '<a:noFill/>';
+  }
   const line = outline(properties) || (textBox ? '<a:ln><a:noFill/></a:ln>' : '');
   return (
     `<p:sp><p:nvSpPr>` +

@@ -11,6 +11,13 @@ import { InitialSurface } from './InitialSurface';
 
 type ShellPanels = ReturnType<typeof useAppShellPanels>;
 
+const SIDEBAR_PANEL_TITLES: Record<SidebarPanelKey, string> = {
+  schedules: 'Schedules',
+  webhooks: 'Webhooks',
+  projects: 'Projects',
+  extensions: 'Extensions',
+};
+
 export function useAppSidebarSurface({
   schedulesOpen,
   webhooksOpen,
@@ -68,13 +75,10 @@ export function useAppSidebarSurface({
   removeProject(path: string): unknown;
 }) {
   type SidebarSurface = 'sessions' | 'schedules' | 'webhooks' | 'projects';
-  const requestedSidebarSurface: SidebarSurface = schedulesOpen
-    ? 'schedules'
-    : webhooksOpen
-      ? 'webhooks'
-      : projectsOpen
-        ? 'projects'
-        : 'sessions';
+  let requestedSidebarSurface: SidebarSurface = 'sessions';
+  if (schedulesOpen) requestedSidebarSurface = 'schedules';
+  else if (webhooksOpen) requestedSidebarSurface = 'webhooks';
+  else if (projectsOpen) requestedSidebarSurface = 'projects';
   const sidebarGroupFor = (surface: SidebarSurface): readonly SidebarPanelKey[] =>
     surface === 'sessions' ? [] : (viewGroups.find((group) => group.includes(surface)) ?? [surface]);
   const requestedSidebarGroup = sidebarGroupFor(requestedSidebarSurface);
@@ -178,16 +182,7 @@ export function useAppSidebarSurface({
   const WebhooksPane = sidebarPanes.webhooks;
   const ProjectsPane = sidebarPanes.projects;
   const ExtensionsPane = sidebarPanes.extensions;
-  const sidebarPanelTitle =
-    presentedSidebarPanel === 'schedules'
-      ? 'Schedules'
-      : presentedSidebarPanel === 'webhooks'
-        ? 'Webhooks'
-        : presentedSidebarPanel === 'projects'
-          ? 'Projects'
-          : presentedSidebarPanel === 'extensions'
-            ? 'Extensions'
-            : '';
+  const sidebarPanelTitle = presentedSidebarPanel ? SIDEBAR_PANEL_TITLES[presentedSidebarPanel] : '';
   // Stable sidebar handlers + memoised panel children: SessionSidebar, its
   // rows, and every rail panel are memoised, but fresh inline closures and a
   // fresh children fragment on every App render defeated those boundaries —
@@ -222,22 +217,18 @@ export function useAppSidebarSurface({
   const projectsRemove = useStableEvent((path: string) => void removeProject(path));
   const renderSidebarPanel = (panel: SidebarPanelKey, active: boolean): React.ReactNode => {
     if (!mountedSidebarPanels.has(panel)) return null;
-    const label =
-      panel === 'schedules'
-        ? 'Schedules'
-        : panel === 'webhooks'
-          ? 'Webhooks'
-          : panel === 'projects'
-            ? 'Projects'
-            : 'Extensions';
-    const content =
-      panel === 'schedules' ? (
-        <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />
-      ) : panel === 'webhooks' ? (
-        <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />
-      ) : panel === 'extensions' ? (
+    const label = SIDEBAR_PANEL_TITLES[panel];
+    let content: React.ReactNode;
+    if (panel === 'schedules') {
+      content = <SchedulesPane active={active} runningNames={runningAutomationNames.schedule} />;
+    } else if (panel === 'webhooks') {
+      content = <WebhooksPane active={active} runningNames={runningAutomationNames.webhook} />;
+    } else if (panel === 'extensions') {
+      content = (
         <ExtensionsPane active={active} section={extensionsSection} onSectionChange={onExtensionsSectionChange} />
-      ) : (
+      );
+    } else {
+      content = (
         <ProjectsPane
           active={active}
           section={projectsSection}
@@ -259,6 +250,7 @@ export function useAppSidebarSurface({
           }
         />
       );
+    }
     return (
       <SidebarPanelBoundary
         label={label}

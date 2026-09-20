@@ -74,7 +74,7 @@ async function query(binary, request) {
         const response = JSON.parse(line);
         if (response.id === 1) resolve({ wallMs: performance.now() - start, ...response });
       });
-      child.stdin.write(JSON.stringify({ id: 1, cwd: '/', deadlineMs: 16000, ...request }) + '\n');
+      child.stdin.write(`${JSON.stringify({ id: 1, cwd: '/', deadlineMs: 16000, ...request })}\n`);
     });
   } finally {
     clearTimeout(timer);

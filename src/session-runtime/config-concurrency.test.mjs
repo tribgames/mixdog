@@ -8,7 +8,7 @@ import test from 'node:test';
 
 test('real settings writes preserve peer settings, explicit provider OFF, and the rest of the config', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-settings-concurrency-'));
-  const source = String.raw`
+  const source = `
     import assert from 'node:assert/strict';
     import { resolve } from 'node:path';
     import * as cfgMod from './src/runtime/agent/orchestrator/config.mjs';

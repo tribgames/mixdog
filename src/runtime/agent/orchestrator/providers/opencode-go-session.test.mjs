@@ -41,28 +41,33 @@ function responseFor({ path, body }) {
     choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
   };
   if (!body.stream) return Response.json(anthropic ? message : chat);
-  const events = anthropic
-    ? [
-        { type: 'message_start', message: { ...message, content: [], stop_reason: null } },
-        { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-        { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
-        { type: 'content_block_stop', index: 0 },
-        { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 0 } },
-        { type: 'message_stop' },
-      ]
-    : responses
-      ? [
-          {
-            type: 'response.completed',
-            response: {
-              id: 'resp_fixture',
-              model: body.model,
-              status: 'completed',
-              output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
-            },
-          },
-        ]
-      : [{ id: chat.id, model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }];
+  let events;
+  if (anthropic) {
+    events = [
+      { type: 'message_start', message: { ...message, content: [], stop_reason: null } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 0 } },
+      { type: 'message_stop' },
+    ];
+  } else if (responses) {
+    events = [
+      {
+        type: 'response.completed',
+        response: {
+          id: 'resp_fixture',
+          model: body.model,
+          status: 'completed',
+          output: [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }],
+        },
+      },
+    ];
+  } else {
+    events = [
+      { id: chat.id, model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] },
+    ];
+  }
   return new Response(events.map(frame).join(''), { headers: { 'content-type': 'text/event-stream' } });
 }
 

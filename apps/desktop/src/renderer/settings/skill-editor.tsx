@@ -73,17 +73,12 @@ export function SkillEditorDialog({
       }
       onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        const dependencyPayload =
-          dependencyChange === 'none'
-            ? {}
-            : {
-                toolDependencies:
-                  dependencyChange === 'restore'
-                    ? null
-                    : dependencies
-                        .filter((entry) => entry.value.trim())
-                        .map((entry) => ({ ...entry, value: entry.value.trim() })),
-              };
+        const trimmedDependencies = dependencies
+          .filter((entry) => entry.value.trim())
+          .map((entry) => ({ ...entry, value: entry.value.trim() }));
+        let dependencyPayload: { toolDependencies?: typeof trimmedDependencies | null } = {};
+        if (dependencyChange === 'restore') dependencyPayload = { toolDependencies: null };
+        else if (dependencyChange !== 'none') dependencyPayload = { toolDependencies: trimmedDependencies };
         if (readOnly) {
           if (dependencyChange !== 'none') onSave({ originalName: name, dependenciesOnly: true, ...dependencyPayload });
           return;
@@ -157,57 +152,56 @@ export function SkillEditorDialog({
         note={t('Load these tool schemas with this skill. Permissions and enabled settings stay unchanged.')}
       >
         <div className="extensions-mcp-list-rows">
-          {dependencies.map((entry, index) => (
-            <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={index}>
-              <select
-                aria-label={t('Dependency type')}
-                value={entry.type}
-                disabled={busy}
-                onChange={(event) =>
-                  changeDependencies(
-                    dependencies.map((row, i) => (i === index ? { ...row, type: event.target.value } : row))
-                  )
-                }
-              >
-                <option value="tool">{t('Tool')}</option>
-                <option value="mcp">{t('MCP server')}</option>
-                {!['tool', 'mcp'].includes(entry.type) && <option value={entry.type}>{entry.type}</option>}
-              </select>
-              {entry.type === 'tool' ? (
-                <ToolNameInput
-                  ariaLabel={t('Required tool')}
-                  value={entry.value}
+          {dependencies.map((entry, index) => {
+            const updateValue = (value: string) =>
+              changeDependencies(dependencies.map((row, i) => (i === index ? { ...row, value } : row)));
+            const placeholder = entry.type === 'mcp' ? 'figma' : 'office';
+            return (
+              <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={index}>
+                <select
+                  aria-label={t('Dependency type')}
+                  value={entry.type}
                   disabled={busy}
-                  options={toolOptions}
-                  placeholder="office"
-                  onChange={(value) =>
-                    changeDependencies(dependencies.map((row, i) => (i === index ? { ...row, value } : row)))
-                  }
-                />
-              ) : (
-                <input
-                  aria-label={t('Required tool')}
-                  value={entry.value}
-                  disabled={busy}
-                  spellCheck={false}
-                  placeholder={entry.type === 'mcp' ? 'figma' : 'office'}
                   onChange={(event) =>
                     changeDependencies(
-                      dependencies.map((row, i) => (i === index ? { ...row, value: event.target.value } : row))
+                      dependencies.map((row, i) => (i === index ? { ...row, type: event.target.value } : row))
                     )
                   }
-                />
-              )}
-              <button
-                type="button"
-                aria-label={t('Remove')}
-                disabled={busy}
-                onClick={() => changeDependencies(dependencies.filter((_, i) => i !== index))}
-              >
-                <X size={14} aria-hidden="true" />
-              </button>
-            </div>
-          ))}
+                >
+                  <option value="tool">{t('Tool')}</option>
+                  <option value="mcp">{t('MCP server')}</option>
+                  {!['tool', 'mcp'].includes(entry.type) && <option value={entry.type}>{entry.type}</option>}
+                </select>
+                {entry.type === 'tool' ? (
+                  <ToolNameInput
+                    ariaLabel={t('Required tool')}
+                    value={entry.value}
+                    disabled={busy}
+                    options={toolOptions}
+                    placeholder="office"
+                    onChange={updateValue}
+                  />
+                ) : (
+                  <input
+                    aria-label={t('Required tool')}
+                    value={entry.value}
+                    disabled={busy}
+                    spellCheck={false}
+                    placeholder={placeholder}
+                    onChange={(event) => updateValue(event.target.value)}
+                  />
+                )}
+                <button
+                  type="button"
+                  aria-label={t('Remove')}
+                  disabled={busy}
+                  onClick={() => changeDependencies(dependencies.filter((_, i) => i !== index))}
+                >
+                  <X size={14} aria-hidden="true" />
+                </button>
+              </div>
+            );
+          })}
         </div>
         <button
           type="button"
@@ -257,11 +251,15 @@ export function useSkillToolLinks({ data, pending, run }: Pick<PanelContext, 'da
   const openSkillTools = (name: string) => {
     setDetail({ name, resource: null });
     void run<RecordValue>('skillContent', [name], `skill-content-${name}`, false).then((resource) => {
-      setDetail((current) => (current?.name !== name ? current : resource ? { name, resource } : null));
+      setDetail((current) => {
+        if (current?.name !== name) return current;
+        return resource ? { name, resource } : null;
+      });
     });
   };
-  const skillToolsDialog =
-    detail && skill ? (
+  let skillToolsDialog: ReactNode = null;
+  if (detail && skill) {
+    skillToolsDialog =
       detail.resource === null ? (
         <SidebarLoadingDialog title={detail.name} onClose={() => setDetail(null)} />
       ) : (
@@ -280,7 +278,7 @@ export function useSkillToolLinks({ data, pending, run }: Pick<PanelContext, 'da
             });
           }}
         />
-      )
-    ) : null;
+      );
+  }
   return { openSkillTools, skillToolsDialog };
 }

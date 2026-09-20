@@ -69,7 +69,9 @@ function assistantEchoFields(payloads) {
 // stays committable.
 export function buildIntermediateAssistantMessage(resp, opts) {
   if (!resp) return null;
-  const content = typeof resp.content === 'string' ? resp.content : resp.content == null ? '' : String(resp.content);
+  let content = '';
+  if (typeof resp.content === 'string') content = resp.content;
+  else if (resp.content != null) content = String(resp.content);
   const payloads = assistantEchoPayloads(resp, { keepAssistantBlocks: !resp.toolCalls?.length });
   if (
     !content &&

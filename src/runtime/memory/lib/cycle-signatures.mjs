@@ -1,4 +1,4 @@
-// Scheduled-cycle request-signature helpers extracted from index.mjs.
+// Scheduled-cycle request-signature helpers.
 // Pure functions of the passed `config` object; they call the imported
 // makeCycleRequestSignature and touch no module state (no db/timers).
 // index.mjs imports these; signatures and behavior are unchanged.

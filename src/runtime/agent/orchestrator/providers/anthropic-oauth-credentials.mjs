@@ -1,15 +1,15 @@
 /**
  * Anthropic OAuth credential store + PKCE login flow.
  *
- * Split out of anthropic-oauth.mjs (section-scoped extraction). Owns the
+ * Owns the
  * on-disk credentials file (load/save/refresh/forget) and the loopback
  * PKCE login flow. anthropic-oauth.mjs imports these back and re-exports
  * the public functions so external callers keep their existing import path.
  */
-import { readFileSync, existsSync, mkdirSync, statSync } from 'fs';
-import { dirname, join, resolve } from 'path';
-import { createServer } from 'http';
-import { randomBytes, createHash } from 'crypto';
+import { readFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { createServer } from 'node:http';
+import { randomBytes, createHash } from 'node:crypto';
 import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -430,7 +430,7 @@ export async function preflightAnthropicOAuthCredentials({
   const initial = _loadCredentialsFile(pinnedPath);
   if (!initial?.path || !initial.accessToken) {
     throw new Error(
-      `Anthropic OAuth host preflight found no credentials at ${pinnedPath}. ` + 'Open /providers in mixdog to sign in.'
+      `Anthropic OAuth host preflight found no credentials at ${pinnedPath}. Open /providers in mixdog to sign in.`
     );
   }
 

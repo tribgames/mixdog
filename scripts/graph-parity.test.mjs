@@ -47,7 +47,7 @@ function sym(name, kind, startLine, startCol = 1, endCol = name.length + 1) {
 
 function writeJsonl(dir, name, records) {
   const path = join(dir, name);
-  writeFileSync(path, records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  writeFileSync(path, `${records.map((r) => JSON.stringify(r)).join('\n')}\n`);
   return path;
 }
 

@@ -164,7 +164,9 @@ function renderUnsafe(src, opts) {
     // Setext heading: the underline belongs to the line above it, so the pair
     // is rewritten into the ATX form the line renderer already handles.
     const next = lines[i + 1] ?? '';
-    const setext = SETEXT_H1_RE.test(next) ? '#' : SETEXT_H2_RE.test(next) ? '##' : '';
+    let setext = '';
+    if (SETEXT_H1_RE.test(next)) setext = '#';
+    else if (SETEXT_H2_RE.test(next)) setext = '##';
     if (setext && line.trim() && !/^ {0,3}(#|>|[-*+] |\d+[.)] )/.test(line)) {
       out.push(renderLine(`${setext} ${line.trim()}`, width, defs));
       i += 1;
@@ -278,8 +280,8 @@ function renderLine(line, width, defs) {
   if (h) {
     const level = h[1].length;
     const text = renderInline(h[2], undefined, defs);
-    if (level === 1) return '\n' + compose(bold, PALETTE.heading1)('▌ ' + text);
-    if (level === 2) return '\n' + compose(bold, PALETTE.heading)(text);
+    if (level === 1) return `\n${compose(bold, PALETTE.heading1)(`▌ ${text}`)}`;
+    if (level === 2) return `\n${compose(bold, PALETTE.heading)(text)}`;
     if (level === 3) return compose(bold, PALETTE.heading)(text);
     return compose(bold, dim)(text);
   }
@@ -300,14 +302,14 @@ function renderLine(line, width, defs) {
     if (task) {
       return `${indent}${PALETTE.listBullet(task[1] === ' ' ? '[ ]' : '[x]')} ${renderInline(task[2], undefined, defs)}`;
     }
-    return indent + PALETTE.listBullet('•') + ' ' + renderInline(b[3], undefined, defs);
+    return `${indent + PALETTE.listBullet('•')} ${renderInline(b[3], undefined, defs)}`;
   }
 
   // Numbered list.
   const n = /^(\s*)(\d+)([.)])\s+(.*)$/.exec(line);
   if (n) {
     const indent = n[1].replace(/\t/g, '  ');
-    return indent + PALETTE.listBullet(n[2] + '.') + ' ' + renderInline(n[4], undefined, defs);
+    return `${indent + PALETTE.listBullet(`${n[2]}.`)} ${renderInline(n[4], undefined, defs)}`;
   }
 
   // Plain paragraph line.
@@ -321,8 +323,8 @@ function renderCodeBlock(bufLines, lang, width) {
   const labelPlain = lang ? ` ${lang} ` : '';
   const labelStyled = labelPlain ? PALETTE.fenceLabel(labelPlain) : '';
   const ruleLen = Math.max(0, contentWidth - visibleWidth(labelPlain));
-  const top = dim('┌') + labelStyled + dim('─'.repeat(ruleLen) + '┐');
-  const bottom = dim('└' + '─'.repeat(contentWidth) + '┘');
+  const top = dim('┌') + labelStyled + dim(`${'─'.repeat(ruleLen)}┐`);
+  const bottom = dim(`└${'─'.repeat(contentWidth)}┘`);
   const body = inner.map((l) => {
     const text = colorFenceLine(l, isDiff);
     const padTarget = Math.max(0, contentWidth - 1);
@@ -396,13 +398,13 @@ function renderInline(text, state, defs) {
   // "!" survived as literal prose in front of the label.
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, alt, url) => {
     const label = alt.trim() ? compose(underline, PALETTE.link)(renderInline(alt, st, defs)) : '';
-    return label ? `${label} ${dim('(' + url + ')')}` : dim(url);
+    return label ? `${label} ${dim(`(${url})`)}` : dim(url);
   });
 
   // Links: [text](url) -> text (url)
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_m, label, url) => {
     const linkLabel = compose(underline, PALETTE.link)(renderInline(label, st, defs));
-    return linkLabel + ' ' + dim('(' + url + ')');
+    return `${linkLabel} ${dim(`(${url})`)}`;
   });
 
   // Footnote reference: the definition text is printed as an apparatus block.
@@ -410,7 +412,7 @@ function renderInline(text, state, defs) {
 
   // Reference links: [text][tag], [tag][] and the shortcut [tag].
   const links = defs?.links;
-  if (links && links.size) {
+  if (links?.size) {
     const reference = (label, tag) => {
       const url = links.get(
         String(tag || label)
@@ -418,7 +420,7 @@ function renderInline(text, state, defs) {
           .toLowerCase()
       );
       if (!url) return null;
-      return `${compose(underline, PALETTE.link)(renderInline(label, st, defs))} ${dim('(' + url + ')')}`;
+      return `${compose(underline, PALETTE.link)(renderInline(label, st, defs))} ${dim(`(${url})`)}`;
     };
     s = s.replace(/\[([^\]]+)\]\[([^\]]*)\]/g, (match, label, tag) => reference(label, tag) ?? match);
     s = s.replace(/\[([^\]]+)\]/g, (match, label) => reference(label, label) ?? match);
@@ -438,7 +440,7 @@ function renderInline(text, state, defs) {
   // Restore code spans, styled.
   s = s.replace(/\u0000C(\d+)\u0000/g, (_m, idx) => {
     const code = st.codeSpans[Number(idx)] ?? '';
-    return colorEnabled() ? PALETTE.inlineCode(code) : '`' + code + '`';
+    return colorEnabled() ? PALETTE.inlineCode(code) : `\`${code}\``;
   });
 
   // Restore escaped characters as their literal selves.

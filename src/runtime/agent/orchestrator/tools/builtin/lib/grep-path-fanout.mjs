@@ -1,5 +1,5 @@
-// grep path[] fan-out: multiple string paths in one grep call. Extracted from
-// search-grep-tool.mjs, which keeps argument normalization and the single-path
+// grep path[] fan-out: multiple string paths in one grep call.
+// search-grep-tool.mjs keeps argument normalization and the single-path
 // execution flow; `executeGrepTool` is injected to avoid an import cycle.
 import { isAbsolute } from 'node:path';
 import {

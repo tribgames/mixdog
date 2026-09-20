@@ -160,9 +160,10 @@ for (const publicInput of [false, true]) {
       writeFileSync(other, 'OTHER_1\nOTHER_2\n');
       const key = publicInput ? 'file_path' : 'path';
       const paths = [fx.file, other];
+      const offset = publicInput ? 2 : 1;
       const args = objects
-        ? { [key]: paths.map((path) => ({ [key]: path, offset: publicInput ? 2 : 1, limit: 1 })) }
-        : { [key]: paths, offset: publicInput ? 2 : 1, limit: 1 };
+        ? { [key]: paths.map((path) => ({ [key]: path, offset, limit: 1 })) }
+        : { [key]: paths, offset, limit: 1 };
       const readState = captureReadCacheState({ args, cwd: fx.cwd });
       const content = String(await executeRead(fx)('read', args, fx.cwd));
       assert.match(content, /2→LINE_2/);

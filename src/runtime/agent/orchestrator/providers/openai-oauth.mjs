@@ -15,7 +15,7 @@
  * startup prewarm, auth/catalog recovery retries, and the HTTP/SSE fallback
  * taken when WebSocket transport is unhealthy.
  */
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
 import { _combineUsageWithWarmup } from './openai-ws-events.mjs';

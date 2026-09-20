@@ -1,5 +1,5 @@
 // manager/runtime-loaders.mjs
-// Lazy runtime import bridges extracted from manager.mjs. Dynamic import()
+// Lazy runtime import bridges. Dynamic import()
 // keeps the heavy code_graph tool / agent loop runtimes out of
 // the session-creation path and avoids a circular import through loop.mjs.
 let _codeGraphRuntimePromise = null;

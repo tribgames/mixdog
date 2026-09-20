@@ -32,11 +32,10 @@ export function createToolCallHandler({ handleSearch, handleMemoryAction }) {
         const hasQuery = Array.isArray(a.query)
           ? a.query.some((value) => String(value || '').trim())
           : String(a.query ?? '').trim() !== '';
+        const idValues = Array.isArray(a.id) ? a.id : [a.id];
         const recallIds = hasQuery
           ? []
-          : (Array.isArray(a.id) ? a.id : [a.id])
-              .map((value) => Number(value))
-              .filter((value) => Number.isInteger(value) && value > 0);
+          : idValues.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0);
         const searchArgs = {
           ...(a.query !== undefined ? { query: a.query } : {}),
           ...(recallIds.length > 0 ? { ids: recallIds } : {}),

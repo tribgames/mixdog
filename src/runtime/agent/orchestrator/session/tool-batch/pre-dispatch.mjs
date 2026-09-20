@@ -93,7 +93,11 @@ function crossTurnStub(batch, call, ctSig) {
 function repeatFailureSkip(batch, call, sigs) {
   const { sessionRef, repeatFailLimit } = batch;
   const rfg = sessionRef?._repeatFailGuard;
-  const cycleLength = _repeatFailurePatternWouldContinue(sessionRef?._repeatFailHistory, sigs.repeatFail, repeatFailLimit);
+  const cycleLength = _repeatFailurePatternWouldContinue(
+    sessionRef?._repeatFailHistory,
+    sigs.repeatFail,
+    repeatFailLimit
+  );
   if ((rfg && rfg.sig === sigs.repeatFail && rfg.count >= repeatFailLimit) || cycleLength > 0) {
     const detail =
       cycleLength > 1

@@ -57,7 +57,12 @@ function sessionScopes(record) {
     const key = rootKey(root);
     const existing = scopes.find((scope) => rootKey(scope.root) === key);
     const files = (Array.isArray(entry?.toolFiles) ? entry.toolFiles : []).map((value) => clean(value)).filter(Boolean);
+    const baselineFiles = Array.isArray(entry?.baselineFiles) ? entry.baselineFiles : [];
     if (existing) {
+      const owned = new Set([...existing.toolFiles].map(rootKey));
+      for (const file of baselineFiles) {
+        if (!owned.has(rootKey(file.path))) existing.baselineFiles.set(rootKey(file.path), file);
+      }
       for (const file of files) existing.toolFiles.add(file);
       existing.updatedAt = Math.max(existing.updatedAt, Number(entry?.updatedAt) || 0);
       return;
@@ -66,6 +71,7 @@ function sessionScopes(record) {
       root,
       baselineTree,
       toolFiles: new Set(files),
+      baselineFiles: new Map(baselineFiles.map((file) => [rootKey(file.path), file])),
       updatedAt: Number(entry?.updatedAt) || 0,
     });
   };
@@ -162,6 +168,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
         checkpointId: clean(turn?.checkpointId),
         root,
         baselineTree,
+        baselineFiles: Array.isArray(turn?.baselineFiles) ? turn.baselineFiles : [],
         // Relative, forward-slashed paths this session's own tools mutated.
         toolFiles: [
           ...new Set(
@@ -176,6 +183,10 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
       const scopes = sessionScopes(existing);
       const scope = scopes.find((entry) => rootKey(entry.root) === rootKey(root));
       if (scope) {
+        const owned = new Set([...scope.toolFiles].map(rootKey));
+        for (const file of nextTurn.baselineFiles) {
+          if (!owned.has(rootKey(file.path))) scope.baselineFiles.set(rootKey(file.path), file);
+        }
         for (const file of nextTurn.toolFiles) scope.toolFiles.add(file);
         scope.updatedAt = nextTurn.updatedAt;
       } else {
@@ -183,6 +194,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
           root,
           baselineTree,
           toolFiles: new Set(nextTurn.toolFiles),
+          baselineFiles: new Map(nextTurn.baselineFiles.map((file) => [rootKey(file.path), file])),
           updatedAt: nextTurn.updatedAt,
         });
       }
@@ -197,6 +209,7 @@ export async function saveTurnSnapshotRecord(sessionId, turn) {
             root: entry.root,
             baselineTree: entry.baselineTree,
             toolFiles: [...entry.toolFiles],
+            baselineFiles: [...entry.baselineFiles.values()],
             updatedAt: entry.updatedAt,
           })),
       };
@@ -241,6 +254,7 @@ export async function loadSessionSnapshotRecords(sessionId) {
     root: entry.root,
     baselineTree: entry.baselineTree,
     toolFiles: [...entry.toolFiles],
+    baselineFiles: [...entry.baselineFiles.values()],
     updatedAt: entry.updatedAt,
   }));
 }

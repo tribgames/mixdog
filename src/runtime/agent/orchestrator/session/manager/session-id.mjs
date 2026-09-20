@@ -1,8 +1,8 @@
 // manager/session-id.mjs
-// Monotonic session-id minting extracted from manager.mjs. The counter is a
+// Monotonic session-id minting. The counter is a
 // module-level singleton shared by createSession (spawn) and
 // clearSessionMessages (clear-fork), matching the original single `nextId`.
-import { randomBytes } from 'crypto';
+import { randomBytes } from 'node:crypto';
 let nextId = Date.now();
 const UUID_V7_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let lastUuidV7Ms = -1;
@@ -71,7 +71,7 @@ export function codexWireSendOpts(session, { requestKind = 'turn', turnId = null
 }
 
 export function ensureCodexWireSessionId(session) {
-  if (!session || session.provider !== 'openai-oauth') return null;
+  if (session?.provider !== 'openai-oauth') return null;
   const current = String(session.codexWireSessionId || '')
     .trim()
     .toLowerCase();

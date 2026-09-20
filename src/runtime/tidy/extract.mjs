@@ -117,7 +117,7 @@ export async function extractZip(srcPath, destDir, { skip } = {}) {
   const zip = await JSZip.loadAsync(readFileSync(srcPath));
   const written = [];
   for (const [name, file] of Object.entries(zip.files)) {
-    if (skip && skip(name)) continue;
+    if (skip?.(name)) continue;
     if (!isSafeEntryPath(name)) {
       throw new Error(`refusing unsafe archive entry: ${name}`);
     }

@@ -1,37 +1,26 @@
 // Workflow/agent pack loading + route resolution, and search-route
 // normalization. Roots/dataDir and config-dependent helpers are injected to
 // keep this module free of the runtime's path/provider constants.
-import { basename, join } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { clean } from './session-text.mjs';
 import { normalizeEffortInput } from './effort.mjs';
 import { isLikelyRawModelId } from './config-helpers.mjs';
-import { readTextSafe, readJsonSafe } from './fs-utils.mjs';
-import { isHiddenAgent } from '../runtime/agent/orchestrator/internal-agents.mjs';
-import { configuredOrchestrationMode } from '../runtime/shared/orchestration.mjs';
-import { orchestrationInstructions } from './orchestration.mjs';
-import {
-  DEFAULT_DISABLED_AGENT_IDS,
-  configuredAgentRouteCandidates,
-  isAgentDisabled,
-} from '../runtime/shared/agent-route-config.mjs';
+import { configuredAgentRouteCandidates } from '../runtime/shared/agent-route-config.mjs';
+import { normalizeAgentId, normalizeWorkflowId } from './workflow-ids.mjs';
+import { createWorkflowPacks } from './workflow/packs.mjs';
+import { createWorkflowAgents } from './workflow/agents.mjs';
+import { createWorkflowContext } from './workflow/context.mjs';
+
+export {
+  AGENT_DELETED_MARKER,
+  DEFAULT_WORKFLOW_ID,
+  FIXED_AGENT_SLOTS,
+  clearAgentDefinitionCache,
+  normalizeAgentId,
+  normalizeWorkflowId,
+} from './workflow-ids.mjs';
 
 export const WORKFLOW_ROUTE_SLOTS = ['lead', 'agent', 'memory'];
-export const AGENT_DELETED_MARKER = '.deleted';
-export const FIXED_AGENT_SLOTS = Object.freeze([
-  // Short one-liners on purpose: these render inside the 260px sidebar rail
-  // (user: 창이 크지 않으니 설명은 짧게).
-  { id: 'maintainer', label: 'Maintainer', description: 'Memory and upkeep', workflowSlot: 'memory' },
-]);
-const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
-// Slot-backed built-ins run through dedicated maintenance channels, so they are never
-// Lead-delegation targets and stay out of the Available Agents catalog.
-const BUILTIN_SLOT_AGENT_IDS = new Set(
-  FIXED_AGENT_SLOTS.filter((agent) => agent.workflowSlot).map((agent) => agent.id)
-);
-const STARTER_AGENT_ORDER = new Map(DEFAULT_DISABLED_AGENT_IDS.map((id, index) => [id, index]));
-export const DEFAULT_WORKFLOW_ID = 'default';
 
 const WEB_SEARCH_CAPABLE_PROVIDERS = new Set([
   'openai-oauth',
@@ -51,49 +40,12 @@ const WEB_SEARCH_PROVIDER_ALIASES = Object.freeze({
   'anthropic-api': 'anthropic',
 });
 
-const agentDefinitionCache = new Map();
-const AGENT_DEFINITION_CACHE_LIMIT = 64;
-function setAgentDefinitionCache(key, value) {
-  if (!agentDefinitionCache.has(key) && agentDefinitionCache.size >= AGENT_DEFINITION_CACHE_LIMIT) {
-    const oldestKey = agentDefinitionCache.keys().next().value;
-    agentDefinitionCache.delete(oldestKey);
-  }
-  agentDefinitionCache.set(key, value);
-}
-
-// Editor writes must invalidate the definition cache or a saved AGENT.md
-// stays stale for the session lifetime (keys are `${dir}\n${agentId}`).
-export function clearAgentDefinitionCache(agentId = '') {
-  if (!agentId) {
-    agentDefinitionCache.clear();
-    return;
-  }
-  for (const key of [...agentDefinitionCache.keys()]) {
-    if (key.endsWith(`\n${agentId}`)) agentDefinitionCache.delete(key);
-  }
-}
-
 export function workflowPresetId(slot) {
   return `workflow-${slot}`;
 }
 
 function workflowPresetName(slot) {
   return `WORKFLOW ${String(slot || '').toUpperCase()}`;
-}
-
-export function normalizeAgentId(value) {
-  const id = clean(value)
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-');
-  if (id === 'maint' || id === 'maintenance' || id === 'memory') return 'maintainer';
-  return AGENT_ROLE_IDS.has(id) ? id : '';
-}
-
-export function normalizeWorkflowId(value, fallback = '') {
-  const id = clean(value)
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-');
-  return /^[a-z0-9][a-z0-9_.-]*$/.test(id) ? id : fallback;
 }
 
 // Persist the effective agent capability alongside workflow display metadata.
@@ -158,235 +110,9 @@ export function availableAgentId(name, isTaken) {
 // createWorkflowHelpers, and the config-aware route helpers via
 // createWorkflowRouteHelpers.
 export function createWorkflowHelpers({ rootDir, dataDir, readMarkdownDocument, normalizeAgentPermissionOrNone }) {
-  function workflowSourceDirs(dir) {
-    return [
-      { root: join(rootDir, 'workflows'), source: 'built-in' },
-      { root: join(dir || dataDir, 'workflows'), source: 'user' },
-    ];
-  }
-
-  function agentSourceDirs(dir, id) {
-    const userDir = join(dir || dataDir, 'agents', id);
-    if (existsSync(join(userDir, AGENT_DELETED_MARKER))) return [userDir];
-    return [userDir, join(rootDir, 'agents', id)];
-  }
-
-  // Custom agents include shipped starter roles and user-authored roles.
-  // A data-dir tombstone suppresses a shipped starter after the user deletes it,
-  // so package updates do not silently resurrect the role.
-  function listCustomAgentIds(dir) {
-    const ids = new Set();
-    const userRoot = join(dir || dataDir, 'agents');
-    for (const root of [userRoot, join(rootDir, 'agents')]) {
-      if (!existsSync(root)) continue;
-      let entries = [];
-      try {
-        entries = readdirSync(root, { withFileTypes: true });
-      } catch {
-        entries = [];
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const id = normalizeWorkflowId(entry.name);
-        if (!id || AGENT_ROLE_IDS.has(id) || isHiddenAgent(id)) continue;
-        if (root !== userRoot && existsSync(join(userRoot, id, AGENT_DELETED_MARKER))) continue;
-        if (!existsSync(join(root, entry.name, 'AGENT.md'))) continue;
-        ids.add(id);
-      }
-    }
-    return [...ids].sort((left, right) => {
-      const leftRank = STARTER_AGENT_ORDER.get(left);
-      const rightRank = STARTER_AGENT_ORDER.get(right);
-      if (leftRank !== undefined || rightRank !== undefined) {
-        return (leftRank ?? Number.MAX_SAFE_INTEGER) - (rightRank ?? Number.MAX_SAFE_INTEGER);
-      }
-      return left.localeCompare(right);
-    });
-  }
-
-  function readWorkflowPackFromDir(dir, source = 'built-in', dirName = '') {
-    const entry = 'WORKFLOW.md';
-    const doc = readMarkdownDocument(readTextSafe(join(dir, entry)));
-    const body = doc.body;
-    if (!body) return null;
-    const fm = doc.frontmatter || {};
-    const id = normalizeWorkflowId(clean(fm.id) || dirName || basename(dir));
-    if (!id) return null;
-    return {
-      id,
-      name: clean(fm.name) || id,
-      description: clean(fm.description),
-      entry,
-      hidden:
-        String(fm.hidden ?? '')
-          .trim()
-          .toLowerCase() === 'true',
-      body,
-      source,
-    };
-  }
-
-  function listWorkflowPacks(dir) {
-    const byId = new Map();
-    for (const { root, source } of workflowSourceDirs(dir)) {
-      if (!existsSync(root)) continue;
-      let entries = [];
-      try {
-        entries = readdirSync(root, { withFileTypes: true });
-      } catch {
-        entries = [];
-      }
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const d = join(root, entry.name);
-        if (!existsSync(join(d, 'WORKFLOW.md'))) continue;
-        const pack = readWorkflowPackFromDir(d, source, entry.name);
-        if (pack && !pack.hidden) byId.set(pack.id, pack);
-      }
-    }
-    const weight = (pack) => (pack.id === DEFAULT_WORKFLOW_ID ? 0 : 1);
-    return [...byId.values()].sort((a, b) => weight(a) - weight(b) || a.name.localeCompare(b.name));
-  }
-
-  function activeWorkflowId(config) {
-    const id = normalizeWorkflowId(config?.workflow?.active, DEFAULT_WORKFLOW_ID);
-    return id === 'solo' ? DEFAULT_WORKFLOW_ID : id;
-  }
-
-  function loadWorkflowPack(dir, id) {
-    const normalized = normalizeWorkflowId(id, DEFAULT_WORKFLOW_ID);
-    const wanted = normalized === 'solo' ? DEFAULT_WORKFLOW_ID : normalized;
-    for (const { root, source } of workflowSourceDirs(dir).reverse()) {
-      const pack = readWorkflowPackFromDir(join(root, wanted), source, wanted);
-      if (pack) return pack;
-    }
-    return readWorkflowPackFromDir(join(rootDir, 'workflows', DEFAULT_WORKFLOW_ID), 'built-in', DEFAULT_WORKFLOW_ID);
-  }
-
-  // Agents the Lead may actually delegate to: on disk, not hidden, not a
-  // slot-backed built-in, and not switched off by the user.
-  function delegatableAgentIds(config, dir) {
-    return listCustomAgentIds(dir).filter(
-      (id) => !isHiddenAgent(id) && !BUILTIN_SLOT_AGENT_IDS.has(id) && !isAgentDisabled(config, id)
-    );
-  }
-
-  function workflowSummary(pack, { hasAgents = true, orchestrationMode = 'none' } = {}) {
-    const id = normalizeWorkflowId(pack?.id, DEFAULT_WORKFLOW_ID);
-    return {
-      id,
-      name: clean(pack?.name) || (id === 'default' ? 'Default' : id),
-      description: clean(pack?.description),
-      source: clean(pack?.source),
-      // Effective session capability, not an editable workflow property.
-      delegatesAgents: orchestrationMode !== 'none' && hasAgents !== false,
-    };
-  }
-
-  function activeWorkflowSummary(config, dir) {
-    return workflowSummary(loadWorkflowPack(dir, activeWorkflowId(config)), {
-      hasAgents: delegatableAgentIds(config, dir).length > 0,
-      orchestrationMode: configuredOrchestrationMode(config),
-    });
-  }
-
-  function loadAgentDefinition(dir, id) {
-    const agentId = normalizeAgentId(id) || normalizeWorkflowId(id);
-    if (!agentId) return null;
-    const cacheKey = `${dir || dataDir}\n${agentId}`;
-    if (agentDefinitionCache.has(cacheKey)) return agentDefinitionCache.get(cacheKey);
-    for (const d of agentSourceDirs(dir, agentId)) {
-      const manifest = readJsonSafe(join(d, 'agent.json')) || {};
-      const entry = clean(manifest.entry) || 'AGENT.md';
-      const doc = readMarkdownDocument(readTextSafe(join(d, entry)));
-      const body = doc.body;
-      if (!body) continue;
-      const definition = {
-        id: agentId,
-        name: clean(manifest.name) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.label || agentId,
-        description:
-          clean(manifest.description) || FIXED_AGENT_SLOTS.find((agent) => agent.id === agentId)?.description || '',
-        permission: normalizeAgentPermissionOrNone(doc.frontmatter.permission),
-        frontmatter: doc.frontmatter,
-        body,
-      };
-      setAgentDefinitionCache(cacheKey, definition);
-      return definition;
-    }
-    // Every shipped and user role lives at agents/<id>/AGENT.md; there is no
-    // flat agents/<id>.md layout left to fall back to.
-    setAgentDefinitionCache(cacheKey, null);
-    return null;
-  }
-
-  function workflowContextBlock(config, dir) {
-    return activeWorkflowContext(config, dir).context;
-  }
-
-  function workflowContextBlockFromPack(pack) {
-    if (!pack) return '';
-    // The pack body opens with its own `# <name>` title, so header + description
-    // + body used to repeat the workflow name three times in the prompt. Emit one
-    // header line and drop the body's duplicate title (only when it matches).
-    const rawBody = String(pack.body || '');
-    const firstBreak = rawBody.indexOf('\n');
-    const firstLine = (firstBreak === -1 ? rawBody : rawBody.slice(0, firstBreak)).trim();
-    const body =
-      firstBreak !== -1 && firstLine.toLowerCase() === `# ${String(pack.name || '').toLowerCase()}`
-        ? rawBody.slice(firstBreak + 1).replace(/^\s+/, '')
-        : rawBody;
-    const lines = [`# Active Workflow: ${pack.name}${pack.description ? ` — ${pack.description}` : ''}`, body];
-    return lines.join('\n\n');
-  }
-
-  function orchestrationContextBlock(config, dir) {
-    const instructions = orchestrationInstructions(configuredOrchestrationMode(config));
-    if (!instructions) return '';
-    const lines = [instructions];
-    const agentIds = delegatableAgentIds(config, dir);
-    const agentBlocks = agentIds.map((id) => loadAgentDefinition(dir, id)).filter(Boolean);
-    if (agentBlocks.length) {
-      lines.push('# Available Agents');
-      // Name + description only: the AGENT.md body is the worker's own system
-      // prompt and rides in the worker session at spawn time — repeating it in
-      // the Lead prompt only bloats context. Lead picks agents by description
-      // (a when-to-use signal); orchestration carries the delegation rules.
-      lines.push(
-        agentBlocks
-          .map((agent) => `- ${agent.name} (${agent.id})${agent.description ? `: ${agent.description}` : ''}`)
-          .join('\n')
-      );
-    }
-    return lines.join('\n\n');
-  }
-
-  // Single-pass variant: loads the active WORKFLOW.md pack once and derives both
-  // the summary and the context block from it, so session-create does not re-read
-  // and re-parse WORKFLOW.md twice on the hot boot path.
-  function activeWorkflowContext(config, dir) {
-    const pack = loadWorkflowPack(dir, activeWorkflowId(config));
-    const orchestrationMode = configuredOrchestrationMode(config);
-    return {
-      summary: workflowSummary(pack, { hasAgents: delegatableAgentIds(config, dir).length > 0, orchestrationMode }),
-      orchestrationMode,
-      context: [workflowContextBlockFromPack(pack), orchestrationContextBlock(config, dir)]
-        .filter(Boolean)
-        .join('\n\n'),
-    };
-  }
-
-  return {
-    listWorkflowPacks,
-    activeWorkflowId,
-    loadWorkflowPack,
-    workflowSummary,
-    activeWorkflowSummary,
-    loadAgentDefinition,
-    listCustomAgentIds,
-    delegatableAgentIds,
-    workflowContextBlock,
-    activeWorkflowContext,
-  };
+  const packs = createWorkflowPacks({ rootDir, dataDir, readMarkdownDocument });
+  const agents = createWorkflowAgents({ rootDir, dataDir, readMarkdownDocument, normalizeAgentPermissionOrNone });
+  return { ...packs, ...agents, ...createWorkflowContext({ packs, agents }) };
 }
 
 export function normalizeWebSearchProviderId(provider) {

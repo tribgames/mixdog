@@ -1,7 +1,7 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { createRequire } from 'module';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 import { loadConfig, createProvider, DATA_DIR } from './config.mjs';
 import { resolveVoiceRuntime } from './voice-runtime-fetcher.mjs';
@@ -84,7 +84,7 @@ const {
 // One-shot log rotation at worker boot (10 MB threshold, .1 suffix overwrite).
 if (isMixdogDebug()) {
   try {
-    if (fs.statSync(_bootLogEarly).size > 10 * 1024 * 1024) fs.renameSync(_bootLogEarly, _bootLogEarly + '.1');
+    if (fs.statSync(_bootLogEarly).size > 10 * 1024 * 1024) fs.renameSync(_bootLogEarly, `${_bootLogEarly}.1`);
   } catch {}
   fs.appendFileSync(
     _bootLogEarly,
@@ -205,7 +205,7 @@ const {
   wireWebhookHandlers,
   wireEventQueueHandlers,
 });
-function injectAndRecord(channelId, name, content, options) {
+function injectAndRecord(channelId, _name, content, options) {
   // Strip soft-warn marker blocks (Tool-loop / Repeated-input / legacy
   // Repeated-tool / Mixed-tool / Tool-budget / Same-file multi-chunk /
   // Bash file-lookup / Iteration / 0-match advisory) from anywhere in the

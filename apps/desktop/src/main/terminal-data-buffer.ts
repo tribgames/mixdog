@@ -52,9 +52,8 @@ export class TerminalDataBufferer {
     // Send the first output after an idle window immediately. Continued bursts
     // still coalesce, and an occupied in-flight window still waits for its ACK.
     const lastDelivery = this.lastDeliveredAt.get(id);
-    const waitMs = this.leadingEdge
-      ? Math.max(0, this.delayMs - (lastDelivery === undefined ? Infinity : performance.now() - lastDelivery))
-      : this.delayMs;
+    const sinceLastDelivery = lastDelivery === undefined ? Infinity : performance.now() - lastDelivery;
+    const waitMs = this.leadingEdge ? Math.max(0, this.delayMs - sinceLastDelivery) : this.delayMs;
     const timer = waitMs > 0 ? setTimeout(() => this.flush(id), waitMs) : null;
     this.pending.set(id, { chunks: [data], charCount: data.length, timer });
     this.updateProducerFlow(id);

@@ -1,7 +1,14 @@
-import { open } from 'fs/promises';
+import { open } from 'node:fs/promises';
 import { hashText } from './hash-utils.mjs';
 import { displayLineForRead } from './read-lines.mjs';
 import { READ_LARGE_TAIL_MAX_BYTES } from './read-constants.mjs';
+
+/** Byte length of the UTF-8 sequence a lead byte opens; 1 for ASCII or a stray continuation byte. */
+function utf8SequenceLength(lead) {
+  if (lead >= 0xf0) return 4;
+  if (lead >= 0xe0) return 3;
+  return lead >= 0xc0 ? 2 : 1;
+}
 
 export async function readLargeTailWindowSync(fullPath, st, n) {
   const targetLines = Math.max(1, Math.trunc(n || 20));
@@ -99,7 +106,7 @@ export async function readLargeHeadWindowSync(fullPath, st, n) {
     }
     if (leadIdx >= 0) {
       const lead = buf[leadIdx];
-      const seqLen = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+      const seqLen = utf8SequenceLength(lead);
       if (seqLen === 1) {
         // ASCII (or a stray continuation run): drop only the strays.
         endByte = contBytes === 0 ? bytesRead : leadIdx + 1;

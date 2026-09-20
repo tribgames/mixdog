@@ -29,15 +29,15 @@ function acknowledgedSelection(
   snapshot: NonNullable<SessionSnapshot>
 ): DesktopModelSelection {
   const value = snapshot as Record<string, unknown>;
+  const effort = typeof value.effort === 'string' ? value.effort : '';
+  const contextPercent = typeof value.contextPercent === 'number' ? value.contextPercent : undefined;
   return {
     ...requested,
     ...(typeof value.provider === 'string' ? { provider: value.provider } : {}),
     ...(typeof value.model === 'string' ? { model: value.model } : {}),
-    ...(Object.hasOwn(value, 'effort') ? { effort: typeof value.effort === 'string' ? value.effort : '' } : {}),
+    ...(Object.hasOwn(value, 'effort') ? { effort } : {}),
     ...(typeof value.fast === 'boolean' ? { fast: value.fast } : {}),
-    ...(Object.hasOwn(value, 'contextPercent')
-      ? { contextPercent: typeof value.contextPercent === 'number' ? value.contextPercent : undefined }
-      : {}),
+    ...(Object.hasOwn(value, 'contextPercent') ? { contextPercent } : {}),
     ...(value.modelParameters && typeof value.modelParameters === 'object'
       ? { modelParameters: value.modelParameters as Record<string, string> }
       : {}),

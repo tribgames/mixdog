@@ -18,7 +18,7 @@ test('session release restores focus only while the original input observation s
     await writeFile(join(directory, 'input.ps1'), PS_INPUT);
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;

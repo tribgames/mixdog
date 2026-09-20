@@ -131,7 +131,9 @@ export function lspUriInProject(uriValue: unknown, context: EditorPathContext): 
 }
 
 export function lspLocations(value: unknown, context: EditorPathContext): import('monaco-editor').languages.Location[] {
-  const values = Array.isArray(value) ? value : value ? [value] : [];
+  let values: unknown[] = [];
+  if (Array.isArray(value)) values = value;
+  else if (value) values = [value];
   const rows: import('monaco-editor').languages.Location[] = [];
   for (const item of values) {
     const record = recordOf(item);

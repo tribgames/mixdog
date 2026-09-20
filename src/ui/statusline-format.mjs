@@ -1,7 +1,7 @@
 /**
  * src/ui/statusline-format.mjs — pure formatting primitives for the footer.
  *
- * Extracted from statusline.mjs: ANSI SGR constants, the context%
+ * ANSI SGR constants, the context%
  * bar/segment formatters, and small numeric helpers. Elapsed labels come from
  * the shared runtime formatter so L2 matches TUI/desktop cards.
  */
@@ -68,7 +68,9 @@ export function formatContextSegment(ctxPct, cols, source = 'pending') {
   const raw = Number(ctxPct);
   const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
   const barPct = clampPct(pct);
-  const fill = pct >= 90 ? RED : pct >= 70 ? YLW : GRN;
+  let fill = GRN;
+  if (pct >= 90) fill = RED;
+  else if (pct >= 70) fill = YLW;
   const label = contextPctDisplayLabel(pct);
   // Keep a full-width bar wherever there is room for one. Below 80 cols the bar
   // is dropped (label-only) so the footer never overflows a narrow terminal;
@@ -121,5 +123,5 @@ export function fmt(n) {
     const k = Math.round(v / 1000);
     return k >= 1000 ? '1M' : `${k}k`;
   }
-  return (v / 1_000_000).toFixed(1) + 'M';
+  return `${(v / 1_000_000).toFixed(1)}M`;
 }

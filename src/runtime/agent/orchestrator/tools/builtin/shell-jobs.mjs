@@ -258,7 +258,7 @@ export function killShellJob(jobId) {
 export function attachShellJobResourceLease(jobId, lease) {
   if (!jobId || !lease || typeof lease.release !== 'function') return false;
   const detail = getNativeTask(jobId);
-  if (!detail || detail.status !== 'running') {
+  if (detail?.status !== 'running') {
     try {
       Promise.resolve(lease.release()).catch(() => {});
     } catch {}

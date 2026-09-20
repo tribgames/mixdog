@@ -41,7 +41,7 @@ function writeGoal(
         createdAt: clock - 10_000,
         updatedAt: clock - 5_000,
         lastStartedAt: status === 'active' ? clock - 5_000 : null,
-        completedAt: completedAt === undefined ? (status === 'complete' ? clock - 5_000 : null) : completedAt,
+        completedAt: completedAt ?? (status === 'complete' ? clock - 5_000 : null),
         archivedAt,
       },
     })

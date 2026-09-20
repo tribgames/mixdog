@@ -130,10 +130,12 @@ export async function createUsageDashboard(config = {}, options = {}) {
       if (item.id === 'opencode-go') {
         const usageStatus = openCodeGoUsageConfigStatus(config);
         try {
-          const snapshot = refreshFor(item.id)
-            ? await fetchOpenCodeGoUsageSnapshot(config, { force: true })
-            : readCachedOpenCodeGoUsageSnapshot() ||
-              (usageStatus.ready ? await fetchOpenCodeGoUsageSnapshot(config) : null);
+          let snapshot = null;
+          if (refreshFor(item.id)) snapshot = await fetchOpenCodeGoUsageSnapshot(config, { force: true });
+          else snapshot = readCachedOpenCodeGoUsageSnapshot();
+          if (!snapshot && !refreshFor(item.id) && usageStatus.ready) {
+            snapshot = await fetchOpenCodeGoUsageSnapshot(config);
+          }
           if (snapshot) {
             hasQuota = applyWindowQuota(row, snapshot?.quotaWindows, {
               source: 'opencode-go-console',

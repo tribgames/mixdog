@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { ANTIGRAVITY_MODELS, normalizeGrokModelId } from './provider-model-identities.mjs';
 
@@ -27,7 +27,7 @@ function readModelsFromCacheFile(fileName) {
     const file = join(getPluginData(), fileName);
     if (!existsSync(file)) return [];
     const raw = JSON.parse(readFileSync(file, 'utf-8'));
-    return Array.isArray(raw?.models) ? raw.models : Array.isArray(raw) ? raw : [];
+    return [raw?.models, raw].find(Array.isArray) ?? [];
   } catch {
     return [];
   }

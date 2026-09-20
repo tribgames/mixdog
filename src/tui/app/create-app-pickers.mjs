@@ -1,4 +1,4 @@
-// Picker/panel factory wiring, extracted from App.jsx. Every create*Picker
+// Picker/panel factory wiring. Every create*Picker
 // factory (theme/effort, resume, core memory, extensions, maintenance,
 // onboarding, channels, provider setup, model, routes, settings) plus the
 // slash dispatcher instantiate here in one scope, preserving the original

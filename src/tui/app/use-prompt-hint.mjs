@@ -1,4 +1,4 @@
-// Prompt-hint band, extracted from App.jsx. One transient hint line under the
+// Prompt-hint band. One transient hint line under the
 // prompt (copy feedback, queue restore notices, slash argument hints) with a
 // single auto-dismiss timer; the active/timer refs let key handlers decide
 // whether a hint currently owns the band before clearing it.

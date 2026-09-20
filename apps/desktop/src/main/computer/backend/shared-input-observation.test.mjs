@@ -47,7 +47,7 @@ public static class ObserverFixture {
 }
 `
     );
-    const setup = String.raw`
+    const setup = `
 $ErrorActionPreference='Stop'
 Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $env:OBSERVER_FIXTURE 'observer.cs')))
 `;
@@ -59,7 +59,7 @@ Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $env:OBSERVER_FIXTUR
         '-NonInteractive',
         '-Command',
         setup +
-          String.raw`
+          `
 [MixInputObservation]::Read() | ConvertTo-Json -Compress | ForEach-Object { [Console]::WriteLine($_) }
 while (($command=[Console]::ReadLine()) -ne $null) {
   [ObserverFixture]::Foreign()
@@ -101,7 +101,7 @@ while (($command=[Console]::ReadLine()) -ne $null) {
           '-NonInteractive',
           '-Command',
           setup +
-            String.raw`
+            `
 try {
   [MixInputObservation]::BeginExpected($env:ORIGINAL_OBSERVER,0)
   [MixInputObservation]::End()

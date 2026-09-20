@@ -211,16 +211,15 @@ export function toolResult(value, isError = false, images = []) {
   };
 }
 
+function artifactType(format) {
+  if (format === 'xlsx' || TABULAR_FORMATS.has(format)) return 'spreadsheet';
+  if (format === 'pptx') return 'presentation';
+  return format === 'pdf' ? 'pdf' : 'document';
+}
+
 function officeArtifact(format, fileKind, path, operation) {
   return {
-    type:
-      format === 'xlsx' || TABULAR_FORMATS.has(format)
-        ? 'spreadsheet'
-        : format === 'pptx'
-          ? 'presentation'
-          : format === 'pdf'
-            ? 'pdf'
-            : 'document',
+    type: artifactType(format),
     format,
     fileKind,
     operation,
@@ -261,22 +260,13 @@ export function finalizeOfficeResult(value, { action, session = null, startedAt 
     value.factsMode = 'sample';
     value.disclosure = FACTS_SAMPLE_DISCLOSURE;
   }
-  const operation =
-    action === 'create' || (action === 'author' && value.output)
-      ? 'create'
-      : action === 'render'
-        ? 'render'
-        : ['batch', 'commit', 'rollback', 'save', 'secure', 'finalize'].includes(action)
-          ? 'edit'
-          : '';
-  const artifactPath =
-    action === 'render'
-      ? value.output
-      : action === 'secure'
-        ? value.output
-        : operation && session
-          ? session.target
-          : '';
+  let operation = '';
+  if (action === 'create' || (action === 'author' && value.output)) operation = 'create';
+  else if (action === 'render') operation = 'render';
+  else if (['batch', 'commit', 'rollback', 'save', 'secure', 'finalize'].includes(action)) operation = 'edit';
+  let artifactPath = '';
+  if (action === 'render' || action === 'secure') artifactPath = value.output;
+  else if (operation && session) artifactPath = session.target;
   if (operation && artifactPath) {
     value.artifacts = [
       officeArtifact(

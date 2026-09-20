@@ -40,20 +40,24 @@ export function normalizedWorkspace(value: unknown): DesktopWorkspace | null {
   }
   const workspaceFile =
     typeof record.workspaceFile === 'string' && record.workspaceFile.trim() ? record.workspaceFile.trim() : undefined;
-  const kind = workspaceFile || folders.length > 1 ? 'workspace' : folders.length === 1 ? 'folder' : 'empty';
   return {
-    kind,
-    name:
-      typeof record.name === 'string' && record.name.trim()
-        ? record.name.trim()
-        : workspaceFile
-          ? folderName(workspaceFile).replace(/\.code-workspace$/i, '')
-          : folders.length === 1
-            ? folders[0].name || folderName(folders[0].path)
-            : 'Project',
+    kind: workspaceKind(workspaceFile, folders),
+    name: workspaceName(record.name, workspaceFile, folders),
     ...(workspaceFile ? { workspaceFile } : {}),
     folders,
   };
+}
+
+function workspaceKind(workspaceFile: string | undefined, folders: DesktopWorkspaceFolder[]): DesktopWorkspace['kind'] {
+  if (workspaceFile || folders.length > 1) return 'workspace';
+  return folders.length === 1 ? 'folder' : 'empty';
+}
+
+function workspaceName(rawName: unknown, workspaceFile: string | undefined, folders: DesktopWorkspaceFolder[]): string {
+  if (typeof rawName === 'string' && rawName.trim()) return rawName.trim();
+  if (workspaceFile) return folderName(workspaceFile).replace(/\.code-workspace$/i, '');
+  if (folders.length === 1) return folders[0].name || folderName(folders[0].path);
+  return 'Project';
 }
 
 function readStoredWorkspace(): DesktopWorkspace | null {

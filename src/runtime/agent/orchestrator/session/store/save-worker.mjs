@@ -1,4 +1,4 @@
-import { Worker } from 'worker_threads';
+import { Worker } from 'node:worker_threads';
 import { guardedSaveOptions as _guardedSaveOptions } from './write-guards.mjs';
 import { _ensureLifecycleFields, _messagesForDisk, _sessionForDisk } from './serialize.mjs';
 import {
@@ -245,6 +245,217 @@ function _workerSaveError(message, code, injected) {
   return err;
 }
 
+/**
+ * Settle a reply whose session was hard-deleted after the write was posted.
+ * Its outcome is about a file that no longer exists: settle every caller
+ * exactly once, then touch NOTHING — no drop/failure marker, no summary
+ * publish, no live pin, no delta baseline. The id may already belong to a NEW
+ * incarnation, so only slots this very request still owns may be cleared.
+ */
+function _settleStaleIncarnationWrite(p, reqId, { ok, error, errorCode, injectedSaveFault }) {
+  const { id, incarnation, waiters } = p;
+  if (_saveAsyncInflight.get(id) === reqId) _saveAsyncInflight.delete(id);
+  const stale = _saveAsyncQueued.get(id);
+  if (stale && stale.incarnation === incarnation) {
+    _saveAsyncQueued.delete(id);
+    _releaseSessionIncarnation(stale.incarnation);
+    for (const w of stale.waiters) w.resolve();
+  }
+  if (ok) for (const w of waiters) w.resolve();
+  else for (const w of waiters) w.reject(_workerSaveError(error, errorCode, injectedSaveFault));
+}
+
+/**
+ * The worker restarted or evicted this id's base mid-chain. Not a drop: retry
+ * once as a FULL snapshot of the current live session (latest-wins
+ * durability, same waiters). The queued slot stays queued and promotes after
+ * the retry settles. Returns false when the retry could not be posted — its
+ * failure is recorded here and the caller promotes the queued slot.
+ */
+function _retryFullAfterDeltaMiss(p, isCurrentIncarnation) {
+  const { id, session, waiters, summaryVersion, epoch, revision, incarnation } = p;
+  _invalidateDeltaBaseline(id);
+  try {
+    _postAsyncWrite(id, session, p.opts, waiters, summaryVersion, epoch, revision, {
+      forceFull: true,
+      retriedFull: true,
+    });
+    return true;
+  } catch (err) {
+    // The RETRY is its own attempt: only its projected payload may
+    // stand as evidence. Falling back to the original delta
+    // snapshot would publish bytes this failure never attempted.
+    _failWorkerWrite(
+      id,
+      summaryVersion,
+      waiters,
+      err,
+      epoch,
+      incarnation,
+      err?.attemptSnapshot ?? null,
+      isCurrentIncarnation
+    );
+    return false;
+  }
+}
+
+/**
+ * Resolve/reject every caller whose payload this write represents (the
+ * originating call plus any that coalesced onto it before it was posted). A
+ * supersede never lands here as a rejection — only a real worker failure does.
+ */
+function _settleLandedWrite(p, { ok, saved, outcome, error, errorCode, injectedSaveFault }, isCurrentIncarnation) {
+  const { id, attemptSnapshot, summaryVersion, summaryRow, waiters, epoch, incarnation } = p;
+  if (!ok) {
+    _failWorkerWrite(
+      id,
+      summaryVersion,
+      waiters,
+      _workerSaveError(error, errorCode, injectedSaveFault),
+      epoch,
+      incarnation,
+      attemptSnapshot,
+      isCurrentIncarnation
+    );
+    return;
+  }
+  // A close/delete may have completed while the worker was writing.
+  // Do not let this older completion put an open row back in the
+  // process-local cache after its tombstone/removal.
+  if (saved) {
+    // Publish the IMMUTABLE row captured when this payload was
+    // built — never a row re-derived from the live session, which
+    // may already carry a newer (unwritten, possibly failing) turn.
+    _queueSessionSummaryUpsertRow(summaryRow, summaryVersion);
+    // ONLY a landed write proves durability, so this is the only
+    // place the save-failure flag may be cleared — and only when
+    // THIS payload is at least as new as the newest failed/dropped
+    // one. An older worker write finishing after a newer sync/async
+    // failure carries stale content and must leave the markers (and
+    // therefore the live pin) exactly where they are.
+    _clearSaveStateIfCurrent(id, epoch);
+  } else if (outcome === SAVE_OUTCOME_STALE) {
+    // A strictly NEWER write for this id already landed: disk is
+    // AHEAD of this payload, not behind it. Nothing was lost, so
+    // no drop marker, no save error and no live pin — the snapshot
+    // stays immediately evictable. Only the optimistic summary row
+    // for these bytes is rolled back.
+    _invalidateDeltaBaseline(id);
+    _rollbackCachedSessionSummary(id, summaryVersion);
+  } else {
+    // The worker's _shouldDrop declined the write: disk ownership
+    // moved past this snapshot — flag the split-brain so eviction
+    // and disk-over-live arbitration keep the richer local copy.
+    // Nothing was written, so an earlier save failure for this id
+    // STAYS recorded (clearing it here would un-pin the only good
+    // in-memory transcript for an id whose disk copy is behind).
+    _invalidateDeltaBaseline(id);
+    _rollbackCachedSessionSummary(id, summaryVersion);
+    _recordSaveDrop(id, epoch);
+  }
+  for (const w of waiters) w.resolve();
+}
+
+/**
+ * Promote the latest-wins queued payload (if any) into the now-free in-flight
+ * slot for this id. Runs regardless of the settled outcome: the queued write
+ * is a newer, independent payload and must still be attempted so its
+ * (possibly superseded) waiters resolve when it lands.
+ */
+function _promoteQueuedWrite(id) {
+  const q = _saveAsyncQueued.get(id);
+  if (!q) return;
+  _saveAsyncQueued.delete(id);
+  // The promotion KEEPS the queued reference through projection, the
+  // post and any immediate failure settlement: releasing first would
+  // let cap eviction drop the token and make a real current failure
+  // look like a stale post-delete outcome (no marker, no live pin).
+  const queuedCurrent = _isCurrentSessionIncarnation(id, q.incarnation);
+  try {
+    _postAsyncWrite(id, q.session, q.opts, q.waiters, q.summaryVersion, q.epoch, q.revision);
+  } catch (err) {
+    // Evidence is this promotion's OWN projected attempt when it
+    // got that far, never the queued (unprojected) live session.
+    _failWorkerWrite(
+      id,
+      q.summaryVersion,
+      q.waiters,
+      err,
+      q.epoch,
+      q.incarnation,
+      err?.attemptSnapshot ?? null,
+      queuedCurrent
+    );
+  } finally {
+    _releaseSessionIncarnation(q.incarnation);
+  }
+}
+
+/** One settled write reply from the live worker instance. */
+function _onWorkerReply(worker, reply) {
+  const { reqId } = reply;
+  const p = _saveWorkerPending.get(reqId);
+  if (!p) return;
+  _saveWorkerPending.delete(reqId);
+  // Drop the ref AFTER pending was registered ref-up'd so the worker
+  // becomes unref'd again once all in-flight writes settle.
+  // Never let the count go negative (a drain may have retired the
+  // bookkeeping while this write was still in the worker's queue),
+  // otherwise the `=== 0` unref below can never fire again and the
+  // process stays alive on a ref'd worker.
+  if (_saveWorkerRefCount > 0) _saveWorkerRefCount--;
+  if (_saveWorkerRefCount === 0) worker.unref();
+  const { id, incarnation } = p;
+  const isCurrentIncarnation = _isCurrentSessionIncarnation(id, incarnation);
+  // NOTE: the reference is released in the finally below, AFTER every
+  // marker decision, so release-time eviction cannot change the verdict.
+  try {
+    if (!isCurrentIncarnation) {
+      _settleStaleIncarnationWrite(p, reqId, reply);
+      return;
+    }
+    _saveAsyncInflight.delete(id);
+    if (reply.ok && reply.deltaMiss && !p.retriedFull) {
+      if (_retryFullAfterDeltaMiss(p, isCurrentIncarnation)) return;
+    } else {
+      // (A deltaMiss on a retried FULL is unreachable — the worker only
+      // misses on delta payloads.)
+      _settleLandedWrite(p, reply, isCurrentIncarnation);
+    }
+    _promoteQueuedWrite(id);
+  } finally {
+    _releaseSessionIncarnation(incarnation);
+  }
+}
+
+/**
+ * Retire the shared bookkeeping of a worker that died or was detached: every
+ * in-flight and queued write is settled as failed (failure recorded first,
+ * live snapshot pinned) and its incarnation reference released; the module
+ * pointer is cleared so the next save spawns a replacement that re-syncs the
+ * fault state.
+ */
+function _retireWorkerBookkeeping(err) {
+  _saveWorker = null;
+  _faultSyncedKey = null;
+  _deltaBaseline.clear();
+  for (const [, p] of _saveWorkerPending) {
+    _failWorkerWrite(p.id, p.summaryVersion, p.waiters, err, p.epoch, p.incarnation, p.attemptSnapshot);
+    _releaseSessionIncarnation(p.incarnation);
+  }
+  _saveWorkerPending.clear();
+  for (const [id, q] of _saveAsyncQueued) {
+    // A queued payload was never projected or posted: it is settled and the
+    // operational error is recorded, but it may NEVER stand as recovery
+    // evidence (that must be an attempted, immutable payload).
+    _failWorkerWrite(id, q.summaryVersion, q.waiters, err, q.epoch, q.incarnation, null);
+    _releaseSessionIncarnation(q.incarnation);
+  }
+  _saveAsyncQueued.clear();
+  _saveAsyncInflight.clear();
+  _saveWorkerRefCount = 0;
+}
+
 function _getOrSpawnWorker() {
   if (_saveWorker) return _saveWorker;
   // Every handler below is bound to THIS instance: a worker that already
@@ -268,218 +479,34 @@ function _getOrSpawnWorker() {
   // to forward through this channel, which keeps stray prints off the TUI
   // frame (routed through the parent's guardable stderr) without holding
   // the event loop.
-  worker.on('message', ({ __log, ok, saved, outcome, deltaMiss, error, errorCode, injectedSaveFault, reqId }) => {
-    if (__log !== undefined) {
+  worker.on('message', (message) => {
+    if (message.__log !== undefined) {
       try {
-        process.stderr.write(String(__log));
+        process.stderr.write(String(message.__log));
       } catch {
         /* best-effort */
       }
       return;
     }
     if (worker !== _saveWorker) return; // stale instance: not our bookkeeping
-    const p = _saveWorkerPending.get(reqId);
-    if (!p) return;
-    _saveWorkerPending.delete(reqId);
-    // Drop the ref AFTER pending was registered ref-up'd so the worker
-    // becomes unref'd again once all in-flight writes settle.
-    // Never let the count go negative (a drain may have retired the
-    // bookkeeping while this write was still in the worker's queue),
-    // otherwise the `=== 0` unref below can never fire again and the
-    // process stays alive on a ref'd worker.
-    if (_saveWorkerRefCount > 0) _saveWorkerRefCount--;
-    if (_saveWorkerRefCount === 0) worker.unref();
-    const { id, session, attemptSnapshot, summaryVersion, summaryRow, waiters, epoch, revision, incarnation } = p;
-    const isCurrentIncarnation = _isCurrentSessionIncarnation(id, incarnation);
-    // NOTE: the reference is released in the finally below, AFTER every
-    // marker decision, so release-time eviction cannot change the verdict.
-    try {
-      if (!isCurrentIncarnation) {
-        // Hard delete landed after this write was posted. Its outcome is
-        // about a file that no longer exists: settle every caller exactly
-        // once, then touch NOTHING — no drop/failure marker, no summary
-        // publish, no live pin, no delta baseline. The id may already
-        // belong to a NEW incarnation, so only slots this very request
-        // still owns may be cleared.
-        if (_saveAsyncInflight.get(id) === reqId) _saveAsyncInflight.delete(id);
-        const stale = _saveAsyncQueued.get(id);
-        if (stale && stale.incarnation === incarnation) {
-          _saveAsyncQueued.delete(id);
-          _releaseSessionIncarnation(stale.incarnation);
-          for (const w of stale.waiters) w.resolve();
-        }
-        if (ok) for (const w of waiters) w.resolve();
-        else for (const w of waiters) w.reject(_workerSaveError(error, errorCode, injectedSaveFault));
-        return;
-      }
-      _saveAsyncInflight.delete(id);
-      if (ok && deltaMiss && !p.retriedFull) {
-        // The worker restarted or evicted this id's base mid-chain. Not a
-        // drop: retry once as a FULL snapshot of the current live session
-        // (latest-wins durability, same waiters). The queued slot stays
-        // queued and promotes after the retry settles.
-        _invalidateDeltaBaseline(id);
-        try {
-          _postAsyncWrite(id, session, p.opts, waiters, summaryVersion, epoch, revision, {
-            forceFull: true,
-            retriedFull: true,
-          });
-          return;
-        } catch (err) {
-          // The RETRY is its own attempt: only its projected payload may
-          // stand as evidence. Falling back to the original delta
-          // snapshot would publish bytes this failure never attempted.
-          _failWorkerWrite(
-            id,
-            summaryVersion,
-            waiters,
-            err,
-            epoch,
-            incarnation,
-            err?.attemptSnapshot ?? null,
-            isCurrentIncarnation
-          );
-        }
-      }
-      // Resolve/reject every caller whose payload this write represents
-      // (the originating call plus any that coalesced onto it before it was
-      // posted). A supersede never lands here as a rejection — only a real
-      // worker failure does. (A deltaMiss on a retried FULL is unreachable —
-      // the worker only misses on delta payloads.)
-      else if (ok) {
-        // A close/delete may have completed while the worker was writing.
-        // Do not let this older completion put an open row back in the
-        // process-local cache after its tombstone/removal.
-        if (saved) {
-          // Publish the IMMUTABLE row captured when this payload was
-          // built — never a row re-derived from the live session, which
-          // may already carry a newer (unwritten, possibly failing) turn.
-          _queueSessionSummaryUpsertRow(summaryRow, summaryVersion);
-          // ONLY a landed write proves durability, so this is the only
-          // place the save-failure flag may be cleared — and only when
-          // THIS payload is at least as new as the newest failed/dropped
-          // one. An older worker write finishing after a newer sync/async
-          // failure carries stale content and must leave the markers (and
-          // therefore the live pin) exactly where they are.
-          _clearSaveStateIfCurrent(id, epoch);
-        } else if (outcome === SAVE_OUTCOME_STALE) {
-          // A strictly NEWER write for this id already landed: disk is
-          // AHEAD of this payload, not behind it. Nothing was lost, so
-          // no drop marker, no save error and no live pin — the snapshot
-          // stays immediately evictable. Only the optimistic summary row
-          // for these bytes is rolled back.
-          _invalidateDeltaBaseline(id);
-          _rollbackCachedSessionSummary(id, summaryVersion);
-        } else {
-          // The worker's _shouldDrop declined the write: disk ownership
-          // moved past this snapshot — flag the split-brain so eviction
-          // and disk-over-live arbitration keep the richer local copy.
-          // Nothing was written, so an earlier save failure for this id
-          // STAYS recorded (clearing it here would un-pin the only good
-          // in-memory transcript for an id whose disk copy is behind).
-          _invalidateDeltaBaseline(id);
-          _rollbackCachedSessionSummary(id, summaryVersion);
-          _recordSaveDrop(id, epoch);
-        }
-        for (const w of waiters) w.resolve();
-      } else {
-        _failWorkerWrite(
-          id,
-          summaryVersion,
-          waiters,
-          _workerSaveError(error, errorCode, injectedSaveFault),
-          epoch,
-          incarnation,
-          attemptSnapshot,
-          isCurrentIncarnation
-        );
-      }
-      // Promote the latest-wins queued payload (if any) into the now-free
-      // in-flight slot for this id. Runs regardless of ok: the queued write
-      // is a newer, independent payload and must still be attempted so its
-      // (possibly superseded) waiters resolve when it lands.
-      const q = _saveAsyncQueued.get(id);
-      if (q) {
-        _saveAsyncQueued.delete(id);
-        // The promotion KEEPS the queued reference through projection, the
-        // post and any immediate failure settlement: releasing first would
-        // let cap eviction drop the token and make a real current failure
-        // look like a stale post-delete outcome (no marker, no live pin).
-        const queuedCurrent = _isCurrentSessionIncarnation(id, q.incarnation);
-        try {
-          _postAsyncWrite(id, q.session, q.opts, q.waiters, q.summaryVersion, q.epoch, q.revision);
-        } catch (err) {
-          // Evidence is this promotion's OWN projected attempt when it
-          // got that far, never the queued (unprojected) live session.
-          _failWorkerWrite(
-            id,
-            q.summaryVersion,
-            q.waiters,
-            err,
-            q.epoch,
-            q.incarnation,
-            err?.attemptSnapshot ?? null,
-            queuedCurrent
-          );
-        } finally {
-          _releaseSessionIncarnation(q.incarnation);
-        }
-      }
-    } finally {
-      _releaseSessionIncarnation(incarnation);
-    }
+    _onWorkerReply(worker, message);
   });
   worker.on('error', (err) => {
     if (worker !== _saveWorker) return; // a replacement owns the maps now
-    _deltaBaseline.clear();
-    for (const [, p] of _saveWorkerPending) {
-      _failWorkerWrite(p.id, p.summaryVersion, p.waiters, err, p.epoch, p.incarnation, p.attemptSnapshot);
-      _releaseSessionIncarnation(p.incarnation);
-    }
-    _saveWorkerPending.clear();
-    for (const [id, q] of _saveAsyncQueued) {
-      // A queued payload was never projected or posted: it is settled and the
-      // operational error is recorded, but it may NEVER stand as recovery
-      // evidence (that must be an attempted, immutable payload).
-      _failWorkerWrite(id, q.summaryVersion, q.waiters, err, q.epoch, q.incarnation, null);
-      _releaseSessionIncarnation(q.incarnation);
-    }
-    _saveAsyncQueued.clear();
-    _saveAsyncInflight.clear();
-    _saveWorkerRefCount = 0;
-    _faultSyncedKey = null;
-    _saveWorker = null;
+    _retireWorkerBookkeeping(err);
   });
   worker.on('exit', (code) => {
     // 'exit' ALWAYS follows 'error' (which already nulled _saveWorker) and
     // can arrive after a replacement spawned: only the current instance may
     // retire the shared bookkeeping.
     if (worker !== _saveWorker) return;
-    _deltaBaseline.clear();
     // Reject pending resolvers on ANY exit (code 0 included) so an idle
     // worker that races a pending postMessage cannot leak resolvers. The
     // map is empty on the normal idle-exit path so the loop is a no-op,
     // but it remains safe for the race window where exit fires after
     // saveSessionAsync registered a resolver but before the worker
     // received the message.
-    const err = new Error(`[session-store] save worker exited with code ${code}`);
-    for (const [, p] of _saveWorkerPending) {
-      _failWorkerWrite(p.id, p.summaryVersion, p.waiters, err, p.epoch, p.incarnation, p.attemptSnapshot);
-      _releaseSessionIncarnation(p.incarnation);
-    }
-    _saveWorkerPending.clear();
-    for (const [id, q] of _saveAsyncQueued) {
-      // A queued payload was never projected or posted: it is settled and the
-      // operational error is recorded, but it may NEVER stand as recovery
-      // evidence (that must be an attempted, immutable payload).
-      _failWorkerWrite(id, q.summaryVersion, q.waiters, err, q.epoch, q.incarnation, null);
-      _releaseSessionIncarnation(q.incarnation);
-    }
-    _saveAsyncQueued.clear();
-    _saveAsyncInflight.clear();
-    _saveWorkerRefCount = 0;
-    _faultSyncedKey = null;
-    _saveWorker = null;
+    _retireWorkerBookkeeping(new Error(`[session-store] save worker exited with code ${code}`));
   });
   worker.unref(); // don't keep process alive
   return worker;
@@ -852,20 +879,8 @@ export function _detachSaveWorkerForTest() {
   if (!_sessionStoreTestMode()) return null;
   const worker = _saveWorker;
   if (!worker) return null;
-  _saveWorker = null;
-  _faultSyncedKey = null;
-  const detached = new Error('[session-store] save worker detached before this write settled');
-  for (const [, p] of _saveWorkerPending) {
-    _failWorkerWrite(p.id, p.summaryVersion, p.waiters, detached, p.epoch, p.incarnation, p.attemptSnapshot);
-    _releaseSessionIncarnation(p.incarnation);
-  }
-  _saveWorkerPending.clear();
-  for (const [id, q] of _saveAsyncQueued) {
-    _failWorkerWrite(id, q.summaryVersion, q.waiters, detached, q.epoch, q.incarnation, null);
-    _releaseSessionIncarnation(q.incarnation);
-  }
-  _saveAsyncQueued.clear();
-  _saveAsyncInflight.clear();
+  // The detached instance stays alive, so the ref its in-flight writes held
+  // is dropped here (a dead worker's own handlers have nothing to unref).
   if (_saveWorkerRefCount > 0) {
     try {
       worker.unref();
@@ -873,8 +888,7 @@ export function _detachSaveWorkerForTest() {
       /* worker already gone */
     }
   }
-  _saveWorkerRefCount = 0;
-  _deltaBaseline.clear();
+  _retireWorkerBookkeeping(new Error('[session-store] save worker detached before this write settled'));
   return worker;
 }
 

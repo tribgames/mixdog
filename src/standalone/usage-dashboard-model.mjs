@@ -26,11 +26,12 @@ function compactNumber(value) {
 }
 
 export function normaliseWindows(value, source = 'config') {
-  const entries = Array.isArray(value)
-    ? value.map((entry, index) => [entry?.label || entry?.name || `W${index + 1}`, entry])
-    : value && typeof value === 'object'
-      ? Object.entries(value)
-      : [];
+  let entries = [];
+  if (Array.isArray(value)) {
+    entries = value.map((entry, index) => [entry?.label || entry?.name || `W${index + 1}`, entry]);
+  } else if (value && typeof value === 'object') {
+    entries = Object.entries(value);
+  }
   return entries
     .map(([key, entry]) => {
       if (!entry || typeof entry !== 'object') return null;
@@ -250,7 +251,8 @@ function providerDescription(id, group) {
     case 'mixdog-local':
       return 'Mixdog Local Provider';
     default:
-      return group === 'local' ? 'Local provider' : group === 'oauth' ? 'Subscription quota' : 'API billing';
+      if (group === 'local') return 'Local provider';
+      return group === 'oauth' ? 'Subscription quota' : 'API billing';
   }
 }
 
@@ -296,7 +298,10 @@ export function rowTone(row) {
   if (row.status === 'missing') return 'missing';
   if (row.status === 'local') return 'local';
   const remaining = num(row.remainingUsd, null);
-  if (remaining !== null) return remaining <= 1 ? 'danger' : remaining <= 5 ? 'warn' : 'ok';
+  if (remaining !== null) {
+    if (remaining <= 1) return 'danger';
+    return remaining <= 5 ? 'warn' : 'ok';
+  }
   const pct = Math.max(...(row.windows || []).map((w) => num(w.usedPct, -1)));
   if (pct >= 95) return 'danger';
   if (pct >= 80) return 'warn';

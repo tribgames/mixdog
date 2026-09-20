@@ -1,7 +1,7 @@
 // Grep output formatting: line/block normalization, context-block windowing
 // (head_limit + offset count MATCH BLOCKS, truncation keeps head+tail), the
-// pattern[] fan-out dedupe and the plain windowed renderer. Extracted from
-// search-tool.mjs, which keeps argument handling and rg execution.
+// pattern[] fan-out dedupe and the plain windowed renderer. search-tool.mjs
+// keeps argument handling and rg execution.
 import { normalizeOutputPath } from '../path-utils.mjs';
 import {
   groupGrepContentByFile,
@@ -191,10 +191,11 @@ export function formatGrepContextOutput({
   const omitted = afterOffset.length - shown;
   const render = (arr) => renderGrepContextBlocks(arr, filenameOmitted, fallbackPath);
   const { segments, nextOffset } = pagedContextSegments(afterOffset, { shown, omitted, offset, render });
-  const notice =
-    omitted > 0 || !totalKnown
-      ? `\n[Showing ${shown} of ${totalStr} matches${totalKnown ? '' : ' (results partial)'}; pass offset:${nextOffset} for more]`
-      : '';
+  let notice = '';
+  if (omitted > 0 || !totalKnown) {
+    const partial = totalKnown ? '' : ' (results partial)';
+    notice = `\n[Showing ${shown} of ${totalStr} matches${partial}; pass offset:${nextOffset} for more]`;
+  }
   return {
     text: `${segments.join('\n')}${notice}`,
     total,
@@ -280,12 +281,12 @@ export function formatGrepOutput({
   // context-mode notice (offset==0 leaves this unchanged).
   const total = offset + totalWindowed;
   const scopePath = JSON.stringify(normalizeOutputPath(searchPath));
-  const truncated =
-    remaining > 0 || !totalKnown
-      ? totalKnown
-        ? `\n[Showing ${shown} of ${total} results; pass offset:${offset + shown} for more]`
-        : `\n[Showing ${shown} (more matches exist — use mode:'count' for the exact total on ${scopePath}); pass offset:${offset + shown} for more]`
-      : '';
+  let truncated = '';
+  if (totalKnown && remaining > 0) {
+    truncated = `\n[Showing ${shown} of ${total} results; pass offset:${offset + shown} for more]`;
+  } else if (!totalKnown) {
+    truncated = `\n[Showing ${shown} (more matches exist — use mode:'count' for the exact total on ${scopePath}); pass offset:${offset + shown} for more]`;
+  }
 
   const countSummary = outputMode === 'count' ? grepCountSummary(normalized) : '';
   const hasContext = beforeN > 0 || afterN > 0 || contextN > 0;

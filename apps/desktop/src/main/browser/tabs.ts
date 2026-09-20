@@ -3,115 +3,17 @@
  * ones. Named support pages stay hidden unless explicitly revealed. Merely
  * targeting an agent page never turns it into a user-owned, persistent tab.
  */
-import type { BrowserWindow, WebContents } from 'electron';
-
-import type { DesktopBrowserTab } from '../../shared/contract';
 import type { BrowserCommandResult } from './command';
 import { redactBrowserText, redactBrowserUrl } from './redaction';
-import { normalizeBackgroundTabName } from './tab-policy';
+import type { BrowserTabsHost } from './tabs-contract';
+import { createDisplayTabs } from './tabs-display';
+import { createTabTargeting } from './tabs-target';
 
-/** A never-shown page the agent drives on the shared partition. */
-export interface BackgroundPage {
-  window: BrowserWindow;
-  guest: WebContents;
-  lastUsedAt: number;
-  kind: 'agent' | 'popup' | 'user';
-  keepAlive?: boolean;
-  openerPageId?: string;
-}
-
-export interface BrowserTabsHost {
-  /** Visible pane guests owned by one session, in stable attach order. */
-  visibleGuests(sessionId: string): WebContents[];
-  backgroundPages(sessionId: string): Map<string, BackgroundPage>;
-  backgroundEntryByPageId(sessionId: string, pageId: string): [string, BackgroundPage] | null;
-  ensureOffscreen(sessionId: string, rawName?: string): BackgroundPage;
-  destroyBackgroundPage(sessionId: string, name: string, entry: BackgroundPage): void;
-  pageId(guest: WebContents): string;
-  currentGuest(sessionId: string): WebContents | null;
-  /** Targeting a visible tab also makes it the default for later commands. */
-  selectGuest(sessionId: string, guest: WebContents): void;
-  closeGuest(guest: WebContents): void;
-}
+export type { BackgroundPage, BrowserTabsHost } from './tabs-contract';
 
 export function createBrowserTabs(host: BrowserTabsHost) {
-  let nextUserTab = 0;
-  const {
-    visibleGuests,
-    backgroundPages,
-    backgroundEntryByPageId,
-    ensureOffscreen,
-    destroyBackgroundPage,
-    pageId: stablePageId,
-    currentGuest,
-    selectGuest,
-  } = host;
-  /** Resolve the page a command targets; null means the default visible tab. */
-  function resolveTargetGuest(
-    sessionId: string,
-    background: boolean | undefined,
-    tab: string
-  ): { guest: WebContents; background: boolean; tabName?: string } | null {
-    if (background) {
-      if (/^p\d+$/i.test(tab)) {
-        const found = backgroundEntryByPageId(sessionId, tab);
-        if (!found) throw new Error(`no background page "${tab}"; call list_tabs`);
-        found[1].lastUsedAt = Date.now();
-        return { guest: found[1].window.webContents, background: true, tabName: found[0] };
-      }
-      const name = normalizeBackgroundTabName(tab || 'bg');
-      const entry = ensureOffscreen(sessionId, name);
-      return { guest: entry.window.webContents, background: true, tabName: name };
-    }
-    if (!tab) return null;
-    if (/^p\d+$/i.test(tab)) {
-      const picked = visibleGuests(sessionId).find((guest) => stablePageId(guest).toLowerCase() === tab.toLowerCase());
-      if (picked) {
-        selectGuest(sessionId, picked);
-        return { guest: picked, background: false };
-      }
-      const found = backgroundEntryByPageId(sessionId, tab);
-      if (!found) throw new Error(`no page "${tab}"; call list_tabs`);
-      const hidden = background !== false && found[1].kind !== 'user';
-      found[1].lastUsedAt = Date.now();
-      if (!hidden) selectGuest(sessionId, found[1].guest);
-      return { guest: found[1].guest, background: hidden, tabName: found[0] };
-    }
-    const visibleMatch = /^v(\d+)$/i.exec(tab);
-    if (visibleMatch) {
-      const list = visibleGuests(sessionId);
-      const picked = list[Number(visibleMatch[1]) - 1];
-      if (!picked) throw new Error(`no visible tab "${tab}" (${list.length} open); call list_tabs`);
-      selectGuest(sessionId, picked);
-      return { guest: picked, background: false };
-    }
-    const backgroundName = normalizeBackgroundTabName(tab, { required: true });
-    const page = backgroundPages(sessionId).get(backgroundName);
-    if (!page || page.window.isDestroyed()) {
-      throw new Error(`unknown tab "${backgroundName}"; call list_tabs, or pass background:true to create it`);
-    }
-    const hidden = background !== false && page.kind !== 'user';
-    page.lastUsedAt = Date.now();
-    if (!hidden) selectGuest(sessionId, page.guest);
-    return { guest: page.guest, background: hidden, tabName: backgroundName };
-  }
-
-  /** The background page a tab reference names, by page id or by name. */
-  function backgroundTabEntry(sessionId: string, tab: string): [string, BackgroundPage] | null {
-    if (/^p\d+$/i.test(tab)) return backgroundEntryByPageId(sessionId, tab);
-    const name = normalizeBackgroundTabName(tab, { required: true });
-    const page = backgroundPages(sessionId).get(name);
-    return page ? [name, page] : null;
-  }
-
-  /** Whether a tab reference names one of the session's visible pages, by
-   *  page id or by the `v1`-style position list_tabs prints beside it. */
-  function visibleTabMatches(sessionId: string, tab: string): boolean {
-    const list = visibleGuests(sessionId);
-    const position = /^v(\d+)$/i.exec(tab);
-    if (position) return Boolean(list[Number(position[1]) - 1]);
-    return list.some((guest) => stablePageId(guest).toLowerCase() === tab.toLowerCase());
-  }
+  const { visibleGuests, backgroundPages, destroyBackgroundPage, pageId: stablePageId, currentGuest } = host;
+  const targeting = createTabTargeting(host);
 
   function listTabs(sessionId: string): BrowserCommandResult {
     const lines: string[] = [];
@@ -143,12 +45,12 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     // a caller naturally aims close_tab at it. The panel keeps that page for
     // the session, so say what it is instead of sending the caller back to
     // the listing that handed out the id.
-    if (visibleTabMatches(sessionId, tab)) {
+    if (targeting.visibleTabMatches(sessionId, tab)) {
       throw new Error(
         `"${tab}" is the visible tab, which stays with the browser panel; navigate it elsewhere, or call hide to put the panel away.`
       );
     }
-    const found = backgroundTabEntry(sessionId, tab);
+    const found = targeting.backgroundTabEntry(sessionId, tab);
     if (!found || found[1].window.isDestroyed()) {
       throw new Error(`unknown background tab "${tab}"; call list_tabs`);
     }
@@ -157,87 +59,10 @@ export function createBrowserTabs(host: BrowserTabsHost) {
     return { text: `Closed background tab "${name}".` };
   }
 
-  function displayEntries(sessionId: string) {
-    return [
-      ...visibleGuests(sessionId).map((guest) => ({
-        guest,
-        kind: 'page' as DesktopBrowserTab['kind'],
-        page: null as BackgroundPage | null,
-      })),
-      ...[...backgroundPages(sessionId).values()]
-        .filter((page) => !page.window.isDestroyed() && !page.guest.isDestroyed())
-        .map((page) => {
-          let kind: DesktopBrowserTab['kind'] = 'background';
-          if (page.kind === 'popup') kind = 'popup';
-          else if (page.kind === 'user') kind = 'page';
-          return { guest: page.guest, kind, page };
-        }),
-    ];
-  }
-
-  function displayTabs(sessionId: string): DesktopBrowserTab[] {
-    const selected = currentGuest(sessionId);
-    return displayEntries(sessionId).map(({ guest, kind }) => ({
-      id: stablePageId(guest),
-      title: guest.getTitle(),
-      url: guest.getURL(),
-      loading: guest.isLoadingMainFrame(),
-      active: guest === selected,
-      kind,
-    }));
-  }
-
-  function displayEntry(sessionId: string, id: string) {
-    const entry = displayEntries(sessionId).find(({ guest }) => stablePageId(guest) === id);
-    if (!entry) throw new Error('Browser tab is no longer available in this session.');
-    return entry;
-  }
-
-  function selectDisplayTab(sessionId: string, id: string): void {
-    const { guest, page } = displayEntry(sessionId, id);
-    if (page) {
-      page.lastUsedAt = Date.now();
-      page.keepAlive = true;
-    }
-    selectGuest(sessionId, guest);
-  }
-
-  function createDisplayTab(sessionId: string): void {
-    const entries = displayEntries(sessionId);
-    const initial = entries.length === 1 && entries[0].page === null ? entries[0].guest : null;
-    // Reuse only the initial, idle blank page, not a page navigated back to
-    // blank or an independently created user/support tab.
-    if (
-      initial &&
-      initial.getURL() === 'about:blank' &&
-      !initial.isLoadingMainFrame() &&
-      initial.navigationHistory.length() <= 1
-    ) {
-      selectGuest(sessionId, initial);
-      return;
-    }
-    let name: string;
-    do {
-      name = `user-tab-${++nextUserTab}`;
-    } while (backgroundPages(sessionId).has(name));
-    const page = ensureOffscreen(sessionId, name);
-    page.kind = 'user';
-    page.keepAlive = true;
-    selectGuest(sessionId, page.guest);
-  }
-
-  function closeDisplayTab(sessionId: string, id: string): void {
-    // Use the window's normal close path so beforeunload can protect edits.
-    host.closeGuest(displayEntry(sessionId, id).guest);
-  }
-
   return {
-    resolveTargetGuest,
+    resolveTargetGuest: targeting.resolveTargetGuest,
     listTabs,
     closeBackgroundTab,
-    displayTabs,
-    selectDisplayTab,
-    createDisplayTab,
-    closeDisplayTab,
+    ...createDisplayTabs(host),
   };
 }

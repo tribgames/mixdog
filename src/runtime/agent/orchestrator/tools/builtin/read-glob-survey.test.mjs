@@ -7,7 +7,7 @@ import test from 'node:test';
 import { executeBuiltinTool } from '../builtin.mjs';
 
 function lines(fileTag, count) {
-  return Array.from({ length: count }, (_, i) => `${fileTag} line-${i + 1}`).join('\n') + '\n';
+  return `${Array.from({ length: count }, (_, i) => `${fileTag} line-${i + 1}`).join('\n')}\n`;
 }
 
 test('multi-file glob fan-out caps the survey window at 25 lines per file', async () => {

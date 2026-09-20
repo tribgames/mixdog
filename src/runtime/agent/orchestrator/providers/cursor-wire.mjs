@@ -13,16 +13,11 @@ import {
   rewriteConversationState,
 } from './cursor-wire-protobuf.mjs';
 import {
-  MAX_CHECKPOINT_BYTES,
   assertCursorUserImages,
   createCursorStreamWatchdog,
-  cursorInteractionProgress,
-  isRetryableCursorStreamError,
   resolveCursorStreamTuning,
   storeCursorBlob,
 } from './cursor-wire-guards.mjs';
-import { buildCursorInteractionResponse } from './cursor-wire-interactions.mjs';
-import { markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import {
   SSE_HEADERS,
   connectFrame,
@@ -42,13 +37,9 @@ import {
   selectToolsForChoice,
   textContent,
 } from './cursor-wire-request.mjs';
-import {
-  handleExecMessage,
-  handleKvMessage,
-  heartbeatFrame,
-  sendClientMessage,
-  sendToolResult,
-} from './cursor-wire-exec.mjs';
+import { handleExecMessage, heartbeatFrame, sendToolResult } from './cursor-wire-exec.mjs';
+import { completionChunk, createStreamSink } from './cursor-wire-stream-sink.mjs';
+import { createBridgeController } from './cursor-wire-stream-bridge.mjs';
 
 export { clearModelCache, getCursorModels, getCursorUsage } from './cursor-wire-models.mjs';
 
@@ -295,16 +286,6 @@ function thinkingFilter() {
   };
 }
 
-function completionChunk(id, model, delta, finishReason = null) {
-  return {
-    id,
-    object: 'chat.completion.chunk',
-    created: Math.floor(Date.now() / 1000),
-    model,
-    choices: [{ index: 0, delta, finish_reason: finishReason }],
-  };
-}
-
 function createPendingToolBatchResponse(active, model, key) {
   const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '').slice(0, 28)}`;
   const stream = new ReadableStream({
@@ -343,88 +324,27 @@ function createPendingToolBatchResponse(active, model, key) {
   return new Response(stream, { headers: SSE_HEADERS });
 }
 
-// Records a streamed tool-call lifecycle event on the shared stream state.
-function recordStreamedTool(state, update) {
-  const { toolCallStarted, partialToolCall, toolCallDelta, toolCallCompleted } = update;
-  if (toolCallStarted?.callId) {
-    state.streamedTools.set(toolCallStarted.callId, {
-      status: 'started',
-      modelCallId: toolCallStarted.modelCallId || '',
-    });
-  }
-  if (partialToolCall?.callId) {
-    state.streamedTools.set(partialToolCall.callId, {
-      status: 'partial',
-      modelCallId: partialToolCall.modelCallId || '',
-      argsText: partialToolCall.argsTextDelta || '',
-    });
-  }
-  if (toolCallDelta?.callId && !state.streamedTools.has(toolCallDelta.callId)) {
-    state.streamedTools.set(toolCallDelta.callId, {
-      status: 'delta',
-      modelCallId: toolCallDelta.modelCallId || '',
-    });
-  }
-  if (toolCallCompleted?.callId) {
-    state.streamedTools.set(toolCallCompleted.callId, {
-      status: 'completed',
-      modelCallId: toolCallCompleted.modelCallId || '',
-    });
-  }
+// Stream state shared by the sink, the message router and the bridge controller.
+function freshStreamState(sawTurnEnded) {
+  return {
+    outputTokens: 0,
+    contextTokens: null,
+    pending: [],
+    streamedTools: new Map(),
+    closed: false,
+    sawEnd: false,
+    sawTurnEnded: sawTurnEnded === true,
+    chunkSeq: 0,
+    batchBoundaryChunkSeq: -1,
+    batchBoundaryReady: false,
+    visibleOutput: false,
+  };
 }
 
-// Relays one interaction update to the SSE stream and returns its progress.
-function applyInteractionUpdate(update, state, filter, emit) {
-  if (update.textDelta?.text) {
-    const delta = filter.process(update.textDelta.text);
-    if (delta.reasoning) {
-      state.visibleOutput = true;
-      emit({ reasoning_content: delta.reasoning });
-    }
-    if (delta.content) {
-      state.visibleOutput = true;
-      emit({ content: delta.content });
-    }
-  }
-  if (update.thinkingDelta?.text) {
-    state.visibleOutput = true;
-    emit({ reasoning_content: update.thinkingDelta.text });
-  }
-  recordStreamedTool(state, update);
-  if (update.turnEnded) {
-    state.sawTurnEnded = true;
-    state.batchBoundaryChunkSeq = state.chunkSeq;
-  }
-  if (update.stepCompleted) state.batchBoundaryChunkSeq = state.chunkSeq;
-  state.outputTokens += update.tokenDelta?.tokens || 0;
-  return cursorInteractionProgress(update);
-}
-
-function applyCheckpointUpdate(update, conversation, state) {
-  conversation.checkpoint = update.byteLength <= MAX_CHECKPOINT_BYTES ? update : null;
-  state.batchBoundaryChunkSeq = state.chunkSeq;
-  try {
-    const checkpoint = decodeMessage('ConversationStateStructure', conversation.checkpoint);
-    state.contextTokens = checkpoint.tokenDetails?.usedTokens ?? state.contextTokens;
-  } catch {}
-}
-
-// Announces a newly pending native/MCP tool call as a completion chunk once.
-function announcePendingToolCall(state, pending, emit) {
-  if (state.pending.some((entry) => entry.toolCallId === pending.toolCallId)) return;
-  state.pending.push(pending);
-  emit({
-    tool_calls: [
-      {
-        index: state.pending.length - 1,
-        id: pending.toolCallId,
-        type: 'function',
-        function: { name: pending.toolName, arguments: pending.decodedArgs },
-      },
-    ],
-  });
-}
-
+// The OpenAI-shaped SSE response over one live Cursor run. The bridge
+// controller (cursor-wire-stream-bridge.mjs) owns frames, restarts and the
+// pending tool-batch hand-off; the sink (cursor-wire-stream-sink.mjs) owns
+// the chunks the caller reads.
 function createStreamResponse({
   bridge,
   heartbeat,
@@ -442,33 +362,21 @@ function createStreamResponse({
   restart = null,
 }) {
   const id = `chatcmpl-${crypto.randomUUID().replaceAll('-', '').slice(0, 28)}`;
-  let currentBridge = bridge;
-  let currentHeartbeat = heartbeat;
+  // The bridge currently feeding the stream; a restart swaps it in place.
+  const live = { bridge, heartbeat };
   let watchdog = null;
   let cancelled = false;
+  const runs = { get: (runKey) => activeRuns.get(runKey), store: storeActiveRun, forget: forgetActiveRun };
   const stream = new ReadableStream({
     start(controller) {
       const filter = thinkingFilter();
-      const state = {
-        outputTokens: 0,
-        contextTokens: null,
-        pending: [],
-        streamedTools: new Map(),
-        closed: false,
-        sawEnd: false,
-        sawTurnEnded: sawTurnEnded === true,
-        chunkSeq: 0,
-        batchBoundaryChunkSeq: -1,
-        batchBoundaryReady: false,
-        visibleOutput: false,
-      };
-      let retryCount = 0;
+      const state = freshStreamState(sawTurnEnded);
       const tuning = resolveCursorStreamTuning();
       watchdog = createCursorStreamWatchdog({
         idleTimeoutMs: tuning.idleTimeoutMs,
         parkTimeoutMs: tuning.parkTimeoutMs,
         onTimeout: (kind) => {
-          currentBridge.close(
+          live.bridge.close(
             cursorError(
               kind === 'park'
                 ? 'Cursor stream parked on an unanswered server request'
@@ -478,222 +386,28 @@ function createStreamResponse({
           );
         },
       });
-      const send = (event) => {
-        if (!state.closed) controller.enqueue(textEncoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-      };
-      const finish = (reason = 'stop') => {
-        if (state.closed) return;
-        watchdog.stop();
-        const flushed = filter.flush();
-        if (flushed.reasoning) send(completionChunk(id, model, { reasoning_content: flushed.reasoning }));
-        if (flushed.content) send(completionChunk(id, model, { content: flushed.content }));
-        send(completionChunk(id, model, {}, reason));
-        const completionTokens = state.outputTokens;
-        send({
-          ...completionChunk(id, model, {}),
-          choices: [],
-          usage: {
-            completion_tokens: completionTokens,
-            // Checkpoint occupancy is not per-request prompt usage
-            // and supplies no cache split or billable token count.
-            input_tokens_known: false,
-            cache_tokens_known: false,
-            context_tokens: state.contextTokens,
-          },
-        });
-        controller.enqueue(textEncoder.encode('data: [DONE]\n\n'));
-        state.closed = true;
-        controller.close();
-      };
-      const fail = (error) => {
-        if (state.closed) return;
-        watchdog.stop();
-        state.closed = true;
-        controller.error(error instanceof Error ? error : new Error(String(error)));
-      };
-      const finishToolBatch = () => {
-        if (state.closed || state.pending.length === 0) return;
-        storeActiveRun(key, {
-          bridge: currentBridge,
-          heartbeat: currentHeartbeat,
-          conversation,
-          tools,
-          cloudRule,
-          modelParameters,
-          maxMode,
-          sessionId,
-          pending: state.pending,
-          sawTurnEnded: state.sawTurnEnded,
-        });
-        finish('tool_calls');
-      };
-      const emit = (fields) => send(completionChunk(id, model, fields));
-      // Returns the message's forward-progress kind for the watchdog.
-      const processMessage = (bytes) => {
-        const message = decodeMessage('AgentServerMessage', bytes);
-        if (message.interactionUpdate) return applyInteractionUpdate(message.interactionUpdate, state, filter, emit);
-        if (message.kvServerMessage) {
-          handleKvMessage(currentBridge, message.kvServerMessage, conversation);
-          return 'work';
-        }
-        if (message.conversationCheckpointUpdate) {
-          applyCheckpointUpdate(message.conversationCheckpointUpdate, conversation, state);
-          return 'work';
-        }
-        if (message.execServerMessage) {
-          const handled = handleExecMessage(currentBridge, message.execServerMessage, tools, cloudRule, (pending) =>
-            announcePendingToolCall(state, pending, emit)
-          );
-          return handled === false ? 'park' : 'work';
-        }
-        if (message.interactionQuery) {
-          const outcome = buildCursorInteractionResponse(message.interactionQuery);
-          if (!outcome.handled) {
-            throw cursorError(`Unsupported Cursor interaction query: ${outcome.queryCase}`, {
-              code: 'protocol_drift',
-              status: 400,
-            });
-          }
-          sendClientMessage(currentBridge, outcome.message);
-          return 'work';
-        }
-        if (message.execServerControlMessage?.abort) {
-          throw cursorError('Cursor aborted the active exec', { code: 'exec_aborted', status: 400 });
-        }
-        if (message.$unknown?.length) {
-          throw cursorError(`Unsupported Cursor server message field ${message.$unknown[0].no}`, {
-            code: 'protocol_drift',
-            status: 400,
-          });
-        }
-        return 'none';
-      };
-      const recoverOrFail = (error) => {
-        const retryable = isRetryableCursorStreamError(error);
-        const recoveryEligible =
-          !cancelled && typeof restart === 'function' && (!state.visibleOutput || conversation.checkpoint);
-        const canRetry = retryCount < tuning.maxRetries && recoveryEligible && retryable;
-        if (!canRetry) {
-          // A fresh Cursor run owns its bounded in-place retries. Mark
-          // exhaustion so the outer loop does not multiply that budget.
-          // Resumed tool-result streams have no restart closure; those
-          // intentionally fall through unmarked so the outer loop can
-          // rebuild from the committed assistant/tool-result history.
-          if (retryable && recoveryEligible && retryCount >= tuning.maxRetries) {
-            markProviderRecoveryExhausted(error, {
-              owner: 'cursor-wire',
-              attempts: retryCount + 1,
-            });
-          }
-          fail(error);
-          return;
-        }
-        retryCount += 1;
-        state.sawEnd = false;
-        state.batchBoundaryReady = false;
-        state.batchBoundaryChunkSeq = -1;
-        try {
-          const next = restart({
-            attempt: retryCount,
-            fromCheckpoint: Boolean(conversation.checkpoint),
-            visibleOutput: state.visibleOutput,
-          });
-          attachBridge(next.bridge, next.heartbeat);
-        } catch (restartError) {
-          fail(restartError);
-        }
-      };
-      const attachBridge = (nextBridge, nextHeartbeat) => {
-        currentBridge = nextBridge;
-        currentHeartbeat = nextHeartbeat;
-        const ownedBridge = nextBridge;
-        const ownedHeartbeat = nextHeartbeat;
-        const frameParser = createFrameParser(
-          (bytes) => {
-            const progress = processMessage(bytes);
-            watchdog.progress(progress);
-          },
-          (bytes) => {
-            state.sawEnd = true;
-            const error = parseEndStream(bytes);
-            if (error) {
-              ownedBridge.close(error);
-            } else if (state.pending.length > 0) {
-              // A clean end-stream is also a final tool batch delimiter.
-              state.batchBoundaryReady = true;
-            } else if (!state.sawTurnEnded) {
-              ownedBridge.close(
-                cursorError('Cursor stream ended before turnEnded', {
-                  code: 'incomplete_stream',
-                })
-              );
-            } else {
-              finish();
-              ownedBridge.close();
-            }
-          }
-        );
-        ownedBridge.onData((chunk) => {
-          if (currentBridge !== ownedBridge || state.closed) return;
-          state.chunkSeq += 1;
-          try {
-            frameParser(chunk);
-            if (state.pending.length > 0 && state.batchBoundaryChunkSeq === state.chunkSeq) {
-              state.batchBoundaryReady = true;
-            }
-            // Never hand a partial Connect frame to the next response parser.
-            if (state.batchBoundaryReady && frameParser.bufferedBytes() === 0) {
-              finishToolBatch();
-            }
-          } catch (error) {
-            ownedBridge.close(error);
-          }
-        });
-        ownedBridge.onClose((error) => {
-          clearInterval(ownedHeartbeat);
-          const active = activeRuns.get(key);
-          if (active?.bridge === ownedBridge) forgetActiveRun(key, active);
-          if (cancelled) return;
-          if (state.closed || currentBridge !== ownedBridge) return;
-          let closeError = error;
-          if (!closeError) {
-            try {
-              frameParser.finish();
-            } catch (frameError) {
-              closeError = frameError;
-            }
-          }
-          // Cursor commonly closes HTTP/2 immediately after turnEnded without
-          // a separate Connect end frame. The turn is already complete.
-          if (state.sawTurnEnded) {
-            finish();
-            return;
-          }
-          // Tool calls already emitted to the caller remain actionable even if
-          // the parked transport vanished. The next request rebuilds/resumes.
-          if (state.pending.length > 0) {
-            finish('tool_calls');
-            return;
-          }
-          if (!closeError && !state.sawEnd) {
-            closeError = cursorError('Cursor stream closed before its end frame', {
-              code: 'protocol_error',
-            });
-          }
-          if (closeError) recoverOrFail(closeError);
-          else finish();
-        });
-        watchdog.start();
-      };
-      attachBridge(bridge, heartbeat);
+      const sink = createStreamSink({ controller, id, model, filter, watchdog, state });
+      const bridges = createBridgeController({
+        live,
+        state,
+        filter,
+        watchdog,
+        sink,
+        tuning,
+        run: { key, conversation, tools, cloudRule, modelParameters, maxMode, sessionId },
+        runs,
+        restart,
+        isCancelled: () => cancelled,
+      });
+      bridges.attach(bridge, heartbeat);
     },
     cancel(reason) {
       cancelled = true;
       watchdog?.stop();
-      clearInterval(currentHeartbeat);
+      clearInterval(live.heartbeat);
       const active = activeRuns.get(key);
-      if (active?.bridge === currentBridge) forgetActiveRun(key, active);
-      currentBridge.close(reason instanceof Error ? reason : new Error('Cursor stream cancelled'));
+      if (active?.bridge === live.bridge) forgetActiveRun(key, active);
+      live.bridge.close(reason instanceof Error ? reason : new Error('Cursor stream cancelled'));
     },
   });
   return new Response(stream, { headers: SSE_HEADERS });

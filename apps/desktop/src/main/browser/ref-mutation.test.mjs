@@ -101,12 +101,13 @@ test('form and ref-scroll failures after dispatch cannot enter the recovery loop
         throw new Error('unexpected recovery');
       },
     });
+    const text = action === 'scroll' ? undefined : 'new';
     const context = {
       guest,
       command:
         action === 'fields'
           ? { action: 'fill', fields: [{ ref: 'p1-s1-e1', text: 'new' }] }
-          : { action, ref: 'p1-s1-e1', text: action === 'scroll' ? undefined : 'new', values: ['new'], dy: 100 },
+          : { action, ref: 'p1-s1-e1', text, values: ['new'], dy: 100 },
       refRecovery: reply.refRecoveryFor(guest),
       services: {
         state,
@@ -116,7 +117,8 @@ test('form and ref-scroll failures after dispatch cannot enter the recovery loop
       },
       actionSnapshot: async () => ({ text: 'unexpected success' }),
     };
-    const run = action === 'scroll' ? pointerActions.scroll : formActions[action === 'fields' ? 'fill' : action];
+    const formAction = action === 'fields' ? 'fill' : action;
+    const run = action === 'scroll' ? pointerActions.scroll : formActions[formAction];
     await assert.rejects(run(context), /not replayed/);
     assert.equal(writes, 1);
     assert.equal(recoveries, 0);

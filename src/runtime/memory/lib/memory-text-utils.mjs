@@ -130,12 +130,10 @@ export function mergeRecallConceptTokens(text, conceptTokens, limit = 24) {
   const entityConcepts = concepts.filter(isEntityConcept);
   const rankingEntityConcepts = entityConcepts.filter((token) => !isStructuralTimeToken(token));
   const useEntityConcepts = rankingEntityConcepts.some(isIdentifierToken) || rankingEntityConcepts.length > 2;
+  const rankingConcepts = useEntityConcepts ? entityConcepts : concepts;
   const source =
     concepts.length > 0
-      ? [
-          ...raw.filter((token) => isIdentifierToken(token) || isConceptCompound(token, concepts)),
-          ...(useEntityConcepts ? entityConcepts : concepts),
-        ]
+      ? [...raw.filter((token) => isIdentifierToken(token) || isConceptCompound(token, concepts)), ...rankingConcepts]
       : raw;
   return [
     ...new Set(

@@ -1,4 +1,4 @@
-// Usage accumulation helpers extracted from loop.mjs.
+// Usage accumulation helpers.
 // Normalize a provider usage payload into the canonical token/cost shape and
 // fold successive deltas into a running total across loop iterations.
 

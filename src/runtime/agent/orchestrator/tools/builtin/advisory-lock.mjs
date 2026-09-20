@@ -3,9 +3,10 @@
 // check to clean up after crashed holders. Pair with the in-process
 // withPathLock for the same target: in-process serialises async callers
 // in this Node, advisory lock serialises across Node processes.
-import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync } from 'fs';
-import { dirname, basename, join } from 'path';
-import { randomBytes } from 'crypto';
+import { openSync, closeSync, writeSync, readFileSync, unlinkSync, mkdirSync } from 'node:fs';
+import { compareCodePoints } from '../../../../shared/code-point-order.mjs';
+import { dirname, basename, join } from 'node:path';
+import { randomBytes } from 'node:crypto';
 
 function lockFileFor(targetPath) {
   return join(dirname(targetPath), `.${basename(targetPath)}.mixdog-lock`);
@@ -181,11 +182,7 @@ export async function withAdvisoryLocks(paths, fn) {
   // with different path casing on Windows cannot acquire in opposite orders
   // and deadlock. (The dedup above already keys on the canonical form.)
   const _lockSortKey = (s) => (process.platform === 'win32' ? s.toLowerCase() : s);
-  ordered.sort((a, b) => {
-    const ka = _lockSortKey(a),
-      kb = _lockSortKey(b);
-    return ka < kb ? -1 : ka > kb ? 1 : 0;
-  });
+  ordered.sort((a, b) => compareCodePoints(_lockSortKey(a), _lockSortKey(b)));
   const acquired = [];
   try {
     for (const p of ordered) {

@@ -115,11 +115,12 @@ async function withDom(run) {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
   const names = ['window', 'document', 'navigator', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'];
   const previous = new Map(names.map((name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
+  const overrides = { window: dom.window, IS_REACT_ACT_ENVIRONMENT: true };
   for (const name of names)
     Object.defineProperty(globalThis, name, {
       configurable: true,
       writable: true,
-      value: name === 'IS_REACT_ACT_ENVIRONMENT' ? true : name === 'window' ? dom.window : dom.window[name],
+      value: overrides[name] ?? dom.window[name],
     });
   const root = createRoot(document.getElementById('root'));
   const render = async (element) => act(async () => root.render(element));

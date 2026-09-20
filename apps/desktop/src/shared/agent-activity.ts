@@ -193,18 +193,17 @@ export function createDesktopCancellationLedger(cap = DESKTOP_CANCELLATION_LEDGE
  *  `cancel-unconfirmed` (and the Windows survivor warning behind it) must never
  *  be reported as a completed or successful cancel. */
 export function desktopCancelOutcome(value: unknown): 'unconfirmed' | 'cancelled' | '' {
-  const text =
-    typeof value === 'string'
-      ? value
-      : value && typeof value === 'object'
-        ? ['status', 'stage', 'text', 'message', 'result', 'detail', 'error']
-            .map((key) => {
-              const part = (value as AgentRecord)[key];
-              return typeof part === 'string' ? part : '';
-            })
-            .filter(Boolean)
-            .join('\n')
-        : '';
+  let text = '';
+  if (typeof value === 'string') text = value;
+  else if (value && typeof value === 'object') {
+    text = ['status', 'stage', 'text', 'message', 'result', 'detail', 'error']
+      .map((key) => {
+        const part = (value as AgentRecord)[key];
+        return typeof part === 'string' ? part : '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
   if (!text.trim()) return '';
   if (/cancel[-_\s]?(?:unconfirmed|pending)|SURVIVING_DESCENDANTS_UNREACHABLE/i.test(text)) {
     return 'unconfirmed';

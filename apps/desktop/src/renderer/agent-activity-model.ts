@@ -175,7 +175,12 @@ function agentCancelSignals(entries: ReadonlyArray<{ entry: RecordValue }>): {
 
 function liveAgentSummary(
   entry: RecordValue,
-  { identity, index, unconfirmed, fallbackOwnerSessionId }: {
+  {
+    identity,
+    index,
+    unconfirmed,
+    fallbackOwnerSessionId,
+  }: {
     identity: string;
     index: number;
     unconfirmed: string;

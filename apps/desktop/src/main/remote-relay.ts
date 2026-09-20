@@ -1,38 +1,13 @@
 // Relay client for the installable web app: the desktop dials OUT to
 // apps/relay/server.mjs and answers browser RPC frames, so a phone anywhere
 // on the internet reaches this machine without port forwarding.
-import { randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, statSync, type ReadStream } from 'node:fs';
-import { join } from 'node:path';
-
 import WebSocket from 'ws';
 
-import { mediaResponsePlan } from '../../../relay/lib/media-http.mjs';
-import type {
-  DesktopAgentPoolRow,
-  DesktopRemoteClientInfo,
-  DesktopSessionStateUpdate,
-  DesktopSessionSummary,
-} from '../shared/contract';
+import type { DesktopRemoteClientInfo } from '../shared/contract';
 import { loadOrCreatePairingToken } from './remote-pairing-token';
-import {
-  acceptRelayE2EEClientHello,
-  createRelayE2EEChallenge,
-  isRelayClaimPublicKey,
-  isRelayE2EEHello,
-  relayE2EECompressionSupported,
-  relayE2EEPairingMaterial,
-  sealRelayE2EEPairingMaterial,
-  type RelayE2EEChannel,
-  type RelayE2EEChallenge,
-  type RelayE2EEPairingMaterial,
-} from '../shared/remote-e2ee';
-import { createRemoteByteMeter, createRemotePaintProbeTracker } from '../shared/remote-performance';
-import {
-  createRemoteCallStats,
-  reportRemoteByteWindow,
-  reportRemoteFirstTranscript,
-} from './remote-performance-diagnostics';
+import { relayE2EEPairingMaterial, type RelayE2EEPairingMaterial } from '../shared/remote-e2ee';
+import { createRemoteByteMeter } from '../shared/remote-performance';
+import { createRemoteCallStats, reportRemoteByteWindow } from './remote-performance-diagnostics';
 import {
   RELAY_FRAME_TOO_LARGE,
   RELAY_ROUTING_CAPS_EVENT,
@@ -47,26 +22,33 @@ import {
   resolveRelayFrameLimit,
   type RelayUplinkCeilings,
 } from '../shared/remote-payload-limit';
-import { createKeyedListDeltaEncoder, isNoListDelta } from '../shared/list-delta';
-import { createRemoteCatalog } from '../shared/remote-catalog';
-import { resolveMediaFileTarget } from './media-source';
-import { createRemoteMethods, executeRemoteFrame, type RemoteMethodDependencies } from './remote-methods';
-import { createPushNotifier } from './push-notifier';
-import { createRemoteCallQueue } from './remote-call-queue';
-import { createRemoteStateLane } from './remote-state-lane';
-import { registerAndSynchronizeRelayViews, synchronizeRelayViews } from './remote-view-sync';
-import { remoteTranscriptSnapshot } from './remote-transcript';
+import { createRemoteMethods, type RemoteMethodDependencies } from './remote-methods';
 export { remoteTranscriptSnapshot } from './remote-transcript';
-import { createRemoteStreamingMailbox } from './remote-streaming-mailbox';
 import { createPushSubscriptionStore } from './push-subscription-store';
 import { loadOrCreateRelayE2EEIdentity } from './remote-e2ee';
-import { readSecretFile, writeSecretFile } from './secret-file';
-import { createSnapshotDeltaEncoder, isNoDelta, isStateResyncFrame } from './state-delta';
-import { filterSessionIds } from './desktop-state';
-import { TerminalDataBufferer } from './terminal-data-buffer';
-import type { LatestStateMailbox } from './desktop-service-protocol';
+import { createRelayClientLifecycle } from './remote-relay-client-lifecycle';
+import { createRelayCatalogs } from './remote-relay-catalog';
+import { createRelayClientCallDispatch } from './remote-relay-client-calls';
+import { createRelayClientRegistry, type RelayClientState } from './remote-relay-clients';
+import { createRelayControlRequests } from './remote-relay-control';
+import { createRelayEnvelopeDispatcher } from './remote-relay-envelope';
+import {
+  createRevocationDrain,
+  loadOrCreateDevice,
+  relayClientUrl,
+  relayDeviceSocketOptions,
+  revokeDeviceOverSocket,
+  validatedRelayUrl,
+} from './remote-relay-device';
+import { createRelayMediaLane } from './remote-relay-media';
+import { createRelaySessionStateFanout } from './remote-relay-session-state';
+import { createRelaySessionWiring } from './remote-relay-session-wiring';
 // @ts-expect-error Relay framing is shared with the plain-ESM VPS server.
 import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from '../../../relay/lib/relay-binary-frame.mjs';
+
+export { resolveRelayUrl, rotateRemoteDevice } from './remote-relay-device';
+export { clientReadsLane } from './remote-relay-clients';
+export { encodeRelayClientSessionState } from './remote-relay-session-state';
 
 // Transport cap for ONE message on this leg. It sits above the relay's 64 MiB
 // policy ceiling on purpose: a policy-sized phone frame arrives here wrapped in
@@ -75,48 +57,6 @@ import { decodeRelayBinaryFrame, encodeRelayBinaryFrame } from '../../../relay/l
 // flag keeps that wrapper fixed — JSON escaping is no longer in this path — so
 // a small, constant headroom is all it takes.
 const MAX_WS_PAYLOAD_BYTES = 68 * 1024 * 1024;
-const REVOKE_TIMEOUT_MS = 5_000;
-const E2EE_HANDSHAKE_TIMEOUT_MS = 10_000;
-const MAX_ACTIVE_REMOTE_CLIENTS = 32;
-const MAX_PENDING_REMOTE_FRAMES = 256;
-const MAX_PENDING_REMOTE_FRAME_BYTES = MAX_WS_PAYLOAD_BYTES;
-const MAX_PENDING_REMOTE_TOTAL_FRAMES = 512;
-const MAX_PENDING_REMOTE_TOTAL_BYTES = MAX_WS_PAYLOAD_BYTES * 2;
-// Media chunk size and the socket backlog that pauses the read. Bigger frames
-// waste memory on the relay, smaller ones waste round trips; 256 KB keeps a
-// clip flowing while a phone that stalls stops the pump within a few frames.
-const MEDIA_CHUNK_BYTES = 256 * 1024;
-const MEDIA_SOCKET_BACKLOG_BYTES = 4 * 1024 * 1024;
-
-/** Packaged default: every install dials this relay so phone pairing works
- *  out of the box, with no VPS/env setup on the user side.
- *  MIXDOG_RELAY_URL=<wss url> overrides; 0/false/off disables. */
-const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
-
-function validatedRelayUrl(raw: string): string {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new TypeError('MIXDOG_RELAY_URL is invalid.');
-  }
-  const hostname = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  const loopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-  if (url.protocol !== 'wss:' && !(url.protocol === 'ws:' && loopback)) {
-    throw new TypeError('MIXDOG_RELAY_URL must use wss://; ws:// is allowed only for loopback development.');
-  }
-  if (url.username || url.password) {
-    throw new TypeError('MIXDOG_RELAY_URL must not contain credentials.');
-  }
-  return url.toString();
-}
-
-export function resolveRelayUrl(env: NodeJS.ProcessEnv): string | null {
-  const raw = (env.MIXDOG_RELAY_URL || '').trim();
-  const flag = raw.toLowerCase();
-  if (flag === '0' || flag === 'false' || flag === 'off') return null;
-  return validatedRelayUrl(raw || DEFAULT_RELAY_URL);
-}
 
 interface RemoteRelayOptions extends RemoteMethodDependencies {
   /** ws(s)://relay-host[:port] */
@@ -160,235 +100,6 @@ export interface RemoteRelayHandle {
   close(): Promise<void>;
 }
 
-interface DeviceIdentity {
-  deviceId: string;
-  deviceSecret: string;
-}
-
-function remoteFrameBudgetAvailable(
-  pendingFrames: number,
-  pendingBytes: number,
-  nextBytes: number,
-  totalPendingFrames = pendingFrames,
-  totalPendingBytes = pendingBytes
-): boolean {
-  return (
-    pendingFrames < MAX_PENDING_REMOTE_FRAMES &&
-    pendingBytes + nextBytes <= MAX_PENDING_REMOTE_FRAME_BYTES &&
-    totalPendingFrames < MAX_PENDING_REMOTE_TOTAL_FRAMES &&
-    totalPendingBytes + nextBytes <= MAX_PENDING_REMOTE_TOTAL_BYTES
-  );
-}
-
-/** A push lane reaches a browser that registered it, or one that predates the
- *  lane protocol and therefore still expects everything. An empty set is a
- *  deliberate "nothing right now", not a missing registration. */
-export function clientReadsLane(lanes: ReadonlySet<string> | null, lane: string): boolean {
-  return lanes === null || lanes.has(lane);
-}
-
-// Provider replay material, not display data: `thinkingBlocks` are Anthropic's
-// thinking/redacted_thinking blocks, kept so a later request can hand the model
-// its own prior reasoning back verbatim. No renderer reads them, and in a long
-// session they are a THIRD of the stored transcript — bytes a phone pays for on
-// every join and can never show.
-/** The host owns bounded history pages. A second transport-only slice hid
- * user prompts behind tool activity and prevented the renderer from ever
- * reaching its history paging threshold. Keep that page intact; compression
- * and per-client deltas still avoid retransmitting unchanged history. */
-export function encodeRelayClientSessionState(
-  encoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>,
-  sessionId: string,
-  snapshot: unknown,
-  compact = false
-): unknown {
-  let encoder = encoders.get(sessionId);
-  if (!encoder) {
-    encoder = createSnapshotDeltaEncoder({ compact });
-    encoders.set(sessionId, encoder);
-  }
-  return encoder.encode(remoteTranscriptSnapshot(snapshot));
-}
-
-function buildRelayMediaResponsePlan(input: {
-  size: number;
-  mime: string;
-  assetId: string;
-  variant: string;
-  rangeHeader: string;
-  ifNoneMatch: string;
-}) {
-  return mediaResponsePlan({
-    ...input,
-    // The browser may retain bytes, but every reuse must revalidate through
-    // the relay token gate so Unpair revokes access immediately. ETags keep
-    // unchanged content at 304 without re-downloading it.
-    cacheControl: 'private, no-cache',
-  });
-}
-
-const DEVICE_IDENTITY_FILE = 'relay-device.json';
-const DEVICE_REVOCATIONS_FILE = 'relay-device-revocations.json';
-let deviceFileMutation: Promise<void> = Promise.resolve();
-
-function validDeviceIdentity(value: unknown): value is DeviceIdentity {
-  const identity = value as Partial<DeviceIdentity> | null;
-  return (
-    typeof identity?.deviceId === 'string' &&
-    /^[0-9a-f-]{8,64}$/.test(identity.deviceId) &&
-    typeof identity.deviceSecret === 'string' &&
-    identity.deviceSecret.length >= 16
-  );
-}
-
-async function writeDeviceIdentity(path: string): Promise<DeviceIdentity> {
-  const identity = { deviceId: randomUUID(), deviceSecret: randomBytes(24).toString('hex') };
-  await writeSecretFile(path, JSON.stringify(identity, null, 2));
-  return identity;
-}
-
-async function loadQueuedRevocations(userDataPath: string): Promise<DeviceIdentity[]> {
-  try {
-    const parsed = JSON.parse((await readSecretFile(join(userDataPath, DEVICE_REVOCATIONS_FILE))) ?? '[]') as unknown;
-    return Array.isArray(parsed) ? parsed.filter(validDeviceIdentity) : [];
-  } catch {
-    return [];
-  }
-}
-
-async function writeQueuedRevocations(userDataPath: string, identities: DeviceIdentity[]): Promise<void> {
-  await writeSecretFile(join(userDataPath, DEVICE_REVOCATIONS_FILE), JSON.stringify(identities, null, 2));
-}
-
-function mutateDeviceFiles<T>(operation: () => Promise<T>): Promise<T> {
-  const result = deviceFileMutation.then(operation, operation);
-  deviceFileMutation = result.then(
-    () => undefined,
-    () => undefined
-  );
-  return result;
-}
-
-// Stable per-install identity for the relay's trust-on-first-use device
-// registration; the secret never leaves this machine except toward the relay.
-// It authenticates this desktop's leg, so it lives in an owner-only file.
-async function loadOrCreateDevice(userDataPath: string): Promise<DeviceIdentity> {
-  const path = join(userDataPath, DEVICE_IDENTITY_FILE);
-  try {
-    const parsed = JSON.parse((await readSecretFile(path)) ?? 'null') as unknown;
-    if (validDeviceIdentity(parsed)) {
-      return { deviceId: parsed.deviceId, deviceSecret: parsed.deviceSecret };
-    }
-  } catch {
-    /* first run */
-  }
-  return writeDeviceIdentity(path);
-}
-
-/** Queue the current identity for authenticated server-side deletion, then
- * replace it immediately so Unpair can refresh QRs even while the VPS is down. */
-export async function rotateRemoteDevice(userDataPath: string): Promise<DeviceIdentity> {
-  return mutateDeviceFiles(async () => {
-    const previous = await loadOrCreateDevice(userDataPath);
-    const queued = await loadQueuedRevocations(userDataPath);
-    if (!queued.some((identity) => identity.deviceId === previous.deviceId)) {
-      await writeQueuedRevocations(userDataPath, [...queued, previous]);
-    }
-    return writeDeviceIdentity(join(userDataPath, DEVICE_IDENTITY_FILE));
-  });
-}
-
-async function removeQueuedRevocation(userDataPath: string, deviceId: string): Promise<void> {
-  await mutateDeviceFiles(async () => {
-    const queued = await loadQueuedRevocations(userDataPath);
-    await writeQueuedRevocations(
-      userDataPath,
-      queued.filter((identity) => identity.deviceId !== deviceId)
-    );
-  });
-}
-
-function relayDeviceSocketOptions(
-  relayUrl: string,
-  identity: DeviceIdentity
-): { url: string; headers: Record<string, string> } {
-  const target = new URL(validatedRelayUrl(relayUrl));
-  target.pathname = '/desktop';
-  target.search = '';
-  target.hash = '';
-  return {
-    url: target.toString(),
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${identity.deviceId}:${identity.deviceSecret}`, 'utf8').toString('base64')}`,
-    },
-  };
-}
-
-function revokeIdentity(relayUrl: string, identity: DeviceIdentity, sockets: Set<WebSocket>): Promise<boolean> {
-  return new Promise((resolve) => {
-    const connection = relayDeviceSocketOptions(relayUrl, identity);
-    const ws = new WebSocket(connection.url, {
-      headers: connection.headers,
-      maxPayload: MAX_WS_PAYLOAD_BYTES,
-      // Frames on this leg are E2EE ciphertext (incompressible) or small
-      // control envelopes; payload compression happens inside the encrypted
-      // envelope instead. Transport deflate only cost CPU on both ends.
-      perMessageDeflate: false,
-    });
-    sockets.add(ws);
-    let settled = false;
-    const finish = (ok: boolean) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      sockets.delete(ws);
-      try {
-        ws.terminate();
-      } catch {
-        /* already gone */
-      }
-      resolve(ok);
-    };
-    const timeout = setTimeout(() => finish(false), REVOKE_TIMEOUT_MS);
-    timeout.unref?.();
-    ws.once('open', () => {
-      ws.send(JSON.stringify({ type: 'revoke-device' }), (error) => {
-        if (error) finish(false);
-      });
-    });
-    ws.on('message', (raw) => {
-      let message: { type?: unknown; ok?: unknown };
-      try {
-        message = JSON.parse(String(raw)) as { type?: unknown; ok?: unknown };
-      } catch {
-        return;
-      }
-      if (message.type === 'device-revoked') finish(message.ok !== false);
-    });
-    ws.once('error', () => finish(false));
-    ws.once('close', () => finish(false));
-  });
-}
-
-/** The entry URL carries a ROUTE, not a credential: it only says which desktop
- *  to ask. An install captures this URL through the manifest's start_url, which
- *  is what lets a freshly installed web app — a storage container that can
- *  inherit nothing — request approval from the right machine. */
-function relayClientUrl(relayUrl: string, deviceId: string): string {
-  const url = new URL(relayUrl);
-  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  url.pathname = `/d/${deviceId}/`;
-  url.search = '';
-  url.hash = '';
-  return url.toString();
-}
-
-// A phone gives up on an unanswered call at 20s (renderer remote-shim), closes
-// the socket and reconnects into a full resync. Anything approaching that is
-// already a broken session, so the threshold is low enough to catch the call
-// that got there while staying silent for ordinary work.
-const SLOW_REMOTE_CALL_MS = 2_000;
-
 export async function startRemoteRelay(options: RemoteRelayOptions): Promise<RemoteRelayHandle> {
   // The byte meter reports one `rpc` total per window, which cannot say whether
   // that was one heavy answer or eighty cheap ones. Name those calls without
@@ -412,86 +123,16 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   let relayTextFrames = false;
   let retryMs = 1_000;
   let reconnectTimer: NodeJS.Timeout | null = null;
-  let drainingRevocations = false;
   const revocationSockets = new Set<WebSocket>();
-  // Phones currently attached through the relay (client-open/-close
-  // envelopes). With zero phones the relay would drop every broadcast on
-  // the floor anyway, so the desktop goes quiet instead of streaming state
-  // upstream 24/7 — the relay lane then costs keepalive bytes only. Each
-  // join restarts the delta lane with a full snapshot, so nothing is lost.
-  interface RelayClientState {
-    syncing?: boolean;
-    viewSync?: boolean;
-    viewRecovery?: Promise<void>;
-    challenge: RelayE2EEChallenge;
-    channel: RelayE2EEChannel | null;
-    handshakeTimer: NodeJS.Timeout;
-    frameQueue: Promise<void>;
-    callQueue: ReturnType<typeof createRemoteCallQueue>;
-    stateLane: ReturnType<typeof createRemoteStateLane> | null;
-    pendingFrames: number;
-    pendingBytes: number;
-    visibleSessionIds: Set<string>;
-    /** Transcript delta baselines are receiver-specific. A shared encoder
-     *  advances even for clients filtered out of a session, so their first
-     *  later frame would otherwise be an undecodable patch. */
-    sessionStateEncoders: Map<string, ReturnType<typeof createSnapshotDeltaEncoder>>;
-    binaryFrames: boolean;
-    listDelta: boolean;
-    /** Compact transcript frames: unchanged patch sections are dropped and the
-     *  envelope addresses a session by handle. */
-    compactWire: boolean;
-    /** Push lanes this browser actually reads ('terminal', 'editor',
-     *  'files'). Terminal output, diagnostics and folder events are produced
-     *  by DESKTOP activity — a build, a save — and used to reach every paired
-     *  phone whether or not it had those surfaces open, so a phone left
-     *  connected paid for a whole build log it never displayed. null means a
-     *  client that predates this and still receives everything. */
-    lanes: Set<string> | null;
-    /** Per-client session handles: a live frame repeats the session id ~26
-     *  bytes at a time, which is most of an envelope that carries ~30 bytes of
-     *  new text. The name travels once, with the handle that replaces it. */
-    sessionHandles: Map<string, number>;
-    sessionsEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopSessionSummary>>;
-    agentPoolEncoder: ReturnType<typeof createKeyedListDeltaEncoder<DesktopAgentPoolRow>>;
-    /** What a returning phone actually waits for: the shell paints in ~250ms
-     *  and then shows nothing until the FIRST transcript frame for the session
-     *  it restored. Everything in between — E2EE handshake, layout restore,
-     *  the visible-session registration, the host's own read — happens here,
-     *  and no counter in this process could tell that gap from a slow link. */
-    openedAt: number;
-    firstTranscriptReported: boolean;
-  }
-  const activeClients = new Map<string, RelayClientState>();
-  let totalPendingFrames = 0;
-  let totalPendingBytes = 0;
-  const controlRequests = new Map<
-    string,
-    {
-      resolve(value: unknown): void;
-      reject(error: Error): void;
-      timer: NodeJS.Timeout;
-    }
-  >();
-  const notifyClientCount = (): void => options.onClientCountChanged?.();
-  // Media streams currently pumping to the relay, keyed by request id: an
-  // aborted phone request (scrolled away, closed tab) must stop the read.
-  // Two independent stalls can pause a pump — this socket's backlog, and the
-  // relay's flow control for a phone that stopped draining (the local
-  // backlog never sees that one, because the relay reads eagerly) — so the
-  // read only resumes once BOTH are clear.
-  interface MediaPump {
-    stream: ReadStream;
-    relayPaused: boolean;
-    socketFull: boolean;
-  }
-  const mediaStreams = new Map<string, MediaPump>();
-  const resumeMedia = (id: string): void => {
-    const pump = mediaStreams.get(id);
-    if (!pump || pump.relayPaused || pump.socketFull) return;
-    pump.stream.resume();
-  };
-
+  // Bandwidth attribution for this leg, in the relay's own billing unit. On by
+  // default: this daemon outlives every window and defers its own shutdown
+  // while a phone is attached, so a flag set when launching the app would
+  // almost never reach the process that actually relays. Two integer adds per
+  // frame and one log line a minute is not a cost worth gating behind that.
+  // MIXDOG_REMOTE_METER=0 opts out.
+  const relayByteMeter = createRemoteByteMeter({
+    enabled: process.env.MIXDOG_REMOTE_METER !== '0',
+  });
   const sendEnvelope = (payload: unknown): void => {
     if (socket && socket.readyState === WebSocket.OPEN) {
       try {
@@ -520,51 +161,25 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         reject(error);
       }
     });
-  const controlRequest = <T>(type: string, payload: Record<string, unknown> = {}): Promise<T> =>
-    new Promise<T>((resolve, reject) => {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        reject(new Error('Relay is not connected.'));
-        return;
-      }
-      const requestId = randomUUID();
-      const timer = setTimeout(() => {
-        controlRequests.delete(requestId);
-        reject(new Error('Relay device request timed out.'));
-      }, REVOKE_TIMEOUT_MS);
-      timer.unref?.();
-      controlRequests.set(requestId, {
-        resolve: (value) => resolve(value as T),
-        reject,
-        timer,
-      });
-      sendEnvelope({ type, requestId, ...payload });
-    });
-  const removeClient = (clientId: string): boolean => {
-    const state = activeClients.get(clientId);
-    if (!state) return false;
-    clearTimeout(state.handshakeTimer);
-    state.callQueue.close();
-    state.stateLane?.clear();
-    activeClients.delete(clientId);
-    if (activeClients.size === 0) {
+  const control = createRelayControlRequests({
+    sendEnvelope,
+    connected: () => socket !== null && socket.readyState === WebSocket.OPEN,
+  });
+  // With zero phones the relay would drop every broadcast on the floor anyway,
+  // so the desktop goes quiet instead of streaming state upstream 24/7 — the
+  // relay lane then costs keepalive bytes only. Each join restarts the delta
+  // lane with a full snapshot, so nothing is lost.
+  const clients = createRelayClientRegistry({
+    host: options.host,
+    sendEnvelope,
+    frameBudgetBytes: MAX_WS_PAYLOAD_BYTES,
+    onClientCountChanged: () => options.onClientCountChanged?.(),
+    onEmpty: () => {
       relayByteMeter.clear();
       remoteCallStats.clear();
-    }
-    const scopedHost = options.host as typeof options.host & {
-      setVisibleSessionsForSource?(sourceId: string, ids: string[]): Promise<boolean>;
-    };
-    void scopedHost.setVisibleSessionsForSource?.(`remote:${clientId}`, []).catch(() => {});
-    return true;
-  };
-  const clearClients = (): void => {
-    if (activeClients.size === 0) return;
-    for (const clientId of [...activeClients.keys()]) removeClient(clientId);
-    notifyClientCount();
-  };
-  const closeClient = (clientId: string, reason: string): void => {
-    if (removeClient(clientId)) notifyClientCount();
-    sendEnvelope({ type: 'close-client', clientId, reason });
-  };
+    },
+  });
+  const live = (clientId: string, state: RelayClientState): boolean => !closed && clients.attached(clientId, state);
   // The relay's per-frame ceiling as this desktop knows it. `relay-capabilities`
   // declares it at handshake; a `frame-too-large` notice proves a smaller one.
   // The effective limit is the smallest known value, so this leg's own check is
@@ -641,19 +256,10 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     const signature = JSON.stringify(payload);
     if (signature === advertisedRoutingCaps) return;
     advertisedRoutingCaps = signature;
-    if (activeClients.size === 0) return;
+    if (clients.size === 0) return;
     // Never droppable: losing this frame IS the failure it exists to prevent.
     broadcastEncrypted({ event: RELAY_ROUTING_CAPS_EVENT, payload }, false);
   };
-  // Bandwidth attribution for this leg, in the relay's own billing unit. On by
-  // default: this daemon outlives every window and defers its own shutdown
-  // while a phone is attached, so a flag set when launching the app would
-  // almost never reach the process that actually relays. Two integer adds per
-  // frame and one log line a minute is not a cost worth gating behind that.
-  // MIXDOG_REMOTE_METER=0 opts out.
-  const relayByteMeter = createRemoteByteMeter({
-    enabled: process.env.MIXDOG_REMOTE_METER !== '0',
-  });
   /** Refusing an oversize frame BEFORE it is sent is what makes attribution
    *  structural: the frame in hand is the frame that fails, so the call it
    *  answers is known exactly — no size matching, no log, nothing to evict or
@@ -667,25 +273,24 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     onSent?: (bytes: number) => void,
     requireDelivery = false
   ): Promise<void> => {
-    const state = activeClients.get(clientId);
+    const state = clients.get(clientId);
     if (!state?.channel) {
       if (requireDelivery) throw new Error('Remote client disconnected.');
       return;
     }
     try {
       const binary = relayBinaryFrames && state.binaryFrames;
-      const wire: string | Uint8Array = binary
-        ? encodeRelayBinaryFrame({
-            clientId,
-            data: await state.channel.encryptBinary(payload),
-            droppable,
-          })
-        : JSON.stringify({
-            type: 'frame',
-            clientId,
-            data: await state.channel.encryptJson(payload),
-            ...(droppable ? { droppable: true } : {}),
-          });
+      let wire: string | Uint8Array;
+      if (binary) {
+        wire = encodeRelayBinaryFrame({ clientId, data: await state.channel.encryptBinary(payload), droppable });
+      } else {
+        wire = JSON.stringify({
+          type: 'frame',
+          clientId,
+          data: await state.channel.encryptJson(payload),
+          ...(droppable ? { droppable: true } : {}),
+        });
+      }
       // Measured exactly as the relay charges it: the declared payload length
       // of the whole outgoing message (apps/relay/server.mjs frameBytes).
       const bytes = relayFrameByteLength(wire);
@@ -704,7 +309,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       onSent?.(bytes);
     } catch (error) {
       if (requireDelivery) throw error;
-      closeClient(clientId, 'relay encryption failed');
+      clients.close(clientId, 'relay encryption failed');
     }
   };
   const sendEncryptedFrame = (
@@ -720,7 +325,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     include: (state: RelayClientState) => boolean = () => true
   ): Promise<void> =>
     Promise.all(
-      [...activeClients].map(([clientId, state]) =>
+      [...clients.clients].map(([clientId, state]) =>
         state.channel && include(state) ? sendEncryptedFrame(clientId, payload, droppable) : Promise.resolve()
       )
     ).then(() => undefined);
@@ -731,280 +336,153 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
   ): void => {
     void broadcastEncryptedAsync(payload, droppable, include);
   };
-  const readsLane =
-    (lane: string) =>
-    (state: RelayClientState): boolean =>
-      clientReadsLane(state.lanes, lane);
-  const sessionStateMailboxes = new Map<string, LatestStateMailbox<DesktopSessionStateUpdate>>();
-  const remotePaintProbes = createRemotePaintProbeTracker({
-    enabled: process.env.MIXDOG_DESKTOP_PERF === '1',
-  });
-  const sessionStateMailbox = (sessionId: string): LatestStateMailbox<DesktopSessionStateUpdate> => {
-    const retained = sessionStateMailboxes.get(sessionId);
-    if (retained) return retained;
-    let mailbox!: LatestStateMailbox<DesktopSessionStateUpdate>;
-    mailbox = createRemoteStreamingMailbox((sequence, update, critical) => {
-      const perfProbe = remotePaintProbes.issue(sessionId);
-      void Promise.all(
-        [...activeClients].map(([clientId, state]) => {
-          if (!state.channel || state.syncing || !state.visibleSessionIds.has(sessionId)) {
-            return Promise.resolve();
-          }
-          const wire = encodeRelayClientSessionState(
-            state.sessionStateEncoders,
-            sessionId,
-            update.snapshot,
-            state.compactWire
-          );
-          // This client's baseline already matches the snapshot: the frame would
-          // carry a revision number and nothing else.
-          if (isNoDelta(wire)) return Promise.resolve();
-          if (!state.firstTranscriptReported) {
-            state.firstTranscriptReported = true;
-            // Sized once, on the frame that ends the wait — never on the stream
-            // behind it.
-            const bytes = Buffer.byteLength(JSON.stringify(wire) ?? '', 'utf8');
-            reportRemoteFirstTranscript(Date.now() - state.openedAt, bytes);
-          }
-          if (!state.compactWire) {
-            return sendEncryptedFrame(
-              clientId,
-              {
-                event: 'sessionState',
-                payload: {
-                  sessionId,
-                  wire,
-                  frameSource: update.frameSource,
-                  ...(update.laneEnd ? { laneEnd: update.laneEnd } : {}),
-                  ...(perfProbe ? { perfProbe } : {}),
-                  ...(typeof update.contentRevision === 'number' ? { contentRevision: update.contentRevision } : {}),
-                },
-              },
-              !critical
-            );
-          }
-          // Compact envelope. The nested event/payload/sessionId trio costs
-          // ~110 bytes on a frame whose new content is often ~30, so the keys
-          // shrink to single letters and the session travels as a handle whose
-          // name is sent once (`n`).
-          let handle = state.sessionHandles.get(sessionId);
-          const firstUse = handle === undefined;
-          if (handle === undefined) {
-            handle = state.sessionHandles.size + 1;
-            state.sessionHandles.set(sessionId, handle);
-          }
-          return sendEncryptedFrame(
-            clientId,
-            {
-              e: 'T',
-              s: handle,
-              ...(firstUse ? { n: sessionId } : {}),
-              w: wire,
-              // 'live' is the overwhelming default; only a replay announces itself.
-              ...(update.frameSource && update.frameSource !== 'live' ? { f: update.frameSource } : {}),
-              // Only a null frame carries it, so the key never rides a streaming one.
-              ...(update.laneEnd ? { le: update.laneEnd } : {}),
-              ...(perfProbe ? { pp: perfProbe } : {}),
-              ...(typeof update.contentRevision === 'number' ? { cr: update.contentRevision } : {}),
-            },
-            !critical
-          );
-        })
-      ).finally(() => mailbox.acknowledge(sequence));
-    });
-    sessionStateMailboxes.set(sessionId, mailbox);
-    return mailbox;
-  };
+  const sessionStates = createRelaySessionStateFanout({ clients: clients.clients, sendEncryptedFrame });
   const resetTransportDeltas = (): void => {
-    for (const mailbox of sessionStateMailboxes.values()) mailbox.clear();
-    sessionStateMailboxes.clear();
-    for (const state of activeClients.values()) {
-      state.stateLane?.clear();
-      state.sessionStateEncoders.clear();
-      state.sessionsEncoder.reset();
-      state.agentPoolEncoder.reset();
-    }
-    remotePaintProbes.clear();
+    sessionStates.clear();
+    clients.resetDeltas();
   };
-  // Rosters are pushed only when the store changes, so a lost or undecodable
-  // patch would strand a phone on stale rows (status dots, unread marks) until
-  // the NEXT change — a resync answered with state alone never repaired it.
-  // The last roster is retained and re-sent IN FULL on join and on resync.
-  const sessionsCatalog = createRemoteCatalog<DesktopSessionSummary>();
-  const agentsCatalog = createRemoteCatalog<DesktopAgentPoolRow>();
-  const sendClientLists = (clientId: string, state: RelayClientState): void => {
-    // Host subscriptions announce CHANGES, not an initial roster. Do not
-    // replace a phone's real rows with a fabricated empty list on first join.
-    // Each lane recovers independently; an agent read fault must not hide the
-    // session catalog. Late reads may not send into a replacement connection.
-    void sessionsCatalog
-      .read(() => options.host.listSessions())
-      .then(() => {
-        const rows = sessionsCatalog.get();
-        if (closed || activeClients.get(clientId) !== state || rows === null) return;
-        state.sessionsEncoder.reset();
-        const wire = state.sessionsEncoder.encode(rows);
-        return sendEncryptedFrame(
-          clientId,
-          {
-            event: 'sessions',
-            payload: state.listDelta ? wire : rows,
-          },
-          false
-        );
-      })
-      .catch((error) => console.error('[mixdog-remote] session catalog recovery failed', error));
-    void agentsCatalog
-      .read(() => options.host.listAgentPool())
-      .then(() => {
-        const rows = agentsCatalog.get();
-        if (closed || activeClients.get(clientId) !== state || rows === null) return;
-        state.agentPoolEncoder.reset();
-        const wire = state.agentPoolEncoder.encode(rows);
-        return sendEncryptedFrame(
-          clientId,
-          {
-            event: 'agentPool',
-            payload: state.listDelta ? wire : rows,
-          },
-          false
-        );
-      })
-      .catch((error) => console.error('[mixdog-remote] agent catalog recovery failed', error));
-  };
-  const resyncClient = (clientId: string, state: RelayClientState): void => {
-    if (options.host.replaySessionStates) {
-      if (state.viewRecovery) return;
-      const recovery = synchronizeRelayViews(
-        options.host,
-        state,
-        () => !closed && activeClients.get(clientId) === state,
-        (frame) => sendEncryptedFrame(clientId, frame, false, undefined, true)
-      );
-      state.viewRecovery = recovery;
-      void recovery
-        .catch((error) => {
-          console.error('[mixdog-remote] view recovery failed', error);
-          if (activeClients.get(clientId) === state) closeClient(clientId, 'view recovery failed');
-        })
-        .finally(() => {
-          if (state.viewRecovery === recovery) state.viewRecovery = undefined;
-        });
-      return;
-    }
-    state.sessionStateEncoders.clear();
-    state.stateLane?.reset(options.host.getSnapshot());
-    sendClientLists(clientId, state);
-  };
-  const broadcastState = (snapshot: unknown): void => {
-    for (const state of activeClients.values()) {
-      if (!state.syncing) state.stateLane?.publish(snapshot);
-    }
-  };
-  const drainQueuedRevocations = async (): Promise<void> => {
-    if (closed || drainingRevocations) return;
-    drainingRevocations = true;
-    try {
-      const queued = await loadQueuedRevocations(options.userDataPath);
-      for (const identity of queued) {
-        if (closed) break;
-        // A failed identity-file rotation may leave the current identity in the
-        // queue. Never let cleanup revoke the live registration in that case.
-        if (identity.deviceId === deviceId) continue;
-        const removed = await revokeIdentity(relayUrl, identity, revocationSockets);
-        if (removed) await removeQueuedRevocation(options.userDataPath, identity.deviceId);
-      }
-    } finally {
-      drainingRevocations = false;
-    }
-  };
-
-  // Media byte lane: the relay proxies a phone's HTTP request here and this
-  // leg answers with a plan (status + headers) followed by raw chunks. Media
-  // never becomes an RPC payload again, so a clip cannot stall the UI socket
-  // and the phone keeps browser caching and Range seeking.
-  const serveRelayMedia = async (media: {
-    id: string;
-    assetId: string;
-    variant: string;
-    method: string;
-    range: string;
-    ifNoneMatch: string;
-  }): Promise<void> => {
-    const { id } = media;
-    const fail = (status: number): void => {
-      sendEnvelope({ type: 'media-head', id, status, headers: {} });
-      sendEnvelope({ type: 'media-end', id });
-    };
-    let target: { path: string; mime: string } | null;
-    try {
-      target = await resolveMediaFileTarget(options.host, media.assetId, media.variant);
-    } catch {
-      fail(500);
-      return;
-    }
-    if (!target) {
-      fail(404);
-      return;
-    }
-    let size: number;
-    try {
-      size = statSync(target.path).size;
-    } catch {
-      fail(404);
-      return;
-    }
-    const plan = buildRelayMediaResponsePlan({
-      size,
-      mime: target.mime,
-      assetId: media.assetId,
-      variant: media.variant,
-      rangeHeader: media.range,
-      ifNoneMatch: media.ifNoneMatch,
-    });
-    sendEnvelope({ type: 'media-head', id, status: plan.status, headers: plan.headers });
-    if (plan.status >= 300 || media.method === 'HEAD') {
-      sendEnvelope({ type: 'media-end', id });
-      return;
-    }
-    const stream = createReadStream(target.path, {
-      start: plan.start,
-      end: plan.end,
-      highWaterMark: MEDIA_CHUNK_BYTES,
-    });
-    const pump: MediaPump = { stream, relayPaused: false, socketFull: false };
-    mediaStreams.set(id, pump);
-    stream.on('data', (chunk) => {
-      sendEnvelope({ type: 'media-chunk', id, data: (chunk as Buffer).toString('base64') });
-      // Backpressure: without it a phone on a slow link buffers the whole clip
-      // in this process and again in the relay.
-      if ((socket?.bufferedAmount ?? 0) <= MEDIA_SOCKET_BACKLOG_BYTES) return;
-      pump.socketFull = true;
-      stream.pause();
-      const resume = setInterval(() => {
-        if (!mediaStreams.has(id)) {
-          clearInterval(resume);
-          return;
-        }
-        if ((socket?.bufferedAmount ?? 0) > MEDIA_SOCKET_BACKLOG_BYTES) return;
-        clearInterval(resume);
-        pump.socketFull = false;
-        resumeMedia(id);
-      }, 50);
-      resume.unref?.();
-    });
-    stream.on('error', () => {
-      mediaStreams.delete(id);
-      sendEnvelope({ type: 'media-error', id });
-    });
-    stream.on('end', () => {
-      mediaStreams.delete(id);
-      sendEnvelope({ type: 'media-end', id });
-    });
-  };
+  const catalogs = createRelayCatalogs({ host: options.host, clients: clients.clients, live, sendEncryptedFrame });
+  const sessionWiring = createRelaySessionWiring({
+    host: options.host,
+    clients,
+    catalogs,
+    sessionStates,
+    pushStore,
+    live,
+    closed: () => closed,
+    sendEncryptedFrame,
+    broadcastEncrypted,
+    subscribeTerminalData: options.subscribeTerminalData,
+  });
+  const drainQueuedRevocations = createRevocationDrain({
+    relayUrl,
+    userDataPath: options.userDataPath,
+    deviceId,
+    sockets: revocationSockets,
+    maxPayload: MAX_WS_PAYLOAD_BYTES,
+    closed: () => closed,
+  });
+  const mediaLane = createRelayMediaLane({
+    host: options.host,
+    sendEnvelope,
+    socketBacklog: () => socket?.bufferedAmount ?? 0,
+  });
   // Retained for a future encrypted byte lane. The active relay protocol
   // rejects media requests before this plaintext implementation can run.
-  void serveRelayMedia;
+  void mediaLane.serve;
+  const dispatchClientCall = createRelayClientCallDispatch({
+    host: options.host,
+    methods,
+    attached: clients.attached,
+    live,
+    sendEncryptedFrame,
+    acknowledgePaintProbe: sessionStates.acknowledgeFrame,
+    resyncClient: sessionWiring.resyncClient,
+    recordCall: remoteCallStats.record,
+  });
+  const clientLifecycle = createRelayClientLifecycle({
+    clients,
+    e2eeIdentity,
+    pairing,
+    relayBinaryFrames: () => relayBinaryFrames,
+    viewSyncSupported: () => Boolean(options.host.replaySessionStates),
+    relayRoutingCapsPayload: () => relayRoutingCapsPayload(relayUplinkLimits()),
+    sendEnvelope,
+    sendEncryptedFrame,
+    dispatchClientCall,
+    resyncClient: sessionWiring.resyncClient,
+    onClientClaim: options.onClientClaim,
+  });
+  const handleRelayCapabilities = (envelope: Record<string, unknown>): void => {
+    relayBinaryFrames = envelope.binaryFrames === 1;
+    // ACKNOWLEDGEMENT, not inference: `desktop-lanes.textFrames` is only
+    // a request, and a binary-capable relay that predates the flag still
+    // JSON-wraps text. Pricing text as fixed without this echo promises a
+    // browser room the relay does not have.
+    relayTextFrames = envelope.textFrames === 1;
+    // The relay declares its per-frame ceiling here (server.mjs
+    // runDesktopLeg). Learning it is what lets this leg refuse an
+    // oversize frame itself instead of discovering it after the fact.
+    if (typeof envelope.maxFrameBytes === 'number') {
+      declaredFrameLimit = resolveRelayFrameLimit(envelope.maxFrameBytes);
+    }
+    // …and the authoritative ceilings that go with it, for THIS
+    // connection: the relay clamped its own capacity for this leg and
+    // priced the routing envelope with the id it actually wraps a phone
+    // frame in. Consuming them is what makes the browser refuse exactly
+    // what the relay refuses; a relay that publishes none reads as null
+    // and the conservative fallback stands in.
+    relayPublishedCeilings = readRelayUplinkCeilings(envelope);
+    // The relay republishes on change; a phone already attached is held
+    // to whatever it was told in its handshake until this reaches it.
+    republishRoutingCaps();
+  };
+  const routeRelayEnvelope = createRelayEnvelopeDispatcher({
+    control,
+    onCapabilities: handleRelayCapabilities,
+    onClientClaim: clientLifecycle.answerClaim,
+    onClientOpen: clientLifecycle.open,
+    onClientClose: (clientId) => {
+      if (clients.remove(clientId)) options.onClientCountChanged?.();
+    },
+    onMediaFlowControl: (id) => {
+      if (id) sendEnvelope({ type: 'media-error', id });
+    },
+  });
+  const dispatchRelayEnvelope = (envelope: Record<string, unknown>): void => {
+    // The relay REFUSED an oversize frame instead of dropping the leg, so
+    // the browser that sent it is waiting on a call that will never be
+    // answered. Forward the refusal to it (encrypted, like every other
+    // event) and let it fail that call with a real reason.
+    //
+    // The relay derives this clientId from the binary frame header or a
+    // bounded JSON scan — never from parsing the payload — so it is used
+    // here as a LOOKUP KEY only: an unknown id finds no client and an
+    // absent one means the refusal could not be attributed, which every
+    // active client has to consider. A malformed envelope yields no
+    // rejection and returns quietly; nothing here can throw or close.
+    if (envelope.type === RELAY_FRAME_TOO_LARGE) {
+      const rejection = readRelayPayloadRejection(envelope);
+      if (!rejection) return;
+      // A frame slipped past the pre-send check, so the ceiling this leg
+      // believed in was too generous: tighten it permanently. The notice
+      // itself names no call and NEVER selects one — the relay cannot know
+      // which frame it refused, and guessing by size blames innocents.
+      if (rejection.limit !== null) {
+        noticedFrameLimit = resolveRelayFrameLimit(rejection.limit, noticedFrameLimit);
+      }
+      const clientId = typeof envelope.clientId === 'string' ? envelope.clientId : '';
+      if (!clientId) {
+        // Unattributed. It concerns exactly ONE client and nothing can say
+        // which, so no client is told: a sibling would learn another
+        // client's refused size and see an error for traffic it never
+        // sent. The learned ceiling above is the repair that matters; the
+        // event itself is recorded on the leg it happened on.
+        console.error(
+          '[mixdog-remote] relay refused an oversize frame' +
+            ` bytes=${rejection.bytes ?? 'unknown'} limit=${rejection.limit ?? 'unknown'}` +
+            ' (no client attributed)'
+        );
+        options.onRelayPayloadRefused?.({
+          bytes: rejection.bytes,
+          limit: rejection.limit,
+        });
+        return;
+      }
+      // Named: only that leg hears about it, and never as a victim.
+      void sendEncryptedFrame(clientId, relayPayloadRejectedFrame({ ...rejection, callId: null, scope: 'unknown' }));
+      return;
+    }
+    if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') {
+      routeRelayEnvelope(envelope);
+      return;
+    }
+    const client = clients.get(envelope.clientId);
+    if (!client) return;
+    const frame = envelope.data;
+    if (typeof frame !== 'string' && !ArrayBuffer.isView(frame)) return;
+    clientLifecycle.receive(envelope.clientId, client, frame);
+  };
 
   const connect = (): void => {
     if (closed) return;
@@ -1050,9 +528,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       resetTransportDeltas();
       // A fresh desktop leg supersedes the old one and the relay closed its
       // phone legs; phones re-open and re-announce themselves.
-      if (activeClients.size > 0) {
-        clearClients();
-      }
+      clients.clear();
       // Announce the lanes this build serves BEFORE the pairing token, so the
       // relay can answer a phone's media request the moment a client leg
       // binds. An older relay ignores the frame; a newer one stops proxying
@@ -1101,416 +577,7 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
             return;
           }
         }
-        if (envelope.type === 'relay-capabilities') {
-          relayBinaryFrames = envelope.binaryFrames === 1;
-          // ACKNOWLEDGEMENT, not inference: `desktop-lanes.textFrames` is only
-          // a request, and a binary-capable relay that predates the flag still
-          // JSON-wraps text. Pricing text as fixed without this echo promises a
-          // browser room the relay does not have.
-          relayTextFrames = envelope.textFrames === 1;
-          // The relay declares its per-frame ceiling here (server.mjs
-          // runDesktopLeg). Learning it is what lets this leg refuse an
-          // oversize frame itself instead of discovering it after the fact.
-          if (typeof envelope.maxFrameBytes === 'number') {
-            declaredFrameLimit = resolveRelayFrameLimit(envelope.maxFrameBytes);
-          }
-          // …and the authoritative ceilings that go with it, for THIS
-          // connection: the relay clamped its own capacity for this leg and
-          // priced the routing envelope with the id it actually wraps a phone
-          // frame in. Consuming them is what makes the browser refuse exactly
-          // what the relay refuses; a relay that publishes none reads as null
-          // and the conservative fallback stands in.
-          relayPublishedCeilings = readRelayUplinkCeilings(envelope);
-          // The relay republishes on change; a phone already attached is held
-          // to whatever it was told in its handshake until this reaches it.
-          republishRoutingCaps();
-          return;
-        }
-        if (envelope.type === 'clients-list' || envelope.type === 'client-revoked') {
-          const requestId = String(envelope.requestId || '');
-          const pending = controlRequests.get(requestId);
-          if (!pending) return;
-          controlRequests.delete(requestId);
-          clearTimeout(pending.timer);
-          if (envelope.ok === false) {
-            pending.reject(new Error(String(envelope.error || 'Relay device request failed.')));
-          } else {
-            pending.resolve(envelope.type === 'clients-list' ? envelope.clients : envelope.ok);
-          }
-          return;
-        }
-        // Approval handoff. An installed web app starts with an empty storage
-        // container, so it cannot present a pairing — it asks instead, and the
-        // user answers HERE. The pairing material is sealed to that
-        // container's throwaway public key, so the relay forwards a box it
-        // has no key for.
-        if (envelope.type === 'client-claim') {
-          const claimId = String(envelope.claimId || '');
-          const publicKey = envelope.publicKey;
-          if (!claimId || !isRelayClaimPublicKey(publicKey)) return;
-          const clientId = String(envelope.clientId || claimId).slice(0, 80);
-          const rawExpiresAt = Number(envelope.expiresAt);
-          const expiresAt =
-            Number.isFinite(rawExpiresAt) && rawExpiresAt > Date.now() ? rawExpiresAt : Date.now() + 300_000;
-          void (async () => {
-            let sealed: unknown = null;
-            try {
-              const approved = await options.onClientClaim?.({
-                claimId,
-                clientId,
-                name: String(envelope.name || 'Web app').slice(0, 80),
-                platform: String(envelope.platform || '').slice(0, 80),
-                browser: String(envelope.browser || '').slice(0, 80),
-                expiresAt,
-              });
-              if (approved) sealed = await sealRelayE2EEPairingMaterial(pairing, publicKey);
-            } catch {
-              sealed = null;
-            }
-            sendEnvelope(sealed ? { type: 'claim-approve', claimId, sealed } : { type: 'claim-deny', claimId });
-          })();
-          return;
-        }
-        if (envelope.type === 'client-open') {
-          if (typeof envelope.clientId === 'string') {
-            if (!activeClients.has(envelope.clientId) && activeClients.size >= MAX_ACTIVE_REMOTE_CLIENTS) {
-              sendEnvelope({
-                type: 'close-client',
-                clientId: envelope.clientId,
-                reason: 'remote client limit reached',
-              });
-              return;
-            }
-            removeClient(envelope.clientId);
-            const challenge = {
-              ...createRelayE2EEChallenge(),
-              ...(relayBinaryFrames ? { binaryFrames: 1 as const } : {}),
-              listDelta: 1 as const,
-              ...(relayE2EECompressionSupported() ? { deflate: 1 as const } : {}),
-              compactWire: 1 as const,
-            };
-            const handshakeTimer = setTimeout(() => {
-              closeClient(envelope.clientId as string, 'relay encryption handshake timed out');
-            }, E2EE_HANDSHAKE_TIMEOUT_MS);
-            handshakeTimer.unref?.();
-            activeClients.set(envelope.clientId, {
-              challenge,
-              channel: null,
-              handshakeTimer,
-              frameQueue: Promise.resolve(),
-              callQueue: createRemoteCallQueue(),
-              stateLane: null,
-              pendingFrames: 0,
-              pendingBytes: 0,
-              visibleSessionIds: new Set(),
-              sessionStateEncoders: new Map(),
-              binaryFrames: false,
-              listDelta: false,
-              compactWire: false,
-              lanes: null,
-              sessionHandles: new Map(),
-              sessionsEncoder: createKeyedListDeltaEncoder<DesktopSessionSummary>((session, index) =>
-                String(session.id || `session:${index}`)
-              ),
-              agentPoolEncoder: createKeyedListDeltaEncoder<DesktopAgentPoolRow>((agent, index) =>
-                String(agent.sessionId || agent.tag || `agent:${index}`)
-              ),
-              openedAt: Date.now(),
-              firstTranscriptReported: false,
-            });
-            notifyClientCount();
-            sendEnvelope({
-              type: 'frame',
-              clientId: envelope.clientId,
-              data: JSON.stringify(challenge),
-            });
-          }
-          return;
-        }
-        if (envelope.type === 'client-close') {
-          if (typeof envelope.clientId === 'string' && removeClient(envelope.clientId)) {
-            notifyClientCount();
-          }
-          return;
-        }
-        // Relay flow control for the phone leg: its HTTP response filled up,
-        // so stop reading until it drains. An older relay never sends these.
-        if (typeof envelope.type === 'string' && envelope.type.startsWith('media-')) {
-          const id = String((envelope as Record<string, unknown>).id ?? '');
-          if (id) sendEnvelope({ type: 'media-error', id });
-          return;
-        }
-        // The relay REFUSED an oversize frame instead of dropping the leg, so
-        // the browser that sent it is waiting on a call that will never be
-        // answered. Forward the refusal to it (encrypted, like every other
-        // event) and let it fail that call with a real reason.
-        //
-        // The relay derives this clientId from the binary frame header or a
-        // bounded JSON scan — never from parsing the payload — so it is used
-        // here as a LOOKUP KEY only: an unknown id finds no client and an
-        // absent one means the refusal could not be attributed, which every
-        // active client has to consider. A malformed envelope yields no
-        // rejection and returns quietly; nothing here can throw or close.
-        if (envelope.type === RELAY_FRAME_TOO_LARGE) {
-          const rejection = readRelayPayloadRejection(envelope);
-          if (!rejection) return;
-          // A frame slipped past the pre-send check, so the ceiling this leg
-          // believed in was too generous: tighten it permanently. The notice
-          // itself names no call and NEVER selects one — the relay cannot know
-          // which frame it refused, and guessing by size blames innocents.
-          if (rejection.limit !== null) {
-            noticedFrameLimit = resolveRelayFrameLimit(rejection.limit, noticedFrameLimit);
-          }
-          const clientId = typeof envelope.clientId === 'string' ? envelope.clientId : '';
-          if (!clientId) {
-            // Unattributed. It concerns exactly ONE client and nothing can say
-            // which, so no client is told: a sibling would learn another
-            // client's refused size and see an error for traffic it never
-            // sent. The learned ceiling above is the repair that matters; the
-            // event itself is recorded on the leg it happened on.
-            console.error(
-              '[mixdog-remote] relay refused an oversize frame' +
-                ` bytes=${rejection.bytes ?? 'unknown'} limit=${rejection.limit ?? 'unknown'}` +
-                ' (no client attributed)'
-            );
-            options.onRelayPayloadRefused?.({
-              bytes: rejection.bytes,
-              limit: rejection.limit,
-            });
-            return;
-          }
-          // Named: only that leg hears about it, and never as a victim.
-          void sendEncryptedFrame(
-            clientId,
-            relayPayloadRejectedFrame({ ...rejection, callId: null, scope: 'unknown' })
-          );
-          return;
-        }
-        if (envelope.type !== 'frame' || typeof envelope.clientId !== 'string') return;
-        const client = activeClients.get(envelope.clientId);
-        if (!client) return;
-        const frame = envelope.data;
-        if (typeof frame !== 'string' && !ArrayBuffer.isView(frame)) return;
-        const frameBytes = typeof frame === 'string' ? Buffer.byteLength(frame) : frame.byteLength;
-        if (
-          !remoteFrameBudgetAvailable(
-            client.pendingFrames,
-            client.pendingBytes,
-            frameBytes,
-            totalPendingFrames,
-            totalPendingBytes
-          )
-        ) {
-          closeClient(envelope.clientId, 'remote client backlog exceeded');
-          return;
-        }
-        client.pendingFrames += 1;
-        client.pendingBytes += frameBytes;
-        totalPendingFrames += 1;
-        totalPendingBytes += frameBytes;
-        const processFrame = async (): Promise<void> => {
-          if (activeClients.get(envelope.clientId as string) !== client) return;
-          if (!client.channel) {
-            if (typeof frame !== 'string') {
-              closeClient(envelope.clientId as string, 'relay encryption handshake required');
-              return;
-            }
-            let hello: unknown;
-            try {
-              hello = JSON.parse(frame);
-            } catch {
-              closeClient(envelope.clientId as string, 'relay encryption handshake required');
-              return;
-            }
-            if (!isRelayE2EEHello(hello)) {
-              closeClient(envelope.clientId as string, 'relay encryption handshake required');
-              return;
-            }
-            try {
-              client.channel = await acceptRelayE2EEClientHello(e2eeIdentity, client.challenge, hello);
-              client.binaryFrames = hello.binaryFrames === 1;
-              client.listDelta = hello.listDelta === 1;
-              client.compactWire = hello.compactWire === 1;
-              client.viewSync = hello.viewSync === 1 && Boolean(options.host.replaySessionStates);
-              client.stateLane = createRemoteStateLane(client.compactWire, (payload, droppable) =>
-                activeClients.get(envelope.clientId as string) === client
-                  ? sendEncryptedFrame(envelope.clientId as string, payload, droppable, undefined, !droppable)
-                  : Promise.resolve()
-              );
-              clearTimeout(client.handshakeTimer);
-              const uplink = relayUplinkLimits();
-              await sendEncryptedFrame(
-                envelope.clientId as string,
-                // The browser cannot see `relay-capabilities` (that frame is on
-                // the desktop leg), so it is handed the very numbers the relay
-                // published for this connection:
-                //   maxFrameBytes — the relay's policy ceiling, applied to the
-                //                   phone's OWN frame exactly as it is sent;
-                //   uplink*       — this connection's effective capacity and
-                //                   the largest frame each wire form may carry
-                //                   once the relay has wrapped it for this leg.
-                // Forwarded, not recomputed: the relay's admission decision IS
-                // the browser's, so an oversize frame fails in the browser at
-                // the same byte the relay would have refused it at.
-                {
-                  type: 'e2ee-ready',
-                  version: 1,
-                  ...(client.viewSync ? { viewSync: 1 } : {}),
-                  ...relayRoutingCapsPayload(uplink),
-                }
-              );
-              if (!client.viewSync) resyncClient(envelope.clientId as string, client);
-            } catch {
-              closeClient(envelope.clientId as string, 'relay encryption authentication failed');
-            }
-            return;
-          }
-          let clearPayload: unknown;
-          try {
-            clearPayload = await client.channel.decryptJson(frame);
-          } catch {
-            closeClient(envelope.clientId as string, 'invalid encrypted relay frame');
-            return;
-          }
-          const paint = remotePaintProbes.acknowledgeFrame(clearPayload);
-          if (paint) {
-            console.error(
-              `[mixdog-remote-perf] session=${paint.sessionId}` +
-                ` publish-to-paint-rtt=${paint.roundTripMs.toFixed(0)}ms` +
-                ` receive-to-paint=${paint.receiveToPaintMs.toFixed(1)}ms`
-            );
-            return;
-          }
-          const call = clearPayload as { id?: unknown; method?: unknown; params?: unknown } | null;
-          if (call?.method === 'synchronizeViews' && typeof call.id === 'number') {
-            const synchronize = async (): Promise<void> => {
-              if (activeClients.get(envelope.clientId as string) !== client) return;
-              try {
-                if (!client.viewSync) throw new TypeError('View synchronization is unavailable.');
-                await registerAndSynchronizeRelayViews(
-                  options.host,
-                  envelope.clientId as string,
-                  client,
-                  call.params,
-                  () => !closed && activeClients.get(envelope.clientId as string) === client,
-                  (payload) => sendEncryptedFrame(envelope.clientId as string, payload, false, undefined, true)
-                );
-                await sendEncryptedFrame(envelope.clientId as string, { id: call.id, ok: true, value: true });
-              } catch (error) {
-                client.syncing = false;
-                await sendEncryptedFrame(envelope.clientId as string, {
-                  id: call.id,
-                  ok: false,
-                  error: error instanceof Error ? error.message : String(error),
-                });
-              }
-            };
-            // Only decoding must be ordered. A slow recovery read must not
-            // stop an explicit abort/approval from reaching the live runtime.
-            const recovery = (client.viewRecovery ?? Promise.resolve()).catch(() => undefined).then(synchronize);
-            client.viewRecovery = recovery;
-            execution = recovery.finally(() => {
-              if (client.viewRecovery === recovery) client.viewRecovery = undefined;
-            });
-            void execution.catch(() => undefined);
-            return;
-          }
-          // Transport-scoped, like setVisibleSessions: it registers what THIS
-          // browser reads rather than asking the host for anything.
-          if (call?.method === 'setRemoteLanes' && Array.isArray(call.params)) {
-            const requested = Array.isArray(call.params[0]) ? call.params[0] : [];
-            client.lanes = new Set(
-              requested
-                .map((value: unknown) => String(value || ''))
-                .filter((value: string) => /^[a-z]{1,16}$/u.test(value))
-            );
-            if (typeof call.id === 'number') {
-              await sendEncryptedFrame(envelope.clientId as string, {
-                id: call.id,
-                ok: true,
-                value: true,
-              });
-            }
-            return;
-          }
-          if (call?.method === 'setVisibleSessions' && Array.isArray(call.params)) {
-            await client.viewRecovery;
-            const requested = filterSessionIds(call.params[0]);
-            const nextVisible = new Set(requested);
-            for (const sessionId of client.sessionStateEncoders.keys()) {
-              if (!nextVisible.has(sessionId)) client.sessionStateEncoders.delete(sessionId);
-            }
-            client.visibleSessionIds = nextVisible;
-            const scopedHost = options.host as typeof options.host & {
-              setVisibleSessionsForSource?(sourceId: string, ids: string[]): Promise<boolean>;
-            };
-            const value =
-              (await scopedHost.setVisibleSessionsForSource?.(`remote:${envelope.clientId}`, requested)) ??
-              (await options.host.setVisibleSessions?.(requested)) ??
-              false;
-            if (typeof call.id === 'number') {
-              await sendEncryptedFrame(envelope.clientId as string, {
-                id: call.id,
-                ok: true,
-                value,
-              });
-            }
-            return;
-          }
-          const clearFrame = JSON.stringify(clearPayload);
-          if (isStateResyncFrame(clearFrame)) {
-            resyncClient(envelope.clientId as string, client);
-            return;
-          }
-          // Decryption stays ordered; independent reads execute concurrently.
-          // Count the frame until execution finishes, not merely until decode.
-          const callQueuedAt = Date.now();
-          execution = client.callQueue.run(String(call?.method ?? ''), async () => {
-            if (activeClients.get(envelope.clientId as string) !== client) return;
-            const callStartedAt = Date.now();
-            const queueMs = callStartedAt - callQueuedAt;
-            const response = await executeRemoteFrame(methods, clearFrame);
-            const callMs = Date.now() - callStartedAt;
-            const method =
-              typeof call?.method === 'string' && Object.hasOwn(methods, call.method) ? call.method : 'unknown';
-            if (callMs + queueMs >= SLOW_REMOTE_CALL_MS) {
-              console.error(
-                `[mixdog-remote-slow-call] method=${method}` +
-                  ` ms=${callMs} queueMs=${queueMs} queuedBehind=${client.pendingFrames}`
-              );
-            }
-            let responseBytes = 0;
-            if (response !== undefined && activeClients.get(envelope.clientId as string) === client) {
-              await sendEncryptedFrame(envelope.clientId as string, response, false, (bytes) => {
-                responseBytes += bytes;
-              });
-            }
-            if (activeClients.get(envelope.clientId as string) === client) {
-              remoteCallStats.record(method, callMs, { requestBytes: frameBytes, responseBytes });
-            }
-          });
-          // Observe early rejection while the decode queue is still settling.
-          void execution.catch(() => undefined);
-        };
-        let execution: Promise<void> | undefined;
-        client.frameQueue = client.frameQueue.then(processFrame, processFrame).catch(() => {
-          if (activeClients.get(envelope.clientId as string) === client) {
-            closeClient(envelope.clientId as string, 'remote frame processing failed');
-          }
-        });
-        void client.frameQueue
-          .then(() => execution)
-          .catch(() => {
-            if (activeClients.get(envelope.clientId as string) === client) {
-              closeClient(envelope.clientId as string, 'remote call processing failed');
-            }
-          })
-          .finally(() => {
-            client.pendingFrames = Math.max(0, client.pendingFrames - 1);
-            client.pendingBytes = Math.max(0, client.pendingBytes - frameBytes);
-            totalPendingFrames = Math.max(0, totalPendingFrames - 1);
-            totalPendingBytes = Math.max(0, totalPendingBytes - frameBytes);
-          });
+        dispatchRelayEnvelope(envelope);
       })();
     });
     ws.on('error', () => {
@@ -1518,111 +585,19 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     });
     ws.on('close', () => {
       clearInterval(heartbeat);
-      if (activeClients.size > 0) {
-        clearClients();
-      }
+      clients.clear();
       resetTransportDeltas();
-      // The relay dropped every waiting response with this leg; stop pumping.
-      for (const pump of mediaStreams.values()) {
-        try {
-          pump.stream.destroy();
-        } catch {
-          /* already gone */
-        }
-      }
-      mediaStreams.clear();
+      mediaLane.destroyAll();
       if (socket === ws) socket = null;
       if (closed) return;
-      for (const [requestId, pending] of controlRequests) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Relay disconnected.'));
-        controlRequests.delete(requestId);
-      }
+      control.rejectAll('Relay disconnected.');
       reconnectTimer = setTimeout(connect, retryMs);
       reconnectTimer.unref?.();
       retryMs = Math.min(30_000, retryMs * 2);
     });
   };
   connect();
-
-  // Engine pushes stay droppable: the subscriber must not forward its own
-  // extra arguments as the `critical` flag.
-  const unsubscribeState = options.host.subscribe((snapshot) => broadcastState(snapshot));
-  // The roster keeps arriving while a phone sleeps, so a turn that finishes
-  // with nobody connected still reaches that phone — through the browser's
-  // push service, which never sees the plaintext of anything else here.
-  const pushNotifier = createPushNotifier({
-    store: pushStore,
-    isEnabled: () => !closed,
-    isClientConnected: (clientId) => activeClients.has(clientId),
-    onError: (detail) => console.error(`[mixdog-remote-push] ${detail}`),
-  });
-  const unsubscribeSessions = options.host.subscribeSessions((sessions) => {
-    sessionsCatalog.publish(sessions);
-    pushNotifier.onSessions(sessions);
-    if (activeClients.size === 0) return;
-    for (const [clientId, state] of activeClients) {
-      if (!state.channel || state.syncing) continue;
-      const wire = state.sessionsEncoder.encode(sessions);
-      if (isNoListDelta(wire)) continue;
-      const payload = state.listDelta ? wire : sessions;
-      // Roster frames carry delta patches: dropping one under congestion
-      // breaks the chain for every later push, so they are never droppable.
-      void sendEncryptedFrame(clientId, { event: 'sessions', payload }, false);
-    }
-  });
-  const unsubscribeAgentPool = options.host.subscribeAgentPool((agents) => {
-    agentsCatalog.publish(agents);
-    if (activeClients.size === 0) return;
-    for (const [clientId, state] of activeClients) {
-      if (!state.channel || state.syncing) continue;
-      const wire = state.agentPoolEncoder.encode(agents);
-      if (isNoListDelta(wire)) continue;
-      const payload = state.listDelta ? wire : agents;
-      void sendEncryptedFrame(clientId, { event: 'agentPool', payload }, false);
-    }
-  });
-  const unsubscribeSessionStates = options.host.subscribeSessionStates((update) => {
-    if (activeClients.size === 0) return;
-    sessionStateMailbox(update.sessionId).publish(update);
-  });
-  let terminalBuffer!: TerminalDataBufferer;
-  terminalBuffer = new TerminalDataBufferer(
-    (event) => {
-      if (activeClients.size > 0) {
-        broadcastEncrypted({ event: 'termData', payload: event }, true, readsLane('terminal'));
-      }
-      terminalBuffer.acknowledge(event.id, event.data.length);
-    },
-    { delayMs: 16, leadingEdge: true }
-  );
-  const terminalReaderAttached = (): boolean => {
-    for (const state of activeClients.values()) {
-      if (state.channel && readsLane('terminal')(state)) return true;
-    }
-    return false;
-  };
-  const unsubscribeTerminals =
-    options.subscribeTerminalData?.((event) => {
-      // A build running on the desktop must not even enter the buffer when no
-      // phone is showing a terminal.
-      if (terminalReaderAttached()) terminalBuffer.push(event);
-    }) ?? (() => {});
-  const unsubscribeDesktopEvents =
-    options.host.subscribeDesktopEvents?.(({ name, value }) => {
-      if (activeClients.size === 0) return;
-      // Explorer live refresh and language-server pushes are the same lanes the
-      // Electron window receives; a paired browser stays as fresh as the desktop.
-      // None of them is droppable: a dropped frame leaves a stale listing or a
-      // stale squiggle behind with no later push to correct it.
-      if (name === 'folder-changed') {
-        broadcastEncrypted({ event: 'folderChanged', payload: value }, false, readsLane('files'));
-      } else if (name === 'lsp-diagnostics') {
-        broadcastEncrypted({ event: 'lspDiagnostics', payload: value }, false, readsLane('editor'));
-      } else if (name === 'lsp-status') {
-        broadcastEncrypted({ event: 'lspStatus', payload: value }, false, readsLane('editor'));
-      }
-    }) ?? (() => {});
+  const sessionSubscriptions = sessionWiring.start();
 
   return {
     get clientUrl() {
@@ -1633,20 +608,20 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
     },
     pairing,
     get clientCount() {
-      return activeClients.size;
+      return clients.size;
     },
     listClients: () =>
-      controlRequest<DesktopRemoteClientInfo[]>('list-clients').then((clients) =>
-        Array.isArray(clients) ? clients : []
-      ),
+      control
+        .request<DesktopRemoteClientInfo[]>('list-clients')
+        .then((remoteClients) => (Array.isArray(remoteClients) ? remoteClients : [])),
     revokeClient: async (clientId: string): Promise<void> => {
       if (!/^[0-9a-f-]{8,64}$/u.test(clientId)) throw new TypeError('Invalid remote client id.');
       // Per-browser credentials are isolated: revoking one deletes only that
       // browser's token on the relay. The QR bootstrap token never rotates
       // here, so every other paired browser keeps working untouched.
-      await controlRequest<boolean>('revoke-client', { clientId });
+      await control.request<boolean>('revoke-client', { clientId });
       // The credential is gone; its notifications must go with it.
-      pushNotifier.forgetClient(clientId);
+      sessionSubscriptions.forgetClient(clientId);
     },
     resume: (): void => {
       if (closed) return;
@@ -1668,80 +643,13 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
       }
       connect();
     },
-    revoke: (): Promise<void> =>
-      new Promise((resolve, reject) => {
-        let retryTimer: NodeJS.Timeout | null = null;
-        let target: WebSocket | null = null;
-        let settled = false;
-        const cleanup = () => {
-          clearTimeout(timeout);
-          if (retryTimer) clearTimeout(retryTimer);
-          target?.off('message', onMessage);
-          target?.off('close', onClose);
-        };
-        const succeed = () => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          resolve();
-        };
-        const fail = (error: Error) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(error);
-        };
-        const onMessage = (raw: WebSocket.RawData) => {
-          let message: { type?: unknown; ok?: unknown };
-          try {
-            message = JSON.parse(String(raw)) as { type?: unknown; ok?: unknown };
-          } catch {
-            return;
-          }
-          if (message.type !== 'device-revoked') return;
-          if (message.ok === false) {
-            fail(new Error('Relay registration was not found.'));
-            return;
-          }
-          succeed();
-        };
-        const onClose = () => fail(new Error('Relay disconnected before confirming revocation.'));
-        const send = () => {
-          if (closed) {
-            fail(new Error('Relay client is closed.'));
-            return;
-          }
-          if (!socket || socket.readyState !== WebSocket.OPEN) {
-            retryTimer = setTimeout(send, 50);
-            retryTimer.unref?.();
-            return;
-          }
-          target = socket;
-          target.on('message', onMessage);
-          target.once('close', onClose);
-          target.send(JSON.stringify({ type: 'revoke-device' }), (error) => {
-            if (error) fail(error);
-          });
-        };
-        const timeout = setTimeout(() => {
-          fail(new Error('Timed out waiting for relay revocation.'));
-        }, REVOKE_TIMEOUT_MS);
-        timeout.unref?.();
-        send();
-      }),
+    revoke: (): Promise<void> => revokeDeviceOverSocket({ currentSocket: () => socket, closed: () => closed }),
     close: async (): Promise<void> => {
       if (closed) return;
       closed = true;
       resetTransportDeltas();
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      unsubscribeState();
-      unsubscribeSessions();
-      pushNotifier.dispose();
-      unsubscribeAgentPool();
-      unsubscribeSessionStates();
-      unsubscribeTerminals();
-      terminalBuffer.dispose();
-      unsubscribeDesktopEvents();
+      sessionSubscriptions.dispose();
       for (const pending of revocationSockets) {
         try {
           pending.terminate();
@@ -1758,14 +666,8 @@ export async function startRemoteRelay(options: RemoteRelayOptions): Promise<Rem
         }
         socket = null;
       }
-      if (activeClients.size > 0) {
-        clearClients();
-      }
-      for (const [requestId, pending] of controlRequests) {
-        clearTimeout(pending.timer);
-        pending.reject(new Error('Relay client is closed.'));
-        controlRequests.delete(requestId);
-      }
+      clients.clear();
+      control.rejectAll('Relay client is closed.');
     },
   };
 }

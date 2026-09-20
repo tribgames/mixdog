@@ -1103,11 +1103,13 @@ class SessionRuntimeShardPool {
     // next telemetry tick.
     if (!merged.changed && !admission) return false;
     const remainingS = Math.max(0, Math.round((this.providerCooldown.untilMs - Date.now()) / 1000));
+    const admissionKey = admission?.key ? ` ${admission.key}` : '';
+    const admissionNote = admission ? ` [${admission.type}${admissionKey}]` : '';
+    const { disabledReason } = this.providerCooldown;
+    const cooldownState = disabledReason ? `disabled: ${disabledReason}` : `${remainingS}s`;
     this.log(
       `session runtime provider cooldown from shard ${originShard?.index ?? '-'}` +
-        ` → ${this.shards.length - 1} sibling shard(s)` +
-        (admission ? ` [${admission.type}${admission.key ? ` ${admission.key}` : ''}]` : '') +
-        ` (${this.providerCooldown.disabledReason ? `disabled: ${this.providerCooldown.disabledReason}` : `${remainingS}s`})`
+        ` → ${this.shards.length - 1} sibling shard(s)${admissionNote} (${cooldownState})`
     );
     for (const shard of this.shards) {
       if (shard === originShard) continue;
@@ -1177,14 +1179,6 @@ export function createSessionRuntimeHost({
     shardCount: Number(shardCount) > 0 ? normalizeShardCount(shardCount) : resolveShardCount(),
     executeAgentControl,
   });
-  // One machine-global native counter stays warm in the daemon. Session
-  // runtimes relay requests over the worker IPC channel and never spawn
-  // their own helper process.
-  try {
-    prewarmNativeTokenCounter();
-  } catch {
-    /* JS/WASM fallback remains */
-  }
   let closed = false;
 
   // Runtime workload telemetry is refreshed lazily with a short TTL, across

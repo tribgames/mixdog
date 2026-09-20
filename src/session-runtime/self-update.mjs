@@ -1,7 +1,6 @@
 // Self-update controller: registry version check + background staging of the
-// next version. Extracted from runtime-core so the runtime facade owns wiring
-// only. State is per-runtime and in-memory; the 24h TTL lives in the shared
-// update-checker cache.
+// next version; the runtime facade owns wiring only. State is per-runtime and
+// in-memory; the 24h TTL lives in the shared update-checker cache.
 import { checkLatestVersion, isDevInstall } from '../runtime/shared/update-checker.mjs';
 import { spawnStagedInstall, runStagedInstall, isStagedComplete } from '../runtime/shared/staged-update.mjs';
 

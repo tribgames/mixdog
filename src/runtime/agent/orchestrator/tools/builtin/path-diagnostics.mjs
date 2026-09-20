@@ -1,7 +1,7 @@
-import { readdirSync, statSync } from 'fs';
-import { readdir } from 'fs/promises';
-import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'path';
-import { homedir } from 'os';
+import { readdirSync, statSync } from 'node:fs';
+import { readdir } from 'node:fs/promises';
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
+import { homedir } from 'node:os';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
 
 // Suggest a sibling file the caller may have meant when the requested
@@ -293,16 +293,16 @@ export function normalizeErrorMessage(msg, workDir) {
         /* fall through */
       }
     }
-    if (runtimeDir && (fwd === runtimeDir || fwd.startsWith(runtimeDir + '/'))) {
+    if (runtimeDir && (fwd === runtimeDir || fwd.startsWith(`${runtimeDir}/`))) {
       return `<runtime>${fwd.slice(runtimeDir.length)}`;
     }
-    if (pluginData && (fwd === pluginData || fwd.startsWith(pluginData + '/'))) {
+    if (pluginData && (fwd === pluginData || fwd.startsWith(`${pluginData}/`))) {
       return `<mixdog-data>${fwd.slice(pluginData.length)}`;
     }
-    if (pluginRoot && (fwd === pluginRoot || fwd.startsWith(pluginRoot + '/'))) {
+    if (pluginRoot && (fwd === pluginRoot || fwd.startsWith(`${pluginRoot}/`))) {
       return `<mixdog-root>${fwd.slice(pluginRoot.length)}`;
     }
-    if (home && (fwd === home || fwd.startsWith(home + '/'))) {
+    if (home && (fwd === home || fwd.startsWith(`${home}/`))) {
       return `~${fwd.slice(home.length)}`;
     }
     return fwd;

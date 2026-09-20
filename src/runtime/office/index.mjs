@@ -118,7 +118,9 @@ async function runOfficeTool(args = {}, { cwd = process.cwd(), dataDir = default
       );
     }
     if (action === 'describe' && !args.session) {
-      const format = args.path ? documentFormat(args.path) : args.format ? normalizeOfficeFormat(args.format) : '';
+      let format = '';
+      if (args.path) format = documentFormat(args.path);
+      else if (args.format) format = normalizeOfficeFormat(args.format);
       let backend = '';
       if (format && args.path) {
         const selected = await selectMode(args.mode, format, fullPath(args.path, cwd));

@@ -1,4 +1,4 @@
-// Compaction debug/diagnostic helpers extracted from loop.mjs.
+// Compaction debug/diagnostic helpers.
 import { summarizeContextMessages } from '../context-utils.mjs';
 
 export { compactDebugEnabled, compactDebugLog } from '../compact/constants.mjs';

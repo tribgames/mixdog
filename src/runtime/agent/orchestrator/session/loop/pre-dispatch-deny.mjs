@@ -85,7 +85,7 @@ export function routeWebFetchCall(call) {
   return call;
 }
 
-function _preDispatchDeny(call, toolKind, sessionRef) {
+function _preDispatchDeny(call, _toolKind, sessionRef) {
   const name = call?.name;
   if (typeof name !== 'string' || !name) return null;
   if (Array.isArray(sessionRef?.schemaAllowedTools)) {

@@ -88,4 +88,7 @@ if (critiquePath) {
 }
 const out = flag('--out');
 if (out) await writeFile(out, JSON.stringify(result, null, 2));
-process.exit(critiquePath && !result.finalize?.ok ? 3 : measured.length ? 4 : 0);
+let exitCode = 0;
+if (critiquePath && !result.finalize?.ok) exitCode = 3;
+else if (measured.length) exitCode = 4;
+process.exit(exitCode);

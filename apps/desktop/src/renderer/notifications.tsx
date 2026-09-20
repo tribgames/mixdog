@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { trappedTabIndex } from './list-navigation';
 import { acquireModalLayer } from './modal-layer';
 import { acquireTitleBarDim } from './titlebar-dim';
 
@@ -50,13 +51,7 @@ export function DesktopUpdateDialog({
         return;
       }
       const current = controls.indexOf(document.activeElement as HTMLElement);
-      const next = event.shiftKey
-        ? current <= 0
-          ? controls.length - 1
-          : current - 1
-        : current < 0 || current === controls.length - 1
-          ? 0
-          : current + 1;
+      const next = trappedTabIndex(current, controls.length, event.shiftKey);
       event.preventDefault();
       controls[next]?.focus();
     };

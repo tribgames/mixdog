@@ -2,12 +2,9 @@
 // user text (including old transcripts without provenance) are not ownership.
 export function withRuntimeUserContext(message, { prefix = '', suffix = '' } = {}) {
   if (!prefix && !suffix) return message;
+  const textBlock = (text) => (text ? [{ type: 'text', text }] : []);
   const content = Array.isArray(message.content)
-    ? [
-        ...(prefix ? [{ type: 'text', text: prefix }] : []),
-        ...message.content,
-        ...(suffix ? [{ type: 'text', text: suffix }] : []),
-      ]
+    ? [...textBlock(prefix), ...message.content, ...textBlock(suffix)]
     : `${prefix}${message.content}${suffix}`;
   return {
     ...message,

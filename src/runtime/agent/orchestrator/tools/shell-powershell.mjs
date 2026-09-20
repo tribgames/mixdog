@@ -45,7 +45,7 @@ export function _maybeEncodePowerShellCommand(command) {
       const unescaped = body.replace(/""/g, '"').replace(/''/g, "'").replace(/\\"/g, '"').replace(/\\'/g, "'");
       const encoded = Buffer.from(unescaped, 'utf16le').toString('base64');
       const trimmedFlags = (flags || '').replace(/\s+/g, ' ').trim();
-      return `${exe}${trimmedFlags ? ' ' + trimmedFlags : ''} -EncodedCommand ${encoded}`;
+      return `${exe}${trimmedFlags ? ` ${trimmedFlags}` : ''} -EncodedCommand ${encoded}`;
     } catch {
       return match;
     }

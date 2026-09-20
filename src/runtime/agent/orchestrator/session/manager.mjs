@@ -24,7 +24,7 @@
 //   manager/message-sanitize.mjs       — model-message sanitize + fail persist
 //   manager/session-lock.mjs           — per-session ask mutex
 //   manager/session-lifecycle.mjs      — createSession/updateRoute/resume
-//   manager/ask-session.mjs            — askSession + abort-aware call wrapper
+//   manager/ask-session.mjs            — askSession turn loop (+ ask-queue, ask-turn-*, ask-call-interrupt)
 //   manager/session-crud.mjs           — read/clear/compact/status/flush
 //   manager/session-close.mjs          — closeSession/abortSessionTurn
 //   manager/idle-cleanup.mjs           — periodic idle/tombstone sweep

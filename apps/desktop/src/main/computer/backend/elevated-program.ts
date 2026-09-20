@@ -13,7 +13,7 @@ export function elevatedProgramInvocation(program = ELEVATED_BOOTSTRAP): string 
   ].join('\n');
 }
 
-export const ELEVATED_SUPERVISION = String.raw`
+export const ELEVATED_SUPERVISION = `
 function Test-Cancelled {
   if ([DateTime]::UtcNow -ge $deadline -or [System.IO.File]::Exists($cancelPath)) { return $true }
   try {
@@ -48,7 +48,7 @@ function Write-Receipt([string]$line) {
 `;
 
 /** Extract a literal source value only after the host bytes pass authentication. */
-export const ELEVATED_INPUT_SOURCE = String.raw`
+export const ELEVATED_INPUT_SOURCE = `
 function Read-OwnedInputSource([byte[]]$hostBytes) {
   $tokens = $null; $errors = $null
   $ast = [System.Management.Automation.Language.Parser]::ParseInput(

@@ -42,9 +42,14 @@ export function draftStateEqual(a, b) {
 // extension. Ctrl+J is handled separately as the protocol-independent fallback.
 const MODIFIED_ENTER_NEWLINE = 1 | 2 | 4;
 
+/** The CSI parameter body of an Enter sequence, with or without its ESC prefix; '' for anything else. */
+function csiBody(text) {
+  if (text.startsWith('\x1b[')) return text.slice(2);
+  return text.startsWith('[') ? text.slice(1) : '';
+}
+
 export function isModifiedEnterSequence(input) {
-  const text = String(input ?? '');
-  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
+  const body = csiBody(String(input ?? ''));
   if (!body) return false;
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
   if (kitty) return ((Number(kitty[1]) - 1) & MODIFIED_ENTER_NEWLINE) !== 0;
@@ -56,8 +61,7 @@ export function isModifiedEnterSequence(input) {
 // outside the Shift/Alt/Ctrl newline set so raw CSI bytes never reach the draft.
 // Plain Enter (mod param = 1, bitmask 0) intentionally remains a submit.
 export function isAnyModifiedEnterSequence(input) {
-  const text = String(input ?? '');
-  const body = text.startsWith('\x1b[') ? text.slice(2) : text.startsWith('[') ? text.slice(1) : '';
+  const body = csiBody(String(input ?? ''));
   if (!body) return false;
   const kitty = /^13;(\d+)(?::\d+)?(?:;[\d:]+)?u$/.exec(body);
   if (kitty) return Number(kitty[1]) - 1 !== 0;

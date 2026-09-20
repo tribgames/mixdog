@@ -1,27 +1,24 @@
-import { fork } from 'node:child_process';
+// Standalone channel worker: the TUI/session-runtime side of the machine-global
+// channel daemon. Owns start/execute/stop; the pieces live under
+// ./channel-worker/:
+//   client-heartbeat — this process's liveness file for the daemon's sweep
+//   daemon-spawn     — launching a daemon when discovery finds none
+//   daemon-attach    — the one live attachment, with re-attach on loss
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, rmSync, writeFile } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
-import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
-import { detachedSpawnOpts } from '../runtime/shared/spawn-flags.mjs';
-import { scrubLoaderVars } from '../runtime/agent/orchestrator/tools/env-scrub.mjs';
-import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
-import { beginDaemonSpawnCapture } from './daemon-crash-capture.mjs';
-import { attachChannel, readChannelDiscovery, probeChannelHealth } from './channel-client.mjs';
+import { readChannelDiscovery } from './channel-client.mjs';
+import { createClientHeartbeat, pruneStaleChannelClientHeartbeats } from './channel-worker/client-heartbeat.mjs';
+import { createDaemonAttachment } from './channel-worker/daemon-attach.mjs';
+import { daemonEnv, spawnDaemonCandidate } from './channel-worker/daemon-spawn.mjs';
+
+export { pruneStaleChannelClientHeartbeats };
 
 const CHANNEL_TOOLS = new Set(['activate_channel_bridge', 'reload_config', 'rebind_current_transcript']);
-
-const WORKER_PRELOAD = fileURLToPath(new URL('./channel-worker-preload.cjs', import.meta.url));
-
-function daemonEntry() {
-  return process.env.MIXDOG_DAEMON_ENTRY
-    ? resolve(process.env.MIXDOG_DAEMON_ENTRY)
-    : fileURLToPath(new URL('./daemon.mjs', import.meta.url));
-}
+const CALL_RETRIES = 3;
 
 function logLine(path, line) {
   try {
@@ -30,58 +27,7 @@ function logLine(path, line) {
   } catch {}
 }
 
-const CHANNEL_WORKER_EXIT_CLEANUPS = new Set();
-let channelWorkerExitHookInstalled = false;
-
-export function pruneStaleChannelClientHeartbeats(
-  clientDir,
-  { now = Date.now(), maxAgeMs = 30_000, pidAlive = isPidAlive } = {}
-) {
-  let removed = 0;
-  try {
-    for (const name of readdirSync(clientDir)) {
-      if (!/^\d+\.json$/.test(name)) continue;
-      const target = join(clientDir, name);
-      let row = null;
-      try {
-        row = JSON.parse(readFileSync(target, 'utf8'));
-      } catch {}
-      const pid = Number(row?.pid);
-      const updatedAt = Number(row?.updatedAt);
-      const stale =
-        !Number.isInteger(pid) ||
-        pid <= 0 ||
-        !Number.isFinite(updatedAt) ||
-        now - updatedAt > Math.max(5_000, Number(maxAgeMs) || 30_000) ||
-        !pidAlive(pid);
-      if (!stale) continue;
-      try {
-        rmSync(target, { force: true });
-        removed += 1;
-      } catch {}
-    }
-  } catch {}
-  return removed;
-}
-
-function registerChannelWorkerExitCleanup(cleanup) {
-  if (typeof cleanup !== 'function') return () => {};
-  CHANNEL_WORKER_EXIT_CLEANUPS.add(cleanup);
-  if (!channelWorkerExitHookInstalled) {
-    channelWorkerExitHookInstalled = true;
-    process.once('exit', () => {
-      for (const fn of CHANNEL_WORKER_EXIT_CLEANUPS) {
-        try {
-          fn();
-        } catch {}
-      }
-      CHANNEL_WORKER_EXIT_CLEANUPS.clear();
-    });
-  }
-  return () => {
-    CHANNEL_WORKER_EXIT_CLEANUPS.delete(cleanup);
-  };
-}
+const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 export function createStandaloneChannelWorker({
   rootDir,
@@ -94,317 +40,85 @@ export function createStandaloneChannelWorker({
   if (!rootDir) throw new Error('channels runtime rootDir is required');
   if (!dataDir) throw new Error('channels runtime dataDir is required');
 
-  let daemonClient = null;
-  let daemonPid = null;
-  let attachPromise = null;
-  let attachGeneration = 0;
-  let stopPromise = null;
-  let stopRequested = false;
-  let nextCallId = 1;
   const proxyId = randomUUID();
+  let nextCallId = 1;
+  let stopPromise = null;
   const logPath = join(dataDir, 'daemon.log');
   rotateBoundedLog(logPath, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
+  const log = (line) => logLine(logPath, line);
 
   const runtimeDir = ensurePrivateRuntimeRoot(resolveRuntimeRoot());
-  const clientDir = join(runtimeDir, 'channel-clients');
-  const clientPath = join(clientDir, `${process.pid}.json`);
-  let clientHeartbeatTimer = null;
-  let clientHeartbeatExitCleanup = null;
-  let clientDirReady = false;
-
-  function writeClientHeartbeat() {
-    try {
-      if (!clientDirReady) {
-        mkdirSync(clientDir, { recursive: true });
-        pruneStaleChannelClientHeartbeats(clientDir);
-        clientDirReady = true;
-      }
-      writeFile(
-        clientPath,
-        JSON.stringify({
-          pid: process.pid,
-          cwd,
-          updatedAt: Date.now(),
-        }),
-        () => {}
-      );
-    } catch {}
-  }
-
-  function stopClientHeartbeat() {
-    if (clientHeartbeatExitCleanup) {
-      const unregister = clientHeartbeatExitCleanup;
-      clientHeartbeatExitCleanup = null;
-      unregister();
-    }
-    if (clientHeartbeatTimer) {
-      clearInterval(clientHeartbeatTimer);
-      clientHeartbeatTimer = null;
-    }
-    try {
-      rmSync(clientPath, { force: true });
-    } catch {}
-  }
-
-  function startClientHeartbeat() {
-    if (clientHeartbeatTimer) return;
-    writeClientHeartbeat();
-    clientHeartbeatTimer = setInterval(writeClientHeartbeat, 5_000);
-    clientHeartbeatTimer.unref?.();
-    clientHeartbeatExitCleanup ||= registerChannelWorkerExitCleanup(stopClientHeartbeat);
-  }
-
-  startClientHeartbeat();
-
-  function status() {
-    return {
-      running: Boolean(daemonClient),
-      pid: daemonPid,
-      pending: 0,
-      mode: 'daemon',
-    };
-  }
+  const heartbeat = createClientHeartbeat({ clientDir: join(runtimeDir, 'channel-clients'), cwd });
+  heartbeat.start();
 
   // A session runtime may outlive the process that first spawned the machine
   // daemon. That process may be gone after daemon recovery, so callers that
   // own a live runtime can override the inherited identity.
   const daemonLeadPid = Number(leadPid) || Number(process.env.MIXDOG_SUPERVISOR_PID) || process.pid;
   const discoveryPath = join(runtimeDir, 'daemon.json');
-  const discoverChannel = () => readChannelDiscovery(discoveryPath);
-  const daemonDelay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
-
-  function invalidateDaemonClient(reason = 'invalidate', expected = null) {
-    if (expected && daemonClient !== expected) return;
-    attachGeneration += 1;
-    const client = daemonClient;
-    daemonClient = null;
-    attachPromise = null;
-    daemonPid = null;
-    if (client) {
-      try {
-        client.close(reason);
-      } catch {}
-    }
-  }
-
-  function daemonEnv() {
-    const env = { ...process.env };
-    scrubLoaderVars(env);
-    return {
-      ...env,
-      MIXDOG_ROOT: rootDir,
-      MIXDOG_DATA_DIR: dataDir,
-      MIXDOG_RUNTIME_ROOT: runtimeDir,
-      MIXDOG_STANDALONE: '1',
-      MIXDOG_WORKER_MODE: '1',
-      MIXDOG_DAEMON_HOST: '1',
-      MIXDOG_CLI_OWNED: '0',
-      MIXDOG_SUPERVISOR_PID: String(daemonLeadPid),
-      MIXDOG_QUIET_SESSION_LOG: process.env.MIXDOG_QUIET_SESSION_LOG ?? '1',
-    };
-  }
-
-  function spawnDaemonCandidate() {
-    return new Promise((resolveSpawn) => {
-      let settled = false;
-      // fd 2 is a capture FILE, not a pipe: a V8 fatal abort is written below
-      // every JS hook and a pipe stops being drained once this worker detaches.
-      const capture = beginDaemonSpawnCapture({
-        launcher: 'channel-worker',
+  const attachment = createDaemonAttachment({
+    discoverChannel: () => readChannelDiscovery(discoveryPath),
+    spawnDaemon: () =>
+      spawnDaemonCandidate({
+        cwd,
+        env: daemonEnv({ rootDir, dataDir, runtimeDir, leadPid: daemonLeadPid }),
         dataDir,
-        log: (line) => logLine(logPath, line),
-      });
-      const done = () => {
-        if (settled) return;
-        settled = true;
-        capture.mirror();
-        resolveSpawn();
-      };
-      // Same singleton daemon as the session spawn path, so the same heap policy.
-      const execArgv = withHeapCap('daemon', ['--require', WORKER_PRELOAD]);
-      let daemon;
-      try {
-        daemon = fork(daemonEntry(), [], {
-          cwd,
-          execArgv,
-          stdio: ['ignore', 'ignore', capture.stderrStdio, 'ipc'],
-          env: daemonEnv(),
-          ...detachedSpawnOpts,
-        });
-      } catch (error) {
-        capture.noteSpawnError(error);
-        logLine(logPath, `daemon spawn failed: ${error?.message || error}`);
-        done();
-        return;
-      }
-      capture.track(daemon, { detached: Boolean(detachedSpawnOpts.detached), execArgv });
-      daemon.once('message', (message) => {
-        if (message?.type !== 'ready') return;
-        capture.noteReady();
-        try {
-          daemon.disconnect?.();
-        } catch {}
-        try {
-          daemon.unref?.();
-        } catch {}
-        try {
-          daemon.stderr?.unref?.();
-        } catch {}
-        done();
-      });
-      daemon.once('exit', done);
-      daemon.once('error', (error) => {
-        // An async spawn failure may never emit 'exit'; the sidecar still gets it.
-        capture.noteSpawnError(error);
-        logLine(logPath, `daemon spawn error: ${error?.message || error}`);
-        done();
-      });
-      const timer = setTimeout(done, 20_000);
-      timer.unref?.();
-    });
-  }
+        log,
+      }),
+    leadPid: daemonLeadPid,
+    cwd,
+    getSessionId,
+    onNotify,
+    log,
+  });
 
-  function attachCancelledError() {
-    const error = new Error('channel service attach superseded');
-    error.daemonAttachCancelled = true;
-    return error;
-  }
-
-  async function doAttach(discovery, generation) {
-    let client = null;
-    let fatalDuringAttach = false;
-    client = await attachChannel({
-      discovery,
-      leadPid: daemonLeadPid,
-      cwd,
-      restoreSessionId: typeof getSessionId === 'function' ? getSessionId() : null,
-      onNotify: (message) => {
-        try {
-          onNotify?.(message);
-        } catch {}
-      },
-      onFatal: () => {
-        fatalDuringAttach = true;
-        invalidateDaemonClient('sse fatal', client);
-        if (!stopRequested) void ensureDaemonAttached().catch(() => {});
-      },
-      log: (line) => logLine(logPath, line),
-    });
-    if (stopRequested || generation !== attachGeneration || fatalDuringAttach) {
-      await client.close('attach superseded');
-      const error = attachCancelledError();
-      if (fatalDuringAttach && !stopRequested && generation === attachGeneration) {
-        error.daemonDiscoveryStale = true;
-      }
-      throw error;
-    }
-    daemonClient = client;
-    daemonPid = discovery.pid;
-    return client;
-  }
-
-  async function ensureDaemonAttached() {
-    if (stopRequested) throw attachCancelledError();
-    if (daemonClient) return daemonClient;
-    if (attachPromise) return attachPromise;
-    const generation = attachGeneration;
-    const promise = (async () => {
-      const deadline = Date.now() + 30_000;
-      let authRejections = 0;
-      for (let attempt = 0; ; attempt += 1) {
-        if (stopRequested || generation !== attachGeneration) throw attachCancelledError();
-        let discovery = discoverChannel();
-        if (discovery) {
-          const health = await probeChannelHealth({
-            port: discovery.port,
-            token: discovery.token,
-            timeoutMs: attempt === 0 ? 800 : 2_000,
-          });
-          if (stopRequested || generation !== attachGeneration) throw attachCancelledError();
-          if (Number(health?.pid) === Number(discovery.pid)) {
-            try {
-              return await doAttach(discovery, generation);
-            } catch (error) {
-              if (!error?.daemonDiscoveryStale) throw error;
-              if (error?.daemonAuthRejected) authRejections += 1;
-              if (authRejections >= 5 || Date.now() >= deadline) {
-                throw new Error('channel service repeatedly rejected discovery authentication');
-              }
-              await daemonDelay(Math.min(200 * 2 ** authRejections, 2_000));
-              continue;
-            }
-          }
-        }
-        await spawnDaemonCandidate();
-        discovery = discoverChannel();
-        if (discovery) {
-          const health = await probeChannelHealth({
-            port: discovery.port,
-            token: discovery.token,
-            timeoutMs: 3_000,
-          });
-          if (Number(health?.pid) === Number(discovery.pid)) {
-            try {
-              return await doAttach(discovery, generation);
-            } catch (error) {
-              if (!error?.daemonDiscoveryStale) throw error;
-            }
-          }
-        }
-        if (Date.now() >= deadline) throw new Error('channel service did not become ready');
-        await daemonDelay(200);
-      }
-    })();
-    attachPromise = promise;
-    try {
-      return await promise;
-    } finally {
-      if (attachPromise === promise) attachPromise = null;
-    }
+  function status() {
+    return {
+      running: Boolean(attachment.current()),
+      pid: attachment.pid(),
+      pending: 0,
+      mode: 'daemon',
+    };
   }
 
   function start() {
     if (stopPromise) return stopPromise.then(() => start());
-    stopRequested = false;
-    startClientHeartbeat();
-    return ensureDaemonAttached().then(() => status());
+    attachment.resume();
+    heartbeat.start();
+    return attachment.ensureAttached().then(() => status());
   }
 
   async function execute(name, args = {}, { timeoutMs = 120_000 } = {}) {
     if (!CHANNEL_TOOLS.has(name)) throw new Error(`unknown channel tool: ${name}`);
     await start();
     let lastError = null;
+    // callId is stable across retries so the daemon dedups a retried transport
+    // failure to a single side-effect.
     const callId = `ch_${proxyId}_${nextCallId++}`;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      const daemon = await ensureDaemonAttached();
+    for (let attempt = 0; attempt < CALL_RETRIES; attempt += 1) {
+      const daemon = await attachment.ensureAttached();
       try {
         return await daemon.call(name, args || {}, { timeoutMs, callId });
       } catch (error) {
         if (!error?.daemonTransportError) throw error;
         lastError = error;
-        invalidateDaemonClient('transport failure', daemon);
-        await daemonDelay(200 * (attempt + 1));
+        attachment.invalidate('transport failure', daemon);
+        await delay(200 * (attempt + 1));
       }
     }
     throw lastError || new Error('channel service call failed');
   }
 
+  /** Resolves true when a live client was detached, false when there was none. */
   function stop(reason = 'standalone shutdown', options = {}) {
-    stopRequested = true;
-    stopClientHeartbeat();
+    attachment.requestStop();
+    heartbeat.stop();
     if (stopPromise) return stopPromise;
-    const inFlightAttach = attachPromise;
-    attachGeneration += 1;
-    const client = daemonClient;
-    daemonClient = null;
-    attachPromise = null;
-    daemonPid = null;
+    const { client, inFlightAttach } = attachment.detach();
     stopPromise = Promise.all([
       client
         ? client
-            .close(reason, {
-              preserveRemoteIntent: options.preserveRemoteIntent === true,
-            })
+            .close(reason, { preserveRemoteIntent: options.preserveRemoteIntent === true })
             .then(() => true)
             .catch(() => true)
         : Promise.resolve(false),

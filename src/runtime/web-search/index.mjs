@@ -3,7 +3,7 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import fs from 'fs';
+import fs from 'node:fs';
 import { ensureDataDir, getRequestTimeoutMs, loadConfig } from './lib/config.mjs';
 import { normalizeErrorMessage } from '../agent/orchestrator/tools/builtin/path-diagnostics.mjs';
 import { presentErrorText } from '../shared/err-text.mjs';
@@ -139,7 +139,7 @@ function getWebSearchCacheTtlMs(type = 'web') {
       return 20 * 60 * 1000;
     case 'images':
       return 60 * 60 * 1000;
-    case 'web':
+    // 'web' and any unknown type.
     default:
       return 30 * 60 * 1000;
   }
@@ -195,13 +195,14 @@ function webSearchArgsForCacheKey(args) {
 
 function buildAgentWebSearchPrompt(args) {
   const query = Array.isArray(args.keywords) ? args.keywords.join('\n') : String(args.keywords || '');
+  const localeLabel = typeof args.locale === 'string' ? args.locale : JSON.stringify(args.locale);
   const lines = [
     'Perform a concise web research task for Mixdog web search.',
     '',
     `Query: ${query}`,
     args.site ? `Site/domain restriction: ${args.site}` : null,
     args.type ? `Search type: ${args.type}` : null,
-    args.locale ? `Locale: ${typeof args.locale === 'string' ? args.locale : JSON.stringify(args.locale)}` : null,
+    args.locale ? `Locale: ${localeLabel}` : null,
     `Max results: ${Math.max(1, Math.min(20, Number(args.maxResults) || 10))}`,
     '',
     'Return a short answer first, then cite useful results as title + URL + one-line snippet.',

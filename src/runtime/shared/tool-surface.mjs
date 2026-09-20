@@ -28,7 +28,6 @@ import {
   summarizePatch,
   collectionCount,
   formatCountedUnit,
-  patchFileCount,
   codeGraphLabel,
   codeGraphSummary,
   pluralize,
@@ -42,6 +41,16 @@ import {
   summarizeAgentSurfaceBrief,
   isMemorySurface,
 } from './tool-result-summary.mjs';
+import {
+  CATEGORY_ORDER,
+  classifyToolCategory,
+  categoryCopy,
+  patchOperationProfile,
+  patchMutationUnits,
+  toolWorkUnit,
+} from './tool-work-units.mjs';
+
+export { classifyToolCategory, toolWorkUnit };
 
 export {
   AGENT_SURFACE_BRIEF_MAX,
@@ -70,37 +79,6 @@ export function isTaskWaitToolCall(name, args = {}) {
       .trim()
       .toLowerCase() === 'wait'
   );
-}
-
-function patchOperationProfile(args = {}) {
-  const a = parseToolArgs(args);
-  const patchText = String(a.patch ?? '');
-  const counts = new Map();
-  const add = (kind, count = 1) => {
-    counts.set(kind, Number(counts.get(kind) || 0) + Math.max(1, Number(count || 1)));
-  };
-
-  for (const line of patchText.split('\n')) {
-    const match = /^\*\*\*\s+(Update|Add|Delete) File:\s+.+\s*$/i.exec(line);
-    if (!match) continue;
-    add(match[1].toLowerCase());
-  }
-  if (counts.size > 0) return counts;
-
-  const gitSections = patchText.split(/(?=^diff --git )/m).filter((section) => /^diff --git /m.test(section));
-  const unifiedSections =
-    gitSections.length > 0 ? gitSections : /^---\s+.+\n\+\+\+\s+.+$/m.test(patchText) ? [patchText] : [];
-  for (const section of unifiedSections) {
-    if (/^new file mode /m.test(section) || /^---\s+\/dev\/null(?:\s|$)/m.test(section)) add('add');
-    else if (/^deleted file mode /m.test(section) || /^\+\+\+\s+\/dev\/null(?:\s|$)/m.test(section)) add('delete');
-    else add('update');
-  }
-  if (counts.size > 0) return counts;
-
-  if (a.old_string === '') add('add');
-  else if (a.new_string === '' && a.old_string != null) add('delete');
-  else add('update', patchFileCount(a) || 1);
-  return counts;
 }
 
 export function displayToolName(name, args = {}) {
@@ -301,10 +279,7 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'browser':
     case 'browser_devtools': {
       const call = bridgeToolCall(args);
-      return compactParts([
-        call.action,
-        call.input.url ? truncateToolText(call.input.url, max) : call.input.ref ? String(call.input.ref) : '',
-      ]);
+      return compactParts([call.action, pathOrId(call.input.url, call.input.ref, max)]);
     }
     case 'computer': {
       const call = bridgeToolCall(args);
@@ -319,16 +294,9 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
       ]);
     }
     case 'office':
-      return compactParts([
-        String(a.action || ''),
-        a.path ? truncateToolText(a.path, max) : a.session ? String(a.session) : '',
-      ]);
+      return compactParts([String(a.action || ''), pathOrId(a.path, a.session, max)]);
     case 'media':
-      return compactParts([
-        String(a.action || ''),
-        String(a.kind || ''),
-        a.path ? truncateToolText(a.path, max) : a.job ? String(a.job) : '',
-      ]);
+      return compactParts([String(a.action || ''), String(a.kind || ''), pathOrId(a.path, a.job, max)]);
     case 'tidy':
       return compactParts([
         String(a.action || ''),
@@ -432,410 +400,7 @@ export function toolLoadingTargets(name, args = {}) {
   return [...new Set(selected.map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
-// ── Aggregate tool-card classification & formatting ──────────────
-
-const CATEGORY_ORDER = [
-  'Read',
-  'Search',
-  'Load',
-  'MCP',
-  'Skill',
-  'Web Research',
-  'Memory',
-  'Patch',
-  'Git',
-  'Shell',
-  'Agent',
-  'Task',
-  'Setup',
-  'Other',
-];
-
-const TOOL_CATEGORY = new Map([
-  ['read', 'Read'],
-  ['view_image', 'Read'],
-  ['read_mcp_resource', 'Read'],
-  ['grep', 'Search'],
-  ['find', 'Search'],
-  ['glob', 'Search'],
-  ['list', 'Search'],
-  ['ls', 'Search'],
-  ['load_tool', 'Load'],
-  ['web_search', 'Web Research'],
-  ['search_query', 'Web Research'],
-  ['image_query', 'Web Research'],
-  ['web_search_call', 'Web Research'],
-  ['web_fetch', 'Web Research'],
-  ['fetch', 'Web Research'],
-  ['recall', 'Memory'],
-  ['recall_memory', 'Memory'],
-  ['search_memories', 'Memory'],
-  ['remember', 'Memory'],
-  ['save_memory', 'Memory'],
-  ['update_memory', 'Memory'],
-  ['memory', 'Memory'],
-  ['apply_patch', 'Patch'],
-  ['edit', 'Patch'],
-  ['strreplace', 'Patch'],
-  ['str_replace', 'Patch'],
-  ['str_replace_editor', 'Patch'],
-  ['search_replace', 'Patch'],
-  ['git', 'Git'],
-  ['git_stage', 'Git'],
-  ['github', 'Git'],
-  ['bash', 'Shell'],
-  ['shell', 'Shell'],
-  ['shell_command', 'Shell'],
-  ['bash_session', 'Shell'],
-  ['job_wait', 'Shell'],
-  ['task', 'Task'],
-  ['agent', 'Agent'],
-  ['list_mcp_resources', 'Setup'],
-  ['list_mcp_resource_templates', 'Setup'],
-  ['cwd', 'Setup'],
-  ['request_user_input', 'Setup'],
-  ['update_plan', 'Setup'],
-  ['skill', 'Skill'],
-  ['skill_execute', 'Skill'],
-  ['skill_view', 'Skill'],
-  ['skills_list', 'Skill'],
-  ['use_skill', 'Skill'],
-]);
-
-/** Return the aggregate category for a tool name + args. */
-export function classifyToolCategory(name, args = {}) {
-  if (isExternalMcpToolName(name)) return 'MCP';
-  const normalized = normalizeToolName(name);
-  if (normalized === 'code_graph') return codeGraphLabel(args);
-  return TOOL_CATEGORY.get(normalized) || 'Other';
-}
-
-const CATEGORY_COPY = new Map([
-  ['Read', { active: 'Reading', done: 'Read', noun: 'file' }],
-  ['Search', { active: 'Searching', done: 'Searched', noun: 'file' }],
-  ['Load', { active: 'Loading', done: 'Loaded', noun: 'tool' }],
-  ['MCP', { active: 'Using', done: 'Used', noun: 'MCP tool' }],
-  ['Skill', { active: 'Loading', done: 'Loaded', noun: 'skill' }],
-  ['Web Research', { active: 'Researching', done: 'Researched', noun: 'query', pluralNoun: 'queries' }],
-  ['Memory', { active: 'Checking', done: 'Checked', noun: 'memory item' }],
-  ['Patch', { active: 'Editing', done: 'Edited', noun: 'file' }],
-  ['Git', { active: 'Running', done: 'Ran', noun: 'Git command' }],
-  ['Shell', { active: 'Running', done: 'Ran', noun: 'command' }],
-  ['Agent', { active: 'Calling', done: 'Called', noun: 'agent' }],
-  ['Task', { active: 'Checking', done: 'Checked', noun: 'task' }],
-  ['Setup', { active: 'Setting up', done: 'Set up', noun: 'item' }],
-  ['Other', { active: 'Calling', done: 'Called', noun: 'tool' }],
-]);
-
-function categoryCopy(category) {
-  return (
-    CATEGORY_COPY.get(category) || CATEGORY_COPY.get('Other') || { active: 'Calling', done: 'Called', noun: 'tool' }
-  );
-}
-
-function unitDescriptor(category, overrides = {}) {
-  const copy = categoryCopy(category);
-  return {
-    category,
-    active: overrides.active || copy.active,
-    done: overrides.done || copy.done,
-    noun: overrides.noun || copy.noun || 'item',
-    pluralNoun: overrides.pluralNoun || copy.pluralNoun || `${overrides.noun || copy.noun || 'item'}s`,
-    count: Math.max(1, Number(overrides.count || 1)),
-  };
-}
-
-function queryCount(args, ...keys) {
-  return collectionCount(...keys.map((key) => args?.[key]));
-}
-
-function patchMutationUnits(args = {}) {
-  const a = parseToolArgs(args);
-  if (a.dry_run === true) {
-    return [
-      unitDescriptor('Patch', {
-        count: patchFileCount(a) || 1,
-        active: 'Checking',
-        done: 'Checked',
-        noun: 'file',
-      }),
-    ];
-  }
-  const copy = {
-    add: { active: 'Creating', done: 'Created' },
-    delete: { active: 'Deleting', done: 'Deleted' },
-    update: { active: 'Editing', done: 'Edited' },
-  };
-  return [...patchOperationProfile(a)].map(([kind, count]) =>
-    unitDescriptor('Patch', {
-      count,
-      active: copy[kind]?.active || 'Editing',
-      done: copy[kind]?.done || 'Edited',
-      noun: 'file',
-    })
-  );
-}
-
-export function toolWorkUnit(name, args = {}, category = '') {
-  const a = parseToolArgs(args);
-  const normalized = normalizeToolName(name);
-  const cat = category || classifyToolCategory(name, a);
-  if (isExternalMcpToolName(name)) {
-    const mcp = parseMcpToolName(name);
-    return unitDescriptor('MCP', {
-      count: queryCount(a, 'query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action') || 1,
-      noun: `${titleCaseMcpServer(mcp.server)} tool`,
-    });
-  }
-  switch (normalized) {
-    case 'read':
-      return unitDescriptor('Read', {
-        count: queryCount(a, 'path', 'paths', 'file_path', 'file', 'files') || 1,
-        noun: 'file',
-      });
-    case 'view_image':
-      return unitDescriptor('Read', { count: queryCount(a, 'path', 'file_path', 'file') || 1, noun: 'image' });
-    case 'read_mcp_resource':
-      return unitDescriptor('Read', { count: queryCount(a, 'uri', 'uris') || 1, noun: 'resource' });
-    case 'apply_patch': {
-      const units = patchMutationUnits(a);
-      if (units.length === 1) return units[0];
-      return unitDescriptor('Patch', {
-        count: units.reduce((total, unit) => total + unit.count, 0),
-        active: 'Changing',
-        done: 'Changed',
-        noun: 'file',
-      });
-    }
-    case 'grep':
-      return unitDescriptor('Search', {
-        count: queryCount(a, 'pattern', 'patterns', 'query') || 1,
-        active: 'Searching',
-        done: 'Searched',
-        noun: 'pattern',
-      });
-    case 'glob':
-      return unitDescriptor('Search', {
-        count: queryCount(a, 'pattern', 'patterns', 'glob', 'globs') || 1,
-        active: 'Finding',
-        done: 'Found',
-        noun: 'glob',
-      });
-    case 'find':
-      return unitDescriptor('Search', {
-        count: queryCount(a, 'query', 'queries', 'fuzzy') || 1,
-        active: 'Finding',
-        done: 'Found',
-        noun: 'query',
-        pluralNoun: 'queries',
-      });
-    case 'list':
-    case 'ls':
-      return unitDescriptor('Search', {
-        count: queryCount(a, 'path', 'paths', 'dir', 'dirs', 'cwd') || 1,
-        active: 'Listing',
-        done: 'Listed',
-        noun: 'directory',
-        pluralNoun: 'directories',
-      });
-    case 'load_tool': {
-      const selected = [...splitToolSearchSelection(a.names), ...splitToolSearchSelection(a.select)];
-      if (selected.length) return unitDescriptor('Load', { count: selected.length, noun: 'tool' });
-      return unitDescriptor('Load', {
-        count: queryCount(a, 'query', 'q', 'text') || 1,
-        noun: 'query',
-        pluralNoun: 'queries',
-      });
-    }
-    case 'search_query':
-    case 'image_query':
-    case 'web_search':
-    case 'web_search_call':
-      return unitDescriptor('Web Research', {
-        count: queryCount(a, 'query', 'queries', 'keywords') || 1,
-        noun: 'query',
-        pluralNoun: 'queries',
-      });
-    case 'web_fetch':
-      return unitDescriptor('Web Research', {
-        count: queryCount(a, 'url', 'urls', 'uri', 'uris') || 1,
-        active: 'Fetching',
-        done: 'Fetched',
-        noun: 'URL',
-        pluralNoun: 'URLs',
-      });
-    case 'browser':
-    case 'browser_devtools':
-      return unitDescriptor('Browser', { count: 1, active: 'Browsing', done: 'Browsed', noun: 'action' });
-    case 'computer':
-      return unitDescriptor('Computer', { count: 1, active: 'Operating', done: 'Operated', noun: 'action' });
-    case 'office':
-      return unitDescriptor('Office', { count: 1, active: 'Editing', done: 'Edited', noun: 'document action' });
-    case 'media':
-      return a.action === 'generate'
-        ? unitDescriptor('Media', {
-            count: 1,
-            active: 'Generating',
-            done: 'Generated',
-            noun: a.kind === 'video' ? 'video' : 'image',
-          })
-        : unitDescriptor('Media', { count: 1, active: 'Checking', done: 'Checked', noun: 'media action' });
-    case 'tidy':
-      return a.action === 'fix'
-        ? unitDescriptor('Tidy', { count: 1, active: 'Tidying', done: 'Tidied', noun: 'cleanup pass' })
-        : unitDescriptor('Tidy', { count: 1, active: 'Checking', done: 'Checked', noun: 'cleanup action' });
-    case 'fetch': {
-      const fetchLimit = Number(a.limit ?? a.messages);
-      const fetchCount =
-        Number.isFinite(fetchLimit) && fetchLimit > 0 ? Math.floor(fetchLimit) : queryCount(a, 'messages') || 1;
-      return unitDescriptor('Web Research', {
-        count: fetchCount,
-        active: 'Fetching',
-        done: 'Fetched',
-        noun: 'message',
-      });
-    }
-    case 'recall':
-    case 'recall_memory':
-    case 'search_memories':
-      return unitDescriptor('Memory', {
-        count: queryCount(a, 'query', 'queries', 'text', 'input') || 1,
-        noun: 'memory item',
-        pluralNoun: 'memory items',
-      });
-    case 'remember':
-    case 'save_memory':
-    case 'update_memory':
-      return unitDescriptor('Memory', {
-        count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
-        active: 'Writing',
-        done: 'Wrote',
-        noun: 'memory item',
-      });
-    case 'memory': {
-      const op = String(a.op || '').toLowerCase();
-      const isMutation = op === 'add' || op === 'edit' || op === 'delete';
-      if (isMutation)
-        return unitDescriptor('Memory', {
-          count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
-          active: 'Writing',
-          done: 'Wrote',
-          noun: 'memory item',
-        });
-      return unitDescriptor('Memory', {
-        count: queryCount(a, 'entries', 'items', 'memories', 'query', 'text', 'value') || 1,
-        active: 'Checking',
-        done: 'Checked',
-        noun: 'memory item',
-      });
-    }
-    case 'shell':
-    case 'bash':
-    case 'bash_session':
-    case 'shell_command':
-    case 'job_wait':
-      return unitDescriptor('Shell', { count: queryCount(a, 'command', 'commands', 'cmd') || 1, noun: 'command' });
-    case 'git':
-      return unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' });
-    case 'github':
-      return unitDescriptor('Git', { count: 1, noun: 'GitHub operation' });
-    // Staging is not "running a Git command": it selects change_ids out of an
-    // existing diff. Its own work unit keeps the two apart on the activity row.
-    case 'git_stage':
-      return unitDescriptor('Git', {
-        count: queryCount(a, 'change_ids', 'change_id') || 1,
-        active: 'Staging',
-        done: 'Staged',
-        noun: 'change',
-      });
-    case 'agent':
-    case 'bridge': {
-      const type = String(a.type || a.action || '').toLowerCase();
-      const status = String(a.status || '').toLowerCase();
-      const count = queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1;
-      if (type === 'result') {
-        if (/^(?:failed|error|timeout|killed|denied)$/.test(status)) {
-          return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Failed', noun: 'agent' });
-        }
-        if (/^(?:cancelled|canceled)$/.test(status)) {
-          return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Cancelled', noun: 'agent' });
-        }
-        return unitDescriptor('Agent', { count, active: 'Finishing', done: 'Completed', noun: 'agent' });
-      }
-      return unitDescriptor('Agent', {
-        count: queryCount(a, 'agents', 'roles', 'role', 'tag', 'task_id', 'sessionId') || 1,
-        noun: 'agent',
-      });
-    }
-    case 'task': {
-      const action = String(a.action || '').toLowerCase();
-      const taskCount = queryCount(a, 'task_id', 'task_ids', 'id', 'ids') || 1;
-      // Waiting on a task, enumerating tasks, and cancelling one are distinct
-      // work; only `read`/`status` falls through to the neutral check verb.
-      if (action === 'cancel')
-        return unitDescriptor('Task', { count: taskCount, active: 'Cancelling', done: 'Cancelled', noun: 'task' });
-      if (action === 'wait')
-        return unitDescriptor('Task', { count: taskCount, active: 'Waiting for', done: 'Waited for', noun: 'task' });
-      if (action === 'list')
-        return unitDescriptor('Task', { count: taskCount, active: 'Listing', done: 'Listed', noun: 'task' });
-      return unitDescriptor('Task', { count: taskCount, noun: 'task' });
-    }
-    case 'skill':
-    case 'skill_execute':
-    case 'skill_view':
-    case 'skills_list':
-    case 'use_skill':
-      return unitDescriptor('Skill', {
-        count: queryCount(a, 'name', 'skill', 'skill_name', 'query', 'q') || 1,
-        noun: 'skill',
-      });
-    case 'code_graph': {
-      const mode = String(a.mode || a.action || '').toLowerCase();
-      const searching =
-        mode === 'search' ||
-        mode === 'find_symbol' ||
-        mode === 'references' ||
-        mode === 'callers' ||
-        mode === 'callees';
-      return unitDescriptor(searching ? 'Search' : 'Read', {
-        count: queryCount(a, 'symbols', 'symbol', 'query', 'files', 'file', 'path') || 1,
-        active: searching ? 'Mapping' : 'Reading',
-        done: searching ? 'Mapped' : 'Read',
-        // "code map", not "file": an overview/imports/impact pass reads
-        // structure, and sharing the plain read unit hid it behind file reads.
-        noun: searching ? 'symbol' : 'code map',
-      });
-    }
-    case 'request_user_input':
-      return unitDescriptor('Setup', { active: 'Asking', done: 'Asked', noun: 'user' });
-    case 'update_plan':
-      return unitDescriptor('Setup', { active: 'Updating', done: 'Updated', noun: 'plan' });
-    case 'list_mcp_resources':
-      return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource' });
-    case 'list_mcp_resource_templates':
-      return unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource template' });
-    case 'cwd': {
-      const action = String(a.action || a.type || '').toLowerCase();
-      return action === 'set'
-        ? unitDescriptor('Setup', {
-            active: 'Setting',
-            done: 'Set',
-            noun: 'working directory',
-            pluralNoun: 'working directories',
-          })
-        : unitDescriptor('Setup', {
-            active: 'Checking',
-            done: 'Checked',
-            noun: 'working directory',
-            pluralNoun: 'working directories',
-          });
-    }
-    default:
-      return unitDescriptor(cat, {
-        count: queryCount(a, 'items', 'targets', 'query', 'path', 'name', 'id', 'action') || 1,
-      });
-  }
-}
+// ── Aggregate tool-card formatting (classification lives in tool-work-units) ──
 
 function lifecycleVerb(unit, pending, { stableVerbWidth = false } = {}) {
   const active = String(unit.active || '');
@@ -976,6 +541,23 @@ export function formatAggregateHeader(categories, { pending = false, order = nul
  * Join a list of per-call result summaries into a single detail line,
  * deduplicating exact repeats while preserving order.
  */
+/** A truncated path when one is given, else the bare identifier, else ''. */
+function pathOrId(path, id, max) {
+  if (path) return truncateToolText(path, max);
+  return id ? String(id) : '';
+}
+
+function singularNoun(noun) {
+  if (noun.endsWith('ies')) return `${noun.slice(0, -3)}y`;
+  if (/(?:ch|sh|x|z|s)es$/.test(noun)) return noun.slice(0, -2);
+  return noun.endsWith('s') ? noun.slice(0, -1) : noun;
+}
+
+function pluralNoun(singular) {
+  if (singular.endsWith('y')) return `${singular.slice(0, -1)}ies`;
+  return /(?:ch|sh|x|z|s)$/.test(singular) ? `${singular}es` : `${singular}s`;
+}
+
 export function formatAggregateDetail(summaries) {
   if (!summaries || summaries.length === 0) return '';
   const metrics = new Map();
@@ -1021,18 +603,8 @@ export function formatAggregateDetail(summaries) {
       // SAME noun merge into one metric. Previously "48 matches" keyed as
       // found_matches while "1 match" keyed as found_matchs (naive +s), so the
       // detail row showed "48 matches, 1 match" instead of "49 matches".
-      const singular = nounRaw.endsWith('ies')
-        ? `${nounRaw.slice(0, -3)}y`
-        : /(?:ch|sh|x|z|s)es$/.test(nounRaw)
-          ? nounRaw.slice(0, -2)
-          : nounRaw.endsWith('s')
-            ? nounRaw.slice(0, -1)
-            : nounRaw;
-      const plural = singular.endsWith('y')
-        ? `${singular.slice(0, -1)}ies`
-        : /(?:ch|sh|x|z|s)$/.test(singular)
-          ? `${singular}es`
-          : `${singular}s`;
+      const singular = singularNoun(nounRaw);
+      const plural = pluralNoun(singular);
       const key = `found_${singular}`;
       const metric = addMetric(key, {
         count: 0,

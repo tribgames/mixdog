@@ -116,13 +116,7 @@ export function parseGraphLangs(stdout) {
   let rows = null;
   try {
     const whole = JSON.parse(text);
-    rows = Array.isArray(whole)
-      ? whole
-      : Array.isArray(whole?.languages)
-        ? whole.languages
-        : Array.isArray(whole?.langs)
-          ? whole.langs
-          : null;
+    rows = [whole, whole?.languages, whole?.langs].find(Array.isArray) ?? null;
   } catch {
     rows = [];
     for (const line of text.split('\n')) {

@@ -83,7 +83,7 @@ export function compactedSessionTitle(value, fallback = '') {
   const entries = [];
   for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(COMPACTED_EVENT_LINE);
-    if (!match || match[2].toLowerCase() !== 'u') continue;
+    if (match?.[2].toLowerCase() !== 'u') continue;
     const idMatch = match[3].match(/\s+#(\d+)\s*$/);
     const parts = [match[3].replace(/\s+#\d+\s*$/, '')];
     for (let cursor = index + 1; cursor < lines.length; cursor += 1) {

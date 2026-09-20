@@ -28,7 +28,8 @@ function safeRelativePath(value) {
 async function pathType(path) {
   try {
     const metadata = await stat(path);
-    return metadata.isDirectory() ? 'directory' : metadata.isFile() ? 'file' : 'other';
+    if (metadata.isDirectory()) return 'directory';
+    return metadata.isFile() ? 'file' : 'other';
   } catch (error) {
     if (error?.code === 'ENOENT') return 'missing';
     throw error;
@@ -67,7 +68,7 @@ function treeHash(files) {
 }
 
 export function validateRendererManifest(value) {
-  if (!value || value.schemaVersion !== 1 || !Array.isArray(value.files)) {
+  if (value?.schemaVersion !== 1 || !Array.isArray(value.files)) {
     throw new Error('Renderer manifest is missing or incompatible.');
   }
   const seen = new Set();

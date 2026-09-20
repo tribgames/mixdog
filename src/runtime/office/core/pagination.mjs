@@ -28,7 +28,7 @@ function encodeCursor(value) {
 function decodeCursor(value) {
   try {
     const decoded = JSON.parse(Buffer.from(String(value || ''), 'base64url').toString('utf8'));
-    if (!decoded || decoded.version !== 1) throw new Error('unsupported cursor version');
+    if (decoded?.version !== 1) throw new Error('unsupported cursor version');
     return decoded;
   } catch {
     throw new Error('Invalid Office snapshot cursor');
@@ -130,11 +130,11 @@ export function finalizeOfficeSnapshotPage(document, session, request) {
     });
   pagination.cursor =
     request.offset > 0 || request.sheetOffset > 0 ? cursorFor(request.offset, request.sheetOffset || 0) : null;
-  pagination.nextCursor = hasMore
-    ? nextSheetOffset !== null
-      ? cursorFor(0, nextSheetOffset)
-      : cursorFor(nextOffset, request.sheetOffset || 0)
-    : null;
+  pagination.nextCursor = null;
+  if (hasMore) {
+    pagination.nextCursor =
+      nextSheetOffset !== null ? cursorFor(0, nextSheetOffset) : cursorFor(nextOffset, request.sheetOffset || 0);
+  }
   pagination.hasMore = hasMore;
   delete pagination.nextOffset;
   delete pagination.nextSheetOffset;

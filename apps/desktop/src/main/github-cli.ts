@@ -105,7 +105,8 @@ async function resolveGit(refresh = false): Promise<{ path: string; version: str
 
 export async function gitCliStatus(refresh = false): Promise<DesktopGitCliStatus> {
   const git = await resolveGit(refresh);
-  return git ? { installed: true, ...(git.version ? { version: git.version } : {}) } : { installed: false };
+  if (!git) return { installed: false };
+  return { installed: true, ...(git.version ? { version: git.version } : {}) };
 }
 
 export async function installGitCli(): Promise<DesktopGitCliStatus> {
@@ -287,9 +288,11 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
     if (entry.flow.state === 'error') return;
     if (exitCode === 0) {
       void githubCliStatus(true).then((status) => {
-        entry.flow = status.authenticated
-          ? { ...entry.flow, state: 'success', ...(status.login ? { login: status.login } : {}) }
-          : { ...entry.flow, state: 'error', message: 'gh finished, but no account is signed in.' };
+        if (status.authenticated) {
+          entry.flow = { ...entry.flow, state: 'success', ...(status.login ? { login: status.login } : {}) };
+        } else {
+          entry.flow = { ...entry.flow, state: 'error', message: 'gh finished, but no account is signed in.' };
+        }
       });
       return;
     }
@@ -350,15 +353,13 @@ export async function githubCliAccount(): Promise<DesktopGithubCliAccount> {
   const login = typeof data.login === 'string' ? data.login : '';
   if (!login) throw new Error('gh returned no signed-in user.');
   const id = typeof data.id === 'number' ? data.id : 0;
+  // No public email → the account's noreply address, exactly like GitHub
+  // Desktop's suggested commit email.
+  const noreplyEmail = `${id ? `${id}+` : ''}${login}@users.noreply.github.com`;
   return {
     login,
     name: typeof data.name === 'string' && data.name ? data.name : login,
-    // No public email → the account's noreply address, exactly like GitHub
-    // Desktop's suggested commit email.
-    email:
-      typeof data.email === 'string' && data.email
-        ? data.email
-        : `${id ? `${id}+` : ''}${login}@users.noreply.github.com`,
+    email: typeof data.email === 'string' && data.email ? data.email : noreplyEmail,
   };
 }
 

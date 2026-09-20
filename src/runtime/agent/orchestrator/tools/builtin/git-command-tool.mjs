@@ -396,22 +396,30 @@ function succeeded(result) {
   return result?.exitCode === 0 && !result.error && !result.timedOut && !result.aborted && !result.overflow;
 }
 
+// ENOENT from the spawn itself is a capability fact, not a git error: the
+// executable is absent. Naming it stops the caller from re-running git a
+// different way to find out.
+function gitFailureReason(plan, result) {
+  if (result.error?.code === 'ENOENT') return 'git executable not found in this environment';
+  if (result.error) return `git process failed (${result.error.code || result.error.message || result.error})`;
+  if (result.aborted) return 'git command aborted';
+  if (result.timedOut) return 'git command timed out';
+  if (result.overflow) return 'git output exceeded 128 MiB';
+  return `git ${plan.operation} exited ${result.exitCode}`;
+}
+
+// Progress chatter each operation prints that carries no outcome.
+const OUTPUT_NOISE_BY_OPERATION = {
+  push: (line) => PUSH_NOISE.some((prefix) => line.trimStart().startsWith(prefix)),
+  clone: (line) => /^(Cloning into|remote:|Receiving objects:|Resolving deltas:)/.test(line.trimStart()),
+  init: (line) => line.trimStart().startsWith('hint:'),
+};
+
 function commandFailure(plan, result, limit = 50) {
   // ENOENT from the spawn itself is a capability fact, not a git error: the
   // executable is absent. Naming it stops the caller from re-running git a
   // different way to find out.
-  const reason =
-    result.error?.code === 'ENOENT'
-      ? 'git executable not found in this environment'
-      : result.error
-        ? `git process failed (${result.error.code || result.error.message || result.error})`
-        : result.aborted
-          ? 'git command aborted'
-          : result.timedOut
-            ? 'git command timed out'
-            : result.overflow
-              ? 'git output exceeded 128 MiB'
-              : `git ${plan.operation} exited ${result.exitCode}`;
+  const reason = gitFailureReason(plan, result);
   // Bounded like every success path: an unbounded failure dump from a large
   // repository cost far more context than the diagnosis it carried.
   const max = Math.min(Math.max(limit, 20), 40);
@@ -890,14 +898,7 @@ function mutationData(plan, stdout, stderr, limit) {
     plan.operation === 'pull' ||
     (plan.operation === 'stash' && actionOf('stash', plan.args) === 'push');
   const source = stderrOnly ? stderr : [stdout, stderr].filter(Boolean).join('\n');
-  const skip =
-    plan.operation === 'push'
-      ? (line) => PUSH_NOISE.some((prefix) => line.trimStart().startsWith(prefix))
-      : plan.operation === 'clone'
-        ? (line) => /^(Cloning into|remote:|Receiving objects:|Resolving deltas:)/.test(line.trimStart())
-        : plan.operation === 'init'
-          ? (line) => line.trimStart().startsWith('hint:')
-          : () => false;
+  const skip = OUTPUT_NOISE_BY_OPERATION[plan.operation] ?? (() => false);
   const rows = cappedLines(foldProgressFrames(source), Math.min(limit, 20), skip);
   return {
     summary,

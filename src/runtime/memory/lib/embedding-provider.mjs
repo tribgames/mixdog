@@ -4,9 +4,9 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
  * embedding-provider.mjs — Embedding provider with worker_threads isolation.
  */
 
-import { Worker } from 'worker_threads';
-import { join } from 'path';
-import { fileURLToPath } from 'url';
+import { Worker } from 'node:worker_threads';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { writeProfilePoint } from './model-profile.mjs';
 import { createCompactVectorCache } from './compact-vector-cache.mjs';
 import {

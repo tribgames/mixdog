@@ -92,6 +92,12 @@ export class DiffBoundary extends Component<{ fallback: ReactNode; children: Rea
   }
 }
 
+function fileOperationLabel(status: string): string {
+  if (status === 'A') return t('Added');
+  if (status === 'D') return t('Deleted');
+  return status === 'M' ? t('Changed') : '';
+}
+
 export function CodeDiff({ patch }: { patch: string }) {
   const [expanded, setExpanded] = useState(false);
   const lineCount = patch.split('\n').length;
@@ -110,14 +116,7 @@ export function CodeDiff({ patch }: { patch: string }) {
               .join('\n')
               .split('\n')
               .filter((line) => line.startsWith('-') && !line.startsWith('---')).length;
-            const operation =
-              file.status === 'A'
-                ? t('Added')
-                : file.status === 'D'
-                  ? t('Deleted')
-                  : file.status === 'M'
-                    ? t('Changed')
-                    : '';
+            const operation = fileOperationLabel(file.status);
             return (
               <div className="diff-file" key={`${file.newFile.fileName}-${index}`}>
                 <header>

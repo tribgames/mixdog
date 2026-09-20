@@ -6,7 +6,7 @@
 // encrypted reasoning replay) mirrors the reference OpenAI client so multi-
 // turn tool loops keep the model's reasoning chain without server storage.
 
-import { markProviderRecoveryExhausted, withRetry } from './retry-classifier.mjs';
+import { markProviderRecoveryExhausted, retryDelayLabel, withRetry } from './retry-classifier.mjs';
 import { consumeCompatResponsesStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
@@ -131,9 +131,7 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
       {
         signal: totalSignal.signal,
         onRetry: ({ attempt, maxAttempts, lastErr, delayMs, delayReason }) => {
-          const delayLabel = Number.isFinite(Number(delayMs))
-            ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}`
-            : '';
+          const delayLabel = retryDelayLabel(delayMs, delayReason);
           process.stderr.write(
             `[${label}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
           );
@@ -179,15 +177,18 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
   }
   const reasoningItems = encryptedReasoningItems(response?.output);
   const priorState = opts.providerState?.[COMPAT_RESPONSES_STATE_KEY];
+  const messageIndex = Array.isArray(messages) ? messages.length : 0;
   const encryptedReasoningHistory = [
     ...(Array.isArray(priorState?.encryptedReasoningHistory) ? priorState.encryptedReasoningHistory : []),
-    ...(reasoningItems.length
-      ? [{ messageIndex: Array.isArray(messages) ? messages.length : 0, items: reasoningItems }]
-      : []),
+    ...(reasoningItems.length ? [{ messageIndex, items: reasoningItems }] : []),
   ];
   const searchSources = collectCompatResponseSearchSources(response);
   // Gateway `cost` is a decimal-string USD figure when present.
   const gatewayCost = Number(usage?.cost);
+  const usageSummary = usage
+    ? { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: { ...usage } }
+    : undefined;
+  if (usageSummary && Number.isFinite(gatewayCost) && gatewayCost >= 0) usageSummary.costUsd = gatewayCost;
   return {
     content: streamed.content,
     model: response?.model || useModel,
@@ -205,20 +206,11 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
         store: false,
         encryptedReasoningItems: reasoningItems,
         encryptedReasoningHistory,
-        seenMessageCount: Array.isArray(messages) ? messages.length : 0,
+        seenMessageCount: messageIndex,
         model: useModel,
         updatedAt: Date.now(),
       },
     },
-    usage: usage
-      ? {
-          inputTokens,
-          outputTokens,
-          cachedTokens,
-          promptTokens: inputTokens,
-          raw: { ...usage },
-          ...(Number.isFinite(gatewayCost) && gatewayCost >= 0 ? { costUsd: gatewayCost } : {}),
-        }
-      : undefined,
+    usage: usageSummary,
   };
 }

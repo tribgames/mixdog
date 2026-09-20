@@ -66,6 +66,7 @@ export {
   createStreamSafetyStamps,
   isProviderRecoveryExhausted,
   markProviderRecoveryExhausted,
+  retryDelayLabel,
   withRetry,
 } from './retry-executor.mjs';
 

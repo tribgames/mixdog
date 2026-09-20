@@ -24,6 +24,11 @@ function cacheStreamingRows(key, entry) {
   }
 }
 
+function stableChunksOf(parts) {
+  if (parts.stableChunks?.length) return parts.stableChunks;
+  return parts.stablePrefix ? [parts.stablePrefix] : [];
+}
+
 function wrappedLineRows(line, width) {
   const text = String(line);
   const full = displayWidth(text);
@@ -95,7 +100,7 @@ function measureStreamingPartsUncached(parts, columns) {
   }
   let rows = 0;
   let childCount = 0;
-  const stableChunks = parts.stableChunks?.length ? parts.stableChunks : parts.stablePrefix ? [parts.stablePrefix] : [];
+  const stableChunks = stableChunksOf(parts);
   for (const chunk of stableChunks) {
     if (childCount > 0) rows += 1;
     rows += measureMarkdownRenderedRows(chunk, columns, { trimPartialFences: false });
@@ -181,7 +186,7 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
   let rows = 0;
   let childCount = 0;
   let stableRows = 0;
-  const stableChunks = parts.stableChunks?.length ? parts.stableChunks : parts.stablePrefix ? [parts.stablePrefix] : [];
+  const stableChunks = stableChunksOf(parts);
   const reusableChunks =
     cached &&
     cached.mode === 'markdown' &&

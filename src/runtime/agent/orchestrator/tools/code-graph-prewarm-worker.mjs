@@ -14,7 +14,7 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { _buildCodeGraph, _postCodeGraphWorkerSuccess } from './code-graph.mjs';
 
-const cwd = workerData && workerData.cwd ? workerData.cwd : null;
+const cwd = workerData?.cwd ? workerData.cwd : null;
 
 if (!parentPort) {
   // Standalone execution makes no sense for this entry; bail silently so

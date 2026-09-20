@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'fs';
+import { readFileSync, statSync } from 'node:fs';
 import { hashText } from './hash-utils.mjs';
 import { mergeReadRanges } from './read-ranges.mjs';
 import {
@@ -83,9 +83,8 @@ export function recordReadSnapshot(fullPath, st, scope = null, meta = {}) {
     sameFile &&
     (existing.source === 'edit' || String(existing.source || '').startsWith('apply_patch_')) &&
     existing.bodyDelivered !== true;
-  const merged = sameFile
-    ? mergeReadRanges([...(existingIsUndeliveredMutation ? [] : existing.ranges), ...incomingRanges])
-    : mergeReadRanges(incomingRanges);
+  const retainedRanges = sameFile && !existingIsUndeliveredMutation ? existing.ranges : [];
+  const merged = mergeReadRanges([...retainedRanges, ...incomingRanges]);
   // fileLineCount is omitted here so it can ONLY be set via the explicit
   // guard below (which excludes source==='read_batch_sliced'); otherwise a
   // caller passing fileLineCount with a batch source would leak it through

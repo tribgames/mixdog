@@ -24,12 +24,14 @@ import { EMPTY_TRANSCRIPT_ITEMS, type RecordValue, type Snapshot, type Transcrip
 import { ComposerDock } from './ComposerDock';
 import { asRecord } from './text-format';
 import { TranscriptList } from './TranscriptList';
+import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';
 import { MarkdownOpenFileContext, MarkdownProjectContext } from './MarkdownLink';
 import {
   appendLiveTranscriptRows,
   isCompletionTranscriptItem,
   projectSettledTranscriptRows,
   turnPromptText,
+  turnSampledOutput,
   type TranscriptRowModel,
 } from './transcript-rows';
 import {
@@ -96,7 +98,7 @@ export function Conversation({
   onDraftOrchestrationMode,
   onOpenCommandSurface,
   onOpenFile,
-  streamingTailSlot,
+  renderAssistantRow,
   runtimeProgressSlot,
   goalIsland,
   contextIndicator,
@@ -142,8 +144,8 @@ export function Conversation({
   onDraftOrchestrationMode?: (mode: DesktopOrchestrationMode) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
   onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string) => void;
-  /** Selector-driven live row; keeps token publications out of this shell. */
-  streamingTailSlot?: ReactNode;
+  /** Selector-driven rows retain their component identity through settlement. */
+  renderAssistantRow?: (props: TranscriptAssistantRowProps) => ReactNode;
   /** Selector-driven runtime status; progress publications do not rerender the
    *  transcript/composer shell. */
   runtimeProgressSlot?: ReactNode;
@@ -259,7 +261,7 @@ export function Conversation({
     const rows: Array<{ id: string; text: string }> = [];
     for (let index = settledItems.length - 1; index >= 0 && rows.length < 20; index -= 1) {
       const item = settledItems[index];
-      if (!item || item.kind !== 'user' || item.id == null) continue;
+      if (item?.kind !== 'user' || item.id == null) continue;
       const text = String(item.text || '').trim();
       if (!text) continue;
       rows.push({ id: String(item.id), text });
@@ -723,11 +725,16 @@ export function Conversation({
 
   const disclosureScope = String(routeSnapshot.sessionId || 'new-task');
   const retryDisabled = Boolean(snapshot.busy) || transitioning;
-  // Session retry: resubmit the failed turn's original user prompt through the
-  // normal composer submit path.
+  // Session retry: a failed turn that produced no output resubmits its prompt
+  // and the runtime rewinds the unanswered copy, so the model sees the prompt
+  // once; a turn that already sampled output continues from where it stopped.
   const retryTurn = (turnKey: string) => {
     const text = turnPromptText(settledItems, settledTurnKeys, turnKey);
-    if (text) void composerSubmit(text);
+    if (!text) return;
+    const prompt = turnSampledOutput(settledItems, settledTurnKeys, turnKey)
+      ? t('Continue from where you left off.')
+      : text;
+    void composerSubmit(prompt, { retryFailedTurn: true });
   };
   const renderTranscriptRow = (row: TranscriptRowModel) => {
     if (row._tag === 'TurnGap') {
@@ -762,86 +769,74 @@ export function Conversation({
     if (row._tag === 'ToolActivity') {
       return <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} />;
     }
-    if (row.live) {
-      return (
-        streamingTailSlot ?? (
-          <div className="transcript-live-part" data-streaming-tail="true">
-            <TranscriptRow item={row.item} disclosureScope={disclosureScope} />
-          </div>
-        )
-      );
-    }
     const animated = isCompletionTranscriptItem(row.item) ? row.item : row.completion;
-    return (
-      <TranscriptRow
-        item={row.item}
-        completion={row.completion}
-        completionAnimate={
-          animated ? freshCompletionAnimationKeys.has(completionAnimationKeyByItem.get(animated) || '') : false
-        }
-        disclosureScope={disclosureScope}
-      />
-    );
+    const assistantProps: TranscriptAssistantRowProps = {
+      item: row.item,
+      live: Boolean(row.live),
+      completion: row.completion,
+      completionAnimate: animated
+        ? freshCompletionAnimationKeys.has(completionAnimationKeyByItem.get(animated) || '')
+        : false,
+      disclosureScope,
+    };
+    return renderAssistantRow ? renderAssistantRow(assistantProps) : <TranscriptAssistantRow {...assistantProps} />;
   };
 
   return (
     <section
       className={`conversation${readOnly ? ' conversation-read-only' : ''}`}
       ref={conversation}
-      onKeyDownCapture={
-        readOnly
-          ? undefined
-          : (event) => {
-              const transcriptKey =
-                event.key === 'PageUp' || event.key === 'PageDown' || event.key === 'Home' || event.key === 'End';
-              const target = event.target as HTMLElement | null;
-              const editingHomeOrEnd =
-                (event.key === 'Home' || event.key === 'End') &&
-                Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
-              const paletteOpen = Boolean(
-                event.currentTarget.querySelector('[data-composer-palette-open="true"], [role="listbox"]')
-              );
-              const nestedScroller = target?.closest<HTMLElement>('[data-scrollable]');
-              if (
-                transcriptKey &&
-                !event.ctrlKey &&
-                !event.metaKey &&
-                !event.altKey &&
-                !event.shiftKey &&
-                !editingHomeOrEnd &&
-                !paletteOpen &&
-                !nestedScroller
-              ) {
-                const element = viewport.current;
-                if (element) {
-                  event.preventDefault();
-                  handleTranscriptKeyDown({ key: event.key });
-                  if (event.key === 'PageUp' || event.key === 'PageDown') {
-                    const direction = event.key === 'PageDown' ? 1 : -1;
-                    element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
-                  } else {
-                    element.scrollTo({ top: event.key === 'Home' ? 0 : element.scrollHeight, behavior: 'auto' });
-                  }
-                }
-                return;
-              }
-              // Typing must always land in the composer: a printable key (or the
-              // IME "Process" key starting a Korean composition) pressed while
-              // focus sits on the transcript or tool chrome refocuses the input
-              // BEFORE the character/composition commits, so keystrokes are never
-              // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
-              if (event.ctrlKey || event.metaKey || event.altKey) return;
-              if (event.key.length !== 1 && event.key !== 'Process') return;
-              if (!target || typeof target.closest !== 'function') return;
-              if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
-              // Structural hook, not the accessible name: the aria-label is
-              // localized, so matching its English copy never found the
-              // textarea outside the English UI.
-              event.currentTarget
-                .querySelector<HTMLTextAreaElement>('.composer-input-row textarea')
-                ?.focus({ preventScroll: true });
+      onKeyDownCapture={(event) => {
+        if (readOnly) return;
+        const transcriptKey =
+          event.key === 'PageUp' || event.key === 'PageDown' || event.key === 'Home' || event.key === 'End';
+        const target = event.target as HTMLElement | null;
+        const editingHomeOrEnd =
+          (event.key === 'Home' || event.key === 'End') &&
+          Boolean(target?.closest('textarea, input, select, [contenteditable="true"]'));
+        const paletteOpen = Boolean(
+          event.currentTarget.querySelector('[data-composer-palette-open="true"], [role="listbox"]')
+        );
+        const nestedScroller = target?.closest<HTMLElement>('[data-scrollable]');
+        if (
+          transcriptKey &&
+          !event.ctrlKey &&
+          !event.metaKey &&
+          !event.altKey &&
+          !event.shiftKey &&
+          !editingHomeOrEnd &&
+          !paletteOpen &&
+          !nestedScroller
+        ) {
+          const element = viewport.current;
+          if (element) {
+            event.preventDefault();
+            handleTranscriptKeyDown({ key: event.key });
+            if (event.key === 'PageUp' || event.key === 'PageDown') {
+              const direction = event.key === 'PageDown' ? 1 : -1;
+              element.scrollBy({ top: Math.round(element.clientHeight * 0.9) * direction, behavior: 'auto' });
+            } else {
+              element.scrollTo({ top: event.key === 'Home' ? 0 : element.scrollHeight, behavior: 'auto' });
             }
-      }
+          }
+          return;
+        }
+        // Typing must always land in the composer: a printable key (or the
+        // IME "Process" key starting a Korean composition) pressed while
+        // focus sits on the transcript or tool chrome refocuses the input
+        // BEFORE the character/composition commits, so keystrokes are never
+        // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.key.length !== 1 && event.key !== 'Process') return;
+        if (!target || typeof target.closest !== 'function') return;
+        if (target.closest('textarea, input, select, [contenteditable="true"]')) return;
+        // Structural hook, not the accessible name: the aria-label is
+        // localized, so matching its English copy never found the
+        // textarea outside the English UI.
+        event.currentTarget
+          .querySelector<HTMLTextAreaElement>('.composer-input-row textarea')
+          ?.focus({ preventScroll: true });
+      }}
     >
       <div className="transcript-shell">
         <div
@@ -988,9 +983,8 @@ export function Conversation({
                   const host = window.mixdogDesktop;
                   const sessionId = routeSessionIdRef.current;
                   const approvalId = String(snapshot.toolApproval?.id || '');
-                  return sessionId
-                    ? host.resolveToolApprovalForSession(sessionId, approvalId, { approved })
-                    : Promise.resolve(false);
+                  if (!sessionId) return Promise.resolve(false);
+                  return host.resolveToolApprovalForSession(sessionId, approvalId, { approved });
                 }}
               />
             ) : null

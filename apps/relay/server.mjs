@@ -433,7 +433,7 @@ function upgradeDesktopLeg(relay, request, url, rawSocket, head) {
 }
 
 function upgradePhoneLeg(relay, request, url, rawSocket, head) {
-  const { store, liveDesktops, unauthorizedLimiter, phoneConnectLimiter, wss } = relay;
+  const { store, liveDesktops, phoneConnectLimiter, wss } = relay;
   if (!browserSocketOriginAllowed(request)) {
     rejectUpgrade(rawSocket, 403, 'Forbidden');
     return;

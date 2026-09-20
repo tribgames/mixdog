@@ -123,9 +123,7 @@ export function resolveRenderScrollOffset({
     (Number(prevViewport.floatingPanelRows) || 0) !== (Number(floatingPanelRows) || 0);
   if (viewportOnlyChanged && !anchorLockActive && readingWithoutLock) {
     const geom = geomRef.current || {};
-    adopt(
-      lockToPreviousTopEdge({ geom, prevViewRows: Number(prevViewport.contentHeight) || geom.viewRows, current })
-    );
+    adopt(lockToPreviousTopEdge({ geom, prevViewRows: Number(prevViewport.contentHeight) || geom.viewRows, current }));
   }
   prevViewportRef.current = { contentHeight: lockViewRows, floatingPanelRows: Number(floatingPanelRows) || 0 };
   return renderScrollOffset;

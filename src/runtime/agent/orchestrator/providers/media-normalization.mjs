@@ -50,20 +50,15 @@ function fileInfo(block) {
       String(source.media_type || source.mediaType || block.mimeType || block.mediaType || 'application/pdf')
         .trim()
         .toLowerCase() || 'application/pdf';
-    const filename =
-      typeof block.title === 'string' && block.title
-        ? block.title
-        : typeof block.filename === 'string' && block.filename
-          ? block.filename
-          : '';
+    let filename = '';
+    if (typeof block.title === 'string' && block.title) filename = block.title;
+    else if (typeof block.filename === 'string' && block.filename) filename = block.filename;
     return { data: source.data, mimeType, filename };
   }
   if (block.type !== 'file') return null;
-  const data = isAttachmentReference(block)
-    ? readAttachmentBase64(block)
-    : typeof block.data === 'string'
-      ? block.data
-      : '';
+  let data = '';
+  if (isAttachmentReference(block)) data = readAttachmentBase64(block);
+  else if (typeof block.data === 'string') data = block.data;
   if (!data) return null;
   const mimeType =
     String(block.mimeType || block.mediaType || 'application/pdf')
@@ -397,13 +392,10 @@ export function normalizeContentForAnthropic(content) {
       return { type: 'text', text: `[unsupported image content: ${stringifyFallback(part)}]` };
     }
     if (part?.type === 'tool_result') {
-      const nested = Array.isArray(part.content)
-        ? normalizeContentForAnthropic(part.content)
-        : typeof part.content === 'string'
-          ? part.content
-          : part.content == null
-            ? ''
-            : stringifyFallback(part.content);
+      let nested;
+      if (Array.isArray(part.content)) nested = normalizeContentForAnthropic(part.content);
+      else if (typeof part.content === 'string') nested = part.content;
+      else nested = part.content == null ? '' : stringifyFallback(part.content);
       return { ...part, content: nested };
     }
     if (part?.type === 'input_text' || part?.type === 'output_text') {

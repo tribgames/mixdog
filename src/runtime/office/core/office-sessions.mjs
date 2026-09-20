@@ -289,6 +289,12 @@ function contentFieldFault(format, args) {
 // Facts and claims describe what the deliverable must carry; they do not
 // write it. Handed over with nothing that does, the call produced an empty
 // file and reported success, and the caller found out only on opening it.
+function scriptFault(format, args) {
+  if (format === 'pdf' || typeof args.script !== 'string' || !args.script.trim()) return '';
+  const authorHint = format === 'pptx' ? " A deck written from a script uses action:'author' with script." : '';
+  return `${format.toUpperCase()} create takes no script.${authorHint}`;
+}
+
 function contentWithoutWriterFault(format, args) {
   const content = args.design?.content;
   const carriesContent =
@@ -317,10 +323,7 @@ function assertCreateContentFields(format, args) {
       ? `${format.toUpperCase()} create takes no top-level values:` +
         " pass operations:[{ op: 'set_range', range: 'A1:B2', values: [[…]] }]."
       : '',
-    format !== 'pdf' && typeof args.script === 'string' && args.script.trim()
-      ? `${format.toUpperCase()} create takes no script.` +
-        (format === 'pptx' ? " A deck written from a script uses action:'author' with script." : '')
-      : '',
+    scriptFault(format, args),
     contentWithoutWriterFault(format, args),
   ].filter(Boolean);
   if (faults.length === 1) throw new Error(faults[0]);

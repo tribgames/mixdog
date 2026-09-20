@@ -49,7 +49,8 @@ export function touchedLocations(format, operations = []) {
 }
 
 function severityRank(severity) {
-  return severity === 'error' ? 0 : severity === 'warning' ? 1 : 2;
+  if (severity === 'error') return 0;
+  return severity === 'warning' ? 1 : 2;
 }
 
 export function summarizeOfficeAudit(issueList, { touched = [] } = {}) {

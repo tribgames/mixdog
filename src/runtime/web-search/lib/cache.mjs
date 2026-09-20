@@ -1,4 +1,4 @@
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 import { CACHE_PATH, readJson, writeJson } from './config.mjs';
 
 const DEFAULT_CACHE_STATE = {

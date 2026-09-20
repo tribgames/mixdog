@@ -7,19 +7,20 @@
 // webhook HTTP server; the response returns verbatim. Endpoint HMAC
 // verification stays local — the relay never inspects payloads. Works out
 // of the box: no binary, no authtoken, no reserved domain.
-import * as http from 'http';
-import { randomBytes, randomUUID } from 'crypto';
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
-import { join } from 'path';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { readFileSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs';
+import { join } from 'node:path';
 import WebSocket from 'ws';
 import { DATA_DIR } from '../config.mjs';
 import { logWebhook } from './log.mjs';
+import { MAX_HOOK_FRAME_BYTES, MAX_HOOK_HEADER_BYTES, MAX_TUNNEL_BODY_BYTES } from './relay-tunnel/limits.mjs';
+import { forwardFrameToLocal, respondJsonError } from './relay-tunnel/local-forward.mjs';
+import { armLegHeartbeat } from './relay-tunnel/leg-heartbeat.mjs';
+
+export { MAX_TUNNEL_BODY_BYTES } from './relay-tunnel/limits.mjs';
 
 /** Packaged default mirrors the desktop pairing relay. */
 const DEFAULT_RELAY_URL = 'wss://192-255-139-161.sslip.io';
-export const MAX_TUNNEL_BODY_BYTES = 1024 * 1024;
-const MAX_HOOK_FRAME_BYTES = 2 * 1024 * 1024;
-const MAX_HOOK_HEADER_BYTES = 32 * 1024;
 const HOP_HEADERS = new Set([
   'host',
   'connection',
@@ -29,8 +30,6 @@ const HOP_HEADERS = new Set([
   'upgrade',
   'te',
 ]);
-const HEARTBEAT_MS = 25_000;
-const LOCAL_TIMEOUT_MS = 25_000;
 
 export function resolveHookRelayUrl(env = process.env) {
   const raw = String(env.MIXDOG_RELAY_URL || '').trim();
@@ -189,113 +188,40 @@ export function readHookPublicBase(env = process.env) {
   return null;
 }
 
+// One relayed frame: parse, validate, replay against the local server. An
+// invalid frame that still carries an id is answered 400 so the relay does
+// not wait for a timeout.
+function handleLegMessage(ws, raw, getLocalPort) {
+  let rawFrame;
+  try {
+    rawFrame = JSON.parse(String(raw));
+  } catch {
+    return;
+  }
+  let frame;
+  try {
+    frame = normalizeHookRequestFrame(rawFrame);
+  } catch (err) {
+    if (typeof rawFrame?.id === 'string') respondJsonError(ws, rawFrame.id, 400, err);
+    return;
+  }
+  forwardFrameToLocal(frame, ws, getLocalPort);
+}
+
 export function startHookTunnel({ relayUrl, getLocalPort }) {
   const { deviceId, deviceSecret } = loadOrCreateHookIdentity();
-  let socket = null;
-  let closed = false;
-  let retryMs = 1_000;
-  let reconnectTimer = null;
-  let announced = false;
+  // The reconnect loop's state: the live leg, exponential retry, one "up" announcement.
+  const leg = { socket: null, closed: false, retryMs: 1_000, reconnectTimer: null, announced: false };
 
   const scheduleReconnect = () => {
-    if (closed) return;
-    reconnectTimer = setTimeout(connect, retryMs);
-    reconnectTimer.unref?.();
-    retryMs = Math.min(30_000, retryMs * 2);
-  };
-
-  const respond = (ws, id, status, headers, bodyBuffer) => {
-    if (ws.readyState !== WebSocket.OPEN) return;
-    try {
-      ws.send(
-        JSON.stringify({
-          type: 'http-response',
-          id,
-          status,
-          headers: headers || {},
-          body: bodyBuffer && bodyBuffer.length ? bodyBuffer.toString('base64') : '',
-        })
-      );
-    } catch {
-      /* relay vanished; it times the request out */
-    }
-  };
-
-  const forwardToLocal = (frame, ws) => {
-    const port = getLocalPort();
-    if (!port) {
-      respond(
-        ws,
-        frame.id,
-        503,
-        { 'content-type': 'application/json' },
-        Buffer.from('{"error":"webhook server not listening"}')
-      );
-      return;
-    }
-    let request;
-    try {
-      request = http.request(
-        {
-          host: '127.0.0.1',
-          port,
-          method: frame.method,
-          path: frame.path,
-          headers: frame.headers,
-          timeout: LOCAL_TIMEOUT_MS,
-        },
-        (response) => {
-          const chunks = [];
-          let total = 0;
-          let overflow = false;
-          response.on('data', (chunk) => {
-            total += chunk.length;
-            if (total > MAX_TUNNEL_BODY_BYTES) {
-              overflow = true;
-              response.destroy(new Error('local webhook response exceeds limit'));
-              return;
-            }
-            chunks.push(chunk);
-          });
-          response.on('end', () => {
-            if (overflow) return;
-            respond(
-              ws,
-              frame.id,
-              response.statusCode || 502,
-              { 'content-type': response.headers['content-type'] || 'application/json' },
-              Buffer.concat(chunks)
-            );
-          });
-          response.on('error', () => respond(ws, frame.id, 502, {}, null));
-        }
-      );
-    } catch (err) {
-      respond(
-        ws,
-        frame.id,
-        400,
-        { 'content-type': 'application/json' },
-        Buffer.from(JSON.stringify({ error: String(err?.message || err) }))
-      );
-      return;
-    }
-    request.on('timeout', () => request.destroy(new Error('local webhook timeout')));
-    request.on('error', (err) =>
-      respond(
-        ws,
-        frame.id,
-        502,
-        { 'content-type': 'application/json' },
-        Buffer.from(JSON.stringify({ error: String(err?.message || err) }))
-      )
-    );
-    if (body && body.length) request.write(body);
-    request.end();
+    if (leg.closed) return;
+    leg.reconnectTimer = setTimeout(connect, leg.retryMs);
+    leg.reconnectTimer.unref?.();
+    leg.retryMs = Math.min(30_000, leg.retryMs * 2);
   };
 
   const connect = () => {
-    if (closed) return;
+    if (leg.closed) return;
     const connection = hookLegSocketOptions(relayUrl, { deviceId, deviceSecret });
     let ws;
     try {
@@ -308,69 +234,25 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
       scheduleReconnect();
       return;
     }
-    socket = ws;
-    // NAT paths silently drop idle sockets; protocol pings keep the leg warm
-    // and detect a half-dead link so the reconnect loop restores it.
-    let alive = true;
-    ws.on('pong', () => {
-      alive = true;
-    });
-    const heartbeat = setInterval(() => {
-      if (ws.readyState !== WebSocket.OPEN) return;
-      if (!alive) {
-        try {
-          ws.terminate();
-        } catch {
-          /* close reconnects */
-        }
-        return;
-      }
-      alive = false;
-      try {
-        ws.ping();
-      } catch {
-        /* close reconnects */
-      }
-    }, HEARTBEAT_MS);
-    heartbeat.unref?.();
+    leg.socket = ws;
+    const heartbeat = armLegHeartbeat(ws);
     ws.on('open', () => {
-      retryMs = 1_000;
-      if (!announced) {
-        announced = true;
+      leg.retryMs = 1_000;
+      if (!leg.announced) {
+        leg.announced = true;
         logWebhook(`hook tunnel up: ${hookPublicBase(relayUrl, deviceId)}`);
       }
     });
     ws.on('message', (raw) => {
-      alive = true;
-      let rawFrame;
-      try {
-        rawFrame = JSON.parse(String(raw));
-      } catch {
-        return;
-      }
-      let frame;
-      try {
-        frame = normalizeHookRequestFrame(rawFrame);
-      } catch (err) {
-        if (typeof rawFrame?.id === 'string') {
-          respond(
-            ws,
-            rawFrame.id,
-            400,
-            { 'content-type': 'application/json' },
-            Buffer.from(JSON.stringify({ error: String(err?.message || err) }))
-          );
-        }
-        return;
-      }
-      forwardToLocal(frame, ws);
+      heartbeat.markAlive();
+      handleLegMessage(ws, raw, getLocalPort);
     });
     ws.on('error', () => {
       /* surfaced as close */
     });
     ws.on('close', () => {
-      clearInterval(heartbeat);
-      if (socket === ws) socket = null;
+      heartbeat.stop();
+      if (leg.socket === ws) leg.socket = null;
       scheduleReconnect();
     });
   };
@@ -380,16 +262,16 @@ export function startHookTunnel({ relayUrl, getLocalPort }) {
     deviceId,
     publicBase: hookPublicBase(relayUrl, deviceId),
     close() {
-      if (closed) return;
-      closed = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (socket) {
+      if (leg.closed) return;
+      leg.closed = true;
+      if (leg.reconnectTimer) clearTimeout(leg.reconnectTimer);
+      if (leg.socket) {
         try {
-          socket.terminate();
+          leg.socket.terminate();
         } catch {
           /* already gone */
         }
-        socket = null;
+        leg.socket = null;
       }
     },
   };

@@ -9,6 +9,7 @@
  * re-exported so the runSlashCommand /theme-by-id path keeps using it.
  */
 import { theme } from '../theme.mjs';
+import { pickerHelp } from './app-format.mjs';
 
 export const themeNotice = (applied) => `Theme set to ${applied?.label || applied?.id || 'default'}`;
 
@@ -71,11 +72,7 @@ export function createThemeEffortPickers({
     own.paint({
       title: 'Theme',
       description: 'Choose the color theme that looks best with your terminal.',
-      help: onboarding
-        ? undefined
-        : returnTo
-          ? '↑/↓ Preview · Enter Choose · Esc Settings'
-          : '↑/↓ Preview · Enter Choose · Esc Back',
+      help: pickerHelp(onboarding, returnTo, '↑/↓ Preview · Enter Choose'),
       labelWidth: 22,
       initialIndex: Math.max(
         0,

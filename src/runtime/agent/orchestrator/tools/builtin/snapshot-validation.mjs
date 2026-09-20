@@ -2,11 +2,11 @@ import { hashText } from './hash-utils.mjs';
 import { normaliseRangeHashEntry, statMatchesSnapshot } from './snapshot-helpers.mjs';
 
 function snapshotRangeHashRows(snapshot) {
-  return Array.isArray(snapshot?.rangeHashes)
-    ? snapshot.rangeHashes
-    : snapshot?.rangeHash && Array.isArray(snapshot.ranges) && snapshot.ranges.length > 0
-      ? [{ ...snapshot.ranges[0], hash: snapshot.rangeHash }]
-      : [];
+  if (Array.isArray(snapshot?.rangeHashes)) return snapshot.rangeHashes;
+  if (snapshot?.rangeHash && Array.isArray(snapshot.ranges) && snapshot.ranges.length > 0) {
+    return [{ ...snapshot.ranges[0], hash: snapshot.rangeHash }];
+  }
+  return [];
 }
 
 export function isSnapshotStale(stat, snapshot, { fullPath = '', readCache = null, readTextForSnapshotCheck } = {}) {

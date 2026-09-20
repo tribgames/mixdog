@@ -6,7 +6,7 @@
  * call. The desktop reads snapshots over the normal capability bridge; nothing
  * here streams, which keeps a long video job independent of window lifetime.
  */
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { MAX_GENERATED_MEDIA_BYTES } from './download.mjs';
 import { mediaError, resolveMediaRequest } from './lanes.mjs';
 import { saveMediaAsset } from './store.mjs';

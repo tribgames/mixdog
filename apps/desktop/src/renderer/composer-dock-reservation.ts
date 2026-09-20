@@ -17,7 +17,7 @@ import { classifyToolCategory } from '../../../../src/runtime/shared/tool-surfac
  *  aggregate card carries its categories as a count map, and a card that
  *  already published a uiDiff has touched files by definition. */
 export function toolTouchesFiles(item: TranscriptItem | null | undefined): boolean {
-  if (!item || item.kind !== 'tool') return false;
+  if (item?.kind !== 'tool') return false;
   if (typeof item.uiDiff === 'string' && item.uiDiff) return true;
   const categories = asRecord(item.categories);
   if (categories && Object.hasOwn(categories, 'Patch')) return true;
@@ -57,10 +57,8 @@ export function reviewSlotReserved({
   return touchesFiles && (turnLive || reviewPending);
 }
 
-/** The review bar's first authoritative worker read for a scope is still in
- *  flight. Pending only while a read will actually run: an inactive pane, an
- *  empty turn, a draft, or a scope the shared cache already answered never
- *  asks, so none of them may reserve. */
+/** Reserve for the first read or a newer tool/turn boundary. A cached first
+ *  read cannot answer a completion refresh that is still in flight. */
 export function reviewScopePending({
   active,
   hasTurnActivity,
@@ -68,6 +66,7 @@ export function reviewScopePending({
   scopeKey,
   settledScope,
   cached,
+  refreshPending = false,
 }: {
   active: boolean;
   hasTurnActivity: boolean;
@@ -75,6 +74,7 @@ export function reviewScopePending({
   scopeKey: string;
   settledScope: string;
   cached: boolean;
+  refreshPending?: boolean;
 }): boolean {
-  return active && hasTurnActivity && Boolean(sessionId) && settledScope !== scopeKey && !cached;
+  return active && hasTurnActivity && Boolean(sessionId) && (refreshPending || (settledScope !== scopeKey && !cached));
 }

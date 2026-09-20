@@ -79,6 +79,11 @@ function writeRecentModelKeys(keys: string[]): void {
   }
 }
 
+function emptyCatalogText(loading: boolean, hasQuery: boolean): string {
+  if (loading) return t('Loading models…');
+  return hasQuery ? t('No matching models.') : t('No connected provider models.');
+}
+
 export function ModelCatalog({
   models,
   provider,
@@ -208,7 +213,8 @@ export function ModelCatalog({
     if (event.key === 'End') return focusRow(options.length - 1);
     if (fromSearch) {
       const initialized = options.findIndex((option) => option.dataset.rowKey === activeRowKey);
-      return focusRow(initialized >= 0 ? initialized : event.key === 'ArrowDown' ? 0 : options.length - 1);
+      if (initialized >= 0) return focusRow(initialized);
+      return focusRow(event.key === 'ArrowDown' ? 0 : options.length - 1);
     }
     const current = options.indexOf(document.activeElement as HTMLButtonElement);
     focusRow(current + (event.key === 'ArrowDown' ? 1 : -1));
@@ -251,7 +257,7 @@ export function ModelCatalog({
             <strong>
               {modelDisplayName(option.model, option.provider, option.display)}
               {scope === 'recent:' && (
-                <span className="model-row-source">{' (' + providerDisplayName(option.provider) + ')'}</span>
+                <span className="model-row-source">{` (${providerDisplayName(option.provider)})`}</span>
               )}
             </strong>
           </span>
@@ -328,11 +334,7 @@ export function ModelCatalog({
               )}
               {renderedKeys.length === 0 && (
                 <p className="model-empty">
-                  {catalogRefreshing || !catalogLoaded
-                    ? t('Loading models…')
-                    : normalizedQuery
-                      ? t('No matching models.')
-                      : t('No connected provider models.')}
+                  {emptyCatalogText(catalogRefreshing || !catalogLoaded, Boolean(normalizedQuery))}
                 </p>
               )}
               {recentModels.length > 0 && (

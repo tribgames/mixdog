@@ -8,7 +8,9 @@ export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase
   if (typeof body !== 'string') return body;
   const off = typeof origOffset === 'number' ? origOffset : 0;
   // limit:0 = unlimited (matches single-form parseLineLimitArg invariant)
-  const lim = typeof origLimit === 'number' && origLimit !== 0 ? origLimit : origLimit === 0 ? Infinity : 2000;
+  let lim = 2000;
+  if (origLimit === 0) lim = Infinity;
+  else if (typeof origLimit === 'number') lim = origLimit;
   const firstLine = off + 1; // 1-based inclusive
   const lastLine = off + lim; // 1-based inclusive
   const lines = body.split('\n');
@@ -72,18 +74,20 @@ export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase
     if (keptFirst === null) keptFirst = n;
     keptLast = n;
   }
-  const requestedLast =
-    haveTotal && finiteLast ? Math.min(lastLine, totalNum) : finiteLast ? lastLine : (keptLast ?? firstLine);
+  let requestedLast = keptLast ?? firstLine;
+  if (haveTotal && finiteLast) requestedLast = Math.min(lastLine, totalNum);
+  else if (finiteLast) requestedLast = lastLine;
   const emittedStart = keptFirst ?? firstLine;
   const emittedLast = keptLast !== null ? Math.min(requestedLast, keptLast) : requestedLast;
   const totalPart = haveTotal ? ` of ${totalNum}` : '';
   const moreToRead = haveTotal ? emittedLast < totalNum : finiteLast;
   // Report the next caller coordinate without prescribing another read;
   // whatever remains fits one wider read, not a walk window by window.
-  const continuationPart =
-    moreToRead && Number.isFinite(emittedLast)
-      ? `; ${haveTotal ? `${totalNum - emittedLast} more lines` : 'more lines'} — pass offset:${emittedLast + readOffsetBase} with a limit wide enough to read them in one call`
-      : '';
+  let continuationPart = '';
+  if (moreToRead && Number.isFinite(emittedLast)) {
+    const remaining = haveTotal ? `${totalNum - emittedLast} more lines` : 'more lines';
+    continuationPart = `; ${remaining} — pass offset:${emittedLast + readOffsetBase} with a limit wide enough to read them in one call`;
+  }
   const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
   return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;
 }
@@ -104,14 +108,9 @@ export function readEntryLineWindow(entry) {
   // window must extend to EOF too — otherwise the union read is capped at the
   // default 2000 lines while the entry actually reads the whole file, and the
   // per-window slice returns truncated/empty results.
-  const limit =
-    entry.full === true
-      ? Infinity
-      : typeof entry.limit === 'number'
-        ? entry.limit === 0
-          ? Infinity
-          : Math.max(1, Math.trunc(entry.limit))
-        : 2000;
+  let limit = 2000;
+  if (entry.full === true || entry.limit === 0) limit = Infinity;
+  else if (typeof entry.limit === 'number') limit = Math.max(1, Math.trunc(entry.limit));
   return {
     offset,
     end: limit === Infinity ? Infinity : offset + limit,
@@ -181,12 +180,9 @@ export function coalesceObjectReadEntries(rawEntries, resolvePath = null) {
           typeof item.entry.offset === 'number' && Number.isFinite(item.entry.offset)
             ? Math.max(0, Math.trunc(item.entry.offset))
             : item.offset;
-        const entryLimit =
-          typeof item.entry.limit === 'number'
-            ? item.entry.limit
-            : item.end === Infinity
-              ? 0
-              : Math.max(1, item.end - item.offset);
+        let entryLimit = Math.max(1, item.end - item.offset);
+        if (typeof item.entry.limit === 'number') entryLimit = item.entry.limit;
+        else if (item.end === Infinity) entryLimit = 0;
         out[item.index] = {
           ...item.entry,
           offset: entryOffset,

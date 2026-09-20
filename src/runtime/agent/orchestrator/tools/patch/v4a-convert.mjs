@@ -558,7 +558,8 @@ function v4aRenameSourceIssue(srcFull, displayPath) {
   try {
     const st = lstatSync(srcFull);
     if (isSpecialFileStat(st)) return v4aSpecialFileStatMessage(displayPath);
-    if (!st.isFile()) return `apply_patch: V4A rename source is not a regular file: ${normalizeOutputPath(displayPath)}`;
+    if (!st.isFile())
+      return `apply_patch: V4A rename source is not a regular file: ${normalizeOutputPath(displayPath)}`;
   } catch (err) {
     return `apply_patch: V4A rename source missing or unreadable: ${normalizeOutputPath(displayPath)} (${err?.code || err?.message || String(err)})`;
   }

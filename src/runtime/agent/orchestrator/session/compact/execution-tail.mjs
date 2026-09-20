@@ -8,21 +8,20 @@ import {
 } from './messages.mjs';
 
 export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
-const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
-const TOOL_HISTORY_MAX_TOKENS = 25_000;
+const TOOL_HISTORY_CONTEXT_RATIO = 0.1;
 
 export function toolHistoryBudget(contextWindow) {
   const window = Number(contextWindow);
-  return Number.isFinite(window) && window > 0
-    ? Math.min(TOOL_HISTORY_MAX_TOKENS, Math.floor(window * TOOL_HISTORY_CONTEXT_RATIO))
-    : 0;
+  return Number.isFinite(window) && window > 0 ? Math.floor(window * TOOL_HISTORY_CONTEXT_RATIO) : 0;
 }
 
 // Count arguments and provider replay as well as results. The serialized
 // estimate is deliberately conservative for provider-specific opaque metadata.
+// UI diffs never reach the model and must not displace execution evidence.
 export function executionTokens(messages) {
   if (!messages.length) return 0;
-  return Math.max(estimateMessagesTokens(messages), estimateTokens(JSON.stringify(messages)));
+  const budgetMessages = messages.map(({ uiDiff: _uiDiff, ...message }) => message);
+  return Math.max(estimateMessagesTokens(budgetMessages), estimateTokens(JSON.stringify(budgetMessages)));
 }
 
 function requestStart(messages, index) {
@@ -95,11 +94,13 @@ export function buildExecutionTail(messages, { contextWindow, sessionId, preserv
   if (executionTokens(recovery) > budget) {
     throw new Error('compact: tool-history budget cannot hold its recovery reference; original context preserved');
   }
+  if (groups.length && !kept.size) {
+    throw new Error('compact: latest execution group cannot fit the tool-history budget; original context preserved');
+  }
   const latest = latestActualUserInstructionIndex(messages);
   const firstKept = kept.size ? Math.min(...kept.keys()) : messages.length;
-  const anchor = preserveConversation
-    ? 0
-    : requestStart(messages, Math.min(firstKept, latest < 0 ? firstKept : latest));
+  const latestKept = latest < 0 ? firstKept : latest;
+  const anchor = preserveConversation ? 0 : requestStart(messages, Math.min(firstKept, latestKept));
   const tail = [];
   for (let i = Math.max(0, anchor); i < messages.length; i += 1) {
     const group = kept.get(i);

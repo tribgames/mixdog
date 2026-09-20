@@ -1,7 +1,6 @@
 // Composer attachment ingestion: the shared budget policy plus the file ->
 // attachment conversion (engine-side image resize, PDF, inline text).
-// Extracted from Composer.tsx, which keeps token insertion, draft edits and
-// error surfacing.
+// Composer.tsx keeps token insertion, draft edits and error surfacing.
 import type { RecordValue } from './desktop-types';
 import { fileLooksLikeText } from './file-content';
 import { asRecord } from './text-format';
@@ -215,7 +214,12 @@ async function resizedImage(
  *  the caller must stop ingesting the remaining files then. */
 type AttachmentInput = { file: File; id: number; displayName: string; cancelled: () => boolean };
 
-async function imageAttachment({ file, id, displayName, cancelled }: AttachmentInput): Promise<ComposerAttachment | null> {
+async function imageAttachment({
+  file,
+  id,
+  displayName,
+  cancelled,
+}: AttachmentInput): Promise<ComposerAttachment | null> {
   if (!SUPPORTED_IMAGE_TYPES.test(file.type) || file.size > MAX_IMAGE_FILE_BYTES) {
     throw new Error(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
   }
@@ -236,7 +240,12 @@ async function imageAttachment({ file, id, displayName, cancelled }: AttachmentI
   };
 }
 
-async function pdfAttachment({ file, id, displayName, cancelled }: AttachmentInput): Promise<ComposerAttachment | null> {
+async function pdfAttachment({
+  file,
+  id,
+  displayName,
+  cancelled,
+}: AttachmentInput): Promise<ComposerAttachment | null> {
   if (file.size > MAX_PDF_FILE_BYTES) throw new Error(`${displayName}: PDFs must be under 20 MB.`);
   const data = await base64Payload(file, `${displayName}: could not read PDF.`);
   if (cancelled()) return null;

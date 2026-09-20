@@ -8,8 +8,8 @@
  *   2. <MIXDOG_HOME|~/.mixdog>/data
  */
 
-const path = require('path');
-const os = require('os');
+const path = require('node:path');
+const os = require('node:os');
 
 function mixdogHome() {
   return process.env.MIXDOG_HOME || path.join(os.homedir(), '.mixdog');

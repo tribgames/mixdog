@@ -171,6 +171,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   workflow?: DesktopWorkflowState | null;
   orchestrationMode?: DesktopOrchestrationMode;
   remoteEnabled?: boolean;
+  providerAccountChange?: { provider: string; accountId: string; at: number };
 }
 
 // These are the session runtime's real activity/completion fields, not a parallel
@@ -364,6 +365,9 @@ export interface DesktopSubmitOptions {
   displayText?: string;
   /** Create a new task as a Goal without emitting a visible bootstrap prompt. */
   goalCommand?: string;
+  /** Retry of a failed turn: when the turn produced no output, the runtime
+   *  rewinds its unanswered prompt so the resubmission reaches the model once. */
+  retryFailedTurn?: boolean;
   priority?: DesktopPromptPriority;
   pastedImages?: Record<string, DesktopPromptAttachment>;
   pastedTexts?: Record<string, DesktopPastedText>;

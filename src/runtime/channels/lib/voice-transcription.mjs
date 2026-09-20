@@ -1,8 +1,8 @@
-import { spawn } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { createRequire } from 'module';
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { createRequire } from 'node:module';
 import { resolveVoiceRuntime, selectVoiceModelId } from './voice-runtime-fetcher.mjs';
 import { ensureReady, transcribe } from './whisper-server.mjs';
 import { normalizeWhisperLanguage, detectDeviceLanguage } from './whisper-language.mjs';

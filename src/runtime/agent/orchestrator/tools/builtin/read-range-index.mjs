@@ -1,6 +1,6 @@
-import { mkdir, open, readFile, readdir, stat, unlink } from 'fs/promises';
-import { createHash } from 'crypto';
-import { join, normalize, resolve } from 'path';
+import { mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join, normalize, resolve } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { writeJsonAtomicAsync, writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 
@@ -46,7 +46,7 @@ function readRangeIndexFilePath(fullPath) {
 }
 
 function serialiseReadRangeIndex(index) {
-  if (!index || !index.fullPath || !index.anchors) return null;
+  if (!index?.fullPath || !index.anchors) return null;
   const anchors = [...index.anchors.entries()]
     .filter(
       ([line, byteOffset]) => Number.isFinite(line) && Number.isFinite(byteOffset) && line >= 0 && byteOffset >= 0
@@ -299,7 +299,7 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
 export function nearestReadRangeAnchor(index, offset) {
   let bestLine = 0;
   let bestByteOffset = 0;
-  if (!index || !index.anchors) return { line: bestLine, byteOffset: bestByteOffset };
+  if (!index?.anchors) return { line: bestLine, byteOffset: bestByteOffset };
   for (const [line, byteOffset] of index.anchors) {
     if (line <= offset && line >= bestLine) {
       bestLine = line;

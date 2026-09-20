@@ -510,7 +510,7 @@ async function settleTurn(ctx) {
 }
 
 export function createRunTurn(bag) {
-  const { runtime, flags, getState, set, pushItem, tuiDebug, pending } = bag;
+  const { runtime, flags, getState, set, tuiDebug, pending } = bag;
   const tailStore = streamingTailStore(bag);
 
   async function runTurn(userText, options = {}) {
@@ -563,6 +563,7 @@ export function createRunTurn(bag) {
         id: turn.submittedIds[0],
         submittedAt: options.submittedAt,
         promptSource: options.promptSource,
+        retryFailedTurn: options.retryFailedTurn === true,
         transcriptMeta: turn.transcriptMeta,
         context: options.context || null,
         ...turnHandlers(ctx),

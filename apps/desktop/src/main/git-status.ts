@@ -316,7 +316,8 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
       const kind = entry[0];
       if (kind !== '1' && kind !== '2' && kind !== 'u') return;
       const xy = entry.slice(2, 4);
-      const path = pathAfterFields(entry, kind === '1' ? 8 : kind === '2' ? 9 : 10);
+      const pathFieldCount = { '1': 8, '2': 9, u: 10 }[kind];
+      const path = pathAfterFields(entry, pathFieldCount);
       if (!path) return;
       const file: GitFileEntry = {
         path,

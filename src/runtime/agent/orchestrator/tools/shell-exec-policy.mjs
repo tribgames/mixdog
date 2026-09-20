@@ -110,8 +110,8 @@ function classifyExecPolicy(command) {
 }
 
 function mergeExecPolicyDecisions(a, b) {
-  const left = a && a.decision ? a : { decision: 'allow', reason: '' };
-  const right = b && b.decision ? b : { decision: 'allow', reason: '' };
+  const left = a?.decision ? a : { decision: 'allow', reason: '' };
+  const right = b?.decision ? b : { decision: 'allow', reason: '' };
   if (_POLICY_RANK[right.decision] > _POLICY_RANK[left.decision]) return right;
   if (_POLICY_RANK[right.decision] < _POLICY_RANK[left.decision]) return left;
   return right.reason ? right : left;

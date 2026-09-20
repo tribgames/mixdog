@@ -8,6 +8,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { ScmPathText } from './ScmPathText';
 import { ScmStatusIcon, scmStatusKind } from './ScmStatusIcon';
 import { buildSessionDiffRows, type SessionDiffRow } from './session-diff-model';
+import { fileBaseName } from './text-format';
 import { useSessionDiffRefresh } from './use-session-diff-refresh';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 
@@ -44,10 +45,8 @@ function SessionDiffFrame({ children }: { children: ReactNode }) {
  *  file in the dock's left diff column, exactly as a Source Control row does;
  *  the open file's row reads as the selected row. */
 function SessionDiffFileRow({ row, open, onOpen }: { row: SessionDiffRow; open: boolean; onOpen(): void }) {
-  const slash = row.path.lastIndexOf('/');
-  const fileName = slash >= 0 ? row.path.slice(slash + 1) : row.path;
-  const oldSlash = row.oldPath.lastIndexOf('/');
-  const oldFileName = row.oldPath ? (oldSlash >= 0 ? row.oldPath.slice(oldSlash + 1) : row.oldPath) : '';
+  const fileName = fileBaseName(row.path);
+  const oldFileName = row.oldPath ? fileBaseName(row.oldPath) : '';
   const displayName = row.oldPath && row.oldPath !== row.path ? `${oldFileName} → ${fileName}` : fileName;
   const kind = scmStatusKind(row.status);
   return (

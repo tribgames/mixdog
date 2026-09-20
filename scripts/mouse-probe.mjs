@@ -38,17 +38,7 @@ process.stdin.on('data', (buf) => {
     const mods = [b & 4 ? 'shift' : '', b & 8 ? 'alt' : '', b & 16 ? 'ctrl' : ''].filter(Boolean).join('+') || 'none';
     const base = b & ~(4 | 8 | 16);
     const kind =
-      base === 64
-        ? 'wheel-up'
-        : base === 65
-          ? 'wheel-down'
-          : base === 0
-            ? 'left'
-            : base === 2
-              ? 'right'
-              : b & 32
-                ? 'motion'
-                : `btn${base}`;
+      { 64: 'wheel-up', 65: 'wheel-down', 0: 'left', 2: 'right' }[base] ?? (b & 32 ? 'motion' : `btn${base}`);
     process.stdout.write(
       `button=${b} base=${base} kind=${kind} mods=${mods} x=${m[2]} y=${m[3]} ${m[4] === 'M' ? 'press' : 'release'}\n`
     );

@@ -3,10 +3,10 @@
  * Sessions are saved to disk so CLI and MCP server can share state,
  * and sessions survive server restarts (resume).
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs';
-import * as fsp from 'fs/promises';
-import { randomBytes } from 'crypto';
-import { join } from 'path';
+import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
+import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
@@ -189,7 +189,7 @@ function _releasePendingSlot(pending) {
  * stamped while this payload still speaks for the id — after a hard delete (or
  * an id reuse) it belongs to another incarnation.
  */
-function _recordAsyncSaveError(id, payload, err) {
+function _recordAsyncSaveError(_id, _payload, err) {
   // DIAGNOSTIC ONLY. The authoritative marker (with its immutable failure
   // snapshot and incarnation check) is stamped inside _doSave; stamping a
   // second, unconditional one here is exactly how a delayed rejection used
@@ -298,7 +298,7 @@ export function evictIdleLiveSessions(options = {}) {
   const now = Date.now();
   let evicted = 0;
   for (const [id, session] of [..._liveSessions.entries()]) {
-    if (isSessionLive && isSessionLive(id)) continue;
+    if (isSessionLive?.(id)) continue;
     if (_hasPendingPersistence(id)) continue;
     // Durability proof for the eviction: only a POSITIVELY observed file
     // may replace the snapshot. An unreadable probe is not a durable copy.
@@ -456,7 +456,7 @@ export function saveSession(session, opts) {
   const t = setTimeout(() => {
     _debounceTimers.delete(id);
     const cur = _savePending.get(id);
-    if (!cur || !cur.debouncing) return; // already handled (writing/queued)
+    if (!cur?.debouncing) return; // already handled (writing/queued)
     _savePending.set(id, { scheduled: true, payload: cur.payload });
     setImmediate(() => _flushScheduled(id));
   }, 150);
@@ -466,7 +466,7 @@ export function saveSession(session, opts) {
 
 function _flushScheduled(id) {
   const cur = _savePending.get(id);
-  if (!cur || !cur.scheduled) return;
+  if (!cur?.scheduled) return;
   _savePending.set(id, { writing: true, payload: cur.payload });
   _doSave(cur.payload)
     .then((outcome) => {
@@ -495,7 +495,7 @@ export function _saveSessionSync(session, opts, options = {}) {
     // A caller that already owns the snapshot's identity (the exit drain)
     // passes it through; minting a fresh epoch there would make an OLD
     // snapshot look like the newest attempt and let it clear markers.
-    epoch: Number.isFinite(options.epoch) ? options.epoch : Number.isFinite(guardEpoch) ? guardEpoch : _nextSaveEpoch(),
+    epoch: [options.epoch, guardEpoch].find(Number.isFinite) ?? _nextSaveEpoch(),
     commitTimeoutMs: options.commitTimeoutMs,
     // Own reference to the id's current incarnation (released by
     // _doSaveSync): a hard delete during this write makes its markers
@@ -524,7 +524,7 @@ function _doSaveSync(payload) {
       return SAVE_OUTCOME_DROPPED;
     }
     const target = sessionPath(id);
-    const tmp = _trackSaveTmp(target + '.' + randomBytes(6).toString('hex') + '.tmp');
+    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
     // The EXACT bytes this attempt tried to commit; failure evidence is
     // rebuilt from them, never re-read from the later mutable live session.
     let attempted = null;
@@ -889,7 +889,7 @@ async function _doSave(payload) {
     return SAVE_OUTCOME_DROPPED;
   }
   const target = sessionPath(id);
-  const tmp = _trackSaveTmp(target + '.' + randomBytes(6).toString('hex') + '.tmp');
+  const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
   // Serialized BEFORE the first await: failure evidence is this exact
   // payload, never the live session as it looks at settlement time.
   let attempted = null;
@@ -1091,7 +1091,7 @@ export function markSessionClosed(id, reason = 'manual', options = {}) {
     };
     // Bypass the queue + guard — this IS the tombstone write.
     const target = sessionPath(id);
-    const tmp = _trackSaveTmp(target + '.' + randomBytes(6).toString('hex') + '.tmp');
+    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
     try {
       writeFileSync(tmp, JSON.stringify(_sessionForDisk(tombstone)), 'utf-8');
       _commitSessionWrite(tmp, target, id);
@@ -1197,7 +1197,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
     const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
     const detached = { ...existing, generation: newGen, updatedAt: Date.now(), detachedReason: reason };
     const target = sessionPath(id);
-    const tmp = _trackSaveTmp(target + '.' + randomBytes(6).toString('hex') + '.tmp');
+    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
     try {
       writeFileSync(tmp, JSON.stringify(_sessionForDisk(detached)), 'utf-8');
       _commitSessionWrite(tmp, target, id);

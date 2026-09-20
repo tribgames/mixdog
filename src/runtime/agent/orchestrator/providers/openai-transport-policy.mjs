@@ -75,9 +75,14 @@ export const RESPONSES_TRANSPORT_CAPABILITIES = Object.freeze({
 // supports. Pure/idempotent: full-capability providers pass every mode through
 // unchanged, so the OpenAI OAuth/direct resolution stays byte-identical.
 export function _gateTransportMode(mode, caps) {
+  // The best transport the provider still supports, else defer to auto.
+  const bestSupported = () => {
+    if (caps.ws) return 'ws-full';
+    return caps.http ? 'http-sse' : 'auto';
+  };
   let m = mode;
   // Delta unsupported → keep WS transport but force full frames.
-  if ((m === 'auto' || m === 'ws-delta') && !caps.delta) m = caps.ws ? 'ws-full' : caps.http ? 'http-sse' : 'auto';
+  if ((m === 'auto' || m === 'ws-delta') && !caps.delta) m = bestSupported();
   // WS unsupported → prefer HTTP, else defer to auto.
   if ((m === 'auto' || m === 'ws-full' || m === 'ws-delta') && !caps.ws) m = caps.http ? 'http-sse' : 'auto';
   // HTTP unsupported → prefer full-frame WS, else defer to auto.

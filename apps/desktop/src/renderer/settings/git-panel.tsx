@@ -26,6 +26,15 @@ import {
 import { getCachedGitPanelInfo, patchCachedGitPanelInfo, preloadGitPanelInfo } from './git-panel-info';
 
 const CLI_DOWNLOAD_URL = 'https://cli.github.com';
+
+function cliStatusView(
+  loading: boolean,
+  status: { installed?: boolean; authenticated?: boolean } | null
+): { label: string; tone: ExtensionItemTone } {
+  if (loading) return { label: t('Checking…'), tone: 'muted' };
+  if (!status?.installed) return { label: t('Not installed'), tone: 'warn' };
+  return status.authenticated ? { label: t('Connected'), tone: 'ok' } : { label: t('Not connected'), tone: 'off' };
+}
 export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const host = api ?? (window as unknown as { mixdogDesktop?: DesktopApi }).mixdogDesktop;
   const supported = Boolean(host?.githubCliStatus);
@@ -170,20 +179,9 @@ export function GitPanel({ api }: { api?: Partial<DesktopApi> } = {}) {
   const loading = status === null;
   const busyAny = Boolean(busy);
   const flowLive = flowState === 'pending' || flowState === 'code';
-  const cliStatus = loading
-    ? t('Checking…')
-    : !status?.installed
-      ? t('Not installed')
-      : status.authenticated
-        ? t('Connected')
-        : t('Not connected');
-  const cliTone: ExtensionItemTone = loading
-    ? 'muted'
-    : !status?.installed
-      ? 'warn'
-      : status.authenticated
-        ? 'ok'
-        : 'off';
+  const cli = cliStatusView(loading, status);
+  const cliStatus = cli.label;
+  const cliTone = cli.tone;
 
   // Same grammar as every other Extensions card: sections of item rows whose
   // controls sit on the trailing edge, notes under them, previews as quiet

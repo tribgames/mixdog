@@ -614,10 +614,11 @@ export function runLiveLeadDelegation({
   };
 }
 
+const plusSign = (value) => (value >= 0 ? '+' : '');
+
 function fmtDeltaEntry(entry) {
-  const sign = entry.delta >= 0 ? '+' : '';
-  const pct = entry.pct == null ? '' : ` (${entry.pct >= 0 ? '+' : ''}${entry.pct.toFixed(1)}%)`;
-  return `${sign}${Math.round(entry.delta)}${pct}`;
+  const pct = entry.pct == null ? '' : ` (${plusSign(entry.pct)}${entry.pct.toFixed(1)}%)`;
+  return `${plusSign(entry.delta)}${Math.round(entry.delta)}${pct}`;
 }
 
 function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
@@ -741,10 +742,10 @@ function runLeadMode({ route, effort, fast, repeat, jsonMode, leadPrompt }) {
       console.log(`  ${'total'.padEnd(9)} med=${Math.round(agg.total.median)} mean=${Math.round(agg.total.mean)}`);
     }
     console.log(
-      'delta B-vs-A (median): ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMedian[r])}`).join(' ')
+      `delta B-vs-A (median): ${[...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMedian[r])}`).join(' ')}`
     );
     console.log(
-      'delta B-vs-A (mean):   ' + [...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMean[r])}`).join(' ')
+      `delta B-vs-A (mean):   ${[...ROLES, 'total'].map((r) => `${r}=${fmtDeltaEntry(deltaMean[r])}`).join(' ')}`
     );
   }
 
@@ -916,9 +917,9 @@ function main() {
       );
     }
     const pct = delta.pct_total_B_vs_A;
-    const pctStr = pct == null ? 'n/a' : `${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%`;
+    const pctStr = pct == null ? 'n/a' : `${plusSign(pct)}${pct.toFixed(1)}%`;
     console.log(
-      `delta B-vs-A: prompt=${delta.prompt_tokens >= 0 ? '+' : ''}${delta.prompt_tokens} output=${delta.output_tokens >= 0 ? '+' : ''}${delta.output_tokens} total=${delta.total_tokens >= 0 ? '+' : ''}${delta.total_tokens} (${pctStr})`
+      `delta B-vs-A: prompt=${plusSign(delta.prompt_tokens)}${delta.prompt_tokens} output=${plusSign(delta.output_tokens)}${delta.output_tokens} total=${plusSign(delta.total_tokens)}${delta.total_tokens} (${pctStr})`
     );
   }
 

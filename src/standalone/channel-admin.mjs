@@ -238,11 +238,9 @@ export async function saveSchedule({
   if (channel && !model) throw new Error('model is required when channel is set');
   // 'app' → session-only; 'channel'/'both' → the run result relays to the
   // main channel (target 'channel', channelId resolved at fire time).
-  const mode = ['app', 'channel', 'both'].includes(String(delivery || '').trim())
-    ? String(delivery).trim()
-    : channel
-      ? 'both'
-      : 'app';
+  const requestedMode = String(delivery || '').trim();
+  let mode = channel ? 'both' : 'app';
+  if (['app', 'channel', 'both'].includes(requestedMode)) mode = requestedMode;
   const hasTime = time != null && String(time).trim() !== '';
   const hasAt = at != null && String(at).trim() !== '';
   if (hasTime && hasAt) throw new Error('provide either `time` (recurring) or `at` (one-shot), not both');

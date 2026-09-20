@@ -277,11 +277,11 @@ test('setup skill documents every tool action and open target', () => {
   assert.match(skill, /^name: setup$/m);
   assert.match(skill, /^description: .*\bsetup tool\b/m);
   for (const action of SETUP_ACTIONS) {
-    assert.ok(documentation.includes('`' + action + '`'), `setup docs do not document action ${action}`);
+    assert.ok(documentation.includes(`\`${action}\``), `setup docs do not document action ${action}`);
   }
   for (const target of SETUP_OPEN_TARGETS) {
     assert.ok(
-      new RegExp('(?<![\\w-])' + target + '(?![\\w-])').test(documentation),
+      new RegExp(`(?<![\\w-])${target}(?![\\w-])`).test(documentation),
       `setup docs do not list open target ${target}`
     );
   }

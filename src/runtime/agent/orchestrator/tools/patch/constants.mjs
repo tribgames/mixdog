@@ -1,5 +1,4 @@
-// Shared literal constants for the apply_patch modules. Extracted from
-// patch.mjs verbatim so parsing/dispatch behavior is unchanged.
+// Shared literal constants for the apply_patch modules.
 
 export const DEV_NULL = /^\/dev\/null$/;
 export const V4A_EOF_MARKER = '*** End of File';

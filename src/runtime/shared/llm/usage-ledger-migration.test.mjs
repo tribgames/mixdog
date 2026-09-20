@@ -45,12 +45,12 @@ function fixture(count = 500) {
   const insert = db.prepare('INSERT INTO events VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)');
   db.exec('BEGIN');
   for (let i = 0; i < count; i++) {
-    const id =
-      i === 0
-        ? '57def0d3-669e-4fdb-9f3d-781faec65adf'
-        : i === 1
-          ? '요청/完整/é'
-          : createHash('sha256').update(`request-${i}`).digest('hex');
+    let id = createHash('sha256').update(`request-${i}`).digest('hex');
+    if (i === 0) id = '57def0d3-669e-4fdb-9f3d-781faec65adf';
+    else if (i === 1) id = '요청/完整/é';
+    let cost = 0.123456;
+    if (i % 3 === 0) cost = null;
+    else if (i % 3 === 1) cost = 0;
     insert.run(
       id,
       1789200000000 + i,
@@ -64,7 +64,7 @@ function fixture(count = 500) {
       i * 11,
       i * 7,
       i * 3,
-      i % 3 === 0 ? null : i % 3 === 1 ? 0 : 0.123456,
+      cost,
       i % 3 === 0 ? 'unpriced' : 'catalog',
       i % 3 === 0 ? null : ' { "inputCostPerM": 3.125, "outputCostPerM": 0 }\n',
       'trace',

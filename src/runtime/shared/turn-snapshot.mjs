@@ -5,12 +5,14 @@ import {
   _resetTurnWorktreeSnapshotsForTest,
   createTurnWorktreeSnapshot,
   refreshTurnWorktreeSnapshot,
+  recordTurnWorktreeFileChange,
   resumeTurnWorktreeSnapshot,
   revertTurnWorktreeFile,
   revertTurnWorktreePaths,
   revertTurnWorktreeSnapshot,
 } from './turn-worktree-snapshot.mjs';
 import { loadSessionSnapshotRecords, loadTurnSnapshotRecord, saveTurnSnapshotRecord } from './turn-snapshot-store.mjs';
+import { boundReviewPatch } from './review-diff.mjs';
 
 // Turn-scoped review registry.
 //
@@ -53,15 +55,10 @@ function trimTurnCache() {
 }
 
 function mergePatches(values) {
-  let merged = '';
-  for (const value of Array.isArray(values) ? values : [values]) {
-    const patch = typeof value === 'string' ? value.trim() : '';
-    if (!patch) continue;
-    const next = merged ? `${merged}\n${patch}` : patch;
-    if (next.length > MAX_PATCH_BYTES) break;
-    merged = next;
-  }
-  return merged;
+  const merged = (Array.isArray(values) ? values : [values])
+    .filter((value) => typeof value === 'string' && value.trim())
+    .join('\n');
+  return boundReviewPatch(merged, MAX_PATCH_BYTES).patch;
 }
 
 function pathKey(value) {
@@ -154,6 +151,7 @@ function createDiffTracker(meta = {}) {
     currentByPath: new Map(),
     originByCurrentPath: new Map(),
     unifiedDiff: '',
+    patchTruncated: false,
     worktreeSnapshot: null,
     // Session-owned relative paths. These outlive the before/after buffers on
     // purpose: they are what scopes a revert once the exact content is gone.
@@ -271,10 +269,11 @@ function refreshUnifiedDiff(tracker) {
       before || { displayPath: after?.displayPath, content: null },
       after || { displayPath: before?.displayPath, content: null }
     );
-    if (unifiedDiff.length + rendered.length > MAX_PATCH_BYTES) break;
     unifiedDiff += rendered;
   }
-  tracker.unifiedDiff = unifiedDiff;
+  const bounded = boundReviewPatch(unifiedDiff, MAX_PATCH_BYTES);
+  tracker.unifiedDiff = bounded.patch;
+  tracker.patchTruncated = bounded.truncated;
 }
 
 function trackedPairs(tracker) {
@@ -394,7 +393,7 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
   const id = clean(sessionId);
   if (!id) return '';
   const tracker = _diffTrackersBySession.get(id) || resetDiffTracker(id);
-  if (!tracker || !tracker.valid || tracker.sealed) return tracker?.unifiedDiff || '';
+  if (!tracker?.valid || tracker.sealed) return tracker?.unifiedDiff || '';
   for (const raw of Array.isArray(changes) ? changes : []) {
     const sourcePath = clean(raw?.path);
     if (!sourcePath) continue;
@@ -403,6 +402,10 @@ export function recordTurnDiffChanges(sessionId, changes = []) {
     const before = contentBuffer(raw?.before);
     const after = contentBuffer(raw?.after);
     const destinationPath = clean(raw?.newPath);
+    const snapshot = (tracker.ownerSessionId ? _diffTrackersBySession.get(tracker.ownerSessionId) : tracker)
+      ?.worktreeSnapshot;
+    recordTurnWorktreeFileChange(snapshot, sourcePath, before);
+    if (destinationPath) recordTurnWorktreeFileChange(snapshot, destinationPath, null);
     // WHICH files this session wrote has to survive releasing their content —
     // on turn completion, and on the tracked-size ceiling. That list is the
     // attribution a shared worktree cannot otherwise reconstruct. It keeps the
@@ -638,6 +641,7 @@ async function persistTurnSnapshotRecord(ownerSessionId, tracker) {
       checkpointId: tracker.checkpointId,
       root: snapshot.root,
       baselineTree: snapshot.baselineTree,
+      baselineFiles: [...snapshot.baselineFiles.values()],
       toolFiles: owned,
       sealed: true,
     });
@@ -651,7 +655,7 @@ export async function completeTurnSnapshot(sessionId) {
   const ownerSessionId = clean(sessionId);
   const tracker = _diffTrackersBySession.get(ownerSessionId);
   if (!tracker) return false;
-  if (worktreeSnapshotUsable(tracker)) {
+  if (tracker.worktreeSnapshot) {
     try {
       await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot);
     } catch {}
@@ -718,6 +722,7 @@ async function resumeRecordedSnapshot(ownerSessionId) {
   if (!record) return null;
   const snapshot = await resumeTurnWorktreeSnapshot(record.root, record.baselineTree, {
     paths: record.toolFiles,
+    baselineFiles: record.baselineFiles,
   }).catch(() => null);
   if (!snapshot) return null;
   return { record, snapshot };
@@ -791,14 +796,17 @@ export async function getTurnReviewDiff(_worktree, sessionId, options = {}) {
     const recorded = await scopedReviewFromRecord(ownerSessionId);
     if (recorded) return recorded;
   }
+  let revertMode = '';
+  if (snapshot) revertMode = 'worktree';
+  else if (trackedRevertAvailable) revertMode = 'tracked';
   return {
     supported: true,
     files: snapshot?.files || [],
     patch: snapshot?.patch ?? tracker?.unifiedDiff ?? '',
     snapshotKind: snapshot ? 'worktree' : 'tool',
-    revertMode: snapshot ? 'worktree' : trackedRevertAvailable ? 'tracked' : '',
+    revertMode,
     checkpointId: clean(turn?.checkpointId || tracker?.checkpointId),
-    patchTruncated: snapshot?.patchTruncated === true,
+    patchTruncated: (snapshot || tracker)?.patchTruncated === true,
     authoritative: Boolean(turn && tracker),
     agents: publicAgentReviews(ownerSessionId),
     ...(turn ? { generation: turn.generation } : { reason: 'no-turn' }),
@@ -829,7 +837,7 @@ export async function getSessionReviewDiff(_worktree, sessionId) {
   // A running turn is still mutating the worktree: shell, office and script
   // edits only reach the checkpoint diff once it is refreshed, exactly as the
   // turn review bar does.
-  if (worktreeSnapshotUsable(tracker) && !tracker.sealed) {
+  if (tracker?.worktreeSnapshot && !tracker.sealed) {
     try {
       await refreshTurnWorktreeSnapshot(tracker.worktreeSnapshot);
     } catch {}
@@ -847,8 +855,14 @@ export async function getSessionReviewDiff(_worktree, sessionId) {
   }
   const baselineTree = stored?.baselineTree || tracker?.worktreeSnapshot?.baselineTree;
   if (root && baselineTree) {
+    const baselineFiles = new Map((stored?.baselineFiles || []).map((entry) => [pathKey(entry.path), entry]));
+    const storedPaths = new Set((stored?.toolFiles || []).map(pathKey));
+    for (const entry of tracker?.worktreeSnapshot?.baselineFiles.values() || []) {
+      if (!storedPaths.has(pathKey(entry.path))) baselineFiles.set(pathKey(entry.path), entry);
+    }
     const snapshot = await resumeTurnWorktreeSnapshot(root, baselineTree, {
       paths: [...ownedPaths],
+      baselineFiles: [...baselineFiles.values()],
     }).catch(() => null);
     if (snapshot) {
       return {
@@ -869,6 +883,7 @@ export async function getSessionReviewDiff(_worktree, sessionId) {
       supported: true,
       files: [],
       patch: tracker.unifiedDiff || '',
+      patchTruncated: tracker.patchTruncated === true,
       snapshotKind: 'session-tool',
       authoritative: true,
     };

@@ -51,14 +51,11 @@ export function priceUsage(args) {
   const cached = n(args.cacheReadTokens);
   const written = n(args.cacheWriteTokens);
   const inclusive = args.inputTokensInclusive ?? isInclusiveProvider(args.provider);
-  const input =
-    args.inputTokensKnown === false
-      ? 0
-      : args.uncachedInputTokens != null
-        ? n(args.uncachedInputTokens)
-        : inclusive
-          ? Math.max(0, n(args.inputTokens) - cached - written)
-          : n(args.inputTokens);
+  let input = 0;
+  if (args.inputTokensKnown === false) input = 0;
+  else if (args.uncachedInputTokens != null) input = n(args.uncachedInputTokens);
+  else if (inclusive) input = Math.max(0, n(args.inputTokens) - cached - written);
+  else input = n(args.inputTokens);
   const identity = resolveModelPricingIdentity(args.model, args.provider, args);
   const meta = getModelMetadataSync(identity.pricingModel, args.provider);
   const provenance = {

@@ -39,7 +39,7 @@ import {
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { formatToolSurface } from '../../../../src/runtime/shared/tool-surface.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { deriveToolCardModel } from '../../../../src/runtime/shared/tool-card-model.mjs';
+import { agentActionTitle, agentResponseTitle, deriveToolCardModel } from '../../../../src/runtime/shared/tool-card-model.mjs';
 
 export * from './transcript-tool-core';
 export * from './transcript-tool-format';
@@ -105,19 +105,23 @@ export function desktopToolActivityItemPresentation(
     resultSummary?: string | null;
     displayedResultBodyText?: string;
     terminalStatus?: string;
+    isAgentResponse?: boolean;
   };
   const baseTone = toolActivityItemTone(item);
-  const tone =
-    baseTone !== 'neutral'
-      ? baseTone
-      : item.isError ||
-          Number(item.errorCount || 0) > 0 ||
-          /fail|error|timeout|denied/i.test(String(model.terminalStatus || ''))
-        ? 'error'
-        : 'neutral';
+  const failed =
+    item.isError ||
+    Number(item.errorCount || 0) > 0 ||
+    /fail|error|timeout|denied/i.test(String(model.terminalStatus || ''));
+  let tone = baseTone;
+  if (baseTone === 'neutral' && failed) tone = 'error';
   const resultValue = toolActivityResultValue(item);
   const structured = toolActivityStructuredRows(normalizedName, args, resultValue);
-  const title = toolActivityTitle(normalizedName, originalName, surface.label, args);
+  const title =
+    normalizedName === 'agent'
+      ? model.isAgentResponse
+        ? agentResponseTitle(args, 1)
+        : agentActionTitle(args) || toolActivityTitle(normalizedName, originalName, surface.label, args)
+      : toolActivityTitle(normalizedName, originalName, surface.label, args);
   const subject = toolActivityRedactInlineSecrets(
     toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),
     args
@@ -150,12 +154,9 @@ export function desktopToolActivityItemPresentation(
   // which parseUnifiedDiff reads as one nameless "after" file with bogus
   // hunks; normalize it into a unified diff so the card names each file.
   const argumentPatch = typeof args.patch === 'string' ? normalizeApplyPatch(args.patch).trim() : '';
-  const diffPatch =
-    typeof item.uiDiff === 'string' && item.uiDiff.trim()
-      ? item.uiDiff.trim()
-      : normalizedName === 'apply_patch'
-        ? argumentPatch
-        : '';
+  let diffPatch = '';
+  if (typeof item.uiDiff === 'string' && item.uiDiff.trim()) diffPatch = item.uiDiff.trim();
+  else if (normalizedName === 'apply_patch') diffPatch = argumentPatch;
   const previewText = originalName === 'write' && typeof args.content === 'string' ? args.content : '';
   const beforeText =
     !diffPatch && normalizedName === 'edit' ? toolActivityFirstText(args, 'old_string', 'oldString', 'old_str') : '';
@@ -165,7 +166,7 @@ export function desktopToolActivityItemPresentation(
   const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : '';
   const replacementLanguage = beforeText || afterText ? toolActivityCodeLanguage(targetPath) : '';
   let outputText = toolActivityCleanOutput(
-    toolActivityOutputText(item.rawResult ?? model.displayedResultBodyText ?? item.result)
+    toolActivityOutputText(item.result ?? model.displayedResultBodyText ?? item.rawResult)
   );
   const backgroundTask = toolActivityBackgroundTask(outputText);
   const metaText = backgroundTask ? backgroundTask.meta : '';
@@ -177,7 +178,15 @@ export function desktopToolActivityItemPresentation(
     /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName) ||
     normalizedName === 'agent' ||
     normalizedName === 'bridge' ||
-    normalizedName === 'task';
+    normalizedName === 'task' ||
+    normalizedName === 'browser' ||
+    normalizedName === 'browser_devtools' ||
+    normalizedName === 'computer' ||
+    normalizedName === 'office' ||
+    normalizedName === 'media' ||
+    normalizedName === 'tidy' ||
+    normalizedName === 'cwd' ||
+    normalizedName === 'setup';
   const quietSuccessSurface =
     normalizedName === 'load_tool' || /^(?:skill|skill_execute|skill_view|skills_list|use_skill)$/.test(normalizedName);
   if (
@@ -188,12 +197,7 @@ export function desktopToolActivityItemPresentation(
   }
   if (tone === 'neutral' && quietSuccessSurface) outputText = '';
   if (normalizedName === 'view_image' && /^\[image:/i.test(outputText.trim())) outputText = '';
-  if (
-    tone === 'neutral' &&
-    diffPatch &&
-    outputText.split('\n').length === 1 &&
-    /(?:applied|updated|changed|created|deleted|success|done)/i.test(outputText)
-  ) {
+  if (tone === 'neutral' && diffPatch && mutation) {
     outputText = '';
   }
   let resultLabel = '';

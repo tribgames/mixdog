@@ -1,3 +1,5 @@
+import { reviewStatus } from './document-acceptance.mjs';
+
 // Mechanical diagnostics and a current rendered review are independent evidence.
 // Neither a high pixel score nor an author's unacknowledged critique approves a deck.
 export function assessPresentationAcceptance(evidence, { acknowledged = false, critique = null } = {}) {
@@ -6,13 +8,7 @@ export function assessPresentationAcceptance(evidence, { acknowledged = false, c
     Number(evidence.expectedPages) > 0 &&
     Number(evidence.pageCoverage) === 1 &&
     Number(evidence.blockingIssueCount) === 0;
-  const visualStatus = !critique
-    ? 'not-reviewed'
-    : critique.ok !== true
-      ? 'needs-work'
-      : acknowledged
-        ? 'accepted'
-        : 'not-acknowledged';
+  const visualStatus = reviewStatus(Boolean(critique), critique?.ok === true, acknowledged);
   return {
     scoreMeaning: 'automated-diagnostics-not-design-quality',
     automatedReady,

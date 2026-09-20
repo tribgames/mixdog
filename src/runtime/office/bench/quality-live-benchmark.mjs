@@ -477,6 +477,39 @@ async function createDocument(directory, content) {
   return { path, created: created.value, qa: qa.value, validation: validation.value, images };
 }
 
+function compactResult(entry) {
+  const issues = entry.qa.issuesAfter || [];
+  const postSaveBlocking = Array.isArray(entry.validation.postSaveGate?.blocking)
+    ? entry.validation.postSaveGate.blocking
+    : [];
+  const criticalIssues = [
+    ...issues.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
+    ...postSaveBlocking.filter((issue) => issue.severity === 'error').map((issue) => issue.code),
+  ];
+  const review = entry.qa.review || {};
+  return {
+    path: entry.path,
+    images: entry.images,
+    pageCount: entry.qa.preview?.pageCount || 0,
+    qaOk: entry.qa.ok,
+    aestheticOk: review.render?.aesthetics?.ok !== false,
+    aestheticScore: review.render?.aesthetics?.score ?? null,
+    aestheticDimensions: review.render?.aesthetics?.dimensions ?? null,
+    aestheticRhythm: review.render?.aesthetics?.rhythm ?? null,
+    qualityScore: review.quality?.score ?? null,
+    qualityDimensions: review.quality?.dimensions ?? null,
+    qualityConfidence: review.quality?.confidence ?? null,
+    validationOk: entry.validation.ok,
+    issueCodes: issues.map((issue) => issue.code),
+    criticalIssues: [...new Set(criticalIssues)],
+    contentFingerprint:
+      entry.created.batch?.content?.fingerprint ||
+      entry.created.batch?.design?.content?.fingerprint ||
+      entry.created.design?.content?.fingerprint ||
+      '',
+  };
+}
+
 async function runOfficeQualityLiveBenchmark({ output = '' } = {}) {
   if (process.platform !== 'win32')
     throw new Error('Office quality live benchmark requires Windows and Microsoft Office');

@@ -13,6 +13,7 @@ import {
   STREAM_STALL_RETRY_BUDGET_MS,
   withRetry,
   retryAfterMsFromError,
+  retryDelayLabel,
 } from './retry-classifier.mjs';
 import { readStreamOutcome } from './lib/stream-outcome.mjs';
 import { traceAgentUsage } from '../agent-trace.mjs';
@@ -255,19 +256,19 @@ export class AnthropicProvider {
     // too — otherwise opencode-go's anthropic-compatible routing
     // (disableBetaHeaders:true) would still send beta strings that a
     // third-party endpoint may reject.
-    const betaHeaders = this.config?.disableBetaHeaders
-      ? null
-      : {
-          'anthropic-beta': [
-            buildAnthropicBetaHeaders({
-              fastMode: this.fastModeBetaHeaderLatched,
-              toolSearch: hasDeferredTools,
-              effort: shouldIncludeEffortBeta(useModel, opts),
-              serverFallback: params.fallbacks === 'default',
-            }),
-            ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
-          ].join(','),
-        };
+    let betaHeaders = null;
+    if (!this.config?.disableBetaHeaders) {
+      const betas = [
+        buildAnthropicBetaHeaders({
+          fastMode: this.fastModeBetaHeaderLatched,
+          toolSearch: hasDeferredTools,
+          effort: shouldIncludeEffortBeta(useModel, opts),
+          serverFallback: params.fallbacks === 'default',
+        }),
+        ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
+      ];
+      betaHeaders = { 'anthropic-beta': betas.join(',') };
+    }
     const requestHeaders =
       betaHeaders || opts.requestHeaders ? { ...(betaHeaders || {}), ...(opts.requestHeaders || {}) } : null;
 
@@ -548,9 +549,7 @@ export class AnthropicProvider {
                 }
                 const status = Number(lastErr?.httpStatus || lastErr?.status || lastErr?.response?.status || 0);
                 if (status === 429) notifyCurrentAnthropicRateLimit(lastErr);
-                const delayLabel = Number.isFinite(Number(delayMs))
-                  ? `, delay ${delayMs}ms${delayReason ? ` (${delayReason})` : ''}`
-                  : '';
+                const delayLabel = retryDelayLabel(delayMs, delayReason);
                 process.stderr.write(
                   `[${this.name}] retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}${delayLabel}\n`
                 );
@@ -612,7 +611,7 @@ export class AnthropicProvider {
             !midState.userAbort &&
             !midState.watchdogAbort &&
             !parseResult.content &&
-            !(parseResult.toolCalls && parseResult.toolCalls.length) &&
+            !parseResult.toolCalls?.length &&
             !(parseResult.usage && parseResult.usage.inputTokens > 0)
           ) {
             const emptyErr = new Error(

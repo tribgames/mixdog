@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
+import { redactedLog, spawnServerState } from './server-process/child-state.mjs';
+import { awaitServerReady } from './server-process/readiness.mjs';
 
 async function freeLoopbackPort() {
   return new Promise((resolve, reject) => {
@@ -36,9 +37,8 @@ export function createLocalServerProcess({
   pollMs = 500,
   onExit = () => {},
 } = {}) {
-  let current = null;
-  let lastExit = null;
-  let lastError = null;
+  // The owner record: which child is current and what the last one reported.
+  const owner = { current: null, lastExit: null, lastError: null };
   let chain = Promise.resolve();
   const pendingStarts = new Set();
 
@@ -68,128 +68,41 @@ export function createLocalServerProcess({
     }
   }
 
+  async function prepareLaunch(spec, signal) {
+    try {
+      return (await spec.prepare?.(signal)) || {};
+    } catch (error) {
+      owner.lastError = signal?.aborted ? null : String(error?.message || error);
+      throw error;
+    }
+  }
+
   async function start(spec, signal) {
     signal?.throwIfAborted();
+    const { current } = owner;
     if (current?.key === spec.key && current.ready && !current.exited) {
       return { baseURL: current.baseURL, apiKey: current.apiKey };
     }
     await stopState(current);
     signal?.throwIfAborted();
-    let launch;
-    try {
-      launch = (await spec.prepare?.(signal)) || {};
-    } catch (error) {
-      lastError = signal?.aborted ? null : String(error?.message || error);
-      throw error;
-    }
+    const launch = await prepareLaunch(spec, signal);
     signal?.throwIfAborted();
     const port = await portFn();
     signal?.throwIfAborted();
-    const apiKey = randomBytes(32).toString('hex');
-    const loadStartedAt = performance.now();
-    const child = spawnFn(spec.executable, spec.args(port, apiKey, launch), {
-      cwd: spec.cwd,
-      env: { ...process.env, ...launch.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    let resolveExit;
-    const state = {
-      child,
-      key: spec.key,
-      modelId: spec.modelId,
-      apiKey,
-      gpu: launch.gpu || null,
-      baseURL: `http://127.0.0.1:${port}/v1`,
-      ready: false,
-      exited: false,
-      expectedExit: false,
-      log: '',
-      spawnError: null,
-      exit: new Promise((resolve) => {
-        resolveExit = resolve;
-      }),
-    };
-    current = state;
-    const appendLog = (chunk) => {
-      state.log = `${state.log}${String(chunk)}`.slice(-16_384);
-    };
-    child.stdout?.on('data', appendLog);
-    child.stderr?.on('data', appendLog);
-    const recordExit = (exitCode, exitSignal) => {
-      if (state.exited) return;
-      state.exited = true;
-      state.ready = false;
-      lastExit = {
-        at: new Date().toISOString(),
-        modelId: state.modelId,
-        exitCode,
-        signal: exitSignal || null,
-        expected: state.expectedExit,
-        log: state.log.replaceAll(apiKey, '[redacted]'),
-      };
-      if (!state.expectedExit) {
-        lastError = `[local-provider] llama-server exited (${exitCode ?? exitSignal ?? 'spawn error'}): ${lastExit.log.trim()}`;
-      }
-      if (current === state) current = null;
-      resolveExit();
-      try {
-        onExit({ ...lastExit });
-      } catch {
-        /* diagnostics cannot break lifecycle */
-      }
-    };
-    child.once('error', (error) => {
-      state.spawnError = error;
-      appendLog(error.message);
-      recordExit(null, null);
-    });
-    child.once('exit', recordExit);
+    const state = spawnServerState({ spawnFn, spec, launch, port, owner, onExit });
     const startup = AbortSignal.timeout(startTimeoutMs);
     const waitSignal = signal ? AbortSignal.any([signal, startup]) : startup;
     try {
-      while (true) {
-        waitSignal.throwIfAborted();
-        if (state.spawnError) throw state.spawnError;
-        if (state.exited) {
-          throw new Error(
-            `[local-provider] llama-server exited during startup: ${lastExit?.log || lastExit?.exitCode}`
-          );
-        }
-        try {
-          const response = await fetchFn(`http://127.0.0.1:${port}/health`, {
-            headers: { Authorization: `Bearer ${apiKey}` },
-            signal: AbortSignal.any([waitSignal, AbortSignal.timeout(2_000)]),
-          });
-          const ok = response.ok;
-          await response.body?.cancel();
-          waitSignal.throwIfAborted();
-          if (ok && !state.exited) {
-            state.loadTimeMs = performance.now() - loadStartedAt;
-            await spec.onReady?.({ baseURL: state.baseURL, apiKey, loadTimeMs: state.loadTimeMs }, waitSignal);
-            waitSignal.throwIfAborted();
-            if (state.exited) throw new Error('[local-provider] server exited while reading capabilities');
-            state.ready = true;
-            lastError = null;
-            return { baseURL: state.baseURL, apiKey };
-          }
-        } catch {
-          if (waitSignal.aborted) throw waitSignal.reason;
-          // Connection refusal while loading is expected; the startup deadline
-          // and child exit, not an HTTP probe, decide whether startup failed.
-        }
-        await delay(pollMs, null, { signal: waitSignal });
-      }
+      return await awaitServerReady({ state, spec, fetchFn, waitSignal, pollMs, owner });
     } catch (error) {
-      const failure = signal?.aborted
-        ? signal.reason
-        : startup.aborted
-          ? new Error(
-              `[local-provider] llama-server did not become ready: ${state.log.replaceAll(apiKey, '[redacted]').trim()}`,
-              { cause: error }
-            )
-          : error;
-      lastError = signal?.aborted ? null : String(failure?.message || failure);
+      let failure = error;
+      if (signal?.aborted) failure = signal.reason;
+      else if (startup.aborted) {
+        failure = new Error(`[local-provider] llama-server did not become ready: ${redactedLog(state).trim()}`, {
+          cause: error,
+        });
+      }
+      owner.lastError = signal?.aborted ? null : String(failure?.message || failure);
       await stopState(state);
       throw failure;
     }
@@ -209,9 +122,10 @@ export function createLocalServerProcess({
       for (const controller of pendingStarts) {
         controller.abort(new Error('[local-provider] server start cancelled by stop'));
       }
-      return serialize(() => stopState(current));
+      return serialize(() => stopState(owner.current));
     },
     status() {
+      const { current, lastExit, lastError } = owner;
       return {
         running: Boolean(current?.ready && !current.exited),
         starting: Boolean(current && !current.ready && !current.exited),
@@ -224,6 +138,7 @@ export function createLocalServerProcess({
     },
     // Only the owning process's exit hook calls this synchronous fallback.
     killOnOwnerExit() {
+      const { current } = owner;
       if (current && !current.exited) {
         current.expectedExit = true;
         try {

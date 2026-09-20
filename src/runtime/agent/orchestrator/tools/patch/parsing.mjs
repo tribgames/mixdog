@@ -162,7 +162,7 @@ export function isV4AEndOfFileMarker(rawLine) {
   return text.startsWith(V4A_EOF_MARKER) && /^[\s*]*$/.test(text.slice(V4A_EOF_MARKER.length));
 }
 
-function v4aEnsureUpdateHunk(current, pendingAnchors) {
+function v4aEnsureUpdateHunk(_current, pendingAnchors) {
   return { anchors: pendingAnchors.slice(), lines: [] };
 }
 
@@ -360,7 +360,9 @@ function parseUnifiedAsV4APatch(patchStr, { label, resolveAnchor }) {
     finishFile();
     const oldIsNull = DEV_NULL.test(oldPath || '');
     const newIsNull = DEV_NULL.test(newPath || '');
-    const kind = oldIsNull ? 'add' : newIsNull ? 'delete' : 'update';
+    let kind = 'update';
+    if (oldIsNull) kind = 'add';
+    else if (newIsNull) kind = 'delete';
     const path = kind === 'add' ? newPath : oldPath;
     current = { kind, path: normaliseV4APath(path), hunks: [], lines: [] };
     files.push(current);

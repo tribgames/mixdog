@@ -16,7 +16,13 @@ export function usageMoney(value: unknown): string {
   const amount = usageNumber(value);
   if (amount === null) return '—';
   if (amount > 0 && amount < 0.000001) return `<${uiCurrency(0.000001, 6)}`;
-  return uiCurrency(amount, Math.abs(amount) >= 0.01 || amount === 0 ? 2 : Math.abs(amount) >= 0.0001 ? 4 : 6);
+  return uiCurrency(amount, moneyDigits(amount));
+}
+
+function moneyDigits(amount: number): number {
+  const magnitude = Math.abs(amount);
+  if (magnitude >= 0.01 || amount === 0) return 2;
+  return magnitude >= 0.0001 ? 4 : 6;
 }
 
 /**

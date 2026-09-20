@@ -241,8 +241,9 @@ export function _resolveGeminiCacheUsage({ usageMetadata, cachedContent, provide
   const cachedFallbackTokens = cachedContent ? Number(providerState?.gemini?.cacheTokenSize || 0) || 0 : 0;
   const rawCachedTokens = reportedCachedTokens > 0 ? reportedCachedTokens : cachedFallbackTokens;
   const cachedTokens = inputTokens > 0 ? Math.min(rawCachedTokens, inputTokens) : rawCachedTokens;
-  const cacheTokenSource =
-    reportedCachedTokens > 0 ? 'usage_metadata' : cachedFallbackTokens > 0 ? 'cache_create_fallback' : 'none';
+  let cacheTokenSource = 'none';
+  if (reportedCachedTokens > 0) cacheTokenSource = 'usage_metadata';
+  else if (cachedFallbackTokens > 0) cacheTokenSource = 'cache_create_fallback';
   return {
     inputTokens,
     reportedCachedTokens,

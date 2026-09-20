@@ -52,7 +52,6 @@ function fixture(count = 600) {
     log: () => {},
     resolveProjectScope: () => null,
     embeddingOnDemandCanStart: () => false,
-    getBootTimestamp: () => 0,
     getTraceDb: () => null,
   });
   return { db, ...handlers };

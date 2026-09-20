@@ -206,6 +206,7 @@ function parseOpenAICreditGrants(data) {
     .filter((value) => value !== null && value > 0)
     .map((value) => (value < 10_000_000_000 ? value * 1000 : value));
   const nextExpiry = activeExpiries.length ? Math.min(...activeExpiries) : null;
+  const roundUsd = (value) => (value === null ? null : round(value, 4));
   return {
     provider: 'openai',
     source: 'openai-credit-grants',
@@ -216,13 +217,7 @@ function parseOpenAICreditGrants(data) {
     },
     cachedAt: Date.now(),
     ...(usedUsd !== null || limitUsd !== null
-      ? {
-          creditGrants: {
-            usedUsd: usedUsd === null ? null : round(usedUsd, 4),
-            limitUsd: limitUsd === null ? null : round(limitUsd, 4),
-            nextExpiry,
-          },
-        }
+      ? { creditGrants: { usedUsd: roundUsd(usedUsd), limitUsd: roundUsd(limitUsd), nextExpiry } }
       : {}),
   };
 }

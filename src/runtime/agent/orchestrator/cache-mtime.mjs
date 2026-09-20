@@ -1,4 +1,4 @@
-import { statSync, readdirSync } from 'fs';
+import { statSync, readdirSync } from 'node:fs';
 
 /**
  * Return the maximum mtimeMs across all given paths, recursing into
@@ -31,7 +31,7 @@ export function maxMtimeRecursive(paths, depth = 3) {
         return;
       }
       for (const e of entries) {
-        const child = p + '/' + e.name;
+        const child = `${p}/${e.name}`;
         if (e.isDirectory()) {
           walk(child, d - 1);
         } else if (e.isFile() && (e.name.endsWith('.md') || e.name.endsWith('.json'))) {

@@ -38,12 +38,14 @@ export function formatInvalidToolArgsResult(call) {
  *   the call: a JSON.parse failure is then deterministic bad JSON (permanent),
  *   not a mid-stream truncation (retryable). */
 export function parseCompletedToolCallArgumentsJson(raw, label, meta) {
-  const text = typeof raw === 'string' ? raw : raw == null ? '' : String(raw);
+  let text = '';
+  if (typeof raw === 'string') text = raw;
+  else if (raw != null) text = String(raw);
   const src = text === '' ? '{}' : text;
   try {
     return JSON.parse(src);
   } catch (err) {
-    const preview = text.length <= 64 ? text : text.slice(0, 32) + '...' + text.slice(-32);
+    const preview = text.length <= 64 ? text : `${text.slice(0, 32)}...${text.slice(-32)}`;
     const detailParts = [`invalid tool_call arguments JSON: len=${text.length} preview=${JSON.stringify(preview)}`];
     if (meta) {
       const m = {};

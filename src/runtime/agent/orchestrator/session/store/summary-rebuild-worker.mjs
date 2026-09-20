@@ -1,4 +1,4 @@
-import { parentPort, workerData } from 'worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 
 const dataDir = String(workerData?.dataDir || '');
 if (dataDir) process.env.MIXDOG_DATA_DIR = dataDir;

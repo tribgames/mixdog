@@ -1,4 +1,4 @@
-// Transcript-activity signatures, extracted from App.jsx: the agent-state
+// Transcript-activity signatures: the agent-state
 // revision key, the L2 statusline web-search pending-tool signature
 // (engine-published fast path + local transcript fallback), and the
 // primitive statusline stats snapshot.
@@ -49,7 +49,7 @@ export function useTranscriptActivity({ state }) {
     let agentCount = 0,
       agentStart = 0;
     for (const it of items) {
-      if (!it || it.kind !== 'tool') continue;
+      if (it?.kind !== 'tool') continue;
       const count = Math.max(1, Number(it.count || 1));
       // Resolved check: aggregates stay on the pure completedCount>=count test
       // because engine patchToolCardResult sets `result` on EVERY aggregate
@@ -58,9 +58,10 @@ export function useTranscriptActivity({ state }) {
       // toolItemPendingForRows (done when completedCount>=count OR a result
       // landed) so an abnormally-finished card (cancelled/errored) that sets a
       // result without bumping completedCount cannot pin a phantom segment.
+      const fallbackDone = it.result == null ? 0 : count;
       const done = it.aggregate
         ? Number(it.completedCount || 0)
-        : Math.max(0, Math.min(count, Number(it.completedCount || (it.result == null ? 0 : count))));
+        : Math.max(0, Math.min(count, Number(it.completedCount || fallbackDone)));
       if (done >= count) continue; // resolved card (matches toolItemPendingForRows)
       const started = Number(it.startedAt || 0);
       let shellHits = 0;

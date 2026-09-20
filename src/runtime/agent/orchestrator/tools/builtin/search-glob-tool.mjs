@@ -1,5 +1,5 @@
 import { statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'path';
+import { isAbsolute, resolve } from 'node:path';
 import { expandAbsoluteGlobs } from './lib/absolute-glob-expand.mjs';
 import { buildGlobPatternGroups } from './lib/glob-static-prefix.mjs';
 import {
@@ -121,7 +121,7 @@ async function runGlobPerPath(args, workDir, options, list) {
       try {
         return await executeGlobTool({ ...args, path: p }, workDir, options);
       } catch (err) {
-        return `Error: ${err && err.message ? err.message : err}`;
+        return `Error: ${err?.message ? err.message : err}`;
       }
     })
   );
@@ -141,16 +141,10 @@ async function runGlobPerPath(args, workDir, options, list) {
 // path is the pattern, searched from the cwd.
 function requestedGlobPatterns(args) {
   const rawPattern = args.pattern;
-  let patterns = uniqueStrings(
-    (Array.isArray(rawPattern)
-      ? rawPattern.filter((p) => typeof p === 'string' && p)
-      : rawPattern
-        ? [String(rawPattern)]
-        : []
-    )
-      .map(normalizeInputPath)
-      .map(canonicalizeGlobSlashes)
-  );
+  let rawPatterns = [];
+  if (Array.isArray(rawPattern)) rawPatterns = rawPattern.filter((p) => typeof p === 'string' && p);
+  else if (rawPattern) rawPatterns = [String(rawPattern)];
+  let patterns = uniqueStrings(rawPatterns.map(normalizeInputPath).map(canonicalizeGlobSlashes));
   if (patterns.length === 0 && hasGlobMagic(args.path)) {
     patterns = [canonicalizeGlobSlashes(normalizeInputPath(args.path))];
     args.path = undefined;
@@ -442,11 +436,14 @@ async function orderGlobPaths(unique, { nativeMtimeTotal, groupCount, sortMode, 
 }
 
 function globIntegritySuffix({ accumTruncated, rgStdoutTruncated, rgStdoutPartial, rgErrors }) {
-  const truncSuffix = accumTruncated
-    ? `\n... [truncated at accumulation cap (${GLOB_ACCUM_CAP})]`
-    : (rgStdoutTruncated ? '\n... [truncated at rg stdout cap (20MB); results incomplete]' : '') +
-      (rgStdoutPartial ? '\n... [warning] rg exit 2 (partial results); listing may be incomplete' : '');
-  return (rgErrors.length > 0 ? `\n... [warning] ${rgErrors.join(' | ')}` : '') + truncSuffix;
+  let truncSuffix = '';
+  if (accumTruncated) truncSuffix = `\n... [truncated at accumulation cap (${GLOB_ACCUM_CAP})]`;
+  else {
+    if (rgStdoutTruncated) truncSuffix += '\n... [truncated at rg stdout cap (20MB); results incomplete]';
+    if (rgStdoutPartial) truncSuffix += '\n... [warning] rg exit 2 (partial results); listing may be incomplete';
+  }
+  const errorSuffix = rgErrors.length > 0 ? `\n... [warning] ${rgErrors.join(' | ')}` : '';
+  return errorSuffix + truncSuffix;
 }
 
 function globMoreSuffix({ rgWindowIncomplete, remaining, totalBeforeOffset, nextOffset }) {
@@ -483,7 +480,7 @@ async function directAbsoluteMatches({ patterns, headLimit, offset }) {
 }
 
 async function scanGlobGroups(scan) {
-  const { groups, options, patterns, offset, headLimit, workDir, cacheKey, patternCapNote } = scan;
+  const { groups, options, patterns, offset, headLimit, workDir, patternCapNote } = scan;
   const globGroups = [...groups.entries()];
   const merged = mergeGlobRuns(await Promise.all(globGroups.map(([root, rels]) => runGlobGroup(scan, root, rels))));
   const { allFiles, rgErrors } = merged;

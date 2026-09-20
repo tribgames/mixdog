@@ -9,7 +9,7 @@
  * Absence is a fact; a failed probe is an unknown, and an unknown may never
  * authorize a deletion or a fallback.
  */
-import { readFileSync, statSync } from 'fs';
+import { readFileSync, statSync } from 'node:fs';
 
 export const PROBE_PRESENT = 'present';
 export const PROBE_ABSENT = 'absent';

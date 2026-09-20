@@ -1,6 +1,6 @@
 // Skill surface (status listing, resource load, tool envelope, global skill
-// creation/editing). Extracted from runtime-core so the facade only wires the mutable
-// cwd and the context module into it.
+// creation/editing). The runtime facade only wires the mutable cwd and the
+// context module into it.
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
@@ -124,12 +124,11 @@ export function createSkillsApi({ contextMod, getCwd, getTools = () => [] }) {
     const originalName = validateSkillName(input.originalName);
     const resource = contextMod.loadSkillResource?.(originalName, getCwd());
     if (!resource?.filePath) throw new Error(`skill not found: ${originalName}`);
-    const dependencies =
-      input.toolDependencies === null
-        ? null
-        : input.toolDependencies === undefined
-          ? undefined
-          : normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
+    let dependencies;
+    if (input.toolDependencies === null) dependencies = null;
+    else if (input.toolDependencies !== undefined) {
+      dependencies = normalizeSkillToolDependencies(input.toolDependencies, { strict: true });
+    }
     if (input.dependenciesOnly === true) {
       if (dependencies === undefined) throw new Error('Skill tool dependencies are required.');
       saveSkillToolDependencies(resource.filePath, dependencies);

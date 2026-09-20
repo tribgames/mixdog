@@ -343,7 +343,7 @@ test('unconfirmed text remains recoverable in input order and is never automatic
     await f.client.control({ type: 'select-tab', tabId: 'p2' });
     f.release();
     await Promise.all([f.held, ...pending]);
-    assert.equal(f.unconfirmed(), Array.from({ length: 127 }, (_, i) => String(i)).join('') + '한글 복구');
+    assert.equal(f.unconfirmed(), `${Array.from({ length: 127 }, (_, i) => String(i)).join('')}한글 복구`);
     assert.equal(
       f.sent.some((row) => row.text === '한글 복구'),
       false

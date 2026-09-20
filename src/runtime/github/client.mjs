@@ -11,13 +11,11 @@ const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
 const mutationTails = new Map();
 
 function executable(env) {
-  const candidates =
-    process.platform === 'win32'
-      ? [
-          join(env.ProgramFiles || 'C:\\Program Files', 'GitHub CLI', 'gh.exe'),
-          ...(env.LOCALAPPDATA ? [join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'gh.exe')] : []),
-        ]
-      : ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
+  let candidates = ['/opt/homebrew/bin/gh', '/usr/local/bin/gh', '/usr/bin/gh'];
+  if (process.platform === 'win32') {
+    candidates = [join(env.ProgramFiles || 'C:\\Program Files', 'GitHub CLI', 'gh.exe')];
+    if (env.LOCALAPPDATA) candidates.push(join(env.LOCALAPPDATA, 'Microsoft', 'WinGet', 'Links', 'gh.exe'));
+  }
   return candidates.find((path) => existsSync(path)) || 'gh';
 }
 

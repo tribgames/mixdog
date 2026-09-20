@@ -41,7 +41,7 @@ async function run(): Promise<void> {
     );
     await writeFile(
       closeFixtureSource,
-      String.raw`
+      `
 using System;
 using System.Windows.Forms;
 public static class MixdogBrowserCloseFixture {

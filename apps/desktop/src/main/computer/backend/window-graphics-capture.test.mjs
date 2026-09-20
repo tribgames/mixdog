@@ -25,7 +25,7 @@ test('WGC captures a covered fixture without foreign pixels, preserves foregroun
     return;
   }
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-wgc-'));
-  const fixture = String.raw`
+  const fixture = `
 public sealed class WgcFixture : System.Windows.Forms.Form {
   [System.Runtime.InteropServices.DllImport("user32.dll")]
   public static extern System.IntPtr WindowFromPoint(System.Drawing.Point point);
@@ -87,7 +87,7 @@ public sealed class WgcFixture : System.Windows.Forms.Form {
     withForms +
     '\n' +
     PS_WINDOW_CAPTURE +
-    String.raw`
+    `
 $window = [WgcFixture]::new()
 $cover = [WgcFixture]::new()
 $cover.BackColor = [Drawing.Color]::Lime

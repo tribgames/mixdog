@@ -125,11 +125,9 @@ test('agent loop heals one rejected tail image and the next turn stays usable', 
   const tools = [{ name: 'read', inputSchema: { type: 'object', properties: {} } }];
   const imageParts = (messages) =>
     messages.flatMap((message) => {
-      const content = Array.isArray(message?.content)
-        ? message.content
-        : Array.isArray(message?.content?.content)
-          ? message.content.content
-          : [];
+      let content = [];
+      if (Array.isArray(message?.content)) content = message.content;
+      else if (Array.isArray(message?.content?.content)) content = message.content.content;
       return content.filter((part) => part?.type === 'image');
     });
   const messages = [

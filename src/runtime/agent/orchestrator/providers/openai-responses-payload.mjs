@@ -174,7 +174,11 @@ function requestedVerbosity(opts) {
 }
 
 // The stable prompt cache key over everything that shapes the request prefix.
-function responsesPromptCacheKey(promptCacheProvider, opts, { model, instructions, toolsList, effort, serviceTier, toolChoice }) {
+function responsesPromptCacheKey(
+  promptCacheProvider,
+  opts,
+  { model, instructions, toolsList, effort, serviceTier, toolChoice }
+) {
   const promptCacheLane = opts.promptCacheLane || resolveProviderPromptCacheLane(promptCacheProvider, opts);
   return buildStableProviderPromptCacheKey(promptCacheProvider, opts, {
     model,

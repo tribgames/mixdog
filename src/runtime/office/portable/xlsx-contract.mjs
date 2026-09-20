@@ -271,7 +271,14 @@ export function conditionalFormatKind(operation) {
 }
 
 const CELL_OPERATIONS = ['set_cell', 'set_formula', 'clear_cell', 'add_note', 'delete_note'];
-const RANGE_OPERATIONS = ['set_range', 'set_style', 'add_table', 'add_chart', 'add_conditional_format', 'add_validation'];
+const RANGE_OPERATIONS = [
+  'set_range',
+  'set_style',
+  'add_table',
+  'add_chart',
+  'add_conditional_format',
+  'add_validation',
+];
 
 function validateFreezePanes(operation) {
   const row = operation.row ?? 1;

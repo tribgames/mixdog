@@ -37,7 +37,7 @@ export function canonicalModelDisplay(model, provider) {
 
   const gpt = raw.match(/^gpt-(\d+(?:\.\d+)?)(?:-(.+))?$/i);
   if (gpt) {
-    const suffix = gpt[2] ? '-' + gpt[2].split('-').map(titleModelPart).filter(Boolean).join('-') : '';
+    const suffix = gpt[2] ? `-${gpt[2].split('-').map(titleModelPart).filter(Boolean).join('-')}` : '';
     return `GPT-${gpt[1]}${suffix}`;
   }
 
@@ -51,7 +51,7 @@ export function canonicalModelDisplay(model, provider) {
 
   const openaiO = raw.match(/^o(\d+(?:\.\d+)?)(?:-(.+))?$/i);
   if (openaiO) {
-    const tail = openaiO[2] ? ' ' + openaiO[2].split('-').map(titleModelPart).filter(Boolean).join(' ') : '';
+    const tail = openaiO[2] ? ` ${openaiO[2].split('-').map(titleModelPart).filter(Boolean).join(' ')}` : '';
     return `O${openaiO[1]}${tail}`;
   }
 
@@ -169,7 +169,7 @@ export function shortenModelName(name, cols) {
   let out = String(name || 'model').replace(/\s*\(1M context\)/i, ' (1M)');
   out = out.replace(/^Claude\s+/i, '');
   out = out.replace(/^OpenAI\s+/i, '');
-  if (cols < 80 && out.length > 18) return out.slice(0, 17) + '…';
-  if (cols < 120 && out.length > 28) return out.slice(0, 27) + '…';
+  if (cols < 80 && out.length > 18) return `${out.slice(0, 17)}…`;
+  if (cols < 120 && out.length > 28) return `${out.slice(0, 27)}…`;
   return out;
 }

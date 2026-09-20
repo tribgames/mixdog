@@ -11,10 +11,10 @@ import {
   rmdirSync,
   unlinkSync,
   writeFileSync,
-} from 'fs';
-import { lstat, open, readdir, readFile, stat, unlink, writeFile } from 'fs/promises';
-import { createHash } from 'crypto';
-import { join } from 'path';
+} from 'node:fs';
+import { lstat, open, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { normalizeOutputPath } from '../tools/builtin/path-utils.mjs';
 import { classifyResultKind } from './result-classification.mjs';

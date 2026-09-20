@@ -100,7 +100,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
         <header>
           <h3>{t('OAuth providers')}</h3>
         </header>
-        {oauthProviders.length ? (
+        {oauthProviders.length > 0 &&
           oauthProviders.map((provider) => (
             <div className="settings-group-body" key={String(provider.id)}>
               <ProviderAccountsList
@@ -136,8 +136,8 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                 headerAction={<OAuthControl api={api} provider={provider} disabled={busy} run={run} addAccount />}
               />
             </div>
-          ))
-        ) : (
+          ))}
+        {oauthProviders.length === 0 && (
           <div className="settings-group-body">
             <ListEmpty text={loading ? 'Loading providers…' : 'No OAuth providers available.'} />
           </div>
@@ -145,9 +145,8 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       </section>
       {openCodeGoProvider && <Group>{renderApiProvider(openCodeGoProvider)}</Group>}
       <Group title="API-key providers">
-        {otherApiProviders.length ? (
-          otherApiProviders.map(renderApiProvider)
-        ) : (
+        {otherApiProviders.length > 0 && otherApiProviders.map(renderApiProvider)}
+        {otherApiProviders.length === 0 && (
           <ListEmpty text={loading ? 'Loading providers…' : 'No API-key providers available.'} />
         )}
       </Group>
@@ -244,10 +243,13 @@ export function OAuthControl({
   const start = async () => {
     setError('');
     completedFlowRef.current = '';
+    let loginArgs: unknown[] = [providerId];
+    if (addAccount) loginArgs = [providerId, { addAccount: true }];
+    else if (accountId) loginArgs = [providerId, { accountId }];
     try {
       const next = await run<RecordValue>(
         'beginOAuthProviderLogin',
-        addAccount ? [providerId, { addAccount: true }] : accountId ? [providerId, { accountId }] : [providerId],
+        loginArgs,
         `oauth-begin-${providerId}`,
         false,
         false,
@@ -278,7 +280,7 @@ export function OAuthControl({
   }, [flowOpen]);
   return (
     <>
-      {addAccount ? (
+      {addAccount && (
         <button
           type="button"
           className="provider-account-add-button"
@@ -289,7 +291,8 @@ export function OAuthControl({
         >
           <Plus size={15} aria-hidden="true" />
         </button>
-      ) : (
+      )}
+      {!addAccount && (
         <ActionButton disabled={disabled} onClick={() => void start()}>
           {accountId ? 'Reconnect' : 'Connect'}
         </ActionButton>

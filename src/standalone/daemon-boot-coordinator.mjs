@@ -94,9 +94,13 @@ export function createDaemonBootCoordinator({
       return { ok: true };
     },
     get status() {
+      const phase = (promise, scheduled) => {
+        if (promise) return 'started';
+        return scheduled ? 'scheduled' : 'idle';
+      };
       return {
-        keychain: keychainPromise ? 'started' : keychainScheduled ? 'scheduled' : 'idle',
-        background: backgroundPromise ? 'started' : backgroundScheduled ? 'scheduled' : 'idle',
+        keychain: phase(keychainPromise, keychainScheduled),
+        background: phase(backgroundPromise, backgroundScheduled),
       };
     },
   };

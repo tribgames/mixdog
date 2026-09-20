@@ -7,8 +7,8 @@
  * Reporting pass: the JSON is read by a human chasing a reversed or lost
  * selection (user: 컴포저 영역으로 끌면 포커싱을 잃고 드래그가 뒤집힘).
  */
-import { mkdirSync, writeFileSync } from 'fs';
-import { dirname } from 'path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { screen, type BrowserWindow } from 'electron';
 import { paragraph, probeItems } from './jitter-probe-fixtures';
 import { RealMouse } from './jitter-probe-real-mouse';
@@ -301,7 +301,7 @@ export async function runSelectionProbe({
     await sleep(400);
     await window.webContents.executeJavaScript(INSTALL_SCRIPT);
     const g = await geometry();
-    if (!g || !g.textarea) throw new Error(`selection probe: geometry unavailable ${JSON.stringify(g)}`);
+    if (!g?.textarea) throw new Error(`selection probe: geometry unavailable ${JSON.stringify(g)}`);
     const steps: unknown[] = [];
     steps.push({ ...(await sample('before')), geometry: g });
     await mouse('mouseMoved', g.row);

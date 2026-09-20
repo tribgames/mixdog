@@ -79,7 +79,7 @@ test('caller cancellation reaches a running dispatch and retains its reason', as
   const broker = createAgentDispatchBroker({
     dispatchAgent: async (_payload, { signal }) => {
       entered.resolve();
-      return new Promise((resolve, reject) => {
+      return new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });
       });
     },

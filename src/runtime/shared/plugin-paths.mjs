@@ -6,9 +6,9 @@
  *   2. <MIXDOG_HOME|~/.mixdog>/data
  */
 
-import { homedir } from 'os';
-import { dirname, join } from 'path';
-import { fileURLToPath } from 'url';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 

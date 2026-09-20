@@ -19,7 +19,7 @@ async function until(condition) {
   }
 }
 
-test('real host, relay and browser shim preserve cancel/resubmit and recover final frames through repeated reconnects', async () => {
+test('real host, relay and browser shim recover through reconnects and background wakes with delayed socket events', async () => {
   const f = await viewSyncHost({ runTurns: true });
   let relay, handle, dom, stop, stopPane;
   const sockets = [];
@@ -57,12 +57,20 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       DecompressionStream,
       fetch: (url, options) => fetch(new URL(url, origin), options),
     });
+    let holdNextMessages = false;
     class BrowserSocket extends WebSocket {
       constructor(url) {
         super(url, { headers: { Origin: origin } });
+        this.holdMessages = holdNextMessages;
+        holdNextMessages = false;
+        this.deferredEvents = [];
         sockets.push(this);
       }
       emit(event, ...args) {
+        if ((event === 'message' && this.holdMessages) || (event === 'close' && this.holdClose)) {
+          this.deferredEvents.push([event, ...args]);
+          return true;
+        }
         if (event === 'message') this.receivedBytes = (this.receivedBytes || 0) + args[0].byteLength;
         if (event === 'message' && this.dropNext && args[1] === true) {
           this.dropNext = false;
@@ -70,6 +78,11 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
           return true;
         }
         return super.emit(event, ...args);
+      }
+      releaseDeferredEvents() {
+        this.holdMessages = false;
+        this.holdClose = false;
+        for (const [event, ...args] of this.deferredEvents.splice(0)) this.emit(event, ...args);
       }
     }
     w.WebSocket = BrowserSocket;
@@ -100,6 +113,7 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
     api.subscribeAgentPool((rows) => agentRows.push(rows));
     await api.setVisibleSessions(['lead']);
     await until(() => text.textContent === 'initial answer');
+    assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'connected');
     for (let cycle = 0; cycle < 4; cycle++) {
       const before = store.get('lead').items;
       const cancelledId = `cancel-${cycle}`;
@@ -139,6 +153,78 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       assert.deepEqual(JSON.parse(JSON.stringify(store.get('lead').items)), finished.items);
       assert.equal(store.get('lead').busy, false);
     }
+    const background = () => {
+      Object.defineProperty(w.document, 'visibilityState', { value: 'hidden', configurable: true });
+      w.document.dispatchEvent(new w.Event('visibilitychange'));
+      w.dispatchEvent(new w.Event('pagehide'));
+    };
+    const foreground = () => {
+      Object.defineProperty(w.document, 'visibilityState', { value: 'visible', configurable: true });
+      w.document.dispatchEvent(new w.Event('visibilitychange'));
+      w.dispatchEvent(new w.Event('pageshow'));
+      w.dispatchEvent(new w.Event('focus'));
+    };
+    for (let cycle = 0; cycle < 3; cycle++) {
+      const previous = sockets.at(-1);
+      const count = sockets.length;
+      previous.holdClose = true;
+      background();
+      assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'background');
+      await until(() => previous.deferredEvents.some(([event]) => event === 'close'));
+      assert.equal(sockets.length, count, 'background suspension must not redial');
+      f.put('lead', `background answer ${cycle}`);
+      foreground();
+      await until(
+        () =>
+          sockets.length === count + 1 &&
+          text.textContent === `background answer ${cycle}` &&
+          w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+      );
+      const current = sockets.at(-1);
+      previous.releaseDeferredEvents();
+      assert.equal(w.document.documentElement.dataset.mixdogRemoteConnection, 'connected');
+      await api.getSnapshot();
+      assert.equal(sockets.at(-1), current, 'a late close must not replace the recovered connection');
+      assert.equal(current.readyState, WebSocket.OPEN);
+      assert.equal(text.textContent, `background answer ${cycle}`);
+    }
+    // Suspend before encryption is ready. The pending open must settle even
+    // without onclose, and its queued challenge must not rekey the new socket.
+    background();
+    holdNextMessages = true;
+    const beforeHandshake = sockets.length;
+    foreground();
+    await until(
+      () =>
+        sockets.length === beforeHandshake + 1 && sockets.at(-1).deferredEvents.some(([event]) => event === 'message')
+    );
+    const interruptedSocket = sockets.at(-1);
+    interruptedSocket.holdClose = true;
+    let interrupted;
+    const waiting = api.getSnapshot().catch((error) => {
+      interrupted = error;
+    });
+    await delay(0);
+    background();
+    await until(() => interrupted !== undefined);
+    await waiting;
+    assert.equal(interrupted.code, 'MIXDOG_REMOTE_CONNECTION_INTERRUPTED');
+    await until(() => interruptedSocket.deferredEvents.some(([event]) => event === 'close'));
+    f.put('lead', 'recovered after interrupted handshake');
+    foreground();
+    await until(
+      () =>
+        sockets.length === beforeHandshake + 2 &&
+        text.textContent === 'recovered after interrupted handshake' &&
+        w.document.documentElement.dataset.mixdogRemoteConnection === 'connected'
+    );
+    const recoveredSocket = sockets.at(-1);
+    interruptedSocket.releaseDeferredEvents();
+    assert.equal(w.document.documentElement.dataset.mixdogRemoteConnection, 'connected');
+    await api.getSnapshot();
+    assert.equal(sockets.at(-1), recoveredSocket);
+    assert.equal(recoveredSocket.readyState, WebSocket.OPEN);
+    assert.equal(text.textContent, 'recovered after interrupted handshake');
     // Measure actual encrypted WebSocket bytes, not just JSON sizes. An
     // unchanged reconnect must restore the transcript while omitting its
     // incompressible body; the earlier cycles cover changes and missed frames.
@@ -187,6 +273,18 @@ test('real host, relay and browser shim preserve cancel/resubmit and recover fin
       gate.resolve();
     }
     await recovery;
+    f.host.replaySessionStates = async () => {
+      throw new Error('private transcript and credential must not appear in connection diagnostics');
+    };
+    const failedRecovery = api.setVisibleSessions(['lead']);
+    void failedRecovery.catch(() => undefined);
+    await until(() => w.document.documentElement.dataset.mixdogRemoteError?.includes('sync-failed'));
+    assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'sync');
+    assert.equal(w.document.documentElement.dataset.mixdogRemoteError, 'sync / sync-failed / Error');
+    f.host.replaySessionStates = replay;
+    await failedRecovery;
+    assert.equal(w.document.documentElement.dataset.mixdogRemotePhase, 'connected');
+    assert.equal(w.document.documentElement.dataset.mixdogRemoteError, undefined);
   } finally {
     stopPane?.();
     stop?.();

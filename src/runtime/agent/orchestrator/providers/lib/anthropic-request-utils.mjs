@@ -205,11 +205,11 @@ export function toAnthropicMessages(messages, availableTools) {
           ? []
           : references.filter((name) => !usableReferences.includes(name));
       const isError = m.toolKind === 'error' || m.isError === true;
-      let content = usableReferences.length
-        ? usableReferences.map((tool_name) => ({ type: 'tool_reference', tool_name }))
-        : droppedReferences.length
-          ? toolResultContentWithoutReferences(m, droppedReferences)
-          : normalizeContentForAnthropic(m.content);
+      let content;
+      if (usableReferences.length)
+        content = usableReferences.map((tool_name) => ({ type: 'tool_reference', tool_name }));
+      else if (droppedReferences.length) content = toolResultContentWithoutReferences(m, droppedReferences);
+      else content = normalizeContentForAnthropic(m.content);
       let hoisted = [];
       if (isError) ({ content, hoisted } = splitErrorToolResultContent(content));
       const block = {
@@ -363,7 +363,7 @@ export function sanitizeAnthropicInputSchema(schema, toolName, logTag) {
   }
   const compound = schema.oneOf || schema.anyOf || schema.allOf;
   if (!compound) return structuredClone(schema);
-  const compoundKey = schema.oneOf ? 'oneOf' : schema.anyOf ? 'anyOf' : 'allOf';
+  const compoundKey = ['oneOf', 'anyOf', 'allOf'].find((key) => schema[key]);
   const conjunctive = compoundKey === 'allOf';
   const mergedProps = { ...(schema.properties && typeof schema.properties === 'object' ? schema.properties : {}) };
   const required = new Set(Array.isArray(schema.required) ? schema.required : []);

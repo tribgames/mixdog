@@ -1,5 +1,8 @@
 import { cleanMemoryText } from './memory.mjs';
 
+/** One transcript line, `role: cleaned content`. */
+const roleLine = (role, content) => `${role}: ${cleanMemoryText(String(content ?? ''))}`;
+
 export function createQueryMaintenanceHandlers({ getDb }) {
   async function dumpSessionRootChunks(args = {}) {
     const db = getDb();
@@ -61,10 +64,7 @@ export function createQueryMaintenanceHandlers({ getDb }) {
     const chunks = [];
     for (const root of roots) {
       const memberText = root.members
-        .map(
-          (m) =>
-            `${m.role === 'assistant' ? 'assistant' : m.role === 'user' ? 'user' : m.role}: ${cleanMemoryText(String(m.content ?? ''))}`
-        )
+        .map((m) => roleLine(m.role, m.content))
         .filter(Boolean)
         .join('\n');
       const summary = [root.element, root.summary]
@@ -91,7 +91,7 @@ export function createQueryMaintenanceHandlers({ getDb }) {
         sourceTurn: raw.source_turn ?? null,
         category: null,
         summary: '',
-        text: `${raw.role === 'assistant' ? 'assistant' : raw.role === 'user' ? 'user' : raw.role}: ${cleanMemoryText(String(raw.content ?? ''))}`,
+        text: roleLine(raw.role, raw.content),
         members: [],
       });
     }
@@ -100,18 +100,19 @@ export function createQueryMaintenanceHandlers({ getDb }) {
       const bt = Number.isFinite(Number(b.sourceTurn)) ? Number(b.sourceTurn) : 2147483647;
       return at - bt || (a.ts || 0) - (b.ts || 0) || (a.id || 0) - (b.id || 0);
     });
-    const text = chunks.length
-      ? chunks
-          .map((chunk, idx) => {
-            const label =
-              chunk.kind === 'root'
-                ? `# chunk ${idx + 1} root=${chunk.id}${chunk.category ? ` category=${chunk.category}` : ''}`
-                : `${chunk.chunkRoot == null ? '# raw_pending' : '# raw_terminal'} ${idx + 1} id=${chunk.id}`;
-            const summary = chunk.summary ? `summary: ${chunk.summary}\n` : '';
-            return `${label}\n${summary}${chunk.text}`.trim();
-          })
-          .join('\n\n')
-      : '(no results)';
+    const chunkLabel = (chunk, idx) => {
+      if (chunk.kind === 'root') {
+        const categoryNote = chunk.category ? ` category=${chunk.category}` : '';
+        return `# chunk ${idx + 1} root=${chunk.id}${categoryNote}`;
+      }
+      const rawKind = chunk.chunkRoot == null ? '# raw_pending' : '# raw_terminal';
+      return `${rawKind} ${idx + 1} id=${chunk.id}`;
+    };
+    const renderChunk = (chunk, idx) => {
+      const summary = chunk.summary ? `summary: ${chunk.summary}\n` : '';
+      return `${chunkLabel(chunk, idx)}\n${summary}${chunk.text}`.trim();
+    };
+    const text = chunks.length ? chunks.map(renderChunk).join('\n\n') : '(no results)';
     return { text, rows: [...roots, ...rawRows], chunks };
   }
 

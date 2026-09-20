@@ -52,13 +52,15 @@ declare global {
   }
 }
 
+function browserBootContext(): DesktopBootContext {
+  const processStartedAt = typeof performance !== 'undefined' ? Math.round(performance.timeOrigin) : Date.now();
+  return { bootId: 'browser', processStartedAt };
+}
+
 const context: DesktopBootContext =
   typeof window !== 'undefined' && window.mixdogDesktop?.bootContext
     ? window.mixdogDesktop.bootContext
-    : {
-        bootId: 'browser',
-        processStartedAt: typeof performance !== 'undefined' ? Math.round(performance.timeOrigin) : Date.now(),
-      };
+    : browserBootContext();
 const globalStages = new Set<string>();
 const surfaceMetrics = new Map<string, { startedAt: number; stages: Set<string> }>();
 const BOOT_METRIC_ENTRY_LIMIT = 512;

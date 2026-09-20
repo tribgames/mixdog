@@ -43,7 +43,7 @@ test('remote browser controls admit only bounded navigation and human input', ()
       ...command,
       frameId: 'rbf_a9',
     });
-    for (const documentId of ['', 'p0:1', 'p2', 'p2:17\n', 17, null, 'p2:' + '1'.repeat(64)]) {
+    for (const documentId of ['', 'p0:1', 'p2', 'p2:17\n', 17, null, `p2:${'1'.repeat(64)}`]) {
       assert.throws(
         () => normalizeRemoteBrowserControl({ ...command, frameId: 'rbf_a9', documentId }),
         /document id is invalid/

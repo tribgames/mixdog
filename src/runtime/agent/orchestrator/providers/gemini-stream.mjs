@@ -10,16 +10,18 @@
 import {
   PROVIDER_FIRST_BYTE_TIMEOUT_MS,
   PROVIDER_MAX_BEFORE_WARN_MS,
-  PROVIDER_SSE_IDLE_TIMEOUT_MS,
-  PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
   providerTimeoutError,
   resolveTimeoutMs,
 } from '../stall-policy.mjs';
-import { scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
+import { knownToolNameSet, scanLeakedToolCalls } from './anthropic-leaked-toolcall.mjs';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import { parseGeminiTextPartMetadata } from './gemini-schema.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { runAbortable } from '../../../shared/abort-race.mjs';
+import { createSdkStreamCancellation } from './gemini-sdk-stream/cancellation.mjs';
+import { createSdkStreamReader } from './gemini-sdk-stream/reader.mjs';
+import { createRestStreamWatchdogs } from './gemini-rest-stream/watchdogs.mjs';
+import { drainSseDataLines, sseDataPayload } from './gemini-rest-stream/sse-lines.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
   'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',
@@ -153,7 +155,7 @@ function stampGeminiStreamFailure(
 function geminiChunkHasFunctionCall(chunk) {
   const parts = chunk?.candidates?.[0]?.content?.parts;
   if (!Array.isArray(parts)) return false;
-  return parts.some((p) => p && p.functionCall);
+  return parts.some((p) => p?.functionCall);
 }
 
 export function geminiChunkProgressKind(chunk) {
@@ -266,8 +268,7 @@ function relayGeminiStreamText(t, { onTextDelta, textLeakGuard }) {
  * visible text, synthesize known-tool calls, dispatch via onToolCall.
  */
 export function createGeminiTextLeakGuard({ knownToolNames, onTextDelta, onToolCall, onStreamDelta }) {
-  const _knownTools =
-    knownToolNames instanceof Set ? knownToolNames : new Set(Array.isArray(knownToolNames) ? knownToolNames : []);
+  const _knownTools = knownToolNameSet(knownToolNames);
   const _enabled = _knownTools.size > 0;
   const _isKnownTool = (name) => _knownTools.has(name);
   let leakBuffer = '';
@@ -397,9 +398,6 @@ export async function consumeGeminiRestStreamResponse(
   let buffer = '';
   const allChunks = [];
   let sawStreamChunk = false;
-  let idleTimedOut = false;
-  let idleTimer = null;
-  let idleReject = null;
   let relayedText = '';
   let sawFunctionCall = false;
   let leakGuardFinalized = false;
@@ -410,43 +408,28 @@ export async function consumeGeminiRestStreamResponse(
       textLeakGuard?.finalize();
     } catch {}
   };
-
-  let firstByteTimer = setTimeout(() => {
+  const watchdogs = createRestStreamWatchdogs({
+    reader,
+    label,
+    firstByteTimeoutMs: GEMINI_FIRST_BYTE_TIMEOUT_MS,
+    timeoutError: geminiTimeoutError,
+  });
+  // One decoded chunk: collected for aggregation and relayed to every sink.
+  const relayChunk = (rawChunk) => {
+    const parsed = unwrap(rawChunk);
+    if (!sawStreamChunk) {
+      sawStreamChunk = true;
+      watchdogs.clearFirstByte();
+    }
+    allChunks.push(parsed);
+    onChunk?.(parsed);
     try {
-      reader.cancel('first byte timeout').catch(() => {});
+      onStreamDelta?.(geminiChunkProgressKind(parsed));
     } catch {}
-    if (idleReject) {
-      const e = geminiTimeoutError(`${label} first byte`, GEMINI_FIRST_BYTE_TIMEOUT_MS);
-      const r = idleReject;
-      idleReject = null;
-      r(e);
+    if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
+    if (onTextDelta || textLeakGuard) {
+      relayedText += relayGeminiStreamText(geminiChunkText(parsed), { onTextDelta, textLeakGuard });
     }
-  }, GEMINI_FIRST_BYTE_TIMEOUT_MS);
-  if (firstByteTimer.unref) firstByteTimer.unref();
-
-  const clearFirstByteTimer = () => {
-    if (firstByteTimer) {
-      clearTimeout(firstByteTimer);
-      firstByteTimer = null;
-    }
-  };
-
-  const resetIdleTimer = () => {
-    if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      idleTimedOut = true;
-      try {
-        reader.cancel('SSE idle timeout').catch(() => {});
-      } catch {}
-      if (idleReject) {
-        const e = geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-        const r = idleReject;
-        idleReject = null;
-        r(e);
-      }
-    }, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-    if (idleTimer.unref) idleTimer.unref();
   };
 
   const onAbort = () => {
@@ -462,112 +445,56 @@ export async function consumeGeminiRestStreamResponse(
   }
 
   try {
-    resetIdleTimer();
+    watchdogs.resetIdle();
     while (true) {
       let chunk;
       try {
-        chunk = await runAbortable(
-          signal,
-          () =>
-            new Promise((resolve, reject) => {
-              idleReject = reject;
-              reader.read().then(resolve, reject);
-            }),
-          `${label} aborted`
-        );
+        chunk = await runAbortable(signal, () => watchdogs.read(), `${label} aborted`);
       } catch (err) {
-        if (idleTimedOut) {
-          throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-        }
+        if (watchdogs.idleTimedOut) throw watchdogs.idleError();
         if (signal?.aborted) {
           const reason = signal.reason;
           throw reason instanceof Error ? reason : new Error(`${label} aborted`);
         }
         throw err;
       } finally {
-        idleReject = null;
+        watchdogs.clearPending();
       }
       const { done, value } = chunk;
       if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const payloads = [];
-      let lineEnd;
-      while ((lineEnd = buffer.indexOf('\n')) >= 0) {
-        let line = buffer.slice(0, lineEnd);
-        buffer = buffer.slice(lineEnd + 1);
-        line = line.replace(/\r$/, '');
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (!data || data === '[DONE]') continue;
-        payloads.push(data);
-      }
+      const drained = drainSseDataLines(buffer + decoder.decode(value, { stream: true }));
+      buffer = drained.rest;
       let parsedChunks;
       try {
         // Preserve the established delivery boundary: once read()
         // returned the bytes, parse and relay them before the next
         // iteration observes cancellation.
-        parsedChunks = await parseProviderJsonBatch(payloads);
+        parsedChunks = await parseProviderJsonBatch(drained.payloads);
       } catch (cause) {
         throw geminiStreamCorruptionError(`${label} corrupt SSE JSON`, cause);
       }
-      for (const rawChunk of parsedChunks) {
-        const parsed = unwrap(rawChunk);
-        if (!sawStreamChunk) {
-          sawStreamChunk = true;
-          clearFirstByteTimer();
-        }
-        allChunks.push(parsed);
-        onChunk?.(parsed);
-        try {
-          onStreamDelta?.(geminiChunkProgressKind(parsed));
-        } catch {}
-        if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
-        if (onTextDelta || textLeakGuard) {
-          const t = geminiChunkText(parsed);
-          relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
-        }
-      }
+      for (const rawChunk of parsedChunks) relayChunk(rawChunk);
       // Re-arm on SEMANTIC progress only. A decoded SSE payload is real
       // generation output; raw byte chunks (a partial data: line, blank
       // keepalive lines, proxy padding) are not. Resetting on every read
       // let a stalled generation that still dribbles bytes hold the idle
       // watchdog off indefinitely.
-      if (parsedChunks.length) resetIdleTimer();
+      if (parsedChunks.length) watchdogs.resetIdle();
     }
-    if (buffer.trim()) {
-      const line = buffer.trim().replace(/\r$/, '');
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6).trim();
-        if (data && data !== '[DONE]') {
-          try {
-            const [rawTail] = await parseProviderJsonBatch([data]);
-            const parsed = unwrap(rawTail);
-            if (!sawStreamChunk) {
-              sawStreamChunk = true;
-              clearFirstByteTimer();
-            }
-            allChunks.push(parsed);
-            onChunk?.(parsed);
-            try {
-              onStreamDelta?.(geminiChunkProgressKind(parsed));
-            } catch {}
-            if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
-            if (onTextDelta || textLeakGuard) {
-              const t = geminiChunkText(parsed);
-              relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
-            }
-          } catch (cause) {
-            throw geminiStreamCorruptionError(`${label} corrupt SSE tail JSON`, cause);
-          }
-        }
+    const tail = sseDataPayload(buffer.trim());
+    if (tail) {
+      try {
+        const [rawTail] = await parseProviderJsonBatch([tail]);
+        relayChunk(rawTail);
+      } catch (cause) {
+        throw geminiStreamCorruptionError(`${label} corrupt SSE tail JSON`, cause);
       }
     }
   } catch (err) {
     finalizeLeakGuard();
     throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: allChunks });
   } finally {
-    clearFirstByteTimer();
-    if (idleTimer) clearTimeout(idleTimer);
+    watchdogs.stop();
     if (signal) signal.removeEventListener('abort', onAbort);
     try {
       await reader.cancel('Gemini SSE complete');
@@ -606,12 +533,6 @@ export async function consumeGeminiSdkStream(
     cancellationGraceMs = 250,
   }
 ) {
-  let sawStreamChunk = false;
-  let idleTimedOut = false;
-  let idleTimer = null;
-  let firstByteReject = null;
-  let firstByteTimer = null;
-  let inFlightReject = null;
   let relayedText = '';
   let sawFunctionCall = false;
   let leakGuardFinalized = false;
@@ -623,95 +544,13 @@ export async function consumeGeminiSdkStream(
     } catch {}
   };
 
-  let iterator = null;
-  let cancellation = null;
-  let forcedFailure = null;
-  const abortError = () => (signal?.reason instanceof Error ? signal.reason : new Error(`${label} aborted`));
-  const cancelInFlight = (err) => {
-    if (cancellation) return cancellation;
-    forcedFailure = err;
-    cancellation = (async () => {
-      try {
-        cancelGeneration?.(err);
-      } catch {}
-      let returnPromise;
-      try {
-        returnPromise = Promise.resolve(iterator?.return?.());
-      } catch {
-        return;
-      }
-      // iterator.return() is best-effort cleanup. A broken SDK iterator
-      // must not deadlock the timeout path and prevent withRetry from
-      // beginning the next attempt after the generation was aborted.
-      let graceTimer = null;
-      try {
-        await Promise.race([
-          returnPromise.catch(() => {}),
-          new Promise((resolve) => {
-            graceTimer = setTimeout(resolve, Math.max(0, cancellationGraceMs));
-          }),
-        ]);
-      } finally {
-        if (graceTimer) clearTimeout(graceTimer);
-        // Keep observing a late rejection after the grace race expires.
-        returnPromise.catch(() => {});
-      }
-    })();
-    return cancellation;
-  };
-
-  const rejectAfterCancellation = (reject, err) => {
-    cancelInFlight(err).then(
-      () => reject(err),
-      () => reject(err)
-    );
-  };
-
-  const armFirstByteTimer = () => {
-    if (firstByteTimer) clearTimeout(firstByteTimer);
-    firstByteTimer = setTimeout(() => {
-      if (firstByteReject) {
-        const e = geminiTimeoutError(`${label} first byte`, firstByteTimeoutMs);
-        const r = firstByteReject;
-        firstByteReject = null;
-        rejectAfterCancellation(r, e);
-      }
-    }, firstByteTimeoutMs);
-  };
-
-  const clearFirstByteTimer = () => {
-    if (firstByteTimer) {
-      clearTimeout(firstByteTimer);
-      firstByteTimer = null;
-    }
-    firstByteReject = null;
-  };
-
-  const resetIdleTimer = () => {
-    if (!PROVIDER_SSE_IDLE_WATCHDOG_ENABLED) return;
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => {
-      idleTimedOut = true;
-      if (inFlightReject) {
-        const e = geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-        const r = inFlightReject;
-        inFlightReject = null;
-        rejectAfterCancellation(r, e);
-      }
-    }, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-  };
-
-  // Interrupt pending reads as well as the request; an SDK iterator may
-  // propagate the transport abort only after its own asynchronous cleanup.
+  const cancellation = createSdkStreamCancellation({ signal, label, cancelGeneration, cancellationGraceMs });
+  const { abortError } = cancellation;
+  let reader = null;
   const onSignalAbort = () => {
     const err = abortError();
-    if (inFlightReject) {
-      const r = inFlightReject;
-      inFlightReject = null;
-      firstByteReject = null;
-      r(err);
-    }
-    cancelInFlight(err).catch(() => {});
+    reader?.rejectPending(err);
+    cancellation.cancelInFlight(err).catch(() => {});
   };
   const collectedChunks = [];
 
@@ -725,62 +564,32 @@ export async function consumeGeminiSdkStream(
       responsePromise = Promise.reject(err);
     }
     responsePromise.catch(() => {});
-    iterator = streamResult.stream[Symbol.asyncIterator]();
+    const iterator = streamResult.stream[Symbol.asyncIterator]();
+    cancellation.bindIterator(iterator);
+    reader = createSdkStreamReader({
+      iterator,
+      label,
+      firstByteTimeoutMs,
+      timeoutError: geminiTimeoutError,
+      cancellation,
+    });
     if (signal?.aborted) throw abortError();
     signal?.addEventListener('abort', onSignalAbort, { once: true });
-    armFirstByteTimer();
-    resetIdleTimer();
+    reader.arm();
     while (true) {
       if (signal?.aborted) throw abortError();
-      if (idleTimedOut) {
-        throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-      }
+      if (reader.idleTimedOut) throw reader.idleError();
       let step;
       try {
-        step = await new Promise((resolve, reject) => {
-          inFlightReject = reject;
-          if (!sawStreamChunk) firstByteReject = reject;
-          iterator.next().then(
-            (value) => {
-              inFlightReject = null;
-              firstByteReject = null;
-              if (forcedFailure) {
-                cancellation.then(
-                  () => reject(forcedFailure),
-                  () => reject(forcedFailure)
-                );
-              } else {
-                resolve(value);
-              }
-            },
-            (err) => {
-              inFlightReject = null;
-              firstByteReject = null;
-              if (forcedFailure) {
-                cancellation.then(
-                  () => reject(forcedFailure),
-                  () => reject(forcedFailure)
-                );
-              } else {
-                reject(err);
-              }
-            }
-          );
-        });
+        step = await reader.next();
       } catch (err) {
-        if (idleTimedOut) {
-          throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-        }
+        if (reader.idleTimedOut) throw reader.idleError();
         if (signal?.aborted) throw abortError();
         throw normalizeGeminiSdkStreamError(err, label);
       }
       if (signal?.aborted) throw abortError();
       if (step.done) break;
-      if (!sawStreamChunk) {
-        sawStreamChunk = true;
-        clearFirstByteTimer();
-      }
-      resetIdleTimer();
+      reader.noteChunk();
       if (step.value) collectedChunks.push(step.value);
       try {
         onStreamDelta?.(geminiChunkProgressKind(step.value));
@@ -791,11 +600,8 @@ export async function consumeGeminiSdkStream(
         relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
       }
     }
-    if (idleTimedOut) {
-      throw geminiTimeoutError(`${label} SSE idle`, PROVIDER_SSE_IDLE_TIMEOUT_MS);
-    }
-    clearFirstByteTimer();
-    if (idleTimer) clearTimeout(idleTimer);
+    if (reader.idleTimedOut) throw reader.idleError();
+    reader.stop();
 
     // SDK 0.24.1 aggregation drops thoughtSignature. Preserve wire parts
     // locally; retain the SDK response path only for an empty collection.
@@ -813,17 +619,16 @@ export async function consumeGeminiSdkStream(
     }
     const finishReason = raw?.candidates?.[0]?.finishReason || null;
     const promptBlockReason = raw?.promptFeedback?.blockReason || null;
-    assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
+    assertGeminiStreamCompleted({ sawStreamChunk: reader.sawStreamChunk, finishReason, promptBlockReason, label });
     return raw;
   } catch (err) {
-    clearFirstByteTimer();
+    reader?.clearFirstByte();
     const failure = signal?.aborted ? abortError() : err;
-    await cancelInFlight(failure);
+    await cancellation.cancelInFlight(failure);
     finalizeLeakGuard();
     throw stampGeminiStreamFailure(failure, { relayedText, textLeakGuard, sawFunctionCall, chunks: collectedChunks });
   } finally {
-    clearFirstByteTimer();
-    if (idleTimer) clearTimeout(idleTimer);
+    reader?.stop();
     if (signal && onSignalAbort) {
       try {
         signal.removeEventListener('abort', onSignalAbort);

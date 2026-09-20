@@ -91,7 +91,8 @@ const nameCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 
 export function compareExplorerNames(a: string, b: string): number {
   const result = nameCollator.compare(a, b);
   if (result !== 0) return result;
-  return a < b ? -1 : a > b ? 1 : 0;
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 interface ExplorerSortableEntry {
@@ -101,7 +102,10 @@ interface ExplorerSortableEntry {
 
 /** Default sort: directories first, then names. */
 export function sortExplorerEntries<T extends ExplorerSortableEntry>(entries: readonly T[]): T[] {
-  return [...entries].sort((a, b) => (a.dir === b.dir ? compareExplorerNames(a.name, b.name) : a.dir ? -1 : 1));
+  return [...entries].sort((a, b) => {
+    if (a.dir !== b.dir) return a.dir ? -1 : 1;
+    return compareExplorerNames(a.name, b.name);
+  });
 }
 
 /** List type-ahead: next row whose name starts with the buffer, wrapping. */

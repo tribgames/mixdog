@@ -176,7 +176,9 @@ export function promptContentImageMeta(content, pastedImages) {
   const named = pastedImages && typeof pastedImages === 'object' ? Object.values(pastedImages) : [];
   return parts.map((part, index) => {
     const meta = named[index] && typeof named[index] === 'object' ? named[index] : null;
-    const data = typeof part.data === 'string' ? part.data : typeof part.content === 'string' ? part.content : '';
+    let data = '';
+    if (typeof part.data === 'string') data = part.data;
+    else if (typeof part.content === 'string') data = part.content;
     return {
       id: meta?.id ?? null,
       name: String(meta?.filename || `Image ${index + 1}`),

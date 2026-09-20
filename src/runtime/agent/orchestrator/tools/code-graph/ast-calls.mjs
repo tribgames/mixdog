@@ -275,7 +275,7 @@ export function _astCallerCallSites(
     const importsTarget = _astImportedRels(node, cwd).some((rel) => targets.has(rel));
     if (!sameFile && !importsTarget && !_astImportsUnresolved(node, cwd)) continue;
     const calls = _astCalls(node);
-    if (!calls || !calls.length) continue;
+    if (!calls?.length) continue;
     for (const call of calls) {
       if (call.name !== name) continue;
       if (call.kind === 'method' && !_SELF_RECEIVERS.has(call.recv) && !importsTarget) continue;

@@ -378,19 +378,22 @@ export async function handleSetTransition(context, op) {
     throw new Error(`set_transition effect must be one of: ${Object.keys(effects).join(', ')}`);
   }
   const duration = Number(op.duration);
-  const speed =
-    Number.isFinite(duration) && duration > 0 ? (duration >= 1500 ? 'slow' : duration <= 500 ? 'fast' : 'med') : 'med';
+  let speed = 'med';
+  if (Number.isFinite(duration) && duration >= 1500) speed = 'slow';
+  else if (Number.isFinite(duration) && duration > 0 && duration <= 500) speed = 'fast';
   const advance =
     op.advanceOnTime === true && Number(op.advanceTime) > 0 ? ` advTm="${Math.round(Number(op.advanceTime))}"` : '';
   const element =
     requested === 'none' ? '' : `<p:transition spd="${speed}"${advance}>${effects[requested]}</p:transition>`;
   const stripped = current.replace(/<p:transition\b[^>]*?(?:\/>|>[\s\S]*?<\/p:transition>)/, '');
   const anchor = /<p:clrMapOvr\b[^>]*?(?:\/>|>[\s\S]*?<\/p:clrMapOvr>)/.exec(stripped);
-  const next = element
-    ? anchor
-      ? `${stripped.slice(0, anchor.index + anchor[0].length)}${element}${stripped.slice(anchor.index + anchor[0].length)}`
-      : stripped.replace('</p:sld>', `${element}</p:sld>`)
-    : stripped;
+  let next = stripped;
+  if (element && anchor) {
+    const anchorEnd = anchor.index + anchor[0].length;
+    next = `${stripped.slice(0, anchorEnd)}${element}${stripped.slice(anchorEnd)}`;
+  } else if (element) {
+    next = stripped.replace('</p:sld>', `${element}</p:sld>`);
+  }
   zip.file(path, next);
   return { op: op.op, changed: true, slide: Number(op.slide), effect: requested };
 }

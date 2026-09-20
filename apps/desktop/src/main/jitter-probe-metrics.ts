@@ -117,11 +117,11 @@ export function summarizeWarmPaint(samples: PaintFrameSample[]) {
   const reentry = samples.filter((sample) => sample.phase === 'reentry');
   const low = Math.min(sessionLuma ?? 0, newTaskLuma ?? sessionLuma ?? 0);
   const high = Math.max(sessionLuma ?? 0, newTaskLuma ?? sessionLuma ?? 0);
-  const brightnessExcursion = reentry.reduce(
-    (peak, sample) =>
-      Math.max(peak, sample.luma < low ? low - sample.luma : sample.luma > high ? sample.luma - high : 0),
-    0
-  );
+  const excursion = (luma: number) => {
+    if (luma < low) return low - luma;
+    return luma > high ? luma - high : 0;
+  };
+  const brightnessExcursion = reentry.reduce((peak, sample) => Math.max(peak, excursion(sample.luma)), 0);
   const stableTolerance = 0.025;
   const firstStableIndex =
     sessionLuma === null ? -1 : reentry.findIndex((sample) => Math.abs(sample.luma - sessionLuma) <= stableTolerance);

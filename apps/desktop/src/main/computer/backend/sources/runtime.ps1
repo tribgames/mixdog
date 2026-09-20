@@ -1,192 +1,199 @@
 
 function Get-WindowCapture($req) {
-  $info = Resolve-WindowInfo $req.window $req.window_id
-  $capture = if ($req.capture_backend -eq 'wgc') {
-    Get-WindowGraphicsCapture $info.Handle
-  } elseif (-not $req.capture_backend -or $req.capture_backend -eq 'print_window') {
-    [MixWin32]::CaptureWindowSurface($info.Handle)
-  } else { throw 'capture_source_unavailable|unknown window capture backend' }
-  return @{
-    text = ('native window capture: ' + $info.Title)
-    title = $info.Title
-    window_id = $info.Id
-    x = $capture.X
-    y = $capture.Y
-    width = $capture.Width
-    height = $capture.Height
-    capture_source = 'window_surface'
-    capture_cleanup = @{ status = 'confirmed' }
-    image_base64 = $capture.PngBase64
-  }
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    $capture = if ($req.capture_backend -eq 'wgc') {
+        Get-WindowGraphicsCapture $info.Handle
+    }
+    elseif (-not $req.capture_backend -or $req.capture_backend -eq 'print_window') {
+        [MixWin32]::CaptureWindowSurface($info.Handle)
+    }
+    else { throw 'capture_source_unavailable|unknown window capture backend' }
+    return @{
+        text            = ('native window capture: ' + $info.Title)
+        title           = $info.Title
+        window_id       = $info.Id
+        x               = $capture.X
+        y               = $capture.Y
+        width           = $capture.Width
+        height          = $capture.Height
+        capture_source  = 'window_surface'
+        capture_cleanup = @{ status = 'confirmed' }
+        image_base64    = $capture.PngBase64
+    }
 }
 
 function Get-WindowIntegrity($req) {
-  $info = Resolve-WindowInfo $req.window $req.window_id
-  $integrity = [MixWin32]::WindowIntegrity($info.Handle)
-  return @{
-    text = ('window integrity: ' + $integrity.TargetName)
-    window_id = $info.Id
-    known = $integrity.Known
-    higher = $integrity.Higher
-    own_rid = $integrity.OwnRid
-    target_rid = $integrity.TargetRid
-    own_name = $integrity.OwnName
-    target_name = $integrity.TargetName
-  }
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    $integrity = [MixWin32]::WindowIntegrity($info.Handle)
+    return @{
+        text        = ('window integrity: ' + $integrity.TargetName)
+        window_id   = $info.Id
+        known       = $integrity.Known
+        higher      = $integrity.Higher
+        own_rid     = $integrity.OwnRid
+        target_rid  = $integrity.TargetRid
+        own_name    = $integrity.OwnName
+        target_name = $integrity.TargetName
+    }
 }
 
 function Get-InputRecoveryState($req) {
-  $state = Get-CurrentSession
-  $target = [IntPtr]::Zero
-  if ($req.after_input -eq $true -and $req.window_id) {
-    # Post-dispatch monitoring must survive an action closing its own dialog.
-    # This read grants no input permission and never resolves another target.
-    $target = [MixWin32]::ParseWindowId([string]$req.window_id)
-  } elseif ($req.ref) {
-    $target = Get-RefTopHandle (Get-RefRecord $req.ref)
-  } elseif ($req.window_id -or $req.window) {
-    $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
-  } elseif ([MixWin32]::IsWindowHandle($state.LastFocus)) {
-    $target = $state.LastFocus
-  }
-  $targetExists = [MixWin32]::IsWindowHandle($target)
-  if ($target -eq [IntPtr]::Zero -or (-not $targetExists -and $req.after_input -ne $true)) {
-    throw 'foreground input target is unavailable before dispatch'
-  }
-  $targetOwnerId = ''
-  if ($targetExists) {
-    $targetInfo = [MixWin32]::Info($target)
-    if ($null -ne $targetInfo) { $targetOwnerId = [string]$targetInfo.OwnerId }
-  }
-  $foreground = [MixWin32]::Foreground()
-  $restore = if ([MixWin32]::IsWindowHandle($state.OriginalFocus)) {
-    $state.OriginalFocus
-  } else {
-    $foreground
-  }
-  $cursor = [MixWin32]::Cursor()
-  # Recorded now, while the window still exists: an action can close exactly the
-  # window that held focus, and a destroyed handle can no longer name its owner.
-  $restoreOwnerId = ''
-  if ([MixWin32]::IsWindowHandle($restore)) {
-    $restoreInfo = [MixWin32]::Info($restore)
-    if ($null -ne $restoreInfo) { $restoreOwnerId = [string]$restoreInfo.OwnerId }
-  }
-  $inputEvidence = [MixInputObservation]::Read()
-  return @{
-    text = 'foreground input recovery state captured'
-    input_observer_ready = $inputEvidence.Ready
-    input_monitor_id = $inputEvidence.Generation
-    input_user_sequence = $inputEvidence.Sequence
-    target_window_id = [MixWin32]::WindowId($target)
-    target_exists = $targetExists
-    target_owner_window_id = $targetOwnerId
-    foreground_window_id = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
-    restore_window_id = $(if ([MixWin32]::IsWindowHandle($restore)) { [MixWin32]::WindowId($restore) } else { '' })
-    restore_owner_window_id = $restoreOwnerId
-    cursor_x = $cursor.x
-    cursor_y = $cursor.y
-    input_tick = [MixWin32]::InputTick()
-    synthetic_input = (Get-PhysicalInputIdleMs) -eq [int]::MaxValue
-    foreground_within_target = ($foreground -eq $target -or [MixWin32]::IsOwnedBy($foreground, $target))
-    foreground_child_process = ($targetExists -and [MixWin32]::IsChildProcessWindow($foreground, $target))
-  }
+    $state = Get-CurrentSession
+    $target = [IntPtr]::Zero
+    if ($req.after_input -eq $true -and $req.window_id) {
+        # Post-dispatch monitoring must survive an action closing its own dialog.
+        # This read grants no input permission and never resolves another target.
+        $target = [MixWin32]::ParseWindowId([string]$req.window_id)
+    }
+    elseif ($req.ref) {
+        $target = Get-RefTopHandle (Get-RefRecord $req.ref)
+    }
+    elseif ($req.window_id -or $req.window) {
+        $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
+    }
+    elseif ([MixWin32]::IsWindowHandle($state.LastFocus)) {
+        $target = $state.LastFocus
+    }
+    $targetExists = [MixWin32]::IsWindowHandle($target)
+    if ($target -eq [IntPtr]::Zero -or (-not $targetExists -and $req.after_input -ne $true)) {
+        throw 'foreground input target is unavailable before dispatch'
+    }
+    $targetOwnerId = ''
+    if ($targetExists) {
+        $targetInfo = [MixWin32]::Info($target)
+        if ($null -ne $targetInfo) { $targetOwnerId = [string]$targetInfo.OwnerId }
+    }
+    $foreground = [MixWin32]::Foreground()
+    $restore = if ([MixWin32]::IsWindowHandle($state.OriginalFocus)) {
+        $state.OriginalFocus
+    }
+    else {
+        $foreground
+    }
+    $cursor = [MixWin32]::Cursor()
+    # Recorded now, while the window still exists: an action can close exactly the
+    # window that held focus, and a destroyed handle can no longer name its owner.
+    $restoreOwnerId = ''
+    if ([MixWin32]::IsWindowHandle($restore)) {
+        $restoreInfo = [MixWin32]::Info($restore)
+        if ($null -ne $restoreInfo) { $restoreOwnerId = [string]$restoreInfo.OwnerId }
+    }
+    $inputEvidence = [MixInputObservation]::Read()
+    return @{
+        text                     = 'foreground input recovery state captured'
+        input_observer_ready     = $inputEvidence.Ready
+        input_monitor_id         = $inputEvidence.Generation
+        input_user_sequence      = $inputEvidence.Sequence
+        target_window_id         = [MixWin32]::WindowId($target)
+        target_exists            = $targetExists
+        target_owner_window_id   = $targetOwnerId
+        foreground_window_id     = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
+        restore_window_id        = $(if ([MixWin32]::IsWindowHandle($restore)) { [MixWin32]::WindowId($restore) } else { '' })
+        restore_owner_window_id  = $restoreOwnerId
+        cursor_x                 = $cursor.x
+        cursor_y                 = $cursor.y
+        input_tick               = [MixWin32]::InputTick()
+        synthetic_input          = (Get-PhysicalInputIdleMs) -eq [int]::MaxValue
+        foreground_within_target = ($foreground -eq $target -or [MixWin32]::IsOwnedBy($foreground, $target))
+        foreground_child_process = ($targetExists -and [MixWin32]::IsChildProcessWindow($foreground, $target))
+    }
 }
 
 function Restore-InputRecoveryState($req) {
-  Assert-RecoveryInputUnchanged $req
-  [MixInputObservation]::BeginExpected([string]$req.expected_input_monitor_id, [long]$req.expected_input_user_sequence)
-  try {
-  $restoreFocus = $req.restore_focus -ne $false
-  $restore = [MixWin32]::ParseWindowId([string]$req.restore_window_id)
-  $restoredTarget = if ($restoreFocus) { 'original' } else { 'preserved' }
-  if ($restoreFocus -and -not [MixWin32]::IsWindowHandle($restore)) {
-    # The action can close the very window that held focus. Its owner is the
-    # truthful next home for focus instead of wherever Windows happened to land.
-    $owner = [MixWin32]::ParseWindowId([string]$req.restore_owner_window_id)
-    if (-not [MixWin32]::IsWindowHandle($owner)) {
-      throw 'input recovery restore window is stale or invalid'
+    Assert-RecoveryInputUnchanged $req
+    [MixInputObservation]::BeginExpected([string]$req.expected_input_monitor_id, [long]$req.expected_input_user_sequence)
+    try {
+        $restoreFocus = $req.restore_focus -ne $false
+        $restore = [MixWin32]::ParseWindowId([string]$req.restore_window_id)
+        $restoredTarget = if ($restoreFocus) { 'original' } else { 'preserved' }
+        if ($restoreFocus -and -not [MixWin32]::IsWindowHandle($restore)) {
+            # The action can close the very window that held focus. Its owner is the
+            # truthful next home for focus instead of wherever Windows happened to land.
+            $owner = [MixWin32]::ParseWindowId([string]$req.restore_owner_window_id)
+            if (-not [MixWin32]::IsWindowHandle($owner)) {
+                throw 'input recovery restore window is stale or invalid'
+            }
+            $restore = $owner
+            $restoredTarget = 'owner'
+        }
+        if ($restoreFocus -and [MixWin32]::Foreground() -ne $restore) {
+            [void][MixWin32]::Focus($restore)
+        }
+        Assert-RecoveryInputUnchanged $req
+        [void][MixWin32]::SetCursorPos([int]$req.cursor_x, [int]$req.cursor_y)
+        [System.Threading.Thread]::Sleep(30)
+        Assert-RecoveryInputUnchanged $req
+        [void][MixWin32]::SetCursorPos([int]$req.cursor_x, [int]$req.cursor_y)
+        $foreground = [MixWin32]::Foreground()
+        $cursor = [MixWin32]::Cursor()
+        $inputEvidence = [MixInputObservation]::Read()
+        return @{
+            input_observer_ready     = $inputEvidence.Ready
+            input_monitor_id         = $inputEvidence.Generation
+            input_user_sequence      = $inputEvidence.Sequence
+            foreground_window_id     = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
+            restored_target          = $restoredTarget
+            cursor_x                 = $cursor.x
+            cursor_y                 = $cursor.y
+            input_tick               = [MixWin32]::InputTick()
+            synthetic_input          = (Get-PhysicalInputIdleMs) -eq [int]::MaxValue
+            foreground_within_target = ($foreground -eq [MixWin32]::ParseWindowId([string]$req.window_id) -or
+                [MixWin32]::IsOwnedBy($foreground, [MixWin32]::ParseWindowId([string]$req.window_id)))
+        }
     }
-    $restore = $owner
-    $restoredTarget = 'owner'
-  }
-  if ($restoreFocus -and [MixWin32]::Foreground() -ne $restore) {
-    [void][MixWin32]::Focus($restore)
-  }
-  Assert-RecoveryInputUnchanged $req
-  [void][MixWin32]::SetCursorPos([int]$req.cursor_x, [int]$req.cursor_y)
-  [System.Threading.Thread]::Sleep(30)
-  Assert-RecoveryInputUnchanged $req
-  [void][MixWin32]::SetCursorPos([int]$req.cursor_x, [int]$req.cursor_y)
-  $foreground = [MixWin32]::Foreground()
-  $cursor = [MixWin32]::Cursor()
-  $inputEvidence = [MixInputObservation]::Read()
-  return @{
-    input_observer_ready = $inputEvidence.Ready
-    input_monitor_id = $inputEvidence.Generation
-    input_user_sequence = $inputEvidence.Sequence
-    foreground_window_id = $(if ([MixWin32]::IsWindowHandle($foreground)) { [MixWin32]::WindowId($foreground) } else { '' })
-    restored_target = $restoredTarget
-    cursor_x = $cursor.x
-    cursor_y = $cursor.y
-    input_tick = [MixWin32]::InputTick()
-    synthetic_input = (Get-PhysicalInputIdleMs) -eq [int]::MaxValue
-    foreground_within_target = ($foreground -eq [MixWin32]::ParseWindowId([string]$req.window_id) -or
-      [MixWin32]::IsOwnedBy($foreground, [MixWin32]::ParseWindowId([string]$req.window_id)))
-  }
-  } finally { [MixInputObservation]::End() }
+    finally { [MixInputObservation]::End() }
 }
 
 function Assert-RecoveryInputUnchanged($req) {
-  $evidence = [MixInputObservation]::Read()
-  if (-not $evidence.Ready -or -not $req.expected_input_monitor_id -or $null -eq $req.expected_input_user_sequence -or
-      $evidence.Generation -ne $req.expected_input_monitor_id) {
-    throw 'input_observation_unavailable: cannot establish the original input observation'
-  }
-  if ($evidence.Sequence -ne [long]$req.expected_input_user_sequence) {
-    throw 'user_input_active: desktop input changed; recovery must not override the user'
-  }
+    $evidence = [MixInputObservation]::Read()
+    if (-not $evidence.Ready -or -not $req.expected_input_monitor_id -or $null -eq $req.expected_input_user_sequence -or
+        $evidence.Generation -ne $req.expected_input_monitor_id) {
+        throw 'input_observation_unavailable: cannot establish the original input observation'
+    }
+    if ($evidence.Sequence -ne [long]$req.expected_input_user_sequence) {
+        throw 'user_input_active: desktop input changed; recovery must not override the user'
+    }
 }
 
 # The tagged engine sends the key grammar without changing lock-key state.
 function Send-KeysGuarded($keys) {
-  [MixTaggedKeys]::Send([string]$keys)
+    [MixTaggedKeys]::Send([string]$keys)
 }
 
 function Focus-TypingPoint($req, $target, $point) {
-  if ($null -eq $point) { return }
-  if ($req.ref) { $point = Get-ElPoint $req.ref $false }
-  if ($point[2] -ne $target) { throw 'target_mismatch|text target changed after focus; no input sent' }
-  [MixWin32]::GlideCursor($target, $point[0], $point[1])
-  [MixWin32]::Click($point[0], $point[1])
-  Start-Sleep -Milliseconds 80
+    if ($null -eq $point) { return }
+    if ($req.ref) { $point = Get-ElPoint $req.ref $false }
+    if ($point[2] -ne $target) { throw 'target_mismatch|text target changed after focus; no input sent' }
+    [MixWin32]::GlideCursor($target, $point[0], $point[1])
+    [MixWin32]::Click($point[0], $point[1])
+    Start-Sleep -Milliseconds 80
 }
 
 function Get-NativeElementHandle($el) {
-  $cur = $el
-  for ($i = 0; $i -lt 50 -and $null -ne $cur; $i++) {
-    $handle = New-Object IntPtr($cur.Current.NativeWindowHandle)
-    if ($handle -ne [IntPtr]::Zero) { return $handle }
-    $cur = $Walker.GetParent($cur)
-  }
-  return [IntPtr]::Zero
+    $cur = $el
+    for ($i = 0; $i -lt 50 -and $null -ne $cur; $i++) {
+        $handle = New-Object IntPtr($cur.Current.NativeWindowHandle)
+        if ($handle -ne [IntPtr]::Zero) { return $handle }
+        $cur = $Walker.GetParent($cur)
+    }
+    return [IntPtr]::Zero
 }
 
 function Get-ExactNativeElementHandle($el) {
-  if ($null -eq $el) { return [IntPtr]::Zero }
-  return New-Object IntPtr($el.Current.NativeWindowHandle)
+    if ($null -eq $el) { return [IntPtr]::Zero }
+    return New-Object IntPtr($el.Current.NativeWindowHandle)
 }
 
 # Keystrokes land on the FOREGROUND window. Re-assert the last focus_window
 # target before sending; when the user moved to another window and it cannot
 # be reclaimed, fail instead of typing into their window.
 function Assert-TypingTarget {
-  $lastFocus = (Get-CurrentSession).LastFocus
-  if ($lastFocus -eq [IntPtr]::Zero) {
-    throw 'key requires focus_window first'
-  }
-  if ([MixWin32]::Foreground() -eq $lastFocus) { return }
-  throw 'foreground changed (the user is working in another window); keys not sent. Call focus_window again.'
+    $lastFocus = (Get-CurrentSession).LastFocus
+    if ($lastFocus -eq [IntPtr]::Zero) {
+        throw 'key requires focus_window first'
+    }
+    if ([MixWin32]::Foreground() -eq $lastFocus) { return }
+    throw 'foreground changed (the user is working in another window); keys not sent. Call focus_window again.'
 }
 
 # Plain text (no SendKeys grammar characters) rides IME-immune unicode
@@ -194,378 +201,395 @@ function Assert-TypingTarget {
 # translated into jamo ("parity" becomes hangul noise), while
 # KEYEVENTF_UNICODE lands the literal characters verbatim.
 function Do-Key($req) {
-  if ($req.delivery -ne 'foreground') {
+    if ($req.delivery -ne 'foreground') {
+        $target = [IntPtr]::Zero
+        $preferred = [IntPtr]::Zero
+        $refRecord = $null
+        if ($req.ref) {
+            $refRecord = Get-RefRecord $req.ref
+            $target = Get-RefTopHandle $refRecord
+            if ($refRecord.Kind -eq 'msaa') {
+                return Background-Unavailable 'key' 'MSAA ref does not expose an exact native keyboard target; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+            }
+            $preferred = Get-ExactNativeElementHandle $refRecord.Element
+            if ($preferred -eq [IntPtr]::Zero) {
+                return Background-Unavailable 'key' 'element has no exact native keyboard target; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+            }
+        }
+        elseif ($req.window_id -or $req.window) {
+            $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
+        }
+        else {
+            return Background-Unavailable 'key' 'background key requires an exact ref or window_id' $null 'target_required'
+        }
+        $before = Get-ObservableTargetState $refRecord 'key'
+        try {
+            Assert-ExecutionAuthorization $req $target
+            $messageTarget = [MixWin32]::BackgroundKeys($target, $preferred, [string]$req.keys)
+            return Complete-NativeAction 'key' $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord "keys delivered to $messageTarget as native window messages"
+        }
+        catch {
+            return Native-BackgroundFailure 'key' $_.Exception ([MixWin32]::WindowId($target))
+        }
+    }
     $target = [IntPtr]::Zero
-    $preferred = [IntPtr]::Zero
-    $refRecord = $null
+    $focusPoint = $null
     if ($req.ref) {
-      $refRecord = Get-RefRecord $req.ref
-      $target = Get-RefTopHandle $refRecord
-      if ($refRecord.Kind -eq 'msaa') {
-        return Background-Unavailable 'key' 'MSAA ref does not expose an exact native keyboard target; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
-      }
-      $preferred = Get-ExactNativeElementHandle $refRecord.Element
-      if ($preferred -eq [IntPtr]::Zero) {
-        return Background-Unavailable 'key' 'element has no exact native keyboard target; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
-      }
-    } elseif ($req.window_id -or $req.window) {
-      $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
-    } else {
-      return Background-Unavailable 'key' 'background key requires an exact ref or window_id' $null 'target_required'
+        $focusPoint = Get-ElPoint $req.ref $false
+        $target = $focusPoint[2]
     }
-    $before = Get-ObservableTargetState $refRecord 'key'
-    try {
-      Assert-ExecutionAuthorization $req $target
-      $messageTarget = [MixWin32]::BackgroundKeys($target, $preferred, [string]$req.keys)
-      return Complete-NativeAction 'key' $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord "keys delivered to $messageTarget as native window messages"
-    } catch {
-      return Native-BackgroundFailure 'key' $_.Exception ([MixWin32]::WindowId($target))
+    elseif ($req.window_id -or $req.window) {
+        $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
     }
-  }
-  $target = [IntPtr]::Zero
-  $focusPoint = $null
-  if ($req.ref) {
-    $focusPoint = Get-ElPoint $req.ref $false
-    $target = $focusPoint[2]
-  } elseif ($req.window_id -or $req.window) {
-    $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
-  } else {
-    $target = (Get-CurrentSession).LastFocus
-  }
-  if (-not [MixWin32]::IsWindowHandle($target)) {
-    return New-ActionResult 'key' 'none' 'suspected_noop' $false 'key requires window_id/window or a prior focus_window in this session' 'target_required' 'foreground' $null
-  }
-  return Invoke-ForegroundInput $target 'key' {
-    Focus-TypingPoint $req $target $focusPoint
-    [MixWin32]::ReportCurrentPointer('type')
-    if (([string]$req.keys) -notmatch '[{}^%+~()]') { [MixWin32]::SendText([string]$req.keys) }
-    else { Send-KeysGuarded $req.keys }
-  }
+    else {
+        $target = (Get-CurrentSession).LastFocus
+    }
+    if (-not [MixWin32]::IsWindowHandle($target)) {
+        return New-ActionResult 'key' 'none' 'suspected_noop' $false 'key requires window_id/window or a prior focus_window in this session' 'target_required' 'foreground' $null
+    }
+    return Invoke-ForegroundInput $target 'key' {
+        Focus-TypingPoint $req $target $focusPoint
+        [MixWin32]::ReportCurrentPointer('type')
+        if (([string]$req.keys) -notmatch '[{}^%+~()]') { [MixWin32]::SendText([string]$req.keys) }
+        else { Send-KeysGuarded $req.keys }
+    }
 }
 
 # Holding a key past the end of its command needs the real keyboard: a window
 # message cannot leave a key physically down for the next command to build on.
 function Do-KeyHold($req, $direction) {
-  $action = "key_$direction"
-  if ($req.delivery -ne 'foreground') {
-    return Background-Unavailable $action 'a held key requires the real keyboard; use explicit foreground delivery' $null 'background_unsupported'
-  }
-  $keys = [string]$req.keys
-  $target = [IntPtr]::Zero
-  $focusPoint = $null
-  if ($req.ref) {
-    $focusPoint = Get-ElPoint $req.ref $false
-    $target = $focusPoint[2]
-  } elseif ($req.window_id -or $req.window) {
-    $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
-  } else {
-    $target = (Get-CurrentSession).LastFocus
-  }
-  if (-not [MixWin32]::IsWindowHandle($target)) {
-    return New-ActionResult $action 'none' 'suspected_noop' $false "$action requires window_id/window or a prior focus_window in this session" 'target_required' 'foreground' $null
-  }
-  $state = Get-CurrentSession
-  return Invoke-ForegroundInput $target $action {
-    Focus-TypingPoint $req $target $focusPoint
-    [MixWin32]::ReportCurrentPointer('type')
-    [MixTaggedKeys]::Hold($keys, ($direction -eq 'down'))
-    if ($direction -eq 'down') { $state.HeldKeys[$keys] = $true }
-    else { $state.HeldKeys.Remove($keys) }
-  }
+    $action = "key_$direction"
+    if ($req.delivery -ne 'foreground') {
+        return Background-Unavailable $action 'a held key requires the real keyboard; use explicit foreground delivery' $null 'background_unsupported'
+    }
+    $keys = [string]$req.keys
+    $target = [IntPtr]::Zero
+    $focusPoint = $null
+    if ($req.ref) {
+        $focusPoint = Get-ElPoint $req.ref $false
+        $target = $focusPoint[2]
+    }
+    elseif ($req.window_id -or $req.window) {
+        $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
+    }
+    else {
+        $target = (Get-CurrentSession).LastFocus
+    }
+    if (-not [MixWin32]::IsWindowHandle($target)) {
+        return New-ActionResult $action 'none' 'suspected_noop' $false "$action requires window_id/window or a prior focus_window in this session" 'target_required' 'foreground' $null
+    }
+    $state = Get-CurrentSession
+    return Invoke-ForegroundInput $target $action {
+        Focus-TypingPoint $req $target $focusPoint
+        [MixWin32]::ReportCurrentPointer('type')
+        [MixTaggedKeys]::Hold($keys, ($direction -eq 'down'))
+        if ($direction -eq 'down') { $state.HeldKeys[$keys] = $true }
+        else { $state.HeldKeys.Remove($keys) }
+    }
 }
 
 function Do-Type($req) {
-  $text = if ($null -eq $req.text) { '' } else { [string]$req.text }
-  if ($req.delivery -eq 'foreground' -and $text.Length -gt $script:MaximumForegroundTextCharacters) {
-    throw "input_too_large: foreground text exceeds $script:MaximumForegroundTextCharacters UTF-16 code units"
-  }
-  if ($req.delivery -ne 'foreground') {
+    $text = if ($null -eq $req.text) { '' } else { [string]$req.text }
+    if ($req.delivery -eq 'foreground' -and $text.Length -gt $script:MaximumForegroundTextCharacters) {
+        throw "input_too_large: foreground text exceeds $script:MaximumForegroundTextCharacters UTF-16 code units"
+    }
+    if ($req.delivery -ne 'foreground') {
+        $target = [IntPtr]::Zero
+        $preferred = [IntPtr]::Zero
+        $refRecord = $null
+        if ($req.ref) {
+            $refRecord = Get-RefRecord $req.ref
+            $target = Get-RefTopHandle $refRecord
+            if ($refRecord.Kind -ne 'msaa') { $preferred = Get-ExactNativeElementHandle $refRecord.Element }
+            # Either there is no exact native keyboard target, or the host drops posted
+            # characters (XAML/WinUI/UWP). The element's own value pattern carries the
+            # text on this same background delivery, so it is a transport choice inside
+            # background rather than an escalation to foreground.
+            if ($preferred -eq [IntPtr]::Zero -or -not (Test-BackgroundKeyboardRoute $target $preferred)) {
+                if (Test-BackgroundValueTarget $refRecord) {
+                    $valued = Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $text } 'type'
+                    $valued.action = 'type'
+                    return $valued
+                }
+                if ($preferred -eq [IntPtr]::Zero) {
+                    return Background-Unavailable 'type' 'element exposes no native keyboard target and no settable value; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+                }
+            }
+        }
+        elseif ($req.window_id -or $req.window) {
+            $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
+        }
+        else {
+            return Background-Unavailable 'type' 'background type requires an exact ref or window_id' $null 'target_required'
+        }
+        $before = Get-ObservableTargetState $refRecord 'type'
+        $pointerCompleted = $false
+        try {
+            if ($null -ne $req.x -and $null -ne $req.y) {
+                [void][MixWin32]::BackgroundPointer(
+                    $target, [int]$req.x, [int]$req.y, 'click', $null)
+                $pointerCompleted = $true
+                Start-Sleep -Milliseconds 80
+            }
+            Assert-ExecutionAuthorization $req $target
+            $messageTarget = [MixWin32]::BackgroundText($target, $preferred, $text)
+            return Complete-NativeAction 'type' $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord "typed $($text.Length) literal characters into $messageTarget as native window messages"
+        }
+        catch {
+            return Native-BackgroundFailure 'type' $_.Exception ([MixWin32]::WindowId($target)) $pointerCompleted
+        }
+    }
     $target = [IntPtr]::Zero
-    $preferred = [IntPtr]::Zero
-    $refRecord = $null
+    $focusPoint = $null
     if ($req.ref) {
-      $refRecord = Get-RefRecord $req.ref
-      $target = Get-RefTopHandle $refRecord
-      if ($refRecord.Kind -ne 'msaa') { $preferred = Get-ExactNativeElementHandle $refRecord.Element }
-      # Either there is no exact native keyboard target, or the host drops posted
-      # characters (XAML/WinUI/UWP). The element's own value pattern carries the
-      # text on this same background delivery, so it is a transport choice inside
-      # background rather than an escalation to foreground.
-      if ($preferred -eq [IntPtr]::Zero -or -not (Test-BackgroundKeyboardRoute $target $preferred)) {
-        if (Test-BackgroundValueTarget $refRecord) {
-          $valued = Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $text } 'type'
-          $valued.action = 'type'
-          return $valued
+        $focusPoint = Get-ElPoint $req.ref $false
+        $target = $focusPoint[2]
+    }
+    elseif ($req.window_id -or $req.window) {
+        $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
+        if ($null -ne $req.x -and $null -ne $req.y) {
+            $focusPoint = @([int]$req.x, [int]$req.y, $target)
         }
-        if ($preferred -eq [IntPtr]::Zero) {
-          return Background-Unavailable 'type' 'element exposes no native keyboard target and no settable value; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
-        }
-      }
-    } elseif ($req.window_id -or $req.window) {
-      $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
-    } else {
-      return Background-Unavailable 'type' 'background type requires an exact ref or window_id' $null 'target_required'
     }
-    $before = Get-ObservableTargetState $refRecord 'type'
-    $pointerCompleted = $false
-    try {
-      if ($null -ne $req.x -and $null -ne $req.y) {
-        [void][MixWin32]::BackgroundPointer(
-          $target, [int]$req.x, [int]$req.y, 'click', $null)
-        $pointerCompleted = $true
-        Start-Sleep -Milliseconds 80
-      }
-      Assert-ExecutionAuthorization $req $target
-      $messageTarget = [MixWin32]::BackgroundText($target, $preferred, $text)
-      return Complete-NativeAction 'type' $messageTarget ([MixWin32]::WindowId($target)) $before $refRecord "typed $($text.Length) literal characters into $messageTarget as native window messages"
-    } catch {
-      return Native-BackgroundFailure 'type' $_.Exception ([MixWin32]::WindowId($target)) $pointerCompleted
+    else {
+        $target = (Get-CurrentSession).LastFocus
     }
-  }
-  $target = [IntPtr]::Zero
-  $focusPoint = $null
-  if ($req.ref) {
-    $focusPoint = Get-ElPoint $req.ref $false
-    $target = $focusPoint[2]
-  } elseif ($req.window_id -or $req.window) {
-    $target = (Resolve-WindowInfo $req.window $req.window_id).Handle
-    if ($null -ne $req.x -and $null -ne $req.y) {
-      $focusPoint = @([int]$req.x, [int]$req.y, $target)
+    if (-not [MixWin32]::IsWindowHandle($target)) {
+        return New-ActionResult 'type' 'none' 'suspected_noop' $false 'type requires window_id/window or a prior focus_window in this session' 'target_required' 'foreground' $null
     }
-  } else {
-    $target = (Get-CurrentSession).LastFocus
-  }
-  if (-not [MixWin32]::IsWindowHandle($target)) {
-    return New-ActionResult 'type' 'none' 'suspected_noop' $false 'type requires window_id/window or a prior focus_window in this session' 'target_required' 'foreground' $null
-  }
-  return Invoke-ForegroundInput $target 'type' {
-    Focus-TypingPoint $req $target $focusPoint
-    [MixWin32]::ReportCurrentPointer('type')
-    [MixWin32]::SendText($text)
-  }
+    return Invoke-ForegroundInput $target 'type' {
+        Focus-TypingPoint $req $target $focusPoint
+        [MixWin32]::ReportCurrentPointer('type')
+        [MixWin32]::SendText($text)
+    }
 }
 
 function Do-OcrImage($req) {
-  $encoded = [string]$req.image_base64
-  if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'ocr_image requires image_base64' }
-  $maximum = if ($null -ne $req.max_ocr_words) { [int]$req.max_ocr_words } else { 300 }
-  if ($maximum -lt 1 -or $maximum -gt 1000) { throw 'max_ocr_words must be 1..1000' }
-  [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Storage.Streams.DataWriter, Windows.Storage.Streams, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
-  $stream = $null
-  $writer = $null
-  $bitmap = $null
-  try {
-    # Keep screenshots in volatile memory, including when the worker is killed.
-    $stream = [Windows.Storage.Streams.InMemoryRandomAccessStream]::new()
-    $writer = [Windows.Storage.Streams.DataWriter]::new($stream)
-    $writer.WriteBytes([Convert]::FromBase64String($encoded))
-    [void](Await-WinRt ($writer.StoreAsync()) ([uint32]))
-    $writer.DetachStream() | Out-Null
-    $writer.Dispose()
+    $encoded = [string]$req.image_base64
+    if ([string]::IsNullOrWhiteSpace($encoded)) { throw 'ocr_image requires image_base64' }
+    $maximum = if ($null -ne $req.max_ocr_words) { [int]$req.max_ocr_words } else { 300 }
+    if ($maximum -lt 1 -or $maximum -gt 1000) { throw 'max_ocr_words must be 1..1000' }
+    [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Storage.Streams.DataWriter, Windows.Storage.Streams, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
+    $stream = $null
     $writer = $null
-    $stream.Seek(0)
-    $decoder = Await-WinRt (
-      [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
-    ) ([Windows.Graphics.Imaging.BitmapDecoder])
-    $maximumDimension = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
-    if ([math]::Max($decoder.PixelWidth, $decoder.PixelHeight) -gt $maximumDimension) {
-      [Windows.Graphics.Imaging.BitmapTransform, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
-      $scale = $maximumDimension / [double][math]::Max($decoder.PixelWidth, $decoder.PixelHeight)
-      $transform = [Windows.Graphics.Imaging.BitmapTransform]::new()
-      $transform.ScaledWidth = [uint32][math]::Max(1, [math]::Floor($decoder.PixelWidth * $scale))
-      $transform.ScaledHeight = [uint32][math]::Max(1, [math]::Floor($decoder.PixelHeight * $scale))
-      $bitmap = Await-WinRt (
-        $decoder.GetSoftwareBitmapAsync(
-          [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
-          [Windows.Graphics.Imaging.BitmapAlphaMode]::Ignore,
-          $transform,
-          [Windows.Graphics.Imaging.ExifOrientationMode]::IgnoreExifOrientation,
-          [Windows.Graphics.Imaging.ColorManagementMode]::DoNotColorManage)
-      ) ([Windows.Graphics.Imaging.SoftwareBitmap])
-    } else {
-      $bitmap = Await-WinRt (
-        $decoder.GetSoftwareBitmapAsync()
-      ) ([Windows.Graphics.Imaging.SoftwareBitmap])
-    }
-    $language = ([string]$req.ocr_language).Trim()
-    $engine = if ($language) {
-      [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage(
-        ([Windows.Globalization.Language]::new($language)))
-    } else {
-      [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-    }
-    if ($null -eq $engine) {
-      throw "Windows OCR has no recognizer for language '$language'"
-    }
-    $ocr = Await-WinRt (
-      $engine.RecognizeAsync($bitmap)
-    ) ([Windows.Media.Ocr.OcrResult])
-    $words = New-Object System.Collections.ArrayList
-    $lines = New-Object System.Collections.ArrayList
-    $totalWords = 0
-    $lineIndex = 0
-    foreach ($line in $ocr.Lines) {
-      $minX = [double]::PositiveInfinity; $minY = [double]::PositiveInfinity
-      $maxX = [double]::NegativeInfinity; $maxY = [double]::NegativeInfinity
-      foreach ($word in $line.Words) {
-        $rect = $word.BoundingRect
-        $minX = [math]::Min($minX, [double]$rect.X)
-        $minY = [math]::Min($minY, [double]$rect.Y)
-        $maxX = [math]::Max($maxX, [double]$rect.X + [double]$rect.Width)
-        $maxY = [math]::Max($maxY, [double]$rect.Y + [double]$rect.Height)
-        if ($totalWords -lt $maximum) {
-          [void]$words.Add([ordered]@{
-            text = [string]$word.Text
-            line = [int]$lineIndex
-            x = [int][math]::Round($rect.X)
-            y = [int][math]::Round($rect.Y)
-            width = [int][math]::Round($rect.Width)
-            height = [int][math]::Round($rect.Height)
-            center_x = [int][math]::Round($rect.X + $rect.Width / 2)
-            center_y = [int][math]::Round($rect.Y + $rect.Height / 2)
-          })
+    $bitmap = $null
+    try {
+        # Keep screenshots in volatile memory, including when the worker is killed.
+        $stream = [Windows.Storage.Streams.InMemoryRandomAccessStream]::new()
+        $writer = [Windows.Storage.Streams.DataWriter]::new($stream)
+        $writer.WriteBytes([Convert]::FromBase64String($encoded))
+        [void](Await-WinRt ($writer.StoreAsync()) ([uint32]))
+        $writer.DetachStream() | Out-Null
+        $writer.Dispose()
+        $writer = $null
+        $stream.Seek(0)
+        $decoder = Await-WinRt (
+            [Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)
+        ) ([Windows.Graphics.Imaging.BitmapDecoder])
+        $maximumDimension = [Windows.Media.Ocr.OcrEngine]::MaxImageDimension
+        if ([math]::Max($decoder.PixelWidth, $decoder.PixelHeight) -gt $maximumDimension) {
+            [Windows.Graphics.Imaging.BitmapTransform, Windows.Graphics.Imaging, ContentType = WindowsRuntime] | Out-Null
+            $scale = $maximumDimension / [double][math]::Max($decoder.PixelWidth, $decoder.PixelHeight)
+            $transform = [Windows.Graphics.Imaging.BitmapTransform]::new()
+            $transform.ScaledWidth = [uint32][math]::Max(1, [math]::Floor($decoder.PixelWidth * $scale))
+            $transform.ScaledHeight = [uint32][math]::Max(1, [math]::Floor($decoder.PixelHeight * $scale))
+            $bitmap = Await-WinRt (
+                $decoder.GetSoftwareBitmapAsync(
+                    [Windows.Graphics.Imaging.BitmapPixelFormat]::Bgra8,
+                    [Windows.Graphics.Imaging.BitmapAlphaMode]::Ignore,
+                    $transform,
+                    [Windows.Graphics.Imaging.ExifOrientationMode]::IgnoreExifOrientation,
+                    [Windows.Graphics.Imaging.ColorManagementMode]::DoNotColorManage)
+            ) ([Windows.Graphics.Imaging.SoftwareBitmap])
         }
-        $totalWords++
-      }
-      [void]$lines.Add([ordered]@{
-        line = [int]$lineIndex
-        text = [string]$line.Text
-        x = $(if ([double]::IsInfinity($minX)) { 0 } else { [int][math]::Round($minX) })
-        y = $(if ([double]::IsInfinity($minY)) { 0 } else { [int][math]::Round($minY) })
-        width = $(if ([double]::IsInfinity($minX)) { 0 } else { [int][math]::Round($maxX - $minX) })
-        height = $(if ([double]::IsInfinity($minY)) { 0 } else { [int][math]::Round($maxY - $minY) })
-      })
-      $lineIndex++
+        else {
+            $bitmap = Await-WinRt (
+                $decoder.GetSoftwareBitmapAsync()
+            ) ([Windows.Graphics.Imaging.SoftwareBitmap])
+        }
+        $language = ([string]$req.ocr_language).Trim()
+        $engine = if ($language) {
+            [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage(
+                ([Windows.Globalization.Language]::new($language)))
+        }
+        else {
+            [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+        }
+        if ($null -eq $engine) {
+            throw "Windows OCR has no recognizer for language '$language'"
+        }
+        $ocr = Await-WinRt (
+            $engine.RecognizeAsync($bitmap)
+        ) ([Windows.Media.Ocr.OcrResult])
+        $words = New-Object System.Collections.ArrayList
+        $lines = New-Object System.Collections.ArrayList
+        $totalWords = 0
+        $lineIndex = 0
+        foreach ($line in $ocr.Lines) {
+            $minX = [double]::PositiveInfinity; $minY = [double]::PositiveInfinity
+            $maxX = [double]::NegativeInfinity; $maxY = [double]::NegativeInfinity
+            foreach ($word in $line.Words) {
+                $rect = $word.BoundingRect
+                $minX = [math]::Min($minX, [double]$rect.X)
+                $minY = [math]::Min($minY, [double]$rect.Y)
+                $maxX = [math]::Max($maxX, [double]$rect.X + [double]$rect.Width)
+                $maxY = [math]::Max($maxY, [double]$rect.Y + [double]$rect.Height)
+                if ($totalWords -lt $maximum) {
+                    [void]$words.Add([ordered]@{
+                            text     = [string]$word.Text
+                            line     = [int]$lineIndex
+                            x        = [int][math]::Round($rect.X)
+                            y        = [int][math]::Round($rect.Y)
+                            width    = [int][math]::Round($rect.Width)
+                            height   = [int][math]::Round($rect.Height)
+                            center_x = [int][math]::Round($rect.X + $rect.Width / 2)
+                            center_y = [int][math]::Round($rect.Y + $rect.Height / 2)
+                        })
+                }
+                $totalWords++
+            }
+            [void]$lines.Add([ordered]@{
+                    line   = [int]$lineIndex
+                    text   = [string]$line.Text
+                    x      = $(if ([double]::IsInfinity($minX)) { 0 } else { [int][math]::Round($minX) })
+                    y      = $(if ([double]::IsInfinity($minY)) { 0 } else { [int][math]::Round($minY) })
+                    width  = $(if ([double]::IsInfinity($minX)) { 0 } else { [int][math]::Round($maxX - $minX) })
+                    height = $(if ([double]::IsInfinity($minY)) { 0 } else { [int][math]::Round($maxY - $minY) })
+                })
+            $lineIndex++
+        }
+        return @{
+            text            = ('OCR: ' + $lineIndex + ' lines, ' + $totalWords + ' words')
+            language        = [string]$engine.RecognizerLanguage.LanguageTag
+            image_width     = [int]$bitmap.PixelWidth
+            image_height    = [int]$bitmap.PixelHeight
+            lines           = @($lines)
+            words           = @($words)
+            total_words     = [int]$totalWords
+            truncated_words = [math]::Max(0, [int]$totalWords - [int]$words.Count)
+        }
     }
-    return @{
-      text = ('OCR: ' + $lineIndex + ' lines, ' + $totalWords + ' words')
-      language = [string]$engine.RecognizerLanguage.LanguageTag
-      image_width = [int]$bitmap.PixelWidth
-      image_height = [int]$bitmap.PixelHeight
-      lines = @($lines)
-      words = @($words)
-      total_words = [int]$totalWords
-      truncated_words = [math]::Max(0, [int]$totalWords - [int]$words.Count)
+    finally {
+        if ($null -ne $bitmap -and $bitmap -is [System.IDisposable]) { $bitmap.Dispose() }
+        if ($null -ne $writer -and $writer -is [System.IDisposable]) { $writer.Dispose() }
+        if ($null -ne $stream -and $stream -is [System.IDisposable]) { $stream.Dispose() }
     }
-  } finally {
-    if ($null -ne $bitmap -and $bitmap -is [System.IDisposable]) { $bitmap.Dispose() }
-    if ($null -ne $writer -and $writer -is [System.IDisposable]) { $writer.Dispose() }
-    if ($null -ne $stream -and $stream -is [System.IDisposable]) { $stream.Dispose() }
-  }
 }
 
 function Do-OcrStatus($req) {
-  [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType = WindowsRuntime] | Out-Null
-  [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
-  $requested = ([string]$req.ocr_language).Trim()
-  $installed = @(
-    [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages |
-      ForEach-Object { [string]$_.LanguageTag }
-  )
-  $engine = if ($requested) {
-    [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage(
-      ([Windows.Globalization.Language]::new($requested)))
-  } else {
-    [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
-  }
-  return @{
-    text = 'Windows OCR readiness'
-    available = $null -ne $engine
-    requested_language = $(if ($requested) { $requested } else { $null })
-    active_language = $(if ($null -ne $engine) { [string]$engine.RecognizerLanguage.LanguageTag } else { $null })
-    installed_languages = @($installed)
-  }
+    [Windows.Media.Ocr.OcrEngine, Windows.Media.Ocr, ContentType = WindowsRuntime] | Out-Null
+    [Windows.Globalization.Language, Windows.Globalization, ContentType = WindowsRuntime] | Out-Null
+    $requested = ([string]$req.ocr_language).Trim()
+    $installed = @(
+        [Windows.Media.Ocr.OcrEngine]::AvailableRecognizerLanguages |
+            ForEach-Object { [string]$_.LanguageTag }
+    )
+    $engine = if ($requested) {
+        [Windows.Media.Ocr.OcrEngine]::TryCreateFromLanguage(
+            ([Windows.Globalization.Language]::new($requested)))
+    }
+    else {
+        [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+    }
+    return @{
+        text                = 'Windows OCR readiness'
+        available           = $null -ne $engine
+        requested_language  = $(if ($requested) { $requested } else { $null })
+        active_language     = $(if ($null -ne $engine) { [string]$engine.RecognizerLanguage.LanguageTag } else { $null })
+        installed_languages = @($installed)
+    }
 }
 
 # Clipboard passthrough is an explicit global operation. Semantic set_value is
 # preferred because it neither replaces the user's clipboard nor steals focus.
 function Do-ClipboardRead {
-  $text = [System.Windows.Forms.Clipboard]::GetText()
-  if (-not $text) { return @{ text = 'Clipboard is empty or not text.' } }
-  if ($text.Length -gt 30000) { $text = $text.Substring(0, 30000) + '... (truncated)' }
-  return @{ text = $text }
+    $text = [System.Windows.Forms.Clipboard]::GetText()
+    if (-not $text) { return @{ text = 'Clipboard is empty or not text.' } }
+    if ($text.Length -gt 30000) { $text = $text.Substring(0, 30000) + '... (truncated)' }
+    return @{ text = $text }
 }
 
 function Do-ClipboardWrite($text) {
-  Assert-ExecutionAuthorization $script:CurrentRequest
-  if ($null -eq $text -or ([string]$text).Length -eq 0) {
-    [System.Windows.Forms.Clipboard]::Clear()
-    $verified = -not [System.Windows.Forms.Clipboard]::ContainsText()
-    return New-ActionResult 'clipboard_write' 'clipboard' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified 'cleared clipboard' $null 'background' $null
-  }
-  [System.Windows.Forms.Clipboard]::SetText([string]$text)
-  $verified = [System.Windows.Forms.Clipboard]::GetText() -eq [string]$text
-  return New-ActionResult 'clipboard_write' 'clipboard' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('clipboard set: ' + ([string]$text).Length + ' chars') $null 'background' $null
+    Assert-ExecutionAuthorization $script:CurrentRequest
+    if ($null -eq $text -or ([string]$text).Length -eq 0) {
+        [System.Windows.Forms.Clipboard]::Clear()
+        $verified = -not [System.Windows.Forms.Clipboard]::ContainsText()
+        return New-ActionResult 'clipboard_write' 'clipboard' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified 'cleared clipboard' $null 'background' $null
+    }
+    [System.Windows.Forms.Clipboard]::SetText([string]$text)
+    $verified = [System.Windows.Forms.Clipboard]::GetText() -eq [string]$text
+    return New-ActionResult 'clipboard_write' 'clipboard' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified ('clipboard set: ' + ([string]$text).Length + ' chars') $null 'background' $null
 }
 
 # Move/resize a top-level window; omitted fields keep the current bounds. Also
 # the agent's remedy when the occlusion guard reports a covered element.
 function Do-MoveWindow($req) {
-  if ($null -eq $req.x -and $null -eq $req.y -and
-      $null -eq $req.width -and $null -eq $req.height) {
-    throw 'move_window requires x, y, width, or height'
-  }
-  $info = Resolve-WindowInfo $req.window $req.window_id
-  $x = if ($null -ne $req.x) { [int]$req.x } else { $info.X }
-  $y = if ($null -ne $req.y) { [int]$req.y } else { $info.Y }
-  $w = if ($null -ne $req.width) { [int]$req.width } else { $info.Width }
-  $hh = if ($null -ne $req.height) { [int]$req.height } else { $info.Height }
-  if ($w -lt 1 -or $hh -lt 1) { throw 'window width and height must be positive' }
-  Assert-ExecutionAuthorization $req $info.Handle
-  [void][MixWin32]::ShowWindow($info.Handle, 9)
-  if (-not [MixWin32]::MoveWindow($info.Handle, $x, $y, $w, $hh, $true)) {
-    throw "could not move window: $($info.Id)"
-  }
-  $after = [MixWin32]::Info($info.Handle)
-  $verified = $after.X -eq $x -and $after.Y -eq $y -and $after.Width -eq $w -and $after.Height -eq $hh
-  $message = 'moved {0} to {1},{2} size {3}x{4}' -f $info.Id, $x, $y, $w, $hh
-  return New-ActionResult 'move_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
+    if ($null -eq $req.x -and $null -eq $req.y -and
+        $null -eq $req.width -and $null -eq $req.height) {
+        throw 'move_window requires x, y, width, or height'
+    }
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    $x = if ($null -ne $req.x) { [int]$req.x } else { $info.X }
+    $y = if ($null -ne $req.y) { [int]$req.y } else { $info.Y }
+    $w = if ($null -ne $req.width) { [int]$req.width } else { $info.Width }
+    $hh = if ($null -ne $req.height) { [int]$req.height } else { $info.Height }
+    if ($w -lt 1 -or $hh -lt 1) { throw 'window width and height must be positive' }
+    Assert-ExecutionAuthorization $req $info.Handle
+    [void][MixWin32]::ShowWindow($info.Handle, 9)
+    if (-not [MixWin32]::MoveWindow($info.Handle, $x, $y, $w, $hh, $true)) {
+        throw "could not move window: $($info.Id)"
+    }
+    $after = [MixWin32]::Info($info.Handle)
+    $verified = $after.X -eq $x -and $after.Y -eq $y -and $after.Width -eq $w -and $after.Height -eq $hh
+    $message = 'moved {0} to {1},{2} size {3}x{4}' -f $info.Id, $x, $y, $w, $hh
+    return New-ActionResult 'move_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
 }
 
 function Do-WindowState($req) {
-  $state = ([string]$req.state).ToLower()
-  if ($state -notin @('minimize','maximize','restore')) {
-    throw 'window state must be minimize, maximize, or restore'
-  }
-  $info = Resolve-WindowInfo $req.window $req.window_id
-  $command = switch ($state) {
-    'minimize' { 6 }
-    'maximize' { 3 }
-    'restore' { 9 }
-    default { throw 'window_state requires state=minimize, maximize, or restore' }
-  }
-  Assert-ExecutionAuthorization $req $info.Handle
-  [void][MixWin32]::ShowWindow($info.Handle, $command)
-  Start-Sleep -Milliseconds 80
-  $verified = switch ($state) {
-    'minimize' { [MixWin32]::IsMinimized($info.Handle) }
-    'maximize' { [MixWin32]::IsMaximized($info.Handle) }
-    'restore' {
-      -not [MixWin32]::IsMinimized($info.Handle) -and
-      -not [MixWin32]::IsMaximized($info.Handle)
+    $state = ([string]$req.state).ToLower()
+    if ($state -notin @('minimize', 'maximize', 'restore')) {
+        throw 'window state must be minimize, maximize, or restore'
     }
-  }
-  return New-ActionResult 'window_state' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "$state window $($info.Id)" $null 'background' $info.Id
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    $command = switch ($state) {
+        'minimize' { 6 }
+        'maximize' { 3 }
+        'restore' { 9 }
+        default { throw 'window_state requires state=minimize, maximize, or restore' }
+    }
+    Assert-ExecutionAuthorization $req $info.Handle
+    [void][MixWin32]::ShowWindow($info.Handle, $command)
+    Start-Sleep -Milliseconds 80
+    $verified = switch ($state) {
+        'minimize' { [MixWin32]::IsMinimized($info.Handle) }
+        'maximize' { [MixWin32]::IsMaximized($info.Handle) }
+        'restore' {
+            -not [MixWin32]::IsMinimized($info.Handle) -and
+            -not [MixWin32]::IsMaximized($info.Handle)
+        }
+    }
+    return New-ActionResult 'window_state' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "$state window $($info.Id)" $null 'background' $info.Id
 }
 
 function Do-CloseWindow($req) {
-  $info = Resolve-WindowInfo $req.window $req.window_id
-  Assert-ExecutionAuthorization $req $info.Handle
-  if (-not [MixWin32]::CloseWindow($info.Handle)) {
-    return New-ActionResult 'close_window' 'win32' 'suspected_noop' $false "could not request close for $($info.Id)" 'window_close_rejected' 'background' $info.Id
-  }
-  Start-Sleep -Milliseconds 120
-  $verified = -not [MixWin32]::IsWindowHandle($info.Handle)
-  $message = if ($verified) {
-    "closed window $($info.Id)"
-  } else {
-    "close requested for $($info.Id); the app may be showing a save or confirmation dialog"
-  }
-  return New-ActionResult 'close_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    Assert-ExecutionAuthorization $req $info.Handle
+    if (-not [MixWin32]::CloseWindow($info.Handle)) {
+        return New-ActionResult 'close_window' 'win32' 'suspected_noop' $false "could not request close for $($info.Id)" 'window_close_rejected' 'background' $info.Id
+    }
+    Start-Sleep -Milliseconds 120
+    $verified = -not [MixWin32]::IsWindowHandle($info.Handle)
+    $message = if ($verified) {
+        "closed window $($info.Id)"
+    }
+    else {
+        "close requested for $($info.Id); the app may be showing a save or confirmation dialog"
+    }
+    return New-ActionResult 'close_window' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified $message $null 'background' $info.Id
 }
 
 # Killing a process is the one window action with nothing to undo: unsaved work
@@ -573,300 +597,312 @@ function Do-CloseWindow($req) {
 # the intent, and refused again while the window still answers messages, because
 # a responding window can still be closed the ordinary way.
 function Do-TerminateProcess($req) {
-  $info = Resolve-WindowInfo $req.window $req.window_id
-  if ([string]$req.confirm -ne 'terminate') {
-    return New-ActionResult 'terminate_process' 'none' 'suspected_noop' $false "terminating $($info.Id) discards unsaved work; confirm=terminate is required and the user has to agree first" 'confirmation_required' 'background' $info.Id
-  }
-  if ([MixWin32]::IsWindowResponding($info.Handle)) {
-    return New-ActionResult 'terminate_process' 'none' 'suspected_noop' $false "window $($info.Id) still answers messages; close it the ordinary way instead of killing its process" 'window_still_responding' 'background' $info.Id
-  }
-  Assert-ExecutionAuthorization $req $info.Handle
-  $processId = [int]$info.Pid
-  try {
-    $process = [System.Diagnostics.Process]::GetProcessById($processId)
-    $process.Kill()
-    [void]$process.WaitForExit(2000)
-  } catch {
-    return New-ActionResult 'terminate_process' 'win32' 'suspected_noop' $false "could not terminate pid $($processId): $($_.Exception.Message)" 'terminate_failed' 'background' $info.Id
-  }
-  $verified = -not [MixWin32]::IsWindowHandle($info.Handle)
-  return New-ActionResult 'terminate_process' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "terminated pid $processId behind $($info.Id)" $null 'background' $info.Id
+    $info = Resolve-WindowInfo $req.window $req.window_id
+    if ([string]$req.confirm -ne 'terminate') {
+        return New-ActionResult 'terminate_process' 'none' 'suspected_noop' $false "terminating $($info.Id) discards unsaved work; confirm=terminate is required and the user has to agree first" 'confirmation_required' 'background' $info.Id
+    }
+    if ([MixWin32]::IsWindowResponding($info.Handle)) {
+        return New-ActionResult 'terminate_process' 'none' 'suspected_noop' $false "window $($info.Id) still answers messages; close it the ordinary way instead of killing its process" 'window_still_responding' 'background' $info.Id
+    }
+    Assert-ExecutionAuthorization $req $info.Handle
+    $processId = [int]$info.Pid
+    try {
+        $process = [System.Diagnostics.Process]::GetProcessById($processId)
+        $process.Kill()
+        [void]$process.WaitForExit(2000)
+    }
+    catch {
+        return New-ActionResult 'terminate_process' 'win32' 'suspected_noop' $false "could not terminate pid $($processId): $($_.Exception.Message)" 'terminate_failed' 'background' $info.Id
+    }
+    $verified = -not [MixWin32]::IsWindowHandle($info.Handle)
+    return New-ActionResult 'terminate_process' 'win32' $(if ($verified) { 'confirmed' } else { 'unverifiable' }) $verified "terminated pid $processId behind $($info.Id)" $null 'background' $info.Id
 }
 
 function Get-InstalledApps {
-  # The Start menu catalogue is the only list that pairs the name a user says with
-  # the id Windows can activate; a packaged app has no executable worth launching.
-  if ($null -eq $script:InstalledApps) {
-    $catalogue = New-Object System.Collections.ArrayList
-    try {
-      Import-Module StartLayout -ErrorAction Stop
-      foreach ($entry in Get-StartApps) {
-        $id = [string]$entry.AppID
-        if ([string]::IsNullOrWhiteSpace($id)) { continue }
-        [void]$catalogue.Add([pscustomobject]@{
-            Name     = [string]$entry.Name
-            AppId    = $id
-            Packaged = $id.Contains('!')
-          })
-      }
-      $script:InstalledAppsError = ''
-    } catch {
-      $script:InstalledAppsError = [string]$_.Exception.Message
+    # The Start menu catalogue is the only list that pairs the name a user says with
+    # the id Windows can activate; a packaged app has no executable worth launching.
+    if ($null -eq $script:InstalledApps) {
+        $catalogue = New-Object System.Collections.ArrayList
+        try {
+            Import-Module StartLayout -ErrorAction Stop
+            foreach ($entry in Get-StartApps) {
+                $id = [string]$entry.AppID
+                if ([string]::IsNullOrWhiteSpace($id)) { continue }
+                [void]$catalogue.Add([pscustomobject]@{
+                        Name     = [string]$entry.Name
+                        AppId    = $id
+                        Packaged = $id.Contains('!')
+                    })
+            }
+            $script:InstalledAppsError = ''
+        }
+        catch {
+            $script:InstalledAppsError = [string]$_.Exception.Message
+        }
+        $script:InstalledApps = $catalogue
     }
-    $script:InstalledApps = $catalogue
-  }
-  return $script:InstalledApps
+    return $script:InstalledApps
 }
 
 function Find-InstalledApp($target) {
-  # A path, a URL or an executable belongs to the shell; only a bare name can mean
-  # a catalogue entry. Several matches stay unlaunched rather than becoming a guess.
-  if ($target -match '[\\/]' -or $target -match '^[A-Za-z][A-Za-z0-9+.-]*:') { return $null }
-  $installed = @(Get-InstalledApps)
-  if ($installed.Count -eq 0) { return $null }
-  $found = @($installed | Where-Object { $_.Name -eq $target })
-  if ($found.Count -eq 0) {
-    $found = @($installed | Where-Object { $_.Name -like "*$target*" -or $_.AppId -like "*$target*" })
-  }
-  if ($found.Count -eq 1) { return $found[0] }
-  if ($found.Count -gt 1) {
-    # A packaged app is the one Windows itself would open for a bare name like
-    # "notepad", so it wins over a partial match on some other product's name.
-    $packaged = @($found | Where-Object { $_.Packaged })
-    if ($packaged.Count -eq 1) { return $packaged[0] }
-    $names = (($found | Select-Object -First 6) | ForEach-Object { $_.Name }) -join ', '
-    throw "launch failed [ambiguous_app/0] for '$target': $($found.Count) installed apps match ($names)"
-  }
-  return $null
+    # A path, a URL or an executable belongs to the shell; only a bare name can mean
+    # a catalogue entry. Several matches stay unlaunched rather than becoming a guess.
+    if ($target -match '[\\/]' -or $target -match '^[A-Za-z][A-Za-z0-9+.-]*:') { return $null }
+    $installed = @(Get-InstalledApps)
+    if ($installed.Count -eq 0) { return $null }
+    $found = @($installed | Where-Object { $_.Name -eq $target })
+    if ($found.Count -eq 0) {
+        $found = @($installed | Where-Object { $_.Name -like "*$target*" -or $_.AppId -like "*$target*" })
+    }
+    if ($found.Count -eq 1) { return $found[0] }
+    if ($found.Count -gt 1) {
+        # A packaged app is the one Windows itself would open for a bare name like
+        # "notepad", so it wins over a partial match on some other product's name.
+        $packaged = @($found | Where-Object { $_.Packaged })
+        if ($packaged.Count -eq 1) { return $packaged[0] }
+        $names = (($found | Select-Object -First 6) | ForEach-Object { $_.Name }) -join ', '
+        throw "launch failed [ambiguous_app/0] for '$target': $($found.Count) installed apps match ($names)"
+    }
+    return $null
 }
 
 function Do-Launch($app) {
-  $target = [string]$app
-  if ([string]::IsNullOrWhiteSpace($target)) { throw 'launch requires app' }
-  $launchedPid = 0
-  $route = 'windows_shell'
-  $appId = ''
-  try {
-    Assert-ExecutionAuthorization $script:CurrentRequest
-    $installed = if ($target.Contains('!')) {
-      [pscustomobject]@{ Name = $target; AppId = $target; Packaged = $true }
-    } else { Find-InstalledApp $target }
-    if ($null -ne $installed -and $installed.Packaged) {
-      # Windows leaves only a stub at a packaged app's executable path and hands the
-      # work to the activation broker, so this is the one route that can report the
-      # process that owns the new window.
-      $appId = [string]$installed.AppId
-      $route = 'app_activation'
-      $launchedPid = [MixWin32]::ActivateAppId($appId)
-    } elseif ($null -ne $installed) {
-      # An unpackaged Start entry keeps its install path in the catalogue id, which
-      # the shell resolves, so the name a user says works without knowing that path.
-      $appId = [string]$installed.AppId
-      $route = 'apps_folder'
-      $launchedPid = [MixWin32]::LaunchWithoutActivation("shell:AppsFolder\$appId")
-    } else {
-      # The user's foreground window survives a launch: the app is shown without
-      # activation, the same promise background input makes.
-      $launchedPid = [MixWin32]::LaunchWithoutActivation($target)
+    $target = [string]$app
+    if ([string]::IsNullOrWhiteSpace($target)) { throw 'launch requires app' }
+    $launchedPid = 0
+    $route = 'windows_shell'
+    $appId = ''
+    try {
+        Assert-ExecutionAuthorization $script:CurrentRequest
+        $installed = if ($target.Contains('!')) {
+            [pscustomobject]@{ Name = $target; AppId = $target; Packaged = $true }
+        }
+        else { Find-InstalledApp $target }
+        if ($null -ne $installed -and $installed.Packaged) {
+            # Windows leaves only a stub at a packaged app's executable path and hands the
+            # work to the activation broker, so this is the one route that can report the
+            # process that owns the new window.
+            $appId = [string]$installed.AppId
+            $route = 'app_activation'
+            $launchedPid = [MixWin32]::ActivateAppId($appId)
+        }
+        elseif ($null -ne $installed) {
+            # An unpackaged Start entry keeps its install path in the catalogue id, which
+            # the shell resolves, so the name a user says works without knowing that path.
+            $appId = [string]$installed.AppId
+            $route = 'apps_folder'
+            $launchedPid = [MixWin32]::LaunchWithoutActivation("shell:AppsFolder\$appId")
+        }
+        else {
+            # The user's foreground window survives a launch: the app is shown without
+            # activation, the same promise background input makes.
+            $launchedPid = [MixWin32]::LaunchWithoutActivation($target)
+        }
     }
-  } catch {
-    # A native call arrives wrapped, so the original Win32 code decides the category.
-    $failure = $_.Exception
-    while ($failure.InnerException) { $failure = $failure.InnerException }
-    if ($failure.Message -like 'launch failed *') { throw $failure.Message }
-    $nativeCode = 0
-    if ($failure -is [System.ComponentModel.Win32Exception]) {
-      $nativeCode = [int]$failure.NativeErrorCode
-    } elseif (($failure.HResult -band -65536) -eq -2147024896) {
-      # An activation failure arrives as an HRESULT that wraps the same Win32 code.
-      $nativeCode = $failure.HResult -band 0xFFFF
+    catch {
+        # A native call arrives wrapped, so the original Win32 code decides the category.
+        $failure = $_.Exception
+        while ($failure.InnerException) { $failure = $failure.InnerException }
+        if ($failure.Message -like 'launch failed *') { throw $failure.Message }
+        $nativeCode = 0
+        if ($failure -is [System.ComponentModel.Win32Exception]) {
+            $nativeCode = [int]$failure.NativeErrorCode
+        }
+        elseif (($failure.HResult -band -65536) -eq -2147024896) {
+            # An activation failure arrives as an HRESULT that wraps the same Win32 code.
+            $nativeCode = $failure.HResult -band 0xFFFF
+        }
+        $category = switch ($nativeCode) {
+            { $_ -in 2, 3 } { 'target_not_found'; break }
+            5 { 'access_denied'; break }
+            { $_ -in 31, 1155 } { 'no_file_association'; break }
+            1223 { 'launch_cancelled'; break }
+            default { if ($route -eq 'app_activation') { 'app_activation_failed' } else { 'shell_launch_failed' } }
+        }
+        throw "launch failed [$category/$nativeCode] for '$target': $($failure.Message)"
     }
-    $category = switch ($nativeCode) {
-      { $_ -in 2, 3 } { 'target_not_found'; break }
-      5 { 'access_denied'; break }
-      { $_ -in 31, 1155 } { 'no_file_association'; break }
-      1223 { 'launch_cancelled'; break }
-      default { if ($route -eq 'app_activation') { 'app_activation_failed' } else { 'shell_launch_failed' } }
+    $result = New-ActionResult 'launch' $route 'unverifiable' $false ('launched ' + $target) $null 'background' $null
+    if ($appId) { $result.app_id = $appId }
+    if ($launchedPid -gt 0) {
+        $result.pid = $launchedPid
+        try { $result.app_hint = [string]([System.Diagnostics.Process]::GetProcessById($launchedPid).ProcessName) } catch {}
     }
-    throw "launch failed [$category/$nativeCode] for '$target': $($failure.Message)"
-  }
-  $result = New-ActionResult 'launch' $route 'unverifiable' $false ('launched ' + $target) $null 'background' $null
-  if ($appId) { $result.app_id = $appId }
-  if ($launchedPid -gt 0) {
-    $result.pid = $launchedPid
-    try { $result.app_hint = [string]([System.Diagnostics.Process]::GetProcessById($launchedPid).ProcessName) } catch {}
-  }
-  return $result
+    return $result
 }
 
 function Do-ListInstalledApps($req) {
-  $query = [string]$req.query
-  $apps = @(Get-InstalledApps)
-  if (-not [string]::IsNullOrWhiteSpace($query)) {
-    $apps = @($apps | Where-Object { $_.Name -like "*$query*" -or $_.AppId -like "*$query*" })
-  }
-  $rows = @($apps | ForEach-Object {
-      [ordered]@{ name = $_.Name; app_id = $_.AppId; packaged = [bool]$_.Packaged }
-    })
-  $catalogueTotal = @(Get-InstalledApps).Count
-  $payload = [ordered]@{ installed = $rows; matched = $rows.Count; catalogue_total = $catalogueTotal }
-  if ($script:InstalledAppsError) { $payload.catalogue_error = [string]$script:InstalledAppsError }
-  return @{
-    text            = ($payload | ConvertTo-Json -Depth 4 -Compress)
-    installed       = $rows
-    catalogue_total = $catalogueTotal
-  }
+    $query = [string]$req.query
+    $apps = @(Get-InstalledApps)
+    if (-not [string]::IsNullOrWhiteSpace($query)) {
+        $apps = @($apps | Where-Object { $_.Name -like "*$query*" -or $_.AppId -like "*$query*" })
+    }
+    $rows = @($apps | ForEach-Object {
+            [ordered]@{ name = $_.Name; app_id = $_.AppId; packaged = [bool]$_.Packaged }
+        })
+    $catalogueTotal = @(Get-InstalledApps).Count
+    $payload = [ordered]@{ installed = $rows; matched = $rows.Count; catalogue_total = $catalogueTotal }
+    if ($script:InstalledAppsError) { $payload.catalogue_error = [string]$script:InstalledAppsError }
+    return @{
+        text            = ($payload | ConvertTo-Json -Depth 4 -Compress)
+        installed       = $rows
+        catalogue_total = $catalogueTotal
+    }
 }
 
 function Release-SessionState {
-  $state = Get-CurrentSession
-  $current = [MixWin32]::Foreground()
-  $observed = [MixInputObservation]::Read()
-  $restored = $false
-  if ($observed.Ready -and $state.OriginalFocusMonitor -eq $observed.Generation -and
-      $null -ne $state.OriginalFocusSequence -and $state.OriginalFocusSequence -eq $observed.Sequence -and
-      ($state.OriginalFocus -ne [IntPtr]::Zero) -and
-      ($current -eq $state.LastFocus) -and
-      [MixWin32]::IsWindowHandle($state.OriginalFocus)) {
-    try {
-      [MixInputObservation]::BeginExpected($state.OriginalFocusMonitor, $state.OriginalFocusSequence)
-      try {
-        [MixInputObservation]::AssertContinue()
-        $restored = [MixWin32]::Focus($state.OriginalFocus)
-      } finally { [MixInputObservation]::End() }
-    } catch {
-      # Returning focus is optional; uncertainty must leave the user's focus alone.
-      if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
+    $state = Get-CurrentSession
+    $current = [MixWin32]::Foreground()
+    $observed = [MixInputObservation]::Read()
+    $restored = $false
+    if ($observed.Ready -and $state.OriginalFocusMonitor -eq $observed.Generation -and
+        $null -ne $state.OriginalFocusSequence -and $state.OriginalFocusSequence -eq $observed.Sequence -and
+        ($state.OriginalFocus -ne [IntPtr]::Zero) -and
+        ($current -eq $state.LastFocus) -and
+        [MixWin32]::IsWindowHandle($state.OriginalFocus)) {
+        try {
+            [MixInputObservation]::BeginExpected($state.OriginalFocusMonitor, $state.OriginalFocusSequence)
+            try {
+                [MixInputObservation]::AssertContinue()
+                $restored = [MixWin32]::Focus($state.OriginalFocus)
+            }
+            finally { [MixInputObservation]::End() }
+        }
+        catch {
+            # Returning focus is optional; uncertainty must leave the user's focus alone.
+            if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
+        }
     }
-  }
-  # Both releases run even when the first one fails: the second holds input the
-  # user would otherwise keep receiving.
-  $releaseFailure = $null
-  try { Release-HeldPointerButtons $state } catch { $releaseFailure = $_ }
-  try { Release-HeldKeys $state } catch { if ($null -eq $releaseFailure) { $releaseFailure = $_ } }
-  $state.Map.Clear()
-  $state.Generation = [int]$state.Generation + 1
-  $state.LastFocus = [IntPtr]::Zero
-  $state.OriginalFocus = [IntPtr]::Zero
-  $state.OriginalFocusMonitor = ''
-  $state.OriginalFocusSequence = $null
-  if ($null -ne $releaseFailure) { throw $releaseFailure }
-  return @{ text = 'computer session released'; focus_restored = $restored }
+    # Both releases run even when the first one fails: the second holds input the
+    # user would otherwise keep receiving.
+    $releaseFailure = $null
+    try { Release-HeldPointerButtons $state } catch { $releaseFailure = $_ }
+    try { Release-HeldKeys $state } catch { if ($null -eq $releaseFailure) { $releaseFailure = $_ } }
+    $state.Map.Clear()
+    $state.Generation = [int]$state.Generation + 1
+    $state.LastFocus = [IntPtr]::Zero
+    $state.OriginalFocus = [IntPtr]::Zero
+    $state.OriginalFocusMonitor = ''
+    $state.OriginalFocusSequence = $null
+    if ($null -ne $releaseFailure) { throw $releaseFailure }
+    return @{ text = 'computer session released'; focus_restored = $restored }
 }
 
 function Invalidate-RefsForRequest($req) {
-  $readActions = @@MIXDOG_RETAIN_REFS_ACTIONS@@
-  if ($null -ne $req -and -not ($readActions -contains [string]$req.action)) {
-    $state = Get-CurrentSession
-    $state.Map.Clear()
-    $state.Generation = [int]$state.Generation + 1
-  }
+    $readActions = @@MIXDOG_RETAIN_REFS_ACTIONS@@
+    if ($null -ne $req -and -not ($readActions -contains [string]$req.action)) {
+        $state = Get-CurrentSession
+        $state.Map.Clear()
+        $state.Generation = [int]$state.Generation + 1
+    }
 }
 
 function Handle($req) {
-  $script:CurrentSession = Get-SessionState $req.session_id
-  $script:CurrentRequest = $req
-  Assert-ExecutionAuthorization $req
-  $readActions = @@MIXDOG_NATIVE_READ_ACTIONS@@
-  if ($req.read_only -and -not ($readActions -contains [string]$req.action)) {
-    throw "read_only run: '$($req.action)' is a mutation"
-  }
-  $inputScope = $req.delivery -eq 'foreground' -and -not ($readActions -contains [string]$req.action)
-  if ($inputScope) {
-    if ($req.observed_input_monitor_id -and $null -ne $req.observed_input_user_sequence) {
-      [MixInputObservation]::BeginExpected([string]$req.observed_input_monitor_id, [long]$req.observed_input_user_sequence)
-    } else {
-      [MixInputObservation]::Begin()
+    $script:CurrentSession = Get-SessionState $req.session_id
+    $script:CurrentRequest = $req
+    Assert-ExecutionAuthorization $req
+    $readActions = @@MIXDOG_NATIVE_READ_ACTIONS@@
+    if ($req.read_only -and -not ($readActions -contains [string]$req.action)) {
+        throw "read_only run: '$($req.action)' is a mutation"
     }
-  }
-  try {
-  switch ($req.action) {
-    'sequence_step' { return Invoke-SequenceStep $req }
-    'list_windows' { return Do-ListWindows }
-    'window_snapshot' { return Do-WindowSnapshot }
-    'related_windows' { return Do-RelatedWindows $req }
-    'snapshot'     { return Snapshot-Window $req }
-    'find'         { return Snapshot-Window $req }
-    'invoke'       {
-      if ($req.delivery -eq 'foreground') { return Do-ClickFamily $req 'click' }
-      return Invoke-BackgroundSemantic $req.ref { Do-Invoke $req.ref }
-    }
-    'set_value'    { return Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $req.text } 'type' }
-    'toggle'       { return Invoke-BackgroundSemantic $req.ref { Do-Toggle $req.ref } }
-    'click'        { return Do-ClickFamily $req 'click' }
-    'double_click' { return Do-ClickFamily $req 'double' }
-    'right_click'  { return Do-ClickFamily $req 'right' }
-    'middle_click' { return Do-ClickFamily $req 'middle' }
-    'triple_click' { return Do-ClickFamily $req 'triple' }
-    'mouse_move'   { return Do-MouseMove $req }
-    'mouse_down'   { return Do-ClickFamily $req 'press' }
-    'mouse_up'     { return Do-ClickFamily $req 'release' }
-    'wait'         { return Do-Wait $req }
-    'drag'         { return Do-Drag $req }
-    'scroll'       { return Do-Scroll $req }
-    'focus_window' { return Do-Focus $req }
-    'window_bounds'{ return Get-WindowBounds $req }
-    'window_capture'{ return Get-WindowCapture $req }
-    'validate_background_input' {
-      $info = Resolve-WindowInfo $req.window $req.window_id
-      try {
-        foreach ($step in @($req.steps)) {
-          $target = $info.Handle
-          $preferred = [IntPtr]::Zero
-          if ($step.ref) {
-            $record = Get-RefRecord $step.ref
-            # A type step still lands through the element's own value pattern.
-            if ([string]$step.action -eq 'type' -and (Test-BackgroundValueTarget $record)) { continue }
-            if ($record.Kind -ne 'uia') {
-              throw 'background_unsupported|semantic ref exposes no exact native keyboard target; no input sent'
-            }
-            $target = Get-RefTopHandle $record
-            $preferred = Get-ExactNativeElementHandle $record.Element
-            if ($preferred -eq [IntPtr]::Zero) {
-              throw 'background_unsupported|element exposes no exact native keyboard target; no input sent'
-            }
-          }
-          [MixWin32]::ValidateBackgroundInput($target, $preferred, [string]$step.action, [string]$step.keys)
+    $inputScope = $req.delivery -eq 'foreground' -and -not ($readActions -contains [string]$req.action)
+    if ($inputScope) {
+        if ($req.observed_input_monitor_id -and $null -ne $req.observed_input_user_sequence) {
+            [MixInputObservation]::BeginExpected([string]$req.observed_input_monitor_id, [long]$req.observed_input_user_sequence)
         }
-      } catch { throw $_.Exception.GetBaseException().Message }
-      return @{ text = 'background input preflight passed'; input_not_dispatched = $true }
+        else {
+            [MixInputObservation]::Begin()
+        }
     }
-    'window_predicates'{ return Get-WindowPredicates $req }
-    'invoke_menu'  { return Do-InvokeMenu $req }
-    'window_integrity'{ return Get-WindowIntegrity $req }
-    'input_recovery_state' { return Get-InputRecoveryState $req }
-    'input_idle_state' {
-      $state = [MixInputObservation]::Read()
-      return @{
-        ready = ($state.Ready -and [MixInputObservation]::IdleDesktopReady())
-        observer_ready = $state.Ready
-        monitor = $state.Generation
-        sequence = $state.Sequence
-        idleMs = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)
-        held = [MixInputObservation]::AnyInputHeld()
-      }
+    try {
+        switch ($req.action) {
+            'sequence_step' { return Invoke-SequenceStep $req }
+            'list_windows' { return Do-ListWindows }
+            'window_snapshot' { return Do-WindowSnapshot }
+            'related_windows' { return Do-RelatedWindows $req }
+            'snapshot' { return Snapshot-Window $req }
+            'find' { return Snapshot-Window $req }
+            'invoke' {
+                if ($req.delivery -eq 'foreground') { return Do-ClickFamily $req 'click' }
+                return Invoke-BackgroundSemantic $req.ref { Do-Invoke $req.ref }
+            }
+            'set_value' { return Invoke-BackgroundSemantic $req.ref { Do-SetValue $req.ref $req.text } 'type' }
+            'toggle' { return Invoke-BackgroundSemantic $req.ref { Do-Toggle $req.ref } }
+            'click' { return Do-ClickFamily $req 'click' }
+            'double_click' { return Do-ClickFamily $req 'double' }
+            'right_click' { return Do-ClickFamily $req 'right' }
+            'middle_click' { return Do-ClickFamily $req 'middle' }
+            'triple_click' { return Do-ClickFamily $req 'triple' }
+            'mouse_move' { return Do-MouseMove $req }
+            'mouse_down' { return Do-ClickFamily $req 'press' }
+            'mouse_up' { return Do-ClickFamily $req 'release' }
+            'wait' { return Do-Wait $req }
+            'drag' { return Do-Drag $req }
+            'scroll' { return Do-Scroll $req }
+            'focus_window' { return Do-Focus $req }
+            'window_bounds' { return Get-WindowBounds $req }
+            'window_capture' { return Get-WindowCapture $req }
+            'validate_background_input' {
+                $info = Resolve-WindowInfo $req.window $req.window_id
+                try {
+                    foreach ($step in @($req.steps)) {
+                        $target = $info.Handle
+                        $preferred = [IntPtr]::Zero
+                        if ($step.ref) {
+                            $record = Get-RefRecord $step.ref
+                            # A type step still lands through the element's own value pattern.
+                            if ([string]$step.action -eq 'type' -and (Test-BackgroundValueTarget $record)) { continue }
+                            if ($record.Kind -ne 'uia') {
+                                throw 'background_unsupported|semantic ref exposes no exact native keyboard target; no input sent'
+                            }
+                            $target = Get-RefTopHandle $record
+                            $preferred = Get-ExactNativeElementHandle $record.Element
+                            if ($preferred -eq [IntPtr]::Zero) {
+                                throw 'background_unsupported|element exposes no exact native keyboard target; no input sent'
+                            }
+                        }
+                        [MixWin32]::ValidateBackgroundInput($target, $preferred, [string]$step.action, [string]$step.keys)
+                    }
+                }
+                catch { throw $_.Exception.GetBaseException().Message }
+                return @{ text = 'background input preflight passed'; input_not_dispatched = $true }
+            }
+            'window_predicates' { return Get-WindowPredicates $req }
+            'invoke_menu' { return Do-InvokeMenu $req }
+            'window_integrity' { return Get-WindowIntegrity $req }
+            'input_recovery_state' { return Get-InputRecoveryState $req }
+            'input_idle_state' {
+                $state = [MixInputObservation]::Read()
+                return @{
+                    ready          = ($state.Ready -and [MixInputObservation]::IdleDesktopReady())
+                    observer_ready = $state.Ready
+                    monitor        = $state.Generation
+                    sequence       = $state.Sequence
+                    idleMs         = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)
+                    held           = [MixInputObservation]::AnyInputHeld()
+                }
+            }
+            'restore_input_state' { return Restore-InputRecoveryState $req }
+            'move_window' { return Do-MoveWindow $req }
+            'key' { return Do-Key $req }
+            'key_down' { return Do-KeyHold $req 'down' }
+            'key_up' { return Do-KeyHold $req 'up' }
+            'type' { return Do-Type $req }
+            'window_state' { return Do-WindowState $req }
+            'close_window' { return Do-CloseWindow $req }
+            'terminate_process' { return Do-TerminateProcess $req }
+            'ocr_image' { return Do-OcrImage $req }
+            'ocr_status' { return Do-OcrStatus $req }
+            'clipboard_read' { return Do-ClipboardRead }
+            'clipboard_write' { return Do-ClipboardWrite $req.text }
+            'launch' { return Do-Launch $req.app }
+            'list_installed_apps' { return Do-ListInstalledApps $req }
+            'release_session' { return Release-SessionState }
+            default { throw "unknown action: $($req.action)" }
+        }
     }
-    'restore_input_state' { return Restore-InputRecoveryState $req }
-    'move_window'  { return Do-MoveWindow $req }
-    'key'          { return Do-Key $req }
-    'key_down'     { return Do-KeyHold $req 'down' }
-    'key_up'       { return Do-KeyHold $req 'up' }
-    'type'         { return Do-Type $req }
-    'window_state' { return Do-WindowState $req }
-    'close_window' { return Do-CloseWindow $req }
-    'terminate_process' { return Do-TerminateProcess $req }
-    'ocr_image'    { return Do-OcrImage $req }
-    'ocr_status'   { return Do-OcrStatus $req }
-    'clipboard_read'  { return Do-ClipboardRead }
-    'clipboard_write' { return Do-ClipboardWrite $req.text }
-    'launch'       { return Do-Launch $req.app }
-    'list_installed_apps' { return Do-ListInstalledApps $req }
-    'release_session' { return Release-SessionState }
-    default        { throw "unknown action: $($req.action)" }
-  }
-  } finally {
-    if ($inputScope) { [MixInputObservation]::End() }
-  }
+    finally {
+        if ($inputScope) { [MixInputObservation]::End() }
+    }
 }
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -877,58 +913,59 @@ function Handle($req) {
 # page independent.
 $__stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8)
 while ($true) {
-  $line = $__stdin.ReadLine()
-  if ($null -eq $line) { break }
-  if ($line.Trim().Length -eq 0) { continue }
-  $id = 0
-  $retireAfterReply = $false
-  try {
-    $req = $line | ConvertFrom-Json
-    $id = [int]$req.id
-    [MixWin32]::PointerEventsGenerated = 0
-    [MixWin32]::PointerEventsFailed = 0
-    if ($req.pointer_feedback -eq $true) {
-      [MixWin32]::PointerProgress = [Action[int,int,bool,string]] {
-        param($x, $y, $held, $phase)
-        $event = @{ id = $id; x = $x; y = $y; held = $held; phase = $phase } | ConvertTo-Json -Compress
-        [Console]::Out.WriteLine('@@MIXDOG_POINTER@@' + $event)
-      }
+    $line = $__stdin.ReadLine()
+    if ($null -eq $line) { break }
+    if ($line.Trim().Length -eq 0) { continue }
+    $id = 0
+    $retireAfterReply = $false
+    try {
+        $req = $line | ConvertFrom-Json
+        $id = [int]$req.id
+        [MixWin32]::PointerEventsGenerated = 0
+        [MixWin32]::PointerEventsFailed = 0
+        if ($req.pointer_feedback -eq $true) {
+            [MixWin32]::PointerProgress = [Action[int, int, bool, string]] {
+                param($x, $y, $held, $phase)
+                $event = @{ id = $id; x = $x; y = $y; held = $held; phase = $phase } | ConvertTo-Json -Compress
+                [Console]::Out.WriteLine('@@MIXDOG_POINTER@@' + $event)
+            }
+        }
+        try { $res = Handle $req } finally {
+            [MixWin32]::PointerProgress = $null
+            Invalidate-RefsForRequest $req
+        }
+        $envelope = @{ id = $id; ok = $true; result = $res }
+        if ($req.pointer_feedback -eq $true) {
+            $envelope.pointer_feedback = @{
+                generated = [MixWin32]::PointerEventsGenerated
+                failed    = [MixWin32]::PointerEventsFailed
+            }
+        }
+        $out = $envelope | ConvertTo-Json -Compress -Depth 6
     }
-    try { $res = Handle $req } finally {
-      [MixWin32]::PointerProgress = $null
-      Invalidate-RefsForRequest $req
+    catch {
+        $failure = $_.Exception
+        while ($null -ne $failure.InnerException -and $failure.Message -notmatch '^[a-z][a-z0-9_]+:') {
+            $failure = $failure.InnerException
+        }
+        $envelope = @{ id = $id; ok = $false; error = "$($failure.Message)" }
+        # A failed or interrupted input may already have moved the presented cursor;
+        # its accounting must survive the failure so the host never mistakes an
+        # aborted glide for a request that produced no cursor events.
+        if ($null -ne $req -and $req.pointer_feedback -eq $true) {
+            $envelope.pointer_feedback = @{
+                generated = [MixWin32]::PointerEventsGenerated
+                failed    = [MixWin32]::PointerEventsFailed
+            }
+        }
+        if ($req.action -eq 'window_capture' -and $failure.Data.Contains('CaptureCleanup')) {
+            $cleanup = $failure.Data['CaptureCleanup']
+            $envelope.result = @{ capture_cleanup = $cleanup }
+            # Never reuse a worker whose asynchronous work or resource release is unconfirmed.
+            $retireAfterReply = $cleanup.status -ne 'confirmed'
+        }
+        $out = $envelope | ConvertTo-Json -Compress -Depth 6
     }
-    $envelope = @{ id = $id; ok = $true; result = $res }
-    if ($req.pointer_feedback -eq $true) {
-      $envelope.pointer_feedback = @{
-        generated = [MixWin32]::PointerEventsGenerated
-        failed = [MixWin32]::PointerEventsFailed
-      }
-    }
-    $out = $envelope | ConvertTo-Json -Compress -Depth 6
-  } catch {
-    $failure = $_.Exception
-    while ($null -ne $failure.InnerException -and $failure.Message -notmatch '^[a-z][a-z0-9_]+:') {
-      $failure = $failure.InnerException
-    }
-    $envelope = @{ id = $id; ok = $false; error = "$($failure.Message)" }
-    # A failed or interrupted input may already have moved the presented cursor;
-    # its accounting must survive the failure so the host never mistakes an
-    # aborted glide for a request that produced no cursor events.
-    if ($null -ne $req -and $req.pointer_feedback -eq $true) {
-      $envelope.pointer_feedback = @{
-        generated = [MixWin32]::PointerEventsGenerated
-        failed = [MixWin32]::PointerEventsFailed
-      }
-    }
-    if ($req.action -eq 'window_capture' -and $failure.Data.Contains('CaptureCleanup')) {
-      $cleanup = $failure.Data['CaptureCleanup']
-      $envelope.result = @{ capture_cleanup = $cleanup }
-      # Never reuse a worker whose asynchronous work or resource release is unconfirmed.
-      $retireAfterReply = $cleanup.status -ne 'confirmed'
-    }
-    $out = $envelope | ConvertTo-Json -Compress -Depth 6
-  }
-  [Console]::Out.WriteLine('@@MIXDOG_RESPONSE_MARKER@@' + $out)
-  if ($retireAfterReply) { break }
+    [Console]::Out.WriteLine('@@MIXDOG_RESPONSE_MARKER@@' + $out)
+    if ($retireAfterReply) { break }
 }

@@ -94,19 +94,16 @@ function reviewPptxTheme(document, design, issues) {
     );
   }
   const completePlan = slideCount > 0 && roleSlides.every((slide) => plansBySlide.has(slide.index));
-  const contentColors = completePlan
-    ? roleSlides
-        .filter((slide) => pptxExpectedSlideRole(slide, roleSlides, deck, plansBySlide) === 'content')
-        .map((slide) => {
-          const role = pptxExpectedBackgroundRole(slide, roleSlides, deck, plansBySlide);
-          return colorFor(role);
-        })
-        .filter(Boolean)
-    : slides.length === slideCount
-      ? slides
-          .filter((slide) => pptxExpectedSlideRole(slide, roleSlides, deck, plansBySlide) === 'content')
-          .map(pptxSlideBackgroundColor)
-      : [];
+  const contentSlide = (slide) => pptxExpectedSlideRole(slide, roleSlides, deck, plansBySlide) === 'content';
+  let contentColors = [];
+  if (completePlan) {
+    contentColors = roleSlides
+      .filter(contentSlide)
+      .map((slide) => colorFor(pptxExpectedBackgroundRole(slide, roleSlides, deck, plansBySlide)))
+      .filter(Boolean);
+  } else if (slides.length === slideCount) {
+    contentColors = slides.filter(contentSlide).map(pptxSlideBackgroundColor);
+  }
   const contentColorCounts = new Map();
   for (const color of contentColors) {
     contentColorCounts.set(color, (contentColorCounts.get(color) || 0) + 1);

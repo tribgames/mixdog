@@ -57,7 +57,7 @@ export async function runBrowserLatencyScenarios(
     const mixed = await run({
       action: 'sequence',
       steps: [
-        ...inputs.map((step) => (step.action === 'fill' ? { ...step, text: step.text + ' mixed' } : step)),
+        ...inputs.map((step) => (step.action === 'fill' ? { ...step, text: `${step.text} mixed` } : step)),
         { action: 'fill', target: { name: 'Agree', exact: true }, checked: true },
         { action: 'click', target: { name: 'Save', exact: true } },
         { action: 'wait', text: 'Saved 1' },

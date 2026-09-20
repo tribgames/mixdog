@@ -1,4 +1,4 @@
-// Pre-provider transcript pairing repair, extracted from loop.mjs.
+// Pre-provider transcript pairing repair.
 // Anthropic 400-rejects when an assistant message ends with tool_use blocks and
 // the next message isn't tool results for those exact ids. abort/timeout/error
 // races in the loop body can leave a dangling assistant tool_use at the tail;

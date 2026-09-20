@@ -88,10 +88,9 @@ export async function handleSetChartData(context, op) {
     const points = kept.pointColors?.[index] || [];
     // Point colors are kept only where the new data still has that point, so a
     // shorter refresh never leaves the accent on a category that is gone.
+    const valueCount = Array.isArray(entry.values) ? entry.values.length : 0;
     const carried =
-      entry.pointColors === undefined && points.some(Boolean)
-        ? { pointColors: points.slice(0, Array.isArray(entry.values) ? entry.values.length : 0) }
-        : {};
+      entry.pointColors === undefined && points.some(Boolean) ? { pointColors: points.slice(0, valueCount) } : {};
     const filled = entry.color === undefined && kept.seriesColors[index] ? { color: kept.seriesColors[index] } : {};
     return Object.keys(carried).length || Object.keys(filled).length ? { ...entry, ...filled, ...carried } : entry;
   });
@@ -144,7 +143,9 @@ export async function handleSetChartAxis(context, op) {
   const { zip } = context;
   const slides = context.slides;
   const axis = String(op.axis || '').toLowerCase();
-  const tag = axis === 'category' ? 'c:catAx' : axis === 'value' ? 'c:valAx' : '';
+  let tag = '';
+  if (axis === 'category') tag = 'c:catAx';
+  else if (axis === 'value') tag = 'c:valAx';
   if (!tag) throw new Error('set_chart_axis axis must be category or value');
   const chart = await resolveSlideChart(zip, slides, op);
   const pattern = new RegExp(`<${tagPattern(tag)}>[\\s\\S]*?<\\/${tagPattern(tag)}>`);
@@ -254,6 +255,35 @@ export async function handleSetChartSeries(context, op) {
   return { op: op.op, changed: true, slide: Number(op.slide), series: wanted };
 }
 
+function trendlineXml(op) {
+  const types = ['linear', 'poly', 'exp', 'log', 'movingAvg', 'power'];
+  const type = String(op.type || 'linear').trim();
+  if (!types.includes(type)) {
+    throw new Error(`set_chart_trendline type must be one of: ${types.join(', ')}`);
+  }
+  return (
+    `<c:trendline><c:trendlineType val="${type}"/>` +
+    `<c:dispRSqr val="${op.displayRSquared === true ? 1 : 0}"/>` +
+    `<c:dispEq val="${op.displayEquation === true ? 1 : 0}"/></c:trendline>`
+  );
+}
+
+function errorBarsXml(op) {
+  const directions = { y: 'y', x: 'x', vertical: 'y', horizontal: 'x' };
+  const direction = directions[String(op.direction || 'y').toLowerCase()];
+  if (!direction) throw new Error('set_chart_error_bars direction must be x or y');
+  const style = String(op.endStyle || 'both').toLowerCase();
+  const barType = ['both', 'minus', 'plus'].includes(style) ? style : 'both';
+  const amount = Number(op.amount);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error('set_chart_error_bars requires a positive amount');
+  }
+  return (
+    `<c:errBars><c:errDir val="${direction}"/><c:errBarType val="${barType}"/>` +
+    `<c:errValType val="fixedVal"/><c:noEndCap val="0"/><c:val val="${amount}"/></c:errBars>`
+  );
+}
+
 export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
   const { zip } = context;
   const slides = context.slides;
@@ -261,35 +291,7 @@ export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
   const wanted = Number(op.series);
   let index = 0;
   let changed = false;
-  const element =
-    op.op === 'set_chart_trendline'
-      ? (() => {
-          const types = ['linear', 'poly', 'exp', 'log', 'movingAvg', 'power'];
-          const type = String(op.type || 'linear').trim();
-          if (!types.includes(type)) {
-            throw new Error(`set_chart_trendline type must be one of: ${types.join(', ')}`);
-          }
-          return (
-            `<c:trendline><c:trendlineType val="${type}"/>` +
-            `<c:dispRSqr val="${op.displayRSquared === true ? 1 : 0}"/>` +
-            `<c:dispEq val="${op.displayEquation === true ? 1 : 0}"/></c:trendline>`
-          );
-        })()
-      : (() => {
-          const directions = { y: 'y', x: 'x', vertical: 'y', horizontal: 'x' };
-          const direction = directions[String(op.direction || 'y').toLowerCase()];
-          if (!direction) throw new Error('set_chart_error_bars direction must be x or y');
-          const style = String(op.endStyle || 'both').toLowerCase();
-          const barType = ['both', 'minus', 'plus'].includes(style) ? style : 'both';
-          const amount = Number(op.amount);
-          if (!Number.isFinite(amount) || amount <= 0) {
-            throw new Error('set_chart_error_bars requires a positive amount');
-          }
-          return (
-            `<c:errBars><c:errDir val="${direction}"/><c:errBarType val="${barType}"/>` +
-            `<c:errValType val="fixedVal"/><c:noEndCap val="0"/><c:val val="${amount}"/></c:errBars>`
-          );
-        })();
+  const element = op.op === 'set_chart_trendline' ? trendlineXml(op) : errorBarsXml(op);
   const tag = op.op === 'set_chart_trendline' ? 'c:trendline' : 'c:errBars';
   const next = chart.xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (series) => {
     index += 1;
@@ -314,18 +316,19 @@ export async function handleSetChartDataLabels(context, op) {
   const stacked = /<c:grouping val="stacked"\/>/.test(chart.xml);
   const pie = /<c:(?:pie|doughnut)Chart\b/.test(chart.xml);
   const usable = stacked && position === 'outEnd' ? 'ctr' : position;
-  const labels =
-    op.showValue === false && op.showCategoryName !== true
-      ? ''
-      : '<c:dLbls>' +
-        (op.numberFormat ? `<c:numFmt formatCode="${xmlEncode(op.numberFormat)}" sourceLinked="0"/>` : '') +
-        '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>' +
-        (usable && !pie ? `<c:dLblPos val="${usable}"/>` : '') +
-        '<c:showLegendKey val="0"/>' +
-        `<c:showVal val="${op.showValue === false ? 0 : 1}"/>` +
-        `<c:showCatName val="${op.showCategoryName === true ? 1 : 0}"/>` +
-        '<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>' +
-        '</c:dLbls>';
+  let labels = '';
+  if (op.showValue !== false || op.showCategoryName === true) {
+    labels =
+      '<c:dLbls>' +
+      (op.numberFormat ? `<c:numFmt formatCode="${xmlEncode(op.numberFormat)}" sourceLinked="0"/>` : '') +
+      '<c:spPr><a:noFill/><a:ln><a:noFill/></a:ln></c:spPr>' +
+      (usable && !pie ? `<c:dLblPos val="${usable}"/>` : '') +
+      '<c:showLegendKey val="0"/>' +
+      `<c:showVal val="${op.showValue === false ? 0 : 1}"/>` +
+      `<c:showCatName val="${op.showCategoryName === true ? 1 : 0}"/>` +
+      '<c:showSerName val="0"/><c:showPercent val="0"/><c:showBubbleSize val="0"/>' +
+      '</c:dLbls>';
+  }
   const wanted = Number(op.series);
   let index = 0;
   let changed = false;

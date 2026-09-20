@@ -23,7 +23,7 @@ function withoutHangingPunctuation(props) {
 
 export function normalizeParagraphProperties(xml) {
   let removed = 0;
-  const output = String(xml || '').replace(PARAGRAPH, (paragraph, inner) => {
+  const output = String(xml || '').replace(PARAGRAPH, (_paragraph, inner) => {
     let seen = false;
     const cleaned = inner.replace(PARAGRAPH_PROPS, (props) => {
       if (seen) {

@@ -75,7 +75,9 @@ export function applyFetchPagination(payload, args) {
   const totalLength = fullContent.length;
   const startIndex = Math.max(0, Number.isFinite(args?.startIndex) ? args.startIndex : 0);
   const rawLimit = args?.maxLength;
-  const limit = rawLimit === 0 ? Infinity : rawLimit == null ? DEFAULT_FETCH_MAX_LENGTH : Math.max(0, Number(rawLimit));
+  let limit = Math.max(0, Number(rawLimit));
+  if (rawLimit === 0) limit = Infinity;
+  else if (rawLimit == null) limit = DEFAULT_FETCH_MAX_LENGTH;
   if (startIndex >= totalLength) {
     return {
       ...payload,
@@ -155,7 +157,7 @@ function formatFetch(data) {
           .trim();
         const titleLine = titleRaw ? `title: ${titleRaw}` : '';
         const body = item.content == null ? '(no content)' : String(item.content);
-        return [header, titleLine, ...diagnostics].filter(Boolean).join('\n') + '\n\n' + body;
+        return `${[header, titleLine, ...diagnostics].filter(Boolean).join('\n')}\n\n${body}`;
       })
       .join('\n\n---\n\n')
   );

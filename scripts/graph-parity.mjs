@@ -326,7 +326,7 @@ export function matchSymbols(oldList, newList, kindMap = null) {
     if (j < 0) continue;
     usedO[i] = true;
     usedN[j] = true;
-    const mapped = kindMap && kindMap[olds[i].kind];
+    const mapped = kindMap?.[olds[i].kind];
     if (mapped != null && mapped === news[j].kind) {
       kindMapped.push({ old: olds[i], new: news[j] });
     } else {
@@ -417,7 +417,7 @@ function indexByRel(records) {
   return map;
 }
 
-export function compareWalks(oldRecords, newRecords, options = {}) {
+function createWalkComparisonState(oldRecords, newRecords, options) {
   const kindMap = options.kindMap || {};
   const compareTokens = Boolean(options.tokens);
   const oldMap = indexByRel(oldRecords);
@@ -428,8 +428,6 @@ export function compareWalks(oldRecords, newRecords, options = {}) {
   const fileLangs = {};
   const filesOnlyOld = [];
   const filesOnlyNew = [];
-  const unmappedKinds = [];
-  const lineMoves = [];
   const totals = {
     loss: 0,
     addition: 0,
@@ -443,18 +441,37 @@ export function compareWalks(oldRecords, newRecords, options = {}) {
     tokenAdded: 0,
   };
   const declaredNames = compareTokens ? collectDeclaredSymbolNames(oldRecords, newRecords) : null;
-
-  const bucket = (lang) => {
-    if (!byLanguage[lang]) byLanguage[lang] = emptyLangBucket();
-    return byLanguage[lang];
+  return {
+    kindMap,
+    compareTokens,
+    oldMap,
+    newMap,
+    rels,
+    byLanguage,
+    additive,
+    fileLangs,
+    filesOnlyOld,
+    filesOnlyNew,
+    unmappedKinds: [],
+    lineMoves: [],
+    totals,
+    declaredNames,
   };
-  const additiveOf = (lang) => {
-    if (!additive[lang]) additive[lang] = emptyAdditive();
-    return additive[lang];
-  };
+}
 
+function languageBucket(state, lang) {
+  if (!state.byLanguage[lang]) state.byLanguage[lang] = emptyLangBucket();
+  return state.byLanguage[lang];
+}
+
+function additiveForLanguage(state, lang) {
+  if (!state.additive[lang]) state.additive[lang] = emptyAdditive();
+  return state.additive[lang];
+}
+
+function collectUnmappedKinds(records, kindMap) {
   const oldKindsByLang = {};
-  for (const rec of asArray(oldRecords)) {
+  for (const rec of asArray(records)) {
     const lang = langOf(rec);
     if (!oldKindsByLang[lang]) oldKindsByLang[lang] = new Set();
     for (const s of asArray(rec.symbols)) {
@@ -462,159 +479,193 @@ export function compareWalks(oldRecords, newRecords, options = {}) {
       if (kind) oldKindsByLang[lang].add(kind);
     }
   }
+  const unmappedKinds = [];
   for (const [lang, kinds] of Object.entries(oldKindsByLang)) {
     const map = kindMap[lang];
     if (!map || !Object.keys(map).length) continue;
     for (const kind of [...kinds].sort()) {
-      if (!Object.hasOwn(map, kind)) {
-        unmappedKinds.push({ lang, kind });
-      }
+      if (!Object.hasOwn(map, kind)) unmappedKinds.push({ lang, kind });
     }
   }
+  return unmappedKinds;
+}
 
-  for (const rel of rels) {
-    const oldRec = oldMap.get(rel);
-    const newRec = newMap.get(rel);
+function recordFileOnlyOld(state, rel, rec) {
+  const lang = langOf(rec);
+  state.fileLangs[rel] = lang;
+  state.filesOnlyOld.push(rel);
+  pushExample(languageBucket(state, lang).FILE_ONLY_OLD, { rel, lang });
+}
+
+function recordFileOnlyNew(state, rel, rec) {
+  const lang = langOf(rec);
+  state.fileLangs[rel] = lang;
+  state.filesOnlyNew.push(rel);
+  pushExample(languageBucket(state, lang).FILE_ONLY_NEW, { rel, lang });
+  addAdditive(additiveForLanguage(state, lang), rec);
+}
+
+function recordLossesAndAdditions(state, rel, bucket, matched) {
+  for (const s of matched.loss) {
+    state.totals.loss += 1;
+    pushExample(bucket.LOSS, { rel, name: s.name, kind: s.kind, startLine: s.startLine });
+  }
+  for (const s of matched.addition) {
+    state.totals.addition += 1;
+    pushExample(bucket.ADDITION, { rel, name: s.name, kind: s.kind, startLine: s.startLine });
+  }
+}
+
+function recordLineMoves(state, rel, lang, matched) {
+  if (!matched.loss.length || !matched.addition.length) return;
+  const lostNames = new Set(matched.loss.map((s) => s.name));
+  const seenMove = new Set();
+  for (const s of matched.addition) {
+    if (!lostNames.has(s.name) || seenMove.has(s.name)) continue;
+    seenMove.add(s.name);
+    state.lineMoves.push({ rel, name: s.name, lang });
+  }
+}
+
+function recordKindDifferences(state, rel, bucket, matched) {
+  for (const item of matched.kindMapped) {
+    state.totals.kindMapped += 1;
+    pushExample(bucket.KIND_MAPPED, {
+      rel,
+      name: item.old.name,
+      startLine: item.old.startLine,
+      oldKind: item.old.kind,
+      newKind: item.new.kind,
+    });
+  }
+  for (const item of matched.kindChange) {
+    state.totals.kindChange += 1;
+    pushExample(bucket.KIND_CHANGE, {
+      rel,
+      name: item.old.name,
+      startLine: item.old.startLine,
+      oldKind: item.old.kind,
+      newKind: item.new.kind,
+    });
+  }
+}
+
+function recordColumnDrifts(state, rel, bucket, matched) {
+  for (const item of matched.colDrift) {
+    state.totals.colDrift += 1;
+    pushExample(bucket.COL_DRIFT, {
+      rel,
+      name: item.old.name,
+      kind: item.old.kind,
+      startLine: item.old.startLine,
+      oldCols: [item.old.startCol, item.old.endCol],
+      newCols: [item.new.startCol, item.new.endCol],
+    });
+  }
+}
+
+function recordSymbolComparison(state, rel, lang, bucket, matched) {
+  recordLossesAndAdditions(state, rel, bucket, matched);
+  recordLineMoves(state, rel, lang, matched);
+  recordKindDifferences(state, rel, bucket, matched);
+  recordColumnDrifts(state, rel, bucket, matched);
+}
+
+function recordImportDiff(state, rel, bucket, oldRec, newRec) {
+  const raw = setDiff(oldRec.rawImports, newRec.rawImports);
+  const resolved = setDiff(oldRec.resolvedImports, newRec.resolvedImports);
+  const importCount = raw.missing.length + raw.extra.length + resolved.missing.length + resolved.extra.length;
+  if (!importCount) return;
+  state.totals.importDiff += importCount;
+  pushExample(bucket.IMPORT, { rel, raw, resolved, count: importCount });
+}
+
+function recordScalarDiff(state, rel, bucket, oldRec, newRec) {
+  const scalarFields = ['lang', 'packageName', 'namespaceName', 'goPackageName'];
+  const scalarChanges = [];
+  for (const field of scalarFields) {
+    if (asStr(oldRec[field]) !== asStr(newRec[field])) {
+      scalarChanges.push({ field, old: asStr(oldRec[field]), new: asStr(newRec[field]) });
+    }
+  }
+  if (JSON.stringify(asArray(oldRec.topLevelTypes)) !== JSON.stringify(asArray(newRec.topLevelTypes))) {
+    scalarChanges.push({
+      field: 'topLevelTypes',
+      old: asArray(oldRec.topLevelTypes),
+      new: asArray(newRec.topLevelTypes),
+    });
+  }
+  if (!scalarChanges.length) return;
+  state.totals.scalar += scalarChanges.length;
+  pushExample(bucket.SCALAR, { rel, changes: scalarChanges });
+}
+
+function recordParseErrorDiff(state, rel, bucket, oldRec, newRec) {
+  if (asStr(oldRec.parseError) === asStr(newRec.parseError)) return;
+  state.totals.parseError += 1;
+  pushExample(bucket.PARSE_ERROR, {
+    rel,
+    old: asStr(oldRec.parseError),
+    new: asStr(newRec.parseError),
+  });
+}
+
+function recordTokenDiff(state, rel, bucket, oldRec, newRec) {
+  const oldTokens = tokenSet(oldRec, state.declaredNames);
+  const newTokens = tokenSet(newRec, state.declaredNames);
+  if (oldTokens == null || newTokens == null) return;
+  for (const token of [...oldTokens].sort()) {
+    if (newTokens.has(token)) continue;
+    state.totals.tokenLost += 1;
+    pushExample(bucket.TOKEN_LOSS, { rel, token });
+  }
+  for (const token of [...newTokens].sort()) {
+    if (oldTokens.has(token)) continue;
+    state.totals.tokenAdded += 1;
+    pushExample(bucket.TOKEN_ADD, { rel, token });
+  }
+}
+
+function compareRecord(state, rel, oldRec, newRec) {
+  const lang = langOf(newRec) || langOf(oldRec);
+  state.fileLangs[rel] = lang;
+  const bucket = languageBucket(state, lang);
+  addAdditive(additiveForLanguage(state, lang), newRec);
+  const matched = matchSymbols(oldRec.symbols, newRec.symbols, state.kindMap[lang] || null);
+  recordSymbolComparison(state, rel, lang, bucket, matched);
+  recordImportDiff(state, rel, bucket, oldRec, newRec);
+  recordScalarDiff(state, rel, bucket, oldRec, newRec);
+  recordParseErrorDiff(state, rel, bucket, oldRec, newRec);
+  if (state.compareTokens) recordTokenDiff(state, rel, bucket, oldRec, newRec);
+}
+
+export function compareWalks(oldRecords, newRecords, options = {}) {
+  const state = createWalkComparisonState(oldRecords, newRecords, options);
+  state.unmappedKinds = collectUnmappedKinds(oldRecords, state.kindMap);
+  for (const rel of state.rels) {
+    const oldRec = state.oldMap.get(rel);
+    const newRec = state.newMap.get(rel);
     if (oldRec && !newRec) {
-      const lang = langOf(oldRec);
-      fileLangs[rel] = lang;
-      filesOnlyOld.push(rel);
-      pushExample(bucket(lang).FILE_ONLY_OLD, { rel, lang });
+      recordFileOnlyOld(state, rel, oldRec);
       continue;
     }
     if (newRec && !oldRec) {
-      const lang = langOf(newRec);
-      fileLangs[rel] = lang;
-      filesOnlyNew.push(rel);
-      pushExample(bucket(lang).FILE_ONLY_NEW, { rel, lang });
-      addAdditive(additiveOf(lang), newRec);
+      recordFileOnlyNew(state, rel, newRec);
       continue;
     }
-
-    const lang = langOf(newRec) || langOf(oldRec);
-    fileLangs[rel] = lang;
-    const b = bucket(lang);
-    addAdditive(additiveOf(lang), newRec);
-    const matched = matchSymbols(oldRec.symbols, newRec.symbols, kindMap[lang] || null);
-    for (const s of matched.loss) {
-      totals.loss += 1;
-      pushExample(b.LOSS, { rel, name: s.name, kind: s.kind, startLine: s.startLine });
-    }
-    for (const s of matched.addition) {
-      totals.addition += 1;
-      pushExample(b.ADDITION, { rel, name: s.name, kind: s.kind, startLine: s.startLine });
-    }
-    if (matched.loss.length && matched.addition.length) {
-      const lostNames = new Set(matched.loss.map((s) => s.name));
-      const seenMove = new Set();
-      for (const s of matched.addition) {
-        if (!lostNames.has(s.name) || seenMove.has(s.name)) continue;
-        seenMove.add(s.name);
-        lineMoves.push({ rel, name: s.name, lang });
-      }
-    }
-    for (const item of matched.kindMapped) {
-      totals.kindMapped += 1;
-      pushExample(b.KIND_MAPPED, {
-        rel,
-        name: item.old.name,
-        startLine: item.old.startLine,
-        oldKind: item.old.kind,
-        newKind: item.new.kind,
-      });
-    }
-    for (const item of matched.kindChange) {
-      totals.kindChange += 1;
-      pushExample(b.KIND_CHANGE, {
-        rel,
-        name: item.old.name,
-        startLine: item.old.startLine,
-        oldKind: item.old.kind,
-        newKind: item.new.kind,
-      });
-    }
-    for (const item of matched.colDrift) {
-      totals.colDrift += 1;
-      pushExample(b.COL_DRIFT, {
-        rel,
-        name: item.old.name,
-        kind: item.old.kind,
-        startLine: item.old.startLine,
-        oldCols: [item.old.startCol, item.old.endCol],
-        newCols: [item.new.startCol, item.new.endCol],
-      });
-    }
-
-    const raw = setDiff(oldRec.rawImports, newRec.rawImports);
-    const resolved = setDiff(oldRec.resolvedImports, newRec.resolvedImports);
-    const importCount = raw.missing.length + raw.extra.length + resolved.missing.length + resolved.extra.length;
-    if (importCount) {
-      totals.importDiff += importCount;
-      pushExample(b.IMPORT, {
-        rel,
-        raw,
-        resolved,
-        count: importCount,
-      });
-    }
-
-    const scalarFields = ['lang', 'packageName', 'namespaceName', 'goPackageName'];
-    const scalarChanges = [];
-    for (const field of scalarFields) {
-      if (asStr(oldRec[field]) !== asStr(newRec[field])) {
-        scalarChanges.push({ field, old: asStr(oldRec[field]), new: asStr(newRec[field]) });
-      }
-    }
-    if (JSON.stringify(asArray(oldRec.topLevelTypes)) !== JSON.stringify(asArray(newRec.topLevelTypes))) {
-      scalarChanges.push({
-        field: 'topLevelTypes',
-        old: asArray(oldRec.topLevelTypes),
-        new: asArray(newRec.topLevelTypes),
-      });
-    }
-    if (scalarChanges.length) {
-      totals.scalar += scalarChanges.length;
-      pushExample(b.SCALAR, { rel, changes: scalarChanges });
-    }
-
-    if (asStr(oldRec.parseError) !== asStr(newRec.parseError)) {
-      totals.parseError += 1;
-      pushExample(b.PARSE_ERROR, {
-        rel,
-        old: asStr(oldRec.parseError),
-        new: asStr(newRec.parseError),
-      });
-    }
-
-    if (compareTokens) {
-      const oldTok = tokenSet(oldRec, declaredNames);
-      const newTok = tokenSet(newRec, declaredNames);
-      if (oldTok != null && newTok != null) {
-        for (const token of [...oldTok].sort()) {
-          if (newTok.has(token)) continue;
-          totals.tokenLost += 1;
-          pushExample(b.TOKEN_LOSS, { rel, token });
-        }
-        for (const token of [...newTok].sort()) {
-          if (oldTok.has(token)) continue;
-          totals.tokenAdded += 1;
-          pushExample(b.TOKEN_ADD, { rel, token });
-        }
-      }
-    }
+    compareRecord(state, rel, oldRec, newRec);
   }
-
   return {
-    filesCompared: rels.length - filesOnlyOld.length - filesOnlyNew.length,
-    filesOnlyOld,
-    filesOnlyNew,
-    fileLangs,
-    totals,
-    byLanguage,
-    additive,
-    unmappedKinds,
-    lineMoves,
-    kindMapActive: kindMapActive(kindMap),
+    filesCompared: state.rels.length - state.filesOnlyOld.length - state.filesOnlyNew.length,
+    filesOnlyOld: state.filesOnlyOld,
+    filesOnlyNew: state.filesOnlyNew,
+    fileLangs: state.fileLangs,
+    totals: state.totals,
+    byLanguage: state.byLanguage,
+    additive: state.additive,
+    unmappedKinds: state.unmappedKinds,
+    lineMoves: state.lineMoves,
+    kindMapActive: kindMapActive(state.kindMap),
   };
 }
 
@@ -990,7 +1041,9 @@ export async function runParity(opts) {
   } else {
     const oldWalk = await runTimedWalks(opts.old, root, opts.runs);
     const newWalk = await runTimedWalks(opts.new, root, opts.runs);
-    const ratio = oldWalk.medianMs > 0 ? newWalk.medianMs / oldWalk.medianMs : newWalk.medianMs > 0 ? Infinity : 1;
+    let ratio = 1;
+    if (oldWalk.medianMs > 0) ratio = newWalk.medianMs / oldWalk.medianMs;
+    else if (newWalk.medianMs > 0) ratio = Infinity;
     timing = {
       oldMs: oldWalk.medianMs,
       newMs: newWalk.medianMs,

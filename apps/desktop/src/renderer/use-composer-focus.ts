@@ -72,12 +72,9 @@ export function useComposerFocus({
 export function usePaneTypingFocus(focusedLeafId: string, selectionKind: string | undefined): void {
   useEffect(() => {
     const focusComposerForTyping = (event: KeyboardEvent) => {
-      const typingSurfaceSelector =
-        selectionKind === 'studio'
-          ? ".studio-root[data-surface-active='true'] textarea"
-          : selectionKind === 'session' || selectionKind === 'new'
-            ? 'form.composer textarea'
-            : '';
+      let typingSurfaceSelector = '';
+      if (selectionKind === 'studio') typingSurfaceSelector = ".studio-root[data-surface-active='true'] textarea";
+      else if (selectionKind === 'session' || selectionKind === 'new') typingSurfaceSelector = 'form.composer textarea';
       if (!typingSurfaceSelector) return;
       if (!shouldFocusComposerFromWindowKey(event)) return;
       const pane = document.querySelector<HTMLElement>(`[data-pane-id="${focusedLeafId}"]`);

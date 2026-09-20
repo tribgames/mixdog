@@ -1,4 +1,4 @@
-// Agent context-overflow error, extracted from loop.mjs. Raised when the latest
+// Agent context-overflow error. Raised when the latest
 // turn cannot fit the target context budget even after compaction.
 
 export class AgentContextOverflowError extends Error {

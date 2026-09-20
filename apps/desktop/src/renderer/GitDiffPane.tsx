@@ -1,5 +1,14 @@
 import { FileText, Minus, Plus, X } from 'lucide-react';
-import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { splitGitPatchHunks, type GitPatchHunk } from '../shared/git-patch';
 import { t } from './i18n';
@@ -23,6 +32,14 @@ import { navigationKey } from './text-format';
 import { fetchSessionDiffFilePatch } from './session-diff-cache';
 
 type GitDiffSelection = Extract<WorkspaceSelection, { kind: 'diff' }>;
+
+function diffSourceLabel(selection: GitDiffSelection): string {
+  if (selection.source === 'session') return t('Session diff');
+  if (selection.source === 'commit') {
+    return t('Commit {{hash}}', { hash: String(selection.hash || '').slice(0, 8) });
+  }
+  return selection.source === 'staged' ? t('Staged Changes') : t('Working Tree Changes');
+}
 
 /** The session review diff is ONE patch for every file the session touched;
  *  the pane shows the slice for `rel` (the Session Diff rows open here),
@@ -95,19 +112,21 @@ export function GitDiffPane({
     if (!activeRef.current || !mountedRef.current) return;
     const request = epoch.current;
     setError('');
+    const loadSelectionPatch = () => {
+      if (selection.source === 'session') return loadSessionFilePatch(String(selection.hash || ''), selection.rel);
+      if (selection.source === 'commit') {
+        return api?.gitShowDiff?.(selection.project, String(selection.hash || ''), selection.rel);
+      }
+      return api?.gitDiff?.(
+        selection.project,
+        selection.rel,
+        selection.source === 'staged',
+        selection.source === 'unstaged',
+        selection.untracked === true
+      );
+    };
     try {
-      const next =
-        selection.source === 'session'
-          ? await loadSessionFilePatch(String(selection.hash || ''), selection.rel)
-          : selection.source === 'commit'
-            ? await api?.gitShowDiff?.(selection.project, String(selection.hash || ''), selection.rel)
-            : await api?.gitDiff?.(
-                selection.project,
-                selection.rel,
-                selection.source === 'staged',
-                selection.source === 'unstaged',
-                selection.untracked === true
-              );
+      const next = await loadSelectionPatch();
       if (request === epoch.current) {
         const nextPatch = next ?? '';
         // The rows for a large patch render as a transition: React then
@@ -184,14 +203,52 @@ export function GitDiffPane({
     }
   };
 
-  const sourceLabel =
-    selection.source === 'session'
-      ? t('Session diff')
-      : selection.source === 'commit'
-        ? t('Commit {{hash}}', { hash: String(selection.hash || '').slice(0, 8) })
-        : selection.source === 'staged'
-          ? t('Staged Changes')
-          : t('Working Tree Changes');
+  const sourceLabel = diffSourceLabel(selection);
+  const staged = selection.source === 'staged';
+  const hunkLabel = staged ? t('Unstage') : t('Stage');
+  const HunkGlyph = staged ? Minus : Plus;
+  let body: ReactNode;
+  if (patch === null) {
+    body = (
+      <p className="workspace-git-diff-state">
+        <ProgressSpinner size={16} /> {t('Loading diff…')}
+      </p>
+    );
+  } else if (error) {
+    body = <ErrorNotice error={error} />;
+  } else if (!patch) {
+    body = <p className="workspace-git-diff-state">{t('No textual differences.')}</p>;
+  } else if (hunks.length === 0) {
+    body = <GitFileDiff patch={patch} mode={mode} />;
+  } else {
+    body = (
+      <div className="workspace-git-diff-hunks">
+        {hunks.map((hunk, index) => (
+          <section className="workspace-git-diff-hunk" key={`${hunk.header}:${index}`}>
+            <header>
+              <code>{hunk.header}</code>
+              <button
+                type="button"
+                disabled={busyHunk >= 0}
+                aria-label={t('{{action}} hunk {{number}}', { action: hunkLabel, number: index + 1 })}
+                onClick={() => void applyHunk(hunk, index)}
+              >
+                {busyHunk === index ? (
+                  <ProgressSpinner size={14} aria-hidden="true" />
+                ) : (
+                  <HunkGlyph size={14} aria-hidden="true" />
+                )}
+                {t('{{action}} hunk', { action: hunkLabel })}
+              </button>
+            </header>
+            {/* The section header above is the ONE place this hunk's
+                `@@ … @@` line is printed; the body renders rows only. */}
+            <GitFileDiff patch={hunk.patch} mode={mode} hideHunkHeader />
+          </section>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="workspace-git-diff">
       <header>
@@ -220,53 +277,7 @@ export function GitDiffPane({
           )}
         </div>
       </header>
-      <div className="workspace-git-diff-body">
-        {patch === null ? (
-          <p className="workspace-git-diff-state">
-            <ProgressSpinner size={16} /> {t('Loading diff…')}
-          </p>
-        ) : error ? (
-          <ErrorNotice error={error} />
-        ) : patch ? (
-          hunks.length > 0 ? (
-            <div className="workspace-git-diff-hunks">
-              {hunks.map((hunk, index) => {
-                const staged = selection.source === 'staged';
-                const label = staged ? t('Unstage') : t('Stage');
-                return (
-                  <section className="workspace-git-diff-hunk" key={`${hunk.header}:${index}`}>
-                    <header>
-                      <code>{hunk.header}</code>
-                      <button
-                        type="button"
-                        disabled={busyHunk >= 0}
-                        aria-label={t('{{action}} hunk {{number}}', { action: label, number: index + 1 })}
-                        onClick={() => void applyHunk(hunk, index)}
-                      >
-                        {busyHunk === index ? (
-                          <ProgressSpinner size={14} aria-hidden="true" />
-                        ) : staged ? (
-                          <Minus size={14} aria-hidden="true" />
-                        ) : (
-                          <Plus size={14} aria-hidden="true" />
-                        )}
-                        {t('{{action}} hunk', { action: label })}
-                      </button>
-                    </header>
-                    {/* The section header above is the ONE place this hunk's
-                        `@@ … @@` line is printed; the body renders rows only. */}
-                    <GitFileDiff patch={hunk.patch} mode={mode} hideHunkHeader />
-                  </section>
-                );
-              })}
-            </div>
-          ) : (
-            <GitFileDiff patch={patch} mode={mode} />
-          )
-        ) : (
-          <p className="workspace-git-diff-state">{t('No textual differences.')}</p>
-        )}
-      </div>
+      <div className="workspace-git-diff-body">{body}</div>
     </div>
   );
 }

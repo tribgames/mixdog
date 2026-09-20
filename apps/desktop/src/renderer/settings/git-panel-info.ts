@@ -53,11 +53,10 @@ export function preloadGitPanelInfo(host: GitPanelApi | undefined): Promise<GitP
     // A failed probe keeps the last known value — a transient gh/IPC hiccup
     // must not blank an already-painted card.
     const status = await host.githubCliStatus!().catch(() => entry.value?.status ?? null);
-    const account = status?.authenticated
-      ? await (host.githubCliAccount
-          ? host.githubCliAccount().catch(() => entry.value?.account ?? null)
-          : Promise.resolve<DesktopGithubCliAccount | null>(null))
-      : null;
+    let account: DesktopGithubCliAccount | null = null;
+    if (status?.authenticated && host.githubCliAccount) {
+      account = await host.githubCliAccount().catch(() => entry.value?.account ?? null);
+    }
     entry.value = {
       status: status ?? null,
       account: account ?? null,

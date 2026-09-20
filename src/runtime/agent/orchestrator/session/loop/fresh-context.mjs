@@ -209,7 +209,17 @@ export async function runFreshContextCompact({
     });
   }
   const { route, generated } = await summarizeWithQuotaFallback(
-    { sessionRef, sessionId, signal, sendOpts, compactPolicy, compactBudgetTokens, hardBudget, contextWindow, conversationInput },
+    {
+      sessionRef,
+      sessionId,
+      signal,
+      sendOpts,
+      compactPolicy,
+      compactBudgetTokens,
+      hardBudget,
+      contextWindow,
+      conversationInput,
+    },
     { sessionRef, provider, model, config, signal, getProviderFn, initProvidersFn }
   );
   signal?.throwIfAborted();

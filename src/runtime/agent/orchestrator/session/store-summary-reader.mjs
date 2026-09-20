@@ -6,9 +6,9 @@
  * unless a durable turn checkpoint exists; only then does it lazily enter the
  * reconnect recovery boundary so restored panes never paint a stale prompt.
  */
-import { readFileSync, readdirSync } from 'fs';
-import { homedir } from 'os';
-import { join } from 'path';
+import { readFileSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { sessionContextMeasurement, contextMeasurementStats } from '../../../../ui/context-measurement.mjs';
 // Leaf helpers only (no store.mjs, no workers, no config): the three-way
 // present/absent/unreadable classification and the strict record parser the
@@ -17,6 +17,7 @@ import { probePath, readTextFile, PROBE_PRESENT, PROBE_ABSENT } from './store/fs
 import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
+import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
 
 // One cache per process: the daemon serves every cold pane read from it, and
 // the desktop service worker keeps its own for the deep-history prefetch.
@@ -337,11 +338,13 @@ function storedAgentWorkerIndexRows() {
   } catch {
     return [];
   }
-  return Array.isArray(parsed?.workers)
-    ? parsed.workers
-    : parsed?.workers && typeof parsed.workers === 'object'
-      ? Object.values(parsed.workers)
-      : [];
+  return workerRows(parsed);
+}
+
+/** A worker index stores its rows as a list or as an id-keyed map. */
+function workerRows(parsed) {
+  if (Array.isArray(parsed?.workers)) return parsed.workers;
+  return parsed?.workers && typeof parsed.workers === 'object' ? Object.values(parsed.workers) : [];
 }
 
 /** Lightweight ancestry seam used to migrate pre-parentSessionId summary
@@ -436,14 +439,214 @@ function leadConversationHeader(header) {
   return owner !== 'agent' && (agent === 'lead' || cleanValue(header.sourceType).toLowerCase() === 'lead');
 }
 
+const withinPoolWindow = (at, now) => at > 0 && now - at <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+const POOL_SESSION_ID = /^[A-Za-z0-9_-]+$/;
+
 /** Live-work proof for an already projected row: a fresh heartbeat sidecar, or
  *  a working status whose own stamp is still inside the pool window. */
 function poolRowWorking(row, heartbeatMtimes, now) {
-  const heartbeatAt = heartbeatMtimes.get(cleanValue(row?.sessionId)) || 0;
-  if (heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS) return true;
+  if (withinPoolWindow(heartbeatMtimes.get(cleanValue(row?.sessionId)) || 0, now)) return true;
   if (!WORKING_AGENT_STATUS.test(cleanValue(row?.stage || row?.status))) return false;
-  const updatedAt = Date.parse(cleanValue(row?.updatedAt)) || 0;
-  return updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
+  return withinPoolWindow(Date.parse(cleanValue(row?.updatedAt)) || 0, now);
+}
+
+/** A child worker-index row projected into the pool, or null. Cancelled rows
+ *  stay visible so the 2-minute heartbeat lease cannot resurrect them as
+ *  `running` once DEAD_AGENT_STATUS would have dropped them from the map;
+ *  unconfirmed cancels are not dead, but also must not be overwritten by the
+ *  sidecar. */
+function projectChildWorkerRow(row, { now, heartbeatMtimes }) {
+  if (!row || typeof row !== 'object') return null;
+  if (!activeAgentWorker(row) && !sessionCancelState(row)) return null;
+  if (cleanValue(row.agent).toLowerCase() === 'lead') return null;
+  const sessionId = cleanValue(row.sessionId);
+  const tag = cleanValue(row.tag);
+  if (!sessionId || !tag || !POOL_SESSION_ID.test(sessionId)) return null;
+  // A new row may precede its first session save (null header).
+  const session = readWorkerSessionHeader(sessionId);
+  const declaredStatus = cleanValue(row.status) || 'running';
+  const declaredStage = cleanValue(row.stage || row.status) || 'running';
+  const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus) || WORKING_AGENT_STATUS.test(declaredStage);
+  const heartbeatFresh = withinPoolWindow(heartbeatMtimes.get(sessionId) || 0, now);
+  const recentlyUpdated = withinPoolWindow(Date.parse(cleanValue(row.updatedAt)) || 0, now);
+  const runtimePid = positiveNumber(row.runtimePid, 0);
+  const working = declaredWorking && (!runtimePid || runtimeAlive(runtimePid)) && (heartbeatFresh || recentlyUpdated);
+  return {
+    tag,
+    sessionId,
+    // Root ownership and immediate ancestry are independent. Nested
+    // descendants keep the Lead/root owner while pointing at the Agent
+    // session that directly spawned them.
+    ownerSessionId: workerOwnerSessionId(row, session),
+    parentSessionId: workerParentSessionId(row, session),
+    title: cleanValue(row.title || session?.title) || null,
+    agent: cleanValue(row.agent || session?.agent) || null,
+    provider: cleanValue(row.provider || session?.provider) || null,
+    model: cleanValue(row.model || session?.model) || null,
+    effort: cleanValue(row.effort || session?.effort) || null,
+    fast: row.fast === true || session?.fast === true,
+    status: declaredWorking && !working ? 'idle' : declaredStatus,
+    stage: declaredWorking && !working ? 'idle' : declaredStage,
+    startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
+    turnStartedAt: working ? row.turnStartedAt || null : null,
+    createdAt: row.createdAt || session?.createdAt || null,
+    updatedAt: row.updatedAt || session?.updatedAt || null,
+    idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || session?.updatedAt || null),
+    reapAt: row.reapAt || null,
+    cwd: cleanValue(row.cwd || session?.cwd) || null,
+    clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
+    taskId: cleanValue(row.task_id || row.taskId) || null,
+  };
+}
+
+/** The row a fresh heartbeat sidecar publishes over the current index row. */
+function sidecarWorkerRow(
+  current,
+  session,
+  { sessionId, heartbeatAt, ownerSessionId, parentSessionId, agent, status }
+) {
+  return {
+    ...current,
+    tag: cleanValue(session?.agentTag) || cleanValue(current.tag) || `${agent || 'agent'}:${sessionId}`,
+    sessionId,
+    ownerSessionId,
+    parentSessionId,
+    title: cleanValue(session?.title) || current.title || null,
+    agent: agent || current.agent || null,
+    provider: cleanValue(session?.provider) || current.provider || null,
+    model: cleanValue(session?.model) || current.model || null,
+    effort: cleanValue(session?.effort) || current.effort || null,
+    fast: session?.fast === true || current.fast === true,
+    status,
+    stage: status,
+    startedAt: session?.createdAt || current.startedAt || heartbeatAt,
+    turnStartedAt: current.turnStartedAt || null,
+    createdAt: session?.createdAt || current.createdAt || null,
+    updatedAt: heartbeatAt,
+    cwd: cleanValue(session?.cwd) || current.cwd || null,
+    clientHostPid: positiveNumber(session?.clientHostPid, 0) || current.clientHostPid || null,
+    taskId: cleanValue(session?.task_id || session?.taskId) || current.taskId || null,
+  };
+}
+
+/** Promote one fresh heartbeat sidecar into the pool.
+ *
+ *  The durable index row is authoritative for FINISHED work: a worker's
+ *  runtime unloads at turn end but its heartbeat sidecar stays fresh for up to
+ *  the 2-minute window, and overwriting an idle row to `running` here made
+ *  every completed agent show as working and then flip back — the dock read as
+ *  blinking (user: 유휴인데 계속 살아있고 깜빡인다). The sidecar promotes only
+ *  rows the index does not already mark idle. A cancel is the same class of
+ *  authority: the lease must not rewrite cancelled / cancel-unconfirmed as
+ *  running at any point. Bare `cancelling` stays working. Genuinely new work is
+ *  a strictly later turn/start stamp, not a heartbeat-rewritten updatedAt. */
+function promoteHeartbeatSidecar(bySessionId, sessionId, heartbeatAt) {
+  const session = readWorkerSessionHeader(sessionId);
+  if (!session) return;
+  const current = bySessionId.get(sessionId) || {};
+  const ownerSessionId = workerOwnerSessionId(current, session);
+  const parentSessionId = workerParentSessionId(current, session);
+  const owner = cleanValue(session?.owner).toLowerCase();
+  const agent = cleanValue(session?.agent);
+  if (!ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) return;
+  const identity = { sessionId, heartbeatAt, ownerSessionId, parentSessionId, agent };
+  // An UNCONFIRMED cancel outranks a confirmed one whichever side holds it.
+  // Taking the index row first let a row still stamped `cancelled` MASK the
+  // durable `cancel-unconfirmed` on the session, reporting a stop that was
+  // never proven as a success. Never the reverse: a confirmed row only wins
+  // when the session is not unconfirmed.
+  const currentCancel = sessionCancelState(current);
+  const cancel = preferUnconfirmedCancel(currentCancel, sessionCancelState(session));
+  const newerWork = Boolean(cancel?.at) && (workStampMs(current) > cancel.at || workStampMs(session) > cancel.at);
+  if (cancel && !newerWork) {
+    // A cancel outranks a leftover heartbeat. Newer work is only a strictly
+    // later turn/start stamp — never updatedAt, which the sidecar rewrites
+    // every tick.
+    if (currentCancel) return;
+    bySessionId.set(sessionId, sidecarWorkerRow(current, session, { ...identity, status: cancel.status }));
+    return;
+  }
+  const currentStatus = cleanValue(current.stage || current.status);
+  if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) return;
+  // The sidecar is the live lease. Durable child sessions are intentionally
+  // detached/closed while their external owner runs.
+  bySessionId.set(sessionId, sidecarWorkerRow(current, session, { ...identity, status: 'running' }));
+}
+
+function storedLeadWorkerRows() {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(readFileSync(storedLeadWorkerIndexPath(), 'utf8'));
+  } catch {
+    /* no resident Lead pool */
+  }
+  return workerRows(parsed);
+}
+
+/** A Lead-index row whose durable session turned out to be an agent's. */
+function leadRowOwnedByAgent(sessionId) {
+  try {
+    const session = JSON.parse(readFileSync(join(dataDir(), 'sessions', `${sessionId}.json`), 'utf8'));
+    const owner = cleanValue(session?.owner).toLowerCase();
+    const agent = cleanValue(session?.agent).toLowerCase();
+    return owner === 'agent' || Boolean(agent && agent !== 'lead');
+  } catch {
+    /* legacy Lead rows may predate a durable session record */
+    return false;
+  }
+}
+
+/** A Lead worker-index row projected into the pool, or null. */
+function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
+  if (!row || typeof row !== 'object') return null;
+  const sessionId = cleanValue(row.sessionId);
+  if (!sessionId || !POOL_SESSION_ID.test(sessionId)) return null;
+  if (leadRowOwnedByAgent(sessionId)) return null;
+  const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
+  const heartbeatFresh = withinPoolWindow(heartbeatAt, now);
+  const recentlyUpdated = withinPoolWindow(Date.parse(cleanValue(row.updatedAt)) || 0, now);
+  const declaredStatus = cleanValue(row.stage || row.status) || 'idle';
+  const working = WORKING_AGENT_STATUS.test(declaredStatus) && (heartbeatFresh || recentlyUpdated);
+  const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
+  if (!heartbeatFresh && reapAt > 0 && now >= reapAt) return null;
+  return {
+    tag: `lead:${sessionId}`,
+    sessionId,
+    ownerSessionId: sessionId,
+    parentSessionId: null,
+    agent: 'lead',
+    provider: cleanValue(row.provider) || null,
+    model: cleanValue(row.model) || null,
+    effort: cleanValue(row.effort) || null,
+    fast: row.fast === true,
+    status: working ? declaredStatus : 'idle',
+    stage: working ? declaredStatus : 'idle',
+    startedAt: row.startedAt || row.createdAt || null,
+    turnStartedAt: working ? row.turnStartedAt || null : null,
+    createdAt: row.createdAt || null,
+    updatedAt: working ? heartbeatAt || row.updatedAt || null : row.updatedAt || null,
+    idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || null),
+    cwd: cleanValue(row.cwd) || null,
+    clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
+    taskId: cleanValue(row.task_id || row.taskId) || null,
+  };
+}
+
+/** A child row is a projection of its Lead. Once the Lead's row is gone (its
+ *  lease was reaped, or the Lead runtime that owned it exited), leaving the
+ *  child in the pool paints it as a top-level Agent-window row with no Lead
+ *  above it (user report). Only a Lead CONVERSATION owner is judged — and a
+ *  child that is still working always stays, so live work never disappears
+ *  from the window. */
+function pruneOrphanChildRows(bySessionId, { liveLeadSessionIds, heartbeatMtimes, now }) {
+  for (const [sessionId, row] of [...bySessionId]) {
+    if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
+    const ownerSessionId = cleanValue(row.ownerSessionId);
+    if (!ownerSessionId || liveLeadSessionIds.has(ownerSessionId)) continue;
+    if (!leadConversationHeader(readWorkerSessionHeader(ownerSessionId))) continue;
+    if (poolRowWorking(row, heartbeatMtimes, now)) continue;
+    bySessionId.delete(sessionId);
+  }
 }
 
 /** Process-global active agent pool. Fresh child heartbeat sidecars are the
@@ -453,222 +656,21 @@ function poolRowWorking(row, heartbeatMtimes, now) {
  * published before the heartbeat or by runtimes without a sidecar. No runtime
  * starts and durable session history is never projected into either pool. */
 export function listStoredAgentWorkers() {
-  const source = storedAgentWorkerIndexRows();
-  const bySessionId = new Map();
   const now = Date.now();
   const heartbeatMtimes = sessionHeartbeatMtimes();
-  // Lead sessions whose pool row is projected below. A child row hangs under
-  // its Lead, so an owner that has no projected row can no longer display one.
-  const liveLeadSessionIds = new Set();
-  for (const row of source) {
-    if (!row || typeof row !== 'object') continue;
-    // Cancelled rows stay visible so the 2-minute heartbeat lease cannot
-    // resurrect them as `running` once DEAD_AGENT_STATUS would have
-    // dropped them from the map. Unconfirmed cancels are not dead, but
-    // also must not be overwritten by the sidecar.
-    if (!activeAgentWorker(row) && !sessionCancelState(row)) continue;
-    if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
-    const sessionId = cleanValue(row.sessionId);
-    const tag = cleanValue(row.tag);
-    if (!sessionId || !tag || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
-    // A new row may precede its first session save (null header).
-    const session = readWorkerSessionHeader(sessionId);
-    const declaredStatus = cleanValue(row.status) || 'running';
-    const declaredStage = cleanValue(row.stage || row.status) || 'running';
-    const declaredWorking = WORKING_AGENT_STATUS.test(declaredStatus) || WORKING_AGENT_STATUS.test(declaredStage);
-    const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
-    const heartbeatFresh = heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-    const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
-    const recentlyUpdated = updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-    const runtimePid = positiveNumber(row.runtimePid, 0);
-    const working = declaredWorking && (!runtimePid || runtimeAlive(runtimePid)) && (heartbeatFresh || recentlyUpdated);
-    const projectedStatus = declaredWorking && !working ? 'idle' : declaredStatus;
-    const projectedStage = declaredWorking && !working ? 'idle' : declaredStage;
-    bySessionId.set(sessionId, {
-      tag,
-      sessionId,
-      // Root ownership and immediate ancestry are independent. Nested
-      // descendants keep the Lead/root owner while pointing at the Agent
-      // session that directly spawned them.
-      ownerSessionId: workerOwnerSessionId(row, session),
-      parentSessionId: workerParentSessionId(row, session),
-      title: cleanValue(row.title || session?.title) || null,
-      agent: cleanValue(row.agent || session?.agent) || null,
-      provider: cleanValue(row.provider || session?.provider) || null,
-      model: cleanValue(row.model || session?.model) || null,
-      effort: cleanValue(row.effort || session?.effort) || null,
-      fast: row.fast === true || session?.fast === true,
-      status: projectedStatus,
-      stage: projectedStage,
-      startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
-      turnStartedAt: working ? row.turnStartedAt || null : null,
-      createdAt: row.createdAt || session?.createdAt || null,
-      updatedAt: row.updatedAt || session?.updatedAt || null,
-      idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || session?.updatedAt || null),
-      reapAt: row.reapAt || null,
-      cwd: cleanValue(row.cwd || session?.cwd) || null,
-      clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
-      taskId: cleanValue(row.task_id || row.taskId) || null,
-    });
-  }
-  for (const [sessionId, heartbeatAt] of heartbeatMtimes) {
-    if (now - heartbeatAt > AGENT_POOL_HEARTBEAT_FRESH_MS) continue;
-    const session = readWorkerSessionHeader(sessionId);
-    if (!session) continue;
-    const current = bySessionId.get(sessionId) || {};
-    const ownerSessionId = workerOwnerSessionId(current, session);
-    const parentSessionId = workerParentSessionId(current, session);
-    const owner = cleanValue(session?.owner).toLowerCase();
-    const agent = cleanValue(session?.agent);
-    if (!ownerSessionId || (owner !== 'agent' && (!agent || agent === 'lead'))) continue;
-    // The durable index row is authoritative for FINISHED work: a worker's
-    // runtime unloads at turn end but its heartbeat sidecar stays fresh for
-    // up to the 2-minute window, and overwriting an idle row to `running`
-    // here made every completed agent show as working and then flip back —
-    // the dock read as blinking (user: 유휴인데 계속 살아있고 깜빡인다).
-    // The sidecar promotes only rows the index does not already mark idle.
-    // A cancel is the same class of authority: the lease must not rewrite
-    // cancelled / cancel-unconfirmed as running at any point. Bare
-    // `cancelling` stays working. Genuinely new work is a strictly later
-    // turn/start stamp, not a heartbeat-rewritten updatedAt.
-    const currentCancel = sessionCancelState(current);
-    const sessionCancel = sessionCancelState(session);
-    // An UNCONFIRMED cancel outranks a confirmed one whichever side holds
-    // it. Taking the index row first let a row still stamped `cancelled`
-    // MASK the durable `cancel-unconfirmed` on the session, reporting a
-    // stop that was never proven as a success. Never the reverse: a
-    // confirmed row only wins when the session is not unconfirmed.
-    const cancel = preferUnconfirmedCancel(currentCancel, sessionCancel);
-    const newerWork = Boolean(cancel?.at) && (workStampMs(current) > cancel.at || workStampMs(session) > cancel.at);
-    if (cancel && !newerWork) {
-      // A cancel outranks a leftover heartbeat. Newer work is only a
-      // strictly later turn/start stamp — never updatedAt, which the
-      // sidecar rewrites every tick.
-      if (currentCancel) continue;
-      bySessionId.set(sessionId, {
-        ...current,
-        tag: cleanValue(session?.agentTag) || cleanValue(current.tag) || `${agent || 'agent'}:${sessionId}`,
-        sessionId,
-        ownerSessionId,
-        parentSessionId,
-        title: cleanValue(session?.title) || current.title || null,
-        agent: agent || current.agent || null,
-        provider: cleanValue(session?.provider) || current.provider || null,
-        model: cleanValue(session?.model) || current.model || null,
-        effort: cleanValue(session?.effort) || current.effort || null,
-        fast: session?.fast === true || current.fast === true,
-        status: cancel.status,
-        stage: cancel.status,
-        startedAt: session?.createdAt || current.startedAt || heartbeatAt,
-        turnStartedAt: current.turnStartedAt || null,
-        createdAt: session?.createdAt || current.createdAt || null,
-        updatedAt: heartbeatAt,
-        cwd: cleanValue(session?.cwd) || current.cwd || null,
-        clientHostPid: positiveNumber(session?.clientHostPid, 0) || current.clientHostPid || null,
-        taskId: cleanValue(session?.task_id || session?.taskId) || current.taskId || null,
-      });
-      continue;
-    }
-    const currentStatus = cleanValue(current.stage || current.status);
-    if (currentStatus && !WORKING_AGENT_STATUS.test(currentStatus)) continue;
-    bySessionId.set(sessionId, {
-      ...current,
-      tag: cleanValue(session?.agentTag) || cleanValue(current.tag) || `${agent || 'agent'}:${sessionId}`,
-      sessionId,
-      ownerSessionId,
-      parentSessionId,
-      title: cleanValue(session?.title) || current.title || null,
-      agent: agent || current.agent || null,
-      provider: cleanValue(session?.provider) || current.provider || null,
-      model: cleanValue(session?.model) || current.model || null,
-      effort: cleanValue(session?.effort) || current.effort || null,
-      fast: session?.fast === true || current.fast === true,
-      // The sidecar is the live lease. Durable child sessions are
-      // intentionally detached/closed while their external owner runs.
-      status: 'running',
-      stage: 'running',
-      startedAt: session?.createdAt || current.startedAt || heartbeatAt,
-      turnStartedAt: current.turnStartedAt || null,
-      createdAt: session?.createdAt || current.createdAt || null,
-      updatedAt: heartbeatAt,
-      cwd: cleanValue(session?.cwd) || current.cwd || null,
-      clientHostPid: positiveNumber(session?.clientHostPid, 0) || current.clientHostPid || null,
-      taskId: cleanValue(session?.task_id || session?.taskId) || current.taskId || null,
-    });
-  }
-  let leadParsed = null;
-  try {
-    leadParsed = JSON.parse(readFileSync(storedLeadWorkerIndexPath(), 'utf8'));
-  } catch {
-    /* no resident Lead pool */
-  }
-  const leadSource = Array.isArray(leadParsed?.workers)
-    ? leadParsed.workers
-    : leadParsed?.workers && typeof leadParsed.workers === 'object'
-      ? Object.values(leadParsed.workers)
-      : [];
-  for (const row of leadSource) {
-    if (!row || typeof row !== 'object') continue;
-    const sessionId = cleanValue(row.sessionId);
-    if (!sessionId || !/^[A-Za-z0-9_-]+$/.test(sessionId)) continue;
-    try {
-      const session = JSON.parse(readFileSync(join(dataDir(), 'sessions', `${sessionId}.json`), 'utf8'));
-      const owner = cleanValue(session?.owner).toLowerCase();
-      const agent = cleanValue(session?.agent).toLowerCase();
-      if (owner === 'agent' || (agent && agent !== 'lead')) continue;
-    } catch {
-      /* legacy Lead rows may predate a durable session record */
-    }
-    const heartbeatAt = heartbeatMtimes.get(sessionId) || 0;
-    const heartbeatFresh = heartbeatAt > 0 && now - heartbeatAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-    const updatedAt = Date.parse(cleanValue(row.updatedAt)) || 0;
-    const recentlyUpdated = updatedAt > 0 && now - updatedAt <= AGENT_POOL_HEARTBEAT_FRESH_MS;
-    const declaredStatus = cleanValue(row.stage || row.status) || 'idle';
-    const working = WORKING_AGENT_STATUS.test(declaredStatus) && (heartbeatFresh || recentlyUpdated);
-    const reapAt = Date.parse(cleanValue(row.reapAt)) || 0;
-    if (!heartbeatFresh && reapAt > 0 && now >= reapAt) continue;
-    liveLeadSessionIds.add(sessionId);
-    bySessionId.set(sessionId, {
-      tag: `lead:${sessionId}`,
-      sessionId,
-      ownerSessionId: sessionId,
-      parentSessionId: null,
-      agent: 'lead',
-      provider: cleanValue(row.provider) || null,
-      model: cleanValue(row.model) || null,
-      effort: cleanValue(row.effort) || null,
-      fast: row.fast === true,
-      status: working ? declaredStatus : 'idle',
-      stage: working ? declaredStatus : 'idle',
-      startedAt: row.startedAt || row.createdAt || null,
-      turnStartedAt: working ? row.turnStartedAt || null : null,
-      createdAt: row.createdAt || null,
-      updatedAt: working ? heartbeatAt || row.updatedAt || null : row.updatedAt || null,
-      idleSince: frozenIdleSince(sessionId, working, row.finishedAt || row.updatedAt || null),
-      cwd: cleanValue(row.cwd) || null,
-      clientHostPid: positiveNumber(row.clientHostPid, 0) || null,
-      taskId: cleanValue(row.task_id || row.taskId) || null,
-    });
-  }
-  // A child row is a projection of its Lead. Once the Lead's row is gone
-  // (its lease was reaped, or the Lead runtime that owned it exited), leaving
-  // the child in the pool paints it as a top-level Agent-window row with no
-  // Lead above it (user report). Only a Lead CONVERSATION owner is judged —
-  // and a child that is still working always stays, so live work never
-  // disappears from the window.
-  for (const [sessionId, row] of [...bySessionId]) {
-    if (cleanValue(row.agent).toLowerCase() === 'lead') continue;
-    const ownerSessionId = cleanValue(row.ownerSessionId);
-    if (!ownerSessionId || liveLeadSessionIds.has(ownerSessionId)) continue;
-    if (!leadConversationHeader(readWorkerSessionHeader(ownerSessionId))) continue;
-    if (poolRowWorking(row, heartbeatMtimes, now)) continue;
-    bySessionId.delete(sessionId);
-  }
-  const rows = [...bySessionId.values()];
-  return rows.sort((left, right) => {
-    const leftTime = Date.parse(String(left.startedAt || '')) || 0;
-    const rightTime = Date.parse(String(right.startedAt || '')) || 0;
-    return leftTime - rightTime || left.tag.localeCompare(right.tag);
+  return assembleStoredAgentWorkers({
+    now,
+    heartbeatMtimes,
+    storedAgentWorkerIndexRows,
+    projectChildWorkerRow,
+    promoteHeartbeatSidecar: (bySessionId, sessionId, heartbeatAt) => {
+      if (withinPoolWindow(heartbeatAt, now)) {
+        promoteHeartbeatSidecar(bySessionId, sessionId, heartbeatAt);
+      }
+    },
+    storedLeadWorkerRows,
+    projectLeadWorkerRow,
+    pruneOrphanChildRows,
   });
 }
 
@@ -833,7 +835,7 @@ function sessionHeartbeatMtimes() {
 function scanSessionFiles(
   heartbeatMtimes = sessionHeartbeatMtimes(),
   indexRowsById = new Map(),
-  { indexMtimeMs = 0, forceRead = false } = {}
+  { forceRead = false } = {}
 ) {
   const directory = join(dataDir(), 'sessions');
   const dirProbe = probePath(directory);
@@ -899,7 +901,6 @@ export function listStoredSessionSummaries(options = {}) {
   // an individual session file cannot be read.
   const indexRowsById = new Map();
   let indexRows = null;
-  let indexMtimeMs = 0;
   const indexRead = readTextFile(indexPath);
   if (indexRead.state === PROBE_PRESENT) {
     try {
@@ -912,8 +913,6 @@ export function listStoredSessionSummaries(options = {}) {
         indexRows = leadRowsWithAgentHeartbeat(normalizedRows).sort(
           (left, right) => (right.lastUsedAt || right.updatedAt || 0) - (left.lastUsedAt || left.updatedAt || 0)
         );
-        const indexProbe = probePath(indexPath);
-        if (indexProbe.state === PROBE_PRESENT) indexMtimeMs = indexProbe.mtimeMs || 0;
       }
     } catch {
       /* malformed sidecar: the files below are the authority */
@@ -922,7 +921,7 @@ export function listStoredSessionSummaries(options = {}) {
   // An index that EXISTS but is unreadable (EACCES/EIO) is neither missing
   // nor empty: the scan below still runs, and when IT cannot enumerate
   // either, the catalog reports nothing rather than inventing an empty truth.
-  const scan = (forceRead = false) => scanSessionFiles(heartbeatMtimes, indexRowsById, { indexMtimeMs, forceRead });
+  const scan = (forceRead = false) => scanSessionFiles(heartbeatMtimes, indexRowsById, { forceRead });
   if (options.refreshFromStorage === true) return scan(true) ?? indexRows ?? [];
   if (indexRows) {
     if (options.rebuildIfMissing === false) return indexRows;

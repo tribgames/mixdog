@@ -16,7 +16,7 @@ test('pointer modifiers apply to the gesture and all owned keys release after pa
     await writeFile(join(directory, 'input.ps1'), PS_INPUT);
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;

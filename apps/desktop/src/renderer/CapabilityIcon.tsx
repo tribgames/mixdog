@@ -198,16 +198,10 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
       );
     case 'attach':
       return (
-        <>
-          <path d="m15.75 7.25-6.9 6.9a1.75 1.75 0 0 0 2.5 2.5l7.4-7.4a3.75 3.75 0 0 0-5.3-5.3l-7.6 7.6a5.25 5.25 0 0 0 7.4 7.4l5.25-5.25" />
-        </>
+        <path d="m15.75 7.25-6.9 6.9a1.75 1.75 0 0 0 2.5 2.5l7.4-7.4a3.75 3.75 0 0 0-5.3-5.3l-7.6 7.6a5.25 5.25 0 0 0 7.4 7.4l5.25-5.25" />
       );
     case 'recall':
-      return (
-        <>
-          <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 8.5M4.5 4.5v4h4M12 8.5V12l2.5 1.75" />
-        </>
-      );
+      return <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 8.5M4.5 4.5v4h4M12 8.5V12l2.5 1.75" />;
     // The settings cog every OS uses: a ring with six square teeth and a hub.
     case 'setup':
       return (

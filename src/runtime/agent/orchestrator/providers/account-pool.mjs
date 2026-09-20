@@ -84,7 +84,9 @@ function boundAccountSend(providerName, row, messages, options) {
       return options[key]?.(...args);
     };
   }
-  const scope = createHash('sha256').update(`${providerName}:${row.id}:${options.sessionId || ''}`).digest('hex');
+  const scope = createHash('sha256')
+    .update(`${providerName}:${row.id}:${options.sessionId || ''}`)
+    .digest('hex');
   if (options.sessionId) opts.sessionId = `account-${scope}`;
   opts.providerState = options.providerState?.providerAccountId === row.id ? options.providerState : undefined;
   const history = messages.map((message) => {
@@ -100,7 +102,7 @@ function commitFallbackAccount(providerName, pool, row) {
   if (row.id === pool.selectedId) return;
   const current = readProviderAccountPool(providerName);
   if (current.selectedId === pool.selectedId && current.accounts.some((entry) => entry.id === row.id)) {
-    changeProviderAccounts(providerName, { selectedId: row.id });
+    return changeProviderAccounts(providerName, { selectedId: row.id });
   }
 }
 
@@ -154,7 +156,20 @@ function poolSend(providerName, account) {
         const result = await account(row.id).send(bound.history, model, tools, bound.opts);
         if (result?.providerReplay) result.providerReplay = { ...result.providerReplay, accountId: row.id };
         if (result?.providerState) result.providerState = { ...result.providerState, providerAccountId: row.id };
-        commitFallbackAccount(providerName, pool, row);
+        if (commitFallbackAccount(providerName, pool, row)) {
+          // Publish only a committed selection, never a speculative retry or
+          // one superseded by a manual switch. The existing progress channel
+          // carries this across runtime shards to the attached UI.
+          try {
+            await options.onStageChange?.('account-changed', {
+              provider: providerName,
+              accountId: row.id,
+              at: Date.now(),
+            });
+          } catch {
+            // A UI refresh must not turn a successful model response into a retry.
+          }
+        }
         return result;
       } catch (error) {
         if (options.signal?.aborted) throw error;

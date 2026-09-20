@@ -12,8 +12,14 @@ import { pluginServerMatcher } from './resource-mcp-api.mjs';
 const pluginKey = (plugin) => clean(plugin.id || plugin.name || plugin);
 
 export function createPluginsResourceApi({ deps, sync, decorate }) {
-  const { getConfig, cfgMod, saveConfigAndAdopt, connectConfiguredMcp, invalidatePreSessionToolSurface, pluginsStatus } =
-    deps;
+  const {
+    getConfig,
+    cfgMod,
+    saveConfigAndAdopt,
+    connectConfiguredMcp,
+    invalidatePreSessionToolSurface,
+    pluginsStatus,
+  } = deps;
   const pluginData = () => cfgMod.getPluginData?.();
 
   /** Rewrite the plugin's MCP entries through `rewrite`; when any existed,

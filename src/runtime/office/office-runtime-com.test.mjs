@@ -134,7 +134,7 @@ test('operation registry matches every COM implementation and rejects unknown fi
   for (const [format, startMarker, endMarker] of sections) {
     const start = source.indexOf(startMarker);
     const block = source.slice(start, source.indexOf(endMarker, start + startMarker.length));
-    const implemented = [...block.matchAll(/^\s{4}'([a-z][a-z0-9_]*)'\s*\{/gm)].map((match) => match[1]).sort();
+    const implemented = [...block.matchAll(/^\s{4,8}'([a-z][a-z0-9_]*)'\s*\{/gm)].map((match) => match[1]).sort();
     const described = describeOfficeCapabilities({
       format,
       backend: 'microsoft-office-com',

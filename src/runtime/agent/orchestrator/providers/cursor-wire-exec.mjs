@@ -267,7 +267,10 @@ function mcpResultPayload(ok, text, media) {
   if (!ok) return { error: { error: text || 'Tool failed' } };
   return {
     success: {
-      content: [{ text: { text } }, ...media.map((image) => ({ image: { data: image.data, mimeType: image.mimeType } }))],
+      content: [
+        { text: { text } },
+        ...media.map((image) => ({ image: { data: image.data, mimeType: image.mimeType } })),
+      ],
       isError: false,
     },
   };

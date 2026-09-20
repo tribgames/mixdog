@@ -43,7 +43,10 @@ function messageText(message) {
   if (typeof message?.content === 'string') return message.content;
   if (!Array.isArray(message?.content)) return '';
   return message.content
-    .map((block) => (typeof block === 'string' ? block : block?.type === 'text' ? block.text || '' : ''))
+    .map((block) => {
+      if (typeof block === 'string') return block;
+      return block?.type === 'text' ? block.text || '' : '';
+    })
     .join('');
 }
 

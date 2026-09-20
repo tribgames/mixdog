@@ -1,5 +1,5 @@
-import { readdir } from 'fs/promises';
-import { join } from 'path';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 // Glob-to-RegExp compiler for name filters used by find_files and the
 // list-tool family. Supported syntax:
@@ -78,13 +78,13 @@ function compileVariant(variant) {
         // Escape backslashes inside the class; hyphens and other
         // chars are passed through so `[a-z]` ranges still work.
         const inner = variant.slice(innerStart, j).replace(/\\/g, '\\\\');
-        body += '[' + (negate ? '^' : '') + inner + ']';
+        body += `[${negate ? '^' : ''}${inner}]`;
         i = j;
       } else {
         body += '\\[';
       }
     } else if (REGEX_META.test(ch)) {
-      body += '\\' + ch;
+      body += `\\${ch}`;
     } else {
       body += ch;
     }
@@ -107,7 +107,7 @@ export function compileSimpleGlob(pattern) {
   if (body.length > MAX_REGEX_BODY_LENGTH) {
     throw new Error(`glob regex body length ${body.length} exceeds limit ${MAX_REGEX_BODY_LENGTH}`);
   }
-  return new RegExp('^' + body + DOLLAR, 'i');
+  return new RegExp(`^${body}${DOLLAR}`, 'i');
 }
 
 // Directory names that are dependency / build / cache artifacts. Skipped

@@ -15,6 +15,11 @@ export class PausedComputerWork extends Error {
   }
 }
 
+function stepStatus(index: number, completed: number, uncertain: number | undefined) {
+  if (index < completed) return 'succeeded';
+  return index === uncertain ? 'uncertain' : 'pending';
+}
+
 function workProgress(command: ComputerCommand, progress: ComputerWorkProgress) {
   const steps = Array.isArray(command.steps) ? command.steps : [command];
   const uncertain = progress.inFlight;
@@ -26,7 +31,7 @@ function workProgress(command: ComputerCommand, progress: ComputerWorkProgress) 
     steps: steps.map((step, index) => ({
       index: index + 1,
       action: step.action,
-      status: index < progress.completed ? 'succeeded' : index === uncertain ? 'uncertain' : 'pending',
+      status: stepStatus(index, progress.completed, uncertain),
     })),
     pending_work: {
       completed_steps: progress.completed,

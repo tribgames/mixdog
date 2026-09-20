@@ -22,7 +22,7 @@
 //                                           whisper.cpp only
 //   selectVoiceModelId()                  → the configured whisper model id
 
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
@@ -36,13 +36,13 @@ import {
   rmSync,
   statSync,
   writeFileSync,
-} from 'fs';
-import { setTimeout as sleep } from 'timers/promises';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
-import { pipeline } from 'stream/promises';
-import { spawnSync } from 'child_process';
-import { createGunzip } from 'zlib';
+} from 'node:fs';
+import { setTimeout as sleep } from 'node:timers/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { pipeline } from 'node:stream/promises';
+import { spawnSync } from 'node:child_process';
+import { createGunzip } from 'node:zlib';
 import { renameWithRetrySync, writeFileAtomicSync } from '../../shared/atomic-file.mjs';
 import { streamResponseToFile } from '../../shared/bounded-download.mjs';
 import { platformKey, sha256File, verifySha256File } from '../../shared/native-asset.mjs';
@@ -69,6 +69,12 @@ const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 // forever. The check is age-only fallback — a verified-dead pid is
 // still reclaimed immediately.
 const LOCK_MAX_AGE_MS = 30 * 60 * 1000;
+
+/** Lock age: the on-disk timestamp when present, else this waiter's first sighting; 0 without either. */
+function lockAgeMs(holderTs, waitSince) {
+  if (Number.isFinite(holderTs) && holderTs > 0) return Date.now() - holderTs;
+  return waitSince ? Date.now() - waitSince : 0;
+}
 
 function _readInstallLockToken(lockPath) {
   try {
@@ -169,12 +175,7 @@ async function _withInstallLock(rootDir, lockName, fn, { pollMs = 250 } = {}) {
           // LOCK_MAX_AGE_MS without release() is stale. Timestamped
           // locks use on-disk age; legacy pid-only locks use this
           // waiter's first-observed time so PID reuse cannot hang forever.
-          const ageMs =
-            Number.isFinite(holderTs) && holderTs > 0
-              ? Date.now() - holderTs
-              : samePidWaitSince
-                ? Date.now() - samePidWaitSince
-                : 0;
+          const ageMs = lockAgeMs(holderTs, samePidWaitSince);
           if (!Number.isFinite(holderTs) || holderTs <= 0) {
             if (!samePidWaitSince) samePidWaitSince = Date.now();
           }
@@ -208,12 +209,7 @@ async function _withInstallLock(rootDir, lockName, fn, { pollMs = 250 } = {}) {
         // Prefer the on-disk timestamp; fall back to the first time
         // THIS waiter saw the lock if the file predates the timestamp
         // format.
-        const ageMs =
-          Number.isFinite(holderTs) && holderTs > 0
-            ? Date.now() - holderTs
-            : foreignWaitSince
-              ? Date.now() - foreignWaitSince
-              : 0;
+        const ageMs = lockAgeMs(holderTs, foreignWaitSince);
         if (!foreignWaitSince) foreignWaitSince = Date.now();
         if (ageMs > LOCK_MAX_AGE_MS) {
           if (_installLockTokenMatches(lockPath, holderPid, holderTs, holderToken)) {
@@ -320,7 +316,7 @@ function detectCudaMajorsLinux() {
   }
   dirs.push('/usr/local/cuda/lib64', '/usr/lib/x86_64-linux-gnu', '/usr/lib/aarch64-linux-gnu');
   const cudaPath = process.env.CUDA_PATH;
-  if (cudaPath) dirs.push(cudaPath + '/lib64');
+  if (cudaPath) dirs.push(`${cudaPath}/lib64`);
   for (const d of dirs) {
     if (!existsSync(d)) continue;
     try {

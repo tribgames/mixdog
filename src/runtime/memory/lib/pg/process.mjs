@@ -9,11 +9,11 @@ import { sleep as delay } from '../../../shared/sleep.mjs';
 //   stopPg({ runtimeDir, pgdataDir })                   → void
 //   healthcheckPg({ port, host? })                      → boolean
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
-import { join } from 'path';
-import { spawn, spawnSync } from 'child_process';
-import { createConnection } from 'net';
-import { createServer } from 'net';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawn, spawnSync } from 'node:child_process';
+import { createConnection } from 'node:net';
+import { createServer } from 'node:net';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 
 // ---------------------------------------------------------------------------
@@ -117,48 +117,44 @@ function buildV2Block() {
   if (process.platform === 'linux') {
     lines.push('effective_io_concurrency = 32');
   }
-  return lines.join('\n') + '\n';
+  return `${lines.join('\n')}\n`;
 }
 
 function buildV3Block() {
-  return (
-    [
-      '',
-      MIXDOG_CONF_V3_MARKER,
-      // The only long-lived pools are memory(max 5) + trace(max 5). Keep ample
-      // recovery/bootstrap headroom without reserving backend slots for 100
-      // connections this single-user local store can never use.
-      'max_connections = 32',
-      // Mixdog queries are short indexed lookups / bounded batches. LLVM compile
-      // setup adds latency and transient memory; parallel query workers remain
-      // untouched for genuinely large scans.
-      'jit = off',
-    ].join('\n') + '\n'
-  );
+  return `${[
+    '',
+    MIXDOG_CONF_V3_MARKER,
+    // The only long-lived pools are memory(max 5) + trace(max 5). Keep ample
+    // recovery/bootstrap headroom without reserving backend slots for 100
+    // connections this single-user local store can never use.
+    'max_connections = 32',
+    // Mixdog queries are short indexed lookups / bounded batches. LLVM compile
+    // setup adds latency and transient memory; parallel query workers remain
+    // untouched for genuinely large scans.
+    'jit = off',
+  ].join('\n')}\n`;
 }
 
 function buildV4Block() {
-  return (
-    [
-      '',
-      MIXDOG_CONF_V4_MARKER,
-      // Single-user local store: the working set is a few hundred MB of rows
-      // behind indexed lookups, so the PG default 128MB shared_buffers mostly
-      // duplicates the OS page cache. 32MB keeps hot btree/HNSW pages resident
-      // while returning ~100MB to the machine; cold pages ride the OS cache.
-      'shared_buffers = 32MB',
-      // Follows shared_buffers down (default is 1/32 of it, min 64kB; a fixed
-      // 1MB keeps commit bursts from the memory-cycle writers batched).
-      'wal_buffers = 1MB',
-      // Bounded per-backend sort/hash memory for the small result sets Mixdog
-      // queries produce (default 4MB is already modest; make it explicit so a
-      // future PG bump cannot silently raise it).
-      'work_mem = 4MB',
-      // Vacuum/index maintenance on this store touches small tables; 64MB is
-      // ample and caps autovacuum spikes (default 64MB kept explicit).
-      'maintenance_work_mem = 64MB',
-    ].join('\n') + '\n'
-  );
+  return `${[
+    '',
+    MIXDOG_CONF_V4_MARKER,
+    // Single-user local store: the working set is a few hundred MB of rows
+    // behind indexed lookups, so the PG default 128MB shared_buffers mostly
+    // duplicates the OS page cache. 32MB keeps hot btree/HNSW pages resident
+    // while returning ~100MB to the machine; cold pages ride the OS cache.
+    'shared_buffers = 32MB',
+    // Follows shared_buffers down (default is 1/32 of it, min 64kB; a fixed
+    // 1MB keeps commit bursts from the memory-cycle writers batched).
+    'wal_buffers = 1MB',
+    // Bounded per-backend sort/hash memory for the small result sets Mixdog
+    // queries produce (default 4MB is already modest; make it explicit so a
+    // future PG bump cannot silently raise it).
+    'work_mem = 4MB',
+    // Vacuum/index maintenance on this store touches small tables; 64MB is
+    // ample and caps autovacuum spikes (default 64MB kept explicit).
+    'maintenance_work_mem = 64MB',
+  ].join('\n')}\n`;
 }
 
 // Migration: an earlier v2 emitted effective_io_concurrency on every POSIX
@@ -220,6 +216,211 @@ export function reconcileConfV2(runtimeDir, pgdataDir) {
 // startPg
 // ---------------------------------------------------------------------------
 
+/**
+ * Pre-check: if postmaster.pid exists and the instance is reachable, attach
+ * rather than attempting a second pg_ctl start (which would crash the worker).
+ * Returns the attach result, or null when the recorded instance is dead and
+ * a normal start may reclaim the stale lock.
+ */
+async function attachExistingPostmaster({ runtimeDir, pgdataDir, env, existingWaitMs, v2Applied }) {
+  if (!existsSync(join(pgdataDir, 'postmaster.pid'))) return null;
+  const existing = await awaitExistingPostmaster({ runtimeDir, pgdataDir, env, waitMs: existingWaitMs });
+  if (existing.state === 'ready') {
+    __mixdogMemoryLog(`[pg-process] attaching to existing PG pid=${existing.pid} port=${existing.port}\n`);
+    // Route through the single reconcile entry point so v1 → v2 conf
+    // upgrades land on already-running instances without restart.
+    if (v2Applied) reconcileConfV2(runtimeDir, pgdataDir);
+    return { pid: existing.pid, port: existing.port, attached: true };
+  }
+  if (existing.state === 'alive-not-ready') {
+    // A postmaster in startup/shutdown still owns this pgdata even when it no
+    // longer accepts connections. Starting the same directory on a "free"
+    // alternate port produces the observed endless "another server might be
+    // running" loop and can corrupt lifecycle state. The supervisor may
+    // finish a graceful stop, but this lower layer must never race it.
+    throw new Error(
+      `[pg-process] existing PG pid=${existing.pid} port=${existing.port} is alive but not ready; refusing concurrent start`
+    );
+  }
+  // Dead instance — fall through to normal startup; pg_ctl reclaims the stale lock.
+  return null;
+}
+
+// Append mixdog-specific postgresql.conf overrides.
+// default_transaction_isolation: native PG default is read committed.
+// Native PG does not default to serializable; set isolation level explicitly
+// so behaviour is unambiguous across PG major versions.
+function freshClusterConfAppend() {
+  return (
+    [
+      '',
+      '# mixdog overrides — appended by pg-process.mjs',
+      "default_transaction_isolation = 'read committed'",
+      "listen_addresses = '127.0.0.1'",
+      'log_min_messages = warning',
+      "log_line_prefix = '%t [%p]: '",
+      '',
+      '# Defender/AV latency mitigations',
+      'synchronous_commit = off', // defers fsync ack; trade-off: crash → latest async commits since last WAL flush may be lost; acceptable for local memory store
+      'checkpoint_timeout = 15min', // halves checkpoint frequency vs 5min default; fewer sync storms
+      'max_wal_size = 2GB', // suppresses forced checkpoints driven by WAL volume
+      'wal_compression = on', // smaller WAL segments; fewer bytes for Defender to scan per segment
+      'wal_init_zero = off', // skips zero-fill on new WAL segment; cuts Defender contact at segment creation
+      'wal_recycle = off', // disables WAL rename/recycle loop; eliminates rename-storm EPERM pattern in pgdata
+    ].join('\n') +
+    '\n' +
+    buildV2Block() +
+    buildV3Block()
+  );
+}
+
+/** initdb if pgdata is not yet initialised (no PG_VERSION file). */
+function initClusterIfNeeded({ runtimeDir, pgdataDir, env }) {
+  if (existsSync(join(pgdataDir, 'PG_VERSION'))) return;
+  __mixdogMemoryLog(`[pg-process] initdb → ${pgdataDir}\n`);
+  const r = spawnSync(
+    pgBin(runtimeDir, 'initdb'),
+    ['-D', pgdataDir, '--auth-local=trust', '--no-locale', '-E', 'UTF8', '-U', 'postgres'],
+    { env, stdio: 'pipe', windowsHide: true }
+  );
+  if (r.status !== 0) {
+    const detail =
+      r.error?.message ||
+      r.stderr?.toString() ||
+      r.stdout?.toString() ||
+      `status=${r.status} signal=${r.signal} (no captured output)`;
+    throw new Error(`[pg-process] initdb failed: ${detail}`);
+  }
+  const confPath = join(pgdataDir, 'postgresql.conf');
+  try {
+    const existing = readFileSync(confPath, 'utf8');
+    writeFileSync(confPath, existing + freshClusterConfAppend());
+  } catch (e) {
+    __mixdogMemoryLog(`[pg-process] postgresql.conf append failed: ${e?.message}\n`);
+  }
+  if (process.platform === 'win32') {
+    __mixdogMemoryLog(
+      `[pg-process] Windows tip: if startup feels slow, add the data folder to Defender exclusions.\n` +
+        `  Folder: ${pgdataDir}\n` +
+        `  PowerShell (run as admin): Add-MpPreference -ExclusionPath '${pgdataDir}'\n`
+    );
+  }
+}
+
+// Read pid + port from postmaster.pid (line 1 = pid, line 4 = port). Returns
+// null unless the file exists, pid > 0, and its port matches ours.
+function readPostmaster(pgdataDir, port) {
+  try {
+    const pidFile = join(pgdataDir, 'postmaster.pid');
+    if (!existsSync(pidFile)) return null;
+    const lines = readFileSync(pidFile, 'utf8').split('\n');
+    const pid = parseInt(lines[0], 10);
+    const pmPort = parseInt(lines[3], 10);
+    if (pid > 0 && pmPort === port) return { pid };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// pg_isready can succeed a beat before postmaster.pid is fully written; give
+// it a brief window to appear (and confirm the port matches) before trusting.
+async function confirmPid(pgdataDir, port) {
+  for (let i = 0; i < 5; i++) {
+    const pm = readPostmaster(pgdataDir, port);
+    if (pm) return pm.pid;
+    await delay(100);
+  }
+  return null;
+}
+
+/**
+ * Spawn pg_ctl asynchronously (no -w) and poll readiness ourselves. On
+ * AV-throttled boxes pg_ctl can lag ~30s behind actual postmaster readiness,
+ * so we return the instant pg_isready succeeds rather than waiting on pg_ctl.
+ * Only the long-lived child handle is unref'd; poll timers stay ref'd (the
+ * poll-sleep must keep the process alive while readiness is awaited).
+ */
+async function startAndWaitReady({ pgctl, startArgs, env, pgdataDir, port }) {
+  // NEVER set `detached` on win32: DETACHED_PROCESS makes the OS ignore
+  // `windowsHide`, so pg_ctl + the postmaster it launches allocate a VISIBLE
+  // console (see shared/spawn-flags.mjs). Detachment gave no real isolation
+  // here anyway: `pg_ctl start` daemonizes the postmaster and exits at once,
+  // so the postmaster is already reparented OUT of the Node process tree —
+  // detached only isolated the short-lived pg_ctl. Shutdown/reuse target
+  // pgdata/postmaster.pid (pg_ctl stop -D, tryReusePgInstance), not a
+  // Node-tree taskkill, so `windowsHide` alone is correct on all platforms.
+  const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+  child.unref?.();
+  const run = { stdout: '', stderr: '', closed: false, exitCode: null };
+  child.stdout?.on('data', (d) => {
+    run.stdout += d.toString();
+  });
+  child.stderr?.on('data', (d) => {
+    run.stderr += d.toString();
+  });
+  child.stdout?.unref?.();
+  child.stderr?.unref?.();
+  child.on('error', (err) => {
+    run.closed = true;
+    run.exitCode = -1;
+    run.stderr += err?.message || String(err);
+  });
+  // Use 'close' (stdio flushed), not 'exit', so captured stderr is complete
+  // and the "another server might be running" match below never truncates.
+  child.on('close', (code) => {
+    run.closed = true;
+    run.exitCode = code;
+  });
+
+  const deadline = Date.now() + 30_000;
+  while (true) {
+    if (await healthcheckPg({ port })) {
+      const pid = await confirmPid(pgdataDir, port);
+      // pid confirmed with matching port → ready. Otherwise keep polling until
+      // the cap (postmaster.pid not yet written or port mismatch).
+      if (pid != null) return { ready: true, pid };
+    }
+    // pg_ctl exited nonzero before PG became reachable — real startup failure.
+    if (run.closed && run.exitCode !== 0) return { ready: false, exited: true, stdout: run.stdout, stderr: run.stderr };
+    if (Date.now() >= deadline) return { ready: false, timeout: true, stdout: run.stdout, stderr: run.stderr };
+    await delay(250);
+  }
+}
+
+/**
+ * A cross-process race can still land after the pre-check. Re-probe and
+ * attach if that winner becomes ready; never immediate-stop an unknown live
+ * postmaster, because synchronous_commit=off makes a crash-stop lossy.
+ */
+async function attachRaceWinner({ runtimeDir, pgdataDir, pgctl, env, existingWaitMs }) {
+  __mixdogMemoryLog(`[pg-process] pg_ctl start: "another server might be running" — probing status\n`);
+  const statusR = spawnSync(pgctl, ['status', '-D', pgdataDir], {
+    env,
+    stdio: 'pipe',
+    timeout: 3_000,
+    windowsHide: true,
+  });
+  __mixdogMemoryLog(
+    `[pg-process] pg_ctl status: ${statusR.stdout?.toString() || statusR.stderr?.toString() || 'no output'}\n`
+  );
+  const existing = await awaitExistingPostmaster({ runtimeDir, pgdataDir, env, waitMs: existingWaitMs });
+  if (existing.state !== 'ready') return null;
+  __mixdogMemoryLog(`[pg-process] attaching to race winner pid=${existing.pid} port=${existing.port}\n`);
+  return { pid: existing.pid, port: existing.port, attached: true };
+}
+
+function startFailure(r, errText, logFile) {
+  let serverLog = '';
+  try {
+    serverLog = readFileSync(logFile, 'utf8').trim();
+  } catch {}
+  const detail =
+    [errText.trim(), serverLog ? `postgres log:\n${serverLog}` : ''].filter(Boolean).join('\n') ||
+    (r.timeout ? '(readiness probe timed out after 30s; no pg_ctl or postgres log output)' : '(no captured output)');
+  return new Error(`[pg-process] pg_ctl start failed: ${detail}`);
+}
+
 export async function startPg({
   runtimeDir,
   pgdataDir,
@@ -231,103 +432,15 @@ export async function startPg({
 
   // Idempotent v2 conf reconcile — runs before attach/init. Returns true if
   // the block was just appended (so the attach path can trigger pg_ctl reload).
-  // Fresh-init path falls through to confAppend below which already includes v2.
+  // Fresh-init path falls through to the conf append which already includes v2.
   const v2Applied = ensureConfV2(pgdataDir);
   const env = libEnv(runtimeDir);
 
-  // Pre-check: if postmaster.pid exists and the instance is reachable, attach
-  // rather than attempting a second pg_ctl start (which would crash the worker).
-  const postmasterPidPath = join(pgdataDir, 'postmaster.pid');
-  if (existsSync(postmasterPidPath)) {
-    const existing = await awaitExistingPostmaster({
-      runtimeDir,
-      pgdataDir,
-      env,
-      waitMs: existingWaitMs,
-    });
-    if (existing.state === 'ready') {
-      __mixdogMemoryLog(`[pg-process] attaching to existing PG pid=${existing.pid} port=${existing.port}\n`);
-      // Route through the single reconcile entry point so v1 → v2 conf
-      // upgrades land on already-running instances without restart.
-      if (v2Applied) reconcileConfV2(runtimeDir, pgdataDir);
-      return { pid: existing.pid, port: existing.port, attached: true };
-    }
-    if (existing.state === 'alive-not-ready') {
-      // A postmaster in startup/shutdown still owns this pgdata even when it no
-      // longer accepts connections. Starting the same directory on a "free"
-      // alternate port produces the observed endless "another server might be
-      // running" loop and can corrupt lifecycle state. The supervisor may
-      // finish a graceful stop, but this lower layer must never race it.
-      throw new Error(
-        `[pg-process] existing PG pid=${existing.pid} port=${existing.port} is alive but not ready; refusing concurrent start`
-      );
-    }
-    // Dead instance — fall through to normal startup; pg_ctl reclaims the stale lock.
-  }
+  const attached = await attachExistingPostmaster({ runtimeDir, pgdataDir, env, existingWaitMs, v2Applied });
+  if (attached) return attached;
 
-  const initdb = pgBin(runtimeDir, 'initdb');
   const pgctl = pgBin(runtimeDir, 'pg_ctl');
-
-  // initdb if pgdata is not yet initialised (no PG_VERSION file).
-  const pgVersionFile = join(pgdataDir, 'PG_VERSION');
-  if (!existsSync(pgVersionFile)) {
-    __mixdogMemoryLog(`[pg-process] initdb → ${pgdataDir}\n`);
-    const r = spawnSync(
-      initdb,
-      ['-D', pgdataDir, '--auth-local=trust', '--no-locale', '-E', 'UTF8', '-U', 'postgres'],
-      { env, stdio: 'pipe', windowsHide: true }
-    );
-
-    if (r.status !== 0) {
-      const detail =
-        r.error?.message ||
-        r.stderr?.toString() ||
-        r.stdout?.toString() ||
-        `status=${r.status} signal=${r.signal} (no captured output)`;
-      throw new Error(`[pg-process] initdb failed: ${detail}`);
-    }
-
-    // Append mixdog-specific postgresql.conf overrides.
-    // default_transaction_isolation: native PG default is read committed.
-    // Native PG does not default to serializable; set isolation level explicitly
-    // so behaviour is unambiguous across PG major versions.
-    const confPath = join(pgdataDir, 'postgresql.conf');
-    const confAppend =
-      [
-        '',
-        '# mixdog overrides — appended by pg-process.mjs',
-        "default_transaction_isolation = 'read committed'",
-        "listen_addresses = '127.0.0.1'",
-        'log_min_messages = warning',
-        "log_line_prefix = '%t [%p]: '",
-        '',
-        '# Defender/AV latency mitigations',
-        'synchronous_commit = off', // defers fsync ack; trade-off: crash → latest async commits since last WAL flush may be lost; acceptable for local memory store
-        'checkpoint_timeout = 15min', // halves checkpoint frequency vs 5min default; fewer sync storms
-        'max_wal_size = 2GB', // suppresses forced checkpoints driven by WAL volume
-        'wal_compression = on', // smaller WAL segments; fewer bytes for Defender to scan per segment
-        'wal_init_zero = off', // skips zero-fill on new WAL segment; cuts Defender contact at segment creation
-        'wal_recycle = off', // disables WAL rename/recycle loop; eliminates rename-storm EPERM pattern in pgdata
-      ].join('\n') +
-      '\n' +
-      buildV2Block() +
-      buildV3Block();
-
-    try {
-      const existing = readFileSync(confPath, 'utf8');
-      writeFileSync(confPath, existing + confAppend);
-    } catch (e) {
-      __mixdogMemoryLog(`[pg-process] postgresql.conf append failed: ${e?.message}\n`);
-    }
-
-    if (process.platform === 'win32') {
-      __mixdogMemoryLog(
-        `[pg-process] Windows tip: if startup feels slow, add the data folder to Defender exclusions.\n` +
-          `  Folder: ${pgdataDir}\n` +
-          `  PowerShell (run as admin): Add-MpPreference -ExclusionPath '${pgdataDir}'\n`
-      );
-    }
-  }
+  initClusterIfNeeded({ runtimeDir, pgdataDir, env });
   // PostgreSQL requires a completely empty target on first init. Creating the
   // Spotlight marker before initdb makes every fresh macOS cluster fail with
   // "directory exists but is not empty"; add it only after initialization.
@@ -340,133 +453,18 @@ export async function startPg({
   // Choose a free port (guards against stale postmaster from prior crash).
   const port = await findFreePort(preferredPort);
   const logFile = logPath ?? join(pgdataDir, 'pg.log');
-
   __mixdogMemoryLog(`[pg-process] pg_ctl start -D ${pgdataDir} -p ${port}\n`);
-
   const startArgs = ['start', '-D', pgdataDir, '-l', logFile, '-o', `-p ${port} -h 127.0.0.1`];
 
-  // Poll-sleep is intentionally NOT unref'd: while startPg is awaiting readiness
-  // it must keep the process alive even if the event loop would otherwise drain.
-  // Read pid + port from postmaster.pid (line 1 = pid, line 4 = port). Returns
-  // null unless the file exists, pid > 0, and its port matches ours.
-  function readPostmaster() {
-    try {
-      const pidFile = join(pgdataDir, 'postmaster.pid');
-      if (!existsSync(pidFile)) return null;
-      const lines = readFileSync(pidFile, 'utf8').split('\n');
-      const pid = parseInt(lines[0], 10);
-      const pmPort = parseInt(lines[3], 10);
-      if (pid > 0 && pmPort === port) return { pid };
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
-  // pg_isready can succeed a beat before postmaster.pid is fully written; give
-  // it a brief window to appear (and confirm the port matches) before trusting.
-  async function confirmPid() {
-    for (let i = 0; i < 5; i++) {
-      const pm = readPostmaster();
-      if (pm) return pm.pid;
-      await delay(100);
-    }
-    return null;
-  }
-
-  // Spawn pg_ctl asynchronously (no -w) and poll readiness ourselves. On
-  // AV-throttled boxes pg_ctl can lag ~30s behind actual postmaster readiness,
-  // so we return the instant pg_isready succeeds rather than waiting on pg_ctl.
-  // Only the long-lived child handle is unref'd; poll timers stay ref'd.
-  async function startAndWaitReady() {
-    // NEVER set `detached` on win32: DETACHED_PROCESS makes the OS ignore
-    // `windowsHide`, so pg_ctl + the postmaster it launches allocate a VISIBLE
-    // console (see shared/spawn-flags.mjs). Detachment gave no real isolation
-    // here anyway: `pg_ctl start` daemonizes the postmaster and exits at once,
-    // so the postmaster is already reparented OUT of the Node process tree —
-    // detached only isolated the short-lived pg_ctl. Shutdown/reuse target
-    // pgdata/postmaster.pid (pg_ctl stop -D, tryReusePgInstance), not a
-    // Node-tree taskkill, so `windowsHide` alone is correct on all platforms.
-    const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
-    child.unref?.();
-    let stdout = '',
-      stderr = '',
-      closed = false,
-      exitCode = null;
-    child.stdout?.on('data', (d) => {
-      stdout += d.toString();
-    });
-    child.stderr?.on('data', (d) => {
-      stderr += d.toString();
-    });
-    child.stdout?.unref?.();
-    child.stderr?.unref?.();
-    child.on('error', (err) => {
-      closed = true;
-      exitCode = -1;
-      stderr += err?.message || String(err);
-    });
-    // Use 'close' (stdio flushed), not 'exit', so captured stderr is complete
-    // and the "another server might be running" match below never truncates.
-    child.on('close', (code) => {
-      closed = true;
-      exitCode = code;
-    });
-
-    const deadline = Date.now() + 30_000;
-    // eslint-disable-next-line no-constant-condition
-    while (true) {
-      if (await healthcheckPg({ port })) {
-        const pid = await confirmPid();
-        // pid confirmed with matching port → ready. Otherwise keep polling until
-        // the cap (postmaster.pid not yet written or port mismatch).
-        if (pid != null) return { ready: true, pid };
-      }
-      // pg_ctl exited nonzero before PG became reachable — real startup failure.
-      if (closed && exitCode !== 0) return { ready: false, exited: true, stdout, stderr };
-      if (Date.now() >= deadline) return { ready: false, timeout: true, stdout, stderr };
-      await delay(250);
-    }
-  }
-
-  const r = await startAndWaitReady();
+  const r = await startAndWaitReady({ pgctl, startArgs, env, pgdataDir, port });
   if (r.ready) return { pid: r.pid, port };
 
   const errText = r.stderr || r.stdout || '';
-  // A cross-process race can still land after the pre-check. Re-probe and
-  // attach if that winner becomes ready; never immediate-stop an unknown live
-  // postmaster, because synchronous_commit=off makes a crash-stop lossy.
   if (r.exited && errText.includes('another server might be running')) {
-    __mixdogMemoryLog(`[pg-process] pg_ctl start: "another server might be running" — probing status\n`);
-    const statusR = spawnSync(pgctl, ['status', '-D', pgdataDir], {
-      env,
-      stdio: 'pipe',
-      timeout: 3_000,
-      windowsHide: true,
-    });
-    __mixdogMemoryLog(
-      `[pg-process] pg_ctl status: ${statusR.stdout?.toString() || statusR.stderr?.toString() || 'no output'}\n`
-    );
-    const existing = await awaitExistingPostmaster({
-      runtimeDir,
-      pgdataDir,
-      env,
-      waitMs: existingWaitMs,
-    });
-    if (existing.state === 'ready') {
-      __mixdogMemoryLog(`[pg-process] attaching to race winner pid=${existing.pid} port=${existing.port}\n`);
-      return { pid: existing.pid, port: existing.port, attached: true };
-    }
+    const winner = await attachRaceWinner({ runtimeDir, pgdataDir, pgctl, env, existingWaitMs });
+    if (winner) return winner;
   }
-
-  let serverLog = '';
-  try {
-    serverLog = readFileSync(logFile, 'utf8').trim();
-  } catch {}
-  const detail =
-    [errText.trim(), serverLog ? `postgres log:\n${serverLog}` : ''].filter(Boolean).join('\n') ||
-    (r.timeout ? '(readiness probe timed out after 30s; no pg_ctl or postgres log output)' : '(no captured output)');
-  throw new Error(`[pg-process] pg_ctl start failed: ${detail}`);
+  throw startFailure(r, errText, logFile);
 }
 
 // ---------------------------------------------------------------------------

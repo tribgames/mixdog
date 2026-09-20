@@ -2,7 +2,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { embedTexts, getEmbeddingModelId } from './embedding-provider.mjs';
 import { embeddingToSql } from './memory.mjs';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows } from './embedding-cache-retention.mjs';
 import { throwIfAborted, markStoreFault } from './memory-cycle2-shared.mjs';
 
@@ -493,7 +493,7 @@ async function syncRawBatchEmbeddings(db, ids, options = {}) {
 
   if (updates.length === 0) return [];
 
-  const valClauses = updates.map((u, i) => {
+  const valClauses = updates.map((_u, i) => {
     const base = i * 3;
     return `($${base + 1}::bigint, $${base + 2}::halfvec, $${base + 3}::text)`;
   });
@@ -568,7 +568,7 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
 
   // 4. Bulk UPDATE using VALUES list
   // The VALUES update is one SQL batch; do not split it with an abort checkpoint.
-  const valClauses = updates.map((u, i) => {
+  const valClauses = updates.map((_u, i) => {
     const base = i * 4;
     return `($${base + 1}::bigint, $${base + 2}::halfvec, $${base + 3}::text, $${base + 4}::text)`;
   });

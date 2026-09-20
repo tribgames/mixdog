@@ -83,8 +83,10 @@ export function runWithStatus(cwd: string, args: string[]): Promise<GitOutcome> 
       },
       (error, stdout, stderr) => {
         const raw = (error as (NodeJS.ErrnoException & { code?: number | string }) | null)?.code;
+        let code = 0;
+        if (error) code = typeof raw === 'number' ? raw : -1;
         settle({
-          code: error ? (typeof raw === 'number' ? raw : -1) : 0,
+          code,
           stdout: String(stdout),
           stderr: scrubGitCredentials(stderr || error?.message || '').trim(),
         });

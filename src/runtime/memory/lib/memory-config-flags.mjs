@@ -1,4 +1,4 @@
-// Extracted from index.mjs — env/config flag helpers (pure, poll-on-use).
+// Env/config flag helpers (pure, poll-on-use).
 // These read process.env and the on-disk config section each call so runtime
 // toggles (recap, secondary mode, cycle kill-switches) take effect without a
 // daemon restart. No module-level mutable state; safe to import anywhere.

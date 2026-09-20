@@ -440,7 +440,8 @@ test('263k-class tool-heavy transcript retains bounded recent execution and arch
   );
   assert.equal(result.messages.at(-1)?.content, 'LATEST_AFTER_127_TOOLS');
   assert.ok(result.messages.some((message) => message.toolCallId === 'tool-heavy-126'));
-  assert.ok(result.diagnostics.toolHistoryTokens <= 25_000);
+  assert.equal(result.diagnostics.toolHistoryBudget, 50_000);
+  assert.ok(result.diagnostics.toolHistoryTokens <= 50_000);
   assert.ok(result.diagnostics.omittedToolGroups > 0);
 });
 

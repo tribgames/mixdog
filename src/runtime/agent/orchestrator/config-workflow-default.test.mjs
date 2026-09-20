@@ -10,7 +10,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..',
 
 test('Default and independent orchestration preserve legacy Solo/Cowork selections', () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-workflow-default-'));
-  const source = String.raw`
+  const source = `
     import assert from 'node:assert/strict';
     import { readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';

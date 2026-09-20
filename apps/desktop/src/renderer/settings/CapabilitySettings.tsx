@@ -228,13 +228,12 @@ export function CapabilitySettings({
           isActiveRoute && model.effortOptions.some((entry) => entry.value === activeEffort)
             ? activeEffort
             : preferredModelEffort(model);
-        const fast = model.fastCapable
-          ? isActiveRoute && typeof active.fast === 'boolean'
-            ? active.fast === true
-            : typeof model.savedFast === 'boolean'
-              ? model.savedFast
-              : model.fastPreferred
-          : undefined;
+        let fast: boolean | undefined;
+        if (model.fastCapable) {
+          if (isActiveRoute && typeof active.fast === 'boolean') fast = active.fast === true;
+          else if (typeof model.savedFast === 'boolean') fast = model.savedFast;
+          else fast = model.fastPreferred;
+        }
         await api.setModelRoute({
           provider: model.provider,
           model: model.model,

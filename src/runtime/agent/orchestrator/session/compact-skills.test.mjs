@@ -62,9 +62,9 @@ test('Compact restores the latest complete skill body and resume can reuse it wi
 });
 
 test('restoration is bounded, favors recent bodies, and never presents partial instructions as loaded', () => {
-  const older = skill('older', '# Older\n' + 'instruction '.repeat(500));
-  const recent = skill('recent', '# Recent\n' + 'instruction '.repeat(500));
-  const oversized = skill('large', '# Large\n' + 'instruction '.repeat(20_000));
+  const older = skill('older', `# Older\n${'instruction '.repeat(500)}`);
+  const recent = skill('recent', `# Recent\n${'instruction '.repeat(500)}`);
+  const oversized = skill('large', `# Large\n${'instruction '.repeat(20_000)}`);
   const first = compact([
     { role: 'system', content: 'Stable' },
     { role: 'user', content: 'Start' },
@@ -81,7 +81,7 @@ test('restoration is bounded, favors recent bodies, and never presents partial i
   assert.doesNotMatch(skillContextReminder(first.messages).content, /"older"|"large"/);
   const reload = buildSkillToolEnvelope(
     'large',
-    '# Large\n' + 'instruction '.repeat(20_000),
+    `# Large\n${'instruction '.repeat(20_000)}`,
     '/skills/large',
     {},
     { messages: first.messages }

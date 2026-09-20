@@ -1,5 +1,5 @@
-import fs from 'fs';
-import path from 'path';
+import fs from 'node:fs';
+import path from 'node:path';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
 import { renameWithRetrySync, writeJsonAtomicSync } from '../../shared/atomic-file.mjs';
 
@@ -30,7 +30,7 @@ export function readJson(filePath, fallback) {
       return JSON.parse(raw);
     } catch (parseErr) {
       try {
-        renameWithRetrySync(filePath, filePath + '.corrupt.' + Date.now());
+        renameWithRetrySync(filePath, `${filePath}.corrupt.${Date.now()}`);
       } catch {}
       process.stderr.write(`[web-search-config] corrupt JSON backed up: ${filePath}\n`);
       throw parseErr;

@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import type { DesktopModelSelection } from '../shared/contract';
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import { t } from './i18n';
+import { trappedTabIndex } from './list-navigation';
 import { acquireModalLayer } from './modal-layer';
 import { useErrorToast } from './notifications';
 import { PaneSurfaceGate } from './PaneSurfaceGate';
@@ -98,13 +99,7 @@ export function CommandSurface({
         return;
       }
       const current = focusable.indexOf(document.activeElement as HTMLElement);
-      const next = event.shiftKey
-        ? current <= 0
-          ? focusable.length - 1
-          : current - 1
-        : current < 0 || current === focusable.length - 1
-          ? 0
-          : current + 1;
+      const next = trappedTabIndex(current, focusable.length, event.shiftKey);
       event.preventDefault();
       focusable[next]?.focus();
     };
@@ -178,15 +173,13 @@ export function CommandSurface({
                     {error}
                   </p>
                 )}
-                {showStatsErrorOnly ? null : showLoadingPlaceholder ? (
-                  surface === 'usage' ? (
-                    <UsageSkeleton />
-                  ) : (
-                    <p className="settings-loading" role="status">
-                      {t('Loading…')}
-                    </p>
-                  )
-                ) : (
+                {!showStatsErrorOnly && showLoadingPlaceholder && surface === 'usage' && <UsageSkeleton />}
+                {!showStatsErrorOnly && showLoadingPlaceholder && surface !== 'usage' && (
+                  <p className="settings-loading" role="status">
+                    {t('Loading…')}
+                  </p>
+                )}
+                {!showStatsErrorOnly && !showLoadingPlaceholder && (
                   <SurfaceBody
                     surface={surface}
                     data={data}

@@ -8,6 +8,11 @@ import { groupToasts, reduceToasts } from './desktop-toast-state';
 import { reportRendererNotice } from './RendererRecovery';
 import { relayPayloadTooLargeMessage } from '../shared/remote-payload-limit';
 
+function toastTitle(tone: string): string {
+  if (tone === 'success') return t('Completed');
+  return tone === 'warn' || tone === 'warning' ? t('Attention') : 'Mixdog';
+}
+
 export const DESKTOP_TOAST_EVENT = 'mixdog:desktop-toast';
 export const DESKTOP_TOAST_DISMISS_EVENT = 'mixdog:desktop-toast-dismiss';
 type DesktopToastTone = 'info' | 'success' | 'warn' | 'error';
@@ -151,21 +156,16 @@ export function DesktopToastRegion({
           dispatch({ type: 'dismiss', ids: entry.ids });
           if (entry.ids.includes('host:desktop-bridge')) onDismissBridgeError();
         };
+        const ToastGlyph = entry.tone === 'success' ? Check : Sparkles;
         return (
           <article className="mx-toast" data-tone={entry.tone} key={entry.key}>
             {entry.tone === 'error' ? (
               <ErrorNotice errors={entry.details} count={entry.count} onDismiss={dismiss} />
             ) : (
               <>
-                {entry.tone === 'success' ? <Check size={16} /> : <Sparkles size={16} />}
+                <ToastGlyph size={16} />
                 <span className="mx-toast-copy" role="status">
-                  <b>
-                    {entry.tone === 'success'
-                      ? t('Completed')
-                      : entry.tone === 'warn' || entry.tone === 'warning'
-                        ? t('Attention')
-                        : 'Mixdog'}
-                  </b>
+                  <b>{toastTitle(entry.tone)}</b>
                   <span>{entry.text}</span>
                 </span>
                 <button

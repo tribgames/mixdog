@@ -34,10 +34,21 @@ function localProviderFacts(status: RecordValue): Array<readonly [string, string
     ['Context window', activeModel?.contextWindow ? String(activeModel.contextWindow) : ''],
     ['GPU', String(record(status.gpu).name || gpu.name || t('Not detected'))],
     ['Available GPU memory', free && total ? `${free} / ${total}` : ''],
-    ['Server', status.starting ? t('Loading model…') : status.running ? t('Running') : t('Stopped')],
+    ['Server', serverStateLabel(status.starting, status.running)],
     ['Source', String(runtime.source || '')],
     ['License', String(runtime.license || '')],
   ];
+}
+
+function serverStateLabel(starting: unknown, running: unknown): string {
+  if (starting) return t('Loading model…');
+  return running ? t('Running') : t('Stopped');
+}
+
+function dependencyStateLabel(dependency: { installed: boolean; version?: string | null } | null): string {
+  if (!dependency) return t('Loading…');
+  if (!dependency.installed) return t('Not installed');
+  return dependency.version || t('Unknown');
 }
 
 export function BuiltInFeatureInfo({
@@ -59,7 +70,9 @@ export function BuiltInFeatureInfo({
 }) {
   const { feature } = state;
   const info = record(state.info);
-  const dependency = feature.id === 'git' ? gitStatus : feature.id === 'office' ? officeDependency : null;
+  let dependency: DesktopGitCliStatus | DesktopLibreOfficeStatus | null = null;
+  if (feature.id === 'git') dependency = gitStatus;
+  else if (feature.id === 'office') dependency = officeDependency;
   const facts: Array<readonly [string, string]> = [];
   if (feature.id === 'voice')
     facts.push(
@@ -91,10 +104,7 @@ export function BuiltInFeatureInfo({
     );
   if (feature.id === 'office') facts.push(['Supported formats', 'Word · Excel · PowerPoint · PDF · CSV · TSV']);
   if (feature.id === 'git' || feature.id === 'office') {
-    facts.push([
-      feature.id === 'git' ? 'Git CLI' : 'LibreOffice',
-      dependency ? (dependency.installed ? dependency.version || t('Unknown') : t('Not installed')) : t('Loading…'),
-    ]);
+    facts.push([feature.id === 'git' ? 'Git CLI' : 'LibreOffice', dependencyStateLabel(dependency)]);
   }
   if (feature.id === 'tidy') {
     facts.push([

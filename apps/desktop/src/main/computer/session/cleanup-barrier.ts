@@ -8,7 +8,8 @@ export class ComputerCleanupBarrier {
     return this.pending.size > 0 || this.failed;
   }
   get state(): 'pending' | 'failed' | 'ready' {
-    return this.pending.size > 0 ? 'pending' : this.failed ? 'failed' : 'ready';
+    if (this.pending.size > 0) return 'pending';
+    return this.failed ? 'failed' : 'ready';
   }
   has(sessionId: string): boolean {
     return this.pending.has(sessionId);

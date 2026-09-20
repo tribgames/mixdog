@@ -230,7 +230,7 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
     child.on('error', fail);
     child.on('close', (code, signal) => {
       finish({
-        exitCode: timedOut ? -1 : typeof code === 'number' ? code : -1,
+        exitCode: !timedOut && typeof code === 'number' ? code : -1,
         stderr: signal ? `hook command terminated by ${signal}` : '',
         timedOut,
         spawnError: null,

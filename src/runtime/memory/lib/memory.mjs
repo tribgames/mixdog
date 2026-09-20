@@ -3,8 +3,8 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 // Native-PG-backed memory store. Schema, helpers, and lifecycle.
 
 import { ensurePgInstance, closePgInstance, withSchemaBootstrapLock } from './pg/adapter.mjs';
-import { mkdirSync } from 'fs';
-import { resolve } from 'path';
+import { mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { cleanMemoryText } from './memory-extraction.mjs';
 import {
   isInternalRuntimeNotificationText,
@@ -12,6 +12,10 @@ import {
 } from '../../shared/tool-execution-contract.mjs';
 import { isUnquotedToolCompletionHead } from './session-ingest.mjs';
 import { ensureCoreKeyIndex } from './core-memory-uniqueness.mjs';
+import { ensureScoreSchema } from './memory-schema/score-params.mjs';
+import { ensureEntriesSchema } from './memory-schema/entries.mjs';
+import { ensureEntryTriggers } from './memory-schema/entry-triggers.mjs';
+import { ensureCoreEntriesSchema, ensureMetaSchema, stampBootstrapMeta } from './memory-schema/core-and-meta.mjs';
 
 const dbs = new Map();
 const opening = new Map();
@@ -29,269 +33,19 @@ export const VALID_CATEGORY = new Set([
   'issue',
 ]);
 
+// Schema bootstrap, in dependency order. Extensions are created once by
+// pg-adapter.bootstrapInstance; the phases live under memory-schema/.
 export async function init(db, dims, embeddingIdentity = null) {
   const dimCount = Number(dims);
   if (!Number.isInteger(dimCount) || dimCount <= 0) {
     throw new Error(`init: dims must be a positive integer, got ${dims}`);
   }
-
-  // Extensions are created once by pg-adapter.bootstrapInstance; skip here.
-
-  // Status as a real ENUM type — DB-level enforcement, B-tree friendly.
-  // PG has no CREATE TYPE IF NOT EXISTS; guard via pg_type lookup so a partial
-  // bootstrap (crash after CREATE TYPE but before boot.schema_bootstrap_complete)
-  // can re-run init() on the next boot without colliding on the existing type.
-  await db.exec(`
-    DO $$
-    BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'entry_status') THEN
-        CREATE TYPE entry_status AS ENUM ('pending', 'active', 'archived');
-      END IF;
-    END
-    $$
-  `);
-
-  // Per-category score parameters (lookup table for the score function).
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS category_score_params (
-      category TEXT PRIMARY KEY,
-      grade    REAL NOT NULL,
-      decay    REAL NOT NULL
-    )
-  `);
-  await db.query(`
-    INSERT INTO category_score_params(category, grade, decay) VALUES
-      ('rule', 1.6, 0.25),
-      ('constraint', 1.6, 0.25),
-      ('decision', 1.6, 0.25),
-      ('fact', 1.6, 0.25),
-      ('goal', 1.6, 0.25),
-      ('preference', 1.6, 0.25),
-      ('task', 1.6, 0.25),
-      ('issue', 1.6, 0.25)
-    ON CONFLICT (category) DO UPDATE SET grade = EXCLUDED.grade, decay = EXCLUDED.decay
-  `);
-
-  // SQL function mirrors src/memory/lib/memory-score.mjs computeEntryScore.
-  // STABLE (not IMMUTABLE) because the function reads category_score_params.
-  // IMMUTABLE would let the planner cache results across rows where params
-  // could legitimately differ if the table is updated.
-  await db.exec(`
-    CREATE OR REPLACE FUNCTION compute_entry_score(
-      category_p TEXT,
-      last_seen_at_p BIGINT,
-      now_ms_p BIGINT
-    ) RETURNS REAL LANGUAGE sql STABLE AS $$
-      SELECT CASE
-        WHEN p.grade IS NULL OR last_seen_at_p IS NULL OR now_ms_p IS NULL THEN NULL::REAL
-        WHEN p.decay = 0 THEN p.grade
-        ELSE LEAST(
-          p.grade,
-          p.grade / POWER(
-            1 + (GREATEST(0, (now_ms_p - last_seen_at_p)) / 86400000.0) * p.decay / 30,
-            0.3
-          )
-        )::REAL
-      END
-      FROM category_score_params p
-      WHERE p.category = category_p
-    $$
-  `);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS entries (
-      id            BIGSERIAL PRIMARY KEY,
-      ts            BIGINT NOT NULL,
-      role          TEXT NOT NULL,
-      content       TEXT NOT NULL,
-      source_ref    TEXT NOT NULL UNIQUE,
-      session_id    TEXT,
-      project_id    TEXT,
-      source_turn   INTEGER,
-      time_source   TEXT,
-      chunk_root    BIGINT REFERENCES entries(id) ON DELETE SET NULL,
-      duplicate_of  BIGINT REFERENCES entries(id) ON DELETE SET NULL,
-      concept_id    BIGINT,
-      supersedes_id BIGINT REFERENCES entries(id) ON DELETE SET NULL,
-      is_root       SMALLINT NOT NULL DEFAULT 0,
-      element       TEXT,
-      category      TEXT,
-      summary       TEXT,
-      chunk_quality JSONB,
-      status        entry_status,
-      score         REAL,
-      last_seen_at  BIGINT,
-      reviewed_at   BIGINT,
-      cycle2_reviewed_at BIGINT,
-      error_count   INTEGER NOT NULL DEFAULT 0,
-      embedding     halfvec(${dimCount}),
-      summary_hash  TEXT,
-      search_tsv    tsvector GENERATED ALWAYS AS (
-        setweight(to_tsvector('simple',  coalesce(element, '')), 'A') ||
-        setweight(to_tsvector('simple',  coalesce(summary, '')), 'B') ||
-        setweight(to_tsvector('simple',  coalesce(content, '')), 'C') ||
-        setweight(to_tsvector('english', coalesce(element, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(summary, '')), 'B') ||
-        setweight(to_tsvector('english', coalesce(content, '')), 'C')
-      ) STORED
-    )
-  `);
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS entry_concepts (
-      entry_id       BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
-      concept_id     BIGINT NOT NULL REFERENCES entries(id) ON DELETE CASCADE,
-      supersedes_id  BIGINT REFERENCES entries(id) ON DELETE SET NULL,
-      created_at     BIGINT NOT NULL,
-      PRIMARY KEY (entry_id, concept_id)
-    )
-  `);
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entry_concepts_latest ON entry_concepts(concept_id, entry_id DESC)`);
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entry_concepts_supersedes ON entry_concepts(supersedes_id) WHERE supersedes_id IS NOT NULL`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_chunk_root  ON entries(chunk_root) WHERE chunk_root IS NOT NULL`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_concept_latest ON entries(concept_id, ts DESC, id DESC) WHERE is_root = 1 AND concept_id IS NOT NULL`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_supersedes ON entries(supersedes_id) WHERE supersedes_id IS NOT NULL`
-  );
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_ts_desc     ON entries(ts DESC)`);
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_session_ts  ON entries(session_id, ts DESC) WHERE session_id IS NOT NULL`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_root_status_score ON entries(status, score DESC) WHERE is_root = 1`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_root_category     ON entries(category, status)   WHERE is_root = 1`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_pending     ON entries(ts DESC, id DESC) WHERE chunk_root IS NULL AND session_id IS NOT NULL`
-  );
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_project     ON entries(project_id) WHERE project_id IS NOT NULL`
-  );
-  await db.exec(`CREATE INDEX IF NOT EXISTS idx_entries_tsv         ON entries USING GIN (search_tsv)`);
-  // Recall CTEs (memory-recall-store.mjs dense/text legs) intentionally match
-  // BOTH root and leaf/chunk rows, so their SQL has NO `is_root = 1` predicate
-  // (only `embedding IS NOT NULL` / portable substring text filters).
-  // The old root-only PARTIAL indexes therefore could not be used by those
-  // queries — the planner fell back to a Seq Scan + top-N heapsort over every
-  // embedding (verified via EXPLAIN ANALYZE). Broaden the HNSW predicate to
-  // match the query shape. Substring rescue intentionally stays index-free:
-  // bundled Unix PG runtimes do not include the optional pg_trgm extension.
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS idx_entries_embedding_hnsw ON entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`
-  );
-
-  // BEFORE INSERT/UPDATE trigger keeps score in sync with category + last_seen_at
-  // automatically; cycle code no longer needs to UPDATE entries SET score = ...
-  await db.exec(`
-    CREATE OR REPLACE FUNCTION trg_entry_score_recalc() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF NEW.is_root = 1 AND NEW.category IS NOT NULL THEN
-        -- NOW()-to-ms conversion is intentional schema-level work; the
-        -- "no EXTRACT(EPOCH …)" rule applies to ms-stored BIGINT timestamp
-        -- COLUMNS, not to the trigger reading the current wall clock.
-        NEW.score := compute_entry_score(
-          NEW.category,
-          COALESCE(NEW.last_seen_at, NEW.ts),
-          (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT
-        );
-      END IF;
-      RETURN NEW;
-    END;
-    $$
-  `);
-  await db.exec(`DROP TRIGGER IF EXISTS trg_entries_score ON entries`);
-  await db.exec(`
-    CREATE TRIGGER trg_entries_score
-    BEFORE INSERT OR UPDATE OF category, last_seen_at, is_root ON entries
-    FOR EACH ROW
-    EXECUTE FUNCTION trg_entry_score_recalc()
-  `);
-
-  await db.exec(`
-    CREATE OR REPLACE FUNCTION trg_entry_embedding_invalidate() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN
-      IF NEW.is_root = 1 AND (
-        NEW.content IS DISTINCT FROM OLD.content OR
-        NEW.summary IS DISTINCT FROM OLD.summary OR
-        NEW.element IS DISTINCT FROM OLD.element
-      ) THEN
-        NEW.embedding := NULL;
-        NEW.summary_hash := NULL;
-      END IF;
-      RETURN NEW;
-    END;
-    $$
-  `);
-  await db.exec(`DROP TRIGGER IF EXISTS trg_entries_embedding_invalidate ON entries`);
-  await db.exec(`
-    CREATE TRIGGER trg_entries_embedding_invalidate
-    BEFORE UPDATE OF content, summary, element ON entries
-    FOR EACH ROW EXECUTE FUNCTION trg_entry_embedding_invalidate()
-  `);
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS core_entries (
-      id          BIGSERIAL PRIMARY KEY,
-      element     TEXT NOT NULL,
-      summary     TEXT NOT NULL,
-      category    TEXT NOT NULL,
-      project_id  TEXT,
-      embedding   halfvec(${dimCount}),
-      created_at  BIGINT NOT NULL,
-      updated_at  BIGINT NOT NULL
-    )
-  `);
-  await db.exec(`CREATE INDEX IF NOT EXISTS core_entries_project_idx ON core_entries(project_id)`);
-  await ensureCoreKeyIndex(db);
-  await db.exec(
-    `CREATE INDEX IF NOT EXISTS core_entries_embedding_hnsw ON core_entries USING hnsw (embedding halfvec_cosine_ops) WHERE embedding IS NOT NULL`
-  );
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS meta (
-      key    TEXT PRIMARY KEY,
-      value  JSONB NOT NULL
-    )
-  `);
-
-  // Operational view — used by /health and dashboards. One round-trip,
-  // covers the metrics that previously needed 6+ COUNT queries.
-  await db.exec(`
-    CREATE OR REPLACE VIEW v_cycle_state AS
-    SELECT
-      COUNT(*) FILTER (WHERE is_root = 1) AS roots,
-      COUNT(*) FILTER (WHERE is_root = 1 AND status = 'pending')  AS pending,
-      COUNT(*) FILTER (WHERE is_root = 1 AND status = 'active')   AS active,
-      COUNT(*) FILTER (WHERE is_root = 1 AND status = 'archived') AS archived,
-      COUNT(*) FILTER (WHERE chunk_root IS NULL)                  AS unclassified,
-      COUNT(*) AS total
-    FROM entries
-  `);
-
-  await db.query(
-    `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-    ['embedding.current_dims', JSON.stringify(dimCount)]
-  );
-  if (embeddingIdentity != null) {
-    await db.query(
-      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-      ['embedding.current_model', JSON.stringify(embeddingIdentity)]
-    );
-  }
-  await db.query(
-    `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-    ['boot.schema_bootstrap_complete', JSON.stringify('1')]
-  );
+  await ensureScoreSchema(db);
+  await ensureEntriesSchema(db, dimCount);
+  await ensureEntryTriggers(db);
+  await ensureCoreEntriesSchema(db, dimCount);
+  await ensureMetaSchema(db);
+  await stampBootstrapMeta(db, dimCount, embeddingIdentity);
 }
 
 async function getEmbeddingColumnDims(db, tableName) {

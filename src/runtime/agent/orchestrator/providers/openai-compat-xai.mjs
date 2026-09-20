@@ -9,7 +9,7 @@
  * owned exclusively by the shared provider scheduler — there is no second
  * cache-lane queue here.
  */
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { resolveProviderCacheKey, resolveProviderPromptCacheLane } from '../agent-runtime/cache-strategy.mjs';
 import { shouldFallbackTransport } from './retry-classifier.mjs';
@@ -17,7 +17,13 @@ import { envFlag as _envFlag } from '../../../shared/env.mjs';
 // Same named export as before the shared helper move: importers of this module
 // keep reading `_envFlag` from here.
 export { _envFlag };
-import { traceHash, stableTraceStringify, summarizeTraceTools, traceTextShape } from './trace-utils.mjs';
+import {
+  traceHash,
+  stableTraceStringify,
+  summarizeTraceTools,
+  traceContentShape,
+  traceTextShape,
+} from './trace-utils.mjs';
 import { summarizeTraceMessages, extractCompatCachedTokens } from './openai-compat-trace.mjs';
 
 function xaiPrefixSeed({ opts, params, rawTools, model }) {
@@ -105,19 +111,18 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
   const laneEnabled = lane?.enabled === true;
   const laneShards = Number.isFinite(Number(lane?.shards)) && Number(lane.shards) > 0 ? Number(lane.shards) : 0;
   const explicitSlot = Number(opts?.promptCacheLaneSlot ?? opts?.xaiCacheLaneSlot);
-  const laneSlot =
-    Number.isFinite(explicitSlot) && explicitSlot >= 0
-      ? laneShards > 0
-        ? Math.floor(explicitSlot) % laneShards
-        : Math.floor(explicitSlot)
-      : laneShards > 0
-        ? createHash('sha256')
-            .update(sessionId || String(process.pid))
-            .digest()
-            .readUInt32BE(0) % laneShards
-        : Number.isFinite(Number(lane?.slot))
-          ? Number(lane.slot)
-          : 0;
+  let laneSlot = 0;
+  if (Number.isFinite(explicitSlot) && explicitSlot >= 0) {
+    laneSlot = laneShards > 0 ? Math.floor(explicitSlot) % laneShards : Math.floor(explicitSlot);
+  } else if (laneShards > 0) {
+    laneSlot =
+      createHash('sha256')
+        .update(sessionId || String(process.pid))
+        .digest()
+        .readUInt32BE(0) % laneShards;
+  } else if (Number.isFinite(Number(lane?.slot))) {
+    laneSlot = Number(lane.slot);
+  }
   const routingSeed = stableTraceStringify({
     scope: 'xai-responses-prefix-v1',
     providerKey: String(providerKey),
@@ -134,7 +139,7 @@ export function xaiResponsesCacheRouting(opts, params, rawTools, model) {
     ...(laneEnabled
       ? {
           laneIndex: laneSlot,
-          activeLanes: Number.isFinite(Number(lane?.shards)) && Number(lane.shards) > 0 ? Number(lane.shards) : null,
+          activeLanes: laneShards || null,
         }
       : {}),
   };
@@ -328,7 +333,7 @@ function deterministicUuidFromKey(key) {
   return [
     hex.slice(0, 8),
     hex.slice(8, 12),
-    '4' + hex.slice(13, 16),
+    `4${hex.slice(13, 16)}`,
     variant + hex.slice(17, 20),
     hex.slice(20, 32),
   ].join('-');
@@ -418,13 +423,7 @@ function summarizeResponsesInput(input) {
     role: item?.role || null,
     callIdHash: item?.call_id ? traceHash(item.call_id) : null,
     name: item?.name || null,
-    content:
-      typeof item?.content === 'string'
-        ? { type: 'text', ...traceTextShape(item.content) }
-        : {
-            type: item?.content == null ? 'null' : typeof item.content,
-            hash: traceHash(stableTraceStringify(item?.content ?? null)),
-          },
+    content: traceContentShape(item?.content),
     output: typeof item?.output === 'string' ? traceTextShape(item.output) : null,
   }));
 }

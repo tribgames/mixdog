@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { priceUsage } from './cost.mjs';
-import { usageRouteKind } from './usage-ledger.mjs';
+import { usageCostSource, usageRouteKind } from './usage-ledger.mjs';
 import { normalizeUsageMeasurement } from './usage-measurement.mjs';
 
 // Excludes only the two fields a repair may change: route attribution and price.
@@ -62,6 +62,9 @@ export function repairUsageLedger(
       let cost = row.cost_usd;
       const oldRates = signature[5] ? JSON.parse(signature[5]) : null;
       if (moved || signature[4] === 'unpriced') {
+        const unmeasured =
+          oldRates?.inputTokensKnown === false || normalizeUsageMeasurement(provider, { turns: 1 }).unmeasuredTurns;
+        const inputTokensKnown = unmeasured ? false : undefined;
         const priced =
           kind === 'local'
             ? { costUsd: 0, rates: null }
@@ -70,11 +73,7 @@ export function repairUsageLedger(
                 model: signature[1],
                 pricingModel: oldRates?.pricingModel,
                 requestedModel: oldRates?.requestedModel,
-                inputTokensKnown:
-                  oldRates?.inputTokensKnown === false ||
-                  normalizeUsageMeasurement(provider, { turns: 1 }).unmeasuredTurns
-                    ? false
-                    : undefined,
+                inputTokensKnown,
                 uncachedInputTokens: row.input,
                 outputTokens: row.output,
                 cacheReadTokens: row.cache_read,
@@ -86,14 +85,7 @@ export function repairUsageLedger(
               });
         cost = priced.costUsd;
         if (cost !== null && (!Number.isFinite(cost) || cost < 0)) throw new Error('Invalid repair price');
-        signature[4] =
-          kind === 'local'
-            ? 'local'
-            : cost === null
-              ? 'unpriced'
-              : kind === 'oauth' || kind === 'quota-api'
-                ? 'subscription'
-                : 'catalog';
+        signature[4] = usageCostSource({ kind, costUsd: cost, subscription: kind === 'oauth' || kind === 'quota-api' });
         signature[5] = priced.rates ? JSON.stringify(priced.rates) : null;
         if (row.cost_usd === null && cost !== null) report.repriced++;
       }

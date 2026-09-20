@@ -13,7 +13,7 @@ test('Windows OCR accepts a lossless source larger than its engine limit and ret
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-ocr-resolution-'));
   try {
     await writeFile(join(directory, 'host.ps1'), powershellHostProgram());
-    const script = String.raw`
+    const script = `
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Runtime.WindowsRuntime

@@ -75,7 +75,7 @@ const report = {
 const started = Date.now();
 const persist = () => {
   mkdirSync(dirname(reportPath), { recursive: true });
-  writeFileSync(reportPath, JSON.stringify(report, null, 2) + '\n');
+  writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 };
 const send = (messages, tools = [], options = {}) =>
   provider.send(messages, model, tools, {

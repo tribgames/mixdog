@@ -6,7 +6,7 @@
  * the only credential involved. The final image arrives as base64 on the
  * image_generation_call item; partial frames are kept as a fallback.
  */
-import { randomBytes } from 'crypto';
+import { randomBytes } from 'node:crypto';
 import { resolveCodexAuth } from '../auth.mjs';
 import { decodeBase64Media } from '../download.mjs';
 import { mediaError } from '../lanes.mjs';

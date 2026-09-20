@@ -5,6 +5,7 @@ import { CapabilityIcon } from './CapabilityIcon';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
 import { selectableComposerSkills, skillTitle, type ComposerSkill } from './composer-skill';
+import { wrappedNavigationIndex } from './list-navigation';
 import './desktop/composer-add-menu.css';
 
 // Last skill list per session, kept for the renderer's lifetime. Opening the
@@ -133,12 +134,12 @@ export function ComposerAddMenu({
               if (!buttons.length) return;
               event.preventDefault();
               const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
-              const next =
-                event.key === 'Home'
-                  ? 0
-                  : event.key === 'End'
-                    ? buttons.length - 1
-                    : (current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+              const next = wrappedNavigationIndex(
+                event.key,
+                current,
+                buttons.length,
+                event.key === 'ArrowDown' ? 1 : -1
+              );
               buttons[next]?.focus();
             }}
           >

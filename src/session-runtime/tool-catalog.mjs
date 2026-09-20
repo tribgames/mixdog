@@ -575,10 +575,7 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
   // Resolve against the union of the boot-frozen catalog and the late-connected
   // MCP catalog so load_tool can load a late tool. Native providers register it
   // independently; canonical fallback providers already expose the full array.
-  const union = deferredCatalogUnion(session);
-  const catalog = union.length
-    ? union
-    : filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
+  const catalog = resolvableCatalog(session);
   const surfaceActive = new Set((session?.tools || []).map((tool) => clean(tool?.name)).filter(Boolean));
   const active = new Set([...surfaceActive, ...parseToolSelection(session?.deferredCallableTools)]);
   const native = session?.deferredProviderMode === 'native' || session?.deferredNativeTools === true;
@@ -660,15 +657,19 @@ function pendingAndFailedMcpServers(mcpStatus) {
   return { pending: [...new Set(pending)].sort(), failed: [...new Set(failed)].sort() };
 }
 
-// Pure loader (formerly a keyword search). Input is exact deferred-tool
+// Pure loader. Input is exact deferred-tool
 // names/aliases; output reports loaded / already-active / missing / blocked
 // tools PLUS pending/failed MCP servers. No listing, no ranking, no substring
 // filter. `options.mcpStatus` is the runtime getter for per-server status.
+/** The deferred catalog union, or the session's own allowed tools when nothing is deferred. */
+function resolvableCatalog(session) {
+  const union = deferredCatalogUnion(session);
+  if (union.length) return union;
+  return filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
+}
+
 export function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
-  const unionCatalog = deferredCatalogUnion(session);
-  const catalog = unionCatalog.length
-    ? unionCatalog
-    : filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
+  const catalog = resolvableCatalog(session);
   const requestedNames = parseLoadToolNames(args);
   const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);
   const mcpFields = {

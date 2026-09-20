@@ -1,16 +1,19 @@
-// Provider/web-search model catalog + cache glue, extracted from
-// mixdog-session-runtime.mjs. Dependency-injected factory following the
+// Provider/web-search model catalog + cache glue.
+// Dependency-injected factory following the
 // createWarmupSchedulers/createNativeWebSearch pattern: mutable cache state lives
 // in a caller-owned `caches` object (so the facade's invalidateProviderCaches
 // teardown still sees the same references) and all route/config/registry reads
 // go through supplied accessors so live-binding is preserved (no stale
-// snapshot of route/config/webSearchRoute).
-import { clean } from './session-text.mjs';
-import { effortItemsFor } from './effort.mjs';
-import { fastCapableFor, fastPreferenceFor } from './model-capabilities.mjs';
-import { modelSettingsFor } from './config-helpers.mjs';
-import { isSelectableLlmModel } from './model-recency.mjs';
-import { catalogRevision, sharedProviderCatalog } from './provider-catalog-cache.mjs';
+// snapshot of route/config/webSearchRoute). This module owns the cache
+// lifecycle (collect / warm / adopt); the pieces live under ./provider-models/:
+//   model-meta         — per-route metadata + catalog revision invalidation
+//   row-hydration      — saved model settings layered onto catalog rows
+//   web-search-catalog — the native web-search model list
+//   catalog-load       — one authoritative provider catalog load
+import { createCatalogLoader } from './provider-models/catalog-load.mjs';
+import { createModelMetaIndex, modelMetaKey } from './provider-models/model-meta.mjs';
+import { createRowHydration } from './provider-models/row-hydration.mjs';
+import { createWebSearchCatalog } from './provider-models/web-search-catalog.mjs';
 
 const PROVIDER_MODELS_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(
   String(process.env.MIXDOG_PROVIDER_MODELS_PROFILE || process.env.MIXDOG_BOOT_PROFILE || '')
@@ -38,228 +41,34 @@ export function createProviderModels({
   const config = () => getConfig();
   const route = () => getRoute();
   const reg = () => getReg();
-  let observedCatalogRevision = catalogRevision(reg());
-  function syncCatalogRevision() {
-    const revision = catalogRevision(reg());
-    if (revision === observedCatalogRevision) return revision;
-    observedCatalogRevision = revision;
-    caches.providerModelsLoadSeq += 1;
-    caches.providerModelsCache = { models: null, at: 0, revision };
-    caches.providerModelsPromise = null;
-    caches.webSearchProviderModelsCache = { models: null, at: 0, revision };
-    modelMetaByRoute.clear();
-    return revision;
-  }
   function profile(event, fields = {}) {
     if (!PROVIDER_MODELS_PROFILE_ENABLED) return;
     bootProfile(`provider-models:${event}`, fields);
   }
-
-  function modelMetaKey(providerId, modelId) {
-    return `${clean(providerId)}\n${clean(modelId)}`;
-  }
-
-  function modelSnapshotIsCurrent(revision, seq) {
-    return revision === catalogRevision(reg()) && seq === caches.providerModelsLoadSeq;
-  }
-
-  async function lookupModelMeta(providerId, modelId, { allowFetch = false } = {}) {
-    const revision = syncCatalogRevision();
-    const seq = caches.providerModelsLoadSeq;
-    const key = modelMetaKey(providerId, modelId);
-    if (modelMetaByRoute.has(key)) return modelMetaByRoute.get(key);
-    const providerImpl = reg().getProvider(providerId);
-    if (!providerImpl || typeof providerImpl.listModels !== 'function') {
-      const fallback = { id: modelId, provider: providerId };
-      modelMetaByRoute.set(key, fallback);
-      return fallback;
-    }
-    if (typeof providerImpl.getCachedModelInfo === 'function') {
-      const cached = providerImpl.getCachedModelInfo(modelId);
-      if (cached) {
-        const meta = { ...cached, id: cached.id || modelId, provider: providerId };
-        modelMetaByRoute.set(key, meta);
-        return meta;
-      }
-    }
-    if (!allowFetch) {
-      const fallback = { id: modelId, provider: providerId };
-      modelMetaByRoute.set(key, fallback);
-      scheduleProviderModelWarmup();
-      return fallback;
-    }
-    try {
-      const models = await providerImpl.listModels();
-      const found = Array.isArray(models) ? models.find((m) => m?.id === modelId) : null;
-      const meta = found || { id: modelId, provider: providerId };
-      if (modelSnapshotIsCurrent(revision, seq)) modelMetaByRoute.set(key, meta);
-      return meta;
-    } catch {
-      const fallback = { id: modelId, provider: providerId };
-      return fallback;
-    }
-  }
-
-  function hydrateProviderModelRow(row) {
-    const cfg = config();
-    const saved = modelSettingsFor(cfg, row.provider, row.id);
-    // Display-only user alias (modelSettings["provider/model"].alias). It
-    // replaces the label everywhere the row's `display` is shown; the id and
-    // route selection are untouched.
-    const alias = typeof saved.alias === 'string' ? saved.alias.trim() : '';
-    return {
-      ...row,
-      ...(alias ? { display: alias, displayAlias: alias } : {}),
-      effortOptions: effortItemsFor(row.provider, row, null),
-      fastCapable: fastCapableFor(row.provider, row),
-      fastPreferred: Object.hasOwn(saved, 'fast')
-        ? saved.fast === true
-        : row.defaultFast === true || fastPreferenceFor(cfg, row.provider, row.id),
-      savedEffort: saved.effort || null,
-      savedFast: Object.hasOwn(saved, 'fast') ? saved.fast === true : undefined,
-      savedModelParameters: saved.modelParameters || {},
-      savedContextPercent: Number(saved.contextPercent) || undefined,
-    };
-  }
-
-  const sortProviderModels = (models) => sortProviderModelsRaw(models, route().provider);
-  const providerModelCacheRow = (name, m) => providerModelCacheRowRaw(name, m, webSearchCapableFor);
-
-  function providerModelsFromCacheRows(rows) {
-    return sortProviderModels((rows || []).map(hydrateProviderModelRow));
-  }
-
-  async function enabledWebSearchProviderConfig() {
-    await awaitKeychainPrewarm();
-    ensureFullConfig();
-    const out = {};
-    for (const [name, providerConfig] of Object.entries(config().providers || {})) {
-      const providerName = normalizeWebSearchProviderId(name);
-      if (!providerConfig?.enabled || !isWebSearchCapableProvider(providerName)) continue;
-      out[providerName] = { ...providerConfig, enabled: true };
-    }
-    return out;
-  }
-
-  async function loadWebSearchProviderModelsFresh({ forceRefresh = false } = {}) {
-    const webSearchProviders = await enabledWebSearchProviderConfig();
-    const providerNames = Object.keys(webSearchProviders);
-    if (!providerNames.length) return [];
-    await ensureProvidersReady(config().providers || {});
-    const providerResults = await Promise.all(
-      providerNames.map(async (name) => {
-        const provider = reg().getProvider(name);
-        if (typeof provider?.listModels !== 'function') return [];
-        try {
-          let models = null;
-          if (forceRefresh && typeof provider._refreshModelCache === 'function') {
-            models = await provider._refreshModelCache();
-          }
-          if (!Array.isArray(models)) {
-            models = await provider.listModels();
-          }
-          if (!Array.isArray(models)) return [];
-          const rows = [];
-          for (const m of models) {
-            if (!m?.id || !isSelectableLlmModel(m)) continue;
-            const row = providerModelCacheRow(name, m);
-            if (row.supportsWebSearch !== true) continue;
-            rows.push({
-              ...row,
-              provider: normalizeWebSearchProviderId(row.provider),
-              webSearchCapable: true,
-              webSearchToolType: row.webSearchToolType || 'web_search',
-            });
-            modelMetaByRoute.set(modelMetaKey(name, m.id), row);
-          }
-          return rows;
-        } catch {
-          // Keep the picker responsive if one search-capable provider has a
-          // transient catalog/auth failure.
-          return [];
-        }
-      })
-    );
-    const results = [];
-    const seen = new Set();
-    quickHelpers.addDefaultWebSearchModel(results, seen);
-    for (const row of providerResults.flat()) {
-      const key = `${normalizeWebSearchProviderId(row.provider)}:${row.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      results.push(row);
-    }
-    return results;
-  }
-
-  async function loadProviderModelsFresh({ forceRefresh = false, loadSecrets = true, request = null } = {}) {
-    const startedAt = performance.now();
-    profile('load:start', { forceRefresh, loadSecrets });
-    if (loadSecrets) {
-      const secretsStartedAt = performance.now();
-      await awaitKeychainPrewarm();
-      ensureFullConfig();
-      profile('secrets-ready', { ms: (performance.now() - secretsStartedAt).toFixed(1) });
-    }
-    const providersStartedAt = performance.now();
-    await ensureProvidersReady(config().providers || {});
-    profile('providers-ready', { ms: (performance.now() - providersStartedAt).toFixed(1) });
-    // ensureProvidersReady starts the daemon-wide force refresh without
-    // blocking boot. A foreground full picker load must join that refresh;
-    // otherwise it can snapshot yesterday's provider cache moments before the
-    // refresh invalidates it, leaving the UI on the stale first-open rows.
-    const refreshStartedAt = performance.now();
-    if (!forceRefresh && typeof reg().refreshProviderCatalogsOnStartup === 'function') {
-      await reg().refreshProviderCatalogsOnStartup();
-    }
-    if (forceRefresh && typeof reg().refreshCatalogs === 'function') {
-      await reg().refreshCatalogs({ force: true });
-    }
-    profile('catalog-refresh-ready', { ms: (performance.now() - refreshStartedAt).toFixed(1) });
-    const ownsLoad = request !== null && request.seq === caches.providerModelsLoadSeq;
-    const revision = syncCatalogRevision();
-    // Preparation may legitimately refresh the catalog. Carry that revision
-    // forward only for the still-current request, never for a superseded load.
-    if (ownsLoad) request.seq = caches.providerModelsLoadSeq;
-    const seq = request?.seq ?? caches.providerModelsLoadSeq;
-    const catalogEntries = await sharedProviderCatalog(reg());
-    if (request) request.complete = catalogEntries.every((entry) => !Object.hasOwn(entry, 'error'));
-    const providerResults = catalogEntries.map(({ name, models, error, ms }) => {
-      const rows = [];
-      for (const m of models) {
-        if (!m?.id || !isSelectableLlmModel(m)) continue;
-        rows.push(providerModelCacheRow(name, m));
-      }
-      profile(error ? 'provider:failed' : 'provider:done', {
-        provider: name,
-        ms: Number(ms || 0).toFixed(1),
-        models: models.length,
-        rows: rows.length,
-        ...(error ? { error: error?.message || String(error) } : {}),
-      });
-      return rows;
-    });
-    const results = [];
-    const seen = new Set();
-    for (const row of providerResults.flat()) {
-      const key = `${row.provider}:${row.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      results.push(row);
-      if (modelSnapshotIsCurrent(revision, seq)) {
-        modelMetaByRoute.set(modelMetaKey(row.provider, row.id), row);
-      }
-    }
-    profile('load:done', {
-      ms: (performance.now() - startedAt).toFixed(1),
-      providers: catalogEntries.length,
-      rows: results.length,
-    });
-    return results;
-  }
+  const meta = createModelMetaIndex({ caches, modelMetaByRoute, reg, scheduleProviderModelWarmup });
+  const rows = createRowHydration({
+    config,
+    route,
+    sortProviderModelsRaw,
+    providerModelCacheRowRaw,
+    webSearchCapableFor,
+  });
+  const readiness = { ensureFullConfig, awaitKeychainPrewarm, ensureProvidersReady };
+  const webSearch = createWebSearchCatalog({
+    caches,
+    config,
+    reg,
+    meta,
+    rows,
+    quickHelpers,
+    normalizeWebSearchProviderId,
+    isWebSearchCapableProvider,
+    ...readiness,
+  });
+  const loadProviderModelsFresh = createCatalogLoader({ caches, config, reg, meta, rows, profile, ...readiness });
 
   function adoptProviderModelCache(models, request, loadSecrets = true) {
-    const revision = syncCatalogRevision();
+    const revision = meta.syncCatalogRevision();
     // No-secrets and failed loads may be partial. Keep them retryable rather
     // than turning a transient failure into an authoritative empty catalog.
     if (request.seq === caches.providerModelsLoadSeq && loadSecrets && request.complete) {
@@ -267,36 +76,28 @@ export function createProviderModels({
     }
   }
 
-  async function collectWebSearchProviderModels({ force = false } = {}) {
-    const revision = syncCatalogRevision();
-    if (!force && Array.isArray(caches.webSearchProviderModelsCache.models)) {
-      return providerModelsFromCacheRows(
-        quickHelpers.webSearchRowsWithDefault(caches.webSearchProviderModelsCache.models)
-      );
-    }
-    if (!force && Array.isArray(caches.providerModelsCache.models)) {
-      const rows = quickHelpers.webSearchRowsWithDefault(
-        quickHelpers.webSearchModelsFromRows(caches.providerModelsCache.models)
-      );
-      caches.webSearchProviderModelsCache = { models: rows, at: Date.now(), revision };
-      return providerModelsFromCacheRows(rows);
-    }
-    if (!force) {
-      const rows = quickHelpers.webSearchRowsWithDefault(quickHelpers.quickWebSearchProviderModelRows());
-      caches.webSearchProviderModelsCache = { models: rows, at: Date.now(), revision };
-      return providerModelsFromCacheRows(rows);
-    }
-    if (force) {
-      const models = await loadWebSearchProviderModelsFresh({ forceRefresh: true });
-      caches.webSearchProviderModelsCache = { models, at: Date.now(), revision: catalogRevision(reg()) };
-      return providerModelsFromCacheRows(models);
-    }
+  /** The shared in-flight load every concurrent reader joins. `onFailed`, when
+   *  given, is part of the shared promise so joiners see its value too;
+   *  `caches.providerModelsPromise` is cleared once it settles so a later read
+   *  can start a fresh one. */
+  function startSharedLoad({ loadSecrets, onLoaded = (models) => models, onFailed = null }) {
+    const request = { seq: ++caches.providerModelsLoadSeq };
+    const loaded = loadProviderModelsFresh({ loadSecrets, request }).then((models) => {
+      adoptProviderModelCache(models, request, loadSecrets);
+      return onLoaded(models);
+    });
+    const settled = onFailed ? loaded.catch(onFailed) : loaded;
+    const promise = settled.finally(() => {
+      if (caches.providerModelsPromise === promise) caches.providerModelsPromise = null;
+    });
+    caches.providerModelsPromise = promise;
+    return promise;
   }
 
   async function collectProviderModels({ force = false, quick = false } = {}) {
-    syncCatalogRevision();
+    meta.syncCatalogRevision();
     if (!force && Array.isArray(caches.providerModelsCache.models)) {
-      return providerModelsFromCacheRows(caches.providerModelsCache.models);
+      return rows.providerModelsFromCacheRows(caches.providerModelsCache.models);
     }
     if (!force && quick) {
       // A user-facing quick read seeds the authoritative secrets-aware load.
@@ -309,58 +110,42 @@ export function createProviderModels({
       const request = { seq: ++caches.providerModelsLoadSeq };
       const models = await loadProviderModelsFresh({ forceRefresh: true, loadSecrets: true, request });
       adoptProviderModelCache(models, request);
-      return providerModelsFromCacheRows(models);
+      return rows.providerModelsFromCacheRows(models);
     }
-    if (!caches.providerModelsPromise) {
-      const request = { seq: ++caches.providerModelsLoadSeq };
-      const promise = loadProviderModelsFresh({ loadSecrets: true, request })
-        .then((models) => {
-          adoptProviderModelCache(models, request);
-          return models;
-        })
-        .finally(() => {
-          if (caches.providerModelsPromise === promise) caches.providerModelsPromise = null;
-        });
-      caches.providerModelsPromise = promise;
-    }
-    return providerModelsFromCacheRows(await caches.providerModelsPromise);
+    if (!caches.providerModelsPromise) startSharedLoad({ loadSecrets: true });
+    return rows.providerModelsFromCacheRows(await caches.providerModelsPromise);
   }
 
   function warmProviderModelCache({ loadSecrets = false } = {}) {
-    syncCatalogRevision();
+    meta.syncCatalogRevision();
     if (Array.isArray(caches.providerModelsCache.models) || caches.providerModelsPromise)
       return caches.providerModelsPromise;
     profile('warm:start');
-    const request = { seq: ++caches.providerModelsLoadSeq };
-    const promise = loadProviderModelsFresh({ loadSecrets, request })
-      .then((models) => {
-        adoptProviderModelCache(models, request, loadSecrets);
+    return startSharedLoad({
+      loadSecrets,
+      onLoaded: (models) => {
         bootProfile('provider-models:warm-ready', { count: models.length });
         return models;
-      })
-      .catch((err) => {
+      },
+      onFailed: (err) => {
         const msg = err instanceof Error ? err.message : String(err);
         bootProfile('provider-models:warm-failed', { error: msg });
         return [];
-      })
-      .finally(() => {
-        if (caches.providerModelsPromise === promise) caches.providerModelsPromise = null;
-      });
-    caches.providerModelsPromise = promise;
-    return promise;
+      },
+    });
   }
 
   return {
     modelMetaKey,
-    lookupModelMeta,
-    hydrateProviderModelRow,
-    sortProviderModels,
-    providerModelCacheRow,
-    providerModelsFromCacheRows,
-    enabledWebSearchProviderConfig,
-    loadWebSearchProviderModelsFresh,
+    lookupModelMeta: meta.lookupModelMeta,
+    hydrateProviderModelRow: rows.hydrateProviderModelRow,
+    sortProviderModels: rows.sortProviderModels,
+    providerModelCacheRow: rows.providerModelCacheRow,
+    providerModelsFromCacheRows: rows.providerModelsFromCacheRows,
+    enabledWebSearchProviderConfig: webSearch.enabledWebSearchProviderConfig,
+    loadWebSearchProviderModelsFresh: webSearch.loadWebSearchProviderModelsFresh,
     loadProviderModelsFresh,
-    collectWebSearchProviderModels,
+    collectWebSearchProviderModels: webSearch.collectWebSearchProviderModels,
     collectProviderModels,
     warmProviderModelCache,
   };

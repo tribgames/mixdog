@@ -1,5 +1,5 @@
-import { readFile, stat } from 'fs/promises';
-import { open } from 'fs/promises';
+import { readFile, stat } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { READ_MAX_SIZE_BYTES } from './read-constants.mjs';
 import { imageBlocksFromBuffer } from './read-image-resize.mjs';
 import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';
@@ -187,19 +187,14 @@ export async function extractIpynbText(
         for (const out of outputs) {
           const data = out.data || {};
           if (data['text/plain'] || out.text) {
-            const rawTxt = data['text/plain']
-              ? Array.isArray(data['text/plain'])
-                ? data['text/plain'].join('')
-                : data['text/plain']
-              : Array.isArray(out.text)
-                ? out.text.join('')
-                : out.text;
+            const joinedText = (value) => (Array.isArray(value) ? value.join('') : value);
+            const rawTxt = joinedText(data['text/plain'] || out.text);
             // A single huge output is replaced
             // with a jq hint rather than dumped inline.
             if (typeof rawTxt === 'string' && rawTxt.length > IPYNB_OUTPUT_MAX_CHARS) {
               block += `\n# Output: [large output omitted — ${rawTxt.length} chars; inspect with: cat "${fullPath}" | jq '.cells[${cellIndex}].outputs']`;
             } else {
-              block += '\n# Output:\n' + rawTxt;
+              block += `\n# Output:\n${rawTxt}`;
             }
           } else if (data['image/png'] || data['image/jpeg']) {
             const isPng = !!data['image/png'];
@@ -209,7 +204,7 @@ export async function extractIpynbText(
             block += `\n# Output: [image output — cell ${cellIndex}]`;
           }
         }
-        pushText('```python\n' + block + '\n```');
+        pushText(`\`\`\`python\n${block}\n\`\`\``);
         // Embed each image output as a real image block (resized via the
         // shared helper). On fallback (sharp absent / decode failure) the
         // image is left as the text placeholder already in `block`.

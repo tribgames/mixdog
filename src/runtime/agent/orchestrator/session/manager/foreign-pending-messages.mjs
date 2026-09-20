@@ -1,4 +1,4 @@
-import { stat } from 'fs/promises';
+import { stat } from 'node:fs/promises';
 import {
   isCompletionNotificationEntry,
   isStaleUserInjection,

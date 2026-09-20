@@ -1,8 +1,23 @@
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
-import { copyFile as copyFileP, mkdir as mkdirP, readdir as readdirP, rm as rmP, stat as statP } from 'fs/promises';
-import { dirname, join } from 'path';
-import { homedir } from 'os';
-import { createHash } from 'crypto';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import {
+  copyFile as copyFileP,
+  mkdir as mkdirP,
+  readdir as readdirP,
+  rm as rmP,
+  stat as statP,
+} from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { homedir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { isPlainObject } from './object.mjs';
 
 function mixdogConfigBaseDir() {
@@ -113,14 +128,14 @@ export function markUserDataInitialized(dataDir) {
     mkdirSync(getBackupRoot(), { recursive: true });
     writeFileSync(
       initMarkerPath(dataDir),
-      JSON.stringify(
+      `${JSON.stringify(
         {
           dataDir,
           updatedAt: new Date().toISOString(),
         },
         null,
         2
-      ) + '\n',
+      )}\n`,
       'utf8'
     );
   } catch {}

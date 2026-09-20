@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
-import { join } from 'path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { join } from 'node:path';
 import { writeJsonAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 

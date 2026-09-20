@@ -156,7 +156,7 @@ export function buildTableRender(token, terminalWidth) {
         const lineText = contentLineIdx >= 0 && contentLineIdx < lines.length ? lines[contentLineIdx] : '';
         const colWidth = columnWidths[colIndex];
         const align = isHeader ? 'center' : (token.align?.[colIndex] ?? 'left');
-        line += ' ' + padAligned(lineText, displayWidth(lineText), colWidth, align) + ' │';
+        line += ` ${padAligned(lineText, displayWidth(lineText), colWidth, align)} │`;
       }
       result.push(line);
     }

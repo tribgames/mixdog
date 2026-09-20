@@ -9,7 +9,7 @@ import { parts, workspace, writeZip } from './office-test-support.mjs';
 
 const run = (text, props = '') => `<w:r><w:rPr>${props}</w:rPr><w:t xml:space="preserve">${text}</w:t></w:r>`;
 const fonts = '<w:rFonts w:ascii="Cambria" w:eastAsia="Malgun Gothic" w:cs="Arial"/>';
-const original = `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr>${run('아무것도 ', fonts + '<w:b/><w:sz w:val="66"/>')}${run('하지 않는 시간', fonts + '<w:color w:val="112233"/><w:sz w:val="66"/>')}</w:p>`;
+const original = `<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr>${run('아무것도 ', `${fonts}<w:b/><w:sz w:val="66"/>`)}${run('하지 않는 시간', `${fonts}<w:color w:val="112233"/><w:sz w:val="66"/>`)}</w:p>`;
 
 test('body font edits cross fragments, preserve formatting, and never match the footer instead', async (t) => {
   const cwd = await workspace(t);
@@ -40,7 +40,7 @@ test('body font edits cross fragments, preserve formatting, and never match the 
 });
 
 test('a substring edit changes only its characters and only the first occurrence', () => {
-  const paragraph = `<w:p>${run('before target after target', fonts + '<w:b/>')}</w:p>`;
+  const paragraph = `<w:p>${run('before target after target', `${fonts}<w:b/>`)}</w:p>`;
   const result = formatFirstBodyPhrase(paragraph, 'target', { bold: false, color: 'FF0000' });
   assert.match(result.xml, /<w:b w:val="0"\/><w:color w:val="FF0000"\/>.*?<w:t xml:space="preserve">target<\/w:t>/);
   assert.equal((result.xml.match(/FF0000/g) || []).length, 1);

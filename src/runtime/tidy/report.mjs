@@ -145,13 +145,21 @@ export function buildTidyReport({
   const startCap = Math.min(RESULTS_PAGE_MAX, Math.max(0, Math.trunc(Number(limit) || 0)));
   const structuralFailed =
     Boolean(structural?.error) || Boolean(structural?.ruleErrors?.length) || Boolean(structural?.rejected?.length);
-  const succeeded = Boolean(ok) && !structuralFailed && !engineTruncated && !errors.length &&
+  const succeeded =
+    Boolean(ok) &&
+    !structuralFailed &&
+    !engineTruncated &&
+    !errors.length &&
     !(results || []).some((result) => result?.error);
-  const changed = Boolean(structural?.applied?.length) ||
+  const changed =
+    Boolean(structural?.applied?.length) ||
     (results || []).some((result) => !result.dryRun && result.filesChanged?.length && action === 'fix');
+  let status = 'failed';
+  if (succeeded) status = 'complete';
+  else if (changed) status = 'partial';
   const parts = {
     ok: succeeded,
-    status: succeeded ? 'complete' : changed ? 'partial' : 'failed',
+    status,
     action,
     scope,
     languages,

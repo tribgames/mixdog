@@ -1,4 +1,4 @@
-// Pasted-attachment buffers, extracted from App.jsx. Large pasted images and
+// Pasted-attachment buffers. Large pasted images and
 // texts fold into [Image #N] / [Pasted text #N +M lines] prompt tokens; the
 // original payloads live here (ref + mirrored state) until submit expands
 // them back. install* rehydrates a queued/restored draft's buffers, the
@@ -48,7 +48,7 @@ export function usePastedBuffers() {
   }, []);
 
   const registerPastedImage = useCallback((image) => {
-    if (!image || image.type !== 'image' || !image.content) return '';
+    if (image?.type !== 'image' || !image.content) return '';
     const id = nextPastedImageIdRef.current++;
     const entry = { ...image, id };
     pastedImagesRef.current = { ...pastedImagesRef.current, [id]: entry };

@@ -686,11 +686,10 @@ function parseConfigInt(value: string): number | null {
   const match = /^\s*([+-]?)(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)([kKmMgG]?)\s*$/.exec(value);
   if (!match) return null;
   const digits = match[2];
-  const magnitude = /^0[xX]/.test(digits)
-    ? Number.parseInt(digits.slice(2), 16)
-    : /^0[0-7]+$/.test(digits)
-      ? Number.parseInt(digits, 8)
-      : Number.parseInt(digits, 10);
+  let magnitude: number;
+  if (/^0[xX]/.test(digits)) magnitude = Number.parseInt(digits.slice(2), 16);
+  else if (/^0[0-7]+$/.test(digits)) magnitude = Number.parseInt(digits, 8);
+  else magnitude = Number.parseInt(digits, 10);
   const unit = { '': 1, k: 1024, m: 1024 ** 2, g: 1024 ** 3 }[match[3].toLowerCase()] ?? 1;
   return (match[1] === '-' ? -magnitude : magnitude) * unit;
 }
@@ -813,7 +812,7 @@ async function sharedRepositoryConfig(toplevel: string): Promise<string | null |
   const probe = await runWithStatus(toplevel, ['config', '--get', 'core.sharedRepository']);
   if (probe.code === 1) return undefined;
   if (probe.code !== 0) {
-    throw new Error('could not read core.sharedRepository: ' + (probe.stderr || `git exited with code ${probe.code}`));
+    throw new Error(`could not read core.sharedRepository: ${probe.stderr || `git exited with code ${probe.code}`}`);
   }
   // Only the terminating newline is git's; the value's own bytes are kept.
   const raw = probe.stdout.replace(/\r?\n$/, '');
@@ -821,7 +820,7 @@ async function sharedRepositoryConfig(toplevel: string): Promise<string | null |
   const bool = await runWithStatus(toplevel, ['config', '--bool', '--get', 'core.sharedRepository']);
   if (bool.code === 0 && bool.stdout.trim() === 'true') return null;
   if (bool.code === 0 && bool.stdout.trim() === 'false') return '';
-  throw new Error('could not read core.sharedRepository: ' + (bool.stderr || `git exited with code ${bool.code}`));
+  throw new Error(`could not read core.sharedRepository: ${bool.stderr || `git exited with code ${bool.code}`}`);
 }
 
 /** The mode to publish with, and the mode it was derived from. */

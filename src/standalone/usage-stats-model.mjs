@@ -23,7 +23,7 @@
  */
 import { billableInputTokensForProvider } from '../runtime/shared/llm/cost.mjs';
 import { hourlySeries } from './usage-stats-hours.mjs';
-import { isConversationUsageSource, usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
+import { isConversationUsageSource, knownCostTurns, usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
 
 function num(value) {
   const n = Number(value);
@@ -32,6 +32,12 @@ function num(value) {
 
 function text(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** `numerator / denominator` rounded; null while any turn is unmeasured, 0 without a denominator. */
+function measuredRatio(unmeasuredTurns, numerator, denominator, digits) {
+  if (unmeasuredTurns > 0) return null;
+  return denominator > 0 ? round(numerator / denominator, digits) : 0;
 }
 
 function round(value, digits) {
@@ -239,8 +245,7 @@ function foldRollupDay(state, key, day, conversationOnly) {
       cacheRead: num(route.cacheRead),
       cacheWrite: num(route.cacheWrite),
       costUsd: num(route.costUsd),
-      costKnownTurns:
-        route.costKnownTurns == null ? (num(route.costUsd) > 0 ? num(route.turns) : 0) : num(route.costKnownTurns),
+      costKnownTurns: knownCostTurns(route, num),
       costBilled: num(route.costBilled),
       costEstimated:
         route.costEstimated == null
@@ -346,7 +351,7 @@ function collect({ events, rollupDays, historyDays, window, conversationOnly }) 
     // A bucket written before turns carried a source cannot answer "mine
     // only". Where the raw events still cover that day they can, so they are
     // used instead of dropping the day entirely.
-    if (conversationOnly && !day?.conversation && group && group.length) continue;
+    if (conversationOnly && !day?.conversation && group?.length) continue;
     const firstTs = num(day?.firstTs);
     const lastTs = num(day?.lastTs);
     if (firstTs > 0 && lastTs > 0) {
@@ -374,7 +379,7 @@ function collect({ events, rollupDays, historyDays, window, conversationOnly }) 
     if (key < fromKey || key > toKey) continue;
     if (rollupDays[key]) continue;
     const group = eventsByDay.get(key);
-    if (group && group.length) {
+    if (group?.length) {
       // A whole day of events outranks a rebuild of it.
       if (key !== truncatedEventDay) continue;
       // On the truncated day the two sources are compared as wholes and the
@@ -450,11 +455,11 @@ function exportRoute(bucket, totalTokens) {
     costKnownTurns: num(bucket.costKnownTurns),
     costUnpricedTurns: Math.max(0, bucket.turns - num(bucket.costKnownTurns)),
     costCoverage: bucket.turns > 0 ? num(bucket.costKnownTurns) / bucket.turns : 0,
-    share: unmeasuredTurns > 0 ? null : totalTokens > 0 ? round(tokens / totalTokens, 6) : 0,
+    share: measuredRatio(unmeasuredTurns, tokens, totalTokens, 6),
     // How much of this route's prompt arrived from cache instead of being read
     // again. Cache writes are misses, so belong in the denominator, not the
     // numerator.
-    cacheHitRate: unmeasuredTurns > 0 ? null : prompt > 0 ? round(bucket.cacheRead / prompt, 4) : 0,
+    cacheHitRate: measuredRatio(unmeasuredTurns, bucket.cacheRead, prompt, 4),
     // What a million fresh tokens actually cost on this route. Cache is excluded
     // from the divisor: including it would divide real spend by a number two
     // orders of magnitude larger and rank every route as free.
@@ -489,12 +494,9 @@ export function usageStatsSnapshot({
   const conversationOnly = source !== 'all';
   const window = period ? { days: period.days, fromMs: period.fromMs, toMs: period.toMs } : resolveWindow(days, now);
   const rollupDays = rollup?.days && typeof rollup.days === 'object' ? rollup.days : {};
-  const historyDays =
-    history?.days && typeof history.days === 'object'
-      ? history.days
-      : history && typeof history === 'object'
-        ? history
-        : {};
+  let historyDays = {};
+  if (history?.days && typeof history.days === 'object') historyDays = history.days;
+  else if (history && typeof history === 'object') historyDays = history;
   const eventList = Array.isArray(events) ? events : [];
   const state = collect({ events: eventList, rollupDays, historyDays, window, conversationOnly });
 
@@ -593,12 +595,12 @@ export function usageStatsSnapshot({
       cacheTokens,
       totalTokens,
       // How much of the prompt arrived from cache instead of being read again.
-      cacheHitRate:
-        state.unmeasuredTurns > 0
-          ? null
-          : state.input + state.cacheRead + state.cacheWrite > 0
-            ? round(state.cacheRead / (state.input + state.cacheRead + state.cacheWrite), 4)
-            : 0,
+      cacheHitRate: measuredRatio(
+        state.unmeasuredTurns,
+        state.cacheRead,
+        state.input + state.cacheRead + state.cacheWrite,
+        4
+      ),
       costUsd: round(state.costUsd, 6),
       costKnownTurns: state.costKnownTurns,
       costUnpricedTurns: Math.max(0, state.turns - state.costKnownTurns),

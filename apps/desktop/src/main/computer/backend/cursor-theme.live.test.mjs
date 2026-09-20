@@ -35,7 +35,7 @@ public static class CursorDigest {
     );
     await writeFile(
       join(directory, 'worker.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -AssemblyName System.Drawing
@@ -49,7 +49,7 @@ $lease.Dispose()
     );
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 Add-Type -AssemblyName Accessibility

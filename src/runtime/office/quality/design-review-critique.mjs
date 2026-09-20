@@ -122,12 +122,13 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
     .filter(Boolean);
   const repeatedChecks = total > 1 && checkSets.length === total && new Set(checkSets).size === 1;
   if (repeatedNotes || repeatedChecks) {
-    const message =
-      repeatedNotes && repeatedChecks
-        ? 'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.'
-        : repeatedNotes
-          ? 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.'
-          : "Each slide's checks come from its own plan line; every slide here asks the same questions.";
+    let message = "Each slide's checks come from its own plan line; every slide here asks the same questions.";
+    if (repeatedNotes && repeatedChecks) {
+      message =
+        'Each slide needs its own critique note and its own checks; this critique repeats one note and one set of questions across the deck.';
+    } else if (repeatedNotes) {
+      message = 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.';
+    }
     issues.push({
       severity: 'warning',
       code: 'visual_critique_repeated_note',

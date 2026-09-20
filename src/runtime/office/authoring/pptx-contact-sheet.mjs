@@ -20,7 +20,9 @@ function pageImages(images = []) {
 export async function writeContactSheet(images, output, { width = 1600 } = {}) {
   const pages = pageImages(images);
   if (pages.length < 2) return null;
-  const columns = pages.length <= 4 ? 2 : pages.length <= 9 ? 3 : 4;
+  let columns = 4;
+  if (pages.length <= 4) columns = 2;
+  else if (pages.length <= 9) columns = 3;
   const gap = 14;
   const label = 22;
   const cellW = Math.floor((width - gap * (columns + 1)) / columns);

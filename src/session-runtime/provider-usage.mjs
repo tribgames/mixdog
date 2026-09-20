@@ -1,5 +1,5 @@
-// Provider-setup snapshot + usage-dashboard cache glue, extracted from
-// mixdog-session-runtime.mjs. Dependency-injected factory following the same
+// Provider-setup snapshot + usage-dashboard cache glue.
+// Dependency-injected factory following the same
 // pattern as createProviderModels: mutable cache state lives in a caller-owned
 // `caches` object (so invalidateProviderCaches still resets the same
 // references) and all config/registry reads flow through supplied accessors so
@@ -30,7 +30,7 @@ export function createProviderUsage({
   function refreshStatuslineUsageSnapshot(routeLike = {}) {
     const providerId = clean(routeLike.provider);
     const modelId = clean(routeLike.model);
-    if (!providerId || !providerId.includes('oauth')) return;
+    if (!providerId?.includes('oauth')) return;
     const providerObj = reg().getProvider(providerId);
     if (!providerObj) return;
     void fetchOAuthUsageSnapshot({ provider: providerId, model: modelId }, providerObj, (message) => {

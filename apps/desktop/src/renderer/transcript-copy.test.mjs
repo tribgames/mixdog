@@ -5,8 +5,9 @@ import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'https://mixdog.test/' });
+const domGlobals = { window: dom.window, document: dom.window.document };
 for (const name of ['window', 'document', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement']) {
-  globalThis[name] = name === 'window' ? dom.window : name === 'document' ? dom.window.document : dom.window[name];
+  globalThis[name] = domGlobals[name] ?? dom.window[name];
 }
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

@@ -5,7 +5,9 @@
     "expect": "applied",
     "expect_content": { "a.txt": "one\nTWO\nthree\nfour\nfive\n" },
     "file_snapshots": { "a.txt": "one\ntwo\nthree\nfour\nfive\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n one\n-two\n+TWO\n three\n*** End of File\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n one\n-two\n+TWO\n three\n*** End of File\n*** End Patch\n"
+    }
   },
   {
     "id": "deletion-line-one-char-off",
@@ -13,15 +15,21 @@
     "expect": "applied",
     "expect_content": { "src.js": "alpha\nconst total = count + 2;\nbeta\ngamma\n" },
     "file_snapshots": { "src.js": "alpha\nconst total = count + 1;\nbeta\ngamma\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: src.js\n@@\n alpha\n-const total = cout + 1;\n+const total = count + 2;\n beta\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: src.js\n@@\n alpha\n-const total = cout + 1;\n+const total = count + 2;\n beta\n*** End Patch\n"
+    }
   },
   {
     "id": "stale-outer-context-line",
     "note": "observed: one unrelated context line copied just outside the real edit",
     "expect": "applied",
     "expect_content": { "tools.js": "const tools = {\n  shell_step: {\n    command: 'node test.js',\n  },\n};\n" },
-    "file_snapshots": { "tools.js": "const tools = {\n  shell_step: {\n    command: 'node test.js',\n    cwd: root,\n    timeout: 30000,\n  },\n};\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: tools.js\n@@\n stale outer context\n   shell_step: {\n     command: 'node test.js',\n-    cwd: root,\n-    timeout: 30000,\n   },\n*** End Patch\n" }
+    "file_snapshots": {
+      "tools.js": "const tools = {\n  shell_step: {\n    command: 'node test.js',\n    cwd: root,\n    timeout: 30000,\n  },\n};\n"
+    },
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: tools.js\n@@\n stale outer context\n   shell_step: {\n     command: 'node test.js',\n-    cwd: root,\n-    timeout: 30000,\n   },\n*** End Patch\n"
+    }
   },
   {
     "id": "context-retyped-from-memory",
@@ -29,7 +37,9 @@
     "expect": "applied",
     "expect_content": { "cfg.js": "l1\nl2\nl3\nconst flag = false;\nl5\nl6\nl7\n" },
     "file_snapshots": { "cfg.js": "l1\nl2\nl3\nconst flag = true;\nl5\nl6\nl7\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: cfg.js\n@@\n remembered header\n another stale line\n-const flag = true;\n+const flag = false;\n stale trailer\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: cfg.js\n@@\n remembered header\n another stale line\n-const flag = true;\n+const flag = false;\n stale trailer\n*** End Patch\n"
+    }
   },
   {
     "id": "retyped-context-with-duplicate-core",
@@ -37,7 +47,9 @@
     "expect": "rejected",
     "expect_error": "context not found",
     "file_snapshots": { "dupcore.js": "a\nconst flag = true;\nb\nc\nconst flag = true;\nd\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: dupcore.js\n@@\n stale one\n-const flag = true;\n+const flag = false;\n stale two\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: dupcore.js\n@@\n stale one\n-const flag = true;\n+const flag = false;\n stale two\n*** End Patch\n"
+    }
   },
   {
     "id": "decomposed-unicode-context",
@@ -45,15 +57,23 @@
     "expect": "applied",
     "expect_content": { "label.js": "head\nconst label = \"tea\";\ntail\n" },
     "file_snapshots": { "label.js": "head\nconst label = \"caf\u00e9\";\ntail\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: label.js\n@@\n head\n-const label = \"cafe\u0301\";\n+const label = \"tea\";\n tail\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: label.js\n@@\n head\n-const label = \"cafe\u0301\";\n+const label = \"tea\";\n tail\n*** End Patch\n"
+    }
   },
   {
     "id": "stacked-at-anchors",
     "note": "V4A anchor chain (@@ class + @@ def): consecutive headers must narrow ONE hunk, not silently resolve against the first occurrence",
     "expect": "applied",
-    "expect_content": { "dup.py": "class A:\n    def run():\n        return 1\n\nclass B:\n    def run():\n        return 2\n" },
-    "file_snapshots": { "dup.py": "class A:\n    def run():\n        return 1\n\nclass B:\n    def run():\n        return 1\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: dup.py\n@@ class B:\n@@     def run():\n-        return 1\n+        return 2\n*** End Patch\n" }
+    "expect_content": {
+      "dup.py": "class A:\n    def run():\n        return 1\n\nclass B:\n    def run():\n        return 2\n"
+    },
+    "file_snapshots": {
+      "dup.py": "class A:\n    def run():\n        return 1\n\nclass B:\n    def run():\n        return 1\n"
+    },
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: dup.py\n@@ class B:\n@@     def run():\n-        return 1\n+        return 2\n*** End Patch\n"
+    }
   },
   {
     "id": "divergent-line-far-off",
@@ -61,7 +81,9 @@
     "expect": "rejected",
     "expect_error": "first divergent line|context not found",
     "file_snapshots": { "app.js": "head\nawait engine.startWork();\ntail\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: app.js\n@@\n head\n-unsubscribe();\n+cleanup();\n tail\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: app.js\n@@\n head\n-unsubscribe();\n+cleanup();\n tail\n*** End Patch\n"
+    }
   },
   {
     "id": "shifted-context-first-line-only",
@@ -69,7 +91,9 @@
     "expect": "rejected",
     "expect_error": "nearest line|context not found",
     "file_snapshots": { "shift.js": "open();\nmiddle();\nclose();\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: shift.js\n@@\n open();\n-gone();\n-also gone();\n+replacement();\n close();\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: shift.js\n@@\n open();\n-gone();\n-also gone();\n+replacement();\n close();\n*** End Patch\n"
+    }
   },
   {
     "id": "near-miss-in-two-places",
@@ -77,7 +101,9 @@
     "expect": "rejected",
     "expect_error": "context not found",
     "file_snapshots": { "dup.js": "alpha\nvalue = 1;\nbeta\nalpha\nvalue = 1;\nbeta\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: dup.js\n@@\n alpha\n-value = 7;\n+value = 2;\n beta\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: dup.js\n@@\n alpha\n-value = 7;\n+value = 2;\n beta\n*** End Patch\n"
+    }
   },
   {
     "id": "compacted-history-placeholder",
@@ -85,7 +111,9 @@
     "expect": "rejected",
     "expect_error": "compacted-history placeholder",
     "file_snapshots": { "a.txt": "one\ntwo\n" },
-    "args": { "patch": "[mixdog compacted patch: 15983 chars, sha256:9ae407d696803e2a; already applied to a.txt - do not copy]" }
+    "args": {
+      "patch": "[mixdog compacted patch: 15983 chars, sha256:9ae407d696803e2a; already applied to a.txt - do not copy]"
+    }
   },
   {
     "id": "missing-patch-argument",
@@ -101,7 +129,9 @@
     "expect": "applied",
     "expect_content": { "a.txt": "one\nTWO\nthree\n" },
     "file_snapshots": { "a.txt": "one\ntwo\nthree\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n one\n-two\n+TWO\n three\n*** End of File ***\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.txt\n@@\n one\n-two\n+TWO\n three\n*** End of File ***\n*** End Patch\n"
+    }
   },
   {
     "id": "opcode-dash-list-item",
@@ -109,15 +139,23 @@
     "expect": "applied",
     "expect_content": { "a.md": "- Plan keep\n  new body\ntail\n" },
     "file_snapshots": { "a.md": "- Plan keep\n  old body\ntail\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n- Plan keep\n-  old body\n+  new body\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n- Plan keep\n-  old body\n+  new body\n*** End Patch\n"
+    }
   },
   {
     "id": "indent-only-unique-window",
     "note": "observed (tool-failures indent-only): same text, 2-space vs 4-space; unique window must apply",
     "expect": "applied",
-    "expect_content": { "a.js": "    // landed thumbnail (each restart re-rendered the whole grid).\n    const generating = true;\n" },
-    "file_snapshots": { "a.js": "    // landed thumbnail (each restart re-rendered the whole grid).\n    const generating = false;\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n  // landed thumbnail (each restart re-rendered the whole grid).\n-    const generating = false;\n+    const generating = true;\n*** End Patch\n" }
+    "expect_content": {
+      "a.js": "    // landed thumbnail (each restart re-rendered the whole grid).\n    const generating = true;\n"
+    },
+    "file_snapshots": {
+      "a.js": "    // landed thumbnail (each restart re-rendered the whole grid).\n    const generating = false;\n"
+    },
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n  // landed thumbnail (each restart re-rendered the whole grid).\n-    const generating = false;\n+    const generating = true;\n*** End Patch\n"
+    }
   },
   {
     "id": "indent-only-ambiguous-brace",
@@ -133,7 +171,9 @@
     "expect": "applied",
     "expect_content": { "a.md": "+ TODO keep\n  new body\ntail\n" },
     "file_snapshots": { "a.md": "+ TODO keep\n  old body\ntail\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n+ TODO keep\n-  old body\n+  new body\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n+ TODO keep\n-  old body\n+  new body\n*** End Patch\n"
+    }
   },
   {
     "id": "opcode-plus-after-context",
@@ -141,7 +181,9 @@
     "expect": "applied",
     "expect_content": { "a.md": "keep\n+ TODO keep\n  new body\ntail\n" },
     "file_snapshots": { "a.md": "keep\n+ TODO keep\n  old body\ntail\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n keep\n+ TODO keep\n-  old body\n+  new body\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.md\n@@\n keep\n+ TODO keep\n-  old body\n+  new body\n*** End Patch\n"
+    }
   },
   {
     "id": "escape-equiv-unique",
@@ -149,7 +191,9 @@
     "expect": "applied",
     "expect_content": { "a.js": "const a = \"x\";\nmid\n" },
     "file_snapshots": { "a.js": "const a = \"\\u00e9\";\nmid\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-const a = \"é\";\n+const a = \"x\";\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-const a = \"é\";\n+const a = \"x\";\n*** End Patch\n"
+    }
   },
   {
     "id": "escape-equiv-two-windows",
@@ -157,7 +201,9 @@
     "expect": "rejected",
     "expect_error": "context not found",
     "file_snapshots": { "a.js": "const label = \"\\u00e9\";\nmid\nconst label = \"\\u00e9\";\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-const label = \"é\";\n+const label = \"x\";\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n-const label = \"é\";\n+const label = \"x\";\n*** End Patch\n"
+    }
   },
   {
     "id": "crlf-rename",
@@ -165,7 +211,10 @@
     "expect": "applied",
     "expect_content": { "new.js": "line1\r\nLINE2\r\n" },
     "file_snapshots": { "old.js": "line1\r\nline2\r\n" },
-    "args": { "mode": "atomic", "patch": "*** Begin Patch\n*** Update File: old.js\n*** Move to: new.js\n@@\n line1\n-line2\n+LINE2\n*** End Patch\n" }
+    "args": {
+      "mode": "atomic",
+      "patch": "*** Begin Patch\n*** Update File: old.js\n*** Move to: new.js\n@@\n line1\n-line2\n+LINE2\n*** End Patch\n"
+    }
   },
   {
     "id": "add-overwrite-crlf",
@@ -181,7 +230,9 @@
     "expect": "applied",
     "expect_content": { "a.js": "\tconst x = 1;\n\tconst y = 3;\n" },
     "file_snapshots": { "a.js": "\tconst x = 1;\n\tconst y = 2;\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n  const x = 1;\n-  const y = 2;\n+  const y = 3;\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n  const x = 1;\n-  const y = 2;\n+  const y = 3;\n*** End Patch\n"
+    }
   },
   {
     "id": "cr-only-update",
@@ -197,7 +248,9 @@
     "expect": "rejected",
     "expect_error": "context not found",
     "file_snapshots": { "a.js": "const STATUS = {\n  pending: 1,\n  archived: 2,\n}\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n const STATUS = {\n   pending: 1,\n+  archived: 2,\n }\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n const STATUS = {\n   pending: 1,\n+  archived: 2,\n }\n*** End Patch\n"
+    }
   },
   {
     "id": "already-applied-replace",
@@ -205,7 +258,9 @@
     "expect": "rejected",
     "expect_error": "context not found",
     "file_snapshots": { "a.js": "head\nreturn ALL.has(v) || v === 'core' || v === 'lineage'\ntail\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n head\n-return ALL.has(v) || v === 'core'\n+return ALL.has(v) || v === 'core' || v === 'lineage'\n tail\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n head\n-return ALL.has(v) || v === 'core'\n+return ALL.has(v) || v === 'core' || v === 'lineage'\n tail\n*** End Patch\n"
+    }
   },
   {
     "id": "already-applied-mixed-remaining",
@@ -213,7 +268,9 @@
     "expect": "rejected",
     "expect_error": "context not found",
     "file_snapshots": { "a.js": "const STATUS = {\n  pending: 1,\n  archived: 2,\n}\n// pending/active only\n" },
-    "args": { "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n const STATUS = {\n   pending: 1,\n+  archived: 2,\n }\n@@\n-// pending/active only\n+// lineage backfill\n*** End Patch\n" }
+    "args": {
+      "patch": "*** Begin Patch\n*** Update File: a.js\n@@\n const STATUS = {\n   pending: 1,\n+  archived: 2,\n }\n@@\n-// pending/active only\n+// lineage backfill\n*** End Patch\n"
+    }
   },
   {
     "id": "already-applied-duplicate-new",

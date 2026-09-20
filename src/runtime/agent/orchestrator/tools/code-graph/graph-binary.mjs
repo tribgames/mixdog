@@ -10,6 +10,7 @@ import { getPluginData } from '../../config.mjs';
 import { ensureGraphBinary, findCachedGraphBinary } from '../graph-binary-fetcher.mjs';
 import { packageNativeToolPath } from '../../../../shared/native-tool-paths.mjs';
 import { CODE_GRAPH_BINARY_TIMEOUT_MS } from './constants.mjs';
+import { spawnGraphJsonl } from './graph-binary/spawn-jsonl.mjs';
 
 // ── Native graph binary (mixdog-graph) — single source of truth for
 // per-file parsing. There is NO JS parsing fallback: if the binary is
@@ -50,230 +51,41 @@ export function graphBinaryPath() {
   }
 }
 
-async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signal = null, { requireRel = true } = {}) {
-  let binPath = _graphBinaryPath();
-  if (!binPath) {
-    // No local build or cached binary — fetch the prebuilt from the release
-    // manifest (sha256-verified). No JS parse fallback: if the platform has
-    // no asset or the download fails, the build throws with a fixable error.
-    try {
-      binPath = await ensureGraphBinary(getPluginData());
-    } catch (err) {
-      throw new Error(
-        `[code-graph] mixdog-graph binary unavailable and could not be fetched: ${err?.message || err}. ` +
-          'Build it (cargo build --release in native/mixdog-graph) or check network/release manifest.'
-      );
-    }
-  }
-  const { spawn } = await import('node:child_process');
-  const timeoutMs = CODE_GRAPH_BINARY_TIMEOUT_MS;
-  let retried = false;
-
-  // Inner spawn + promise — extracted so we can retry once on EAGAIN.
-  //
-  // child-spawn-gate is NOT acquired here. Worker builds and main-thread
-  // signature validation both hold their slot in buildCodeGraphAsync; worker
-  // threads do not share module-level state with the main thread, so acquiring
-  // here would create an independent semaphore that cannot coordinate with rg.
-  const _spawnOnce = () =>
-    new Promise((resolve, reject) => {
-      // When stdinLines is supplied (--files mode), stream one JSON object per
-      // line to the child's STDIN — the reused nodes' metadata — so Rust can
-      // resolve imports across the WHOLE tree (fresh + reused) while only
-      // full-parsing the changed subset passed as argv.
-      const wantsStdin = Array.isArray(stdinLines);
-      const proc = spawn(binPath, [absRoot, ...extraArgs], {
-        stdio: [wantsStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-        // windowsHide: native code-graph binary is a console exe; without this each
-        // call flashes a console window when spawned under the detached daemon.
-        windowsHide: true,
-      });
-      const chunks = [];
-      let stderrText = '';
-      const STDERR_CAP = 8 * 1024;
-      let settled = false;
-      let timedOut = false;
-      let aborted = false;
-
-      // ── timeout + kill helpers (mirrors rg-runner's _killRgProc/_escalateRgKill) ──
-      let timeoutTimer = null;
-      let killGraceTimer = null;
-      let forceSettleTimer = null;
-
-      const _procGone = () => proc.exitCode != null || proc.signalCode != null;
-
-      const _escalateKill = () => {
-        if (_procGone()) return;
-        const pid = proc.pid;
-        if (!pid) return;
-        try {
-          if (process.platform === 'win32') {
-            spawn('taskkill', ['/pid', String(pid), '/t', '/f'], {
-              windowsHide: true,
-              stdio: 'ignore',
-            });
-          } else {
-            try {
-              proc.kill('SIGKILL');
-            } catch {
-              /* ignore */
-            }
-          }
-        } catch {
-          /* ignore */
-        }
-      };
-
-      const _killProc = () => {
-        if (_procGone()) return;
-        try {
-          proc.kill('SIGTERM');
-        } catch {
-          /* ignore */
-        }
-        if (killGraceTimer) {
-          clearTimeout(killGraceTimer);
-          killGraceTimer = null;
-        }
-        killGraceTimer = setTimeout(() => {
-          killGraceTimer = null;
-          _escalateKill();
-        }, 3000);
-        if (killGraceTimer.unref) killGraceTimer.unref();
-      };
-
-      const _clearTimers = () => {
-        if (timeoutTimer) {
-          clearTimeout(timeoutTimer);
-          timeoutTimer = null;
-        }
-        if (killGraceTimer) {
-          clearTimeout(killGraceTimer);
-          killGraceTimer = null;
-        }
-        if (forceSettleTimer) {
-          clearTimeout(forceSettleTimer);
-          forceSettleTimer = null;
-        }
-        if (onAbort && signal) {
-          try {
-            signal.removeEventListener('abort', onAbort);
-          } catch {
-            /* ignore */
-          }
-          onAbort = null;
-        }
-      };
-      let onAbort = null;
-
-      // Arm timeout — unref so it doesn't keep the process alive. On timeout we
-      // start SIGTERM→grace→force-kill but do NOT settle yet: the promise stays
-      // pending until the child's 'close' fires (so the build worker — and the
-      // main-thread gate slot it holds — is only released once the process is
-      // actually gone). A separate force-settle deadline guarantees the promise
-      // still resolves if 'close' never arrives. Mirrors rg-runner exactly.
-      timeoutTimer = setTimeout(() => {
-        timeoutTimer = null;
-        timedOut = true;
-        _killProc();
-        // Hard backstop: if 'close' never fires after the kill escalation,
-        // escalate again and settle so we never hang (and never release the
-        // gate while the child is provably still alive without a final attempt).
-        if (forceSettleTimer) clearTimeout(forceSettleTimer);
-        forceSettleTimer = setTimeout(() => {
-          forceSettleTimer = null;
-          if (settled) return;
-          _escalateKill();
-          settled = true;
-          _clearTimers();
-          reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
-        }, 5000);
-        if (forceSettleTimer.unref) forceSettleTimer.unref();
-      }, timeoutMs);
-      if (timeoutTimer.unref) timeoutTimer.unref();
-      if (signal) {
-        onAbort = () => {
-          aborted = true;
-          _killProc();
-        };
-        if (signal.aborted) onAbort();
-        else signal.addEventListener('abort', onAbort, { once: true });
-      }
-
-      proc.stdout.on('data', (c) => chunks.push(c));
-      proc.stderr.on('data', (c) => {
-        if (stderrText.length >= STDERR_CAP) return;
-        const piece = c.toString('utf8');
-        const room = STDERR_CAP - stderrText.length;
-        stderrText += piece.length > room ? piece.slice(0, room) : piece;
-      });
-      proc.on('error', (err) => {
-        if (settled) return;
-        settled = true;
-        _clearTimers();
-        reject(err);
-      });
-      if (wantsStdin) {
-        proc.stdin.on('error', () => {
-          /* child may close stdin early; ignore EPIPE */
-        });
-        proc.stdin.write(stdinLines.length ? `${stdinLines.join('\n')}\n` : '');
-        proc.stdin.end();
-      }
-      proc.on('close', (code) => {
-        if (settled) return;
-        settled = true;
-        _clearTimers();
-        if (timedOut) {
-          // Our timeout kill won the race: the child is gone now, so the gate
-          // slot releases here (not at timeout-fire time). Report as a timeout.
-          reject(new Error(`[code-graph] mixdog-graph timed out after ${timeoutMs}ms`));
-          return;
-        }
-        if (aborted) {
-          reject(new Error('aborted'));
-          return;
-        }
-        if (code !== 0) {
-          reject(new Error(`[code-graph] mixdog-graph exited ${code}: ${stderrText.trim().slice(0, 200)}`));
-          return;
-        }
-        const out = [];
-        const buf = Buffer.concat(chunks).toString('utf8');
-        let lineNumber = 0;
-        for (const line of buf.split('\n')) {
-          lineNumber += 1;
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          try {
-            const rec = JSON.parse(trimmed);
-            // Capability modes (--langs) answer with a single table object that
-            // has no `rel`; only per-file record modes require it.
-            if (!rec || (requireRel && typeof rec.rel !== 'string')) {
-              throw new Error('record is missing string rel');
-            }
-            out.push(rec);
-          } catch (error) {
-            reject(
-              new Error(
-                `[code-graph] mixdog-graph emitted invalid JSONL at line ${lineNumber}: ${error?.message || error}`
-              )
-            );
-            return;
-          }
-        }
-        resolve(out);
-      });
-    });
-
-  // Outer call with one EAGAIN retry (mirrors rg-runner runRg / runRgWindowedLines).
+async function _ensureGraphBinaryPath() {
+  const binPath = _graphBinaryPath();
+  if (binPath) return binPath;
+  // No local build or cached binary — fetch the prebuilt from the release
+  // manifest (sha256-verified). No JS parse fallback: if the platform has
+  // no asset or the download fails, the build throws with a fixable error.
   try {
-    return await _spawnOnce();
+    return await ensureGraphBinary(getPluginData());
   } catch (err) {
-    if (!retried && (err?.code === 'EAGAIN' || /EAGAIN/i.test(String(err?.message || err?.stderr || '')))) {
-      retried = true;
-      return _spawnOnce();
-    }
+    throw new Error(
+      `[code-graph] mixdog-graph binary unavailable and could not be fetched: ${err?.message || err}. ` +
+        'Build it (cargo build --release in native/mixdog-graph) or check network/release manifest.'
+    );
+  }
+}
+
+const isEagain = (err) => err?.code === 'EAGAIN' || /EAGAIN/i.test(String(err?.message || err?.stderr || ''));
+
+async function _runGraphBinaryJsonl(absRoot, extraArgs, stdinLines = null, signal = null, { requireRel = true } = {}) {
+  const binPath = await _ensureGraphBinaryPath();
+  const run = () =>
+    spawnGraphJsonl({
+      binPath,
+      absRoot,
+      extraArgs,
+      stdinLines,
+      signal,
+      timeoutMs: CODE_GRAPH_BINARY_TIMEOUT_MS,
+      requireRel,
+    });
+  // One EAGAIN retry (mirrors rg-runner runRg / runRgWindowedLines).
+  try {
+    return await run();
+  } catch (err) {
+    if (isEagain(err)) return run();
     throw err;
   }
 }
@@ -509,20 +321,19 @@ export async function _runGraphWalk(absRoot) {
 // reused) and emits fresh rels as full records, reused rels as lightweight
 // {rel, resolvedImports, importedBy}.
 export async function _runGraphFiles(absRoot, rels, reusedMetas, signal = null) {
-  const lines = Array.isArray(reusedMetas)
-    ? reusedMetas.map((m) =>
-        JSON.stringify({
-          rel: m.rel,
-          lang: m.lang,
-          parseError: m.parseError || '',
-          rawImports: Array.isArray(m.rawImports) ? m.rawImports : [],
-          packageName: m.packageName || '',
-          namespaceName: m.namespaceName || '',
-          goPackageName: m.goPackageName || '',
-          topLevelTypes: Array.isArray(m.topLevelTypes) ? m.topLevelTypes : [],
-        })
-      )
-    : [];
+  const reused = Array.isArray(reusedMetas) ? reusedMetas : [];
+  const lines = reused.map((m) =>
+    JSON.stringify({
+      rel: m.rel,
+      lang: m.lang,
+      parseError: m.parseError || '',
+      rawImports: Array.isArray(m.rawImports) ? m.rawImports : [],
+      packageName: m.packageName || '',
+      namespaceName: m.namespaceName || '',
+      goPackageName: m.goPackageName || '',
+      topLevelTypes: Array.isArray(m.topLevelTypes) ? m.topLevelTypes : [],
+    })
+  );
   const key = _currentGraphBinaryKey();
   const probe = _ensureCallsWireProbe(absRoot);
   const records = await _runGraphBinaryJsonl(absRoot, ['--files', ...rels], lines, signal);

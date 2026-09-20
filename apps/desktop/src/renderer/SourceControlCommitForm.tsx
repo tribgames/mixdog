@@ -3,6 +3,18 @@ import type { KeyboardEvent } from 'react';
 import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 
+function commitButtonLabel(committing: boolean, branchName: string, count: number): string {
+  if (committing) return t('Committing…');
+  if (branchName) {
+    if (count === 1) return t('Commit 1 file to {{branch}}', { branch: branchName });
+    if (count > 0) return t('Commit {{count}} files to {{branch}}', { count, branch: branchName });
+    return t('Commit to {{branch}}', { branch: branchName });
+  }
+  if (count === 1) return t('Commit 1 file');
+  if (count > 0) return t('Commit {{count}} files', { count });
+  return t('Commit');
+}
+
 export function SourceControlCommitForm({
   branch,
   busy,
@@ -35,32 +47,13 @@ export function SourceControlCommitForm({
   const committing = busy === 'commit' || busy === 'amend';
   const blocked = commitBlocked || !summary.trim();
   const branchName = detached ? '' : branch;
-  const commitLabel = committing
-    ? t('Committing…')
-    : branchName
-      ? selectedFileCount === 1
-        ? t('Commit 1 file to {{branch}}', { branch: branchName })
-        : selectedFileCount > 0
-          ? t('Commit {{count}} files to {{branch}}', { count: selectedFileCount, branch: branchName })
-          : t('Commit to {{branch}}', { branch: branchName })
-      : selectedFileCount === 1
-        ? t('Commit 1 file')
-        : selectedFileCount > 0
-          ? t('Commit {{count}} files', { count: selectedFileCount })
-          : t('Commit');
-  const title = !summary.trim()
-    ? t('Summary (required)')
-    : selectedFileCount === 0 && fileCount > 0
-      ? t('Select one or more files to commit')
-      : committing
-        ? t('Committing changes…')
-        : operation
-          ? t('Finish the in-progress Git operation first')
-          : conflictCount > 0
-            ? t('Resolve conflicts before committing')
-            : branchName
-              ? t('Commit to {{branch}}', { branch: branchName })
-              : t('Commit');
+  const commitLabel = commitButtonLabel(committing, branchName, selectedFileCount);
+  let title = branchName ? t('Commit to {{branch}}', { branch: branchName }) : t('Commit');
+  if (!summary.trim()) title = t('Summary (required)');
+  else if (selectedFileCount === 0 && fileCount > 0) title = t('Select one or more files to commit');
+  else if (committing) title = t('Committing changes…');
+  else if (operation) title = t('Finish the in-progress Git operation first');
+  else if (conflictCount > 0) title = t('Resolve conflicts before committing');
 
   const submitOnAccelerator = (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return;

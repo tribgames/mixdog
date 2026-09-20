@@ -5,6 +5,9 @@ import { PaneConversation } from '../../src/renderer/app-snapshot-views';
 import { defaultSessionLaneStore } from '../../src/renderer/session-lane-store';
 import { preloadMarkdownBody } from '../../src/renderer/markdown-body-loader';
 import type { Snapshot, TranscriptItem } from '../../src/renderer/desktop-types';
+import { parseStreamingMarkdownAst } from '../../src/renderer/markdown-worker-client';
+import { rememberAgentReviews } from '../../src/renderer/turn-review-cache';
+import { turnReviewScope } from '../../src/renderer/renderer-logic.mjs';
 
 const frame = () => new Promise<void>((done) => requestAnimationFrame(() => done()));
 const noop = () => {};
@@ -362,6 +365,111 @@ export async function runTranscriptMotionProbe(root: Root) {
       true
     );
     await republish('goal-cleared-once', { ...chrome, goal: null } as Snapshot, 2, false);
+
+    reviewActive = false;
+    const streaming = history('motion-completion', true);
+    const answer = { id: 'live-answer', kind: 'assistant', text: '**Already rendered answer** with unchanged text.', streaming: true };
+    await parseStreamingMarkdownAst(answer.text);
+    streaming.items = [...(streaming.items ?? []), { id: 'live-prompt', kind: 'user', text: 'Continue.' }];
+    streaming.busy = true;
+    streaming.streamingTail = answer as TranscriptItem;
+    await enter('streaming-answer-entry', streaming);
+    const markdown = document.querySelector<HTMLElement>('[data-streaming-tail="true"] .markdown')!;
+    const strong = markdown.querySelector('strong');
+    flushSync(() =>
+      publish({
+        ...streaming,
+        busy: false,
+        streamingTail: null,
+        items: [
+          ...(streaming.items ?? []),
+          { ...answer, streaming: false } as TranscriptItem,
+          { id: 'live-done', kind: 'turndone', status: 'complete', elapsedMs: 12_000 } as TranscriptItem,
+        ],
+      })
+    );
+    const completion = inspect('streaming-answer-settled', await samples(16), session);
+    if (!markdown.isConnected || !strong?.isConnected || !markdown.textContent?.includes('Already rendered answer')) {
+      completion.failures.push('settlement replaced the already-rendered Markdown body');
+    }
+    cases.push(completion);
+
+    reviewActive = true;
+    const finalReview = history('motion-final-review');
+    finalReview.busy = true;
+    finalReview.items = [
+      ...(finalReview.items ?? []),
+      { id: 'final-review-prompt', kind: 'user', text: 'Change demo.txt' },
+      { id: 'final-review-edit', kind: 'tool', name: 'apply_patch', args: {}, result: 'Updated demo.txt' },
+    ] as TranscriptItem[];
+    const scope = turnReviewScope(finalReview.items).key;
+    rememberAgentReviews(`${finalReview.sessionId}:${scope}`, [], '', [], 'worktree', scope);
+    const pendingReviews: ((value: { value: unknown }) => void)[] = [];
+    capability = () => new Promise((resolve) => pendingReviews.push(resolve));
+    await enter('final-review-running', finalReview);
+    flushSync(() =>
+      publish({
+        ...finalReview,
+        busy: false,
+        items: [...(finalReview.items ?? []), { id: 'final-review-done', kind: 'turndone', status: 'complete' }],
+      })
+    );
+    const finalReviewFrames = await samples(3);
+    pendingReviews.shift()!({
+      value: { authoritative: true, checkpointId: scope, snapshotKind: 'worktree', files: [], patch: '', agents: [] },
+    });
+    finalReviewFrames.push(...(await samples(3)));
+    pendingReviews.shift()!({
+      value: {
+        authoritative: true, checkpointId: scope, snapshotKind: 'worktree',
+        files: [{ path: 'demo.txt', status: 'M', additions: 1, deletions: 1 }], patch, agents: [],
+      },
+    });
+    finalReviewFrames.push(...(await samples(12)));
+    const finalReviewResult = inspectDock('completion-review-reservation', finalReviewFrames, session, 1);
+    if (!document.querySelector('.turn-review-bar')) finalReviewResult.failures.push('final review never appeared');
+    cases.push(finalReviewResult);
+
+    reviewActive = false;
+    const imageUrl = (height: number) =>
+      `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="${height}"><rect width="100%" height="100%" fill="blue"/></svg>`)}`;
+    (window as any).mixdogDesktop.mediaUrl = () => imageUrl(40);
+    const media = history('motion-media', true);
+    media.items = [
+      ...(media.items ?? []),
+      { id: 'media-prompt', kind: 'user', text: 'Create media.' },
+      {
+        id: 'media-image', kind: 'tool', name: 'media', args: { action: 'generate', kind: 'image' },
+        result: { ok: true, status: 'done', kind: 'image', assetId: 'image-preview' },
+      },
+      { id: 'media-done', kind: 'turndone', status: 'complete' },
+    ] as TranscriptItem[];
+    await enter('media-preview-entry', media);
+    const mediaFrame = document.querySelector<HTMLElement>('.transcript-artifact-frame')!;
+    const image = mediaFrame.querySelector<HTMLImageElement>('img')!;
+    const reservedHeight = mediaFrame.getBoundingClientRect().height;
+    const mediaFrames = [geometry()];
+    await new Promise<void>((resolve, reject) => {
+      image.addEventListener('load', () => resolve(), { once: true });
+      image.addEventListener('error', () => reject(new Error('media fixture failed to decode')), { once: true });
+      image.src = imageUrl(1600);
+    });
+    mediaFrames.push(...(await samples(6)));
+    const decodedHeight = mediaFrame.getBoundingClientRect().height;
+    flushSync(() => {
+      image.dispatchEvent(new Event('error'));
+      image.dispatchEvent(new Event('error'));
+    });
+    mediaFrames.push(...(await samples(6)));
+    const mediaResult = inspect('media-decode-and-failure', mediaFrames, session);
+    if (
+      reservedHeight <= 0 ||
+      Math.abs(decodedHeight - reservedHeight) > 1 ||
+      Math.abs(mediaFrame.getBoundingClientRect().height - reservedHeight) > 1
+    ) {
+      mediaResult.failures.push('media decode or failure changed the reserved preview height');
+    }
+    cases.push(mediaResult);
     return {
       failures: cases.flatMap((value) => value.failures.map((failure) => `${value.name}: ${failure}`)),
       cases,

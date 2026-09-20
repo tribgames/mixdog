@@ -36,11 +36,17 @@ export function terminalSize(stdout) {
 
 export { clean, projectNameFromPath, promptHistoryKey };
 
+/** Picker help line; onboarding leaves it to the ConfirmBar (←/→ = Back/Next). */
+export function pickerHelp(onboarding, returnTo, base) {
+  if (onboarding) return undefined;
+  return `${base} · ${returnTo ? 'Esc Settings' : 'Esc Back'}`;
+}
+
 export function workflowDisplayName(workflow = {}) {
   return clean(workflow?.name || workflow?.id) || 'Default';
 }
 
-export function workflowSwitchNotice(workflow = {}) {
+export function workflowSwitchNotice(_workflow = {}) {
   return 'Workflow saved · new sessions';
 }
 

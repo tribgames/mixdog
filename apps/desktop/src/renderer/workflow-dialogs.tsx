@@ -253,11 +253,12 @@ export function AgentEditorDialog({
               return;
             }
             setFormError('');
+            const routePatch = route.provider && route.model ? { route } : {};
             onSave({
               ...(editing ? { id: String(agent?.id || '') } : {}),
               name: text('agent-name'),
               description: text('agent-description'),
-              ...(enabled ? (route.provider && route.model ? { route } : {}) : { route: { disabled: true } }),
+              ...(enabled ? routePatch : { route: { disabled: true } }),
               body,
             });
           }}

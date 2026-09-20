@@ -1,7 +1,7 @@
 /**
  * src/tui/session/prompt-history.mjs - pure prompt-history derivation.
  *
- * Extracted from session-local.mjs unchanged: the newest-first, deduped user-prompt
+ * The newest-first, deduped user-prompt
  * history the session runtime publishes on state.promptHistoryList. Pure (input items
  * → array); callers decide when/whether to publish so the store's
  * immutable-emit contract is preserved.

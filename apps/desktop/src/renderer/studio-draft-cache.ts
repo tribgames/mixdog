@@ -82,7 +82,9 @@ export function writeStudioDraftMetadata(
 
 export function normalizeStudioReferences(value: unknown): StudioCachedReference[] {
   const payload = record(value);
-  const rows = Array.isArray(value) ? value : Array.isArray(payload?.references) ? payload.references : [];
+  let rows: unknown[] = [];
+  if (Array.isArray(value)) rows = value;
+  else if (Array.isArray(payload?.references)) rows = payload.references;
   return rows
     .flatMap((candidate) => {
       const reference = record(candidate);

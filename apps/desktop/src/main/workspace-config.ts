@@ -134,6 +134,12 @@ function booleanSetting(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function inlayHintsSetting(value: unknown): DesktopEditorSettings['inlayHintsEnabled'] {
+  if (value === false || value === 'off') return 'off';
+  if (value === 'offUnlessPressed' || value === 'onUnlessPressed') return value;
+  return 'on';
+}
+
 function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plaintext'): DesktopEditorSettings {
   const merged = scopes.reduce<Record<string, unknown>>((current, scope) => {
     const record = objectRecord(scope);
@@ -168,12 +174,7 @@ function editorSettingsFromScopes(scopes: readonly unknown[], languageId = 'plai
       bracketGuides === true || bracketGuides === false || bracketGuides === 'active'
         ? bracketGuides
         : defaults.bracketPairGuides,
-    inlayHintsEnabled:
-      inlayHints === false || inlayHints === 'off'
-        ? 'off'
-        : inlayHints === 'offUnlessPressed' || inlayHints === 'onUnlessPressed'
-          ? inlayHints
-          : 'on',
+    inlayHintsEnabled: inlayHintsSetting(inlayHints),
     formatOnSave: booleanSetting(setting(merged, 'editor.formatOnSave'), defaults.formatOnSave),
     formatOnPaste: booleanSetting(setting(merged, 'editor.formatOnPaste'), defaults.formatOnPaste),
     formatOnType: booleanSetting(setting(merged, 'editor.formatOnType'), defaults.formatOnType),

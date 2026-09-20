@@ -37,7 +37,9 @@ function comparablePath(path) {
 }
 
 function normalizeRootList(value) {
-  const list = Array.isArray(value) ? value : value == null ? [] : [value];
+  let list = [];
+  if (Array.isArray(value)) list = value;
+  else if (value != null) list = [value];
   const seen = new Set();
   const out = [];
   for (const item of list) {

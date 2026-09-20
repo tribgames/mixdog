@@ -345,9 +345,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
           onSave={(route) => void saveRoute(route)}
         />
       )}
-      {loading ? (
-        <InitialSurface />
-      ) : (
+      {loading && <InitialSurface />}
+      {!loading && (
         <>
           <section className="workflows-models workflows-packs" aria-label={t('Workflows')}>
             <div className="workflows-section-head">
@@ -366,7 +365,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                 <Plus size={16} aria-hidden="true" />
               </button>
             </div>
-            {workflows.length ? (
+            {workflows.length > 0 && (
               <div className="schedules-list">
                 {orderedWorkflows.map((workflow) => {
                   const id = String(workflow.id || '');
@@ -395,7 +394,8 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
                   );
                 })}
               </div>
-            ) : (
+            )}
+            {workflows.length === 0 && (
               <div className="schedules-empty">
                 <Layers3 size={40} strokeWidth={1.5} aria-hidden="true" />
                 <p>{t('No workflow packs found.')}</p>

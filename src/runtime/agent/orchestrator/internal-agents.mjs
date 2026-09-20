@@ -35,8 +35,8 @@
  *   - 'full' : shared agent tool schema for provider cache reuse.
  */
 
-import { readFileSync, statSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { mixdogRoot } from '../../shared/plugin-paths.mjs';
 import { normalizeAgentPermissionOrNone, parseMarkdownFrontmatter } from '../../shared/markdown-frontmatter.mjs';
 
@@ -99,7 +99,7 @@ function _loadHiddenAgents() {
     const raw = JSON.parse(readFileSync(_AGENTS_PATH, 'utf8'));
     const map = Object.create(null);
     for (const entry of raw.agents || []) {
-      if (entry && entry.agent) map[entry.agent] = Object.freeze(_mergeHiddenAgentFrontmatter(entry));
+      if (entry?.agent) map[entry.agent] = Object.freeze(_mergeHiddenAgentFrontmatter(entry));
     }
     return Object.freeze(map);
   } catch (err) {

@@ -308,7 +308,9 @@ function officeContentTopology(format, operation = {}, design = {}) {
   if (facts) evidence.push('facts');
   if (claims) evidence.push('claims');
   const weight = metrics * 2 + columns * 2 + steps + Math.ceil((rows + tableRows) / 4) + paragraphs + claims;
-  const density = weight >= 14 ? 'dense' : weight <= 4 ? 'light' : 'balanced';
+  let density = 'balanced';
+  if (weight >= 14) density = 'dense';
+  else if (weight <= 4) density = 'light';
   const signature = [
     String(format || '').toLowerCase(),
     `m:${bucket(metrics)}`,

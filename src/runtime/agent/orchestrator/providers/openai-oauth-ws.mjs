@@ -20,295 +20,50 @@
  *                      useModel, traceCtx })
  *
  * The caller (openai-oauth.mjs) supplies a fully built request body and the
- * auth bundle; this module handles connection caching, delta framing, event
- * parsing, and tracing.
+ * auth bundle; this module owns the attempt loop: acquire, optional warmup,
+ * delta framing, stream, and the hand-off to the per-send helpers
+ * (openai-ws-send-attempts / -span / -warmup / -outcome).
+ *
+ *   openai-ws-send/send-context.mjs     — per-send shared state (budget, warmup, span, resolvers)
+ *   openai-ws-send/acquire-attempt.mjs  — per-attempt socket acquire + acquire accounting
+ *   openai-ws-send/attempt-request.mjs  — request body, stream state, warmup, wire frame
+ *   openai-ws-send/reasoning-replay.mjs — recovery-only reasoning replay policy
  */
-import { createHash } from 'crypto';
 import { performance } from 'node:perf_hooks';
+import { appendAgentTrace } from '../agent-trace.mjs';
+import { acquireWebSocket, _sendFrame, drainOpenaiWsPool } from './openai-ws-pool.mjs';
+import { _logicalResponseItemMatch, parseToolSearchArgs, _streamResponse } from './openai-ws-stream.mjs';
 import {
-  traceAgentFetch,
-  traceAgentSse,
-  traceAgentUsage,
-  grokCacheChainTraceFields,
-  appendAgentTrace,
-} from '../agent-trace.mjs';
-import { traceCacheBreak } from '../cache-break-trace.mjs';
+  HANDSHAKE_MAX_ATTEMPTS,
+  _backoffFor,
+  _classifyHandshakeError,
+  _defaultSleep,
+} from './openai-ws-send-attempts.mjs';
+import { startupPrewarmResult, startupWarmupApplies } from './openai-ws-warmup.mjs';
+import { completeWsSend } from './openai-ws-send-outcome.mjs';
+import { createWsSendContext, notifyStage } from './openai-ws-send/send-context.mjs';
+import { acquireForAttempt, newHandshake, recordAcquired } from './openai-ws-send/acquire-attempt.mjs';
 import {
-  classifyHandshakeError,
-  classifyMidstreamError,
-  createStreamSafetyStamps,
-  markProviderRecoveryExhausted,
-  resolveStallRetryBudget,
-  jitterDelayMs,
-  MIDSTREAM_RETRY_POLICY,
-  sleepWithAbort,
-  STREAM_STALL_RETRY_BUDGET_MS,
-  shouldDropPreviousResponseId,
-} from './retry-classifier.mjs';
-import { stampStreamOutcome, STREAM_TRANSPORTS } from './lib/stream-outcome.mjs';
-import { WS_IDLE_MS, acquireWebSocket, releaseWebSocket, _sendFrame, drainOpenaiWsPool } from './openai-ws-pool.mjs';
-import {
-  WS_PRE_RESPONSE_CREATED_MS,
-  WS_INTER_CHUNK_MS,
-  _sansInput,
-  _stableStringify,
-  _cloneJson,
-  _estimateFrameTokens,
-  _combineUsageWithWarmup,
-  _computeDelta,
-  _logicalResponseItemMatch,
-  parseToolSearchArgs,
-  _streamResponse,
-} from './openai-ws-stream.mjs';
-import { _buildResponseCreateFrame, _requestInputMismatchDiagnostics } from './openai-ws-delta.mjs';
-import { envPositiveInt } from '../../../shared/env.mjs';
+  buildWireFrame,
+  createAttemptRecord,
+  createMidState,
+  prepareRequestBody,
+  runAttemptWarmup,
+} from './openai-ws-send/attempt-request.mjs';
 
 // Legacy import paths for mixdog-session-runtime.mjs (drainOpenaiWsPool),
 // the scripts/provider-toolcall/ suites (parseToolSearchArgs,
 // _logicalResponseItemMatch, _streamResponse) and other external callers.
+export { drainOpenaiWsPool, _logicalResponseItemMatch, parseToolSearchArgs, _streamResponse };
+export { _classifyMidstreamError } from './openai-ws-send-attempts.mjs';
 export {
-  drainOpenaiWsPool,
-  _logicalResponseItemMatch,
-  parseToolSearchArgs,
-  _streamResponse,
   _cacheObservation as _cacheObservationForTest,
   _cacheContinuityResetReason as _cacheContinuityResetReasonForTest,
   _warmupContinuityTrace as _warmupContinuityTraceForTest,
-};
+} from './openai-ws-send-outcome.mjs';
+export { _applyReasoningReplayPolicy } from './openai-ws-send/reasoning-replay.mjs';
 
 globalThis.__mixdogOpenaiWsRuntimeLoaded = true;
-
-// The official Codex Responses policy has one five-retry stream budget shared
-// by connect/handshake and pre-output stream failures.
-const MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries;
-const MIDSTREAM_DEFAULT_RETRY_LIMIT = MIDSTREAM_RETRY_POLICY.ws.defaultRetries;
-// The reference client uses a 200ms base, factor 2, and symmetric ±10%
-// jitter for each of its five stream retries.
-const MIDSTREAM_BACKOFF_MS = Object.freeze([200, 400, 800, 1600, 3200]);
-const CODEX_RETRY_JITTER_RATIO = 0.1;
-// Policy object passed to the shared classifyMidstreamError for the WS path.
-const WS_MIDSTREAM_POLICY = {
-  mode: 'ws',
-  transientCloseRetries: MIDSTREAM_RETRY_POLICY.ws.transientCloseRetries,
-  defaultRetries: MIDSTREAM_RETRY_POLICY.ws.defaultRetries,
-};
-
-// Kept for the exported _acquireWithRetry test seam and non-Codex callers.
-// sendViaWebSocket deliberately invokes it with maxAttempts:1 so handshake
-// failures consume the same stream budget as pre-output disconnects.
-const HANDSHAKE_MAX_ATTEMPTS = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT + 1;
-const HANDSHAKE_BACKOFF_BASE_MS = 200;
-const HANDSHAKE_BACKOFF_CAP_MS = 3200;
-// These statuses are decisions made by the CURRENT attempt. They must never
-// be replaced by a stale transient from an earlier retry: auth recovery,
-// transport fallback, and Retry-After handling all depend on the live error.
-const CURRENT_ATTEMPT_DECISION_STATUSES = new Set([401, 403, 426, 429]);
-
-function _mustSurfaceCurrentAttempt(err, externalSignal) {
-  return (
-    CURRENT_ATTEMPT_DECISION_STATUSES.has(Number(err?.httpStatus || 0)) ||
-    externalSignal?.aborted ||
-    err?.unsafeToRetry === true
-  );
-}
-
-function _classifyHandshakeError(err, { retry429 = true } = {}) {
-  return classifyHandshakeError(err, { retry429 });
-}
-
-/**
- * Classify a mid-stream error for bounded retry eligibility.
- *
- * Only fires AFTER `response.created` is observed and BEFORE
- * `response.completed`. The window is narrow on purpose: retrying a handshake
- * or a pre-create connect failure is owned by _acquireWithRetry; retrying
- * after completion would replay a finished turn.
- *
- * Retry buckets:
- *   'agent_stall'        — AgentStallAbortError from agent stall watchdog
- *   'stream_stalled'     — StreamStalledAbortError from stream-watchdog
- *   'ws_1006'            — abnormal close (connection lost)
- *   'ws_1011'            — server unexpected condition
- *   'ws_1012'            — service restart
- *   'ws_4000'            — our armPreStreamWatchdog close with idle_timeout
- *   'ws_1000'            — server-side normal close fired after response.created
- *                          but before response.completed (truncated stream)
- *   'first_byte_timeout' — post-upgrade-no-first-event: socket opened, our
- *                          response.create frame sent, but the server never
- *                          emitted response.created within the short
- *                          pre-stream deadline. Fast-fail retryable.
- *   'response_failed_network'       — response.failed with network_error
- *   'response_failed_disconnected'  — response.failed with stream_disconnected
- *
- * Deny buckets (return null):
- *   - externalSignal aborted by user (state.userAbort)
- *   - state.sawCompleted === true (already done)
- *   - state.sawResponseCreated === false (still pre-stream; handshake retry
- *     owns that window) — EXCEPT for WS close 1011/1012, which can fire
- *     after the 101 upgrade but before the first response.created event,
- *     AND the pre-`response.created` first-byte timeout
- *     (state.firstByteTimeout), which is permitted a bounded retry here
- *   - HTTP 401 / 403 / 429 surfaced after the WS handshake
- *   - state.attemptIndex has reached the classifier-specific retry budget
- */
-// Thin wrapper: the full WS mid-stream decision tree now lives in the shared
-// classifyMidstreamError (retry-classifier.mjs, policy.mode='ws'). Kept as a
-// named export so internal call sites and any external importer keep resolving
-// the same symbol. The per-classifier gates both use the official five-retry
-// stream budget.
-export function _classifyMidstreamError(err, state) {
-  return classifyMidstreamError(err, state, WS_MIDSTREAM_POLICY);
-}
-
-// Per-classifier retry budget, used by the sendViaWebSocket loop to bound the
-// attempt count once classifyMidstreamError returns a bucket. Mirrors the
-// shared _midstreamLimitFor(ws) — both values are the same unified budget.
-function _midstreamRetryLimit(classifier) {
-  return classifier === 'ws_1006' || classifier === 'ws_1011'
-    ? MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT
-    : MIDSTREAM_DEFAULT_RETRY_LIMIT;
-}
-
-function _midstreamBackoffFor(retryNumber) {
-  const raw = MIDSTREAM_BACKOFF_MS[Math.min(Math.max(retryNumber, 1), MIDSTREAM_BACKOFF_MS.length) - 1];
-  return jitterDelayMs(raw, CODEX_RETRY_JITTER_RATIO);
-}
-
-function _backoffFor(attempt) {
-  // attempt is 1-based. retry 1 → 500, retry 2 → 1000, retry 3 → 2000 … capped.
-  const raw = HANDSHAKE_BACKOFF_BASE_MS * (1 << (attempt - 1));
-  return jitterDelayMs(Math.min(raw, HANDSHAKE_BACKOFF_CAP_MS), CODEX_RETRY_JITTER_RATIO);
-}
-
-const _defaultSleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-// Abort-aware backoff sleep → shared sleepWithAbort (retry-classifier.mjs). The
-// abortMessage preserves the prior fallback text when the abort reason is not an
-// Error; _sleepFn (test seam) is threaded through as the no-signal sleep impl.
-function _sleepWithAbort(ms, externalSignal, sleepFn = _defaultSleep) {
-  return sleepWithAbort(ms, externalSignal, sleepFn, 'OpenAI OAuth WS retry backoff aborted');
-}
-
-function _num(value, fallback = 0) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n : fallback;
-}
-
-function _envRatio(name, fallback) {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n >= 0 && n <= 1 ? n : fallback;
-}
-
-// Codex client metadata (identity block, handshake headers, per-turn
-// turn-state guard) lives in openai-codex-metadata.mjs.
-import {
-  _codexWsCompatibilityHeaders,
-  _hashText,
-  _metadataTrace,
-  _withCodexWsClientMetadata,
-} from './openai-codex-metadata.mjs';
-
-function _cacheObservation({ entry, result, continuityResetReason = null }) {
-  const inputTokens = _num(result?.usage?.inputTokens, 0);
-  const promptTokens = _num(result?.usage?.promptTokens, 0) || inputTokens;
-  const cachedTokens = _num(result?.usage?.cachedTokens, 0);
-  const previousMaxCached = _num(entry?.promptCacheMaxCachedTokens, 0);
-  const warmThreshold = envPositiveInt('MIXDOG_OAI_CACHE_MISS_WARM_TOKENS', 2048);
-  const promptThreshold = envPositiveInt('MIXDOG_OAI_CACHE_MISS_PROMPT_TOKENS', 4096);
-  const dropRatio = _envRatio('MIXDOG_OAI_CACHE_MISS_DROP_RATIO', 0.6);
-  const dropThreshold = Math.floor(previousMaxCached * dropRatio);
-  // A full-frame chain break (most commonly compaction/input-prefix rewrite)
-  // starts a new prompt shape. Comparing its small new prompt against the
-  // old shape's lifetime high-water creates a "cache drop" on every following
-  // iteration until the new transcript grows past 60% of the old one.
-  const wasWarm = !continuityResetReason && previousMaxCached >= warmThreshold;
-  const cacheRatio = promptTokens > 0 ? cachedTokens / promptTokens : null;
-  const zeroMiss = wasWarm && promptTokens >= promptThreshold && cachedTokens === 0;
-  const partialDrop =
-    wasWarm &&
-    promptTokens >= promptThreshold &&
-    cachedTokens > 0 &&
-    previousMaxCached > 0 &&
-    cachedTokens < dropThreshold;
-  const actualMiss = zeroMiss || partialDrop;
-  return {
-    inputTokens,
-    promptTokens,
-    cachedTokens,
-    uncachedTokens: Math.max(0, promptTokens - cachedTokens),
-    previousMaxCached,
-    wasWarm,
-    warmThreshold,
-    promptThreshold,
-    dropRatio,
-    dropThreshold,
-    cacheRatio,
-    actualMiss,
-    continuityResetReason,
-    missReason: zeroMiss
-      ? 'warm_session_zero_cached_tokens'
-      : partialDrop
-        ? 'warm_session_cached_tokens_dropped'
-        : null,
-  };
-}
-
-function _requestInputExtends(previousInput, currentInput) {
-  if (!Array.isArray(previousInput) || !Array.isArray(currentInput)) return false;
-  if (currentInput.length < previousInput.length) return false;
-  return previousInput.every((item, index) => _stableStringify(item) === _stableStringify(currentInput[index]));
-}
-
-function _cacheContinuityResetReason({ mode, deltaReason, entry, body, traceProvider }) {
-  if (mode === 'delta') return null;
-  if (deltaReason && !['no_anchor', 'full_forced', 'full_default'].includes(deltaReason)) {
-    return deltaReason;
-  }
-  // ws-full bypasses _computeDelta's structural comparisons and reports only
-  // full_default. Re-run the two cheap snapshot checks so compaction or any
-  // other prompt rewrite still retires the old prompt's cache high-water.
-  if (deltaReason !== 'full_default' || !entry?.lastResponseId) return null;
-  const currentSansInput = _stableStringify(
-    _sansInput(body, {
-      normalizeWarmupGenerate: traceProvider === 'openai-oauth',
-    })
-  );
-  if (entry.lastRequestSansInput && currentSansInput !== entry.lastRequestSansInput) {
-    return 'request_properties_changed';
-  }
-  if (
-    Array.isArray(entry.lastRequestInput) &&
-    !_requestInputExtends(entry.lastRequestInput, Array.isArray(body?.input) ? body.input : [])
-  ) {
-    return 'input_prefix_mismatch';
-  }
-  return null;
-}
-
-// Warmup→first-real continuity trace (Codex prewarm_websocket parity
-// observability). Pure/deterministic so it unit-tests without a live socket.
-// The R23 finding forbids the post-warmup request rewrite, so parity is
-// asserted via metrics instead of behavior: does the warmup's response_id
-// become the anchor the FIRST real request chains from, and what is the
-// hit/miss outcome of the first up-to-3 real requests on the socket.
-function _warmupContinuityTrace({
-  warmupUsed,
-  warmupResponseId,
-  priorEntryResponseId,
-  sentPrevResponseId,
-  earlyCacheMisses,
-} = {}) {
-  const misses = Array.isArray(earlyCacheMisses) ? earlyCacheMisses.slice(0, 3) : [];
-  // The first real request is a full frame (no prev_id, per R23), so its
-  // anchor is what the entry held at build time — which the warmup wrote.
-  const firstRealPrevId = sentPrevResponseId || priorEntryResponseId || null;
-  return {
-    warmup_first_real_prev_id: firstRealPrevId,
-    warmup_chain_continuous: !!warmupUsed && !!warmupResponseId && firstRealPrevId === warmupResponseId,
-    early_cache_misses: misses,
-    early_cache_miss_count: misses.filter(Boolean).length,
-  };
-}
 
 /**
  * Run `_acquire({auth, poolKey, cacheKey})` with bounded exponential-backoff
@@ -320,55 +75,6 @@ function _warmupContinuityTrace({
  *   err.attempts         — 1..HANDSHAKE_MAX_ATTEMPTS
  *   err.retryClassifier  — final classifier string, or null for permanent
  */
-/**
- * Recovery-only encrypted-reasoning replay policy (codex full-frame parity).
- *
- * The request body may carry retained `reasoning` items
- * (opts.replayEncryptedReasoning; default ON for openai-oauth, kill switch
- * MIXDOG_OAI_DISABLE_REASONING_REPLAY=1).
- *
- * They stay in the LOGICAL request history, always. The reference client never
- * removes reasoning from the history it chains on: its incremental-request
- * check proves the new request extends the exact previous request + response,
- * and only THEN does the delta builder drop those already-anchored items from
- * the wire tail. An rs_* item is therefore never sent twice on a live chain,
- * while a full frame — which carries no previous_response_id — still replays
- * retained reasoning instead of making the model re-reason the transcript.
- *
- * Removing reasoning HERE, before the delta computation, broke that proof: the
- * previous response's reasoning could no longer be matched against the request
- * prefix, so every reasoning-model session fell back to full frames from its
- * second call onward and lost previous_response_id with it.
- *
- * `suppress` is the rejection safety net only. Once the server rejects a
- * replayed rs_* item as a duplicate, the retry drops reasoning for the rest of
- * the send and the chain degrades to full frames, exactly as any broken chain
- * does.
- */
-export function _applyReasoningReplayPolicy(entry, body, { suppress = false } = {}) {
-  const input = Array.isArray(body?.input) ? body.input : null;
-  if (!entry || !input) return body;
-  if (!suppress) {
-    entry.replayReasoning = true;
-    return body;
-  }
-  entry.replayReasoning = false;
-  if (!input.some((item) => item?.type === 'reasoning')) return body;
-  return { ...body, input: input.filter((item) => item?.type !== 'reasoning') };
-}
-
-/**
- * Server rejection of a replayed reasoning item (duplicate rs_* inside a
- * stateful chain). Deliberately narrow: generic transport/5xx errors must not
- * trip the replay-suppression retry.
- */
-function _isReasoningReplayRejection(err) {
-  const msg = String(err?.payload?.message || err?.message || '');
-  if (!msg) return false;
-  if (/\brs_[A-Za-z0-9]/i.test(msg) && /duplicate|already|exists|repeated/i.test(msg)) return true;
-  return /reasoning/i.test(msg) && /duplicate|already exists|repeated|invalid item/i.test(msg);
-}
-
 async function _acquireWithRetry({
   auth,
   poolKey,
@@ -533,632 +239,81 @@ export async function sendViaWebSocket({
   _carriedWarmup = null,
   _prewarmedHandle = null,
 }) {
-  // One bounded Codex stream retry budget covers transient handshake and
-  // pre-output stream failures. Every retry acquires a fresh connection.
-  // No replay is permitted after live text or an emitted tool call.
-  const MAX_MIDSTREAM_RETRIES = MIDSTREAM_WS_TRANSIENT_RETRY_LIMIT;
-  let firstAttemptError = null;
-  let firstAttemptClassifier = null;
-  // Shared logical-send window: WS retries and loop replay consume the same
-  // recovery budget.
-  const stallRetryBudget = resolveStallRetryBudget(sendOpts);
-  // A generate:false prewarm is billable even if its main request later
-  // retries on a fresh socket or falls back to HTTP. Retain one completed
-  // result across the whole logical send and attach it to terminal errors.
-  let completedWarmup = _carriedWarmup?.usage ? _carriedWarmup : null;
-  const _stampWarmup = (err) => {
-    if (!err || !completedWarmup?.usage) return err;
-    try {
-      Object.defineProperty(err, '__warmup', {
-        value: completedWarmup,
-        configurable: true,
-        enumerable: false,
-      });
-    } catch {}
-    return err;
-  };
-  // Known tool names for the leaked-tool-call guard in _streamResponse.
-  // Derived from the exact request body so a recovered leaked call only
-  // synthesizes when it names a tool actually offered to this request.
-  const knownToolNames = new Set(
-    (Array.isArray(body?.tools) ? body.tools : [])
-      .map((t) => (typeof t?.name === 'string' ? t.name : null))
-      .filter(Boolean)
-  );
-  // Live-text invariant across attempts: once ANY attempt has relayed a
-  // non-empty text chunk to the client, no error thrown out of this function
-  // may omit the liveTextEmitted/unsafeToRetry markers — otherwise an
-  // upstream gate (auth-refresh retry, HTTP fallback, shared withRetry)
-  // could reissue the turn and concatenate a second attempt onto
-  // already-rendered output. A text-emitting attempt is never retry-eligible
-  // (_classifyMidstreamError returns null on emittedText), so the surfaced
-  // error is frequently an EARLIER attempt's firstAttemptError that never saw
-  // the marker; stampText re-applies it on every throw path. The latch state
-  // + stamp semantics now come from the shared createStreamSafetyStamps()
-  // factory (retry-classifier.mjs) — identical to the former _stampLiveText /
-  // _stampTool closures. markText()/markTool() set the latch (replacing the
-  // liveTextEmittedAcrossAttempts / toolEmittedAcrossAttempts booleans);
-  // stampText/stampTool re-apply the markers on every throw.
-  const _safetyStamps = createStreamSafetyStamps();
-  const _stampLiveText = _safetyStamps.stampText;
-  const _stampTool = _safetyStamps.stampTool;
-  // Server-side xAI conversation anchor preserved across mid-stream
-  // retries. xAI keys its conversation by previous_response_id alone
-  // (sessionToken is null for xAI in _mintSessionToken); a forceFresh
-  // socket on retry would otherwise drop prev_id and cold-start a new
-  // server-side conversation, evicting every prefix the prior attempts
-  // warmed. openai-oauth / openai-direct anchor by per-socket session_id, where
-  // this carry-forward would not help and is therefore gated to xAI.
-  let carryForwardCache = null;
-  const useCodexWsClientMetadata = traceProvider === 'openai-oauth';
-  // model + serviceTier feed the handshake routing hint. service_tier is on
-  // the body only when fast selected the priority tier, so the hint carries
-  // `model=` alone otherwise — the same shape the reference client sends.
-  const codexMetadataContext = {
+  const ctx = createWsSendContext({
+    auth,
+    body,
+    sendOpts,
+    onStageChange,
+    externalSignal,
     poolKey,
     cacheKey,
-    sendOpts,
-    model: useModel,
-    serviceTier: body?.service_tier || '',
-  };
-  const codexHandshakeHeaders = useCodexWsClientMetadata
-    ? _codexWsCompatibilityHeaders({ ...codexMetadataContext, handshake: true })
-    : null;
-  // One compact row per logical iteration. Values aggregate all handshake
-  // and mid-stream attempts, including warmup, without retaining request data.
-  const sendSpan = {
-    admissionQueueWaitMs: Math.max(0, Number(sendOpts?._providerAdmission?.queueWaitMs) || 0),
-    providerConcurrentRequests: Math.max(1, Number(sendOpts?._providerAdmission?.active) || 1),
-    providerQueuedRequests: Math.max(0, Number(sendOpts?._providerAdmission?.queued) || 0),
-    poolOwnerWaitMs: 0,
-    poolAcquireMs: 0,
-    requestBuildSerializationMs: 0,
-    preResponseCreatedMs: 0,
-    firstEventMs: 0,
-    retryBackoffMs: 0,
-    handshakeRetries: 0,
-    acquireAttempts: 0,
-    acquireMode: null,
-    emitted: false,
-    timing: null,
-  };
-  const emitSendSpan = (outcome, target = null) => {
-    if (sendSpan.emitted) {
-      if (target && sendSpan.timing) {
-        try {
-          target.transportTiming = sendSpan.timing;
-        } catch {}
-      }
-      return sendSpan.timing;
-    }
-    sendSpan.emitted = true;
-    const socketAcquireMs = Math.max(0, sendSpan.poolAcquireMs - sendSpan.poolOwnerWaitMs);
-    const timing = {
-      transport: 'websocket',
-      outcome,
-      admissionQueueWaitMs: sendSpan.admissionQueueWaitMs,
-      providerConcurrentRequests: sendSpan.providerConcurrentRequests,
-      providerQueuedRequests: sendSpan.providerQueuedRequests,
-      poolOwnerWaitMs: sendSpan.poolOwnerWaitMs,
-      socketAcquireMs,
-      poolAcquireMs: sendSpan.poolAcquireMs,
-      requestBuildSerializationMs: sendSpan.requestBuildSerializationMs,
-      preResponseCreatedMs: sendSpan.preResponseCreatedMs,
-      providerFirstEventMs: sendSpan.firstEventMs,
-      retryBackoffMs: sendSpan.retryBackoffMs,
-      handshakeRetries: sendSpan.handshakeRetries,
-      acquireAttempts: sendSpan.acquireAttempts,
-      acquireMode: sendSpan.acquireMode || 'failed',
-    };
-    sendSpan.timing = timing;
-    const payload = {
-      provider: traceProvider,
-      model: useModel,
-      transport: 'websocket',
-      admission_queue_wait_ms: timing.admissionQueueWaitMs,
-      provider_concurrent_requests: timing.providerConcurrentRequests,
-      provider_queued_requests: timing.providerQueuedRequests,
-      pool_owner_wait_ms: timing.poolOwnerWaitMs,
-      socket_acquire_ms: timing.socketAcquireMs,
-      acquire_mode: sendSpan.acquireMode || 'failed',
-      acquire_attempts: sendSpan.acquireAttempts,
-      handshake_retries: sendSpan.handshakeRetries,
-      pool_acquire_ms: sendSpan.poolAcquireMs,
-      request_build_serialization_ms: sendSpan.requestBuildSerializationMs,
-      pre_response_created_ms: sendSpan.preResponseCreatedMs,
-      first_event_ms: sendSpan.firstEventMs,
-      retry_backoff_ms: sendSpan.retryBackoffMs,
-      outcome,
-    };
-    try {
-      _sendSpanTraceFn({
-        sessionId: poolKey,
-        iteration,
-        kind: 'send_spans',
-        ...payload,
-        payload,
-      });
-    } catch {}
-    if (target) {
-      try {
-        target.transportTiming = timing;
-      } catch {}
-    }
-    return timing;
-  };
-  // Single caller-visible recovery path for both handshake/acquire retries
-  // and retryable stream failures. The session/TUI stage bridge renders this
-  // as non-terminal reconnect progress; transport code must not also print it
-  // to stderr.
-  const emitReconnectProgress = ({ attempt, max, classifier }) => {
-    const retryAttempt = Number(attempt) || 1;
-    const retryMax = Number(max) || 1;
-    try {
-      onStageChange?.('reconnecting', {
-        attempt: retryAttempt,
-        max: retryMax,
-        classifier: classifier || null,
-        message: `Reconnecting... ${retryAttempt}/${retryMax}`,
-      });
-    } catch {}
-  };
-  // Only Codex OAuth follows retry_429:false. This shared transport also
-  // backs xAI, whose existing 429 handshake retry behavior must remain.
-  const retry429 = traceProvider !== 'openai-oauth';
+    iteration,
+    useModel,
+    displayModel,
+    forceFresh,
+    includeResponseId,
+    traceProvider,
+    logSuppressedReasoningDeltas,
+    warmupBody,
+    handshakeErrorPolicy,
+    _acquireWithRetryFn,
+    _streamFn,
+    _sendFrameFn,
+    _sleepFn,
+    _sendSpanTraceFn,
+    _agentTraceFn,
+    _carriedWarmup,
+  });
+  const { attempts, sendSpan } = ctx;
+  const prewarmed = { handle: _prewarmedHandle };
 
-  // Armed by the rejection safety net below: once a server rejects a
-  // replayed reasoning item, every later attempt of THIS send strips them.
-  let suppressReasoningReplay = false;
-  let prewarmedHandle = _prewarmedHandle;
-
-  for (let attemptIndex = 0; attemptIndex <= MAX_MIDSTREAM_RETRIES; attemptIndex++) {
-    const handshakeStart = performance.now();
-    let acquired;
-    let handshakeRetries = 0;
-    const handshakeRetryClassifiers = [];
+  for (let attemptIndex = 0; attemptIndex <= attempts.maxMidstreamRetries; attemptIndex++) {
+    const handshake = newHandshake();
     sendSpan.acquireAttempts += 1;
+    notifyStage(onStageChange, 'requesting');
+    let acquired;
     try {
-      onStageChange?.('requesting');
-    } catch {}
-    try {
-      const reserved =
-        attemptIndex === 0 &&
-        forceFresh !== true &&
-        prewarmedHandle?.entry &&
-        prewarmedHandle.poolKey === poolKey &&
-        prewarmedHandle.cacheKey === cacheKey;
-      if (reserved) {
-        acquired = {
-          entry: prewarmedHandle.entry,
-          reused: true,
-          prewarmed: true,
-        };
-        prewarmedHandle = null;
-      } else {
-        acquired = await _acquireWithRetryFn({
-          auth,
-          poolKey,
-          cacheKey,
-          codexHeaders: codexHandshakeHeaders,
-          // Retry attempt must not reuse a pooled socket — the prior
-          // one is either torn down or in an unknown state.
-          forceFresh: forceFresh || attemptIndex > 0,
-          externalSignal,
-          // No nested connect retry budget: the outer stream loop owns
-          // all retries for this logical request.
-          maxAttempts: 1,
-          retry429,
-          onRetry: (info) => {
-            handshakeRetries += 1;
-            sendSpan.handshakeRetries += 1;
-            if (info?.classifier) handshakeRetryClassifiers.push(info.classifier);
-            const attempt = Number(info?.attempt) || handshakeRetries;
-            const max = Number(info?.max) || MAX_MIDSTREAM_RETRIES;
-            emitReconnectProgress({ attempt, max, classifier: info?.classifier });
-          },
-          onBackoffSlept: (ms) => {
-            sendSpan.retryBackoffMs += ms;
-          },
-        });
-      }
+      acquired = await acquireForAttempt(ctx, handshake, { attemptIndex, prewarmed });
     } catch (err) {
-      _stampWarmup(err);
-      sendSpan.poolAcquireMs += performance.now() - handshakeStart;
-      sendSpan.poolOwnerWaitMs += Math.max(0, Number(err?.ownerWaitMs) || 0);
-      // Provenance only; policy remains provider-owned below. This lets
-      // the direct wrapper distinguish an upgrade rejection from an
-      // application error carrying the same HTTP status.
-      try {
-        err.wsFailurePhase = 'handshake';
-      } catch {}
-      const classifier =
-        err?.retryClassifier ||
-        _classifyHandshakeError(err, { retry429 }) ||
-        (err?.code === 'EWSACQUIRETIMEOUT' ? 'acquire_timeout' : null);
-      const classifiers = [...handshakeRetryClassifiers];
-      if (classifier && !classifiers.includes(classifier)) classifiers.push(classifier);
-      if (err?.httpStatus != null || classifier || handshakeRetries > 0 || classifiers.length > 0) {
-        traceAgentFetch({
-          sessionId: poolKey,
-          headersMs: performance.now() - handshakeStart,
-          httpStatus: Number(err?.httpStatus || 0),
-          provider: traceProvider,
-          model: useModel,
-          transport: 'websocket',
-          handshakeRetries: err?.attempts ? Math.max(Number(err.attempts) - 1, 0) : handshakeRetries,
-          handshakeRetryClassifiers: classifiers,
-        });
-      }
-      const handshakeDecision =
-        typeof handshakeErrorPolicy === 'function'
-          ? handshakeErrorPolicy({
-              error: err,
-              status: Number(err?.httpStatus || 0),
-              classifier,
-              attempt: attemptIndex + 1,
-              maxAttempts: MAX_MIDSTREAM_RETRIES + 1,
-            })
-          : null;
-      if (handshakeDecision?.retry === false) {
-        try {
-          err.wsFailurePhase = 'handshake';
-          err.wsHttpFallbackEligible = handshakeDecision.httpFallback === true;
-          if (classifier) err.retryClassifier = classifier;
-        } catch {}
-        emitSendSpan('error');
-        throw _stampTool(_stampLiveText(err));
-      }
-      // HTTP 401 is reserved for caller-owned auth refresh. HTTP 426 is
-      // caller-owned immediate HTTPS fallback. Every other recognized
-      // transport failure spends the shared stream retry budget.
-      const retryable =
-        classifier &&
-        Number(err?.httpStatus || 0) !== 401 &&
-        Number(err?.httpStatus || 0) !== 426 &&
-        err?.unsafeToRetry !== true &&
-        !externalSignal?.aborted;
-      if (retryable && attemptIndex < MAX_MIDSTREAM_RETRIES) {
-        if (!firstAttemptError) {
-          firstAttemptError = err;
-          firstAttemptClassifier = classifier;
-        }
-        try {
-          err.midstreamClassifier = classifier;
-        } catch {}
-        const retryNumber = attemptIndex + 1;
-        emitReconnectProgress({
-          attempt: retryNumber,
-          max: MAX_MIDSTREAM_RETRIES,
-          classifier,
-        });
-        const sleepStart = performance.now();
-        try {
-          await _sleepWithAbort(_midstreamBackoffFor(retryNumber), externalSignal, _sleepFn);
-        } catch (sleepErr) {
-          sendSpan.retryBackoffMs += performance.now() - sleepStart;
-          emitSendSpan('error');
-          throw _stampWarmup(sleepErr);
-        }
-        sendSpan.retryBackoffMs += performance.now() - sleepStart;
-        continue;
-      }
-      // A later auth/upgrade decision must win over an earlier transient
-      // failure so the caller can refresh or switch transport. Likewise,
-      // never replace a current cancellation with stale retry history.
-      if (_mustSurfaceCurrentAttempt(err, externalSignal)) {
-        if (retryable && attemptIndex >= MAX_MIDSTREAM_RETRIES) {
-          try {
-            err.midstreamRetries = attemptIndex;
-          } catch {}
-          try {
-            err.midstreamClassifier = classifier;
-          } catch {}
-          try {
-            err.wsRetriesExhausted = true;
-          } catch {}
-        }
-        emitSendSpan('error', err);
-        throw _stampTool(_stampLiveText(err));
-      }
-      if (attemptIndex > 0 && firstAttemptError) {
-        try {
-          firstAttemptError.midstreamRetries = attemptIndex;
-        } catch {}
-        try {
-          firstAttemptError.midstreamClassifier = firstAttemptClassifier;
-        } catch {}
-        if (attemptIndex >= MAX_MIDSTREAM_RETRIES) {
-          try {
-            firstAttemptError.wsRetriesExhausted = true;
-          } catch {}
-        }
-        emitSendSpan('error');
-        throw _stampTool(_stampLiveText(firstAttemptError));
-      }
-      emitSendSpan('error');
-      throw _stampTool(_stampLiveText(err));
+      await attempts.handshakeFailed(err, {
+        attemptIndex,
+        handshakeStart: handshake.start,
+        handshakeRetries: handshake.retries,
+        handshakeRetryClassifiers: handshake.classifiers,
+      });
+      continue;
     }
     const { entry, reused } = acquired;
-    sendSpan.poolAcquireMs += performance.now() - handshakeStart;
-    sendSpan.poolOwnerWaitMs += Math.max(0, Number(acquired?.ownerWaitMs) || 0);
-    sendSpan.acquireMode = acquired.prewarmed
-      ? 'prewarmed'
-      : entry?.ephemeral
-        ? 'ephemeral'
-        : reused
-          ? 'reused'
-          : 'new';
-    // Re-seed the retry attempt's fresh entry with the prior attempt's
-    // last successful anchor so _computeDelta sees a non-null
-    // lastInputPrefixHash and prev_response_id, keeping the same xAI
-    // conversation slot warm instead of cold-starting one per retry.
-    if (carryForwardCache && auth?.type === 'xai' && !reused) {
-      entry.lastResponseId = carryForwardCache.lastResponseId;
-      entry.lastInputPrefixHash = carryForwardCache.lastInputPrefixHash;
-      entry.lastInputLen = carryForwardCache.lastInputLen;
-      entry.lastRequestSansInput = carryForwardCache.lastRequestSansInput;
-      entry.lastRequestInput = carryForwardCache.lastRequestInput;
-      entry.lastResponseItems = carryForwardCache.lastResponseItems;
-    }
-    traceAgentFetch({
-      sessionId: poolKey,
-      headersMs: performance.now() - handshakeStart,
-      httpStatus: reused ? 0 : 101,
-      provider: traceProvider,
-      model: useModel,
-      transport: 'websocket',
-      handshakeRetries,
-      handshakeRetryClassifiers,
-    });
-
-    let requestBody = body;
-    // Mid-stream retry: pin prev_id in the body so _computeDelta's
-    // mode='full' fallback (triggered when the carried prefix hash no
-    // longer matches the current input) still carries the conversation
-    // anchor. The delta path overwrites this from entry.lastResponseId,
-    // which equals the carried value, so the two paths agree.
-    if (carryForwardCache && auth?.type === 'xai' && attemptIndex > 0 && !body.previous_response_id) {
-      requestBody = { ...body, previous_response_id: carryForwardCache.lastResponseId };
-    }
-    // Recovery-only reasoning replay: decide per entry whether retained
-    // reasoning items ride this chain (see _applyReasoningReplayPolicy).
-    // Must run BEFORE _computeDelta and the post-send bookkeeping so
-    // entry.lastRequestInput always records the post-policy input.
-    requestBody = _applyReasoningReplayPolicy(entry, requestBody, { suppress: suppressReasoningReplay });
-    let warmupResult = null;
+    recordAcquired(ctx, acquired, handshake);
+    const requestBody = prepareRequestBody(ctx, entry, attemptIndex);
     const startupWarmupResponseId =
       typeof entry?.startupWarmupResponseId === 'string' ? entry.startupWarmupResponseId : null;
-    // midState is shared between warmup and the main stream so warmup
-    // failures (first-byte timeout, send-failure, ws_4000) flow through
-    // the SAME mid-stream classifier as the main send. A wedged warmup
-    // socket must not bypass the retry loop and surface raw to the
-    // caller — release the entry, force a fresh acquire, and retry.
-    const midState = {
-      attemptIndex,
-      sawResponseCreated: false,
-      sawCompleted: false,
-      // Gateway live-text relay invariant (see _streamResponse): set once
-      // a non-empty text chunk has been forwarded to the client.
-      emittedText: false,
-      sessionId: poolKey,
-      iteration,
-      model: useModel,
-      traceProvider,
-    };
-    const sseStart = Date.now();
-    let mode = 'full';
-    let frame = null;
-    let deltaTokens = 0;
-    let deltaReason = null;
-    let strippedResponseItems = 0;
-    let skippedResponseItems = 0;
-    let responseOutputMismatch = null;
-    let requestInputMismatch = null;
-    let wireFrameHadTurnState = false;
-    let wireFrameMetadataTrace = _metadataTrace(null);
-    let framePrefixHash = null;
-    let framePrefixHeadHash = null;
-    let framePrefixPrevMatch = null;
+    const midState = createMidState(ctx, attemptIndex);
+    const attempt = createAttemptRecord({ attemptIndex, reused, handshake, startupWarmupResponseId });
     let result;
-    const streamTimeouts = null;
     try {
-      // Prewarm gate: only when the session
-      // has no prior request state. A reused pooled socket with a live
-      // chain must go straight to the real request.
-      if (
-        warmupBody &&
-        typeof warmupBody === 'object' &&
-        !completedWarmup &&
-        attemptIndex === 0 &&
-        !entry.lastResponseId
-      ) {
-        const warmupBuildStart = performance.now();
-        // Codex startup prewarm contains stable instructions/tools but
-        // no live user/transcript input. Enforce that at the transport
-        // boundary as well as in the OAuth caller so a future caller
-        // cannot accidentally duplicate the transcript. Keep the same
-        // request properties as the real turn; Codex changes only the
-        // input tail and adds generate:false.
-        const parityWarmupBody = {
-          ...warmupBody,
-          input: Array.isArray(warmupBody.input) ? warmupBody.input : [],
-          generate: false,
-        };
-        const warmupFrame = _buildResponseCreateFrame(parityWarmupBody);
-        const warmupMetadataContext = {
-          ...codexMetadataContext,
-          sendOpts: {
-            ...(codexMetadataContext?.sendOpts || {}),
-            requestKind: 'prewarm',
-            codexRequestKind: 'prewarm',
-          },
-        };
-        const wireWarmupFrame = _withCodexWsClientMetadata(
-          warmupFrame,
-          entry,
-          useCodexWsClientMetadata,
-          warmupMetadataContext
-        );
-        wireFrameHadTurnState = !!wireWarmupFrame?.client_metadata?.['x-codex-turn-state'];
-        wireFrameMetadataTrace = _metadataTrace(wireWarmupFrame?.client_metadata);
-        sendSpan.requestBuildSerializationMs += performance.now() - warmupBuildStart;
-        await _sendFrameFn(entry, wireWarmupFrame, sendSpan);
-        const warmupStart = Date.now();
-        const warmupState = {
-          attemptIndex,
-          sawResponseCreated: false,
-          sawCompleted: false,
-          sessionId: poolKey,
-          iteration,
-          model: useModel,
-          traceProvider,
-          warmup: true,
-          sendSpan,
-          sendStartedAt: performance.now(),
-        };
-        warmupResult = await _streamFn({
-          entry,
-          externalSignal,
-          onStreamDelta: null,
-          onToolCall: null,
-          state: warmupState,
-          logSuppressedReasoningDeltas,
-          traceProvider,
-          _timeouts: streamTimeouts,
-        });
-        // Surface warmup-time first-event timeout / send-failure
-        // flags onto the shared midState so the outer catch's
-        // classifier sees them. (warmupResult itself only resolves
-        // on success; failures throw and skip this block.)
-        if (warmupState.firstByteTimeout) midState.firstByteTimeout = true;
-        if (warmupState.wsSendFailed) midState.wsSendFailed = true;
-        if (!warmupResult?.responseId) {
-          throw new Error('Responses WS warmup completed without response id');
-        }
-        completedWarmup = {
-          requestBody: parityWarmupBody,
-          responseId: warmupResult.responseId,
-          usage: warmupResult.usage,
-        };
-        entry.lastResponseId = warmupResult.responseId;
-        entry.lastRequestSansInput = _stableStringify(
-          _sansInput(parityWarmupBody, {
-            normalizeWarmupGenerate: useCodexWsClientMetadata,
-          })
-        );
-        const warmupInputArr = Array.isArray(parityWarmupBody.input) ? parityWarmupBody.input : [];
-        entry.lastRequestInput = _cloneJson(warmupInputArr);
-        entry.lastResponseItems = _cloneJson(
-          Array.isArray(warmupResult.responseItems) ? warmupResult.responseItems : []
-        );
-        entry.lastInputLen = warmupInputArr.length;
-        entry.lastInputPrefixHash = createHash('sha256').update(JSON.stringify(warmupInputArr)).digest('hex');
-        try {
-          const warmupPayload = {
-            provider: traceProvider,
-            transport: 'websocket',
-            event: 'warmup_completed',
-            response_id: warmupResult.responseId,
-            elapsed_ms: Date.now() - warmupStart,
-            input_tokens: warmupResult.usage?.inputTokens || 0,
-            cached_tokens: warmupResult.usage?.cachedTokens || 0,
-            output_tokens: warmupResult.usage?.outputTokens || 0,
-            prompt_tokens: warmupResult.usage?.promptTokens || 0,
-          };
-          _agentTraceFn({
-            sessionId: poolKey,
-            iteration,
-            kind: 'cache_warmup',
-            ...warmupPayload,
-            payload: warmupPayload,
-          });
-        } catch {}
+      if (startupWarmupApplies({ warmupBody, completedWarmup: ctx.warmup.completed, attemptIndex, entry })) {
+        await runAttemptWarmup(ctx, { entry, attemptIndex, midState, attempt });
       }
 
       // Codex performs generate:false during session startup, then hands
       // this live client session to the first real turn. Startup callers
-      // stop here; the pooled entry retains its response id, request
-      // snapshot and socket for the later real send.
+      // stop here.
       if (sendOpts?._startupPrewarmOnly === true) {
-        const responseId = warmupResult?.responseId || startupWarmupResponseId || entry.lastResponseId || null;
-        if (responseId) entry.startupWarmupResponseId = responseId;
-        else releaseWebSocket({ entry, poolKey, keep: false });
-        const out = {
-          content: '',
-          model: warmupResult?.model || useModel,
-          toolCalls: [],
-          usage: warmupResult?.usage || {
-            inputTokens: 0,
-            outputTokens: 0,
-            cachedTokens: 0,
-            cacheWriteTokens: 0,
-            promptTokens: 0,
-          },
-          startupPrewarm: !!responseId,
-          startupPrewarmHandle: responseId ? { entry, poolKey, cacheKey } : null,
-        };
-        out.transportTiming = emitSendSpan('ok');
+        const out = startupPrewarmResult({
+          entry,
+          poolKey,
+          cacheKey,
+          warmupResult: attempt.warmupResult,
+          startupWarmupResponseId,
+          useModel,
+        });
+        out.transportTiming = sendSpan.emit('ok');
         return out;
       }
 
-      // A completed generate:false prewarm is a valid continuation
-      // anchor. Compute against its retained empty-input snapshot so the
-      // first real request sends previous_response_id plus exactly the
-      // real incremental input. _computeDelta still retreats to a full
-      // frame on every missing anchor/property/prefix/output mismatch.
       const requestBuildStart = performance.now();
-      const delta = _computeDelta({ entry, body: requestBody, traceProvider });
-      ({ mode, frame } = delta);
-      deltaReason = delta.reason || null;
-      strippedResponseItems = delta.strippedResponseItems || 0;
-      skippedResponseItems = delta.skippedResponseItems || 0;
-      responseOutputMismatch = delta.responseOutputMismatch || null;
-      requestInputMismatch = delta.requestInputMismatch || null;
-      const wireFrame = _withCodexWsClientMetadata(frame, entry, useCodexWsClientMetadata, codexMetadataContext);
-      wireFrameHadTurnState = !!wireFrame?.client_metadata?.['x-codex-turn-state'];
-      wireFrameMetadataTrace = _metadataTrace(wireFrame?.client_metadata);
-      deltaTokens = _estimateFrameTokens(wireFrame);
-      // Prefix-consistency probe (item-level). Serialized-JSON byte
-      // prefixes can never match across appends (the shorter frame ends
-      // in "]}" where the longer has ","), so compare what the server's
-      // prefix cache actually sees: the non-input request header and the
-      // per-item content of the input array. prev_match=true means the
-      // current call's header is identical and its first N input items
-      // equal the previous call's N items (append-only history).
-      try {
-        // previous_response_id is the per-call anchor: it changes on
-        // every delta frame by design, so including it made
-        // prev_match structurally false for the entire delta path and
-        // the probe could never report what it was built to report —
-        // whether OUR request prefix stayed stable across calls.
-        const { client_metadata: _cm, input: frameInput, previous_response_id: _prevAnchor, ...frameHeader } = frame;
-        const headerHash = _hashText(JSON.stringify(frameHeader), 16);
-        // A delta frame carries only the tail, so hashing frame.input
-        // compares [C] against [A,B] and prev_match can never hold on
-        // the delta path. The question the probe exists to answer is
-        // whether the LOGICAL conversation stayed append-only, so hash
-        // the full request body input and fall back to the frame only
-        // when the body is unavailable.
-        const logicalInput = Array.isArray(requestBody?.input)
-          ? requestBody.input
-          : Array.isArray(frameInput)
-            ? frameInput
-            : [];
-        const itemHashes = logicalInput.map((item) => _hashText(JSON.stringify(item), 12));
-        framePrefixHash = headerHash;
-        framePrefixHeadHash = _hashText(itemHashes.join(','), 16);
-        const prevHeader = entry.lastFrameHeaderHash;
-        const prevItems = entry.lastFrameItemHashes;
-        if (prevHeader && Array.isArray(prevItems)) {
-          framePrefixPrevMatch =
-            headerHash === prevHeader &&
-            itemHashes.length >= prevItems.length &&
-            prevItems.every((h, i) => itemHashes[i] === h);
-        }
-        entry.lastFrameHeaderHash = headerHash;
-        entry.lastFrameItemHashes = itemHashes;
-      } catch {}
-
+      const wireFrame = buildWireFrame(ctx, attempt, entry, requestBody);
       // Re-check abort after acquire/warmup — narrow window where
       // externalSignal could fire between successful acquire and
       // send(). Without this gate an aborted request could still
@@ -1177,12 +332,10 @@ export async function sendViaWebSocket({
 
       if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(
-          `[agent-trace] ws-streaming-start sinceAcquire=${Math.round(performance.now() - handshakeStart)}ms\n`
+          `[agent-trace] ws-streaming-start sinceAcquire=${Math.round(performance.now() - handshake.start)}ms\n`
         );
       }
-      try {
-        onStageChange?.('streaming');
-      } catch {}
+      notifyStage(onStageChange, 'streaming');
       result = await _streamFn({
         entry,
         externalSignal,
@@ -1192,583 +345,24 @@ export async function sendViaWebSocket({
         state: midState,
         logSuppressedReasoningDeltas,
         traceProvider,
-        _timeouts: streamTimeouts,
-        knownToolNames,
+        _timeouts: null,
+        knownToolNames: ctx.knownToolNames,
       });
     } catch (err) {
-      _stampWarmup(err);
-      // Preserve failure provenance for the direct provider. This marker
-      // is observational for OAuth and does not change its classifier or
-      // retry budget.
-      try {
-        err.wsFailurePhase = 'stream';
-      } catch {}
-      // Snapshot the xAI conversation anchor BEFORE releasing the
-      // entry. release closes the socket but leaves state fields
-      // intact; the next forceFresh acquire creates a new entry into
-      // which we manually carry the anchor so the retry continues the
-      // same conversation instead of cold-starting one.
-      // Only a STORED response survives its connection. xAI's default
-      // (store:false) continuation is in-connection state: replaying its
-      // previous_response_id onto the fresh socket the retry acquires
-      // fails with a missing-response anchor and burns the recovery
-      // attempt, so a non-stored anchor is dropped and the retry
-      // cold-starts the conversation with the full input instead.
-      if (auth?.type === 'xai' && entry.lastResponseId && body?.store === true) {
-        carryForwardCache = {
-          lastResponseId: entry.lastResponseId,
-          lastInputPrefixHash: entry.lastInputPrefixHash,
-          lastInputLen: entry.lastInputLen,
-          lastRequestSansInput: entry.lastRequestSansInput,
-          lastRequestInput: entry.lastRequestInput,
-          lastResponseItems: entry.lastResponseItems,
-        };
-      }
-      releaseWebSocket({ entry, poolKey, keep: false });
-      // Mid-stream classification.
-      // Live-text invariant: a non-empty chunk already relayed to the
-      // client cannot be withdrawn. Tag the error so the upstream HTTP
-      // fallback gate also refuses to re-issue and concatenate attempts.
-      if (midState.emittedText) {
-        // Latch across attempts: even though THIS error is never
-        // retry-eligible once text is out, a later/earlier surfaced
-        // error (firstAttemptError) must still carry the marker.
-        _safetyStamps.markText();
-      }
-      if (midState.emittedToolCall) {
-        _safetyStamps.markTool();
-      }
-      // Reasoning deltas and an in-progress tool input are already
-      // observable turn progress even though neither is final assistant
-      // text nor a dispatched tool call. Reissuing from the beginning can
-      // duplicate exposed thinking/tool argument streams and can make a
-      // partially generated side-effecting call diverge. Keep the Codex
-      // retry budget only for failures before any such model output.
-      // Exposed reasoning is a visibility boundary. A tool call that only
-      // STARTED assembling was never dispatched, so it is recorded but is
-      // NOT a side effect and must not veto a retry.
-      if (midState.emittedReasoning || midState.startedToolCall) {
-        try {
-          if (midState.emittedReasoning) {
-            err.unsafeToRetry = true;
-            err.partialReasoningEmitted = true;
-          }
-          if (midState.startedToolCall) err.partialToolCallStarted = true;
-        } catch {}
-      }
-      _stampLiveText(err);
-      _stampTool(err);
-      // Canonical stream-outcome record for the WS transport, merged
-      // with the cross-attempt safety latches above. _streamResponse
-      // already stamps its own reject paths; this covers frame-send /
-      // handshake-adjacent failures that never reached the stream loop.
-      try {
-        stampStreamOutcome(err, midState, {
-          transport: STREAM_TRANSPORTS.WS,
-          provider: 'openai-oauth',
-          continuation: midState.sawCompleted !== true,
-        });
-      } catch {
-        /* stamping is best-effort */
-      }
-      // Reasoning-replay rejection safety net: a duplicate-rs_ rejection
-      // on a frame that carried replayed reasoning gets ONE strip-and-
-      // retry within the existing attempt budget instead of failing the
-      // recovery turn outright. Unsafe outcomes (live text/tool output)
-      // keep their normal no-replay handling.
-      if (
-        !suppressReasoningReplay &&
-        entry.replayReasoning === true &&
-        err?.unsafeToRetry !== true &&
-        attemptIndex < MAX_MIDSTREAM_RETRIES &&
-        _isReasoningReplayRejection(err)
-      ) {
-        suppressReasoningReplay = true;
-        firstAttemptError = err;
-        firstAttemptClassifier = 'reasoning_replay_rejected';
-        try {
-          err.midstreamClassifier = 'reasoning_replay_rejected';
-        } catch {}
-        emitReconnectProgress({
-          attempt: attemptIndex + 1,
-          max: MAX_MIDSTREAM_RETRIES,
-          classifier: 'reasoning_replay_rejected',
-        });
-        continue;
-      }
-      const classifier = err?.unsafeToRetry === true ? null : _classifyMidstreamError(err, midState);
-      if (classifier === 'stream_stalled' && !stallRetryBudget.allowStallRetry()) {
-        try {
-          process.stderr.write(
-            `[openai-oauth] stall retry budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first stall) — surfacing provider-terminal failure\n`
-          );
-        } catch {}
-        emitSendSpan('error');
-        throw _stampTool(
-          _stampLiveText(
-            markProviderRecoveryExhausted(err, {
-              owner: 'openai-oauth-ws-stall-budget',
-            })
-          )
-        );
-      }
-      const retryLimit = classifier ? _midstreamRetryLimit(classifier) : 0;
-      if (classifier && attemptIndex < retryLimit) {
-        // Retry-eligible: stash the first-attempt error, emit progress,
-        // and loop. The subsequent acquire uses forceFresh so no socket
-        // is shared between attempts.
-        if (shouldDropPreviousResponseId(err)) {
-          carryForwardCache = null;
-          try {
-            entry.lastResponseId = null;
-          } catch {}
-        }
-        firstAttemptError = err;
-        firstAttemptClassifier = classifier;
-        try {
-          err.midstreamClassifier = classifier;
-        } catch {}
-        const retryNumber = attemptIndex + 1;
-        const backoff = _midstreamBackoffFor(retryNumber);
-        emitReconnectProgress({
-          attempt: retryNumber,
-          max: retryLimit,
-          classifier,
-        });
-        const sleepStart = performance.now();
-        try {
-          await _sleepWithAbort(backoff, externalSignal, _sleepFn);
-        } catch (sleepErr) {
-          sendSpan.retryBackoffMs += performance.now() - sleepStart;
-          emitSendSpan('error');
-          throw _stampWarmup(sleepErr);
-        }
-        sendSpan.retryBackoffMs += performance.now() - sleepStart;
-        continue;
-      }
-      // Not retryable, OR we've already exhausted the retry budget.
-      // Do not let stale retry history mask a current auth/upgrade
-      // decision, cancellation, or newly unsafe-to-replay outcome.
-      if (_mustSurfaceCurrentAttempt(err, externalSignal)) {
-        emitSendSpan('error');
-        throw _stampTool(_stampLiveText(err));
-      }
-      if (attemptIndex > 0 && firstAttemptError) {
-        // Exhausted path: surface the first-attempt error (the one
-        // the user's turn actually tripped on), tag actual retry count.
-        try {
-          firstAttemptError.midstreamRetries = attemptIndex;
-        } catch {}
-        try {
-          firstAttemptError.midstreamClassifier = firstAttemptClassifier;
-        } catch {}
-        if (attemptIndex >= _midstreamRetryLimit(firstAttemptClassifier)) {
-          try {
-            firstAttemptError.wsRetriesExhausted = true;
-          } catch {}
-          markProviderRecoveryExhausted(firstAttemptError, {
-            owner: 'openai-oauth-ws-midstream',
-            attempts: attemptIndex + 1,
-          });
-        }
-        // Attach the retry attempt's error so post-mortem diagnostics
-        // can see WHY the retry also failed instead of silently
-        // dropping it. Use `cause` if free, else `suppressed`.
-        try {
-          if (!firstAttemptError.cause) firstAttemptError.cause = err;
-          else {
-            const list = Array.isArray(firstAttemptError.suppressed) ? firstAttemptError.suppressed : [];
-            list.push(err);
-            firstAttemptError.suppressed = list;
-          }
-        } catch {}
-        emitSendSpan('error');
-        throw _stampTool(_stampLiveText(firstAttemptError));
-      }
-      emitSendSpan('error');
-      throw _stampTool(_stampLiveText(err));
+      await attempts.streamFailed(err, { attemptIndex, entry, midState });
+      continue;
     }
-    const liveModel = result.model || useModel;
-    traceAgentSse({
-      sessionId: poolKey,
-      sseParseMs: Date.now() - sseStart,
-      provider: traceProvider,
-      model: liveModel,
-      transport: 'websocket',
-    });
-
-    const resultToolCallCount = Array.isArray(result.toolCalls) ? result.toolCalls.length : 0;
-    // Keep the conversation chain whenever the server gave us a response id.
-    // `incompleteReason` is ONLY ever set for max_output_tokens-class
-    // truncation (every other incomplete status throws upstream), and in
-    // that case the response IS valid and the server preserves its
-    // response_id as a continuation anchor. Dropping the chain here forced
-    // the NEXT turn to cold-start (no_anchor → full resend), which the
-    // trace logs showed repeating 50-78x in long max-output sessions. If a
-    // truncated turn's response items don't line up next turn,
-    // _stripResponseItemsFromHead still falls back to a full send on its
-    // own, so retaining the anchor cannot corrupt the cache — it only adds
-    // a delta fast-path when the items DO match.
-    const keepResponseChain = !!result.responseId;
-    // Normally the socket is pooled for reuse. But an early tool-call settle
-    // (result.closeSocket) means the stream resolved before
-    // response.completed/done arrived: the server may still emit those as
-    // orphan frames, so the socket must be discarded, not reused.
-    const keepSocket = !result.closeSocket;
-
-    // Update cache state for the next iteration in this session. openai-oauth
-    // keeps the previous response anchor even when the model emitted tool
-    // calls: the next request is previous input + server output items
-    // + tool results, and _computeDelta strips the first two parts so the
-    // WebSocket frame only sends the true new tail.
-    // Captured BEFORE the overwrite below: chain-continuity trace must
-    // compare the request's prev_id against what the entry held when the
-    // request was BUILT, not the id we just received (review Low).
-    const priorEntryResponseId =
-      typeof entry?.lastResponseId === 'string' && entry.lastResponseId.length > 0 ? entry.lastResponseId : null;
-    const cacheContinuityResetReason = _cacheContinuityResetReason({
-      mode,
-      deltaReason,
-      entry,
-      body: requestBody,
-      traceProvider,
-    });
-    if (cacheContinuityResetReason === 'input_prefix_mismatch' && !requestInputMismatch) {
-      requestInputMismatch = _requestInputMismatchDiagnostics(requestBody?.input, entry?.lastRequestInput);
-    }
-    if (result.responseId && keepResponseChain) {
-      entry.lastResponseId = result.responseId;
-      entry.lastRequestSansInput = _stableStringify(
-        _sansInput(requestBody, {
-          normalizeWarmupGenerate: useCodexWsClientMetadata,
-        })
-      );
-      const inputArr = Array.isArray(requestBody.input) ? requestBody.input : [];
-      entry.lastRequestInput = _cloneJson(inputArr);
-      entry.lastResponseItems = _cloneJson(Array.isArray(result.responseItems) ? result.responseItems : []);
-      entry.lastInputLen = inputArr.length;
-      // Kept for diagnostics / xAI retry carry-forward. The canonical
-      // prefix guard is lastRequestInput above, not this hash.
-      entry.lastInputPrefixHash = createHash('sha256').update(JSON.stringify(inputArr)).digest('hex');
-    } else if (!keepResponseChain) {
-      entry.lastResponseId = null;
-      entry.lastRequestSansInput = null;
-      entry.lastRequestInput = null;
-      entry.lastResponseItems = null;
-      entry.lastInputLen = 0;
-      entry.lastInputPrefixHash = null;
-    }
-
-    // Cache observation must see the MAIN request's usage only. Folding
-    // warmup usage in first (R18) made prompt_tokens spike on it=1 and
-    // then "shrink" on it=2, faking prefix-rewrite/cache-drop signals in
-    // every warmup session (debugger 2026-07-03).
-    const cacheObservation = _cacheObservation({
+    const out = completeWsSend({
+      send: ctx.send,
+      attempt,
       entry,
       result,
-      continuityResetReason: cacheContinuityResetReason,
+      requestBody,
+      completedWarmup: ctx.warmup.completed,
     });
-    if (completedWarmup?.usage) {
-      result.usage = _combineUsageWithWarmup(result.usage, completedWarmup.usage, {
-        // xAI/Grok prewarm is billable just like Codex prewarm, but it
-        // is not part of the real request's context footprint. Direct
-        // OpenAI intentionally retains its existing usage shape.
-        separateMainContext: useCodexWsClientMetadata || traceProvider === 'xai',
-      });
-    }
-
-    const requestedServiceTier = body?.service_tier || null;
-    const responseServiceTier = result.serviceTier || result.usage?.raw?.service_tier || null;
-    const sentPrevResponseId =
-      typeof frame?.previous_response_id === 'string' && frame.previous_response_id.length > 0
-        ? frame.previous_response_id
-        : typeof body?.previous_response_id === 'string' && body.previous_response_id.length > 0
-          ? body.previous_response_id
-          : null;
-    // Compare against the entry's PRE-request lastResponseId (captured
-    // above, before line ~979 overwrites it with the new response id):
-    // the WS delta path chains from entry state, so stale providerState
-    // OR the post-overwrite id would both mis-report continuity.
-    const cacheChain =
-      traceProvider === 'xai'
-        ? priorEntryResponseId
-          ? {
-              requestPrevResponseId: sentPrevResponseId,
-              chainContinuous: sentPrevResponseId !== null && sentPrevResponseId === priorEntryResponseId,
-              continuationResetReason: null,
-            }
-          : grokCacheChainTraceFields(sendOpts?.providerState, sentPrevResponseId, null)
-        : null;
-    traceAgentUsage({
-      sessionId: poolKey,
-      iteration,
-      inputTokens: result.usage?.inputTokens || 0,
-      outputTokens: result.usage?.outputTokens || 0,
-      cachedTokens: result.usage?.cachedTokens || 0,
-      promptTokens: result.usage?.promptTokens || 0,
-      model: liveModel,
-      modelDisplay: displayModel ? displayModel(liveModel) : liveModel,
-      responseId: result.responseId || null,
-      rawUsage: result.usage?.raw || null,
-      provider: traceProvider,
-      serviceTier: responseServiceTier,
-      ...(cacheChain
-        ? {
-            requestPrevResponseId: cacheChain.requestPrevResponseId,
-            chainContinuous: cacheChain.chainContinuous,
-            continuationResetReason: cacheChain.continuationResetReason,
-          }
-        : {}),
-    });
-    const requestHasPreviousResponseId =
-      typeof frame.previous_response_id === 'string' && frame.previous_response_id.length > 0;
-    const transportCacheKeyHash = cacheKey
-      ? createHash('sha256').update(String(cacheKey)).digest('hex').slice(0, 12)
-      : null;
-    if (cacheObservation.actualMiss) {
-      try {
-        _agentTraceFn({
-          sessionId: poolKey,
-          iteration,
-          kind: 'cache_miss',
-          provider: traceProvider,
-          model: liveModel,
-          transport: 'websocket',
-          payload: {
-            provider: traceProvider,
-            model: liveModel,
-            transport: 'websocket',
-            ws_mode: mode,
-            reason: cacheObservation.missReason || 'warm_session_cache_miss',
-            cached_tokens: cacheObservation.cachedTokens,
-            prompt_tokens: cacheObservation.promptTokens,
-            input_tokens: cacheObservation.inputTokens,
-            uncached_tokens: cacheObservation.uncachedTokens,
-            cache_ratio: cacheObservation.cacheRatio,
-            previous_max_cached_tokens: cacheObservation.previousMaxCached,
-            cache_key_hash: transportCacheKeyHash,
-            warm_threshold_tokens: cacheObservation.warmThreshold,
-            prompt_threshold_tokens: cacheObservation.promptThreshold,
-            drop_ratio: cacheObservation.dropRatio,
-            drop_threshold_tokens: cacheObservation.dropThreshold,
-            request_has_previous_response_id: requestHasPreviousResponseId,
-            chain_delta_reason: mode === 'delta' ? null : deltaReason,
-            body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
-            frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
-            response_id: result.responseId || null,
-          },
-        });
-      } catch {}
-    }
-    if (cacheObservation.actualMiss) {
-      traceCacheBreak(
-        {
-          sessionId: poolKey,
-          iteration,
-          classification: 'provider_miss',
-          reason: cacheObservation.missReason || 'warm_session_cache_miss',
-          source: 'provider_usage',
-          provider: traceProvider,
-          model: liveModel,
-          transport: 'websocket',
-          cachedTokens: cacheObservation.cachedTokens,
-          promptTokens: cacheObservation.promptTokens,
-          uncachedTokens: cacheObservation.uncachedTokens,
-          cacheRatio: cacheObservation.cacheRatio,
-          actualCacheMiss: true,
-        },
-        { traceFn: _agentTraceFn }
-      );
-    }
-    // Rebase after a genuine provider retreat so one eviction produces one
-    // diagnostic instead of a long run of duplicate "dropped" rows. The
-    // request that exposed the retreat has already rebuilt the prefix; its
-    // observed cached count is the correct baseline for recovery.
-    entry.promptCacheMaxCachedTokens =
-      cacheObservation.actualMiss || cacheObservation.continuityResetReason
-        ? cacheObservation.cachedTokens
-        : Math.max(_num(entry.promptCacheMaxCachedTokens, 0), cacheObservation.cachedTokens);
-    // Early-session cache-miss ledger (first up-to-3 real requests on this
-    // socket) for the warmup→first-real continuity trace below. Warmup
-    // itself is excluded — this block only runs on the real send.
-    if (!Array.isArray(entry.earlyCacheMisses)) entry.earlyCacheMisses = [];
-    if (entry.earlyCacheMisses.length < 3) {
-      entry.earlyCacheMisses.push(cacheObservation.actualMiss ? cacheObservation.missReason || 'miss' : false);
-    }
-    const effectiveWarmupResponseId = warmupResult?.responseId || startupWarmupResponseId || null;
-    const warmupContinuity = _warmupContinuityTrace({
-      warmupUsed: !!effectiveWarmupResponseId,
-      warmupResponseId: effectiveWarmupResponseId,
-      priorEntryResponseId,
-      sentPrevResponseId,
-      earlyCacheMisses: entry.earlyCacheMisses,
-    });
-    // Extra WS-specific observability: transport + per-iteration delta bytes.
-    try {
-      const transportPayload = {
-        provider: traceProvider,
-        transport: 'websocket',
-        ws_mode: mode,
-        ws_pre_response_created_timeout_ms: WS_PRE_RESPONSE_CREATED_MS,
-        ws_inter_chunk_timeout_ms: WS_INTER_CHUNK_MS,
-        ws_idle_ms: WS_IDLE_MS,
-        iteration_delta_tokens: deltaTokens,
-        reused_connection: reused,
-        requested_service_tier: requestedServiceTier,
-        response_service_tier: responseServiceTier,
-        handshake_retries: handshakeRetries,
-        handshake_retry_classifiers: handshakeRetryClassifiers,
-        midstream_retries: attemptIndex,
-        response_id: result.responseId || null,
-        cache_key_hash: transportCacheKeyHash,
-        request_has_previous_response_id: requestHasPreviousResponseId,
-        cached_tokens: cacheObservation.cachedTokens,
-        prompt_tokens: cacheObservation.promptTokens,
-        input_tokens: cacheObservation.inputTokens,
-        uncached_tokens: cacheObservation.uncachedTokens,
-        cache_ratio: cacheObservation.cacheRatio,
-        actual_cache_miss: cacheObservation.actualMiss,
-        actual_cache_miss_reason: cacheObservation.missReason,
-        previous_max_cached_tokens: cacheObservation.previousMaxCached,
-        cache_drop_threshold_tokens: cacheObservation.dropThreshold,
-        frame_prefix_hash: framePrefixHash,
-        frame_prefix_head_hash: framePrefixHeadHash,
-        frame_prefix_prev_match: framePrefixPrevMatch,
-        ws_client_metadata: useCodexWsClientMetadata,
-        ws_client_metadata_key_count: wireFrameMetadataTrace.count,
-        ws_client_metadata_hash: wireFrameMetadataTrace.hash,
-        ws_client_metadata_has_turn_metadata: wireFrameMetadataTrace.hasTurnMetadata,
-        ws_client_metadata_has_thread_id: wireFrameMetadataTrace.hasThreadId,
-        ws_client_metadata_has_turn_state: wireFrameHadTurnState,
-        ws_entry_turn_state_available: useCodexWsClientMetadata && !!entry.turnState,
-        // Fingerprint only. The token is a routing credential, so it is
-        // hashed rather than logged; the length still
-        // distinguishes a real server token from a stub value, and the
-        // hash shows whether one session keeps a single pin or is
-        // re-issued (reconnect / turn rollover).
-        ws_entry_turn_state_fp:
-          typeof entry.turnState === 'string' && entry.turnState
-            ? `${createHash('sha256').update(entry.turnState).digest('hex').slice(0, 12)}:len${entry.turnState.length}`
-            : null,
-        chain_delta_reason: mode === 'delta' ? null : deltaReason,
-        chain_stripped_response_items: strippedResponseItems,
-        chain_skipped_response_items: skippedResponseItems,
-        ...(responseOutputMismatch || {}),
-        ...(requestInputMismatch || {}),
-        chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
-        body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
-        frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
-        frame_has_instructions: typeof frame.instructions === 'string' && frame.instructions.length > 0,
-        warmup_used: !!effectiveWarmupResponseId,
-        warmup_response_id: effectiveWarmupResponseId,
-        warmup_first_real_cache_hit: !!effectiveWarmupResponseId && cacheObservation.cachedTokens > 0,
-        ...warmupContinuity,
-        tool_call_count: resultToolCallCount,
-        keep_socket: keepSocket,
-        keep_response_chain: keepResponseChain,
-      };
-      _agentTraceFn({
-        sessionId: poolKey,
-        iteration,
-        kind: 'transport',
-        ...transportPayload,
-        payload: transportPayload,
-      });
-      const chainFallback =
-        mode !== 'delta' &&
-        deltaReason &&
-        !['no_anchor', 'full_forced', 'full_default', 'delta_missing_turn_state'].includes(deltaReason);
-      if (chainFallback || (mode === 'delta' && deltaReason)) {
-        const intentionalTransition = typeof sendOpts?.cacheBreakIntent === 'string' ? sendOpts.cacheBreakIntent : null;
-        traceCacheBreak(
-          {
-            sessionId: poolKey,
-            iteration,
-            classification: intentionalTransition ? 'intentional' : 'provider_transition',
-            reason: mode === 'delta' ? deltaReason : deltaReason || 'full_frame',
-            source: 'openai_ws_delta',
-            provider: traceProvider,
-            model: liveModel,
-            transport: 'websocket',
-            intentionalTransition,
-            cachedTokens: cacheObservation.cachedTokens,
-            promptTokens: cacheObservation.promptTokens,
-            uncachedTokens: cacheObservation.uncachedTokens,
-            cacheRatio: cacheObservation.cacheRatio,
-            actualCacheMiss: cacheObservation.actualMiss,
-            ...(requestInputMismatch || {}),
-          },
-          { traceFn: null }
-        );
-        _agentTraceFn({
-          sessionId: poolKey,
-          iteration,
-          kind: 'cache_break',
-          classification: intentionalTransition ? 'intentional' : 'provider_transition',
-          source: 'openai_ws_delta',
-          provider: traceProvider,
-          model: liveModel,
-          payload: {
-            provider: traceProvider,
-            model: liveModel,
-            transport: 'websocket',
-            ws_mode: mode,
-            reason: mode === 'delta' ? deltaReason : deltaReason || 'full_frame',
-            classification: intentionalTransition ? 'intentional' : 'provider_transition',
-            source: 'openai_ws_delta',
-            intentional_transition: intentionalTransition,
-            request_tool_choice: requestBody.tool_choice ?? null,
-            cache_key_hash: transportCacheKeyHash,
-            cached_tokens: cacheObservation.cachedTokens,
-            prompt_tokens: cacheObservation.promptTokens,
-            uncached_tokens: cacheObservation.uncachedTokens,
-            cache_ratio: cacheObservation.cacheRatio,
-            actual_cache_miss: cacheObservation.actualMiss,
-            request_has_previous_response_id: transportPayload.request_has_previous_response_id,
-            chain_stripped_response_items: strippedResponseItems,
-            chain_skipped_response_items: skippedResponseItems,
-            ...(responseOutputMismatch || {}),
-            ...(requestInputMismatch || {}),
-            chain_response_items: Array.isArray(result.responseItems) ? result.responseItems.length : 0,
-            body_input_items: Array.isArray(requestBody.input) ? requestBody.input.length : null,
-            frame_input_items: Array.isArray(frame.input) ? frame.input.length : null,
-            frame_has_instructions: transportPayload.frame_has_instructions,
-            keep_response_chain: keepResponseChain,
-            tool_call_count: resultToolCallCount,
-          },
-        });
-      }
-    } catch {}
-
-    if (startupWarmupResponseId) {
-      try {
-        delete entry.startupWarmupResponseId;
-      } catch {}
-    }
-    releaseWebSocket({ entry, poolKey, keep: keepSocket });
-    const {
-      responseId: _ignored,
-      responseItems: _responseItemsIgnored,
-      closeSocket: _closeSocketIgnored,
-      ...out
-    } = result;
-    if (includeResponseId && result.responseId) out.responseId = result.responseId;
-    if (completedWarmup) {
-      try {
-        Object.defineProperty(out, '__warmup', {
-          value: completedWarmup,
-          enumerable: false,
-        });
-      } catch {}
-    }
-    // Leave a breadcrumb on the result so downstream callers can observe
-    // that a retry was used (0 = first-try success, up to 2 for ws_1006/1011).
-    try {
-      Object.defineProperty(out, '__midstreamRetries', { value: attemptIndex, enumerable: false });
-    } catch {}
-    out.transportTiming = emitSendSpan('ok');
+    out.transportTiming = sendSpan.emit('ok');
     return out;
   }
   // Unreachable — the loop either returns or throws above.
-  throw _stampWarmup(_stampTool(_stampLiveText(firstAttemptError || new Error('sendViaWebSocket: unreachable'))));
+  throw attempts.exhausted();
 }

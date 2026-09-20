@@ -248,7 +248,7 @@ function resolveMarksInBody(documentXml, resolution, author = '') {
       }
       if (!markedParagraph(properties, mergeTag, author)) continue;
       const next = model.blocks[index + 1];
-      if (!next || next.name !== 'w:p') {
+      if (next?.name !== 'w:p') {
         replacement = { start: block.start, end: block.end, xml: clearedParagraph(block.xml, mergeTag, author) };
         unmerged += 1;
         break;

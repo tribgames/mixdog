@@ -1,6 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs';
-import * as fsp from 'fs/promises';
-import { join } from 'path';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 
 export function getStoreDir() {

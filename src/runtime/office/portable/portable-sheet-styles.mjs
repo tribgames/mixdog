@@ -195,11 +195,13 @@ function parseXf(xml) {
 
 function buildXf(xf) {
   const aligned = Boolean(xf.horizontal || xf.vertical || xf.wrapText);
-  const alignment = aligned
-    ? `<alignment${xf.horizontal ? ` horizontal="${xf.horizontal}"` : ''}` +
-      `${xf.vertical ? ` vertical="${xf.vertical}"` : ''}` +
-      `${xf.wrapText ? ' wrapText="1"' : ''}/>`
-    : '';
+  let alignment = '';
+  if (aligned) {
+    const horizontal = xf.horizontal ? ` horizontal="${xf.horizontal}"` : '';
+    const vertical = xf.vertical ? ` vertical="${xf.vertical}"` : '';
+    const wrap = xf.wrapText ? ' wrapText="1"' : '';
+    alignment = `<alignment${horizontal}${vertical}${wrap}/>`;
+  }
   // An unlocked cell is how a protected sheet keeps its entry fields typable.
   const protection = xf.locked === false ? '<protection locked="0"/>' : '';
   const head =

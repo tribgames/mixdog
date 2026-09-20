@@ -27,15 +27,14 @@ export function wordTableProperties(properties = {}, { totalWidth = 0 } = {}) {
   // side used to fall back to the whole object for the others, so asking for a
   // single rule on top drew a full grid.
   const perSide = sides.some((side) => borders[side] !== undefined);
-  const borderXml = Object.keys(borders).length
-    ? `<w:tblBorders>${sides
-        .map((side) => {
-          const value = perSide ? borders[side] : borders;
-          if (!value || typeof value !== 'object' || value.enabled === false) return '';
-          return `<w:${side} w:val="${xmlEncode(value.style || 'single')}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
-        })
-        .join('')}</w:tblBorders>`
-    : '';
+  const sideRules = sides
+    .map((side) => {
+      const value = perSide ? borders[side] : borders;
+      if (!value || typeof value !== 'object' || value.enabled === false) return '';
+      return `<w:${side} w:val="${xmlEncode(value.style || 'single')}" w:sz="${Math.max(1, Number(value.size) || 4)}" w:space="${Math.max(0, Number(value.space) || 0)}" w:color="${xmlEncode(String(value.color || 'auto').replace(/^#/, ''))}"/>`;
+    })
+    .join('');
+  const borderXml = Object.keys(borders).length ? `<w:tblBorders>${sideRules}</w:tblBorders>` : '';
   return [
     properties.style ? `<w:tblStyle w:val="${xmlEncode(docxStyleId(properties.style))}"/>` : '',
     // Declared column widths only hold everywhere (Word, LibreOffice, Google
@@ -104,9 +103,7 @@ function wordTableRunProperties(properties = {}, { bold = false } = {}) {
   const eastAsia = properties.fontNameEastAsia ? xmlEncode(String(properties.fontNameEastAsia)) : '';
   const size = Number(properties.fontSize);
   return [
-    latin || eastAsia
-      ? `<w:rFonts${latin ? ` w:ascii="${latin}" w:hAnsi="${latin}" w:cs="${latin}"` : ''}${eastAsia ? ` w:eastAsia="${eastAsia}"` : ''}/>`
-      : '',
+    runFontsXml(latin, eastAsia),
     bold ? '<w:b/><w:bCs/>' : '',
     properties.color ? `<w:color w:val="${xmlEncode(String(properties.color).replace(/^#/, ''))}"/>` : '',
     Number.isFinite(size) && size > 0
@@ -321,19 +318,39 @@ export function applyWordRunFormat(xml, runFormat) {
   });
 }
 
+/** `<w:rFonts>` with the already-encoded Latin (ascii/hAnsi/cs) and East Asian faces; '' without either. */
+function runFontsXml(latin, eastAsia) {
+  if (!latin && !eastAsia) return '';
+  const latinAttrs = latin ? ` w:ascii="${latin}" w:hAnsi="${latin}" w:cs="${latin}"` : '';
+  const eastAsiaAttr = eastAsia ? ` w:eastAsia="${eastAsia}"` : '';
+  return `<w:rFonts${latinAttrs}${eastAsiaAttr}/>`;
+}
+
+/** `<w:rFonts>` for a run's ascii/hAnsi face and East Asian face; '' without either. */
+function wordRunFontsXml(name, nameEastAsia) {
+  if (!name && !nameEastAsia) return '';
+  const latin = name ? ` w:ascii="${xmlEncode(name)}" w:hAnsi="${xmlEncode(name)}"` : '';
+  const eastAsia = nameEastAsia ? ` w:eastAsia="${xmlEncode(nameEastAsia)}"` : '';
+  return `<w:rFonts${latin}${eastAsia}/>`;
+}
+
+/** `<w:tag w:val="…"/>` for a tri-state property: '' when undefined, else its on/off value. */
+function toggleXml(tag, value, on = '1', off = '0') {
+  if (value === undefined) return '';
+  return `<w:${tag} w:val="${value ? on : off}"/>`;
+}
+
 export function wordRunProperties(properties = {}) {
   const size = Number(properties.size ?? properties.fontSize);
   const half = Number.isFinite(size) && size > 0 ? Math.max(2, Math.round(size * 2)) : 0;
   return [
-    properties.name || properties.nameEastAsia
-      ? `<w:rFonts${properties.name ? ` w:ascii="${xmlEncode(properties.name)}" w:hAnsi="${xmlEncode(properties.name)}"` : ''}${properties.nameEastAsia ? ` w:eastAsia="${xmlEncode(properties.nameEastAsia)}"` : ''}/>`
-      : '',
-    properties.bold !== undefined ? `<w:b w:val="${properties.bold ? '1' : '0'}"/>` : '',
-    properties.italic !== undefined ? `<w:i w:val="${properties.italic ? '1' : '0'}"/>` : '',
-    properties.underline !== undefined ? `<w:u w:val="${properties.underline ? 'single' : 'none'}"/>` : '',
+    wordRunFontsXml(properties.name, properties.nameEastAsia),
+    toggleXml('b', properties.bold),
+    toggleXml('i', properties.italic),
+    toggleXml('u', properties.underline, 'single', 'none'),
     // A working note travels with the document without being part of it: Word
     // hides the run, and the runtime already reads it back as hidden text.
-    properties.hidden !== undefined ? `<w:vanish w:val="${properties.hidden ? '1' : '0'}"/>` : '',
+    toggleXml('vanish', properties.hidden),
     properties.color ? `<w:color w:val="${xmlEncode(String(properties.color).replace(/^#/, ''))}"/>` : '',
     half ? `<w:sz w:val="${half}"/><w:szCs w:val="${half}"/>` : '',
   ].join('');
@@ -460,44 +477,65 @@ export function replaceWordProperties(xml, owner, propertyTag, value) {
   );
 }
 
+// The gap between a rule and the text is Word's own default per side (4 pt beside, 1 pt above or below),
+// the distance Word applies through COM; a callout's left rule otherwise touches its label.
+function paragraphBorderXml(border) {
+  if (!border) return '';
+  const side = String(border.side || 'bottom');
+  const explicitSpace =
+    border.space !== undefined && border.space !== null && border.space !== '' && Number.isFinite(Number(border.space));
+  const defaultSpace = ['left', 'right'].includes(side) ? 4 : 1;
+  const space = Math.max(0, explicitSpace ? Number(border.space) : defaultSpace);
+  return `<w:pBdr><w:${xmlEncode(side)} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${space}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>`;
+}
+
+function tabStopXml(tab) {
+  const leader = tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : '';
+  return `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${leader}/>`;
+}
+
+function paragraphSpacingXml({ spacingBefore, spacingAfter, lineSpacing }) {
+  if (spacingBefore === undefined && spacingAfter === undefined && lineSpacing === undefined) return '';
+  const before =
+    spacingBefore !== undefined ? ` w:before="${Math.max(0, Math.round(Number(spacingBefore) * 20))}"` : '';
+  const after = spacingAfter !== undefined ? ` w:after="${Math.max(0, Math.round(Number(spacingAfter) * 20))}"` : '';
+  const line =
+    lineSpacing !== undefined
+      ? ` w:line="${Math.max(1, Math.round(Number(lineSpacing) * 20))}" w:lineRule="atLeast"`
+      : '';
+  return `<w:spacing${before}${after}${line}/>`;
+}
+
+function paragraphIndentXml({ indentLeft, indentRight, indentFirstLine }) {
+  if (indentLeft === undefined && indentRight === undefined && indentFirstLine === undefined) return '';
+  const twips = (points) => Math.max(0, Math.round(Number(points) * 20));
+  const left = indentLeft !== undefined ? ` w:left="${twips(indentLeft)}"` : '';
+  const right = indentRight !== undefined ? ` w:right="${twips(indentRight)}"` : '';
+  const firstLine = indentFirstLine !== undefined ? ` w:firstLine="${twips(indentFirstLine)}"` : '';
+  return `<w:ind${left}${right}${firstLine}/>`;
+}
+
 export function paragraphFormatXml(properties = {}, numbering = null) {
-  const border = properties.border || null;
   const tabs = Array.isArray(properties.tabStops) ? properties.tabStops : [];
   return [
-    properties.keepWithNext !== undefined ? `<w:keepNext w:val="${properties.keepWithNext ? '1' : '0'}"/>` : '',
-    properties.keepTogether !== undefined ? `<w:keepLines w:val="${properties.keepTogether ? '1' : '0'}"/>` : '',
-    properties.pageBreakBefore !== undefined
-      ? `<w:pageBreakBefore w:val="${properties.pageBreakBefore ? '1' : '0'}"/>`
-      : '',
-    properties.widowControl !== undefined ? `<w:widowControl w:val="${properties.widowControl ? '1' : '0'}"/>` : '',
+    toggleXml('keepNext', properties.keepWithNext),
+    toggleXml('keepLines', properties.keepTogether),
+    toggleXml('pageBreakBefore', properties.pageBreakBefore),
+    toggleXml('widowControl', properties.widowControl),
     numbering
       ? `<w:numPr><w:ilvl w:val="${Math.max(0, Math.min(2, Number(numbering.level) || 0))}"/>` +
         `<w:numId w:val="${numbering.numId}"/></w:numPr>`
       : '',
-    // The gap between a rule and the text is Word's own default per side (4 pt beside, 1 pt above or below),
-    // the distance Word applies through COM; a callout's left rule otherwise touches its label.
-    border
-      ? `<w:pBdr><w:${xmlEncode(border.side || 'bottom')} w:val="${xmlEncode(border.style || 'single')}" w:sz="${Math.max(1, Number(border.size) || 4)}" w:space="${Math.max(0, Number.isFinite(Number(border.space)) && border.space !== undefined && border.space !== null && border.space !== '' ? Number(border.space) : ['left', 'right'].includes(String(border.side || 'bottom')) ? 4 : 1)}" w:color="${xmlEncode(String(border.color || 'auto').replace(/^#/, ''))}"/></w:pBdr>`
-      : '',
+    paragraphBorderXml(properties.border || null),
     // A paragraph's own field (a callout, a summary band) and its indents (a quote set in from the margin),
     // in points like every other distance here; Word reads the same fill and indents through COM.
     properties.shading
       ? `<w:shd w:val="clear" w:color="auto" w:fill="${xmlEncode(String(properties.shading).replace(/^#/, ''))}"/>`
       : '',
-    properties.tabStops !== undefined
-      ? `<w:tabs>${tabs.map((tab) => `<w:tab w:val="${xmlEncode(tab.alignment || 'left')}" w:pos="${pointsToTwips(tab.position || 0)}"${tab.leader ? ` w:leader="${xmlEncode(tab.leader)}"` : ''}/>`).join('')}</w:tabs>`
-      : '',
-    properties.spacingBefore !== undefined ||
-    properties.spacingAfter !== undefined ||
-    properties.lineSpacing !== undefined
-      ? `<w:spacing${properties.spacingBefore !== undefined ? ` w:before="${Math.max(0, Math.round(Number(properties.spacingBefore) * 20))}"` : ''}${properties.spacingAfter !== undefined ? ` w:after="${Math.max(0, Math.round(Number(properties.spacingAfter) * 20))}"` : ''}${properties.lineSpacing !== undefined ? ` w:line="${Math.max(1, Math.round(Number(properties.lineSpacing) * 20))}" w:lineRule="atLeast"` : ''}/>`
-      : '',
+    properties.tabStops !== undefined ? `<w:tabs>${tabs.map(tabStopXml).join('')}</w:tabs>` : '',
+    paragraphSpacingXml(properties),
     // w:ind follows w:spacing in the schema's pPr sequence; a validator refuses the other order.
-    properties.indentLeft !== undefined ||
-    properties.indentRight !== undefined ||
-    properties.indentFirstLine !== undefined
-      ? `<w:ind${properties.indentLeft !== undefined ? ` w:left="${Math.max(0, Math.round(Number(properties.indentLeft) * 20))}"` : ''}${properties.indentRight !== undefined ? ` w:right="${Math.max(0, Math.round(Number(properties.indentRight) * 20))}"` : ''}${properties.indentFirstLine !== undefined ? ` w:firstLine="${Math.max(0, Math.round(Number(properties.indentFirstLine) * 20))}"` : ''}/>`
-      : '',
+    paragraphIndentXml(properties),
     properties.alignment ? `<w:jc w:val="${xmlEncode(properties.alignment)}"/>` : '',
   ].join('');
 }

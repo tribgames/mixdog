@@ -1,4 +1,4 @@
-// Reference/caller/impact analysis + formatting, extracted from search.mjs.
+// Reference/caller/impact analysis + formatting.
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
@@ -318,7 +318,7 @@ export function _findSymbolAcrossGraph(
   return lines.join('\n');
 }
 
-export function _resolveReferenceLanguageNode(graph, symbol, rel, cwd, language = null) {
+export function _resolveReferenceLanguageNode(graph, symbol, rel, _cwd, language = null) {
   if (rel) {
     const node = graph.nodes.get(rel);
     if (!node) return { kind: 'file-not-found', node: null, file: rel };

@@ -185,9 +185,15 @@ function readRouteTotals(raw, target) {
   target.costEstimated = round6(
     raw?.costEstimated == null ? Math.max(0, target.costUsd - target.costBilled) : num(raw.costEstimated)
   );
-  target.costKnownTurns =
-    raw?.costKnownTurns == null ? (target.costUsd > 0 ? target.turns : 0) : num(raw.costKnownTurns);
+  if (raw?.costKnownTurns != null) target.costKnownTurns = num(raw.costKnownTurns);
+  else target.costKnownTurns = target.costUsd > 0 ? target.turns : 0;
   return target;
+}
+
+/** Turns with a known cost: the recorded count, else every turn when the usage carries any cost at all. */
+export function knownCostTurns(usage, amount = num) {
+  if (usage.costKnownTurns != null) return amount(usage.costKnownTurns);
+  return amount(usage.costUsd) > 0 ? amount(usage.turns) : 0;
 }
 
 function readTurnTotals(raw, target) {

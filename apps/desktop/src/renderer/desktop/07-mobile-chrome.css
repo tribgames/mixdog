@@ -14,16 +14,19 @@ html[data-mixdog-mobile-tabs] .topbar {
 }
 /* A surface that has not reached its desktop for the disconnect threshold is
    frozen, not broken: ONE dim layer with the wifi glyph blocks input until the
-   leg returns, and nothing is written on it (user: 오류도 띄우지 말고). Shorter
-   gaps — every background return costs one — show nothing at all. Unscoped on
+   leg returns. Temporary connection diagnostics may appear below the glyph.
+   Shorter gaps — every background return costs one — show nothing. Unscoped on
    purpose: any relay surface must be blocked, not only the phone layout. */
 .remote-connection-overlay {
   box-sizing: border-box;
   position: fixed;
   inset: 0;
   z-index: 240;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(12px * var(--mx-device-scale, 1));
   width: 100%;
   height: 100%;
   margin: 0;
@@ -39,6 +42,18 @@ html[data-mixdog-mobile-tabs] .topbar {
   height: 64px;
   flex: 0 0 auto;
   animation: remote-connection-pulse 1.8s ease-in-out infinite;
+}
+.remote-connection-diagnostic {
+  max-width: 90%;
+  padding: calc(12px * var(--mx-device-scale, 1));
+  color: var(--mx-text);
+  background: rgb(0 0 0 / 75%);
+  font-family: ui-monospace, monospace;
+  font-size: calc(12px * var(--mx-device-scale, 1));
+  line-height: 1.5;
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 @keyframes remote-connection-pulse {
   0%,

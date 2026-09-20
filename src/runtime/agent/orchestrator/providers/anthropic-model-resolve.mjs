@@ -82,7 +82,7 @@ export function _normalizeAnthropicModel(raw) {
   const dated = /-\d{8}$/.test(id);
   // Versioned alias: claude-<family>-<major>-<minor>[-...] with no dated suffix.
   const versioned = !dated && /^claude-[a-z]+-\d+(?:-\d+)?$/i.test(id);
-  const tier = dated ? 'dated' : versioned ? 'version' : 'family';
+  const tier = modelTier(dated, versioned);
   const releaseDate = dated ? id.match(/-(\d{4})(\d{2})(\d{2})$/) : null;
   const effortValues = effortValuesForModel(raw?.capabilities, id);
   return {
@@ -101,10 +101,18 @@ export function _normalizeAnthropicModel(raw) {
   };
 }
 
+/** Catalog tier of a model id: dated snapshot, versioned alias, or bare family. */
+export function modelTier(dated, versioned) {
+  if (dated) return 'dated';
+  return versioned ? 'version' : 'family';
+}
+
 export function _prettyName(id, family) {
   const v = String(id || '').match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
   const base = family ? family[0].toUpperCase() + family.slice(1) : 'Claude';
-  return v ? `${base} ${v[1]}${v[2] ? `.${v[2]}` : ''}` : base;
+  if (!v) return base;
+  const minor = v[2] ? `.${v[2]}` : '';
+  return `${base} ${v[1]}${minor}`;
 }
 
 export function _defaultContextForModel(id, family) {

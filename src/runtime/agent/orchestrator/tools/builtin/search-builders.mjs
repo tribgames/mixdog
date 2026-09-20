@@ -68,16 +68,16 @@ export function buildGrepCacheKey(parts) {
     Array.isArray(fileType) ? fileType.join('\x01') : fileType || '',
     pcre2 ? 'p1' : 'p0',
     withFilename ? 'H1' : 'H0',
-    'cb' + String(contextCharBudget || 0),
+    `cb${String(contextCharBudget || 0)}`,
     flatOutput ? 'flat1' : 'flat0',
     // Cap total keeps a capped request (first-N of M patterns, carrying the
     // "[capped at N of M]" notice) from colliding with an exact N-pattern
     // request or with a differently-capped one (of 15 vs of 20).
-    'pc' + String(patternCapTotal || 0),
+    `pc${String(patternCapTotal || 0)}`,
     // Candidate-file scoping (fan-out prefilter) changes which files rg
     // visits and their order; scoped results get their own cache slot so
     // they never collide with an unscoped run of the same pattern.
-    'cd' + String(candidatesKey || ''),
+    `cd${String(candidatesKey || '')}`,
     includeNoise ? 'noise1' : 'noise0',
     text ? 'text1' : 'text0',
   ].join('|');
@@ -207,7 +207,7 @@ export function buildGlobCacheKey({
     offset ?? '',
     sort || 'natural',
     extra,
-    'pc' + String(patternCapTotal || 0),
+    `pc${String(patternCapTotal || 0)}`,
     includeNoise,
   ].join('|');
 }

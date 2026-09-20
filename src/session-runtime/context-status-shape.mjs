@@ -222,7 +222,10 @@ export function contextGauge(session, route, requestTools, messages, messageSumm
   };
 }
 
-function compactionStatusFor(session, { compactPolicy, compactBoundaryTokens, usedTokens, lastContextTokens, lastUsageStale }) {
+function compactionStatusFor(
+  session,
+  { compactPolicy, compactBoundaryTokens, usedTokens, lastContextTokens, lastUsageStale }
+) {
   const compactBufferTokens = Number.isFinite(Number(compactPolicy.bufferTokens))
     ? Math.max(0, Number(compactPolicy.bufferTokens))
     : 0;

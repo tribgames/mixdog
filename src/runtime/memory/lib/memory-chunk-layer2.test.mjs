@@ -39,7 +39,7 @@ test('first-layer compression does not inherit the second-layer half-size limit'
 });
 
 test('second layer returns one narrative unchanged and attaches all parent membership', async () => {
-  const rows = [row(1, 'A request was investigated; changes remain pending. ' + row(1).content), row(2)];
+  const rows = [row(1, `A request was investigated; changes remain pending. ${row(1).content}`), row(2)];
   const before = structuredClone(rows);
   const result = await generateCycle1Chunks(rows, {
     layer: 2,
@@ -109,8 +109,8 @@ test('lossy output can omit parent details without a content-coverage rejection'
 
 test('topic paragraphs remain unchanged in one session-local narrative', async () => {
   const rows = [
-    row(1, 'First topic remains open. ' + row(1).content),
-    row(2, 'Second topic was resolved. ' + row(2).content),
+    row(1, `First topic remains open. ${row(1).content}`),
+    row(2, `Second topic was resolved. ${row(2).content}`),
   ];
   const summary = 'First topic remains open.\n\nSecond topic was resolved.';
   const result = await generateCycle1Chunks(rows, { ...callOptions(summary), layer: 2 });
@@ -141,7 +141,7 @@ test('rewritten conclusions need no quotation matching or sentence expansion', a
   const conditions = 'The ordering issue applies to manual large-batch runs only; no files were changed.';
   const summary = 'Investigation found no reproducible defect. Changes remain pending.';
   const result = await generateCycle1Chunks(
-    [row(1, 'The proposed change remains pending. ' + row(1).content + state), row(2, row(2).content + conditions)],
+    [row(1, `The proposed change remains pending. ${row(1).content}${state}`), row(2, row(2).content + conditions)],
     {
       ...callOptions(summary),
       layer: 2,
@@ -228,7 +228,7 @@ test('second layer is gated until first-layer work finishes and context still ov
 });
 
 test('only selected old chunks are compressed and protected context retains its budget', async () => {
-  const rows = [row(1, 'The old request was investigated; implementation is still pending. ' + row(1).content), row(2)];
+  const rows = [row(1, `The old request was investigated; implementation is still pending. ${row(1).content}`), row(2)];
   const sourceTokens = estimateTokens(rows.map((item) => item.content).join('\n'));
   const protectedTokens = 400;
   const result = await generateSecondLayerChunks(rows, {

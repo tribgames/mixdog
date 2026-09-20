@@ -1,5 +1,5 @@
 import { ChevronDown, FileDiff } from 'lucide-react';
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { t, uiFormatLocale } from './i18n';
 import { useMobileBack } from './mobile-back';
 import { DiffBoundary } from './TranscriptView';
@@ -27,6 +27,11 @@ interface GitPanelStatus {
     additions: number;
     deletions: number;
   }>;
+}
+
+function pushLabel(upstream: boolean, ahead: number): string {
+  if (!upstream) return t('Publish Branch');
+  return `${t('Push')} ${ahead ? `↑${ahead}` : ''}`.trim();
 }
 // Review pane: cumulative diff of the working tree
 // vs merge-base(origin default branch, HEAD) — committed + uncommitted +
@@ -355,9 +360,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 disabled={busy}
                 onClick={() => void act(() => window.mixdogDesktop.gitPush?.(cwd))}
               >
-                {status.upstream
-                  ? `${t('Push')} ${status.ahead ? `↑${status.ahead}` : ''}`.trim()
-                  : t('Publish Branch')}
+                {pushLabel(status.upstream, status.ahead)}
               </button>
             )}
           </div>
@@ -372,6 +375,30 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
             const deleted = file.status === 'D';
             const tooLarge = file.additions + file.deletions > 500 && !forced.includes(file.path);
             const patch = diffs[file.path];
+            let fileBody: ReactNode;
+            if (tooLarge) {
+              fileBody = (
+                <div className="review-large-diff">
+                  <b>{t('Large diff')}</b>
+                  <span>
+                    {t('{{count}} changed lines exceed the 500-line render limit.', {
+                      count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()),
+                    })}
+                  </span>
+                  <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
+                    {t('Render anyway')}
+                  </button>
+                </div>
+              );
+            } else if (patch === undefined || patch === null) {
+              fileBody = <p className="review-empty">{t('Loading diff…')}</p>;
+            } else if (patch.startsWith('Error:')) {
+              fileBody = <p className="review-empty">{patch}</p>;
+            } else if (patch) {
+              fileBody = <GitFileDiff patch={patch} mode={diffStyle} />;
+            } else {
+              fileBody = <p className="review-empty">{t('No textual diff for this file.')}</p>;
+            }
             return (
               <section className="review-file" data-open={open || undefined} key={file.path}>
                 <div
@@ -417,31 +444,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                     <ChevronDown size={14} className="review-chevron" aria-hidden="true" />
                   </button>
                 </div>
-                {open && (
-                  <div className="review-file-body">
-                    {tooLarge ? (
-                      <div className="review-large-diff">
-                        <b>{t('Large diff')}</b>
-                        <span>
-                          {t('{{count}} changed lines exceed the 500-line render limit.', {
-                            count: (file.additions + file.deletions).toLocaleString(uiFormatLocale()),
-                          })}
-                        </span>
-                        <button type="button" onClick={() => setForced((current) => [...current, file.path])}>
-                          {t('Render anyway')}
-                        </button>
-                      </div>
-                    ) : patch === undefined || patch === null ? (
-                      <p className="review-empty">{t('Loading diff…')}</p>
-                    ) : patch.startsWith('Error:') ? (
-                      <p className="review-empty">{patch}</p>
-                    ) : patch ? (
-                      <GitFileDiff patch={patch} mode={diffStyle} />
-                    ) : (
-                      <p className="review-empty">{t('No textual diff for this file.')}</p>
-                    )}
-                  </div>
-                )}
+                {open && <div className="review-file-body">{fileBody}</div>}
               </section>
             );
           })}

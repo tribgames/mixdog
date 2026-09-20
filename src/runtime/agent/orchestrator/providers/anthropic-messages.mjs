@@ -1,4 +1,4 @@
-// Anthropic model catalog + message conversion helpers, extracted from anthropic.mjs.
+// Anthropic model catalog + message conversion helpers.
 import { createRequire } from 'node:module';
 import { sleepWithAbort } from './retry-classifier.mjs';
 import { effortValuesForModel } from './anthropic-effort.mjs';
@@ -10,7 +10,25 @@ import {
   sanitizeAnthropicInputSchema,
   toAnthropicMessages,
 } from './lib/anthropic-request-utils.mjs';
-import { _capabilitySupported, _defaultContextForModel, _prettyName } from './anthropic-model-resolve.mjs';
+import { _capabilitySupported, _defaultContextForModel, _prettyName, modelTier } from './anthropic-model-resolve.mjs';
+
+// System blocks carry their own cache tier; anything else is the default tier.
+const SYSTEM_CACHE_TIERS = new Set(['tier3', 'env']);
+const systemCacheTier = (cacheTier) => (SYSTEM_CACHE_TIERS.has(cacheTier) ? cacheTier : 'system');
+
+/** Non-empty system messages as `{ text, tier }` block items; a non-array yields none. */
+export function systemBlockItems(systemMsgs) {
+  const items = [];
+  for (const m of Array.isArray(systemMsgs) ? systemMsgs : []) {
+    const text = typeof m?.content === 'string' ? m.content.trim() : '';
+    if (text) items.push({ text, tier: systemCacheTier(m?.cacheTier) });
+  }
+  return items;
+}
+/** cacheTier:'env' (volatile session/project environment) is never marked —
+ *  it rides the messages-tail breakpoint; a null TTL leaves the block uncached. */
+export const systemBlockTtl = (tier, { tier3Ttl, systemTtl }) =>
+  ({ tier3: tier3Ttl, env: null, system: systemTtl })[tier];
 
 export { _capabilitySupported, _defaultContextForModel, _prettyName };
 // Message lowering lives in the shared request-utils lib (one implementation
@@ -50,14 +68,7 @@ export function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
   // NEVER marked — it rides the messages-tail breakpoint so an environment
   // change cannot invalidate the BP3 core write — and every other block
   // (BP1/BP2) gets systemTtl. A null TTL leaves the block uncached.
-  const items = Array.isArray(systemMsgs)
-    ? systemMsgs
-        .map((m) => ({
-          text: typeof m?.content === 'string' ? m.content.trim() : '',
-          tier: m?.cacheTier === 'tier3' ? 'tier3' : m?.cacheTier === 'env' ? 'env' : 'system',
-        }))
-        .filter((it) => it.text)
-    : [];
+  const items = systemBlockItems(systemMsgs);
   // Anthropic caps cache_control breakpoints at 4 per request; defensively
   // cap it here too so an unexpectedly large systemMsgs array can never
   // mark more than 4 blocks (extras keep their text, just lose the
@@ -70,7 +81,7 @@ export function buildSystemBlocks(systemMsgs, systemTtl, tier3Ttl) {
     // block after the first with a paragraph break so headings never glue
     // onto the previous block's last line. Mirrors anthropic-oauth.mjs.
     const block = { type: 'text', text: index ? `\n\n${it.text}` : it.text };
-    const ttl = it.tier === 'tier3' ? tier3Ttl : it.tier === 'env' ? null : systemTtl;
+    const ttl = systemBlockTtl(it.tier, { tier3Ttl, systemTtl });
     if (ttl && bpCount < MAX_SYSTEM_BREAKPOINTS) {
       block.cache_control = ttl;
       bpCount++;
@@ -121,7 +132,7 @@ export function _normalizeAnthropicModel(raw, provider = 'anthropic') {
       raw?.inputTokenLimit ||
       _defaultContextForModel(id, family),
     outputTokens: raw?.max_tokens || raw?.max_output_tokens || raw?.output_token_limit || raw?.outputTokenLimit || null,
-    tier: dated ? 'dated' : versioned ? 'version' : 'family',
+    tier: modelTier(dated, versioned),
     latest: false,
     supportsReasoning: effortValues.length > 0 || _capabilitySupported(raw?.capabilities?.thinking),
     reasoningOptions: effortValues.length ? [{ type: 'effort', values: effortValues }] : [],

@@ -702,7 +702,9 @@ ${prompt}`;
       logSchedule(`${schedule.name}: injected into Lead session queue (interactive fire)\n`);
       return true;
     } catch (err) {
-      logSchedule(`${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`);
+      logSchedule(
+        `${schedule.name}: Lead inject failed (${err?.message || err}) — falling back to visible session run\n`
+      );
       return false;
     }
   }

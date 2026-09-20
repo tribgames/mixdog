@@ -51,34 +51,37 @@ export function useAppPaneChrome({
   stripTrailing?(leaf: PaneLeaf): ReactNode;
   lastSessionStorageKey: string;
 }) {
+  const selectionTitle = (selection: WorkspaceSelection): string => {
+    switch (selection.kind) {
+      case 'session': {
+        const row = sessions.find((session) => session.id === selection.id);
+        return row ? sessionSummaryTitle(row) : selection.title || 'Session';
+      }
+      case 'file':
+        return selection.rel.split('/').at(-1) || selection.rel;
+      case 'diff':
+        return `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`;
+      case 'pull-request':
+        if (selection.mode === 'changes') return `Changes in Pull Request #${selection.number}`;
+        return selection.title || `Pull Request #${selection.number}`;
+      case 'studio':
+        return 'Studio';
+      case 'terminal':
+        return 'Terminal';
+      case 'project':
+        return (
+          selection.path
+            .replace(/[\\/]+$/, '')
+            .split(/[\\/]/)
+            .at(-1) || selection.path
+        );
+      default:
+        return 'New task';
+    }
+  };
   const stripTitleFor = (key: string, selection: WorkspaceSelection): string => {
     const registered = tabs.find((tab) => tab.key === key);
-    return (
-      registered?.title ||
-      (selection.kind === 'session'
-        ? (() => {
-            const row = sessions.find((session) => session.id === selection.id);
-            return row ? sessionSummaryTitle(row) : selection.title || 'Session';
-          })()
-        : selection.kind === 'file'
-          ? selection.rel.split('/').at(-1) || selection.rel
-          : selection.kind === 'diff'
-            ? `${selection.rel.split('/').at(-1) || selection.rel} (Diff)`
-            : selection.kind === 'pull-request'
-              ? selection.mode === 'changes'
-                ? `Changes in Pull Request #${selection.number}`
-                : selection.title || `Pull Request #${selection.number}`
-              : selection.kind === 'studio'
-                ? 'Studio'
-                : selection.kind === 'terminal'
-                  ? 'Terminal'
-                  : selection.kind === 'project'
-                    ? selection.path
-                        .replace(/[\\/]+$/, '')
-                        .split(/[\\/]/)
-                        .at(-1) || selection.path
-                    : 'New task')
-    );
+    return registered?.title || selectionTitle(selection);
   };
 
   const activatePaneSurface = (paneSelection: WorkspaceSelection) => {

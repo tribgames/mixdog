@@ -1,4 +1,4 @@
-// Miscellaneous tool helpers extracted from loop.mjs: eager-dispatch check,
+// Miscellaneous tool helpers: eager-dispatch check,
 // message-array change detect, tool-kind classification, skills, hook overrides,
 // native tool-search payload parsing, bash-session routing, and approval.
 import { isMcpTool } from '../../mcp/client.mjs';
@@ -162,18 +162,15 @@ export function parseNativeToolSearchPayload(toolName, result) {
     const missing = Array.isArray(selectedTools?.missing)
       ? selectedTools.missing.map((name) => String(name || '').trim()).filter(Boolean)
       : [];
+    const blockedLabel = (entry) => {
+      if (!entry || typeof entry !== 'object') return String(entry || '').trim();
+      const name = String(entry.name || '').trim();
+      if (!name) return '';
+      const reason = String(entry.reason || '').trim();
+      return reason ? `${name} (${reason})` : name;
+    };
     const blocked = Array.isArray(selectedTools?.blocked)
-      ? selectedTools.blocked
-          .map((entry) => {
-            if (entry && typeof entry === 'object') {
-              const name = String(entry.name || '').trim();
-              if (!name) return '';
-              const reason = String(entry.reason || '').trim();
-              return reason ? `${name} (${reason})` : name;
-            }
-            return String(entry || '').trim();
-          })
-          .filter(Boolean)
+      ? selectedTools.blocked.map(blockedLabel).filter(Boolean)
       : [];
     const extraLines = [];
     if (missing.length) extraLines.push(`missing: ${missing.join(', ')}`);

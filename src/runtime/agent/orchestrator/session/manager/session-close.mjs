@@ -80,9 +80,11 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   // failure in all of them.
   if (typeof newGen !== 'number') {
     const commitError = getSessionLifecycleCommitError(id);
-    const detail = commitError
-      ? `${commitError.message}${commitError.code ? ` (${commitError.code})` : ''}`
-      : 'no durable barrier written (veto, contended commit, or missing record)';
+    let detail = 'no durable barrier written (veto, contended commit, or missing record)';
+    if (commitError) {
+      const code = commitError.code ? ` (${commitError.code})` : '';
+      detail = `${commitError.message}${code}`;
+    }
     if (entry) {
       entry.lastError = `session close failed: ${detail}`;
       entry.closeBarrierError = commitError || { message: detail, code: null, reason, at: Date.now() };

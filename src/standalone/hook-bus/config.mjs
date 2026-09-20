@@ -179,16 +179,15 @@ export function parseStandardConfig(parsed, source, meta = {}) {
     const cleanGroups = [];
     for (const group of groups) {
       if (!group || typeof group !== 'object') continue;
+      const tagHandler = (h) => {
+        const handler = { ...h, _source: source };
+        if (meta.pluginRoot) handler._pluginRoot = meta.pluginRoot;
+        if (meta.pluginData) handler._pluginData = meta.pluginData;
+        if (meta.untrusted) handler._untrusted = true;
+        return handler;
+      };
       const handlers = Array.isArray(group.hooks)
-        ? group.hooks
-            .filter((h) => h && typeof h === 'object' && h.type)
-            .map((h) => ({
-              ...h,
-              _source: source,
-              ...(meta.pluginRoot ? { _pluginRoot: meta.pluginRoot } : {}),
-              ...(meta.pluginData ? { _pluginData: meta.pluginData } : {}),
-              ...(meta.untrusted ? { _untrusted: true } : {}),
-            }))
+        ? group.hooks.filter((h) => h && typeof h === 'object' && h.type).map(tagHandler)
         : [];
       if (handlers.length === 0) continue;
       cleanGroups.push({ matcher: group.matcher, hooks: handlers, _source: source });

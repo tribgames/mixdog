@@ -38,14 +38,8 @@ for (const scenario of [
         timeout: 15000,
       });
       if (result.error) throw result.error;
-      const expectedStatus =
-        scenario === 'success'
-          ? 0
-          : scenario === 'interrupted'
-            ? 143
-            : ['stop-fails', 'rollback-start-fails'].includes(scenario)
-              ? 90
-              : 1;
+      const expectedStatuses = { success: 0, interrupted: 143, 'stop-fails': 90, 'rollback-start-fails': 90 };
+      const expectedStatus = expectedStatuses[scenario] ?? 1;
       assert.equal(result.status, expectedStatus, result.stderr);
       assert.equal(
         await readFile(join(install, 'release'), 'utf8'),

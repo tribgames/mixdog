@@ -16,7 +16,7 @@ test('covered semantic click prepares focus then rechecks before physical moveme
     await writeFile(join(directory, 'input.ps1'), PS_INPUT);
     await writeFile(
       join(directory, 'test.ps1'),
-      String.raw`
+      `
 $ErrorActionPreference = 'Stop'
 Add-Type @'
 using System;

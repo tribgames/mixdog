@@ -36,7 +36,7 @@ let colorProbe: HTMLDivElement | null = null;
 function resolveCssColor(value: string): Rgba | null {
   if (typeof document === 'undefined' || !document.body) return null;
   if (typeof window === 'undefined' || typeof window.getComputedStyle !== 'function') return null;
-  if (!colorProbe || !colorProbe.isConnected) {
+  if (!colorProbe?.isConnected) {
     colorProbe = document.createElement('div');
     colorProbe.setAttribute('aria-hidden', 'true');
     colorProbe.style.cssText =

@@ -11,6 +11,14 @@ export const GEMINI_MODELS = [
 
 export const DEFAULT_GEMINI_MODEL = GEMINI_MODELS[0].id;
 
+// Most specific family first: a flash-lite id also matches /flash/.
+const GEMINI_FAMILIES = [
+  [/flash-lite/, 'gemini-flash-lite'],
+  [/flash/, 'gemini-flash'],
+  [/pro/, 'gemini-pro'],
+];
+const geminiFamily = (id) => GEMINI_FAMILIES.find(([pattern]) => pattern.test(id))?.[1] ?? 'gemini';
+
 export const geminiModelCache = makeModelCache({
   fileName: 'gemini-models.json',
   ttlMs: 24 * 60 * 60_000,
@@ -89,13 +97,7 @@ export async function fetchAndCacheGeminiModels({ apiKey, fetchFn, modelCache, c
     .filter((model) => !/embedding|aqa|imagen|robotics|computer-use/.test(model?.name || ''))
     .map((model) => {
       const id = (model.name || '').replace(/^models\//, '');
-      const family = /flash-lite/.test(id)
-        ? 'gemini-flash-lite'
-        : /flash/.test(id)
-          ? 'gemini-flash'
-          : /pro/.test(id)
-            ? 'gemini-pro'
-            : 'gemini';
+      const family = geminiFamily(id);
       return {
         id,
         display: model.displayName || id,

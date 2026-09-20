@@ -1,7 +1,7 @@
 /**
  * openai-oauth-catalog.mjs — Codex model catalog for the openai-oauth provider.
  *
- * Extracted from openai-oauth.mjs: the /backend-api/codex/models query, its
+ * The /backend-api/codex/models query, its
  * 24h disk cache plus in-memory mirror, and the lookups the request path needs
  * (service tiers, "newest main model", "does the live model exist"). The
  * endpoint returns richer metadata than /v1/models (context_window, reasoning

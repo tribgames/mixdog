@@ -8,7 +8,7 @@ export function _toByteColumn(lineText, charCol) {
   return Buffer.byteLength(prefix, 'utf8') + 1;
 }
 
-export function _nearestEnclosingSymbol(node, sourceText, lineNumber, col = null) {
+export function _nearestEnclosingSymbol(node, _sourceText, lineNumber, col = null) {
   const FUNCTION_LIKE = FUNCTION_LIKE_SYMBOL_KINDS;
   const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
   const inRange = (item) => {

@@ -11,7 +11,7 @@ test('native predicate reads report empty, truncated and incomplete provider cov
   skip: process.platform !== 'win32',
 }, async () => {
   // Mock provider boundaries, not desktop windows or native input.
-  const script = String.raw`
+  const script = `
 class MixMsaa {
   static [bool] $Complete = $true
   static [object] SnapshotWithStatus([object]$handle, [string]$id, [int]$maximum) {

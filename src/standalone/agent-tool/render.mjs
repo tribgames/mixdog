@@ -51,9 +51,8 @@ export function renderResult(value) {
       const workers = Array.isArray(value.workers) ? value.workers : [];
       lines.push(`agents: ${workers.length}`);
       for (const worker of workers) {
-        const tokens = worker.windowTokens
-          ? ` ctx=${worker.windowTokens}${worker.windowCap ? `/${worker.windowCap}` : ''}`
-          : '';
+        const windowCap = worker.windowCap ? `/${worker.windowCap}` : '';
+        const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${windowCap}` : '';
         const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
         const base = `- ${worker.tag} ${worker.agent || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
         lines.push(appendAgentProgressKv(base, worker));

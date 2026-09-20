@@ -1,6 +1,6 @@
 // Lead tool surface: which tools the model sees before a session exists, and
-// how that pre-session selection is replayed once one does. Extracted from
-// runtime-core, which keeps the mutable session/route/mode it injects here.
+// how that pre-session selection is replayed once one does. runtime-core keeps
+// the mutable session/route/mode it injects here.
 import { applyDeferredToolSurface, filterDisallowedTools, selectDeferredTools } from './tool-catalog.mjs';
 import { LEAD_DISALLOWED_TOOLS } from './tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from './effort.mjs';

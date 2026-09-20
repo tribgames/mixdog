@@ -87,15 +87,13 @@ export function normalizedProviderModels(value: unknown): DesktopModelOption[] {
     // so an otherwise selectable model from a user-configured provider is not
     // silently removed merely because its catalog omits an optional label.
     if (!provider || !model) return [];
-    const effortOptions = Array.isArray(row.effortOptions)
-      ? row.effortOptions.flatMap((option) => {
-          if (!option || typeof option !== 'object') return [];
-          const item = option as Record<string, unknown>;
-          const value = typeof item.value === 'string' ? item.value.trim() : '';
-          const label = typeof item.label === 'string' ? item.label.trim() : '';
-          return value && label ? [{ value, label }] : [];
-        })
-      : [];
+    const effortOptions = (Array.isArray(row.effortOptions) ? row.effortOptions : []).flatMap((option) => {
+      if (!option || typeof option !== 'object') return [];
+      const item = option as Record<string, unknown>;
+      const value = typeof item.value === 'string' ? item.value.trim() : '';
+      const label = typeof item.label === 'string' ? item.label.trim() : '';
+      return value && label ? [{ value, label }] : [];
+    });
     const fastCapable = row.fastCapable === true;
     const created = Number(row.created);
     const contextWindow = Number(row.contextWindow);

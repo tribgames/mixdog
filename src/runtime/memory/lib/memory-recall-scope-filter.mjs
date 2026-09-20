@@ -57,9 +57,13 @@ export function buildRecallScopeFilter(offset, options = {}, tableAlias = '') {
   // caller forwarding a null ts bound would otherwise inject `ts >= 0` /
   // `ts <= 0` — the latter silently drops every row (epoch-ms ts > 0). Callers
   // pass null for "absent" throughout the recall path; never coerce it to 0.
-  const tsFrom =
-    options.ts_from == null ? null : Number.isFinite(Number(options.ts_from)) ? Number(options.ts_from) : null;
-  const tsTo = options.ts_to == null ? null : Number.isFinite(Number(options.ts_to)) ? Number(options.ts_to) : null;
+  const finiteBound = (value) => {
+    if (value == null) return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+  const tsFrom = finiteBound(options.ts_from);
+  const tsTo = finiteBound(options.ts_to);
   if (tsFrom != null) {
     clauses.push(`${p}ts >= $${next++}`);
     params.push(tsFrom);

@@ -21,6 +21,13 @@ type Editor = monaco.editor.IStandaloneCodeEditor;
 type EditorModel = monaco.editor.ITextModel;
 type Disposable = { dispose(): void };
 
+function markerSeverity(severity: number): monaco.MarkerSeverity {
+  if (severity === 1) return monaco.MarkerSeverity.Error;
+  if (severity === 2) return monaco.MarkerSeverity.Warning;
+  if (severity === 4) return monaco.MarkerSeverity.Hint;
+  return monaco.MarkerSeverity.Info;
+}
+
 export function useEditorModelBinding({
   projectPath,
   relPath,
@@ -122,14 +129,7 @@ export function useEditorModelBinding({
           model,
           'mixdog-lsp',
           problems.map((problem) => ({
-            severity:
-              problem.severity === 1
-                ? monaco.MarkerSeverity.Error
-                : problem.severity === 2
-                  ? monaco.MarkerSeverity.Warning
-                  : problem.severity === 4
-                    ? monaco.MarkerSeverity.Hint
-                    : monaco.MarkerSeverity.Info,
+            severity: markerSeverity(problem.severity),
             message: problem.message,
             source: problem.source,
             code: problem.code || undefined,

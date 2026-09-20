@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { DATA_DIR } from './config.mjs';
 import { utcTimestamp } from './boot-profile.mjs';
 
@@ -46,7 +46,7 @@ function _writeCrashLine(crashLog, line) {
     } catch {}
     if (size + line.length > CRASH_LOG_MAX_BYTES) {
       try {
-        fs.renameSync(crashLog, crashLog + '.old');
+        fs.renameSync(crashLog, `${crashLog}.old`);
       } catch {}
     }
     fs.appendFileSync(crashLog, line);
@@ -68,7 +68,7 @@ ${err instanceof Error ? err.stack : ''}
       }
     }
   }
-  const sig = `${label}|${err && err.message ? err.message : String(err)}`;
+  const sig = `${label}|${err?.message ? err.message : String(err)}`;
   const crashLog = path.join(DATA_DIR, 'crash.log');
   if (sig === _lastCrashSig) {
     // Same error repeating — count it but skip the disk write. The next

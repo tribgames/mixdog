@@ -13,8 +13,8 @@
  * Credentials live in Mixdog's own store (antigravity-oauth.json): access +
  * refresh token, the resolved Cloud project, and the account email.
  */
-import { existsSync, mkdirSync, readFileSync, statSync } from 'fs';
-import { join, resolve } from 'path';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';

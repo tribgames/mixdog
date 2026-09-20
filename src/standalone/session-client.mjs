@@ -20,7 +20,14 @@ import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { beginDaemonSpawnCapture, daemonDataDir } from './daemon-crash-capture.mjs';
+import { createFrameStream } from './session-client/frame-stream.mjs';
+import { createStreamReconnect } from './session-client/stream-reconnect.mjs';
 import { createSessionProxyFactory } from './session-proxy.mjs';
+
+function daemonAgentFor(control, urgent) {
+  if (control) return daemonControlAgent;
+  return urgent ? daemonUrgentAgent : daemonCallAgent;
+}
 
 function runtimeRoot() {
   return resolveRuntimeRoot();
@@ -104,7 +111,7 @@ function request({
         port,
         path: urlPath,
         method,
-        agent: control ? daemonControlAgent : urgent ? daemonUrgentAgent : daemonCallAgent,
+        agent: daemonAgentFor(control, urgent),
         headers: {
           'X-Mixdog-Daemon-Token': token,
           ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}),
@@ -341,14 +348,11 @@ export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = dae
 /** Spawn-or-attach discovery for the machine-global daemon. */
 export async function ensureDaemon({ cwd = process.cwd(), log = () => {}, attempts = 5, readyTimeoutMs = null } = {}) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
-  const timeoutMs = Math.max(
-    1,
-    Number.isFinite(Number(readyTimeoutMs)) && Number(readyTimeoutMs) > 0
-      ? Number(readyTimeoutMs)
-      : configuredTimeoutMs > 0
-        ? configuredTimeoutMs
-        : DEFAULT_DAEMON_READY_TIMEOUT_MS
-  );
+  let requestedTimeoutMs = DEFAULT_DAEMON_READY_TIMEOUT_MS;
+  if (Number.isFinite(Number(readyTimeoutMs)) && Number(readyTimeoutMs) > 0)
+    requestedTimeoutMs = Number(readyTimeoutMs);
+  else if (configuredTimeoutMs > 0) requestedTimeoutMs = configuredTimeoutMs;
+  const timeoutMs = Math.max(1, requestedTimeoutMs);
   const deadline = Date.now() + timeoutMs;
   const maxSpawnAttempts = Math.max(0, Math.floor(Number(attempts) || 0));
   let spawnAttempts = 0;
@@ -425,8 +429,33 @@ export async function ensureDaemon({ cwd = process.cwd(), log = () => {}, attemp
   throw new Error('daemon session endpoint is unavailable');
 }
 
+/** Registers this client with the daemon. Transport failures are retried
+ *  briefly; a 4xx is the daemon's verdict and is not. */
+async function registerSessionClient({ port, serverToken, body }) {
+  let registrationError = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await request({
+        port,
+        token: serverToken,
+        method: 'POST',
+        path: '/client/register',
+        body,
+        timeoutMs: 3000,
+        control: true,
+      });
+    } catch (error) {
+      registrationError = error;
+      if (Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 500) throw error;
+      if (attempt < 2) await delay(100 * (attempt + 1));
+    }
+  }
+  throw registrationError || new Error('session registration failed');
+}
+
 /** Attach to a live daemon: register, open the frame stream, return a handle
- *  whose call() dispatches session operations. */
+ *  whose call() dispatches session operations. The stream and its recovery
+ *  policy live under ./session-client/ (frame-stream, stream-reconnect). */
 export async function attachSession({
   discovery,
   leadPid = process.pid,
@@ -446,262 +475,61 @@ export async function attachSession({
 } = {}) {
   if (!discovery?.port || !discovery?.token) throw new Error('daemon discovery {port, token} required');
   const { port, token: serverToken } = discovery;
-  const stableRegistrationId = String(registrationId || randomUUID());
-  let reg = null;
-  let registrationError = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      reg = await request({
-        port,
-        token: serverToken,
-        method: 'POST',
-        path: '/client/register',
-        body: {
-          leadPid,
-          cwd,
-          lifecycle: lifecycle !== false,
-          clientKind: clientKind === 'desktop' ? 'desktop' : 'session',
-          registrationId: stableRegistrationId,
-          protocol: SESSION_PROTOCOL,
-          revision: SESSION_REVISION,
-        },
-        timeoutMs: 3000,
-        control: true,
-      });
-      break;
-    } catch (error) {
-      registrationError = error;
-      if (Number(error?.statusCode) >= 400 && Number(error?.statusCode) < 500) throw error;
-      if (attempt < 2) await delay(100 * (attempt + 1));
-    }
-  }
-  if (!reg) throw registrationError || new Error('session registration failed');
+  const reg = await registerSessionClient({
+    port,
+    serverToken,
+    body: {
+      leadPid,
+      cwd,
+      lifecycle: lifecycle !== false,
+      clientKind: clientKind === 'desktop' ? 'desktop' : 'session',
+      registrationId: String(registrationId || randomUUID()),
+      protocol: SESSION_PROTOCOL,
+      revision: SESSION_REVISION,
+    },
+  });
   const clientToken = reg?.token;
   if (!clientToken) throw new Error('session registration returned no client token');
 
   let closed = false;
-  let streamRequest = null;
-  let reconnectTimer = null;
-  let streamLivenessTimer = null;
-  let reconnectAttempt = 0;
-  let disconnectedAt = 0;
-  let lastLossReason = '';
-  let streamWasReady = false;
   let fatalSignalled = false;
   const reconnectBaseMs = Math.max(1, Number(streamReconnectBaseMs) || EVENT_STREAM_RECONNECT_BASE_MS);
-  const reconnectMaxMs = Math.max(reconnectBaseMs, Number(streamReconnectMaxMs) || EVENT_STREAM_RECONNECT_MAX_MS);
-  const livenessMs = Math.max(1, Number(streamLivenessTimeoutMs) || EVENT_STREAM_LIVENESS_TIMEOUT_MS);
-  const reconnectBudgetMs = Math.max(
-    reconnectBaseMs,
-    Number(streamReconnectBudgetMs) || EVENT_STREAM_RECONNECT_BUDGET_MS
-  );
-
-  function clearStreamLiveness() {
-    if (!streamLivenessTimer) return;
-    clearTimeout(streamLivenessTimer);
-    streamLivenessTimer = null;
-  }
 
   function signalFatal(reason) {
     if (closed || fatalSignalled) return;
     fatalSignalled = true;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-    clearStreamLiveness();
-    const current = streamRequest;
-    streamRequest = null;
-    try {
-      current?.destroy?.();
-    } catch {}
+    reconnect.stop();
+    stream.destroy();
     try {
       onFatal(reason);
     } catch {}
   }
-
-  function scheduleStreamReconnect(reason) {
-    if (closed || fatalSignalled || reconnectTimer) return;
-    clearStreamLiveness();
-    const now = Date.now();
-    if (!disconnectedAt) {
-      disconnectedAt = now;
-      lastLossReason = String(reason || 'sse disconnected');
-      try {
-        onStreamDisconnect({ reason: lastLossReason });
-      } catch {}
-    }
-    const downtimeMs = Math.max(0, now - disconnectedAt);
-    if (downtimeMs >= reconnectBudgetMs) {
-      signalFatal(`${lastLossReason}; reconnect budget exhausted after ${downtimeMs}ms`);
-      return;
-    }
-    const attempt = reconnectAttempt + 1;
-    reconnectAttempt = attempt;
-    const delayMs = Math.min(
-      reconnectBudgetMs - downtimeMs,
-      reconnectMaxMs,
-      reconnectBaseMs * 2 ** Math.min(attempt - 1, 8)
-    );
-    log(`session event stream reconnecting attempt=${attempt} delayMs=${delayMs} reason=${lastLossReason}`);
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      void (async () => {
-        if (closed || fatalSignalled) return;
-        const downtimeMs = Math.max(0, Date.now() - disconnectedAt);
-        if (downtimeMs >= reconnectBudgetMs) {
-          signalFatal(`${lastLossReason}; reconnect budget exhausted after ${downtimeMs}ms`);
-          return;
-        }
-        const current = readSessionDiscovery();
-        const replaced =
-          current &&
-          (Number(current.pid) !== Number(discovery.pid) ||
-            Number(current.port) !== Number(port) ||
-            String(current.token || '') !== String(serverToken));
-        if (replaced) {
-          const health = await probeSessionHealth({
-            port: current.port,
-            token: current.token,
-            timeoutMs: 800,
-          });
-          if (health && Number(health.pid) === Number(current.pid)) {
-            signalFatal(
-              `${lastLossReason}; daemon replaced` +
-                ` oldPid=${Number(discovery.pid)} oldPort=${Number(port)}` +
-                ` newPid=${Number(current.pid)} newPort=${Number(current.port)}`
-            );
-            return;
-          }
-        }
-        if (!isPidAlive(discovery.pid)) {
-          signalFatal(`${lastLossReason}; daemon exited` + ` pid=${Number(discovery.pid)} port=${Number(port)}`);
-          return;
-        }
-        openStream();
-      })().catch((error) => {
-        log(`session event stream recovery probe failed: ${error?.message || error}`);
-        openStream();
-      });
-    }, delayMs);
-    reconnectTimer.unref?.();
-  }
-
-  function openStream() {
-    if (closed || fatalSignalled || streamRequest) return;
-    const req = http.request(
-      {
-        hostname: '127.0.0.1',
-        port,
-        path: `/events?token=${encodeURIComponent(clientToken)}`,
-        method: 'GET',
-        headers: { Accept: 'text/event-stream', 'X-Mixdog-Daemon-Token': serverToken },
-      },
-      (res) => {
-        if (req !== streamRequest || closed) {
-          res.resume();
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          streamRequest = null;
-          if (res.statusCode === 401 || res.statusCode === 403 || res.statusCode === 404) {
-            signalFatal(`bad sse status ${res.statusCode}`);
-          } else {
-            scheduleStreamReconnect(`bad sse status ${res.statusCode}`);
-          }
-          return;
-        }
-        const reconnected = streamWasReady && disconnectedAt > 0;
-        const reconnectInfo = reconnected
-          ? {
-              reason: lastLossReason,
-              attempt: reconnectAttempt,
-              downtimeMs: Math.max(0, Date.now() - disconnectedAt),
-            }
-          : null;
-        res.setEncoding('utf8');
-        let buffer = '';
-        let streamHealthy = false;
-        const markStreamHealthy = () => {
-          if (streamHealthy) return;
-          streamHealthy = true;
-          streamWasReady = true;
-          reconnectAttempt = 0;
-          disconnectedAt = 0;
-          lastLossReason = '';
-          if (reconnectInfo) {
-            log(
-              `session event stream reconnected attempt=${reconnectInfo.attempt}` +
-                ` downtimeMs=${reconnectInfo.downtimeMs}`
-            );
-            try {
-              onStreamReconnect(reconnectInfo);
-            } catch {}
-          }
-        };
-        let lossHandled = false;
-        const lost = (reason) => {
-          if (req !== streamRequest || closed) return;
-          if (lossHandled) return;
-          lossHandled = true;
-          clearStreamLiveness();
-          streamRequest = null;
-          scheduleStreamReconnect(reason);
-        };
-        const armStreamLiveness = () => {
-          clearStreamLiveness();
-          streamLivenessTimer = setTimeout(() => {
-            if (req !== streamRequest || closed || fatalSignalled) return;
-            lost(`sse liveness timeout after ${livenessMs}ms`);
-            try {
-              req.destroy(new Error('session SSE liveness timeout'));
-            } catch {}
-          }, livenessMs);
-          streamLivenessTimer.unref?.();
-        };
-        armStreamLiveness();
-        res.on('data', (chunk) => {
-          if (req !== streamRequest || closed) return;
-          // Any bytes, including `: ka` comments, prove transport liveness.
-          markStreamHealthy();
-          armStreamLiveness();
-          buffer += chunk;
-          let index;
-          while ((index = buffer.indexOf('\n\n')) >= 0) {
-            const raw = buffer.slice(0, index);
-            buffer = buffer.slice(index + 2);
-            for (const line of raw.split('\n')) {
-              if (!line.startsWith('data:')) continue; // ': ka' keepalives
-              const json = line.slice(5).trim();
-              if (!json) continue;
-              let frame = null;
-              try {
-                frame = JSON.parse(json);
-              } catch {
-                continue;
-              }
-              try {
-                onFrame(frame);
-              } catch (err) {
-                log(`onFrame threw: ${err?.message || err}`);
-              }
-            }
-          }
-        });
-        res.on('end', () => lost('sse ended'));
-        res.on('error', () => lost('sse error'));
-        res.on('aborted', () => lost('sse aborted'));
-        res.on('close', () => lost('sse closed'));
-      }
-    );
-    req.on('error', () => {
-      if (req !== streamRequest || closed) return;
-      streamRequest = null;
-      scheduleStreamReconnect('sse request error');
-    });
-    streamRequest = req;
-    req.end();
-  }
-  openStream();
+  const stream = createFrameStream({
+    port,
+    serverToken,
+    clientToken,
+    livenessMs: Math.max(1, Number(streamLivenessTimeoutMs) || EVENT_STREAM_LIVENESS_TIMEOUT_MS),
+    onFrame,
+    log,
+    onHealthy: () => reconnect.markHealthy(),
+    onLoss: (reason) => reconnect.schedule(reason),
+    onFatal: signalFatal,
+  });
+  const reconnect = createStreamReconnect({
+    discovery,
+    baseMs: reconnectBaseMs,
+    maxMs: Math.max(reconnectBaseMs, Number(streamReconnectMaxMs) || EVENT_STREAM_RECONNECT_MAX_MS),
+    budgetMs: Math.max(reconnectBaseMs, Number(streamReconnectBudgetMs) || EVENT_STREAM_RECONNECT_BUDGET_MS),
+    log,
+    readDiscovery: () => readSessionDiscovery(),
+    probeHealth: probeSessionHealth,
+    pidAlive: isPidAlive,
+    onDisconnect: onStreamDisconnect,
+    onReconnect: onStreamReconnect,
+    onFatal: signalFatal,
+    reopen: () => stream.open(),
+  });
+  stream.open();
 
   async function call(name, args = {}, { timeoutMs = 300_000, callId = null } = {}) {
     let out;
@@ -721,7 +549,7 @@ export async function attachSession({
       err.daemonTransportError = true;
       throw err;
     }
-    if (out && out.error) {
+    if (out?.error) {
       // Preserve the daemon's machine-readable classification across the wire.
       const err = new Error(out.error);
       if (out.code) err.code = String(out.code);
@@ -733,12 +561,8 @@ export async function attachSession({
   async function close(reason = 'client close') {
     if (closed) return;
     closed = true;
-    if (reconnectTimer) clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-    clearStreamLiveness();
-    try {
-      streamRequest?.destroy?.();
-    } catch {}
+    reconnect.stop();
+    stream.destroy();
     try {
       await request({
         port,

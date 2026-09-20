@@ -82,8 +82,8 @@ export function redactBrowserKnownSecrets(value: string, secrets: Iterable<strin
   for (const secret of secrets) {
     if (!secret) continue;
     const mask = '*'.repeat(secret.length);
-    const replacement =
-      secret.length >= marker.length && secret !== marker ? marker : mask === secret ? '•'.repeat(secret.length) : mask;
+    let replacement = mask === secret ? '•'.repeat(secret.length) : mask;
+    if (secret.length >= marker.length && secret !== marker) replacement = marker;
     redacted = redacted.replaceAll(secret, replacement);
   }
   return redacted;

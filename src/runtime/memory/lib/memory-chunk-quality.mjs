@@ -54,11 +54,12 @@ export function buildCycle1ChunkPrompt(rows, { layer = 1, targetTokens, targetCh
   if (layer === 2 && (!Number.isSafeInteger(targetTokens) || targetTokens < 1)) {
     throw new RangeError('second-layer prompt requires a positive targetTokens');
   }
+  const charsNote = Number.isSafeInteger(targetChars) && targetChars > 0 ? ` (roughly ${targetChars} characters)` : '';
   const rules =
     layer === 2
       ? [
           ...SECOND_LAYER_RULES,
-          `Writing target: about ${targetTokens} runtime-estimated tokens${Number.isSafeInteger(targetChars) && targetChars > 0 ? ` (roughly ${targetChars} characters)` : ''}. Keep the main narrative and reduce secondary detail; modest variation from this target is acceptable.`,
+          `Writing target: about ${targetTokens} runtime-estimated tokens${charsNote}. Keep the main narrative and reduce secondary detail; modest variation from this target is acceptable.`,
         ]
       : CYCLE1_RULES;
   return [layer === 2 ? 'SECOND_LAYER' : 'FIRST_LAYER', ...rules, '', chunkSourceText(rows)].join('\n');

@@ -103,7 +103,7 @@ test('precompressed siblings are negotiated and never served directly', () => {
     sendStaticFile(
       { method: 'HEAD', headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {} },
       {
-        writeHead(status, next) {
+        writeHead(_status, next) {
           headers = next;
         },
         end() {},

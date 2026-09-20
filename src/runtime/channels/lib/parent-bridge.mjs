@@ -38,7 +38,7 @@ function createParentBridge({ getInstanceId, ipcProcess = process }) {
         _notifySink(method, outParams);
       } catch (err) {
         try {
-          process.stderr.write(`mixdog channels: notify sink failed: ${(err && err.message) || err}\n`);
+          process.stderr.write(`mixdog channels: notify sink failed: ${err?.message || err}\n`);
         } catch {}
       }
       return;
@@ -55,7 +55,7 @@ function createParentBridge({ getInstanceId, ipcProcess = process }) {
       {
         onError: (err) => {
           try {
-            process.stderr.write(`mixdog channels: notify IPC send failed: ${(err && err.message) || err}\n`);
+            process.stderr.write(`mixdog channels: notify IPC send failed: ${err?.message || err}\n`);
           } catch {}
         },
       }

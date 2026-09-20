@@ -12,6 +12,23 @@ import {
 
 export type ToolActivityStructuredKind = 'plan' | 'todos' | 'questions' | '';
 
+function toolStatusLabel(status: string): string {
+  if (status === 'running') return TOOL_DETAIL_LABELS.running;
+  if (status === 'completed') return TOOL_DETAIL_LABELS.completed;
+  return status === 'failed' ? TOOL_DETAIL_LABELS.failed : status;
+}
+
+function normalizeStructuredStatus(status: unknown): string {
+  const value = String(status || 'pending')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if (/^(?:complete|completed|done|success|succeeded|checked)$/.test(value)) return 'completed';
+  if (/^(?:active|current|in_progress|inprogress|running)$/.test(value)) return 'in_progress';
+  if (/^(?:error|failed|failure)$/.test(value)) return 'failed';
+  return value || 'pending';
+}
+
 export interface ToolActivityStructuredRow {
   text: string;
   status: string;
@@ -28,7 +45,7 @@ export function toolActivityErrorSummary(text: string): string {
 }
 
 export function toolActivityResultValue(item: TranscriptItem): unknown {
-  const value = item.rawResult ?? item.result;
+  const value = typeof item.result === 'string' && item.result.trim() ? item.result : (item.result ?? item.rawResult);
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
   if (!trimmed || !/^[{[]/.test(trimmed)) return value;
@@ -65,7 +82,8 @@ function toolActivityAnswer(result: unknown, question: Record<string, unknown>, 
         .filter(Boolean)
         .join(', ')
     : toolActivityInline(value);
-  return text ? (secret ? '••••••' : text) : '';
+  if (!text) return '';
+  return secret ? '••••••' : text;
 }
 
 export function toolActivityStructuredRows(
@@ -86,11 +104,9 @@ export function toolActivityStructuredRows(
       })),
     };
   }
-  const source = Array.isArray(args.todos)
-    ? args.todos
-    : normalizedName === 'update_plan' && Array.isArray(args.plan)
-      ? args.plan
-      : [];
+  let source: unknown[] = [];
+  if (Array.isArray(args.todos)) source = args.todos;
+  else if (normalizedName === 'update_plan' && Array.isArray(args.plan)) source = args.plan;
   if (source.length) {
     const kind: ToolActivityStructuredKind = Array.isArray(args.todos) ? 'todos' : 'plan';
     return {
@@ -101,7 +117,7 @@ export function toolActivityStructuredRows(
           text:
             toolActivityFirstText(record, 'content', 'step', 'text', 'title') ||
             `${kind === 'todos' ? 'Todo' : 'Step'} ${index + 1}`,
-          status: toolActivityFirstText(record, 'status') || 'pending',
+          status: normalizeStructuredStatus(toolActivityFirstText(record, 'status') || 'pending'),
         };
       }),
     };
@@ -160,14 +176,7 @@ export function toolActivityBackgroundTask(text: string): { meta: string; body: 
     meta.set(match[1].toLowerCase(), match[2].trim());
   }
   const status = (meta.get('status') || '').toLowerCase();
-  const statusLabel =
-    status === 'running'
-      ? TOOL_DETAIL_LABELS.running
-      : status === 'completed'
-        ? TOOL_DETAIL_LABELS.completed
-        : status === 'failed'
-          ? TOOL_DETAIL_LABELS.failed
-          : status;
+  const statusLabel = toolStatusLabel(status);
   const body = lines
     .slice(index)
     .join('\n')

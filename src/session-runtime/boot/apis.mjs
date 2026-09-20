@@ -46,7 +46,14 @@ import { createGoalFacadeApi } from '../goal-facade-api.mjs';
 import { createRuntimeReviewApi } from '../runtime-review-api.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { STANDALONE_DATA_DIR } from '../runtime-paths.mjs';
-import { dataDirOf, resolveRoute, summarizeWorkflowRoutes, agentRouteFromConfig, webSearchCapableFor, workflowHelpers } from './shared.mjs';
+import {
+  dataDirOf,
+  resolveRoute,
+  summarizeWorkflowRoutes,
+  agentRouteFromConfig,
+  webSearchCapableFor,
+  workflowHelpers,
+} from './shared.mjs';
 
 export function wireApis(boot) {
   wireToolPolicyRefresh(boot);
