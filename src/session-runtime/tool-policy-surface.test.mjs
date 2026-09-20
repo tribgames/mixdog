@@ -183,7 +183,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Tool names are not shell commands/i);
   assert.doesNotMatch(full, /`shell` only runs/i);
   assert.match(full, /Every independent call in the same response, never one per round/i);
-  assert.match(full, /Several targets of one tool in its array argument/i);
+  assert.match(full, /A tool that takes an array gets one call with the array whenever there are\s+several targets/i);
   assert.match(
     full,
     /`shell` only for evidence or artifacts that require execution: computation,\s+data transformation, generated output, unsupported-format decoding/i
@@ -213,7 +213,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
     full,
     /locate every site \(`grep` `context:0`\/`mode:files`, `code_graph`; known\s+locations skip straight to the read\)/i
   );
-  assert.match(full, /where each target keeps\s+its own options/i);
+  assert.match(full, /separate calls of the same tool only when the targets need\s+different options/i);
   assert.doesNotMatch(full, /UI\/edit sites/i);
   assert.match(
     full,
@@ -270,11 +270,12 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.deepEqual(LEAD_DISALLOWED_TOOLS, ['get_goal', 'create_goal', 'set_goal_tasks', 'update_goal']);
 });
 
-test('agent common policy delegates verification unless AGENT.md explicitly owns it', () => {
+test('agent common policy has workers verify their own changes and leaves review to Lead', () => {
   const rules = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src') });
   assert.match(rules, /^# Agent$/m);
-  assert.match(rules, /Do not review or verify unless your `AGENT\.md` assigns it; Lead owns\s+verification/i);
-  assert.match(rules, /Lead's latest brief is your request and overrides any internal rule/i);
+  assert.match(rules, /the tests and checks you ran for your\s+own changes and their result/i);
+  assert.match(rules, /Lead owns the independent review/i);
+  assert.match(rules, /Lead's latest brief is your request and overrides\s+any internal rule/i);
   // The retrieval profile shares the same contract plus its read-only line.
   const retrieval = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), profile: 'retrieval' });
   assert.match(retrieval, /^# Agent$/m);

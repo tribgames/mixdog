@@ -334,18 +334,19 @@ const pyNode = (calls) =>
   });
 
 // ── byte parity for non-call modes ──────────────────────────────────────────
-// A fixed 62-query matrix over every mode that does NOT read call sites.
+// A fixed 46-query matrix over unchanged results that do NOT read call sites.
 // imports/dependents/related/impact keep the digests captured before the
 // AST-only rewrite — those answers must not move a single byte. The symbol
-// modes (overview outline, symbols, find_symbol, symbol_search) were re-baselined
+// modes (overview outline, symbols, symbol_search) were re-baselined
 // once, for symbol record v2: rows now carry the unified kind, the declaration
 // head and the export marker, and members nest under `parent`.
+// Successful find_symbol rendering is covered in declaration-ranking.test.mjs;
+// its former digests included the removed banners. Keep unchanged miss digests.
 function parityGraph() {
   return makeGraph([svcNode(), appNode(), storeNode(), pyNode([call('helper', 2, 11, 'call', 'run_task')])]);
 }
 
 const PARITY_FILES = ['src/svc.js', 'src/app.js', 'src/store.js', 'py/service.py'];
-const PARITY_SYMBOLS = ['runTask', 'helper', 'Worker', 'save', 'saveAll', 'run_task', 'boot', 'missingSymbol'];
 
 function parityQueries() {
   const q = [{ mode: 'overview' }];
@@ -356,10 +357,8 @@ function parityQueries() {
   for (const file of PARITY_FILES) q.push({ mode: 'related', file });
   for (const file of PARITY_FILES) q.push({ mode: 'impact', file });
   for (const file of PARITY_FILES) q.push({ mode: 'impact', file, symbol: 'runTask' });
-  for (const symbol of PARITY_SYMBOLS) q.push({ mode: 'find_symbol', symbol });
-  for (const file of PARITY_FILES) q.push({ mode: 'find_symbol', symbol: 'runTask', file });
-  for (const symbol of PARITY_SYMBOLS.slice(0, 4)) q.push({ mode: 'find_symbol', symbol, body: true });
-  for (const symbol of PARITY_SYMBOLS.slice(0, 3)) q.push({ mode: 'find_symbol', symbol, limit: 3 });
+  q.push({ mode: 'find_symbol', symbol: 'missingSymbol' });
+  for (const file of ['src/store.js', 'py/service.py']) q.push({ mode: 'find_symbol', symbol: 'runTask', file });
   for (const symbol of ['run', 'save', 'task', 'helper']) q.push({ mode: 'symbol_search', symbol });
   q.push({ mode: 'symbol_search', symbol: 'runTask', file: 'src/svc.js' });
   q.push({ mode: 'symbol_search', symbol: 'save', file: 'src/store.js' });
@@ -409,27 +408,9 @@ const PARITY_DIGESTS = {
   '{"mode":"impact","file":"src/app.js","symbol":"runTask"}': '4c705d3363a5ba46',
   '{"mode":"impact","file":"src/store.js","symbol":"runTask"}': '5f5efcefaaf2b711',
   '{"mode":"impact","file":"py/service.py","symbol":"runTask"}': 'd3024c7d0c428dbd',
-  '{"mode":"find_symbol","symbol":"runTask"}': '3dbe88baa4ec468b',
-  '{"mode":"find_symbol","symbol":"helper"}': 'c594d6e77563429a',
-  '{"mode":"find_symbol","symbol":"Worker"}': 'ee64420bcdc306f6',
-  '{"mode":"find_symbol","symbol":"save"}': '83d0c1731656a7a9',
-  '{"mode":"find_symbol","symbol":"saveAll"}': 'e6e42ef8d846eac6',
-  '{"mode":"find_symbol","symbol":"run_task"}': '0b926e978c792852',
-  '{"mode":"find_symbol","symbol":"boot"}': '33c51542989b1b75',
   '{"mode":"find_symbol","symbol":"missingSymbol"}': 'f6addfba47785fe4',
-  '{"mode":"find_symbol","symbol":"runTask","file":"src/svc.js"}': 'a2755abb44856109',
-  // A file-scoped miss now names the declaring file (src/svc.js) instead of
-  // calling an imported project symbol a global/builtin.
-  '{"mode":"find_symbol","symbol":"runTask","file":"src/app.js"}': 'f5686a796760b2ea',
   '{"mode":"find_symbol","symbol":"runTask","file":"src/store.js"}': 'f33d589599977c26',
   '{"mode":"find_symbol","symbol":"runTask","file":"py/service.py"}': 'cd9badce0eacfd63',
-  '{"mode":"find_symbol","symbol":"runTask","body":true}': '3dbe88baa4ec468b',
-  '{"mode":"find_symbol","symbol":"helper","body":true}': 'c594d6e77563429a',
-  '{"mode":"find_symbol","symbol":"Worker","body":true}': 'ee64420bcdc306f6',
-  '{"mode":"find_symbol","symbol":"save","body":true}': '83d0c1731656a7a9',
-  '{"mode":"find_symbol","symbol":"runTask","limit":3}': '3dbe88baa4ec468b',
-  '{"mode":"find_symbol","symbol":"helper","limit":3}': 'c594d6e77563429a',
-  '{"mode":"find_symbol","symbol":"Worker","limit":3}': 'ee64420bcdc306f6',
   '{"mode":"symbol_search","symbol":"run"}': '37519d915e134961',
   '{"mode":"symbol_search","symbol":"save"}': '490168ad8a4e0fe9',
   '{"mode":"symbol_search","symbol":"task"}': '9c70f4f791dc9966',
@@ -446,9 +427,9 @@ const PARITY_DIGESTS = {
   '{"mode":"impact","file":"src/app.js","symbol":"boot"}': 'b5d07b8c7df3bcf2',
 };
 
-test('non-call modes stay byte-identical across the AST-only rewrite (62 queries)', async () => {
+test('unchanged non-call results stay byte-identical across the AST-only rewrite (46 queries)', async () => {
   const queries = parityQueries();
-  assert.equal(queries.length, 62);
+  assert.equal(queries.length, 46);
   const graph = parityGraph();
   const seen = {};
   for (const args of queries) {

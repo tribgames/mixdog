@@ -4,13 +4,15 @@ import test from 'node:test';
 import { createCompletionWakeScheduler, createNotificationBus } from './notification-bus.mjs';
 
 const completionText = [
-  'background task',
-  'task_id: task-agent-1',
-  'surface: agent',
-  'status: completed',
-  '',
-  'agent result tag=review agent=worker',
+  '<task-notification>',
+  '<task-id>task-agent-1</task-id>',
+  '<tag>review</tag>',
+  '<status>completed</status>',
+  '<summary>Agent "review" completed</summary>',
+  '<result>',
   'worker handoff',
+  '</result>',
+  '</task-notification>',
 ].join('\n');
 
 const completionMeta = {
@@ -18,7 +20,6 @@ const completionMeta = {
   execution_surface: 'agent',
   execution_id: 'task-agent-1',
   status: 'completed',
-  instruction: 'Async agent task task-agent-1 (completed) finished.',
 };
 
 test('session-id authority delivers to only the requested Lead among simultaneous listeners', () => {
@@ -89,6 +90,9 @@ test('session-id authority queues an unobserved completion only for its owner', 
   assert.equal(enqueued.length, 1);
   assert.equal(enqueued[0].sessionId, 'lead-owner');
   assert.match(String(enqueued[0].message?.content || enqueued[0].message), /worker handoff/);
+  assert.equal(enqueued[0].message.content, secondText);
+  assert.equal(enqueued[0].message.mode, 'task-notification');
+  assert.equal(enqueued[0].message.execution.id, 'task-agent-2');
 });
 
 test('runtime notifications stay live before session materialization and bind on reservation', () => {

@@ -103,6 +103,7 @@ export function createNotify(mgr, { notifySessionCompletion } = {}) {
     const text = renderBackgroundTask(snapshot, { includeResult: false });
     const meta = {
       type: snapshot.resultType,
+      model_visible: false,
       execution_surface: 'agent',
       execution_id: job.taskId || null,
       status: earlyStatus,

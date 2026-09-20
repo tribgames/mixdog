@@ -6,6 +6,7 @@
  */
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 import { textBetweenTag } from '../../runtime/shared/tool-result-summary.mjs';
+import { parseTaskNotification, taskNotificationHasBody } from '../../runtime/shared/task-notification-envelope.mjs';
 
 export { textBetweenTag };
 
@@ -46,6 +47,8 @@ function agentJobStatusText(parsed) {
 export function agentJobResultText(text, parsed = parseAgentJob(text)) {
   const value = String(text ?? '').trim();
   if (!value) return '';
+  const notification = parseTaskNotification(value);
+  if (notification) return notification.result || notification.error || notification.summary;
   if (parsed?.taskId) {
     const { body } = splitBridgeEnvelope(value);
     const cleanBody = stripSyntheticAgentTags(body);
@@ -95,6 +98,25 @@ export function parseAgentResultEnvelope(text, fallback = {}) {
 
 export function parseBackgroundTaskEnvelope(text) {
   const value = String(text ?? '').trim();
+  const notification = parseTaskNotification(value);
+  if (notification) {
+    return {
+      name: notification.surface,
+      label: notification.status,
+      args: {
+        type: 'result',
+        status: notification.status,
+        task_id: notification.taskId,
+        surface: notification.surface,
+        tag: notification.tag || undefined,
+        label: notification.tag || undefined,
+        error: notification.error || undefined,
+      },
+      result: notification.result || notification.error || notification.summary,
+      rawResult: value,
+      isError: isErrorToolStatus(notification.status),
+    };
+  }
   if (!/^background task\b/i.test(value)) return null;
   const allLines = value.split('\n');
   const rest = allLines.slice(1);
@@ -169,6 +191,7 @@ export function parseBackgroundTaskEnvelope(text) {
 
 export function parseModelVisibleCompletionWrapper(text) {
   const value = String(text ?? '').trim();
+  if (parseTaskNotification(value)) return parseBackgroundTaskEnvelope(value);
   const split = /\n\nResult:\n/.exec(value);
   if (!split) return null;
   const preamble = value.slice(0, split.index).trim();
@@ -181,7 +204,7 @@ export function parseModelVisibleCompletionWrapper(text) {
     .map((line) => line.replace(/^> ?/, ''))
     .join('\n')
     .trim();
-  const parsed = parseBackgroundTaskEnvelope(unquoted);
+  const parsed = parseSyntheticAgentMessage(unquoted);
   return parsed ? { ...parsed, rawResult: unquoted } : null;
 }
 
@@ -227,6 +250,7 @@ export function completionCardFromExecution(execution, text) {
 }
 
 export function isStatusOnlyAgentCompletionNotification(text) {
+  if (parseTaskNotification(text)) return false;
   const background = parseBackgroundTaskEnvelope(text);
   if (background?.name === 'agent' && /^(completed|cancelled|canceled)$/i.test(background.label || '')) {
     return !(hasAgentResponseResultText(background.result) || hasAgentResponseResultText(text));
@@ -240,6 +264,8 @@ export function isStatusOnlyAgentCompletionNotification(text) {
 function hasAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
+  const notification = parseTaskNotification(value);
+  if (notification) return Boolean(notification.result);
   if (
     /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)
   )
@@ -270,6 +296,7 @@ function isErrorToolStatus(status) {
 export function parseSyntheticAgentMessage(text) {
   const value = String(text ?? '').trim();
   if (!value) return null;
+  if (parseTaskNotification(value)) return parseBackgroundTaskEnvelope(value);
   const finalAnswer = textBetweenTag(value, 'final-answer');
   if (finalAnswer) {
     return {
@@ -358,7 +385,7 @@ export function buildExecutionResponseToolItem(
     ...(isAgent ? { type: 'result' } : {}),
   };
   const rawResult = synthetic.rawResult ?? text;
-  const responseHasBody = /\n\s*\n[\s\S]*\S/.test(String(text || ''));
+  const responseHasBody = taskNotificationHasBody(text);
   const key = String(responseKey || args.task_id || '').trim();
   return {
     kind: 'tool',
@@ -395,6 +422,8 @@ export function buildExecutionResponseToolItem(
 
 export function parseAgentJob(text) {
   const value = String(text || '');
+  const notification = parseTaskNotification(value);
+  if (notification) return { taskId: notification.taskId, status: notification.status, type: 'result', target: notification.tag };
   const idMatch = /^agent task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
   if (!idMatch) return null;
   const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);

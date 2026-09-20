@@ -7,9 +7,10 @@ export const TOOL_DEFS = [
     name: 'tidy',
     title: 'Tidy',
     description:
-      "Clean up code across the languages in this project: detect the languages, resolve each one's formatter/linter engine, run them together with the structural rule packs, and write fixes through the normal edit pipeline. " +
-      'fix reports what would change and writes only with apply:true; missing managed engines download automatically unless tidy.downloads is ask, in which case the user approves them. ' +
-      'results pages the last check/fix without re-running engines. Engine and rule work belongs here, not in shell. ' +
+      'Clean up code across the languages in this project; engine/rule work belongs here, not shell. fix writes only with apply:true. Managed engines auto-download unless tidy.downloads is ask (user approves). ' +
+      'results pages the last check/fix without re-running; rules/paths filter before paging. It omits languages/languageSource/engines/missing/policy. ' +
+      'Compact rows: loc,rule,severity,message,fix. byRule (count,highest severity,fixable count) and byDir (first two directories) survive trimming. ' +
+      'ok:true/status:partial means structural passes failed; structural.errors names languages. All structural writes stay blocked. ' +
       TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',
@@ -18,13 +19,13 @@ export const TOOL_DEFS = [
           type: 'string',
           enum: TIDY_ACTIONS,
           description:
-            'scan: languages, resolved/missing engines and download policy; check: run engines and rules read-only; fix: the change plan (dry run unless apply); install: download missing managed engines; rules: list structural rule packs; results: page last check/fix diagnostics (offset/limit, no re-run).',
+            'scan: languages, resolved/missing engines and download policy; check: run engines and rules read-only; fix: the change plan (dry run unless apply); install: download missing managed engines; rules: list structural rule packs; results: filter cached diagnostics by rules/paths, then page each engine and structural list (offset/limit, no header or re-run). Filtered summaries/counts of rows reflect the selection; counts/filesChecked retain run totals.',
         },
         paths: {
           type: 'array',
           items: { type: 'string' },
           description:
-            'User-selected files or directories; required for scan/check/fix. Ask when the scope is missing; use "." only for an explicitly requested whole project. Includes tracked and non-ignored untracked files; never derives scope from a diff or commit.',
+            'User-selected files or directories; required for scan/check/fix. Ask when the scope is missing; use "." only for an explicitly requested whole project. Includes tracked and non-ignored untracked files; never derives scope from a diff or commit. results: optional cached path-prefix filters (directory boundaries, no scope requirement).',
         },
         languages: {
           type: 'array',
@@ -35,6 +36,11 @@ export const TOOL_DEFS = [
           type: 'array',
           items: { type: 'string' },
           description: 'Engine ids from scan; install requires them, the other actions filter by them.',
+        },
+        rules: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'results only: exact rule ids from byRule; matches structural ruleId and engine code/ruleId. OR within rules/paths; AND between the two filters.',
         },
         apply: {
           type: 'boolean',
@@ -52,7 +58,7 @@ export const TOOL_DEFS = [
         offset: {
           type: 'integer',
           minimum: 0,
-          description: 'Skip this many diagnostics/matches; default 0. results pages the last check/fix.',
+          description: 'Skip this many diagnostics/matches per list; default 0. results applies rules/paths filters first.',
         },
         limit: {
           type: 'integer',

@@ -15,7 +15,6 @@ import {
 } from './retry-classifier.mjs';
 import { _classifyMidstreamError, _midstreamSleepWithAbort, stampAnthropicStreamOutcome } from './anthropic-sse.mjs';
 import { notifyCurrentAnthropicRateLimit } from './admission-scheduler.mjs';
-import { withTurnReminderContext } from './anthropic-turn-reminder.mjs';
 
 const log = (line) => {
   try {
@@ -46,10 +45,9 @@ export function createMidState(attemptIndex) {
  * @param {object} deps
  * @param {number} deps.maxRetries  bounded mid-stream retries for transient stream loss
  * @param {AbortSignal|null} deps.totalSignal
- * @param {object} deps.body  request body (turn-reminder context for partial replays)
  * @param {ReturnType<import('./anthropic-oauth-recovery.mjs').createAnthropicOAuthRecovery>} deps.recovery
  */
-export function createMidstreamRecovery({ maxRetries, totalSignal, body, recovery }) {
+export function createMidstreamRecovery({ maxRetries, totalSignal, recovery }) {
   let firstAttemptError = null;
   let firstAttemptClassifier = null;
   const retry = { retry: true };
@@ -82,9 +80,6 @@ export function createMidstreamRecovery({ maxRetries, totalSignal, body, recover
     // is authoritative — coarse midState.partialToolCall must not
     // overwrite an idempotent pending-input truncation — while
     // genuinely new wrapper-observed exposure is still merged.
-    if (err?.partialProviderReplay) {
-      err.partialProviderReplay = withTurnReminderContext(err.partialProviderReplay, body);
-    }
     let outcome = null;
     try {
       outcome = stampAnthropicStreamOutcome(err, midState, { provider: 'anthropic-oauth' });

@@ -8,6 +8,24 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { restoreTranscriptItems } from './session-api-ext.mjs';
 import { preserveGoalStateAfterTurn, transcriptToolCallDisplayMode } from './turn.mjs';
+import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from '../../runtime/shared/task-notification-envelope.mjs';
+
+test('tagged agent and non-zero shell completions restore as tool cards without metadata dumps', () => {
+  const agent = renderAgentCompletionEnvelope({ id: 'task_agent_restore', tag: 'review', status: 'completed', result: 'reviewed files' });
+  const failure = renderAgentCompletionEnvelope({ id: 'task_agent_failed', tag: 'review', status: 'failed', error: 'quota exhausted' });
+  const shell = renderShellCompletionEnvelope({ jobId: 'job_restore', status: 'completed', exitCode: 2, command: 'npm test', stdoutPreview: 'one test failed' });
+  const items = restoreTranscriptItems([agent, failure, shell].map((content) => ({ role: 'user', content })), { sessionId: 'sess_tagged_restore' });
+  const cards = items.filter((item) => item.kind === 'tool');
+  assert.equal(cards.length, 3);
+  assert.equal(cards[0].args.tag, 'review');
+  assert.equal(cards[0].result, 'reviewed files');
+  assert.equal(cards[1].isError, true);
+  assert.equal(cards[1].args.error, 'quota exhausted');
+  assert.equal(cards[2].name, 'shell');
+  assert.equal(cards[2].isError, false);
+  assert.match(cards[2].result, /one test failed/);
+  assert.equal(items.some((item) => item.kind === 'user'), false);
+});
 
 const wrapper = (taskId, body) =>
   [

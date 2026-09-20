@@ -10,6 +10,7 @@ import {
   getBackgroundTask,
   registerBackgroundTask,
   renderBackgroundTask,
+  renderBackgroundTaskNotification,
 } from './background-tasks.mjs';
 import { modelVisibleToolCompletionMessage } from './tool-execution-contract.mjs';
 import { executeTaskTool } from '../agent/orchestrator/tools/builtin/task-tool.mjs';
@@ -21,6 +22,41 @@ import {
   settlePendingMessageWrites,
 } from '../agent/orchestrator/session/manager/pending-messages.mjs';
 import { _clearDeliveredCompletions } from '../agent/orchestrator/session/manager/delivered-completions.mjs';
+import { parseTaskNotification } from './task-notification-envelope.mjs';
+
+test('agent notifications bypass the card renderer and retain the entire final message', () => {
+  const result = `  final message\n${'full result '.repeat(4_000)}\n`;
+  const notifications = [];
+  const task = registerBackgroundTask({
+    surface: 'agent',
+    label: 'tidy-skill',
+    meta: { tag: 'tidy-skill', provider: 'provider', model: 'model' },
+    renderResult: () => 'card-only result metadata',
+    context: { notifyFn: (text) => notifications.push(text) },
+  });
+  try {
+    completeBackgroundTask(task.taskId, { result: { content: result } });
+    assert.equal(notifications.length, 1);
+    assert.equal(parseTaskNotification(notifications[0]).result, result);
+    assert.equal(notifications[0], renderBackgroundTaskNotification(task));
+    assert.doesNotMatch(notifications[0], /card-only|provider:|model:|<usage>/);
+    assert.match(renderBackgroundTask(task, { includeResult: true }), /provider: provider[\s\S]*card-only result metadata/);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
+
+test('explicit resultText is not capped at the previous 32k task-record limit', () => {
+  const task = registerBackgroundTask({ surface: 'agent' });
+  const resultText = 'x'.repeat(40_001);
+  try {
+    completeBackgroundTask(task.taskId, { resultText, notify: false });
+    assert.equal(task.resultText, resultText);
+    assert.equal(parseTaskNotification(renderBackgroundTaskNotification(task)).result, resultText);
+  } finally {
+    cleanupBackgroundTasks({ force: true });
+  }
+});
 
 test('terminal task read ACKs queued and racing completion notifications', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-task-read-ack-'));

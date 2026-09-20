@@ -91,6 +91,7 @@ const RAW_EMBED_EXCLUDE_CONTENT_RES = [
   /^\s*\[mixdog-runtime\]/i,
   /^\s*Async .+ finished\./i,
   /^\s*background task\b/i,
+  /^\s*<task-notification>/i,
 ];
 const RAW_EMBED_EXCLUDE_NON_CONVERSATION_CONTENT_RES = [
   /^\s*\[(?:system|log|offload|debug|trace|info|warn|warning|error|fatal)\]/i,

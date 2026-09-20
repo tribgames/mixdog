@@ -186,7 +186,7 @@ test('repeat, resume and edited skills reuse only current bodies without rewriti
   });
 });
 
-test('ordinary follow-up turns advertise reusable skills without executing another load', async () => {
+test('ordinary follow-up turns retain reusable skills without loading or appending reminders', async () => {
   await withSkill(async ({ root }) => {
     for (const provider of ['openai-oauth', 'anthropic-oauth']) {
       const session = newSession(provider, root);
@@ -201,19 +201,14 @@ test('ordinary follow-up turns advertise reusable skills without executing anoth
         'Switch to an unrelated task.',
       ]) {
         session.messages.push({ role: 'user', content: prompt });
+        const before = structuredClone(session.messages);
         await prepareExplicitSkills(prompt, session.messages, session, {
           execute() {
             assert.fail('an ordinary follow-up must not execute Skill');
           },
         });
-        const reminder = session.messages.at(-1);
-        assert.match(reminder.content, /Skill bodies already present in this context: "selected-guide"/);
-        assert.match(
-          reminder.content,
-          /Reuse these bodies for matching requests, including later turns and repeated mentions/
-        );
-        assert.match(reminder.content, /do not call Skill again unless the body is missing or needs an update/);
-        assert.match(reminder.content, /load_tool rather than reloading the skill/);
+        assert.deepEqual(session.messages, before);
+        assert.equal(latestSkillBodies(session.messages).length, 1);
         session.messages.push({ role: 'assistant', content: 'Done.' });
       }
     }

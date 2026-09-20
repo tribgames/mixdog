@@ -106,7 +106,7 @@ process.on('message', (message) => {
       setImmediate(() => send({
         type: 'agent-control-notification',
         ownerSessionId,
-        text: 'Async agent task ' + task_id + ' (completed) finished.\\n\\nresult from shard ' + SHARD,
+        text: '<task-notification>\\n<task-id>' + task_id + '</task-id>\\n<tag>' + tag + '</tag>\\n<status>completed</status>\\n<summary>Agent "' + tag + '" completed</summary>\\n<result>\\nresult from shard ' + SHARD + '\\n</result>\\n</task-notification>',
         meta: {
           type: 'agent_task_result',
           execution_surface: 'agent',

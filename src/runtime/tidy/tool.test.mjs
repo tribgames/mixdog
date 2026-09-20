@@ -120,10 +120,10 @@ test('a structural fix dry-run reports graph-binary matches without writing', as
 
   const report = parseResult(await executeTidyTool({ action: 'fix', paths: ['src'] }, { cwd: root }));
   assert.equal(report.structural.adapter, 'graph-binary');
-  const match = report.structural.matches.find((entry) => entry.ruleId === 'no-debugger');
+  const match = report.structural.matches.find((entry) => entry.rule === 'no-debugger');
   assert.ok(match, `expected a no-debugger match: ${JSON.stringify(report.structural).slice(0, 400)}`);
-  assert.equal(match.file, 'src/debug.js');
-  assert.ok(match.fix, 'the dry run must carry the fix payload it would apply');
+  assert.match(match.loc, /^src\/debug\.js:\d+:\d+$/);
+  assert.equal(match.fix, true, 'the dry run reports fixability, not the write payload');
   assert.ok(report.structural.fixable >= 1);
   assert.deepEqual(report.structural.applied, []);
   assert.ok(report.notes.some((note) => /dry run/.test(note)));
@@ -287,12 +287,14 @@ test('a failed structural group prevents every structural write', async (t) => {
   assert.equal(result.code, 0, result.stderr);
   const envelope = JSON.parse(result.stdout);
   const report = parseResult(envelope);
-  assert.equal(envelope.isError, true);
-  assert.equal(report.ok, false);
-  assert.equal(report.status, 'failed');
+  assert.equal(envelope.isError, undefined);
+  assert.equal(report.ok, true);
+  assert.equal(report.status, 'partial');
   assert.equal(report.structural.matchesCount, 2);
   assert.deepEqual(report.structural.applied, []);
-  assert.match(report.structural.error.message, /scan interrupted/);
+  assert.match(report.structural.errors[0].message, /scan interrupted/);
+  assert.match(report.notes.join(' '), /python structural pass did not complete/);
+  assert.match(report.notes.join(' '), /structural apply blocked for the entire run/);
   for (const [file, source] of Object.entries(sources)) assert.equal(readFileSync(join(root, file), 'utf8'), source);
 });
 
@@ -368,13 +370,13 @@ test('results pages stored diagnostics without dropping counts', async () => {
   assert.equal(report.action, 'results');
   assert.equal(report.ok, true);
   assert.equal(report.results[0].diagnostics.length, 10);
-  assert.equal(report.results[0].diagnostics[0].file, 'src/f20.py');
+  assert.equal(report.results[0].diagnostics[0].loc, 'src/f20.py:21:1');
   assert.equal(report.results[0].diagnosticsCount, 55);
   assert.equal(report.results[0].more, 25);
   assert.equal(report.results[0].nextOffset, 30);
   assert.equal(report.structural.matches.length, 10);
   assert.equal(report.structural.matchesCount, 30);
-  assert.equal(report.structural.matches[0].file, 'src/a20.js');
+  assert.equal(report.structural.matches[0].loc, 'src/a20.js:0:0');
   assert.match(report.notes.join(' '), /were not re-run/);
   resetTidyResultCache();
 });
@@ -486,15 +488,15 @@ test('a >200-file scoped check never walks cwd and results pages the stored matc
   assert.equal(out.big.body.structural.matchesCount, count);
   assert.equal(out.big.body.structural.matches.length, 20);
   assert.equal(out.big.body.structural.more, count - 20);
-  assert.ok(out.big.body.structural.matches.every((match) => match.file.startsWith('src/in/')));
+  assert.ok(out.big.body.structural.matches.every((match) => match.loc.startsWith('src/in/')));
   assert.equal(
-    out.big.body.structural.matches.some((match) => match.file.includes('.runtime') || match.file.includes('src/out/')),
+    out.big.body.structural.matches.some((match) => match.loc.includes('.runtime') || match.loc.includes('src/out/')),
     false
   );
   assert.equal(out.page.body.action, 'results');
   assert.equal(out.page.body.structural.matchesCount, count);
   assert.equal(out.page.body.structural.matches.length, 10);
-  assert.equal(out.page.body.structural.matches[0].file, 'src/in/f020.js');
+  assert.equal(out.page.body.structural.matches[0].loc, 'src/in/f020.js:1:1');
   assert.equal(out.empty.body.structural.matchesCount, 0);
   assert.equal(out.empty.body.ok, true);
 
@@ -511,4 +513,89 @@ test('a >200-file scoped check never walks cwd and results pages the stored matc
   assert.equal(scanned.length, count);
   assert.equal(scanned.includes('src/out/leak.js'), false);
   assert.equal(scanned.includes('.runtime/scratch.kt'), false);
+});
+
+test('results filters cached rules and directory prefixes before paging without mutating the cache', async () => {
+  const cwd = process.cwd();
+  const sessionId = 'tidy-filtered-results';
+  const files = [
+    'src/runtime/a.js', 'src/runtime/b.js', 'src/runtime/c.js',
+    'src/runtime-more/no.js', 'apps/desktop/d.js',
+  ];
+  const matches = files.map((file, index) => ({
+    file, ruleId: index === 1 ? 'other' : 'no-debugger', severity: 'warning', message: 'debugger',
+    range: { start: { line: 1, column: 2 }, end: { line: 1, column: 10 }, byteOffset: [1, 9] },
+    fix: { byteOffset: [1, 9], text: '' },
+  }));
+  const diagnostics = matches.map(({ file, ruleId }) => ({
+    file, code: ruleId, line: 1, col: 2, severity: 'warning', message: 'debugger', fixable: false,
+  }));
+  const error = { language: 'kotlin', kind: 'rules', message: 'invalid rule' };
+  const cached = {
+    scope: ['.'],
+    languages: [{ id: 'javascript', files: 5 }],
+    languageSource: 'git',
+    engines: [{ id: 'eslint', kind: ['lint'] }],
+    policy: { downloads: 'ask' },
+    results: [{
+      id: 'eslint', filesChecked: 5, diagnostics, filesChanged: files,
+      counts: { diagnostics: 5, bySeverity: { warning: 5 } },
+    }],
+    structural: { matches, error, ruleErrors: [error] },
+  };
+  const original = structuredClone(cached);
+  rememberTidyRun(cwd, sessionId, cached);
+  const page = await executeTidyTool({
+    action: 'results', paths: [join(cwd, 'src/runtime')], rules: ['no-debugger'], limit: 1,
+  }, { cwd, sessionId });
+  const report = parseResult(page);
+  assert.equal(page.isError, undefined);
+  assert.equal(report.ok, true);
+  assert.equal(report.status, 'partial');
+  assert.deepEqual(report.structural.errors, [error]);
+  assert.deepEqual(report.scope, ['.'], 'filters do not replace the original scope');
+  for (const key of ['languages', 'languageSource', 'engines', 'missing', 'policy']) {
+    assert.equal(Object.hasOwn(report, key), false);
+  }
+  assert.equal(report.results[0].diagnosticsCount, 2);
+  assert.equal(report.results[0].more, 1);
+  assert.equal(report.results[0].nextOffset, 1);
+  assert.equal(report.results[0].diagnostics[0].loc, 'src/runtime/a.js:1:2');
+  assert.equal(report.counts.diagnostics, 5);
+  assert.equal(report.results[0].filesChangedCount, 3);
+  assert.deepEqual(report.results[0].byRule, { 'no-debugger': { count: 2, severity: 'warning', fixable: 0 } });
+  assert.deepEqual(report.results[0].byDir, { 'src/runtime': 2 });
+  assert.equal(report.structural.matchesCount, 2);
+  assert.equal(report.structural.more, 1);
+  assert.equal(report.structural.nextOffset, 1);
+  assert.deepEqual(report.structural.byRule, { 'no-debugger': { count: 2, severity: 'warning', fixable: 2 } });
+  assert.deepEqual(report.structural.byDir, { 'src/runtime': 2 });
+
+  const last = parseResult(await executeTidyTool({
+    action: 'results', paths: ['src\\runtime\\'], rules: ['no-debugger'], offset: 1, limit: 1,
+  }, { cwd, sessionId }));
+  assert.equal(last.results[0].diagnostics[0].loc, 'src/runtime/c.js:1:2');
+  assert.equal(last.results[0].more, 0);
+  assert.equal(last.results[0].nextOffset, undefined);
+  assert.equal(last.structural.matches[0].loc, 'src/runtime/c.js:1:2');
+  assert.equal(last.structural.more, 0);
+  assert.equal(last.structural.nextOffset, undefined);
+
+  const cases = [
+    { args: { rules: ['other'] }, count: 1 },
+    { args: { paths: ['src/runtime'] }, count: 3 },
+    { args: { rules: ['other', 'no-debugger'], paths: ['./src/runtime/', 'apps/desktop'] }, count: 4 },
+    { args: { paths: ['src/runtime/a.js'] }, count: 1 },
+    { args: { rules: ['missing'] }, count: 0 },
+    { args: { paths: ['.'] }, count: 5 },
+    { args: {}, count: 5 },
+  ];
+  for (const { args, count } of cases) {
+    const selected = parseResult(await executeTidyTool({ action: 'results', ...args }, { cwd, sessionId }));
+    assert.equal(selected.results[0].diagnosticsCount, count);
+    assert.equal(selected.structural.matchesCount, count);
+  }
+  assert.deepEqual(cached, original, 'projection and filtering must preserve full write payloads');
+  const escape = await executeTidyTool({ action: 'results', paths: ['../outside'] }, { cwd, sessionId });
+  assert.equal(escape.isError, true);
 });

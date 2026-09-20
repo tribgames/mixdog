@@ -7,5 +7,5 @@ rule:
   any:
     - kind: line_comment
       regex: '(?i)(?s).*\b(TODO|FIXME|XXX)\b.*'
-    - kind: block_comment
+    - kind: multiline_comment
       regex: '(?i)(?s).*\b(TODO|FIXME|XXX)\b.*'

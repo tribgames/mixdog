@@ -12,6 +12,8 @@ import {
 } from '../../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 import { isBackgroundTaskResponseArgs } from '../../runtime/shared/tool-card-model.mjs';
+import { parseBackgroundTaskResult } from '../../runtime/shared/tool-card-model/background-task.mjs';
+import { parseTaskNotification } from '../../runtime/shared/task-notification-envelope.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
 import {
   formatHookDenialDetail,
@@ -68,6 +70,8 @@ export const SKILL_SURFACE_NAMES = new Set(['skill', 'skill_execute', 'skill_vie
 function isAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
+  const notification = parseTaskNotification(value);
+  if (notification) return Boolean(notification.result);
   if (
     /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)
   )
@@ -83,28 +87,9 @@ function isBackgroundTaskToolName(normalizedName) {
 }
 
 function parseBackgroundTaskResultForRows(value) {
-  const text = String(value || '').trim();
-  if (!text) return null;
-  const allLines = text.split('\n');
-  const start = allLines.findIndex((line) => line.trim() === 'background task');
-  if (start < 0) return null;
-  const rest = allLines.slice(start + 1);
-  const blank = rest.findIndex((line) => !line.trim());
-  const headLines = blank >= 0 ? rest.slice(0, blank) : rest;
-  const body =
-    blank >= 0
-      ? rest
-          .slice(blank + 1)
-          .join('\n')
-          .trim()
-      : '';
-  const fields = {};
-  for (const line of headLines) {
-    const match = /^([a-zA-Z][\w-]*):\s*(.*)$/.exec(line.trim());
-    if (match) fields[match[1].toLowerCase()] = match[2].trim();
-  }
-  const status = String(fields.status || '').toLowerCase();
-  const error = String(fields.error || '').trim();
+  const parsed = parseBackgroundTaskResult(value);
+  if (!parsed) return null;
+  const { status, body, error } = parsed;
   const errorOnlyBody = isBackgroundErrorOnlyBody(body, error);
   return {
     status,

@@ -11,7 +11,7 @@ const TRIM_STEPS = [8, 3, 0];
 
 export function tidyToolResult(value, isError = false) {
   return {
-    content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+    content: [{ type: 'text', text: JSON.stringify(value) }],
     ...(isError || value?.ok === false ? { isError: true } : {}),
   };
 }
@@ -67,7 +67,47 @@ function rollupEngineCounts(results) {
   return any ? { diagnostics, filesToFormat, byFixability, bySeverity } : null;
 }
 
-function shapeEngineResult(result, diagnosticCap, offset = 0, filePaging = { cap: FILE_LIST_CAP, offset: 0 }) {
+function shapeDiagnostic(row) {
+  return {
+    loc: `${String(row.file || '').replaceAll('\\', '/')}:${row.range?.start?.line ?? row.line ?? 0}:${row.range?.start?.column ?? row.col ?? 0}`,
+    rule: row.ruleId ?? row.code ?? '',
+    severity: row.severity || 'warning',
+    message: row.message || '',
+    fix: Boolean(row.fixable ?? row.fix),
+  };
+}
+
+// Summarize the full selection, never the page or trimmed sample. fixable is a
+// count; severity is the highest severity when a rule has mixed severities.
+function summarizeDiagnostics(rows = [], includeRules = true) {
+  const byRule = new Map();
+  const byDir = new Map();
+  const severityRank = { error: 3, warning: 2, info: 1 };
+  for (const row of rows) {
+    const finding = shapeDiagnostic(row);
+    const dir = String(row.file || '').replaceAll('\\', '/').replace(/^\.\//, '')
+      .split('/').slice(0, -1).slice(0, 2).join('/') || '.';
+    byDir.set(dir, (byDir.get(dir) || 0) + 1);
+    if (!includeRules || !finding.rule) continue;
+    const tally = byRule.get(finding.rule) || { count: 0, severity: finding.severity, fixable: 0 };
+    tally.count += 1;
+    tally.fixable += Number(finding.fix);
+    if (severityRank[finding.severity] > severityRank[tally.severity]) tally.severity = finding.severity;
+    byRule.set(finding.rule, tally);
+  }
+  return { byRule: Object.fromEntries(byRule), byDir: Object.fromEntries(byDir) };
+}
+
+function structuralErrors(structural) {
+  const errors = [
+    ...(structural?.errors || []),
+    ...(structural?.ruleErrors || []),
+    ...(structural?.error ? [structural.error] : []),
+  ].map(({ language = '', kind, message }) => ({ language, kind, message }));
+  return [...new Map(errors.map((error) => [JSON.stringify(error), error])).values()];
+}
+
+function shapeEngineResult(result, summary, diagnosticCap, offset = 0, filePaging = { cap: FILE_LIST_CAP, offset: 0 }) {
   const diagnostics = pageList(result.diagnostics, offset, diagnosticCap);
   const changed = pageList(result.filesChanged, filePaging.offset, filePaging.cap);
   return {
@@ -78,9 +118,10 @@ function shapeEngineResult(result, diagnosticCap, offset = 0, filePaging = { cap
     filesChanged: changed.items,
     ...(changed.more ? { filesChangedMore: changed.more } : {}),
     filesChangedCount: (result.filesChanged || []).length,
-    diagnostics: diagnostics.items,
+    diagnostics: diagnostics.items.map(shapeDiagnostic),
     more: diagnostics.more,
     diagnosticsCount: (result.diagnostics || []).length,
+    ...summary,
     offset: diagnostics.offset,
     ...(diagnostics.more ? { nextOffset: diagnostics.offset + diagnostics.items.length } : {}),
     ...(result.dryRun ? { dryRun: true } : {}),
@@ -93,14 +134,15 @@ function shapeEngineResult(result, diagnosticCap, offset = 0, filePaging = { cap
   };
 }
 
-function shapeStructural(structural, diagnosticCap, offset = 0) {
+function shapeStructural(structural, summary, errors, diagnosticCap, offset = 0) {
   if (!structural) return null;
   const matches = pageList(structural.matches, offset, diagnosticCap);
   return {
     adapter: structural.adapter || 'none',
     ...(structural.packs ? { packs: structural.packs } : {}),
     matchesCount: (structural.matches || []).length,
-    matches: matches.items,
+    ...summary,
+    matches: matches.items.map(shapeDiagnostic),
     more: matches.more,
     offset: matches.offset,
     ...(matches.more ? { nextOffset: matches.offset + matches.items.length } : {}),
@@ -108,15 +150,15 @@ function shapeStructural(structural, diagnosticCap, offset = 0) {
     manual: (structural.matches || []).filter((match) => match?.manual).length,
     applied: structural.applied || [],
     ...(structural.rejected?.length ? { rejected: structural.rejected } : {}),
-    ...(structural.error ? { error: structural.error } : {}),
-    ...(structural.ruleErrors?.length > 1 ? { ruleErrors: structural.ruleErrors } : {}),
+    ...(errors.length ? { errors } : {}),
     ...(structural.note ? { note: structural.note } : {}),
   };
 }
 
 /**
  * Assemble the report and trim it until it fits the tool output budget.
- * Counts always survive trimming; only sample rows are dropped.
+ * Counts and rule/directory summaries always survive trimming; only sample
+ * rows are dropped. Cached rows and write payloads are never changed.
  */
 export function buildTidyReport({
   action,
@@ -143,11 +185,10 @@ export function buildTidyReport({
     .map((result) => result.note || `${result.id} output was truncated; split the scope and re-run`);
   const engineTruncated = (results || []).some((result) => result?.truncated);
   const startCap = Math.min(RESULTS_PAGE_MAX, Math.max(0, Math.trunc(Number(limit) || 0)));
-  const structuralFailed =
-    Boolean(structural?.error) || Boolean(structural?.ruleErrors?.length) || Boolean(structural?.rejected?.length);
+  const passErrors = structuralErrors(structural);
   const succeeded =
     Boolean(ok) &&
-    !structuralFailed &&
+    !structural?.rejected?.length &&
     !engineTruncated &&
     !errors.length &&
     !(results || []).some((result) => result?.error);
@@ -155,7 +196,7 @@ export function buildTidyReport({
     Boolean(structural?.applied?.length) ||
     (results || []).some((result) => !result.dryRun && result.filesChanged?.length && action === 'fix');
   let status = 'failed';
-  if (succeeded) status = 'complete';
+  if (succeeded) status = passErrors.length ? 'partial' : 'complete';
   else if (changed) status = 'partial';
   const parts = {
     ok: succeeded,
@@ -168,13 +209,26 @@ export function buildTidyReport({
     missing: engines.filter((engine) => engine.missing).map(shapeEngine),
     policy,
     results,
+    resultSummaries: (results || []).map((result) => {
+      const kind = engines.find((engine) => engine.id === result.id)?.kind;
+      return summarizeDiagnostics(result.diagnostics, !kind || kind.includes('lint'));
+    }),
     rolled: rollupEngineCounts(results),
     structural,
+    structuralSummary: summarizeDiagnostics(structural?.matches),
+    passErrors,
     rules,
     installed,
     needsApproval,
     errors,
-    notes: [...notes, ...truncationNotes],
+    notes: [
+      ...notes,
+      ...truncationNotes,
+      ...[...new Set(passErrors.map((error) => error.language || 'unknown language'))].map(
+        (language) => `${language} structural pass did not complete; see structural.errors`
+      ),
+      ...(passErrors.length ? ['structural apply blocked for the entire run; no structural fixes were written'] : []),
+    ],
     elapsedMs,
     pageOffset: Math.max(0, Math.trunc(Number(offset) || 0)),
   };
@@ -199,16 +253,21 @@ function composeTidyReport(parts, diagnosticCap) {
     status: parts.status,
     action,
     ...(parts.scope ? { scope: parts.scope } : {}),
-    languages: parts.languages,
-    ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
-    engines: parts.resolved,
-    ...(parts.missing.length ? { missing: parts.missing } : {}),
-    ...(parts.policy ? { policy: parts.policy } : {}),
+    ...(action === 'results' ? {} : {
+      languages: parts.languages,
+      ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
+      engines: parts.resolved,
+      ...(parts.missing.length ? { missing: parts.missing } : {}),
+      ...(parts.policy ? { policy: parts.policy } : {}),
+    }),
     ...(results
-      ? { results: results.map((result) => shapeEngineResult(result, diagnosticCap, pageOffset, resultFilePage)) }
+      ? { results: results.map((result, index) =>
+        shapeEngineResult(result, parts.resultSummaries[index], diagnosticCap, pageOffset, resultFilePage)) }
       : {}),
     ...(parts.rolled ? { counts: parts.rolled } : {}),
-    ...(structural ? { structural: shapeStructural(structural, diagnosticCap, pageOffset) } : {}),
+    ...(structural ? {
+      structural: shapeStructural(structural, parts.structuralSummary, parts.passErrors, diagnosticCap, pageOffset),
+    } : {}),
     ...(results || structural ? { paging: { offset: pageOffset, limit: diagnosticCap } } : {}),
     ...(parts.rules ? { rules: parts.rules } : {}),
     ...(parts.installed ? { installed: parts.installed } : {}),

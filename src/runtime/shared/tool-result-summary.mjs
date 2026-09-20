@@ -13,6 +13,8 @@ import {
   truncateSingleLine,
   truncateToolText,
 } from './tool-primitives.mjs';
+import { parseTaskNotification } from './task-notification-envelope.mjs';
+import { gitResultError, gitResultExitCode } from './tool-card-model/git-result.mjs';
 
 function countNonEmptyLines(text) {
   return String(text ?? '')
@@ -174,6 +176,8 @@ function stripInlineMarkdown(value) {
 }
 
 function firstAgentResultLine(text) {
+  const notification = parseTaskNotification(text);
+  if (notification) return firstAgentResultLine(notification.result);
   const finalAnswer = textBetweenTag(text, 'final-answer') || textBetweenTag(text, 'result');
   const raw = finalAnswer || text;
   for (const line of String(raw ?? '').split('\n')) {
@@ -355,6 +359,23 @@ function summarizeShellResult({ text, trimmed }) {
   return truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX);
 }
 
+function summarizeGitResult({ text, trimmed }) {
+  const exit = gitResultExitCode(text);
+  if (exit !== null) return `Exit ${exit}`;
+  const error = gitResultError(text);
+  if (error) return truncateSingleLine(error, AGENT_SURFACE_BRIEF_MAX);
+  if (!trimmed) return '(No Output)';
+  // Old transcript rows may still contain the previous result envelope.
+  if (trimmed.startsWith('{')) {
+    try {
+      const stored = JSON.parse(trimmed);
+      if (typeof stored.ok === 'boolean') return summarizeGenericResult(text);
+    } catch {}
+  }
+  const firstLine = text.split('\n').find((line) => line.trim() && !/^## .*git(?:\.exe)?(?:\s|$)/i.test(line));
+  return firstLine ? truncateSingleLine(firstLine, AGENT_SURFACE_BRIEF_MAX) : '(No Output)';
+}
+
 function summarizeCodeGraphResult({ text }) {
   const match = /(\d+)\s+(references|definitions|symbols|callers|callees|results|matches)/i.exec(text);
   if (match) return `${match[1]} ${String(match[2]).toLowerCase()}`;
@@ -467,6 +488,7 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
       (result) => summarizeLineCount(result, { zero: '0 entries', singular: 'entry', plural: 'entries' }),
     ],
     [['shell', 'bash', 'bash_session', 'shell_command', 'job_wait'], summarizeShellResult],
+    [['git'], summarizeGitResult],
     [['code_graph'], summarizeCodeGraphResult],
     [['web_fetch', 'fetch'], summarizeFetchResult],
     [['search_query', 'image_query', 'web_search', 'web_search_call'], summarizeSearchResult],
@@ -495,6 +517,12 @@ const TOOL_RESULT_SUMMARIZERS = new Map(
  * reliable can be derived, so the caller falls back to the raw result block.
  */
 export function summarizeToolResult(name, args, resultText, isError = false) {
+  const notification = parseTaskNotification(resultText);
+  if (notification) {
+    if (isError) return notification.error || notification.summary;
+    if (notification.surface === 'shell') return notification.summary;
+    return summarizeToolResult(name, args, notification.result, false);
+  }
   if (isError) {
     // Errors surface the extracted cause so the collapsed card answers "why"
     // without ctrl+o, instead of a raw first line or a bare "Failed".

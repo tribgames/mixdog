@@ -7,6 +7,6 @@ rule:
   any:
     - kind: line_comment
       regex: '(?i)(?s).*\b((extracted|moved|copied|lifted|split)\s+(verbatim\s+)?(from|out of)|moved(\s+here)?\s+from|behaviou?r-preserving\s+(move|extraction)|previously\s+(lived|defined)\s+in|was\s+previously\s+in|formerly)\b.*'
-    - kind: block_comment
+    - kind: multiline_comment
       regex: '(?i)(?s).*\b((extracted|moved|copied|lifted|split)\s+(verbatim\s+)?(from|out of)|moved(\s+here)?\s+from|behaviou?r-preserving\s+(move|extraction)|previously\s+(lived|defined)\s+in|was\s+previously\s+in|formerly)\b.*'
 fix: ""

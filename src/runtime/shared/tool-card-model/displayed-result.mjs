@@ -17,7 +17,9 @@ export function resolveDisplayedResult(base, { normalizedName, parsedArgs }) {
   const backgroundResultText = backgroundMeta?.hasResponse ? backgroundMeta.body : '';
   const displayedResultText = backgroundResultText || (errorOnlyResult ? '' : rt || '');
   const hasDisplayResult = Boolean(String(displayedResultText || '').trim());
-  const displayedResultBodyText = stripLeadingStatusMarkerFromText(displayedResultText);
+  const displayedResultBodyText = normalizedName === 'git'
+    ? displayedResultText
+    : stripLeadingStatusMarkerFromText(displayedResultText);
   const hasDisplayBody = Boolean(String(displayedResultBodyText || '').trim());
   const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
   const isBackgroundResult = !pending && isBackgroundTool && Boolean(backgroundMeta);
@@ -31,7 +33,9 @@ export function resolveDisplayedResult(base, { normalizedName, parsedArgs }) {
     hasDisplayBody,
     totalLines: lines.length,
     resultSummary:
-      !pending && hasDisplayBody ? summarizeToolResult(name, args, displayedResultBodyText, isError) : null,
+      !pending && (hasDisplayBody || normalizedName === 'git')
+        ? summarizeToolResult(name, args, displayedResultBodyText, isError)
+        : null,
     firstResultLine: hasDisplayResult ? String(lines[0] ?? '') : '',
     isBackgroundResult,
     isBackgroundResponse,

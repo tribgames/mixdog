@@ -98,13 +98,14 @@ export async function symbols(ctx) {
 }
 
 export async function findSymbol(ctx) {
-  const { args, cwd, signal, graph, rel, node, scopeRelPrefix } = ctx;
+  const { args, cwd, defaultCwd, signal, graph, rel, node, scopeRelPrefix } = ctx;
   const symbol = requiredSymbol('find_symbol', args);
   const language = languageArg(args);
   const limit = Math.max(1, Math.min(50, Number(args?.limit || 20)));
   if (rel && !node) return fileNotFound('find_symbol', ctx);
   if (args?.body !== false) await prewarmPrimaryDeclaration(graph, symbol, language, signal);
   return _findSymbolAcrossGraph(graph, symbol, cwd, {
+    defaultCwd,
     language,
     limit,
     fileRel: rel,

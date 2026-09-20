@@ -155,9 +155,6 @@ function shellJobFailureCause(detail) {
 }
 
 export function buildShellCompletion(jobId, detail) {
-  const startedAtMs = Date.parse(detail?.startedAt || '');
-  const finishedAtMs = Date.parse(detail?.finishedAt || '') || Date.now();
-  const elapsedMs = Number.isFinite(startedAtMs) ? Math.max(0, finishedAtMs - startedAtMs) : null;
   const exitCode = typeof detail?.exitCode === 'number' ? detail.exitCode : null;
   const status = detail?.status || 'unknown';
   const taskStatus = shellJobTaskStatus(detail);
@@ -167,14 +164,15 @@ export function buildShellCompletion(jobId, detail) {
   const reported = failureCause && !detail?.error ? { ...detail, error: failureCause } : detail;
   const body = renderShellCompletionEnvelope({
     jobId,
-    status,
+    status: taskStatus,
     exitCode,
-    elapsedMs,
     command: detail?.command,
     summary: detail?.summary || failureCause || null,
     stdoutPreview: detail?.stdoutPreview,
     stderrPreview: detail?.stderrPreview,
     mergeStderr: detail?.mergeStderr,
+    outputFile: detail?.stdoutPath,
+    error: failureCause,
   });
   return {
     taskStatus,
@@ -332,14 +330,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         instruction: completion.instruction,
         context: ctx || { callerSessionId: owner },
         enqueueFallback: (sessionId, message, meta) => {
-          let visible = modelVisibleToolCompletionMessage(message, meta);
-          // Bodyless envelopes (a finished command with no output)
-          // fail the persistence gate's result-body requirement;
-          // retry with an explicit "(no output)" section rather
-          // than dropping the completion.
-          if (!visible && !/\n\s*\n/.test(String(message || ''))) {
-            visible = modelVisibleToolCompletionMessage(`${message}\n\n(no output)`, meta);
-          }
+          const visible = modelVisibleToolCompletionMessage(message, meta);
           if (!visible) return false;
           return (
             enqueuePendingMessage(
@@ -481,10 +472,7 @@ export async function reconcileRecoveredShellJobCompletions() {
         surface: 'shell',
         id: record.jobId,
         status: completion.taskStatus,
-        // The pending-queue persistence gate requires a blank-line
-        // separated result body; a bodyless bracketed envelope would
-        // be dropped. The restart notice IS the result here.
-        text: `${completion.body}\n\n${detail.error}`,
+        text: completion.body,
         resultType: 'shell_task_result',
         instruction: completion.instruction,
         context: { callerSessionId: owner },

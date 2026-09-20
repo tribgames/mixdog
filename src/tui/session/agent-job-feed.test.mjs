@@ -10,6 +10,7 @@ import { agentArgsWithResultMetadata, agentJobResultText, parseAgentJob } from '
 import { toolErrorDisplay } from './tool-result-text.mjs';
 import { sleep } from '../../runtime/shared/sleep.mjs';
 import { _clearDeliveredCompletions } from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
+import { renderAgentCompletionEnvelope } from '../../runtime/shared/task-notification-envelope.mjs';
 
 function makeHarness({ busy = false } = {}) {
   const calls = [];
@@ -68,7 +69,9 @@ function makeHarness({ busy = false } = {}) {
 }
 
 function completionEvent(executionId, body, status = 'completed') {
-  const text = `agent task: ${executionId}\nstatus: ${status}${body ? `\n\n${body}` : ''}`;
+  const text = body
+    ? renderAgentCompletionEnvelope({ id: executionId, status, result: body })
+    : `agent task: ${executionId}\nstatus: ${status}`;
   return {
     text,
     event: { content: text, meta: { execution_id: executionId, status, execution_surface: 'agent' } },
@@ -203,6 +206,7 @@ test('a plain notification is enqueued as a later task notification; a disposed 
 test('an execution completion pushes one response card, enqueues the model-visible twin once and acks delivery', async () => {
   const h = makeHarness();
   const { text, event } = completionEvent('exec-100', 'Done: reviewed 3 files.');
+  event.meta.type = 'agent_task_result';
   const delivery = resolveTuiRuntimeNotificationDelivery(event, text);
   assert.equal(delivery.action, 'execution-ui');
   assert.ok(delivery.modelContent);
@@ -223,6 +227,7 @@ test('an execution completion pushes one response card, enqueues the model-visib
       delivery.modelContent,
       {
         mode: 'task-notification',
+        execution: { surface: 'agent', id: 'exec-100', status: 'completed', resultType: 'agent_task_result' },
         priority: 'next',
         key: notificationQueueKey(event, text, parseAgentJob(text)),
         abortDiscardOnAbort: true,

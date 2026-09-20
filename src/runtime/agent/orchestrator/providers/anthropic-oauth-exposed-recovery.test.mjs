@@ -6,11 +6,7 @@ import test from 'node:test';
 
 import { classifyError } from './retry-classifier.mjs';
 import { EFFORT_CONFIGURATION_BETA, prepareTurnEffortConfiguration } from './effort-configuration.mjs';
-import { TURN_SCOPED_SYSTEM_BETA_HEADER } from './anthropic-betas.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
-
-const ROUND_REMINDER =
-  "First privately list what you need next; then request every item that doesn't depend on another's result in this one response.";
 
 function restoreEnv(name, value) {
   if (value === undefined) delete process.env[name];
@@ -227,7 +223,7 @@ test('non-streaming recovery preserves the effort beta on the actual HTTP reques
   });
 });
 
-test('Fable carries scoped-reminder headers and replay context through every response path', async () => {
+test('Fable preserves replay blocks and request bodies through every response path', async () => {
   await withProvider(async (provider) => {
     const previousFetch = globalThis.fetch;
     const model = 'claude-fable-5-1';
@@ -261,7 +257,6 @@ test('Fable carries scoped-reminder headers and replay context through every res
         };
         const send = () =>
           provider.send(history, model, [], {
-            roundReminder: ROUND_REMINDER,
             onTextReset: async () => true,
             _parseSSEFn: async (...args) => {
               if (transport === 'non-streaming') return exposedThenTerminated(args);
@@ -286,20 +281,9 @@ test('Fable carries scoped-reminder headers and replay context through every res
         } else {
           replay = (await send()).providerReplay;
         }
-        assert.deepEqual(
-          replay.requestContext.turnReminder,
-          {
-            version: 2,
-            toolResultIds: ['toolu_before'],
-            text: ROUND_REMINDER,
-          },
-          transport
-        );
         assert.deepEqual(replay.items, blocks, transport);
         assert.equal(requests.length, transport === 'non-streaming' ? 2 : 1);
         for (const request of requests) {
-          assert.equal(request.body.messages.at(-1).clear_at, 'next_user_message');
-          assert.equal(request.beta.split(',').filter((beta) => beta === TURN_SCOPED_SYSTEM_BETA_HEADER).length, 1);
           assert.deepEqual(request.body.messages, requests[0].body.messages);
           assert.equal(request.beta, requests[0].beta);
         }

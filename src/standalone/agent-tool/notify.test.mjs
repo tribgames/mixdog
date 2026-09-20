@@ -23,7 +23,7 @@ test('Subagent tool completion stays in the worker session', () => {
 
   const delivered = workerNotifyFn('sess_worker', {
     callerSessionId: 'sess_lead',
-  })('Async shell task job_test (completed, exit 0) finished.\n\nresult', {
+  })('<task-notification>\n<task-id>job_test</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nresult\n</result>\n</task-notification>', {
     type: 'shell_task_result',
     execution_surface: 'shell',
     execution_id: 'job_test',

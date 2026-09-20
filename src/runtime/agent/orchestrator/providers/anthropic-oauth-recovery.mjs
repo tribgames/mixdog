@@ -13,7 +13,6 @@ import {
 } from './retry-classifier.mjs';
 import { cloneAnthropicEffortBody } from './effort-configuration.mjs';
 import { normalizeAnthropicNonStreamingResponse } from './lib/anthropic-request-utils.mjs';
-import { withTurnReminderContext } from './anthropic-turn-reminder.mjs';
 
 /**
  * @param {object} deps
@@ -127,9 +126,7 @@ export function createAnthropicOAuthRecovery({
         throw fallbackError;
       }
       const message = await fallback.response.json();
-      const result = normalizeAnthropicNonStreamingResponse(message, useModel);
-      result.providerReplay = withTurnReminderContext(result.providerReplay, body);
-      return result;
+      return normalizeAnthropicNonStreamingResponse(message, useModel);
     } catch (err) {
       const failure = lifetime.signal.aborted && lifetime.signal.reason instanceof Error ? lifetime.signal.reason : err;
       if (failure instanceof AnthropicFallbackTriggeredError || totalSignal?.aborted) throw failure;

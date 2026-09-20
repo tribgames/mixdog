@@ -1,6 +1,7 @@
 import { splitGrepLinePrefix } from '../grep-formatting.mjs';
 
-const GREP_RESULT_LINE_SKIP = /^\[(?:Showing|total|pattern set|capped|warning|redirected|regex parse)/;
+const GREP_PAGING_LINE = /^\[\d+(?: of \d+)? shown(?:[,;])/;
+const GREP_RESULT_LINE_SKIP = /^\[(?:total|pattern set|capped|warning|redirected|regex parse)/;
 const GREP_CHUNK_AGGREGATE_FLOOR = 200;
 const GREP_CHUNK_AGGREGATE_DEFAULT = 800;
 const GREP_CHUNK_AGGREGATE_MAX = 4000;
@@ -154,9 +155,9 @@ export function extractGrepChunkResultLines(body, room = Infinity) {
   if (!text || /^Error:/i.test(text)) return { error: text || 'Error: empty grep chunk result' };
   if (/^\(no matches\)/i.test(text)) return { lines: [], truncated: false };
   const rawLines = text.split('\n');
-  const childShowingTruncated = rawLines.some((line) => /^\[Showing /i.test(String(line || '').trim()));
-  const lines = rawLines.filter((line) => line && !GREP_RESULT_LINE_SKIP.test(line));
-  const truncated = childShowingTruncated || (Number.isFinite(room) && room >= 0 && lines.length >= room);
+  const childTruncated = rawLines.some((line) => GREP_PAGING_LINE.test(line.trim()) && !/ past end\]$/.test(line));
+  const lines = rawLines.filter((line) => line && !GREP_RESULT_LINE_SKIP.test(line) && !GREP_PAGING_LINE.test(line));
+  const truncated = childTruncated || (Number.isFinite(room) && room >= 0 && lines.length >= room);
   return { lines, truncated };
 }
 

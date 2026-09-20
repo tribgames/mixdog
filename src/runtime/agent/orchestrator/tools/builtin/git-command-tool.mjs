@@ -11,7 +11,6 @@ import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
 import {
   commandHasShellSyntax,
-  gitActionOf as actionOf,
   gitPlanIsReadOnly as isReadOnly,
 } from './git-command-policy.mjs';
 import {
@@ -65,14 +64,6 @@ const OPERATION_ALIASES = new Map([
   ['--help', 'help'],
   ['-h', 'help'],
 ]);
-const PUSH_NOISE = [
-  'Enumerating objects:',
-  'Counting objects:',
-  'Compressing objects:',
-  'Writing objects:',
-  'Delta compression using',
-  'Total ',
-];
 
 export const GIT_TOOL_DEF = {
   name: 'git',
@@ -86,7 +77,7 @@ export const GIT_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. Output is compacted.',
+    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. Returns Git text; bare unstaged diff adds change IDs and a diff_id for git_stage.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -102,7 +93,7 @@ export const GIT_TOOL_DEF = {
         type: 'integer',
         minimum: 1,
         maximum: GIT_OUTPUT_LIMIT_MAX,
-        description: 'Item/line cap. Default 50; git log defaults to 10.',
+        description: 'Line cap. Default 50; git log defaults to 10.',
       },
     },
     required: ['command'],
@@ -149,26 +140,6 @@ function cleanText(value) {
     .trimEnd();
 }
 
-function truncateLine(value, max = 2000) {
-  const line = String(value || '');
-  return line.length <= max ? line : `${line.slice(0, max)}…[${line.length - max} chars omitted]`;
-}
-
-function cappedLines(value, max = 50, skip = () => false) {
-  const rows = cleanText(value)
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => line && !skip(line));
-  return { lines: rows.slice(0, max).map((line) => truncateLine(line)), omitted: Math.max(0, rows.length - max) };
-}
-
-function compactOrRaw(raw, compact) {
-  const output = cleanText(raw);
-  if (!output) return compact;
-  const fallback = { output };
-  return JSON.stringify(compact).length < JSON.stringify(fallback).length ? compact : fallback;
-}
-
 function ok(data = {}) {
   return JSON.stringify({
     ok: true,
@@ -176,31 +147,72 @@ function ok(data = {}) {
   });
 }
 
-function fail(message, detail = null) {
-  return `Error: ${message}${detail ? `\n${JSON.stringify({ ok: false, ...detail })}` : ''}`;
+function fail(message) {
+  return `error: ${message}`;
 }
 
-// git redraws progress ("Updating files: 7% (3441/49152)") by overwriting one
-// line with bare CR. Keeping every frame let a failed clone/worktree bury its
-// fatal line under thousands of intermediate frames — the stored failure row
-// held 1.2 KB of progress and no reason at all. Keep the final frame per line.
-function foldProgressFrames(value) {
-  return String(value || '')
-    .replace(/\r\n/g, '\n')
-    .split('\n')
-    .map((line) => (line.includes('\r') ? ([...line.split('\r')].reverse().find((frame) => frame !== '') ?? '') : line))
-    .join('\n');
+function rejected(message) {
+  return { text: fail(message), failed: true };
 }
 
-// Failure detail is tail-biased on purpose: git prints its fatal/error line
-// last, so a head-capped preview would drop the only line that explains why.
-function failureText(value, max) {
-  const rows = foldProgressFrames(value)
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter(Boolean);
-  const kept = rows.slice(-max).map((line) => truncateLine(line));
-  return rows.length > max ? `…[${rows.length - max} earlier lines omitted]\n${kept.join('\n')}` : kept.join('\n');
+function appendText(left, right) {
+  if (!right) return left;
+  return `${left}${left && !left.endsWith('\n') ? '\n' : ''}${right}`;
+}
+
+function outputLines(value) {
+  return String(value || '').match(/[^\n]*\n|[^\n]+$/g) || [];
+}
+
+function capOutput(text, limit) {
+  const lines = outputLines(text);
+  if (lines.length <= limit) return text;
+  return appendText(
+    lines.slice(0, limit).join(''),
+    `... [${lines.length - limit} more lines omitted; raise output_limit or narrow the command]`
+  );
+}
+
+function commandResult(plan, result, limit) {
+  const output = capOutput(appendText(String(result.stdout || ''), String(result.stderr || '')), limit);
+  if (succeeded(result)) return { text: output, failed: false };
+  const processError = result.error || result.timedOut || result.aborted || result.overflow || result.exitCode == null;
+  return {
+    text: appendText(processError ? fail(gitFailureReason(plan, result)) : `exit ${result.exitCode}`, output),
+    failed: true,
+  };
+}
+
+function stageableDiffResult(plan, result, snapshot, limit) {
+  if (!snapshot.diffId) return commandResult(plan, result, limit);
+  let path = '';
+  let shown = 0;
+  const changes = snapshot.changes.slice(0, limit);
+  const lines = outputLines(result.stdout).map((line, index) => {
+    if (line.startsWith('diff --git ')) {
+      const header = line.replace(/\r?\n$/, '');
+      const marker = header.indexOf(' b/');
+      path = marker >= 0 ? header.slice(marker + 3).replace(/^"|"$/g, '') : header.replace(/^diff --git\s+/, '');
+    }
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    if (!hunk || index >= limit) return line;
+    const oldStart = Number(hunk[1]);
+    const newStart = Number(hunk[3]);
+    const ids = changes.filter((change) =>
+      change.path === path &&
+      change.old_start >= oldStart && change.old_start <= oldStart + Number(hunk[2] ?? 1) &&
+      change.new_start >= newStart && change.new_start <= newStart + Number(hunk[4] ?? 1)
+    );
+    shown += ids.length;
+    // A snapshot ID denotes an edit group, so one Git hunk can carry several
+    // IDs, in patch order. Keep Git's context and body unchanged.
+    return line.replace(/(\r?\n)?$/, `${ids.map((change) => ` # change:${change.id}`).join('')}$1`);
+  });
+  const rendered = commandResult(plan, { ...result, stdout: lines.join('') }, limit);
+  rendered.text = appendText(rendered.text, `diff_id: ${snapshot.diffId}`);
+  const omitted = snapshot.changes.length - shown;
+  if (omitted) rendered.text = appendText(rendered.text, `… [${omitted} more changes omitted]`);
+  return rendered;
 }
 
 // A provider sometimes delivers the whole command as one quoted scalar
@@ -408,249 +420,27 @@ function gitFailureReason(plan, result) {
   return `git ${plan.operation} exited ${result.exitCode}`;
 }
 
-// Progress chatter each operation prints that carries no outcome.
-const OUTPUT_NOISE_BY_OPERATION = {
-  push: (line) => PUSH_NOISE.some((prefix) => line.trimStart().startsWith(prefix)),
-  clone: (line) => /^(Cloning into|remote:|Receiving objects:|Resolving deltas:)/.test(line.trimStart()),
-  init: (line) => line.trimStart().startsWith('hint:'),
-};
-
 function commandFailure(plan, result, limit = 50) {
-  // ENOENT from the spawn itself is a capability fact, not a git error: the
-  // executable is absent. Naming it stops the caller from re-running git a
-  // different way to find out.
-  const reason = gitFailureReason(plan, result);
-  // Bounded like every success path: an unbounded failure dump from a large
-  // repository cost far more context than the diagnosis it carried.
-  const max = Math.min(Math.max(limit, 20), 40);
-  const detail = {
-    exit: result.exitCode,
-    signal: result.signal,
-    stderr: failureText(result.stderr, max),
-    stdout: failureText(result.stdout, max),
-  };
-  // Exit 128 is git's state/precondition verdict (identity unset, bare
-  // repository, dubious ownership, missing ref) and stderr carries git's
-  // own explanation — the ANSWER the caller acts on next. The error
-  // envelope pushed callers into shell fallbacks for ordinary repository
-  // state. Spawn errors, timeouts, aborts, overflow and usage exits (129)
-  // keep failure semantics.
-  if (result.exitCode === 128 && !result.error && !result.timedOut && !result.aborted && !result.overflow) {
-    return JSON.stringify({ ok: false, reason, ...detail });
-  }
-  return fail(reason, detail);
-}
-
-// Non-zero exits that ARE the answer rather than a failure: git reports
-// "no match" / "differences exist" / "problems found" through the exit code
-// while the command itself ran correctly. Reporting them as errors made the
-// caller re-run the same probe another way.
-function semanticExit(plan, result) {
-  if (result.error || result.timedOut || result.aborted || result.overflow) return null;
-  const { operation, args } = plan;
-  if (operation === 'grep') {
-    if (result.exitCode === 0) return { matched: true };
-    return result.exitCode === 1 ? { matched: false } : null;
-  }
-  // `cat-file -e` is an existence probe: exit 1 IS the answer ("no such
-  // object"), which is the normal result after a history rewrite removed a
-  // blob. Reporting it as an error sent the caller looking for the same fact
-  // another way.
-  if (operation === 'cat-file' && args.includes('-e')) {
-    if (result.exitCode === 0) return { exists: true };
-    return result.exitCode === 1 || result.exitCode === 128 ? { exists: false } : null;
-  }
-  if (operation === 'reflog' && actionOf(operation, args) === 'exists') {
-    if (result.exitCode === 0) return { exists: true };
-    return result.exitCode === 1 ? { exists: false } : null;
-  }
-  if (
-    (operation === 'show-ref' && args.includes('--verify') && args.includes('--quiet')) ||
-    (operation === 'rev-parse' && args.includes('--verify') && args.includes('--quiet'))
-  ) {
-    if (result.exitCode === 0) return { exists: true };
-    return result.exitCode === 1 ? { exists: false } : null;
-  }
-  if (operation === 'merge-base' && args.includes('--is-ancestor')) {
-    if (result.exitCode === 0) return { ancestor: true };
-    return result.exitCode === 1 ? { ancestor: false } : null;
-  }
-  if (!['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) return null;
-  if (args.includes('--check')) {
-    if (result.exitCode === 0) return { problems: false };
-    return result.exitCode === 1 || result.exitCode === 2 ? { problems: true } : null;
-  }
-  if (args.some((value) => value === '--exit-code' || value === '--quiet' || value === '--no-index')) {
-    if (result.exitCode === 0) return { changed: false };
-    return result.exitCode === 1 ? { changed: true } : null;
-  }
-  return null;
-}
-
-// "There is no repository here" is the ANSWER to a read-only repository
-// question, not a failure of the tool that asked it. Reported as an error it
-// sent the caller looking for the same fact another way: one measured run
-// repeated status/diff nine times across three directories before accepting
-// it. Mutations keep failing — a merge cannot succeed without a repository.
-function notARepository(result) {
-  if (!result || result.error || result.timedOut || result.aborted || result.overflow) return false;
-  if (result.exitCode !== 128) return false;
-  return /not a git repository|must be run in a work tree/i.test(String(result.stderr || ''));
-}
-
-// Merge-family conflicts are git's documented outcome for exit 1: the command
-// ran correctly and the conflicting paths ARE the result the caller needs.
-// Wrapping them in a failure envelope hid that list behind "git merge exited 1".
-const CONFLICT_OPERATIONS = new Set(['am', 'apply', 'cherry-pick', 'merge', 'rebase', 'revert', 'stash']);
-
-function conflictOutcome(plan, result) {
-  if (!CONFLICT_OPERATIONS.has(plan.operation)) return null;
-  if (!result || result.error || result.timedOut || result.aborted || result.overflow) return null;
-  if (result.exitCode !== 1) return null;
-  const text = `${String(result.stdout || '')}\n${String(result.stderr || '')}`;
-  if (!/CONFLICT \(|Automatic merge failed|could not apply|needs merge/i.test(text)) return null;
-  const paths = [...text.matchAll(/^CONFLICT \([^)]*\): Merge conflict in (.+)$/gm)]
-    .map((match) => match[1].trim())
-    .filter(Boolean);
-  return {
-    summary: 'conflicts require resolution',
-    conflicted: true,
-    ...(paths.length ? { conflicts: [...new Set(paths)] } : {}),
-  };
+  return commandResult(plan, result, limit).text;
 }
 
 function runGit(plan, argv, options = {}) {
   return runProcess('git', [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal });
 }
 
-function hasOutputFormat(args) {
-  return args.some((value) => /^(?:--format|--pretty)(?:=|$)/.test(value) || value === '--oneline');
-}
-
-function hasPatchOutput(args) {
-  return args.some(
-    (value) =>
-      ['-p', '-u', '--patch', '--binary'].includes(value) ||
-      /^-U\d*$/.test(value) ||
-      /^--(?:patch|unified|word-diff|color-words)(?:=|$)/.test(value)
-  );
-}
-
-function needsTextDiffOutput(args) {
-  return args.some(
-    (value) =>
-      [
-        '-s',
-        '--no-patch',
-        '--raw',
-        '--patch-with-raw',
-        '--patch-with-stat',
-        '--numstat',
-        '--shortstat',
-        '--summary',
-        '--compact-summary',
-        '--name-only',
-        '--name-status',
-        '--check',
-        '--cumulative',
-        '--no-prefix',
-        '--default-prefix',
-      ].includes(value) ||
-      /^--(?:stat|dirstat|dirstat-by-file)(?:-|=|$)/.test(value) ||
-      /^--(?:line-prefix|src-prefix|dst-prefix|output-indicator-(?:new|old|context))(?:=|$)/.test(value) ||
-      /^--submodule(?:=|$)/.test(value) ||
-      /^--(?:word-diff|color-words)(?:=|$)/.test(value)
-  );
-}
-
-function hasDiffPresentation(args) {
-  return hasPatchOutput(args) || needsTextDiffOutput(args);
-}
-
-function hasSpecialHistoryPresentation(args) {
-  return (
-    hasDiffPresentation(args) ||
-    args.some(
-      (value) =>
-        [
-          '-g',
-          '--graph',
-          '--source',
-          '--show-signature',
-          '--show-notes',
-          '--notes',
-          '--no-notes',
-          '--walk-reflogs',
-          '--left-right',
-          '--cherry-mark',
-          '--boundary',
-          '--parents',
-          '--children',
-        ].includes(value) ||
-        /^--(?:decorate|decorate-refs|decorate-refs-exclude|show-notes|notes|date)(?:=|$)/.test(value)
-    )
-  );
-}
-
-function hasLogLimit(args) {
-  return args.some(
-    (value) =>
-      /^-(?:n)?\d+$/.test(value) || value === '-n' || value === '--max-count' || value.startsWith('--max-count=')
-  );
-}
-
-function prepare(plan, limit) {
+function prepare(plan) {
   const args = [...plan.args];
   const operation = plan.operation;
   if (
     operation === 'status' &&
     args.every((value) => ['-s', '--short', '-b', '--branch', '-sb', '-bs'].includes(value))
   ) {
-    return { argv: ['status', '--porcelain=v1', '-b', '--untracked-files=normal'], format: 'status', action: 'list' };
+    return { argv: ['status', '--short', '--branch'] };
   }
   if (['diff', 'diff-files', 'diff-index', 'diff-tree'].includes(operation)) {
-    // Plumbing diff commands default to raw records, and presentation flags
-    // can replace or prefix patch markers. Only compact a standard patch.
-    const patch = !needsTextDiffOutput(args) && (operation === 'diff' || hasPatchOutput(args));
-    const format = patch ? 'diff' : 'text';
-    return { argv: [operation, '--no-ext-diff', '--no-color', ...args], format, action: 'list' };
+    return { argv: [operation, '--no-ext-diff', '--no-color', ...args] };
   }
-  if (operation === 'log') {
-    const limitArgs = hasLogLimit(args) ? [] : [`-n${limit}`];
-    if (!hasOutputFormat(args) && !hasSpecialHistoryPresentation(args)) {
-      return {
-        argv: ['log', ...limitArgs, '--date=iso-strict', '--format=%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%b%x1e', ...args],
-        format: 'log',
-        action: 'list',
-      };
-    }
-    return { argv: ['log', ...limitArgs, '--no-color', ...args], format: 'text', action: 'list' };
-  }
-  if (operation === 'for-each-ref' && !args.some((value) => value.startsWith('--format'))) {
-    return {
-      argv: [
-        'for-each-ref',
-        '--format=%(refname)%00%(objectname)%00%(objecttype)%00%(upstream:short)%00%(subject)',
-        ...args,
-      ],
-      format: 'refs',
-      action: 'list',
-    };
-  }
-  if (operation === 'reflog' && isReadOnly(plan) && actionOf(operation, args) === 'show') {
-    const action = actionOf(operation, args);
-    const rest = action === 'show' && args[0] === 'show' ? args.slice(1) : args;
-    const limitArgs = hasLogLimit(rest) ? [] : [`-n${limit}`];
-    if (rest.some((value) => value.startsWith('--format'))) {
-      return { argv: ['reflog', 'show', ...limitArgs, ...rest], format: 'text', action: 'show' };
-    }
-    return {
-      argv: ['reflog', 'show', ...limitArgs, '--date=iso-strict', '--format=%gD%x00%H%x00%gs', ...rest],
-      format: 'reflog',
-      action: 'show',
-    };
-  }
-  return { argv: [operation, ...args], format: operation, action: actionOf(operation, args), raw: true };
+  return { argv: [operation, ...args] };
 }
 
 function parseStatus(text) {
@@ -699,211 +489,6 @@ function statusDelta(before, after, limit) {
     after: statusSummary(after),
     changed: changed.slice(0, limit),
     omitted: Math.max(0, changed.length - limit),
-  };
-}
-
-function compactDiff(raw, limit) {
-  const shown = [],
-    files = [];
-  let additions = 0,
-    deletions = 0,
-    omitted = 0,
-    inHunk = false,
-    hunkLines = 0;
-  const push = (line) => (shown.length < limit ? shown.push(truncateLine(line)) : omitted++);
-  for (const line of cleanText(raw).split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      const path = line.split(' b/')[1] || line.slice(11);
-      if (!files.includes(path)) files.push(path);
-      push(`file ${path}`);
-      inHunk = false;
-      hunkLines = 0;
-      continue;
-    }
-    if (line.startsWith('@@')) {
-      push(line);
-      inHunk = true;
-      hunkLines = 0;
-      continue;
-    }
-    if (
-      /^(Binary files |GIT binary patch|new file mode |deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to )/.test(
-        line
-      )
-    ) {
-      push(line);
-      continue;
-    }
-    if (!inHunk || line.startsWith('\\')) continue;
-    if (line.startsWith('+') && !line.startsWith('+++')) additions++;
-    else if (line.startsWith('-') && !line.startsWith('---')) deletions++;
-    if (hunkLines++ < 100) push(line);
-    else omitted++;
-  }
-  return {
-    files,
-    additions,
-    deletions,
-    patch: shown.join('\n'),
-    truncated: omitted > 0,
-    ...(omitted ? { omittedLines: omitted } : {}),
-  };
-}
-
-function parseWorktrees(text, limit) {
-  const rows = [];
-  for (const block of cleanText(text).split(/\n\n+/)) {
-    if (!block.trim()) continue;
-    const row = {};
-    for (const line of block.split('\n')) {
-      const [key, ...rest] = line.split(' ');
-      const value = rest.join(' ');
-      if (key === 'worktree') row.path = resolve(value);
-      else if (key === 'HEAD') row.oid = value;
-      else if (key === 'branch') row.branch = value.replace(/^refs\/heads\//, '');
-      else if (['detached', 'bare', 'locked', 'prunable'].includes(key)) row[key] = value || true;
-    }
-    rows.push(row);
-  }
-  return { worktrees: rows.slice(0, limit), omitted: Math.max(0, rows.length - limit) };
-}
-
-function formatRead(prepared, stdout, stderr, limit) {
-  const { format, action, raw } = prepared;
-  let data;
-  if (format === 'status' && !raw) {
-    const snapshot = parseStatus(stdout);
-    data = {
-      ...statusSummary(snapshot),
-      changes: snapshot.changes.slice(0, limit),
-      omitted: Math.max(0, snapshot.changes.length - limit),
-    };
-  } else if (format === 'diff') {
-    data = compactOrRaw(stdout, compactDiff(stdout, limit));
-  } else if (format === 'log' && !raw) {
-    const commits = cleanText(stdout)
-      .split('\x1e')
-      .map((row) => row.trim())
-      .filter(Boolean)
-      .map((row) => {
-        const [oid, short, author, date, subject, body = ''] = row.split('\x1f');
-        const bodyLines = body
-          .split('\n')
-          .map((line) => line.trim())
-          .filter((line) => line && !/^(Signed-off-by|Co-authored-by):/i.test(line));
-        return {
-          oid,
-          short,
-          author,
-          date,
-          subject: truncateLine(subject, 240),
-          ...(bodyLines.length
-            ? {
-                body: bodyLines.slice(0, 3).map((line) => truncateLine(line, 240)),
-                omittedBodyLines: Math.max(0, bodyLines.length - 3),
-              }
-            : {}),
-        };
-      });
-    data = { commits };
-  } else if (format === 'refs' && !raw) {
-    const refs = cleanText(stdout)
-      .split('\n')
-      .filter(Boolean)
-      .slice(0, limit)
-      .map((line) => {
-        const [name, oid, type, upstream, subject] = line.split('\0');
-        return { name, oid, type, upstream: upstream || null, subject: truncateLine(subject, 240) };
-      });
-    data = { refs, omitted: Math.max(0, cleanText(stdout).split('\n').filter(Boolean).length - refs.length) };
-  } else if (format === 'reflog' && !raw) {
-    const entries = cleanText(stdout)
-      .split('\n')
-      .filter(Boolean)
-      .slice(0, limit)
-      .map((line) => {
-        const [selector, oid, subject] = line.split('\0');
-        return { selector, oid, subject: truncateLine(subject, 240) };
-      });
-    data = { entries };
-  } else if (format === 'branch') {
-    const rows = cappedLines(stdout, limit);
-    data = compactOrRaw(stdout, {
-      branches: rows.lines.map((line) => ({
-        current: line.startsWith('* '),
-        linked: line.startsWith('+ '),
-        name: line.replace(/^[*+ ]+/, ''),
-      })),
-      omitted: rows.omitted,
-    });
-  } else if (format === 'stash' && action === 'list') {
-    const rows = cappedLines(stdout, limit);
-    data = compactOrRaw(stdout, { stashes: rows.lines, omitted: rows.omitted });
-  } else if (format === 'worktree' && action === 'list') {
-    data = compactOrRaw(stdout, parseWorktrees(stdout, limit));
-  } else if (format === 'remote' && (action === 'list' || action === '-v')) {
-    const remotes = {};
-    for (const line of cleanText(stdout).split('\n')) {
-      const [name, url, kind] = line.split(/\s+/);
-      if (!name || !url) continue;
-      remotes[name] ||= {};
-      remotes[name][kind === '(push)' ? 'push' : 'fetch'] = url;
-    }
-    data = compactOrRaw(stdout, { remotes });
-  } else {
-    data = compactOrRaw(stdout, cappedLines(stdout, limit));
-  }
-  const warning = cleanText(stderr);
-  if (warning) data.stderr = cappedLines(warning, Math.min(limit, 20));
-  return data;
-}
-
-function mutationSummary(plan, stdout, stderr) {
-  const combined = cleanText([stdout, stderr].filter(Boolean).join('\n'));
-  if (plan.operation === 'init') return 'initialized';
-  if (plan.operation === 'clone') return 'cloned';
-  if (plan.operation === 'commit') {
-    const oid = cleanText(stdout)
-      .split('\n')[0]
-      ?.match(/\b([0-9a-f]{7,40})\b/)?.[1];
-    return oid ? `committed ${oid.slice(0, 12)}` : 'committed';
-  }
-  if (plan.operation === 'add') return 'staged';
-  if (plan.operation === 'push') {
-    if (/Everything up-to-date/i.test(combined)) return 'up-to-date';
-    const destination = combined.match(/ -> ([^\s]+)/)?.[1];
-    return destination ? `pushed ${destination}` : 'pushed';
-  }
-  if (plan.operation === 'fetch') {
-    const count = combined.split('\n').filter((line) => line.includes(' -> ') || line.includes('[new ')).length;
-    return count ? `fetched ${count} refs` : 'fetched';
-  }
-  if (plan.operation === 'pull') {
-    if (/Already up[- ]to[- ]date/i.test(combined)) return 'up-to-date';
-    const files = Number(combined.match(/(\d+) files? changed/)?.[1] || 0);
-    const adds = Number(combined.match(/(\d+) insertions?\(\+\)/)?.[1] || 0);
-    const dels = Number(combined.match(/(\d+) deletions?\(-\)/)?.[1] || 0);
-    return files ? `pulled ${files} files +${adds} -${dels}` : 'pulled';
-  }
-  if (plan.operation === 'stash' && actionOf('stash', plan.args) === 'push') {
-    return /No local changes/i.test(combined) ? 'no local changes' : 'stashed';
-  }
-  return 'ok';
-}
-
-function mutationData(plan, stdout, stderr, limit) {
-  const summary = mutationSummary(plan, stdout, stderr);
-  const stderrOnly =
-    ['add', 'commit', 'fetch'].includes(plan.operation) ||
-    plan.operation === 'pull' ||
-    (plan.operation === 'stash' && actionOf('stash', plan.args) === 'push');
-  const source = stderrOnly ? stderr : [stdout, stderr].filter(Boolean).join('\n');
-  const skip = OUTPUT_NOISE_BY_OPERATION[plan.operation] ?? (() => false);
-  const rows = cappedLines(foldProgressFrames(source), Math.min(limit, 20), skip);
-  return {
-    summary,
-    ...(rows.lines.length ? { output: rows.lines } : {}),
-    ...(rows.omitted ? { omittedOutputLines: rows.omitted } : {}),
   };
 }
 
@@ -1053,10 +638,9 @@ async function executeCreation(plan, target, limit, signal) {
   return withBuiltinPathLocks([target], () =>
     withAdvisoryLocks([target], async () => {
       const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
-      if (!succeeded(result)) return commandFailure(plan, result, limit);
       invalidateBuiltinResultCache();
       drainCodeGraphCache();
-      return ok(mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit));
+      return commandResult(plan, result, limit);
     })
   );
 }
@@ -1158,20 +742,20 @@ export async function executeGitStageTool(input, workDir, options = {}) {
 }
 
 async function executeSingleGitTool(input, workDir, options = {}) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return rejected('git requires an arguments object');
   const hasCommand = typeof input.command === 'string' && Boolean(input.command.trim());
-  if (!hasCommand) return fail('git requires command');
+  if (!hasCommand) return rejected('git requires command');
   let plan;
   try {
     plan = localizeConfigPlan(parseCommand(input.command, workDir));
   } catch (error) {
-    return fail(error.message);
+    return rejected(error.message);
   }
   if (
     plan.operation === 'archive' &&
     !plan.args.some((value) => value === '-o' || value === '--output' || value.startsWith('--output='))
   ) {
-    return fail('git archive requires -o/--output; binary stdout is not returned');
+    return rejected('git archive requires -o/--output; binary stdout is not returned');
   }
   const limitDefault = plan.operation === 'log' ? 10 : 50;
   const limit = Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(input.output_limit) || limitDefault));
@@ -1182,8 +766,7 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   }
   if (REPO_FREE_OPERATIONS.has(plan.operation)) {
     const result = await runGit(plan, [plan.operation, ...plan.args], { signal });
-    if (!succeeded(result)) return commandFailure(plan, result, limit);
-    return ok(mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit));
+    return commandResult(plan, result, limit);
   }
   // Report the command the caller actually ran. Naming the internal probe
   // ("git rev-parse exited 128") for a `git status` in a plain directory hid
@@ -1192,21 +775,16 @@ async function executeSingleGitTool(input, workDir, options = {}) {
   const { root: repo, probe } = await resolveRepo(plan, signal);
   if (!repo) {
     const missing = probe ?? (await runGit(plan, ['rev-parse', '--show-toplevel'], { signal }));
-    if (isReadOnly(plan) && notARepository(missing)) {
-      return ok({ repo: false, cwd: plan.cwd, reason: 'not a git repository' });
-    }
-    return commandFailure(plan, missing, limit);
+    return commandResult(plan, missing, limit);
   }
-  const prepared = prepare(plan, limit);
+  const prepared = prepare(plan);
   if (isReadOnly(plan)) {
     return withGitRepoReadLock(
       repo,
       async () => {
         const result = await runGit(plan, prepared.argv, { signal });
-        const semantic = semanticExit(plan, result);
-        if (!succeeded(result) && !semantic) return commandFailure(plan, result, limit);
+        if (!succeeded(result)) return commandResult(plan, result, limit);
         const raw = cleanText(result.stdout);
-        const data = formatRead(prepared, raw, cleanText(result.stderr), limit);
         if (plan.operation === 'diff') {
           const stageableRequest = plan.args.length === 0 || (plan.args.length === 1 && plan.args[0] === '--');
           if (stageableRequest) {
@@ -1217,14 +795,10 @@ async function executeSingleGitTool(input, workDir, options = {}) {
               argv: prepared.argv,
               raw,
             });
-            if (snapshot.diffId) {
-              data.diff_id = snapshot.diffId;
-              data.changes = snapshot.changes.slice(0, limit);
-              data.omitted_changes = Math.max(0, snapshot.changes.length - limit);
-            }
+            return stageableDiffResult(plan, result, snapshot, limit);
           }
         }
-        return ok({ ...data, ...semantic });
+        return commandResult(plan, result, limit);
       },
       { signal }
     );
@@ -1234,43 +808,14 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     () =>
       withBuiltinPathLocks([repo], () =>
         withAdvisoryLocks([repo], async () => {
-          const before = await statusSnapshot(repo, signal);
           const result = await runGit(plan, prepared.argv, { signal });
-          const after = await statusSnapshot(repo, signal);
           invalidateBuiltinResultCache();
           drainCodeGraphCache();
-          if (!succeeded(result)) {
-            const conflict = conflictOutcome(plan, result);
-            if (conflict) {
-              return ok({
-                ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit),
-                ...conflict,
-                status: statusDelta(before, after, limit),
-              });
-            }
-            return `${commandFailure(plan, result, limit)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
-          }
-          return ok({
-            ...mutationData(plan, cleanText(result.stdout), cleanText(result.stderr), limit),
-            status: statusDelta(before, after, limit),
-          });
+          return commandResult(plan, result, limit);
         })
       ),
     { signal }
   );
-}
-
-function gitBatchRow(command, raw) {
-  const text = String(raw || '');
-  if (text.startsWith('Error:')) {
-    return { command, ok: false, error: text.slice('Error:'.length).trim() };
-  }
-  try {
-    const data = JSON.parse(text);
-    return { command, ok: data?.ok === true, data };
-  } catch {
-    return { command, ok: false, error: text || 'git returned no result' };
-  }
 }
 
 // `git a && git b` written as one string means exactly what the command array
@@ -1315,7 +860,7 @@ function splitChainedGitCommands(command) {
 export async function executeGitTool(input, workDir, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
   const chained = typeof input.command === 'string' ? splitChainedGitCommands(input.command) : null;
-  if (!Array.isArray(input.command) && !chained) return executeSingleGitTool(input, workDir, options);
+  if (!Array.isArray(input.command) && !chained) return (await executeSingleGitTool(input, workDir, options)).text;
   const commands = chained || input.command;
   if (commands.length < 1 || commands.length > GIT_COMMAND_ARRAY_LIMIT) {
     return fail(`git command array requires 1 to ${GIT_COMMAND_ARRAY_LIMIT} commands`);
@@ -1340,26 +885,19 @@ export async function executeGitTool(input, workDir, options = {}) {
   // acquires its own repository lock inside executeSingleGitTool.
   const results = [];
   for (const command of commands) {
-    const raw = await executeSingleGitTool({ ...input, command }, workDir, options);
-    const row = gitBatchRow(command, raw);
-    results.push(row);
-    if (!row.ok) {
-      const skipped = commands.slice(results.length);
-      return ok({
-        batched: true,
-        results,
-        stopped_at: results.length,
-        ...(skipped.length ? { skipped } : {}),
-      });
+    const result = await executeSingleGitTool({ ...input, command }, workDir, options);
+    results.push(`## ${command}\n${result.text}`);
+    if (result.failed) {
+      return appendText(results.join('\n'), `error: command failed: ${command}`);
     }
   }
-  return ok({ batched: true, results });
+  return results.join('\n');
 }
 
 export const _gitCommandInternals = {
   creationTarget,
-  failureText,
-  foldProgressFrames,
+  commandResult,
+  stageableDiffResult,
   localizeConfigPlan,
   parseCommand,
   prepare,

@@ -4,8 +4,6 @@ const EXTENDED_CACHE_TTL_BETA_HEADER = 'extended-cache-ttl-2025-04-11';
 const INTERLEAVED_THINKING_BETA_HEADER = 'interleaved-thinking-2025-05-14';
 const FAST_MODE_BETA_HEADER = 'fast-mode-2026-02-01';
 const TOOL_SEARCH_BETA_HEADER = 'advanced-tool-use-2025-11-20';
-export const MID_CONVERSATION_SYSTEM_BETA_HEADER = 'mid-conversation-system-2026-04-07';
-export const TURN_SCOPED_SYSTEM_BETA_HEADER = 'mid-conversation-system-clear-at-2026-08-21';
 export const SERVER_SIDE_FALLBACK_BETA_HEADER = 'server-side-fallback-2026-07-01';
 export { EFFORT_BETA_HEADER };
 
@@ -20,8 +18,6 @@ export function buildAnthropicBetaHeaders({
   base = `${INTERLEAVED_THINKING_BETA_HEADER},${EXTENDED_CACHE_TTL_BETA_HEADER}`,
   fastMode = false,
   toolSearch = false,
-  midConversationSystem = false,
-  turnScopedSystem = false,
   effort = false,
   serverFallback = false,
 } = {}) {
@@ -34,12 +30,6 @@ export function buildAnthropicBetaHeaders({
   }
   if (toolSearch && !headers.includes(TOOL_SEARCH_BETA_HEADER)) {
     headers.push(TOOL_SEARCH_BETA_HEADER);
-  }
-  if ((midConversationSystem || turnScopedSystem) && !headers.includes(MID_CONVERSATION_SYSTEM_BETA_HEADER)) {
-    headers.push(MID_CONVERSATION_SYSTEM_BETA_HEADER);
-  }
-  if (turnScopedSystem && !headers.includes(TURN_SCOPED_SYSTEM_BETA_HEADER)) {
-    headers.push(TURN_SCOPED_SYSTEM_BETA_HEADER);
   }
   if (effort && !headers.includes(EFFORT_BETA_HEADER)) {
     headers.push(EFFORT_BETA_HEADER);

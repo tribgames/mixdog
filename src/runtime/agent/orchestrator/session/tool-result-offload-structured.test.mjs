@@ -43,7 +43,8 @@ test('structured result offloads its oversized text part and keeps every image p
     const path = text.match(/→ (.+?) \(/)?.[1];
     assert.ok(path);
     assert.equal(readFileSync(path, 'utf8'), body, 'the artifact holds the exact bytes');
-    assert.match(text, new RegExp(`sha256 ${createHash('sha256').update(body).digest('hex')}`));
+    assert.match(path, new RegExp(`${createHash('sha256').update(body).digest('hex')}\\.txt$`));
+    assert.doesNotMatch(text, /sha256 /);
   });
 });
 

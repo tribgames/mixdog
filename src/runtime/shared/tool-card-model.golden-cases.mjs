@@ -5,10 +5,22 @@
  */
 const NOW_MS = 20000;
 
+// Git expectations are authored from the text contract rather than captured
+// from the model, so a rendering regression cannot bless its own output.
+export const GIT_GOLDEN_CASES = [
+  { result: '## main\n M a.txt\n', summary: '## main', status: 'completed' },
+  { result: '', summary: '(No Output)', status: 'completed' },
+  { result: '## git add a.txt\n\n## git status\n## main\nA  a.txt\n', summary: '## main', status: 'completed' },
+  { result: 'diff --git a/a.txt b/a.txt\n... [4 more lines omitted; raise output_limit or narrow the command]', summary: 'diff --git a/a.txt b/a.txt', status: 'completed' },
+  { result: 'exit 128\nfatal: missing ref\n', summary: 'Exit 128', status: 'failed' },
+  { result: '## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing', summary: 'Exit 128', status: 'failed' },
+  { result: '{"ok":true,"clean":true}', summary: 'Ok', status: 'completed' },
+];
+
 const BACKGROUND_RUNNING =
   'background task\ntask_id: t1\nsurface: shell\nstatus: running\nstarted: 2024-01-01T00:00:00Z\n\nbuilding…';
 const BACKGROUND_DONE =
-  'background task\ntask_id: t2\nsurface: shell\nstatus: completed\nstarted: 2024-01-01T00:00:00Z\nfinished: 2024-01-01T00:00:05Z\n\nall good\nline2';
+  '<task-notification>\n<task-id>t2</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n<result>\nall good\nline2\n</result>\n</task-notification>';
 const BACKGROUND_FAILED = 'background task\ntask_id: t3\nsurface: web_search\nstatus: failed\nerror: boom\n';
 
 export const GOLDEN_CASES = [

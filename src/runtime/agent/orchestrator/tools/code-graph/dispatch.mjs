@@ -236,7 +236,10 @@ export async function codeGraph(rawArgs, cwd, signal = null, options = {}) {
   const rel = abs && !fileIsDirectory ? _graphRel(abs, cwd) : null;
   const scopeRelPrefix = abs && fileIsDirectory ? _scopeRelPrefix(_graphRel(abs, cwd)) : null;
   const node = rel ? graph.nodes.get(rel) : null;
-  return handler({ args, cwd, signal, graph, normFile, rel, node, scopeRelPrefix, symbolsNote });
+  return handler({
+    args, cwd, defaultCwd: options._defaultCwd ?? cwd,
+    signal, graph, normFile, rel, node, scopeRelPrefix, symbolsNote,
+  });
 }
 
 async function findSymbolTool(args, cwd, signal = null, options = {}) {
@@ -278,6 +281,7 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
   }
   if (args?.body !== false) await prewarmPrimaryDeclaration(graph, symbol, language, signal);
   return _findSymbolAcrossGraph(graph, symbol, cwd, {
+    defaultCwd: options._defaultCwd ?? cwd,
     language,
     limit,
     fileRel,
@@ -342,7 +346,7 @@ async function executeCodeGraphToolRaw(name, rawArgs, cwd, signal = null, option
     effectiveCwd = resolveDirectoryRoot(name, effectiveCwd, { filesystemRootCwd: plan.filesystemRootCwd });
   }
   if (signal?.aborted) throw new Error('aborted');
-  const work = runCodeGraphWork(name, args, effectiveCwd, signal, options, { findSymbolTool, codeGraph }).finally(
+  const work = runCodeGraphWork(name, args, effectiveCwd, signal, { ...options, _defaultCwd: cwd }, { findSymbolTool, codeGraph }).finally(
     () => {
       _pruneCodeGraphMemoryCache();
       _pruneExactFileGraphCache();

@@ -228,6 +228,11 @@ test('engine truncation is surfaced on the report with counts and a split-scope 
   assert.equal(report.results[0].truncated, true);
   assert.equal(report.results[0].counts.filesToFormat, 40);
   assert.equal(report.results[0].diagnosticsCount, 1);
+  assert.deepEqual(report.results[0].diagnostics, [
+    { loc: 'a.js:1:1', rule: 'format', severity: 'error', message: 'fmt', fix: true },
+  ]);
+  assert.deepEqual(report.results[0].byRule, { format: { count: 1, severity: 'error', fixable: 1 } });
+  assert.deepEqual(report.results[0].byDir, { '.': 1 });
   assert.equal(report.counts.byFixability.safe, 40);
   assert.equal(report.counts.byFixability.unsafe, 20);
   assert.equal(report.counts.byFixability.manual, 30);

@@ -21,8 +21,8 @@ is RISKY: report it as a separate correction or migration, not a cleanup edit.
 ## Deletion ladder
 
 Run the ladder on every selected unit (function, class, module, config knob)
-before looking for smells. Only code that lands on the last rung goes on to
-the lenses.
+in the current round before looking for smells. Only code that lands on the
+last rung goes on to the lenses.
 
 | Rung | Question | Typical win |
 |---|---|---|
@@ -36,8 +36,9 @@ in-place cleanup; take it before analysing the unit's smells.
 
 ## Lenses
 
-Each lens searches the codebase for evidence; a finding without a
-`file:line` pointer is dropped. Run every lens unless the user named a focus.
+Each lens judges the current partition's units and may search the whole
+repository for evidence (an existing helper, a sibling call site); a finding
+without a `file:line` pointer is dropped. Run every lens unless the user named a focus.
 Judge each selected function or class in its full context, including relevant
 callers and tests, even when it has no pending diff. Do not restrict review to
 recently edited lines or silently widen the edit scope to its consumers.
@@ -88,7 +89,7 @@ here.
 | Type escapes | `as any`, `@ts-ignore`, `# type: ignore` without reason, a lint or compiler warning suppressed without one (`eslint-disable`, `# noqa`, `#pragma warning disable`), `object`/`Any` annotations where a union or Protocol fits, a value re-coerced to the type it already has (`String(s)` on a `string`) | an escape or suppression whose comment names the upstream bug it works around | narrow with a guard, a precise type, or `unknown` plus a check; drop a coercion the type already guarantees; fix the warning or record why it is silenced |
 | Hardcoded config | environment-specific URLs and endpoints, provider/account/project ids, absolute paths and path strings spliced with `/`, a literal branch for one caller or one environment, unnamed numeric thresholds | test fixtures, documentation examples, a literal the contract itself fixes (wire strings, protocol constants) | read it through the project's existing config or env accessor; name the literal. A credential in source is a bug — report it, never merely relocate it |
 | Placeholder naming | numbered or filler names on new code (`data2`, `helper1`, `tmp`, `handleStuff`, a `Manager` holding two functions) | names the project's own idioms establish | rename locals after their intent; an exported rename is a contract change, so RISKY |
-| Oversized modules | files past the skill's 1,000-line review threshold or mixing responsibilities | a cohesive module or script with evidenced costs from splitting and no useful responsibility boundary | split confirmed independent responsibilities; never `utils`/`helpers`/`common`/`part2` dump files |
+| Oversized modules | files past the skill's 1,000-line review threshold or mixing responsibilities | a cohesive module or script with no useful responsibility boundary | split confirmed independent responsibilities; never `utils`/`helpers`/`common`/`part2` dump files |
 
 ## Test-suite slop
 
@@ -124,8 +125,8 @@ for that branch are neither proof of necessity nor permission to delete it.
 
 ## Candidate inventory and risk tiers
 
-All candidates gathered during the read-only investigation are tracked in an
-explicit candidate inventory using stable candidate IDs:
+The candidate inventory grows as rounds reveal findings. Register candidates
+using stable candidate IDs:
 
 ```text
 [ID] file:line → problem → cost (what it duplicates, wastes, or makes harder) → planned action | tier: SAFE/CAREFUL/RISKY | confidence: high/medium/low | status: completed/kept/unfinished | verification: <test/check>
@@ -138,33 +139,28 @@ explicit candidate inventory using stable candidate IDs:
   candidate IDs, not raw diagnostics or individual member locations.
 - **Origin tracking**: When code moves during extraction or splitting, retain
   the origin candidate ID and record the new target location under that ID.
-- **Candidate classification**: Distinguish raw mechanical threshold hits (e.g.
-  files > 1,000 lines, functions > 50 lines) from confirmed changes vs Keep
-  decisions. A mechanical threshold hit is an investigation candidate, not
-  automatically a bug or a rewrite order. Each hit requires a confirmed action,
-  an evidenced Keep under the skill's keep rules, or an unfinished status with
-  a concrete blocker. For a size-only Keep, name the cohesive responsibility
-  and why a split would add indirection or worsen its boundaries. "It is cohesive"
-  without that evidence is not a waiver.
-- **Cost, Confidence & Nits**: A finding that cannot name its cost is a nit. Once
-  registered in the inventory, a verified nit or false positive is marked `kept`
-  with the recorded reason—never silently erase an ID. An unresolved finding
-  remains `unfinished`; uncertainty is not evidence for keeping it. Confidence is `low` when
+- **Candidate classification**: Register only a lens finding with `file:line`,
+  a cost, and an action. Mechanical threshold hits (files > 1,000 lines,
+  functions > 50 lines, nesting > 3) are investigation signals only; without a
+  finding, do not register them or write a Keep justification.
+- **Cost, Confidence & Nits**: A finding that cannot name its cost is a nit:
+  do not register it. An unresolved registered finding remains `unfinished`;
+  uncertainty is not evidence for keeping it. Confidence is `low` when
   current code, callers, contracts, and tests do not explain why the code exists.
   Consult history only to resolve a specific remaining question. Medium/low
   confidence candidates stay unfinished until that question is resolved; apply
   approval does not authorize guessing that they are safe to delete.
 - **Statuses & Reconciliation Invariants**:
   - `completed`: verified done, with evidence of what and how changed.
-  - `kept`: preserved with concrete evidence (documented keep rule, external contract, or registered nit).
+  - `kept`: preserved with concrete evidence (documented keep rule or external contract).
   - `unfinished`: work remaining, with substatuses: `pending`, `in_progress`, `blocked`, `deferred`, or `unverified`.
-  - Backlog integrity: retain the complete initial inventory across rounds; newly discovered candidates are appended with new IDs.
-  - Formula: `Total Candidate IDs = Completed + Kept + Unfinished Remaining`. Counts must reconcile exactly.
+  - Formula for registered candidates: `Total Candidate IDs = Completed + Kept + Unfinished Remaining`. Counts must reconcile exactly.
 
 Report round outcome separately from overall cleanup status. Overall cleanup
-is complete only when all applicable stages are verified and every candidate
-is completed or evidenced as kept. A completed round with remaining candidates
-is **round complete, overall partial**, with the remaining IDs and next work.
+is complete only when all partitions and applicable stages are verified and
+every registered candidate is completed or evidenced as kept. A completed round
+with remaining partitions or candidates is **round complete, overall partial**,
+with the remaining paths, IDs, and next work.
 Skipped, failed, or unverified checks never count as passed.
 
 | Tier | Meaning | Examples | Handling |
@@ -210,7 +206,7 @@ Completed (what changed and how)
 Kept / Not Applicable (evidenced)
   [ID] path/file.ts:line
     - [Keep/Contract]  public export `parseConfig` kept (L12) → external contract
-    - [Keep/Rule]      file > 1,000 lines kept intact (L1) → one schema table; splitting adds cross-module indirection without separating responsibilities
+    - [Keep/Rule]      redundant-looking guard kept (L42) → validates untrusted network input
 
 Unfinished (remaining candidates)
   [ID] path/file.ts:line

@@ -517,13 +517,16 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
 
 // Surface arg-guard clamp notices (args._clampNotices, see pushClampNotice in
 // arg-guard.mjs) on the result text so the caller learns its request was
-// capped. Delete to consume: prevents double-append when a child-builtin
+// capped. Grep's match-block cap is already reflected in its paging line.
+// Delete to consume: prevents double-append when a child-builtin
 // result is embedded in the parent's, and leaves no `_clampNotices` residue
 // on the recorded tool-call args in the transcript.
 function _appendClampNotices(args, result) {
   let notices = null;
   if (args && Array.isArray(args._clampNotices)) {
-    notices = args._clampNotices;
+    notices = args._clampNotices.filter(
+      (notice) => !/^notice: grep limit clamped to \d+ match blocks \(context mode\)$/.test(notice)
+    );
     delete args._clampNotices;
   }
   if (!notices || notices.length === 0 || typeof result !== 'string') return result;

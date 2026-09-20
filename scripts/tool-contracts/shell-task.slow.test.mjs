@@ -202,8 +202,9 @@ test('shell result envelopes: success, non-zero exit, timeout, and preflight', a
     normalizedShellFailOut.explicitSuccess !== true ||
     /^Error[\s:[]/.test(shellFailText) ||
     /\[shell-run-failed\]/.test(shellFailText) ||
-    !/\[exit code: 7\]/.test(shellFailText) ||
-    !/\[completed: shell executed the command\b/.test(shellFailText)
+    !/^\[exit code: 7\]\n\n/.test(shellFailText) ||
+    /\[completed:/.test(shellFailText) ||
+    !/tool-contracts-bash-fail/.test(shellFailText)
   ) {
     throw new Error(`bash non-zero exit must be a completed command-result envelope:\n${shellFailText}`);
   }

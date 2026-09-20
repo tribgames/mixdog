@@ -344,6 +344,20 @@ test('desktop activity normalizes common provider tool aliases', () => {
   assert.equal(desktopToolActivityCategory('todowrite', { todos: [] }), 'Setup');
 });
 
+test('desktop git cards retain native output and label command failures', () => {
+  for (const result of ['## main\n M a.txt\n', '{"keep": "spacing"}\n', '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing']) {
+    const card = desktopToolActivityItemPresentation({
+      kind: 'tool', id: 'git-text', name: 'git', args: { command: 'git status' }, result, completedAt: 1,
+    });
+    assert.equal(card.outputText, result.trimEnd());
+    assert.equal(card.outputLanguage, '');
+    if (result.includes('exit 128')) {
+      assert.equal(card.resultLabel, 'Exit 128');
+      assert.equal(card.tone, 'error');
+    }
+  }
+});
+
 test('desktop activity item headers remove atomic counts and represented argument keys', () => {
   const git = desktopToolActivityItemPresentation({
     kind: 'tool',
@@ -356,7 +370,7 @@ test('desktop activity item headers remove atomic counts and represented argumen
   });
   assert.equal(git.title, 'Git');
   assert.equal(git.subject, 'git status --short');
-  assert.equal(git.resultLabel, '');
+  assert.equal(git.resultLabel, 'clean');
   assert.deepEqual(git.fields, []);
   assert.doesNotMatch(`${git.title} ${git.subject} ${git.resultLabel}`, /1 Git command|command=|Finished/);
 

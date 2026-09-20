@@ -14,6 +14,7 @@ import {
 } from './agent-envelope.mjs';
 import { shortTextFingerprint } from './queue-helpers.mjs';
 import { modelVisibleToolCompletionMessage } from '../../runtime/shared/tool-execution-contract.mjs';
+import { taskNotificationHasBody } from '../../runtime/shared/task-notification-envelope.mjs';
 
 export function notificationQueueKey(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
@@ -43,7 +44,7 @@ export function notificationQueueKey(event, text, parsed) {
   // follows DOES carry the body. Without this dimension the bodyless preview
   // would claim the dedupe key and suppress the real result. A blank-line gap
   // separates the task header block from the result body in the envelope.
-  const hasBody = /\n\s*\n[\s\S]*\S/.test(String(text || '')) ? 'b1' : 'b0';
+  const hasBody = taskNotificationHasBody(text) ? 'b1' : 'b0';
   return [id, type || fallbackKind, status, hasBody].filter(Boolean).join(':');
 }
 
@@ -59,7 +60,7 @@ export function executionCardKey(event, text, parsed) {
   const meta = event?.meta && typeof event.meta === 'object' ? event.meta : {};
   const executionId = String(meta.execution_id || '').trim();
   if (!executionId) return notificationQueueKey(event, text, parsed);
-  const hasBody = /\n\s*\n[\s\S]*\S/.test(String(text || '')) ? 'b1' : 'b0';
+  const hasBody = taskNotificationHasBody(text) ? 'b1' : 'b0';
   return `card:${executionId}:${hasBody}`;
 }
 

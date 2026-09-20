@@ -6,6 +6,7 @@ import { splitGrepLineNumberOnlyPrefix, splitGrepLinePrefix } from '../grep-form
 import { relativePathPrefix } from '../search-path-diagnostics.mjs';
 import { GREP_OUTPUT_MAX_BYTES } from '../tool-output-limit.mjs';
 import { relativeGrepLine } from './search-input-helpers.mjs';
+import { grepPagingNotice } from './grep-output.mjs';
 
 const GREP_CONTEXT_CHAR_BUDGET_DEFAULT = GREP_OUTPUT_MAX_BYTES;
 
@@ -400,18 +401,6 @@ function mergeBlocks(blocks) {
   return merged.sort((left, right) => left.priority - right.priority || left.order - right.order);
 }
 
-function pagingNotice({ shown, total, totalKnown, omitted, offset, nextOffset }) {
-  const totalStr = totalKnown ? `${total}` : `>=${total}`;
-  if (shown === 0) {
-    return totalKnown
-      ? `[Showing 0 of ${totalStr} matches; offset ${offset} past end]`
-      : `[Showing 0 of ${totalStr} matches (results partial); offset ${offset} is beyond the streamed window — matches past it may exist. Narrow path/glob/pattern instead of paging deeper.]`;
-  }
-  if (!(omitted > 0) && totalKnown) return '';
-  const partial = totalKnown ? '' : ' (results partial)';
-  return `\n[Showing ${shown} of ${totalStr} matches${partial}; pass offset:${nextOffset} for more]`;
-}
-
 function renderAtRadius(selected, sources, span, _budget, notice) {
   const blocks = mergeBlocks(selected.map((anchor) => sourceBlock(anchor, sources.get(anchor.absolutePath), span)));
   const body = blocks
@@ -421,9 +410,7 @@ function renderAtRadius(selected, sources, span, _budget, notice) {
     )
     .join('\n');
   const sourceComplete = blocks.every((block) => block.sourceComplete);
-  // Header is a format cue only — internal radius/char-budget numbers are
-  // harness noise and stay out of the model-visible text.
-  const text = `[Raw source spans; apply_patch context may be copied verbatim]\n${body}${notice}`;
+  const text = `${body}${notice}`;
   return { text, sourceComplete, blockCount: blocks.length };
 }
 
@@ -481,10 +468,12 @@ function renderFocusedContext(selected, sources, span, budget, notice) {
   const anchors = compact.length
     ? `\n# Additional matches\n${compact.map((anchor) => `${anchor.path}:${anchor.lineNo}:${compactAnchorContent(anchor.content)} [${anchorRangeHint(anchor, span)}]`).join('\n')}`
     : '';
-  const header = compact.length
-    ? `[Top ${rawBlocks.length} of ${ordered.length}; remaining as path:line anchors]`
-    : null;
-  const text = `${header ? `${header}\n` : ''}${raw}${anchors}${notice}`;
+  const summary = compact.length
+    ? notice
+      ? notice.replace(/\]$/, `; ${rawBlocks.length} source spans, rest as path:line anchors]`)
+      : `\n[${rawBlocks.length} of ${ordered.length} shown; rest as path:line anchors]`
+    : notice;
+  const text = `${raw}${anchors}${summary}`;
   return {
     text,
     sourceComplete: rawBlocks.every((block) => block.sourceComplete),
@@ -526,7 +515,7 @@ export async function expandGrepAnchorContextOutput({
   const total = anchors.length;
   if (total === 0) return { text: '', total: 0, shown: 0, omitted: 0, sourceComplete: true };
   const window = selectAnchors(anchors, headLimit, offset);
-  const notice = pagingNotice({
+  const notice = grepPagingNotice({
     ...window,
     total,
     totalKnown,
@@ -573,7 +562,7 @@ function fitContextToBudget({ window, sources, span, budget, notice: initialNoti
     selected = [...selected].sort(anchorPriority).slice(0, -1);
     shown = selected.length;
     omitted = Math.max(0, total - offset - shown);
-    notice = pagingNotice({
+    notice = grepPagingNotice({
       shown,
       total,
       totalKnown,

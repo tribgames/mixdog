@@ -5,7 +5,7 @@ import { isInternalTranscriptDisplayText } from './tool-execution-contract.mjs';
 import { stripInjectedDisplayText } from '../../../apps/desktop/src/shared/session-title.mjs';
 
 test('closed injected blocks are removed, user prose around them survives', () => {
-  const text = '컨텍스트 창 실시간 반영하지말고\n\n<system-reminder>\nBatch: one call.\n</system-reminder>';
+  const text = '컨텍스트 창 실시간 반영하지말고\n\n<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>';
   assert.equal(stripInjectedBlocks(text).trim(), '컨텍스트 창 실시간 반영하지말고');
 });
 
@@ -23,7 +23,7 @@ test('an unterminated tag the user typed never eats the rest of the message', ()
 });
 
 test('truncated sources opt into dropping the unterminated tail', () => {
-  const truncated = '작업 계속해\n\n<system-reminder>\nTool batching: this round issued 2 read calls';
+  const truncated = '작업 계속해\n\n<system-reminder>\nPostToolBatch hook blocked continuation';
   assert.equal(stripInjectedBlocks(truncated, { dropUnterminated: true }).trim(), '작업 계속해');
 });
 
@@ -55,7 +55,9 @@ test('lenientWrapper:false still hides genuine runtime control rows', () => {
     'Async shell task job_7 (completed, exit 0) finished.\n\nResult:\n> [task_id: job_7]\n> [status: completed]';
   assert.equal(isInternalTranscriptDisplayText(real, { lenientWrapper: false }), true);
   assert.equal(
-    isInternalTranscriptDisplayText('<system-reminder>\nBatch\n</system-reminder>', { lenientWrapper: false }),
+    isInternalTranscriptDisplayText('<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>', {
+      lenientWrapper: false,
+    }),
     true
   );
   assert.equal(isInternalTranscriptDisplayText('[Request interrupted by user]', { lenientWrapper: false }), true);

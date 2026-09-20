@@ -1,4 +1,10 @@
 import { clean } from './clean.mjs';
+import {
+  parseTaskNotification,
+  renderTaskCompletionEnvelope,
+  renderShellCompletionEnvelope,
+  taskCompletionSummary,
+} from './task-notification-envelope.mjs';
 
 export const TOOL_SYNC_EXECUTION_CONTRACT = 'Returns final results in this call.';
 
@@ -31,16 +37,20 @@ function notificationResultBody(text) {
 }
 
 export function backgroundTaskHeaderStatus(text) {
+  const notification = parseTaskNotification(text);
+  if (notification) return notification.status;
   const match = /^status:\s*(\S+)/im.exec(String(text || ''));
   return clean(match?.[1]).toLowerCase();
 }
 
 export function shouldPersistModelVisibleToolCompletion(text, meta = {}) {
   const message = String(text || '').trim();
-  if (!message) return false;
+  if (!message || meta?.model_visible === false) return false;
 
   const metaStatus = clean(meta?.status).toLowerCase();
   if (NON_PERSISTENT_TOOL_STATUSES.has(metaStatus)) return false;
+  if (parseTaskNotification(message)) return true;
+  if (isModelVisibleToolCompletionWrapper(message)) return true;
 
   if (/^background task\b/i.test(message)) {
     const headerStatus = backgroundTaskHeaderStatus(message) || metaStatus;
@@ -70,6 +80,7 @@ const BRACKETED_SHELL_STATUS_RE =
 export function isBracketedShellNotificationEnvelope(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
+  if (parseTaskNotification(value)?.surface === 'shell') return true;
   if (!/^\[task_id:\s*\S+\]/im.test(value)) return false;
   return BRACKETED_SHELL_STATUS_RE.test(value);
 }
@@ -77,6 +88,7 @@ export function isBracketedShellNotificationEnvelope(text) {
 export function isInternalRuntimeNotificationText(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
+  if (parseTaskNotification(value)) return true;
   if (isBracketedShellNotificationEnvelope(value)) return true;
   if (
     /^background task\b/i.test(value) &&
@@ -109,13 +121,8 @@ export function normalizeToolNotifyContext(context = {}) {
   };
 }
 
-export function toolCompletionInstruction({ surface = 'tool', id, status, detail } = {}) {
-  let label = `${surface} execution`;
-  if (surface === 'shell') label = 'shell task';
-  else if (surface === 'agent') label = 'agent task';
-  const detailText = detail ? `, ${detail}` : '';
-  const statusText = status ? ` (${status}${detailText})` : '';
-  return `Async ${label} ${id || ''}${statusText} finished.`;
+export function toolCompletionInstruction({ surface = 'tool', id, tag, status, error, detail } = {}) {
+  return taskCompletionSummary({ surface, id, tag, status, error, detail });
 }
 
 function toolCompletionMeta({ surface = 'tool', id, status, resultType, instruction, context } = {}) {
@@ -139,6 +146,7 @@ const MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE = /^Async .+ finished\./i;
 export function isModelVisibleToolCompletionWrapper(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
+  if (parseTaskNotification(value)) return true;
   const resultSplit = /\n\nResult:\n/.exec(value);
   if (!resultSplit) return false;
   const preamble = value.slice(0, resultSplit.index).trim();
@@ -287,21 +295,42 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
   const message = String(text || '').trim();
   if (!message) return '';
   if (!shouldPersistModelVisibleToolCompletion(message, meta)) return '';
-  const instruction = clean(meta?.instruction);
-  const type = clean(meta?.type || meta?.execution_surface || 'tool_completion');
-  const id = clean(meta?.execution_id);
-  const status = clean(meta?.status);
-  const header = `Async ${type}${id ? ` ${id}` : ''}${status ? ` ${status}` : ''} finished.`;
-  const MODEL_VISIBLE_RESULT_BODY_MAX = 12_000;
-  const bounded =
-    message.length > MODEL_VISIBLE_RESULT_BODY_MAX
-      ? `${message.slice(0, MODEL_VISIBLE_RESULT_BODY_MAX)}\n\n[result truncated for model context]`
-      : message;
-  const quoted = bounded
-    .split(/\r?\n/)
-    .map((line) => `> ${line}`)
-    .join('\n');
-  return [instruction || header, '', 'Result:', quoted].join('\n');
+  if (parseTaskNotification(message)) return message;
+  // Old in-flight producers and stored rows remain readable, but a new
+  // enqueue always uses the tagged wire format, never the quoted wrapper.
+  const split = /\n\nResult:\n/.exec(message);
+  const unwrapped = split && MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(message)
+    ? message.slice(split.index + split[0].length).replace(/^> ?/gm, '')
+    : message;
+  const separator = /\r?\n\s*\r?\n/.exec(unwrapped);
+  const head = separator ? unwrapped.slice(0, separator.index) : unwrapped;
+  let result = separator ? unwrapped.slice(separator.index + separator[0].length) : '';
+  const fields = {};
+  for (const match of head.matchAll(/^\[?([\w-]+):\s*([^\r\n]*?)\]?$/gm)) {
+    fields[match[1].toLowerCase()] = match[2];
+  }
+  const id = clean(meta?.execution_id || fields.task_id);
+  const surface = clean(meta?.execution_surface || fields.surface || (fields.exit ? 'shell' : 'tool'));
+  const status = clean(meta?.status || fields.status);
+  if (surface === 'shell') {
+    const nested = parseTaskNotification(result);
+    if (nested) return result;
+    return renderShellCompletionEnvelope({
+      jobId: id,
+      status,
+      exitCode: /^-?\d+$/.test(fields.exit || '') ? Number(fields.exit) : null,
+      command: fields.command || fields.label,
+      outputFile: fields.stdout,
+      result,
+      error: fields.error,
+    });
+  }
+  if (surface === 'agent') {
+    result = result.replace(/^agent result[^\n]*(?:\n|$)/, '');
+    const tagged = /<(?:final-answer|result)>\s*([\s\S]*?)\s*<\/(?:final-answer|result)>/.exec(result);
+    if (tagged) result = tagged[1];
+  }
+  return renderTaskCompletionEnvelope({ surface, id, tag: fields.tag || fields.label, status, result, error: fields.error });
 }
 
 // Shared enqueue-fallback helper used by both the synchronous fallback path and

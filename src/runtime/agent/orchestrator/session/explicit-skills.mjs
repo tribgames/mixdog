@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { selectedSkillName } from '../../../shared/skill-selection.mjs';
-import { skillContextReminder } from '../context/skill-state.mjs';
 import { executeTool } from './loop/tool-exec.mjs';
 import { parseNativeToolSearchPayload } from './loop/tool-helpers.mjs';
 import { nativeToolSearchCallFromArguments } from '../providers/custom-tool-wire.mjs';
@@ -60,7 +59,5 @@ export async function prepareExplicitSkills(
     }
     messages.push(...envelope.newMessages);
   }
-  const reminder = skillContextReminder(messages);
-  if (reminder) messages.push(reminder);
   throwIfAborted(signal);
 }

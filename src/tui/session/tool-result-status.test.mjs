@@ -24,6 +24,16 @@ import {
 // - non-zero exit     → command failure (warning tone, never red)
 // - envelope isError  → real call failure ("Failed", red)
 
+test('git raw and batched failures retain exit classification', () => {
+  for (const text of ['exit 128\nfatal: missing\n', '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing']) {
+    assert.deepEqual(toolCallOutcome({ name: 'git' }, text), {
+      isCallError: false, isExitError: true, exitCode: 128,
+    });
+  }
+  assert.equal(toolCallOutcome({ name: 'git' }, 'error: git requires command').isCallError, true);
+  assert.equal(toolCallOutcome({ name: 'git' }, '## main\n M a.txt\n').isExitError, false);
+});
+
 test('exit 0 is a plain success, never the Exit bucket', () => {
   const rawText = '[exit code: 0]\nall good';
   assert.equal(shellCommandExitCode(rawText), 0);

@@ -25,7 +25,7 @@ export const MAX_STRUCTURAL_FILE_ARGS = 200;
 const RESULT_CACHE_MAX = 32;
 const RESULT_CACHE = new Map();
 const PAGING_NOTE =
-  'more diagnostics are stored from this run; action results with offset/limit pages them without re-running engines';
+  'use byRule/byDir to triage; action results filters cached rows with rules/paths before offset/limit paging, omits the header, and does not re-run engines; structural.errors means ok:true/status:partial unless another failure occurred';
 
 class TidyToolError extends Error {}
 
@@ -403,7 +403,7 @@ function actionNotes({ detected, resolution, action, apply, installed }) {
   ];
 }
 
-async function resultsAction({ args, cwd, sessionId, engineFilter, startedAt }) {
+async function resultsAction({ args, cwd, sessionId, engineFilter, pathFilter, startedAt }) {
   const cached = recallTidyRun(cwd, sessionId);
   if (!cached) {
     throw new TidyToolError('no stored tidy results for this session; run check or fix first');
@@ -412,16 +412,37 @@ async function resultsAction({ args, cwd, sessionId, engineFilter, startedAt }) 
   if (Array.isArray(cached.results)) {
     results = engineFilter.length ? cached.results.filter((row) => engineFilter.includes(row.id)) : cached.results;
   }
+  const rules = list(args.rules);
+  const prefixes = pathFilter.map((path) => path.replace(/\/+$/, ''));
+  const matchesPath = (file) => {
+    const path = matchFileKey(file, cwd);
+    return !prefixes.length || prefixes.some(
+      (prefix) => !prefix || prefix === '.' || path === prefix || path.startsWith(`${prefix}/`)
+    );
+  };
+  const matchesRow = (row) =>
+    (!rules.length || rules.includes(row.ruleId ?? row.code)) && matchesPath(row.file);
+  let structural = args.structural === false ? null : cached.structural;
+  if (rules.length || prefixes.length) {
+    results = results?.map((result) => ({
+      ...result,
+      diagnostics: (result.diagnostics || []).filter(matchesRow),
+      filesChanged: (result.filesChanged || []).filter(matchesPath),
+    }));
+    if (structural) structural = { ...structural, matches: (structural.matches || []).filter(matchesRow) };
+  }
   return buildTidyReport({
     action: 'results',
-    languages: cached.languages || [],
-    languageSource: cached.languageSource || '',
     engines: cached.engines || [],
-    policy: cached.policy || null,
     results,
-    structural: args.structural === false ? null : cached.structural,
+    structural,
     ...(cached.scope?.length ? { scope: cached.scope } : {}),
-    notes: ['paged from the last check/fix; engines were not re-run'],
+    notes: [
+      'paged from the last check/fix; engines were not re-run',
+      ...(rules.length || prefixes.length
+        ? ['diagnosticsCount/matchesCount and byRule/byDir describe filtered rows; counts/filesChecked retain run totals']
+        : []),
+    ],
     offset: parseOffset(args.offset),
     limit: parseLimit(args.limit),
     elapsedMs: Date.now() - startedAt,
@@ -513,7 +534,7 @@ export async function executeTidyTool(args = {}, { cwd = process.cwd(), signal =
       return tidyToolResult(await rulesAction({ cwd, signal, startedAt }));
     }
     if (action === 'results') {
-      return tidyToolResult(await resultsAction({ args, cwd, sessionId, engineFilter, startedAt }));
+      return tidyToolResult(await resultsAction({ args, cwd, sessionId, engineFilter, pathFilter: scope, startedAt }));
     }
     return tidyToolResult(
       await runAction({
@@ -532,6 +553,7 @@ export async function executeTidyTool(args = {}, { cwd = process.cwd(), signal =
     return tidyToolResult(
       {
         ok: false,
+        status: 'failed',
         action,
         error: error?.message || String(error),
         elapsedMs: Date.now() - startedAt,

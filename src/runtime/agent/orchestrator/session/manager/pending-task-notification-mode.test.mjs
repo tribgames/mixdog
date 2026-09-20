@@ -16,6 +16,22 @@ import {
 import { mergeSteeringEntries } from '../loop/steering.mjs';
 import { classifySyntheticUserMessage, SYNTHETIC_USER_KINDS } from '../synthetic-user-envelope.mjs';
 import { restoreTranscriptItems } from '../../../../../tui/session/session-api-ext.mjs';
+import { renderAgentCompletionEnvelope } from '../../../../shared/task-notification-envelope.mjs';
+import { projectSyntheticUserEnvelopes } from '../synthetic-user-envelope.mjs';
+
+test('tagged completions retain execution provenance and stay a single user wire block', () => {
+  const text = renderAgentCompletionEnvelope({ id: 'task_agent_mode', tag: 'review', status: 'failed', error: 'quota exhausted' });
+  const entry = markCompletionEntry(text);
+  const [group] = _groupPendingMessageEntries([entry]);
+  assert.equal(group.mode, 'task-notification');
+  assert.deepEqual(group.execution, { surface: 'agent', id: 'task_agent_mode', status: 'failed' });
+  const message = { role: 'user', content: group.content, meta: { source: group.mode, execution: group.execution } };
+  const projected = projectSyntheticUserEnvelopes([message]);
+  assert.equal(projected.messages.length, 1);
+  assert.equal(projected.messages[0].content, text);
+  assert.equal(projected.messages[0].role, 'user');
+  assert.equal(projected.messages[0].meta.source, 'task-notification');
+});
 
 const RECOVERY_NOTICE = [
   'Async shell task job_recovery_1 (failed, exit n/a) finished.',

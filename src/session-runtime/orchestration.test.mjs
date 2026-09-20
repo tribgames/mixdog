@@ -31,14 +31,14 @@ test('all modes share Default while only active modes inject instructions and ag
     ['default']
   );
   const body = helpers.loadWorkflowPack(dataDir, 'default').body;
-  assert.doesNotMatch(body, /Delegate maximally|Dispatch all ready/);
+  assert.doesNotMatch(body, /Delegate every substantial|Dispatch all ready/);
   assert.match(body, /user approves the latest plan/);
   // Reviewer fallback rides with the orchestration instructions, so mode none never sees it.
   assert.doesNotMatch(body, /Lead alone reviews/);
   const expected = {
     focused: /Lead executes the main scope directly/,
     balanced: /coherent feature or module/,
-    swarm: /Delegate maximally/,
+    swarm: /Delegate every substantial independent scope/,
   };
   for (const mode of ORCHESTRATION_MODES) {
     const result = helpers.activeWorkflowContext({ workflow: { active: 'default' }, orchestrationMode: mode }, dataDir);
@@ -51,6 +51,8 @@ test('all modes share Default while only active modes inject instructions and ag
       assert.doesNotMatch(result.context, /# Orchestration Mode:|Lead alone reviews/);
     } else {
       assert.match(result.context, expected[mode]);
+      // The size gate rides with every active mode so swarm cannot split trivial edits across agents.
+      assert.match(result.context, /Lead makes them directly in every mode/);
       assert.match(result.context, /Dispatch all ready independent scopes in one turn/);
       assert.match(result.context, /Lead alone reviews/);
     }

@@ -6,6 +6,7 @@ import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../
 import { formatElapsed } from '../time-format.mjs';
 import { titleizeAgentName } from './agent-surface.mjs';
 import { displayTerminalStatus, prefixElapsed } from './terminal-status.mjs';
+import { parseTaskNotification } from '../task-notification-envelope.mjs';
 
 const BACKGROUND_TASK_TOOL_NAMES = new Set(['web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
 
@@ -13,9 +14,24 @@ export function isBackgroundTaskTool(normalizedName) {
   return BACKGROUND_TASK_TOOL_NAMES.has(String(normalizedName || '').toLowerCase());
 }
 
-function parseBackgroundTaskResult(value) {
+export function parseBackgroundTaskResult(value) {
   const text = String(value || '').trim();
   if (!text) return null;
+  const notification = parseTaskNotification(text);
+  if (notification) {
+    return {
+      taskId: notification.taskId,
+      surface: notification.surface,
+      operation: '',
+      label: notification.tag,
+      status: notification.status,
+      startedAt: '',
+      finishedAt: '',
+      body: notification.result,
+      error: notification.error,
+      hasResponse: Boolean(notification.result) && !isBackgroundErrorOnlyBody(notification.result, notification.error),
+    };
+  }
   const allLines = text.split('\n');
   const start = allLines.findIndex((line) => line.trim() === 'background task');
   if (start < 0) return null;

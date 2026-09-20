@@ -1,6 +1,5 @@
 // Result-rendering + finish-classification helpers. Pure functions (bodies identical to
 // the originals, only cross-module deps are now imported).
-import { appendAgentProgressKv } from '../agent-task-status.mjs';
 import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helpers.mjs';
 
 // A worker that gets truncated mid-synthesis or produces an empty terminal
@@ -41,7 +40,11 @@ export function abnormalEmptyFinishError(result, agent) {
   }
 }
 
-export function renderResult(value) {
+function singleLine(value) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+export function renderResult(value, { includeDiagnostics = false } = {}) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
@@ -49,21 +52,21 @@ export function renderResult(value) {
 
     if (Array.isArray(value.workers) || Array.isArray(value.jobs)) {
       const workers = Array.isArray(value.workers) ? value.workers : [];
-      lines.push(`agents: ${workers.length}`);
-      for (const worker of workers) {
-        const windowCap = worker.windowCap ? `/${worker.windowCap}` : '';
-        const tokens = worker.windowTokens ? ` ctx=${worker.windowTokens}${windowCap}` : '';
-        const terminal = worker.clientHostPid ? ` term=${worker.clientHostPid}` : '';
-        const base = `- ${worker.tag} ${worker.agent || 'agent'} ${worker.status || 'idle'}/${worker.worker_stage || worker.stage || 'idle'} ${worker.provider}/${worker.model}${terminal}${tokens}`;
-        lines.push(appendAgentProgressKv(base, worker));
-      }
       const jobs = Array.isArray(value.jobs) ? value.jobs : [];
-      lines.push(`tasks: ${jobs.length}`);
+      lines.push(`agents: ${workers.length} · tasks: ${jobs.length}`);
+      // Keep list bullets: agent cards distinguish these rows from authored responses.
+      for (const worker of workers) {
+        const status = worker.status || 'idle';
+        const stage = worker.worker_stage || worker.stage;
+        const progress = singleLine(worker.last_progress);
+        const summary = progress.length > 60 ? `${progress.slice(0, 59)}…` : progress;
+        lines.push(
+          `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}`
+        );
+      }
       for (const job of jobs) {
-        const target = job.tag || job.sessionId || '-';
-        const terminal = job.clientHostPid ? ` term=${job.clientHostPid}` : '';
-        const base = `- ${job.task_id} ${job.type} ${job.status} target=${target}${terminal}${job.error ? ` error=${job.error}` : ''}`;
-        lines.push(appendAgentProgressKv(base, job));
+        const error = job.status === 'failed' ? singleLine(job.error) : '';
+        lines.push(`- ${job.task_id}  ${job.type}  ${job.status}  ${job.tag || '-'}${error ? ` error=${error}` : ''}`);
       }
       if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
       return lines.join('\n');
@@ -76,7 +79,8 @@ export function renderResult(value) {
       // cost for the model. Keep the ack minimal (existing surface rule:
       // minimum characters, maximum information); full diagnostics remain
       // on explicit status/read recovery calls.
-      const isStartAck = value.status === 'running' && (value.type === 'spawn' || value.type === 'send');
+      const isStartAck =
+        !includeDiagnostics && value.status === 'running' && (value.type === 'spawn' || value.type === 'send');
       lines.push(`agent task: ${value.task_id}`);
       // Cancel/close acks can carry no status; never serialize a literal
       // "status: undefined" into the envelope (the TUI card would titleize it).
@@ -88,11 +92,11 @@ export function renderResult(value) {
       if (value.respawned) lines.push('respawned: true');
       if (value.note) lines.push(`note: ${value.note}`);
       if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
-      if (value.agent) lines.push(`agent: ${value.agent}`);
-      if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
-      if (value.effort) lines.push(`effort: ${value.effort}`);
-      if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
       if (!isStartAck) {
+        if (value.agent) lines.push(`agent: ${value.agent}`);
+        if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
+        if (value.effort) lines.push(`effort: ${value.effort}`);
+        if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
         if (value.stage || value.workerStatus)
           lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
         if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);

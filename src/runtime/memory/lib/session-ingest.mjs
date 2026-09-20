@@ -200,6 +200,7 @@ export function isUnquotedToolCompletionHead(text) {
 function isExcludedUserIngestText(m, text) {
   const trimmedStart = text.trimStart();
   const metaSource = String(m?.meta?.source || '');
+  if (metaSource === 'task-notification') return true;
   // `Reference files:` synthetic user rows (manager.mjs isReferenceFilesMessage).
   if (/^Reference files:\s*/i.test(trimmedStart)) return true;
   // Attachment-only placeholder rows (e.g. Discord provider discord.mjs:724

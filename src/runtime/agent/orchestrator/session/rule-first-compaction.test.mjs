@@ -95,13 +95,13 @@ test('ordinary Compact preserves all dialogue without resolving or calling an AI
   assert.deepEqual(repeat.messages, result.messages);
 });
 
-test('conversation summary uses 10% with the existing minimum without changing compact triggers or targets', async () => {
+test('conversation summary uses 5% with the existing minimum without changing compact triggers or targets', async () => {
   for (const [contextWindow, thresholdTokens] of [
     [20_000, 4_000],
     [40_000, 4_000],
-    [200_000, 20_000],
-    [500_000, 50_000],
-    [1_000_000, 100_000],
+    [200_000, 10_000],
+    [500_000, 25_000],
+    [1_000_000, 50_000],
   ]) {
     const session = { ...fixture(), contextWindow };
     const result = await compact(session);
@@ -113,7 +113,7 @@ test('conversation summary uses 10% with the existing minimum without changing c
   }
 });
 
-test('default conversation summary triggers at or above 10%, never below it', async () => {
+test('default conversation summary triggers at or above 5%, never below it', async () => {
   const session = fixture();
   session.messages[2].content = 'Older discussion facts. '.repeat(1_000);
   const sourceTokens = estimateMessagesTokens(conversationCompactionInput(session.messages));
@@ -127,9 +127,9 @@ test('default conversation summary triggers at or above 10%, never below it', as
     },
   };
   for (const [contextWindow, expectedCalls, summaryTriggered] of [
-    [sourceTokens * 10 + 1, 0, false],
-    [sourceTokens * 10, 1, true],
-    [(sourceTokens - 1) * 10, 2, true],
+    [sourceTokens * 20 + 1, 0, false],
+    [sourceTokens * 20, 1, true],
+    [(sourceTokens - 1) * 20, 2, true],
   ]) {
     const result = await compact({ ...session, contextWindow }, { provider });
     assert.equal(result.diagnostics.pipeline.conversationTokens, sourceTokens);

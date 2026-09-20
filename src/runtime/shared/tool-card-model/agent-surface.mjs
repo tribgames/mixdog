@@ -4,6 +4,7 @@
  */
 import { displayModelName } from '../tool-surface.mjs';
 import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
+import { parseTaskNotification } from '../task-notification-envelope.mjs';
 
 export function isAgentTool(normalizedName) {
   return normalizedName === 'agent';
@@ -144,6 +145,8 @@ function envelopeHasResponseLine(text) {
 export function hasAgentResponseResult(value) {
   const text = String(value || '').trim();
   if (!text) return false;
+  const notification = parseTaskNotification(text);
+  if (notification) return Boolean(notification.result);
   if (/^(?:undefined|null)$/i.test(text)) return false;
   if (
     /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(text)

@@ -274,12 +274,8 @@ function buildSharedToolContent({ PLUGIN_ROOT, omitTools = [], allowTools = null
 // family through frontmatter (`providers: a, b` exact ids; `models: gemini-*`
 // lowercase globs tested against the model id and its `/`-leaf). A listed key
 // restricts; an unlisted key is unrestricted, so a file without frontmatter
-// applies to every route. The body is static rules appended to BP1;
-// `turn-reminder: <one line>` rides the user turn's trailing <system-reminder>
-// block (read once before the turn's first response); `round-reminder: <one
-// line>` is appended after every tool round (delivered as the provider's
-// turn-scoped system message where it supports one, else as the runtime
-// <system-reminder>). Frontmatter never reaches the model.
+// applies to every route. The body is static rules appended to BP1.
+// Frontmatter never reaches the model.
 function parseRouteFrontmatter(markdown) {
   const match = String(markdown || '').match(/^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/);
   const meta = {};
@@ -363,27 +359,6 @@ function buildRouteRulesContent({
     if (body) parts.push(body);
   }
   return omitToolRoutes(parts.join('\n'), omitTools, allowTools);
-}
-
-// One frontmatter line for the route: the unrestricted files (`common.md`)
-// come first, then whatever a file naming `models:` or `providers:` adds for
-// that key — additions extend the common line, they never replace it.
-function routeFrontmatterLine({ PLUGIN_ROOT, provider, model }, key) {
-  const lines = { general: [], specific: [] };
-  for (const { meta } of matchingRouteFiles({ PLUGIN_ROOT, provider, model })) {
-    const line = String(meta[key] || '').trim();
-    if (!line) continue;
-    lines[routeList(meta.models).length || routeList(meta.providers).length ? 'specific' : 'general'].push(line);
-  }
-  return [...lines.general, ...lines.specific].join(' ');
-}
-
-function buildRouteRoundReminderContent({ PLUGIN_ROOT, provider = null, model = null } = {}) {
-  return routeFrontmatterLine({ PLUGIN_ROOT, provider, model }, 'round-reminder');
-}
-
-function buildRouteTurnReminderContent({ PLUGIN_ROOT, provider = null, model = null } = {}) {
-  return routeFrontmatterLine({ PLUGIN_ROOT, provider, model }, 'turn-reminder');
 }
 
 function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {
@@ -497,8 +472,6 @@ function buildAgentRetrievalInjectionContent({ PLUGIN_ROOT }) {
 module.exports = {
   buildSharedToolContent,
   buildRouteRulesContent,
-  buildRouteRoundReminderContent,
-  buildRouteTurnReminderContent,
   buildLeadRoleContent,
   buildLeadMetaContent,
   buildLeadLanguageContent,

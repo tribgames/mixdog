@@ -26,65 +26,17 @@ async function fixture(t) {
   return { write, rules };
 }
 
-test('a route round-reminder is resolved per provider/model and never enters the static rules', async (t) => {
+test('route files without a body contribute no static rules', async (t) => {
   const { write, rules } = await fixture(t);
   write('plugin/rules/shared/00-general.md', '# General\n\n- Shared policy.');
-  write(
-    'plugin/rules/routes/gemini.md',
-    '---\nmodels: gemini-*\nturn-reminder: GEMINI_TURN: plan it.\nround-reminder: GEMINI_REMINDER: batch it.\n---\n'
-  );
+  write('plugin/rules/routes/gemini.md', '---\nmodels: gemini-*\n---\n');
   write(
     'plugin/rules/routes/fable.md',
-    '---\nproviders: anthropic-oauth, anthropic\nmodels: claude-fable-5-1*, claude-fable-5.1*\nround-reminder: FABLE_REMINDER\n---\n- FABLE_STATIC_RULE'
+    '---\nproviders: anthropic-oauth, anthropic\nmodels: claude-fable-5-1*, claude-fable-5.1*\n---\n- FABLE_STATIC_RULE'
   );
-  assert.equal(
-    rules._buildRouteRoundReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
-    'GEMINI_REMINDER: batch it.'
-  );
-  assert.equal(
-    rules._buildRouteTurnReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
-    'GEMINI_TURN: plan it.'
-  );
-  assert.equal(
-    rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }),
-    'FABLE_REMINDER'
-  );
-  assert.equal(rules._buildRouteTurnReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }), '');
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-opus-5-1' }), '');
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), '');
-  // An unrestricted file is the base for every route; a file naming models or
-  // providers adds to that line after it, never in place of it.
-  write('plugin/rules/routes/common.md', '---\nturn-reminder: COMMON_TURN\nround-reminder: COMMON_ROUND\n---\n');
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), 'COMMON_ROUND');
-  assert.equal(rules._buildRouteTurnReminder({ provider: 'openai-oauth', model: 'gpt-5.6-sol' }), 'COMMON_TURN');
-  assert.equal(
-    rules._buildRouteRoundReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }),
-    'COMMON_ROUND FABLE_REMINDER'
-  );
-  assert.equal(
-    rules._buildRouteTurnReminder({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' }),
-    'COMMON_TURN'
-  );
-  assert.equal(
-    rules._buildRouteRoundReminder({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }),
-    'COMMON_ROUND GEMINI_REMINDER: batch it.'
-  );
-  // The reminder-only file contributes nothing to BP1; the frontmatter keys never leak.
   assert.equal(rules._buildRouteRules({ provider: 'antigravity-oauth', model: 'gemini-3.8-flash' }), '');
   const fable = rules._buildRouteRules({ provider: 'anthropic-oauth', model: 'claude-fable-5-1' });
-  assert.match(fable, /FABLE_STATIC_RULE/);
-  assert.doesNotMatch(fable, /round-reminder|turn-reminder|FABLE_REMINDER/);
-});
-
-test('MIXDOG_TURN_REMINDER=0 drops the turn line and leaves the round line alone', async (t) => {
-  const { write, rules } = await fixture(t);
-  write('plugin/rules/routes/common.md', '---\nturn-reminder: COMMON_TURN\nround-reminder: COMMON_ROUND\n---\n');
-  process.env.MIXDOG_TURN_REMINDER = '0';
-  t.after(() => {
-    delete process.env.MIXDOG_TURN_REMINDER;
-  });
-  assert.equal(rules._buildRouteTurnReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), '');
-  assert.equal(rules._buildRouteRoundReminder({ provider: 'grok-oauth', model: 'grok-4.6' }), 'COMMON_ROUND');
+  assert.equal(fable, '- FABLE_STATIC_RULE');
 });
 
 test('route rules bind to provider and model family through frontmatter', async (t) => {

@@ -25,8 +25,11 @@ test('offload commits exact bytes before replacing provider-visible output', asy
     const sha256 = createHash('sha256').update(raw).digest('hex');
     assert.ok(path);
     assert.equal(readFileSync(path, 'utf8'), raw);
-    assert.match(result, new RegExp(`sha256 ${sha256}`));
-    assert.match(result, /preview middle omitted/);
+    assert.match(path, new RegExp(`${sha256}\\.txt$`));
+    assert.equal(result.split('\n')[0], `[tool output offloaded: shell → ${path} (63 KB, 8003 lines)]`);
+    assert.doesNotMatch(result, /sha256 /);
+    assert.match(result, /\n\.\.\. \[preview middle omitted — \d+ KB\] \.\.\.\n/);
+    assert.ok(result.endsWith('\n[preview truncated; full output preserved at the artifact path above]'));
     assert.match(result, /(?:^|\n)head\n/);
     assert.match(result, /tail\n/);
     assert.doesNotMatch(result, /use read/i);
@@ -70,7 +73,7 @@ test('compaction shortens only artifact-backed previews', () => {
   const pruned = pruneToolOutputsUnanchored(messages, 1, { maxToolOutputChars: 256 });
   assert.equal(pruned[2].content, raw);
 
-  const offloaded = `[tool output offloaded: shell → C:/safe/result.txt (50 KB, 500 lines, sha256 ${'a'.repeat(64)})]\n\n${raw}`;
+  const offloaded = `[tool output offloaded: shell → C:/safe/result.txt (50 KB, 500 lines)]\n\n${raw}`;
   assert.equal(
     compactOffloadedToolResultText(offloaded),
     `${offloaded.split('\n')[0]}\n[preview omitted; full output preserved at the artifact path above]`
@@ -124,8 +127,8 @@ test('preview excerpts never split a Unicode surrogate pair', () => {
     const { preview, truncated } = _internals.buildPreview(text);
     assert.equal(truncated, true);
     assert.equal(Buffer.from(preview, 'utf8').toString('utf8'), preview);
-    assert.ok(preview.startsWith(`${head}\n\n`));
-    assert.ok(preview.endsWith(`\n\n${tail}`));
+    assert.ok(preview.startsWith(`${head}\n... [preview middle omitted — 1 KB] ...\n`));
+    assert.ok(preview.endsWith(`\n${tail}`));
     assert.ok(text.startsWith(head));
     assert.ok(text.endsWith(tail));
   }

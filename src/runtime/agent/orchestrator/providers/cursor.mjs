@@ -528,12 +528,6 @@ function selectCursorVariant(group, { effort = null, fast = false } = {}) {
 
 class CursorProviderBase {
   static inputExcludesCache = false;
-  // The Cursor relay appends its own per-round batching reminder to every
-  // tool result before the model sees it (a `<system_reminder>` that never
-  // reaches our transcript). One reminder per round is the contract: the
-  // runtime channel (batching-nudge `per_round`) stays silent here so the
-  // route's line is not stacked on top of the relay's.
-  static deliversRoundReminder = true;
   name;
   config;
   _runtimeOverride;

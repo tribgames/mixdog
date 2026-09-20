@@ -20,6 +20,7 @@ test('tidy exposes one action-routed schema with no hidden fields', () => {
     'limit',
     'offset',
     'paths',
+    'rules',
     'structural',
   ]);
   assert.match(tool.inputSchema.properties.action.description, /results:/);
@@ -27,6 +28,10 @@ test('tidy exposes one action-routed schema with no hidden fields', () => {
   assert.match(tool.inputSchema.properties.paths.description, /required for scan\/check\/fix/);
   assert.match(tool.inputSchema.properties.paths.description, /non-ignored untracked/);
   assert.equal(tool.inputSchema.properties.limit.maximum, 100);
+  assert.deepEqual(tool.inputSchema.properties.rules.items, { type: 'string' });
+  assert.match(tool.inputSchema.properties.rules.description, /ruleId/);
+  assert.match(tool.inputSchema.properties.paths.description, /optional cached path-prefix filters/);
+  assert.match(tool.inputSchema.properties.offset.description, /filters first/);
   for (const [name, schema] of Object.entries(tool.inputSchema.properties)) {
     assert.equal(schema.minLength, undefined, `${name} must not pin minLength`);
     assert.ok(schema.description, `${name} needs a description`);
@@ -39,6 +44,10 @@ test('the tidy description states the routing, dry-run, and approval contracts',
   assert.match(description, /writes only with apply:true/i);
   assert.match(description, /approves/i);
   assert.match(description, /results pages the last check\/fix/i);
+  assert.match(description, /omits languages\/languageSource\/engines\/missing\/policy/);
+  assert.match(description, /byRule.*byDir.*survive trimming/);
+  assert.match(description, /ok:true\/status:partial/);
+  assert.match(description, /structural writes stay blocked/);
   assert.match(description, /Returns final results in this call\./);
   assert.ok(description.length < 700, `tidy description too large: ${description.length}`);
 });

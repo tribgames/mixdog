@@ -99,10 +99,6 @@ function classifyCompletion(result, timeout, analysisCommand) {
   if (shellToolFailed) statusMarker = `[shell-tool-failed] ${statusDetail}`;
   else if (shellRunFailed) statusMarker = `[shell-run-failed] ${statusDetail}`;
   else if (completedExit) statusMarker = statusDetail;
-  const completionNote =
-    completedExit && exitCode !== 0
-      ? '\n[completed: shell executed the command; its non-zero exit code and output are command results, not a tool failure]'
-      : '';
   return {
     signal,
     exitCode,
@@ -110,7 +106,6 @@ function classifyCompletion(result, timeout, analysisCommand) {
     benignExit,
     isReallyErrored: shellToolFailed || shellRunFailed,
     statusMarker,
-    completionNote,
     outcomeNote: benignExit ? '\n[outcome: no-match]' : '',
   };
 }
@@ -163,7 +158,7 @@ export function renderCompletedResult({
   )}${rescueNote}`;
   if (outcome.statusMarker) {
     const failure = _composeShellFailure(
-      `${outcome.statusMarker}${outcome.outcomeNote}${outcome.completionNote}`,
+      `${outcome.statusMarker}${outcome.outcomeNote}`,
       isReallyErrored ? 'Error: ' : '',
       warningBlock,
       payload

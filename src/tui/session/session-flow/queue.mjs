@@ -63,6 +63,7 @@ export function createQueueOps(bag, { kickDrain }) {
         options.transcriptMeta && typeof options.transcriptMeta === 'object' ? { ...options.transcriptMeta } : null,
       context: options.context || null,
       mode,
+      ...(options.execution && typeof options.execution === 'object' ? { execution: { ...options.execution } } : {}),
       priority,
       key: options.key || null,
       skipSlashCommands: options.skipSlashCommands === true,

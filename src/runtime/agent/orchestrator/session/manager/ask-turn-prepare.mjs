@@ -10,7 +10,6 @@ import { appendAgentTrace } from '../../agent-trace.mjs';
 import { snapshotPendingDeferredToolDelta } from '../../../../../session-runtime/deferred-tool-delta.mjs';
 import { snapshotPendingGoalReminder } from '../../../../../session-runtime/goal-reminder.mjs';
 import { resolveSessionContextMeta } from './context-meta.mjs';
-import { _buildRouteTurnReminder } from './rules-cache.mjs';
 import {
   promptContentText,
   promptContentBytes,
@@ -176,15 +175,10 @@ export async function buildUserTurn({
   // input intake: either can precede the previous turn's pause.
   // This supplies context only; it never resumes the Goal.
   const goalReminder = snapshotPendingGoalReminder(session, { includePaused: true });
-  // Route policy's per-turn line (rules/routes/*.md, `turn-reminder:`):
-  // read once before the turn's first response, part of the user turn
-  // so it stays inside the cached transcript prefix.
-  const routeReminder = _buildRouteTurnReminder({ provider: session.provider, model: session.model });
   const reminderBlock = [
     currentTimeBlock ? `<system-reminder>\n# Current Time\n${currentTimeBlock}\n</system-reminder>` : '',
     deferredToolDelta?.content || '',
     goalReminder?.content || '',
-    routeReminder ? `<system-reminder>\n${routeReminder}\n</system-reminder>` : '',
   ]
     .filter(Boolean)
     .join('\n\n');

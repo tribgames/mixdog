@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { mergeNormalizedContentEntries } from '../loop/steering.mjs';
 import { isDeliveredCompletion, logDuplicateSkip } from './delivered-completions.mjs';
 import { isInternalRuntimeNotificationText, promptContentText } from './prompt-utils.mjs';
+import { parseTaskNotification, taskNotificationId } from '../../../../shared/task-notification-envelope.mjs';
 
 const STALE_USER_INJECTION_TTL_MS = 30 * 60 * 1000;
 const PENDING_PROCESS_START_MS = Date.now();
@@ -59,7 +60,7 @@ export function pendingEntryMode(entry) {
 
 export function completionExecutionId(entry) {
   const value = typeof entry?.executionId === 'string' ? entry.executionId.trim() : '';
-  return value || null;
+  return value || entry?.execution?.id || taskNotificationId(pendingMessageText(entry)) || null;
 }
 
 function normalizeExecution(value, executionId = null) {
@@ -117,11 +118,13 @@ export function markCompletionEntry(text, options = {}) {
   if (typeof text === 'string') value = text;
   else if (text && typeof text === 'object') value = text.text || text.content || '';
   const content = String(value ?? '');
-  const executionId = String(options?.executionId || options?.meta?.execution_id || '').trim();
+  const notification = parseTaskNotification(content);
+  const executionId = String(options?.executionId || options?.meta?.execution_id || taskNotificationId(content)).trim();
   const identity = executionId ? `execution:${executionId}` : `content:${content}`;
   const id = `completion_${createHash('sha256').update(identity).digest('hex').slice(0, 24)}`;
   const execution = normalizeExecution(
     {
+      ...(notification ? { surface: notification.surface, status: notification.status } : {}),
       ...(executionFromCompletionMeta(options?.meta) || {}),
       ...(options?.execution && typeof options.execution === 'object' ? options.execution : {}),
     },

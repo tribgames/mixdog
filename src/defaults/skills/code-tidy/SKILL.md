@@ -17,8 +17,8 @@ linters through `tidy`, structural rule packs, then agent-level cleanup.
 Every layer preserves behavior and public API; this is not a bug hunt.
 The schema owns action fields; this file owns scope, order, and boundaries.
 
-Investigate the full selected scope before editing, execute approved bounded
-rounds, then report the outcome. `references/agent-cleanup.md` owns candidate
+Investigate and clean the selected scope in approved partition-sized rounds,
+then report the outcome. `references/agent-cleanup.md` owns candidate
 tracking, risk classification, completion criteria, and the closing report.
 
 ## 1. Which job
@@ -55,26 +55,37 @@ limitation and ask before widening the work.
    tests as needed; editing them outside the selected area needs approval.
    New, non-ignored files are included without staging. Never widen the edit
    scope silently.
-4. Pass the approved paths on every `scan`/`check`/`fix`; use `paths:["."]`
-   only for an explicitly requested whole project. Result: every layer sees
-   the same scope, which the report names.
+4. Pass the current round's approved paths on every `scan`/`check`/`fix`;
+   use `paths:["."]` only for an explicitly requested whole project that fits
+   one round. Result: every layer sees the same round scope, which the report names.
 5. **Establish the baseline before any edit** with the narrowest documented
-   tests and typecheck covering the approved behavior. Reuse current results
+   tests and typecheck covering the current round's approved behavior. Reuse current results
    when their inputs have not changed. Record pre-existing failures separately.
    A broken runner blocks changes requiring it; continue independent work and
    report the blocked scope as unfinished.
-6. **Complete read-only investigation before cleanup**: run all applicable
-   investigation checks (tidy scan/check, structural rules, dead-code detection,
-   lens analysis) read-only to gather the complete candidate inventory before
-   any edits.
-   - Classify and track all candidates using `references/agent-cleanup.md`.
-   - Read every result page with `tidy action:'results'` and the returned paging
-     information before another check/fix replaces the cached run. Pagination
-     is not engine truncation; do not rerun engines just to see remaining rows.
+6. **Complete read-only investigation per round before cleanup.** Partition
+   scopes too large for one review (an explicitly requested whole project or
+   several directories) by directory or responsibility. Each partition is one
+   round: deterministic check on its paths (or the dry-run plan in section 3)
+   → deletion ladder → lenses → apply by tier → verification → round report.
+   Start the next partition only after that round closes.
+   - Finish all applicable read-only checks and lens analysis for the current
+     round before its edits, not for the whole scope. Accumulate registered
+     candidates across rounds using `references/agent-cleanup.md`.
+   - Read per-rule and per-directory counts from check/fix/results first;
+     select the rules and directories relevant to this round, then page only
+     those with `tidy action:'results'` filters. Read every selected page of the
+     current round's cached run before another check/fix replaces it. Never
+     page a whole-project run row by row or treat unreviewed in-scope results
+     as clean. Pagination is not engine truncation; do not rerun engines just
+     to see remaining rows.
    - Actual engine truncation, timeouts, failed diagnostic checks, or scope
-     leakage mean an **unfinished investigation**, not a clean state.
-   - Partial implementation while investigation is blocked is permitted only if
-     the user explicitly approves that specific unblocked subset.
+     leakage mark the affected partition **unfinished**, not clean; they do
+     not invalidate other partitions. A per-language rule-pack error leaves
+     that language's structural pass unfinished; results for other languages
+     and engines remain usable.
+   - Blocked checks stop dependent edits; continue only approved independent
+     work and report the unfinished portion.
 
 ## 3. Deterministic layers
 1. `tidy action:'scan'` first: languages and engines (used / missing /
@@ -98,8 +109,8 @@ limitation and ask before widening the work.
 5. Treat the engine dry run as diagnostics and candidate files, not a preview
    of the exact resulting patch. Apply recalculates work; it does not replay a
    frozen preview. If inputs or approved operations change before writing,
-   refresh the affected plan. Use `apply:true` only after the complete plan is
-   approved, then review the actual changes against that scope.
+   refresh the affected plan. Use `apply:true` only after the current round's
+   complete plan is approved, then review the actual changes against that scope.
 6. A dry run with no proposed fixes skips apply. Rules without a fix
    (`no-empty-catch`, `no-nested-ternary`, `no-any-cast`,
    `no-boolean-literal-compare`, `no-debug-statement`, `todo-marker`) are
@@ -107,9 +118,9 @@ limitation and ask before widening the work.
    has nothing to do. Keep the engine pass separable from the agent edits: a
    reformat folded into semantic changes makes the diff unreviewable, so
    report them as distinct change sets.
-   Stop writes on an engine or structural failure, truncation, or rejected
-   edit; a partial result is not success. Do not retry unchanged input or
-   continue applying other findings from the failed plan.
+   Stop affected writes on an engine or structural failure, truncation, or
+   rejected edit; a partial result is not success. Do not retry unchanged input
+   or apply findings from the failed portion of the plan.
 
 ## 4. Agent-level cleanup
 Read `references/agent-cleanup.md` first: it owns the deletion ladder, the
@@ -120,22 +131,19 @@ definitions, and the final report template. This section owns the order.
    the behavior you will touch gets either the narrowest regression test that
    pins its observable output, or only SAFE-tier changes — say which. Prose
    files (skills, prompts, docs) have no behavior to pin.
-2. **Ladder, then lenses.** Run the deletion ladder on every selected source unit;
-   only survivors go through the four lenses (reuse, quality, efficiency,
-   altitude). Every finding carries `file:line` evidence, a cost, a
+2. **Ladder, then lenses.** Run the deletion ladder on every selected source unit
+   in the current round; only survivors go through the four lenses (reuse,
+   quality, efficiency, altitude). Every finding carries `file:line` evidence, a cost, an action, a
    confidence, and a risk tier; findings without evidence are dropped, and
    consult history only when code, contracts, and tests leave intent unclear;
    `git blame` is not a mandatory step for each removal. Unresolved intent
    lowers confidence and blocks deletion, rather than justifying it.
-   When this session can delegate to parallel workers, run one lens per
-   worker with the approved scope, relevant source, and repo path — workers
-   report findings, never edit. Otherwise run the lenses yourself and say so in
-   the report. For a small, single-concern scope, cover the applicable lenses
-   in one review rather than dispatching separate workers for each lens.
-   Result: one merged, deduplicated finding list.
+   The four lenses run over the ladder survivors and yield one merged,
+   deduplicated finding list.
 3. **Execute in approved bounded rounds.**
-   - Independent modules may be cleaned in parallel across tasks; within any
-     file or module, CAREFUL source units must be edited sequentially.
+   - Use the partitions from section 2; accumulate the inventory across rounds
+     and close each round's report before starting the next partition.
+   - Within one file or module, CAREFUL source units must be edited sequentially.
    - Apply by tier: SAFE as one batch; CAREFUL one source unit at a time; RISKY
      reported, never auto-applied. Within a tier: comments → dead code →
      defensive code → duplication → complexity → abstraction → performance.
@@ -147,14 +155,16 @@ definitions, and the final report template. This section owns the order.
    - After the last tier lands in a round, re-run `tidy check` over the same
      paths once: removals leave new unused imports and newly orphaned helpers
      behind. Apply only SAFE findings from that cascade pass and add any
-     remaining items to the inventory — one pass, never a loop.
+     remaining findings to the inventory — one pass, never a loop.
 4. **Stop rules.** Three failed attempts on one file → stop and escalate with
    what was tried. A deeper fix larger than the cleanup → report it as its own
    task. Principles cannot pick between two rewrites → apply neither, record
    both.
 
-The following are investigation signals, not permission for an automatic rewrite.
-Use the shared candidate classification and risk tiers before acting.
+The following are investigation signals, not registered candidates or permission
+for an automatic rewrite. Register only lens findings with `file:line`, a cost,
+and an action; use the shared risk tiers before acting. A threshold hit without
+a finding needs no Keep write-up.
 
 | Structural signal | Decision |
 |---|---|
@@ -172,8 +182,7 @@ Size alone neither mandates a split nor makes one RISKY. A confirmed
 responsibility-based split preserving behavior and entry points is CAREFUL:
 extract one source unit at a time with its required modules, and verify direct
 consumers. Moving the entire body elsewhere or cutting it into numbered chunks
-does not resolve the finding. An unperformed confirmed split stays unfinished;
-size-only keep decisions need the evidence required by the shared inventory.
+does not resolve the finding. An unperformed confirmed split stays unfinished.
 
 ## 5. Keep — never remove or rename
 - Validation and error handling at a trust boundary (user input, external
@@ -207,10 +216,13 @@ size-only keep decisions need the evidence required by the shared inventory.
 - Structural engine unavailable (missing or outdated mixdog-graph) → `check` /
   `fix` fail with a rebuild remedy; `scan` still succeeds and names the binary
   in `notes`. Retry with `structural:false` for formatters/linters only; never
-  treat missing structural matches as clean.
-- A selected area too large for one review → partition the agent layer by
-  directory or responsibility, retaining the overall inventory. Do not infer
-  a smaller scope from a diff or ask for commits to divide the review.
+  treat missing structural matches as clean. A per-language rule-pack error
+  leaves only that language's structural pass unfinished; results for other
+  languages and engines remain usable.
+- A selected area too large for one review → default to directory or
+  responsibility partitions for every layer, one complete round at a time.
+  The inventory grows across rounds, not up front. Do not infer a smaller
+  scope from a diff or ask for commits to divide the review.
 - A dead-code scanner report is a candidate list, not proof → verify per
   `references/dead-code.md` before deleting.
 

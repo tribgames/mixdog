@@ -13,7 +13,6 @@ import { traceProviderSend, traceOutputTruncation } from './diagnostics.mjs';
 import { createEagerDispatcher } from '../eager-dispatch.mjs';
 import { sendWithRecovery } from '../send-with-recovery.mjs';
 import { stripInlineImages } from '../image-strip-recovery.mjs';
-import { _buildRouteRoundReminder } from '../manager/rules-cache.mjs';
 import { runWithProviderRequestToolsScope } from '../../../../../session-runtime/provider-request-tools.mjs';
 import { REPEAT_FAIL_LIMIT } from './loop-state.mjs';
 
@@ -78,13 +77,6 @@ export async function beginIteration(state) {
   const nextIteration = state.iterations + 1;
   opts.iteration = nextIteration;
   opts.providerState = state.providerState;
-  // The route policy's per-round batching reminder (rules/routes/*.md,
-  // `round-reminder:`). One reminder per round: a provider that delivers one
-  // itself declares `deliversRoundReminder` and the runtime channel stays
-  // silent; otherwise the tool batch appends it as a <system-reminder>.
-  opts.roundReminder =
-    _buildRouteRoundReminder({ provider: sessionRef?.provider || provider?.name || null, model }) || null;
-  opts.roundReminderByProvider = provider?.constructor?.deliversRoundReminder === true;
   if (state.forcedFirstTool && state.toolCallsTotal === 0) {
     opts.toolChoice = 'required';
   } else {

@@ -425,8 +425,8 @@
       "operation": "",
       "label": "",
       "status": "completed",
-      "startedAt": "2024-01-01T00:00:00Z",
-      "finishedAt": "2024-01-01T00:00:05Z",
+      "startedAt": "",
+      "finishedAt": "",
       "body": "all good\nline2",
       "error": "",
       "hasResponse": true

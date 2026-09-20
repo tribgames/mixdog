@@ -3,6 +3,30 @@ import test from 'node:test';
 
 import { parseLineDelta, summarizeToolResult } from './tool-result-summary.mjs';
 import { formatAggregateDetail } from './tool-surface.mjs';
+import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from './task-notification-envelope.mjs';
+
+test('git summaries accept raw status, mutations, batches, failures and stored JSON', () => {
+  assert.equal(summarizeToolResult('git', {}, '## main\n M a.txt\n'), '## main');
+  assert.equal(summarizeToolResult('git', {}, ''), '(No Output)');
+  assert.equal(summarizeToolResult('git', {}, '[main abc1234] title\n 1 file changed\n'), '[main abc1234] title');
+  assert.equal(summarizeToolResult('git', {}, '## git add a.txt\n\n## git status\n## main\nA  a.txt\n'), '## main');
+  assert.equal(summarizeToolResult('git', {}, 'exit 128\nfatal: missing ref\n'), 'Exit 128');
+  assert.equal(summarizeToolResult('git', {}, '## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing'), 'Exit 128');
+  assert.equal(summarizeToolResult('git', {}, 'blob contents\nexit 128\n'), 'blob contents');
+  assert.equal(summarizeToolResult('git', {}, '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing'), 'Exit 128');
+  assert.equal(summarizeToolResult('git', {}, 'error: command must begin with git'), 'error: command must begin with git');
+  assert.equal(summarizeToolResult('git', {}, '{"ok":true,"clean":true}'), 'Ok');
+});
+
+test('tagged completion summaries show result content or failure, not wire fields', () => {
+  const completed = renderAgentCompletionEnvelope({ id: 'task_agent_summary', status: 'completed', result: '**Reviewed** three files.' });
+  assert.equal(summarizeToolResult('agent', {}, completed), 'Reviewed three files.');
+  const failed = renderAgentCompletionEnvelope({ id: 'task_agent_summary', status: 'failed', error: 'quota exhausted' });
+  assert.equal(summarizeToolResult('agent', {}, failed, true), 'quota exhausted');
+  assert.equal(summarizeToolResult('agent', {}, failed), null);
+  const shell = renderShellCompletionEnvelope({ jobId: 'job_summary', status: 'completed', exitCode: 2, command: 'npm test' });
+  assert.equal(summarizeToolResult('shell', {}, shell), 'Shell task completed (exit 2): npm test');
+});
 
 test('line deltas accept native, JS, legacy, and aggregated count fields', () => {
   for (const text of [

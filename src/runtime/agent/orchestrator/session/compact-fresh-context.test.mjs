@@ -239,7 +239,7 @@ test('fresh layout keeps session injection and stable summary before the volatil
     withRuntimeUserContext({ role: 'user', content: latestInstruction }, { prefix: staleGoal }),
     {
       role: 'user',
-      content: 'background task\nTask_id: task-1\nstatus: completed\nsurface: shell',
+      content: '<task-notification>\n<task-id>task-1</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n</task-notification>',
     },
     { role: 'user', content: '[mixdog-runtime] Empty response (1/2). Return final text.' },
     { role: 'user', content: '[Request interrupted]' },
@@ -440,8 +440,8 @@ test('263k-class tool-heavy transcript retains bounded recent execution and arch
   );
   assert.equal(result.messages.at(-1)?.content, 'LATEST_AFTER_127_TOOLS');
   assert.ok(result.messages.some((message) => message.toolCallId === 'tool-heavy-126'));
-  assert.equal(result.diagnostics.toolHistoryBudget, 50_000);
-  assert.ok(result.diagnostics.toolHistoryTokens <= 50_000);
+  assert.equal(result.diagnostics.toolHistoryBudget, 25_000);
+  assert.ok(result.diagnostics.toolHistoryTokens <= 25_000);
   assert.ok(result.diagnostics.omittedToolGroups > 0);
 });
 

@@ -1,6 +1,8 @@
 import type { TranscriptItem } from './desktop-types';
 import { asRecord } from './text-format';
 import { boundedTextOf } from './transcript-tool-core';
+// @ts-expect-error Shared runtime module is JavaScript.
+import { parseTaskNotification } from '../../../../src/runtime/shared/task-notification-envelope.mjs';
 import {
   TOOL_ACTIVITY_ROUTINE_RESULT,
   TOOL_DETAIL_LABELS,
@@ -161,6 +163,13 @@ export function toolActivityCleanOutput(text: string): string {
 }
 
 export function toolActivityBackgroundTask(text: string): { meta: string; body: string } | null {
+  const notification = parseTaskNotification(text);
+  if (notification) {
+    return {
+      meta: toolActivityCompact([toolStatusLabel(notification.status), notification.taskId, notification.error]),
+      body: notification.result,
+    };
+  }
   const lines = text.split('\n');
   if ((lines[0] ?? '').trim() !== 'background task') return null;
   const meta = new Map<string, string>();

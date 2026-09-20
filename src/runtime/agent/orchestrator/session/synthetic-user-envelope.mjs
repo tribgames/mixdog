@@ -15,6 +15,7 @@
 // so the human's language signal stays the only unwrapped user voice.
 import { isActualUserInstructionMessage, isInjectedSkillBodyMessage, isSummaryMessage } from './compact/messages.mjs';
 import { ACTIVE_TURN_CONTINUATION_ANCHOR, ACTIVE_TURN_CONTINUATION_SOURCE } from './compact/continuation.mjs';
+import { parseTaskNotification } from '../../../shared/task-notification-envelope.mjs';
 
 export const SYNTHETIC_USER_ENVELOPE_TAG = 'mixdog-runtime';
 
@@ -51,7 +52,7 @@ function messageText(message) {
 }
 
 function isAlreadyEnveloped(text) {
-  return ENVELOPE_OPEN_RE.test(text);
+  return ENVELOPE_OPEN_RE.test(text) || Boolean(parseTaskNotification(text));
 }
 
 // null => a real user instruction (or nothing to wrap); otherwise the kind.

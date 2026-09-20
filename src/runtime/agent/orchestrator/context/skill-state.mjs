@@ -33,19 +33,3 @@ export function latestSkillBodies(messages) {
   }
   return [...latest.values()];
 }
-
-export function skillContextReminder(messages) {
-  const names = latestSkillBodies(messages).map((entry) => entry.name);
-  if (!names.length) return null;
-  return {
-    role: 'user',
-    meta: { source: 'skill-context' },
-    content: [
-      '<system-reminder>',
-      `Skill bodies already present in this context: ${names.map((name) => JSON.stringify(name)).join(', ')}.`,
-      'Reuse these bodies for matching requests, including later turns and repeated mentions; do not call Skill again unless the body is missing or needs an update.',
-      'If a linked tool schema is missing, load that tool with load_tool rather than reloading the skill. Tool permissions still apply.',
-      '</system-reminder>',
-    ].join('\n'),
-  };
-}

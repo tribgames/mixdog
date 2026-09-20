@@ -28,7 +28,7 @@ test('list of a conclusively missing directory answers [path absent], not Error'
   assert.doesNotMatch(out, /^Error:/);
 });
 
-test('git exit 128 returns the state verdict as a non-error envelope', async (t) => {
+test('git exit 128 returns the state verdict as plain process text', async (t) => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-absent-git128-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = join(root, 'repo');
@@ -36,8 +36,6 @@ test('git exit 128 returns the state verdict as a non-error envelope', async (t)
   // Unborn branch: `git log` exits 128 with git's own explanation.
   const out = String(await executeGitTool({ command: `git -C "${repo}" log` }, repo));
   assert.doesNotMatch(out, /^Error:/);
-  const parsed = JSON.parse(out);
-  assert.equal(parsed.ok, false);
-  assert.equal(parsed.exit, 128);
-  assert.ok(String(parsed.stderr || parsed.reason || '').length > 0);
+  assert.match(out, /^exit 128\nfatal:/);
+  assert.match(out, /does not have any commits yet/);
 });

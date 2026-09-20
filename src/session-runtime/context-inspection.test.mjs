@@ -58,7 +58,7 @@ test('runtime-authored user rows read as system sections and skill sections name
     fixture({
       messages: [
         { role: 'system', content: '# Skills\nApply matching skills.\n# available-skills\n- browser-use: pages.' },
-        { role: 'user', content: '<system-reminder>\nBatch independent calls.\n</system-reminder>' },
+        { role: 'user', content: '<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>' },
         { role: 'user', content: '<mixdog-runtime kind="runtime-control">\n[mixdog-runtime] nudge\n</mixdog-runtime>' },
         // The stored transcript carries no envelope — that projection runs on the
         // provider-bound copy only — so a task notification has to be recognized

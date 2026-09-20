@@ -29,6 +29,8 @@ function steeringMessageFromEntry(entry) {
   const meta = {
     id: entry.id,
     submittedAt: entry.submittedAt,
+    mode: entry.mode,
+    ...(entry.execution && typeof entry.execution === 'object' ? { execution: { ...entry.execution } } : {}),
     ...(Array.isArray(entry.images) && entry.images.length ? { images: entry.images } : {}),
     ...(entry.transcriptMeta && typeof entry.transcriptMeta === 'object'
       ? { transcriptMeta: entry.transcriptMeta }

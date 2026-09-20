@@ -17,7 +17,7 @@ import {
 } from '../compact.mjs';
 
 // Conversation summarization triggers independently of the post-compact target.
-const CONVERSATION_COMPACT_TRIGGER_RATIO = 0.1;
+const CONVERSATION_COMPACT_TRIGGER_RATIO = 0.05;
 
 // Select an explicitly configured, enabled maintenance route only. An absent
 // or disabled maintenance role falls back to the conversation's own model,

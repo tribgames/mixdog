@@ -148,6 +148,17 @@ function parseGrepContextBlocks(lines, filenameOmitted, fallbackPath) {
 // permanently skip the middle blocks that the tail slice displaced. Tail
 // blocks re-appear on later pages — duplication is acceptable, silent loss
 // is not.
+export function grepPagingNotice({ shown, total, totalKnown, omitted, offset, nextOffset }) {
+  if (shown === 0) {
+    return totalKnown
+      ? `[0 of ${total} shown; offset:${offset} past end]`
+      : `[0 shown, results partial; offset:${offset} beyond streamed window; narrow path/glob/pattern]`;
+  }
+  if (!(omitted > 0) && totalKnown) return '';
+  const count = totalKnown ? `${shown} of ${total} shown` : `${shown} shown, more exist`;
+  return `\n[${count}; offset:${nextOffset} for the rest]`;
+}
+
 function pagedContextSegments(afterOffset, { shown, omitted, offset, render }) {
   if (!(omitted > 0 && shown > 0)) return { segments: render(afterOffset.slice(0, shown)), nextOffset: offset + shown };
   const headCount = Math.max(1, Math.ceil(shown / 2));
@@ -174,28 +185,16 @@ export function formatGrepContextOutput({
   const blocks = parseGrepContextBlocks(norm, filenameOmitted, fallbackPath);
   const total = blocks.length;
   if (total === 0) return { text: '', total: 0, shown: 0, omitted: 0 };
-  // Finding 2/3: denominator is the PRE-offset grand total; on a partial rg
-  // read (stdout cap / stream cap) it is a lower bound, so print ">=T".
-  const totalStr = totalKnown ? `${total}` : `>=${total}`;
   const afterOffset = offset > 0 ? blocks.slice(offset) : blocks;
   if (afterOffset.length === 0) {
-    // On a partial stream (line cap / timeout) the parsed blocks are a
-    // lower bound — an offset beyond them is NOT proven past the last
-    // match, so steer toward narrowing instead of claiming "past end".
-    const text = totalKnown
-      ? `[Showing 0 of ${totalStr} matches; offset ${offset} past end]`
-      : `[Showing 0 of ${totalStr} matches (results partial); offset ${offset} is beyond the streamed window — matches past it may exist. Narrow path/glob/pattern instead of paging deeper.]`;
+    const text = grepPagingNotice({ shown: 0, total, totalKnown, offset });
     return { text, total, shown: 0, omitted: 0 };
   }
   const shown = headLimit === Infinity ? afterOffset.length : Math.min(headLimit, afterOffset.length);
   const omitted = afterOffset.length - shown;
   const render = (arr) => renderGrepContextBlocks(arr, filenameOmitted, fallbackPath);
   const { segments, nextOffset } = pagedContextSegments(afterOffset, { shown, omitted, offset, render });
-  let notice = '';
-  if (omitted > 0 || !totalKnown) {
-    const partial = totalKnown ? '' : ' (results partial)';
-    notice = `\n[Showing ${shown} of ${totalStr} matches${partial}; pass offset:${nextOffset} for more]`;
-  }
+  const notice = grepPagingNotice({ shown, total, totalKnown, omitted, offset, nextOffset });
   return {
     text: `${segments.join('\n')}${notice}`,
     total,
@@ -280,13 +279,9 @@ export function formatGrepOutput({
   // Finding 3: PRE-offset grand total so the denominator matches the
   // context-mode notice (offset==0 leaves this unchanged).
   const total = offset + totalWindowed;
-  const scopePath = JSON.stringify(normalizeOutputPath(searchPath));
-  let truncated = '';
-  if (totalKnown && remaining > 0) {
-    truncated = `\n[Showing ${shown} of ${total} results; pass offset:${offset + shown} for more]`;
-  } else if (!totalKnown) {
-    truncated = `\n[Showing ${shown} (more matches exist — use mode:'count' for the exact total on ${scopePath}); pass offset:${offset + shown} for more]`;
-  }
+  const truncated = remaining > 0 || !totalKnown
+    ? grepPagingNotice({ shown, total, totalKnown, omitted: remaining, offset, nextOffset: offset + shown })
+    : '';
 
   const countSummary = outputMode === 'count' ? grepCountSummary(normalized) : '';
   const hasContext = beforeN > 0 || afterN > 0 || contextN > 0;

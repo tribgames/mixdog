@@ -76,7 +76,6 @@ const _oauthRefreshes = new Map();
 const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude.";
 const OAUTH_BETA_HEADERS =
   'oauth-2025-04-20,interleaved-thinking-2025-05-14,context-management-2025-06-27,extended-cache-ttl-2025-04-11';
-import { appendTurnReminders, withTurnReminderContext } from './anthropic-turn-reminder.mjs';
 import {
   EFFORT_CONFIGURATION_BETA,
   projectEffortConfiguration,
@@ -98,14 +97,6 @@ function buildOAuthBetaHeaders(body, { fastMode = false, toolSearch = false, mod
     base: usesAnthropicEffortBody(body) ? `${OAUTH_BETA_HEADERS},${EFFORT_CONFIGURATION_BETA}` : OAUTH_BETA_HEADERS,
     fastMode,
     toolSearch,
-    // Effort controls use their own beta, enabled from the first turn.
-    // Do not add another cache-key header only when effort first changes.
-    midConversationSystem: body?.messages?.some(
-      (message) => message?.role === 'system' && !message.output_config?.effort
-    ),
-    turnScopedSystem: body?.messages?.some(
-      (message) => message?.role === 'system' && message.clear_at === 'next_user_message'
-    ),
     effort: shouldIncludeEffortBeta(model, opts),
     serverFallback: body?.fallbacks === 'default',
   });
@@ -251,12 +242,6 @@ function buildRequestBody(messages, model, tools, sendOpts) {
     lowerAnthropicEffortHistory(chatMsgs, (segment) => toAnthropicMessages(segment, requestTools), effortProjection),
     messageCacheSlots
   );
-  // Route round-reminder as a turn-scoped system message after each tool
-  // result (anthropic-turn-reminder.mjs). Historical boundaries stay in place
-  // with their original text before replaying signed responses; a newer tool
-  // result adds a boundary rather than moving the old one. User interjections
-  // remain distinct and take precedence.
-  appendTurnReminders(anthropicMessages, opts.roundReminder, chatMsgs);
 
   const body = {
     model,
@@ -312,9 +297,6 @@ export class AnthropicOAuthProvider {
   // input_tokens EXCLUDES cache_read_input_tokens (separate field) — add the
   // cache back for the real context footprint. See registry.mjs.
   static inputExcludesCache = true;
-  // Delivers the route's round-reminder itself, as a turn-scoped system
-  // message (anthropic-turn-reminder.mjs); the runtime channel stays silent.
-  static deliversRoundReminder = true;
   name = 'anthropic-oauth';
   credentials = null;
   config;
@@ -541,7 +523,6 @@ export class AnthropicOAuthProvider {
     const midstream = createMidstreamRecovery({
       maxRetries: ANTHROPIC_MAX_MIDSTREAM_RETRIES,
       totalSignal,
-      body,
       recovery,
     });
 
@@ -614,7 +595,6 @@ export class AnthropicOAuthProvider {
             onTextDelta,
             knownToolNames
           );
-          result.providerReplay = withTurnReminderContext(result.providerReplay, body);
           try {
             controller?.abort?.('Anthropic SSE complete');
           } catch {}
@@ -914,7 +894,6 @@ export const _test = {
   resolveMaxTokens,
   deferredAnthropicTools,
   requestAnthropicTools,
-  appendTurnReminders,
   buildOAuthBetaHeaders,
   sanitizeInputSchema: (schema, toolName) => sanitizeAnthropicInputSchema(schema, toolName, 'anthropic-oauth'),
 };

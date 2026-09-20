@@ -1,7 +1,5 @@
 # Mixdog Instructions
 
-Use this file for project-specific Mixdog context.
-
-- Add stable project conventions, commands, and workflow notes here.
-- Mixdog loads this file from the project root for new sessions.
-- Edit or replace this content at any time.
+- Tests: `npm test -- <path or file>` scoped to the changed area; the
+  unscoped root run fails on Windows (command-line length limit). Desktop:
+  `cd apps/desktop && npm run typecheck && npm test -- <path>`.

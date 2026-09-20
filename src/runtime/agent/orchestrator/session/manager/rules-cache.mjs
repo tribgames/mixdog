@@ -3,7 +3,6 @@
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { resolvePluginData, mixdogRoot } from '../../../../shared/plugin-paths.mjs';
-import { envFlag } from '../../../../shared/env.mjs';
 import { createRulesSourceCache } from './rules-source-cache.mjs';
 
 // Phase B: Pool B Tier 2 content builder (common rules only).
@@ -89,38 +88,6 @@ export function _buildRouteRules({ provider = null, model = null, omitTools = []
       Array.isArray(allowTools) ? omitToolsKey(allowTools) : null,
     ])
   );
-}
-
-function buildRouteLine(method, label, { provider = null, model = null } = {}) {
-  const PLUGIN_ROOT = mixdogRoot();
-  const providerKey = String(provider || '')
-    .trim()
-    .toLowerCase();
-  const modelKey = String(model || '')
-    .trim()
-    .toLowerCase();
-  return buildCachedRules(
-    method,
-    label,
-    [join(PLUGIN_ROOT, 'rules', 'routes')],
-    { PLUGIN_ROOT, provider: providerKey, model: modelKey },
-    JSON.stringify([providerKey, modelKey])
-  );
-}
-
-// The matching route's one-line runtime reminder (`round-reminder:`),
-// appended after every tool round by the provider or the tool batch.
-export function _buildRouteRoundReminder(route = {}) {
-  return buildRouteLine('buildRouteRoundReminderContent', 'route round reminder', route);
-}
-
-// The matching route's one-line turn reminder (`turn-reminder:`), part of
-// the user turn's trailing <system-reminder> block. MIXDOG_TURN_REMINDER=0
-// drops it from new turns; turns already recorded keep the line their
-// transcript stored.
-export function _buildRouteTurnReminder(route = {}) {
-  if (!envFlag('MIXDOG_TURN_REMINDER', true)) return '';
-  return buildRouteLine('buildRouteTurnReminderContent', 'route turn reminder', route);
 }
 
 // BP1 = shared tool policy followed by this route's rules. Every site that

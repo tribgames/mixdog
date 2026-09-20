@@ -4,11 +4,13 @@ import {
   isDeliveredCompletion,
   recordDeliveredCompletion,
 } from '../../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
+import { markCompletionEntry } from '../../../runtime/agent/orchestrator/session/manager/pending-message-entry.mjs';
 import { executionResumeKey } from './pending-resume.mjs';
+import { parseTaskNotification, taskNotificationHasBody } from '../../../runtime/shared/task-notification-envelope.mjs';
 
 const FAILURE_STATUS = /^(failed|error|timeout|killed|cancelled|canceled|denied)$/;
 const SUCCESS_STATUS = /^(completed|complete|done|success|succeeded|ok)$/;
-const hasBodyText = (text) => /\n\s*\n[\s\S]*\S/.test(text);
+const hasBodyText = taskNotificationHasBody;
 
 // EXPLICIT ack to the emitting runtime: the model-visible completion body is
 // pending delivery on the TUI path (enqueued here, already queued, or already
@@ -27,7 +29,7 @@ export function createExecutionDelivery({ dedup, pendingResume, enqueue, nextId,
     const firstDelivery = !cardKey || !dedup.hasNotificationKey(cardKey);
     const hasBody = hasBodyText(text);
     const isFailure = FAILURE_STATUS.test(status);
-    const successfulPreview = !hasBody && !isFailure && SUCCESS_STATUS.test(status);
+    const successfulPreview = !parseTaskNotification(text) && !hasBody && !isFailure && SUCCESS_STATUS.test(status);
     const bodyAlreadyDisplayed = dedup.responseState(executionId) === 'body';
     if (cardKey && terminal && dedup.hasNotificationKey(cardKey)) {
       dedup.rememberNotificationKey(cardKey, true, executionId);
@@ -73,8 +75,10 @@ export function createExecutionDelivery({ dedup, pendingResume, enqueue, nextId,
     // active loop can attach them after the next tool batch. The immediate
     // response card was already pushed above, so the queued twin stays
     // model-visible but suppresses its drain-time transcript card.
+    const { execution } = markCompletionEntry(resumeBody, { executionId, meta: event?.meta });
     const enqueued = enqueue(resumeBody, {
       mode: 'task-notification',
+      ...(execution ? { execution } : {}),
       priority: 'next',
       key: notificationKey || undefined,
       abortDiscardOnAbort: true,

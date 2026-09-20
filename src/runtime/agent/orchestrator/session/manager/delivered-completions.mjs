@@ -24,6 +24,7 @@
 // time. This requires >512 live completions between a delivery and its drain,
 // which is far outside normal single-process interactive use.
 import { createHash } from 'node:crypto';
+import { taskNotificationId } from '../../../../shared/task-notification-envelope.mjs';
 
 const DELIVERED_TTL_MS = 6 * 60 * 60 * 1000; // 6h, sliding (refreshed on record + hit)
 const DELIVERED_MAX_ENTRIES = 512;
@@ -70,7 +71,7 @@ export function recordDeliveredCompletion({ executionId, text } = {}) {
   pruneExpired(now);
   const expiresAt = now + DELIVERED_TTL_MS;
   let recorded = false;
-  for (const key of [execKey(executionId), textKey(text)]) {
+  for (const key of [execKey(executionId || taskNotificationId(text)), textKey(text)]) {
     if (!key) continue;
     _delivered.delete(key); // re-insert to refresh age order
     _delivered.set(key, expiresAt);
@@ -82,7 +83,7 @@ export function recordDeliveredCompletion({ executionId, text } = {}) {
 
 export function isDeliveredCompletion({ executionId, text } = {}) {
   const now = Date.now();
-  const keys = [execKey(executionId), textKey(text)].filter(Boolean);
+  const keys = [execKey(executionId || taskNotificationId(text)), textKey(text)].filter(Boolean);
   let hit = false;
   for (const key of keys) {
     const expiresAt = _delivered.get(key);

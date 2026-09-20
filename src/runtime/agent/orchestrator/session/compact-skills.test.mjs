@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildSkillToolEnvelope } from '../context/collect.mjs';
-import { latestSkillBodies, skillContextReminder } from '../context/skill-state.mjs';
+import { latestSkillBodies } from '../context/skill-state.mjs';
 import { freshContextCompactMessages } from './compact.mjs';
 import { estimateMessagesTokens } from './context-utils.mjs';
 import { latestActualUserInstructionMessage } from './compact/messages.mjs';
@@ -49,9 +49,10 @@ test('Compact restores the latest complete skill body and resume can reuse it wi
     latestSkillBodies(second.messages).map((entry) => entry.message),
     [other, current]
   );
+  assert.equal(second.messages.some((message) => message.meta?.source === 'skill-context'), false);
   const events = [];
   const baseline = prepareProviderPrefixGuard(null, second.messages, { tools: [] }, { provider: 'openai-oauth' });
-  const followup = [...second.messages, { role: 'user', content: 'Next step' }, skillContextReminder(second.messages)];
+  const followup = [...second.messages, { role: 'user', content: 'Next step' }];
   prepareProviderPrefixGuard(
     baseline,
     followup,
@@ -77,8 +78,6 @@ test('restoration is bounded, favors recent bodies, and never presents partial i
   assert.deepEqual(restored, [recent]);
   assert.ok(estimateMessagesTokens(restored) <= 2_000);
   assert.ok(estimateMessagesTokens(first.messages) <= 10_000);
-  assert.match(skillContextReminder(first.messages).content, /"recent"/);
-  assert.doesNotMatch(skillContextReminder(first.messages).content, /"older"|"large"/);
   const reload = buildSkillToolEnvelope(
     'large',
     `# Large\n${'instruction '.repeat(20_000)}`,
@@ -101,7 +100,6 @@ test('skills are isolated by transcript, not by a process-wide loaded flag', () 
     { role: 'system', content: 'S' },
     { role: 'user', content: 'Other session' },
   ]);
-  assert.equal(skillContextReminder(separate.messages), null);
   assert.equal(latestSkillBodies(compact(source).messages).length, 1);
   assert.equal(latestSkillBodies(separate.messages).length, 0);
 });

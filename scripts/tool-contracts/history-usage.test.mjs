@@ -36,7 +36,7 @@ test('completion instructions and dedup reminders stay behavior-neutral', () => 
     detail: 'exit 0',
   });
   assert(
-    /^Async shell task job-1 \(completed, exit 0\) finished\.$/.test(completion),
+    /^Shell task completed \(exit 0\)$/.test(completion),
     `completion instruction must stay status-only: ${completion}`
   );
   assert(

@@ -7,6 +7,11 @@ import {
 } from './tool-execution-contract.mjs';
 import { presentErrorText, errorLine } from './err-text.mjs';
 import { clean } from './clean.mjs';
+import {
+  parseTaskNotification,
+  renderTaskCompletionEnvelope,
+  renderShellCompletionEnvelope,
+} from './task-notification-envelope.mjs';
 
 export { TOOL_ASYNC_EXECUTION_CONTRACT, TOOL_MANUAL_CONTROL_CONTRACT, TOOL_SYNC_EXECUTION_CONTRACT };
 
@@ -346,7 +351,7 @@ export function completeBackgroundTask(
   task.finishedAt = new Date(now).toISOString();
   if (terminalReason) task.terminalReason = terminalReason;
   if (result !== undefined) task.result = result;
-  if (resultText != null) task.resultText = compactText(resultText);
+  if (resultText != null) task.resultText = String(resultText);
   if (error != null) task.error = presentErrorText(error, { surface: task.surface });
   if (resultType) task.resultType = resultType;
   if (instruction) task.notificationInstruction = compactText(instruction, 1_000);
@@ -370,7 +375,7 @@ export function notifyTaskCompletion(task, instruction) {
   const hasBody = Boolean(body);
   if (task.notifiedWithBody === true) return false;
   if (task.notified === true && !hasBody) return false;
-  const text = renderBackgroundTask(task, { includeResult: true });
+  const text = renderBackgroundTaskNotification(task);
   const sent = notifyToolCompletion({
     surface: task.surface,
     id: task.taskId,
@@ -429,6 +434,33 @@ export function reconcileBackgroundTask(
     error,
     instruction,
     terminalReason,
+  });
+}
+
+export function renderBackgroundTaskNotification(task) {
+  if (!task) return '';
+  const result = task.surface === 'agent' && typeof task.result?.content === 'string'
+    ? task.result.content
+    : resultTextForTask(task);
+  if (task.surface === 'shell') {
+    if (parseTaskNotification(result)) return result;
+    return renderShellCompletionEnvelope({
+      jobId: task.taskId,
+      status: task.status,
+      exitCode: task.result?.exit_code ?? null,
+      command: task.input?.command || task.label,
+      outputFile: task.result?.stdout_path || task.meta?.stdout,
+      result,
+      error: task.error,
+    });
+  }
+  return renderTaskCompletionEnvelope({
+    surface: task.surface,
+    id: task.taskId,
+    tag: task.meta?.tag || task.label,
+    status: task.status,
+    result,
+    error: task.error,
   });
 }
 

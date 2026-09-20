@@ -10,6 +10,8 @@ import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
 import { normalizeToolTerminalStatus, toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
 import { isReadOnlyNavigationMiss } from '../../runtime/agent/orchestrator/session/result-classification.mjs';
 import { formatAggregateDetail, summarizeToolResult, toolLoadingTargets } from '../../runtime/shared/tool-surface.mjs';
+import { normalizeToolName } from '../../runtime/shared/tool-primitives.mjs';
+import { gitResultError, gitResultExitCode } from '../../runtime/shared/tool-card-model/git-result.mjs';
 
 const CANCELLED_RESULT_STATUS_LINE = '[status: cancelled]';
 
@@ -42,6 +44,11 @@ export function shellCommandExitCode(text) {
 // error flags: adapters commonly label non-zero process exits as tool errors
 // even though the shell tool itself ran successfully.
 export function toolCallOutcome(message, rawText) {
+  if (normalizeToolName(message?.toolName || message?.name) === 'git') {
+    const exitCode = gitResultExitCode(rawText);
+    if (exitCode !== null) return { isCallError: false, isExitError: true, exitCode };
+    if (gitResultError(rawText)) return { isCallError: true, isExitError: false, exitCode: null };
+  }
   const exitCode = shellCommandExitCode(rawText);
   if (exitCode != null) {
     // Every completed shell result carries `[exit code: N]` — including 0.

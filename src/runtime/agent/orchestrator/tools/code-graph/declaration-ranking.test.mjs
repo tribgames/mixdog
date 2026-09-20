@@ -66,6 +66,22 @@ function makeGraph(files) {
 
 const dispatch = async (graph, args) => String(await codeGraph(args, CWD, null, { graph }));
 
+test('one declaration omits candidate and scope banners without losing its body', async () => {
+  const text = 'export function uniqueTask() {\n  return 42;\n}\n';
+  const graph = makeGraph([{
+    rel: 'src/unique.mjs',
+    lang: 'javascript',
+    text,
+    symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true })],
+  }]);
+  for (const mode of ['find_symbol', 'symbol_search']) {
+    const out = await codeGraph({ mode, symbol: 'uniqueTask' }, CWD, null, { graph, _defaultCwd: tmpdir() });
+    assert.match(out, /src\/unique\.mjs:1-3:/);
+    assert.doesNotMatch(out, /# candidates|# scope:|graph=\d+-nodes/);
+    if (mode === 'find_symbol') assert.match(out, /1: export function uniqueTask\(\) \{\n2:   return 42;\n3: \}/);
+  }
+});
+
 // ── 1. type declaration vs implementation ──────────────────────────────────
 const IMPL_TEXT = 'export function computerErrorCode(error) {\n  return String(error);\n}\n';
 const DTS_TEXT = 'export function computerErrorCode(error: unknown): string;\n';
@@ -139,6 +155,14 @@ test('two real implementations still raise the ambiguity warning', async () => {
   assert.match(out, /^⚠ 2 declarations found — verify which one you intend$/m);
   assert.match(out, /^other declarations: src\/[ab]\/run\.mjs:/m);
   assert.match(out, /^type declaration: src\/b\/run\.d\.ts:/m);
+  assert.match(out, /^# candidates$/m);
+  assert.doesNotMatch(out, /# scope:/);
+  const external = await codeGraph({ mode: 'find_symbol', symbol: 'runTask' }, CWD, null, {
+    graph,
+    _defaultCwd: tmpdir(),
+  });
+  assert.ok(external.endsWith(`# scope: cwd=${CWD}`));
+  assert.doesNotMatch(external, /graph=\d+-nodes/);
 });
 
 test('a same-named .d.ts in ANOTHER package is a rival declaration, not a type face', async () => {

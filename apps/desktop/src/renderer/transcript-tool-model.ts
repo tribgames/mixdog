@@ -165,9 +165,9 @@ export function desktopToolActivityItemPresentation(
   const targetPath = toolActivityFirstText(args, 'file_path', 'filePath', 'path', 'file', 'target');
   const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : '';
   const replacementLanguage = beforeText || afterText ? toolActivityCodeLanguage(targetPath) : '';
-  let outputText = toolActivityCleanOutput(
-    toolActivityOutputText(item.result ?? model.displayedResultBodyText ?? item.rawResult)
-  );
+  let outputText = normalizedName === 'git'
+    ? String(item.result ?? model.displayedResultBodyText ?? item.rawResult ?? '').trimEnd()
+    : toolActivityCleanOutput(toolActivityOutputText(item.result ?? model.displayedResultBodyText ?? item.rawResult));
   const backgroundTask = toolActivityBackgroundTask(outputText);
   const metaText = backgroundTask ? backgroundTask.meta : '';
   if (backgroundTask) outputText = backgroundTask.body;
@@ -219,7 +219,7 @@ export function desktopToolActivityItemPresentation(
   if (!resultLabel && normalizedName === 'git_stage' && /^staged\b/i.test(outputText.trim())) {
     resultLabel = 'Staged';
   }
-  if (resultLabel && outputText && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
+  if (normalizedName !== 'git' && resultLabel && outputText && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
     outputText = '';
   }
   resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : '';

@@ -8,8 +8,6 @@
   read again.
 - Every independent call in the same response, never one per round. Sequence
   only on a real dependency.
-- Several targets of one tool in its array argument, where each target keeps
-  its own options: `read.file_path[]`, `grep.pattern[]`/`path[]`,
-  `glob.pattern[]`, `code_graph.files[]`/`symbols[]`.
-<!-- tools: git -->
-- Several git commands in one call: `git.command[]`.
+- A tool that takes an array gets one call with the array whenever there are
+  several targets; separate calls of the same tool only when the targets need
+  different options or one depends on another's result.

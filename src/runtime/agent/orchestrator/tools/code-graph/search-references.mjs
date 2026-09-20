@@ -2,6 +2,7 @@
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
 // verbatim from code-graph.mjs.
+import { relative } from 'node:path';
 import { _graphRel, _getSourceTextForNode, _getSourceLinesForNode } from './source-access.mjs';
 import { _astCallerCallSites, _astFileCallSites, _astCallDisplayCol, _astRelInScope } from './ast-calls.mjs';
 import {
@@ -172,7 +173,7 @@ export function _findSymbolAcrossGraph(
   graph,
   symbol,
   cwd,
-  { language = null, limit = 5, fileRel = null, body = true, outsideDeclaration = null } = {}
+  { language = null, limit = 5, fileRel = null, body = true, outsideDeclaration = null, defaultCwd = cwd } = {}
 ) {
   const allHits = _findSymbolHits(graph, symbol, { language });
   const hits = fileRel ? allHits.filter((h) => h.rel === fileRel) : allHits;
@@ -283,16 +284,17 @@ export function _findSymbolAcrossGraph(
       const faces = typeFaces.slice(0, 3).map((h) => `${_formatSymbolHitLocation(h)} [${h.lang}]`);
       lines.push(`type declaration: ${faces.join(', ')}`);
     }
-    lines.push('');
+    if (hits.length > 1) lines.push('');
   }
-  lines.push('# candidates');
+  if (hits.length > 1) lines.push('# candidates');
   lines.push(
-    ...topHits.map((hit, idx) => {
+    ...(hits.length > 1 || !primary?.declarationLike ? topHits : []).map((hit, idx) => {
       const kind = hit.declarationLike ? 'decl' : 'ref';
       const facts = _formatSymbolFacts(hit);
       const suffix = hit.content ? ` — ${hit.content.slice(0, 100)}` : '';
       const namePath = hit.namePath ? ` path=${hit.namePath}` : '';
-      return `${idx + 1}. ${_formatSymbolHitLocation(hit)} [${kind}${facts ? `, ${facts}` : ''}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
+      const number = hits.length > 1 ? `${idx + 1}. ` : '';
+      return `${number}${_formatSymbolHitLocation(hit)} [${kind}${facts ? `, ${facts}` : ''}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
     })
   );
   if (declCount === 0 && hits.length > 0) {
@@ -307,14 +309,10 @@ export function _findSymbolAcrossGraph(
         : `(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`
     );
   }
-  const _nodeCount = graph?.nodes?.size ?? 0;
-  const truncatedSuffix = graph?.truncated
-    ? ` [WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files not indexed]`
-    : '';
-  const fileScopeSuffix = fileRel ? ` file=${fileRel}` : '';
-  lines.push(
-    `\n# scope: cwd=${cwd} graph=${_nodeCount}-nodes${language ? ` language=${language}` : ''}${fileScopeSuffix}${truncatedSuffix}`
-  );
+  if (graph?.truncated && !primary?.declarationLike) {
+    lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files not indexed`);
+  }
+  if (hits.length > 1 && relative(defaultCwd, cwd)) lines.push(`\n# scope: cwd=${cwd}`);
   return lines.join('\n');
 }
 

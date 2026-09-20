@@ -1,12 +1,9 @@
 // Ordered commit of the batch: tool_results in the assistant's tool_use
-// order, then the newMessages channel, the batching nudge, and the
-// PostToolBatch hook — all before the next provider send.
-import { envFlag } from '../../../../shared/env.mjs';
+// order, then the newMessages channel and the PostToolBatch hook — all
+// before the next provider send.
 import { skillBodyPresentInSession } from '../../context/collect.mjs';
 import { isInjectedSkillBodyMessage } from '../compact/messages.mjs';
-import { appendAgentTrace } from '../../agent-trace.mjs';
 import { updateSessionStage } from '../manager.mjs';
-import { observeToolBatchForNudge, batchingNudgeMessage } from '../batching-nudge.mjs';
 
 export async function flushBatch(batch) {
   const { calls, pushToolResultMessage, sessionId } = batch;
@@ -19,7 +16,6 @@ export async function flushBatch(batch) {
   }
   for (const message of batch.resultsWithoutId) pushToolResultMessage(message);
   flushNewMessages(batch);
-  nudgeBatching(batch);
   await runAfterToolBatchHook(batch);
   // Mid-turn steering is drained at the next loop's pre-send point, AFTER
   // any auto-compact pass, so compaction never treats these fresh tool
@@ -43,35 +39,6 @@ function flushNewMessages(batch) {
     // without dropping changed bodies or tool outcomes.
     if (isInjectedSkillBodyMessage(nm) && skillBodyPresentInSession({ messages }, nm.content.trimStart())) continue;
     messages.push({ role: 'user', content: nm.content, ...(nm.meta ? { meta: nm.meta } : {}) });
-  }
-}
-
-// Tool-batching reminder, only once the transcript shows serial calls that
-// did not need each other's results, or same-tool scalar calls
-// (batching-nudge.mjs). Rides the channel the flush above just used, so
-// tool_result pairing stays valid. MIXDOG_ROUND_REMINDER=0 silences the
-// route's per-round line; the batching heuristics keep their own triggers.
-function nudgeBatching(batch) {
-  const { opts, calls, messages } = batch;
-  const roundReminderOn = !opts.roundReminderByProvider && envFlag('MIXDOG_ROUND_REMINDER', true);
-  const nudge = observeToolBatchForNudge({
-    sessionRef: batch.sessionRef,
-    calls,
-    results: calls.map((call) => batch.resultByCallId.get(call.id) ?? null),
-    tools: batch.tools,
-    reminder: roundReminderOn ? opts.roundReminder || null : null,
-  });
-  if (!nudge) return;
-  messages.push(batchingNudgeMessage(nudge));
-  try {
-    appendAgentTrace({
-      sessionId: batch.sessionId,
-      iteration: batch.iterations,
-      kind: 'batching_nudge',
-      payload: { trigger: nudge.trigger, tools: nudge.tools },
-    });
-  } catch {
-    /* best-effort */
   }
 }
 

@@ -182,7 +182,7 @@ function buildPreview(text, maxChars = TOOL_RESULT_PREVIEW_CHARS) {
   if (tailCut !== -1 && tailCut < Math.floor(tailBudget * 0.4)) tail = tail.slice(tailCut + 1);
   const omittedKb = Math.max(1, Math.round((text.length - head.length - tail.length) / 1024));
   return {
-    preview: `${head}\n\n... [preview middle omitted — ${omittedKb} KB] ...\n\n${tail}`,
+    preview: `${head}\n... [preview middle omitted — ${omittedKb} KB] ...\n${tail}`,
     truncated: true,
   };
 }
@@ -315,7 +315,7 @@ async function offloadText(sessionId, toolCallId, toolName, text, channel) {
   const { preview, truncated } = buildPreview(text);
   const sizeKb = Math.max(1, Math.round(text.length / 1024));
   const displayPath = normalizeOutputPath(artifact.path);
-  const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${artifact.lines} lines, sha256 ${artifact.sha256})]`;
+  const header = `${TOOL_RESULT_OFFLOAD_PREFIX} ${toolName} → ${displayPath} (${sizeKb} KB, ${artifact.lines} lines)]`;
   const suffix = truncated ? '\n[preview truncated; full output preserved at the artifact path above]' : '';
   return `${header}\n\n${preview}${suffix}`;
 }

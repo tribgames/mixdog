@@ -92,6 +92,8 @@ test('per-engine diagnostics are capped with a `more` count and exact totals', (
   assert.equal(result.filesChanged.length, 25);
   assert.equal(result.filesChangedMore, 15);
   assert.equal(result.filesChangedCount, 40);
+  assert.deepEqual(result.byRule, { F401: { count: 55, severity: 'error', fixable: 55 } });
+  assert.deepEqual(result.byDir, { src: 55 });
 });
 
 test('structural output reports matches, fixable count, applied files and rejections', () => {
@@ -135,13 +137,18 @@ test('an oversized report trims samples but keeps counts and marks truncation', 
       { id: 'ruff', source: 'path', filesChecked: 400, filesChanged: [], diagnostics: diagnostics(300) },
       { id: 'shellcheck', source: 'path', filesChecked: 40, filesChanged: [], diagnostics: diagnostics(300) },
     ],
-    maxBytes: 3000,
+    structural: { matches: [{ file: 'src/runtime/a.js', ruleId: 'no-debugger', severity: 'warning', fix: null }] },
+    maxBytes: 3500,
   });
   assert.equal(report.truncated, true);
-  assert.ok(Buffer.byteLength(JSON.stringify(report), 'utf8') <= 3000, 'report must fit the budget');
+  assert.ok(Buffer.byteLength(tidyToolResult(report).content[0].text, 'utf8') <= 3500, 'wire report must fit the budget');
   assert.equal(report.results[0].diagnosticsCount, 300);
   assert.ok(report.results[0].diagnostics.length < DIAGNOSTIC_CAP, 'samples must shrink under budget pressure');
   assert.equal(report.results[0].more, 300 - report.results[0].diagnostics.length);
+  assert.deepEqual(report.results[0].byRule, { F401: { count: 300, severity: 'error', fixable: 300 } });
+  assert.deepEqual(report.results[0].byDir, { src: 300 });
+  assert.deepEqual(report.structural.byRule, { 'no-debugger': { count: 1, severity: 'warning', fixable: 0 } });
+  assert.deepEqual(report.structural.byDir, { 'src/runtime': 1 });
 });
 
 test('offset/limit page diagnostics and keep full counts', () => {
@@ -170,7 +177,7 @@ test('offset/limit page diagnostics and keep full counts', () => {
   });
   const [result] = report.results;
   assert.equal(result.diagnostics.length, 10);
-  assert.equal(result.diagnostics[0].file, 'src/f20.py');
+  assert.equal(result.diagnostics[0].loc, 'src/f20.py:21:1');
   assert.equal(result.more, 25);
   assert.equal(result.diagnosticsCount, 55);
   assert.equal(result.offset, 20);
@@ -179,7 +186,7 @@ test('offset/limit page diagnostics and keep full counts', () => {
   assert.equal(result.filesChanged[0], 'src/f20.py');
   assert.equal(result.filesChangedCount, 40);
   assert.equal(report.structural.matches.length, 10);
-  assert.equal(report.structural.matches[0].file, 'src/a20.js');
+  assert.equal(report.structural.matches[0].loc, 'src/a20.js:0:0');
   assert.equal(report.structural.matchesCount, 45);
   assert.equal(report.structural.more, 15);
   assert.equal(report.structural.nextOffset, 30);
@@ -201,21 +208,25 @@ test('a page past the end is empty rather than a dump', () => {
   assert.equal(report.results[0].nextOffset, undefined);
 });
 
-test('a structural rule error is not a clean report', () => {
-  const report = buildTidyReport({
-    action: 'check',
-    engines: [],
-    structural: {
-      adapter: 'graph-binary',
-      packs: ['kotlin/todo-marker'],
-      matches: [],
-      error: { kind: 'rules', language: 'kotlin', message: 'invalid rule' },
-      ruleErrors: [{ language: 'kotlin', kind: 'rules', message: 'invalid rule' }],
-    },
-  });
-  assert.equal(report.ok, false);
-  assert.equal(report.structural.error.kind, 'rules');
-  assert.equal(report.structural.matchesCount, 0);
+test('structural language errors are partial, deduplicated, and never tool errors', () => {
+  const error = { language: 'kotlin', kind: 'rules', message: 'invalid rule' };
+  for (const action of ['check', 'fix', 'results']) {
+    for (const failure of [{ error }, { ruleErrors: [error] }, { errors: [error] }, { error, ruleErrors: [error] }]) {
+      const report = buildTidyReport({
+        action,
+        structural: { adapter: 'graph-binary', matches: [], ...failure },
+      });
+      assert.equal(report.ok, true);
+      assert.equal(report.status, 'partial');
+      assert.equal(tidyToolResult(report).isError, undefined);
+      assert.deepEqual(report.structural.errors, [error]);
+      assert.equal(report.structural.error, undefined);
+      assert.equal(report.structural.ruleErrors, undefined);
+      assert.equal(report.structural.matchesCount, 0);
+      assert.match(report.notes.join(' '), /kotlin structural pass did not complete/);
+      assert.match(report.notes.join(' '), /structural apply blocked for the entire run/);
+    }
+  }
 });
 
 test('engine failures and incomplete output cannot be reported as success', () => {
@@ -256,7 +267,87 @@ test('the tool result is one JSON text block, like the other runtime tools', () 
   const ok = tidyToolResult({ ok: true, action: 'scan' });
   assert.equal(ok.content.length, 1);
   assert.equal(ok.content[0].type, 'text');
+  assert.equal(ok.content[0].text, '{"ok":true,"action":"scan"}');
   assert.deepEqual(JSON.parse(ok.content[0].text), { ok: true, action: 'scan' });
   assert.equal(ok.isError, undefined);
   assert.equal(tidyToolResult({ ok: false }, true).isError, true);
+});
+
+test('results omits the header while scan/check/fix retain it', () => {
+  const header = {
+    languages: [{ id: 'python', files: 12 }],
+    languageSource: 'git',
+    engines,
+    policy: { downloads: 'ask' },
+  };
+  for (const action of ['scan', 'check', 'fix', 'results']) {
+    const report = buildTidyReport({ action, ...header, scope: ['.'], results: [] });
+    for (const key of ['languages', 'languageSource', 'engines', 'missing', 'policy']) {
+      assert.equal(Object.hasOwn(report, key), action !== 'results', `${action}.${key}`);
+    }
+    assert.deepEqual(report.scope, ['.']);
+    assert.deepEqual(report.results, []);
+  }
+});
+
+test('flat report rows do not mutate full cached/write payloads', (t) => {
+  const match = {
+    file: 'src/runtime/a.js',
+    lang: 'javascript',
+    ruleId: 'no-debugger',
+    severity: 'warning',
+    message: 'Remove debugger.',
+    range: { start: { line: 2, column: 3 }, end: { line: 2, column: 12 }, byteOffset: [20, 29] },
+    fix: { byteOffset: [20, 29], text: '' },
+  };
+  const source = {
+    action: 'check',
+    results: [{ id: 'ruff', diagnostics: diagnostics(1) }],
+    structural: { matches: [match] },
+  };
+  const original = structuredClone(source);
+  const report = buildTidyReport(source);
+  assert.deepEqual(report.results[0].diagnostics[0], {
+    loc: 'src/f0.py:1:1', rule: 'F401', severity: 'error', message: 'imported but unused', fix: true,
+  });
+  assert.deepEqual(report.structural.matches[0], {
+    loc: 'src/runtime/a.js:2:3', rule: 'no-debugger', severity: 'warning', message: 'Remove debugger.', fix: true,
+  });
+  assert.deepEqual(source, original);
+  const before = Buffer.byteLength(JSON.stringify(match, null, 2));
+  const after = Buffer.byteLength(JSON.stringify(report.structural.matches[0]));
+  assert.ok(after < before);
+  t.diagnostic(`diagnostic row bytes: ${before} pretty/full -> ${after} compact/projected (${(before / after).toFixed(2)}x)`);
+});
+
+test('summaries group directories, mixed fixability and severity, and survive zero-row trimming', () => {
+  const rows = [
+    { file: 'src/runtime/a.js', ruleId: 'no-debugger', severity: 'warning', fix: null },
+    { file: 'src\\runtime\\deep\\b.js', ruleId: 'no-debugger', severity: 'error', fix: { text: '' } },
+    { file: 'apps/desktop/c.js', ruleId: 'no-debugger', severity: 'info', fix: null },
+    { file: 'root.js', ruleId: '__proto__', severity: 'warning', fix: null },
+  ];
+  const report = buildTidyReport({
+    action: 'check',
+    engines: [{ id: 'gofumpt', kind: ['format'] }],
+    results: [
+      { id: 'biome', diagnostics: rows },
+      { id: 'gofumpt', diagnostics: [{ file: 'main.go', code: 'gofumpt', fixable: true }] },
+    ],
+    structural: { matches: rows },
+    maxBytes: 1,
+  });
+  const expectedRules = {
+    'no-debugger': { count: 3, severity: 'error', fixable: 1 },
+    ['__proto__']: { count: 1, severity: 'warning', fixable: 0 },
+  };
+  for (const summary of [report.results[0], report.structural]) {
+    assert.deepEqual(summary.byRule, expectedRules);
+    assert.deepEqual(summary.byDir, { 'src/runtime': 2, 'apps/desktop': 1, '.': 1 });
+  }
+  assert.deepEqual(report.results[0].diagnostics, []);
+  assert.deepEqual(report.structural.matches, []);
+  assert.deepEqual(report.results[1].byRule, {});
+  assert.equal(report.truncated, true);
+  assert.equal(report.ok, true, 'sample trimming is not an engine failure');
 });

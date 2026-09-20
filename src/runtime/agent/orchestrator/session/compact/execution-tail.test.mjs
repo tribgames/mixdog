@@ -15,6 +15,15 @@ import {
   EXECUTION_RECOVERY_SOURCE,
 } from './execution-tail.mjs';
 import { isActualUserInstructionMessage } from './messages.mjs';
+import { renderAgentCompletionEnvelope } from '../../../../shared/task-notification-envelope.mjs';
+
+test('tagged completions are neither user instructions nor memory conversation', () => {
+  const content = renderAgentCompletionEnvelope({ id: 'task_agent_tail', tag: 'review', status: 'completed', result: 'reviewed' });
+  const message = { role: 'user', content, meta: { source: 'task-notification', execution: { id: 'task_agent_tail', surface: 'agent', status: 'completed' } } };
+  assert.equal(isActualUserInstructionMessage(message), false);
+  assert.equal(isActualUserInstructionMessage({ role: 'user', content }), false);
+  assert.deepEqual(projectSessionMessagesForIngest([message]), []);
+});
 
 function sandbox(t) {
   const previous = process.env.MIXDOG_DATA_DIR;
@@ -35,12 +44,12 @@ function pair(id, result, args = { file_path: `${id}.js`, old_string: 'before', 
   ];
 }
 
-test('tool history scales with 10% of the context window without a fixed token ceiling', () => {
+test('tool history scales with 5% of the context window without a fixed token ceiling', () => {
   for (const [contextWindow, expected] of [
-    [20_000, 2_000],
-    [100_000, 10_000],
-    [500_000, 50_000],
-    [1_000_000, 100_000],
+    [20_000, 1_000],
+    [100_000, 5_000],
+    [500_000, 25_000],
+    [1_000_000, 50_000],
   ]) {
     assert.equal(toolHistoryBudget(contextWindow), expected);
   }
@@ -83,7 +92,7 @@ test('rule-only compaction preserves seven completed edits and the original requ
   );
   assert.equal(compacted.messages.filter((m) => m.content === original.content).length, 1);
   assert.equal(compacted.messages.filter((m) => m.content === steering.content).length, 1);
-  assert.equal(compacted.diagnostics.toolHistoryBudget, 50_000);
+  assert.equal(compacted.diagnostics.toolHistoryBudget, 25_000);
   const again = freshContextCompactMessages(compacted.messages, 250_000, {
     force: true,
     contextWindow: 500_000,
@@ -109,7 +118,7 @@ test('failed, partially applied, and running outcomes remain verbatim and are ne
     result.messages.filter((m) => m.role === 'tool'),
     messages.filter((m) => m.role === 'tool')
   );
-  assert.equal(result.toolBudget, 10_000);
+  assert.equal(result.toolBudget, 5_000);
 });
 
 test('large UI diffs cannot evict the latest edit failure and skipped verification during Compact', (t) => {
@@ -247,7 +256,7 @@ test('large tool results are archived exactly and retained calls remain paired u
     ...pair('recent', 'Updated recent.js'),
   ];
   const result = buildExecutionTail(messages, { contextWindow: 40_000, sessionId: 'huge-results' });
-  assert.equal(result.toolBudget, 4_000);
+  assert.equal(result.toolBudget, 2_000);
   assert.ok(result.toolTokens <= result.toolBudget);
   const recovery = result.messages.find((m) => m.meta?.source === EXECUTION_RECOVERY_SOURCE);
   const path = recovery.content.match(/available at (.+?) \(sha256:/)[1];
@@ -274,15 +283,15 @@ test('large arguments and opaque provider replay cannot bypass the tool-history 
   ];
   messages[1].providerReplay = { items: [{ type: 'reasoning', encrypted_content: 'opaque'.repeat(5_000) }] };
   const result = buildExecutionTail(messages, { contextWindow: 20_000, sessionId: 'large-arguments' });
-  assert.equal(result.toolBudget, 2_000);
-  assert.ok(result.toolTokens <= 2_000);
+  assert.equal(result.toolBudget, 1_000);
+  assert.ok(result.toolTokens <= 1_000);
   assert.ok(result.omittedGroups > 0);
   assert.ok(result.messages.some((m) => m.toolCallId === 'latest'));
   assert.equal(
     result.messages.some((m) => m.toolCallId === 'old'),
     false
   );
-  assert.ok(executionTokens(messages.slice(1, 3)) > 2_000);
+  assert.ok(executionTokens(messages.slice(1, 3)) > 1_000);
 });
 
 test('an oversized latest execution group refuses compaction instead of losing its failure outcome', (t) => {
