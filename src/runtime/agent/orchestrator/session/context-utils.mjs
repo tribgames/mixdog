@@ -288,6 +288,43 @@ export function messageAttachmentBreakdown(m) {
 export function estimateMessageTokens(m) {
   return messageTextTokens(m) + messageImageAllowance(m) + messageFileAllowance(m) + 4;
 }
+
+function isReasoningBlock(block) {
+  return ['thinking', 'redacted_thinking', 'reasoning'].includes(block?.type) || block?.thought === true;
+}
+
+// Split the current message's existing estimate, never add generation usage.
+// Use the same replay precedence and opaque-payload meter as the total.
+export function messageReasoningBreakdown(message) {
+  if (message?.role !== 'assistant') return { tokens: 0, blocks: [], message };
+  const blocks = [];
+  const withoutReasoning = (items) => {
+    if (!Array.isArray(items)) return items;
+    blocks.push(...items.filter(isReasoningBlock));
+    return items.filter((block) => !isReasoningBlock(block));
+  };
+  const visible = { ...message, content: withoutReasoning(message.content) };
+  if (Array.isArray(message.providerReplay?.items)) {
+    visible.providerReplay = { ...message.providerReplay, items: withoutReasoning(message.providerReplay.items) };
+  } else {
+    for (const key of ['thinkingBlocks', 'assistantBlocks', 'reasoningItems']) {
+      if (Array.isArray(message[key])) visible[key] = withoutReasoning(message[key]);
+    }
+    const gemini = message.providerMetadata?.gemini;
+    if (Array.isArray(gemini?.thoughtParts)) {
+      visible.providerMetadata = {
+        ...message.providerMetadata,
+        gemini: { ...gemini, thoughtParts: withoutReasoning(gemini.thoughtParts) },
+      };
+    }
+  }
+  return {
+    tokens: blocks.length ? Math.max(0, messageTextTokens(message) - messageTextTokens(visible)) : 0,
+    blocks,
+    message: visible,
+  };
+}
+
 export function estimateMessagesTokens(messages) {
   return messages.reduce((sum, m) => sum + estimateMessageTokens(m), 0);
 }
@@ -354,6 +391,7 @@ function contextMessageContribution(message) {
   const contribution = {
     role,
     tokens,
+    reasoningTokens: messageReasoningBreakdown(message).tokens,
     reminderBuckets: null,
     systemWorkflowTokens: 0,
     toolCallCount: 0,
@@ -393,6 +431,7 @@ function emptyContextSummaryState() {
       system: { count: 0, tokens: 0 },
       chat: { count: 0, tokens: 0 },
       assistant: { count: 0, tokens: 0 },
+      reasoning: { count: 0, tokens: 0 },
       toolResults: { count: 0, tokens: 0 },
       reminders: { count: 0, tokens: 0, otherTokens: 0 },
       workflow: { tokens: 0 },
@@ -432,7 +471,9 @@ function applyContextMessageContribution(state, contribution, direction) {
     }
   } else if (role === 'assistant') {
     state.semantic.assistant.count += direction;
-    state.semantic.assistant.tokens += direction * tokens;
+    state.semantic.assistant.tokens += direction * (tokens - contribution.reasoningTokens);
+    state.semantic.reasoning.count += direction * (contribution.reasoningTokens > 0 ? 1 : 0);
+    state.semantic.reasoning.tokens += direction * contribution.reasoningTokens;
   } else if (role === 'tool') {
     state.semantic.toolResults.count += direction;
     state.semantic.toolResults.tokens += direction * tokens;

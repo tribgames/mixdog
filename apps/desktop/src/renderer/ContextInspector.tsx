@@ -99,7 +99,7 @@ function entryLabel(entry: Entry): string {
     const role = t(ROLE_LABELS[entry.role] || 'Message');
     return `${role} ${entry.ordinal ?? ''}`.trim() + (entry.name ? ` · ${entry.name}` : '');
   }
-  if (entry.kind === 'overhead') return t(entry.label);
+  if (entry.kind === 'overhead' || entry.kind === 'reasoning') return t(entry.label);
   return entry.label;
 }
 

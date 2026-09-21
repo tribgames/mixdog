@@ -30,8 +30,8 @@ test('stage discovery lists every change independently of the body cap and retai
   const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw: patch.trimEnd() });
   assert.equal(snapshot.changes.length, 2);
   const text = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 50).text;
-  const manifest = `diff_id: ${snapshot.diffId}\n${snapshot.changes.map((change) =>
-    `change:${change.id} "a.txt" @@ -${change.old_start},1 +${change.new_start},1 @@`).join('\n')}`;
+  const manifest = `diff_id: ${snapshot.diffId}\nfile: "a.txt"\n${snapshot.changes.map((change) =>
+    `change:${change.id} @@ -${change.old_start},1 +${change.new_start},1 @@`).join('\n')}`;
   assert.equal(text, `${patch}${manifest}`);
   const capped = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 4).text;
   assert.equal(capped, `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]\n${manifest}`);
@@ -45,8 +45,8 @@ test('a one-line body cap still lists edit groups, whole files and new files exa
   const text = _gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 1).text;
   const ids = [...text.matchAll(/^change:(chg_[0-9a-f]{16}) /gm)].map((match) => match[1]);
   assert.deepEqual(ids, snapshot.changes.map(({ id }) => id));
-  assert.match(text, /"mode.txt" file/);
-  assert.match(text, /"new file.txt" new_file/);
+  assert.match(text, /file: "mode.txt"\nchange:\S+ file/);
+  assert.match(text, /file: "new file.txt"\nchange:\S+ new_file/);
   assert.doesNotMatch(text, /changes omitted/);
 });
 
@@ -54,4 +54,26 @@ test('a diff with no selectable changes has no staging metadata', () => {
   const raw = 'diff --git a/a.bin b/a.bin\nBinary files a/a.bin and b/a.bin differ\n';
   const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw });
   assert.equal(_gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 50).text, raw);
+});
+
+test('grouped manifests preserve every ID, path and location including escaped filenames', () => {
+  const paths = ['한글 file.txt', 'quote"file.txt', 'line\nbreak.txt', 'back\\slash.txt'];
+  const changes = paths.flatMap((path, file) => Array.from({ length: 5 }, (_, i) => ({
+    path, id: `chg_${file}_${i}`, old_start: i + 1, new_start: i + 2, deletions: i, additions: i + 1,
+  })));
+  const snapshot = { diffId: 'diff_lossless', changes };
+  const text = _gitCommandInternals.stageableDiffResult(plan, result('body\n'), snapshot, 1).text;
+  const decoded = [];
+  let path;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('file: ')) path = JSON.parse(line.slice(6));
+    const match = /^change:(\S+) (.+)$/.exec(line);
+    if (match) decoded.push({ id: match[1], path, location: match[2] });
+  }
+  assert.deepEqual(decoded, changes.map((change) => ({
+    id: change.id, path: change.path,
+    location: `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`,
+  })));
+  assert.equal(text.split('\nfile: ').length - 1, paths.length);
+  assert.ok(text.startsWith('body\ndiff_id: diff_lossless\n'));
 });

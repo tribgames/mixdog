@@ -47,11 +47,12 @@ test('failure without a result carries its error, not a synthetic result or usag
     '<task-notification>',
     '<task-id>task_agent_2</task-id>',
     '<status>failed</status>',
-    '<summary>Agent "task_agent_2" failed: quota &lt;limit&gt; &amp; retry</summary>',
+    '<summary>Agent "task_agent_2" failed</summary>',
     '<error>quota &lt;limit&gt; &amp; retry</error>',
     '</task-notification>',
   ].join('\n'));
   assert.equal(parseTaskNotification(text).error, 'quota <limit> & retry');
+  assert.equal(text.split('quota &lt;limit&gt; &amp; retry').length - 1, 1);
   assert.equal(shouldPersistModelVisibleToolCompletion(text), true);
   assert.equal(modelVisibleToolCompletionMessage(text, { model_visible: false }), '');
   const cancelled = renderAgentCompletionEnvelope({ id: 'task_agent_3', tag: 'review', status: 'cancelled', error: 'cancelled' });

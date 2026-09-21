@@ -167,6 +167,17 @@ async function automationStatus(rt, { domain }) {
 
 // status readers per non-desktop domain: (rt, { domain, getConfig }) → the
 // public status shape. Desktop-hosted domains never reach this table.
+function featureFlags(rt) {
+  return Object.fromEntries(
+    Object.entries(rt.getToolModuleSettings?.() || {}).map(([name, settings]) => [
+      name,
+      Object.fromEntries(
+        Object.entries(settings).filter(([key]) => key === 'enabled' || key === 'installed')
+      ),
+    ])
+  );
+}
+
 const SETUP_STATUS_READERS = {
   capabilities: () => ({
     actions: SETUP_ACTION_FIELDS,
@@ -184,7 +195,7 @@ const SETUP_STATUS_READERS = {
         rt.getProfile?.() || {}
       ),
       features: {
-        ...(rt.getToolModuleSettings?.() || {}),
+        ...featureFlags(rt),
         browser: { active: builtinFeatureActive(config, 'browser') },
         computer: { active: builtinFeatureActive(config, 'computer') },
       },
@@ -220,7 +231,7 @@ const SETUP_STATUS_READERS = {
   features: (rt, { getConfig }) => {
     const config = getConfig();
     return {
-      ...(rt.getToolModuleSettings?.() || {}),
+      ...featureFlags(rt),
       browser: {
         active: builtinFeatureActive(config, 'browser'),
         firstUseApproval: builtinFirstUseApproval(config, 'browser'),

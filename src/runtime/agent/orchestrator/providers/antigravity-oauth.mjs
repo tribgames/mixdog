@@ -435,7 +435,7 @@ export class AntigravityOAuthProvider {
       const outputTokens =
         (um.candidatesTokenCount || um.candidates_token_count || 0) +
         (um.thoughtsTokenCount || um.thoughts_token_count || 0);
-      usage = { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens };
+      usage = { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: um };
       traceAgentUsage({
         sessionId: opts.sessionId || opts.session?.id || null,
         iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,

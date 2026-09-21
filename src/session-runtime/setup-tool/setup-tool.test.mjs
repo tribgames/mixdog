@@ -21,6 +21,27 @@ const repoRoot = path.resolve(here, '..', '..', '..');
 
 const run = async (executor, args) => JSON.parse(await executor.execute(args));
 
+test('feature and summary status omit details retained by dedicated domains', async () => {
+  const localProvider = { enabled: true, installed: true, hardware: { gpu: 'GPU' }, models: ['model'], disk: { availableBytes: 123 } };
+  const memory = { enabled: true, installed: true, info: { model: 'embedding' } };
+  const executor = createSetupToolExecutor({
+    getApi: () => ({
+      getToolModuleSettings: () => ({ git: { enabled: true, installed: true }, localProvider, memory }),
+    }),
+  });
+  const features = await run(executor, { action: 'status', domain: 'features' });
+  assert.deepEqual(features.localProvider, { enabled: true, installed: true });
+  assert.deepEqual(features.memory, { enabled: true, installed: true });
+  assert.deepEqual(features.git, { enabled: true, installed: true });
+  const summary = await run(executor, { action: 'status', domain: 'summary' });
+  assert.deepEqual(summary.features.localProvider, features.localProvider);
+  const local = await run(executor, { action: 'status', domain: 'local-provider' });
+  assert.deepEqual(local.hardware, localProvider.hardware);
+  assert.deepEqual(local.models, localProvider.models);
+  const details = await run(executor, { action: 'status', domain: 'memory' });
+  assert.deepEqual(details.info, memory.info);
+});
+
 test('tool definition: schema enums mirror the exported action/domain/target lists', () => {
   assert.equal(SETUP_TOOL_DEFS.length, 1);
   const [def] = SETUP_TOOL_DEFS;

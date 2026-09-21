@@ -135,6 +135,7 @@ test('openContextPicker renders the context rows from the runtime status getters
       ['tool-io', 'Tool calls/results', '3 calls (1.2k) · 3 results (9.5k)', 'tool-io'],
       ['request', 'Request overhead', '800 framing · 16k reserve incl. tools', 'request'],
       ['last-api', 'Last API usage', '50k context · 6.0k uncached input · 900 output · last API request', 'last-api'],
+      ['reasoning', 'Reasoning tokens', '≈0 tokens (0%) · current context estimate', 'reasoning'],
       ['cache', 'Prompt cache', '80% hit · 40k read · 2.0k write · 6.0k new (last request)', 'cache'],
       ['free', 'Free space', '130k tokens (72.2%) · raw window 200k', 'free'],
       ['extensions', 'Skills/plugins', '7 skills · 2 plugins', 'extensions'],

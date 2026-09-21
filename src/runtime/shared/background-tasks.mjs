@@ -5,12 +5,12 @@ import {
   normalizeToolNotifyContext,
   notifyToolCompletion,
 } from './tool-execution-contract.mjs';
-import { presentErrorText, errorLine } from './err-text.mjs';
+import { presentErrorText } from './err-text.mjs';
 import { clean } from './clean.mjs';
 import {
   parseTaskNotification,
   renderTaskCompletionEnvelope,
-  renderShellCompletionEnvelope,
+  renderShellCompletionNotice,
 } from './task-notification-envelope.mjs';
 
 export { TOOL_ASYNC_EXECUTION_CONTRACT, TOOL_MANUAL_CONTROL_CONTRACT, TOOL_SYNC_EXECUTION_CONTRACT };
@@ -443,15 +443,14 @@ export function renderBackgroundTaskNotification(task) {
     ? task.result.content
     : resultTextForTask(task);
   if (task.surface === 'shell') {
-    if (parseTaskNotification(result)) return result;
-    return renderShellCompletionEnvelope({
+    const parsed = parseTaskNotification(result);
+    return renderShellCompletionNotice({
       jobId: task.taskId,
       status: task.status,
-      exitCode: task.result?.exit_code ?? null,
+      exitCode: parsed?.exitCode ?? task.result?.exit_code ?? null,
       command: task.input?.command || task.label,
-      outputFile: task.result?.stdout_path || task.meta?.stdout,
-      result,
-      error: task.error,
+      outputFile: parsed?.outputFile || task.result?.stdout_path || task.meta?.stdout,
+      error: parsed?.error || task.error,
     });
   }
   return renderTaskCompletionEnvelope({
@@ -512,9 +511,7 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     const body = resultTextForTask(task);
     if (body) {
       lines.push('', body);
-    } else if (TERMINAL_STATUSES.has(task.status) && task.error) {
-      lines.push('', errorLine(task.error, { surface: task.surface }));
-    } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed') {
+    } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed' && !task.error) {
       // Terminal-completed task with no extractable body: surface a placeholder
       // instead of silently omitting the result so the owner isn't left with a
       // header-only card that looks truncated.

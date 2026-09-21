@@ -85,8 +85,7 @@ export function sliceReadBodyByLines(body, origOffset, origLimit, readOffsetBase
   // whatever remains fits one wider read, not a walk window by window.
   let continuationPart = '';
   if (moreToRead && Number.isFinite(emittedLast)) {
-    const remaining = haveTotal ? `${totalNum - emittedLast} more lines` : 'more lines';
-    continuationPart = `; ${remaining} — pass offset:${emittedLast + readOffsetBase} with a limit wide enough to read them in one call`;
+    continuationPart = `; pass offset:${emittedLast + readOffsetBase} to continue`;
   }
   const newFooter = `[lines ${emittedStart}-${emittedLast}${totalPart}${continuationPart}]`;
   return kept.join('\n') + (kept.length ? '\n' : '') + newFooter;

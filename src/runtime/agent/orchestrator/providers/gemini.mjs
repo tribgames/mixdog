@@ -472,6 +472,7 @@ function resolveGeminiUsage(response, opts, cachedContent, useModel) {
     inputTokens,
     outputTokens,
     cachedTokens,
+    raw: um,
     // Gemini promptTokenCount is total (cachedContentTokenCount is a
     // subset). Alias the resolver's normalized total directly.
     promptTokens: inputTokens,

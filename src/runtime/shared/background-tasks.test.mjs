@@ -24,6 +24,26 @@ import {
 import { _clearDeliveredCompletions } from '../agent/orchestrator/session/manager/delivered-completions.mjs';
 import { parseTaskNotification } from './task-notification-envelope.mjs';
 
+test('task output reports each error once while preserving metadata and verbatim results', () => {
+  const body = '  stdout\r\nstderr\n\n';
+  const task = {
+    taskId: 'job_lossless', surface: 'shell', operation: 'shell', status: 'failed',
+    startedAt: '2026-09-21T00:00:00Z', finishedAt: '2026-09-21T00:00:01Z',
+    error: 'terminated by signal', meta: { cwd: '/work', stdout: '/logs/out', stderr: '/logs/err' },
+    resultText: body,
+  };
+  const output = renderBackgroundTask(task, { includeResult: true });
+  assert.match(output, /surface: shell\noperation: shell/);
+  assert.ok(output.endsWith(body));
+  for (const value of [task.taskId, task.startedAt, task.finishedAt, '/work', '/logs/out', '/logs/err'])
+    assert.ok(output.includes(value));
+  const withoutBody = renderBackgroundTask({ ...task, resultText: '' }, { includeResult: true });
+  assert.equal(withoutBody.split(task.error).length - 1, 1);
+  assert.match(withoutBody, /status: failed/);
+  const distinct = renderBackgroundTask({ ...task, operation: 'test' });
+  assert.match(distinct, /surface: shell\noperation: test/);
+});
+
 test('agent notifications bypass the card renderer and retain the entire final message', () => {
   const result = `  final message\n${'full result '.repeat(4_000)}\n`;
   const notifications = [];

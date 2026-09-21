@@ -5,6 +5,7 @@ import {
   estimateMessageTokens,
   estimateToolSchemaTokens,
   messageAttachmentBreakdown,
+  messageReasoningBreakdown,
   reminderSectionBucket,
   splitMarkdownSections,
   stripSystemReminder,
@@ -159,16 +160,6 @@ function readableContent(content) {
     .join('\n');
 }
 
-// Replay items are the provider-native copy of the same turn: the wire resends
-// them INSTEAD of content/toolCalls, so their text and tool-call blocks repeat
-// what the projected content already shows (user: 연속두번들어가는게 맞는건가).
-// Only their reasoning blocks add anything to the preview.
-const REPLAYED_CONTENT_TYPES = new Set(['text', 'tool_use', 'toolCall', 'message', 'function_call', 'output_text']);
-
-function replayReasoning(items) {
-  return items.filter((block) => !REPLAYED_CONTENT_TYPES.has(block?.type));
-}
-
 function messagePreview(message) {
   const parts = [readableContent(message.content)];
   if (message.toolCalls?.length) {
@@ -179,8 +170,6 @@ function messagePreview(message) {
       )
     );
   }
-  const reasoning = message.providerReplay?.items ?? message.thinkingBlocks ?? message.reasoningItems;
-  if (reasoning?.length) parts.push(readableContent(replayReasoning(reasoning)));
   return parts.filter(Boolean).join('\n\n');
 }
 
@@ -387,7 +376,20 @@ function messageDrafts(messages) {
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index];
     const attachments = messageAttachmentBreakdown(message);
-    const tokens = estimateMessageTokens(message) - attachments.tokens;
+    const reasoning = messageReasoningBreakdown(message);
+    const tokens = estimateMessageTokens(message) - attachments.tokens - reasoning.tokens;
+    if (reasoning.blocks.length) {
+      drafts.push({
+        id: `reasoning:${index}`,
+        category: 'reasoning',
+        group: 'assistant',
+        label: 'Reasoning tokens',
+        kind: 'reasoning',
+        tokens: reasoning.tokens,
+        messageIndex: index,
+        preview: () => readableContent(reasoning.blocks),
+      });
+    }
     const pushAttachment = (identity) => {
       const draft = attachmentDraft(attachments, index, identity);
       if (draft) drafts.push(draft);
@@ -420,7 +422,7 @@ function messageDrafts(messages) {
     const group = summary ? 'summary' : role;
     const ordinal = nextOrdinal(group);
     const name = message.name ? String(message.name) : '';
-    const draft = turnDraft(message, index, tokens, { role, group, ordinal, name });
+    const draft = turnDraft(reasoning.message, index, tokens, { role, group, ordinal, name });
     drafts.push(draft);
     pushAttachment({ role, ordinal, name: name ? label(name) : '' });
     if (role === 'assistant') openTurn = draft;

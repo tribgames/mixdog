@@ -76,7 +76,7 @@ export function _shellFailureStatus(result, timeout) {
   const killCause = result.killCause || null;
   const causeDetail = killCause ? ` cause: ${killCause}` : '';
   const signalDetail = signal ? ` signal: ${signal}` : '';
-  const timeoutHint = result.timedOut ? ` — command killed after ${timeout} ms; partial effects may remain` : '';
+  const timeoutHint = result.timedOut ? ' — command killed; partial effects may remain' : '';
   let statusDetail = '[missing exit status]';
   if (shellToolFailed) {
     const failure = result.outputCaptureError ? 'output capture failed' : result.failureReason || 'tool failed';

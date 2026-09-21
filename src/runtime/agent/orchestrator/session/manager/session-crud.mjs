@@ -111,6 +111,7 @@ function clearedTokenAccounting(now) {
     providerState: undefined,
     totalInputTokens: 0,
     totalOutputTokens: 0,
+    reasoningUsage: null,
     totalCachedReadTokens: 0,
     totalCacheWriteTokens: 0,
     lastInputTokens: 0,

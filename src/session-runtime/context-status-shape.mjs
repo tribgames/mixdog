@@ -41,6 +41,7 @@ export function sessionTokenCounters(session) {
     contextPressureUnanchoredAfterRestart: session?.contextPressureUnanchoredAfterRestart === true,
     contextPressureUnanchoredReason: session?.contextPressureUnanchoredReason || null,
     totalInputTokens: Number(session?.totalInputTokens || 0),
+    reasoningUsage: session?.reasoningUsage || null,
     totalUncachedInputTokens: Number(session?.totalUncachedInputTokens || 0),
     totalOutputTokens: Number(session?.totalOutputTokens || 0),
     totalCachedReadTokens: Number(session?.totalCachedReadTokens || 0),
@@ -51,6 +52,7 @@ export function sessionTokenCounters(session) {
 
 function sessionUsageCounters(session, lastContextTokens) {
   return {
+    reasoningUsage: session?.reasoningUsage || null,
     lastInputTokens: Number(session?.lastInputTokens || 0),
     lastUncachedInputTokens: Number(session?.lastUncachedInputTokens || 0),
     lastOutputTokens: Number(session?.lastOutputTokens || 0),
@@ -67,6 +69,7 @@ function sessionUsageCounters(session, lastContextTokens) {
 
 function emptyUsageCounters() {
   return {
+    reasoningUsage: null,
     lastInputTokens: 0,
     lastUncachedInputTokens: 0,
     lastOutputTokens: 0,

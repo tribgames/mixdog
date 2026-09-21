@@ -213,6 +213,7 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
     { label: 'Memory files', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']) },
     { label: 'Skills', tokens: bucketTokens(schema, ['skills']) },
     { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant', 'toolResults']) },
+    { label: 'Reasoning tokens', tokens: semanticTokens(semantic, ['reasoning']) },
   ];
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
   const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens);

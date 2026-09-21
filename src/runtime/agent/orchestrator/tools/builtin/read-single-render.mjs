@@ -66,7 +66,7 @@ function rangeFooter(ctx, render, rendered) {
   // wider read, not a walk window by window.
   const more =
     emittedEnd < lineCount
-      ? `; ${lineCount - emittedEnd} more lines — pass offset:${emittedEnd + readOffsetBase} with a limit wide enough to read them in one call`
+      ? `; pass offset:${emittedEnd + readOffsetBase} to continue`
       : '';
   const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${more}]`;
   return { footer: widenNote ? `${footer}\n${widenNote}` : footer };

@@ -17,6 +17,7 @@ import { runFreshContextCompact } from './loop/fresh-context.mjs';
 import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
+import { reasoningUsage } from '../../../shared/llm/reasoning-usage.mjs';
 import { agentContextOverflowError } from './loop/context-overflow.mjs';
 import { agentCompactFailedError } from './loop/context-overflow.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
@@ -206,6 +207,7 @@ function accumulateCompactUsage(ctx, usage) {
       usageMetricsEpoch: loopUsageMetricsEpoch(),
       deltaInput: usage.inputTokens || 0,
       deltaOutput: usage.outputTokens || 0,
+      ...reasoningUsage(usage),
       deltaCachedRead: usage.cachedTokens || 0,
       deltaCacheWrite: usage.cacheWriteTokens || 0,
       source: 'fresh_context_compact',
@@ -239,7 +241,7 @@ async function compactTranscript(ctx, run) {
   const freshMessages = Array.isArray(run.freshContextResult?.messages) ? run.freshContextResult.messages : null;
   if (!freshMessages) throw new Error('fresh-context compact produced no messages');
   run.compacted = freshMessages;
-  if (run.freshContextResult.usage) accumulateCompactUsage(ctx, run.freshContextResult.usage);
+  accumulateCompactUsage(ctx, run.freshContextResult.usage || {});
 }
 
 function acknowledgeGoalReminder(sessionRef, run) {

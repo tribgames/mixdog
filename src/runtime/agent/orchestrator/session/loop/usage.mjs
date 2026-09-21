@@ -1,6 +1,7 @@
 // Usage accumulation helpers.
 // Normalize a provider usage payload into the canonical token/cost shape and
 // fold successive deltas into a running total across loop iterations.
+import { reasoningUsage, combineReasoningUsage } from '../../../../shared/llm/reasoning-usage.mjs';
 
 // Provider-measured whole-context occupancy (Cursor checkpoint usedTokens).
 // It is not billable prompt usage and carries no cache split, so it only
@@ -17,6 +18,7 @@ export function normalizeUsage(usage) {
   return {
     inputTokens: usage.inputTokens || 0,
     outputTokens: usage.outputTokens || 0,
+    ...reasoningUsage(usage),
     cachedTokens: usage.cachedTokens || 0,
     cacheWriteTokens: usage.cacheWriteTokens || 0,
     promptTokens: usage.promptTokens || 0,
@@ -51,6 +53,7 @@ export function usageDeltaEvent({
     usageMetricsEpoch,
     deltaInput: usage.inputTokens || 0,
     deltaOutput: usage.outputTokens || 0,
+    ...reasoningUsage(usage),
     deltaPrompt: usage.promptTokens || 0,
     // Cache delta carried alongside input/output so live metrics reflect
     // the same token classes the terminal aggregate adds; additive —
@@ -77,6 +80,7 @@ export function addUsage(total, usage) {
     ...total,
     inputTokens: (total.inputTokens || 0) + delta.inputTokens,
     outputTokens: (total.outputTokens || 0) + delta.outputTokens,
+    ...combineReasoningUsage(total, delta),
     cachedTokens: (total.cachedTokens || 0) + delta.cachedTokens,
     cacheWriteTokens: (total.cacheWriteTokens || 0) + delta.cacheWriteTokens,
     promptTokens: (total.promptTokens || 0) + delta.promptTokens,

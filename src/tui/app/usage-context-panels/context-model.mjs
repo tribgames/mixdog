@@ -178,6 +178,12 @@ function contextRows(m) {
       _action: 'last-api',
     },
     {
+      value: 'reasoning',
+      label: 'Reasoning tokens',
+      description: `≈${fmt(messages.semantic?.reasoning?.tokens || 0)} tokens (${pct(messages.semantic?.reasoning?.tokens || 0, windowTokens)}) · current context estimate`,
+      _action: 'reasoning',
+    },
+    {
       value: 'cache',
       label: 'Prompt cache',
       description: `${m.cacheHitRate} hit · ${fmt(usage.lastCachedReadTokens)} read${m.cacheWriteLabel} · ${fmt(m.freshInput)} new (last request)`,

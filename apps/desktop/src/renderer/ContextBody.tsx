@@ -81,6 +81,7 @@ export function ContextBody({
     },
     { key: 'skills', label: t('Skills'), tokens: tokenBuckets(schema, ['skills']) },
     { key: 'messages', label: t('Messages'), tokens: tokenBuckets(semantic, ['chat', 'assistant', 'toolResults']) },
+    { key: 'reasoning', label: t('Reasoning tokens'), tokens: tokenBuckets(semantic, ['reasoning']) },
   ];
   const categories = rawCategories;
   const measuredCategories = (inspection?.categories ?? rawCategories).filter((category) => category.tokens > 0);
@@ -132,7 +133,11 @@ export function ContextBody({
           </div>
         </section>
         {inspection ? (
-          <ContextInspector inspection={inspection} windowTokens={windowTokens} request={inspectRequest} />
+          <ContextInspector
+            inspection={inspection}
+            windowTokens={windowTokens}
+            request={inspectRequest}
+          />
         ) : (
           <section className="context-mix" aria-labelledby="context-mix-title">
             <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>

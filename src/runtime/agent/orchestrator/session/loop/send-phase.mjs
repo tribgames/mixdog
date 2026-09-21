@@ -262,18 +262,19 @@ export function settleSendResult(state, round, sent) {
   // Accumulate usage across iterations — every billable slot, not just
   // input/output: cache_read/cache_write surge on later iterations (warm
   // prefix reuse), so aggregating only the head would drop most cache tokens.
-  if (response.usage) {
-    const hadUsage = !!state.lastUsage;
-    state.lastUsage = addUsage(state.lastUsage, response.usage);
-    // Snapshot the first turn separately so callers can show iter1 vs final
-    // cache-hit ratios.
-    if (!hadUsage) state.firstTurnUsage = { ...state.lastUsage };
-  }
+  // A response without usage is still an unmeasured call. Do not silently
+  // omit it and later label a mixed reasoning subtotal as complete.
+  const reportedUsage = response.usage || {};
+  const hadUsage = !!state.lastUsage;
+  state.lastUsage = addUsage(state.lastUsage, reportedUsage);
+  // Snapshot the first turn separately so callers can show iter1 vs final
+  // cache-hit ratios.
+  if (!hadUsage) state.firstTurnUsage = { ...state.lastUsage };
   // Provider may have returned despite an abort (SDKs that don't honour
   // signal) — bail before processing any of its output.
   state.throwIfAborted();
   traceOutputTruncation({ sessionId, iteration: state.iterations, response, sessionAgent: state.sessionAgent });
-  if (sessionId && opts.onUsageDelta && response.usage) {
+  if (sessionId && opts.onUsageDelta) {
     try {
       runWithProviderRequestToolsScope(round.requestToolScope, () =>
         opts.onUsageDelta(
@@ -284,7 +285,7 @@ export function settleSendResult(state, round, sent) {
             usageMetricsEpoch: state.usageMetricsEpoch(),
             requestedModel: model,
             model: response.model || model,
-            usage: response.usage,
+            usage: reportedUsage,
             sendTools: round.sendTools,
           })
         )

@@ -2,11 +2,50 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { ContextBody } from './ContextBody.tsx';
 import { toolResultLine } from './ContextInspector.tsx';
 import { t } from './i18n.ts';
 import { requiredDesktopCapabilityRequest } from '../main/ipc-validation.ts';
+
+test('reasoning uses current occupancy for category percentages and maps, never cumulative generation', () => {
+  for (const reasoningTokens of [0, 1200]) {
+    for (const inspection of [undefined, {
+      revision: 'reasoning', estimatedTokens: 100 + reasoningTokens,
+      categories: [
+        { key: 'system', label: 'System prompt', tokens: 100, count: 1 },
+        { key: 'reasoning', label: 'Reasoning tokens', tokens: reasoningTokens, count: reasoningTokens ? 1 : 0 },
+      ],
+      entries: [],
+    }]) {
+      const status = {
+        contextWindow: 10000,
+        measurement: { source: 'last_api_request', tokens: 100 + reasoningTokens },
+        usage: { reasoningUsage: { reasoningTokens: 999999, reasoningTokensComplete: true } },
+        messages: { semantic: { system: { tokens: 100 }, reasoning: { tokens: reasoningTokens } } },
+        inspection,
+      };
+      const html = renderToStaticMarkup(React.createElement(ContextBody, { status, snapshot: {} }));
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+      const row = document.querySelector('.context-mix-row[data-context-key="reasoning"]');
+      assert.ok(row);
+      assert.ok(row.textContent.includes(t('Reasoning tokens')));
+      assert.doesNotMatch(document.body.textContent, /999,999|999999/);
+      assert.equal(document.querySelectorAll('.context-usage-overview').length, 1);
+      assert.equal(Boolean(document.querySelector(
+        '.context-main-bar [data-context-key="reasoning"], .context-block-map [data-context-key="reasoning"], .context-stack-bar [data-context-key="reasoning"]'
+      )), reasoningTokens > 0);
+      if (inspection) {
+        assert.equal(row.querySelector('strong').textContent, `≈${reasoningTokens.toLocaleString()}`);
+        assert.equal(row.querySelector('em').textContent, `${reasoningTokens / 100}%`);
+        assert.equal(document.querySelector('[data-context-key="free"] strong').textContent, `≈${(9900 - reasoningTokens).toLocaleString()}`);
+      }
+      dom.window.close();
+    }
+  }
+});
 
 test('a turn traces which tools it called without growing with the call count', () => {
   // Sizes live on the tool rows; this line only names the tools, most-used

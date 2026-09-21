@@ -187,9 +187,14 @@ function stageableDiffResult(plan, result, snapshot, limit) {
   if (!snapshot.diffId) return commandResult(plan, result, limit);
   const rendered = commandResult(plan, result, limit);
   rendered.text = appendText(rendered.text, `diff_id: ${snapshot.diffId}`);
+  let previousPath;
   for (const change of snapshot.changes) {
+    if (change.path !== previousPath) {
+      rendered.text = appendText(rendered.text, `file: ${JSON.stringify(change.path)}`);
+      previousPath = change.path;
+    }
     const location = change.kind || `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`;
-    rendered.text = appendText(rendered.text, `change:${change.id} ${JSON.stringify(change.path)} ${location}`);
+    rendered.text = appendText(rendered.text, `change:${change.id} ${location}`);
   }
   return rendered;
 }

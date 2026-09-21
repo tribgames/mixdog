@@ -158,6 +158,9 @@
 .context-surface-view [data-context-key="assistant"] {
   --ctx-color: #7f93c9;
 }
+.context-surface-view [data-context-key="reasoning"] {
+  --ctx-color: #cf9874;
+}
 .context-surface-view [data-context-key="toolResults"] {
   --ctx-color: #6fa8a0;
 }

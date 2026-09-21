@@ -30,7 +30,7 @@ export function renderTaskCompletionEnvelope({ surface = 'tool', id, tag, status
     field('task-id', id),
     tag ? field('tag', tag) : null,
     field('status', status),
-    field('summary', taskCompletionSummary({ surface, id, tag, status, error })),
+    field('summary', taskCompletionSummary({ surface, id, tag, status })),
     result ? `<result>\n${result}\n</result>` : null,
     status === 'failed' && error ? field('error', error) : null,
     '</task-notification>',
@@ -133,6 +133,16 @@ export function renderShellCompletionEnvelope({
     normalizedStatus === 'failed' && error ? field('error', error) : null,
     '</task-notification>',
   ].filter((line) => line !== null).join('\n');
+}
+
+export function renderShellCompletionNotice(options) {
+  return renderShellCompletionEnvelope({
+    ...options,
+    summary: null,
+    stdoutPreview: null,
+    stderrPreview: null,
+    result: `Retrieve output with task read (task_id: ${options.jobId}) only if it has not already been received.`,
+  });
 }
 
 export function shellCompletionInstruction({ jobId, status, exitCode = null } = {}) {

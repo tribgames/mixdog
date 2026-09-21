@@ -126,6 +126,33 @@ test('a message queued while the turn runs becomes the next turn and its result 
   });
 });
 
+test('reasoning usage persists once per call and missing usage marks the reported subtotal incomplete', async (t) => {
+  await withAskHarness(t, async ({ session, askSession, loadSession, setReply }) => {
+    setReply(async () => ({
+      content: 'measured',
+      usage: { inputTokens: 10, outputTokens: 8, raw: { output_tokens_details: { reasoning_tokens: 5 } } },
+    }));
+    await askSession(session.id, 'first', null, null, null, null, {});
+    assert.deepEqual(loadSession(session.id).reasoningUsage, {
+      reasoningTokens: 5, reasoningTokensComplete: true,
+    });
+    setReply(async () => ({ content: 'no usage supplied' }));
+    await askSession(session.id, 'second', null, null, null, null, {});
+    assert.deepEqual(loadSession(session.id).reasoningUsage, {
+      reasoningTokens: 5, reasoningTokensComplete: false,
+    });
+    setReply(async () => ({
+      content: 'measured again',
+      usage: { inputTokens: 10, outputTokens: 6, raw: { thoughtsTokenCount: 2 } },
+    }));
+    await askSession(session.id, 'third', null, null, null, null, {});
+    assert.deepEqual(loadSession(session.id).reasoningUsage, {
+      reasoningTokens: 7, reasoningTokensComplete: false,
+    });
+    assert.equal(loadSession(session.id).totalOutputTokens, 14);
+  });
+});
+
 test('a delivered task notification survives turn commit and the next provider request', async (t) => {
   await withAskHarness(t, async ({ session, askSession, loadSession, sends }) => {
     const notification = renderShellCompletionEnvelope({

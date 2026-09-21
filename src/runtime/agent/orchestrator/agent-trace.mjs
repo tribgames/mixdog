@@ -1,4 +1,5 @@
 import { isInclusiveProvider } from '../../shared/llm/cost.mjs';
+import { reasoningUsage } from '../../shared/llm/reasoning-usage.mjs';
 import { currentUsageContext } from '../../shared/llm/usage-context.mjs';
 import { estimateJsonBytes, hashStructuredValue } from '../../shared/json-metrics.mjs';
 import { appendAgentTrace, drainAgentTrace, warnAgentOnce } from './agent-trace-io.mjs';
@@ -212,18 +213,6 @@ function traceTurnTiming({
   });
 }
 
-function extractThinkingTokens(rawUsage) {
-  if (!rawUsage || typeof rawUsage !== 'object') return null;
-  const direct = Number(rawUsage.thinking_tokens ?? rawUsage.thinkingTokens);
-  if (Number.isFinite(direct) && direct >= 0) return direct;
-  const details = rawUsage.output_tokens_details || rawUsage.completion_tokens_details;
-  if (details && typeof details === 'object') {
-    const nested = Number(details.reasoning_tokens ?? details.thinking_tokens);
-    if (Number.isFinite(nested) && nested >= 0) return nested;
-  }
-  return null;
-}
-
 function resolveTraceUsageInput({ provider, inputTokens, cachedTokens, cacheWriteTokens, inputTokensInclusive }) {
   const inclusive = typeof inputTokensInclusive === 'boolean' ? inputTokensInclusive : isInclusiveProvider(provider);
   const input = inputTokens || 0;
@@ -287,7 +276,7 @@ function traceAgentUsage({
   const cacheWrite = cacheWriteTokens || 0;
   const promptTotal = typeof promptTokens === 'number' ? promptTokens : accounting.promptTokens;
   const resolvedServiceTier = serviceTier || rawUsage?.service_tier || rawUsage?.serviceTier || null;
-  const thinkingTokens = extractThinkingTokens(rawUsage);
+  const thinkingTokens = reasoningUsage(rawUsage).reasoningTokens;
   appendAgentTrace({
     sessionId,
     iteration,

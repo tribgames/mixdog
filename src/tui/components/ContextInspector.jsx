@@ -14,6 +14,7 @@ const COLORS = {
   skills: 'yellow',
   user: 'blue',
   assistant: 'blueBright',
+  reasoning: 'yellowBright',
   toolResults: 'greenBright',
   attachments: 'redBright',
   free: 'gray',

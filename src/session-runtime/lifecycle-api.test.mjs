@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { createLifecycleApi, resolveResumeCwd } from './lifecycle-api.mjs';
-import { applyDeferredToolSurface } from './tool-catalog.mjs';
+import { BUILTIN_TOOLS } from '../runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
+import { applyDeferredToolSurface, renderToolSearch } from './tool-catalog.mjs';
 
 test('project resume prefers canonical session cwd over stale desktop metadata', () => {
   assert.equal(
@@ -36,12 +37,13 @@ test('unclassified desktop task resume stays in its host-managed workspace', () 
   );
 });
 
-test('resume restores persisted deferred tools before asynchronous route preparation', async () => {
+test('resume preserves loaded and unloaded tools through asynchronous route preparation', async () => {
   const read = { name: 'read', description: 'Read files', annotations: { readOnlyHint: true } };
   // A lead default that is NOT a full-mode default: native providers rebuild
   // the surface from the lead defaults on resume, so a tool outside them
   // (recall, web_search) is only ever loaded on demand.
   const shell = { name: 'shell', description: 'Run a command' };
+  const deferredGitTools = BUILTIN_TOOLS.filter((tool) => ['git_stage', 'github'].includes(tool.name));
   const resumed = {
     id: 'resume-deferred-tools',
     provider: 'openai-oauth',
@@ -52,7 +54,7 @@ test('resume restores persisted deferred tools before asynchronous route prepara
     cwd: 'C:\\Project\\mixdog',
     messages: [{ role: 'user', content: 'continue' }],
     tools: [read],
-    deferredToolCatalog: [read, shell],
+    deferredToolCatalog: [read, shell, ...deferredGitTools],
     deferredSelectedTools: ['read', 'shell'],
     deferredCallableTools: ['read', 'shell'],
     deferredDefaultTools: ['read', 'shell'],
@@ -85,6 +87,7 @@ test('resume restores persisted deferred tools before asynchronous route prepara
     invalidatePreSessionToolSurface: () => {},
     applyResolvedCwd: () => {},
     resolveRoute: (_config, next) => ({ ...next, effectiveEffort: next.effort }),
+    refreshRouteEffort: async (_args, next) => next,
     applyDeferredToolSurface,
     getStandaloneTools: () => [read, shell],
     mgr: {
@@ -100,6 +103,14 @@ test('resume restores persisted deferred tools before asynchronous route prepara
   assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'shell']));
   assert.equal(current.deferredSelectedTools.includes('shell'), true);
   assert.equal(typeof pendingRoutePreparation, 'function');
+  assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'git_stage'));
+  assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'github'));
+
+  assert.equal(await pendingRoutePreparation(), true);
+  assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'shell']));
+  const loaded = JSON.parse(renderToolSearch({ names: ['git_stage', 'github'] }, current, 'lead'));
+  assert.deepEqual(loaded.loaded, ['git_stage', 'github']);
+  assert.deepEqual(loaded.missing, []);
 });
 
 test('resume binds the session to the runtime MCP registry scope', async () => {

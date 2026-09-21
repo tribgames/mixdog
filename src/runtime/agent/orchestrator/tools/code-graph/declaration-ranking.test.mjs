@@ -66,6 +66,19 @@ function makeGraph(files) {
 
 const dispatch = async (graph, args) => String(await codeGraph(args, CWD, null, { graph }));
 
+test('a resolved declaration does not append usages as competing candidates', async () => {
+  const graph = makeGraph([
+    { rel: 'src/decl.mjs', lang: 'javascript', text: 'export function uniqueTask() { return 42; }\n',
+      symbols: [sym('uniqueTask', 'function', 1, 1, 17, { exported: true })] },
+    { rel: 'src/use.mjs', lang: 'javascript', text: 'export const task = uniqueTask;\n' },
+  ]);
+  const declaration = await dispatch(graph, { mode: 'find_symbol', symbol: 'uniqueTask' });
+  assert.match(declaration, /src\/decl.mjs/);
+  assert.doesNotMatch(declaration, /# candidates|src\/use.mjs/);
+  const references = await dispatch(graph, { mode: 'references', symbol: 'uniqueTask' });
+  assert.match(references, /src\/use.mjs/);
+});
+
 test('one declaration omits candidate and scope banners without losing its body', async () => {
   const text = 'export function uniqueTask() {\n  return 42;\n}\n';
   const graph = makeGraph([{
@@ -132,7 +145,7 @@ test('reference hits remain visible without repeating the unique declaration', a
   ]);
   const found = await dispatch(graph, { mode: 'find_symbol', symbol: 'uniqueTask', body: false });
   assert.equal(found.match(/src\/unique\.mjs:1-3:17/g)?.length, 1);
-  assert.match(found, /src\/use\.mjs:1:21 \[ref, javascript, matches=1\]/);
+  assert.doesNotMatch(found, /# candidates|src\/use\.mjs/);
   for (const body of [undefined, false, true]) {
     const out = await dispatch(graph, { mode: 'references', symbol: 'uniqueTask', body });
     const [declaration, references] = out.split('\n\n# references\n');

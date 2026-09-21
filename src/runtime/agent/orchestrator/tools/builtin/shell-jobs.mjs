@@ -30,6 +30,7 @@ import {
 } from './lib/shell-job-records.mjs';
 import {
   renderShellCompletionEnvelope,
+  renderShellCompletionNotice,
   shellCompletionInstruction,
 } from '../../../../shared/task-notification-envelope.mjs';
 
@@ -177,6 +178,14 @@ export function buildShellCompletion(jobId, detail) {
   return {
     taskStatus,
     body,
+    notification: renderShellCompletionNotice({
+      jobId,
+      status: taskStatus,
+      exitCode,
+      command: detail?.command,
+      outputFile: detail?.stdoutPath,
+      error: failureCause,
+    }),
     instruction: shellCompletionInstruction({ jobId, status, exitCode }),
     result: shellJobPublicTaskResult(reported),
     error: failureCause,
@@ -325,7 +334,7 @@ export function watchBackgroundShellJob(jobId, notifyCtx) {
         surface: 'shell',
         id: jobId,
         status: completion.taskStatus,
-        text: completion.body,
+        text: completion.notification,
         resultType: 'shell_task_result',
         instruction: completion.instruction,
         context: ctx || { callerSessionId: owner },
@@ -472,7 +481,7 @@ export async function reconcileRecoveredShellJobCompletions() {
         surface: 'shell',
         id: record.jobId,
         status: completion.taskStatus,
-        text: completion.body,
+        text: completion.notification,
         resultType: 'shell_task_result',
         instruction: completion.instruction,
         context: { callerSessionId: owner },

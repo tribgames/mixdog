@@ -6,6 +6,7 @@
 // _runtimeState map (owned by manager.mjs) to read the in-memory session and
 // flag usageMetricsTurnIncremental. manager.mjs wires it via configureUsageMetricsRuntime().
 import { providerInputExcludesCache } from '../../providers/registry.mjs';
+import { reasoningUsage, combineReasoningUsage } from '../../../../shared/llm/reasoning-usage.mjs';
 import {
   loadSession,
   saveSessionAsync,
@@ -377,11 +378,19 @@ function applyMeasuredContextOccupancy(session, contextTokens, outputTokens, ts)
  * per-iteration persistence already counted this turn (askSession path).
  */
 export function applyAskTerminalUsageTotals(session, result, options = {}) {
-  if (!session || !result?.usage) return;
+  if (!session) return;
+  if (!result?.usage) {
+    session.reasoningUsage = {
+      ...reasoningUsage(session.reasoningUsage),
+      reasoningTokensComplete: false,
+    };
+    return;
+  }
   if (options.skipTotalsIfIncremental !== true) {
     accumulateSessionUsage(session, {
       deltaInput: result.usage.inputTokens || 0,
       deltaOutput: result.usage.outputTokens || 0,
+      ...reasoningUsage(result.usage),
       deltaCachedRead: result.usage.cachedTokens || 0,
       deltaCacheWrite: result.usage.cacheWriteTokens || 0,
     });
@@ -452,6 +461,12 @@ function setLastContextTokens(session, { input, output, cachedRead, cacheWrite, 
 // usage rollup).
 function accumulateSessionUsage(session, delta) {
   const { deltaInput, deltaOutput, deltaCachedRead, deltaCacheWrite } = delta;
+  // Old sessions have spend but no reasoning counters. Their past usage must
+  // remain unknown, even after the first newly measured response arrives.
+  const hadUsage = session.reasoningUsage || session.totalInputTokens > 0 || session.totalOutputTokens > 0;
+  session.reasoningUsage = hadUsage
+    ? combineReasoningUsage(session.reasoningUsage, delta)
+    : reasoningUsage(delta);
   const deltaUncachedInput =
     delta.deltaUncachedInput != null
       ? Number(delta.deltaUncachedInput) || 0

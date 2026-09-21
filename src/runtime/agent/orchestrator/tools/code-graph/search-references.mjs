@@ -271,7 +271,7 @@ export function _findSymbolAcrossGraph(
   // Otherwise the primary and its type faces already have their own rows.
   const candidates = declCount > 1
     ? rivalDecls.slice(0, Math.max(1, limit))
-    : topHits.filter((hit) => (!primary?.declarationLike || hit !== primary) && !typeFaces.includes(hit));
+    : primary?.declarationLike ? [] : topHits.filter((hit) => !typeFaces.includes(hit));
   if (candidates.length && hits.length > 1) {
     if (lines.length && lines.at(-1) !== '') lines.push('');
     lines.push('# candidates');

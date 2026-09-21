@@ -377,7 +377,7 @@ function mergeGlobRuns(groupRuns) {
     rgCacheUnsafe: false,
     nativeMtimeTotal: null,
   };
-  outer: for (const run of groupRuns) {
+  for (const run of groupRuns) {
     if (run.error) {
       merged.rgErrors.push(run.error);
       continue;
@@ -390,10 +390,14 @@ function mergeGlobRuns(groupRuns) {
       merged.nativeMtimeTotal = (merged.nativeMtimeTotal ?? 0) + Math.max(0, Number(run.totalSeen) || 0);
     }
     for (const p of run.paths) {
+      if (merged.allFiles.length >= GLOB_ACCUM_CAP) {
+        merged.accumTruncated = true;
+        break;
+      }
       merged.allFiles.push(p);
       if (merged.allFiles.length >= GLOB_ACCUM_CAP) {
         merged.accumTruncated = true;
-        break outer;
+        break;
       }
     }
   }
@@ -438,10 +442,8 @@ async function orderGlobPaths(unique, { nativeMtimeTotal, groupCount, sortMode, 
 function globIntegritySuffix({ accumTruncated, rgStdoutTruncated, rgStdoutPartial, rgErrors }) {
   let truncSuffix = '';
   if (accumTruncated) truncSuffix = `\n... [truncated at accumulation cap (${GLOB_ACCUM_CAP})]`;
-  else {
-    if (rgStdoutTruncated) truncSuffix += '\n... [truncated at rg stdout cap (20MB); results incomplete]';
-    if (rgStdoutPartial) truncSuffix += '\n... [warning] rg exit 2 (partial results); listing may be incomplete';
-  }
+  if (rgStdoutTruncated) truncSuffix += '\n... [truncated at rg stdout cap (20MB); results incomplete]';
+  if (rgStdoutPartial) truncSuffix += '\n... [warning] rg exit 2 (partial results); listing may be incomplete';
   const errorSuffix = rgErrors.length > 0 ? `\n... [warning] ${rgErrors.join(' | ')}` : '';
   return errorSuffix + truncSuffix;
 }

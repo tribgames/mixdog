@@ -5,6 +5,8 @@ import { createContextStatus } from './context-status.mjs';
 import {
   estimateMessagesTokens,
   estimateToolSchemaTokens,
+  messageReasoningBreakdown,
+  summarizeContextMessages,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { recordProviderContextBaseline } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
@@ -147,8 +149,47 @@ test('the agent tool is a system tool and a replayed turn previews its content o
   const preview = inspectContext(input, { entryId: 'message:0', revision: result.revision }).preview.text;
   assert.equal(preview.match(/Visible answer/g).length, 1);
   assert.equal(preview.match(/"docx"/g).length, 1);
-  assert.match(preview, /Replayed reasoning/);
+  assert.doesNotMatch(preview, /Replayed reasoning/);
+  const reasoningPreview = inspectContext(input, { entryId: 'reasoning:0', revision: result.revision }).preview.text;
+  assert.match(reasoningPreview, /Replayed reasoning/);
+  assert.doesNotMatch(reasoningPreview, /SECRET_|Visible answer|"docx"/);
   assert.doesNotMatch(preview, /SECRET_/);
+});
+
+test('current reasoning is split from assistant occupancy without changing totals or leaking opaque data', () => {
+  const thought = { type: 'thinking', thinking: 'plan '.repeat(80), signature: 'S'.repeat(400) };
+  const reasoning = { type: 'reasoning', encrypted_content: 'E'.repeat(800), summary: [] };
+  const variants = [
+    { thinkingBlocks: [thought] },
+    { reasoningItems: [reasoning] },
+    { assistantBlocks: [thought, { type: 'text', text: 'Visible answer' }] },
+    { content: [thought, { type: 'text', text: 'Visible answer' }] },
+    { providerMetadata: { gemini: { thoughtParts: [{ thought: true, text: 'plan '.repeat(80), thoughtSignature: 'S'.repeat(400) }] } } },
+    { providerReplay: { items: [reasoning, { type: 'message', content: [{ type: 'output_text', text: 'Visible answer' }] }] }, reasoningItems: [reasoning] },
+  ];
+  for (const variant of variants) {
+    const input = fixture({ messages: [{ role: 'assistant', content: 'Visible answer', ...variant }], tools: [], overheadTokens: 0 });
+    const before = JSON.stringify(input.messages);
+    const result = inspectContext(input);
+    const total = estimateMessagesTokens(input.messages);
+    const reasoningTokens = result.categories.find((row) => row.key === 'reasoning').tokens;
+    assert.ok(reasoningTokens > 0);
+    assert.equal(result.estimatedTokens, total);
+    assert.equal(result.categories.find((row) => row.key === 'assistant').tokens + reasoningTokens, total);
+    const summary = summarizeContextMessages(input.messages);
+    assert.equal(summary.estimatedTokens, total);
+    assert.equal(summary.semantic.reasoning.tokens, reasoningTokens);
+    assert.equal(summary.semantic.assistant.tokens + reasoningTokens, total);
+    const preview = inspectContext(input, { entryId: 'reasoning:0', revision: result.revision }).preview.text;
+    assert.doesNotMatch(preview, /S{64}|E{64}/);
+    assert.equal(JSON.stringify(input.messages), before);
+    const calibrated = inspectContext({ ...input, coverage: { count: 1, tokens: total * 2 } });
+    assert.equal(calibrated.estimatedTokens, total * 2);
+    assert.equal(calibrated.categories.find((row) => row.key === 'reasoning').tokens, reasoningTokens * 2);
+    const cleared = inspectContext({ ...input, messages: [messageReasoningBreakdown(input.messages[0]).message] });
+    assert.equal(cleared.categories.find((row) => row.key === 'reasoning').tokens, 0);
+    assert.notEqual(cleared.revision, result.revision);
+  }
 });
 
 test('previews are bounded, revisions reject stale indexes, and key order is not an extra message', () => {

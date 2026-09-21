@@ -9,9 +9,11 @@ function formatWebSearchResults(data) {
   const results = response.results || [];
   const answer = String(response.answer || '').trim();
   const warnings = Array.isArray(response.warnings) ? response.warnings : [];
+  const blocks = [];
+  if (warnings.length) blocks.push(`Warnings: ${warnings.join('; ')}`);
 
   if (!results.length && !answer) {
-    return '(no search results)';
+    return [...blocks, '(no search results)'].join('\n\n');
   }
 
   // Explicit display caps — callers that need full payload should use raw JSON output.
@@ -19,8 +21,6 @@ function formatWebSearchResults(data) {
   const SNIPPET_CAP = 600;
   const ANSWER_CAP = 4000;
   const clip = (text, cap) => (text.length > cap ? `${text.slice(0, cap)}…` : text);
-  const blocks = [];
-  if (warnings.length) blocks.push(`Warnings: ${warnings.join('; ')}`);
   if (answer) blocks.push(clip(answer, ANSWER_CAP));
   if (!results.length) return blocks.join('\n\n');
   blocks.push(
@@ -35,7 +35,7 @@ function formatWebSearchResults(data) {
         const urlPart = [url, date].filter(Boolean).join(' — ');
         const lines = [`${num}. ${title}`];
         if (urlPart) lines.push(`   ${urlPart}`);
-        if (snippet) lines.push(`   ${snippet}`);
+        if (snippet && snippet !== title && snippet !== url) lines.push(`   ${snippet}`);
         return lines.join('\n');
       })
       .join('\n\n')
@@ -59,7 +59,7 @@ function formatCrawl(data) {
       const error = page.error;
 
       if (error) {
-        return `[${url}]\n(failed)`;
+        return `[${url}]\n(error: ${error})`;
       }
 
       const header = title ? `[${title}] ${url}` : `[${url}]`;
@@ -108,7 +108,10 @@ export function applyFetchPagination(payload, args) {
 function fetchDiagnostics(item) {
   const lines = [];
   if (item.errorCode) lines.push(`errorCode: ${item.errorCode}`);
-  if (item.attempts?.length) {
+  if (item.attempts?.length && (
+    item.errorCode || item.status === 'error' || item.failures?.length ||
+    item.attempts.some((attempt) => (attempt.code || attempt.status) !== 'success')
+  )) {
     lines.push(
       `attempts: ${item.attempts
         .map(

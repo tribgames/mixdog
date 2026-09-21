@@ -3,6 +3,15 @@ import test from 'node:test';
 import { normalizeToolEnvelope } from '../../session/tool-envelope.mjs';
 import { renderCompletedResult } from './bash-tool/completed-result.mjs';
 import { renderLosslessRecoveryHint, renderShellOutputBody } from './shell-lossless-compact.mjs';
+import { _shellFailureStatus } from './bash-tool/result-format.mjs';
+
+test('timeout states its duration once while preserving signal, cause and partial-effects warning', () => {
+  const result = _shellFailureStatus({ timedOut: true, signal: 'SIGTERM', killCause: 'deadline' }, 12000);
+  assert.equal(result.statusDetail,
+    '[timeout: 12000ms signal: SIGTERM cause: deadline] — command killed; partial effects may remain');
+  assert.equal(result.signal, 'SIGTERM');
+  assert.equal(result.exitCode, null);
+});
 
 test('completed shell results use the exit marker without an explanatory banner', () => {
   for (const exitCode of [0, 1, 7, 127]) {

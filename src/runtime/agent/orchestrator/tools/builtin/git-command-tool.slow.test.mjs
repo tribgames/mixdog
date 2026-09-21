@@ -27,10 +27,19 @@ function parseStage(result) {
 }
 
 function parseDiff(text) {
+  const changes = [];
+  let path;
+  for (const line of text.split('\n')) {
+    if (line.startsWith('file: ')) path = JSON.parse(line.slice(6));
+    const match = /^change:(chg_[0-9a-f]{16}) (.+)$/.exec(line);
+    if (match) {
+      assert.equal(typeof path, 'string');
+      changes.push({ id: match[1], path, location: match[2] });
+    }
+  }
   return {
     diff_id: /^diff_id: (diff_[0-9a-f]{20})$/m.exec(text)?.[1],
-    changes: [...text.matchAll(/^change:(chg_[0-9a-f]{16}) ("(?:[^"\\]|\\.)*") (.+)$/gm)]
-      .map((match) => ({ id: match[1], path: JSON.parse(match[2]), location: match[3] })),
+    changes,
   };
 }
 

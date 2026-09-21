@@ -287,8 +287,13 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   if (!session || !Array.isArray(session.tools)) return session;
   const providerMode = deferredProviderMode(options.provider || session.provider);
   const byName = new Map();
+  // Rebuild from the full catalog, not just its eager projection. Current
+  // definitions still take precedence over retained definitions.
   const candidates = filterDisallowedTools(
-    filterModelEditTools([...session.tools, ...(extraTools || [])], options.model || session.model),
+    filterModelEditTools(
+      [...session.tools, ...(extraTools || []), ...deferredCatalogUnion(session)],
+      options.model || session.model
+    ),
     [...(session.disallowedTools || []), ...(options.disallowed || [])]
   );
   for (const tool of candidates) {
@@ -405,13 +410,14 @@ export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   if (!session || !Array.isArray(session.messages)) return false;
   if (session.deferredProviderMode === 'full') return false;
   const isMcp = (name) => typeof name === 'string' && name.startsWith('mcp__');
+  const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
   const byName = new Map();
   for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
     const name = clean(tool?.name);
     if (name && !byName.has(name)) byName.set(name, tool);
   }
   let added = false;
-  for (const tool of Array.isArray(liveMcpTools) ? liveMcpTools : []) {
+  for (const tool of live) {
     const name = clean(tool?.name);
     if (!name || !isMcp(name) || byName.has(name)) continue;
     byName.set(name, activeToolForSurface(tool));
@@ -722,14 +728,10 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
         summary: '',
       }
     : null;
-  const alreadyActiveSchemas = activeToolSchemas(catalog, session, alreadyActive);
+  const alreadyActiveSchemas = toolSelection.native ? [] : activeToolSchemas(catalog, session, alreadyActive);
   const nativeSummary = [
     ...(loaded.length ? [`Loaded deferred tools: ${loaded.join(', ')}`] : []),
     ...(alreadyActive.length ? [`Already active: ${alreadyActive.join(', ')}`] : []),
-    // The native path replaces the whole JSON result with this summary
-    // (tool-batch), so an already-active tool's schema has to travel here or
-    // the caller keeps guessing its parameters.
-    ...(alreadyActiveSchemas.length ? [`Already-active schemas: ${JSON.stringify(alreadyActiveSchemas)}`] : []),
   ].join('\n');
   const nativeToolSearch = nativeToolSearchBase
     ? { ...nativeToolSearchBase, summary: nativeSummary || nativeToolSearchBase.summary }

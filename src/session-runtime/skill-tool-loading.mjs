@@ -54,7 +54,10 @@ export function loadSkillToolDependencies(envelope, session, mode) {
         ]
       : []),
   ].join('\n');
-  const native = selection?.native ? toolSearchNativePayload([...catalog.values()], loaded, session?.provider) : null;
+  const eager = new Set((session?.tools || []).map((tool) => tool.name));
+  const native = selection?.native
+    ? toolSearchNativePayload([...catalog.values()], loaded.filter((name) => !eager.has(name)), session?.provider)
+    : null;
   return {
     ...envelope,
     result: native ? JSON.stringify({ nativeToolSearch: { ...native, summary } }) : summary,

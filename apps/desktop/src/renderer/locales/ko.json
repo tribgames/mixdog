@@ -1908,6 +1908,7 @@
   "Reasoning": "추론 중",
   "Reasoning {{levels}}": "추론 {{levels}}",
   "Reasoning effort": "추론 강도",
+  "Reasoning tokens": "추론 토큰",
   "Reauth required": "재인증 필요",
   "Rebase": "리베이스",
   "Rebase and merge": "리베이스 후 병합",

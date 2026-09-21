@@ -27,11 +27,21 @@ export function grepNoMatchesBody({ totalKnown }) {
 }
 
 export function formatGrepFanoutSections({ dimension, labels, bodies }) {
+  if (dimension === 'pattern' && bodies.length > 1 &&
+      String(bodies[0]).startsWith('Error: path does not exist:') &&
+      bodies.every((body) => body === bodies[0])) return String(bodies[0]);
   const parts = [];
   const missed = [];
   const partialMissed = [];
   for (let i = 0; i < labels.length; i++) {
     const body = String(bodies[i]);
+    if (dimension === 'pattern' && body.startsWith('Error: path does not exist:')) {
+      const grouped = [labels[i]];
+      while (i + 1 < labels.length && String(bodies[i + 1]) === body) grouped.push(labels[++i]);
+      const label = grouped.length > 1 ? `patterns:${JSON.stringify(grouped)}` : `pattern:${JSON.stringify(grouped[0])}`;
+      parts.push(`# grep ${label}\n${body}`);
+      continue;
+    }
     if (body === grepNoMatchesBody({ totalKnown: true })) {
       missed.push(labels[i]);
     } else if (body === grepNoMatchesBody({ totalKnown: false })) {

@@ -8,6 +8,26 @@ const url = 'https://example.com/document.md';
 const options = () => ({ timeoutMs: 3000, hostPacer: new HostPacer({ intervalMs: 0 }) });
 const outputBody = (text) => text.slice(text.indexOf('\n\n') + 2);
 
+test('empty searches retain warnings and crawls retain the actual failure cause', () => {
+  assert.equal(formatResponse('web_search', { results: [], warnings: ['provider timed out', 'partial results'] }),
+    'Warnings: provider timed out; partial results\n\n(no search results)');
+  assert.equal(formatResponse('web_search', { results: [] }), '(no search results)');
+  assert.equal(formatResponse('crawl', { pages: [{ url, error: 'HTTP 403: denied' }] }),
+    `[${url}]\n(error: HTTP 403: denied)`);
+});
+
+test('search omits only snippets identical to already visible title or URL', () => {
+  const output = formatResponse('web_search', { results: [
+    { title: 'Same title', url, snippet: 'Same title', publishedDate: '2026-09-21' },
+    { title: 'URL repeat', url, snippet: url },
+    { title: 'Distinct', url, snippet: 'Different details, kept intact.' },
+  ] });
+  assert.equal(output.split('Same title').length - 1, 1);
+  assert.equal(output.split(url).length - 1, 3);
+  assert.match(output, /2026-09-21/);
+  assert.match(output, /Different details, kept intact\./);
+});
+
 test('final paginated output reconstructs the exact source, including whitespace-only slices', async () => {
   const source = '    indented code\r\n\n        \n\n```js\n  const message = "한글";  \n```\n\n';
   const page = await runFetchPipeline(url, {
@@ -27,6 +47,7 @@ test('final paginated output reconstructs the exact source, including whitespace
   assert.equal(reconstructed, source);
 
   const unlimited = applyFetchPagination(page, { maxLength: 0 });
+  assert.doesNotMatch(formatResponse('fetch', { results: [unlimited] }), /attempts:|http=success/);
   assert.equal(outputBody(formatResponse('fetch', { results: [unlimited] })), source);
   const exhausted = applyFetchPagination(page, { startIndex: source.length, maxLength: 4 });
   assert.equal(outputBody(formatResponse('fetch', { results: [exhausted] })), '');

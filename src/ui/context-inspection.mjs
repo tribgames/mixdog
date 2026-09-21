@@ -8,6 +8,7 @@ export const CONTEXT_CATEGORIES = [
   { key: 'system', label: 'System messages' },
   { key: 'user', label: 'User messages' },
   { key: 'assistant', label: 'Assistant messages' },
+  { key: 'reasoning', label: 'Reasoning tokens' },
   { key: 'toolResults', label: 'Tool results' },
   { key: 'attachments', label: 'Attachments' },
   { key: 'tools', label: 'System tools' },

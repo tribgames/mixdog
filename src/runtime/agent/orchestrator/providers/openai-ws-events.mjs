@@ -9,6 +9,8 @@
  * existing importers resolve unchanged.
  */
 
+import { combineReasoningUsage } from '../../../shared/llm/reasoning-usage.mjs';
+
 function _usageNum(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
@@ -36,6 +38,7 @@ export function _combineUsageWithWarmup(actual, warmup, { separateMainContext = 
   const warmupTicks = _usageNum(warmupRaw.cost_in_usd_ticks);
   const combined = {
     ...actual,
+    ...combineReasoningUsage(actual, warmup),
     inputTokens: _usageNum(actual.inputTokens) + _usageNum(warmup.inputTokens),
     outputTokens: _usageNum(actual.outputTokens) + _usageNum(warmup.outputTokens),
     cachedTokens: _usageNum(actual.cachedTokens) + _usageNum(warmup.cachedTokens),

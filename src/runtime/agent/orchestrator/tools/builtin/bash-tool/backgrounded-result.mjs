@@ -45,6 +45,7 @@ function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
 // output for manual task control instead of keeping the tool call open until
 // the hard timeout.
 export function renderBackgroundedResult({ result, command, cwd, options, startedAtMs, teePlan, stdout, stderr }) {
+  const partialOutput = renderBackgroundPartialOutput(stdout, stderr);
   let task = null;
   if (result.jobId) {
     task = registerPromotedTask({ result, command, cwd, options, startedAtMs });
@@ -69,7 +70,7 @@ export function renderBackgroundedResult({ result, command, cwd, options, starte
   const lines = _backgroundResultLines({
     taskBlock,
     message: result.backgroundMessage || DEFAULT_BACKGROUND_MESSAGE,
-    partialOutput: renderBackgroundPartialOutput(stdout, stderr),
+    partialOutput,
   });
   return _prependDestructiveWarning(command, lines.join('\n'));
 }
