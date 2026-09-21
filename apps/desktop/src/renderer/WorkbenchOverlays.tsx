@@ -26,7 +26,7 @@ export interface WorkbenchCommand {
 export function parseQuickOpenQuery(value: string): { query: string; line?: number } {
   const trimmed = value.trim();
   const match = /^(.*?)(?::(\d+))?$/.exec(trimmed);
-  const query = String(match?.[1] ?? trimmed).trim();
+  const query = (match?.[1] ?? trimmed).trim();
   const line = Number(match?.[2] || 0);
   return line > 0 ? { query, line } : { query };
 }

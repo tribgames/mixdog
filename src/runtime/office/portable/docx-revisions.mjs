@@ -221,13 +221,12 @@ const REDLINING_GUIDANCE = Object.freeze([
  *  was edited without being tracked. With `author`, every new change must
  *  carry that author. Only the document body is compared. */
 export function auditDocxRedlining(currentXml, originalXml, { author = '' } = {}) {
+  const current = String(currentXml || '');
   const originalSpans = flattenDocxRevisions(docxRevisionTree(originalXml));
-  const modifiedTree = docxRevisionTree(currentXml);
+  const modifiedTree = docxRevisionTree(current);
   const modifiedSpans = flattenDocxRevisions(modifiedTree);
   const fresh = newRevisions(originalSpans, modifiedSpans);
-  const undone = withoutRevisions(String(currentXml || ''), modifiedTree, 0, String(currentXml || '').length, (span) =>
-    fresh.has(span)
-  );
+  const undone = withoutRevisions(current, modifiedTree, 0, current.length, (span) => fresh.has(span));
   const before = paragraphLines(originalXml);
   const after = paragraphLines(undone);
   const untrackedEdits = before.join('\n') === after.join('\n') ? null : lineDiff(before, after);
@@ -512,5 +511,6 @@ export function resolveDocxPropertyChanges(documentXml, { resolution = 'accept',
 /** Number of formatting revisions a part carries; they are not wrappers, so
  *  the revision list does not number them, but a clean copy needs them gone. */
 export function countDocxPropertyChanges(xml) {
-  return count(String(xml || ''), PROPERTY_CHANGE) + count(String(xml || ''), /<w:numberingChange\b/g);
+  const source = String(xml || '');
+  return count(source, PROPERTY_CHANGE) + count(source, /<w:numberingChange\b/g);
 }

@@ -10,6 +10,9 @@ import { withUsageContext } from './usage-context.mjs';
 export async function accountProviderSend(provider, instance, send, model, opts = {}) {
   const requestId = randomUUID();
   const startedAt = Date.now();
+  const sessionId = opts.sessionId || opts.session?.id;
+  const sourceType = opts.session?.sourceType || opts.sourceType || opts.requestKind || '';
+  const inputTokensInclusive = instance.constructor?.inputExcludesCache !== true;
   let ledger;
   let openingError;
   try {
@@ -30,11 +33,11 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       model: result.model || model,
       requestedModel: model,
       pricingModel: result.pricingModel,
-      sessionId: opts.sessionId || opts.session?.id,
-      sourceType: opts.session?.sourceType || opts.sourceType || opts.requestKind || '',
+      sessionId,
+      sourceType,
       inputTokens: usage.inputTokens,
       inputTokensKnown: usage.inputTokensKnown,
-      inputTokensInclusive: instance.constructor?.inputExcludesCache !== true,
+      inputTokensInclusive,
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cachedTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
@@ -60,9 +63,9 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       {
         provider,
         requestedModel: model,
-        sessionId: opts.sessionId || opts.session?.id,
-        sourceType: opts.session?.sourceType || opts.sourceType || opts.requestKind || '',
-        inputTokensInclusive: instance.constructor?.inputExcludesCache !== true,
+        sessionId,
+        sourceType,
+        inputTokensInclusive,
       },
       send
     );

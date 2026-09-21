@@ -73,15 +73,19 @@ function splitInjectedContext(message) {
   if (typeof message.content !== 'string') return { message, injected: '' };
   let content = message.content;
   const injected = [];
-  let match;
-  while ((match = /^\s*<system-reminder>[\s\S]*?<\/system-reminder>\s*/i.exec(content))) {
+  const leading = /^\s*<system-reminder>[\s\S]*?<\/system-reminder>\s*/i;
+  const trailing = /\s*<system-reminder>(?:(?!<\/?system-reminder>)[\s\S])*<\/system-reminder>\s*$/i;
+  let match = leading.exec(content);
+  while (match) {
     injected.push(match[0]);
     content = content.slice(match[0].length);
+    match = leading.exec(content);
   }
-  const trailing = /\s*<system-reminder>(?:(?!<\/?system-reminder>)[\s\S])*<\/system-reminder>\s*$/i;
-  while ((match = trailing.exec(content))) {
+  match = trailing.exec(content);
+  while (match) {
     injected.push(match[0]);
     content = content.slice(0, match.index);
+    match = trailing.exec(content);
   }
   // Keep standalone reminders on the normal system-section path.
   if (!content.trim() || !injected.length) return { message, injected: '' };
@@ -90,8 +94,8 @@ function splitInjectedContext(message) {
 
 // Prompt-head manifests arrive as XML blocks with no markdown heading, so the
 // section split glued each one onto whatever ran before it and it read as a
-// nameless slice of the system prompt (user: available-deferred-tools도 애매하게
-// 지금 따로분류되어있고). Carve them out first and give each its own name.
+// nameless slice of the system prompt. Carve them out first and give each its
+// own name.
 const NAMED_PROMPT_BLOCKS = [
   { tag: 'available-deferred-tools', label: 'Deferred tool list' },
   { tag: 'mcp-instructions', label: 'MCP instructions' },
@@ -331,7 +335,9 @@ function toolResultDraft(message, index, tokens, toolName, ordinal) {
 }
 
 function turnDraft(message, index, tokens, { role, group, ordinal, name }) {
-  const category = group === 'summary' || role === 'developer' ? 'system' : role === 'system' || role === 'user' ? role : 'assistant';
+  let category = 'assistant';
+  if (group === 'summary' || role === 'developer') category = 'system';
+  else if (role === 'system' || role === 'user') category = role;
   return {
     id: `message:${index}`,
     category,
@@ -472,7 +478,7 @@ function toolDrafts(tools, deferredCatalogNames) {
   const drafts = tools.map((tool, index) => {
     const bucket = toolSchemaBucket(tool);
     // The agent tool is a built-in schema like any other; its `agents` bucket
-    // must not file it under "Custom agents" (user: AGENT 도구가 분류가 이상하게).
+    // must not file it under "Custom agents".
     const category = ['mcp', 'memory', 'skills'].includes(bucket) ? bucket : 'tools';
     const name = String(tool.name || '');
     let state = 'active';

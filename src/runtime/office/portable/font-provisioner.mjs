@@ -152,7 +152,7 @@ function registerFontInProcess(fontPath, family) {
   return false;
 }
 
-async function installFont(fontDef, { onProgress: _onProgress } = {}) {
+async function installFont(fontDef) {
   const status = isFontInstalled(fontDef);
   if (status.installed) {
     registerFontInProcess(status.path, fontDef.family);
@@ -201,7 +201,7 @@ export async function prepareOfficeFonts(options = {}) {
     await Promise.all(
       batch.map(async (fontDef) => {
         try {
-          results[fontDef.id] = await installFont(fontDef, options);
+          results[fontDef.id] = await installFont(fontDef);
         } catch (error) {
           results[fontDef.id] = { installed: false, error: error?.message || String(error) };
         }

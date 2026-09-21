@@ -15,7 +15,7 @@ function decodePath(path) {
     const bytes = [];
     for (const token of path.slice(1, -1).matchAll(/\\([0-7]{1,3}|.)|[^\\]+/g)) {
       if (token[1] && /^[0-7]/.test(token[1])) bytes.push(Buffer.from([Number.parseInt(token[1], 8)]));
-      else bytes.push(Buffer.from(token[1] ? escapes[token[1]] ?? token[1] : token[0]));
+      else bytes.push(Buffer.from(token[1] ? (escapes[token[1]] ?? token[1]) : token[0]));
     }
     path = Buffer.concat(bytes).toString('utf8');
   }
@@ -45,9 +45,7 @@ function finishFile(files, file) {
   const pathLine = file.newLine === '+++ /dev/null' ? file.oldLine : file.newLine;
   if (pathLine) file.path = decodePath(pathLine.slice(4).replace(/\t$/, ''));
   file.stageable = Boolean(
-    file.diffLine &&
-      !file.blocked &&
-      (file.kind || (file.oldLine && file.newLine && file.hunks.length))
+    file.diffLine && !file.blocked && (file.kind || (file.oldLine && file.newLine && file.hunks.length))
   );
   files.push(file);
 }
@@ -94,7 +92,12 @@ function parseFiles(raw) {
     if (line.startsWith('--- ')) file.oldLine = line;
     else if (line.startsWith('+++ ')) file.newLine = line;
     else if (line.startsWith('new file mode ')) file.kind = 'new_file';
-    else if (/^(deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |GIT binary patch)/.test(line)) file.kind ||= 'file';
+    else if (
+      /^(deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |GIT binary patch)/.test(
+        line
+      )
+    )
+      file.kind ||= 'file';
     else if (line.startsWith('Binary files ')) file.blocked = true;
   }
   finishFile(files, file);

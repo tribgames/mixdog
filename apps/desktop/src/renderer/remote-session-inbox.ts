@@ -28,7 +28,9 @@ export function createRemoteSessionInbox({ maxEntries = 32, onGap }: { maxEntrie
       pending.delete(update.sessionId);
       pending.set(update.sessionId, update);
       while (pending.size > Math.max(1, maxEntries)) {
-        pending.delete(pending.keys().next().value!);
+        const oldest = pending.keys().next();
+        if (oldest.done) break;
+        pending.delete(oldest.value);
         gap = true;
       }
     },

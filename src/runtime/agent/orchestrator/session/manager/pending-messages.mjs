@@ -1240,28 +1240,10 @@ export function _dropPendingMessageState(id, { clearPersisted = true } = {}) {
   // Tombstoned close: the claim copies are dead (the session record itself
   // now refuses any restore). Detach keeps them so a still-in-flight ask can
   // release and restore its claimed entries after this cleanup runs.
-  if (clearPersisted) {
-    try {
-      _claimedPendingMessages.delete(id);
-    } catch {
-      /* ignore */
-    }
-  }
-  try {
-    _sessionPendingMessages.delete(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    _hydratedPendingMessages.delete(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    _pendingPersistBuffers.delete(id);
-  } catch {
-    /* ignore */
-  }
+  if (clearPersisted) _claimedPendingMessages.delete(id);
+  _sessionPendingMessages.delete(id);
+  _hydratedPendingMessages.delete(id);
+  _pendingPersistBuffers.delete(id);
   try {
     cancelPendingPersistRetry(id, { resetBackoff: true });
   } catch {
@@ -1276,21 +1258,9 @@ export function _dropPendingMessageState(id, { clearPersisted = true } = {}) {
       /* ignore */
     }
   }
-  try {
-    _inDeliveryPendingIds.delete(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    _ackedPendingIds.delete(id);
-  } catch {
-    /* ignore */
-  }
-  try {
-    _pendingHydrations.delete(id);
-  } catch {
-    /* ignore */
-  }
+  _inDeliveryPendingIds.delete(id);
+  _ackedPendingIds.delete(id);
+  _pendingHydrations.delete(id);
   if (clearPersisted) {
     try {
       clearPersistedPendingMessages(id);

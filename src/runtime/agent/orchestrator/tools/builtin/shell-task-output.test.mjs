@@ -7,7 +7,12 @@ import { readShellTaskOutput } from './lib/shell-task-output.mjs';
 import { renderBackgroundedResult } from './bash-tool/backgrounded-result.mjs';
 import { executeTaskTool } from './task-tool.mjs';
 import { buildShellCompletion } from './shell-jobs.mjs';
-import { cleanupBackgroundTasks, completeBackgroundTask, getBackgroundTask, renderBackgroundTask } from '../../../../shared/background-tasks.mjs';
+import {
+  cleanupBackgroundTasks,
+  completeBackgroundTask,
+  getBackgroundTask,
+  renderBackgroundTask,
+} from '../../../../shared/background-tasks.mjs';
 import { validateBuiltinArgs } from './arg-guard.mjs';
 import { interruptTaskWaitForSession } from '../../session/task-wait-control.mjs';
 
@@ -29,16 +34,29 @@ test('shell promotion and task reads share a cursor without hiding failures or o
   writeFileSync(paths.stdout_path, 'already received\n');
   const first = renderBackgroundedResult({
     result: { jobId, stdoutPath: paths.stdout_path, stderrPath: paths.stderr_path },
-    command: 'test command', cwd: tmpdir(), options: { sessionId }, stdout: 'already received\n', stderr: '',
+    command: 'test command',
+    cwd: tmpdir(),
+    options: { sessionId },
+    stdout: 'already received\n',
+    stderr: '',
   });
   assert.match(first, /already received/);
   appendFileSync(paths.stdout_path, 'new result\n');
   appendFileSync(paths.stderr_path, 'failure warning\n');
   const completion = buildShellCompletion(jobId, {
-    status: 'completed', exitCode: 1, stdoutPath: paths.stdout_path, stderrPath: paths.stderr_path,
-    stdoutPreview: 'already received\nnew result\n', stderrPreview: 'failure warning\n',
+    status: 'completed',
+    exitCode: 1,
+    stdoutPath: paths.stdout_path,
+    stderrPath: paths.stderr_path,
+    stdoutPreview: 'already received\nnew result\n',
+    stderrPreview: 'failure warning\n',
   });
-  completeBackgroundTask(jobId, { status: completion.taskStatus, result: completion.result, resultText: completion.body, notify: false });
+  completeBackgroundTask(jobId, {
+    status: completion.taskStatus,
+    result: completion.result,
+    resultText: completion.body,
+    notify: false,
+  });
   const second = await executeTaskTool({ action: 'read', task_id: jobId }, { sessionId });
   assert.doesNotMatch(second, /already received|<task-notification>|stdout_preview/);
   assert.match(second, /new result/);
@@ -87,12 +105,22 @@ test('preview-only jobs preserve changed previews, and disk errors stay visible 
 
 test('shell completion is rendered once with its verdict, not a nested notification', () => {
   const completion = buildShellCompletion('job_failed', {
-    status: 'failed', timedOut: true, signal: 'SIGTERM', stderrPreview: 'failure details',
+    status: 'failed',
+    timedOut: true,
+    signal: 'SIGTERM',
+    stderrPreview: 'failure details',
   });
-  const text = renderBackgroundTask({
-    taskId: 'job_failed', surface: 'shell', status: completion.taskStatus,
-    result: completion.result, resultText: completion.body, error: completion.error,
-  }, { includeResult: true });
+  const text = renderBackgroundTask(
+    {
+      taskId: 'job_failed',
+      surface: 'shell',
+      status: completion.taskStatus,
+      result: completion.result,
+      resultText: completion.body,
+      error: completion.error,
+    },
+    { includeResult: true }
+  );
   assert.doesNotMatch(text, /<task-notification>/);
   assert.match(text, /timed_out: true/);
   assert.match(text, /signal: SIGTERM/);
@@ -167,7 +195,11 @@ test('interrupted waits keep the job alive and leave explicit output replay avai
   writeFileSync(paths.stdout_path, 'before interruption\n');
   renderBackgroundedResult({
     result: { jobId, stdoutPath: paths.stdout_path, stderrPath: paths.stderr_path },
-    command: 'test command', cwd: tmpdir(), options: { sessionId }, stdout: '', stderr: '',
+    command: 'test command',
+    cwd: tmpdir(),
+    options: { sessionId },
+    stdout: '',
+    stderr: '',
   });
   const task = getBackgroundTask(jobId);
   task.result = paths;
@@ -177,7 +209,10 @@ test('interrupted waits keep the job alive and leave explicit output replay avai
     const result = await executeTaskTool({ action: 'wait', task_id: jobId }, { sessionId });
     assert.match(result, /Wait interrupted by new user input/);
     assert.equal(task.status, 'running');
-    assert.match(await executeTaskTool({ action: 'read', task_id: jobId, output: 'tail' }, { sessionId }), /before interruption/);
+    assert.match(
+      await executeTaskTool({ action: 'read', task_id: jobId, output: 'tail' }, { sessionId }),
+      /before interruption/
+    );
   } finally {
     clearTimeout(timer);
   }

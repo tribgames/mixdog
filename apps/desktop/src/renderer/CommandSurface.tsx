@@ -148,7 +148,12 @@ export function CommandSurface({
                   {t('Refreshing…')}
                 </span>
               )}
-              <button className="mixdog-settings__close" onClick={onClose} aria-label={t('Close {{title}}', { title })}>
+              <button
+                type="button"
+                className="mixdog-settings__close"
+                onClick={onClose}
+                aria-label={t('Close {{title}}', { title })}
+              >
                 <X size={16} />
               </button>
             </div>

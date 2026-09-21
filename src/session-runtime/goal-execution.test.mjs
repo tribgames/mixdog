@@ -40,6 +40,67 @@ test('maximum time allows early verified completion without a ceremonial task ro
   assert.ok(complete.remaining_ms > 0);
 });
 
+test('continuation tiers send the rules once, then pointers, and the task list only when it goes stale', async (t) => {
+  const f = fixture(t);
+  await f.control({ command: 'Deliver a single verified result --time 1h' });
+  const first = f.runtime.continuation(f.sessionId);
+  assert.equal(first.run, true);
+  assert.match(first.prompt, /Before completing, audit each user condition/);
+  assert.match(first.prompt, /Durable tasks:/);
+
+  // Rules and list are both in the transcript now, so the quiet turns between
+  // them only point at the work, with the revision and the remaining budget.
+  const { revision } = f.runtime.snapshot(f.sessionId);
+  for (let quiet = 1; quiet < 10; quiet += 1) {
+    const minimal = f.runtime.continuation(f.sessionId);
+    assert.equal(minimal.run, true);
+    assert.match(minimal.prompt, new RegExp(`revision ${revision}\\)`));
+    assert.match(minimal.prompt, /Time remaining:/);
+    assert.match(minimal.prompt, /still apply unchanged/);
+    assert.doesNotMatch(minimal.prompt, /Durable tasks:|Deliver a single verified result/);
+    assert.ok(
+      minimal.prompt.length * 4 < first.prompt.length,
+      `minimal prompt ${minimal.prompt.length} is not a quarter of ${first.prompt.length}`
+    );
+  }
+
+  // The tenth quiet continuation re-shows the durable state without the rules,
+  // and the count starts over from that delivery.
+  const stale = f.runtime.continuation(f.sessionId);
+  assert.match(stale.prompt, /Durable tasks:/);
+  assert.match(stale.prompt, /Deliver a single verified result/);
+  assert.doesNotMatch(stale.prompt, /Before completing, audit each user condition/);
+  for (let quiet = 1; quiet < 10; quiet += 1) {
+    assert.doesNotMatch(f.runtime.continuation(f.sessionId).prompt, /Durable tasks:/);
+  }
+  assert.match(f.runtime.continuation(f.sessionId).prompt, /Durable tasks:/);
+
+  // Compaction, an objective change, or a paused-state reminder resets the
+  // marker: the lost rules are delivered again in full.
+  f.runtime.resetContinuationRules(f.sessionId);
+  assert.match(f.runtime.continuation(f.sessionId).prompt, /Before completing, audit each user condition/);
+});
+
+test('a task mutation replaces the next continuation state block with a pointer', async (t) => {
+  const f = fixture(t);
+  await f.control({ command: 'Keep the approved work moving --time 1h' });
+  await f.runtime.startTurn(f.sessionId);
+  assert.match(f.runtime.continuation(f.sessionId).prompt, /Before completing, audit each user condition/);
+  // One short of the stale-list reminder.
+  for (let quiet = 1; quiet < 10; quiet += 1) f.runtime.continuation(f.sessionId);
+
+  await f.call({ action: 'set_tasks', tasks: [{ text: 'Implement the approved result', status: 'in_progress' }] });
+  // The fresh list is already in the model's own tool result, so the next
+  // continuation points at it instead of replaying it.
+  const next = f.runtime.continuation(f.sessionId);
+  assert.doesNotMatch(next.prompt, /Durable tasks:|Implement the approved result/);
+  assert.match(next.prompt, new RegExp(`revision ${f.runtime.snapshot(f.sessionId).revision}\\)`));
+  for (let quiet = 1; quiet < 10; quiet += 1) {
+    assert.doesNotMatch(f.runtime.continuation(f.sessionId).prompt, /Durable tasks:/);
+  }
+  assert.match(f.runtime.continuation(f.sessionId).prompt, /Durable tasks:/);
+});
+
 test('new sustained durations and unversioned stored durations retain their full commitment', async (t) => {
   const f = fixture(t);
   await f.control({ command: 'Improve approved work --time 1h --time-mode duration' });
@@ -78,7 +139,7 @@ test('model waiting requires every remaining task to depend on the user and a re
     await f.call({
       action: 'create',
       objective: 'Deliver approved work',
-      tasks: [{ text: 'Implementation', status: 'pending', kind: 'work' }],
+      tasks: [{ text: 'Implementation', status: 'pending' }],
     })
   ).goal;
   await assert.rejects(f.call({ action: 'pause', blocker: 'Choose an option' }), /continue available work/);
@@ -127,7 +188,7 @@ test('stop preserves unfinished work across restart and archives it before a rep
     await f.call({
       action: 'create',
       objective: 'Original objective',
-      tasks: [{ text: 'Unfinished deliverable', status: 'in_progress', kind: 'work' }],
+      tasks: [{ text: 'Unfinished deliverable', status: 'in_progress' }],
     })
   ).goal;
   const stopped = (await f.control({ action: 'stop', expectedGoalId: created.id })).goal;
@@ -156,7 +217,7 @@ test('goal editing preserves progress and rejects stale editor saves atomically'
     await f.call({
       action: 'create',
       objective: 'Original scope',
-      tasks: [{ text: 'Completed milestone', status: 'completed', kind: 'work' }],
+      tasks: [{ text: 'Completed milestone', status: 'completed' }],
     })
   ).goal;
   const edit = (
@@ -191,7 +252,6 @@ for (const priorStatus of ['paused', 'duration_reached', 'active']) {
         tasks: Array.from({ length: 11 }, (_, i) => ({
           text: `Verified milestone ${i + 1}`,
           status: 'completed',
-          kind: 'work',
         })),
       })
     ).goal;
@@ -207,7 +267,7 @@ for (const priorStatus of ['paused', 'duration_reached', 'active']) {
         action: 'resume',
         revision: before.revision,
         time_limit_minutes: 300,
-        tasks: [{ text: 'Find new matched revenue samples and another period', status: 'in_progress', kind: 'work' }],
+        tasks: [{ text: 'Find new matched revenue samples and another period', status: 'in_progress' }],
       })
     ).goal;
     assert.equal(events.length, 1);
@@ -273,7 +333,7 @@ test('invalid or stale additional-round mutations cannot partially extend time o
       f.call({
         action: 'resume',
         revision: before.revision,
-        tasks: [{ text: 'New round', status: 'in_progress', kind: 'work' }],
+        tasks: [{ text: 'New round', status: 'in_progress' }],
         ...changes,
       }),
       error
@@ -289,7 +349,7 @@ test('a new round after completion archives the prior evidence and starts its ow
       action: 'create',
       objective: 'Prior research',
       time_limit_minutes: 180,
-      tasks: [{ text: 'Verified result with retained evidence', status: 'completed', kind: 'work' }],
+      tasks: [{ text: 'Verified result with retained evidence', status: 'completed' }],
     })
   ).goal;
   f.advance(60_000);
@@ -300,7 +360,7 @@ test('a new round after completion archives the prior evidence and starts its ow
       action: 'create',
       objective: 'Additional research',
       time_limit_minutes: 300,
-      tasks: [{ text: 'New research scope', status: 'in_progress', kind: 'work' }],
+      tasks: [{ text: 'New research scope', status: 'in_progress' }],
     })
   ).goal;
   assert.notEqual(next.id, created.id);

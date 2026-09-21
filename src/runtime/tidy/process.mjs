@@ -174,42 +174,39 @@ export function runProcess(
       else signal.addEventListener('abort', onAbort, { once: true });
     }
 
-    child.stdout?.on('data', (chunk) => captureInto(state, 'stdout', chunk, cap));
-    child.stderr?.on('data', (chunk) => captureInto(state, 'stderr', chunk, cap));
-    child.on('error', (error) => {
+    // One exit path for both outcomes: whoever settles first reports the
+    // captured output and clears the timers.
+    const settle = (code, exitSignal, error) => {
       if (settled) return;
       settled = true;
       clearTimers();
       resolveRun({
-        code: -1,
-        signal: null,
+        code,
+        signal: exitSignal,
         stdout: state.stdout,
         stderr: state.stderr,
         timedOut,
         truncated: Boolean(state.stdoutTruncated || state.stderrTruncated),
-        error: error?.message || String(error),
+        error,
       });
-    });
+    };
+
+    child.stdout?.on('data', (chunk) => captureInto(state, 'stdout', chunk, cap));
+    child.stderr?.on('data', (chunk) => captureInto(state, 'stderr', chunk, cap));
+    child.on('error', (error) => settle(-1, null, error?.message || String(error)));
     if (input != null && child.stdin) {
       child.stdin.on('error', () => {
         /* child may close stdin early */
       });
       child.stdin.end(input);
     }
-    child.on('close', (code, closeSignal) => {
-      if (settled) return;
-      settled = true;
-      clearTimers();
-      resolveRun({
-        code: typeof code === 'number' ? code : -1,
-        signal: closeSignal || null,
-        stdout: state.stdout,
-        stderr: state.stderr,
-        timedOut,
-        truncated: Boolean(state.stdoutTruncated || state.stderrTruncated),
-        error: timedOut ? `timed out after ${timeoutMs}ms` : '',
-      });
-    });
+    child.on('close', (code, closeSignal) =>
+      settle(
+        typeof code === 'number' ? code : -1,
+        closeSignal || null,
+        timedOut ? `timed out after ${timeoutMs}ms` : ''
+      )
+    );
   });
 }
 

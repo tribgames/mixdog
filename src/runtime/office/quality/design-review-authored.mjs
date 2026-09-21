@@ -23,8 +23,8 @@ export function slideSize(document) {
   return { width, height };
 }
 
-// The deck's own background ladder: the cover color is the inverse field and
-// the color farthest from it in lightness is the inverse field. Reading the
+// The deck's own background ladder: the most common background is the canvas
+// and the color farthest from it in lightness is the inverse field. Reading the
 // cover as the inverse field assumed every deck opens dark, so an authored deck
 // with a light cover and a dark closing was read upside down and its own
 // backgrounds came back as drift. Returns null when the deck shares any

@@ -59,6 +59,8 @@ export interface ComputerCommand {
   include_noninteractive?: boolean;
   include_structure?: boolean;
   max_elements?: number;
+  /** list(kind="history"): how many of the most recent records to return. */
+  limit?: number;
   continuation?: string;
   mode?: 'state' | 'som' | 'vision' | 'ax';
   include_ocr?: boolean;

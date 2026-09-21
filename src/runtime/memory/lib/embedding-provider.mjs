@@ -53,14 +53,6 @@ export function embeddingWorkerExecArgv(execArgv = process.execArgv) {
   });
 }
 
-function cacheEmbedding(key, vector) {
-  queryEmbeddingCache.set(key, vector);
-}
-
-function getCachedEmbedding(key) {
-  return queryEmbeddingCache.get(key);
-}
-
 function embeddingCacheKey(text, inputType, dtype = _configuredDtype) {
   return `${MODEL_ID}\n${dtype}\n${normalizeEmbeddingInputType(inputType)}\n${text}`;
 }
@@ -307,7 +299,7 @@ export async function embedText(text, options = {}) {
   const inputType = normalizeEmbeddingInputType(options?.inputType);
   const dtype = _configuredDtype;
   const cacheKey = embeddingCacheKey(clean, inputType, dtype);
-  const cached = getCachedEmbedding(cacheKey);
+  const cached = queryEmbeddingCache.get(cacheKey);
   if (cached) return [...cached];
 
   // Interactive query embeds pass { priority: true } so the worker can
@@ -331,7 +323,7 @@ export async function embedText(text, options = {}) {
   if (!Array.isArray(vector) || vector.length !== cachedDims) {
     throw new Error(`embed vector length mismatch: expected ${cachedDims}, got ${vector?.length}`);
   }
-  cacheEmbedding(cacheKey, vector);
+  queryEmbeddingCache.set(cacheKey, vector);
   _embedCallCount++;
   if (_embedCallCount % EMBED_STEADY_SAMPLE_EVERY === 0) {
     writeProfilePoint({
@@ -365,11 +357,13 @@ export async function embedTexts(texts, options = {}) {
     const key = embeddingCacheKey(t, inputType, dtype);
     if (!queryEmbeddingCache.has(key)) missing.push(t);
   }
-  if (missing.length === 0)
-    return cleaned.map((t) => {
+  const cachedResults = () =>
+    cleaned.map((t) => {
       if (!t) return [];
-      return [...queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype))];
+      const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype));
+      return cached ? [...cached] : [];
     });
+  if (missing.length === 0) return cachedResults();
   const result = await sendToWorker('embed-batch', { texts: missing, inputType });
   if (!result.dims) throw new Error(`embed-batch result missing dims (model=${MODEL_ID})`);
   const resultDims = result.dims;
@@ -389,14 +383,10 @@ export async function embedTexts(texts, options = {}) {
     if (!Array.isArray(vec) || vec.length !== cachedDims) {
       throw new Error(`embed-batch vector length mismatch at idx ${i}: expected ${cachedDims}, got ${vec?.length}`);
     }
-    cacheEmbedding(embeddingCacheKey(missing[i], inputType, dtype), vec);
+    queryEmbeddingCache.set(embeddingCacheKey(missing[i], inputType, dtype), vec);
   }
   _embedCallCount += missing.length;
-  return cleaned.map((t) => {
-    if (!t) return [];
-    const cached = queryEmbeddingCache.get(embeddingCacheKey(t, inputType, dtype));
-    return cached ? [...cached] : [];
-  });
+  return cachedResults();
 }
 
 export async function shutdownEmbeddingProvider() {

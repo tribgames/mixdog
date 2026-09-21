@@ -362,7 +362,7 @@ test('restart hydration preserves every non-active Goal snapshot without schedul
       id: `goal-${status}`,
       status,
       objective: `Keep ${status}`,
-      tasks: [{ id: 'task_1', text: 'Keep progress', status: 'completed', kind: 'work' }],
+      tasks: [{ id: 'task_1', text: 'Keep progress', status: 'completed' }],
     };
     const state = {
       busy: false,

@@ -568,10 +568,7 @@ export const UtilityDock = memo(function UtilityDock({
       />
     );
   }, [dockProjectOptions.length, dockProjectPath, dockProjectSelectOptions, selectDockProject]);
-  const projectKey = dockProjectPath;
-  const surfaceKeys: Record<UtilityDockTab, string> = {
-    agents: 'agents',
-    search: `search:${projectKey}`,
+  const surfaceKeys = {
     'source-control': `source-control:${dockProjectPath}`,
     'pull-requests': `pull-requests:${dockProjectPath}`,
   };

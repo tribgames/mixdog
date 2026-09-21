@@ -162,7 +162,8 @@ export function refreshSessionBp3Environment(session, cwd) {
         session.sessionStartMetaInjected = true;
         return true;
       }
-      const messages = Array.isArray(session.messages) ? session.messages : (session.messages = []);
+      if (!Array.isArray(session.messages)) session.messages = [];
+      const messages = session.messages;
       let insertAt = 0;
       while (insertAt < messages.length && messages[insertAt]?.role === 'system') insertAt += 1;
       messages.splice(insertAt, 0, { role: 'system', content, cacheTier: 'env' });

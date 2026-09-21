@@ -40,6 +40,19 @@ export function getInFlightCycle1(db) {
   return _runCycle1InFlight.get(db) || null;
 }
 
+/** The lean result a cycle1 call returns when it never reached the classifier. */
+async function cycle1SkipResult(db, extra = {}) {
+  return {
+    processed: 0,
+    chunks: 0,
+    skipped: 0,
+    sessions: 0,
+    skippedInFlight: true,
+    pendingRows: await countPendingRows(db),
+    ...extra,
+  };
+}
+
 function logCycle1Throttled(key, message, intervalMs = 60_000) {
   const now = Date.now();
   const last = _lastCycle1LogAt.get(key) || 0;
@@ -127,14 +140,7 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
     if (!coalescedRetry) await markCycleRequest(db, 'cycle1', 'in-flight', requestSignature);
     if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry();
     logCycle1Throttled('in-flight', '[cycle1] skipped: already in flight for this db\n');
-    return {
-      processed: 0,
-      chunks: 0,
-      skipped: 0,
-      sessions: 0,
-      skippedInFlight: true,
-      pendingRows: await countPendingRows(db),
-    };
+    return await cycle1SkipResult(db);
   }
   const client = await db._pool.connect();
   let gotLock = false;
@@ -147,28 +153,14 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
     if (signal?.aborted) throw signal.reason ?? err;
     __mixdogMemoryLog(`[cycle1] advisory lock query failed: ${err.message}\n`);
     if (!coalescedRetry) await markCycleRequest(db, 'cycle1', 'lock-error', requestSignature);
-    return {
-      processed: 0,
-      chunks: 0,
-      skipped: 0,
-      sessions: 0,
-      skippedInFlight: true,
-      pendingRows: await countPendingRows(db),
-    };
+    return await cycle1SkipResult(db);
   }
   if (!gotLock) {
     client.release();
     if (!coalescedRetry) await markCycleRequest(db, 'cycle1', 'advisory-lock', requestSignature);
     if (!coalescedRetry || retryAttempt < maxRetries) scheduleRetry();
     logCycle1Throttled('advisory-lock', '[cycle1] skipped: advisory lock held by another worker\n');
-    return {
-      processed: 0,
-      chunks: 0,
-      skipped: 0,
-      sessions: 0,
-      skippedInFlight: true,
-      pendingRows: await countPendingRows(db),
-    };
+    return await cycle1SkipResult(db);
   }
   const p = (async () => {
     try {
@@ -178,15 +170,7 @@ export async function runCycle1(db, config = {}, options = {}, dataDir = null) {
       if (coalescedRetry) {
         const pending = await consumeCycleRequests(db, 'cycle1', requestSignature);
         if (pending <= 0) {
-          return {
-            processed: 0,
-            chunks: 0,
-            skipped: 0,
-            sessions: 0,
-            skippedInFlight: false,
-            pendingRows: await countPendingRows(db),
-            coalescedRetryNoop: true,
-          };
+          return await cycle1SkipResult(db, { skippedInFlight: false, coalescedRetryNoop: true });
         }
         coalescedRuns += 1;
         coalescedRequests += pending;

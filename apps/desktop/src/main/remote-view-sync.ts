@@ -9,6 +9,8 @@ import { isSessionId } from './desktop-state';
 import { remoteTranscriptSnapshot } from './remote-transcript';
 import { MAX_VIEW_BASELINE_BYTES, readViewBaselineOffer, VIEW_BASELINE_EVENT } from '../shared/remote-view-baseline';
 
+const VIEW_REPLACED = 'Remote view was replaced during synchronization.';
+
 interface RelayViewSyncState {
   syncing?: boolean;
   visibleSessionIds: Set<string>;
@@ -38,7 +40,7 @@ export async function registerAndSynchronizeRelayViews(
   ) {
     throw new TypeError('View synchronization request is invalid.');
   }
-  if (!current()) throw new Error('Remote view was replaced during synchronization.');
+  if (!current()) throw new Error(VIEW_REPLACED);
   const ids = [...new Set(params[0] as string[])];
   state.syncing = true;
   state.visibleSessionIds = new Set(ids);
@@ -78,7 +80,7 @@ export async function synchronizeRelayViews(
   };
   try {
     await synchronizeViewSnapshot(host, [...state.visibleSessionIds], (snapshot) => {
-      if (!current()) throw new Error('Remote view was replaced during synchronization.');
+      if (!current()) throw new Error(VIEW_REPLACED);
       state.sessionStateEncoders.clear();
       state.sessionsEncoder.reset();
       state.agentPoolEncoder.reset();
@@ -115,7 +117,7 @@ export async function synchronizeRelayViews(
       for (const write of writes) void write.catch(() => undefined);
     });
     await Promise.all(writes);
-    if (!current()) throw new Error('Remote view was replaced during synchronization.');
+    if (!current()) throw new Error(VIEW_REPLACED);
   } finally {
     state.syncing = false;
   }

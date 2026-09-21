@@ -1,5 +1,5 @@
 import { appendDocxBlock, docxBodyModel } from './portable-snapshot.mjs';
-import { containerInner, topLevelElements, xmlEncode } from './portable-xml.mjs';
+import { WORD_RUN_SOURCE, containerInner, topLevelElements, xmlEncode } from './portable-xml.mjs';
 
 function pointsToTwips(value) {
   return Math.max(1, Math.round(Number(value) * 20));
@@ -298,7 +298,7 @@ function mergeWordPropertyElements(existing, overrides, order) {
 
 export function applyWordRunFormat(xml, runFormat) {
   if (!runFormat) return xml;
-  return String(xml).replace(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g, (run) => {
+  return String(xml).replace(new RegExp(WORD_RUN_SOURCE, 'g'), (run) => {
     const selfClosed = /<w:rPr\b[^>]*\/>/.exec(run);
     const opened = /<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>/.exec(run);
     if (opened) {
@@ -404,9 +404,7 @@ export function tableRows(tableXml) {
 }
 
 function tableRowCells(rowXml) {
-  const inner = containerInner(rowXml, 'w:tr');
-  if (!inner) return [];
-  return topLevelElements(inner.inner, ['w:tc']).map((cell) => cell.xml);
+  return rowCellMatches(rowXml).map((match) => match[0]);
 }
 
 export function tableRowMatches(tableXml) {

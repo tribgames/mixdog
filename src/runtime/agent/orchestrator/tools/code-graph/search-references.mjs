@@ -1,6 +1,5 @@
-// Reference/caller/impact analysis + formatting.
-// Symbol search / callers / callees / references / impact query layer over a
-// built graph. Pure over {graph,cwd,args}; owns no cache state.
+// Reference/caller/impact analysis + formatting. Pure over {graph,cwd,args};
+// owns no cache state.
 import { relative } from 'node:path';
 import { _graphRel, _getSourceTextForNode, _getSourceLinesForNode } from './source-access.mjs';
 import { _astCallerCallSites, _astFileCallSites, _astCallDisplayCol, _astRelInScope } from './ast-calls.mjs';

@@ -31,7 +31,7 @@ import { TOOL_DEFS } from './tool-defs.mjs';
 
 // Static import (not the dynamic one in stop()) so the sync stop is available
 // inside a process 'exit' hook, where dynamic import() cannot run.
-import { stopPgForShutdownSync } from './lib/pg/supervisor.mjs';
+import { stopPgForShutdown, stopPgForShutdownSync } from './lib/pg/supervisor.mjs';
 
 import {
   openDatabase,
@@ -51,7 +51,6 @@ import {
   shutdownEmbeddingProvider,
   warmupEmbeddingProvider,
 } from './lib/embedding-provider.mjs';
-import { startLlmWorker, stopLlmWorker } from './lib/llm-worker-host.mjs';
 import { runCycle1, runCycle2, parseInterval, flushEmbeddingDirty, flushRawEmbeddings } from './lib/memory-cycle.mjs';
 import { callAgentDispatch } from './lib/agent-ipc.mjs';
 import {
@@ -139,12 +138,11 @@ import {
 } from '../shared/service-discovery.mjs';
 
 const MEMORY_SERVER_PID = parsePositivePid(process.env.MIXDOG_SERVER_PID) ?? process.pid;
-const _isPidAliveLocal = isPidAliveLocal;
 const _memoryPortAdvertiser = createMemoryPortAdvertiser({
   readServiceAdvert: _readServiceAdvert,
   writeServiceAdvert: _writeServiceAdvert,
   parsePositivePid,
-  isPidAliveLocal: _isPidAliveLocal,
+  isPidAliveLocal,
   memoryServerPid: MEMORY_SERVER_PID,
   log: __mixdogMemoryLog,
 });
@@ -157,7 +155,7 @@ const _daemonLifecycle = createMemoryDaemonLifecycle({
   idleTtlMs: MEMORY_IDLE_TTL_MS,
   clientGraceMs: MEMORY_CLIENT_GRACE_MS,
   parsePositivePid,
-  isPidAlive: _isPidAliveLocal,
+  isPidAlive: isPidAliveLocal,
   isStopping: () => _serviceLifecycle.isStopping(),
   stop,
   log: __mixdogMemoryLog,
@@ -318,9 +316,7 @@ async function _initStore() {
   if (!(await isBootstrapComplete(db))) {
     throw new Error('memory-service: bootstrap not complete after openDatabase');
   }
-  if (memoryLlmWorkerEnabled()) {
-    startLlmWorker();
-  } else {
+  if (!memoryLlmWorkerEnabled()) {
     __mixdogMemoryLog('[memory-service] secondary mode; skipping llm worker\n');
   }
   // Provider/session/agent modules live once in the daemon. Memory
@@ -673,7 +669,7 @@ async function _stopBackgroundWork() {
   _stopCycles();
   _embeddingReindexController?.abort(new Error('memory service stopping'));
   const reindexPromise = _embeddingReindexPromise;
-  await Promise.allSettled([stopLlmWorker(), reindexPromise]);
+  await Promise.allSettled([reindexPromise]);
   await shutdownEmbeddingProvider();
 }
 
@@ -689,7 +685,6 @@ async function _stopRuntime() {
   // closeDatabase() only ends the client pool; without this the child
   // postmaster keeps running after the unified daemon exits.
   if (!memorySecondaryMode()) {
-    const { stopPgForShutdown } = await import('./lib/pg/supervisor.mjs');
     await stopPgForShutdown();
   } else {
     __mixdogMemoryLog('[memory-service] secondary mode; leaving shared PG running\n');

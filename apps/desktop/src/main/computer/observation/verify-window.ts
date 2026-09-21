@@ -7,6 +7,7 @@
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { evaluateVerifyPredicate, screenshotInteger, type VerifyStatus } from './analysis';
+import { verifyUnknownReason } from './verify-predicate';
 import type { InspectHost } from './inspect';
 
 const DEFAULT_VERIFY_TIMEOUT_MS = 5_000;
@@ -141,6 +142,15 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
   let decision: VerifyStatus = 'unsatisfied';
   if (state.consecutive >= stableSamples) decision = 'satisfied';
   else if (state.statuses.some((status) => status === 'unknown')) decision = 'unknown';
+  const unknownReason =
+    decision === 'unknown'
+      ? verifyUnknownReason({
+          needsElementText,
+          providerError: state.providerError,
+          textComplete: state.textComplete,
+          observedElements: state.observedElements,
+        })
+      : null;
   return {
     text: JSON.stringify({
       ok: decision === 'satisfied',
@@ -152,6 +162,7 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
       stable_samples: stableSamples,
       observed_elements: state.observedElements,
       ...(needsElementText ? { text_complete: state.textComplete } : {}),
+      ...(unknownReason ? { unknown_reason: unknownReason.reason, unknown_hint: unknownReason.hint } : {}),
       ...(state.providerError ? { provider_error: state.providerError } : {}),
       results: predicates.map((predicate, index) => ({
         predicate,

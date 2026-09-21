@@ -133,7 +133,8 @@ export function desktopToolActivityItemPresentation(
     ? toolActivityCommand(args)
     : '';
   const represented = toolActivityRepresentedKeys(normalizedName);
-  if (desktopToolActivityCategory(name, item.args) === 'MCP') {
+  const category = desktopToolActivityCategory(name, item.args);
+  if (category === 'MCP') {
     ['query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action'].forEach((key) => {
       represented.add(key);
     });
@@ -222,7 +223,11 @@ export function desktopToolActivityItemPresentation(
     const completed = structured.rows.filter((row) => toolActivityIsCompleted(row.status)).length;
     resultLabel = `${completed}/${structured.rows.length}`;
   }
-  if (!resultLabel && (normalizedName === 'git_stage' || (normalizedName === 'git' && args.action === 'stage')) && /^staged\b/i.test(outputText.trim())) {
+  if (
+    !resultLabel &&
+    (normalizedName === 'git_stage' || (normalizedName === 'git' && args.action === 'stage')) &&
+    /^staged\b/i.test(outputText.trim())
+  ) {
     resultLabel = 'Staged';
   }
   if (
@@ -247,7 +252,7 @@ export function desktopToolActivityItemPresentation(
       structured.rows.length
   );
   return {
-    category: desktopToolActivityCategory(name, item.args),
+    category,
     title,
     subject,
     resultLabel,

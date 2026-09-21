@@ -57,7 +57,7 @@ export interface PaneConversationRendererOptions {
   stageNewTaskOrchestrationMode: ReturnType<typeof useDraftPanePreferences>['stageNewTaskOrchestrationMode'];
   conversationSelectProject: (path: string) => void;
   openConversationCommandSurface: ReturnType<typeof useAppShellPanels>['openConversationCommandSurface'];
-  openFileTab: (project: string, rel: string) => void;
+  openFileTab: (project: string, rel: string, line?: number, accessToken?: string) => void;
   replaceWithInheritedSession: (sessionId: string, route: DesktopModelSelection) => Promise<void>;
 }
 
@@ -158,9 +158,12 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           activeProjectLabel: paneProjectLabel,
           onSelectProject: options.conversationSelectProject,
           onOpenCommandSurface: (surface) => options.openConversationCommandSurface(surface, paneSessionId),
-          onOpenFile: (project, rel) => {
+          // A chat link carries its line and, for files outside the Project,
+          // its file-scoped access token. Dropping either opened the file at
+          // line 1, or failed to open it at all.
+          onOpenFile: (project, rel, line, accessToken) => {
             focusPane();
-            options.openFileTab(project, rel);
+            options.openFileTab(project, rel, line, accessToken);
           },
           onInheritSession: options.replaceWithInheritedSession,
         }}

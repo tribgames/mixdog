@@ -58,9 +58,7 @@ function anthropicModelSupportsHostedWebSearch(model) {
   if (!id) return false;
   const match = id.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/);
   if (!match) return false;
-  const major = Number(match[2]) || 0;
-  const minor = Number(match[3]) || 0;
-  return major > 4 || (major === 4 && minor >= 0);
+  return (Number(match[2]) || 0) >= 4;
 }
 
 function anthropicModelMetaSupportsFast(model) {

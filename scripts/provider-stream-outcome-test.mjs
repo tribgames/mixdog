@@ -42,11 +42,15 @@ import {
   resetStallRetryBudget,
   resolveStallRetryBudget,
 } from '../src/runtime/agent/orchestrator/providers/retry-classifier.mjs';
-import { parseSSEStream } from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
+import {
+  parseSSEStream,
+  stampAnthropicStreamOutcome,
+} from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
 import { consumeGeminiRestStreamResponse } from '../src/runtime/agent/orchestrator/providers/gemini-stream.mjs';
-import { stampAnthropicStreamOutcome } from '../src/runtime/agent/orchestrator/providers/anthropic-sse.mjs';
-import { consumeCompatChatCompletionStream } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
-import { consumeCompatResponsesStream } from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
+import {
+  consumeCompatChatCompletionStream,
+  consumeCompatResponsesStream,
+} from '../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import { AnthropicProvider } from '../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import { AnthropicOAuthProvider } from '../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
 import { ProviderAdmissionScheduler } from '../src/runtime/agent/orchestrator/providers/admission-scheduler.mjs';

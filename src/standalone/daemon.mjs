@@ -135,6 +135,17 @@ function registerMemoryRuntimeLazy() {
   }
 }
 
+function memoryUsageBytes() {
+  const usage = process.memoryUsage();
+  return {
+    rssBytes: usage.rss,
+    heapTotalBytes: usage.heapTotal,
+    heapUsedBytes: usage.heapUsed,
+    externalBytes: usage.external,
+    arrayBufferBytes: usage.arrayBuffers,
+  };
+}
+
 function eventLoopStatus() {
   const milliseconds = (value) => (Number.isFinite(value) ? Math.round(value / 1e6) : 0);
   return {
@@ -225,11 +236,9 @@ async function shutdown(reason, code = 0) {
   idleGc?.disarm();
   daemonTelemetry?.stop();
   eventLoopDelay.disable();
-  for (const discoveryPath of [DAEMON_DISCOVERY_PATH]) {
-    try {
-      rmSync(discoveryPath, { force: true });
-    } catch {}
-  }
+  try {
+    rmSync(DAEMON_DISCOVERY_PATH, { force: true });
+  } catch {}
   try {
     releaseSingletonOwner(OWNER_PATH, process.pid);
   } catch {}
@@ -737,18 +746,7 @@ async function main() {
         providers: providerAdmissionScheduler.snapshot(),
         streamParsing: providerStreamJsonSnapshot(),
       },
-      memory: {
-        ...(() => {
-          const usage = process.memoryUsage();
-          return {
-            rssBytes: usage.rss,
-            heapTotalBytes: usage.heapTotal,
-            heapUsedBytes: usage.heapUsed,
-            externalBytes: usage.external,
-            arrayBufferBytes: usage.arrayBuffers,
-          };
-        })(),
-      },
+      memory: memoryUsageBytes(),
       ...eventLoopStatus(),
     }),
     onClientsEmpty: () => {

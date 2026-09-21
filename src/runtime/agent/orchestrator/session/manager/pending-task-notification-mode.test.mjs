@@ -20,7 +20,12 @@ import { renderAgentCompletionEnvelope } from '../../../../shared/task-notificat
 import { projectSyntheticUserEnvelopes } from '../synthetic-user-envelope.mjs';
 
 test('tagged completions retain execution provenance and stay a single user wire block', () => {
-  const text = renderAgentCompletionEnvelope({ id: 'task_agent_mode', tag: 'review', status: 'failed', error: 'quota exhausted' });
+  const text = renderAgentCompletionEnvelope({
+    id: 'task_agent_mode',
+    tag: 'review',
+    status: 'failed',
+    error: 'quota exhausted',
+  });
   const entry = markCompletionEntry(text);
   const [group] = _groupPendingMessageEntries([entry]);
   assert.equal(group.mode, 'task-notification');

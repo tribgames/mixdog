@@ -2,6 +2,10 @@ import { xmlEncode } from './portable-xml.mjs';
 
 export const EMU_PER_POINT = 12_700;
 
+// The top-level objects of a slide's shape tree, in the order PowerPoint
+// numbers them: a shape, a picture, a framed chart or table, and a group.
+export const SLIDE_SHAPE_TAGS = Object.freeze(['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+
 export function fromEmu(value, fallback) {
   return Number.isFinite(value) ? value / EMU_PER_POINT : fallback;
 }

@@ -411,9 +411,7 @@ export function renderLosslessRecoveryHint(compaction, normalizePath = (value) =
   if (!compaction?.recovery?.length) return '';
   const lines = [`[lossless compact: ${compaction.kind}; full captured output preserved]`];
   for (const item of compaction.recovery) {
-    lines.push(
-      `[full ${item.stream}: ${normalizePath(item.path)} (${item.bytes} bytes) — use read to recover]`
-    );
+    lines.push(`[full ${item.stream}: ${normalizePath(item.path)} (${item.bytes} bytes) — use read to recover]`);
   }
   return lines.join('\n');
 }

@@ -404,11 +404,18 @@ function auditHardcodes(list, sheet, cells, lines, extent) {
   reportUnsourcedRuns(list, unsourced);
 }
 
+// The tie-out sheet is named in the reader's language. Matching the English
+// convention alone left a Korean workbook's checks unread, so the profile's
+// central test never ran and the model passed as if it had none.
+export function isChecksSheetName(name) {
+  const label = String(name || '')
+    .trim()
+    .toLowerCase();
+  return ['checks', 'check', '검증', '점검'].includes(label);
+}
+
 function auditModelDiscipline(list, sheet, cells) {
-  const checksSheet =
-    String(sheet.name || '')
-      .trim()
-      .toLowerCase() === 'checks';
+  const checksSheet = isChecksSheetName(sheet.name);
   const extent = populatedExtent(cells);
   const lines = collectFormulaLines(list, sheet, cells, { extent, checksSheet });
   auditHardcodes(list, sheet, cells, lines, extent);

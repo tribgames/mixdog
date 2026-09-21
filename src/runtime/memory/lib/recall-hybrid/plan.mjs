@@ -3,7 +3,7 @@
  * paging, pre-filter knobs, and the shared SQL filter/scope clause builders
  * every stage of the hybrid search binds against.
  */
-import { VALID_CATEGORY } from '../memory.mjs';
+import { VALID_CATEGORY } from '../memory-categories.mjs';
 import { buildRecallScopeFilter, projectScopePredicate } from '../memory-recall-scope-filter.mjs';
 
 export const ENTRY_ROW_COLUMNS = `id, ts, role, content, source_ref, session_id, source_turn, time_source, chunk_root, is_root,

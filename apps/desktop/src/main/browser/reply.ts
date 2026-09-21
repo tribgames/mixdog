@@ -114,7 +114,8 @@ export function createBrowserReply(host: BrowserReplyHost) {
     action: string,
     payload: SnapshotPayload,
     options: BrowserSnapshotResultOptions,
-    wait: ReplyWait
+    wait: ReplyWait,
+    snapshot: string
   ) {
     const { settleMs, expected, postconditionElapsed } = wait;
     const baseline = options.baseline;
@@ -131,7 +132,12 @@ export function createBrowserReply(host: BrowserReplyHost) {
     // untouched. Reporting that as "no observable change" sends the caller
     // looking for a covering element instead of the page that just opened.
     const openedPages = state.for(guest).openedPopups.splice(0);
-    const unchanged = reacted === false && baseline?.url === payload.url && openedPages.length === 0;
+    // A postcondition this action made true, or a download it started, is the
+    // page reacting. Calling that "no observable change" would contradict the
+    // same reply and send the caller hunting for an overlay that is not there.
+    const proven = Boolean(expected) && wait.postconditionMatched === true && !options.preexistingPostcondition;
+    const sideEffect = openedPages.length > 0 || snapshot.includes('Downloads since last report:');
+    const unchanged = reacted === false && baseline?.url === payload.url && !sideEffect && !proven;
     return [
       settleMs && `Explicit settle completed after ${settleMs}ms.`,
       expected && options.preexistingPostcondition
@@ -174,7 +180,7 @@ export function createBrowserReply(host: BrowserReplyHost) {
           `Expected ${describeBrowserPostcondition(wait.expected)}.\n\n${snapshot}`
       );
     }
-    const notes = effectNotes(guest, action, payload, options, wait);
+    const notes = effectNotes(guest, action, payload, options, wait, snapshot);
     const result: BrowserCommandResult = {
       outcome: wait.expected && options.preexistingPostcondition ? 'inconclusive' : 'completed',
       text: notes.length ? `${notes.join(' ')}\n\n${snapshot}` : snapshot,

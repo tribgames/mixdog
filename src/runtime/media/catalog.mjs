@@ -34,10 +34,15 @@ function googleLane(lane) {
   return lane === 'gemini' || lane === 'antigravity-oauth';
 }
 
+// Both xAI lanes (stored API key and Grok OAuth) speak the same Imagine catalog.
+function grokLane(lane) {
+  return lane === 'xai' || lane === 'grok-oauth';
+}
+
 function kindFor(lane, row, id) {
   if (row.deprecated === true || row.disabled === true) return null;
   if (lane === 'openai-oauth') return imageToolSupported(row, id) ? 'image' : null;
-  if (lane === 'xai' || lane === 'grok-oauth') {
+  if (grokLane(lane)) {
     if (/^grok-imagine-image(?:-|$)/.test(id)) return 'image';
     // This version requires a start image. Studio also permits prompt-only
     // generation, so keep it out until the required-input contract is exposed.
@@ -79,7 +84,7 @@ function compareModels(a, b) {
 /** Keep official tiers and generations intact; never infer a quality ranking. */
 function mediaModelLabel(lane, row, id) {
   let label = String(row.displayName || row.display || row.label || row.name || id).replace(/^models\//, '');
-  if (lane === 'xai' || lane === 'grok-oauth') {
+  if (grokLane(lane)) {
     label = id
       .replace(/^grok-imagine-image/, 'Grok Imagine Image')
       .replace(/^grok-imagine-video/, 'Grok Imagine Video')
@@ -112,7 +117,7 @@ export function projectMediaModels(lane, rows) {
     const kind = kindFor(lane, row, id);
     if (!kind) continue;
     let controls = {};
-    if ((lane === 'xai' || lane === 'grok-oauth') && kind === 'video') {
+    if (grokLane(lane) && kind === 'video') {
       controls = { resolution: ['480p', '720p'] };
     } else if (lane === 'gemini' && /^gemini-omni-/.test(id)) {
       controls = { resolution: [], durations: [], maxReferences: 3 };
@@ -177,10 +182,13 @@ async function providerSource(lane) {
   else if (lane === 'antigravity-oauth') auth = await resolveAntigravityAuth();
   else auth = await resolveXaiAuth(lane);
   // API-key and OAuth catalogs must not leak availability across credentials.
-  // Persist only a one-way scope hash, never a key or a bearer. Antigravity
-  // bearers rotate hourly; the Cloud project identifies that account instead.
+  // Persist only a one-way scope hash, never a key or a bearer. OAuth bearers
+  // rotate (Antigravity hourly, Grok on every refresh), so they must never be
+  // the scope: a rotating key means a permanent cache miss AND a stale-cache
+  // fallback that can no longer find its own previous catalog. The stable
+  // account identity — Cloud project or account id — plays that role instead.
   const scope = createHash('sha256')
-    .update(auth.projectId || auth.token)
+    .update(auth.projectId || auth.accountId || auth.token)
     .digest('hex')
     .slice(0, 24);
   return {

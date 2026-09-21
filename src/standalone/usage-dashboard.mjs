@@ -118,13 +118,9 @@ export async function createUsageDashboard(config = {}, options = {}) {
       return row;
     }
 
-    if (!row.authenticated) {
-      row.status = 'missing';
-      row.source = 'not-configured';
-      row.sourceLabel = 'no key';
-      row.primary = 'not configured';
-      row.detail = 'Configure auth';
-    } else {
+    // The unauthenticated presentation is already on the row from the initial
+    // paint above; only a configured provider still has usage to resolve.
+    if (row.authenticated) {
       let hasQuota = false;
       let apiUsageSnapshot = null;
       if (item.id === 'opencode-go') {
@@ -147,9 +143,9 @@ export async function createUsageDashboard(config = {}, options = {}) {
             row.source = 'usage-auth-missing';
             row.sourceLabel = 'usage auth';
             row.primary = '';
-            row.detail = usageStatus.authCookieSet
+            row.detail = usageStatus.ready
               ? 'OpenCode Go usage not found'
-              : 'Set OpenCode web auth cookie for usage';
+              : 'Set an OpenCode console API key (all permissions) for usage';
           }
         } catch (err) {
           if (String(err?.code || '').startsWith('OPENCODE_GO_USAGE_')) {
@@ -157,9 +153,9 @@ export async function createUsageDashboard(config = {}, options = {}) {
             row.source = 'usage-auth-missing';
             row.sourceLabel = 'usage auth';
             row.primary = '';
-            row.detail = usageStatus.authCookieSet
+            row.detail = usageStatus.ready
               ? 'OpenCode Go usage not found'
-              : 'Set OpenCode web auth cookie for usage';
+              : 'Set an OpenCode console API key (all permissions) for usage';
           }
         }
       } else {
@@ -223,13 +219,8 @@ export async function createUsageDashboard(config = {}, options = {}) {
       return row;
     }
 
-    if (!row.authenticated) {
-      row.status = 'missing';
-      row.source = 'not-configured';
-      row.sourceLabel = 'not signed in';
-      row.primary = 'not signed in';
-      row.detail = item.detail || 'OAuth credentials missing';
-    } else {
+    // Same as the API lane: the not-signed-in row was already painted above.
+    if (row.authenticated) {
       try {
         const snapshot = await oauthSnapshot(item.id, snapshotOptions(item.id));
         const known = snapshotRemaining(snapshot);

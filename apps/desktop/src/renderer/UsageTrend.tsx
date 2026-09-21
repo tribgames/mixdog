@@ -48,8 +48,7 @@ function TrendBar({
     .map((id) => ({ id, value: statsNumber(bucket.providers.get(id)?.[metric]) }))
     .filter((part) => part.value > 0);
   const summed = parts.reduce((sum, part) => sum + part.value, 0);
-  const totalText =
-    metric === 'costUsd' ? statsMoney(bucket as unknown as Row) : metricText(total, metric, bucket.unmeasuredTurns > 0);
+  const totalText = metric === 'costUsd' ? statsMoney(bucket) : metricText(total, metric, bucket.unmeasuredTurns > 0);
   const title = bucket.future ? bucket.label : `${bucket.label} · ${totalText}`;
   return (
     <button
@@ -173,6 +172,11 @@ export function UsageTrend({
     else if (mode === 'focus') popover.triggerProps.onFocus();
     else popover.hostProps.onMouseEnter();
   };
+  // The legend and the detail rows name a provider the same way.
+  const providerPlanSuffix = (id: string) => {
+    const plan = statsPlan(id, String(providers.find((row) => row.provider === id)?.providerKind || ''));
+    return plan ? ` · ${statsPlanLabel(plan)}` : '';
+  };
   // Partial weeks/months must not label the axis outside the queried dates.
   const axisStart = view === 'hour' ? series[0]?.label : String(period.startDay || daily[0]?.day || '');
   const axisEnd = view === 'hour' ? series.at(-1)?.label : String(period.endDay || daily.at(-1)?.day || '');
@@ -286,14 +290,12 @@ export function UsageTrend({
                 {providerOrder.flatMap((id) => {
                   const usage = active.providers.get(id);
                   if (!usage) return [];
-                  const provider = providers.find((row) => row.provider === id);
-                  const plan = statsPlan(id, String(provider?.providerKind || ''));
                   return (
                     <li key={id}>
                       <span>
                         <i data-usage-provider={id} aria-hidden="true" />
                         {usageProviderLabel(providerDisplayName(id))}
-                        {plan ? ` · ${statsPlanLabel(plan)}` : ''}
+                        {providerPlanSuffix(id)}
                       </span>
                       <b>{trendMetricText(usage, metric)}</b>
                     </li>
@@ -310,17 +312,13 @@ export function UsageTrend({
         {axisStart !== axisEnd && <span>{axisEnd}</span>}
       </footer>
       <ul className="stats-trend-legend">
-        {providerOrder.map((id) => {
-          const provider = providers.find((row) => row.provider === id);
-          const plan = statsPlan(id, String(provider?.providerKind || ''));
-          return (
-            <li key={id}>
-              <i data-usage-provider={id} aria-hidden="true" />
-              {usageProviderLabel(providerDisplayName(id))}
-              {plan ? ` · ${statsPlanLabel(plan)}` : ''}
-            </li>
-          );
-        })}
+        {providerOrder.map((id) => (
+          <li key={id}>
+            <i data-usage-provider={id} aria-hidden="true" />
+            {usageProviderLabel(providerDisplayName(id))}
+            {providerPlanSuffix(id)}
+          </li>
+        ))}
       </ul>
     </section>
   );

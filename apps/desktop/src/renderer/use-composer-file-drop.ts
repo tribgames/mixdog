@@ -83,9 +83,7 @@ export function useComposerFileDrop({
         if (item.kind !== 'file') continue;
         const file = item.getAsFile();
         if (!file) continue;
-        const path = item.webkitGetAsEntry?.()?.isDirectory
-          ? window.mixdogDesktop?.folderPathForFile?.(file)
-          : '';
+        const path = item.webkitGetAsEntry?.()?.isDirectory ? window.mixdogDesktop?.folderPathForFile?.(file) : '';
         if (path) directoryPaths.push(path);
         else itemFiles.push(file);
       }
@@ -110,7 +108,15 @@ export function useComposerFileDrop({
       window.removeEventListener('dragend', clearDraggingFiles, true);
       window.removeEventListener('blur', clearDraggingFiles);
     };
-  }, [attachFiles, attachLocalPaths, attachProjectPaths, insertAbsolutePaths, dropTargetRef, projectScope, transitioningRef]);
+  }, [
+    attachFiles,
+    attachLocalPaths,
+    attachProjectPaths,
+    insertAbsolutePaths,
+    dropTargetRef,
+    projectScope,
+    transitioningRef,
+  ]);
 
   return { draggingFiles, setDraggingFiles };
 }

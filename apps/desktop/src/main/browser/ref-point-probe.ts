@@ -116,12 +116,18 @@ const REF_POINT_PROBE = `async function() {
         }
       }
       if (!visible) return { error: 'not-visible' };
-      const label = covering
-        ? ((covering.tagName || 'element').toLowerCase() + ' "'
-          + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
-            .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"')
-        : 'another element';
-      return { error: 'covered', covering: label };
+      if (!covering) return { error: 'covered', covering: 'another element' };
+      // A blocker is usually an unnamed overlay with no ref of its own, so the
+      // name alone leaves nothing to act on: carry a selector that does.
+      const escape = (value) => String(value).replace(/[^A-Za-z0-9_-]/g, '\\\\$&');
+      const selector = covering.id
+        ? '#' + escape(covering.id)
+        : ((covering.tagName || 'element').toLowerCase()
+          + Array.from(covering.classList || []).slice(0, 2).map((name) => '.' + escape(name)).join(''));
+      const label = (covering.tagName || 'element').toLowerCase() + ' "'
+        + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
+          .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"';
+      return { error: 'covered', covering: label, coveringSelector: selector };
     }`;
 
 /** The point at (rx, ry) inside the node's box, in top-document coordinates

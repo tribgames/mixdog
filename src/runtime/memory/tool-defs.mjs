@@ -5,6 +5,9 @@
 // through ai-wrapped-dispatch.mjs instead of the module's handleToolCall.
 // Shared period grammar for recall/search_memories.
 import { RECALL_LIMIT_CAP, RECALL_OFFSET_CAP } from './lib/recall-limits.mjs';
+import { VALID_CATEGORY } from './lib/memory-categories.mjs';
+
+const CATEGORY_ENUM = [...VALID_CATEGORY];
 const PERIOD_DESCRIPTION =
   'last (recent sessions; +query topic-filter), Nm/Nh/Nd, today/yesterday/this_week/last_week, all, YYYY-MM-DD, date~date, or HH:MM~HH:MM.';
 export const TOOL_DEFS = [
@@ -139,14 +142,8 @@ export const TOOL_DEFS = [
         sort: { type: 'string', enum: ['date', 'importance'], description: 'date or importance.' },
         category: {
           anyOf: [
-            { type: 'string', enum: ['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue'] },
-            {
-              type: 'array',
-              items: {
-                type: 'string',
-                enum: ['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue'],
-              },
-            },
+            { type: 'string', enum: CATEGORY_ENUM },
+            { type: 'array', items: { type: 'string', enum: CATEGORY_ENUM } },
           ],
           description: 'Category filter.',
         },

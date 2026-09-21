@@ -9,7 +9,7 @@ export async function recoverableCreation<T>(
   const budget = options.budgetMs ?? 120_000;
   const deadline = now() + budget;
   let expired = false;
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const interrupted = (error: unknown) => {
     const failure = error as { code?: string; message?: string };
     return (
@@ -41,6 +41,6 @@ export async function recoverableCreation<T>(
   try {
     return await Promise.race([run(), timeout]);
   } finally {
-    clearTimeout(timer!);
+    clearTimeout(timer);
   }
 }

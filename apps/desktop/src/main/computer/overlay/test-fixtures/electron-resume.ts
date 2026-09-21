@@ -175,7 +175,7 @@ void app
             pillWidth:document.getElementById('pill').getBoundingClientRect().width,
             toggleBounds:(() => { const r=document.getElementById('toggle').getBoundingClientRect();
               return {x:r.x,y:r.y,width:r.width,height:r.height}; })(),
-            buttons:document.querySelectorAll('button').length,
+            buttons:[...document.querySelectorAll('button')].filter(button=>!button.hidden).length,
             label:document.getElementById('toggle').getAttribute('aria-label'),
             disabled:document.getElementById('toggle').disabled,
             text:document.body.innerText.trim(),
@@ -193,7 +193,7 @@ void app
           assert.equal(observed.moving, !presentation.paused);
           assert.equal(observed.fits, true, `${locale}/${reason} overflows`);
           assert.equal(observed.pillWidth, OVERLAY_WIDTH - 20, `${locale}/${reason} must keep the same compact width`);
-          assert.equal(observed.buttons, 1);
+          assert.equal(observed.buttons, presentation.attention ? 2 : 1);
           const labels = locale === 'ko' ? { resume: '재개', pause: '중단' } : { resume: 'Resume', pause: 'Pause' };
           assert.equal(observed.label, presentation.paused ? labels.resume : labels.pause);
           assert.equal(observed.disabled, presentation.paused && !presentation.canResume);
@@ -214,7 +214,7 @@ void app
         ),
         true
       );
-      for (const action of ['stop', 'dismiss']) {
+      for (const action of ['cancel', 'dismiss']) {
         assert.equal(
           await window.webContents.executeJavaScript(
             `window.mixdogComputerControl({action:${JSON.stringify(action)},generation:7}).then(()=>false,()=>true)`

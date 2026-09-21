@@ -314,37 +314,38 @@ function desktopToolActivityUnit(
   return { category, done, noun, unitKey: named.unitKey, label: named.label };
 }
 
+interface ToolActivityCategoryGroup {
+  unitKey: string;
+  category: string;
+  label: string;
+  count: number;
+  items: TranscriptItem[];
+}
+
 export function desktopToolActivityCategoryGroups(items: readonly TranscriptItem[]) {
-  const groups = new Map<
-    string,
-    {
-      unitKey: string;
-      category: string;
-      label: string;
-      count: number;
-      items: TranscriptItem[];
-    }
-  >();
+  const groups = new Map<string, ToolActivityCategoryGroup>();
+  const usedUnitKeys = new Set<string>();
+  let previous: ToolActivityCategoryGroup | null = null;
   let previousUnitKey = '';
   for (const item of flattenedToolActivityItems(items)) {
     const unit = desktopToolActivityUnit(item.name, item.args);
     const count = Math.max(1, Math.round(Number(item.count || 1)));
-    const previous = [...groups.values()].at(-1);
     if (previous && previousUnitKey === unit.unitKey) {
       previous.count += count;
       previous.items.push(item);
       continue;
     }
-    const unitKey = [...groups.values()].some((group) => group.unitKey === unit.unitKey)
-      ? `${unit.unitKey}:${groups.size}`
-      : unit.unitKey;
-    groups.set(unitKey, {
+    const unitKey = usedUnitKeys.has(unit.unitKey) ? `${unit.unitKey}:${groups.size}` : unit.unitKey;
+    const group: ToolActivityCategoryGroup = {
       unitKey,
       category: unit.category,
       label: unit.label,
       count,
       items: [item],
-    });
+    };
+    groups.set(unitKey, group);
+    usedUnitKeys.add(unitKey);
+    previous = group;
     previousUnitKey = unit.unitKey;
   }
   return [...groups.values()];

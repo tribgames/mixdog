@@ -148,7 +148,6 @@ function _interpolationOpenerAt(src, i, kind) {
   return null;
 }
 
-// ---------------------------------------------------------------------------
 // Scanner. `s` is the mutable scan state:
 //   src, out        — raw source and the byte-aligned masked copy
 //   i               — cursor

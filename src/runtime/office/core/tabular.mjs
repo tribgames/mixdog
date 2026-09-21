@@ -95,6 +95,17 @@ function setCell(rows, reference, value) {
   return cell;
 }
 
+/** True when a zero-based cell falls outside a requested A1 range. */
+function outsideBounds(bounds, row, column) {
+  if (!bounds) return false;
+  return (
+    row + 1 < bounds.start.row ||
+    row + 1 > bounds.end.row ||
+    column + 1 < bounds.start.column ||
+    column + 1 > bounds.end.column
+  );
+}
+
 function snapshotRows(path, format, rows, options = {}) {
   const name = sheetName(path, format);
   if (options.sheet && String(options.sheet).toLowerCase() !== name.toLowerCase()) {
@@ -112,14 +123,7 @@ function snapshotRows(path, format, rows, options = {}) {
     for (let column = 0; column < rows[row].length; column += 1) {
       const value = rows[row][column];
       if (value === '') continue;
-      if (
-        bounds &&
-        (row + 1 < bounds.start.row ||
-          row + 1 > bounds.end.row ||
-          column + 1 < bounds.start.column ||
-          column + 1 > bounds.end.column)
-      )
-        continue;
+      if (outsideBounds(bounds, row, column)) continue;
       const ref = `${columnLabel(column + 1)}${row + 1}`;
       if (!paged || (totalCells >= offset && cells.length < limit)) {
         cells.push({
@@ -302,14 +306,7 @@ export async function issuesTabular(path, format, options = {}) {
       });
     }
     for (let column = 0; column < rows[row].length; column += 1) {
-      if (
-        bounds &&
-        (row + 1 < bounds.start.row ||
-          row + 1 > bounds.end.row ||
-          column + 1 < bounds.start.column ||
-          column + 1 > bounds.end.column)
-      )
-        continue;
+      if (outsideBounds(bounds, row, column)) continue;
       // A leading =, +, - or @ is how a spreadsheet is tricked into evaluating a
       // pasted value — but a negative figure starts the same way, and reporting
       // every one of them buries the one cell that actually carries a formula.

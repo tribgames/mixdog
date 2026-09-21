@@ -52,6 +52,7 @@ import {
 import { cancelPromptImmediateFlush, schedulePromptImmediateFlush } from './prompt-input/immediate-render.mjs';
 import { classifyPromptEscape } from './prompt-input/escape-policy.mjs';
 import { paletteOwnsPromptVerticalArrow } from './prompt-input/restore-policy.mjs';
+import { renderSelectedText } from './prompt-input/selected-text.jsx';
 
 // Windows Terminal IME composition can clip a glyph that starts exactly at the
 // left edge of the editable text node. The rounded prompt box already adds a
@@ -61,24 +62,6 @@ const IME_LEFT_GUARD_COLUMNS = 0;
 // Coalesce prompt mouse-drag extend commits (SGR motion can fire faster than ink
 // needs to immediate-render). Matches transcript selection paint cadence.
 const MOUSE_EXTEND_COALESCE_MS = 24;
-
-function renderSelectedText(displayValue, range, trailingSpace = false) {
-  if (!range) return trailingSpace ? `${displayValue} ` : displayValue;
-  const start = Math.max(0, Math.min(displayValue.length, range.start));
-  const end = Math.max(start, Math.min(displayValue.length, range.end));
-  return (
-    <>
-      {start > 0 ? displayValue.slice(0, start) : null}
-      {end > start ? (
-        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>
-          {displayValue.slice(start, end)}
-        </Text>
-      ) : null}
-      {displayValue.slice(end)}
-      {trailingSpace ? ' ' : ''}
-    </>
-  );
-}
 
 export function PromptInput({
   onSubmit,
@@ -873,54 +856,54 @@ export function PromptInput({
         if (onEscape?.(currentValue, { phase: 'before' }) === true) {
           return;
         }
-        let escape = classifyPromptEscape({
+        let escapeDecision = classifyPromptEscape({
           interruptActive,
           hasQueuedMessages,
           hasMessages,
           value: currentValue,
           lastClearPressAt: escapeClearAtRef.current,
         });
-        if (escape.action === 'restore-queue') {
+        if (escapeDecision.action === 'restore-queue') {
           if (restoreQueuedToDraft()) {
             escapeClearAtRef.current = 0;
             return;
           }
           // A stale projected queue can empty between render and key handling.
           // Fall through to the normal draft/idle action in that case.
-          escape = classifyPromptEscape({
+          escapeDecision = classifyPromptEscape({
             interruptActive,
             hasMessages,
             value: currentValue,
             lastClearPressAt: escapeClearAtRef.current,
           });
         }
-        escapeClearAtRef.current = escape.nextClearPressAt;
+        escapeClearAtRef.current = escapeDecision.nextClearPressAt;
         // Active work always wins, even if the user has already typed a steering
         // draft. The draft is preserved; the old submitted prompt is restored only
         // when this box is still empty after cancellation.
-        if (escape.action === 'interrupt') {
+        if (escapeDecision.action === 'interrupt') {
           const restoredText = onInterrupt?.(currentValue);
           if (!currentValue && typeof restoredText === 'string') {
             commitDraft({ value: restoredText, cursor: restoredText.length, selectionAnchor: null });
           }
           return;
         }
-        if (escape.action === 'arm-clear') {
+        if (escapeDecision.action === 'arm-clear') {
           onEscape?.(currentValue, { phase: 'clear-arm' });
           return;
         }
-        if (escape.action === 'clear') {
+        if (escapeDecision.action === 'clear') {
           onEscape?.(currentValue, { phase: 'clear' });
           commitDraft({ value: '', cursor: 0, selectionAnchor: null });
           return;
         }
         // Empty draft + conversation history: first press arms, the second
         // opens the message selector.
-        if (escape.action === 'arm-select') {
+        if (escapeDecision.action === 'arm-select') {
           onEscape?.('', { phase: 'select-arm' });
           return;
         }
-        if (escape.action === 'message-selector') {
+        if (escapeDecision.action === 'message-selector') {
           onEscape?.('', { phase: 'select' });
           return;
         }

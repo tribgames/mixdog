@@ -1,5 +1,5 @@
 // @ts-expect-error Shared presentation contract has no separate declaration file.
-import { measuredContextUsage, contextPercent } from '../../../../src/ui/context-measurement.mjs';
+import { measuredContextUsage } from '../../../../src/ui/context-measurement.mjs';
 
 interface ContextUsageInput {
   usedTokens?: unknown;
@@ -18,14 +18,6 @@ interface ContextDisplayUsageInput extends ContextUsageInput {
 export function nonNegativeNumber(value: unknown): number {
   const number = Number(value);
   return Number.isFinite(number) ? Math.max(0, number) : 0;
-}
-
-export function resolveContextUsage(input: ContextUsageInput) {
-  const used = nonNegativeNumber(input.usedTokens);
-  const limit = nonNegativeNumber(input.contextWindow || input.displayContextWindow || input.rawContextWindow);
-  if (!used || !limit) return null;
-  const percent = contextPercent(used, limit);
-  return { used, limit, percent };
 }
 
 export function resolveContextDisplayUsage(input: ContextDisplayUsageInput) {

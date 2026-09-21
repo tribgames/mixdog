@@ -13,9 +13,9 @@ import { getProvider } from '../runtime/agent/orchestrator/providers/registry.mj
 // The source session's gauge is anchored on ITS provider's billed prompt, on
 // ITS model's boundary. A heir is a different route with no billing history at
 // all, so its first reading is the calibrated whole-transcript estimate — a
-// number up to ~2x the source gauge for the very same conversation (user:
-// 87%인데 85만 토큰이라고 거부됨). Deciding the carry on one scale while
-// offering it on the other is what made inheritance fail only after the click.
+// number up to ~2x the source gauge for the very same conversation. Deciding
+// the carry on one scale while offering it on the other is what made
+// inheritance fail only after the click.
 //
 // Everything that asks "does this conversation fit the heir?" — the preflight
 // the surfaces call before offering the action, and the runtime guard that

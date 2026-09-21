@@ -38,17 +38,17 @@ export function shellSplitSegments(command) {
   const parts = [];
   let current = '';
   let quote = null;
-  let escape = false;
+  let escaped = false;
   for (let i = 0; i < command.length; i++) {
     const ch = command[i];
-    if (escape) {
+    if (escaped) {
       current += ch;
-      escape = false;
+      escaped = false;
       continue;
     }
     if (ch === '\\') {
       current += ch;
-      escape = true;
+      escaped = true;
       continue;
     }
     if (quote) {
@@ -82,20 +82,20 @@ export function shellTokenize(segment) {
   const tokens = [];
   let current = '';
   let quote = null;
-  let escape = false;
+  let escaped = false;
   const push = () => {
     if (current !== '') tokens.push(current);
     current = '';
   };
   for (let i = 0; i < segment.length; i++) {
     const ch = segment[i];
-    if (escape) {
+    if (escaped) {
       current += ch;
-      escape = false;
+      escaped = false;
       continue;
     }
     if (ch === '\\') {
-      escape = true;
+      escaped = true;
       continue;
     }
     if (quote) {
@@ -219,17 +219,17 @@ export function shellSplitPipelineSegments(segment) {
   const parts = [];
   let current = '';
   let quote = null;
-  let escape = false;
+  let escaped = false;
   for (let i = 0; i < segment.length; i++) {
     const ch = segment[i];
-    if (escape) {
+    if (escaped) {
       current += ch;
-      escape = false;
+      escaped = false;
       continue;
     }
     if (ch === '\\') {
       current += ch;
-      escape = true;
+      escaped = true;
       continue;
     }
     if (quote) {
@@ -522,7 +522,6 @@ function buildLargeShellFileProbeMessage(fullPath, sizeBytes, cmd, cwd) {
   return `large-file shell probe blocked: \`${cmd}\` is targeting \`${display}\` (${kb} KB).`;
 }
 
-// ---------------------------------------------------------------------------
 // PowerShell hygiene preflight (Windows PS host only). Two behaviors:
 //   (1) LOSSLESS auto-substitution: MSYS/Git-Bash `/x/…` absolute paths (x is a
 //       single drive letter) are impossible on Windows, so they are rewritten
@@ -532,7 +531,6 @@ function buildLargeShellFileProbeMessage(fullPath, sizeBytes, cmd, cwd) {
 //       reassignment, and `&&` on Windows PowerShell 5.1 are rejected with a
 //       PowerShell-native correction hint so the agent retries valid syntax.
 // POSIX shells are a strict no-op.
-// ---------------------------------------------------------------------------
 const MSYS_ABS_PATH_RE = /(^|[\s"'=,(])\/([A-Za-z])\/([^\s"'`|&;<>()]*)/g;
 
 // Replace every character that lives inside a single/double-quoted string with a
@@ -954,7 +952,6 @@ export async function analyzeShellCommandEffects(command, cwd) {
   return { mutationMode: 'none', paths: [], finalCwd: localCwd };
 }
 
-// ---------------------------------------------------------------------------
 // Filter-swallow rescue (PowerShell one-shot path). Measured 2026-08: ~37
 // failures/14d were `<producer> 2>&1 | Select-String … | Select-Object …`
 // pipelines where the producer failed but the trailing filters matched

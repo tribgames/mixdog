@@ -85,37 +85,6 @@ export function Toolbar({ className, ...props }: HTMLAttributes<HTMLDivElement>)
   return <div {...props} className={classes('mx-toolbar', className)} />;
 }
 
-export function StatusBadge({
-  tone = 'neutral',
-  children,
-}: {
-  tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger';
-  children: ReactNode;
-}) {
-  return <span className={`mx-status-badge is-${tone}`}>{children}</span>;
-}
-
-export function EmptyState({
-  icon,
-  title,
-  detail,
-  children,
-}: {
-  icon?: string;
-  title: string;
-  detail?: string;
-  children?: ReactNode;
-}) {
-  return (
-    <div className="mx-empty-state">
-      {icon && <MxIcon name={icon} size={24} />}
-      <strong>{title}</strong>
-      {detail && <p>{detail}</p>}
-      {children}
-    </div>
-  );
-}
-
 export function Tabs<T extends string>({
   items,
   value,
@@ -144,14 +113,6 @@ export function Tabs<T extends string>({
           {item.badge}
         </button>
       ))}
-    </div>
-  );
-}
-
-export function TreeView({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
-  return (
-    <div role="tree" aria-label={label} className={classes('mx-tree', className)}>
-      {children}
     </div>
   );
 }

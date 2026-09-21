@@ -49,7 +49,7 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
     const owner = owned.get(opener);
     if (owner) owned.set(popup, owner);
   }
-  function finish(sessionId: string, turnId: number): number {
+  function finish(sessionId: string, turnId: number, options: { aborted?: boolean } = {}): number {
     if (!Number.isSafeInteger(turnId) || turnId <= 0) throw new Error('Browser cleanup requires a valid turn id.');
     finished.set(sessionId, Math.max(finished.get(sessionId) ?? 0, turnId));
     const group = turns.get(sessionId);
@@ -65,15 +65,21 @@ export function createBrowserTaskLifecycle<Page extends { isDestroyed(): boolean
       }
     }
     let closed = 0;
-    for (const [page, owner] of pages) {
-      if (owned.get(page) !== owner) continue;
-      if (!page.isDestroyed()) {
-        host.close(page);
-        closed++;
+    // A finished turn is not a finished conversation. The next message usually
+    // continues the same work, and closing its pages would throw away the
+    // sign-ins, half-filled forms and tab names already reported. Only a run
+    // that ended badly reclaims them here; releasing the session still does.
+    if (options.aborted) {
+      for (const [page, owner] of pages) {
+        if (owned.get(page) !== owner) continue;
+        if (!page.isDestroyed()) {
+          host.close(page);
+          closed++;
+        }
+        // Keep failed closes owned so a later cleanup can retry. Destruction
+        // callbacks may also have retained or reassigned the page meanwhile.
+        if (owned.get(page) === owner) owned.delete(page);
       }
-      // Keep failed closes owned so a later cleanup can retry. Destruction
-      // callbacks may also have retained or reassigned the page meanwhile.
-      if (owned.get(page) === owner) owned.delete(page);
     }
     group?.delete(turnId);
     if (!group?.size) turns.delete(sessionId);

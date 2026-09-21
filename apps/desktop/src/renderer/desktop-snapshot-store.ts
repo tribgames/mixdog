@@ -158,36 +158,6 @@ export function desktopChromeSnapshotsEqual(left: Snapshot, right: Snapshot): bo
   return snapshotFieldsEqual(left, right, CHROME_SNAPSHOT_FIELDS);
 }
 
-export function desktopConversationSnapshotsEqual(left: Snapshot, right: Snapshot): boolean {
-  if (left === right) return true;
-  if (!preservesInitialBoundary(left, right)) return false;
-  return (
-    left.items === right.items &&
-    left.streamingTail === right.streamingTail &&
-    left.failedTurnKeys === right.failedTurnKeys &&
-    left.transcriptTurnKeys === right.transcriptTurnKeys &&
-    left.busy === right.busy &&
-    left.commandBusy === right.commandBusy &&
-    left.thinking === right.thinking &&
-    left.spinner === right.spinner &&
-    left.commandStatus === right.commandStatus &&
-    left.toolApproval === right.toolApproval &&
-    left.progressHint === right.progressHint &&
-    left.queued === right.queued &&
-    left.sessionId === right.sessionId &&
-    left.currentProject === right.currentProject &&
-    left.project === right.project &&
-    left.cwd === right.cwd &&
-    left.promptHistoryList === right.promptHistoryList &&
-    left.provider === right.provider &&
-    left.model === right.model &&
-    left.effort === right.effort &&
-    left.fast === right.fast &&
-    left.fastCapable === right.fastCapable &&
-    left.workflow === right.workflow
-  );
-}
-
 function streamingTailIdentityEqual(left: Snapshot, right: Snapshot): boolean {
   const previous = left.streamingTail;
   const next = right.streamingTail;

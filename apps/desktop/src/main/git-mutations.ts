@@ -27,7 +27,6 @@ export {
   missingHookRunner,
   modeGrantsMoreThan,
   sharedRepositoryMode,
-  sharedRepositoryPerm,
   writeIndexBytes,
 } from './git-commit-transaction';
 export type {
@@ -43,7 +42,7 @@ export {
   requiredRepositoryCwd,
 } from './git-contract.mjs';
 export type { GitIgnoreScope, GitResetMode } from './git-contract.mjs';
-export { publicGitRemoteUrl, scrubGitCredentials } from './git-runner';
+export { publicGitRemoteUrl } from './git-runner';
 
 const branchOperations = createGitBranchOperations({ run, currentGitOperation, gitStatus });
 const { checkedBranchName } = branchOperations;
@@ -254,22 +253,18 @@ export async function gitSync(cwd: string): Promise<string> {
   return [pulled, pushed].filter(Boolean).join('\n');
 }
 
+// `currentGitOperation` answers with git's own subcommand name, so the
+// sequencer verb is the operation itself — merge, rebase, cherry-pick, revert.
 export async function gitContinue(cwd: string): Promise<string> {
   const operation = await currentGitOperation(cwd);
   if (!operation) throw new Error('There is no Git operation to continue.');
-  if (operation === 'merge') return run(cwd, ['merge', '--continue']);
-  if (operation === 'rebase') return run(cwd, ['rebase', '--continue']);
-  if (operation === 'cherry-pick') return run(cwd, ['cherry-pick', '--continue']);
-  return run(cwd, ['revert', '--continue']);
+  return run(cwd, [operation, '--continue']);
 }
 
 export async function gitAbortOperation(cwd: string): Promise<string> {
   const operation = await currentGitOperation(cwd);
   if (!operation) throw new Error('There is no Git operation to abort.');
-  if (operation === 'merge') return run(cwd, ['merge', '--abort']);
-  if (operation === 'rebase') return run(cwd, ['rebase', '--abort']);
-  if (operation === 'cherry-pick') return run(cwd, ['cherry-pick', '--abort']);
-  return run(cwd, ['revert', '--abort']);
+  return run(cwd, [operation, '--abort']);
 }
 
 async function assertNoOperationInProgress(cwd: string, action: string): Promise<void> {

@@ -9,7 +9,7 @@
 import { loadConfig } from '../agent/orchestrator/config.mjs';
 import { createSession } from '../agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
-import { parseScheduleModelRef } from './schedule-model-ref.mjs';
+import { modelRouteFields, parseScheduleModelRef } from './schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
 import { automationPromptContent } from './automation-attachments.mjs';
 
@@ -22,13 +22,7 @@ function scheduleRouteFromModelRef(modelRef, config = null) {
   if (!preset) {
     throw new Error(`schedule model "${ref}" is neither a provider/model route nor a known preset name`);
   }
-  return {
-    provider: preset.provider,
-    model: preset.model,
-    ...(preset.effort ? { effort: preset.effort } : {}),
-    ...(preset.fast === true ? { fast: true } : {}),
-    ...(preset.modelParameters ? { modelParameters: { ...preset.modelParameters } } : {}),
-  };
+  return modelRouteFields(preset);
 }
 
 /**
@@ -50,11 +44,7 @@ export async function runScheduleSession(schedule, { config = null, prompt: prom
   // schedule's model/workflow/project, a brand-new session in the sidebar
   // Automations section (newest per name wins there).
   const session = createSession({
-    provider: route.provider,
-    model: route.model,
-    ...(route.effort ? { effort: route.effort } : {}),
-    ...(route.fast === true ? { fast: true } : {}),
-    ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
+    ...modelRouteFields(route),
     owner: 'user',
     sourceType: 'schedule',
     sourceName: schedule.name,

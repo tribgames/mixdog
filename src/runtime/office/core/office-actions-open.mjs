@@ -3,13 +3,11 @@ import { closeMicrosoftOfficeSession } from '../com/com-adapter.mjs';
 import { applyBatch } from './office-actions-batch.mjs';
 import { finalize } from './office-actions-lifecycle.mjs';
 import {
-  documentSessionKey,
-  documentSessions,
   ensureOfficeSessionDesign,
   finalizeOfficeResult,
   isMicrosoftOfficeSession,
   microsoftOfficeOpenFields,
-  sessions,
+  releaseOfficeSession,
   toolResult,
 } from './office-core.mjs';
 import { createSession, openSession, snapshot } from './office-sessions.mjs';
@@ -22,10 +20,7 @@ function initialOfficeOperations(args) {
 async function discardFailedOfficeSession(session, { action, initialEditSettled }) {
   if (session.reused) return;
   if (isMicrosoftOfficeSession(session)) await closeMicrosoftOfficeSession(session.id).catch(() => {});
-  sessions.delete(session.id);
-  if (documentSessions.get(documentSessionKey(session.target)) === session.id) {
-    documentSessions.delete(documentSessionKey(session.target));
-  }
+  releaseOfficeSession(session);
   // A create whose own operations failed must not leave the empty file
   // it just wrote: the obvious retry would hit "target already exists"
   // and the caller would be stuck choosing between overwrite and delete.

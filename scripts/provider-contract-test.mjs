@@ -55,6 +55,12 @@ import {
 } from '../src/runtime/agent/orchestrator/providers/registry.mjs';
 import { providerCachedModelMetadataSync } from '../src/runtime/agent/orchestrator/providers/provider-catalog-cache.mjs';
 import { readRuntimeTunables } from '../src/session-runtime/runtime-tunables.mjs';
+import { effortOptionsFor } from '../src/session-runtime/effort.mjs';
+import {
+  consumeOpenAICodexResetCredit,
+  fetchOpenAICodexResetCredits,
+  fetchOAuthUsageSnapshot,
+} from '../src/runtime/agent/orchestrator/providers/oauth-usage.mjs';
 
 test('Computer Use stays one shared custom-tool contract across providers', () => {
   const tool = COMPUTER_TOOL_DEFS[0];
@@ -160,13 +166,6 @@ test('OpenRouter model sanitizer applies hosted filters with a nine-month defaul
     else process.env.MIXDOG_MODEL_STALE_MONTHS = previousStaleMonths;
   }
 });
-import { effortOptionsFor } from '../src/session-runtime/effort.mjs';
-import {
-  consumeOpenAICodexResetCredit,
-  fetchOpenAICodexResetCredits,
-  fetchOAuthUsageSnapshot,
-} from '../src/runtime/agent/orchestrator/providers/oauth-usage.mjs';
-
 // Usage snapshots persist to <data dir>/gateway-oauth-usage-cache.json. Without
 // an isolated data dir these fixtures wrote provider rows into the developer's
 // real cache, where a fake model id could later win a provider fallback lookup.

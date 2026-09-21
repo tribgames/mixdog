@@ -62,7 +62,10 @@ test('a busy child accepts follow-ups on its existing runtime', async () => {
   const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
   const runtime = h.runtimeFor(session.id);
   const accepted = [];
-  runtime.submitAsync = async (prompt, options) => { accepted.push({ prompt, options }); return true; };
+  runtime.submitAsync = async (prompt, options) => {
+    accepted.push({ prompt, options });
+    return true;
+  };
   assert.ok(await h.tree.agentSurface.enqueueTurn({ session, prompt: 'follow-up', context: 'extra' }));
   assert.equal(h.turns.length, 0, 'no second submitAndWait turn is started');
   assert.equal(accepted[0].prompt, 'follow-up');

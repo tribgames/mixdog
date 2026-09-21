@@ -67,23 +67,6 @@ function sessionUsageCounters(session, lastContextTokens) {
   };
 }
 
-function emptyUsageCounters() {
-  return {
-    reasoningUsage: null,
-    lastInputTokens: 0,
-    lastUncachedInputTokens: 0,
-    lastOutputTokens: 0,
-    lastCachedReadTokens: 0,
-    lastCacheWriteTokens: 0,
-    lastContextTokens: 0,
-    totalInputTokens: 0,
-    totalUncachedInputTokens: 0,
-    totalOutputTokens: 0,
-    totalCachedReadTokens: 0,
-    totalCacheWriteTokens: 0,
-  };
-}
-
 function emptyCompactionStatus(session, policy) {
   return {
     boundaryTokens: Number(session?.compactBoundaryTokens || policy?.boundaryTokens || 0) || null,

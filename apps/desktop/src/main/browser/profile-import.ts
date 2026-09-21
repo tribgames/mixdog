@@ -673,12 +673,11 @@ export class BrowserProfileImportService {
     if (!importer) {
       throw new Error('The packaged native browser importer is not installed.');
     }
-    const output = await readEncryptedChildJson(
+    return await readEncryptedChildJson(
       importer.executable,
       ['import-cookies', '--browser', 'chrome', '--profile', profileId, '--json'],
       importer.sha256
     );
-    return output;
   }
 
   private async importHistory(profileId: string, jobId: string): Promise<number> {

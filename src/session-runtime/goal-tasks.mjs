@@ -19,6 +19,8 @@ export function optionalGoalTaskChanges({ tasks, updates } = {}) {
     Array.isArray(entry) ||
     clean(entry.id) ||
     clean(entry.text) ||
+    // 'kind' is a retired field: stored records and frozen provider schemas
+    // still send it, so it stays accepted here and is dropped on normalize.
     Object.keys(entry).some((key) => !['id', 'text', 'status', 'kind'].includes(key));
   return {
     tasks: Array.isArray(tasks) ? tasks.filter(populated) : tasks,
@@ -46,7 +48,7 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
   const seenText = new Set();
   const seenIds = new Set();
   return input.map((entry, index) => {
-    const source = typeof entry === 'string' ? { text: entry, status: 'pending', kind: 'work' } : entry;
+    const source = typeof entry === 'string' ? { text: entry, status: 'pending' } : entry;
     if (!source || typeof source !== 'object') throw new Error(`goal task ${index + 1} is invalid`);
     const text = clean(source.text);
     if (!text) throw new Error('goal task text is required');
@@ -58,19 +60,11 @@ export function normalizeGoalTasks(input, previous = [], { strict = false } = {}
     if (seenIds.has(id)) throw new Error(`duplicate goal task id: ${id}`);
     seenIds.add(id);
     const rawStatus = clean(source.status).toLowerCase();
-    const rawKind = clean(source.kind).toLowerCase();
     if (strict && !GOAL_TASK_STATUSES.includes(rawStatus))
       throw new Error(`goal task ${index + 1} has an invalid status`);
-    if (strict && !['work', 'verification'].includes(rawKind))
-      throw new Error(`goal task ${index + 1} has an invalid kind`);
     let status = source.satisfied === true ? 'completed' : 'pending';
     if (GOAL_TASK_STATUSES.includes(rawStatus)) status = rawStatus;
-    return {
-      id,
-      text,
-      status,
-      kind: rawKind === 'verification' ? 'verification' : 'work',
-    };
+    return { id, text, status };
   });
 }
 
@@ -109,6 +103,7 @@ export function patchGoalTasks(previous, { updates, tasks } = {}) {
     if (!id || !byId.has(id)) throw new Error(`unknown Goal task id: ${id || '(missing)'}`);
     if (seen.has(id)) throw new Error(`duplicate Goal task update: ${id}`);
     seen.add(id);
+    // A patch carrying the retired 'kind' is accepted and ignored, not rejected.
     if (Object.keys(patch).some((key) => !['id', 'text', 'status', 'kind'].includes(key)))
       throw new Error(`unknown Goal task update field for ${id}`);
     byId.set(id, { ...byId.get(id), ...patch, id });

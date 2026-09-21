@@ -2,7 +2,7 @@
  * The PowerShell side of Computer Use: the resident host program and the
  * one-shot abort cleanup program, kept out of the TypeScript host so neither
  * half buries the other. These are program text only — every decision about
- * when to run them lives in computer-host-powershell.ts.
+ * when to run them lives in host/powershell-host.ts.
  */
 
 import { PS_SESSION } from './ps-session';

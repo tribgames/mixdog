@@ -1,6 +1,5 @@
-// Code-graph tuning constants + cache-file name/regex patterns. Extracted
-// verbatim from code-graph.mjs so the build/cache/search modules can share
-// one source of truth. Behavior-identical: same env vars, same defaults.
+// Code-graph tuning constants + cache-file name/regex patterns. One shared
+// source of truth for the build/cache/search modules.
 
 export const CODE_GRAPH_TTL_MS = 30_000;
 export const CODE_GRAPH_MAX_FILES = 10_000;

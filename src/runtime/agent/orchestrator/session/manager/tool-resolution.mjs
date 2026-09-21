@@ -65,7 +65,7 @@ const READONLY_TOOL_NAMES = new Set(['code_graph', 'find', 'glob', 'list', 'grep
 
 export function finalizeSessionToolList(
   tools,
-  { schemaAllowedTools = null, disallowedTools = null, ownerIsAgent = false, resolvedAgent = null } = {}
+  { schemaAllowedTools = null, disallowedTools = null, ownerIsAgent = false, resolvedAgent: _resolvedAgent = null } = {}
 ) {
   let out = Array.isArray(tools) ? tools : [];
   const hasCallerAllow = Array.isArray(schemaAllowedTools);
@@ -112,7 +112,7 @@ export function resolveSessionTools(
   // time (loop.mjs), so the schema bytes stay bit-identical across roles /
   // cwds and the provider cache shard does not fragment.
   const skillTools = buildSkillToolDefs(skills, { ownerIsAgentSession });
-  return filterModelEditTools(_computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession }), modelName);
+  return filterModelEditTools(_computeBaseTools(toolSpec, mcp, skillTools), modelName);
 }
 
 export function previewSessionTools(toolSpec, skills = [], options = {}) {
@@ -139,7 +139,7 @@ function _dedupByName(tools) {
 // Tools with agentHidden:true are stripped from agent sessions at schema
 // build time (see deny filtering below). No code-level name list needed.
 
-function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = false } = {}) {
+function _computeBaseTools(toolSpec, mcp, skillTools) {
   if (Array.isArray(toolSpec)) {
     if (toolSpec.length === 0) {
       // Explicit "no tools" — skill meta tools still travel so the model
@@ -171,14 +171,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
           addMany(ALL_BUILTIN_SESSION_TOOLS.filter((t) => t.name === 'shell' || t.name === 'task'));
           break;
         case 'tools:git':
-          addMany(
-            ALL_BUILTIN_SESSION_TOOLS.filter(
-              (t) =>
-                t.name === 'git' ||
-                t.name === 'shell' ||
-                t.name === 'task'
-            )
-          );
+          addMany(ALL_BUILTIN_SESSION_TOOLS.filter((t) => t.name === 'git' || t.name === 'shell' || t.name === 'task'));
           break;
         case 'tools:mcp':
           addMany(mcp);

@@ -26,16 +26,6 @@ export interface MixdogProjectsModule {
   resolveProjectPath?(projectPath: string): string;
 }
 
-export interface DesktopSessionMetadataFile {
-  version: 2;
-  titles: Record<string, string>;
-  names: Record<string, string>;
-  /** Archive map: id → archivedAt ms. Present only when non-empty. */
-  archived?: Record<string, number>;
-}
-
-export type DesktopSessionScope = { classification: 'task' | 'project'; projectPath: string | null };
-
 export interface StatuslineSegmentsModule {
   shellJobsStatus(options?: { clientHostPid?: number; sessionId?: string }): {
     count?: number;

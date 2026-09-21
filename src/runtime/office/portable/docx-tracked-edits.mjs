@@ -1,9 +1,6 @@
 import { markRunsDeleted, revisionAttributes } from './portable-docx-parts.mjs';
-import { textNodes, xmlEncode } from './portable-xml.mjs';
+import { WORD_RUN_OPEN, WORD_RUN_PROPERTIES, WORD_RUN_SOURCE, textNodes, xmlEncode } from './portable-xml.mjs';
 
-const RUN = /<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g;
-const RUN_OPEN = /^<w:r(?:\s[^>]*)?>/;
-const RUN_PROPERTIES = /^\s*(?:<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>|<w:rPr\/>)/;
 const TEXT_ONLY_CONTENT = /^(?:\s*<w:t\b[^>]*>[\s\S]*?<\/w:t>\s*)*$/;
 
 /** Rewrites a paragraph's text as one tracked change: every existing run is
@@ -23,11 +20,11 @@ export function trackedParagraphRewrite(paragraphXml, text, id, author) {
 
 function paragraphRuns(paragraphXml) {
   const runs = [];
-  const pattern = new RegExp(RUN.source, 'g');
+  const pattern = new RegExp(WORD_RUN_SOURCE, 'g');
   for (let match = pattern.exec(paragraphXml); match; match = pattern.exec(paragraphXml)) {
-    const open = RUN_OPEN.exec(match[0])[0];
+    const open = WORD_RUN_OPEN.exec(match[0])[0];
     const inner = match[0].slice(open.length, match[0].length - '</w:r>'.length);
-    const properties = RUN_PROPERTIES.exec(inner)?.[0] || '';
+    const properties = WORD_RUN_PROPERTIES.exec(inner)?.[0] || '';
     const content = inner.slice(properties.length);
     // Only a run made of text elements can be cut at a character offset; a
     // run carrying a tab, a break, a field, or a drawing is left whole and

@@ -232,9 +232,10 @@ export function normalizeOcrWords(value: unknown): OcrWordRecord[] {
   });
 }
 
-export function hasSemanticAccessibilityTarget(elements: ComputerElementRecord[], frame?: CaptureFrame): boolean {
+/** Elements a command could actually address, whatever their placement. */
+export function actionableAccessibilityElements(elements: ComputerElementRecord[]): ComputerElementRecord[] {
   const containerRoles = new Set(['Window', 'Pane', 'Document', 'Group', 'Custom', 'Image', 'Text']);
-  const actionableElements = elements.filter(
+  return elements.filter(
     (element) =>
       element.enabled &&
       element.width > 1 &&
@@ -242,6 +243,10 @@ export function hasSemanticAccessibilityTarget(elements: ComputerElementRecord[]
       !containerRoles.has(element.role) &&
       element.actions.length > 0
   );
+}
+
+export function hasSemanticAccessibilityTarget(elements: ComputerElementRecord[], frame?: CaptureFrame): boolean {
+  const actionableElements = actionableAccessibilityElements(elements);
   if (!actionableElements.length) return false;
 
   const largestElementArea = elements.reduce(

@@ -143,6 +143,40 @@ export function parsePathList(stdout, cwd) {
 }
 
 /**
+ * Paths named by a per-line pattern (rustfmt/stylua diff headers, "Would
+ * reformat: <path>"). The first non-empty capture group of each matching line
+ * is the path; `strip` removes SGR escapes first for engines that colorize.
+ */
+export function parsePatternPaths(output, { pattern, cwd, strip = false }) {
+  return uniquePaths(
+    (strip ? stripAnsi(output) : String(output || ''))
+      .split('\n')
+      .map((line) => line.trim().match(pattern)?.slice(1).find(Boolean))
+      .filter(Boolean)
+      .map((file) => toRel(cwd, file))
+  );
+}
+
+/** One "would reformat" warning per file. */
+export function reformatDiagnostics(changedFiles, id, code = id) {
+  return changedFiles.map((file) =>
+    diagnostic({
+      file,
+      code,
+      message: `${id} would reformat this file`,
+      severity: 'warning',
+      fixable: true,
+    })
+  );
+}
+
+/** Check-mode result for a formatter whose output names the files it would rewrite. */
+export function parseReformatReport(output, { pattern, cwd, id, code = id, strip = false }) {
+  const changedFiles = parsePatternPaths(output, { pattern, cwd, strip });
+  return { changedFiles, diagnostics: reformatDiagnostics(changedFiles, id, code) };
+}
+
+/**
  * Runner factory for format-only engines whose check mode lists the files they
  * would rewrite (shfmt -l, gofmt -l, gofumpt -l, prettier --list-different) and
  * whose fix mode writes in place.
@@ -155,15 +189,7 @@ export function createListFormatterRunner({ id, listArgs, writeArgs, code = id }
       if (result.error) return spawnFailureResult(id, result);
       const changedFiles = parsePathList(result.stdout, cwd);
       return {
-        diagnostics: changedFiles.map((file) =>
-          diagnostic({
-            file,
-            code,
-            message: `${id} would reformat this file`,
-            severity: 'warning',
-            fixable: true,
-          })
-        ),
+        diagnostics: reformatDiagnostics(changedFiles, id, code),
         changedFiles,
         stderrTail: tail(result.stderr),
       };

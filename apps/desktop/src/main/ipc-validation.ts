@@ -63,6 +63,8 @@ const MODEL_SELECTION_KEYS = new Set(['provider', 'model', 'effort', 'fast', 'mo
 const MODEL_CATALOG_OPTION_KEYS = new Set(['force', 'refresh', 'quick']);
 const PROVIDER_SETUP_OPTION_KEYS = new Set(['force', 'refresh']);
 const TOOL_APPROVAL_KEYS = new Set(['approved', 'reason']);
+const TOGGLEABLE_BUILTIN_TOOLS = new Set(['git', 'office', 'localProvider', 'tidy']);
+const INSTALLABLE_BUILTIN_FEATURES = new Set(['git', 'memory', 'office', 'localProvider', 'tidy']);
 
 const CAPABILITY_ARITY = {
   prioritizeQueued: [1, 1],
@@ -184,7 +186,6 @@ const CAPABILITY_ARITY = {
   cancelOAuthProviderLogin: [1, 1],
   saveProviderApiKey: [2, 2],
   saveOpenCodeGoUsageAuth: [1, 1],
-  loginOpenCodeGoUsage: [0, 0],
   saveOpenAIUsageSessionKey: [1, 1],
   authenticateProvider: [2, 2],
   forgetProviderAuth: [1, 2],
@@ -503,23 +504,10 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (BOOLEAN_SECOND_CAPABILITIES.has(capability) && typeof args[1] !== 'boolean') {
     throw new TypeError(`${capability} requires a boolean value.`);
   }
-  if (
-    capability === 'setBuiltinToolEnabled' &&
-    args[0] !== 'git' &&
-    args[0] !== 'office' &&
-    args[0] !== 'localProvider' &&
-    args[0] !== 'tidy'
-  ) {
+  if (capability === 'setBuiltinToolEnabled' && !TOGGLEABLE_BUILTIN_TOOLS.has(args[0] as string)) {
     throw new TypeError('setBuiltinToolEnabled requires git, office, localProvider, or tidy.');
   }
-  if (
-    capability === 'installBuiltinFeature' &&
-    args[0] !== 'git' &&
-    args[0] !== 'memory' &&
-    args[0] !== 'office' &&
-    args[0] !== 'localProvider' &&
-    args[0] !== 'tidy'
-  ) {
+  if (capability === 'installBuiltinFeature' && !INSTALLABLE_BUILTIN_FEATURES.has(args[0] as string)) {
     throw new TypeError('installBuiltinFeature requires git, memory, office, localProvider, or tidy.');
   }
   if (capability === 'setModel') requiredString(args[0], 'model selector', 512);
@@ -562,13 +550,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
     const options =
       args[0] && typeof args[0] === 'object' && !Array.isArray(args[0]) ? (args[0] as Record<string, unknown>) : null;
     if (!options) throw new TypeError('OpenCode Go usage auth is invalid.');
-    validateSecret(options.authCookie, 'OpenCode Go auth cookie');
-    if (
-      options.workspaceId !== undefined &&
-      (typeof options.workspaceId !== 'string' || options.workspaceId.length > 256)
-    ) {
-      throw new TypeError('OpenCode Go workspace id is invalid.');
-    }
+    validateSecret(options.apiKey, 'OpenCode console API key');
   }
   if (capability === 'getProviderSetup' && args[0] !== undefined) {
     const options =

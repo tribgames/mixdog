@@ -197,6 +197,12 @@ export const COMPUTER_INPUT_SCHEMA = {
             description:
               'With kind="apps", also lists installed apps whose name or id matches, including apps that are not running.',
           },
+          limit: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 60,
+            description: 'kind="history" only: how many of the most recent records to return; default 60.',
+          },
         },
         ['kind']
       )
@@ -433,6 +439,9 @@ function captureError(input) {
   if (mode === 'ax' && input.include_ocr === true) {
     return 'Computer Use capture include_ocr is unavailable with mode="ax"';
   }
+  if (mode === 'zoom' && (input.include_ocr === true || hasOwn(input, 'ocr_language'))) {
+    return 'Computer Use capture mode="zoom" returns pixels only; read text from a state/som capture with include_ocr';
+  }
   if (mode === 'ax' && hasOwn(input, 'image_output')) {
     return 'Computer Use capture image_output requires a mode that returns pixels';
   }
@@ -526,9 +535,20 @@ function launchError(input) {
   return null;
 }
 
+function listError(input) {
+  if (hasOwn(input, 'limit') && input.kind !== 'history') {
+    return 'Computer Use list limit applies to kind="history"';
+  }
+  if (hasOwn(input, 'query') && input.kind === 'history') {
+    return 'Computer Use list query applies to kind="windows" or kind="apps"';
+  }
+  return null;
+}
+
 // Action-specific rules beyond the schema, keyed by action name.
 const ACTION_RULES = {
   capture: captureError,
+  list: listError,
   menu: menuError,
   verify: verifyError,
   act: actError,

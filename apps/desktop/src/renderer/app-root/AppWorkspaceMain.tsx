@@ -58,7 +58,7 @@ export interface AppWorkspaceMainProps {
   stageNewTaskOrchestrationMode: ReturnType<typeof useDraftPanePreferences>['stageNewTaskOrchestrationMode'];
   activeProjectPath: string;
   conversationSelectProject: (path: string) => void;
-  openFileTab: (project: string, rel: string, line?: number) => void;
+  openFileTab: (project: string, rel: string, line?: number, accessToken?: string) => void;
   openConversationCommandSurface: ReturnType<typeof useAppShellPanels>['openConversationCommandSurface'];
 
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;

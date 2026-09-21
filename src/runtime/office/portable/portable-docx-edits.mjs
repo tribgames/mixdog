@@ -120,6 +120,24 @@ function commentStamp() {
   return new Date().toISOString().replace(/\.\d+Z$/, 'Z');
 }
 
+function commentEntryPattern(id) {
+  return new RegExp(`<w:comment\\b[^>]*\\bw:id="${id}"[^>]*>[\\s\\S]*?<\\/w:comment>`);
+}
+
+// A new comment is one entry in the comments part plus the thread and the
+// identity records that carry its author and timestamp.
+async function appendComment(zip, comments, op, text, thread = {}) {
+  const id = nextCommentId(comments.xml);
+  const stamp = commentStamp();
+  zip.file(
+    comments.part,
+    comments.xml.replace('</w:comments>', `${commentEntryXml(id, op, text, stamp)}</w:comments>`)
+  );
+  await registerCommentThread(zip, { commentId: id, ...thread });
+  await registerCommentIdentity(zip, { commentId: id, date: stamp });
+  return id;
+}
+
 // A caller that names the thing it wants — kind:'footer' — must get a footer.
 // Reading that name as an unknown page variant wrote the text into a second
 // header instead, and reported success for a document whose footer never
@@ -276,7 +294,6 @@ export async function setDocxTableCell(zip, op, { tracking }) {
   const cells = rowCellMatches(row[0]);
   const cell = cells[Number(op.col) - 1];
   if (!cell) throw new Error(`DOCX table cell ${op.col} not found`);
-  const nodes = textNodes(cell[0], 'w:t');
   let nextCell;
   if (tracking) {
     // The first paragraph takes the new text as a tracked rewrite; any
@@ -302,12 +319,15 @@ export async function setDocxTableCell(zip, op, { tracking }) {
           `<w:t xml:space="preserve">${xmlEncode(op.text ?? '')}</w:t></w:r></w:ins></w:p></w:tc>`
       );
     }
-  } else if (nodes.length) {
-    nodes[0].text = String(op.text ?? '');
-    for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
-    nextCell = rebuildTextNodes(cell[0], 'w:t', nodes);
   } else {
-    nextCell = cell[0].replace('</w:tc>', `<w:p><w:r><w:t>${xmlEncode(op.text ?? '')}</w:t></w:r></w:p></w:tc>`);
+    const nodes = textNodes(cell[0], 'w:t');
+    if (nodes.length) {
+      nodes[0].text = String(op.text ?? '');
+      for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
+      nextCell = rebuildTextNodes(cell[0], 'w:t', nodes);
+    } else {
+      nextCell = cell[0].replace('</w:tc>', `<w:p><w:r><w:t>${xmlEncode(op.text ?? '')}</w:t></w:r></w:p></w:tc>`);
+    }
   }
   const nextRow = row[0].replace(cell[0], nextCell);
   const nextTable = table[0].replace(row[0], nextRow);
@@ -511,14 +531,7 @@ export async function addDocxComment(zip, op) {
     );
   }
   const comments = await ensureCommentsPart(zip);
-  const id = nextCommentId(comments.xml);
-  const stamp = commentStamp();
-  zip.file(
-    comments.part,
-    comments.xml.replace('</w:comments>', `${commentEntryXml(id, op, text, stamp)}</w:comments>`)
-  );
-  await registerCommentThread(zip, { commentId: id });
-  await registerCommentIdentity(zip, { commentId: id, date: stamp });
+  const id = await appendComment(zip, comments, op, text);
   // A comment marks the phrase it was asked about; the paragraph only when
   // the phrase cannot be cut out of its runs.
   const phrase = op.op === 'add_comment' ? anchorPhraseInParagraph(paragraph.xml, String(op.find || ''), id) : null;
@@ -538,22 +551,14 @@ export async function replyOrResolveDocxComment(zip, op) {
   const parent = Number(op.comment);
   if (!Number.isInteger(parent) || parent < 1) throw new Error(`${op.op} requires a positive comment id`);
   const comments = await ensureCommentsPart(zip);
-  const parentPattern = new RegExp(`<w:comment\\b[^>]*\\bw:id="${parent}"[^>]*>[\\s\\S]*?<\\/w:comment>`);
-  if (!parentPattern.exec(comments.xml)) throw new Error(`DOCX comment ${parent} not found`);
+  if (!commentEntryPattern(parent).exec(comments.xml)) throw new Error(`DOCX comment ${parent} not found`);
   if (op.op === 'set_comment_resolved') {
     await registerCommentThread(zip, { commentId: parent, done: op.resolved !== false });
     return { op: op.op, changed: true, comment: parent, resolved: op.resolved !== false };
   }
   const text = String(op.text || '');
   if (!text) throw new Error('add_comment_reply requires text');
-  const id = nextCommentId(comments.xml);
-  const stamp = commentStamp();
-  zip.file(
-    comments.part,
-    comments.xml.replace('</w:comments>', `${commentEntryXml(id, op, text, stamp)}</w:comments>`)
-  );
-  await registerCommentThread(zip, { commentId: id, parentId: parent });
-  await registerCommentIdentity(zip, { commentId: id, date: stamp });
+  const id = await appendComment(zip, comments, op, text, { parentId: parent });
   const current = await zipText(zip, DOCUMENT_PART);
   const anchor = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${parent}"[^>]*\\/>`).exec(current);
   if (anchor) {
@@ -570,7 +575,7 @@ export async function deleteDocxComment(zip, op) {
   const id = Number(op.comment);
   if (!Number.isInteger(id) || id < 1) throw new Error('delete_comment requires a positive comment id');
   const comments = await ensureCommentsPart(zip);
-  const pattern = new RegExp(`<w:comment\\b[^>]*\\bw:id="${id}"[^>]*>[\\s\\S]*?<\\/w:comment>`);
+  const pattern = commentEntryPattern(id);
   const entry = pattern.exec(comments.xml);
   if (!entry) throw new Error(`DOCX comment ${id} not found`);
   zip.file(comments.part, comments.xml.replace(pattern, ''));

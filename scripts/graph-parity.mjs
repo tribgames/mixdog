@@ -184,11 +184,9 @@ export function parseLangsStdout(text) {
     }
   };
   const whole = tryParse(src);
-  if (whole && Object.keys(whole).length) return whole;
   if (whole) return whole;
   for (const line of src.split(/\n/)) {
     const parsed = tryParse(line.trim());
-    if (parsed && Object.keys(parsed).length) return parsed;
     if (parsed) return parsed;
   }
   return {};

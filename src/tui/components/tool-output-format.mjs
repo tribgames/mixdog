@@ -27,10 +27,9 @@ import {
   looksLikeUnifiedDiff,
   LANG_FAMILY,
 } from '../markdown/format-token.mjs';
-import { wrapText } from '../markdown/table-layout.mjs';
+import { buildTableRender, wrapText } from '../markdown/table-layout.mjs';
 import { RESULT_GUTTER } from '../theme.mjs';
 import { hasMarkdownSyntax, renderTokenAnsiSegments } from '../markdown/render-ansi.mjs';
-import { buildTableRender } from '../markdown/table-layout.mjs';
 
 const DEFAULT_MARKDOWN_WIDTH = 80;
 

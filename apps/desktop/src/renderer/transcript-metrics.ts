@@ -47,7 +47,3 @@ export function registerImagePreview(id: number, bytes: number, dataUrl: string)
   trimPreviewsTo(IMAGE_PREVIEW_CACHE_MAX_CHARS);
   enforceRendererCacheBudget();
 }
-
-export function _resetImagePreviewCacheForTest() {
-  imagePreviewCache.clear();
-}

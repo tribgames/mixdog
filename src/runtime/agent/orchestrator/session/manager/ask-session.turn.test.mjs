@@ -46,7 +46,7 @@ async function withAskHarness(t, run) {
   const provider = {
     name: providerName,
     contextWindow: 128000,
-    async send(messages, model, tools, sendOpts) {
+    async send(messages, model, _tools, sendOpts) {
       sends.push({ messages: messages.map((m) => ({ role: m.role, content: m.content })), model, sendOpts });
       return reply(messages, sendOpts);
     },
@@ -134,12 +134,14 @@ test('reasoning usage persists once per call and missing usage marks the reporte
     }));
     await askSession(session.id, 'first', null, null, null, null, {});
     assert.deepEqual(loadSession(session.id).reasoningUsage, {
-      reasoningTokens: 5, reasoningTokensComplete: true,
+      reasoningTokens: 5,
+      reasoningTokensComplete: true,
     });
     setReply(async () => ({ content: 'no usage supplied' }));
     await askSession(session.id, 'second', null, null, null, null, {});
     assert.deepEqual(loadSession(session.id).reasoningUsage, {
-      reasoningTokens: 5, reasoningTokensComplete: false,
+      reasoningTokens: 5,
+      reasoningTokensComplete: false,
     });
     setReply(async () => ({
       content: 'measured again',
@@ -147,7 +149,8 @@ test('reasoning usage persists once per call and missing usage marks the reporte
     }));
     await askSession(session.id, 'third', null, null, null, null, {});
     assert.deepEqual(loadSession(session.id).reasoningUsage, {
-      reasoningTokens: 7, reasoningTokensComplete: false,
+      reasoningTokens: 7,
+      reasoningTokensComplete: false,
     });
     assert.equal(loadSession(session.id).totalOutputTokens, 14);
   });
@@ -177,7 +180,10 @@ test('a delivered task notification survives turn commit and the next provider r
     await askSession(session.id, 'Continue after the check.', null, null, null, null, {});
     const nextRequest = sends.at(-1).messages;
     assert.deepEqual(nextRequest.slice(0, sentHistory.length), sentHistory);
-    assert.match(String(nextRequest.findLast((message) => message.role === 'user').content), /Continue after the check\./);
+    assert.match(
+      String(nextRequest.findLast((message) => message.role === 'user').content),
+      /Continue after the check\./
+    );
   });
 });
 

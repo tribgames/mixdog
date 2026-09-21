@@ -27,9 +27,13 @@ export function grepNoMatchesBody({ totalKnown }) {
 }
 
 export function formatGrepFanoutSections({ dimension, labels, bodies }) {
-  if (dimension === 'pattern' && bodies.length > 1 &&
-      String(bodies[0]).startsWith('Error: path does not exist:') &&
-      bodies.every((body) => body === bodies[0])) return String(bodies[0]);
+  if (
+    dimension === 'pattern' &&
+    bodies.length > 1 &&
+    String(bodies[0]).startsWith('Error: path does not exist:') &&
+    bodies.every((body) => body === bodies[0])
+  )
+    return String(bodies[0]);
   const parts = [];
   const missed = [];
   const partialMissed = [];
@@ -38,7 +42,8 @@ export function formatGrepFanoutSections({ dimension, labels, bodies }) {
     if (dimension === 'pattern' && body.startsWith('Error: path does not exist:')) {
       const grouped = [labels[i]];
       while (i + 1 < labels.length && String(bodies[i + 1]) === body) grouped.push(labels[++i]);
-      const label = grouped.length > 1 ? `patterns:${JSON.stringify(grouped)}` : `pattern:${JSON.stringify(grouped[0])}`;
+      const label =
+        grouped.length > 1 ? `patterns:${JSON.stringify(grouped)}` : `pattern:${JSON.stringify(grouped[0])}`;
       parts.push(`# grep ${label}\n${body}`);
       continue;
     }
@@ -51,7 +56,10 @@ export function formatGrepFanoutSections({ dimension, labels, bodies }) {
       parts.push(`# grep ${label}\n${body}`);
     }
   }
-  for (const [items, totalKnown] of [[missed, true], [partialMissed, false]]) {
+  for (const [items, totalKnown] of [
+    [missed, true],
+    [partialMissed, false],
+  ]) {
     if (items.length === 0) continue;
     const scope = items.length === labels.length ? '' : ` ${dimension}s=${JSON.stringify(items)}`;
     parts.push(grepNoMatchesBody({ totalKnown }) + scope);
@@ -289,7 +297,7 @@ export function formatGrepOutput({
   beforeN,
   afterN,
   contextN,
-  searchPath,
+  searchPath: _searchPath,
   grepResolvedPath: _grepResolvedPath,
   workDir,
   globPatterns: _globPatterns,
@@ -309,9 +317,10 @@ export function formatGrepOutput({
   // Finding 3: PRE-offset grand total so the denominator matches the
   // context-mode notice (offset==0 leaves this unchanged).
   const total = offset + totalWindowed;
-  const truncated = remaining > 0 || !totalKnown
-    ? grepPagingNotice({ shown, total, totalKnown, omitted: remaining, offset, nextOffset: offset + shown })
-    : '';
+  const truncated =
+    remaining > 0 || !totalKnown
+      ? grepPagingNotice({ shown, total, totalKnown, omitted: remaining, offset, nextOffset: offset + shown })
+      : '';
 
   const countSummary = outputMode === 'count' ? grepCountSummary(normalized) : '';
   const hasContext = beforeN > 0 || afterN > 0 || contextN > 0;

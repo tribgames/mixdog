@@ -64,7 +64,8 @@ function decodedBase64Bytes(data: string): number {
 }
 
 export function frameImageFitsFileBudget(data: string): boolean {
-  return decodedBase64Bytes(data) > 0 && decodedBase64Bytes(data) <= FRAME_MAX_BYTES;
+  const bytes = decodedBase64Bytes(data);
+  return bytes > 0 && bytes <= FRAME_MAX_BYTES;
 }
 
 function decodeFrameImage(data: string): Buffer | undefined {

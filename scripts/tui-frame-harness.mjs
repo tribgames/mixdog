@@ -280,7 +280,7 @@ function makeDriver({ rows, cols, isWindows }) {
 // (NON-fullscreen branch) → log-update relative cursorUp walk → one-row-low
 // dip under Windows Terminal. A steady frame (shortByOne=false) fills the
 // viewport, stays on the absolute cursorTo path, and is stable.
-function frame({ rows, cols, palette, shortByOne, heightRows }) {
+function frame({ rows, cols: _cols, palette, shortByOne, heightRows }) {
   // [FAITHFUL] App.jsx pins the bottom cluster with the outer full-height
   // column (height=resizeState.rows) + flexShrink={0} on the bottom bar. So the
   // Yoga root height is `rows` when accounting is correct. When a reclaimed row

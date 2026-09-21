@@ -10,6 +10,7 @@
 import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-schema.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
 import { traceBrowserTiming } from './timing.mjs';
+import { base64ByteLength, inlineFileKind } from '../shared/inline-file-kind.mjs';
 
 const DISCOVERY_FILE = 'browser-bridge.json';
 /** Ceiling above the bridge's own per-action timeouts (navigation settle,
@@ -26,7 +27,7 @@ const browserTurns = new Map();
 
 /** Terminal lifecycle cleanup uses the exact bridge that owned this turn.
  * It is never retried after dispatch and never inherits the cancelled tool signal. */
-export async function finishBrowserTurn(sessionId, turnId) {
+export async function finishBrowserTurn(sessionId, turnId, { aborted = false } = {}) {
   const turns = browserTurns.get(sessionId);
   const discovery = turns?.get(turnId);
   if (!discovery) return;
@@ -38,6 +39,9 @@ export async function finishBrowserTurn(sessionId, turnId) {
       action: 'finish_turn',
       session_id: sessionId,
       turn_id: turnId,
+      // A turn that ended well may still be continued by the next message,
+      // so its pages stay; only an aborted run reclaims them.
+      aborted: aborted === true,
     }),
     AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     { sessionId, turnId, action: 'finish_turn' }
@@ -102,6 +106,14 @@ function attachBrowserMedia(content, value) {
       content.push({
         type: 'image',
         source: { type: 'base64', media_type: mimeType, data },
+      });
+    } else if (inlineFileKind(mimeType, data) === 'binary') {
+      // No provider accepts an archive or a spreadsheet as an inline block, and
+      // the listing above already names the file on disk. Point at it instead
+      // of carrying megabytes of base64 through the conversation.
+      content.push({
+        type: 'text',
+        text: `Download ${filename} (${mimeType}, ${base64ByteLength(data)} bytes) is binary and stays on disk; open it from the path listed above with read.`,
       });
     } else {
       content.push({ type: 'file', data, mimeType, filename });
@@ -178,6 +190,10 @@ export async function executeBrowserTool(args, options = {}) {
   let discovery = readDiscovery();
   if (!discovery) return browserToolError(unavailableMessage());
   rememberBrowserTurn(sessionId, payload.turn_id, discovery);
+  // An observation can be reported as a plain failure; a state-changing action
+  // that may already have run must say so instead.
+  const settleFailure = (message) =>
+    RETRYABLE_ACTIONS.has(validated.action) ? browserToolError(message) : uncertainMutation(message);
   let bridgeResult;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -192,15 +208,9 @@ export async function executeBrowserTool(args, options = {}) {
       break;
     } catch (error) {
       if (error?.name === 'TimeoutError') {
-        return RETRYABLE_ACTIONS.has(validated.action)
-          ? browserToolError('browser bridge timed out and cancelled the active command')
-          : uncertainMutation('browser bridge timed out and cancelled the active command');
+        return settleFailure('browser bridge timed out and cancelled the active command');
       }
-      if (options.signal?.aborted) {
-        return RETRYABLE_ACTIONS.has(validated.action)
-          ? browserToolError('browser command cancelled')
-          : uncertainMutation('browser command cancelled');
-      }
+      if (options.signal?.aborted) return settleFailure('browser command cancelled');
       const replacement = readDiscovery();
       if (attempt === 0 && bridgeDiscoveryChanged(discovery, replacement)) {
         if (RETRYABLE_ACTIONS.has(validated.action)) {

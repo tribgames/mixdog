@@ -217,13 +217,7 @@ function readJsonFile(path) {
       // so the post-quarantine/restore read hits disk fresh (malformed = never
       // cached).
       invalidateConfigReadCache();
-      const corrupt = `${path}.corrupt-${Date.now()}`;
-      try {
-        renameWithRetrySync(path, corrupt);
-      } catch {}
-      process.stderr.write(
-        `[config] mixdog-config.json is malformed (${err.message}). Renamed to ${corrupt}. Restore it or delete to start fresh.\n`
-      );
+      quarantineMalformedConfig(err);
     }
     return null;
   }
@@ -480,7 +474,7 @@ export function updateSectionAsync(section, updater) {
 export const SECRET_ACCOUNTS = Object.freeze({
   agentApiKey: (provider) => `agent.${provider}.apiKey`,
   openaiUsageSessionKey: 'agent.openai.usageSessionKey',
-  opencodeGoAuthCookie: 'agent.opencode-go.authCookie',
+  opencodeGoConsoleKey: 'agent.opencode-go.consoleKey',
 });
 
 // ── Secret-aware getters ─────────────────────────────────────────────────────
@@ -511,12 +505,12 @@ export function getOpenAIUsageSessionKey() {
   );
 }
 
-export function getOpenCodeGoAuthCookie() {
+export function getOpenCodeGoConsoleKey() {
   return (
-    process.env.OPENCODE_AUTH_COOKIE ||
-    process.env.OPENCODE_GO_AUTH_COOKIE ||
-    process.env.MIXDOG_OPENCODE_AUTH_COOKIE ||
-    _readSecret(SECRET_ACCOUNTS.opencodeGoAuthCookie)
+    process.env.OPENCODE_CONSOLE_API_KEY ||
+    process.env.OPENCODE_GO_CONSOLE_API_KEY ||
+    process.env.MIXDOG_OPENCODE_CONSOLE_API_KEY ||
+    _readSecret(SECRET_ACCOUNTS.opencodeGoConsoleKey)
   );
 }
 

@@ -63,6 +63,10 @@ function documentPartFirst(left, right) {
   return left.localeCompare(right);
 }
 
+// The paragraph mark's own revision id sits clear of the ids the paragraph's
+// runs take.
+const PARAGRAPH_MARK_ID_OFFSET = 900;
+
 // A deleted paragraph mark lives in the paragraph's own run properties: the
 // mark joins an existing <w:rPr>, else opens one under <w:pPr>, else opens a
 // <w:pPr> at the head of the paragraph.
@@ -151,14 +155,19 @@ export function replaceTrackedParagraphs(xml, find, replacement, author) {
   return { xml: next, count, paragraphRewrites };
 }
 
+// The stories are the body, the headers, the footers, and the notes; the
+// comments part carries no tracked text of its own.
+const isStoryPart = (name) => !/\/comments\.xml$/i.test(name);
+
 /** Word drops a comment together with the text it marked; after accepting a
  *  deletion that carried the whole anchor, the comment has no reference left
  *  in any story and is removed with its thread, id map, and timestamp. */
 async function pruneOrphanComments(zip, parts) {
   const comments = await zipText(zip, 'word/comments.xml');
   if (!comments) return 0;
+  const stories = parts.filter(isStoryPart);
   const referenced = new Set();
-  for (const part of parts.filter((name) => !/\/comments\.xml$/i.test(name))) {
+  for (const part of stories) {
     const xml = await zipText(zip, part);
     for (const match of xml.matchAll(/<w:commentReference\b[^>]*\bw:id="([^"]*)"/g)) referenced.add(match[1]);
   }
@@ -174,7 +183,7 @@ async function pruneOrphanComments(zip, parts) {
   zip.file('word/comments.xml', next);
   // The range markers are not runs, so a deletion never carried them away;
   // without their comment they would read as a marker mismatch.
-  for (const part of parts.filter((name) => !/\/comments\.xml$/i.test(name))) {
+  for (const part of stories) {
     const xml = await zipText(zip, part);
     const stripped = removedIds.reduce(
       (value, id) =>
@@ -503,7 +512,7 @@ export async function editDocxParagraph(zip, op, tracking) {
   if (op.op === 'remove_paragraph' && tracking) {
     const id = nextRevisionId(current);
     const marked = markRunsDeleted(paragraph.xml, id, op.author);
-    const mark = `<w:del ${revisionAttributes(id + 900, op.author)}/>`;
+    const mark = `<w:del ${revisionAttributes(id + PARAGRAPH_MARK_ID_OFFSET, op.author)}/>`;
     nextInner = splice(withParagraphMarkRevision(marked, mark));
   } else if (op.op === 'remove_paragraph') {
     nextInner = splice('');
@@ -692,7 +701,7 @@ export async function resolveDocxRevisions(zip, parts, op) {
   // Headers, footers, and notes carry tracked changes of their own, and
   // Word's accept-all settles them too. Snapshot ordinals run through the
   // story parts in name order, which is the order walked here.
-  const stories = parts.filter((name) => !/\/comments\.xml$/i.test(name)).sort();
+  const stories = parts.filter(isStoryPart).sort();
   const totals = {
     resolved: 0,
     merged: 0,

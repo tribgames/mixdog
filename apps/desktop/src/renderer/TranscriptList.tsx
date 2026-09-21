@@ -29,15 +29,6 @@ import {
   type TranscriptSelectionPin,
 } from './transcript-selection-drag';
 
-/**
- * The virtualized transcript timeline.
- *
- * ONE instance per session (the caller keys it): entry geometry, measurement
- * cache, and scroll offset are all resolved at construction, so a session
- * paints at its final position on the first frame. Settled, live, pending, and
- * thinking rows share this list; bottom anchoring and reflow compensation are
- * owned by virtual-core.
- */
 function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): number {
   if (!(element instanceof HTMLElement) || !element.isConnected) {
     return Math.max(1, element instanceof HTMLElement ? element.offsetHeight : 0) || 1;
@@ -49,7 +40,7 @@ function measureTranscriptRow(element: Element, entry?: ResizeObserverEntry): nu
   if (rect > 0) return Math.round(rect);
   // A row is never zero-tall; a headless layout (jsdom) that reports no box
   // still has to leave the range resolvable.
-  return Math.max(1, element instanceof HTMLElement ? element.offsetHeight : 0);
+  return Math.max(1, element.offsetHeight);
 }
 
 // Newer virtual cores expose getLogicalScrollOffset(); the resolved core
@@ -77,6 +68,15 @@ export function shouldDeferTranscriptScrollAdjustment(hasReaderGesture: boolean)
   return hasReaderGesture;
 }
 
+/**
+ * The virtualized transcript timeline.
+ *
+ * ONE instance per session (the caller keys it): entry geometry, measurement
+ * cache, and scroll offset are all resolved at construction, so a session
+ * paints at its final position on the first frame. Settled, live, pending, and
+ * thinking rows share this list; bottom anchoring and reflow compensation are
+ * owned by virtual-core.
+ */
 export function TranscriptList({
   sessionKey,
   rows,

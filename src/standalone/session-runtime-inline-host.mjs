@@ -86,21 +86,16 @@ export function createInlineSessionRuntimeHost({
       const runtime = records.ownerRuntime(ownerSessionId);
       return runtime?.deliverToolCompletion?.(String(ownerSessionId || ''), String(text || ''), meta) === true;
     },
-    async agentSessionAction(sessionId, action, args = []) {
-      void sessionId;
-      void action;
-      void args;
+    async agentSessionAction(_sessionId, _action, _args = []) {
       throw new Error('Agent sessions are owned by the canonical session service');
     },
     refreshRuntimeWorkload() {
       return Promise.resolve(this.workloads);
     },
-    subscribeAgentSessionStates(listener) {
-      void listener;
+    subscribeAgentSessionStates(_listener) {
       return () => {};
     },
-    agentSessionState(sessionId) {
-      void sessionId;
+    agentSessionState(_sessionId) {
       return null;
     },
     get workloads() {

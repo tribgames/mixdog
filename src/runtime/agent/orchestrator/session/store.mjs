@@ -95,9 +95,10 @@ import {
   _saveAsyncInflight,
   _deferredSessionSaves,
   _resetSaveWorkerBookkeeping,
+  purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping,
+  _setLiveSessionPublisher,
+  _setSessionWriteAuthorityCheck,
 } from './store/save-worker.mjs';
-import { purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping } from './store/save-worker.mjs';
-import { _setLiveSessionPublisher, _setSessionWriteAuthorityCheck } from './store/save-worker.mjs';
 import {
   _commitSessionWrite,
   _discardSaveTmp,
@@ -327,8 +328,6 @@ export function evictIdleLiveSessions(options = {}) {
   }
   return evicted;
 }
-
-const _deleteHeartbeat = deleteHeartbeat;
 
 // ── 150 ms debounce window ────────────────────────────────────────────────────
 // Multiple tool-result writes within a turn collapse to one tmp+rename per
@@ -676,10 +675,6 @@ function _shouldDrop(id, opts) {
 // canonical-reader.mjs may reuse primitive authority after exact byte equality,
 // never by stat. Full lifecycle barriers still parse a private document.
 
-// ONE absolute budget for the WHOLE drain: the commit-lock waits and the
-// bounded commit acquisitions of every id share it, so exit cost cannot scale
-// with the number of contended sessions. Exit must never hang on a stuck
-// writer; an id left unflushed is recorded + live-pinned instead.
 // Pre-admission authority for the async/worker path (registered here because
 // save-worker.mjs cannot import this module back). A refusal keeps the caller
 // from publishing ANY owned state — no live snapshot, no optimistic summary.
@@ -699,6 +694,10 @@ function _sessionWriteAuthorityRefusal(id) {
 
 _setSessionWriteAuthorityCheck(_sessionWriteAuthorityRefusal);
 
+// ONE absolute budget for the WHOLE drain: the commit-lock waits and the
+// bounded commit acquisitions of every id share it, so exit cost cannot scale
+// with the number of contended sessions. Exit must never hang on a stuck
+// writer; an id left unflushed is recorded + live-pinned instead.
 const DRAIN_BUDGET_MS = 400;
 
 /**
@@ -986,7 +985,7 @@ function _deleteHeartbeatUnlessNewer(id, options = {}) {
   const hasHeartbeatSnapshot = Object.hasOwn(options, 'heartbeatSnapshotMtime');
   const snapshotMtime = Number(options.heartbeatSnapshotMtime) || 0;
   if (!hasHeartbeatSnapshot || _heartbeatMtime(id) <= snapshotMtime) {
-    _deleteHeartbeat(id);
+    deleteHeartbeat(id);
   }
 }
 
@@ -1212,7 +1211,7 @@ export function bumpSessionGeneration(id, reason = 'detach') {
     _savePending.delete(id);
     clearSessionSaveError(id);
     _clearLiveSession(id);
-    _deleteHeartbeat(id);
+    deleteHeartbeat(id);
     _queueSessionSummaryUpsert(detached);
     _droppedSaveIds.delete(id);
     return newGen;

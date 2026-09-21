@@ -149,38 +149,45 @@ test('nested path fanout runs patterns serially and preserves result and error o
 
 test('combined patterns summarize only misses and retain per-pattern pages after deduplication', async (t) => {
   const root = fixture(t);
-  const out = await runGrepPatternFanout(fanoutRequest(root, {
-    patterns: ['alpha', 'beta', 'absent', 'missing'],
-    headLimit: 1,
-    options: {
-      __runRgWindowedLines: async () => ({
-        lines: ['sample.txt:2:alpha beta', 'sample.txt:4:alpha beta'],
-        complete: true,
-        partial: false,
-      }),
-    },
-  }));
-  assert.equal(out, [
-    '# grep pattern:"alpha"\nsample.txt:2:alpha beta\n[1 of 2 shown; offset:1 for the rest]',
-    '# grep pattern:"beta"\n[1 of 2 shown; offset:1 for the rest]',
-    '(no matches) patterns=["absent","missing"]',
-  ].join('\n\n'));
+  const out = await runGrepPatternFanout(
+    fanoutRequest(root, {
+      patterns: ['alpha', 'beta', 'absent', 'missing'],
+      headLimit: 1,
+      options: {
+        __runRgWindowedLines: async () => ({
+          lines: ['sample.txt:2:alpha beta', 'sample.txt:4:alpha beta'],
+          complete: true,
+          partial: false,
+        }),
+      },
+    })
+  );
+  assert.equal(
+    out,
+    [
+      '# grep pattern:"alpha"\nsample.txt:2:alpha beta\n[1 of 2 shown; offset:1 for the rest]',
+      '# grep pattern:"beta"\n[1 of 2 shown; offset:1 for the rest]',
+      '(no matches) patterns=["absent","missing"]',
+    ].join('\n\n')
+  );
 });
 
 test('combined partial results retain timeout and execution warnings, not proven misses', async (t) => {
   const root = fixture(t);
   for (const diagnostic of [{ timeout: true }, { rgStderr: 'permission denied' }]) {
-    const out = await runGrepPatternFanout(fanoutRequest(root, {
-      patterns: ['alpha', 'absent', 'missing'],
-      options: {
-        __runRgWindowedLines: async () => ({
-          lines: ['sample.txt:7:alpha'],
-          complete: false,
-          partial: true,
-          ...diagnostic,
-        }),
-      },
-    }));
+    const out = await runGrepPatternFanout(
+      fanoutRequest(root, {
+        patterns: ['alpha', 'absent', 'missing'],
+        options: {
+          __runRgWindowedLines: async () => ({
+            lines: ['sample.txt:7:alpha'],
+            complete: false,
+            partial: true,
+            ...diagnostic,
+          }),
+        },
+      })
+    );
     assert.match(out, /sample\.txt:7:alpha/);
     assert.match(out, /\[1 shown, more exist; offset:1 for the rest\]/);
     assert.match(out, /\(no matches in partial results\) patterns=\["absent","missing"\]/);
@@ -203,36 +210,43 @@ test('fallback pattern deduplication drops empty context headers but keeps diagn
     new Error('spawn failed'),
     '(no matches)\n[hint] retry with -i',
   ];
-  const out = await runGrepPatternFanout(fanoutRequest(root, {
-    patterns,
-    multilineMode: true,
-    options: { __runRgWindowedLines: candidates },
-    executeGrepTool: async ({ pattern }) => {
-      const body = bodies[patterns.indexOf(pattern)];
-      if (body instanceof Error) throw body;
-      return body;
-    },
-  }));
-  assert.equal(out, [
-    `# grep pattern:"alpha"\n${block}`,
-    '# grep pattern:"page"\n[1 of 3 shown; offset:1 for the rest]',
-    '# grep pattern:"["\nError: regex parse error: unclosed character class',
-    `# grep pattern:"timeout"\n${bodies[5]}`,
-    '# grep pattern:"scan"\nError: spawn failed',
-    `# grep pattern:"hint"\n${bodies[7]}`,
-    '(no matches) patterns=["absent"]',
-  ].join('\n\n'));
+  const out = await runGrepPatternFanout(
+    fanoutRequest(root, {
+      patterns,
+      multilineMode: true,
+      options: { __runRgWindowedLines: candidates },
+      executeGrepTool: async ({ pattern }) => {
+        const body = bodies[patterns.indexOf(pattern)];
+        if (body instanceof Error) throw body;
+        return body;
+      },
+    })
+  );
+  assert.equal(
+    out,
+    [
+      `# grep pattern:"alpha"\n${block}`,
+      '# grep pattern:"page"\n[1 of 3 shown; offset:1 for the rest]',
+      '# grep pattern:"["\nError: regex parse error: unclosed character class',
+      `# grep pattern:"timeout"\n${bodies[5]}`,
+      '# grep pattern:"scan"\nError: spawn failed',
+      `# grep pattern:"hint"\n${bodies[7]}`,
+      '(no matches) patterns=["absent"]',
+    ].join('\n\n')
+  );
 });
 
 test('all-miss combined and prefiltered fallback searches return one whole-scope notice', async (t) => {
   const root = fixture(t);
   for (const multilineMode of [false, true]) {
-    const out = await runGrepPatternFanout(fanoutRequest(root, {
-      multilineMode,
-      options: {
-        __runRgWindowedLines: async () => ({ lines: [], complete: true, partial: false }),
-      },
-    }));
+    const out = await runGrepPatternFanout(
+      fanoutRequest(root, {
+        multilineMode,
+        options: {
+          __runRgWindowedLines: async () => ({ lines: [], complete: true, partial: false }),
+        },
+      })
+    );
     assert.equal(out, '(no matches)');
   }
 });
@@ -262,15 +276,18 @@ test('path fallback consolidates only clean misses, preserving missing paths, er
       return body;
     },
   });
-  assert.equal(out, [
-    `# grep hit\n${bodies[0]}`,
-    `# grep missing\n${bodies[2]}`,
-    `# grep invalid\n${bodies[3]}`,
-    `# grep timeout\n${bodies[4]}`,
-    '# grep failed\nError: spawn failed',
-    '(no matches) paths=["empty","also empty"]',
-    '(no matches in partial results) paths=["partial"]',
-  ].join('\n\n'));
+  assert.equal(
+    out,
+    [
+      `# grep hit\n${bodies[0]}`,
+      `# grep missing\n${bodies[2]}`,
+      `# grep invalid\n${bodies[3]}`,
+      `# grep timeout\n${bodies[4]}`,
+      '# grep failed\nError: spawn failed',
+      '(no matches) paths=["empty","also empty"]',
+      '(no matches in partial results) paths=["partial"]',
+    ].join('\n\n')
+  );
 });
 
 test('nested path and pattern misses name only the unmatched subsets once', async (t) => {
@@ -282,18 +299,23 @@ test('nested path and pattern misses name only the unmatched subsets once', asyn
     options: {},
     callContextCharBudget: 4_096,
     executeGrepTool: async ({ path, pattern }, _workDir, _child, _scope, options) =>
-      runGrepPatternFanout(fanoutRequest(root, {
-        patterns: pattern,
-        searchPath: path,
-        multilineMode: true,
-        options: { ...options, __runRgWindowedLines: candidates },
-        executeGrepTool: async ({ pattern: p }) =>
-          path !== 'empty' && p === 'alpha' ? `${path}/sample.txt:6:alpha` : '(no matches)',
-      })),
+      runGrepPatternFanout(
+        fanoutRequest(root, {
+          patterns: pattern,
+          searchPath: path,
+          multilineMode: true,
+          options: { ...options, __runRgWindowedLines: candidates },
+          executeGrepTool: async ({ pattern: p }) =>
+            path !== 'empty' && p === 'alpha' ? `${path}/sample.txt:6:alpha` : '(no matches)',
+        })
+      ),
   });
-  assert.equal(out, [
-    '# grep one\n# grep pattern:"alpha"\none/sample.txt:6:alpha\n\n(no matches) patterns=["beta","absent"]',
-    '# grep two\n# grep pattern:"alpha"\ntwo/sample.txt:6:alpha\n\n(no matches) patterns=["beta","absent"]',
-    '(no matches) paths=["empty"]',
-  ].join('\n\n'));
+  assert.equal(
+    out,
+    [
+      '# grep one\n# grep pattern:"alpha"\none/sample.txt:6:alpha\n\n(no matches) patterns=["beta","absent"]',
+      '# grep two\n# grep pattern:"alpha"\ntwo/sample.txt:6:alpha\n\n(no matches) patterns=["beta","absent"]',
+      '(no matches) paths=["empty"]',
+    ].join('\n\n')
+  );
 });

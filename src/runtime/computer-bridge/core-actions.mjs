@@ -14,6 +14,7 @@ const COMPUTER_CORE_ACTION_TYPES = Object.freeze([
   'drag',
   'scroll',
   'type',
+  'set_value',
   'key',
   'key_down',
   'key_up',
@@ -75,6 +76,12 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
       maxLength: 30_000,
       description: `Literal text; foreground cap ${MAX_COMPUTER_FOREGROUND_TEXT_CHARS} UTF-16 code units per action.`,
     },
+    value: {
+      type: 'string',
+      maxLength: 30_000,
+      description:
+        'set_value replacement for an element that advertises set_value; writes the control directly, without focus or keystrokes.',
+    },
     keys: {
       type: 'string',
       minLength: 1,
@@ -102,6 +109,9 @@ const FIELDS_BY_TYPE = {
   drag: new Set(['type', ...TARGET_FIELDS, 'to', 'to_element', 'to_x', 'to_y', 'waypoints', 'modifiers']),
   scroll: new Set(['type', ...TARGET_FIELDS, 'direction', 'amount', 'modifiers']),
   type: new Set(['type', ...TARGET_FIELDS, 'text']),
+  // A value is written through the element itself, so it needs a semantic
+  // target: a coordinate names a pixel, not a control that holds a value.
+  set_value: new Set(['type', 'ref', 'element', 'value']),
   key: new Set(['type', 'ref', 'keys']),
   key_down: new Set(['type', 'ref', 'keys']),
   key_up: new Set(['type', 'ref', 'keys']),
@@ -252,6 +262,11 @@ function actionArgumentsError(action, type, label, frameId) {
     const error = targetFormError(action, { required: false, frameId });
     if (error) return `${label} ${error}`;
     return typeof action.text === 'string' ? null : `${label} requires text`;
+  }
+  if (type === 'set_value') {
+    if (!hasOwn(action, 'ref') && !hasOwn(action, 'element')) return `${label} requires ref or element`;
+    if (hasOwn(action, 'ref') && hasOwn(action, 'element')) return `${label} accepts only one of ref or element`;
+    return typeof action.value === 'string' ? null : `${label} requires value`;
   }
   if (type === 'key') return typeof action.keys === 'string' ? null : `${label} requires keys`;
   if (type === 'wait') {

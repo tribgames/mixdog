@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { mixdogHome } from '../../shared/plugin-paths.mjs';
 import { throwIfAborted } from './memory-cycle2-shared.mjs';
+import { isSkippedWatchPath, isTranscriptJsonlName } from './ingest/transcript-discovery.mjs';
 
 function normalizeBackfillWindow(value) {
   const normalized = String(value ?? 'all')
@@ -44,11 +45,11 @@ function selectBackfillTranscripts({ sinceMs = null, limit = null, projectsRoot 
   if (!fs.existsSync(root)) return [];
   const files = [];
   for (const d of fs.readdirSync(root)) {
-    if (d.includes('tmp') || d.includes('cache') || d.includes('plugins')) continue;
+    if (isSkippedWatchPath(d)) continue;
     const full = path.join(root, d);
     try {
       for (const f of fs.readdirSync(full)) {
-        if (!f.endsWith('.jsonl') || f.startsWith('agent-')) continue;
+        if (!isTranscriptJsonlName(f)) continue;
         const fp = path.join(full, f);
         let mtime;
         try {

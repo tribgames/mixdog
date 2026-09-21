@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises';
 import { render } from '../core/office-actions.mjs';
-import { documentFormat, documentSessionKey, documentSessions, sessions } from '../core/office-core.mjs';
+import { documentFormat, officeSessionForDocument } from '../core/office-core.mjs';
 import { createAuthoredSession, fullPath, validatePptxAuthorMode } from '../core/office-sessions.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
 import {
@@ -142,7 +142,7 @@ async function finishAuthoredDeck(session, { args, cwd, target, run, signal, rep
 // keeps counting across passes on the same path.
 async function authoringSessionState(target, mode, args) {
   const reusable = reusableAuthoredSession(target, mode);
-  const existing = sessions.get(documentSessions.get(documentSessionKey(target)) || '') || null;
+  const existing = officeSessionForDocument(target);
   if (!reusable && !existing && (await exists(target)) && args.overwrite !== true) {
     throw new Error(`author target already exists: ${target}; pass overwrite:true to replace it`);
   }

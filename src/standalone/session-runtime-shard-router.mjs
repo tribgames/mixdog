@@ -16,6 +16,8 @@
 //     it — health changes never migrate live work, which would strand accepted
 //     input in the abandoned child.
 
+import { mergeKnownProviderCooldown, providerCooldownAdvanced } from './session-runtime-provider-cooldown.mjs';
+
 export const SESSION_RUNTIME_SHARD_ENV = 'MIXDOG_SESSION_RUNTIME_SHARDS';
 const MAX_SESSION_RUNTIME_SHARDS = 16;
 
@@ -139,16 +141,11 @@ export function mergeProviderCooldown(current, incoming) {
     disabledReason: current?.disabledReason ? String(current.disabledReason) : null,
     updatedAt: Number(current?.updatedAt) || 0,
   };
-  const untilMs = Number(incoming?.untilMs) || 0;
-  const disabledReason = incoming?.disabledReason ? String(incoming.disabledReason) : null;
-  const grew = untilMs > base.untilMs + 1_000;
-  const newlyDisabled = Boolean(disabledReason) && disabledReason !== base.disabledReason;
-  if (!grew && !newlyDisabled) return { changed: false, cooldown: base };
+  if (!providerCooldownAdvanced(base, incoming)) return { changed: false, cooldown: base };
   return {
     changed: true,
     cooldown: {
-      untilMs: Math.max(base.untilMs, untilMs),
-      disabledReason: disabledReason || base.disabledReason,
+      ...mergeKnownProviderCooldown(base, incoming),
       updatedAt: Number(incoming?.observedAt) || Date.now(),
     },
   };

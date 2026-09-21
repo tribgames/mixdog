@@ -40,8 +40,20 @@ const timed = async (name, action, repetitions = 5) => {
   return { name, medianMs: +median(samples).toFixed(3), samplesMs: samples.map((n) => +n.toFixed(3)) };
 };
 const results = [];
-results.push(await timed('token-floors-before', () => messages.forEach((m) => legacyTokenFloors(m.content))));
-results.push(await timed('token-floors-after', () => messages.forEach((m) => currentFloors(m.content))));
+results.push(
+  await timed('token-floors-before', () => {
+    messages.forEach((m) => {
+      legacyTokenFloors(m.content);
+    });
+  })
+);
+results.push(
+  await timed('token-floors-after', () => {
+    messages.forEach((m) => {
+      currentFloors(m.content);
+    });
+  })
+);
 results.push(await timed('full-token-meter-after', () => estimateMessagesTokens(messages)));
 results.push(await timed('context-summary-cold-after', () => summarizeContextMessages(structuredClone(messages))));
 summarizeContextMessages(messages);
@@ -57,14 +69,18 @@ for (const [name, action] of [
   [
     'shared-loop-before',
     () => {
-      messages.forEach((m) => legacyTokenFloors(m.content));
+      messages.forEach((m) => {
+        legacyTokenFloors(m.content);
+      });
       oldReader();
     },
   ],
   [
     'shared-loop-after',
     () => {
-      messages.forEach((m) => currentFloors(m.content));
+      messages.forEach((m) => {
+        currentFloors(m.content);
+      });
       currentReader(target, true);
     },
   ],

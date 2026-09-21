@@ -8,7 +8,7 @@ import { OOXML_REQUIRED, xmlAttribute, xmlDecode } from './portable-xml.mjs';
 
 async function inspectXmlParts(zip, entries) {
   const malformedXml = [];
-  const xmlEntries = entries.filter((name) => name === '[Content_Types].xml' || /\.(?:xml|rels)$/i.test(name));
+  const xmlEntries = entries.filter((name) => /\.(?:xml|rels)$/i.test(name));
   const { JSDOM } = await import('jsdom');
   for (const name of xmlEntries) {
     try {
@@ -55,7 +55,7 @@ async function chartWorkbooksOf(zip, entries) {
     for (const match of xml.matchAll(/<Relationship\b([^>]+?)\/?>/gi)) {
       if (!/\/package$/i.test(xmlAttribute(match[1], 'Type'))) continue;
       const target = xmlAttribute(match[1], 'Target');
-      workbooks.add(posix.normalize(posix.join(posix.dirname(relPath.replace(/_rels\/$|_rels\//, '')), target)));
+      workbooks.add(posix.normalize(posix.join(posix.dirname(relPath.replace('_rels/', '')), target)));
     }
   }
   return workbooks;
@@ -69,6 +69,8 @@ async function chartWorkbooksOf(zip, entries) {
 const PROTECTED_ALWAYS =
   /(?:^|\/)(?:vbaProject\.bin|vbaData\.xml|_xmlsignatures\/|origin\.sigs$|signatures?\.xml$|customUI\/|embeddings\/|externalLinks\/|connections\.xml$)/i;
 const PROTECTED_UNLESS_APPLICATION_SAVED = /(?:^|\/)(?:slideMasters\/|slideLayouts\/|theme\/)/i;
+// The parts a digital signature is stored in.
+const SIGNATURE_PART = /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i;
 const APPLICATION_BACKENDS = new Set(['microsoft-office-com']);
 
 function packageEntryNames(zip) {
@@ -128,9 +130,7 @@ async function baselinePackage(zip, original, { savedBy = '', chartWorkbooks = n
     isProtected,
     renumberedWorkbook,
   });
-  const signatureParts = originalEntries.filter((name) =>
-    /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name)
-  );
+  const signatureParts = originalEntries.filter((name) => SIGNATURE_PART.test(name));
   return {
     compared: true,
     original,
@@ -212,7 +212,7 @@ async function docxDocumentLint(zip, entries) {
   return lintDocxRevisions(
     await Promise.all(
       entries
-        .filter((name) => /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i.test(name))
+        .filter((name) => DOCX_STORY_PART.test(name))
         .sort()
         .map(async (name) => ({ part: name, xml: await zipText(zip, name) }))
     ),
@@ -224,7 +224,7 @@ function packageEntryFindings(entries, chartWorkbooks) {
   return {
     unsafeEntries: entries.filter((name) => name.includes('..') || name.startsWith('/') || /^[A-Za-z]:/.test(name)),
     macros: entries.filter((name) => /vbaProject\.bin$/i.test(name)),
-    signatures: entries.filter((name) => /(?:^|\/)(?:_xmlsignatures\/|origin\.sigs$|signatures?\.xml$)/i.test(name)),
+    signatures: entries.filter((name) => SIGNATURE_PART.test(name)),
     externalLinks: entries.filter((name) => /(?:^|\/)externalLinks\//i.test(name)),
     dataConnections: entries.filter((name) => /(?:^|\/)connections\.xml$/i.test(name)),
     // A chart's data workbook is native chart evidence, not an activatable

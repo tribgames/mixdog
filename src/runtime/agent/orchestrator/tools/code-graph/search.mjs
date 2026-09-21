@@ -1,6 +1,5 @@
 // Symbol search / callers / callees / references / impact query layer over a
-// built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
-// verbatim from code-graph.mjs.
+// built graph. Pure over {graph,cwd,args}; owns no cache state.
 import { readFile } from 'node:fs/promises';
 import { existsSync, statSync } from 'node:fs';
 import { resolve as pathResolve, dirname as pathDirname, basename as pathBasename } from 'node:path';

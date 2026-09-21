@@ -311,12 +311,7 @@ export const PaneConversation = memo(function PaneConversation({
         goalIsland={<PaneGoalIsland sessionId={presentedSessionId} hidden={hidden} />}
         contextIndicator={contextIndicator}
       />
-      <PaneSurfaceCover
-        ready={surfaceReady}
-        label={t('Loading conversation…')}
-        transitionKey={coverKey}
-        showSpinner={false}
-      />
+      <PaneSurfaceCover ready={surfaceReady} label={t('Loading conversation…')} transitionKey={coverKey} />
       {readUnavailable && lane === null && !hidden ? (
         <div className="pane-surface-cover session-unavailable" role="alert">
           <div className="session-unavailable-card">

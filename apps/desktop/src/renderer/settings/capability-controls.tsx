@@ -16,7 +16,7 @@ import { t } from '../i18n';
 import { ErrorNotice } from '../ErrorNotice';
 import { acquireTitleBarDim } from '../titlebar-dim';
 
-import { count, providerLabel, rows, type SettingsConfirmation } from './capability-data';
+import { count, type SettingsConfirmation } from './capability-data';
 
 export function Group({ title, description, children }: { title?: string; description?: string; children: ReactNode }) {
   return (
@@ -428,39 +428,6 @@ export function ContextStatusView({ value }: { value: unknown }) {
           { label: 'Last output', value: `${count(usage.lastOutputTokens)} tokens` },
         ]}
       />
-    </div>
-  );
-}
-
-export function UsageDashboard({ value }: { value: unknown }) {
-  const dashboard = record(value);
-  const total = record(dashboard.total);
-  const providers = rows(dashboard, 'rows');
-  if (dashboard.error) return <ErrorNotice error={dashboard.error} role="status" />;
-  return (
-    <div className="settings-status-stack">
-      <MetricGrid
-        items={[
-          { label: 'Providers', value: count(total.providerCount ?? providers.length) },
-          { label: 'Known remaining', value: `$${Number(total.knownRemainingUsd || 0).toFixed(2)}` },
-          { label: 'Not configured', value: count(total.notConfiguredCount) },
-          { label: 'Errors', value: count(total.errorCount), tone: Number(total.errorCount) > 0 ? 'danger' : 'good' },
-        ]}
-      />
-      {providers.length > 0 && (
-        <div>
-          {providers.map((provider, index) => (
-            <ResourceRow
-              key={String(provider.id || provider.provider || index)}
-              title={providerLabel(provider, `Provider ${index + 1}`)}
-              description={String(provider.detail || provider.sourceLabel || '')}
-              meta={provider.primary ? String(provider.primary) : undefined}
-              status={String(provider.status || 'unknown')}
-            />
-          ))}
-        </div>
-      )}
-      {providers.length === 0 && <Empty text="No provider usage rows." />}
     </div>
   );
 }

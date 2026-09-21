@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { ComposerPalette } from '../../src/renderer/ComposerPalette';
@@ -72,14 +72,16 @@ function Harness({ count, chromeHeight, promptHeight }: { count: number; chromeH
                 scrollToEndRef={scrollToEndRef}
                 hasScrollGesture={noGesture}
                 onSelectionAutoScroll={noop}
-                renderRow={(row) => (
-                  <div
-                    data-probe-row={row.key}
-                    style={{ height: row.key === 'prompt' ? promptHeight : row._tag === 'TurnGap' ? 20 : 40 }}
-                  >
-                    {row.key}
-                  </div>
-                )}
+                renderRow={(row) => {
+                  let height = 40;
+                  if (row.key === 'prompt') height = promptHeight;
+                  else if (row._tag === 'TurnGap') height = 20;
+                  return (
+                    <div data-probe-row={row.key} style={{ height }}>
+                      {row.key}
+                    </div>
+                  );
+                }}
               />
             </div>
           </div>

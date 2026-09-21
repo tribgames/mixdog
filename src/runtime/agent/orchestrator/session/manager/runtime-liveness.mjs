@@ -41,9 +41,9 @@ const VALID_STAGES = new Set([
 ]);
 const TERMINAL_STAGES = new Set(['done', 'error']);
 
-function finishBrowserWork(id, entry) {
+function finishBrowserWork(id, entry, aborted = false) {
   const turnId = Number(entry.browserTurnId ?? entry.session?.usageMetricsTurnId) || 0;
-  void finishBrowserTurn(id, turnId).catch((error) => {
+  void finishBrowserTurn(id, turnId, { aborted }).catch((error) => {
     process.stderr.write(`[browser] Task cleanup failed: ${error?.message || error}\n`);
   });
 }
@@ -335,7 +335,8 @@ export function markSessionError(id, msg) {
   if (!id) return;
   _stopToolActivityHeartbeat(id);
   const entry = _touchRuntime(id);
-  finishBrowserWork(id, entry);
+  // A run that ended badly leaves no one to continue its browser work.
+  finishBrowserWork(id, entry, true);
   entry.stage = 'error';
   entry.lastError = msg ? String(msg).slice(0, 200) : null;
   entry.askStartedAt = null;
@@ -356,7 +357,7 @@ export function markSessionCancelled(id) {
   if (!id) return;
   _stopToolActivityHeartbeat(id);
   const entry = _touchRuntime(id);
-  finishBrowserWork(id, entry);
+  finishBrowserWork(id, entry, true);
   entry.stage = 'done';
   entry.lastError = null;
   entry.askStartedAt = null;

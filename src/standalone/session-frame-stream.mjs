@@ -116,8 +116,10 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
 
   function setPending(client, key, entry) {
     const previous = client.pending.get(key);
-    if (previous) traceFrame(client, previous.frame, 'stream-replaced', previous);
-    if (previous) client.pendingBytes = Math.max(0, client.pendingBytes - (previous.bytes || 0));
+    if (previous) {
+      traceFrame(client, previous.frame, 'stream-replaced', previous);
+      client.pendingBytes = Math.max(0, client.pendingBytes - (previous.bytes || 0));
+    }
     client.pending.delete(key);
     client.pending.set(key, entry);
     client.pendingBytes += entry.bytes || 0;

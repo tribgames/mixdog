@@ -23,7 +23,11 @@ test('requested read windows retain every line after overlapping grep context an
   const grepArgs = { path: file, pattern: 'line (193|302):', context: 2 };
   const grep = await executeBuiltinTool('grep', grepArgs, root);
   const messages = [call('grep_1', 'grep', grepArgs), result('grep_1', grep)];
-  for (const [offset, limit] of [[300, 130], [185, 21], [192, 4]]) {
+  for (const [offset, limit] of [
+    [300, 130],
+    [185, 21],
+    [192, 4],
+  ]) {
     const args = { file_path: file, offset, limit };
     const id = `read_${offset}`;
     const body = await executeBuiltinTool('read', args, root);
@@ -31,7 +35,10 @@ test('requested read windows retain every line after overlapping grep context an
     const projected = projectProviderEvidence(messages);
     const delivered = projected.messages.at(-1).content;
     const rows = delivered.split('\n').filter((line) => /^\d+[→│\t]/.test(line));
-    assert.deepEqual(rows, source.slice(offset - 1, offset - 1 + limit).map((line, i) => `${offset + i}→${line}`));
+    assert.deepEqual(
+      rows,
+      source.slice(offset - 1, offset - 1 + limit).map((line, i) => `${offset + i}→${line}`)
+    );
     assert.match(delivered, new RegExp(`\\[lines ${offset}-${offset + limit - 1} of 450`));
     assert.equal(delivered, body);
     assert.deepEqual(projected.messages, messages);

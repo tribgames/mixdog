@@ -10,7 +10,9 @@ import {
   applyConditionalFormat,
   autofitWorksheetRange,
   deleteWorksheet,
+  deleteWorksheetDrawing,
   renameWorksheet,
+  setWorksheetDrawing,
   setWorksheetHeaderFooter,
   sortWorksheetRange,
 } from './portable-xlsx-operations.mjs';
@@ -79,8 +81,37 @@ const SHEET_EDITS = {
   add_table: addWorksheetTable,
   add_pivot_table: addWorksheetPivotTable,
   add_chart: addWorksheetChart,
+  // A chart or picture the audit reports as overlapping or off the print area
+  // had no answer but a rebuilt workbook.
+  set_drawing: setWorksheetDrawing,
+  delete_drawing: deleteWorksheetDrawing,
   set_page_setup: (zip, sheet, xml, op, sheets) => applyWorksheetPageSetup(zip, sheets, sheet, xml, op),
 };
+
+// Every operation that can change what a formula would answer. Marking the
+// workbook only when a formula was written left an edited input with every
+// dependent cell's old cached value in place: the file reopened with the
+// numbers from before the edit, and an error a guard had swallowed stayed
+// swallowed. The mark is what tells a later read the values are stale.
+const VALUE_OPERATIONS = new Set([
+  'set_cell',
+  'set_formula',
+  'set_range',
+  'append_row',
+  'clear_cell',
+  'replace_text',
+  'insert_rows',
+  'delete_rows',
+  'insert_columns',
+  'delete_columns',
+  'sort_range',
+  'add_sheet',
+  'delete_sheet',
+  'rename_sheet',
+  'copy_sheet',
+  'define_name',
+  'delete_name',
+]);
 
 function selectWorksheet(sheets, op) {
   const selected = op.sheet
@@ -95,6 +126,7 @@ export async function applyXlsx(zip, operations) {
   const results = [];
   let recalculationRequired = false;
   for (const op of operations) {
+    if (VALUE_OPERATIONS.has(op.op)) recalculationRequired = true;
     if (op.op === 'add_sheet') {
       const created = await addWorksheet(zip, op.name);
       sheets = await workbookSheets(zip);

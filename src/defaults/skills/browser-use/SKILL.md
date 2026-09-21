@@ -70,9 +70,10 @@ same `target` object. "Snapshot → click ref" pairs where the name was already
 known are the single largest waste of calls.
 
 Refs are the fastest, most reliable targeting. `locate` (visual text/colour/
-position search) or `mode=both` come next when semantics are empty; raw
-coordinates require the `snapshotId` of a `mode=both` snapshot and are the last
-resort. `mode=visual` alone cannot ground coordinates.
+position search over what is on screen — it never offers an element the
+screenshot does not show, so scroll first) or `mode=both` come next when
+semantics are empty; raw coordinates require the `snapshotId` of a `mode=both`
+snapshot and are the last resort. `mode=visual` alone cannot ground coordinates.
 
 ## Reading a reply
 
@@ -166,9 +167,10 @@ not as two blocks joined.
 
 - **Action/result only** — verify completion first, retain needed evidence or
   completed downloads, then `close_tab` the disposable background pages created
-  for this task. Runtime completion, failure, and cancellation also clean up
-  task-owned pages and restore temporary panels. Do not rely on idle timeouts,
-  or open hidden pages just to close them or summarize their results.
+  for this task. A finished turn keeps its pages, so the next message can carry
+  on with the same sign-ins and half-filled forms; a failed or cancelled run
+  reclaims them, and both restore temporary panels. Do not rely on idle
+  timeouts, or open hidden pages just to close them or summarize their results.
 - **Screen is the deliverable / user continues** — leave the relevant foreground
   page visible using `open` with its `tab`; clean up only disposable support
   pages. A CAPTCHA, 2FA, or identity check is a handoff, not completion: retain

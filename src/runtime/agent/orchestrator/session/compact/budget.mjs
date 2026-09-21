@@ -57,6 +57,19 @@ function pruneToolOutputText(text, maxChars, _toolCallId) {
   return compactOffloadedToolResultText(value);
 }
 
+// The pruned copy of one oversized tool message, or null when its body is
+// already as short as this prune can make it.
+function prunedToolMessage(m, maxChars) {
+  const content = pruneToolOutputText(m.content, maxChars, m.toolCallId);
+  if (content === m.content) return null;
+  return {
+    ...m,
+    content,
+    compacted: true,
+    compactedKind: 'tool_output_prune',
+  };
+}
+
 export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
   const budget = effectiveBudget(budgetTokens, opts);
   const result = reconcileDedupStubs(dedupToolResultBodies(sanitizeToolPairs(messages)));
@@ -80,14 +93,8 @@ export function pruneToolOutputs(messages, budgetTokens, opts = {}) {
   candidates.sort((a, b) => b.length - a.length);
   for (const c of candidates) {
     const m = result[c.index];
-    const content = pruneToolOutputText(m.content, maxChars, m.toolCallId);
-    if (content === m.content) continue;
-    const pruned = {
-      ...m,
-      content,
-      compacted: true,
-      compactedKind: 'tool_output_prune',
-    };
+    const pruned = prunedToolMessage(m, maxChars);
+    if (!pruned) continue;
     total += estimateMessageTokens(pruned) - estimateMessageTokens(m);
     result[c.index] = pruned;
     if (total <= budget) break;
@@ -114,14 +121,8 @@ export function pruneToolOutputsUnanchored(messages, budgetTokens, opts = {}) {
     const m = result[i];
     if (m?.role !== 'tool' || typeof m.content !== 'string') continue;
     if (m.content.length <= maxChars) continue;
-    const content = pruneToolOutputText(m.content, maxChars, m.toolCallId);
-    if (content === m.content) continue;
-    const pruned = {
-      ...m,
-      content,
-      compacted: true,
-      compactedKind: 'tool_output_prune',
-    };
+    const pruned = prunedToolMessage(m, maxChars);
+    if (!pruned) continue;
     total += estimateMessageTokens(pruned) - estimateMessageTokens(m);
     result[i] = pruned;
     if (total <= budget) break;

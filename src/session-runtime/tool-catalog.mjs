@@ -303,11 +303,11 @@ export function applyDeferredToolSurface(session, mode, extraTools = [], options
   const catalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   const defaultNames = defaultDeferredToolNames(catalog, mode);
   const storedNames = providerMode === 'native' ? [] : storedDeferredToolNames(session);
-  let selectedNames =
-    providerMode === 'full' || providerMode === 'manifest' || providerMode === 'canonical'
-      ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
-      : [];
-  if (!['full', 'manifest', 'canonical'].includes(providerMode)) {
+  const fixedSurface = ['full', 'manifest', 'canonical'].includes(providerMode);
+  let selectedNames = fixedSurface
+    ? sortedNamesByMeasuredUsage(catalog.map((tool) => clean(tool?.name)).filter(Boolean))
+    : [];
+  if (!fixedSurface) {
     selectedNames = storedNames.length ? canonicalDeferredToolNames(catalog, storedNames) : [];
     if (!selectedNames.length || providerMode === 'native') selectedNames = sortedNamesByMeasuredUsage(defaultNames);
   }
@@ -633,11 +633,6 @@ export function selectDeferredTools(session, names, mode, { exact = false } = {}
   return { added, already, blocked, missing, native };
 }
 
-// Collect the exact deferred-tool names requested by the loader.
-function parseLoadToolNames(args = {}) {
-  return parseToolSelection(args.names);
-}
-
 // Split live MCP servers into "still connecting" (pending) and "failed" so the
 // loader can tell the model to retry next turn instead of treating a missing
 // tool as a permanent zero result. `mcpStatus` is a getter plumbed from the
@@ -662,10 +657,6 @@ function pendingAndFailedMcpServers(mcpStatus) {
   return { pending: [...new Set(pending)].sort(), failed: [...new Set(failed)].sort() };
 }
 
-// Pure loader. Input is exact deferred-tool
-// names/aliases; output reports loaded / already-active / missing / blocked
-// tools PLUS pending/failed MCP servers. No listing, no ranking, no substring
-// filter. `options.mcpStatus` is the runtime getter for per-server status.
 /** The deferred catalog union, or the session's own allowed tools when nothing is deferred. */
 function resolvableCatalog(session) {
   const union = deferredCatalogUnion(session);
@@ -673,9 +664,13 @@ function resolvableCatalog(session) {
   return filterDisallowedTools(Array.isArray(session?.tools) ? session.tools : [], session?.disallowedTools);
 }
 
+// Pure loader. Input is exact deferred-tool names/aliases; output reports
+// loaded / already-active / missing / blocked tools PLUS pending/failed MCP
+// servers. No listing, no ranking, no substring filter. `options.mcpStatus` is
+// the runtime getter for per-server status.
 export function renderToolSearch(args = {}, session, mode = 'full', options = {}) {
   const catalog = resolvableCatalog(session);
-  const requestedNames = parseLoadToolNames(args);
+  const requestedNames = parseToolSelection(args.names);
   const { pending: pendingMcpServers, failed: failedMcpServers } = pendingAndFailedMcpServers(options?.mcpStatus);
   const mcpFields = {
     ...(pendingMcpServers.length ? { pendingMcpServers } : {}),

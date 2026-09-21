@@ -75,6 +75,16 @@ function stopLevelMeter(meter: DictationMeter | null, level: { current: number }
   });
 }
 
+/** Stopping a recorder that has already stopped throws; every stop path here
+ *  treats that as the state it asked for. */
+function stopRecorder(recorder: MediaRecorder): void {
+  try {
+    recorder.stop();
+  } catch {
+    // The recorder already stopped.
+  }
+}
+
 function microphoneFailureText(reason: unknown): string {
   const name = reason instanceof DOMException ? reason.name : '';
   if (name === 'NotAllowedError') {
@@ -158,11 +168,7 @@ export function useComposerDictation({
     if (dictationState === 'transcribing' || transitioningRef.current) return;
     const active = dictationSession.current;
     if (active) {
-      try {
-        active.recorder.stop();
-      } catch {
-        // The recorder already stopped.
-      }
+      stopRecorder(active.recorder);
       return;
     }
     if (dictationPreparing.current) return;
@@ -259,13 +265,7 @@ export function useComposerDictation({
       };
       recorder.start();
       session.meter = startLevelMeter(stream, dictationLevelRef);
-      session.stopTimer = window.setTimeout(() => {
-        try {
-          recorder.stop();
-        } catch {
-          // The recorder already stopped.
-        }
-      }, 120_000);
+      session.stopTimer = window.setTimeout(() => stopRecorder(recorder), 120_000);
       setRecordingSince(Date.now());
       setDictationState('recording');
     } catch (reason) {
@@ -294,11 +294,7 @@ export function useComposerDictation({
     const active = dictationSession.current;
     if (!active || active.cancelled) return;
     active.submitOnStop = true;
-    try {
-      active.recorder.stop();
-    } catch {
-      // The recorder already stopped.
-    }
+    stopRecorder(active.recorder);
   }, []);
 
   // Discarding is its own path: `toggleDictation` always transcribes what it
@@ -307,11 +303,7 @@ export function useComposerDictation({
     const active = dictationSession.current;
     if (!active) return;
     active.cancelled = true;
-    try {
-      active.recorder.stop();
-    } catch {
-      // The recorder already stopped.
-    }
+    stopRecorder(active.recorder);
   }, []);
 
   // Enter finishes the take, Esc discards it. Capture phase, because the
@@ -357,11 +349,7 @@ export function useComposerDictation({
       session.cancelled = true;
       stopLevelMeter(session.meter, dictationLevelRef);
       session.meter = null;
-      try {
-        session.recorder.stop();
-      } catch {
-        // Teardown remains best-effort.
-      }
+      stopRecorder(session.recorder);
       for (const track of session.stream.getTracks()) track.stop();
     },
     []

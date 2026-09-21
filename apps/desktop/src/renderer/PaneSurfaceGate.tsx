@@ -308,24 +308,20 @@ export function PaneSurfaceCover({
   ready,
   label,
   transitionKey,
-  showSpinner = true,
 }: {
   ready: boolean;
   label: string;
   transitionKey?: string | number;
-  showSpinner?: boolean;
 }) {
   const revealed = useStableSurfaceReveal(ready, transitionKey);
   if (revealed) return null;
   return (
     <div className="pane-surface-cover">
-      {showSpinner ? (
-        <DesktopLoadingSurface label={label} />
-      ) : (
-        <span className="sr-only" role="status">
-          {label}
-        </span>
-      )}
+      {/* A pane-sized cover that stays mute is indistinguishable from a broken
+          surface once the load runs long (user: 빈 화면에서 너무 오래 머문다).
+          The boot mark carries the wait; the shared delay keeps warm loads
+          silent, so it only ever appears when the load is actually slow. */}
+      <DesktopLoadingSurface label={label} brand delayed />
     </div>
   );
 }

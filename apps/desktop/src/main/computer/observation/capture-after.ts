@@ -4,6 +4,7 @@ import {
   MAX_CAPTURE_AFTER_DELAY_MS,
 } from '../shared/common';
 import { screenshotInteger } from './analysis';
+import { createCaptureImageDedupStore } from './capture-image-dedup';
 import type { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import type { ComputerCommand } from '../shared/types';
 import type { CaptureEngineHost } from './capture';
@@ -19,6 +20,7 @@ export function createCaptureAfter(
     image?: { mimeType: string; data: string };
   }>
 ) {
+  const imageDedup = createCaptureImageDedupStore();
   return async function captureAfterAction(
     command: ComputerCommand,
     windowId: string,
@@ -63,9 +65,19 @@ export function createCaptureAfter(
         windowId
       );
       host.assertExecutionNotAborted();
+      const repeatedImage = capture.image
+        ? imageDedup.isRepeat(`${host.sessionIdFor(command)}:${windowId}`, capture.image.data)
+        : false;
       return {
-        metadata: { ...capture.payload, delay_ms: reportedDelayMs ?? delayMs, verification: 'not_performed' },
-        ...(capture.image ? { image: capture.image } : {}),
+        metadata: {
+          ...capture.payload,
+          delay_ms: reportedDelayMs ?? delayMs,
+          verification: 'not_performed',
+          // Same pixels as the frame already delivered for this window: the
+          // text below is fresh, and the earlier image still describes it.
+          ...(repeatedImage ? { image_unchanged: true } : {}),
+        },
+        ...(capture.image && !repeatedImage ? { image: capture.image } : {}),
       };
     } catch (error) {
       host.assertExecutionNotAborted();

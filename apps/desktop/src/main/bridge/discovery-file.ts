@@ -166,12 +166,6 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     return await maintainDiscovery(record);
   }
 
-  async function heartbeatDiscovery(
-    record: BridgeDiscoveryRecord
-  ): Promise<'owned' | 'occupied' | 'inconclusive' | 'lost' | 'superseded'> {
-    return await maintainDiscovery(record);
-  }
-
   function removeDiscovery(record: BridgeDiscoveryRecord): void {
     if (!sameBridgeDiscovery(activeDiscovery, record)) return;
     activeDiscovery = null;
@@ -185,5 +179,5 @@ export function createBridgeDiscovery(host: DiscoveryHost) {
     discoveryPath = null;
   }
 
-  return { readRequestBody, respond, writeDiscovery, heartbeatDiscovery, removeDiscovery };
+  return { readRequestBody, respond, writeDiscovery, heartbeatDiscovery: maintainDiscovery, removeDiscovery };
 }

@@ -16,7 +16,7 @@ function writeStderr(line) {
   } catch {}
 }
 
-function signalExitCode(signal, fallback = 1) {
+export function signalExitCode(signal, fallback = 1) {
   return SIGNAL_EXIT_CODES[signal] || fallback;
 }
 

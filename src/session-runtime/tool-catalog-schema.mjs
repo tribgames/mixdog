@@ -170,9 +170,3 @@ export function nativeProviderFamily(provider) {
 }
 
 export const ANTHROPIC_NATIVE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
-
-// Pure projection of the tool definitions that the next provider request will
-// serialize. Anthropic's native deferred surface sends the base active tools
-// plus only definitions that have actually been discovered through the
-// session/native tool-search history. Every other provider already receives
-// its canonical/native surface in `tools`, so preserve that array verbatim.

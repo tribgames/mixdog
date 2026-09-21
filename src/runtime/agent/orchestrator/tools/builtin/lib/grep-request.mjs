@@ -255,9 +255,8 @@ export async function resolveGrepRequest(args, workDir, options) {
 
   const patternsWantMultiline = patterns.some(hasRegexNewlineEscape);
   const multilineMode = args.multiline === true || patternsWantMultiline;
-  // Rescue: lookaround/backreference patterns are rejected by rg's default
-  // Rust regex engine rejects lookaround/backreferences. The embedded native
-  // PCRE2 matcher accepts the same syntax via -P/--pcre2.
+  // Rescue: rg's default Rust regex engine rejects lookaround/backreferences.
+  // The embedded native PCRE2 matcher accepts the same syntax via -P/--pcre2.
   const patternsWantPcre2 = hasUnsupportedRipgrepRegex(patterns);
   const pcre2Mode = patternsWantPcre2 && (await rgSupportsPcre2());
   if (patternsWantPcre2 && !pcre2Mode) {

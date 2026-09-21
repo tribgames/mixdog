@@ -1,4 +1,11 @@
-import { GITHUB_ACTIONS, githubNumber, githubRepository, githubText, validateGithubRequest } from './contract.mjs';
+import {
+  GITHUB_ACTIONS,
+  githubNumber,
+  githubRepository,
+  githubText,
+  isRepoFreeGithubAction,
+  validateGithubRequest,
+} from './contract.mjs';
 
 const selected = (input, names) =>
   Object.fromEntries(names.filter((name) => input[name] !== undefined).map((name) => [name, input[name]]));
@@ -7,8 +14,7 @@ export function buildGithubCommand(value) {
   const input = validateGithubRequest(value);
   const { action } = input;
   const definition = GITHUB_ACTIONS[action];
-  const repoFree = action === 'repo.list' || action.startsWith('notification.');
-  const repo = repoFree ? input.repo : githubRepository(input.repo);
+  const repo = isRepoFreeGithubAction(action) ? input.repo : githubRepository(input.repo);
   const root = `repos/${repo}`;
   const page = input.page ?? 1;
   const limit = input.limit ?? 30;

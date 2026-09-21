@@ -13,7 +13,6 @@ import {
 } from '../context-utils.mjs';
 import { runFreshContextCompact } from '../loop/fresh-context.mjs';
 import { positiveInt } from '../../../../shared/numbers.mjs';
-import { resolveHandoffSummaryModel } from '../loop/compact-policy.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../../agent-trace.mjs';
 import { uncachedInputTokensForProvider } from './usage-metrics.mjs';
 import { pruneOffloadSession } from '../tool-result-offload.mjs';
@@ -26,6 +25,7 @@ import {
   invalidateProviderContextBaseline,
   recordContextUsageSnapshot,
   resolveGaugeContextTokens,
+  resolveHandoffSummaryModel,
   resolveWorkerCompactPolicy,
 } from '../loop/compact-policy.mjs';
 import { snapshotProviderRequestTools } from '../../../../../session-runtime/tool-catalog.mjs';

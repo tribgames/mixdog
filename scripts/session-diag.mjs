@@ -149,11 +149,6 @@ function inferProviderFromModel(model) {
   return null;
 }
 
-function sessionInclusive(provider) {
-  if (provider) return isInclusiveProvider(provider);
-  return true;
-}
-
 function usageDenom(row, provider) {
   const prompt = numberField(row, 'prompt_tokens');
   const input = numberField(row, 'input_tokens');
@@ -265,7 +260,6 @@ function deriveSessionMeta(rows) {
     model = usage ? field(usage, 'model') : null;
   }
   if (!provider) provider = inferProviderFromModel(model);
-  const inclusive = sessionInclusive(provider);
   const tsList = sorted.map((r) => Number(r.ts || 0)).filter((n) => n > 0);
   const minTs = tsList.length ? Math.min(...tsList) : 0;
   const maxTs = tsList.length ? Math.max(...tsList) : 0;
@@ -292,7 +286,6 @@ function deriveSessionMeta(rows) {
     agent,
     provider,
     model,
-    inclusive,
     minTs,
     maxTs,
     turns,

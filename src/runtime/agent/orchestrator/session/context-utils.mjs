@@ -752,8 +752,7 @@ export function estimateToolSchemaTokens(tools) {
  * not expose a stable framing cost, so no synthetic fixed allowance is added.
  */
 export function estimateRequestReserveTokens(tools) {
-  if (!Array.isArray(tools) || tools.length === 0) return estimateToolSchemaTokens(tools);
-  return analyzeToolSchemas(tools).tokens;
+  return estimateToolSchemaTokens(tools);
 }
 
 /**

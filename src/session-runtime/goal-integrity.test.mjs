@@ -18,8 +18,8 @@ function fixture(t, options = {}) {
       action: 'create',
       objective: 'Deliver the requested work',
       tasks: [
-        { text: 'Implement work', status: 'pending', kind: 'work' },
-        { text: 'Verify work', status: 'pending', kind: 'verification' },
+        { text: 'Implement work', status: 'pending' },
+        { text: 'Verify work', status: 'pending' },
       ],
       ...extra,
     });
@@ -111,7 +111,7 @@ test('same-Goal objective edits invalidate stale updates and require explicit ta
     await f.call({
       action: 'set_tasks',
       revision: current.revision,
-      tasks: [...created.tasks, { text: 'Security review', status: 'pending', kind: 'verification' }],
+      tasks: [...created.tasks, { text: 'Security review', status: 'pending' }],
     })
   ).goal;
   assert.equal(f.snapshot().needsTaskReview, false);
@@ -172,13 +172,13 @@ test('new ids stay unique after completed rows are omitted and partial additions
   await f.call({ action: 'update_tasks', updates: [{ id: created.tasks[0].id, status: 'completed' }] });
   const replaced = await f.call({
     action: 'set_tasks',
-    tasks: [created.tasks[1], { text: 'Follow-up work', status: 'pending', kind: 'work' }],
+    tasks: [created.tasks[1], { text: 'Follow-up work', status: 'pending' }],
   });
   assert.equal(replaced.assigned_tasks[0].id, 'task_3');
   const added = await f.call({
     action: 'update_tasks',
     revision: replaced.goal.revision,
-    tasks: [{ text: 'Another follow-up', status: 'pending', kind: 'work' }],
+    tasks: [{ text: 'Another follow-up', status: 'pending' }],
   });
   assert.equal(added.assigned_tasks[0].id, 'task_4');
   assert.deepEqual(
@@ -202,7 +202,7 @@ test('dropping work during the creation turn cannot immediately complete a Goal,
   assert.equal(created.turnCount, 1);
   await f.call({
     action: 'update_tasks',
-    updates: created.tasks.map((task) => ({ id: task.id, status: task.kind === 'work' ? 'dropped' : 'completed' })),
+    updates: created.tasks.map((task, index) => ({ id: task.id, status: index === 0 ? 'dropped' : 'completed' })),
   });
   await f.call({ action: 'set_tasks', tasks: f.snapshot().tasks.filter((task) => task.status !== 'dropped') });
   await assert.rejects(f.call({ action: 'complete' }), /dropped this turn/);
@@ -253,7 +253,6 @@ test('ordinary updates return bounded acknowledgements while reads and recovery 
   const tasks = Array.from({ length: 20 }, (_, index) => ({
     text: `Task ${index + 1}`.padEnd(100, '.'),
     status: 'pending',
-    kind: index === 19 ? 'verification' : 'work',
   }));
   const created = (await f.create({ tasks })).goal;
   const args = {
@@ -319,12 +318,12 @@ test('resume commits task patches and additions together with activation in one 
       action: 'resume',
       revision: paused.revision,
       updates: [
-        { id: '', text: '', status: 'pending', kind: 'work' },
+        { id: '', text: '', status: 'pending' },
         { id: created.tasks[0].id, status: 'in_progress' },
       ],
       tasks: [
-        { id: '', text: '', status: 'pending', kind: 'work' },
-        { text: 'Approved follow-up', status: 'pending', kind: 'work' },
+        { id: '', text: '', status: 'pending' },
+        { text: 'Approved follow-up', status: 'pending' },
       ],
     })
   ).goal;
@@ -362,7 +361,7 @@ test('invalid or unsaved resume task changes leave the entire paused state intac
   await assert.rejects(
     f.call({
       ...args,
-      tasks: [{ text: 'Invalid follow-up', status: 'invalid', kind: 'work' }],
+      tasks: [{ text: 'Invalid follow-up', status: 'invalid' }],
     }),
     /invalid status/
   );

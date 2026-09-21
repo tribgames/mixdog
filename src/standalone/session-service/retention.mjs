@@ -124,8 +124,7 @@ export function createSessionRetention({
       // A watched session holding a projection still has memory to reclaim.
       if (watchers > 0 && (entry.snapshotCache || entry.publishedSnapshot)) return;
     }
-    clearInterval(evictTimer);
-    evictTimer = null;
+    stopSweep();
   }
 
   function stopSweep() {

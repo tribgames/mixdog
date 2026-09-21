@@ -29,10 +29,10 @@ function formatCompactElapsedSeconds(ms) {
 }
 
 // True when an abort explicitly opted into partial salvage — the error object
-// or the abort reason carries `salvagePartial: true`. A DEADLINE-driven caller
-// A hard timeout sets it so partial output the sub-agent already produced
-// are returned instead of discarded; user cancellation (ESC) never sets it and
-// keeps the throw-everything behaviour.
+// or the abort reason carries `salvagePartial: true`. A hard deadline sets it
+// so partial output the sub-agent already produced is returned instead of
+// discarded; user cancellation (ESC) never sets it and keeps the
+// throw-everything behaviour.
 function salvagePartialRequested(error, signal) {
   if (error && typeof error === 'object' && error.salvagePartial === true) return true;
   const reason = signal?.reason;

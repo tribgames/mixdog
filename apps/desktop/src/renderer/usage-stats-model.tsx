@@ -3,7 +3,7 @@
 import type { DesktopCapability } from '../shared/contract';
 import { dayKey, pad2, type DayRange } from './DateRangePicker';
 import { t, uiFormatLocale } from './i18n';
-import { record } from './record-utils';
+import { rows } from './record-utils';
 import { usageCompact, usageMoney, usageNumber } from './usage-format';
 
 export type Row = Record<string, unknown>;
@@ -221,8 +221,7 @@ export function groupTrend(daily: Row[], grouping: TrendGrouping): TrendBucket[]
     bucket.future = bucket.future && entry.future === true;
     if (grain !== 'hour') bucket.endDay = day;
     addTrendTotals(bucket, entry);
-    for (const raw of Array.isArray(entry.providers) ? (entry.providers as unknown[]) : []) {
-      const slice = record(raw);
+    for (const slice of rows(entry.providers)) {
       const id = String(slice.provider || '');
       if (!id) continue;
       const provider = bucket.providers.get(id) || emptyTrendTotals();

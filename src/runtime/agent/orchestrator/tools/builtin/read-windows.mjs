@@ -14,7 +14,7 @@ export async function readLargeTailWindowSync(fullPath, st, n) {
   const targetLines = Math.max(1, Math.trunc(n || 20));
   const fh = await open(fullPath, 'r');
   let tailBytes = Math.min(st.size, Math.max(4096, targetLines * 256));
-  let buf = Buffer.allocUnsafe(0);
+  let buf;
   let bytesRead = 0;
   try {
     while (true) {
@@ -62,7 +62,7 @@ export async function readLargeHeadWindowSync(fullPath, st, n) {
   const targetLines = Math.max(1, Math.trunc(n || 20));
   const fh = await open(fullPath, 'r');
   let headBytes = Math.min(st.size, Math.max(65536, targetLines * 256));
-  let buf = Buffer.allocUnsafe(0);
+  let buf;
   let bytesRead = 0;
   let prefixHash = '';
   try {

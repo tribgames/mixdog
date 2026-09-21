@@ -9,6 +9,9 @@ import { browserInputRecovery } from '../../shared/browser-input-policy';
 import type { BrowserPageSurfaceHost } from './page-surface';
 import type { PageSurfaceState } from './page-surface-state';
 
+/** Float noise from Chromium's zoom-level round trip, not a new zoom. */
+const ZOOM_EPSILON = 0.001;
+
 export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: PageSurfaceState) {
   const { paneSizes, invalidateGeometry, presenting } = state;
 
@@ -63,10 +66,6 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
         break;
       case 'forward':
         if (guest.navigationHistory.canGoForward()) guest.navigationHistory.goForward();
-        break;
-      case 'zoom':
-        invalidateGeometry(guest);
-        guest.setZoomFactor(input.factor);
         break;
       case 'text':
         await send(guest, 'Input.insertText', { text: input.text }, signal);
@@ -155,6 +154,17 @@ export function createPageSurfaceControl(host: BrowserPageSurfaceHost, state: Pa
       paneSizes.set(sessionId, size);
       invalidateGeometry(guest);
       host.resize(guest, size.width, size.height);
+      return;
+    }
+    // The pane re-applies its zoom on every attach, navigation and resize.
+    // Re-applying the factor the guest already has changes nothing: it must
+    // not discard the agent's refs, and it never waits for page execution.
+    if (input.type === 'zoom') {
+      if (Math.abs(guest.getZoomFactor() - input.factor) >= ZOOM_EPSILON) {
+        invalidateGeometry(guest);
+        host.state.invalidateInteraction(guest);
+        guest.setZoomFactor(input.factor);
+      }
       return;
     }
     // Native recovery releases a blocked execution; it must not wait for that

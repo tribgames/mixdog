@@ -255,6 +255,15 @@ export async function openMicrosoftOfficeSession(payload, { timeoutMs = DEFAULT_
   return result;
 }
 
+// A crashed application answers no call, so the host cannot close its document
+// through the dead channel. Keeping the record then strands the session —
+// neither usable nor closable — so an unreachable application is released and
+// the unconfirmed cleanup travels with the result instead.
+function applicationGone(result) {
+  if (result?.cleanup?.processExited === true) return true;
+  return /RPC server is unavailable|0x800706BA|RPC_E_DISCONNECTED|RPC_E_SERVERFAULT/i.test(String(result?.error || ''));
+}
+
 export async function closeMicrosoftOfficeSession(
   sessionId,
   { save = false, timeoutMs = DEFAULT_TIMEOUT_MS, closeTimeoutMs = 15_000, signal = null } = {}
@@ -264,6 +273,7 @@ export async function closeMicrosoftOfficeSession(
     return {
       ok: false,
       closed: false,
+      reaped: true,
       error: 'Office session host is unavailable; application cleanup cannot be confirmed.',
     };
   const result = await requestSessionClient(
@@ -276,7 +286,9 @@ export async function closeMicrosoftOfficeSession(
     timeoutMs,
     signal
   );
-  if (result.ok) {
+  const reaped = !result.ok && applicationGone(result);
+  if (result.ok || reaped) {
+    if (reaped) result.reaped = true;
     sessionClients.delete(String(sessionId));
     try {
       client.child.stdin.end();

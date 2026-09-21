@@ -37,6 +37,19 @@ function settledDurationWait(goal) {
 // re-scoped, or re-planned Goal earns a fresh one without any extra clearing.
 const idleReviewKey = (goal) => `${goal.id}:${goal.turnCount}:${goal.revision}`;
 
+// Continuation prompts are enqueued as meta user messages, so a delivered rules
+// block stays in the transcript until the context is compacted or rewound. The
+// marker records which Goal's rules are already there: a new session or Goal, a
+// reconciliation the rules must frame, or an explicit reset re-sends them.
+function needsFullContinuationRules(markedGoalId, goal) {
+  return markedGoalId !== goal.id || goal.needsTaskReview === true;
+}
+
+// A durable list drifts out of attention after roughly ten quiet turns — the
+// staleness cadence task-reminder surfaces settle on across the industry — so
+// the state block returns on that count rather than on an arbitrary period.
+const GOAL_STATE_REMINDER_QUIET_TURNS = 10;
+
 /** Fold a settled turn's outcome (usage limit, cancel, failure, or a clean
  *  finish) into the Goal status and clocks. */
 function applyTurnOutcome(goal, detail, at) {
@@ -83,7 +96,17 @@ function applyTurnOutcome(goal, detail, at) {
 }
 
 export function createGoalTurnLifecycle(ctx) {
-  const { now, turnGoalIds, turnStartedAt, idleReviewTurns, withMutation, readRecord, commit, visibleSnapshot } = ctx;
+  const {
+    now,
+    turnGoalIds,
+    turnStartedAt,
+    idleReviewTurns,
+    continuationTiers,
+    withMutation,
+    readRecord,
+    commit,
+    visibleSnapshot,
+  } = ctx;
   return {
     startTurn(sessionId) {
       return withMutation(sessionId, async (id) => {
@@ -135,18 +158,46 @@ export function createGoalTurnLifecycle(ctx) {
       const goal = visibleSnapshot(sessionId);
       if (goal?.status !== 'active') return { run: false, reason: goal?.status || 'missing', goal };
       if (runningAgentWork(agentStatus)) return { run: false, reason: 'agent-running', goal };
+      const id = assertSessionId(sessionId);
       if (settledDurationWait(goal)) {
         // The model already answered this exact list with no new work, so the
         // deadline timer owns the rest of the wait and delivers closeout;
         // task/scope changes still publish and wake newly actionable work.
-        if (idleReviewTurns.get(assertSessionId(sessionId)) === idleReviewKey(goal)) {
+        if (idleReviewTurns.get(id) === idleReviewKey(goal)) {
           return { run: false, reason: 'duration-wait', goal };
         }
         // One turn to spend the remaining duration on new work or to park
         // approval-dependent work: idling it away is not the requested wait.
+        // This turn has to decide the rest of the duration, so it carries the
+        // full rules that decision is judged against.
+        continuationTiers.set(id, { goalId: goal.id, revision: goal.revision, quietTurns: 0 });
         return { run: true, reason: 'idle-review', goal, prompt: continuationPrompt(goal, { idleReview: true }) };
       }
-      return { run: true, reason: 'idle', goal, prompt: continuationPrompt(goal) };
+      const entry = continuationTiers.get(id);
+      if (needsFullContinuationRules(entry?.goalId, goal)) {
+        continuationTiers.set(id, { goalId: goal.id, revision: goal.revision, quietTurns: 0 });
+        return { run: true, reason: 'idle', goal, prompt: continuationPrompt(goal) };
+      }
+      // A changed revision means the model mutated tasks last turn and holds
+      // the fresh list in its own tool result; repeating it buys nothing. The
+      // state block returns only once the list has gone unread long enough to
+      // drift out of attention.
+      const quietTurns = entry.revision === goal.revision ? entry.quietTurns + 1 : 0;
+      const includeState = quietTurns >= GOAL_STATE_REMINDER_QUIET_TURNS;
+      continuationTiers.set(id, {
+        goalId: goal.id,
+        revision: goal.revision,
+        quietTurns: includeState ? 0 : quietTurns,
+      });
+      return {
+        run: true,
+        reason: 'idle',
+        goal,
+        prompt: continuationPrompt(goal, { includeRules: false, includeState }),
+      };
+    },
+    resetContinuationRules(sessionId) {
+      continuationTiers.delete(assertSessionId(sessionId));
     },
     async archiveCompletedOnUserInput(sessionId) {
       if (!sessionId) return null;

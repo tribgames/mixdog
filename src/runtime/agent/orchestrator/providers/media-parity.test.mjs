@@ -123,6 +123,95 @@ test('read PDF document stays native media without base64 text, storage, or toke
   assert.ok(estimatedTokens < 25_000, `base64 leaked into token estimate: ${estimatedTokens}`);
 });
 
+function downloadHistory(file) {
+  return imageHistory({
+    content: [{ type: 'text', text: 'Downloads this session (newest first):\n- [d1] file → C:\\dl\\file' }, file],
+  });
+}
+
+function anthropicToolResult(history) {
+  return toAnthropicMessages(history)
+    .flatMap((message) => (Array.isArray(message.content) ? message.content : []))
+    .find((part) => part?.type === 'tool_result');
+}
+
+// Gemini 3 nests tool media inside the function response, so inline payloads
+// live one level below the turn's parts.
+function geminiInlineParts(contents) {
+  return contents
+    .flatMap((item) => item.parts || [])
+    .flatMap((part) => part.functionResponse?.parts || [part])
+    .filter((part) => part?.inlineData);
+}
+
+test('a text download travels as readable text, never as a PDF document block', () => {
+  const csv = Buffer.from('name,value\nalpha,1\n').toString('base64');
+  const history = downloadHistory({ type: 'file', data: csv, mimeType: 'text/csv', filename: 'rows.csv' });
+
+  const block = anthropicToolResult(history).content[1];
+  assert.deepEqual(block, {
+    type: 'document',
+    source: { type: 'text', media_type: 'text/plain', data: 'name,value\nalpha,1\n' },
+    title: 'rows.csv',
+  });
+
+  const responses = convertMessagesToResponsesInput(history);
+  const output = responses.find((item) => item.type === 'function_call_output')?.output;
+  assert.match(output, /rows\.csv \(text\/csv, 19 bytes\)[\s\S]*alpha,1/);
+  assert.equal(JSON.stringify(responses).includes(csv), false);
+
+  const gemini = toGeminiContents(history, 'gemini-3-pro-preview');
+  assert.deepEqual(geminiInlineParts(gemini), []);
+  assert.match(JSON.stringify(gemini), /alpha,1/);
+  assert.equal(JSON.stringify(gemini).includes(csv), false);
+});
+
+test('a binary download is named on every provider instead of sent as bytes', () => {
+  const zip = Buffer.from('PK\u0003\u0004binary', 'latin1').toString('base64');
+  const history = downloadHistory({ type: 'file', data: zip, mimeType: 'application/zip', filename: 'bundle.zip' });
+  const expected = /\[file not sent inline: bundle\.zip \(application\/zip, 10 bytes\)/;
+
+  const block = anthropicToolResult(history).content[1];
+  assert.equal(block.type, 'text');
+  assert.match(block.text, expected);
+
+  const responses = convertMessagesToResponsesInput(history);
+  const output = responses.find((item) => item.type === 'function_call_output')?.output;
+  assert.match(output, expected);
+
+  const chat = toOpenAIMessages(history, 'openai');
+  assert.match(chat.find((message) => message.role === 'tool').content, expected);
+
+  const gemini = toGeminiContents(history, 'gemini-3-pro-preview');
+  assert.match(JSON.stringify(gemini), /file not sent inline: bundle\.zip/);
+
+  for (const wire of [anthropicToolResult(history), responses, chat, gemini]) {
+    assert.equal(JSON.stringify(wire).includes(zip), false);
+  }
+});
+
+test('a PDF mislabelled by its download type is still sent as a PDF document', () => {
+  const pdfData = Buffer.from('%PDF-1.7\nmislabelled').toString('base64');
+  const history = downloadHistory({
+    type: 'file',
+    data: pdfData,
+    mimeType: 'application/octet-stream',
+    filename: 'report',
+  });
+
+  const block = anthropicToolResult(history).content[1];
+  assert.equal(block.type, 'document');
+  assert.equal(block.source.media_type, 'application/pdf');
+  assert.equal(block.source.data, pdfData);
+
+  const responses = convertMessagesToResponsesInput(history);
+  const output = responses.find((item) => item.type === 'function_call_output')?.output;
+  assert.equal(output.at(-1).file_data, `data:application/pdf;base64,${pdfData}`);
+
+  const gemini = toGeminiContents(history, 'gemini-3-pro-preview');
+  assert.equal(geminiInlineParts(gemini)[0].inlineData.mimeType, 'application/pdf');
+});
+
 test('OpenAI Chat-compatible sends tool text once and media-only user content', () => {
   const history = imageHistory();
   const messages = toOpenAIMessages(history, 'openai');

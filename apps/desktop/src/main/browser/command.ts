@@ -60,13 +60,14 @@ export const TABLESS_ACTIONS: ReadonlySet<string> = new Set(['list_tabs', 'downl
  *  refuses it up front instead of dispatching a ghost gesture. */
 export const DIALOG_TOLERANT_ACTIONS: ReadonlySet<string> = new Set(['handle_dialog', 'status', 'console', 'network']);
 /** Gestures whose reply says when the page did not react to them. Navigation
- *  and evaluation change the page by definition, so they are left out. */
+ *  and evaluation change the page by definition, so they are left out, and so
+ *  is hover: a menu that opens on :hover leaves the document untouched, so
+ *  "nothing happened" would be wrong far more often than right. */
 export const EFFECT_REPORT_ACTIONS: ReadonlySet<string> = new Set([
   'click',
   'fill',
   'type',
   'select',
-  'hover',
   'drag',
   'upload',
   'handle_dialog',

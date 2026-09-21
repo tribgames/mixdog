@@ -370,6 +370,8 @@ function restoreSkillBodies(live, skillBudget) {
 function freshContextDiagnostics(plan) {
   const { source, tail, skills, handoff, budget, targetBudget, mandatoryCost, finalTokens } = plan;
   const { execution, retainedTail, volatileTail, activeTurnContinuation } = tail;
+  const liveTokens = safeEstimateMessagesTokens(source.live);
+  const volatileTailTokens = safeEstimateMessagesTokens(volatileTail);
   return {
     noOp: false,
     inputMessages: Array.isArray(plan.messages) ? plan.messages.length : 0,
@@ -382,15 +384,15 @@ function freshContextDiagnostics(plan) {
     mandatoryMessages: plan.mandatory.length,
     finalMessages: plan.result.length,
     systemTokens: safeEstimateMessagesTokens(source.protectedPrefix),
-    liveTokens: safeEstimateMessagesTokens(source.live),
-    headTokens: safeEstimateMessagesTokens(source.live),
-    tailTokens: safeEstimateMessagesTokens(volatileTail),
+    liveTokens,
+    headTokens: liveTokens,
+    tailTokens: volatileTailTokens,
     mandatoryCost,
     finalTokens,
     targetBudgetTokens: targetBudget,
     targetExceeded: finalTokens > targetBudget,
     stablePrefixTokens: safeEstimateMessagesTokens(plan.stablePrefixMessages),
-    volatileTailTokens: safeEstimateMessagesTokens(volatileTail),
+    volatileTailTokens,
     latestUserRetained: !!tail.latestUser,
     activeTurnContinuation: !!activeTurnContinuation,
     retainedAssistantToolMessages: retainedTail.filter((message) => message.toolCalls?.length).length,

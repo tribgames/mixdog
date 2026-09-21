@@ -64,10 +64,7 @@ function rangeFooter(ctx, render, rendered) {
   // Continuation uses the originating caller's coordinate base. Remaining
   // content is not automatically required evidence; when it is, it fits one
   // wider read, not a walk window by window.
-  const more =
-    emittedEnd < lineCount
-      ? `; pass offset:${emittedEnd + readOffsetBase} to continue`
-      : '';
+  const more = emittedEnd < lineCount ? `; pass offset:${emittedEnd + readOffsetBase} to continue` : '';
   const footer = `[lines ${emittedStart}-${emittedEnd} of ${lineCount}${more}]`;
   return { footer: widenNote ? `${footer}\n${widenNote}` : footer };
 }

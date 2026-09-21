@@ -581,13 +581,7 @@ async function stopAll(reason = 'session runtime worker shutdown') {
   } catch {}
   cooldownBridgeUnsubscribe = null;
   retainedDispatchCancels.clear();
-  for (const controller of agentDispatchRuns.values()) {
-    try {
-      controller.abort(new Error(reason));
-    } catch {
-      /* settled */
-    }
-  }
+  for (const controller of agentDispatchRuns.values()) abortDispatchController(controller, new Error(reason));
   for (const record of [...records.values()]) {
     try {
       await disposeSessionRuntimeRecord(records, record, [reason, { keepBackgroundWork: true }]);

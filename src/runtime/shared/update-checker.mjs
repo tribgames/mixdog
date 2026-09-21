@@ -27,6 +27,11 @@ const _MODULE_DIR = dirname(fileURLToPath(import.meta.url));
 const _PACKAGE_JSON_PATH = join(_MODULE_DIR, '..', '..', '..', 'package.json');
 const _PACKAGE_ROOT = dirname(_PACKAGE_JSON_PATH);
 
+/** The installed mixdog package directory (`<prefix>/node_modules/mixdog`). */
+export function packageRootDir() {
+  return _PACKAGE_ROOT;
+}
+
 /**
  * isDevInstall() — true when the running mixdog is a git checkout / clone (or
  * otherwise not a normal npm install), so auto-update must be skipped: an

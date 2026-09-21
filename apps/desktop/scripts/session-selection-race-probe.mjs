@@ -124,15 +124,16 @@ if (watchMs > 0) {
   let previous = null;
   for (const sample of samples) {
     const order = sample.key.split(',');
-    const moved = previous
-      ? order
-          .map((id, index) => {
-            const was = previous.indexOf(id);
-            return was >= 0 && was !== index ? `${id}:${was}->${index}` : '';
-          })
-          .filter(Boolean)
-          .join(' ')
-      : '(first)';
+    let moved = '(first)';
+    if (previous) {
+      moved = order
+        .map((id, index) => {
+          const was = previous.indexOf(id);
+          return was >= 0 && was !== index ? `${id}:${was}->${index}` : '';
+        })
+        .filter(Boolean)
+        .join(' ');
+    }
     console.log(`${sample.t}\tactive=${sample.activeId || '-'}\tn=${order.length}\t${moved || '(no move)'}`);
     previous = order;
   }
@@ -143,7 +144,7 @@ const firstY = preflight[0]?.y ?? 160;
 const rowHeight = (preflight[1]?.y ?? firstY + 32) - firstY || 32;
 const steps = [];
 // Fixed screen positions, walked like a hand moving down the list.
-const positions = Array.from({ length: clicks }, (unused, index) =>
+const positions = Array.from({ length: clicks }, (_unused, index) =>
   Math.round(firstY + rowHeight * (index + 1) + rowHeight / 2)
 );
 for (const y of positions) {

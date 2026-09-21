@@ -55,14 +55,42 @@ const BLOCK_FIELDS = Object.freeze({
   caption: Object.freeze({ required: ['text'], optional: [...FLOW_FIELDS, 'size'] }),
   stats: Object.freeze({ required: ['items'], optional: [...FLOW_FIELDS, 'size', 'labelSize', 'accent', 'rule'] }),
   rule: Object.freeze({ required: [], optional: [...FLOW_FIELDS, 'thickness'] }),
+  // A form box that travels with the copy introducing it, rather than with a
+  // page number the text may have moved off.
+  field: Object.freeze({
+    required: ['name'],
+    optional: [
+      ...FLOW_FIELDS,
+      'label',
+      'fieldType',
+      'height',
+      'value',
+      'options',
+      'multiline',
+      'maxLength',
+      'fontSize',
+      'labelSize',
+      'required',
+      'readOnly',
+    ],
+  }),
+  fieldRow: Object.freeze({
+    required: ['items'],
+    optional: [...FLOW_FIELDS, 'gutter', 'height', 'labelSize'],
+  }),
 });
 
 // The document's own neutrals and accent (the same values the docx skill's table anatomy uses), so a
 // callout field, a quote rule, and a caption read as one system without the writer naming a hex.
 const INK = Object.freeze({ muted: '6B7280', accent: '1F6F8B', field: 'EEF2F7', line: 'C9CED6' });
 
+// Block types are matched case-insensitively, so a caller writing fieldRow the
+// way the contract spells it reaches the same definition as fieldrow.
+const BLOCK_ALIASES = Object.freeze({ fieldrow: 'fieldRow' });
+
 function blockType(block) {
-  return String(block?.type || 'paragraph').toLowerCase();
+  const declared = String(block?.type || 'paragraph').toLowerCase();
+  return BLOCK_ALIASES[declared] ?? declared;
 }
 
 // The shape each block type's list fields must have.
@@ -153,7 +181,7 @@ function blockText(block) {
  * document background and resets the cursor under the top margin.
  */
 function createFlow(document, { size, margin, font, background }) {
-  const flow = { document, margin, font, page: null, y: 0 };
+  const flow = { document, margin, font, page: null, y: 0, resolvedFields: [] };
   flow.newPage = () => {
     const entry = document.addPage(size);
     if (background) {
@@ -308,7 +336,7 @@ function tableLayout(flow, block, rows) {
     // A header row a reader cannot tell from the data is not a header. Without
     // an explicit choice the row carries a neutral band and a rule under it.
     headerFill: block.headerFill === undefined ? 'EEF0F2' : block.headerFill,
-    borderColor: color(block.borderColor || 'C9CED6'),
+    borderColor: color(block.borderColor || INK.line),
   };
 }
 
@@ -566,6 +594,89 @@ const TEXT_BLOCKS = Object.freeze({
   stats: drawStatsBlock,
 });
 
+const FIELD_HEIGHT = 22;
+const FIELD_GUTTER = 12;
+const FIELD_KEYS = Object.freeze([
+  'name',
+  'label',
+  'value',
+  'options',
+  'multiline',
+  'maxLength',
+  'fontSize',
+  'labelSize',
+  'required',
+  'readOnly',
+  'width',
+  'height',
+]);
+
+// A PDF field is a bare box, and pinning it to a page number leaves it behind
+// the moment the copy above it grows by a line: the approval boxes ended up on
+// the page after their own heading. A field declared as a block travels in the
+// flow, so the writer fixes its page and its coordinates where the reader meets
+// it. A field given absolute coordinates still goes exactly where it was put,
+// which is what stamping a form onto a scan needs.
+function fieldSpec(source) {
+  const declared = String(source.fieldType || source.type || '').toLowerCase();
+  const spec = { type: declared && declared !== 'field' && declared !== 'fieldrow' ? declared : 'text' };
+  for (const key of FIELD_KEYS) if (source[key] !== undefined) spec[key] = source[key];
+  return spec;
+}
+
+function fieldSpecs(block, type) {
+  if (type !== 'fieldrow' && type !== 'fieldRow') return [fieldSpec(block)];
+  return (Array.isArray(block.items) ? block.items : [])
+    .filter((item) => item && typeof item === 'object')
+    .map(fieldSpec);
+}
+
+/** The fields the blocks declare, so the document embeds a font that covers
+ *  their captions and values before anything is drawn. */
+function flowedFieldSpecs(blocks) {
+  return (Array.isArray(blocks) ? blocks : []).flatMap((block) => {
+    const type = blockType(block);
+    return type === 'field' || type === 'fieldRow' ? fieldSpecs(block, type) : [];
+  });
+}
+
+/** The room a field block needs, so the heading that introduces a form is not
+ *  left at the foot of a page while its boxes move to the next one. */
+function fieldBlockHeight(block) {
+  const type = blockType(block);
+  if (type !== 'field' && type !== 'fieldRow') return 0;
+  const items = fieldSpecs(block, type);
+  if (!items.length) return 0;
+  const labelSize = Number(block.labelSize) > 0 ? Number(block.labelSize) : 9;
+  const height = Number(block.height) > 0 ? Number(block.height) : FIELD_HEIGHT;
+  return (items.some((item) => String(item.label ?? '').trim()) ? labelSize * 1.7 : 0) + height;
+}
+
+function placeFieldBlock(flow, block, box, type) {
+  const items = fieldSpecs(block, type);
+  if (!items.length) return;
+  const labelSize = Number(block.labelSize) > 0 ? Number(block.labelSize) : 9;
+  const height = Number(block.height) > 0 ? Number(block.height) : FIELD_HEIGHT;
+  const caption = items.some((item) => String(item.label ?? '').trim()) ? labelSize * 1.7 : 0;
+  keepTogether(flow, caption + height);
+  const gutter = Number(block.gutter ?? FIELD_GUTTER);
+  const share = (box.width - gutter * (items.length - 1)) / items.length;
+  const top = flow.y - caption;
+  const page = flow.document.getPages().indexOf(flow.page) + 1;
+  items.forEach((item, index) => {
+    flow.resolvedFields.push({
+      labelSize,
+      ...item,
+      page,
+      x: box.left + (share + gutter) * index,
+      y: top - height,
+      width: Number(item.width) > 0 ? Number(item.width) : share,
+      height: Number(item.height) > 0 ? Number(item.height) : height,
+    });
+  });
+  flow.y = top - height - Number(block.after ?? 14);
+}
+
 async function flowBlocks(flow, blocks, baseDir) {
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index];
@@ -576,7 +687,19 @@ async function flowBlocks(flow, blocks, baseDir) {
     }
     const before = spaceBefore(block, type);
     if (before && !atTop(flow)) flow.y -= before;
-    if (type === 'image') await drawImageBlock(flow, block, baseDir);
+    // A heading that introduces a form travels with it: the boxes it names must
+    // not start on the next page while the words stay behind on this one. The
+    // reservation is what the heading itself will consume, plus the form.
+    const companion = fieldBlockHeight(blocks[index + 1] || {});
+    if (type === 'heading' && companion) {
+      const level = Math.min(3, Math.max(1, Number(block.level) || 1));
+      const size = Number(block.size || HEADING_SIZES[level]);
+      const lineHeight = Number(block.lineHeight || size * 1.2);
+      const headingHeight = linesHeight(flow.font, block.text, size, textBox(flow, block).width, lineHeight);
+      keepTogether(flow, headingHeight + Number(block.after ?? 8) + companion);
+    }
+    if (type === 'field' || type === 'fieldRow') placeFieldBlock(flow, block, textBox(flow, block), type);
+    else if (type === 'image') await drawImageBlock(flow, block, baseDir);
     else if (type === 'list') drawListBlock(flow, block);
     else if (type === 'table') drawTableBlock(flow, block, blocks[index + 1]);
     else (TEXT_BLOCKS[type] ?? drawProseBlock)(flow, block, textBox(flow, block), type);
@@ -671,8 +794,10 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
   assertPdfBlocks(blocks);
   const document = await PDFDocument.create();
   const margin = Number(properties.margin ?? 54);
+  const flowed = flowedFieldSpecs(blocks);
   const coverage = [
     ...(blocks || []).map(blockText),
+    ...flowed.map(fieldText),
     String(properties.footer ?? ''),
     ...(fields || []).map(fieldText),
   ].join(' ');
@@ -686,8 +811,11 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
   const numbering = pageNumbering(properties, pageCount);
   drawPageFooters(document, properties, { font, margin, numbering });
   applyDocumentProperties(document, properties);
-  const formCheck = lintForm(document, fields);
-  await drawFormFields(document, fields, font);
+  // The flowed fields carry the page the reader met them on; the ones the
+  // caller placed by hand keep the coordinates they were given.
+  const form = [...flow.resolvedFields, ...(Array.isArray(fields) ? fields : [])];
+  const formCheck = lintForm(document, form);
+  await drawFormFields(document, form, font);
   await writeFile(path, await document.save(SAVE_OPTIONS));
   return {
     ok: true,
@@ -695,6 +823,7 @@ export async function createPdf(path, { blocks = [], fields = [], properties = {
     pages: pageCount,
     pageNumbers: numbering,
     form: formCheck,
+    ...(flow.resolvedFields.length ? { flowedFields: flow.resolvedFields.length } : {}),
     font: { embedded, ...(fontPath ? { path: fontPath } : {}) },
   };
 }

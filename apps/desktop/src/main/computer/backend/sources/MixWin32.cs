@@ -568,6 +568,7 @@ public class MixWin32
         public string App = "";
         public uint Pid;
         public uint ParentPid;
+        public uint ContentPid;
         public string OwnerId = "";
         public bool Visible;
         public bool Cloaked;
@@ -861,6 +862,7 @@ public class MixWin32
             App = app,
             Pid = pid,
             ParentPid = ParentProcessId(pid),
+            ContentPid = ContentProcessId(h, pid, className),
             OwnerId = owner == IntPtr.Zero ? "" : WindowId(owner),
             Visible = IsWindowVisible(h),
             Cloaked = IsCloaked(h),
@@ -940,6 +942,24 @@ public class MixWin32
     public static bool IsWindowResponding(IntPtr h)
     {
         return IsWindowHandle(h) && !IsHungAppWindow(h);
+    }
+    /// A packaged app runs in its own process while the system hosts its frame,
+    /// so the frame window's pid identifies the host, never the app that was
+    /// launched. The hosted content window carries the process that owns it.
+    static uint ContentProcessId(IntPtr h, uint hostPid, string className)
+    {
+        if (className != "ApplicationFrameWindow") return 0;
+        uint contentPid = 0;
+        EnumChildWindows(h, delegate (IntPtr child, IntPtr state)
+        {
+            if (ClassNameOf(child) != "Windows.UI.Core.CoreWindow") return true;
+            uint childPid;
+            GetWindowThreadProcessId(child, out childPid);
+            if (childPid == 0 || childPid == hostPid) return true;
+            contentPid = childPid;
+            return false;
+        }, IntPtr.Zero);
+        return contentPid;
     }
     public static IntPtr[] ChildHandles(IntPtr parent)
     {

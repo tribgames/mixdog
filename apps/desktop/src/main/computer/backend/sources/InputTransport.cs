@@ -95,11 +95,14 @@ public static class MixNativeInput
         using (var view = ownership.CreateViewAccessor())
         {
             view.Write(5000 + key, held);
-            int generic = key == 0xA0 || key == 0xA1 ? 0x10 : key == 0xA2 || key == 0xA3 ? 0x11
-              : key == 0xA4 || key == 0xA5 ? 0x12 : 0;
+            // A left/right modifier also drives the generic modifier bit, which is
+            // held while either side of the pair is down.
+            int generic = 0, left = 0;
+            if (key == 0xA0 || key == 0xA1) { generic = 0x10; left = 0xA0; }
+            else if (key == 0xA2 || key == 0xA3) { generic = 0x11; left = 0xA2; }
+            else if (key == 0xA4 || key == 0xA5) { generic = 0x12; left = 0xA4; }
             if (generic != 0)
             {
-                int left = generic == 0x10 ? 0xA0 : generic == 0x11 ? 0xA2 : 0xA4;
                 view.Write(5000 + generic, view.ReadBoolean(5000 + left) || view.ReadBoolean(5000 + left + 1));
             }
         }
@@ -123,8 +126,11 @@ public static class MixNativeInput
     static bool ForeignHeld(System.IO.MemoryMappedFiles.MemoryMappedViewAccessor view, INPUT input)
     {
         if (!IsRelease(input)) return false;
-        int key = input.type == 1 ? input.U.ki.wVk
-          : input.U.mi.dwFlags == 4 ? 1 : input.U.mi.dwFlags == 16 ? 2 : input.U.mi.dwFlags == 64 ? 4 : 0;
+        int key = 0;
+        if (input.type == 1) key = input.U.ki.wVk;
+        else if (input.U.mi.dwFlags == 4) key = 1;
+        else if (input.U.mi.dwFlags == 16) key = 2;
+        else if (input.U.mi.dwFlags == 64) key = 4;
         return key > 0 && view.ReadBoolean(5000 + key);
     }
     public static uint DeliverTracked(INPUT[] inputs, System.IntPtr marker, System.Func<INPUT[], uint> transmit)

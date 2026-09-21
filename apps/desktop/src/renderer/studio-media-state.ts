@@ -234,7 +234,18 @@ export function useStudioMediaUrls(api: StudioApi, active: boolean) {
   );
 
   useEffect(() => {
-    if (!active || localTransport) return undefined;
+    if (!active) return undefined;
+    // A broken byte-lane URL is one failed attempt, not a permanent verdict.
+    // Local IPC has no lane to probe, so re-entering Studio simply clears the
+    // record and lets those tiles request their rendition again.
+    if (localTransport) {
+      if (Object.keys(urlBrokenRef.current).length) {
+        failCounts.current = {};
+        urlBrokenRef.current = {};
+        setUrlBroken({});
+      }
+      return undefined;
+    }
     let stopped = false;
     void probeMediaLane(api)
       .then((ok) => {

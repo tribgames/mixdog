@@ -76,6 +76,7 @@ const callIdOf = (value: unknown): number | null =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 
 const NON_ASCII = /[\u0080-\uFFFF]/;
+const encoder = new TextEncoder();
 
 /** The unit the relay measures a frame in: UTF-8 bytes for text, byte length
  *  for a binary box (apps/relay/server.mjs `frameBytes`). A recorded size that
@@ -84,7 +85,7 @@ const NON_ASCII = /[\u0080-\uFFFF]/;
  *  common case (base64url ciphertext) allocation-free. */
 export const relayFrameByteLength = (frame: string | ArrayBufferView): number => {
   if (typeof frame !== 'string') return frame.byteLength;
-  return NON_ASCII.test(frame) ? new TextEncoder().encode(frame).length : frame.length;
+  return NON_ASCII.test(frame) ? encoder.encode(frame).length : frame.length;
 };
 
 /** Recognises a refusal in any of its three envelopes; returns null for

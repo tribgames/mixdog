@@ -390,6 +390,12 @@ function resolvedPptxKind(operation, topology) {
   return 'content';
 }
 
+/** Count one more use of a composition in this batch and hand it back. */
+function recordComposition(usage, result) {
+  usage.set(result.id, (usage.get(result.id) || 0) + 1);
+  return result;
+}
+
 export function planOfficeComposition(format, operation = {}, design = {}, { usage = new Map() } = {}) {
   const normalizedFormat = String(format || '').toLowerCase();
   const topology = officeContentTopology(normalizedFormat, operation, design);
@@ -422,7 +428,7 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
         regions: regionSignature,
         readingOrder: operation.plan.readingOrder || [],
       }).slice(0, 16);
-      const result = {
+      return recordComposition(usage, {
         id: `${kind}:model:${fingerprint}`,
         family: 'model-authored',
         kind,
@@ -432,9 +438,7 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
         topology,
         historyPenalty: recentPenalty(context, `${kind}:model:${fingerprint}`),
         source: 'model-plan',
-      };
-      usage.set(result.id, (usage.get(result.id) || 0) + 1);
-      return result;
+      });
     }
     const explicitVariant = String(operation.variant || '')
       .trim()
@@ -462,7 +466,7 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
           : [],
       }
     );
-    const result = {
+    return recordComposition(usage, {
       id: selected.candidateId,
       family: selected.candidate.family,
       kind,
@@ -472,9 +476,7 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
       topology,
       historyPenalty: selected.historyPenalty,
       source: explicitVariant ? 'explicit' : 'content-planner',
-    };
-    usage.set(result.id, (usage.get(result.id) || 0) + 1);
-    return result;
+    });
   }
   const candidates = FORMAT_CANDIDATES[normalizedFormat] || [
     {
@@ -495,7 +497,7 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
       .trim()
       .toLowerCase(),
   });
-  const result = {
+  return recordComposition(usage, {
     id: selected.candidateId,
     family: selected.candidate.family,
     purpose: context.purpose,
@@ -503,33 +505,37 @@ export function planOfficeComposition(format, operation = {}, design = {}, { usa
     topology,
     historyPenalty: selected.historyPenalty,
     source: operation.variant ? 'explicit' : 'content-planner',
-  };
-  usage.set(result.id, (usage.get(result.id) || 0) + 1);
-  return result;
+  });
+}
+
+/** The planned compositions of a batch, whether the caller passes the plans
+ *  themselves or the semantic entries that carry them. */
+function compositionPlans(compositions) {
+  return (Array.isArray(compositions) ? compositions : [])
+    .map((entry) => entry?.composition || entry)
+    .filter((entry) => plainObject(entry) && entry.id);
 }
 
 export function summarizeOfficeCompositions(format, compositions = []) {
-  const normalized = (Array.isArray(compositions) ? compositions : [])
-    .map((entry) => entry?.composition || entry)
-    .filter((entry) => plainObject(entry) && entry.id)
-    .map((entry) => ({
-      id: String(entry.id),
-      family: String(entry.family || ''),
-      kind: String(entry.kind || ''),
-      purpose: String(entry.purpose || ''),
-      topology: String(entry.topology?.signature || ''),
-    }));
+  const normalizedFormat = String(format || '').toLowerCase();
+  const normalized = compositionPlans(compositions).map((entry) => ({
+    id: String(entry.id),
+    family: String(entry.family || ''),
+    kind: String(entry.kind || ''),
+    purpose: String(entry.purpose || ''),
+    topology: String(entry.topology?.signature || ''),
+  }));
   if (!normalized.length) {
     return {
-      format: String(format || '').toLowerCase(),
+      format: normalizedFormat,
       fingerprint: '',
       compositionIds: [],
       count: 0,
     };
   }
   return {
-    format: String(format || '').toLowerCase(),
-    fingerprint: sha256({ format: String(format || '').toLowerCase(), sequence: normalized }),
+    format: normalizedFormat,
+    fingerprint: sha256({ format: normalizedFormat, sequence: normalized }),
     compositionIds: normalized.map((entry) => entry.id),
     count: normalized.length,
   };
@@ -541,9 +547,7 @@ export function reviewOfficeCompositionSequence({
   recentCompositions = [],
   allowRepetition = false,
 } = {}) {
-  const plans = (Array.isArray(compositions) ? compositions : [])
-    .map((entry) => entry?.composition || entry)
-    .filter((entry) => plainObject(entry) && entry.id);
+  const plans = compositionPlans(compositions);
   const summary = summarizeOfficeCompositions(format, plans);
   if (allowRepetition || !plans.length) return { summary, repeated: null, recentMatch: null };
   const eligible = plans.filter((entry) => !['cover', 'closing'].includes(String(entry.kind || '')));

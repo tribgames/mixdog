@@ -171,6 +171,10 @@ export function Picker({
     if (hasConfirm) helpText = CONFIRM_HELP;
     else helpText = onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP;
   }
+  // One bar instance for every placement below (empty list, footer row, no-footer row).
+  const confirmBarNode = hasConfirm ? (
+    <ConfirmBar buttons={confirmButtons} focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)} />
+  ) : null;
 
   useInput(
     useCallback(
@@ -316,7 +320,6 @@ export function Picker({
     )
   );
 
-  // Clamp selected index when items change length.
   if (items.length === 0) {
     const emptyLine = truncateText(
       String(description || '')
@@ -355,10 +358,7 @@ export function Picker({
             <>
               <Box flexGrow={1} />
               <Text> </Text>
-              <ConfirmBar
-                buttons={confirmButtons}
-                focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)}
-              />
+              {confirmBarNode}
             </>
           ) : null}
         </Box>
@@ -469,12 +469,7 @@ export function Picker({
                     {line.glyph ? <Text color={line.color}>{line.glyph} </Text> : null}
                     <Text color={theme.text}>{line.text}</Text>
                   </Text>
-                  {attachConfirm ? (
-                    <ConfirmBar
-                      buttons={confirmButtons}
-                      focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)}
-                    />
-                  ) : null}
+                  {attachConfirm ? confirmBarNode : null}
                 </Box>
               );
             })}
@@ -484,10 +479,7 @@ export function Picker({
           <>
             <Box flexGrow={1} />
             <Text> </Text>
-            <ConfirmBar
-              buttons={confirmButtons}
-              focusedIndex={clampConfirmFocus(confirmFocus, confirmButtons.length)}
-            />
+            {confirmBarNode}
           </>
         ) : null}
       </Box>
@@ -537,9 +529,7 @@ const ItemRow = React.memo(function ItemRow({
     metaText = parts
       ? padCells(
           parts
-            .map((part) =>
-              padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1)
-            )
+            .map((part) => padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1))
             .join('  '),
           metaWidth
         )
@@ -549,11 +539,7 @@ const ItemRow = React.memo(function ItemRow({
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.selectionBackground : undefined}>
       {indexWidth > 0 ? <Text color={rowIndexColor}>{padCells(indexText, indexWidth)} </Text> : null}
-      {markerWidth > 0 ? (
-        <Text color={rowMarkerColor}>
-          {padCells(displayMarker, markerWidth)}
-        </Text>
-      ) : null}
+      {markerWidth > 0 ? <Text color={rowMarkerColor}>{padCells(displayMarker, markerWidth)}</Text> : null}
       <Text color={rowText}>{displayLabel}</Text>
       {suffix ? (
         <Text color={suffixColor}>

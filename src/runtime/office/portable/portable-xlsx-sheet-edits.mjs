@@ -21,6 +21,7 @@ import {
   ensureContentTypeOverride,
   partRelationshipPath,
   provenanceCitation,
+  relationshipTargetByType,
   zipText,
 } from './portable-opc.mjs';
 import {
@@ -383,7 +384,7 @@ export async function addWorksheetNote(zip, sheet, xml, op) {
 export async function deleteWorksheetNote(zip, sheet, _xml, op) {
   const parsed = parseCellRef(op.cell);
   const relationships = await zipText(zip, partRelationshipPath(sheet.path));
-  const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(relationships)?.[1];
+  const target = relationshipTargetByType(relationships, 'comments');
   if (!target) return { op: op.op, changed: false, sheet: sheet.name, cell: parsed.ref };
   const commentsPart = posix.normalize(posix.join(posix.dirname(sheet.path), target));
   const comments = await zipText(zip, commentsPart);
@@ -402,7 +403,9 @@ export async function copyWorksheet(zip, sheet, xml, op, sheets) {
   let copyOrdinal = 1;
   while (zip.file(`xl/worksheets/sheet${copyOrdinal}.xml`)) copyOrdinal += 1;
   const copyPart = `xl/worksheets/sheet${copyOrdinal}.xml`;
-  zip.file(copyPart, xml);
+  // A table part belongs to the sheet that declares it, so the copy takes the
+  // cells without the tableParts entry or the table relationships.
+  zip.file(copyPart, xml.replace(/<tableParts\b[^>]*?(?:\/>|>[\s\S]*?<\/tableParts>)/, ''));
   const sourceRelationships = await zipText(zip, partRelationshipPath(sheet.path));
   if (sourceRelationships) {
     zip.file(
@@ -421,12 +424,6 @@ export async function copyWorksheet(zip, sheet, xml, op, sheets) {
   const sheetIds = [...workbook.matchAll(/<sheet\b[^>]*\bsheetId="(\d+)"/g)].map((match) => Number(match[1]));
   const entry = `<sheet name="${xmlEncode(label)}" sheetId="${Math.max(0, ...sheetIds) + 1}" r:id="${relationshipId}"/>`;
   zip.file(WORKBOOK_PATH, workbook.replace('</sheets>', `${entry}</sheets>`));
-  if (zip.file(copyPart)) {
-    zip.file(
-      copyPart,
-      (await zipText(zip, copyPart)).replace(/<tableParts\b[^>]*?(?:\/>|>[\s\S]*?<\/tableParts>)/, '')
-    );
-  }
   return { op: op.op, changed: true, sheet: label };
 }
 

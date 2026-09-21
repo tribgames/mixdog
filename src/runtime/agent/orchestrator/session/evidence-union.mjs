@@ -2,15 +2,7 @@
 // results are delivered verbatim, including repeated source windows and paths.
 // Stored-history compaction and artifact offload are handled elsewhere.
 export function projectProviderEvidence(messages) {
-  const bytes = Array.isArray(messages)
-    ? messages.reduce(
-        (sum, message) =>
-          sum + (message?.role === 'tool' && typeof message.content === 'string'
-            ? Buffer.byteLength(message.content, 'utf8')
-            : 0),
-        0
-      )
-    : 0;
+  const bytes = Array.isArray(messages) ? messages.reduce((sum, message) => sum + toolResultBytes(message), 0) : 0;
   return {
     messages,
     stats: {
@@ -28,4 +20,9 @@ export function projectProviderEvidence(messages) {
       pathAliasBytesSaved: 0,
     },
   };
+}
+
+function toolResultBytes(message) {
+  if (message?.role !== 'tool' || typeof message.content !== 'string') return 0;
+  return Buffer.byteLength(message.content, 'utf8');
 }

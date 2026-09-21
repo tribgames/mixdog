@@ -117,15 +117,17 @@ function getStopFlagPath(instanceId) {
 function getChannelOwnerPath(channelId) {
   return join(OWNER_DIR, `${sanitize(channelId)}.json`);
 }
+// Transient read during an atomic rename may yield empty/partial content.
+// Retry once after 50 ms before reporting the advert as unreadable.
+function readActiveInstanceRetrying() {
+  const first = readJsonFile(ACTIVE_INSTANCE_FILE, null);
+  if (first) return first;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
+  return readJsonFile(ACTIVE_INSTANCE_FILE, null);
+}
 function readActiveInstance() {
-  let state = readJsonFile(ACTIVE_INSTANCE_FILE, null);
-  if (!state) {
-    // Transient read during an atomic rename may yield empty/partial content.
-    // Retry once after 50 ms before giving up.
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    state = readJsonFile(ACTIVE_INSTANCE_FILE, null);
-    if (!state) return null;
-  }
+  const state = readActiveInstanceRetrying();
+  if (!state) return null;
   // Pure metadata-advert read: ownership is the OS seat lock now, so this no
   // longer evicts a "stale" owner (the false-stale ui_heartbeat eviction was
   // the Discord-flapping root cause). A crashed holder auto-releases the seat;
@@ -149,28 +151,32 @@ function probeActiveOwner() {
   } catch {
     return { status: 'absent', state: null };
   }
-  let raw = readJsonFile(ACTIVE_INSTANCE_FILE, null);
+  const raw = readActiveInstanceRetrying();
   if (!raw) {
-    // Transient partial content during an atomic rename — retry once.
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
-    raw = readJsonFile(ACTIVE_INSTANCE_FILE, null);
-    if (!raw) {
-      // Re-check existence to disambiguate a completed delete (absent) from a
-      // still-unreadable file (unknown/busy).
-      try {
-        statSync(ACTIVE_INSTANCE_FILE);
-      } catch {
-        return { status: 'absent', state: null };
-      }
-      return { status: 'unknown', state: null };
+    // Re-check existence to disambiguate a completed delete (absent) from a
+    // still-unreadable file (unknown/busy).
+    try {
+      statSync(ACTIVE_INSTANCE_FILE);
+    } catch {
+      return { status: 'absent', state: null };
     }
+    return { status: 'unknown', state: null };
   }
   const staleReason = activeInstanceStaleReason(raw);
   if (staleReason) return { status: 'stale', state: raw, staleReason };
   return { status: 'live', state: raw };
 }
+/** Caller-supplied advert fields, in the order every writer publishes them. */
+function metaFields(meta) {
+  return {
+    ...(meta?.channelId ? { channelId: meta.channelId } : {}),
+    ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
+    ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
+    ...Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_'))),
+    ...(typeof meta?.providerReady === 'boolean' ? { providerReady: meta.providerReady } : {}),
+  };
+}
 function buildActiveInstanceState(instanceId, meta) {
-  const gatewayMeta = Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_')));
   return {
     instanceId,
     ...buildRuntimeIdentity(),
@@ -179,11 +185,7 @@ function buildActiveInstanceState(instanceId, meta) {
     updatedAt: Date.now(),
     turnEndFile: getTurnEndPath(instanceId),
     statusFile: getStatusPath(instanceId),
-    ...(meta?.channelId ? { channelId: meta.channelId } : {}),
-    ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
-    ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
-    ...gatewayMeta,
-    ...(typeof meta?.providerReady === 'boolean' ? { providerReady: meta.providerReady } : {}),
+    ...metaFields(meta),
   };
 }
 function refreshActiveInstance(instanceId, meta, options) {
@@ -233,17 +235,12 @@ function refreshActiveInstance(instanceId, meta, options) {
         Number.isFinite(prevServerStartedAt)
           ? prevServerStartedAt
           : Date.now();
-      const gatewayMeta = Object.fromEntries(Object.entries(meta || {}).filter(([k]) => k.startsWith('gateway_')));
       const next = {
         ...(prev?.instanceId === instanceId ? prevRest : buildActiveInstanceState(instanceId)),
         ...identity,
         server_started_at: serverStartedAt,
         updatedAt: Date.now(),
-        ...(meta?.channelId ? { channelId: meta.channelId } : {}),
-        ...(meta?.transcriptPath ? { transcriptPath: meta.transcriptPath } : {}),
-        ...(meta?.httpPort ? { httpPort: meta.httpPort } : {}),
-        ...gatewayMeta,
-        ...(typeof meta?.providerReady === 'boolean' ? { providerReady: meta.providerReady } : {}),
+        ...metaFields(meta),
       };
       if (typeof meta?.transcriptPath === 'string' && meta.transcriptPath) {
         const outgoing = prevForPreserve?.transcriptPath;

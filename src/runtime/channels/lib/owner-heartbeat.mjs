@@ -17,14 +17,10 @@ function createOwnerHeartbeat() {
     // Daemon singleton: this runtime always owns the bridge.
     return { owned: true };
   }
-  function getBridgeOwnershipSnapshot() {
-    return currentOwnerState();
-  }
 
   return {
     logOwnership,
     currentOwnerState,
-    getBridgeOwnershipSnapshot,
   };
 }
 

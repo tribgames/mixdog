@@ -101,7 +101,7 @@ test('Esc on the main list closes the surface and prefers onCancel over returnTo
   assert.deepEqual(returned, [1]);
 });
 
-test('API-key actions: replace/delete for a stored key, add/get/usage-login for OpenCode Go', async () => {
+test('API-key actions: replace/delete for a stored key, add/get for OpenCode Go', async () => {
   const h = createHarness();
   await h.openProviderSetupPicker({});
   await flush();
@@ -130,7 +130,7 @@ test('API-key actions: replace/delete for a stored key, add/get/usage-login for 
   panel = h.current();
   assert.deepEqual(
     panel.items.map((item) => item.value),
-    ['set-key', 'get-key', 'usage-login-browser']
+    ['set-key', 'get-key']
   );
   assert.equal(panel.items[0].label, 'Add API key');
   assert.equal(panel.items[0].description, 'masked input · stored in OS keychain');

@@ -292,13 +292,11 @@ function toolSequence(sorted, iters) {
     if (it != null) iters.add(it);
     const tool = field(r, 'tool_name') || '?';
     const rawArgs = field(r, 'tool_args');
-    const summaryArgs = rawArgs;
     sequence.push({
       it: it ?? null,
       tool,
       args: argsSummary(tool, rawArgs),
       rawArgs,
-      inspectArgs: summaryArgs,
       argsHash: field(r, 'tool_args_hash'),
       resultKind: field(r, 'result_kind'),
       resultLines: Number(field(r, 'result_lines_est') || 0),

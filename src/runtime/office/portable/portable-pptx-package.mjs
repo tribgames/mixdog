@@ -10,6 +10,7 @@ import {
   loadPackage,
   partRelationshipPath,
   relationshipMap,
+  relationshipTargetByType,
   removeContentTypeOverride,
   removePackageRelationship,
   rewriteImportedRelationships,
@@ -160,6 +161,23 @@ export async function addPresentationSlide(zip, op) {
   return { part, position: position + 1, layout: layout.name || layout.type || layout.path };
 }
 
+// Everything a slide owns in the package: the notes slide hanging off it, the
+// slide part itself, and the relationship parts and content-type overrides of
+// both. A part left behind is an orphan the package validator reports.
+async function removeSlideParts(zip, slidePath) {
+  const relationships = partRelationshipPath(slidePath);
+  const notes = relationshipTargetByType(await zipText(zip, relationships), 'notesSlide');
+  if (notes) {
+    const notesPart = posix.normalize(posix.join(posix.dirname(slidePath), notes));
+    zip.remove(notesPart);
+    if (zip.file(partRelationshipPath(notesPart))) zip.remove(partRelationshipPath(notesPart));
+    await removeContentTypeOverride(zip, `/${notesPart}`);
+  }
+  zip.remove(slidePath);
+  if (zip.file(relationships)) zip.remove(relationships);
+  await removeContentTypeOverride(zip, `/${slidePath}`);
+}
+
 export async function deletePresentationSlide(zip, slides, number) {
   if (slides.length <= 1) throw new Error('A presentation must keep at least one slide');
   const slide = slides[Number(number) - 1];
@@ -169,18 +187,7 @@ export async function deletePresentationSlide(zip, slides, number) {
   const entries = slideIdEntries(presentation).filter((entry) => xmlAttribute(entry, 'r:id') !== slide.rid);
   zip.file(presentationPath, writeSlideIdList(presentation, entries));
   await removePackageRelationship(zip, 'ppt/_rels/presentation.xml.rels', slide.rid);
-  const relsPath = partRelationshipPath(slide.path);
-  const rels = await zipText(zip, relsPath);
-  const notes = /<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\bTarget="([^"]+)"/.exec(rels)?.[1];
-  if (notes) {
-    const notesPart = posix.normalize(posix.join(posix.dirname(slide.path), notes));
-    zip.remove(notesPart);
-    if (zip.file(partRelationshipPath(notesPart))) zip.remove(partRelationshipPath(notesPart));
-    await removeContentTypeOverride(zip, `/${notesPart}`);
-  }
-  zip.remove(slide.path);
-  if (zip.file(relsPath)) zip.remove(relsPath);
-  await removeContentTypeOverride(zip, `/${slide.path}`);
+  await removeSlideParts(zip, slide.path);
 }
 
 async function movePackagePart(zip, from, to) {
@@ -345,9 +352,7 @@ export async function ensureCommentAuthor(zip, author, initials) {
 
 export async function ensureSlideComments(zip, slide) {
   const relationships = partRelationshipPath(slide.path);
-  const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(
-    await zipText(zip, relationships)
-  )?.[1];
+  const target = relationshipTargetByType(await zipText(zip, relationships), 'comments');
   if (target) return posix.normalize(posix.join(posix.dirname(slide.path), target));
   let ordinal = 1;
   while (zip.file(`ppt/comments/comment${ordinal}.xml`)) ordinal += 1;
@@ -365,7 +370,7 @@ export async function ensureSlideComments(zip, slide) {
 
 export async function readSlideNotes(zip, slide) {
   const relationships = await zipText(zip, partRelationshipPath(slide.path));
-  const linked = /<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\bTarget="([^"]+)"/.exec(relationships)?.[1];
+  const linked = relationshipTargetByType(relationships, 'notesSlide');
   if (!linked) return '';
   const part = posix.normalize(posix.join(posix.dirname(slide.path), linked));
   const xml = await zipText(zip, part);
@@ -380,7 +385,7 @@ export async function setSlideNotes(zip, slides, number, text) {
   await ensureNotesMaster(zip);
   const slideRelsPath = partRelationshipPath(slide.path);
   const slideRels = await zipText(zip, slideRelsPath);
-  const linked = /<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\bTarget="([^"]+)"/.exec(slideRels)?.[1];
+  const linked = relationshipTargetByType(slideRels, 'notesSlide');
   const ordinal = Number(/slide(\d+)\.xml$/.exec(slide.path)?.[1]) || Number(number);
   const part = linked
     ? posix.normalize(posix.join(posix.dirname(slide.path), linked))
@@ -495,19 +500,7 @@ export async function clearPortablePresentationSlides(path) {
   zip.file('ppt/presentation.xml', writeSlideIdList(presentation, []));
   for (const slide of slides) {
     if (slide.rid) await removePackageRelationship(zip, 'ppt/_rels/presentation.xml.rels', slide.rid);
-    const relationships = partRelationshipPath(slide.path);
-    const notes = /<Relationship\b[^>]*\bType="[^"]*\/notesSlide"[^>]*\bTarget="([^"]+)"/.exec(
-      await zipText(zip, relationships)
-    )?.[1];
-    if (notes) {
-      const notesPart = posix.normalize(posix.join(posix.dirname(slide.path), notes));
-      zip.remove(notesPart);
-      if (zip.file(partRelationshipPath(notesPart))) zip.remove(partRelationshipPath(notesPart));
-      await removeContentTypeOverride(zip, `/${notesPart}`);
-    }
-    zip.remove(slide.path);
-    if (zip.file(relationships)) zip.remove(relationships);
-    await removeContentTypeOverride(zip, `/${slide.path}`);
+    await removeSlideParts(zip, slide.path);
   }
   await savePackage(zip, path);
   return { removed: slides.length };

@@ -45,32 +45,24 @@ export function _sessionForDisk(session) {
   const messages = Array.isArray(session?.messages) ? session.messages : null;
   if (!messages || messages.length === 0) {
     if (!hasTransient) return session;
-    const {
-      liveTurnMessages: _dropLTM,
-      toolApprovalHook: _dropTAH,
-      _providerPrefixGuardState: _dropPPGS,
-      ...rest
-    } = session;
-    return _withMidTurnContextAnchor(rest, session);
+    return _withMidTurnContextAnchor(_withoutTransientFields(session), session);
   }
   const out = _messagesForDisk(messages);
   if (out === messages) {
     if (!hasTransient) return session;
-    const {
-      liveTurnMessages: _dropLTM,
-      toolApprovalHook: _dropTAH,
-      _providerPrefixGuardState: _dropPPGS,
-      ...rest
-    } = session;
-    return _withMidTurnContextAnchor(rest, session);
+    return _withMidTurnContextAnchor(_withoutTransientFields(session), session);
   }
+  return _withMidTurnContextAnchor({ ..._withoutTransientFields(session), messages: out }, session);
+}
+
+function _withoutTransientFields(session) {
   const {
     liveTurnMessages: _dropLTM,
     toolApprovalHook: _dropTAH,
     _providerPrefixGuardState: _dropPPGS,
     ...rest
   } = session;
-  return _withMidTurnContextAnchor({ ...rest, messages: out }, session);
+  return rest;
 }
 
 /**

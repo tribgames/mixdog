@@ -1,18 +1,3 @@
-export function mergeTranscript(items, streamingTail) {
-  const settled = Array.isArray(items) ? items : [];
-  if (!streamingTail) return settled;
-  const tailId = streamingTail?.id;
-  if (tailId !== undefined && tailId !== null) {
-    const match = settled.findIndex((item) => item?.id === tailId);
-    if (match >= 0) {
-      const merged = settled.slice();
-      merged[match] = streamingTail;
-      return merged;
-    }
-  }
-  return [...settled, streamingTail];
-}
-
 function stableItemKey(item, index) {
   if (item?.id !== undefined && item?.id !== null) return String(item.id);
   return `${item?.kind || 'item'}:${item?.text || item?.label || item?.status || ''}:${index}`;
@@ -193,42 +178,12 @@ export function shouldStopComposerGeneration({ turnBusy = false, text = '', atta
   return Boolean(turnBusy && !hasSendablePromptContent({ text, attachments }));
 }
 
-export function mergeModelCatalog(current, incoming) {
-  const models = new Map();
-  for (const option of [...(Array.isArray(current) ? current : []), ...(Array.isArray(incoming) ? incoming : [])]) {
-    const provider = String(option?.provider || '').trim();
-    const model = String(option?.model || '').trim();
-    if (!provider || !model) continue;
-    models.set(`${provider}\n${model}`, option);
-  }
-  return [...models.values()];
-}
-
 export function approvalInstanceKey(id) {
   return String(id || 'approval');
 }
 
 export function isApprovalDismissKey(key) {
   return key === 'Escape';
-}
-
-export function focusTrapIndex(currentIndex, count, backwards = false) {
-  if (count <= 0) return -1;
-  if (currentIndex < 0) return backwards ? count - 1 : 0;
-  return (currentIndex + (backwards ? -1 : 1) + count) % count;
-}
-
-export function draftAfterSubmission(currentDraft, submittedText, accepted) {
-  return accepted === true && currentDraft === submittedText ? '' : currentDraft;
-}
-
-export async function attemptApproval(resolve, approved) {
-  try {
-    const result = await resolve(approved);
-    return result !== false && result !== undefined;
-  } catch {
-    return false;
-  }
 }
 
 export function normalizeApplyPatch(value) {
@@ -379,144 +334,6 @@ export function parseUnifiedDiff(patch) {
   const lead = normalized.slice(0, starts[0]);
   if (starts[0] > 0 && hasLeadingDiffContent(lead)) sections.unshift(lead);
   return sections.map(parseFileSection);
-}
-
-// ── Structured tool-input rows ───────────────────────────────────
-// The expanded tool card renders Input as a key/value grid,
-// never a raw JSON dump. Keys listed here
-// render first, in this order; unlisted keys follow in natural order.
-const TOOL_INPUT_PRIORITY = new Map();
-function registerInputPriority(names, keys) {
-  for (const name of names) TOOL_INPUT_PRIORITY.set(name, keys);
-}
-registerInputPriority(['read'], ['path', 'file_path', 'offset', 'limit']);
-registerInputPriority(['view_image'], ['path', 'file_path']);
-registerInputPriority(['apply_patch'], ['base_path', 'dry_run', 'format', 'fuzzy', 'reject_partial']);
-registerInputPriority(['grep'], ['pattern', 'query', 'path', 'glob', 'output_mode', '-C', 'head_limit', 'offset']);
-registerInputPriority(['glob'], ['pattern', 'glob', 'path', 'head_limit', 'offset']);
-registerInputPriority(['find'], ['query', 'fuzzy', 'path', 'head_limit']);
-registerInputPriority(['list', 'ls'], ['path', 'dir', 'head_limit', 'offset']);
-registerInputPriority(['explore'], ['query', 'cwd']);
-registerInputPriority(
-  ['search_query', 'web_search', 'image_query'],
-  ['query', 'site', 'type', 'maxResults', 'contextSize', 'locale']
-);
-registerInputPriority(['web_fetch'], ['url', 'uri', 'maxLength', 'startIndex']);
-registerInputPriority(['fetch'], ['url', 'uri', 'channel', 'limit']);
-registerInputPriority(['code_graph'], ['mode', 'symbols', 'files', 'depth', 'limit', 'page', 'body']);
-registerInputPriority(
-  ['agent', 'bridge'],
-  ['type', 'agent', 'tag', 'task_id', 'sessionId', 'cwd', 'message', 'prompt', 'context', 'file']
-);
-registerInputPriority(['task'], ['action', 'task_id', 'timeout_ms']);
-registerInputPriority(
-  ['recall', 'search_memories'],
-  ['query', 'period', 'category', 'limit', 'projectScope', 'sort', 'id']
-);
-registerInputPriority(
-  ['memory', 'remember', 'save_memory', 'update_memory'],
-  ['action', 'op', 'query', 'text', 'value']
-);
-registerInputPriority(['load_tool'], ['names', 'select']);
-registerInputPriority(['skill', 'use_skill', 'skill_execute', 'skill_view'], ['name', 'skill', 'skill_name']);
-registerInputPriority(['reply'], ['channel', 'channelId', 'text', 'files']);
-registerInputPriority(['cwd'], ['action', 'path']);
-
-// Fields whose bulk payload is rendered elsewhere (the diff view) or is
-// pure noise in a key/value grid.
-const TOOL_INPUT_HIDDEN = new Map([['apply_patch', ['patch']]]);
-
-const TOOL_INPUT_LONG_VALUE = 96;
-const TOOL_INPUT_MAX_ROWS = 32;
-
-function isInputScalar(value) {
-  return value == null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
-}
-
-function toolInputRow(key, value) {
-  const text = String(value);
-  return { key, value: text, block: text.includes('\n') || text.length > TOOL_INPUT_LONG_VALUE };
-}
-
-// Small objects (e.g. read regions {path,offset,limit}) join as one-liners;
-// anything nested falls back to compact JSON.
-function compactObjectValue(value) {
-  const entries = Object.entries(value).filter(([, v]) => v !== undefined && v !== null && v !== '');
-  if (entries.length > 0 && entries.every(([, v]) => isInputScalar(v))) {
-    return entries.map(([k, v]) => `${k}: ${v}`).join(' · ');
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-export function toolInputRows(name, args) {
-  if (!args || typeof args !== 'object' || Array.isArray(args)) return [];
-  const normalized = String(name || '').toLowerCase();
-  const hidden = new Set(TOOL_INPUT_HIDDEN.get(normalized) || []);
-  const priority = TOOL_INPUT_PRIORITY.get(normalized) || [];
-  const keys = [
-    ...priority.filter((key) => key in args),
-    ...Object.keys(args).filter((key) => !priority.includes(key)),
-  ];
-  const rows = [];
-  for (const key of keys) {
-    if (hidden.has(key)) continue;
-    const value = args[key];
-    if (value === undefined || value === null || value === '') continue;
-    if (isInputScalar(value)) {
-      rows.push(toolInputRow(key, value));
-    } else if (Array.isArray(value)) {
-      if (value.length === 0) continue;
-      if (value.length === 1) {
-        const only = value[0];
-        rows.push(toolInputRow(key, isInputScalar(only) ? only : compactObjectValue(only)));
-        continue;
-      }
-      value.forEach((item, index) => {
-        rows.push(toolInputRow(`${key}[${index}]`, isInputScalar(item) ? item : compactObjectValue(item)));
-      });
-    } else {
-      rows.push(toolInputRow(key, compactObjectValue(value)));
-    }
-  }
-  if (rows.length > TOOL_INPUT_MAX_ROWS) {
-    const extra = rows.length - TOOL_INPUT_MAX_ROWS;
-    return [
-      ...rows.slice(0, TOOL_INPUT_MAX_ROWS),
-      { key: '…', value: `${extra} more ${extra === 1 ? 'field' : 'fields'}`, block: false },
-    ];
-  }
-  return rows;
-}
-
-// --- Session-scoped snapshot gating -----------------------------------------
-// The conversation surface paints the host's LIVE snapshot. Background engines
-// (parked sessions finishing work, automations) must never repaint a view the
-// user is not in: a live frame whose sessionId differs from the viewed scope is
-// always foreign. Explicit session acknowledgements change the pane's scope;
-// stream publications never change ownership. A scopeSessionId of '' models
-// the renderer-only New task draft, so only blank frames match.
-export function createSessionScopedSnapshotGate(scopeSessionId) {
-  const scopeId = String(scopeSessionId || '');
-  let lastMatching = null;
-  return {
-    select(live) {
-      const liveId = String(live?.sessionId || '');
-      if (liveId === scopeId) {
-        lastMatching = live;
-        return { snapshot: live, suppressedSessionId: '' };
-      }
-      if (!liveId) {
-        // Blank frames belong to engine swap gaps: hold the last matching
-        // frame instead of blanking the session view.
-        return { snapshot: lastMatching || live || null, suppressedSessionId: '' };
-      }
-      return { snapshot: lastMatching, suppressedSessionId: liveId };
-    },
-  };
 }
 
 // Startup/reload navigation restore plan. The persisted LAST VIEWED selection

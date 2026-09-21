@@ -1,6 +1,12 @@
 import { posix } from 'node:path';
 import { chartWorkbookRows, chartXml } from './portable-chart.mjs';
-import { addPackageRelationship, partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
+import {
+  addPackageRelationship,
+  partRelationshipPath,
+  relationshipTarget,
+  relationshipTargetByType,
+  zipText,
+} from './portable-opc.mjs';
 import { OFFICE_RELATIONSHIP_BASE, tagPattern, upsertOrderedChild, xmlEncode } from './portable-xml.mjs';
 import {
   CHART_AXIS_ORDER,
@@ -75,7 +81,7 @@ export async function handleSetChartData(context, op) {
   if (!series.length) throw new Error('set_chart_data requires series');
   const categories = Array.isArray(op.categories) ? op.categories : chartCategories(existing);
   const chartRelationships = await zipText(zip, partRelationshipPath(chartPart));
-  const embedded = /<Relationship\b[^>]*\bType="[^"]*\/package"[^>]*\bTarget="([^"]+)"/.exec(chartRelationships)?.[1];
+  const embedded = relationshipTargetByType(chartRelationships, 'package');
   const embeddingPart = embedded
     ? relationshipTarget(partRelationshipPath(chartPart), embedded)
     : `ppt/embeddings/chartData${Number(/chart(\d+)\.xml$/.exec(chartPart)?.[1]) || 1}.xlsx`;
@@ -137,6 +143,22 @@ export async function handleSetChartData(context, op) {
     chart: chartPart,
     ...(preserved.length ? { preserved } : {}),
   };
+}
+
+// Rewrites the chart's series blocks in place. `wanted` is a 1-based series
+// number; anything else (no number, 0, NaN) means every series. `changed` says
+// whether any series was reached, which is how a caller learns that the series
+// it named does not exist.
+function rewriteChartSeries(xml, wanted, rewrite) {
+  let index = 0;
+  let changed = false;
+  const next = xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (series) => {
+    index += 1;
+    if (Number.isInteger(wanted) && wanted > 0 && wanted !== index) return series;
+    changed = true;
+    return rewrite(series);
+  });
+  return { xml: next, changed };
 }
 
 export async function handleSetChartAxis(context, op) {
@@ -204,12 +226,7 @@ export async function handleSetChartSeries(context, op) {
   }
   const chart = await resolveSlideChart(zip, slides, op);
   const wanted = Math.max(1, Number(op.series) || 1);
-  let index = 0;
-  let changed = false;
-  const next = chart.xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (series) => {
-    index += 1;
-    if (index !== wanted) return series;
-    changed = true;
+  const { xml: next, changed } = rewriteChartSeries(chart.xml, wanted, (series) => {
     let updated = series;
     if (op.name != null) {
       updated = updated.replace(
@@ -289,14 +306,9 @@ export async function handleSetChartTrendlineOrSetChartErrorBars(context, op) {
   const slides = context.slides;
   const chart = await resolveSlideChart(zip, slides, op);
   const wanted = Number(op.series);
-  let index = 0;
-  let changed = false;
   const element = op.op === 'set_chart_trendline' ? trendlineXml(op) : errorBarsXml(op);
   const tag = op.op === 'set_chart_trendline' ? 'c:trendline' : 'c:errBars';
-  const next = chart.xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (series) => {
-    index += 1;
-    if (Number.isInteger(wanted) && wanted > 0 && wanted !== index) return series;
-    changed = true;
+  const { xml: next, changed } = rewriteChartSeries(chart.xml, wanted, (series) => {
     const cleaned = series.replace(new RegExp(`<${tagPattern(tag)}>[\\s\\S]*?<\\/${tagPattern(tag)}>`, 'g'), '');
     const anchor = /<c:cat>/.exec(cleaned) || /<c:val>/.exec(cleaned);
     return anchor
@@ -330,12 +342,7 @@ export async function handleSetChartDataLabels(context, op) {
       '</c:dLbls>';
   }
   const wanted = Number(op.series);
-  let index = 0;
-  let changed = false;
-  const next = chart.xml.replace(/<c:ser>[\s\S]*?<\/c:ser>/g, (series) => {
-    index += 1;
-    if (Number.isInteger(wanted) && wanted > 0 && wanted !== index) return series;
-    changed = true;
+  const { xml: next, changed } = rewriteChartSeries(chart.xml, wanted, (series) => {
     const cleaned = series.replace(/<c:dLbls>[\s\S]*?<\/c:dLbls>/, '');
     if (!labels) return cleaned;
     const anchor = /<c:cat>/.exec(cleaned);

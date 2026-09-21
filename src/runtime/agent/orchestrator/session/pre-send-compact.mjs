@@ -18,8 +18,7 @@ import { estimateMessagesTokensSafe } from './loop/compact-debug.mjs';
 import { messagesArrayChanged } from './loop/tool-helpers.mjs';
 import { normalizeUsage, addUsage } from './loop/usage.mjs';
 import { reasoningUsage } from '../../../shared/llm/reasoning-usage.mjs';
-import { agentContextOverflowError } from './loop/context-overflow.mjs';
-import { agentCompactFailedError } from './loop/context-overflow.mjs';
+import { agentCompactFailedError, agentContextOverflowError } from './loop/context-overflow.mjs';
 import { isContextOverflowError } from '../providers/retry-classifier.mjs';
 import { traceAgentCompact, messagePrefixHash } from '../agent-trace.mjs';
 import { invalidateProviderRequestToolsScope } from '../../../../session-runtime/provider-request-tools.mjs';
@@ -257,16 +256,6 @@ function isCompactAbort(signal, err) {
   return signal?.aborted === true || err?.name === 'AbortError' || err?.code === 'ABORT_ERR' || err?.code === 'ABORT';
 }
 
-// A failed compact pass ends the send. A genuine cancellation/abort surfaced
-// from the compact pipeline is NOT a context overflow: the fresh-context
-// pipeline deliberately rethrows the original abort error unchanged so the
-// session records a clean cancellation — and the manual/auto-clear runner
-// (manager/compaction-runner.mjs) likewise never fabricates an
-// AGENT_CONTEXT_OVERFLOW for an aborted compact. Mirror that here: preserve
-// the real error (code/name/cause intact) instead of masking it as overflow.
-// Detection is narrow on purpose — signal.aborted or a true AbortError — so
-// the recall pipeline's SYNTHETIC "…aborted: memory … ; head preserved"
-// failure (a real compact failure, message text aside) still escalates.
 // Telemetry, trace and the failed compact event for one compact failure.
 function reportCompactFailure(ctx, run, compactErr) {
   const { decision } = ctx;
@@ -299,6 +288,16 @@ function reportCompactFailure(ctx, run, compactErr) {
   });
 }
 
+// A failed compact pass ends the send. A genuine cancellation/abort surfaced
+// from the compact pipeline is NOT a context overflow: the fresh-context
+// pipeline deliberately rethrows the original abort error unchanged so the
+// session records a clean cancellation — and the manual/auto-clear runner
+// (manager/compaction-runner.mjs) likewise never fabricates an
+// AGENT_CONTEXT_OVERFLOW for an aborted compact. Mirror that here: preserve
+// the real error (code/name/cause intact) instead of masking it as overflow.
+// Detection is narrow on purpose — signal.aborted or a true AbortError — so
+// the recall pipeline's SYNTHETIC "…aborted: memory … ; head preserved"
+// failure (a real compact failure, message text aside) still escalates.
 function throwCompactFailure(ctx, run, compactErr) {
   const { state, compactPolicy, decision } = ctx;
   const { sessionRef, sessionId, signal, model } = state;

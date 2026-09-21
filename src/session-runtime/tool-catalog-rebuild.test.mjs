@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BUILTIN_TOOLS } from '../runtime/agent/orchestrator/tools/builtin/builtin-tools.mjs';
-import { applyDeferredToolSurface, deferredCatalogUnion, renderToolSearch, selectDeferredTools } from './tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  deferredCatalogUnion,
+  renderToolSearch,
+  selectDeferredTools,
+} from './tool-catalog.mjs';
 
 const deferredGitNames = ['github'];
 
@@ -99,7 +104,10 @@ test('selecting git does not load GitHub or a separate staging schema', () => {
   assert.deepEqual(selected.added, []);
   assert.deepEqual(selected.already, ['git']);
   assert.equal(current.deferredCallableTools.includes('github'), false);
-  assert.equal(BUILTIN_TOOLS.some((tool) => tool.name === 'git_stage'), false);
+  assert.equal(
+    BUILTIN_TOOLS.some((tool) => tool.name === 'git_stage'),
+    false
+  );
 });
 
 test('resumed catalogs drop legacy staging tools but retain GitHub on demand', () => {
@@ -109,8 +117,14 @@ test('resumed catalogs drop legacy staging tools but retain GitHub on demand', (
   current.deferredToolCatalog.push(legacy);
   current.deferredLateToolCatalog = [legacy];
   applyDeferredToolSurface(current, 'lead');
-  assert.equal(deferredCatalogUnion(current).some((tool) => tool.name === 'git_stage'), false);
-  assert.equal(current.tools.some((tool) => tool.name === 'git_stage'), false);
+  assert.equal(
+    deferredCatalogUnion(current).some((tool) => tool.name === 'git_stage'),
+    false
+  );
+  assert.equal(
+    current.tools.some((tool) => tool.name === 'git_stage'),
+    false
+  );
   const loaded = JSON.parse(renderToolSearch({ names: ['git_stage'] }, current, 'lead'));
   assert.deepEqual(loaded.missing, ['git_stage']);
 });

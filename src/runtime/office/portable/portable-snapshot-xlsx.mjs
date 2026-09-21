@@ -10,7 +10,7 @@ import {
   workbookCalculation,
   workbookSheets,
 } from './portable-cells.mjs';
-import { partRelationshipPath, zipText } from './portable-opc.mjs';
+import { partRelationshipPath, relationshipTargetByType, relationshipTargetsByType, zipText } from './portable-opc.mjs';
 import { paragraphTexts, xmlAttribute, xmlDecode } from './portable-xml.mjs';
 import { expandSharedFormulas } from './portable-shared-formulas.mjs';
 import { worksheetDrawings } from './portable-sheet-page.mjs';
@@ -22,7 +22,7 @@ import { chartPartSnapshot, populatedCellPagination, relatedPartById } from './p
 // Excel reports them: { path, cell, text, author }.
 async function worksheetNotes(zip, sheet) {
   const rels = await zipText(zip, partRelationshipPath(sheet.path));
-  const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(rels || '')?.[1];
+  const target = relationshipTargetByType(rels, 'comments');
   if (!target) return [];
   const part = target.startsWith('/')
     ? target.slice(1)
@@ -50,14 +50,7 @@ async function worksheetNotes(zip, sheet) {
 async function worksheetTables(zip, sheet) {
   const rels = await zipText(zip, partRelationshipPath(sheet.path));
   const tables = [];
-  for (const match of (rels || '').matchAll(/<Relationship\b([^>]*)\/?>/g)) {
-    const attributes = match[1];
-    if (!/\bType="[^"]*\/table"/.test(attributes)) continue;
-    const target = /\bTarget="([^"]+)"/.exec(attributes)?.[1] || '';
-    if (!target) continue;
-    const part = target.startsWith('/')
-      ? target.slice(1)
-      : posix.normalize(posix.join(posix.dirname(sheet.path), target));
+  for (const part of relationshipTargetsByType(rels, sheet.path, 'table').values()) {
     const xml = await zipText(zip, part);
     const open = /<table\b([^>]*)>/.exec(xml || '')?.[1] || '';
     const range = (/\bref="([^"]+)"/.exec(open)?.[1] || '').toUpperCase();
@@ -235,6 +228,13 @@ function worksheetProtection(xml) {
   };
 }
 
+// The cells a validation or a conditional format applies to: one sqref
+// attribute holding space-separated A1 ranges.
+const sqrefRanges = (attributes) =>
+  xmlDecode(/\bsqref="([^"]+)"/.exec(attributes)?.[1] || '')
+    .split(/\s+/)
+    .filter(Boolean);
+
 function worksheetValidations(xml, sheetName) {
   const validations = [];
   for (const match of xml.matchAll(/<dataValidation\b([^>]*?)(?:\/>|>([\s\S]*?)<\/dataValidation>)/g)) {
@@ -243,9 +243,7 @@ function worksheetValidations(xml, sheetName) {
     validations.push({
       path: `/sheet[${sheetName}]/validation[${validations.length + 1}]`,
       index: validations.length + 1,
-      ranges: xmlDecode(/\bsqref="([^"]+)"/.exec(attributes)?.[1] || '')
-        .split(/\s+/)
-        .filter(Boolean),
+      ranges: sqrefRanges(attributes),
       type: /\btype="([^"]+)"/.exec(attributes)?.[1] || '',
       operator: /\boperator="([^"]+)"/.exec(attributes)?.[1] || '',
       allowBlank: booleanXmlAttribute(attributes, 'allowBlank'),
@@ -261,9 +259,7 @@ function worksheetValidations(xml, sheetName) {
 function worksheetConditionalFormats(xml, sheetName) {
   const conditionalFormats = [];
   for (const match of xml.matchAll(/<conditionalFormatting\b([^>]*)>([\s\S]*?)<\/conditionalFormatting>/g)) {
-    const ranges = xmlDecode(/\bsqref="([^"]+)"/.exec(match[1])?.[1] || '')
-      .split(/\s+/)
-      .filter(Boolean);
+    const ranges = sqrefRanges(match[1]);
     for (const rule of match[2].matchAll(/<cfRule\b([^>]*?)(?:\/>|>([\s\S]*?)<\/cfRule>)/g)) {
       const attributes = rule[1];
       const body = rule[2] || '';
@@ -444,7 +440,10 @@ export async function snapshotXlsx(zip, options = {}) {
     defaultStyle: styles[0] || null,
     formulaCount,
     formulaCacheMissing,
-    needsRecalculation: formulaCacheMissing > 0,
+    // An edit marks the workbook for a full calculation. Until that has run the
+    // cached values are the ones from before the edit, cache or no cache, so a
+    // reader must not be told the workbook is current.
+    needsRecalculation: formulaCacheMissing > 0 || calculation.fullCalcOnLoad === true,
     calculation,
     definedNameCount: definedNames.length,
     definedNames,

@@ -221,7 +221,7 @@ export function loadScopedRoleInstructions(agent, provider = null) {
 
 // --- Compose system prompt — 4-BP cache layout ---
 // Returns the three stable system blocks and the BP3 core used for refreshes.
-// directly to the breakpoint plan:
+// They map directly to the breakpoint plan:
 //   BP1 (1h, system block #1) = baseRules — shared tool policy
 //   BP2 (1h, system block #2) = stableSystemContext — profile, skills, deferred/MCP
 //   BP3 (1h, system block #3) = sessionMarker — workflow/role, memory, session/project environment

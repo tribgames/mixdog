@@ -11,6 +11,15 @@ export { hasGrokOAuthCredentials } from '../agent/orchestrator/providers/oauth-c
 
 const XAI_BASE_URL = 'https://api.x.ai/v1';
 
+// Built here rather than with lanes.mjs's mediaError: importing it would close
+// an auth -> lanes -> catalog -> auth module cycle.
+function unauthenticated(message) {
+  const err = new Error(message);
+  err.code = 'MEDIA_LANE_UNAUTHENTICATED';
+  err.status = 401;
+  return err;
+}
+
 /**
  * Bearer for the xAI media endpoints. `grok-oauth` refreshes through the chat
  * provider; `xai` uses the stored API key. Both hit the same api.x.ai routes.
@@ -18,18 +27,17 @@ const XAI_BASE_URL = 'https://api.x.ai/v1';
 export async function resolveXaiAuth(laneId) {
   if (laneId === 'xai') {
     const key = getAgentApiKey('xai');
-    if (!key) {
-      const err = new Error('xAI API key is not configured');
-      err.code = 'MEDIA_LANE_UNAUTHENTICATED';
-      err.status = 401;
-      throw err;
-    }
+    if (!key) throw unauthenticated('xAI API key is not configured');
     return { baseURL: XAI_BASE_URL, token: key };
   }
   const { GrokOAuthProvider } = await import('../agent/orchestrator/providers/grok-oauth.mjs');
   const provider = new GrokOAuthProvider({});
   const tokens = await provider.ensureAuth();
-  return { baseURL: XAI_BASE_URL, token: tokens.access_token };
+  // The bearer rotates on every refresh, so it cannot identify this credential
+  // across sessions. The account id can, exactly like Antigravity's Cloud
+  // project: without it the catalog cache re-keyed on each refresh, re-fetched
+  // on every Studio entry, and lost its own offline fallback.
+  return { baseURL: XAI_BASE_URL, token: tokens.access_token, accountId: tokens.user_id || '' };
 }
 
 /** Codex (ChatGPT OAuth) auth record: access token + account id for headers. */
@@ -53,11 +61,6 @@ export async function resolveAntigravityAuth() {
 
 export function resolveGeminiKey() {
   const key = getAgentApiKey('gemini');
-  if (!key) {
-    const err = new Error('Gemini API key is not configured');
-    err.code = 'MEDIA_LANE_UNAUTHENTICATED';
-    err.status = 401;
-    throw err;
-  }
+  if (!key) throw unauthenticated('Gemini API key is not configured');
   return key;
 }

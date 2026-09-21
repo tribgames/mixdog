@@ -15,8 +15,8 @@ function fixture(t, options = {}) {
   const snapshot = () => runtime.snapshot(sessionId);
   const create = (
     tasks = [
-      { text: 'Approved work', status: 'awaiting_approval', kind: 'work' },
-      { text: 'Verify work', status: 'awaiting_approval', kind: 'verification' },
+      { text: 'Approved work', status: 'awaiting_approval' },
+      { text: 'Verify work', status: 'awaiting_approval' },
     ]
   ) => call({ action: 'create', objective: 'Finish approved work', tasks });
   t.after(() => {
@@ -76,20 +76,20 @@ test('starting a paused task publishes task progress, activation, and clock toge
 test('questions, approval bookkeeping, and carried in-progress rows do not resume a Goal', async (t) => {
   const f = fixture(t);
   await f.create([
-    { text: 'Earlier work', status: 'in_progress', kind: 'work' },
-    { text: 'Verify work', status: 'pending', kind: 'verification' },
+    { text: 'Earlier work', status: 'in_progress' },
+    { text: 'Verify work', status: 'pending' },
   ]);
   await f.runtime.control(f.sessionId, { action: 'pause' });
   await f.runtime.startTurn(f.sessionId);
   assert.equal((await f.call({ action: 'status' })).goal.status, 'paused');
   await f.call({
     action: 'set_tasks',
-    tasks: [...f.snapshot().tasks, { text: 'Ask for approval', status: 'awaiting_approval', kind: 'work' }],
+    tasks: [...f.snapshot().tasks, { text: 'Ask for approval', status: 'awaiting_approval' }],
   });
   await f.call({
     action: 'update_tasks',
     updates: [{ id: f.snapshot().tasks[0].id, text: 'Clarified earlier work' }],
-    tasks: [{ text: 'Future work', status: 'pending', kind: 'work' }],
+    tasks: [{ text: 'Future work', status: 'pending' }],
   });
   assert.equal(f.snapshot().status, 'paused');
   await f.runtime.settleTurn(f.sessionId, { status: 'done' });
@@ -112,11 +112,11 @@ test('full task transitions and newly started tasks also resume paused work', as
       const startFirst = (task, index) => (index ? task : { ...task, status: 'in_progress' });
       const tasks =
         action === 'update_tasks'
-          ? [{ text: 'Approved addition', status: 'in_progress', kind: 'work' }]
+          ? [{ text: 'Approved addition', status: 'in_progress' }]
           : f.snapshot().tasks.map(startFirst);
       const reply = await f.call({ action, tasks });
       assert.equal(reply.goal.status, 'active');
-      assert.equal(f.snapshot().tasks.find((task) => task.kind === 'verification').status, 'awaiting_approval');
+      assert.equal(f.snapshot().tasks.find((task) => task.text === 'Verify work').status, 'awaiting_approval');
     });
   }
 });
@@ -140,10 +140,7 @@ test('work-start task writes cannot bypass revision, validation, or persistence 
   const events = [];
   f.runtime.subscribe((event) => events.push(event));
   await assert.rejects(f.call({ ...args, revision: paused.revision - 1 }), /stale Goal revision/);
-  await assert.rejects(
-    f.call({ ...args, tasks: [{ text: '', status: 'pending', kind: 'work' }] }),
-    /task text is required/
-  );
+  await assert.rejects(f.call({ ...args, tasks: [{ text: '', status: 'pending' }] }), /task text is required/);
   fail = true;
   await assert.rejects(f.call(args), /injected work-start failure/);
   const stored = readStoredGoalSnapshot({ dataDir: f.dataDir, sessionId: f.sessionId });

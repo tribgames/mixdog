@@ -157,13 +157,28 @@ export async function applyPdfBatch(path, operations, context = {}) {
     if (!MARK_OPERATIONS.has(operation.op)) state.measure = null;
     results.push(await BATCH_OPERATIONS[operation.op](state, operation));
   }
-  const bytes = await state.document.save(SAVE_OPTIONS);
+  let bytes = await state.document.save(SAVE_OPTIONS);
+  // Object streams can cost more than they save on a file that is already
+  // compact. When compression was the only thing asked for and the rewrite came
+  // back larger, the file it started with is the better answer: keeping it and
+  // reporting no change beats reporting growth as a successful compression.
+  const compressionOnly = operations.length > 0 && operations.every((operation) => operation.op === 'compress');
+  const grew = bytes.length > source.length;
+  if (compressionOnly && grew) bytes = source;
   await writeFile(path, bytes);
   for (const entry of results) {
     if (entry.op !== 'compress') continue;
     entry.bytesAfter = bytes.length;
     entry.changed = bytes.length !== source.length;
-    entry.note = 'Re-serialized with object streams; images are not resampled, so savings are usually small.';
+    if (compressionOnly && grew) {
+      entry.note =
+        'Object streams cost more than they saved here, so the file was left as it was; images are not resampled. Pass allowNoChange to accept that outcome.';
+    } else if (grew) {
+      entry.grew = true;
+      entry.note = "The batch's other edits grew the file; object streams did not shrink it. Images are not resampled.";
+    } else {
+      entry.note = 'Re-serialized with object streams; images are not resampled, so savings are usually small.';
+    }
   }
   return results;
 }

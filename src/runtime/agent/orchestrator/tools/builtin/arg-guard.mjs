@@ -398,8 +398,6 @@ function coercePatternStringValues(v) {
   return Array.isArray(v) ? v.map(coerce) : coerce(v);
 }
 
-// ---- per-tool guards ----
-
 function guardGrep(a) {
   for (const key of ['include_noise', 'text']) {
     if (hasOwn(a, key) && typeof a[key] !== 'boolean') {
@@ -660,17 +658,14 @@ function guardRead(a) {
   const publicError = normalizePublicReadTargets(a);
   if (publicError) return publicError;
   // Public targets are normalized above; legacy callers already use path.
-  const hasPath = hasOwn(a, 'path');
-  if (!hasPath) {
+  if (!hasOwn(a, 'path')) {
     return 'Error: read requires "path" (or alias file_path).';
   }
   // Some providers/models send a batched path array as a JSON string despite
   // the schema (or path:"[]" meaning cwd). The executor coerces via
   // coerceReadFamilyPathArg(); mirror that here so validation does not reject
   // shapes the executor would absorb.
-  if (hasOwn(a, 'path')) {
-    a.path = coerceReadFamilyPathArg(a.path);
-  }
+  a.path = coerceReadFamilyPathArg(a.path);
   absorbReadEchoedPathInteger(a, 'offset');
   absorbReadEchoedPathInteger(a, 'limit');
   // Absorb: parallel/JSON-stringified offset+limit arrays paired with a
@@ -685,39 +680,36 @@ function guardRead(a) {
     }
   }
   // path can be string | string[] | object[]; file_path is string
-  if (hasOwn(a, 'path')) {
-    const p = a.path;
-    const ok = typeof p === 'string' || (Array.isArray(p) && p.length > 0);
-    if (!ok) {
-      return `Error: read arg "path" must be string, string[], or object[] (got ${describeType(p)})`;
-    }
-    if (Array.isArray(p)) {
-      // Absorb: a region array ({path,offset,limit}[]) carries its window
-      // per-entry; a top-level offset/limit becomes the default for any
-      // region missing its own window, then the top-level keys are dropped
-      // so they don't double-apply in the plain-read checks below.
-      const hasRegionObj = p.some((e) => e && typeof e === 'object' && !Array.isArray(e));
-      if (hasRegionObj && (isPresent(a, 'offset') || isPresent(a, 'limit'))) {
-        for (const e of p) {
-          if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
-          if (isPresent(a, 'offset') && !isPresent(e, 'offset')) e.offset = a.offset;
-          if (isPresent(a, 'limit') && !isPresent(e, 'limit')) e.limit = a.limit;
-        }
-        delete a.offset;
-        delete a.limit;
+  const p = a.path;
+  if (typeof p !== 'string' && !(Array.isArray(p) && p.length > 0)) {
+    return `Error: read arg "path" must be string, string[], or object[] (got ${describeType(p)})`;
+  }
+  if (Array.isArray(p)) {
+    // Absorb: a region array ({path,offset,limit}[]) carries its window
+    // per-entry; a top-level offset/limit becomes the default for any
+    // region missing its own window, then the top-level keys are dropped
+    // so they don't double-apply in the plain-read checks below.
+    const hasRegionObj = p.some((e) => e && typeof e === 'object' && !Array.isArray(e));
+    if (hasRegionObj && (isPresent(a, 'offset') || isPresent(a, 'limit'))) {
+      for (const e of p) {
+        if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
+        if (isPresent(a, 'offset') && !isPresent(e, 'offset')) e.offset = a.offset;
+        if (isPresent(a, 'limit') && !isPresent(e, 'limit')) e.limit = a.limit;
       }
-      for (let i = 0; i < p.length; i++) {
-        const entry = p[i];
-        if (typeof entry === 'string') continue;
-        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
-          return `Error: read arg "path[${i}]" must be string or {path,offset,limit} object (got ${describeType(entry)})`;
-        }
-        const err = applyLineContextWindow(entry, `path[${i}].`);
-        if (err) return err;
-        for (const ek of ['offset', 'limit']) {
-          const eErr = checkIntInRange(entry, ek, 0, MAX_INT);
-          if (eErr) return eErr.replace(`"${ek}"`, `"path[${i}].${ek}"`);
-        }
+      delete a.offset;
+      delete a.limit;
+    }
+    for (let i = 0; i < p.length; i++) {
+      const entry = p[i];
+      if (typeof entry === 'string') continue;
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        return `Error: read arg "path[${i}]" must be string or {path,offset,limit} object (got ${describeType(entry)})`;
+      }
+      const err = applyLineContextWindow(entry, `path[${i}].`);
+      if (err) return err;
+      for (const ek of ['offset', 'limit']) {
+        const eErr = checkIntInRange(entry, ek, 0, MAX_INT);
+        if (eErr) return eErr.replace(`"${ek}"`, `"path[${i}].${ek}"`);
       }
     }
   }

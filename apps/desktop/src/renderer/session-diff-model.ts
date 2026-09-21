@@ -42,6 +42,18 @@ function partPath(part: SessionDiffPart): string {
   return previous === '/dev/null' ? '' : previous;
 }
 
+function sumPartStats(parts: readonly SessionDiffPart[]): { additions: number; deletions: number } {
+  return parts.reduce(
+    (total, part) => {
+      const stats = partStats(part);
+      total.additions += stats.additions;
+      total.deletions += stats.deletions;
+      return total;
+    },
+    { additions: 0, deletions: 0 }
+  );
+}
+
 function partStats(part: SessionDiffPart): { additions: number; deletions: number } {
   let additions = 0;
   let deletions = 0;
@@ -97,15 +109,7 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
     seen.add(path);
     const oldPath = cleanPath(file?.oldPath);
     const parts = partsByPath.get(path) || (oldPath ? partsByPath.get(oldPath) : undefined) || [];
-    const measured = parts.reduce(
-      (total, part) => {
-        const stats = partStats(part);
-        total.additions += stats.additions;
-        total.deletions += stats.deletions;
-        return total;
-      },
-      { additions: 0, deletions: 0 }
-    );
+    const measured = sumPartStats(parts);
     rows.push({
       path,
       oldPath,
@@ -118,15 +122,7 @@ export function buildSessionDiffRows(result: SessionDiffResult | null): SessionD
   }
   for (const [path, parts] of partsByPath) {
     if (seen.has(path)) continue;
-    const measured = parts.reduce(
-      (total, part) => {
-        const stats = partStats(part);
-        total.additions += stats.additions;
-        total.deletions += stats.deletions;
-        return total;
-      },
-      { additions: 0, deletions: 0 }
-    );
+    const measured = sumPartStats(parts);
     rows.push({
       path,
       oldPath: '',

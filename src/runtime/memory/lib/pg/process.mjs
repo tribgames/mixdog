@@ -221,9 +221,9 @@ export function reconcileConfV2(runtimeDir, pgdataDir) {
  * Returns the attach result, or null when the recorded instance is dead and
  * a normal start may reclaim the stale lock.
  */
-async function attachExistingPostmaster({ runtimeDir, pgdataDir, env, existingWaitMs, v2Applied }) {
+async function attachExistingPostmaster({ runtimeDir, pgdataDir, existingWaitMs, v2Applied }) {
   if (!existsSync(join(pgdataDir, 'postmaster.pid'))) return null;
-  const existing = await awaitExistingPostmaster({ runtimeDir, pgdataDir, env, waitMs: existingWaitMs });
+  const existing = await awaitExistingPostmaster({ pgdataDir, waitMs: existingWaitMs });
   if (existing.state === 'ready') {
     __mixdogMemoryLog(`[pg-process] attaching to existing PG pid=${existing.pid} port=${existing.port}\n`);
     // Route through the single reconcile entry point so v1 → v2 conf
@@ -309,17 +309,8 @@ function initClusterIfNeeded({ runtimeDir, pgdataDir, env }) {
 // Read pid + port from postmaster.pid (line 1 = pid, line 4 = port). Returns
 // null unless the file exists, pid > 0, and its port matches ours.
 function readPostmaster(pgdataDir, port) {
-  try {
-    const pidFile = join(pgdataDir, 'postmaster.pid');
-    if (!existsSync(pidFile)) return null;
-    const lines = readFileSync(pidFile, 'utf8').split('\n');
-    const pid = parseInt(lines[0], 10);
-    const pmPort = parseInt(lines[3], 10);
-    if (pid > 0 && pmPort === port) return { pid };
-    return null;
-  } catch {
-    return null;
-  }
+  const info = readPostmasterInfo(pgdataDir);
+  return info.pid && info.port === port ? { pid: info.pid } : null;
 }
 
 // pg_isready can succeed a beat before postmaster.pid is fully written; give
@@ -392,7 +383,7 @@ async function startAndWaitReady({ pgctl, startArgs, env, pgdataDir, port }) {
  * attach if that winner becomes ready; never immediate-stop an unknown live
  * postmaster, because synchronous_commit=off makes a crash-stop lossy.
  */
-async function attachRaceWinner({ runtimeDir, pgdataDir, pgctl, env, existingWaitMs }) {
+async function attachRaceWinner({ pgdataDir, pgctl, env, existingWaitMs }) {
   __mixdogMemoryLog(`[pg-process] pg_ctl start: "another server might be running" — probing status\n`);
   const statusR = spawnSync(pgctl, ['status', '-D', pgdataDir], {
     env,
@@ -403,7 +394,7 @@ async function attachRaceWinner({ runtimeDir, pgdataDir, pgctl, env, existingWai
   __mixdogMemoryLog(
     `[pg-process] pg_ctl status: ${statusR.stdout?.toString() || statusR.stderr?.toString() || 'no output'}\n`
   );
-  const existing = await awaitExistingPostmaster({ runtimeDir, pgdataDir, env, waitMs: existingWaitMs });
+  const existing = await awaitExistingPostmaster({ pgdataDir, waitMs: existingWaitMs });
   if (existing.state !== 'ready') return null;
   __mixdogMemoryLog(`[pg-process] attaching to race winner pid=${existing.pid} port=${existing.port}\n`);
   return { pid: existing.pid, port: existing.port, attached: true };
@@ -536,6 +527,13 @@ function normalizePathForMatch(value) {
     .toLowerCase();
 }
 
+// The postmaster's own `-D <pgdata>` argument, as written on its command line.
+const PG_DATADIR_ARG_RE = /(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/;
+
+function pgDataDirFromArgs(args) {
+  return String(args || '').match(PG_DATADIR_ARG_RE)?.[1] ?? null;
+}
+
 /** Pure classifier (unit-tested): one postmaster row -> reap or keep. */
 export function classifyOrphanTempPostmaster({
   args,
@@ -547,10 +545,10 @@ export function classifyOrphanTempPostmaster({
   const commandLine = String(args || '');
   // Postmaster only: `-D <pgdata>` on the main process. Backends
   // (--forkbackend etc.) exit on their own once the postmaster dies.
-  const dataDirMatch = commandLine.match(/(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/);
-  if (!dataDirMatch) return false;
+  const rawDataDir = pgDataDirFromArgs(commandLine);
+  if (!rawDataDir) return false;
   if (/--fork/.test(commandLine)) return false;
-  const dataDir = normalizePathForMatch(dataDirMatch[1]);
+  const dataDir = normalizePathForMatch(rawDataDir);
   const root = normalizePathForMatch(tempRoot).replace(/\/+$/, '');
   if (!root || !dataDir.startsWith(`${root}/`)) return false;
   if (!dataDir.includes('mixdog')) return false;
@@ -559,10 +557,9 @@ export function classifyOrphanTempPostmaster({
 }
 
 function tempPostmasterOwnerAlive(args) {
-  const commandLine = String(args || '');
-  const dataDirMatch = commandLine.match(/(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/);
-  if (!dataDirMatch) return false;
-  const dataRoot = join(dataDirMatch[1], '..');
+  const rawDataDir = pgDataDirFromArgs(args);
+  if (!rawDataDir) return false;
+  const dataRoot = join(rawDataDir, '..');
   for (const name of ['memory-runtime-owner.json', 'daemon-owner.json']) {
     try {
       const owner = JSON.parse(readFileSync(join(dataRoot, name), 'utf8'));
@@ -617,9 +614,9 @@ const PRISTINE_ROOT_PREFIX = 'mixdog-headless-pristine-';
 
 /** The throwaway root a temp postmaster belongs to (normalized), or null. */
 function pristineRootForArgs(args, tempRoot) {
-  const match = String(args || '').match(/(?:^|\s)-D\s+"?([^"]+?)"?(?:\s|$)/);
-  if (!match) return null;
-  const dataDir = normalizePathForMatch(match[1]);
+  const rawDataDir = pgDataDirFromArgs(args);
+  if (!rawDataDir) return null;
+  const dataDir = normalizePathForMatch(rawDataDir);
   const root = normalizePathForMatch(tempRoot).replace(/\/+$/, '');
   if (!root || !dataDir.startsWith(`${root}/`)) return null;
   const first = dataDir.slice(root.length + 1).split('/')[0];
@@ -664,9 +661,7 @@ function sweepAbandonedPristineRoots(tempRoot, liveRoots, minAgeMs) {
 export function sweepOrphanTempPostmasters({ tempRoot, minUptimeSec } = {}) {
   let reaped = 0;
   try {
-    // Lazy import keeps this module's top-level dependency-free for tests.
-    const os = { tmpdir: () => process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp' };
-    const root = tempRoot || os.tmpdir();
+    const root = tempRoot || process.env.TMPDIR || process.env.TEMP || process.env.TMP || '/tmp';
     const liveRoots = new Set();
     for (const row of listPostmasterRows()) {
       if (!row.pid || row.pid === process.pid) continue;

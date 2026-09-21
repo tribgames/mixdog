@@ -58,6 +58,16 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
   };
 }
 
+/** Settings persisted as a plain `desktop.<key>` boolean, with no companion
+ *  field to reconcile. */
+const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
+  'keepAwake',
+  'usagePinned',
+  'computerObserveOnly',
+  'computerInstalled',
+  'browserInstalled',
+]);
+
 export class DesktopSettingsStore {
   private readonly loadConfig: () => Promise<MixdogConfigModule>;
 
@@ -122,10 +132,8 @@ export class DesktopSettingsStore {
           delete compaction[legacyKey];
         }
         agent.compaction = compaction;
-      } else if (key === 'keepAwake') {
-        next.desktop = { ...record(next.desktop), keepAwake: enabled };
-      } else if (key === 'usagePinned') {
-        next.desktop = { ...record(next.desktop), usagePinned: enabled };
+      } else if (DESKTOP_FLAG_KEYS.has(key)) {
+        next.desktop = { ...record(next.desktop), [key]: enabled };
       } else if (key === 'computerControl') {
         const desktop = { ...record(next.desktop) };
         // A pre-marker profile is considered installed while its control is
@@ -136,8 +144,6 @@ export class DesktopSettingsStore {
         }
         desktop.computerControl = enabled;
         next.desktop = desktop;
-      } else if (key === 'computerObserveOnly') {
-        next.desktop = { ...record(next.desktop), computerObserveOnly: enabled };
       } else if (key === 'browserControl') {
         const desktop = { ...record(next.desktop) };
         if (desktop.browserInstalled === true || desktop.browserControl === true) {
@@ -145,10 +151,6 @@ export class DesktopSettingsStore {
         }
         desktop.browserControl = enabled;
         next.desktop = desktop;
-      } else if (key === 'computerInstalled') {
-        next.desktop = { ...record(next.desktop), computerInstalled: enabled };
-      } else if (key === 'browserInstalled') {
-        next.desktop = { ...record(next.desktop), browserInstalled: enabled };
       }
       next.agent = agent;
       return next;

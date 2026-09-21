@@ -3,14 +3,10 @@
  * registering a path in the project list and switching the session cwd.
  * `actions` is the late-bound picker surface (openProjectPicker).
  */
+import { createStoreServiceCall } from '../store-service-call.mjs';
+
 export function createProjectService({ store, surface, projectNameFromPath }, actions) {
-  const call = (name, ...args) => {
-    const target = store?.[name];
-    if (typeof target !== 'function') {
-      return Promise.reject(new TypeError(`project service method ${name} is unavailable`));
-    }
-    return Promise.resolve(target.apply(store, args));
-  };
+  const call = createStoreServiceCall(store);
 
   // Register a project in the picker list without switching this session's cwd.
   const registerProject = async (rawPath) => {

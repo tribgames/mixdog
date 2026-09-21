@@ -42,7 +42,6 @@ export async function streamReadRange(fullPath, offset, limit, stHint = null, ho
 
 async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   const { ioTraceStart, ioTraceDone } = streamingHooks(hooks);
-  const _displayPath = hooks.displayPath || fullPath;
   const traceStart = ioTraceStart();
   const stForIndex = stHint || (await fh.stat().catch(() => null));
   const rangeIndex = await getReadRangeIndex(fullPath, stForIndex, fh, hooks.prefixBuffer);

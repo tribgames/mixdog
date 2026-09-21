@@ -201,10 +201,6 @@
   font-size: var(--mx-font-minor);
   color: var(--mx-text-soft);
 }
-/* Header remote runtime toggle: same quiet dock-tool ink as its neighbors —
-   the on/off state reads through the Wifi/WifiOff glyph, not color. */
-/* The curved-arc stroke compensation lives once, beside the other window-bar
-   glyph rules; this duplicate declared the same value a second time. */
 /* Composer chips stay flat like the model trigger: no box, no hover wash. */
 .schedules-composer-row .mx-select-trigger,
 .schedules-composer-row .mx-select-trigger:hover:not(:disabled),

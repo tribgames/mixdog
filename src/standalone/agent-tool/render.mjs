@@ -12,9 +12,6 @@ import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helper
 // hidden agents (cycle/…) legitimately emit empty terminal turns and
 // are left untagged, so they stay benign.
 export function abnormalEmptyFinishError(result, agent) {
-  // The loop (loop.mjs) is the single classifier: it tags terminationReason
-  // ONLY for abnormal finishes, and gates the `empty` case behind !hidden.
-  // So we key purely off terminationReason here, not content or visibility.
   const reason = result?.terminationReason;
   if (!reason) return null;
   const iterations = result?.iterations ?? 0;

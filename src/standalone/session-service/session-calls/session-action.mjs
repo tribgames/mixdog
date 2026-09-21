@@ -19,8 +19,8 @@ function requireSessionAction(action, allowed) {
 }
 
 export function createSessionActionCalls(ctx) {
-  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore } = ctx;
-  const { advance, publishStep, bodyForClient } = ctx.projection;
+  const { isClosed, log, listSessions, getRemoteSessionState, loadProjectStore, advanceForCaller } = ctx;
+  const { bodyForClient } = ctx.projection;
   const { retainUnwatched } = ctx.retention;
   const { assertAvailable, entryForSession } = ctx.entries;
 
@@ -49,10 +49,7 @@ export function createSessionActionCalls(ctx) {
     // Keep one compact record that the action reached the service without
     // serializing transcripts/catalogs into the daemon log.
     log(`session action ${name} session=${id} result=${resultSummary(value)}`);
-    const step = advance(entry);
-    if (step.changed) {
-      publishStep(entry, step);
-    }
+    const step = advanceForCaller(entry);
     // Still unwatched: keep it on the retention clock exactly like a runtime
     // released by its view, so an untouched load cannot leak past the idle window.
     retainUnwatched(entry);
@@ -81,8 +78,8 @@ export function createSessionActionCalls(ctx) {
     };
   }
 
-  async function configureSession(params = {}, ctx = null) {
-    const revision = Math.max(0, Number(ctx?.revision) || 0);
+  async function configureSession(params = {}, callCtx = null) {
+    const revision = Math.max(0, Number(callCtx?.revision) || 0);
     const action = params?.action;
     // Revision 0 desktop adapters routed some reads through configure because
     // their local read list lagged the session surface. A newer daemon accepts

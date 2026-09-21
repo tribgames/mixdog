@@ -7,14 +7,22 @@ test('busy canonical sends enqueue a message without starting an admission job',
   const api = createSendFlow({
     mgr: {},
     canUseSessionSurface: () => true,
-    sessionSurface: { enqueueTurn: async (message) => { messages.push(message); return { queueDepth: 1 }; } },
+    sessionSurface: {
+      enqueueTurn: async (message) => {
+        messages.push(message);
+        return { queueDepth: 1 };
+      },
+    },
     registry: { tagForSession: () => 'worker' },
     views: { isSessionBusy: () => true },
     spawnFlow: { startJob: () => assert.fail('busy send must not acquire an execution slot') },
   });
   const session = { id: 'child', agent: 'worker' };
   const result = await api.dispatchToExistingSession({
-    session, sessionId: 'child', prompt: 'additional instruction', args: { context: 'context' },
+    session,
+    sessionId: 'child',
+    prompt: 'additional instruction',
+    args: { context: 'context' },
   });
   assert.equal(messages.length, 1);
   assert.deepEqual(messages[0], { session, prompt: 'additional instruction', context: 'context' });
@@ -29,10 +37,18 @@ test('a worker that became idle before enqueue uses the normal admitted continua
     sessionSurface: { enqueueTurn: async () => null },
     registry: { tagForSession: () => 'worker' },
     views: { isSessionBusy: () => true, renderJob: () => ({ status: 'running' }) },
-    spawnFlow: { startJob: () => { started += 1; return {}; } },
+    spawnFlow: {
+      startJob: () => {
+        started += 1;
+        return {};
+      },
+    },
   });
   await api.dispatchToExistingSession({
-    session: { id: 'child', agent: 'worker' }, sessionId: 'child', prompt: 'continue', args: {},
+    session: { id: 'child', agent: 'worker' },
+    sessionId: 'child',
+    prompt: 'continue',
+    args: {},
   });
   assert.equal(started, 1);
 });

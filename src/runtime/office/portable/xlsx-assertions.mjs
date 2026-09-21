@@ -101,7 +101,7 @@ function cellsForAssertion(document, assertion) {
   });
 }
 
-function issue(_assertion, index, code, message, path = '/') {
+function issue(index, code, message, path = '/') {
   return {
     severity: 'error',
     code,
@@ -134,7 +134,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
         passed = false;
         issues.push(
           issue(
-            assertion,
             assertionIndex,
             'assertion_value_uncalculated',
             `${sheet}!${assertion.cell} holds ${JSON.stringify(formulaText(target))} with no calculated result, so it cannot be compared with ${JSON.stringify(assertion.equals)}: ${UNCALCULATED_ROUTE}.`,
@@ -146,7 +145,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
         if (!passed) {
           issues.push(
             issue(
-              assertion,
               assertionIndex,
               'assertion_value_mismatch',
               `Expected ${sheet}!${assertion.cell} to equal ${JSON.stringify(assertion.equals)}; actual value is ${JSON.stringify(target?.value ?? null)}.`,
@@ -167,7 +165,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       if (!passed)
         issues.push(
           issue(
-            assertion,
             assertionIndex,
             'assertion_formula_mismatch',
             `Formula assertion failed for ${sheet}!${assertion.cell}; actual formula is ${JSON.stringify(actual)}.`,
@@ -188,7 +185,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
         passed = false;
         issues.push(
           issue(
-            assertion,
             assertionIndex,
             'assertion_value_uncalculated',
             `Tie-out cannot be read yet: ${pending.map(([reference, cell]) => `${JSON.stringify(reference)} holds ${JSON.stringify(formulaText(cell))} with no calculated result`).join(' and ')}; ${UNCALCULATED_ROUTE}.`,
@@ -200,7 +196,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
         if (!passed)
           issues.push(
             issue(
-              assertion,
               assertionIndex,
               'assertion_tie_out_failed',
               `Tie-out failed: ${JSON.stringify(assertion.left)}=${JSON.stringify(left?.value ?? null)} and ${JSON.stringify(assertion.right)}=${JSON.stringify(right?.value ?? null)}.`,
@@ -216,7 +211,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       for (const cell of failures.slice(0, 100))
         issues.push(
           issue(
-            assertion,
             assertionIndex,
             'assertion_formula_error',
             `Formula error ${cell.value} violates no-errors assertion.`,
@@ -236,7 +230,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       if (!formulas.length)
         issues.push(
           issue(
-            assertion,
             assertionIndex,
             'assertion_formula_missing',
             'Formula-consistency assertion found no formulas.',
@@ -246,7 +239,6 @@ export function evaluateXlsxAssertions(document, assertions = []) {
       for (const cell of inconsistent.slice(0, 100))
         issues.push(
           issue(
-            assertion,
             assertionIndex,
             'assertion_formula_inconsistent',
             'Formula differs from the dominant pattern in the asserted region.',
@@ -256,12 +248,7 @@ export function evaluateXlsxAssertions(document, assertions = []) {
     } else {
       passed = false;
       issues.push(
-        issue(
-          assertion,
-          assertionIndex,
-          'assertion_kind_unknown',
-          `Unknown XLSX assertion kind: ${kind || '(missing)'}`
-        )
+        issue(assertionIndex, 'assertion_kind_unknown', `Unknown XLSX assertion kind: ${kind || '(missing)'}`)
       );
     }
     results.push({ index: assertionIndex + 1, kind, passed });

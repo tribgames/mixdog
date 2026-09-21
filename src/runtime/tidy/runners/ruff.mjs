@@ -1,6 +1,6 @@
 // Ruff — `check --output-format json` for lint, `format --check` for the
 // would-reformat list; fix runs both write modes.
-import { diagnostic, runChunked, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
+import { diagnostic, parsePatternPaths, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
 
 /** Parse `ruff check --output-format json`. */
 export function parseRuffJson(stdout, cwd) {
@@ -28,13 +28,7 @@ export function parseRuffJson(stdout, cwd) {
 
 /** Parse `ruff format --check` ("Would reformat: path"). */
 export function parseRuffFormatCheck(stdout, cwd) {
-  return uniquePaths(
-    String(stdout || '')
-      .split('\n')
-      .map((line) => line.match(/^\s*Would reformat:\s*(.+?)\s*$/)?.[1])
-      .filter(Boolean)
-      .map((file) => toRel(cwd, file))
-  );
+  return parsePatternPaths(stdout, { pattern: /^Would reformat:\s*(.+?)\s*$/, cwd });
 }
 
 export const runner = {

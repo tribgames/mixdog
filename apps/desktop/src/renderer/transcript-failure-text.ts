@@ -26,7 +26,7 @@ export function localizedTurnFailureReason(reason: string): string {
   const text = String(reason || '').trim();
   if (!text) return '';
   const match = FIXED_REASON_RE.exec(text);
-  const localize = match ? FIXED_REASONS.get(match[1] as string) : undefined;
+  const localize = match ? FIXED_REASONS.get(match[1]) : undefined;
   if (!match || !localize) return text;
   const sentence = localize();
   return match[2] ? `${sentence} (${match[2]})` : sentence;

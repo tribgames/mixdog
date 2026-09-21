@@ -259,30 +259,23 @@ class SessionRuntimeShard {
     const requestId = `runtime-${process.pid}-${++this.sequence}`;
     return new Promise((resolve, reject) => {
       const request = { id: requestId, resolve, reject, timer: null };
+      // Every local failure path settles exactly once: a response already
+      // handled by onMessage has dropped the pending entry.
+      const settleReject = (error) => {
+        if (!this.pending.delete(requestId)) return;
+        if (request.timer) clearTimeout(request.timer);
+        reject(error);
+      };
       if (timeoutMs > 0) {
-        request.timer = setTimeout(() => {
-          if (!this.pending.delete(requestId)) return;
-          reject(new Error(`session runtime worker ${type} timed out`));
-        }, timeoutMs);
+        request.timer = setTimeout(
+          () => settleReject(new Error(`session runtime worker ${type} timed out`)),
+          timeoutMs
+        );
         request.timer.unref?.();
       }
       this.pending.set(requestId, request);
-      if (
-        !safeIpcSend(
-          child,
-          { type, requestId, ...payload },
-          {
-            onError: (error) => {
-              if (!this.pending.delete(requestId)) return;
-              if (request.timer) clearTimeout(request.timer);
-              reject(error);
-            },
-          }
-        )
-      ) {
-        this.pending.delete(requestId);
-        if (request.timer) clearTimeout(request.timer);
-        reject(new Error('session runtime worker IPC is unavailable'));
+      if (!safeIpcSend(child, { type, requestId, ...payload }, { onError: settleReject })) {
+        settleReject(new Error('session runtime worker IPC is unavailable'));
       }
     });
   }
@@ -897,38 +890,24 @@ class SessionRuntimeShardPool {
     const execution = this.executeCanonicalAgentControl
       ? this.executeCanonicalAgentControl(message.args || {}, context)
       : Promise.reject(new Error('canonical Agent control is unavailable'));
+    // A superseded or dead origin child never receives the result.
+    const replyResult = (body) => {
+      if (originShard.child !== originChild || originChild?.killed) return;
+      safeIpcSend(originChild, { type: 'agent-control-result', controlId, ...body }, { onError: () => {} });
+    };
     void Promise.resolve(execution)
-      .then((value) => {
-        if (originShard.child !== originChild || originChild?.killed) return;
-        safeIpcSend(
-          originChild,
-          {
-            type: 'agent-control-result',
-            controlId,
-            ok: true,
-            value,
+      .then((value) => replyResult({ ok: true, value }))
+      .catch((error) =>
+        replyResult({
+          ok: false,
+          error: {
+            name: String(error?.name || 'Error'),
+            message: String(error?.message || error || 'agent control failed'),
+            stack: typeof error?.stack === 'string' ? error.stack : null,
+            code: error?.code || null,
           },
-          { onError: () => {} }
-        );
-      })
-      .catch((error) => {
-        if (originShard.child !== originChild || originChild?.killed) return;
-        safeIpcSend(
-          originChild,
-          {
-            type: 'agent-control-result',
-            controlId,
-            ok: false,
-            error: {
-              name: String(error?.name || 'Error'),
-              message: String(error?.message || error || 'agent control failed'),
-              stack: typeof error?.stack === 'string' ? error.stack : null,
-              code: error?.code || null,
-            },
-          },
-          { onError: () => {} }
-        );
-      })
+        })
+      )
       .finally(() => {
         this.agentControlRuns.delete(controlId);
       });
@@ -1151,19 +1130,14 @@ export function createSessionRuntimeHost({
         meta,
       });
     },
-    async agentSessionAction(sessionId, action, args = []) {
-      void sessionId;
-      void action;
-      void args;
+    async agentSessionAction(_sessionId, _action, _args = []) {
       throw new Error('Agent sessions are owned by the canonical session service');
     },
     refreshRuntimeWorkload,
-    subscribeAgentSessionStates(listener) {
-      void listener;
+    subscribeAgentSessionStates(_listener) {
       return () => {};
     },
-    agentSessionState(sessionId) {
-      void sessionId;
+    agentSessionState(_sessionId) {
       return null;
     },
     get workloads() {

@@ -57,6 +57,6 @@ const HELP_LINES = [
 ];
 
 /** Print the help text without importing the REPL/runtime stack. */
-export function printHelp(write = (s) => stdout.write(s)) {
-  write(`${HELP_LINES.join('\n')}\n`);
+export function printHelp() {
+  stdout.write(`${HELP_LINES.join('\n')}\n`);
 }

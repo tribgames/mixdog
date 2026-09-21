@@ -16,10 +16,9 @@ import { clean } from './runtime/shared/clean.mjs';
 import { createJsonLifecycle, nonNegativeNumber } from './headless-json-lifecycle.mjs';
 
 export async function prewarmHeadlessSearch(
-  cwd,
+  _cwd,
   { loadNativeSearch = () => import('./runtime/agent/orchestrator/tools/builtin/native-search-client.mjs') } = {}
 ) {
-  void cwd;
   const nativeSearch = await loadNativeSearch();
   await nativeSearch.warmNativeSearchServer();
 }

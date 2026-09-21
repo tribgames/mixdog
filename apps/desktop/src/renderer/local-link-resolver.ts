@@ -2,7 +2,7 @@ import { t } from './i18n';
 import { isLocalMarkdownLink, localMarkdownPath, projectRelativeFilePath } from './markdown-url';
 import { localLinkKind } from '../shared/local-files';
 
-interface ResolvedLocalLink {
+export interface ResolvedLocalLink {
   project: string;
   path: string;
   accessToken?: string;

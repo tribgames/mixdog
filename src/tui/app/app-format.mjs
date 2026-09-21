@@ -213,3 +213,10 @@ export function promptStatusColor(tone) {
   if (tone === 'plain') return theme.subtle;
   return theme.inactive;
 }
+
+/** Collapse a right-side hint/status message to one truncatable line. */
+export function cleanRightMessage(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}

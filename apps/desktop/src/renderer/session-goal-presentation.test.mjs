@@ -25,7 +25,7 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
     title: 'Approved work',
     timeUsedMs: 12_000,
     snapshotAt: 100_000,
-    tasks: [{ id: 'review', text: 'Review pending approval', status: 'awaiting_approval', kind: 'verification' }],
+    tasks: [{ id: 'review', text: 'Review pending approval', status: 'awaiting_approval' }],
   });
   const render = (busy, toolApproval = null, currentGoal = goal) =>
     act(async () => {

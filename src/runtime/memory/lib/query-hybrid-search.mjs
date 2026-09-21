@@ -163,9 +163,10 @@ function orderCandidates(results, plan, vagueLatestRootMode) {
 async function mergeRawWindow(db, filtered, plan, retrievalLimit, readRawRowsInWindow) {
   const { retrievalQuery, temporal, projectScope } = plan;
   const RAW_FETCH = Math.min(500, Math.max(20, retrievalLimit));
+  const rawTerms = sessionRecallTerms(retrievalQuery);
   const rawRows = await readRawRowsInWindow(db, temporal?.startMs ?? null, temporal?.endMs ?? Date.now(), RAW_FETCH, {
     projectScope,
-    terms: sessionRecallTerms(retrievalQuery),
+    terms: rawTerms,
   });
   const seenIds = new Set(filtered.map((r) => r.id));
   let newRaw = rawRows.filter((r) => !seenIds.has(r.id));
@@ -174,7 +175,6 @@ async function mergeRawWindow(db, filtered, plan, retrievalLimit, readRawRowsInW
   // single common token still get stride-interleaved into a ranked
   // result set and push real hits down the page. In the query branch,
   // keep only raw rows whose body actually contains >=1 query term.
-  const rawTerms = sessionRecallTerms(retrievalQuery);
   if (rawTerms.length > 0) {
     newRaw = newRaw.filter((r) => rawTerms.some((t) => recallSearchHaystack(r).includes(t)));
   }

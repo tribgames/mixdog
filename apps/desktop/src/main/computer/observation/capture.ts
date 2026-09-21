@@ -23,7 +23,13 @@ import { applyFrameImage, persistCaptureImage } from './capture-image-output';
 
 import { DEFAULT_CAPTURE_MAX_ELEMENTS, elapsedMs } from '../shared/common';
 import { createOcrCapturePreferenceStore } from '../input/capability-policy';
-import { captureMode, frameElements, hasSemanticAccessibilityTarget, screenshotInteger } from './analysis';
+import {
+  actionableAccessibilityElements,
+  captureMode,
+  frameElements,
+  hasSemanticAccessibilityTarget,
+  screenshotInteger,
+} from './analysis';
 import type {
   CaptureFrame,
   ComputerCommand,
@@ -174,6 +180,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         accessibilityRetryAt = visualOnly.record(visualOnlyKey, cached, {
           semanticAccessibilityAvailable,
           accessibilityError,
+          actionableElements: actionableAccessibilityElements(rawElements).length,
         });
       }
       const { ocrPayload, ocrElements, returnedAccessibilityElements } = replacementRead
@@ -217,7 +224,9 @@ export function createCaptureEngine(host: CaptureEngineHost) {
         );
       }
       const changes =
-        mode !== 'vision' && captureOk
+        // A cached visual-only read never asked the provider for elements, so
+        // comparing it to a full baseline would report the whole tree removed.
+        mode !== 'vision' && captureOk && !visualOnlyCacheHit
           ? recordCaptureBaseline(lastCaptureBySession, sessionIdFor(command), {
               mode,
               command,

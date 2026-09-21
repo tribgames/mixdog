@@ -50,7 +50,6 @@ public static class MixdogProgressDriver {
 "@
 
 $installer = [IntPtr]$InstallerHwnd
-$primary = [IntPtr]$PrimaryHwnd
 $progress = [IntPtr]$ProgressHwnd
 $source = [IntPtr]::Zero
 $phase = 0

@@ -2,7 +2,7 @@
  * The input driver a page is driven through: keyboard, mouse, drag and touch
  * gestures over one CDP send port, each timed as an input operation.
  */
-import { type BrowserDragInterception, createDragInput } from './input-drag';
+import { type BrowserDragInterceptionDeps, createBrowserDragInterception, createDragInput } from './input-drag';
 import { createKeyboardInput } from './input-keyboard';
 import { createMouseInput } from './input-mouse';
 import type { SendBrowserInput } from './input-primitives';
@@ -22,11 +22,13 @@ export {
 
 export function createBrowserInputDriver(
   send: SendBrowserInput,
-  options: { allowClipboard?: boolean; drags?: BrowserDragInterception } = {}
+  options: { allowClipboard?: boolean; drags?: BrowserDragInterceptionDeps } = {}
 ) {
   const keyboard = createKeyboardInput(send, options);
   const mouse = createMouseInput(send);
-  const drag = createDragInput(send, options);
+  const drag = createDragInput(send, {
+    drags: options.drags ? createBrowserDragInterception(options.drags) : undefined,
+  });
   const touch = createTouchInput(send);
   return {
     pressKey: timedBrowserOperation('input', keyboard.pressKey),

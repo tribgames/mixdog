@@ -4,11 +4,7 @@
 // turn before the caller does, and the transport identity travels with it.
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { acknowledgeAskTextReset, resolveAskLiveProjection } from './ask-support.mjs';
-import {
-  _groupPendingMessageEntries,
-  drainPendingMessages,
-  releasePendingMessages,
-} from './pending-messages.mjs';
+import { _groupPendingMessageEntries, drainPendingMessages, releasePendingMessages } from './pending-messages.mjs';
 import { updateSessionStage, markSessionStreamDelta } from './runtime-liveness.mjs';
 import { codexWireSendOpts } from './session-id.mjs';
 import { persistIterationMetrics } from './usage-metrics.mjs';
@@ -27,7 +23,6 @@ const relay = (fn, ...args) => {
  * @param {object[]} input.outgoing  the working transcript agentLoop mutates
  * @param {object} input.turn        the ask turn state (pendingEntries)
  * @param {object} input.askOpts
- * @param {Function|null} input.onToolCall
  * @param {object} input.interruption
  * @param {object} input.checkpoint
  * @param {AbortSignal} input.signal
@@ -38,7 +33,6 @@ export function buildAgentLoopOptions({
   outgoing,
   turn,
   askOpts,
-  onToolCall,
   interruption,
   checkpoint,
   turnEffort,

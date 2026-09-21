@@ -105,6 +105,15 @@ function normalizeUrlArgs(rawArgs) {
   return args;
 }
 
+/** Zod rejection of tool arguments is a caller error, not a server failure. */
+function invalidArgsResponse(error) {
+  if (!(error instanceof z.ZodError)) return null;
+  return {
+    content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: error.errors }) }],
+    isError: true,
+  };
+}
+
 function formattedText(tool, payload) {
   const text = formatResponse(tool, tool === 'web_search' ? dropInvalidWebSearchResults(payload) : payload);
   return {
@@ -177,6 +186,11 @@ async function writeStartupSnapshot() {
 
 const _webSearchInFlight = new Map();
 
+/** Result cap policy shared by the cache key and the agent prompt. */
+function clampMaxResults(value) {
+  return Math.max(1, Math.min(20, Number(value) || 10));
+}
+
 function webSearchArgsForCacheKey(args) {
   const keywords = Array.isArray(args.keywords)
     ? [...new Set(args.keywords.map((v) => String(v || '').trim()).filter(Boolean))]
@@ -187,7 +201,7 @@ function webSearchArgsForCacheKey(args) {
     type: args.type || 'web',
     locale: args.locale || null,
     contextSize: args.contextSize || 'low',
-    maxResults: Math.max(1, Math.min(20, Number(args.maxResults) || 10)),
+    maxResults: clampMaxResults(args.maxResults),
   };
 }
 
@@ -201,7 +215,7 @@ function buildAgentWebSearchPrompt(args) {
     args.site ? `Site/domain restriction: ${args.site}` : null,
     args.type ? `Search type: ${args.type}` : null,
     args.locale ? `Locale: ${localeLabel}` : null,
-    `Max results: ${Math.max(1, Math.min(20, Number(args.maxResults) || 10))}`,
+    `Max results: ${clampMaxResults(args.maxResults)}`,
     '',
     'Return a short answer first, then cite useful results as title + URL + one-line snippet.',
     'Do not edit files.',
@@ -285,6 +299,7 @@ function normalizeNativeWebSearchPayload(result, args, startedAt) {
   const answer = typeof result === 'string' ? result : String(result?.content || result?.answer || '').trim();
   const provider = String(result?.provider || 'native-web-search');
   const results = collectNativeWebSearchSources(result).slice(0, cacheArgs.maxResults);
+  const query = Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords;
   const warnings = [];
   if (!results.length && Array.isArray(result?.webSearchCalls) && result.webSearchCalls.length) {
     warnings.push('native web search returned no source URLs');
@@ -294,8 +309,8 @@ function normalizeNativeWebSearchPayload(result, args, startedAt) {
     provider,
     response: {
       usedProvider: provider,
-      query: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
-      rawQuery: Array.isArray(cacheArgs.keywords) ? cacheArgs.keywords.join('\n') : cacheArgs.keywords,
+      query,
+      rawQuery: query,
       answer,
       model: result?.model || null,
       durationMs: Date.now() - startedAt,
@@ -475,72 +490,57 @@ async function handleToolCall(name, rawArgs, options = {}) {
       try {
         args = webSearchArgsSchema.parse(normalizeWebSearchArgs(rawArgs || {}));
       } catch (e) {
-        if (e instanceof z.ZodError) {
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }],
-            isError: true,
-          };
-        }
+        const invalid = invalidArgsResponse(e);
+        if (invalid) return invalid;
         throw e;
       }
-      const runWebSearchNow = async () => {
-        if (Array.isArray(args.keywords) && args.keywords.length > 1) {
-          const concurrency = Math.max(1, Number(process.env.WEB_SEARCH_FANOUT_CONCURRENCY) || 10);
-          const keywords = [...new Set(args.keywords.map((kw) => String(kw || '').trim()).filter(Boolean))];
-          const sections = new Array(keywords.length);
-          let cursor = 0;
-          let failed = 0;
-          await Promise.all(
-            Array.from({ length: Math.min(concurrency, keywords.length) }, async () => {
-              while (cursor < keywords.length) {
-                const index = cursor++;
-                const kw = keywords[index];
-                const sub = await handleToolCall(
-                  'web_search',
-                  { ...rawArgs, keywords: kw },
-                  { signal, nativeWebSearch }
-                );
-                const text = (sub.content || [])
-                  .filter((p) => p.type === 'text')
-                  .map((p) => p.text)
-                  .join('\n');
-                if (sub.isError) failed++;
-                sections[index] = `### Query: ${kw}\n\n${text}`;
-              }
-            })
-          );
-          const summary = failed
-            ? `[web_search] ${failed}/${keywords.length} queries failed; successful results are retained.\n\n`
-            : '';
-          return {
-            content: [{ type: 'text', text: summary + sections.join('\n\n---\n\n') }],
-            ...(failed ? { isError: true } : {}),
-          };
-        }
-        try {
-          const result = await _webSearchCore(args, { cacheState, nativeWebSearch, signal });
-          flushUsageState();
-          return formattedText('web_search', result);
-        } catch (error) {
-          flushUsageState();
-          const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error));
-          const _cleanErr = presentErrorText(_rawErr, { surface: 'web_search' });
-          return { content: [{ type: 'text', text: `Web search failed: ${_cleanErr}` }], isError: true };
-        }
-      };
-      return runWebSearchNow();
+      if (Array.isArray(args.keywords) && args.keywords.length > 1) {
+        const concurrency = Math.max(1, Number(process.env.WEB_SEARCH_FANOUT_CONCURRENCY) || 10);
+        const keywords = [...new Set(args.keywords.map((kw) => String(kw || '').trim()).filter(Boolean))];
+        const sections = new Array(keywords.length);
+        let cursor = 0;
+        let failed = 0;
+        await Promise.all(
+          Array.from({ length: Math.min(concurrency, keywords.length) }, async () => {
+            while (cursor < keywords.length) {
+              const index = cursor++;
+              const kw = keywords[index];
+              const sub = await handleToolCall('web_search', { ...rawArgs, keywords: kw }, { signal, nativeWebSearch });
+              const text = (sub.content || [])
+                .filter((p) => p.type === 'text')
+                .map((p) => p.text)
+                .join('\n');
+              if (sub.isError) failed++;
+              sections[index] = `### Query: ${kw}\n\n${text}`;
+            }
+          })
+        );
+        const summary = failed
+          ? `[web_search] ${failed}/${keywords.length} queries failed; successful results are retained.\n\n`
+          : '';
+        return {
+          content: [{ type: 'text', text: summary + sections.join('\n\n---\n\n') }],
+          ...(failed ? { isError: true } : {}),
+        };
+      }
+      try {
+        const result = await _webSearchCore(args, { cacheState, nativeWebSearch, signal });
+        flushUsageState();
+        return formattedText('web_search', result);
+      } catch (error) {
+        flushUsageState();
+        const _rawErr = normalizeErrorMessage(error instanceof Error ? error.message : String(error));
+        const _cleanErr = presentErrorText(_rawErr, { surface: 'web_search' });
+        return { content: [{ type: 'text', text: `Web search failed: ${_cleanErr}` }], isError: true };
+      }
     }
     case 'web_fetch': {
       let urlArgs;
       try {
         urlArgs = urlArgsSchema.parse(normalizeUrlArgs(rawArgs || {}));
       } catch (e) {
-        if (e instanceof z.ZodError) {
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }],
-            isError: true,
-          };
-        }
+        const invalid = invalidArgsResponse(e);
+        if (invalid) return invalid;
         throw e;
       }
       try {
@@ -564,12 +564,8 @@ async function handleToolCall(name, rawArgs, options = {}) {
       try {
         urlArgs = urlArgsSchema.parse(normalizeUrlArgs(rawArgs || {}));
       } catch (e) {
-        if (e instanceof z.ZodError) {
-          return {
-            content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: e.errors }) }],
-            isError: true,
-          };
-        }
+        const invalid = invalidArgsResponse(e);
+        if (invalid) return invalid;
         throw e;
       }
       const urls = Array.isArray(urlArgs.url) ? urlArgs.url : [urlArgs.url];

@@ -143,19 +143,28 @@ function toolCompletionMeta({ surface = 'tool', id, status, resultType, instruct
 
 const MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE = /^Async .+ finished\./i;
 
+// Shared shape of both wrapper detectors below: an async-completion preamble,
+// the `Result:` separator, and a non-empty quoted body. Returns the body lines
+// so each detector only has to decide how strictly to judge them.
+function completionWrapperQuotedLines(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  const resultSplit = /\n\nResult:\n/.exec(value);
+  if (!resultSplit) return null;
+  const preamble = value.slice(0, resultSplit.index).trim();
+  if (!preamble) return null;
+  if (!MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble)) return null;
+  const quotedSection = value.slice(resultSplit.index + resultSplit[0].length);
+  const quotedLines = quotedSection.split(/\r?\n/).filter((line) => line.length > 0);
+  return quotedLines.length > 0 ? quotedLines : null;
+}
+
 export function isModelVisibleToolCompletionWrapper(text) {
   const value = String(text ?? '').trim();
   if (!value) return false;
   if (parseTaskNotification(value)) return true;
-  const resultSplit = /\n\nResult:\n/.exec(value);
-  if (!resultSplit) return false;
-  const preamble = value.slice(0, resultSplit.index).trim();
-  if (!preamble) return false;
-  const instructionLike = MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
-  if (!instructionLike) return false;
-  const quotedSection = value.slice(resultSplit.index + resultSplit[0].length);
-  const quotedLines = quotedSection.split(/\r?\n/).filter((line) => line.length > 0);
-  if (quotedLines.length === 0) return false;
+  const quotedLines = completionWrapperQuotedLines(value);
+  if (!quotedLines) return false;
   if (!quotedLines.every((line) => /^> /.test(line))) return false;
   const unquoted = quotedLines.map((line) => line.slice(2)).join('\n');
   return isInternalRuntimeNotificationText(unquoted);
@@ -169,17 +178,8 @@ export function isModelVisibleToolCompletionWrapper(text) {
 // TUI transcript never leaks a raw wrapper as a plain user message when the
 // strict detector misses — display-only, never used to gate persistence.
 function isLikelyToolCompletionWrapper(text) {
-  const value = String(text ?? '').trim();
-  if (!value) return false;
-  const resultSplit = /\n\nResult:\n/.exec(value);
-  if (!resultSplit) return false;
-  const preamble = value.slice(0, resultSplit.index).trim();
-  if (!preamble) return false;
-  const instructionLike = MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(preamble);
-  if (!instructionLike) return false;
-  const quotedSection = value.slice(resultSplit.index + resultSplit[0].length);
-  const quotedLines = quotedSection.split(/\r?\n/).filter((line) => line.length > 0);
-  if (quotedLines.length === 0) return false;
+  const quotedLines = completionWrapperQuotedLines(text);
+  if (!quotedLines) return false;
   const quotedCount = quotedLines.filter((line) => /^> /.test(line)).length;
   return quotedCount / quotedLines.length >= 0.8;
 }
@@ -351,11 +351,7 @@ function tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id) 
     const enq = enqueueFallback(ctx.callerSessionId, message, meta);
     return enq !== false && enq !== 0;
   } catch (err) {
-    try {
-      process.stderr.write(
-        `[${logPrefix}] async completion fallback enqueue failed: id=${id || 'unknown'} err=${err?.message || err}\n`
-      );
-    } catch {}
+    logNotifyFailure(logPrefix, id, err, 'fallback enqueue');
   }
   return false;
 }
@@ -411,10 +407,10 @@ export function notifyToolCompletion({
   return tryEnqueueFallback(ctx, message, meta, enqueueFallback, logPrefix, id);
 }
 
-function logNotifyFailure(logPrefix, id, err) {
+function logNotifyFailure(logPrefix, id, err, stage = 'notify') {
   try {
     process.stderr.write(
-      `[${logPrefix}] async completion notify failed: id=${id || 'unknown'} err=${err?.message || err}\n`
+      `[${logPrefix}] async completion ${stage} failed: id=${id || 'unknown'} err=${err?.message || err}\n`
     );
   } catch {}
 }

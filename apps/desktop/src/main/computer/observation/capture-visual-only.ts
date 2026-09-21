@@ -53,7 +53,8 @@ export function createVisualOnlyCache() {
     {
       semanticAccessibilityAvailable,
       accessibilityError,
-    }: { semanticAccessibilityAvailable: boolean; accessibilityError: string }
+      actionableElements = 0,
+    }: { semanticAccessibilityAvailable: boolean; accessibilityError: string; actionableElements?: number }
   ): number {
     if (semanticAccessibilityAvailable) {
       store.delete(key);
@@ -66,7 +67,7 @@ export function createVisualOnlyCache() {
       store.remember(key, { misses: 0, expiresAt: retryAt, error: accessibilityError });
       return retryAt;
     }
-    if (shouldRecordVisualOnlyCapabilityMiss(semanticAccessibilityAvailable, accessibilityError)) {
+    if (shouldRecordVisualOnlyCapabilityMiss(semanticAccessibilityAvailable, accessibilityError, actionableElements)) {
       const misses = (resolved.capability?.misses || 0) + 1;
       store.remember(key, {
         misses,

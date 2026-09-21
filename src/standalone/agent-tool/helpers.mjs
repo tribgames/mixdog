@@ -100,13 +100,10 @@ export function sessionMatchesContext(session, context = {}) {
   return !!sessionPid && sessionPid === wantedPid;
 }
 
+// A persisted worker row carries the same ownership fields as the session it
+// describes, so it is scoped by exactly the same rule.
 export function rowMatchesContext(row, context = {}) {
-  const wantedSession = callerSessionForContext(context);
-  if (wantedSession) return clean(row?.parentSessionId || row?.ownerSessionId) === wantedSession;
-  const wantedPid = terminalPidForContext(context);
-  if (!wantedPid) return true;
-  const rowPid = positiveInt(row?.clientHostPid);
-  return !!rowPid && rowPid === wantedPid;
+  return sessionMatchesContext(row, context);
 }
 
 export function nonNegativeInt(value) {

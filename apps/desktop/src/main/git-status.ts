@@ -78,6 +78,9 @@ function normalizeStatusLetter(value: string | undefined): string {
   return !value || value === '.' ? ' ' : value;
 }
 
+const STAGED_NUMSTAT_ARGS = ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z'];
+const UNSTAGED_NUMSTAT_ARGS = ['--no-optional-locks', 'diff', '--numstat', '-z'];
+
 async function readNumstat(
   cwd: string,
   args: string[]
@@ -338,10 +341,8 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
   );
   const collectLineStats = options.skipLineStats !== true;
   const eagerStats = collectLineStats && options.reuseLineStats !== true;
-  const stagedStatsPromise = eagerStats
-    ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z'])
-    : null;
-  const unstagedStatsPromise = eagerStats ? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']) : null;
+  const stagedStatsPromise = eagerStats ? readNumstat(cwd, STAGED_NUMSTAT_ARGS) : null;
+  const unstagedStatsPromise = eagerStats ? readNumstat(cwd, UNSTAGED_NUMSTAT_ARGS) : null;
   const metadataPromise = remoteMetadata(cwd);
   const operationPromise = currentGitOperation(cwd);
   try {
@@ -359,8 +360,8 @@ export async function gitStatus(cwd: string, options: GitStatusOptions = {}): Pr
       applyCachedLineStats(files, cachedStats);
     } else {
       const [stagedStats, unstagedStats] = await Promise.all([
-        stagedStatsPromise ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--cached', '--numstat', '-z']),
-        unstagedStatsPromise ?? readNumstat(cwd, ['--no-optional-locks', 'diff', '--numstat', '-z']),
+        stagedStatsPromise ?? readNumstat(cwd, STAGED_NUMSTAT_ARGS),
+        unstagedStatsPromise ?? readNumstat(cwd, UNSTAGED_NUMSTAT_ARGS),
       ]);
       await applyFreshLineStats(cwd, files, stagedStats, unstagedStats);
       lineStatsCache.set(cacheKey, {

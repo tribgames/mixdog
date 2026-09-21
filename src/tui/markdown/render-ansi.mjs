@@ -149,14 +149,14 @@ export function renderTokenAnsiSegments(content, opts = {}) {
   const tokens = lexMarkdown(text, opts);
   const segments = [];
   for (const token of tokens) {
+    if (token.type === 'space') continue;
     if (token.type === 'table') {
       segments.push({ type: 'table', token });
-    } else if (token.type === 'space') {
-    } else {
-      const ansi = String(formatToken(token, 0, null, null, width) ?? '').replace(/^\n+|\n+$/g, '');
-      if (!ansi) continue;
-      segments.push({ type: 'ansi', ansi, token });
+      continue;
     }
+    const ansi = String(formatToken(token, 0, null, null, width) ?? '').replace(/^\n+|\n+$/g, '');
+    if (!ansi) continue;
+    segments.push({ type: 'ansi', ansi, token });
   }
   if (text.length <= RENDERED_SEGMENT_CACHE_MAX_CHARS) {
     const entry = { text, width, trimPartialFences, themeVersion, segments };

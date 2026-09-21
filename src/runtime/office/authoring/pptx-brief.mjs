@@ -261,6 +261,10 @@ export function planGate(document, brief) {
 // datelines use (2026.09, 2026.09.12) — a running dateline is chrome, not a figure.
 const NUMBER = /(?<![\w.])[+\-−]?\d[\d,]*(?:\.\d+)?\s?%?(?![\w.])/g;
 const DATE = /^\d{4}$|^\d{4}[-.](?:0[1-9]|1[0-2])(?:[-.](?:0[1-9]|[12]\d|3[01]))?$/;
+// A hyphenated date reaches this scan already split into 2026, 01 and 15, so
+// the day never meets DATE whole and reads as a figure owing a source. Take the
+// dateline out of the text first; the dotted form never tokenizes at all.
+const DATELINE = /(?<![\d.])\d{4}[-.](?:0[1-9]|1[0-2])(?:[-.](?:0[1-9]|[12]\d|3[01]))?(?![\d.])/g;
 
 function normalizedNumber(token) {
   return String(token).replace(/[,\s]/g, '').replace('−', '-');
@@ -312,7 +316,9 @@ function unlistedFigures(document, brief) {
     const figures = new Set();
     for (const shape of slide.shapes || []) {
       if (shape.placeholder) continue;
-      for (const raw of String(shape.text || '').match(NUMBER) || []) {
+      for (const raw of String(shape.text || '')
+        .replace(DATELINE, ' ')
+        .match(NUMBER) || []) {
         const token = raw.trim();
         const value = normalizedNumber(token);
         const digits = value.replace(/[^\d]/g, '');

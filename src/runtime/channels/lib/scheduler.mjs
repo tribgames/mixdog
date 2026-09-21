@@ -80,18 +80,6 @@ function isCronExpression(time) {
     return false;
   }
 }
-// Scheduler teardown: stop ticking, destroy the cron jobs and release the
-// scheduler lock so a subsequent start() in the same process can re-acquire it.
-// Without the release, the wx-create in start() hits its own live lock
-// (matching INSTANCE_UUID + recent mtime) and refuses to register cron jobs,
-// leaving the scheduler silently idle after a reload/restart cycle.
-// Read-verify-then-unlink so we don't delete another live owner's lock file
-// (mirrors memory releaseLock and the exit handler). Module-scope on purpose:
-// stop() and restart() both run this exact teardown, never a dispatched
-// override.
-// Verify ownership before unlink: a process whose lock was already reclaimed
-// by a newer owner (PID-reuse / restart race) must NOT delete the new owner's
-// lock file. Read-verify-then-unlink mirrors memory/index.mjs releaseLock().
 // Records a one-shot fire that did not complete; the entry stays pending.
 async function markOneShotFailed(schedule) {
   schedule.lastFailedAt = new Date().toISOString();
@@ -100,6 +88,9 @@ async function markOneShotFailed(schedule) {
   } catch {}
 }
 
+// Verify ownership before unlink: a process whose lock was already reclaimed
+// by a newer owner (PID-reuse / restart race) must NOT delete the new owner's
+// lock file. Read-verify-then-unlink mirrors memory/index.mjs releaseLock().
 function releaseOwnedSchedulerLock() {
   try {
     const content = readFileSync(Scheduler.SCHEDULER_LOCK, 'utf8');
@@ -107,6 +98,13 @@ function releaseOwnedSchedulerLock() {
     if (lockedPid === process.pid) unlinkSync(Scheduler.SCHEDULER_LOCK);
   } catch {}
 }
+// Scheduler teardown: stop ticking, destroy the cron jobs and release the
+// scheduler lock so a subsequent start() in the same process can re-acquire it.
+// Without the release, the wx-create in start() hits its own live lock
+// (matching INSTANCE_UUID + recent mtime) and refuses to register cron jobs,
+// leaving the scheduler silently idle after a reload/restart cycle.
+// Module-scope on purpose: stop() and restart() both run this exact teardown,
+// never a dispatched override.
 function releaseSchedulerRuntime(scheduler) {
   if (scheduler.tickTimer) {
     clearInterval(scheduler.tickTimer);
@@ -217,14 +215,7 @@ class Scheduler {
   /** Check if a schedule should be skipped, reading deferred_until /
    *  skipped_until from the loaded row (in-memory cache, refreshed on reload). */
   shouldSkip(name) {
-    const s = this.findSchedule(name);
-    if (!s) return false;
-    const now = Date.now();
-    const deferredUntil = s.deferredUntil ? new Date(s.deferredUntil).getTime() : 0;
-    if (deferredUntil && now < deferredUntil) return true;
-    const skippedUntil = s.skippedUntil ? new Date(s.skippedUntil).getTime() : 0;
-    if (skippedUntil && now < skippedUntil) return true;
-    return false;
+    return this.skipUntil(name) > 0;
   }
   /** Timestamp (ms) until which `name` is currently skipped — the later of a
    *  still-future deferred_until / skipped_until, or 0 if not skipped. Used to

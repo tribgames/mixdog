@@ -1,13 +1,16 @@
 import { EventQueue } from './event-queue.mjs';
 import { applyParser, evaluateFilter, applyTemplate } from './executor.mjs';
+/** Rule rows that are objects and not explicitly disabled. */
+function enabledRules(config) {
+  const rawRules = config?.rules;
+  return (Array.isArray(rawRules) ? rawRules : []).filter((r) => r && typeof r === 'object' && r.enabled !== false);
+}
+
 class EventPipeline {
   rules;
   queue;
   constructor(config, channelId) {
-    const rawRules = config?.rules;
-    this.rules = (Array.isArray(rawRules) ? rawRules : []).filter(
-      (r) => r && typeof r === 'object' && r.enabled !== false
-    );
+    this.rules = enabledRules(config);
     this.queue = new EventQueue(config?.queue, channelId);
   }
   getQueue() {
@@ -20,10 +23,7 @@ class EventPipeline {
     this.queue.stop();
   }
   reloadConfig(config, channelId) {
-    const rawRules = config?.rules;
-    this.rules = (Array.isArray(rawRules) ? rawRules : []).filter(
-      (r) => r && typeof r === 'object' && r.enabled !== false
-    );
+    this.rules = enabledRules(config);
     this.queue.reloadConfig(config?.queue, channelId);
   }
   // ── Source: webhook ───────────────────────────────────────────────

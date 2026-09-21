@@ -33,15 +33,13 @@ function abortsAgentTurn(id, state, hasAgentSession) {
 }
 
 export function createSessionTurnCalls(ctx) {
-  const { log, readStoredGoal, listStoredActiveGoalSessionIds, hasAgentSession, sessionResult } = ctx;
-  const { advance, publishStep } = ctx.projection;
+  const { log, readStoredGoal, listStoredActiveGoalSessionIds, hasAgentSession, sessionResult, advanceForCaller } = ctx;
   const { retainUnwatched } = ctx.retention;
   const { entryForSession } = ctx.entries;
 
   /** Publishes the step an action produced and keeps the entry on the retention clock. */
   const settleAction = (entry, reason) => {
-    const step = advance(entry);
-    if (step.changed) publishStep(entry, step);
+    const step = advanceForCaller(entry);
     retainUnwatched(entry, reason);
     return step;
   };

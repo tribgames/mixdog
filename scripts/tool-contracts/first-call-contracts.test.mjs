@@ -80,7 +80,7 @@ test('the complete catalog and provider projections remain valid without mutatin
 });
 
 test('Goal boundaries are known before a call and updates do not need a failed addition first', () => {
-  const task = { text: 'x'.repeat(500), status: 'pending', kind: 'work' };
+  const task = { text: 'x'.repeat(500), status: 'pending' };
   accepts(schemaFor('goal'), { action: 'create', objective: 'One-shot outcome', tasks: [task] });
   const created = normalizeGoalTasks([task], [], { strict: true });
   const update = { action: 'update_tasks', revision: 1, updates: [{ id: created[0].id, status: 'completed' }] };

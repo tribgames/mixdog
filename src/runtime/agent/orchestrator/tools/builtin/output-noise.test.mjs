@@ -7,7 +7,11 @@ import { wrapPatchMutationOutput } from '../patch/mutation-output.mjs';
 test('missing path is reported once across patterns, distinct errors stay distinct', () => {
   const error = 'Error: path does not exist: /missing (ENOENT)';
   assert.equal(formatGrepFanoutSections({ dimension: 'pattern', labels: ['a', 'b'], bodies: [error, error] }), error);
-  const output = formatGrepFanoutSections({ dimension: 'pattern', labels: ['a', 'b'], bodies: [error, 'Error: invalid regex'] });
+  const output = formatGrepFanoutSections({
+    dimension: 'pattern',
+    labels: ['a', 'b'],
+    bodies: [error, 'Error: invalid regex'],
+  });
   assert.match(output, /ENOENT/);
   assert.match(output, /invalid regex/);
 });
@@ -20,16 +24,23 @@ test('read continuation retains exact range and next coordinate without advice',
 test('mixed pattern failures retain their attribution and order without repeated missing-path text', () => {
   const error = 'Error: path does not exist: /missing (ENOENT)';
   const output = formatGrepFanoutSections({
-    dimension: 'pattern', labels: ['a', 'b', '[', 'c'],
+    dimension: 'pattern',
+    labels: ['a', 'b', '[', 'c'],
     bodies: [error, error, 'Error: invalid regex [', 'found.txt:7:c'],
   });
-  assert.equal(output, '# grep patterns:["a","b"]\n' + error +
-    '\n\n# grep pattern:"["\nError: invalid regex [' +
-    '\n\n# grep pattern:"c"\nfound.txt:7:c');
+  assert.equal(
+    output,
+    '# grep patterns:["a","b"]\n' +
+      error +
+      '\n\n# grep pattern:"["\nError: invalid regex [' +
+      '\n\n# grep pattern:"c"\nfound.txt:7:c'
+  );
 });
 
 test('patch success rows replace redundant engine headings without hiding diagnostics', () => {
-  const output = wrapPatchMutationOutput('Applied 1 File (Native)\n  OK Modify a.mjs — +1/-1\nwarning: ambiguous context');
+  const output = wrapPatchMutationOutput(
+    'Applied 1 File (Native)\n  OK Modify a.mjs — +1/-1\nwarning: ambiguous context'
+  );
   assert.equal(output, '  OK Modify a.mjs — +1/-1\nwarning: ambiguous context');
   const error = 'Applied 1 File (Native)\n  Error: rejected';
   assert.equal(wrapPatchMutationOutput(error), error);

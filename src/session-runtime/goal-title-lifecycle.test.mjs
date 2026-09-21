@@ -35,7 +35,7 @@ test('a title queued behind an accepted task write cannot commit after runtime c
       'goal',
       {
         action: 'set_tasks',
-        tasks: [{ text: 'Accepted task update', status: 'in_progress', kind: 'work' }],
+        tasks: [{ text: 'Accepted task update', status: 'in_progress' }],
       },
       { sessionId: 'session-title' }
     );

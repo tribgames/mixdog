@@ -25,11 +25,8 @@ export function DesktopTitlebar({ updaterState, onOpenUpdate }: DesktopTitlebarP
   const updateInstalling = updaterState?.status === 'installing';
   return (
     <header className="topbar" aria-label={t('Window bar')}>
-      {/* No brand mark (user: 로고는 날려버리고) — the bar opens straight on
-          the navigation cluster and stays the drag band. */}
       {/* LEFT cluster: the brand mark only (user: 왼쪽
-          사이드탭 열기는 오른쪽으로, 그 자리에 로고). The sidebar toggle
-          moved into the right layout cluster below. */}
+          사이드탭 열기는 오른쪽으로, 그 자리에 로고). */}
       <div className="titlebar-leading titlebar-nav" aria-label={t('Navigation')}>
         <span className="titlebar-brand" aria-hidden="true">
           <img src="./mixdog.svg" alt="" draggable={false} />

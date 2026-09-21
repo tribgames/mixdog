@@ -64,6 +64,7 @@ const LINK_DEF_RE = /^ {0,3}\[([^\]^][^\]]*)\]:\s*(\S+)(?:\s+["'(].*)?\s*$/;
 const SETEXT_H1_RE = /^ {0,3}={2,}\s*$/;
 const SETEXT_H2_RE = /^ {0,3}-{2,}\s*$/;
 const TABLE_DELIM_RE = /^\s*\|?(?:\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
+const FENCE_OPEN_RE = /^(\s*)(`{3,}|~{3,})(.*)$/;
 
 /**
  * First pass: pull link-reference and footnote definitions out of the body so
@@ -77,7 +78,7 @@ function extractDefinitions(rawLines) {
   let fenceMarker = '';
   let fenceMarkerLen = 0;
   for (const line of rawLines) {
-    const fence = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    const fence = FENCE_OPEN_RE.exec(line);
     if (fence) {
       const marker = fence[2][0];
       if (!fenceMarker) {
@@ -121,7 +122,7 @@ function renderUnsafe(src, opts) {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fenceMatch = /^(\s*)(`{3,}|~{3,})(.*)$/.exec(line);
+    const fenceMatch = FENCE_OPEN_RE.exec(line);
 
     if (fenceMatch && !inFence) {
       inFence = true;

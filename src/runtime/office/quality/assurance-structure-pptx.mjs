@@ -379,7 +379,7 @@ function reviewPptxPeerType(slide, issues) {
     if (!groups.has(role)) groups.set(role, []);
     groups.get(role).push(shape);
   }
-  const path = slide.path || `/slide[${slide.index}]`;
+  const path = slideAt(slide);
   for (const [role, members] of groups) {
     if (members.length < 2) continue;
     // Peers in one row hold the same column: a 140 pt label beside a 665 pt lead
@@ -422,14 +422,12 @@ const FLAT_PAGE_TEXT_BOXES = 3;
 const HIERARCHY_LEAD_RATIO = 1.3;
 
 function leadsByType(sizes) {
-  const largest = Math.max(...sizes);
-  const rest = [...sizes].sort((left, right) => right - left).slice(1);
+  const ascending = [...sizes].sort((left, right) => left - right);
+  const largest = ascending[ascending.length - 1];
+  const rest = ascending.slice(0, -1);
   if (!rest.length) return true;
-  const middle = rest.slice().sort((left, right) => left - right);
   const median =
-    middle.length % 2
-      ? middle[(middle.length - 1) / 2]
-      : (middle[middle.length / 2 - 1] + middle[middle.length / 2]) / 2;
+    rest.length % 2 ? rest[(rest.length - 1) / 2] : (rest[rest.length / 2 - 1] + rest[rest.length / 2]) / 2;
   return largest >= median * HIERARCHY_LEAD_RATIO;
 }
 
@@ -445,7 +443,7 @@ function reviewPptxHierarchy(slide, issues) {
   issues.push(
     issue(
       'slide_hierarchy_flat',
-      slide.path || `/slide[${slide.index}]`,
+      slideAt(slide),
       `The slide's ${textShapes.length} text boxes are set at ${[...new Set(sizes)].sort((left, right) => left - right).join(' / ')} pt with none leading the others; the reader has no place to start.`
     )
   );
@@ -469,7 +467,7 @@ function reviewPptxTextWall(slide, width, height, issues) {
   issues.push(
     issue(
       'slide_text_dense',
-      slide.path || `/slide[${slide.index}]`,
+      slideAt(slide),
       `The slide carries ${chars} characters over ${Math.round(coverage * 100)}% of the canvas with no carrier; split it or cut it rather than projecting a document.`
     )
   );

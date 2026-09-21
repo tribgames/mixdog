@@ -153,26 +153,29 @@ const WIDTH_CALIBRATION = Object.freeze({
   'malgun gothic': { cjk: 1.039, latin: 1.032 },
 });
 
+// Maximal runs of one script class, in order: the calibration below reads a
+// face's CJK glyphs apart from its Latin ones, and a Latin face hands only its
+// CJK runs to the fallback family.
+function scriptRuns(text) {
+  const runs = [];
+  for (const character of text) {
+    const cjk = CJK.test(character);
+    const last = runs.at(-1);
+    if (last && last.cjk === cjk) last.text += character;
+    else runs.push({ text: character, cjk });
+  }
+  return runs;
+}
+
 function rawWidth(text, font) {
   const ctx = context();
   ctx.font = fontSpec(font);
   const calibration = WIDTH_CALIBRATION[String(resolveFont(font.fontName).family).toLowerCase()];
   if (!calibration) return ctx.measureText(text).width;
-  let width = 0;
-  let run = '';
-  let runIsCjk = false;
-  const flush = () => {
-    if (run) width += ctx.measureText(run).width * (runIsCjk ? calibration.cjk : calibration.latin);
-    run = '';
-  };
-  for (const character of text) {
-    const isCjk = CJK.test(character);
-    if (run && isCjk !== runIsCjk) flush();
-    runIsCjk = isCjk;
-    run += character;
-  }
-  flush();
-  return width;
+  return scriptRuns(text).reduce(
+    (width, run) => width + ctx.measureText(run.text).width * (run.cjk ? calibration.cjk : calibration.latin),
+    0
+  );
 }
 
 export function measureTextWidth(text, font = {}) {
@@ -181,22 +184,10 @@ export function measureTextWidth(text, font = {}) {
   const { family } = resolveFont(font.fontName);
   if (!CJK.test(value) || CJK_FAMILY.test(family)) return rawWidth(value, font);
   // Mixed script in a Latin face: CJK runs go to the fallback family, the rest stays in the face.
-  let width = 0;
-  let run = '';
-  let runIsCjk = false;
-  const flush = () => {
-    if (!run) return;
-    width += rawWidth(run, runIsCjk ? { ...font, fontName: cjkFallbackFamily() } : font);
-    run = '';
-  };
-  for (const character of value) {
-    const isCjk = CJK.test(character);
-    if (run && isCjk !== runIsCjk) flush();
-    runIsCjk = isCjk;
-    run += character;
-  }
-  flush();
-  return width;
+  return scriptRuns(value).reduce(
+    (width, run) => width + rawWidth(run.text, run.cjk ? { ...font, fontName: cjkFallbackFamily() } : font),
+    0
+  );
 }
 
 function segments(text) {
@@ -316,7 +307,7 @@ export function measureTextBlock(paragraphs = [], { width = 0, lineSpacing = 1, 
     lines += wrapped.length;
     const multiple =
       Number(paragraph.lineSpacing) > 0 ? Number(paragraph.lineSpacing) : Math.max(0.5, Number(lineSpacing) || 1);
-    const pitch = lineHeightRatio > 0 ? lineHeightRatio : naturalLineRatio(paragraph.fontName) * multiple;
+    const pitch = lineHeightRatio > 0 ? lineHeightRatio : naturalLineRatio() * multiple;
     height += wrapped.length * size * pitch;
     height += Math.max(0, Number(paragraph.spaceBefore) || 0);
     height += Math.max(0, Number(paragraph.spaceAfter) || 0);
@@ -639,16 +630,20 @@ function hollowBand(content = []) {
   return { depth, top };
 }
 
-export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0, boxes = [] } = {}) {
-  if (!(slideHeight > 0) || !(slideWidth > 0)) return [];
-  const issues = [];
+function bySlide(boxes) {
   const slides = new Map();
-  const statements = statementSlides(boxes);
-  for (const box of bounds) {
+  for (const box of boxes) {
     if (!slides.has(box.slide)) slides.set(box.slide, []);
     slides.get(box.slide).push(box);
   }
-  for (const [slide, shapes] of slides) {
+  return slides;
+}
+
+export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0, boxes = [] } = {}) {
+  if (!(slideHeight > 0) || !(slideWidth > 0)) return [];
+  const issues = [];
+  const statements = statementSlides(boxes);
+  for (const [slide, shapes] of bySlide(bounds)) {
     const content = shapes.filter(
       (shape) => Math.max(0, shape.width) * Math.max(0, shape.height) < slideWidth * slideHeight * 0.8
     );
@@ -691,12 +686,7 @@ export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight
 
 export function reviewStatLabelProximity(boxes = [], { maximumGap = 36 } = {}) {
   const issues = [];
-  const slides = new Map();
-  for (const box of boxes) {
-    if (!slides.has(box.slide)) slides.set(box.slide, []);
-    slides.get(box.slide).push(box);
-  }
-  for (const [slide, shapes] of slides) {
+  for (const [slide, shapes] of bySlide(boxes)) {
     issues.push(...reviewDeclaredRelations(shapes, maximumGap));
     for (const box of shapes) {
       if (box.relation?.role === 'value') continue;

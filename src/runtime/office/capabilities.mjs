@@ -332,9 +332,8 @@ function unknownFieldsFault(batch, name, operation, index, { allowed, propertyKe
 // Properties are where an unnoticed miss hurts most: an unknown key is
 // dropped silently, so the caller believes the table was styled and only
 // the rendered page says otherwise.
-function unknownPropertiesFault(batch, name, operation, index, signatureValue) {
-  const { format, backend, catalog } = batch;
-  const allowedProperties = propertyKeySet(catalog, signatureValue);
+function unknownPropertiesFault(batch, name, operation, index, allowedProperties) {
+  const { format, backend } = batch;
   const properties = operation.properties;
   if (!allowedProperties.size || !plainObject(properties)) return null;
   // The same font key is spelled two ways inside one format — a run takes
@@ -432,7 +431,7 @@ function operationContractFaults(batch, operation, index) {
   const propertyKeys = propertyKeySet(catalog, signatureValue);
   return [
     unknownFieldsFault(batch, name, operation, index, { allowed, propertyKeys }),
-    unknownPropertiesFault(batch, name, operation, index, signatureValue),
+    unknownPropertiesFault(batch, name, operation, index, propertyKeys),
     ...docxTableAlignmentFaults(format, name, operation, index),
     requiredInputFault(batch, name, operation, index, signatureValue, stableTargets),
   ].filter(Boolean);

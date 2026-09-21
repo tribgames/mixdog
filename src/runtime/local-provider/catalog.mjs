@@ -72,12 +72,13 @@ function recommendationFor(hardware) {
 
 function publicModel(entry, dataDir, hardware) {
   const state = localModelState(entry.id);
+  const weights = localProviderModelPath(entry, dataDir);
   return {
     id: entry.id,
     name: entry.name,
     description: entry.description,
     sizeBytes: entry.size,
-    remainingDownloadBytes: entry.size - partialAssetBytes(localProviderModelPath(entry, dataDir), entry.size),
+    remainingDownloadBytes: entry.size - partialAssetBytes(weights, entry.size),
     estimatedVramBytes: entry.estimatedVramBytes,
     minimumVramBytes: entry.minimumVramBytes,
     ...localContextSettings(entry, dataDir),
@@ -93,8 +94,8 @@ function publicModel(entry, dataDir, hardware) {
     source: entry.source,
     recommended: recommendationFor(hardware)?.id === entry.id,
     compatible: Number(hardware?.gpu?.memoryBytes || 0) >= Number(entry.minimumVramBytes || 0),
-    installed: exactLocalProviderFile(localProviderModelPath(entry, dataDir), entry.size),
-    present: existsSync(localProviderModelPath(entry, dataDir)),
+    installed: exactLocalProviderFile(weights, entry.size),
+    present: existsSync(weights),
   };
 }
 

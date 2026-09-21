@@ -80,6 +80,9 @@ export interface BrowserGuestState extends BrowserDiagnostics {
   /** The payload Chromium handed over instead of running the page's own
    *  HTML5 drag, so the driver can finish that gesture as drag events. */
   interceptedDrag?: BrowserDragData;
+  /** Woken by the event carrying that payload, so a gesture never waits out
+   *  a timeout Chromium has already answered. */
+  notifyInterceptedDrag?: (data: BrowserDragData) => void;
 }
 
 /** A WeakMap-shaped window onto one field of every guest's state, so modules

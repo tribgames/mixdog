@@ -464,9 +464,7 @@ function accumulateSessionUsage(session, delta) {
   // Old sessions have spend but no reasoning counters. Their past usage must
   // remain unknown, even after the first newly measured response arrives.
   const hadUsage = session.reasoningUsage || session.totalInputTokens > 0 || session.totalOutputTokens > 0;
-  session.reasoningUsage = hadUsage
-    ? combineReasoningUsage(session.reasoningUsage, delta)
-    : reasoningUsage(delta);
+  session.reasoningUsage = hadUsage ? combineReasoningUsage(session.reasoningUsage, delta) : reasoningUsage(delta);
   const deltaUncachedInput =
     delta.deltaUncachedInput != null
       ? Number(delta.deltaUncachedInput) || 0

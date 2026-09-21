@@ -15,8 +15,7 @@ import { invalidateWorkflowOptions } from './workflow-options-cache';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
 import { record, rows } from './record-utils';
-
-type RecordValue = Record<string, unknown>;
+import type { RecordValue } from './desktop-types';
 
 type SidebarReferenceApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
@@ -111,7 +110,6 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   forgetProviderAuth: PROVIDER_KEYS,
   updateProviderAccounts: PROVIDER_KEYS,
   completeOAuthProviderLogin: PROVIDER_KEYS,
-  loginOpenCodeGoUsage: PROVIDER_KEYS,
   installBuiltinFeature: PROVIDER_KEYS,
   installLocalProviderModel: PROVIDER_KEYS,
   setBuiltinToolEnabled: PROVIDER_KEYS,
@@ -401,7 +399,8 @@ export async function loadSidebarReferences(
   return { error: '' };
 }
 
-/** Boot prewarm: fill every sidebar reference key once, best effort. */
+/** Watch a set of keys; the listener fires on every publication or
+ *  invalidation of any of them. */
 export function subscribeSidebarReferences(keys: readonly SidebarReferenceKey[], listener: () => void): () => void {
   for (const key of keys) {
     let set = listeners.get(key);

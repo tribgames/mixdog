@@ -564,9 +564,9 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
               objective: 'A much longer objective that should not consume the progress and elapsed-time regions',
               status: 'active',
               tasks: [
-                { id: 'task_1', text: 'Implement the change', status: 'completed', kind: 'work' },
-                { id: 'task_2', text: 'Check mobile layout', status: 'in_progress', kind: 'work' },
-                { id: 'task_3', text: 'Verify the objective', status: 'pending', kind: 'verification' },
+                { id: 'task_1', text: 'Implement the change', status: 'completed' },
+                { id: 'task_2', text: 'Check mobile layout', status: 'in_progress' },
+                { id: 'task_3', text: 'Verify the objective', status: 'pending' },
               ],
               tasksTotal: 3,
               tasksCompleted: 1,

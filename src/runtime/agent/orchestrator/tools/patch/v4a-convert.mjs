@@ -1,6 +1,5 @@
 // V4A hunk locator, in-memory apply, rename sections, and V4A -> unified
-// conversion. Anchor/context matching, EOF
-// handling, rename atomicity, and conversion output are all unchanged.
+// conversion.
 
 import { readFileSync, lstatSync, mkdirSync, realpathSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
@@ -419,7 +418,7 @@ function applyV4AHunksToLines(sourceLines, hunks, options = {}) {
 }
 
 // Order-independent hunk ordering for the V4A apply / V4A->unified conversion.
-// Two-phase, semantics-preserving; see the original patch.mjs commentary.
+// Two-phase, semantics-preserving.
 // Whether every non-empty hunk resolves in the order given, each after the
 // previous one; the ordering pass is only needed when that fails.
 function v4aHunksResolveInOrder(sourceLines, list, fuzzy) {
@@ -541,10 +540,6 @@ export function validateV4ARenameSection(section, basePath, seenDestKeys) {
     return `apply_patch: duplicate V4A rename destination ${normalizeOutputPath(section.movePath)}`;
   }
   seenDestKeys.add(destKey);
-  return (
-    v4aRenameSourceIssue(srcFull, section.path) ||
-    v4aRenameDestinationIssue(srcFull, destFull, section.movePath, caseOnlyRename)
-  );
   // A rename with no hunks is a PURE MOVE — `git mv` in V4A form — and its
   // outcome is fully specified by the two paths: the file arrives at the
   // destination byte-identical and leaves the source. Demanding an edit made
@@ -552,6 +547,10 @@ export function validateV4ARenameSection(section, basePath, seenDestKeys) {
   // move cost a turn and a fallback shell `mv`). The hunk applier already
   // treats an empty hunk list as "no change", so the move runs through the
   // same guarded write/unlink path as any other rename.
+  return (
+    v4aRenameSourceIssue(srcFull, section.path) ||
+    v4aRenameDestinationIssue(srcFull, destFull, section.movePath, caseOnlyRename)
+  );
 }
 
 function v4aRenameSourceIssue(srcFull, displayPath) {
@@ -852,7 +851,6 @@ function unifiedUpdateHunks(sourceLines, section, displayPath, { fuzzy, rejectPa
   return entries.flatMap((entry) => entry.lines);
 }
 
-// options.rejectPartial (default true) — see original patch.mjs commentary.
 export async function convertV4ASectionsToUnifiedPatch(sections, basePath, options = {}) {
   await assertV4ATargetsReachable(sections, basePath);
   const hunkOptions = {

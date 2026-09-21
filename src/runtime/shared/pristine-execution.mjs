@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { replaceProviderAuthBindings } from './provider-auth-binding.mjs';
 import { ACCOUNT_PROVIDERS, providerAccountPath, readProviderAccountPool } from './provider-accounts.mjs';
 import { AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
+import { platformKey } from './native-asset.mjs';
 import { clean } from './clean.mjs';
 
 const contractPath = fileURLToPath(new URL('./pristine-execution-contract.json', import.meta.url));
@@ -117,17 +118,12 @@ function hostDataDir(env) {
   return join(home, 'data');
 }
 
-function patchPlatformKey() {
-  const os = process.platform === 'win32' ? 'win32' : process.platform;
-  return `${os}-${process.arch}`;
-}
-
 function seedVerifiedPatchBinaryCache(sourceDataDir, dataDir, { manifestPath = patchManifestPath } = {}) {
   try {
     const sourcePatchDir = join(sourceDataDir, 'patch-bin');
     const manifestBytes = readFileSync(manifestPath);
     const manifest = JSON.parse(manifestBytes.toString('utf8'));
-    const asset = manifest?.assets?.[patchPlatformKey()];
+    const asset = manifest?.assets?.[platformKey()];
     const version = String(manifest?.version || '');
     const expectedSha256 = clean(asset?.sha256).toLowerCase();
     if (!/^[A-Za-z0-9._-]+$/.test(version) || !/^[a-f0-9]{64}$/.test(expectedSha256)) return false;

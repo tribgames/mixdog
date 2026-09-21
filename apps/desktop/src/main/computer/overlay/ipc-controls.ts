@@ -29,7 +29,7 @@ export function bindComputerOverlayControls(
       return { accepted: true };
     }
     if (
-      !['resume', 'pause'].includes(request.action) ||
+      !['resume', 'pause', 'stop'].includes(request.action) ||
       Object.keys(request).some((key) => !['action', 'generation'].includes(key)) ||
       !Number.isSafeInteger(request.generation) ||
       request.generation < 0

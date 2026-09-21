@@ -92,12 +92,19 @@ export function reviewDocumentPages(format, design, state) {
   };
 }
 
-export function assessDocumentAcceptance(evidence, visual = null) {
-  const automatedReady =
+// Mechanical readiness shared by document and presentation acceptance: a
+// structural review ran, every expected page rendered, nothing blocking left.
+export function isAutomatedReady(evidence) {
+  return (
     evidence?.structuralAvailable === true &&
     Number(evidence.expectedPages) > 0 &&
     Number(evidence.pageCoverage) === 1 &&
-    Number(evidence.blockingIssueCount) === 0;
+    Number(evidence.blockingIssueCount) === 0
+  );
+}
+
+export function assessDocumentAcceptance(evidence, visual = null) {
+  const automatedReady = isAutomatedReady(evidence);
   return {
     scoreMeaning: 'automated-diagnostics-not-design-quality',
     automatedReady,

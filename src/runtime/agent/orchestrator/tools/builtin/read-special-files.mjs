@@ -1,5 +1,4 @@
-import { readFile, stat } from 'node:fs/promises';
-import { open } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import { READ_MAX_SIZE_BYTES } from './read-constants.mjs';
 import { imageBlocksFromBuffer } from './read-image-resize.mjs';
 import { inspectPdfBuffer } from '../../../../attachments/pdf-extract.mjs';

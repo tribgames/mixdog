@@ -124,12 +124,7 @@ function _adoptAliases(next, aliasesByKey) {
 
 function _canonicalGrepArgs(next) {
   const adopted = { ...next };
-  for (const [key, aliases] of Object.entries(GREP_ARG_ALIASES)) {
-    if (adopted[key] === undefined || adopted[key] === null || adopted[key] === '') {
-      const alias = _firstArg(adopted, aliases);
-      if (alias !== undefined) adopted[key] = alias;
-    }
-  }
+  _adoptAliases(adopted, GREP_ARG_ALIASES);
   _canonicalizeGrepContextArgs(adopted);
   if (
     (adopted.output_mode === undefined || adopted.output_mode === null || adopted.output_mode === '') &&
@@ -138,7 +133,6 @@ function _canonicalGrepArgs(next) {
     const mode = adopted.mode.trim();
     if (['files_with_matches', 'content', 'content_with_context', 'count'].includes(mode)) adopted.output_mode = mode;
   }
-  for (const aliases of Object.values(GREP_ARG_ALIASES)) for (const k of aliases) delete adopted[k];
   delete adopted.mode;
 
   // Canonicalize by execution semantics, not caller spelling:

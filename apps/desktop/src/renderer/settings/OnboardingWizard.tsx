@@ -770,13 +770,7 @@ function ProviderStep({
   api: DesktopApi;
   setup: RecordValue;
   pending: string;
-  run<T = unknown>(
-    capability: DesktopCapability,
-    args?: unknown[],
-    key?: string,
-    refresh?: boolean,
-    silent?: boolean
-  ): Promise<T | undefined>;
+  run: RunCapability;
   onSaveApiKey(event: FormEvent<HTMLFormElement>, provider: string): void;
   onReload(): void;
 }) {
@@ -854,20 +848,6 @@ function ProviderStep({
                       : t(String(provider.detail || provider.status || 'API key required'))}
                   </small>
                 </div>
-                {String(provider.id) === 'opencode-go' && (
-                  <button
-                    type="button"
-                    className="ghost"
-                    disabled={Boolean(pending)}
-                    onClick={() => {
-                      void run('loginOpenCodeGoUsage', [], 'opencode-go-usage').then((result) => {
-                        if (result !== undefined) onReload();
-                      });
-                    }}
-                  >
-                    {t('Usage sign-in')}
-                  </button>
-                )}
                 {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
                   <button
                     type="button"

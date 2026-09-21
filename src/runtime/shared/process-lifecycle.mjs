@@ -92,33 +92,33 @@ function boundPreviousLedger(active) {
   }
 }
 
+// Append one ledger line inside an already-held lock: bound the retained
+// generation, rotate when this line would overflow, then write.
+function appendLedgerLine(active, line) {
+  boundPreviousLedger(active);
+  if (
+    existsSync(active.ledger) &&
+    statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES
+  ) {
+    rotateLedger(active);
+  }
+  const fd = openSync(active.ledger, 'a', 0o600);
+  try {
+    writeSync(fd, line, null, 'utf8');
+  } finally {
+    closeSync(fd);
+  }
+  return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
+}
+
 function appendEntry(active, entry) {
   const line = `${JSON.stringify(entry)}\n`;
   if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
   try {
-    return withFileLockSync(
-      active.lock,
-      () => {
-        boundPreviousLedger(active);
-        if (
-          existsSync(active.ledger) &&
-          statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES
-        ) {
-          rotateLedger(active);
-        }
-        const fd = openSync(active.ledger, 'a', 0o600);
-        try {
-          writeSync(fd, line, null, 'utf8');
-        } finally {
-          closeSync(fd);
-        }
-        return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
-      },
-      {
-        timeoutMs: 0,
-        staleMs: LEDGER_LOCK_STALE_MS,
-      }
-    );
+    return withFileLockSync(active.lock, () => appendLedgerLine(active, line), {
+      timeoutMs: 0,
+      staleMs: LEDGER_LOCK_STALE_MS,
+    });
   } catch {
     return false;
   }
@@ -134,20 +134,7 @@ async function appendEntryAsync(active, entry, shouldAppend) {
         if (!shouldAppend()) return false;
         const line = staticLine || `${JSON.stringify(entry())}\n`;
         if (Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES) return false;
-        boundPreviousLedger(active);
-        if (
-          existsSync(active.ledger) &&
-          statSync(active.ledger).size + Buffer.byteLength(line) > LIFECYCLE_LEDGER_MAX_BYTES
-        ) {
-          rotateLedger(active);
-        }
-        const fd = openSync(active.ledger, 'a', 0o600);
-        try {
-          writeSync(fd, line, null, 'utf8');
-        } finally {
-          closeSync(fd);
-        }
-        return statSync(active.ledger).size <= LIFECYCLE_LEDGER_MAX_BYTES;
+        return appendLedgerLine(active, line);
       },
       {
         timeoutMs: LEDGER_LOCK_TIMEOUT_MS,
@@ -285,15 +272,19 @@ function lifecycleEntry(active, reason, exitCode = null) {
   };
 }
 
-function recordPriorVanished(active, previous) {
-  return appendEntry(active, {
+function priorVanishedEntry(previous) {
+  return {
     version: 1,
     timestamp: new Date().toISOString(),
     pid: previous.pid,
     ppid: Number.isInteger(previous.ppid) ? previous.ppid : null,
     reason: 'prior-process-vanished',
     exitCode: null,
-  });
+  };
+}
+
+function recordPriorVanished(active, previous) {
+  return appendEntry(active, priorVanishedEntry(previous));
 }
 
 function markerMatchesSnapshot(markerPath, previous) {
@@ -310,18 +301,9 @@ function markerMatchesSnapshot(markerPath, previous) {
 }
 
 async function recordPriorVanishedAsync(active, markerPath, previous) {
-  const written = await appendEntryAsync(
-    active,
-    {
-      version: 1,
-      timestamp: new Date().toISOString(),
-      pid: previous.pid,
-      ppid: Number.isInteger(previous.ppid) ? previous.ppid : null,
-      reason: 'prior-process-vanished',
-      exitCode: null,
-    },
-    () => sharedState().active === active && markerMatchesSnapshot(markerPath, previous)
-  );
+  const written = await appendEntryAsync(active, priorVanishedEntry(previous), () => {
+    return sharedState().active === active && markerMatchesSnapshot(markerPath, previous);
+  });
   if (!written || sharedState().active !== active) return false;
   if (!markerMatchesSnapshot(markerPath, previous)) return false;
   try {

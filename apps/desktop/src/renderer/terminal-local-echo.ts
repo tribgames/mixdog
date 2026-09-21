@@ -183,7 +183,7 @@ export class TerminalLocalEcho {
     const p = this.pending[0];
     const alternatives = p.kind === 'char' ? [p.text] : eraseAlternatives(p.width);
     let partial = false;
-    for (const alt of alternatives.slice().sort((a, b) => b.length - a.length)) {
+    for (const alt of alternatives.sort((a, b) => b.length - a.length)) {
       if (input.startsWith(alt)) return { kind: 'match', length: alt.length };
       if (alt.startsWith(input)) partial = true;
     }

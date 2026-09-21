@@ -247,7 +247,7 @@ try {
         throw "Packaged renderer/preload CDP target did not appear on port $port; app was $state."
     }
     $preloadSeconds = [Math]::Round($launchWatch.Elapsed.TotalSeconds, 3)
-    $fullE2e = Invoke-AcceptanceStep 'full-tui-desktop-e2e' "node --import tsx scripts/cdp-e2e.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
+    $null = Invoke-AcceptanceStep 'full-tui-desktop-e2e' "node --import tsx scripts/cdp-e2e.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
         $json = & node --import tsx 'scripts/cdp-e2e.mjs' $target.webSocketDebuggerUrl $ProjectPath
         if ($LASTEXITCODE -ne 0) { throw "Full TUI desktop E2E exited with $LASTEXITCODE" }
         $value = $json | ConvertFrom-Json
@@ -267,7 +267,7 @@ try {
     }
     # Keep the legacy smoke last: it intentionally disposes the EngineHost and
     # clears its state subscribers as part of shutdown verification.
-    $smoke = Invoke-AcceptanceStep 'project-chat-approval-routing' "node scripts/cdp-smoke.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
+    $null = Invoke-AcceptanceStep 'project-chat-approval-routing' "node scripts/cdp-smoke.mjs `"$($target.webSocketDebuggerUrl)`" `"$ProjectPath`"" {
         $json = & node 'scripts/cdp-smoke.mjs' $target.webSocketDebuggerUrl $ProjectPath
         if ($LASTEXITCODE -ne 0) { throw "CDP smoke exited with $LASTEXITCODE" }
         $value = $json | ConvertFrom-Json
@@ -286,7 +286,7 @@ try {
         $value | ConvertTo-Json -Depth 8 | Set-Content (Join-Path $distDir 'acceptance-launch-smoke.log') -Encoding UTF8
         return $value
     }
-    $exitResult = Invoke-AcceptanceStep 'app-exit' 'CloseMainWindow; wait up to 15 seconds' {
+    $null = Invoke-AcceptanceStep 'app-exit' 'CloseMainWindow; wait up to 15 seconds' {
         if (-not $appProcess.HasExited) {
             [void]$appProcess.CloseMainWindow()
             if (-not $appProcess.WaitForExit(15000)) { throw 'Packaged app did not exit cleanly.' }

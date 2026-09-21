@@ -59,7 +59,8 @@ export function deriveCardStatus(base, { normalizedName, parsedArgs, isShellSurf
     !pending && isAgentTool(normalizedName) && !agentHeaderFailure
       ? agentTerminalDetail(parsedArgs?.status, isError, elapsed, parsedArgs?.error)
       : '';
-  const gitFailed = normalizedName === 'git' &&
+  const gitFailed =
+    normalizedName === 'git' &&
     (gitResultExitCode(display.displayedResultText) !== null || Boolean(gitResultError(display.displayedResultText)));
   const failedOrCompleted = isError || failedCount > 0 || gitFailed ? 'failed' : 'completed';
   const terminalStatus = pending

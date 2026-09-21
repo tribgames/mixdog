@@ -237,8 +237,16 @@ export async function codeGraph(rawArgs, cwd, signal = null, options = {}) {
   const scopeRelPrefix = abs && fileIsDirectory ? _scopeRelPrefix(_graphRel(abs, cwd)) : null;
   const node = rel ? graph.nodes.get(rel) : null;
   return handler({
-    args, cwd, defaultCwd: options._defaultCwd ?? cwd,
-    signal, graph, normFile, rel, node, scopeRelPrefix, symbolsNote,
+    args,
+    cwd,
+    defaultCwd: options._defaultCwd ?? cwd,
+    signal,
+    graph,
+    normFile,
+    rel,
+    node,
+    scopeRelPrefix,
+    symbolsNote,
   });
 }
 
@@ -346,12 +354,17 @@ async function executeCodeGraphToolRaw(name, rawArgs, cwd, signal = null, option
     effectiveCwd = resolveDirectoryRoot(name, effectiveCwd, { filesystemRootCwd: plan.filesystemRootCwd });
   }
   if (signal?.aborted) throw new Error('aborted');
-  const work = runCodeGraphWork(name, args, effectiveCwd, signal, { ...options, _defaultCwd: cwd }, { findSymbolTool, codeGraph }).finally(
-    () => {
-      _pruneCodeGraphMemoryCache();
-      _pruneExactFileGraphCache();
-    }
-  );
+  const work = runCodeGraphWork(
+    name,
+    args,
+    effectiveCwd,
+    signal,
+    { ...options, _defaultCwd: cwd },
+    { findSymbolTool, codeGraph }
+  ).finally(() => {
+    _pruneCodeGraphMemoryCache();
+    _pruneExactFileGraphCache();
+  });
   return raceAbort(work, signal);
 }
 

@@ -1,9 +1,7 @@
-// Per-pane workspace tab strip. This is
-// the former titlebar strip moved verbatim into a reusable component: every
-// pane group mounts one, so the Chrome-parity layout/animation model and the
-// drag gestures (reorder inside the strip, drag below it to split/move) keep
-// working unchanged. Class names are preserved for the strip-contract dom
-// tests and the shared CSS.
+// Per-pane workspace tab strip: every pane group mounts one, so the
+// Chrome-parity layout/animation model and the drag gestures (reorder inside
+// the strip, drag below it to split/move) all live here. Class names are
+// contract for the strip-contract dom tests and the shared CSS.
 import React, {
   type KeyboardEvent,
   useCallback,

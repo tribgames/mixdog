@@ -11,11 +11,20 @@ export const SECTION_PROPERTIES_SOURCE = '<w:sectPr(?:\\s[^>]*)?(?:\\/>|>(?:(?!<
 
 export const TRAILING_SECTION_PATTERN = new RegExp(`${SECTION_PROPERTIES_SOURCE}\\s*$`);
 
+// One Word run, its opening tag, and the run properties that may lead its
+// content: the grammar every run-level read and edit cuts on. The run itself
+// is a source string, so each walk gets a pattern with its own lastIndex.
+export const WORD_RUN_SOURCE = '<w:r(?:\\s[^>]*)?>[\\s\\S]*?<\\/w:r>';
+export const WORD_RUN_OPEN = /^<w:r(?:\s[^>]*)?>/;
+export const WORD_RUN_PROPERTIES = /^\s*(?:<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>|<w:rPr\/>)/;
+
 export const OOXML_REQUIRED = {
   docx: ['[Content_Types].xml', 'word/document.xml'],
   xlsx: ['[Content_Types].xml', 'xl/workbook.xml'],
   pptx: ['[Content_Types].xml', 'ppt/presentation.xml'],
 };
+
+export const WORD_MAIN_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 
 export const SPREADSHEET_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 

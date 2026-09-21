@@ -57,7 +57,12 @@ export interface SessionHostLifecycleOwner {
   resolveSessionWorkspace(projectPath?: string | null): Promise<SessionWorkspaceResolution>;
   projectDirectory(projectPath: string): Promise<string>;
   openHints(sessionId: string): Record<string, unknown>;
-  readSession(sessionId: string, forceFull?: boolean, publish?: boolean, readTraceId?: string): Promise<SessionSnapshot>;
+  readSession(
+    sessionId: string,
+    forceFull?: boolean,
+    publish?: boolean,
+    readTraceId?: string
+  ): Promise<SessionSnapshot>;
   invokeSession(
     sessionId: string,
     method: string,
@@ -240,7 +245,10 @@ export class SessionHostLifecycle {
     const traceId = transcriptReadTraceId(readTraceId);
     const startedAt = performance.now();
     reportTranscriptRead(id, traceId, 'host-start');
-    const limit = Math.max(1, Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT)));
+    const limit = Math.max(
+      1,
+      Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT))
+    );
     try {
       let snapshot: SessionSnapshot;
       if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {

@@ -82,5 +82,5 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
     ]);
   }
 
-  return { fetchPatternsFor, applyFetchPatterns, initializeTargetSession };
+  return { applyFetchPatterns, initializeTargetSession };
 }

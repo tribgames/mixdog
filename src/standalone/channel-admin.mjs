@@ -87,28 +87,23 @@ async function updateChannelsSectionAsync(build) {
   return next;
 }
 
+// The sync and async webhook writers must apply the very same patch rules.
+const webhookPatch = (patch) => (cfg) => ({
+  ...cfg,
+  webhook: {
+    ...(cfg.webhook || {}),
+    ...(Object.hasOwn(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
+    ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
+    ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
+  },
+});
+
 export function setWebhookConfig(patch = {}) {
-  return updateChannelsSection((cfg) => ({
-    ...cfg,
-    webhook: {
-      ...(cfg.webhook || {}),
-      ...(Object.hasOwn(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
-      ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
-      ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
-    },
-  }));
+  return updateChannelsSection(webhookPatch(patch));
 }
 
 export async function setWebhookConfigAsync(patch = {}) {
-  return updateChannelsSectionAsync((cfg) => ({
-    ...cfg,
-    webhook: {
-      ...(cfg.webhook || {}),
-      ...(Object.hasOwn(patch, 'enabled') ? { enabled: patch.enabled === true } : {}),
-      ...(patch.port ? { port: Number(patch.port) || 3333 } : {}),
-      ...(patch.domain ? { domain: String(patch.domain).trim() } : {}),
-    },
-  }));
+  return updateChannelsSectionAsync(webhookPatch(patch));
 }
 
 function normalizeCron(time) {

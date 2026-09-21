@@ -26,33 +26,9 @@ import {
 } from '../input-editing.mjs';
 import { sliceVisualRowWindow, textEntryReservedRows, wrappedTextRows } from '../app/text-layout.mjs';
 import { canSubmitTextEntry } from '../app/text-entry-policy.mjs';
-
-function insertText(draft, input) {
-  if (!input) return draft;
-  return replaceSelection(draft, input);
-}
-
-function renderSelectedText(displayValue, range, trailingSpace = false) {
-  if (!range) return trailingSpace ? `${displayValue} ` : displayValue;
-  const start = Math.max(0, Math.min(displayValue.length, range.start));
-  const end = Math.max(start, Math.min(displayValue.length, range.end));
-  return (
-    <>
-      {start > 0 ? displayValue.slice(0, start) : null}
-      {end > start ? (
-        <Text color={theme.selectionText} backgroundColor={theme.selectionBackground}>
-          {displayValue.slice(start, end)}
-        </Text>
-      ) : null}
-      {displayValue.slice(end)}
-      {trailingSpace ? ' ' : ''}
-    </>
-  );
-}
-
-function normalizeInput(text) {
-  return String(text ?? '').replace(/\r\n?/g, '\n');
-}
+import { truncatePanelText as truncateText } from './panel-cell-text.mjs';
+import { insertText, normalizePastedText, singleTrailingLineBreakPrefix } from './prompt-input/edit-helpers.mjs';
+import { renderSelectedText } from './prompt-input/selected-text.jsx';
 
 // Collapse newlines to a single visible glyph so multiline pasted input stays a
 // single visual row (the draft itself is unchanged for editing/submit).
@@ -108,7 +84,6 @@ function windowSingleLine(flat, cursor, width) {
     text: chars.slice(a, b).join(''),
     cuStart,
     cuEnd,
-    startCell: alignedStart,
     caretCol: Math.max(0, cursorCell - alignedStart),
   };
 }
@@ -118,28 +93,6 @@ function singleLine(text) {
   return String(text ?? '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// Width-aware single-line truncation with an ellipsis so a long hint (e.g. an
-// OAuth manual URL) can never wrap into extra rows and overflow the panel.
-function truncateText(value, width) {
-  const text = String(value || '');
-  if (!(width > 0)) return '';
-  if (stringWidth(text) <= width) return text;
-  if (width <= 1) return '…'.repeat(Math.max(0, width));
-  let out = '';
-  for (const ch of text) {
-    if (stringWidth(`${out}${ch}…`) > width) break;
-    out += ch;
-  }
-  return `${out}…`;
-}
-
-function singleTrailingLineBreakPrefix(text) {
-  const normalized = normalizeInput(text);
-  if (!normalized.endsWith('\n')) return null;
-  const prefix = normalized.slice(0, -1);
-  return prefix.includes('\n') ? null : prefix;
 }
 
 // Recognize a MODIFIED Enter (Ctrl+Enter or Shift+Enter) delivered via the kitty
@@ -299,7 +252,7 @@ export function TextEntryPanel({
 
   usePaste(
     (text) => {
-      const pasted = normalizeInput(text);
+      const pasted = normalizePastedText(text);
       if (!pasted) return;
       updateDraft((d) => insertText(d, pasted));
     },
@@ -309,7 +262,7 @@ export function TextEntryPanel({
   useInput(
     (input, key) => {
       const rawSource = String(input ?? '');
-      const rawInput = normalizeInput(input);
+      const rawInput = normalizePastedText(input);
       if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawSource)) return;
       // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c).
       // We no longer query the terminal, so these should not normally appear, but

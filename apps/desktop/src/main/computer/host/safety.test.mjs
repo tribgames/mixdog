@@ -951,7 +951,10 @@ test('computer window transition selects one deterministic successor', () => {
     606,
     'C:\\fixtures\\document.txt'
   );
-  assert.equal(shellAssociated.next_target, undefined);
+  // A window that opened and took focus during the launch is worth observing
+  // next, but a broker-hosted app under another name never confirms the launch.
+  assert.equal(shellAssociated.next_target?.id, 'hwnd:0x7');
+  assert.equal(shellAssociated.next_target_reason, 'launched_window_focused');
   assert.equal(launchTransitionConfirmsTarget(shellAssociated, 'C:\\fixtures\\document.txt'), false);
 
   const reusedShellWindow = computeComputerWindowTransition(

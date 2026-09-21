@@ -19,11 +19,12 @@ export function createHookPayload({ rt, cfgMod }) {
   }
   function hookCommonPayload(extra = {}) {
     const sid = clean(extra.session_id || extra.sessionId || rt.session?.id);
+    const effort = hookEffortPayload();
     return {
       ...(sid ? { session_id: sid, transcript_path: hookTranscriptPath(sid) } : {}),
       cwd: rt.currentCwd,
       permission_mode: rt.session?.permissionMode || 'default',
-      ...(hookEffortPayload() ? { effort: hookEffortPayload() } : {}),
+      ...(effort ? { effort } : {}),
       ...extra,
     };
   }

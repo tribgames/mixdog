@@ -51,8 +51,8 @@ export function createAccountApi(
 
   return {
     // The account roster is a local file read: it must paint the moment the
-    // picker opens (user: 불러오는 중이 계속 뜬다). The roster never blocks on
-    // the keychain or on live quota fetches; the persisted per-account usage
+    // picker opens. The roster never blocks on the keychain or on live quota
+    // fetches; the persisted per-account usage
     // is returned as-is and a bounded background sweep refreshes it, which
     // lands in the next read.
     getProviderAccounts(providerId) {

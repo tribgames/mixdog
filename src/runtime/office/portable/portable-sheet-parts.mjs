@@ -5,6 +5,7 @@ import {
   ensureContentTypeOverride,
   ensureDefaultContentType,
   partRelationshipPath,
+  relationshipTargetByType,
   zipText,
 } from './portable-opc.mjs';
 import {
@@ -33,9 +34,7 @@ export function excelPasswordHash(password) {
 
 export async function ensureWorksheetDrawing(zip, sheet, worksheetXml) {
   const relationships = partRelationshipPath(sheet.path);
-  const linked = /<Relationship\b[^>]*\bType="[^"]*\/drawing"[^>]*\bTarget="([^"]+)"/.exec(
-    await zipText(zip, relationships)
-  )?.[1];
+  const linked = relationshipTargetByType(await zipText(zip, relationships), 'drawing');
   if (linked) {
     return {
       part: posix.normalize(posix.join(posix.dirname(sheet.path), linked)),
@@ -92,8 +91,8 @@ async function ensureWorksheetComments(zip, sheet, worksheetXml) {
   const relationships = partRelationshipPath(sheet.path);
   const rels = await zipText(zip, relationships);
   const resolve = (target) => posix.normalize(posix.join(posix.dirname(sheet.path), target));
-  let commentsPart = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(rels)?.[1];
-  let vmlPart = /<Relationship\b[^>]*\bType="[^"]*\/vmlDrawing"[^>]*\bTarget="([^"]+)"/.exec(rels)?.[1];
+  let commentsPart = relationshipTargetByType(rels, 'comments');
+  let vmlPart = relationshipTargetByType(rels, 'vmlDrawing');
   commentsPart = commentsPart ? resolve(commentsPart) : '';
   vmlPart = vmlPart ? resolve(vmlPart) : '';
   let worksheet = worksheetXml;

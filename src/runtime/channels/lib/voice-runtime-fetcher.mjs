@@ -654,10 +654,6 @@ function resolveManagedWhisperCmd(dataDir) {
 function resolveManagedWhisperModelById(dataDir, modelId = 'standard') {
   if (!existsSync(BUNDLED_MANIFEST_PATH)) return null;
   const manifest = JSON.parse(readFileSync(BUNDLED_MANIFEST_PATH, 'utf8'));
-  return resolveManagedWhisperModelForId(manifest, dataDir, modelId);
-}
-
-function resolveManagedWhisperModelForId(manifest, dataDir, modelId) {
   const entry = manifestModelEntry(manifest, modelId);
   if (!entry?.filename) return null;
   const modelDir = join(dataDir, 'voice', 'models');

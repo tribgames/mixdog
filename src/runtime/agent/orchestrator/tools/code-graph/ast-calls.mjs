@@ -58,9 +58,6 @@ function _normalizeCallTuple(raw) {
   return { name, line, col, kind: _CALL_KINDS[kind], recv, inSymbol };
 }
 
-// endCol is not transmitted and nothing renders it: a consumer that ever needs
-// one derives `col + [...name].length` (code points, the producer's unit).
-
 // null  → this file has no USABLE AST call data: either the field is
 //         absent/not an array (older binary, cache entry not hydrated from the
 //         sidecar), or at least one tuple violates the contract. Such a file

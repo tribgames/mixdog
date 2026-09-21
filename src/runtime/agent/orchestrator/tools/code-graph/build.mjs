@@ -1,7 +1,6 @@
 // Graph build orchestration: worker-thread async build (buildCodeGraphAsync),
 // synchronous _buildCodeGraph (imported by the prewarm worker), and the
-// prewarm entry points. Owns the in-flight single-flight map. Extracted
-// verbatim from code-graph.mjs.
+// prewarm entry points. Owns the in-flight single-flight map.
 //
 // SELF-REFERENTIAL DYNAMIC IMPORT: buildCodeGraphAsync spawns the prewarm
 // worker via `new URL('../code-graph-prewarm-worker.mjs', import.meta.url)`.
@@ -80,7 +79,6 @@ function _normalizedExcludedPrefixes(cwd, excludedProjectRoots) {
   ].sort();
 }
 
-// Exported for the focused pre-cap exclusion regression.
 function _scopeCodeGraphManifest(manifest, cwd, { excludedProjectRoots = [], maxFiles = CODE_GRAPH_MAX_FILES } = {}) {
   const prefixes = _normalizedExcludedPrefixes(cwd, excludedProjectRoots);
   const windows = _usesWindowsPathSemantics(cwd);
@@ -150,7 +148,6 @@ function _capabilityTokenOfSignature(signature) {
 // Validate an already-loaded disk entry before paying Worker startup. The
 // manifest process is async; its child-spawn slot is held by the caller until
 // either this returns a hit or the Worker takes over the same slot on a miss.
-// Exported for the focused deterministic cache-validation test.
 async function _validateDiskCodeGraphHit({
   graphCwd,
   diskEntry,
@@ -296,13 +293,11 @@ async function _runGraphFilesChunked(
   return [...merged.values()];
 }
 
-// Exported for the focused worker-protocol regression test.
 function _codeGraphWorkerFailure(message) {
   const error = typeof message?.error === 'string' ? message.error.trim() : '';
   return new Error(error || 'code-graph prewarm worker failed');
 }
 
-// Exported for the focused best-effort prewarm regression test.
 function _prewarmCodeGraph(cwd, build = buildCodeGraphAsync) {
   if (!cwd) return;
   // Reuse the buildCodeGraphAsync single-flight path. Fire-and-forget, and

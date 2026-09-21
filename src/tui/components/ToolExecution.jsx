@@ -96,13 +96,7 @@ export function ToolExecution({
   // the card appear already populated and simply grow taller as more results
   // land — no empty band.
   const hasVisibleProgress = doneCount > 0 || Boolean(String(rt || '').trim());
-  const pendingDisplayReady =
-    !pending ||
-    !startedAtMs ||
-    pendingDelayElapsed ||
-    pendingAgeMs >= TOOL_PENDING_SHOW_DELAY_MS ||
-    hasVisibleProgress ||
-    deferredDisplayReady;
+  const pendingDisplayReady = !pending || pendingDelayElapsed || hasVisibleProgress || deferredDisplayReady;
   // Derived blink (was two per-card setIntervals + a setTimeout): while pending,
   // the dot keeps blinking until the tool resolves. Phase comes from Date.now()
   // so the cadence is identical to the old interval without owning a timer.
@@ -129,7 +123,6 @@ export function ToolExecution({
   // The runtime-provided uiDiff is authoritative evidence of that partial
   // mutation; an empty/missing diff means the invocation failed completely.
   const partialMutation = callFailedCount > 0 && typeof uiDiff === 'string' && Boolean(uiDiff.trim());
-  const displayGroupCount = groupCount;
   const displayCategories = normalizeCountMap(categories || {});
   // In the DONE state the engine-supplied doneCategories map counts ATTEMPTS
   // (failures included) so the header total matches the 'N Ok · N Failed'
@@ -299,7 +292,7 @@ export function ToolExecution({
       errorCount,
       callErrorCount,
       exitErrorCount,
-      count: displayGroupCount,
+      count: groupCount,
       completedCount: doneCount,
       startedAt,
       completedAt,
@@ -335,12 +328,11 @@ export function ToolExecution({
     !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
   const showRawResult = expanded && (hasDisplayBody || hasRawResult) && (!isBackgroundMetadataResult || hasRawResult);
+  // Skill/agent collapsed gating lives in the shared model (detailLine).
   const detailLines = !showRawResult && collapsedDetailLine ? [collapsedDetailLine] : [];
   const isPendingPlaceholderDetail = !showRawResult && detailIsPlaceholder;
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
-  // Skill/agent collapsed gating lives in the shared model (detailLine).
-  const visibleDetailLines = detailLines;
-  const finalStatusColor = toolStatusColor({
+  const dotColor = toolStatusColor({
     pending,
     groupCount,
     callFailedCount,
@@ -348,7 +340,6 @@ export function ToolExecution({
     terminalStatus,
     partialMutation,
   });
-  const dotColor = finalStatusColor;
   // Agent surface cards use directional markers: `←` for requests going OUT
   // (spawn/send/etc.) and `→` for the response coming back IN. Background
   // task cards (shell async / explore / search / task) and every other tool
@@ -457,7 +448,7 @@ export function ToolExecution({
       </Box>
 
       <ResultBody
-        lines={visibleDetailLines}
+        lines={detailLines}
         rawText={hasDisplayBody ? displayedResultBodyText : stripLeadingStatusMarkerFromText(rawRt || '')}
         pathArg={toolArgPath}
         isShell={isShellSurface}

@@ -35,15 +35,20 @@ test('stopping a registered watchdog clears its state and abort listener', () =>
   let unlinked = 0;
   const mgr = {
     getSessionProgressSnapshot: () => null,
-    linkParentSignalToSession: () => () => { unlinked += 1; },
+    linkParentSignalToSession: () => () => {
+      unlinked += 1;
+    },
   };
   const registry = createProgressWatchdogRegistry({ mgr });
   const handle = registry.start('worker', policy);
   assert.equal(getProgressWatchdogState(mgr, 'worker').registered, true);
-  assert.match(buildAgentTaskProgressFields({
-    policy,
-    watchdogState: getProgressWatchdogState(mgr, 'worker'),
-  }).watchdog, /^armed /);
+  assert.match(
+    buildAgentTaskProgressFields({
+      policy,
+      watchdogState: getProgressWatchdogState(mgr, 'worker'),
+    }).watchdog,
+    /^armed /
+  );
   handle.stop();
   assert.equal(getProgressWatchdogState(mgr, 'worker').registered, false);
   assert.equal(unlinked, 1);

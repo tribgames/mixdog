@@ -65,6 +65,10 @@ export function createHardwareProbe({
       return Promise.resolve(value);
     }
     value = { ...value, checking: true };
+    const settle = ({ gpu, gpus, supported, error }) => {
+      value = { platform, arch, gpu, gpus, supported, checking: false, checkedAt: now(), error };
+      return value;
+    };
     pending = Promise.resolve()
       .then(queryFn)
       .then(
@@ -72,31 +76,14 @@ export function createHardwareProbe({
           const gpus = parseNvidiaGpus(output).sort(
             (a, b) => b.memoryBytes - a.memoryBytes || b.freeMemoryBytes - a.freeMemoryBytes || a.index - b.index
           );
-          value = {
-            platform,
-            arch,
+          return settle({
             gpu: gpus[0] || null,
             gpus,
             supported: gpus.length > 0,
-            checking: false,
-            checkedAt: now(),
             error: gpus.length ? null : 'No compatible NVIDIA GPU detected.',
-          };
-          return value;
+          });
         },
-        (error) => {
-          value = {
-            platform,
-            arch,
-            gpu: null,
-            gpus: [],
-            supported: false,
-            checking: false,
-            checkedAt: now(),
-            error: String(error?.message || error),
-          };
-          return value;
-        }
+        (error) => settle({ gpu: null, gpus: [], supported: false, error: String(error?.message || error) })
       )
       .finally(() => {
         pending = null;

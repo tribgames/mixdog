@@ -1,8 +1,7 @@
 /**
  * components/prompt-input/edit-helpers.mjs — pure prompt-editor helpers (no
  * React): hint styling, insert/draft-compare, pasted-text normalization, and
- * modified-Enter (kitty / modifyOtherKeys) sequence recognition. Extracted
- * verbatim from PromptInput.jsx — behavior unchanged.
+ * modified-Enter (kitty / modifyOtherKeys) sequence recognition.
  */
 import { theme } from '../../theme.mjs';
 import { replaceSelection } from '../../input-editing.mjs';

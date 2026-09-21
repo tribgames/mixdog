@@ -5,7 +5,8 @@ import { errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { localPathMentionHref, PATH_LINK_CLASS } from './markdown-plugins';
 import { isLocalMarkdownLink, projectRelativeFilePath } from './markdown-url';
-import { resolveLocalLink } from './local-link-resolver';
+import { prefetchEditorPane, scheduleEditorPanePrefetch } from './lazy-widgets';
+import { resolveLocalLink, type ResolvedLocalLink } from './local-link-resolver';
 import { localFileOpener, localLinkKind, parseLocalFileLocation } from '../shared/local-files';
 
 function childrenText(node: ReactNode): string {
@@ -41,7 +42,11 @@ export interface LocalLinkTarget {
   suffix: string;
   /** Full path for the tooltip; bare names fill it in after `revealTitle`. */
   title?: string;
+  /** Hover intent: warms the editor chunk and fills the tooltip in. */
   revealTitle?: () => void;
+  /** Press intent, for touch surfaces that never hover: start the editor
+   *  chunk now so the click itself no longer pays for it. */
+  warmEditor: () => void;
   open: () => Promise<void>;
 }
 
@@ -52,10 +57,15 @@ export interface LocalLinkTarget {
 export function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
   const openFile = useContext(MarkdownOpenFileContext);
-  const [resolved, setResolved] = useState({ key: '', title: '' });
+  const [resolved, setResolved] = useState<{ key: string; title: string; target: ResolvedLocalLink | null }>({
+    key: '',
+    title: '',
+    target: null,
+  });
   const [verifiedKey, setVerifiedKey] = useState('');
   const resolutionKey = `${projectPath}\0${target}`;
   const resolvedTitle = resolved.key === resolutionKey ? resolved.title : '';
+  const resolvedTarget = resolved.key === resolutionKey ? resolved.target : null;
   const local = isLocalMarkdownLink(target);
   const location = parseLocalFileLocation(target);
   const kind = localLinkKind(location.path);
@@ -85,13 +95,17 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
     if (!statProjectFile) return;
     let active = true;
     resolveLocalLink(projectPath, location.path)
-      .then(async ({ project, path, accessToken, directory }) => {
+      .then(async (match) => {
         if (!active) return;
         // External folders were already statted by resolveLocalPaths and
         // open in the file manager, without an editor access token.
-        if (!directory) await statProjectFile(project, path, accessToken);
+        if (!match.directory) await statProjectFile(match.project, match.path, match.accessToken);
         if (!active) return;
-        setResolved({ key: resolutionKey, title: displayPath(project, path, suffix) });
+        setResolved({
+          key: resolutionKey,
+          title: displayPath(match.project, match.path, suffix),
+          target: match,
+        });
         setVerifiedKey(resolutionKey);
       })
       // Missing, ambiguous, inaccessible or unverified mentions remain text.
@@ -101,11 +115,27 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
     };
   }, [verify, local, projectPath, location.path, resolutionKey, suffix]);
 
-  const resolveTarget = () => resolveLocalLink(projectPath, location.path);
+  // The first paint (verified mentions) and hover both resolve this exact
+  // link already. Reusing that result keeps the click from paying a second
+  // round trip to the file service — for a bare name that trip is a whole
+  // project-index search — before anything can start opening.
+  const resolveTarget = async (): Promise<ResolvedLocalLink> => {
+    if (resolvedTarget) return resolvedTarget;
+    const match = await resolveLocalLink(projectPath, location.path);
+    setResolved({ key: resolutionKey, title: displayPath(match.project, match.path, suffix), target: match });
+    return match;
+  };
+  // Chat links deserve the file tree's treatment: start Monaco's chunk on the
+  // open intent, rather than paying its whole fetch + evaluate after the
+  // click, behind the path resolution.
+  const editorTarget = local && kind === 'file' && localFileOpener(location.path) === 'editor';
+  const warmEditor = () => {
+    if (editorTarget) void prefetchEditorPane().catch(() => {});
+  };
   const open = async () => {
+    warmEditor();
     try {
       const { project, path: file, accessToken, directory } = await resolveTarget();
-      setResolved({ key: resolutionKey, title: displayPath(project, file, suffix) });
       // A text file with an extension opens in the editor directly. Documents,
       // folders and extension-less names go through main, which launches the
       // OS app or file manager and hands text files back as 'editor'.
@@ -126,16 +156,17 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
       showDesktopToast(t('Unable to open file: {{error}}', { error: errorMessageText(error) }), 'error');
     }
   };
-  // Resolve cross-Project paths on hover too; cache only for this exact
-  // conversation cwd and link, never a preceding Project or target.
-  const revealTitle =
-    local && !resolvedTitle
-      ? () => {
-          resolveTarget()
-            .then(({ project, path }) => setResolved({ key: resolutionKey, title: displayPath(project, path, suffix) }))
-            .catch(() => {});
-        }
-      : undefined;
+  // Hover is the earliest reliable open intent on a pointer surface: warm the
+  // editor chunk there, and resolve cross-Project paths too. The resolution is
+  // cached only for this exact conversation cwd and link, never a preceding
+  // Project or target.
+  const revealTitle = local
+    ? () => {
+        if (editorTarget) scheduleEditorPanePrefetch();
+        if (resolvedTitle) return;
+        resolveTarget().catch(() => {});
+      }
+    : undefined;
   return {
     local,
     verified: verifiedKey === resolutionKey,
@@ -145,6 +176,7 @@ export function useLocalLinkTarget(target: string, verify = false): LocalLinkTar
     suffix,
     title,
     revealTitle,
+    warmEditor,
     open,
   };
 }
@@ -172,7 +204,10 @@ export function LocalPathMention({ path, line, children }: { path: string; line?
       className="tool-path-link"
       title={link.title}
       onMouseEnter={link.revealTitle}
-      onPointerDown={(event) => event.stopPropagation()}
+      onPointerDown={(event) => {
+        event.stopPropagation();
+        link.warmEditor();
+      }}
       onClick={(event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -255,6 +290,7 @@ export function MarkdownLink({
       className={linkClass}
       title={local ? title || link.title : title}
       onMouseEnter={link.revealTitle}
+      onPointerDown={local ? link.warmEditor : undefined}
       onAuxClick={local ? (event) => event.preventDefault() : undefined}
       onClick={(event) => {
         if (local) {

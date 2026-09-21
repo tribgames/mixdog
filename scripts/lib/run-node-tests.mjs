@@ -10,14 +10,18 @@ const SUMMARY_REPORTER = new URL('./test-summary-reporter.mjs', import.meta.url)
 export async function runNodeTests(nodeArgs, fileArgs) {
   const logPath = join(await mkdtemp(join(tmpdir(), 'mixdog-test-output-')), 'full.log');
   console.error(`Full test log: ${logPath}`);
-  const child = spawn(process.execPath, [
-    ...nodeArgs,
-    `--test-reporter=${SUMMARY_REPORTER}`,
-    '--test-reporter-destination=stdout',
-    '--test-reporter=spec',
-    `--test-reporter-destination=${logPath}`,
-    ...fileArgs,
-  ], { stdio: 'inherit' });
+  const child = spawn(
+    process.execPath,
+    [
+      ...nodeArgs,
+      `--test-reporter=${SUMMARY_REPORTER}`,
+      '--test-reporter-destination=stdout',
+      '--test-reporter=spec',
+      `--test-reporter-destination=${logPath}`,
+      ...fileArgs,
+    ],
+    { stdio: 'inherit' }
+  );
   child.on('error', (error) => {
     console.error(error);
     process.exitCode = 1;

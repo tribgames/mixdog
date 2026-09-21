@@ -1,5 +1,5 @@
 import { monaco } from './monaco-setup';
-import { codeGraphSymbolKindValue, type EditorGraphLocation } from './editor-code-graph';
+import type { EditorGraphLocation } from './editor-code-graph';
 
 interface EditorPathContext {
   projectPath: string;
@@ -30,10 +30,6 @@ export function graphLocationRange(location: EditorGraphLocation, wordLength: nu
     Math.max(1, location.endLine),
     location.endLine === location.line ? column + Math.max(1, wordLength) : 1
   );
-}
-
-export function symbolKind(kind: string): import('monaco-editor').languages.SymbolKind {
-  return codeGraphSymbolKindValue(kind) as import('monaco-editor').languages.SymbolKind;
 }
 
 export function lspSymbolKind(value: unknown): import('monaco-editor').languages.SymbolKind {

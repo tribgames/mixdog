@@ -41,9 +41,8 @@ function pptxSlideBackgroundColor(slide) {
 }
 
 function pptxExpectedSlideRole(slide, slides, deck, plansBySlide) {
-  const plannedRole = String(
-    plansBySlide.get(Number(slide.index))?.slideRole || plansBySlide.get(Number(slide.index))?.kind || ''
-  ).toLowerCase();
+  const plan = plansBySlide.get(Number(slide.index));
+  const plannedRole = String(plan?.slideRole || plan?.kind || '').toLowerCase();
   if (['cover', 'content', 'section', 'closing'].includes(plannedRole)) return plannedRole;
   if (slide.index === 1) return 'cover';
   if (deck.sectionSlides.includes(slide.index)) return 'section';

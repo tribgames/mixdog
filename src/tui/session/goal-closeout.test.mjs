@@ -15,7 +15,7 @@ function fixture(t, { busy = true, status = 'active', remote = false } = {}) {
     timeLimitMs: 60_000,
     timeUsedMs: 50_000,
     remainingMs: 10_000,
-    tasks: [{ id: 'task_1', text: 'Verify the result', status: 'completed', kind: 'verification' }],
+    tasks: [{ id: 'task_1', text: 'Verify the result', status: 'completed' }],
   };
   const state = {
     busy,

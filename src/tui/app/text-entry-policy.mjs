@@ -7,9 +7,7 @@
 // hint told the user to submit an empty value and nothing happened. The kinds
 // that accept a blank submit live here so the panel (submit gate) and the view
 // (prop) can never drift apart.
-const CLEAR_BY_EMPTY_TEXT_ENTRY_KINDS = Object.freeze(['system-shell', 'autoclear-provider', 'profile-title']);
-
-const CLEAR_BY_EMPTY_KIND_SET = new Set(CLEAR_BY_EMPTY_TEXT_ENTRY_KINDS);
+const CLEAR_BY_EMPTY_KIND_SET = new Set(['system-shell', 'autoclear-provider', 'profile-title']);
 
 export function textEntryClearsByEmpty(kind) {
   return CLEAR_BY_EMPTY_KIND_SET.has(String(kind || ''));

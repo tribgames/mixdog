@@ -271,13 +271,15 @@ export function createSnapshotDeltaEncoder(options: SnapshotDeltaEncoderOptions 
         for (const key of Object.keys(previousFields)) {
           if (!Object.hasOwn(nextFields, key)) removed.push(key);
         }
-        if (Object.keys(changed).length > 0 || removed.length > 0) carriesNews = true;
+        const changedCount = Object.keys(changed).length;
+        const stateChanged = changedCount > 0 || removed.length > 0;
+        if (stateChanged) carriesNews = true;
         if (!compact) {
           wire.__statePatch = { base, revision, changed, removed };
-        } else if (Object.keys(changed).length > 0 || removed.length > 0) {
+        } else if (stateChanged) {
           // Ordering rides the items patch, so this carries payload only —
           // and an unchanged state block leaves the frame entirely.
-          if (Object.keys(changed).length > 0) wire.sc = changed;
+          if (changedCount > 0) wire.sc = changed;
           if (removed.length > 0) wire.sd = removed;
         }
 
@@ -415,21 +417,18 @@ export function createSnapshotDeltaDecoder(): SnapshotDeltaDecoder {
   let revision: number | null = null;
   // Compact frames carry the tail epoch only when it rolls over.
   let retainedEpoch: number | null = null;
+  const reset = (): void => {
+    items = [];
+    streamingTail = null;
+    stateFields = {};
+    revision = null;
+    retainedEpoch = null;
+  };
   return {
-    reset(): void {
-      items = [];
-      streamingTail = null;
-      stateFields = {};
-      revision = null;
-      retainedEpoch = null;
-    },
+    reset,
     decode(wire: unknown): SnapshotDeltaDecodeResult {
       if (!wire || typeof wire !== 'object') {
-        items = [];
-        streamingTail = null;
-        stateFields = {};
-        revision = null;
-        retainedEpoch = null;
+        reset();
         return { ok: true, snapshot: wire };
       }
       const raw = wire as Record<string, unknown>;

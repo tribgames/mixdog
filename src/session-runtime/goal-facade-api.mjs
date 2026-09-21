@@ -1,6 +1,19 @@
 import { markPendingGoalReminder } from './goal-reminder.mjs';
 
 export function createGoalFacadeApi({ agentStatusState, createCurrentSession, getSession, getSessionId, goalRuntime }) {
+  const markGoalReminder = (reason = '') => {
+    try {
+      const pending = markPendingGoalReminder(getSession(), reason);
+      // Compaction, an objective change, or a paused-state notice all mean the
+      // delivered continuation rules are gone or no longer frame the work, so
+      // the next continuation carries them in full again.
+      const sessionId = getSessionId();
+      if (sessionId) goalRuntime.resetContinuationRules(sessionId);
+      return pending;
+    } catch {
+      return null;
+    }
+  };
   return {
     goalStatus() {
       const sessionId = getSessionId();
@@ -14,20 +27,10 @@ export function createGoalFacadeApi({ agentStatusState, createCurrentSession, ge
       }
       if (!sessionId) throw new Error('goal: session could not be created');
       const result = await goalRuntime.control(sessionId, args);
-      if (result?.action === 'edit') {
-        try {
-          markPendingGoalReminder(getSession(), 'objective-updated');
-        } catch {}
-      }
+      if (result?.action === 'edit') markGoalReminder('objective-updated');
       return result;
     },
-    markGoalReminder(reason = '') {
-      try {
-        return markPendingGoalReminder(getSession(), reason);
-      } catch {
-        return null;
-      }
-    },
+    markGoalReminder,
     goalContinuation() {
       const sessionId = getSessionId();
       if (!sessionId) return { run: false, reason: 'missing-session', goal: null };

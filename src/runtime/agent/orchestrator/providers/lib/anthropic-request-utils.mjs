@@ -146,6 +146,9 @@ function splitErrorToolResultContent(content) {
   };
 }
 
+// Native tool_search providers whose stored references this lowering replays.
+const ANTHROPIC_NATIVE_PROVIDERS = new Set(['anthropic', 'anthropic-oauth']);
+
 export function toAnthropicMessages(messages, availableTools) {
   const availableNames = anthropicToolNameSet(availableTools);
   const result = [];
@@ -190,9 +193,8 @@ export function toAnthropicMessages(messages, availableTools) {
       const last = result[result.length - 1];
       const native = m.nativeToolSearch;
       const nativeProvider = String(native?.provider || '').toLowerCase();
-      const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
       const references =
-        (!nativeProvider || anthropicNative.has(nativeProvider)) && Array.isArray(native?.toolReferences)
+        (!nativeProvider || ANTHROPIC_NATIVE_PROVIDERS.has(nativeProvider)) && Array.isArray(native?.toolReferences)
           ? native.toolReferences.map((name) => String(name || '').trim()).filter(Boolean)
           : [];
       // Keep only references this request can actually back with a
@@ -441,7 +443,6 @@ export function deferredAnthropicTools(activeTools, messages, opts, provider) {
   if (opts?.session?.deferredNativeTools !== true) return [];
   if (!Array.isArray(activeTools) || activeTools.length === 0) return [];
   const active = new Set(activeTools.map((tool) => String(tool?.name || '').trim()).filter(Boolean));
-  const anthropicNative = new Set(['anthropic', 'anthropic-oauth']);
   const discovered = new Set(
     Array.isArray(opts?.session?.deferredDiscoveredTools)
       ? opts.session.deferredDiscoveredTools.map((name) => String(name || '').trim()).filter(Boolean)
@@ -450,7 +451,12 @@ export function deferredAnthropicTools(activeTools, messages, opts, provider) {
   for (const message of Array.isArray(messages) ? messages : []) {
     const native = message?.nativeToolSearch;
     const source = String(native?.provider || '').toLowerCase();
-    if (source && source !== provider && !(anthropicNative.has(source) && anthropicNative.has(provider))) continue;
+    if (
+      source &&
+      source !== provider &&
+      !(ANTHROPIC_NATIVE_PROVIDERS.has(source) && ANTHROPIC_NATIVE_PROVIDERS.has(provider))
+    )
+      continue;
     for (const name of Array.isArray(native?.toolReferences) ? native.toolReferences : []) {
       const key = String(name || '').trim();
       if (key) discovered.add(key);

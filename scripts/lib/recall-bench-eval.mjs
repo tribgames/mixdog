@@ -184,12 +184,12 @@ export function scoreWithinPeriod(items, temporal, toleranceMs = 60_000) {
   const endMs = Number(temporal?.endMs);
   const hasStart = Number.isFinite(startMs);
   const hasEnd = Number.isFinite(endMs);
-  const offenders = items.filter(
+  const timestamped = items.filter((item) => item.timestampMs !== null);
+  const offenders = timestamped.filter(
     (item) =>
-      item.timestampMs !== null &&
-      ((hasStart && item.timestampMs < startMs - toleranceMs) || (hasEnd && item.timestampMs > endMs + toleranceMs))
+      (hasStart && item.timestampMs < startMs - toleranceMs) || (hasEnd && item.timestampMs > endMs + toleranceMs)
   );
-  return { checked: items.filter((item) => item.timestampMs !== null).length, offenders, ok: offenders.length === 0 };
+  return { checked: timestamped.length, offenders, ok: offenders.length === 0 };
 }
 
 export function evaluateCase(kase, outcome, quality, recency, allContain, withinPeriod, pageOrder) {

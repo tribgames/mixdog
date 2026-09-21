@@ -78,7 +78,7 @@ export function populatedCellPagination({ options, page, selectedSheets, sheets,
   const offset = Math.max(0, Number(options.offset) || 0);
   const returned = page?.records.length || 0;
   const total = page?.total || 0;
-  const nextOffset = page && offset + returned < total ? offset + returned : null;
+  const nextOffset = page ? nextPageOffset(offset, returned, total) : null;
   const rangeSuffix = options.range ? `!${options.range}` : '';
   const pagination = {
     unit: 'populated-cell',

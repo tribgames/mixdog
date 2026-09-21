@@ -24,7 +24,6 @@ const taskFields = {
     description:
       'completed only when fully done; dropped only after user scope change; awaiting_approval for user-dependent work.',
   },
-  kind: { type: 'string', enum: ['work', 'verification'] },
 };
 
 export const GOAL_TOOL_DEFS = Object.freeze([
@@ -32,8 +31,8 @@ export const GOAL_TOOL_DEFS = Object.freeze([
     name: 'goal',
     title: 'Goal',
     description: [
-      'Durable tasks with an idle reminder for unfinished work. Create for explicit user or system/developer Goal requests, or user delegation or approval of sustained work with a time budget, including approval of an assistant-proposed scope and budget. Ordinary tasks, complexity, planning, time estimates, or deadline mentions alone do not qualify.',
-      'Obtain required mutation approval, then load the goal-management skill and create or update the existing Goal before starting the approved work. For an approved additional round of unfinished work, resume with its remaining time budget and task changes together. An unaccepted assistant proposal is not approval. The skill owns lifecycle and completion policy. Mutations require the latest revision; reconcile stale conflicts rather than blindly replaying.',
+      'Durable tasks with an idle reminder for unfinished work. Create for an explicit Goal request, or approved work spanning several rounds or turns: staged refactors and migrations, repeated improvement passes, open-ended objectives that must be finished, with or without a time budget. Single-turn tasks, planning or estimates alone, and unaccepted proposals do not qualify.',
+      'Obtain required approval, load the goal-management skill for lifecycle and completion policy, then create or reconcile the Goal before starting approved work. Mutations need the latest revision.',
     ].join(' '),
     annotations: {
       title: 'Goal',
@@ -50,7 +49,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           type: 'string',
           enum: ['status', 'create', 'pause', 'resume', 'set_tasks', 'update_tasks', 'complete', 'block', 'abandon'],
           description:
-            'status reads; create starts approved work after any previous Goal is complete or stopped; pause waits for user; resume continues unfinished work with optional approved time and task changes; set_tasks replaces; update_tasks patches/adds; complete/block finish; abandon retires superseded work.',
+            'create starts approved work once any previous Goal has ended; resume continues unfinished work with optional time and task changes; set_tasks replaces, update_tasks patches/adds; pause waits for a user answer; abandon retires superseded work.',
         },
         objective: { type: 'string', description: 'create: requested outcome.' },
         time_limit_minutes: {
@@ -58,13 +57,13 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           minimum: 1,
           maximum: MAX_GOAL_TIME_LIMIT_MS / 60_000,
           description:
-            'create: approved total budget. resume: approved remaining budget from now, retaining time already used; e.g. another 5-hour round sets 300. Omit to preserve an existing budget, or when none was agreed for creation.',
+            'create: approved total budget, omitted when none was agreed. resume: approved remaining budget from now, keeping time already used; another 5-hour round sets 300. Omit to preserve the current budget.',
         },
         time_mode: {
           type: 'string',
           enum: ['max', 'duration'],
           description:
-            'create/resume: max permits verified early completion; duration commits the full period only when explicitly requested. Omitted: create defaults to max, resume preserves the existing mode. Change a mode only with user approval.',
+            'max permits verified early completion; duration commits the full period, only on explicit request. Omitted: create defaults to max, resume keeps the current mode. Change a mode only with user approval.',
         },
         tasks: {
           type: 'array',
@@ -73,7 +72,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           items: {
             type: 'object',
             properties: taskFields,
-            required: ['text', 'status', 'kind'],
+            required: ['text', 'status'],
             additionalProperties: false,
           },
           description: `create/set_tasks: full list; update_tasks/resume: new tasks, no ids. Max ${MAX_GOAL_TASKS} total, including completed/dropped.`,
@@ -95,7 +94,7 @@ export const GOAL_TOOL_DEFS = Object.freeze([
           minLength: 1,
           maxLength: 1_000,
           description:
-            'pause: required user answer. block: stable description of the same external impasse, reported once per turn; runtime stops after 3 consecutive turns.',
+            'pause: the required user answer. block: stable description of the same external impasse, reported once per turn; the runtime stops after 3.',
         },
       },
       required: ['action'],

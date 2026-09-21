@@ -8,8 +8,7 @@
 import type { SessionSnapshot } from '../shared/contract';
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';
 import { createTranscriptIdentityReconciler } from './transcript-identity';
-import { reconcileTurnFailures } from './renderer-logic.mjs';
-import type { TurnFailureModel } from './renderer-logic.mjs';
+import { reconcileTurnFailures, type TurnFailureModel } from './renderer-logic.mjs';
 
 const DECORATED_SCOPE_LIMIT = 12;
 

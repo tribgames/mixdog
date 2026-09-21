@@ -49,7 +49,16 @@ test('a resubmission that does not repeat the prompt never rewinds', () => {
 
 test('a prompt carrying media is not rewound by a text-only resubmission', () => {
   const session = {
-    messages: [system, { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', data: 'AAAA' }] }],
+    messages: [
+      system,
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'look' },
+          { type: 'image', data: 'AAAA' },
+        ],
+      },
+    ],
   };
   assert.equal(rewindUnansweredPrompt(session, 'look'), false);
   assert.equal(session.messages.length, 2);

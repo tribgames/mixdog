@@ -23,6 +23,12 @@ void app
     database.close();
     const partition = session.fromPartition('cookie-metadata-diagnosis');
     const failures: unknown[] = [];
+    const sameSiteLabel = (code: unknown) => {
+      if (code === 0) return 'none';
+      if (code === 1) return 'lax';
+      if (code === 2) return 'strict';
+      return '';
+    };
     const cookies = rows.map((row) => ({
       domain: row.host_key,
       name: row.name,
@@ -32,7 +38,7 @@ void app
       httpOnly: row.is_httponly === 1,
       session: row.has_expires === 0 || row.is_persistent === 0,
       expires: Math.floor(Number(row.expires_utc) / 1_000_000) - 11_644_473_600,
-      sameSite: row.samesite === 0 ? 'none' : row.samesite === 1 ? 'lax' : row.samesite === 2 ? 'strict' : '',
+      sameSite: sameSiteLabel(row.samesite),
     }));
     try {
       await importBrowserCookies(

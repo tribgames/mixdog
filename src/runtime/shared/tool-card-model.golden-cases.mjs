@@ -11,9 +11,17 @@ export const GIT_GOLDEN_CASES = [
   { result: '## main\n M a.txt\n', summary: '## main', status: 'completed' },
   { result: '', summary: '(No Output)', status: 'completed' },
   { result: '## git add a.txt\n\n## git status\n## main\nA  a.txt\n', summary: '## main', status: 'completed' },
-  { result: 'diff --git a/a.txt b/a.txt\n... [4 more lines omitted; raise output_limit or narrow the command]', summary: 'diff --git a/a.txt b/a.txt', status: 'completed' },
+  {
+    result: 'diff --git a/a.txt b/a.txt\n... [4 more lines omitted; raise output_limit or narrow the command]',
+    summary: 'diff --git a/a.txt b/a.txt',
+    status: 'completed',
+  },
   { result: 'exit 128\nfatal: missing ref\n', summary: 'Exit 128', status: 'failed' },
-  { result: '## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing', summary: 'Exit 128', status: 'failed' },
+  {
+    result: '## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing',
+    summary: 'Exit 128',
+    status: 'failed',
+  },
   { result: '{"ok":true,"clean":true}', summary: 'Ok', status: 'completed' },
 ];
 

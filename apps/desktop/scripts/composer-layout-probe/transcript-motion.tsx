@@ -1,4 +1,3 @@
-import React from 'react';
 import { flushSync } from 'react-dom';
 import type { Root } from 'react-dom/client';
 import { PaneConversation } from '../../src/renderer/app-snapshot-views';
@@ -368,7 +367,12 @@ export async function runTranscriptMotionProbe(root: Root) {
 
     reviewActive = false;
     const streaming = history('motion-completion', true);
-    const answer = { id: 'live-answer', kind: 'assistant', text: '**Already rendered answer** with unchanged text.', streaming: true };
+    const answer = {
+      id: 'live-answer',
+      kind: 'assistant',
+      text: '**Already rendered answer** with unchanged text.',
+      streaming: true,
+    };
     await parseStreamingMarkdownAst(answer.text);
     streaming.items = [...(streaming.items ?? []), { id: 'live-prompt', kind: 'user', text: 'Continue.' }];
     streaming.busy = true;
@@ -421,8 +425,12 @@ export async function runTranscriptMotionProbe(root: Root) {
     finalReviewFrames.push(...(await samples(3)));
     pendingReviews.shift()!({
       value: {
-        authoritative: true, checkpointId: scope, snapshotKind: 'worktree',
-        files: [{ path: 'demo.txt', status: 'M', additions: 1, deletions: 1 }], patch, agents: [],
+        authoritative: true,
+        checkpointId: scope,
+        snapshotKind: 'worktree',
+        files: [{ path: 'demo.txt', status: 'M', additions: 1, deletions: 1 }],
+        patch,
+        agents: [],
       },
     });
     finalReviewFrames.push(...(await samples(12)));
@@ -439,7 +447,10 @@ export async function runTranscriptMotionProbe(root: Root) {
       ...(media.items ?? []),
       { id: 'media-prompt', kind: 'user', text: 'Create media.' },
       {
-        id: 'media-image', kind: 'tool', name: 'media', args: { action: 'generate', kind: 'image' },
+        id: 'media-image',
+        kind: 'tool',
+        name: 'media',
+        args: { action: 'generate', kind: 'image' },
         result: { ok: true, status: 'done', kind: 'image', assetId: 'image-preview' },
       },
       { id: 'media-done', kind: 'turndone', status: 'complete' },

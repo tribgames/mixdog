@@ -89,7 +89,7 @@ export function setStatsDataCache(api: SurfaceApi, value: Record<string, unknown
   const cache = statsCache(api);
   cache.data = value;
   cache.acceptedRevision = cache.revision;
-  cache.listeners.forEach((listener) => listener());
+  for (const listener of cache.listeners) listener();
 }
 
 export function hasStatsDataCache(api: SurfaceApi): boolean {

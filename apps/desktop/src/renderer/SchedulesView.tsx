@@ -2,6 +2,7 @@ import { AlarmClock, ChevronRight, Plus, Search, X } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 
 import type { DesktopApi, DesktopCapability, DesktopModelOption, DesktopProjectSummary } from '../shared/contract';
+import type { RecordValue } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
 import { InitialSurface } from './InitialSurface';
@@ -27,7 +28,6 @@ import { useSidebarReferences, type SidebarReferenceKey } from './sidebar-refere
 import { usePersistedListOrder } from './use-persisted-list-order';
 import { CompactSwitch } from './settings/capability-controls';
 
-type RecordValue = Record<string, unknown>;
 type SchedulesApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels' | 'listProjects'>>;
 
 type FrequencyKind = 'hourly' | 'daily' | 'weekdays' | 'weekly' | 'once';

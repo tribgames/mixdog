@@ -28,6 +28,14 @@ function pathKey(value) {
   return process.platform === 'win32' ? text.toLowerCase() : text;
 }
 
+/** Non-empty entries of a NUL-separated git output list. */
+function splitNulList(text) {
+  return String(text ?? '')
+    .split('\0')
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 function commandError(args, stderr, code) {
   const error = new Error(`git ${args.join(' ')} failed (${code}): ${clean(stderr) || 'no diagnostic'}`);
   error.code = code;
@@ -227,12 +235,7 @@ async function refreshSourceTracked(state, { force = false } = {}) {
     allowFailure: true,
   });
   if (result.code !== 0) return;
-  state.sourceTracked = new Set(
-    result.stdout
-      .split('\0')
-      .map((value) => pathKey(value))
-      .filter(Boolean)
-  );
+  state.sourceTracked = new Set(splitNulList(result.stdout).map(pathKey));
   state.sourceIndexIdentity = identity;
 }
 
@@ -304,14 +307,8 @@ async function changedWorktreePaths(state) {
       cwd: state.root,
     }),
   ]);
-  const trackedPaths = tracked.stdout
-    .split('\0')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  const untrackedPaths = untracked.stdout
-    .split('\0')
-    .map((value) => value.trim())
-    .filter(Boolean);
+  const trackedPaths = splitNulList(tracked.stdout);
+  const untrackedPaths = splitNulList(untracked.stdout);
   const sourceTrackedPaths = trackedPaths.filter((value) => state.sourceTracked.has(pathKey(value)));
   const shadowTrackedKeys = new Set(trackedPaths.map((value) => pathKey(value)));
   const changedUntracked = [
@@ -442,14 +439,14 @@ async function materializeToolBaselines(snapshot) {
       cwd: state.root,
     }
   );
-  const present = new Set(listed.stdout.split('\0').map(pathKey));
+  const present = new Set(splitNulList(listed.stdout).map(pathKey));
   const ignoredResult = await runGit(['check-ignore', '--no-index', '-z', '--stdin'], {
     cwd: state.root,
     input: `${paths.join('\0')}\0`,
     allowFailure: true,
   });
   if (ignoredResult.code > 1) throw commandError(['check-ignore'], ignoredResult.stderr, ignoredResult.code);
-  const ignored = new Set(ignoredResult.stdout.split('\0').map(pathKey));
+  const ignored = new Set(splitNulList(ignoredResult.stdout).map(pathKey));
   const missing = pending
     .filter(
       ([path, content]) =>

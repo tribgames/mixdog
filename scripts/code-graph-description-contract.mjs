@@ -20,8 +20,7 @@ const includesTerm = (text, term) => {
 const includesAll = (text, terms) => terms.every((term) => includesTerm(text, term));
 const hasPositiveClause = (text, terms) =>
   clauses(text).some((clause) => !NEGATION.test(clause) && includesAll(clause, terms));
-const hasModeClause = (text, label, modes, target = null) =>
-  hasPositiveClause(text, [label, ...modes, ...(target ? [target] : [])]);
+const hasModeClause = (text, label, modes) => hasPositiveClause(text, [label, ...modes]);
 const hasContradictoryTargetAssignment = (text) =>
   hasPositiveClause(text, [...FILE_MODES, 'symbols[]']) || hasPositiveClause(text, [...SYMBOL_MODES, 'files[]']);
 const removeIdentifier = (text, identifier) =>

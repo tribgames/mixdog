@@ -281,25 +281,49 @@ function AgentActivityTree({
     const node = rows[index];
     if (!node) return;
     event.preventDefault();
-    if (event.key === 'ArrowDown') return focusRow(index + 1);
-    if (event.key === 'ArrowUp') return focusRow(index - 1);
-    if (event.key === 'Home') return focusRow(0);
-    if (event.key === 'End') return focusRow(rows.length - 1);
+    if (event.key === 'ArrowDown') {
+      focusRow(index + 1);
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      focusRow(index - 1);
+      return;
+    }
+    if (event.key === 'Home') {
+      focusRow(0);
+      return;
+    }
+    if (event.key === 'End') {
+      focusRow(rows.length - 1);
+      return;
+    }
     const hasChildren = node.children.length > 0;
     if (event.key === 'ArrowRight') {
       // The root row of a folded group opens the group itself: that fold is
       // the only thing hiding its subtree.
-      if (!groupExpanded && node.sessionId === group.ownerId) return onExpandGroup?.();
-      if (!hasChildren) return undefined;
-      if (!rowExpanded(node)) return setRowCollapsed(node.sessionId, false);
+      if (!groupExpanded && node.sessionId === group.ownerId) {
+        onExpandGroup?.();
+        return;
+      }
+      if (!hasChildren) return;
+      if (!rowExpanded(node)) {
+        setRowCollapsed(node.sessionId, false);
+        return;
+      }
       // Expanded: its first child is the next row in depth-first order.
-      return focusRow(index + 1);
+      focusRow(index + 1);
+      return;
     }
-    if (hasChildren && rowExpanded(node)) return setRowCollapsed(node.sessionId, true);
+    if (hasChildren && rowExpanded(node)) {
+      setRowCollapsed(node.sessionId, true);
+      return;
+    }
     const parentIndex = rows.findIndex((row) => row.sessionId === node.parentSessionId);
-    if (parentIndex >= 0) return focusRow(parentIndex);
-    if (groupExpanded) return onCollapseGroup?.();
-    return undefined;
+    if (parentIndex >= 0) {
+      focusRow(parentIndex);
+      return;
+    }
+    if (groupExpanded) onCollapseGroup?.();
   };
   return (
     <div ref={treeRef} className="schedules-list" role="tree" aria-label={label} onKeyDown={onKeyDown}>

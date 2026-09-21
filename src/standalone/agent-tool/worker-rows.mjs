@@ -27,13 +27,6 @@ export function isTerminalWorkerStatus(status) {
   );
 }
 
-/** Finished / gone. Idle is living and must stay in the process-global pool. */
-export function isDeadWorkerStatus(status) {
-  return /^(closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$/i.test(
-    clean(status)
-  );
-}
-
 export function recoverTagTombstoneOwner(row, sessions) {
   if (clean(row.parentSessionId || row.ownerSessionId)) return row;
   const pid = positiveInt(row.clientHostPid);

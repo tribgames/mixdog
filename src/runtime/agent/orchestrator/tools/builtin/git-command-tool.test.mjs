@@ -5,7 +5,8 @@ import { createDiffSnapshot } from './git-partial-stage.mjs';
 
 const plan = { operation: 'diff', cwd: process.cwd(), args: [], globalArgs: [] };
 const result = (stdout, stderr = '', exitCode = 0) => ({ stdout, stderr, exitCode });
-const patch = 'diff --git a/a.txt b/a.txt\nindex 123..456 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-old\n+new\n context\n-before\n+after\n';
+const patch =
+  'diff --git a/a.txt b/a.txt\nindex 123..456 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n-old\n+new\n context\n-before\n+after\n';
 
 test('git single output preserves whitespace, JSON-looking blobs and stderr', () => {
   const { commandResult } = _gitCommandInternals;
@@ -19,32 +20,50 @@ test('git single output preserves whitespace, JSON-looking blobs and stderr', ()
 
 test('git line caps include blank lines, retain headers, and count all omissions', () => {
   const { commandResult } = _gitCommandInternals;
-  assert.equal(commandResult(plan, result('a\n\nb\nc\n'), 2).text,
-    'a\n\n... [2 more lines omitted; raise output_limit or narrow the command]');
-  assert.equal(commandResult(plan, result(patch), 4).text,
-    `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]`);
+  assert.equal(
+    commandResult(plan, result('a\n\nb\nc\n'), 2).text,
+    'a\n\n... [2 more lines omitted; raise output_limit or narrow the command]'
+  );
+  assert.equal(
+    commandResult(plan, result(patch), 4).text,
+    `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]`
+  );
   assert.equal(commandResult(plan, result('a\nb\n'), 2).text, 'a\nb\n');
 });
 
 test('stage discovery lists every change independently of the body cap and retains raw body', () => {
-  const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw: patch.trimEnd() });
+  const snapshot = createDiffSnapshot({
+    repo: process.cwd(),
+    scope: process.cwd(),
+    plan,
+    argv: ['diff'],
+    raw: patch.trimEnd(),
+  });
   assert.equal(snapshot.changes.length, 2);
   const text = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 50).text;
-  const manifest = `diff_id: ${snapshot.diffId}\nfile: "a.txt"\n${snapshot.changes.map((change) =>
-    `change:${change.id} @@ -${change.old_start},1 +${change.new_start},1 @@`).join('\n')}`;
+  const manifest = `diff_id: ${snapshot.diffId}\nfile: "a.txt"\n${snapshot.changes
+    .map((change) => `change:${change.id} @@ -${change.old_start},1 +${change.new_start},1 @@`)
+    .join('\n')}`;
   assert.equal(text, `${patch}${manifest}`);
   const capped = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 4).text;
-  assert.equal(capped, `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]\n${manifest}`);
+  assert.equal(
+    capped,
+    `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]\n${manifest}`
+  );
 });
 
 test('a one-line body cap still lists edit groups, whole files and new files exactly once', () => {
-  const raw = `${patch}diff --git a/mode.txt b/mode.txt\nold mode 100644\nnew mode 100755\n`
-    + 'diff --git a/new file.txt b/new file.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new file.txt\t\n@@ -0,0 +1 @@\n+new\n';
+  const raw =
+    `${patch}diff --git a/mode.txt b/mode.txt\nold mode 100644\nnew mode 100755\n` +
+    'diff --git a/new file.txt b/new file.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new file.txt\t\n@@ -0,0 +1 @@\n+new\n';
   const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw });
   assert.equal(snapshot.changes.length, 4);
   const text = _gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 1).text;
   const ids = [...text.matchAll(/^change:(chg_[0-9a-f]{16}) /gm)].map((match) => match[1]);
-  assert.deepEqual(ids, snapshot.changes.map(({ id }) => id));
+  assert.deepEqual(
+    ids,
+    snapshot.changes.map(({ id }) => id)
+  );
   assert.match(text, /file: "mode.txt"\nchange:\S+ file/);
   assert.match(text, /file: "new file.txt"\nchange:\S+ new_file/);
   assert.doesNotMatch(text, /changes omitted/);
@@ -58,9 +77,16 @@ test('a diff with no selectable changes has no staging metadata', () => {
 
 test('grouped manifests preserve every ID, path and location including escaped filenames', () => {
   const paths = ['한글 file.txt', 'quote"file.txt', 'line\nbreak.txt', 'back\\slash.txt'];
-  const changes = paths.flatMap((path, file) => Array.from({ length: 5 }, (_, i) => ({
-    path, id: `chg_${file}_${i}`, old_start: i + 1, new_start: i + 2, deletions: i, additions: i + 1,
-  })));
+  const changes = paths.flatMap((path, file) =>
+    Array.from({ length: 5 }, (_, i) => ({
+      path,
+      id: `chg_${file}_${i}`,
+      old_start: i + 1,
+      new_start: i + 2,
+      deletions: i,
+      additions: i + 1,
+    }))
+  );
   const snapshot = { diffId: 'diff_lossless', changes };
   const text = _gitCommandInternals.stageableDiffResult(plan, result('body\n'), snapshot, 1).text;
   const decoded = [];
@@ -70,10 +96,14 @@ test('grouped manifests preserve every ID, path and location including escaped f
     const match = /^change:(\S+) (.+)$/.exec(line);
     if (match) decoded.push({ id: match[1], path, location: match[2] });
   }
-  assert.deepEqual(decoded, changes.map((change) => ({
-    id: change.id, path: change.path,
-    location: `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`,
-  })));
+  assert.deepEqual(
+    decoded,
+    changes.map((change) => ({
+      id: change.id,
+      path: change.path,
+      location: `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`,
+    }))
+  );
   assert.equal(text.split('\nfile: ').length - 1, paths.length);
   assert.ok(text.startsWith('body\ndiff_id: diff_lossless\n'));
 });

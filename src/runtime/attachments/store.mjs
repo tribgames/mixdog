@@ -81,13 +81,19 @@ function saveBuffer(buffer) {
   }
   const attachmentRef = createHash('sha256').update(buffer).digest('hex');
   const target = attachmentPath(attachmentRef);
-  let existingValid = false;
-  if (existsSync(target)) {
+  // The file already at this content address is only usable when it really is
+  // this content; an unreadable or mismatched blob counts as absent.
+  const storedMatches = () => {
     try {
       const current = readFileSync(target);
-      existingValid =
-        current.length === buffer.length && createHash('sha256').update(current).digest('hex') === attachmentRef;
-    } catch {}
+      return current.length === buffer.length && createHash('sha256').update(current).digest('hex') === attachmentRef;
+    } catch {
+      return false;
+    }
+  };
+  let existingValid = false;
+  if (existsSync(target)) {
+    existingValid = storedMatches();
     if (!existingValid) {
       try {
         unlinkSync(target);
@@ -101,13 +107,8 @@ function saveBuffer(buffer) {
     try {
       renameSync(temp, target);
     } catch (error) {
-      let racedValid = false;
-      try {
-        const current = readFileSync(target);
-        racedValid =
-          current.length === buffer.length && createHash('sha256').update(current).digest('hex') === attachmentRef;
-      } catch {}
-      if (!racedValid) throw error;
+      // A concurrent writer may have published the same content first.
+      if (!storedMatches()) throw error;
     } finally {
       try {
         unlinkSync(temp);

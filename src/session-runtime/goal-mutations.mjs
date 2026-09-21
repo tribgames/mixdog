@@ -239,10 +239,11 @@ export function createGoalMutations(ctx) {
     const id = assertSessionId(sessionId);
     const goal = ctx.requireGoal(id);
     assertExpectedGoal(goal, expectedGoalId, 'abandon');
-    stopActiveClock(goal, now());
+    const at = now();
+    stopActiveClock(goal, at);
     goal.status = 'stopped';
-    goal.stoppedAt = now();
-    goal.updatedAt = goal.stoppedAt;
+    goal.stoppedAt = at;
+    goal.updatedAt = at;
     goal.blocker = '';
     // A stopped Goal can neither resume nor be edited, so a user who confirmed
     // the stop has nothing left to do with its chrome: retire it at once. The

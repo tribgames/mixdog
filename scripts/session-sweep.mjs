@@ -22,8 +22,7 @@
  *
  * This tool NEVER deletes. It only prints a report.
  */
-import { existsSync, readdirSync, statSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { getPluginData } from '../src/runtime/agent/orchestrator/config.mjs';
 import { summaryIndexPath, listStoredSessionSummaries } from '../src/runtime/agent/orchestrator/session/store.mjs';

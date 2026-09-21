@@ -322,10 +322,6 @@ function quotaSegmentsFor({ provider, model, effort, fast, sessionId, clientHost
   return held?.segments?.length ? held.segments : quotaSegments;
 }
 
-// Second statusline row. Segment order: Running Agents → Running Shells →
-// Web Searching → Memory. (activeTools.web_search counts WEB searches —
-// category 'Web Research' — not local file search, which is intentionally
-// not surfaced.)
 // Gateway quota for the current route (cached, refreshed off the render tick)
 // and the context percentage it feeds into.
 function statuslineContext({
@@ -370,6 +366,10 @@ function statuslineContext({
   return { gatewayStatus, ctxPct };
 }
 
+// Second statusline row. Segment order: Running Agents → Running Shells →
+// Web Searching → Memory. (activeTools.web_search counts WEB searches —
+// category 'Web Research' — not local file search, which is intentionally
+// not surfaced.)
 function activitySegments({ sessionId, clientHostPid, agentWorkers, agentJobs, activeTools }) {
   const agentPayload = agentStatuslinePayload(
     [...(Array.isArray(agentWorkers) ? agentWorkers : []), ...activeHiddenAgentWorkers({ sessionId, clientHostPid })],

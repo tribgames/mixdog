@@ -139,7 +139,7 @@ export function isBackgroundErrorOnlyBody(body, error = '') {
   if (lines.length !== 1) return false;
   const line = lines[0];
   if (/^error:\s*/i.test(line)) return true;
-  if (!err) return /^error:\s*/i.test(line);
+  if (!err) return false;
   const stripped = stripErrorPrefix(line);
   const presented = presentErrorText(err, { max: 500 });
   return (
@@ -157,6 +157,11 @@ function subjectForSurface(surface) {
   if (value === 'turn' || value.includes('request')) return 'request';
   if (value.includes('agent') || value.includes('task')) return 'agent';
   return 'tool';
+}
+
+function capitalize(value) {
+  const text = String(value ?? '');
+  return text ? `${text[0].toUpperCase()}${text.slice(1)}` : text;
 }
 
 function capText(value, max) {
@@ -236,7 +241,7 @@ export function presentErrorText(error, options = {}) {
   }
 
   if (isCancelLikeError(error) || name === 'SessionClosedError') {
-    return subject === 'request' ? 'Cancelled' : `${subject[0].toUpperCase()}${subject.slice(1)} was cancelled.`;
+    return subject === 'request' ? 'Cancelled' : `${capitalize(subject)} was cancelled.`;
   }
 
   const inactivity = /timed out after (\d+)ms of inactivity/i.exec(text);
@@ -270,19 +275,19 @@ export function presentErrorText(error, options = {}) {
   }
 
   if (/Session\s+"sess_[^"]+"\s+closed:\s*aborted during call/i.test(text)) {
-    return `${subject[0].toUpperCase()}${subject.slice(1)} stopped while waiting for a response.`;
+    return `${capitalize(subject)} stopped while waiting for a response.`;
   }
 
   if (/Session\s+"sess_[^"]+"\s+closed:\s*closed during call/i.test(text)) {
-    return `${subject[0].toUpperCase()}${subject.slice(1)} stopped before the response completed.`;
+    return `${capitalize(subject)} stopped before the response completed.`;
   }
 
   if (/^Session closed:\s*(?:closeSession|closed|aborted)\b/i.test(text)) {
-    return `${subject[0].toUpperCase()}${subject.slice(1)} stopped.`;
+    return `${capitalize(subject)} stopped.`;
   }
 
   if (/parent signal aborted/i.test(text)) {
-    return `${subject[0].toUpperCase()}${subject.slice(1)} was cancelled by its caller.`;
+    return `${capitalize(subject)} was cancelled by its caller.`;
   }
 
   text = text

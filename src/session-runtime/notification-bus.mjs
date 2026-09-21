@@ -23,14 +23,19 @@ function cleanSessionId(value) {
 
 // A queued completion only reaches the model on the next turn, so a session
 // with no user input pending is woken with an empty turn. One wake per session
-// at a time; a completion whose owner is no longer the live session is dropped
-// (the durable queue still carries it into that session's next turn).
+// runs at a time, and a completion suppressed by that in-flight wake is
+// remembered and replayed once it settles: the suppressed completion may have
+// landed after the woken turn took its last look at the queue, and dropping
+// the wake would leave its durable entry parked until the next user message.
+// A completion whose owner is no longer the live session is still dropped (the
+// durable queue carries it into that session's next turn).
 export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi }) {
-  const inFlight = new Set();
-  return function wakeQueuedCompletion({ sessionId, executionId, enqueuedAt } = {}) {
-    const ownerSessionId = cleanSessionId(sessionId);
-    if (!ownerSessionId || inFlight.has(ownerSessionId)) return false;
-    inFlight.add(ownerSessionId);
+  // sessionId -> the oldest request suppressed while this session's wake is in
+  // flight, or null when nothing was suppressed. A present key means in flight.
+  const inFlight = new Map();
+
+  function runWake(ownerSessionId, { executionId, enqueuedAt }) {
+    inFlight.set(ownerSessionId, null);
     setImmediate(async () => {
       const queuedAt = Number(enqueuedAt) || Date.now();
       try {
@@ -52,9 +57,27 @@ export function createCompletionWakeScheduler({ getCurrentSessionId, getTurnApi 
           );
         } catch {}
       } finally {
+        const replay = inFlight.get(ownerSessionId) || null;
         inFlight.delete(ownerSessionId);
+        // Bounded: only a wake call suppressed during this one arms a replay,
+        // so a replay that suppressed nothing ends the chain.
+        if (replay) runWake(ownerSessionId, replay);
       }
     });
+  }
+
+  return function wakeQueuedCompletion({ sessionId, executionId, enqueuedAt } = {}) {
+    const ownerSessionId = cleanSessionId(sessionId);
+    if (!ownerSessionId) return false;
+    if (inFlight.has(ownerSessionId)) {
+      const suppressed = inFlight.get(ownerSessionId);
+      // Keep the oldest suppressed request so the replay reports the real wait.
+      if (!suppressed || (Number(enqueuedAt) || Infinity) < (Number(suppressed.enqueuedAt) || Infinity)) {
+        inFlight.set(ownerSessionId, { executionId, enqueuedAt });
+      }
+      return false;
+    }
+    runWake(ownerSessionId, { executionId, enqueuedAt });
     return true;
   };
 }

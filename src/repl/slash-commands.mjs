@@ -31,12 +31,8 @@ async function compactConversation(ctx) {
     out.write(`${red('compact failed')}\n`);
     return;
   }
-  if (r.changed === false && r.reason) {
-    out.write(`${yellow(r.reason)}\n`);
-    return;
-  }
   if (r.changed === false) {
-    out.write(`${yellow('nothing to compact')}\n`);
+    out.write(`${yellow(r.reason || 'nothing to compact')}\n`);
     return;
   }
   out.write(

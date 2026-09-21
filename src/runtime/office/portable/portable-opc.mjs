@@ -111,14 +111,19 @@ export async function zipText(zip, path) {
   return file ? await file.async('string') : '';
 }
 
-export async function savePackage(zip, path) {
-  const data = await zip.generateAsync({
+// The archive shape Office accepts: deflated entries written with DOS
+// attributes, the way the applications themselves write a package.
+export async function packageBuffer(zip) {
+  return await zip.generateAsync({
     type: 'nodebuffer',
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
     platform: 'DOS',
   });
-  await writeFile(path, data);
+}
+
+export async function savePackage(zip, path) {
+  await writeFile(path, await packageBuffer(zip));
 }
 
 export function relationshipMap(xml) {
@@ -227,6 +232,53 @@ export async function removePackageRelationship(zip, relsPath, id) {
 
 export function partRelationshipPath(part) {
   return `${posix.dirname(part)}/_rels/${posix.basename(part)}.rels`;
+}
+
+// The Target of the first relationship of one type, exactly as the rels part
+// writes it (relative to the owning part, or absolute from the package root);
+// '' when the part declares none. The caller resolves it against its own base.
+export function relationshipTargetByType(relationshipsXml, type) {
+  const pattern = new RegExp(`<Relationship\\b[^>]*\\bType="[^"]*/${tagPattern(type)}"[^>]*\\bTarget="([^"]+)"`);
+  return pattern.exec(String(relationshipsXml || ''))?.[1] || '';
+}
+
+// Every relationship of one type, as its Id and the package path it points at:
+// a rels Target is written relative to the owning part unless it starts at the
+// package root, so it is resolved against that part here.
+export function relationshipTargetsByType(relationshipsXml, owner, type) {
+  const targets = new Map();
+  for (const match of String(relationshipsXml || '').matchAll(/<Relationship\b([^>]*?)\/?>/g)) {
+    const attributes = match[1];
+    if (!xmlAttribute(attributes, 'Type').endsWith(`/${type}`)) continue;
+    const id = xmlAttribute(attributes, 'Id');
+    const target = xmlAttribute(attributes, 'Target');
+    if (!id || !target) continue;
+    targets.set(
+      id,
+      target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(owner), target))
+    );
+  }
+  return targets;
+}
+
+// Every relationship of a rels part that points inside the package: an
+// external target is an address the package does not own, and a block without
+// a target has nothing to copy or rewrite.
+function* internalRelationships(xml) {
+  for (const match of xml.matchAll(/<Relationship\b[^>]*?\/>/g)) {
+    const block = match[0];
+    if (/\bTargetMode="External"/i.test(block)) continue;
+    const raw = xmlAttribute(block, 'Target');
+    const target = xmlDecode(raw);
+    if (!target) continue;
+    yield { block, raw, target };
+  }
+}
+
+// The part a relationship target names: absolute from the package root,
+// relative from the directory of the part that declares it.
+function partFromTarget(directory, target) {
+  return target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(directory, target));
 }
 
 export function provenanceCitation(source) {
@@ -340,19 +392,10 @@ async function clonePartTree(zip, sourcePath, cache = new Map()) {
   const relationships = await zipText(zip, partRelationshipPath(sourcePath));
   if (!relationships) return targetPath;
   let output = relationships;
-  for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/>/g)) {
-    const block = match[0];
-    if (/\bTargetMode="External"/i.test(block)) continue;
+  for (const { block, raw, target } of internalRelationships(relationships)) {
     if (SHARED_ON_CLONE.test(xmlAttribute(block, 'Type'))) continue;
-    const raw = xmlAttribute(block, 'Target');
-    const target = xmlDecode(raw);
-    if (!target) continue;
     const absolute = target.startsWith('/');
-    const cloned = await clonePartTree(
-      zip,
-      absolute ? target.slice(1) : posix.normalize(posix.join(directory, target)),
-      cache
-    );
+    const cloned = await clonePartTree(zip, partFromTarget(directory, target), cache);
     if (!cloned) continue;
     const rewrittenTarget = absolute ? `/${cloned}` : posix.relative(posix.dirname(targetPath), cloned);
     output = output.replace(block, block.replace(`Target="${raw}"`, `Target="${xmlEncode(rewrittenTarget)}"`));
@@ -371,24 +414,15 @@ export async function cloneOwnedSlideParts(zip, relationshipsPath) {
   const cache = new Map();
   const copied = [];
   let output = xml;
-  for (const match of xml.matchAll(/<Relationship\b[^>]*?\/>/g)) {
-    const block = match[0];
-    if (/\bTargetMode="External"/i.test(block)) continue;
+  for (const { block, raw, target } of internalRelationships(xml)) {
     if (
       !/\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing)$/.test(
         xmlAttribute(block, 'Type')
       )
     )
       continue;
-    const raw = xmlAttribute(block, 'Target');
-    const target = xmlDecode(raw);
-    if (!target) continue;
     const absolute = target.startsWith('/');
-    const cloned = await clonePartTree(
-      zip,
-      absolute ? target.slice(1) : posix.normalize(posix.join(owner, target)),
-      cache
-    );
+    const cloned = await clonePartTree(zip, partFromTarget(owner, target), cache);
     if (!cloned) continue;
     copied.push(cloned);
     const rewrittenTarget = absolute ? `/${cloned}` : posix.relative(owner, cloned);
@@ -413,14 +447,8 @@ async function remapLayoutRelationships(source, zip, { layoutPath, targetPath, m
   const relationships = await zipText(source, partRelationshipPath(layoutPath));
   if (!relationships) return;
   let output = relationships;
-  for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/>/g)) {
-    const block = match[0];
-    if (/\bTargetMode="External"/i.test(block)) continue;
-    const target = xmlDecode(xmlAttribute(block, 'Target'));
-    if (!target) continue;
-    const resolved = target.startsWith('/')
-      ? target.slice(1)
-      : posix.normalize(posix.join(posix.dirname(layoutPath), target));
+  for (const { block, target } of internalRelationships(relationships)) {
+    const resolved = partFromTarget(posix.dirname(layoutPath), target);
     const mapped = xmlAttribute(block, 'Type').endsWith('/slideMaster')
       ? master
       : await importPartTree(source, zip, resolved, cache);
@@ -471,13 +499,9 @@ export async function rewriteImportedRelationships(source, zip, sourceOwner, tar
   const sourceDirectory = posix.dirname(sourceOwner);
   const targetDirectory = posix.dirname(targetOwner);
   let output = relationships;
-  for (const match of relationships.matchAll(/<Relationship\b[^>]*?\/>/g)) {
-    const block = match[0];
-    if (/\bTargetMode="External"/i.test(block)) continue;
+  for (const { block, target } of internalRelationships(relationships)) {
     const type = xmlAttribute(block, 'Type');
-    const target = xmlDecode(xmlAttribute(block, 'Target'));
-    if (!target) continue;
-    const resolved = target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(sourceDirectory, target));
+    const resolved = partFromTarget(sourceDirectory, target);
     if (type.endsWith('/notesSlide')) {
       output = output.replace(block, '');
       continue;

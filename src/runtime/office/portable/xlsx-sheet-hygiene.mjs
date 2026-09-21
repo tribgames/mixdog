@@ -24,7 +24,11 @@ const NUMERIC_COLUMN_MIN = 3;
 // compares the rows by: where nearly every row agrees, the odd one out is a
 // cell that missed the format, not a decision about that row.
 const FORMAT_MAJORITY = 0.75;
-const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
+// Excel quotes a sheet name in a reference only when it is not a plain
+// identifier: a letter or underscore first, then letters, digits, underscores
+// and periods. Letters include Hangul and every other script, so `모델!B8`
+// evaluates unquoted and reporting it leaves a warning nobody can resolve.
+const SHEET_IDENTIFIER = /^[\p{L}_][\p{L}\p{N}_.]*$/u;
 
 function externalLinkReference(formula) {
   return /\[\d+\]|\[[^\]]*\.xls[xmb]?\]/i.test(formulaBody(formula));

@@ -73,8 +73,9 @@ export function primeSessionDiff(sessionId: string, result: SessionDiffResult): 
 
 /** Drop a session's cached diff (session deleted: no stale rows on reuse). */
 export function releaseSessionDiff(sessionId: string): void {
-  sessionDiffCache.delete(cleanSessionId(sessionId));
-  pendingDiffs.delete(cleanSessionId(sessionId));
+  const id = cleanSessionId(sessionId);
+  sessionDiffCache.delete(id);
+  pendingDiffs.delete(id);
 }
 
 /** One round-trip per session at a time: concurrent callers share the same

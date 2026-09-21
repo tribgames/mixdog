@@ -358,8 +358,9 @@ export function openTabInPaneLeaf(
       0,
       selection
     );
+    const { previewKey: _previewKey, ...withoutPreviewKey } = leaf;
     return {
-      ...(Object.fromEntries(Object.entries(leaf).filter(([name]) => name !== 'previewKey')) as PaneLeaf),
+      ...withoutPreviewKey,
       tabs: appended,
       activeKey: key,
       ...(nextPreviewKey ? { previewKey: nextPreviewKey } : {}),

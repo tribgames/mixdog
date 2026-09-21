@@ -1318,6 +1318,8 @@ if (!app.requestSingleInstanceLock()) {
       diagnostics.write('app-ready', {
         totalMs: appReadyAt - desktopProcessStartedAt,
       });
+      // The daemon handshake is already running (started before whenReady);
+      // stamp its start into the timeline now that the sink exists.
       reportDaemonServiceStart();
       for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
         diagnostics.write(event, { ...entry, occurredAt: at });
@@ -1333,9 +1335,6 @@ if (!app.requestSingleInstanceLock()) {
         ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
         ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
       });
-      // The daemon handshake is already running (started before whenReady);
-      // stamp its start into the timeline now that the sink exists.
-      reportDaemonServiceStart();
       startDiagnosticsEventLoopMonitor();
       // Keep-awake + taskbar attention feed on the same session state lane.
       unsubscribeAwake = host.subscribe((snapshot) => {

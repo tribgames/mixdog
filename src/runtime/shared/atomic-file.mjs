@@ -77,8 +77,19 @@ function _runAdaptiveFileIo(run) {
 
 const RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY', 'EEXIST']);
 
+function renameBackoffs(opts) {
+  return Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
+}
+
+// Jittered delay before the next rename attempt, or null when this error or
+// attempt count ends the loop. Shared so the sync and async paths cannot drift.
+function nextRenameDelayMs(err, attempt, backoffs) {
+  if (!RETRY_CODES.has(err?.code) || attempt >= backoffs.length) return null;
+  return backoffs[attempt] + Math.floor(Math.random() * Math.min(50, Math.max(1, backoffs[attempt])));
+}
+
 export function renameWithRetrySync(src, dst, opts = {}) {
-  const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
+  const backoffs = renameBackoffs(opts);
   let lastErr = null;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
     try {
@@ -86,16 +97,16 @@ export function renameWithRetrySync(src, dst, opts = {}) {
       return true;
     } catch (err) {
       lastErr = err;
-      if (!RETRY_CODES.has(err?.code) || attempt >= backoffs.length) break;
-      const jitter = Math.floor(Math.random() * Math.min(50, Math.max(1, backoffs[attempt])));
-      sleepSync(backoffs[attempt] + jitter);
+      const delayMs = nextRenameDelayMs(err, attempt, backoffs);
+      if (delayMs === null) break;
+      sleepSync(delayMs);
     }
   }
   throw lastErr;
 }
 
 async function renameWithRetry(src, dst, opts = {}) {
-  const backoffs = Array.isArray(opts.backoffs) && opts.backoffs.length > 0 ? opts.backoffs : DEFAULT_BACKOFFS_MS;
+  const backoffs = renameBackoffs(opts);
   let lastErr = null;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
     try {
@@ -103,9 +114,9 @@ async function renameWithRetry(src, dst, opts = {}) {
       return true;
     } catch (err) {
       lastErr = err;
-      if (!RETRY_CODES.has(err?.code) || attempt >= backoffs.length) break;
-      const jitter = Math.floor(Math.random() * Math.min(50, Math.max(1, backoffs[attempt])));
-      await sleep(Math.max(1, Number(backoffs[attempt] + jitter) || 1));
+      const delayMs = nextRenameDelayMs(err, attempt, backoffs);
+      if (delayMs === null) break;
+      await sleep(Math.max(1, Number(delayMs) || 1));
     }
   }
   throw lastErr;

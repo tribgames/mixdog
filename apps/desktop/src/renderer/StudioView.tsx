@@ -55,6 +55,7 @@ import {
   type StudioReference,
 } from './studio-media-state';
 import { shouldFocusSurfaceInput } from './surface-input-focus';
+import { dataTransferHasLocalFiles, materializeDroppedFiles } from './file-drag';
 
 // Thumbnails are round-trip bound, not byte bound: a strictly sequential loop
 // paid one full relay round trip per tile.
@@ -92,8 +93,6 @@ function pillLabel(value: string): string {
 // Media studio page (sidebar -> Studio): pick image or video, pick one of the
 // authenticated provider lanes, generate, and keep the result in a local
 // gallery. Generation runs as a runtime job; this pane only polls snapshots.
-import { dataTransferHasLocalFiles, materializeDroppedFiles } from './file-drag';
-
 export function StudioPane({
   api = window.mixdogDesktop,
   active = true,
@@ -266,6 +265,13 @@ export function StudioPane({
 
   const load = useCallback(
     async (metricToken?: number) => {
+      // A thumbnail failure is terminal for ONE pass, not for the pane: a cold
+      // rendition that timed out once otherwise left a permanent glyph until
+      // the whole app restarted (user: 섬네일이 안 나온다). Entering Studio
+      // again, or pressing Retry, starts those tiles over.
+      failedThumbsRef.current = {};
+      setFailedThumbs({});
+      setThumbFallbacks({});
       // The gallery must not wait on the lane catalog: provider auth checks are
       // the slow leg of this pane, and the tiles used to paint only after they
       // answered (user: 들어가면 섬네일이 늦게 나온다). Each half commits on

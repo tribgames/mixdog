@@ -8,6 +8,12 @@ const PPTX_BACKGROUND_MODES = new Set(['sandwich', 'light', 'dark', 'custom']);
 const PPTX_TEMPLATE_MODES = new Set(['prefer', 'strict', 'scratch']);
 const PPTX_COMPOSITION_MODES = new Set(['model', 'legacy']);
 
+/** The requested list when it holds anything, else the direction's own. */
+function listedOrDirected(requested, directed) {
+  const listed = strings(requested);
+  return listed.length ? listed : strings(directed);
+}
+
 function resolvePptxDeckPlan(input, tokens, artDirection) {
   const source = plainObject(input.deck) ? input.deck : {};
   const direction = artDirection?.applyTokens ? artDirection.selected?.deck || {} : {};
@@ -43,14 +49,12 @@ function resolvePptxDeckPlan(input, tokens, artDirection) {
     motif: String(source.motif || direction.motif || input.signature || ''),
     spacingScale: String(source.spacingScale || 'consistent'),
     imageTreatment: String(source.imageTreatment || direction.imageTreatment || 'contained-evidence'),
-    layoutBias: strings(source.layoutBias).length ? strings(source.layoutBias) : strings(direction.layoutBias),
+    layoutBias: listedOrDirected(source.layoutBias, direction.layoutBias),
     grid: String(source.grid || direction.grid || 'twelve-column editorial grid'),
     shapeLanguage: String(source.shapeLanguage || direction.shapeLanguage || 'native evidence fields'),
     chartTreatment: String(source.chartTreatment || direction.chartTreatment || 'native annotated chart'),
-    densityPattern: strings(source.densityPattern).length
-      ? strings(source.densityPattern)
-      : strings(direction.densityPattern),
-    motifRules: strings(source.motifRules).length ? strings(source.motifRules) : strings(direction.motifRules),
+    densityPattern: listedOrDirected(source.densityPattern, direction.densityPattern),
+    motifRules: listedOrDirected(source.motifRules, direction.motifRules),
     directionId: String(artDirection?.selected?.id || ''),
     directionCandidates: (artDirection?.candidates || []).map((candidate) => candidate.id),
     sectionSlides: slideNumbers(source.sectionSlides),

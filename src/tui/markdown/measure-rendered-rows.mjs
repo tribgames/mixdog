@@ -59,8 +59,8 @@ function wrappedLineRows(line, width) {
   return Math.max(1, rows);
 }
 
-function estimateWrappedRowsFallback(text, columns, reserve = 3) {
-  const width = Math.max(8, Number(columns || 80) - reserve);
+function estimateWrappedRowsFallback(text, columns) {
+  const width = assistantBodyWidth(columns);
   const lines = String(text ?? '').split('\n');
   return Math.max(
     1,
@@ -76,7 +76,7 @@ export function measureMarkdownRenderedRows(text, columns, { trimPartialFences =
   try {
     segments = renderTokenAnsiSegments(value, { width: bodyWidth, trimPartialFences });
   } catch {
-    return Math.max(1, estimateWrappedRowsFallback(value, columns, 3));
+    return Math.max(1, estimateWrappedRowsFallback(value, columns));
   }
   if (!segments.length) return 1;
   let rows = 0;
@@ -96,7 +96,7 @@ export function measureMarkdownRenderedRows(text, columns, { trimPartialFences =
 
 function measureStreamingPartsUncached(parts, columns) {
   if (parts.plain) {
-    return estimateWrappedRowsFallback(parts.unstableForRender, columns, 3);
+    return estimateWrappedRowsFallback(parts.unstableForRender, columns);
   }
   let rows = 0;
   let childCount = 0;
@@ -145,7 +145,7 @@ export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {
   const parts = resolveStreamingMarkdownParts(value, streamKey);
   if (parts.plain) {
     const plain = parts.unstableForRender;
-    const width = Math.max(8, Number(columns || 80) - 3);
+    const width = assistantBodyWidth(columns);
     const lastBreak = plain.lastIndexOf('\n');
     const stablePrefix = lastBreak >= 0 ? plain.substring(0, lastBreak + 1) : '';
     let stableRows = 0;

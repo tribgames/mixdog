@@ -209,16 +209,10 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData }) {
  *  pwsh/powershell). Spawns a PowerShell host, so callers on a polled path
  *  must cache it instead of probing per call. */
 export async function probeHostManagedModule(engine, signal) {
-  const result = await runProcess(
-    engine.command,
-    [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      '$m = @(Get-Module -ListAvailable -Name PSScriptAnalyzer) | Select-Object -First 1; if ($m) { [string]$m.Version }',
-    ],
-    { timeoutMs: VERSION_PROBE_TIMEOUT_MS, signal }
-  );
+  // The probe argv is catalog data (engines.mjs versionArgs), not a second copy.
+  const args = engineEntry(engine.id)?.versionArgs;
+  if (!Array.isArray(args) || args.length === 0) return '';
+  const result = await runProcess(engine.command, args, { timeoutMs: VERSION_PROBE_TIMEOUT_MS, signal });
   const match = `${result.stdout}\n`.match(/\d+\.\d+(?:\.\d+)?/);
   return result.code === 0 && match ? match[0] : '';
 }

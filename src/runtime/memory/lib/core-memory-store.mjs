@@ -1,5 +1,4 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
-export { __mixdogMemoryLog };
 
 // User-curated core memory store — native PG-backed via core_entries table.
 // Per-project entries distinguished by project_id column (NULL = COMMON).
@@ -7,12 +6,11 @@ export { __mixdogMemoryLog };
 // Generated conversation history never enters this store automatically.
 
 import { getDatabase, embeddingToSql } from './memory.mjs';
+import { VALID_CATEGORY } from './memory-categories.mjs';
 import { cachedEmbedTextBatch } from './memory-embed.mjs';
 import { checkedConnect } from './pg/adapter.mjs';
 import { throwIfAborted } from './memory-cycle2-shared.mjs';
 import { findCoreKeyRows } from './core-memory-uniqueness.mjs';
-
-const VALID_CAT = new Set(['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue']);
 
 const CORE_ELEMENT_DERIVE_LENGTH = 40;
 
@@ -63,8 +61,8 @@ export function normalizeCoreInput(input = {}, options = {}) {
   if (options.requireElement && !element) errors.push('element required');
   if (options.requireSummary && !summary) errors.push('summary required');
   if (options.requireCategory && !suppliedCategory) errors.push('category required');
-  if (suppliedCategory && !VALID_CAT.has(category)) {
-    errors.push(`invalid category "${category}". Valid: ${[...VALID_CAT].join(', ')}`);
+  if (suppliedCategory && !VALID_CATEGORY.has(category)) {
+    errors.push(`invalid category "${category}". Valid: ${[...VALID_CATEGORY].join(', ')}`);
   }
 
   return { element, summary, category, suppliedCategory, errors };
@@ -87,8 +85,6 @@ async function _embedFor(db, element, summary) {
 // Lazy repair of NULL embeddings on existing rows. Runs once per boot or
 // whenever a NULL slips back in via direct SQL. SELECT WHERE embedding IS NULL
 // returns 0 rows on a fully-populated table, so this is a fast no-op.
-export { throwIfAborted };
-
 async function _backfillNullEmbeddings(db, options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);

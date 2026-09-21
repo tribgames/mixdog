@@ -220,8 +220,6 @@ function probeGitBashFromGitExe(gitExe) {
   return null;
 }
 
-// Kind-aware shell resolution. kind:
-//
 // Resolve a real bash on macOS/Linux. When 'bash' is explicitly requested we
 // must NOT hand back /bin/sh, which on dash/ash distros is not bash and breaks
 // bash-only syntax. Probe common install paths, then `bash` on PATH; only when

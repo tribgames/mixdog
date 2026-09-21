@@ -6,8 +6,7 @@
  * those cookies, sealed with the OS keychain, and puts them back on the next
  * start. Nothing here reads cookie values into a reply.
  */
-import { mkdir, readFile, rename, rm } from 'node:fs/promises';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {

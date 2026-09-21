@@ -68,17 +68,23 @@ function requestedPages(pageCount, pages) {
 const PDF_RENDER_WORKER_KIND = 'mixdog-office-pdf-render';
 const PDF_RENDER_PAGE_WORKER_KIND = 'mixdog-office-pdf-render-page';
 
-async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale = 0.25) {
-  installPdfJsCanvasGlobals();
-  const { getDocument, Util, VerbosityLevel } = await resolvedPdfJs();
-  const loadingTask = getDocument({
-    data: new Uint8Array(await readFile(path)),
+// One loading contract for every rasterizing read: the bundled standard fonts,
+// no worker thread of its own, and errors only.
+function pdfLoadingTask(getDocument, VerbosityLevel, data) {
+  return getDocument({
+    data,
     disableWorker: true,
     useSystemFonts: false,
     standardFontDataUrl: pdfjsStandardFontDataUrl(),
     isEvalSupported: false,
     verbosity: VerbosityLevel.ERRORS,
   });
+}
+
+async function renderPdfPageDirect(path, pageNumber, targetWidth, minimumScale = 0.25) {
+  installPdfJsCanvasGlobals();
+  const { getDocument, Util, VerbosityLevel } = await resolvedPdfJs();
+  const loadingTask = pdfLoadingTask(getDocument, VerbosityLevel, new Uint8Array(await readFile(path)));
   try {
     const document = await loadingTask.promise;
     const page = await document.getPage(pageNumber);
@@ -151,14 +157,7 @@ async function renderPdfPagesDirect(path, { pages = null, maxWidth = 1400, signa
   const { getDocument, VerbosityLevel } = await resolvedPdfJs();
   const pdfData = await readFile(path);
   const openDocument = async () => {
-    const loadingTask = getDocument({
-      data: Uint8Array.from(pdfData),
-      disableWorker: true,
-      useSystemFonts: false,
-      standardFontDataUrl: pdfjsStandardFontDataUrl(),
-      isEvalSupported: false,
-      verbosity: VerbosityLevel.ERRORS,
-    });
+    const loadingTask = pdfLoadingTask(getDocument, VerbosityLevel, Uint8Array.from(pdfData));
     try {
       return { loadingTask, document: await loadingTask.promise };
     } catch (error) {

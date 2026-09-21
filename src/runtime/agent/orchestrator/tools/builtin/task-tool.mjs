@@ -206,9 +206,10 @@ export async function executeTaskTool(args, options = {}) {
     }
     if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
     const latest = getBackgroundTask(taskId, { context: options }) || task;
-    const visible = isShellTask && latest.result && typeof latest.result === 'object'
-      ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
-      : latest;
+    const visible =
+      isShellTask && latest.result && typeof latest.result === 'object'
+        ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
+        : latest;
     let rendered = renderBackgroundTask(visible, { includeResult: true });
     if (action === 'wait' && latest.status === 'running') {
       if (waitInterruptedByUser) {

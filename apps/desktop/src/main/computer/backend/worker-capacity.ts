@@ -1,6 +1,6 @@
-export const MAX_COMPUTER_WORKERS = 8;
-
 import type { ChildProcess } from 'node:child_process';
+
+export const MAX_COMPUTER_WORKERS = 8;
 
 // A worker killed mid UI Automation call can take seconds to unwind; giving
 // up earlier latches a cleanup failure the user then has to clear by hand.

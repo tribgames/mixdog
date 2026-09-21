@@ -4,7 +4,6 @@
 // parts directly, so the package validation above it stays about package
 // structure. A percentage stored as a whole number is the shared formula
 // audit's finding, reported once there for both backends.
-import { posix } from 'node:path';
 import { contrastRatio } from './text-metrics.mjs';
 import {
   columnLabel,
@@ -14,7 +13,7 @@ import {
   parseCellRef,
   sharedStrings,
 } from './portable-cells.mjs';
-import { partRelationshipPath, zipText } from './portable-opc.mjs';
+import { partRelationshipPath, relationshipTargetsByType, zipText } from './portable-opc.mjs';
 import {
   displayWidth,
   formattedNumberWidth,
@@ -163,18 +162,22 @@ function narrowNumberColumns(xml, { widths, withheld, styles }) {
   return sortedByColumn(narrowColumns);
 }
 
+// An A1 reference ('B2' or 'B2:D9') as the block of cells it covers.
+function referenceArea(reference) {
+  const [start, end] = String(reference || '').split(':');
+  if (!start) return null;
+  const from = parseCellRef(start);
+  const to = parseCellRef(end || start);
+  return {
+    startCol: columnNumber(from.col),
+    endCol: columnNumber(to.col),
+    startRow: from.row,
+    endRow: to.row,
+  };
+}
+
 function mergedAreas(xml) {
-  return mergedRanges(xml).map((reference) => {
-    const [start, end] = String(reference).split(':');
-    const from = parseCellRef(start);
-    const to = parseCellRef(end || start);
-    return {
-      startCol: columnNumber(from.col),
-      endCol: columnNumber(to.col),
-      startRow: from.row,
-      endRow: to.row,
-    };
-  });
+  return mergedRanges(xml).map((reference) => referenceArea(reference));
 }
 
 // Labels cut at the column edge: text spills into an empty neighbour, but is
@@ -331,34 +334,14 @@ async function tableRanges(zip, sheet, xml) {
   if (!parts) return [];
   const relations = await zipText(zip, partRelationshipPath(sheet.path));
   if (!relations) return [];
-  const targets = new Map();
-  for (const match of relations.matchAll(/<Relationship\b([^>]*?)\/?>/g)) {
-    const attributes = match[1];
-    if (!String(xmlAttribute(attributes, 'Type') || '').endsWith('/table')) continue;
-    const id = xmlAttribute(attributes, 'Id');
-    const target = xmlAttribute(attributes, 'Target');
-    if (id && target) {
-      targets.set(
-        id,
-        target.startsWith('/') ? target.slice(1) : posix.normalize(posix.join(posix.dirname(sheet.path), target))
-      );
-    }
-  }
+  const targets = relationshipTargetsByType(relations, sheet.path, 'table');
   const ranges = [];
   for (const match of parts[0].matchAll(/<tablePart\b[^>]*\br:id="([^"]+)"/g)) {
     const part = targets.get(match[1]);
     if (!part) continue;
     const reference = /<table\b[^>]*\bref="([^"]+)"/.exec((await zipText(zip, part)) || '')?.[1] || '';
-    const [start, end] = reference.split(':');
-    if (!start) continue;
-    const from = parseCellRef(start);
-    const to = parseCellRef(end || start);
-    ranges.push({
-      startCol: columnNumber(from.col),
-      endCol: columnNumber(to.col),
-      startRow: from.row,
-      endRow: to.row,
-    });
+    const area = referenceArea(reference);
+    if (area) ranges.push(area);
   }
   return ranges;
 }

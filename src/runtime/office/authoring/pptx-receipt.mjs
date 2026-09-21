@@ -312,12 +312,12 @@ function observe(
   // lot of copy"; 0 means the page carries type alone.
   const carriers = content.filter((box) => !textBoxes.includes(box));
   const largest = carriers.length ? Math.max(...carriers.map((box) => box.width * box.height)) : 0;
-  const extent =
+  const constructArea =
     constructs.length >= 3
       ? (Math.max(...constructs.map((b) => b.left + b.width)) - Math.min(...constructs.map((b) => b.left))) *
         (Math.max(...constructs.map((b) => b.top + b.height)) - Math.min(...constructs.map((b) => b.top)))
       : 0;
-  const presence = Number(Math.min(1, Math.max(largest, extent) / canvas).toFixed(2));
+  const presence = Number(Math.min(1, Math.max(largest, constructArea) / canvas).toFixed(2));
   return {
     air: airOf(all),
     quadrantAir: [
@@ -380,6 +380,16 @@ export function slideReceipt(slide) {
   let titleBox = null;
   const seen = [];
   const specs = {};
+  // A chart, table, picture or group reads the same way: it covers canvas and
+  // counts as a visual, as content, and as one block of the spacing vocabulary.
+  const countCarrier = (area, box) => {
+    covered += area;
+    if (box) {
+      visuals.push(box);
+      content.push(box);
+      blocks.push(box);
+    }
+  };
   for (const shape of shapes) {
     if (shape.placeholder && !String(shape.text || '').trim()) continue;
     seen.push(shape);
@@ -389,23 +399,13 @@ export function slideReceipt(slide) {
     if (fill && box) fills.set(fill, (fills.get(fill) || 0) + area);
     if (shape.chart) {
       receipt.charts += 1;
-      covered += area;
-      if (box) {
-        visuals.push(box);
-        content.push(box);
-        blocks.push(box);
-      }
+      countCarrier(area, box);
       continue;
     }
     if (shape.table) {
       receipt.tables += 1;
-      covered += area;
       noteSpec(specs, shape);
-      if (box) {
-        visuals.push(box);
-        content.push(box);
-        blocks.push(box);
-      }
+      countCarrier(area, box);
       continue;
     }
     // A vector the kit drew (an icon, a motif) is a device the page carries, not a picture the page shows: the writer
@@ -420,22 +420,12 @@ export function slideReceipt(slide) {
     }
     if (isPicture(shape)) {
       receipt.pictures += 1;
-      covered += area;
-      if (box) {
-        visuals.push(box);
-        content.push(box);
-        blocks.push(box);
-      }
+      countCarrier(area, box);
       continue;
     }
     if (shape.group) {
       receipt.groups += 1;
-      covered += area;
-      if (box) {
-        visuals.push(box);
-        content.push(box);
-        blocks.push(box);
-      }
+      countCarrier(area, box);
       continue;
     }
     const hasText = Boolean(String(shape.text || '').trim());

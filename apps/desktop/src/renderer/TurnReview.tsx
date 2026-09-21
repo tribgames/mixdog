@@ -27,18 +27,16 @@ import { classifyToolCategory, parseLineDelta, parseToolArgs, summarizeToolResul
 // worktree diff. Exact worker apply_patch diffs remain attribution metadata and
 // are only added to totals in the non-Git fallback.
 type TurnReviewPatchPart = ReturnType<typeof parseUnifiedDiff>[number];
+type TurnReviewFileEntry = {
+  additions: number;
+  deletions: number;
+  lineStats: boolean;
+  status: string;
+  binary: boolean;
+  parts: ReturnType<typeof parseUnifiedDiff>;
+};
 type TurnReviewSummary = {
-  files: Map<
-    string,
-    {
-      additions: number;
-      deletions: number;
-      lineStats: boolean;
-      status: string;
-      binary: boolean;
-      parts: ReturnType<typeof parseUnifiedDiff>;
-    }
-  >;
+  files: Map<string, TurnReviewFileEntry>;
   additions: number;
   deletions: number;
   hasLineStats: boolean;
@@ -127,6 +125,11 @@ function summarizeTurnReviewPatch(patch: string): TurnReviewSummary {
       /* malformed/non-diff payload — skip */
     }
   }
+  return turnReviewSummaryOf(files);
+}
+
+/** Totals a summary always carries for its own file map. */
+function turnReviewSummaryOf(files: Map<string, TurnReviewFileEntry>): TurnReviewSummary {
   let additions = 0;
   let deletions = 0;
   let hasLineStats = false;
@@ -200,7 +203,7 @@ function mergeTurnReviewSummaries(summaries: TurnReviewSummary[]): TurnReviewSum
   };
 }
 
-function statusLabel(entry: TurnReviewSummary['files'] extends Map<string, infer T> ? T : never): string {
+function statusLabel(entry: TurnReviewFileEntry): string {
   if (entry.binary) return t('Binary');
   if (entry.status === 'R') return t('Renamed');
   if (entry.status === 'C') return t('Copied');
@@ -210,7 +213,7 @@ function statusLabel(entry: TurnReviewSummary['files'] extends Map<string, infer
   return t('Changed');
 }
 
-function statusCode(entry: TurnReviewSummary['files'] extends Map<string, infer T> ? T : never): string {
+function statusCode(entry: TurnReviewFileEntry): string {
   const status = String(entry.status || '').toUpperCase();
   if (['A', 'D', 'M', 'R', 'C', 'T'].includes(status)) return status;
   if (entry.binary) return 'B';
@@ -678,6 +681,11 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   // or stale capability read must not permanently disable an otherwise valid
   // checkpoint, but a known ID mismatch is never allowed to hit another turn.
   const canRevertTurn = Boolean(cwd && sessionId && requestedCheckpointId && checkpointMatches);
+  // Tool patches sometimes carry ABSOLUTE paths; display and revert use the
+  // project-relative form (git confinement expects it).
+  const normalizedCwd = String(cwd || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '');
   // The prior turn's review must leave at the next user boundary. Conversation
   // reserves geometry only after the CURRENT turn actually touches files, so
   // carrying an empty review row through every busy turn creates a fixed black
@@ -764,11 +772,6 @@ export const TurnReviewBar = memo(function TurnReviewBar({
                 </li>
               );
               const rows = [...source.summary.files.entries()].map(([name, entry]) => {
-                // Tool patches sometimes carry ABSOLUTE paths; display and revert
-                // use the project-relative form (git confinement expects it).
-                const normalizedCwd = String(cwd || '')
-                  .replace(/\\/g, '/')
-                  .replace(/\/+$/, '');
                 const normalizedName = name.replace(/\\/g, '/');
                 const rel =
                   normalizedCwd && normalizedName.toLowerCase().startsWith(`${normalizedCwd.toLowerCase()}/`)

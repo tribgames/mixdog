@@ -54,7 +54,6 @@ import { useEditorCommandWiring } from './use-editor-command-wiring';
 import { useEditorModelBinding } from './use-editor-model-binding';
 import { useEditorMountSession } from './use-editor-mount-session';
 import { useEditorLspSession } from './use-editor-lsp-session';
-export { parseEditorQuickDiffStripes } from './editor-pane-model';
 
 const QUICK_DIFF_TOOLTIPS: Record<keyof typeof QUICK_DIFF_COLOR_TOKENS, string> = {
   add: 'Added line',
@@ -212,18 +211,17 @@ export default function EditorPane({
         return;
       }
       const plan = editorAnsiDecorationPlan(model.getValue(), lightTheme);
-      const next = plan.decorations.map((decoration) => ({
-        range: new monaco.Range(
-          model.getPositionAt(decoration.start).lineNumber,
-          model.getPositionAt(decoration.start).column,
-          model.getPositionAt(decoration.end).lineNumber,
-          model.getPositionAt(decoration.end).column
-        ),
-        options: {
-          inlineClassName: decoration.className,
-          inlineClassNameAffectsLetterSpacing: decoration.className === 'editor-ansi-control',
-        },
-      }));
+      const next = plan.decorations.map((decoration) => {
+        const start = model.getPositionAt(decoration.start);
+        const end = model.getPositionAt(decoration.end);
+        return {
+          range: new monaco.Range(start.lineNumber, start.column, end.lineNumber, end.column),
+          options: {
+            inlineClassName: decoration.className,
+            inlineClassNameAffectsLetterSpacing: decoration.className === 'editor-ansi-control',
+          },
+        };
+      });
       if (ansiDecorations.current) ansiDecorations.current.set(next);
       else ansiDecorations.current = editor.createDecorationsCollection(next);
       if (!ansiStyleElement.current) {

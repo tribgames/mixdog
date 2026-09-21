@@ -8,7 +8,7 @@
 import { loadConfig } from '../agent/orchestrator/config.mjs';
 import { createSession } from '../agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { askSession } from '../agent/orchestrator/session/manager/ask-session.mjs';
-import { parseScheduleModelRef } from './schedule-model-ref.mjs';
+import { modelRouteFields, parseScheduleModelRef } from './schedule-model-ref.mjs';
 import { automationWorkflowOpts } from './automation-workflow.mjs';
 import { automationPromptContent } from './automation-attachments.mjs';
 
@@ -25,15 +25,7 @@ function webhookRoute(modelRef) {
   }
   const cfg = loadConfig({ secrets: false });
   const maintenance = cfg?.maintenance?.webhook;
-  if (maintenance?.provider && maintenance?.model) {
-    return {
-      provider: maintenance.provider,
-      model: maintenance.model,
-      ...(maintenance.effort ? { effort: maintenance.effort } : {}),
-      ...(maintenance.fast === true ? { fast: true } : {}),
-      ...(maintenance.modelParameters ? { modelParameters: { ...maintenance.modelParameters } } : {}),
-    };
-  }
+  if (maintenance?.provider && maintenance?.model) return modelRouteFields(maintenance);
   throw new Error('webhook run has no model: set one on the endpoint or configure maintenance.webhook');
 }
 
@@ -57,11 +49,7 @@ export async function runWebhookSession({
   const route = webhookRoute(model);
   const projectCwd = cwd ? String(cwd) : null;
   const session = createSession({
-    provider: route.provider,
-    model: route.model,
-    ...(route.effort ? { effort: route.effort } : {}),
-    ...(route.fast === true ? { fast: true } : {}),
-    ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
+    ...modelRouteFields(route),
     owner: 'user',
     sourceType: 'webhook',
     sourceName: endpoint,

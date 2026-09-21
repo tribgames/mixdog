@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { attachmentTextForPart, isAttachmentReference, readAttachmentBase64 } from '../../../attachments/store.mjs';
+import { base64ByteLength, inlineFileKind } from '../../../shared/inline-file-kind.mjs';
 
 const DEFAULT_IMAGE_MIME = 'image/png';
 
@@ -66,6 +67,23 @@ function fileInfo(block) {
       .toLowerCase() || 'application/pdf';
   const filename = typeof block.filename === 'string' && block.filename ? block.filename : '';
   return { data, mimeType, filename };
+}
+
+function fileLabel(file) {
+  return `${file.filename ? `${file.filename} ` : ''}(${file.mimeType}, ${base64ByteLength(file.data)} bytes)`;
+}
+
+function fileDecodedText(file) {
+  return Buffer.from(file.data, 'base64').toString('utf8');
+}
+
+// Only a PDF has a native container everywhere. Text-ish bytes are readable as
+// text on every provider, and a binary payload has no inline form at all — it
+// is named so the model can open it from disk instead of receiving a block the
+// API rejects.
+function fileFallbackText(file, kind) {
+  if (kind === 'text') return `--- ${fileLabel(file)} ---\n${fileDecodedText(file)}`;
+  return `[file not sent inline: ${fileLabel(file)} — this type has no inline form; open it from disk with read]`;
 }
 
 function imageUrlFromPart(block) {
@@ -173,14 +191,15 @@ function jsonFallbackFromPart(block) {
   const text = textFromPart(block);
   if (text) return text;
   if (!block || typeof block !== 'object') return block == null ? '' : String(block);
-  if (
-    imageUrlFromPart(block) ||
-    imageFileIdFromPart(block) ||
-    imageFileUriFromPart(block) ||
-    geminiInlineInfo(block) ||
-    fileInfo(block)
-  )
+  if (imageUrlFromPart(block) || imageFileIdFromPart(block) || imageFileUriFromPart(block) || geminiInlineInfo(block))
     return '';
+  const file = fileInfo(block);
+  if (file) {
+    // A PDF rides as native media, so its bytes stay out of the text. Anything
+    // else has no media form here and contributes its text or its description.
+    const kind = inlineFileKind(file.mimeType, file.data);
+    return kind === 'pdf' ? '' : fileFallbackText(file, kind);
+  }
   return stringifyFallback(block);
 }
 
@@ -258,22 +277,22 @@ export function contentImageDescriptors(content) {
   return parts.map(imageDescriptor).filter(Boolean);
 }
 
-// Byte-free descriptors for inline file/document parts (context estimation).
+// Byte-free descriptors for inline document parts (context estimation). Only
+// documents that travel as native media are billed here; a text-ish file is
+// already priced as the text it becomes, and a binary file only costs its
+// one-line description.
 export function contentFileDescriptors(content) {
   const parts = contentParts(content);
   if (!parts) return [];
   return parts.flatMap((part) => {
     if (part?.type === 'file' && isAttachmentReference(part)) {
-      return [
-        {
-          mimeType: String(part.mimeType || part.mediaType || 'application/pdf'),
-          sizeBytes: Number(part.sizeBytes) || 0,
-        },
-      ];
+      const mimeType = String(part.mimeType || part.mediaType || 'application/pdf');
+      if (inlineFileKind(mimeType, '') !== 'pdf') return [];
+      return [{ mimeType, sizeBytes: Number(part.sizeBytes) || 0 }];
     }
     const file = fileInfo(part);
-    if (!file) return [];
-    return [{ mimeType: file.mimeType, sizeBytes: Math.floor((file.data.length * 3) / 4) }];
+    if (!file || inlineFileKind(file.mimeType, file.data) !== 'pdf') return [];
+    return [{ mimeType: file.mimeType, sizeBytes: base64ByteLength(file.data) }];
   });
 }
 
@@ -346,11 +365,26 @@ export function normalizeContentForAnthropic(content) {
   return parts.map((part) => {
     const file = fileInfo(part);
     if (file) {
-      const out = {
-        type: 'document',
-        source: { type: 'base64', media_type: file.mimeType, data: file.data },
-        ...(file.filename ? { title: file.filename } : {}),
-      };
+      // A base64 document block is a PDF contract; a text document carries its
+      // decoded text, and anything else is described rather than sent.
+      const kind = inlineFileKind(file.mimeType, file.data);
+      const title = file.filename ? { title: file.filename } : {};
+      let out;
+      if (kind === 'pdf') {
+        out = {
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: file.data },
+          ...title,
+        };
+      } else if (kind === 'text') {
+        out = {
+          type: 'document',
+          source: { type: 'text', media_type: 'text/plain', data: fileDecodedText(file) },
+          ...title,
+        };
+      } else {
+        out = { type: 'text', text: fileFallbackText(file, kind) };
+      }
       if (part.cache_control) out.cache_control = part.cache_control;
       return out;
     }
@@ -415,10 +449,15 @@ export function normalizeContentForOpenAIChat(content, { role = 'user' } = {}) {
   for (const part of parts) {
     const file = fileInfo(part);
     if (file) {
-      out.push({
-        type: 'file',
-        file: { filename: file.filename || 'document.pdf', file_data: `data:${file.mimeType};base64,${file.data}` },
-      });
+      const kind = inlineFileKind(file.mimeType, file.data);
+      if (kind === 'pdf') {
+        out.push({
+          type: 'file',
+          file: { filename: file.filename || 'document.pdf', file_data: `data:application/pdf;base64,${file.data}` },
+        });
+      } else {
+        out.push({ type: 'text', text: fileFallbackText(file, kind) });
+      }
       continue;
     }
     const fileId = imageFileIdFromPart(part);
@@ -459,11 +498,16 @@ export function normalizeContentForOpenAIResponses(content, { role = 'user' } = 
   for (const part of parts) {
     const file = fileInfo(part);
     if (file) {
-      out.push({
-        type: 'input_file',
-        filename: file.filename || 'document.pdf',
-        file_data: `data:${file.mimeType};base64,${file.data}`,
-      });
+      const kind = inlineFileKind(file.mimeType, file.data);
+      if (kind === 'pdf') {
+        out.push({
+          type: 'input_file',
+          filename: file.filename || 'document.pdf',
+          file_data: `data:application/pdf;base64,${file.data}`,
+        });
+      } else {
+        out.push({ type: textType, text: fileFallbackText(file, kind) });
+      }
       continue;
     }
     const fileId = imageFileIdFromPart(part);
@@ -498,7 +542,9 @@ export function normalizeContentForGeminiParts(content) {
   for (const part of parts) {
     const file = fileInfo(part);
     if (file) {
-      out.push({ inlineData: { mimeType: file.mimeType, data: file.data } });
+      const kind = inlineFileKind(file.mimeType, file.data);
+      if (kind === 'pdf') out.push({ inlineData: { mimeType: 'application/pdf', data: file.data } });
+      else out.push({ text: fileFallbackText(file, kind) });
       continue;
     }
     const inlineInfo = geminiInlineInfo(part);
@@ -591,7 +637,12 @@ export function splitToolContentForXaiResponses(content) {
 }
 
 export function splitToolContentForGemini(content) {
-  if (!contentHasImage(content)) return { response: { result: content }, mediaParts: [] };
+  if (!contentHasImage(content)) {
+    // Raw passthrough is for text and plain objects only: a file part would
+    // serialize its base64 payload straight into the function response.
+    const hasFile = contentParts(content)?.some((part) => fileInfo(part));
+    return { response: { result: hasFile ? contentToText(content, '') : content }, mediaParts: [] };
+  }
   return {
     response: { result: contentToText(content, '[tool result included image content]') },
     mediaParts: normalizeContentForGeminiParts(content),

@@ -144,7 +144,7 @@ export function createSpawnRunner({
               onTerminalResult: (terminalResult) => {
                 turnReview.complete();
                 const value = completionValue(terminalResult);
-                if (job) job._terminalResultValue = value;
+                job._terminalResultValue = value;
                 notifyOwnerAgentCompletionEarly(job, value, notifyContext || {});
                 reconcileJobTerminalResult(job, value);
               },

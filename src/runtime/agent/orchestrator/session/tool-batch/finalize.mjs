@@ -104,7 +104,7 @@ function traceCompleted(batch, completed, result, postprocessStartedAt) {
       telemetry: completed.resultTelemetry,
       preOffloadBytes,
       postOffloadBytes,
-      modelVisibleBytes: utf8Bytes(result),
+      modelVisibleBytes: postOffloadBytes,
       offloaded,
       resultKind: completed.resultKind,
     });

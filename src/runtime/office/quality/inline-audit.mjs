@@ -57,16 +57,18 @@ export function summarizeOfficeAudit(issueList, { touched = [] } = {}) {
   const normalized = normalizeOfficeReviewIssues(issueList);
   const counts = { error: 0, warning: 0, info: 0 };
   const groups = new Map();
+  const locationKeys = new Map();
   for (const issue of normalized) {
     const severity = counts[issue.severity] === undefined ? 'warning' : issue.severity;
     counts[severity] += 1;
     const location = locationOf(issue.path);
+    locationKeys.set(issue, location.key);
     const group = groups.get(location.key) || { ...location, error: 0, warning: 0, info: 0 };
     group[severity] += 1;
     groups.set(location.key, group);
   }
   const touchedKeys = new Set(touched.map(String));
-  const isTouched = (issue) => touchedKeys.has(locationOf(issue.path).key);
+  const isTouched = (issue) => touchedKeys.has(locationKeys.get(issue));
   // Advisory findings stay readable in qa; the audit lists only what a fix
   // must answer.
   const actionable = normalized.filter((issue) => issue.severity !== 'info');

@@ -113,11 +113,15 @@ function contentPages(pages) {
 export async function reviewRenderedOfficeAesthetics(images = [], { format = '', pageRoles = {} } = {}) {
   const normalized = String(format || '').toLowerCase();
   const measured = (await Promise.all((images || []).map(renderedAestheticMetric))).filter(Boolean);
+  // One role per page: the density gates and the composition score below read the same reading.
+  const roles = new Map(
+    measured.map((metric) => [metric, normalizedPageRole(metric.page, measured.length, pageRoles)])
+  );
   const issues = [];
   for (const metric of measured) {
     // Beat pages (section/statement) are sparse on purpose; density gates
     // apply to inner pages that carry evidence.
-    const role = normalizedPageRole(metric.page, measured.length, pageRoles);
+    const role = roles.get(metric);
     const beatPage = role === 'section';
     // A diagram role is granted from the saved shapes (they cover a quarter of
     // the canvas with the text registered to them), so the canvas is not empty
@@ -246,7 +250,7 @@ export async function reviewRenderedOfficeAesthetics(images = [], { format = '',
     }
   }
   const evaluated = measured.map((metric) => {
-    const role = normalizedPageRole(metric.page, measured.length, pageRoles);
+    const role = roles.get(metric);
     const composition = roleAwareComposition(metric, role);
     return {
       ...metric,

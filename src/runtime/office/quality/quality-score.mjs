@@ -19,8 +19,8 @@ const HARD_WARNING_CODES = new Set([
   'worksheet_print_too_small',
 ]);
 
-function rounded(value, digits = 4) {
-  return Number((Number(value) || 0).toFixed(digits));
+function rounded(value) {
+  return Number((Number(value) || 0).toFixed(4));
 }
 
 function issuePenalty(issue) {

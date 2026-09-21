@@ -97,6 +97,8 @@ export function buildEvaluation(caseFile, kase) {
     : [];
   if (typeof query !== 'string' || !query.trim() || targets.length === 0) return null;
   const temporal = parsePeriod(String(kase?.args?.period || ''), true);
+  const startMs = Number(temporal?.startMs);
+  const endMs = Number(temporal?.endMs);
   return {
     id: String(kase.id),
     caseFile,
@@ -114,8 +116,8 @@ export function buildEvaluation(caseFile, kase) {
             .toLowerCase()
         )
         .filter(Boolean),
-      startMs: Number.isFinite(Number(temporal?.startMs)) ? Number(temporal.startMs) : null,
-      endMs: Number.isFinite(Number(temporal?.endMs)) ? Number(temporal.endMs) : null,
+      startMs: Number.isFinite(startMs) ? startMs : null,
+      endMs: Number.isFinite(endMs) ? endMs : null,
     },
   };
 }

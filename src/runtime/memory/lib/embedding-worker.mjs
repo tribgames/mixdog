@@ -206,6 +206,26 @@ async function disposeLoadedExtractor(reason) {
   }
 }
 
+function cancelIdleTimer() {
+  if (!_idleTimer) return;
+  clearTimeout(_idleTimer);
+  _idleTimer = null;
+}
+
+// Tear down the loaded extractor for a control op (configure/dispose). Both
+// hold the in-flight guard, so no inference can observe the reset mid-flight.
+async function disposeExtractorForControlOp() {
+  if (!extractorPromise) return;
+  try {
+    const ext = await extractorPromise;
+    try {
+      ext.dispose();
+    } catch {}
+  } catch {}
+  extractorPromise = null;
+  _device = 'cpu';
+}
+
 function resetIdleTimer() {
   if (_idleTimer) clearTimeout(_idleTimer);
   if (IDLE_TIMEOUT_MS <= 0) return;
@@ -498,23 +518,11 @@ async function processMessage(msg) {
           return;
         }
         _embedInFlight = true;
-        if (_idleTimer) {
-          clearTimeout(_idleTimer);
-          _idleTimer = null;
-        }
+        cancelIdleTimer();
         if (msg.dtype != null) {
           configuredDtype = normalizeEmbeddingDtype(MODEL_ID, msg.dtype);
         }
-        if (extractorPromise) {
-          try {
-            const ext = await extractorPromise;
-            try {
-              ext.dispose();
-            } catch {}
-          } catch {}
-          extractorPromise = null;
-          _device = 'cpu';
-        }
+        await disposeExtractorForControlOp();
         parentPort.postMessage({ id, type: 'result' });
         break;
       }
@@ -524,21 +532,9 @@ async function processMessage(msg) {
           return;
         }
         _embedInFlight = true;
-        if (_idleTimer) {
-          clearTimeout(_idleTimer);
-          _idleTimer = null;
-        }
+        cancelIdleTimer();
         const prevDevice = _device;
-        if (extractorPromise) {
-          try {
-            const ext = await extractorPromise;
-            try {
-              ext.dispose();
-            } catch {}
-          } catch {}
-          extractorPromise = null;
-          _device = 'cpu';
-        }
+        await disposeExtractorForControlOp();
         parentPort.postMessage({ id, type: 'result', prevDevice, dtype: configuredDtype });
         break;
       }

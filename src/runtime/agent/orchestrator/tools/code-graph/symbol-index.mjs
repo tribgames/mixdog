@@ -11,8 +11,7 @@
 // on which of the two produced it.
 import { _langUsesDollarInIdentifiers, _langAllowsBangQuestionSuffix } from './lang-predicates.mjs';
 import { EXTRACTION_SYMBOL_LANGS } from './constants.mjs';
-import { _getSourceTextForNode } from './source-access.mjs';
-import { _graphRel } from './source-access.mjs';
+import { _getSourceTextForNode, _graphRel } from './source-access.mjs';
 import { _symbolParentIndex, _symbolLevel } from './text-columns.mjs';
 
 // Unicode-aware word-boundary wrapper for an already-regex-escaped

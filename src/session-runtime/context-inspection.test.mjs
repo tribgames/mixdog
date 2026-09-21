@@ -127,7 +127,10 @@ test('injected skill bodies are system context while actual tool results remain 
     assert.equal(inspectContext(input, { entryId: entry.id, revision: result.revision }).preview.text, body);
   }
   assert.equal(result.estimatedTokens, estimateMessagesTokens(input.messages));
-  assert.equal(result.entries.reduce((sum, entry) => sum + entry.tokens, 0), result.estimatedTokens);
+  assert.equal(
+    result.entries.reduce((sum, entry) => sum + entry.tokens, 0),
+    result.estimatedTokens
+  );
 });
 
 test('runtime provenance and text blocks distinguish injected context from human turns', () => {
@@ -147,14 +150,24 @@ test('runtime provenance and text blocks distinguish injected context from human
     [{ role: 'user', content: 'Saved summary', meta: { source: 'compact-summary' } }, 'system'],
     [{ role: 'user', content: 'Continue working', meta: { source: 'goal-continuation' } }, 'system'],
     [{ role: 'developer', content: 'Follow these rules.' }, 'system'],
-    [{ role: 'tool', name: 'tool_search', toolCallId: 'load-1', content: 'Loaded deferred tools: browser' }, 'toolResults'],
+    [
+      { role: 'tool', name: 'tool_search', toolCallId: 'load-1', content: 'Loaded deferred tools: browser' },
+      'toolResults',
+    ],
   ];
   for (const [message, category] of cases) {
     const input = fixture({ messages: [message], tools: [], overheadTokens: 0 });
     const before = JSON.stringify(message);
     const result = inspectContext(input);
-    assert.deepEqual(result.entries.map((entry) => entry.category), [category], before);
-    assert.equal(result.entries.reduce((sum, entry) => sum + entry.tokens, 0), estimateMessagesTokens([message]));
+    assert.deepEqual(
+      result.entries.map((entry) => entry.category),
+      [category],
+      before
+    );
+    assert.equal(
+      result.entries.reduce((sum, entry) => sum + entry.tokens, 0),
+      estimateMessagesTokens([message])
+    );
     assert.equal(JSON.stringify(message), before);
   }
 });
@@ -193,7 +206,10 @@ test('mixed human and runtime content is split without losing attachments, previ
       assert.equal(result.entries.filter((entry) => entry.category === 'attachments').length, 1);
     }
     assert.equal(new Set(result.entries.map((entry) => entry.id)).size, result.entries.length);
-    assert.equal(result.entries.reduce((sum, entry) => sum + entry.tokens, 0), estimateMessagesTokens([message]));
+    assert.equal(
+      result.entries.reduce((sum, entry) => sum + entry.tokens, 0),
+      estimateMessagesTokens([message])
+    );
     assert.equal(JSON.stringify(message), before);
   }
 });

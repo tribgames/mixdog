@@ -1062,7 +1062,7 @@ function buildTurnDiagnostics(rows, routeGroups) {
     const usageSorted = [...usageRows].sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
     const seenByIteration = new Map();
 
-    const pushTurn = ({ usage = null, transport = null, tools = [], cacheBreaks = [], nextTs = Infinity }) => {
+    const pushTurn = ({ usage = null, transport = null, tools = [], cacheBreaks = [], nextTs: _nextTs = Infinity }) => {
       const iteration = num(usage || transport || tools[0] || cacheBreaks[0], 'iteration');
       const occurrence = (seenByIteration.get(iteration) || 0) + 1;
       seenByIteration.set(iteration, occurrence);

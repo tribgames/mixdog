@@ -77,7 +77,12 @@ import { createBrowserNetworkReports } from './network';
 import { createBrowserPageState } from './page-state';
 import { createBrowserPageSurface } from './page-surface';
 import { createBrowserLocalPrompts } from './local-prompts';
-import { BROWSER_INPUT_WAIT_MS, browserInputImmediate, browserTypingInput } from '../../shared/browser-input-policy';
+import {
+  BROWSER_INPUT_WAIT_MS,
+  browserInputImmediate,
+  browserInputPresentation,
+  browserTypingInput,
+} from '../../shared/browser-input-policy';
 import { createBrowserDisplayCapture } from './display-capture';
 import { createBrowserDisplayTextures } from './display-textures';
 import { createBrowserPartition } from './partition';
@@ -287,14 +292,11 @@ export function createBrowserHost(
   });
   const input = createBrowserInputDriver(dispatchInput, {
     drags: {
-      reset: (guest) => {
-        state.for(guest).interceptedDrag = undefined;
+      slots: {
+        for: (guest) => state.for(guest),
+        peek: (guest) => state.peek(guest),
       },
-      take: (guest) => {
-        const pending = state.peek(guest)?.interceptedDrag;
-        if (pending) state.for(guest).interceptedDrag = undefined;
-        return pending ?? null;
-      },
+      evaluate: (guest, expression, signal) => cdp.evaluate(guest, expression, signal),
     },
   });
   const screenshots = createBrowserScreenshotService(cdp, SCREENSHOT_TIMEOUT_MS, SCREENSHOT_FALLBACK_TIMEOUT_MS);
@@ -690,17 +692,18 @@ export function createBrowserHost(
           !session_id ||
           !Number.isSafeInteger(turn_id) ||
           Number(turn_id) <= 0 ||
-          Object.keys(input).some((key) => key !== 'action')
+          Object.keys(input).some((key) => key !== 'action' && key !== 'aborted')
         ) {
           throw new Error('Invalid browser task cleanup context.');
         }
+        const aborted = (input as Record<string, unknown>).aborted === true;
         const prefix = `session:${owner}:`;
         const pending = [
           ...[...commandChains].filter(([key]) => key.startsWith(prefix)).map(([, task]) => task),
           ...[...pendingReads].filter(([key]) => key.startsWith(prefix)).flatMap(([, tasks]) => [...tasks]),
         ];
         return Promise.allSettled(pending).then(() => ({
-          text: `Browser task cleanup complete: ${taskLifecycle.finish(owner, Number(turn_id))} temporary page(s) closed.`,
+          text: `Browser task cleanup complete: ${taskLifecycle.finish(owner, Number(turn_id), { aborted })} temporary page(s) closed.`,
         }));
       }
       const validated = validateBrowserToolArgs(input);
@@ -776,7 +779,7 @@ export function createBrowserHost(
           // document/prompt is revalidated after the native picker returns.
           return pageSurface.control(owner, input).finally(release);
         }
-        if (input.type !== 'resize') interruptForLocal(command);
+        if (!browserInputPresentation(input)) interruptForLocal(command);
         const signal = AbortSignal.timeout(COMMAND_TIMEOUT_MS);
         return cdp.bounded(
           pageSurface.control(owner, input, signal),
@@ -791,7 +794,7 @@ export function createBrowserHost(
       const release = input.type === 'pointer' && input.phase === 'mouseReleased';
       const hover = input.type === 'pointer' && input.phase === 'mouseMoved' && input.buttons === 0;
       return executeLocal(command, (signal) => pageSurface.control(owner, input, signal), {
-        takeover: !hover && input.type !== 'zoom',
+        takeover: !hover,
         dropIfBusy: hover,
         ...(input.type === 'pointer' && input.phase !== 'mouseMoved' ? { held: !release } : {}),
         maxWaitMs: release || browserTypingInput(input) ? undefined : BROWSER_INPUT_WAIT_MS,

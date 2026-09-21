@@ -58,7 +58,8 @@
 }
 /* Navigation progress is delayed globally: warm/short switches stay visually
    silent, while a genuinely slow cold load still gains a bounded indicator.
-   The branded native boot mark is intentionally exempt. */
+   Only the cold-boot window cover opts out: it owns the window from the first
+   frame, so it has nothing to flash against. */
 .desktop-loading-surface--delayed {
   opacity: 0;
   animation: cover-spinner-reveal var(--mx-motion-chrome) 600ms forwards;

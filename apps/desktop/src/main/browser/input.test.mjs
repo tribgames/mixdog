@@ -57,7 +57,7 @@ test('browser CDP pointer input keeps CSS coordinates independent of WebContents
 
 test('a page that starts its own HTML5 drag is finished with drag events, never a mouse release', async () => {
   const calls = [];
-  let pending = { items: [{ mimeType: 'text/plain', data: 'card-42' }], dragOperationsMask: 1 };
+  const slots = {};
   const driver = createBrowserInputDriver(
     async (_guest, method, params) => {
       calls.push({ method, type: params.type, x: params.x, y: params.y, enabled: params.enabled, data: params.data });
@@ -65,11 +65,12 @@ test('a page that starts its own HTML5 drag is finished with drag events, never 
     },
     {
       drags: {
-        reset: () => {},
-        take: () => {
-          const data = pending;
-          pending = null;
-          return data;
+        slots: { for: () => slots, peek: () => slots },
+        // The page owns the source, and Chromium hands the payload over as
+        // soon as the press turns into its own drag.
+        evaluate: async () => {
+          slots.interceptedDrag = { items: [{ mimeType: 'text/plain', data: 'card-42' }], dragOperationsMask: 1 };
+          return true;
         },
       },
     }
@@ -122,18 +123,68 @@ test('typing sends one key event per character, so keydown-driven widgets react'
 
 test('a drag no page claims stays a plain mouse gesture', async () => {
   const calls = [];
+  const slots = {};
   const driver = createBrowserInputDriver(
     async (_guest, method, params) => {
       calls.push({ method, type: params.type });
       return 'completed';
     },
-    { drags: { reset: () => {}, take: () => null } }
+    { drags: { slots: { for: () => slots, peek: () => slots }, evaluate: async () => false } }
   );
 
   await driver.dragAt({}, { x: 100, y: 100 }, { x: 300, y: 100 });
 
   assert.equal(calls.filter((call) => call.method === 'Input.dispatchDragEvent').length, 0);
   assert.equal(calls.filter((call) => call.type === 'mouseReleased').length, 1);
+});
+
+test('a drag source the page owns is waited for until Chromium delivers its payload', async () => {
+  const calls = [];
+  const slots = {};
+  const driver = createBrowserInputDriver(
+    async (_guest, method, params) => {
+      calls.push({ method, type: params.type, data: params.data });
+      return 'completed';
+    },
+    { drags: { slots: { for: () => slots, peek: () => slots }, evaluate: async () => true } }
+  );
+
+  // The renderer runs its own dragstart well after the last move, which is
+  // exactly when a busy page hands the payload over.
+  setTimeout(() => {
+    slots.interceptedDrag = { items: [{ mimeType: 'text/plain', data: 'card-42' }], dragOperationsMask: 1 };
+    slots.notifyInterceptedDrag?.(slots.interceptedDrag);
+  }, 250);
+  await driver.dragAt({}, { x: 100, y: 100 }, { x: 300, y: 100 });
+
+  const dropped = calls.filter((call) => call.type === 'drop');
+  assert.equal(dropped.length, 1, 'the late payload still lands as a drop');
+  assert.equal(dropped[0].data.items[0].data, 'card-42');
+  assert.equal(calls.filter((call) => call.type === 'mouseReleased').length, 0);
+});
+
+test('a payload delivered too late belongs to no later gesture', async () => {
+  const calls = [];
+  const slots = {};
+  const driver = createBrowserInputDriver(
+    async (_guest, method, params) => {
+      calls.push({ method, type: params.type, data: params.data });
+      return 'completed';
+    },
+    { drags: { slots: { for: () => slots, peek: () => slots }, evaluate: async () => false } }
+  );
+
+  await driver.dragAt({}, { x: 100, y: 100 }, { x: 300, y: 100 });
+  // Chromium answers the abandoned gesture after the driver has let it go.
+  slots.interceptedDrag = { items: [{ mimeType: 'text/plain', data: 'stale' }], dragOperationsMask: 1 };
+  await driver.dragAt({}, { x: 100, y: 100 }, { x: 300, y: 100 });
+
+  assert.deepEqual(
+    calls.filter((call) => call.type === 'drop'),
+    [],
+    "a stale payload never becomes the next gesture's drop"
+  );
+  assert.equal(calls.filter((call) => call.type === 'mouseReleased').length, 2);
 });
 
 test('dropping files announces the payload before delivering it', async () => {

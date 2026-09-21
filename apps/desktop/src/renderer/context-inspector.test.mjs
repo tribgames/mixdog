@@ -100,9 +100,14 @@ test('context tool previews use highlighted JSON cards without changing the sour
   for (const source of ['{\n  "description": "```example```"\n}', '{\n  "name": "truncated']) {
     const markdown = contextPreviewMarkdown(source, 'tool');
     await parseStreamingMarkdownAst(markdown);
-    const dom = new JSDOM(renderToStaticMarkup(React.createElement(MarkdownBody, {
-      text: markdown, copyControl: CopyControl,
-    })));
+    const dom = new JSDOM(
+      renderToStaticMarkup(
+        React.createElement(MarkdownBody, {
+          text: markdown,
+          copyControl: CopyControl,
+        })
+      )
+    );
     const code = dom.window.document.querySelector('.markdown-code code.language-json');
     assert.ok(code);
     // The highlighter keeps the fence's closing newline only inside an

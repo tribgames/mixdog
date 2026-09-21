@@ -33,6 +33,11 @@ type SessionClientLoader = (
 ) => Promise<SessionClientModule>;
 type DesktopInitOptions = Extract<DesktopServiceInbound, { kind: 'init' }>['options'];
 
+/** Diagnostic timings are reported to one decimal place. */
+function roundMs(elapsed: number): number {
+  return Math.round(elapsed * 10) / 10;
+}
+
 function isTransientConnectionReset(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const record = error as Record<string, unknown>;
@@ -117,7 +122,7 @@ export class SessionTransport implements DesktopTransport {
     this.emit('diagnostic', 'desktop-boot-phase', {
       phase,
       status: 'start',
-      totalMs: Math.round((startedAt - this.bootStartedAt) * 10) / 10,
+      totalMs: roundMs(startedAt - this.bootStartedAt),
       ...details,
     });
     try {
@@ -126,8 +131,8 @@ export class SessionTransport implements DesktopTransport {
       this.emit('diagnostic', 'desktop-boot-phase', {
         phase,
         status: 'ready',
-        durationMs: Math.round((endedAt - startedAt) * 10) / 10,
-        totalMs: Math.round((endedAt - this.bootStartedAt) * 10) / 10,
+        durationMs: roundMs(endedAt - startedAt),
+        totalMs: roundMs(endedAt - this.bootStartedAt),
         ...details,
       });
       return result;
@@ -136,8 +141,8 @@ export class SessionTransport implements DesktopTransport {
       this.emit('diagnostic', 'desktop-boot-phase', {
         phase,
         status: 'failed',
-        durationMs: Math.round((endedAt - startedAt) * 10) / 10,
-        totalMs: Math.round((endedAt - this.bootStartedAt) * 10) / 10,
+        durationMs: roundMs(endedAt - startedAt),
+        totalMs: roundMs(endedAt - this.bootStartedAt),
         errorName: error instanceof Error ? error.name : typeof error,
         ...details,
       });
@@ -185,7 +190,7 @@ export class SessionTransport implements DesktopTransport {
       this.emit('diagnostic', 'desktop-boot-phase', {
         phase: 'transport-ready',
         status: 'ready',
-        totalMs: Math.round((performance.now() - this.bootStartedAt) * 10) / 10,
+        totalMs: roundMs(performance.now() - this.bootStartedAt),
         attempt: this.connectAttempt,
       });
       this.emit('message', { kind: 'ready', viewSync: this.viewSyncSupported } satisfies DesktopServiceOutbound);

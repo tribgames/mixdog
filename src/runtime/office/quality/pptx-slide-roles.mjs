@@ -24,6 +24,11 @@ function spansOverlap(aStart, aEnd, bStart, bEnd) {
   return aStart <= bEnd && bStart <= aEnd;
 }
 
+// The area a share is measured against; a deck that saved no size reads as the default canvas.
+function canvasArea(size) {
+  return Math.max(1, (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height));
+}
+
 // A text box registered to a diagram shape (sharing its row or its column) is
 // part of the diagram: the label beside a brace, the caption under a node.
 function isRegisteredText(shape, anchors) {
@@ -68,11 +73,7 @@ export function pptxDiagramCoverage(slide, size = DEFAULT_SLIDE) {
   const top = Math.min(...boxes.map((entry) => entry.top));
   const right = Math.max(...boxes.map((entry) => entry.right));
   const bottom = Math.max(...boxes.map((entry) => entry.bottom));
-  const canvas = Math.max(
-    1,
-    (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height)
-  );
-  const fieldShare = (Math.max(0, right - left) * Math.max(0, bottom - top)) / canvas;
+  const fieldShare = (Math.max(0, right - left) * Math.max(0, bottom - top)) / canvasArea(size);
   return { count: drawn.length, fieldShare: Number(fieldShare.toFixed(4)) };
 }
 
@@ -80,10 +81,7 @@ const PICTURE_MIN_SHARE = 0.25;
 
 // The share of the canvas under pictures (each frame's own area; overlaps count twice, which only helps a stack).
 export function pptxPictureShare(slide, size = DEFAULT_SLIDE) {
-  const canvas = Math.max(
-    1,
-    (Number(size?.width) || DEFAULT_SLIDE.width) * (Number(size?.height) || DEFAULT_SLIDE.height)
-  );
+  const canvas = canvasArea(size);
   const area = (Array.isArray(slide?.shapes) ? slide.shapes : [])
     .filter((shape) => shape?.type === 'p:pic' && Number(shape.width) > 0 && Number(shape.height) > 0)
     .reduce((total, shape) => total + Number(shape.width) * Number(shape.height), 0);

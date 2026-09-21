@@ -56,8 +56,6 @@ function readProjectMcpDocument(cwd, allowMissing = false) {
     throw new Error(`unexpected .mcp.json shape at ${path}`);
   }
   const usesWrapper = isPlainObject(raw.mcpServers);
-  const map = usesWrapper ? raw.mcpServers : raw;
-  if (!isPlainObject(map)) throw new Error(`unexpected .mcp.json shape at ${path}`);
   return { path, raw, usesWrapper };
 }
 

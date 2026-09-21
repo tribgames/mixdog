@@ -80,7 +80,10 @@ export async function observationRoute(
     case 'list_apps':
       return await host.listComputerApps(command);
     case 'list_history': {
-      const records = readComputerRunRecords(host.sessionIdFor(command), MAX_HISTORY_RECORDS);
+      const requested = Number(command.limit);
+      const limit =
+        Number.isInteger(requested) && requested > 0 ? Math.min(requested, MAX_HISTORY_RECORDS) : MAX_HISTORY_RECORDS;
+      const records = readComputerRunRecords(host.sessionIdFor(command), limit);
       return { text: JSON.stringify({ history: records, returned: records.length }) };
     }
     case 'capture': {

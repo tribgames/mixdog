@@ -106,12 +106,17 @@ export function browserVisualLocatorExpression(rawQuery: string, maxCandidates =
           height: rect.height,
         };
         const place = position(globalRect);
+        // A visual search answers for the screen. An element scrolled out of
+        // the viewport has no pixels in the screenshot and no coordinates
+        // anything can click, so offering it would only invite a rejected hit.
+        const onScreen = globalRect.left + globalRect.width > 0 && globalRect.top + globalRect.height > 0
+          && globalRect.left < window.innerWidth && globalRect.top < window.innerHeight;
         const haystack = [tag, role, name.toLowerCase(), color, place].join(' ');
         let score = query && haystack.includes(query) ? 120 : 5;
         for (const token of requested) {
           if (haystack.includes(token)) score += ['top','bottom','left','right','center'].includes(token) ? 18 : 25;
         }
-        if (!query || score > 5) {
+        if (onScreen && (!query || score > 5)) {
           candidates.push({
             score,
             tag,

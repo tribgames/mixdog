@@ -102,8 +102,8 @@ observed target, and leave windows where they were.
   report `pixel_unavailable`; do not substitute a screen grab.
 - If the user intervenes, preserve their cursor and focus. Worker termination
   and input cleanup must finish before resuming; a failed cleanup is not cleared
-  by a resume request. Ask the user to press `Ctrl+Alt+Esc` (emergency Stop)
-  for verified cleanup recovery.
+  by a resume request. Ask the user to press `Ctrl+Alt+Esc`, or the overlay's
+  Stop control, for verified cleanup recovery.
   If target-local release remains unconfirmed, the user must inspect/recover
   that window; restarting the host alone does not prove release. Never operate
   recovery controls for the user. Obtain a new observation after an interruption.
@@ -137,10 +137,12 @@ observed target, and leave windows where they were.
    `screen`: the frame already identifies the exact source window.
 3. `act` with 1–6 simple actions. The first is an input action (`click`,
    `double_click`, `triple_click`, `mouse_down`, `mouse_up`, `move`, `drag`,
-   `scroll`, `type`, `key`, `key_down`, or `key_up`), using a fresh
+   `scroll`, `type`, `set_value`, `key`, `key_down`, or `key_up`), using a fresh
    `ref`, an `element` mark, or `x`/`y` in `act.input.frame_id` when a target
-   is needed. Later actions may only be `type`, `key`, `key_down`, `key_up`, or
-   `wait`; they reuse
+   is needed. `set_value` writes a `ref`/`element` that advertises it — a
+   field, a slider, a select — without focus or keystrokes, which is the
+   route when background keys are unsupported. Later actions may only be
+   `type`, `key`, `key_down`, `key_up`, or `wait`; they reuse
    focus and cannot carry another target. A second pointer action needs a
    separate `act` using the returned observation.
    `mouse_down` holds a button past the end of its command and is
@@ -206,6 +208,11 @@ user's go-ahead and use `window` with the `close` operation.
 successor observation to handle the dialog; capture only if it is unusable.
 Returning to the original window also requires a fresh observation, whether
 returned by the action or obtained through `capture`.
+A dialog accepts background text only while it holds focus, and its buttons
+answer to the dialog manager, which a background message bypasses: the refusals
+`focus_required` and `dialog_key_unsupported` say so before anything is sent.
+Focus the window, address the control by `ref`/`set_value`, click the button,
+or repeat with foreground delivery — never re-send the same step.
 
 **Reading a screen for the user** — `capture` with `mode=ax` for text-heavy
 UI, `som` when you need to point at things, `image_output=file` for large

@@ -321,7 +321,6 @@ function applyFileQuoteStyle(actualSpan, replacement) {
   return out.join('');
 }
 
-// ---------------------------------------------------------------------------
 // Encoding / line-ending fidelity (Windows-first).
 //
 // The edit path used to decode every target as UTF-8 and hand the native
@@ -331,7 +330,6 @@ function applyFileQuoteStyle(actualSpan, replacement) {
 // the file's BOM decides the codec, the file's dominant EOL decides the line
 // endings of old_string/new_string, and non-UTF-8 targets are edited in-process
 // (the native engine's payload is UTF-8 by protocol) and re-encoded in place.
-// ---------------------------------------------------------------------------
 const UTF8_BOM_BYTES = Buffer.from([0xef, 0xbb, 0xbf]);
 const UTF16LE_BOM_BYTES = Buffer.from([0xff, 0xfe]);
 const UTF16BE_BOM_BYTES = Buffer.from([0xfe, 0xff]);

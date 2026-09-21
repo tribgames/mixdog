@@ -48,12 +48,6 @@ import { terminalSize, projectNameFromPath, workflowDisplayName, workflowSwitchN
 import { createProjectPicker } from './app/project-picker.mjs';
 import { usePromptHandlers } from './app/use-prompt-handlers.mjs';
 
-// Pure formatting helpers: extracted to app/app-format.mjs
-
-// Model/route label + ordering + picker-item helpers: extracted to app/model-options.mjs
-
-// ToolHookDenialCard + Item: extracted to components/TranscriptItem.jsx
-
 const PANEL_LAYOUT_SIG = {
   PICKER: 1,
   SLASH: 4,
@@ -335,7 +329,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     (next) => {
       setDisabledSkillsInner((current) => {
         const base = current instanceof Set ? current : new Set(current);
-        const set = typeof next === 'function' ? next(base) : next instanceof Set ? next : new Set(next);
+        let set;
+        if (typeof next === 'function') set = next(base);
+        else if (next instanceof Set) set = next;
+        else set = new Set(next);
         try {
           store.setDisabledSkills?.([...set]);
         } catch (e) {
@@ -356,11 +353,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // app/use-pasted-buffers.mjs.
   const {
     pastedImagesRef,
-    nextPastedImageIdRef,
     pastedTextsRef,
-    nextPastedTextIdRef,
-    setPastedImages,
-    setPastedTexts,
     installPastedImages,
     clearPastedImagesSnapshot,
     registerPastedImage,
@@ -708,9 +701,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     // rows the reader was anchored to no longer exist.
     if (transcriptSwapReturnsToTail({ count, previousCount, firstId, previousFirstId })) {
       resetTranscriptScroll();
-      return;
     }
-    if (count === previousCount || dragRef.current.active) return;
   }, [state.items, resetTranscriptScroll]);
 
   // Exit + queued-restore + prompt history: app/use-prompt-queue-history.mjs.
@@ -816,10 +807,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   });
 
   useEffect(() => {
-    if (contextPanel?.kind === 'context') {
-      openContextPicker();
-      return;
-    }
+    if (contextPanel?.kind === 'context') openContextPicker();
   }, [
     contextPanel?.kind,
     state.stats,

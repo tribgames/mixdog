@@ -37,11 +37,6 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       status={providerStatus(provider)}
       actions={
         <>
-          {provider === openCodeGoProvider && (
-            <ActionButton disabled={busy} onClick={() => void run('loginOpenCodeGoUsage')}>
-              Usage sign-in
-            </ActionButton>
-          )}
           {!provider.authenticated && typeof provider.url === 'string' && /^https:\/\//.test(provider.url) && (
             <ActionButton disabled={busy} onClick={() => openKeyConsole(String(provider.url))}>
               Get API key ↗

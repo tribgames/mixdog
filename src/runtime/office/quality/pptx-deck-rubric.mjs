@@ -70,7 +70,10 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
     add('color_ladder', band(rhythm.textColors.length, 5, 10), rhythm.textColors.length);
 
   const balances = observed.map((o) => o.renderBalance?.score).filter((v) => typeof v === 'number');
-  if (balances.length) add('balance', mean(balances), Number(mean(balances).toFixed(2)));
+  if (balances.length) {
+    const balance = mean(balances);
+    add('balance', balance, Number(balance.toFixed(2)));
+  }
 
   const air = observed.map((o) => o.air).filter((v) => typeof v === 'number');
   if (air.length > 2) {
@@ -89,7 +92,10 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
   if (carriers.length) add('presence', mean(carriers.map((v) => clamp01(v / 0.25))), Number(mean(carriers).toFixed(2)));
 
   const strays = observed.map((o) => o.textColumns?.rightStray).filter((v) => typeof v === 'number');
-  if (strays.length) add('alignment', band(mean(strays), 1, 4), Number(mean(strays).toFixed(1)));
+  if (strays.length) {
+    const stray = mean(strays);
+    add('alignment', band(stray, 1, 4), Number(stray.toFixed(1)));
+  }
 
   // Body pages (evidence and text, never a beat) by the characters they carry: the reference decks run 330-900
   // per page at the median, ours ran 60-150 before this work — a page that says one sentence beside its chart.
@@ -97,8 +103,8 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
     .filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.chars === 'number')
     .map((slide) => slide.chars);
   if (body.length) {
-    const sorted = [...body].sort((a, b) => a - b),
-      median = sorted[Math.floor(sorted.length / 2)];
+    const sorted = [...body].sort((a, b) => a - b);
+    const median = sorted[Math.floor(sorted.length / 2)];
     add('density', clamp01((median - 80) / (280 - 80)), median);
   }
 
@@ -114,8 +120,10 @@ export function scoreDeck({ receipt, issues = [] } = {}) {
   const objects = slides
     .filter((slide) => slide.grammar && slide.grammar !== 'beat' && typeof slide.observe?.renderLargest === 'number')
     .map((slide) => slide.observe.renderLargest);
-  if (objects.length)
-    add('object_scale', clamp01((mean(objects) - 0.1) / (0.35 - 0.1)), Number(mean(objects).toFixed(2)));
+  if (objects.length) {
+    const largest = mean(objects);
+    add('object_scale', clamp01((largest - 0.1) / (0.35 - 0.1)), Number(largest.toFixed(2)));
+  }
 
   const total = checks.reduce((sum, check) => sum + check.weight, 0);
   const score = total

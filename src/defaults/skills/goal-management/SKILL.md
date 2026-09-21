@@ -1,7 +1,7 @@
 ---
 name: goal-management
 description: Manage durable goals, task progress, approvals, and completion.
-when_to_use: 'Explicit Goals or approved time-budgeted work; not ordinary tasks, plans, estimates, or deadlines.'
+when_to_use: 'Explicit Goals, or approved work spanning several rounds: staged refactors and migrations, repeated improvement passes, open-ended objectives; not single-turn tasks, plans, or estimates.'
 dependencies:
   tools:
     - type: tool
@@ -15,20 +15,27 @@ owns arguments and limits; this guide owns the lifecycle and completion policy.
 
 ## Admission and current state
 
-Create a Goal for an explicit user or system/developer Goal request, or user
-delegation or approval of sustained work with a time budget. The user need not
-name Goal: approval of an assistant-proposed scope and budget also qualifies.
-Resolve a short approval against the preceding proposal and retain any user
-constraints. An unaccepted assistant proposal is not authorization.
+Create a Goal for an explicit user or system/developer Goal request, or for
+user delegation or approval of work that runs past a single turn: a staged
+refactor or migration, repeated improvement passes, a partition list or
+candidate inventory carried between turns, or an open-ended objective that
+must be finished. A time budget is optional, and the user need not name Goal —
+approval of an assistant-proposed scope also qualifies. Resolve a short
+approval against the preceding proposal and retain any user constraints.
 
-Ordinary tasks, complexity, planning, estimates, deadlines, and round counts
-alone do not qualify. If work needs approval, obtain it first; then create the
+Create the Goal so that scope and state survive the turn boundary instead of
+being rebuilt or dropped. A single-turn task, planning, estimates, and
+deadlines alone do not qualify, and neither does an unaccepted assistant
+proposal.
+
+If work needs approval, obtain it first; then create the
 Goal, or reconcile an existing one, before starting the approved work,
 including execution-stage exploration. An existing Goal does not authorize
 new scope.
 
 For creation, use the requested or approved budget for `time_limit_minutes`;
-omit it when an explicit Goal request has no budget. An upper bound uses
+omit it when no budget was agreed — an untimed Goal runs on its objective
+alone. An upper bound uses
 `time_mode: max`; use `duration` only when the user explicitly requests work
 for the full period.
 

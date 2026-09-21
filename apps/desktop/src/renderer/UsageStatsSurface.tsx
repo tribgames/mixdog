@@ -15,7 +15,7 @@ import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react';
 import { DateRangePicker, type DayRange } from './DateRangePicker';
 import { t } from './i18n';
 import { modelDisplayName, providerDisplayName, ProviderIcon } from './provider-display';
-import { record } from './record-utils';
+import { record, rows } from './record-utils';
 import { usageNumber, usageProviderLabel } from './usage-format';
 import {
   StatsValue,
@@ -243,9 +243,9 @@ export function UsageStatsBody({
   const totals = record(stats.totals);
   const period: Row = loading ? initialPeriod : record(stats.period);
   const coverage = record(stats.coverage);
-  const daily = (Array.isArray(stats.daily) ? (stats.daily as unknown[]) : []).map(record);
-  const hourly = (Array.isArray(stats.hourly) ? (stats.hourly as unknown[]) : []).map(record);
-  const providerRows = (Array.isArray(stats.providers) ? (stats.providers as unknown[]) : []).map(record);
+  const daily = rows(stats.daily);
+  const hourly = rows(stats.hourly);
+  const providerRows = rows(stats.providers);
   const providers = [...providerRows].sort((a, b) => statsNumber(b[sort]) - statsNumber(a[sort]));
   // Traffic determines band order. Provider identity owns its fixed colour.
   const providerOrder = [...providerRows]
@@ -259,11 +259,11 @@ export function UsageStatsBody({
   );
   const subscriptionCost = subscriptionRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
   const apiCost = apiRows.reduce((sum, row) => sum + statsNumber(row.costUsd), 0);
-  const moneyFor = (rows: Row[], amount: number) =>
+  const moneyFor = (group: Row[], amount: number) =>
     statsMoney({
       costUsd: amount,
-      turns: rows.reduce((sum, row) => sum + statsNumber(row.turns), 0),
-      costUnpricedTurns: rows.reduce((sum, row) => sum + unpricedTurns(row), 0),
+      turns: group.reduce((sum, row) => sum + statsNumber(row.turns), 0),
+      costUnpricedTurns: group.reduce((sum, row) => sum + unpricedTurns(row), 0),
     });
   const tokens = statsNumber(totals.tokens);
   const turns = statsNumber(totals.turns);
@@ -493,7 +493,7 @@ export function UsageStatsBody({
           </thead>
           {providers.map((provider) => {
             const id = String(provider.provider || '');
-            const models = (Array.isArray(provider.models) ? (provider.models as unknown[]) : []).map(record);
+            const models = rows(provider.models);
             const open = !collapsed.has(id);
             const plan = statsPlan(id, String(provider.providerKind || ''));
             // Share is suppressed per row, not for the whole table: the model

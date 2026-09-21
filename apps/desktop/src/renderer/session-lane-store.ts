@@ -189,11 +189,16 @@ function laneRouteText(snapshot: Snapshot | null, field: 'provider' | 'model' | 
   return typeof value === 'string' ? value.trim() : '';
 }
 
-export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Snapshot {
-  if (!prior) return next;
+/** A retention merge stays inside one session: a frame naming a different
+ *  session never inherits the prior lane's fields. */
+function sameLaneSession(prior: Snapshot, next: Snapshot): boolean {
   const priorSessionId = String(prior.sessionId || '');
   const nextSessionId = String(next.sessionId || '');
-  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  return !priorSessionId || !nextSessionId || priorSessionId === nextSessionId;
+}
+
+export function laneFrameWithRetainedRoute(prior: Snapshot | null, next: Snapshot): Snapshot {
+  if (!prior || !sameLaneSession(prior, next)) return next;
   const priorProvider = laneRouteText(prior, 'provider');
   const priorModel = laneRouteText(prior, 'model');
   const provider = laneRouteText(next, 'provider') || priorProvider;
@@ -248,10 +253,7 @@ const LANE_CONTEXT_WINDOW_FIELDS: ReadonlyArray<'contextWindow' | 'displayContex
 ];
 
 export function laneFrameWithRetainedContextWindow(prior: Snapshot | null, next: Snapshot): Snapshot {
-  if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || '');
-  const nextSessionId = String(next.sessionId || '');
-  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  if (!prior || !sameLaneSession(prior, next)) return next;
   if (
     laneRouteText(prior, 'provider') !== laneRouteText(next, 'provider') ||
     laneRouteText(prior, 'model') !== laneRouteText(next, 'model')
@@ -278,19 +280,13 @@ export function laneFrameWithRetainedContextWindow(prior: Snapshot | null, next:
 // bucket, empty ones included, so retaining the last known jobs for a frame
 // that omits the field entirely can never keep a finished shell on screen.
 export function laneFrameWithRetainedShellJobs(prior: Snapshot | null, next: Snapshot): Snapshot {
-  if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || '');
-  const nextSessionId = String(next.sessionId || '');
-  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  if (!prior || !sameLaneSession(prior, next)) return next;
   if (next.shellJobs != null || prior.shellJobs == null) return next;
   return { ...next, shellJobs: prior.shellJobs };
 }
 
 export function laneFrameRetainingSettledRows(prior: Snapshot | null, next: Snapshot): Snapshot {
-  if (!prior) return next;
-  const priorSessionId = String(prior.sessionId || '');
-  const nextSessionId = String(next.sessionId || '');
-  if (priorSessionId && nextSessionId && priorSessionId !== nextSessionId) return next;
+  if (!prior || !sameLaneSession(prior, next)) return next;
   const priorItems = laneTranscript(prior);
   if (!priorItems || priorItems.length === 0) return next;
   const nextItems = laneTranscript(next);
@@ -335,18 +331,6 @@ function rejectedSessionLaneRevision(
     return 'duplicate-replay';
   }
   return null;
-}
-
-/** Content-generation gate for host lane frames. A replay carries the
- *  generation it was derived from, so it can only be older than or equal to
- *  the frame it raced; both are rejected whole (transcript AND the stale
- *  route/usage/work read-outs travelling with them). */
-export function staleSessionLaneReplay(
-  priorRevision: number | null,
-  provenance: SessionLaneFrameProvenance
-): 'stale-replay' | 'duplicate-replay' | null {
-  const rejected = rejectedSessionLaneRevision(priorRevision, provenance);
-  return rejected === 'stale-replay' || rejected === 'duplicate-replay' ? rejected : null;
 }
 
 /** The host lane mixes owner publications with durable replays. Ordering is

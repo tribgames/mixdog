@@ -29,10 +29,8 @@ process.on('SIGINT', cleanup);
 process.stdin.on('data', (buf) => {
   const s = buf.toString('utf8');
   if (s === 'q' || s === '\x03') return cleanup();
-  let m;
-  MOUSE.lastIndex = 0;
   let sawMouse = false;
-  while ((m = MOUSE.exec(s)) !== null) {
+  for (const m of s.matchAll(MOUSE)) {
     sawMouse = true;
     const b = Number(m[1]);
     const mods = [b & 4 ? 'shift' : '', b & 8 ? 'alt' : '', b & 16 ? 'ctrl' : ''].filter(Boolean).join('+') || 'none';

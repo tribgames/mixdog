@@ -5,8 +5,7 @@ import { DEFAULT_DISABLED_AGENT_IDS } from '../runtime/shared/agent-route-config
 
 export const AGENT_DELETED_MARKER = '.deleted';
 export const FIXED_AGENT_SLOTS = Object.freeze([
-  // Short one-liners on purpose: these render inside the 260px sidebar rail
-  // (user: 창이 크지 않으니 설명은 짧게).
+  // Short one-liners on purpose: these render inside the 260px sidebar rail.
   { id: 'maintainer', label: 'Maintainer', description: 'Memory and upkeep', workflowSlot: 'memory' },
 ]);
 export const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));

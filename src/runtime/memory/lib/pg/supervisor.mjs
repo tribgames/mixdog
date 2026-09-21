@@ -27,6 +27,7 @@ import {
 } from '../../../shared/service-discovery.mjs';
 import { withFileLockSync } from '../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
+import { envFlag } from '../../../shared/env.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 
 let _pgProc = null;
@@ -61,15 +62,8 @@ const LOCK_POLL_MS = 100;
 const LOCK_WARN_MS = 5_000;
 const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 
-function envFlagEnabled(name) {
-  const raw = String(process.env[name] ?? '')
-    .trim()
-    .toLowerCase();
-  return raw === '1' || raw === 'true' || raw === 'on' || raw === 'yes';
-}
-
 function attachOnlyMode() {
-  return envFlagEnabled('MIXDOG_PG_ATTACH_ONLY') || envFlagEnabled('MIXDOG_MEMORY_SECONDARY');
+  return envFlag('MIXDOG_PG_ATTACH_ONLY') || envFlag('MIXDOG_MEMORY_SECONDARY');
 }
 
 // ── File lock (O_EXCL pattern from dispatch-persist.mjs / run-mcp.mjs) ───────
@@ -219,6 +213,12 @@ const _LOCK_CONTENTION_CODES = new Set(['ELOCKTIMEOUT', 'ELOCKCONTENDED', 'EPERM
 // A clear (pg_port → null) must never unlink a NEWER supervisor's fresh advert:
 // re-read under the lock and, if pg_owner_pid names another live process, leave
 // it. Our own pid, a dead owner, or a missing/legacy owner → safe to unlink.
+/** Drop stale fields (pid/startedAt/updatedAt) written by older versions. */
+function _withoutLegacyAdvertFields(advert) {
+  const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...rest } = advert;
+  return rest;
+}
+
 function _pgAdvertIsForeignLive(adv) {
   const owner = Number(adv?.pg_owner_pid);
   if (!Number.isInteger(owner) || owner <= 0) return false;
@@ -238,8 +238,7 @@ function _applyActiveInstancePatch(fields, timeoutMs) {
     `${file}.lock`,
     () => {
       const cur = _readPgServiceAdvert(_PG_DISCOVERY) ?? {};
-      // Drop stale fields (pid/startedAt/updatedAt) written by older versions.
-      const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
+      const merged = _withoutLegacyAdvertFields(cur);
       for (const [k, v] of Object.entries(fields)) {
         if (v == null) delete merged[k];
         else merged[k] = v;
@@ -285,7 +284,7 @@ function _restampReuseOwner({ pgdata, port }) {
         if (!cur.pg_pgdata || resolve(cur.pg_pgdata) !== resolve(pgdata)) return; // different instance
         if (_pgAdvertIsForeignLive(cur)) return; // a different live owner holds it
         if (Number(cur.pg_owner_pid) === process.pid) return; // already ours
-        const { pid: _legacyPid, startedAt: _legacyStartedAt, updatedAt: _prevUpdatedAt, ...merged } = cur;
+        const merged = _withoutLegacyAdvertFields(cur);
         merged.pg_owner_pid = process.pid; // minimal: owner pid only (updatedAt re-stamped on write)
         _writePgServiceAdvert(_PG_DISCOVERY, merged);
       },

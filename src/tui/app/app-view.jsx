@@ -1,4 +1,4 @@
-// App view tree, extracted from App.jsx. Pure JSX assembly: the prompt
+// App view tree. Pure JSX assembly: the prompt
 // input control and the full shell layout (welcome banner, transcript
 // viewport, floating panels, prompt cluster, statusline). All data and
 // handlers arrive via one ctx object from App().

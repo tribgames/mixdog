@@ -149,5 +149,3 @@ export function createCommandRouter(host: CommandRouterHost) {
 
   return { runCommand, recaptureRequiredReply: replies.recaptureRequiredReply };
 }
-
-export type CommandRouter = ReturnType<typeof createCommandRouter>;

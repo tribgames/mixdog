@@ -66,6 +66,28 @@ test('latest geometry survives the input deadline and applies while an edit is s
   }
 });
 
+test('the pane reapplies its zoom across the input deadline without reporting a failed input', async (t) => {
+  let now = 0;
+  t.mock.method(performance, 'now', () => now);
+  const f = await fixture();
+  try {
+    // The pane refires zoom on every attach and navigation, including while
+    // an agent command still holds the document lane.
+    f.client.fire({ type: 'zoom', factor: 0.8 });
+    now += BROWSER_INPUT_WAIT_MS + 1;
+    await f.client.control({ type: 'stop' });
+    assert.deepEqual(
+      f.sent.filter((action) => action.type === 'zoom').map((action) => action.factor),
+      [0.8]
+    );
+    assert.deepEqual(f.failures, []);
+  } finally {
+    f.release();
+    await f.held;
+    f.client.dispose();
+  }
+});
+
 test('tab controls escape stalled edits and invalidate unstarted input even after switching back', async () => {
   const f = await fixture();
   try {

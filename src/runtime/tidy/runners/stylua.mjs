@@ -1,30 +1,12 @@
 // StyLua — `--check` prints a diff per unformatted file; the bare command
 // formats in place.
-import { diagnostic, runChunked, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
+import { parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
 
 const DIFF_HEADER = /^Diff in (.+?):?\s*$/;
 
 /** Parse `stylua --check` output (diff headers name the files). */
 export function parseStyluaCheck(output, cwd) {
-  const changedFiles = uniquePaths(
-    String(output || '')
-      .split('\n')
-      .map((line) => line.trim().match(DIFF_HEADER)?.[1])
-      .filter(Boolean)
-      .map((file) => toRel(cwd, file))
-  );
-  return {
-    changedFiles,
-    diagnostics: changedFiles.map((file) =>
-      diagnostic({
-        file,
-        code: 'stylua',
-        message: 'stylua would reformat this file',
-        severity: 'warning',
-        fixable: true,
-      })
-    ),
-  };
+  return parseReformatReport(output, { pattern: DIFF_HEADER, cwd, id: 'stylua' });
 }
 
 export const runner = {

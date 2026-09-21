@@ -915,6 +915,7 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     'drag',
     'scroll',
     'type',
+    'set_value',
     'key',
     'key_down',
     'key_up',
@@ -1856,11 +1857,18 @@ test('bridge clients authenticate and preserve text plus image results', async (
           image: { mimeType: 'image/jpeg', data: 'aGVsbG8=' },
           ...(request.headers.authorization === 'Bearer browser-token'
             ? {
-                file: {
-                  mimeType: 'text/plain',
-                  data: 'ZmlsZQ==',
-                  name: 'download.txt',
-                },
+                file:
+                  body.tab === 'binary-download'
+                    ? {
+                        mimeType: 'application/zip',
+                        data: 'UEsDBBQAAAAI',
+                        name: 'bundle.zip',
+                      }
+                    : {
+                        mimeType: 'text/plain',
+                        data: 'ZmlsZQ==',
+                        name: 'download.txt',
+                      },
               }
             : {}),
         },
@@ -1923,6 +1931,18 @@ test('bridge clients authenticate and preserve text plus image results', async (
           : []),
       ]);
     }
+    // A binary download has no inline form any provider accepts, so the file
+    // stays on disk and the result names it instead of carrying its bytes.
+    const binaryDownload = await executeBrowserTool(
+      { action: 'snapshot', input: { tab: 'binary-download' } },
+      { sessionId: 'browser-session-1', turnId: 7 }
+    );
+    assert.equal(binaryDownload.isError, undefined);
+    assert.deepEqual(binaryDownload.content.at(-1), {
+      type: 'text',
+      text: 'Download bundle.zip (application/zip, 9 bytes) is binary and stays on disk; open it from the path listed above with read.',
+    });
+    assert.equal(JSON.stringify(binaryDownload.content).includes('UEsDBBQAAAAI'), false);
     const clipboardRead = await executeComputerTool(
       { action: 'clipboard', input: { operation: 'read' } },
       { sessionId: 'computer-session-1' }
@@ -1960,6 +1980,15 @@ test('bridge clients authenticate and preserve text plus image results', async (
             : {}),
         },
       })),
+      {
+        authorization: 'Bearer browser-token',
+        body: {
+          action: 'snapshot',
+          tab: 'binary-download',
+          session_id: 'browser-session-1',
+          turn_id: 7,
+        },
+      },
       {
         authorization: 'Bearer computer-token',
         body: {

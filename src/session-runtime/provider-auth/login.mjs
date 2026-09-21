@@ -7,7 +7,6 @@ import {
   loginOAuthProvider,
   saveOpenAIUsageSessionKey,
   saveOpenCodeGoUsageAuth,
-  loginOpenCodeGoUsage,
   saveProviderApiKey,
 } from '../../standalone/provider-admin.mjs';
 
@@ -67,12 +66,6 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig 
     },
     saveOpenCodeGoUsageAuth(opts) {
       const result = saveOpenCodeGoUsageAuth(cfgMod, opts);
-      refresh.afterUsageAuthChange();
-      return result;
-    },
-    async loginOpenCodeGoUsage() {
-      await awaitKeychainPrewarm();
-      const result = await loginOpenCodeGoUsage(cfgMod);
       refresh.afterUsageAuthChange();
       return result;
     },

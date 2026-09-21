@@ -10,7 +10,7 @@ export function createAgentTurns({
   retainUnwatched,
   createSession,
 }) {
-  async function createAgentChild({ spec = {}, prompt = '', tag = null } = {}) {
+  async function createAgentChild({ spec = {}, prompt: _prompt = '', tag = null } = {}) {
     await rehydrateAgentSessions();
     const parentSessionId = String(spec.parentSessionId || '').trim();
     if (!parentSessionId) throw new TypeError('agent child parentSessionId is required');
@@ -60,7 +60,6 @@ export function createAgentTurns({
       status: 'idle',
       stage: 'idle',
     });
-    void prompt;
     return { session: descriptor, effectiveCwd: descriptor.cwd };
   }
 

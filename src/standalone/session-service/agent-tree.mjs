@@ -115,7 +115,9 @@ export function createAgentTree({
         .filter((session) => session && (includeClosed || session.closed !== true)),
     getSessionRuntime: (sessionId) => {
       const session = agentDescriptor(sessionId);
-      return session ? getSessionProgressSnapshot(sessionId) || { stage: session.stage || session.status || 'idle' } : null;
+      return session
+        ? getSessionProgressSnapshot(sessionId) || { stage: session.stage || session.status || 'idle' }
+        : null;
     },
     getSessionProgressSnapshot,
     linkParentSignalToSession(sessionId, signal) {

@@ -3,20 +3,7 @@
  * without reserving an extra layout row (negative margin pulls the hint band up).
  */
 import { Box, Text } from 'ink';
-import { theme } from '../theme.mjs';
-
-function hintColor(tone) {
-  if (tone === 'error') return theme.error;
-  if (tone === 'warn' || tone === 'cancel') return theme.warning;
-  if (tone === 'plain') return theme.subtle;
-  return theme.inactive;
-}
-
-function cleanRightMessage(value) {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+import { cleanRightMessage, promptStatusColor } from '../app/app-format.mjs';
 
 export function ItemRightHintOverprint({ children, rightMessage = '', rightTone = 'info', rightMessageWidth = 24 }) {
   const rightText = cleanRightMessage(rightMessage);
@@ -35,7 +22,7 @@ export function ItemRightHintOverprint({ children, rightMessage = '', rightTone 
           justifyContent="flex-end"
           overflow="hidden"
         >
-          <Text color={hintColor(rightTone)} wrap="truncate">
+          <Text color={promptStatusColor(rightTone)} wrap="truncate">
             {rightText}
           </Text>
         </Box>

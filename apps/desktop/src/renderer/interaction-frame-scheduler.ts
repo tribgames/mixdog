@@ -63,8 +63,7 @@ export function createFrameCoordinator({
 } = {}): FrameCoordinator {
   const jobs = new Map<object, () => void>();
   let handle: number | null = null;
-  const run = (timestamp: number): void => {
-    void timestamp;
+  const run = (_timestamp: number): void => {
     handle = null;
     const pending = [...jobs.values()];
     jobs.clear();

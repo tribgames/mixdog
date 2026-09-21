@@ -67,7 +67,10 @@ export function createBrowserCdpEventRouter(host: BrowserCdpEventRouterHost) {
     // Chromium hands the payload over rather than running the drag. The
     // input driver picks it up and finishes the gesture as a drop.
     'Input.dragIntercepted': ({ diagnostics, params }) => {
-      diagnostics.interceptedDrag = (params.data ?? undefined) as typeof diagnostics.interceptedDrag;
+      const data = (params.data ?? undefined) as typeof diagnostics.interceptedDrag;
+      diagnostics.interceptedDrag = data;
+      // The gesture that armed interception is waiting on this exact event.
+      if (data) diagnostics.notifyInterceptedDrag?.(data);
     },
     'Page.javascriptDialogOpening': ({ diagnostics, params, sessionId }) => {
       diagnostics.pendingDialog = {

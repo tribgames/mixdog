@@ -1,33 +1,12 @@
 // dprint — `check` prints a per-file diff block, `fmt` writes. dprint only
 // touches what its own dprint.json selects, so resolution requires that config.
-import { diagnostic, runChunked, spawnFailureResult, tail, toRel, uniquePaths } from './shared.mjs';
+import { parseReformatReport, runChunked, spawnFailureResult, tail } from './shared.mjs';
 
 const FILE_HEADER = /^(?:from\s+(.+?):|---\s*(.+?)\s*---)$/;
 
 /** Parse `dprint check` output. */
 export function parseDprintCheck(output, cwd) {
-  const changedFiles = uniquePaths(
-    String(output || '')
-      .split('\n')
-      .map((line) => {
-        const match = line.trim().match(FILE_HEADER);
-        return match ? match[1] || match[2] : '';
-      })
-      .filter(Boolean)
-      .map((file) => toRel(cwd, file))
-  );
-  return {
-    changedFiles,
-    diagnostics: changedFiles.map((file) =>
-      diagnostic({
-        file,
-        code: 'dprint',
-        message: 'dprint would reformat this file',
-        severity: 'warning',
-        fixable: true,
-      })
-    ),
-  };
+  return parseReformatReport(output, { pattern: FILE_HEADER, cwd, id: 'dprint' });
 }
 
 export const runner = {

@@ -31,23 +31,4 @@ export { PATCH_TOOL_DEFS } from './patch-tool-defs.mjs';
 export { runServerEdit, closeNativePatchServerForTests } from './patch/native-server.mjs';
 export { takeApplyPatchUiDiff, executePatchTool } from './patch/orchestrator.mjs';
 
-// Test-only export: lets the regression harness exercise the interior-vs-outer
-// change-band logic in findFirstFailingUnifiedHunk without spawning the native
-// binary. Assembled here to preserve the original `__patchTestHooks` surface.
-import {
-  findFirstFailingUnifiedHunk,
-  computeUnifiedChangeBand,
-  collectUnifiedOps,
-  unifiedOldLinesMatchAt,
-  splitBufferLinesForPatch,
-} from './patch/matcher.mjs';
-
-const __patchTestHooks = {
-  findFirstFailingUnifiedHunk,
-  computeUnifiedChangeBand,
-  collectUnifiedOps,
-  unifiedOldLinesMatchAt,
-  splitBufferLinesForPatch,
-};
-
 scheduleNativePatchPrewarm();

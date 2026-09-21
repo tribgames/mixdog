@@ -7,8 +7,10 @@ import { SESSION_ID_PATTERN } from '../agent-tree.mjs';
 
 export function createSessionViewCalls(ctx) {
   const { log, readStoredSession, externalViewEntries, runSessionAction, sessionResult, advanceForCaller } = ctx;
-  const { advance, currentSessionId, publishStep, externalEntryForView, projectionResult, sessionOwner } =
-    ctx.projection;
+  const { currentSessionId, externalEntryForView, projectionResult, sessionOwner } = ctx.projection;
+  /** The owner a concurrent materialization may have produced while a disk
+   *  read was in flight: a daemon-owned runtime outranks an external view. */
+  const lateOwnerFor = (id) => sessionOwner(id) || externalEntryForView(id);
   const { subscriberToken, addSubscriber, trackPendingViewer, dropPendingViewer, adoptPendingViewers } = ctx.viewers;
   const { sessionBusy, retainUnwatched, releaseProjection, startEvictionSweep } = ctx.retention;
   const {
@@ -40,8 +42,7 @@ export function createSessionViewCalls(ctx) {
       }
       if (!sessionId) throw new Error('session creation returned no sessionId');
       adoptPendingViewers(entry, sessionId);
-      const step = advance(entry);
-      if (step.changed) publishStep(entry, step);
+      advanceForCaller(entry);
       log(`session created session=${sessionId}`);
       retainUnwatched(entry, 'headless session create');
       return entry;
@@ -79,11 +80,10 @@ export function createSessionViewCalls(ctx) {
   const liveEntryFor = async (id) =>
     liveEntryForView(id) || externalEntryForView(id) || (await bindExternalSessionView(id));
 
-  async function readSession(params = {}, viewer = null) {
+  async function readSession(params = {}, _viewer = null) {
     assertAvailable();
     const { sessionId, open: openHints = {}, baseRevision = null, baseProjectionStamp = null } = params;
     if (params.action != null) {
-      void viewer;
       return runSessionAction(params, SESSION_READ_ACTION_SET);
     }
     const id = String(sessionId || '');
@@ -96,7 +96,7 @@ export function createSessionViewCalls(ctx) {
     if (typeof readStoredSession === 'function') {
       const projection = await storedSessionProjection(id, openHints);
       assertAvailable();
-      const lateOwner = sessionOwner(id) || externalEntryForView(id);
+      const lateOwner = lateOwnerFor(id);
       if (lateOwner) {
         return liveSessionReadResult(lateOwner, params, id, baseRevision);
       }
@@ -140,7 +140,7 @@ export function createSessionViewCalls(ctx) {
       trackPendingViewer(id, viewer);
       const projection = await storedSessionProjection(id, openHints);
       assertAvailable();
-      const lateOwner = sessionOwner(id) || externalEntryForView(id);
+      const lateOwner = lateOwnerFor(id);
       if (lateOwner) {
         dropPendingViewer(id, viewer);
         return subscribeLive(lateOwner, viewer, baseRevision);

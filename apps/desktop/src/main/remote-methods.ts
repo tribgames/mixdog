@@ -78,7 +78,6 @@ export const REMOTE_BLOCKED_CAPABILITIES: ReadonlySet<string> = new Set([
   'getOAuthProviderLoginStatus',
   'completeOAuthProviderLogin',
   'cancelOAuthProviderLogin',
-  'loginOpenCodeGoUsage',
   'getMcpServerConfig',
   'saveMcpServer',
   // Media files reach a phone through the media HTTP route, which needs no

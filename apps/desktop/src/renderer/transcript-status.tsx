@@ -8,99 +8,13 @@ import { t, uiFormatLocale } from './i18n';
 import { uiCurrency } from './ui-format';
 import { MxIcon } from './MxIcon';
 import { showDesktopToast } from './notifications';
-import { ProgressSpinner } from './ProgressSpinner';
 import { inheritancePreflight, sessionModelSelection, shouldOfferSessionInheritance } from './session-inheritance';
 import { asRecord, formatElapsed, publicThinkingSummary } from './text-format';
-import {
-  completionTone,
-  formatTokenCount,
-  formatWorkElapsed,
-  TERMINAL_AGENT_STATUS,
-  TextShimmer,
-  timeMs,
-} from './transcript-primitives';
+import { completionTone, formatTokenCount, TextShimmer } from './transcript-primitives';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { SPINNER_MODE_OVERRIDE_VERBS, SPINNER_VERBS, spinnerVerbFor } from '../../../../src/tui/spinner-verbs.mjs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
 import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
-
-export function LiveWorkStatus({ snapshot, now: fixedNow }: { snapshot: Snapshot; now?: number }) {
-  const [clock, setClock] = useState(() => fixedNow ?? Date.now());
-  const workers = Array.isArray(snapshot.agentWorkers) ? snapshot.agentWorkers : [];
-  const jobs = Array.isArray(snapshot.agentJobs) ? snapshot.agentJobs : [];
-  const taggedRunningKeys = new Set<string>();
-  let untaggedRunningCount = 0;
-  let oldestAgentStart = Infinity;
-  workers.forEach((worker) => {
-    const tag = String(worker.tag || worker.agent || worker.name || '').trim();
-    if (TERMINAL_AGENT_STATUS.test(String(worker.stage || worker.status || ''))) return;
-    if (tag) taggedRunningKeys.add(tag);
-    else untaggedRunningCount += 1;
-    const startedAt = timeMs(worker.startedAt || worker.startTime || worker.createdAt);
-    if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
-  });
-  jobs.forEach((job) => {
-    if (!/running|pending|queued|starting/i.test(String(job.status || job.stage || ''))) return;
-    const tag = String(job.tag || job.agent || job.type || job.task_id || job.taskId || '').trim();
-    if (tag) taggedRunningKeys.add(tag);
-    else untaggedRunningCount += 1;
-    const startedAt = timeMs(job.startedAt);
-    if (startedAt > 0) oldestAgentStart = Math.min(oldestAgentStart, startedAt);
-  });
-  const workerCount = taggedRunningKeys.size + untaggedRunningCount;
-  const tools = snapshot.activeTools || {};
-  const webSearchCount = Math.max(0, Number(tools.web_search?.count) || 0);
-  const agentCount = Math.max(workerCount, Math.max(0, Number(tools.agent?.count) || 0));
-  const shellCount = Math.max(
-    Math.max(0, Number(snapshot.shellJobs?.count) || 0),
-    Math.max(0, Number(tools.shell?.count) || 0)
-  );
-  const active = agentCount > 0 || webSearchCount > 0 || shellCount > 0;
-  useEffect(() => {
-    if (fixedNow !== undefined || !active) return undefined;
-    setClock(Date.now());
-    const timer = window.setInterval(() => setClock(Date.now()), 1_000);
-    return () => window.clearInterval(timer);
-  }, [active, fixedNow]);
-  if (!active) return null;
-  const total = agentCount + webSearchCount + shellCount;
-  let agentElapsed = '';
-  if (Number.isFinite(oldestAgentStart)) agentElapsed = formatWorkElapsed(clock - oldestAgentStart);
-  else if (tools.agent?.startedAt) agentElapsed = formatWorkElapsed(clock - Number(tools.agent.startedAt));
-  const row = (key: string, label: string, elapsed: string) => (
-    <div className="live-work-row" key={key}>
-      <span>{label}</span>
-      <small>{elapsed}</small>
-    </div>
-  );
-  return (
-    <div
-      className="live-work-status"
-      role="status"
-      tabIndex={0}
-      aria-label={t('Background activity: {{count}} running', { count: total })}
-    >
-      <ProgressSpinner className="live-work-spinner" size={16} aria-hidden="true" />
-      <span className="live-work-count">{total}</span>
-      <div className="live-work-popover" role="tooltip">
-        {agentCount > 0 && row('agents', `${agentCount === 1 ? t('Agent') : t('Agents')} ${agentCount}`, agentElapsed)}
-        {webSearchCount > 0 &&
-          row(
-            'web_search',
-            t('Web search'),
-            tools.web_search?.startedAt ? formatWorkElapsed(clock - Number(tools.web_search.startedAt)) : ''
-          )}
-        {shellCount > 0 &&
-          row(
-            'shells',
-            `${t('Shell')} ${shellCount}`,
-            String(snapshot.shellJobs?.elapsedLabel || '') ||
-              (tools.shell?.startedAt ? formatWorkElapsed(clock - Number(tools.shell.startedAt)) : '')
-          )}
-      </div>
-    </div>
-  );
-}
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
 const rememberedContextUsage = new Map<string, ReturnType<typeof resolveContextDisplayUsage>>();

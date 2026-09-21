@@ -74,7 +74,6 @@ export function buildAgentTaskProgressFields({
   lastToolCall = null,
 } = {}) {
   const stage = cleanStage(runtimeStage || snapshot?.stage || sessionStatus || 'unknown');
-  const workerStage = stage;
   const silentFor = resolveSilentForSeconds(now, snapshot, runtime);
   const watchdog = formatAgentWatchdogSummary(policy, snapshot, watchdogState);
   const queued =
@@ -103,7 +102,7 @@ export function buildAgentTaskProgressFields({
   });
 
   const out = {
-    worker_stage: workerStage,
+    worker_stage: stage,
     last_progress: lastProgress,
     diagnostic,
   };

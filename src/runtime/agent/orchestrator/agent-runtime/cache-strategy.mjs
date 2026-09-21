@@ -61,6 +61,24 @@ function isOneShotMaintenanceAgent(agent) {
 }
 
 /**
+ * Lead-session BP4 (messages tail) TTL, linked to the autoClear idle-sweep
+ * config (config.mjs `autoClear: { enabled, idleMs }`, normalized via
+ * session-runtime/config-helpers.mjs normalizeAutoClearConfig):
+ *   - autoClear disabled                → '1h' (session may live indefinitely;
+ *     amortize the 2x write premium over a long-lived tail)
+ *   - idleMs >= 1h (3_600_000ms)        → '1h' (idle-sweep window is at least
+ *     as long as the 1h TTL, so the longer TTL is never wasted)
+ *   - otherwise (shorter idle-sweep)    → '5m' (session reaps before a 1h
+ *     write would ever be re-read; cheaper 5m write wins)
+ */
+export function resolveLeadMessagesTtl(autoClear) {
+  if (autoClear && autoClear.enabled === false) return '1h';
+  const idleMs = Number(autoClear?.idleMs);
+  if (Number.isFinite(idleMs) && idleMs >= 3_600_000) return '1h';
+  return '5m';
+}
+
+/**
  * Return the layered cache policy for Anthropic-family providers.
  *
  * Values:
@@ -94,25 +112,6 @@ function isOneShotMaintenanceAgent(agent) {
  * the 1h TTL expiry (writes every run, 0 reads). All layers go 'none' for
  * these roles — single-iteration calls pay the write premium with no reuse.
  */
-
-/**
- * Lead-session BP4 (messages tail) TTL, linked to the autoClear idle-sweep
- * config (config.mjs `autoClear: { enabled, idleMs }`, normalized via
- * session-runtime/config-helpers.mjs normalizeAutoClearConfig):
- *   - autoClear disabled                → '1h' (session may live indefinitely;
- *     amortize the 2x write premium over a long-lived tail)
- *   - idleMs >= 1h (3_600_000ms)        → '1h' (idle-sweep window is at least
- *     as long as the 1h TTL, so the longer TTL is never wasted)
- *   - otherwise (shorter idle-sweep)    → '5m' (session reaps before a 1h
- *     write would ever be re-read; cheaper 5m write wins)
- */
-export function resolveLeadMessagesTtl(autoClear) {
-  if (autoClear && autoClear.enabled === false) return '1h';
-  const idleMs = Number(autoClear?.idleMs);
-  if (Number.isFinite(idleMs) && idleMs >= 3_600_000) return '1h';
-  return '5m';
-}
-
 export function resolveCacheStrategy(agent, { autoClear } = {}) {
   if (isOneShotMaintenanceAgent(agent)) {
     return { tools: 'none', system: 'none', tier3: 'none', messages: 'none' };
@@ -140,15 +139,6 @@ export function resolveCacheStrategy(agent, { autoClear } = {}) {
   // resolveLeadMessagesTtl).
   return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: resolveLeadMessagesTtl(autoClear) });
 }
-
-/**
- * Build provider-specific sendOpts.
- *
- * @param {string} provider
- * @param {string} [sessionId]
- * @param {string} [agent]
- * @returns {object} partial sendOpts — spread into provider.send call
- */
 
 // Provider cache capability kinds:
 //   'explicit-breakpoint' — explicit provider-side cache_control writes
@@ -396,11 +386,6 @@ function assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto = false 
   return slot;
 }
 
-/**
- * Resolve an optional cache-lane slot for OpenAI-style prompt cache sharding.
- * prompt_cache_key is not sharded by default, so every provider now gets
- * one un-suffixed key unless an env/config override opts into shards.
- */
 // The requested lane limit: 'auto' when any auto flag is set, else the lane
 // SHARDS, requested either by their own name (`*CacheLaneShards`) or through
 // the legacy `*CacheMaxParallel` / MIXDOG_*_CACHE_MAX_PARALLEL aliases. Those
@@ -444,6 +429,11 @@ function requestedPromptCacheLaneLimit(provider, opts, config) {
   return rawShards ?? rawAlias;
 }
 
+/**
+ * Resolve an optional cache-lane slot for OpenAI-style prompt cache sharding.
+ * prompt_cache_key is not sharded by default, so every provider now gets
+ * one un-suffixed key unless an env/config override opts into shards.
+ */
 export function resolveProviderPromptCacheLane(provider, opts = {}, config = {}) {
   const rawLimit = requestedPromptCacheLaneLimit(provider, opts, config);
   const shards = parsePromptCacheLaneLimit(rawLimit);

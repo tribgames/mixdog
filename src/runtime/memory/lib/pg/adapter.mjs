@@ -162,7 +162,6 @@ export async function checkedConnect(pgPool, schema) {
   }
   return client;
 }
-const _checkedConnect = checkedConnect;
 
 // ---------------------------------------------------------------------------
 // native PG db shim
@@ -173,7 +172,7 @@ function makeCompatDb(pgPool, schema, dataDir) {
     // query: use pool directly for single-statement queries
     query: async (sql, params) => {
       return await withPgRetry(dataDir, schema, async (pool) => {
-        const client = await _checkedConnect(pool, schema);
+        const client = await checkedConnect(pool, schema);
         try {
           return await client.query(sql, params);
         } finally {
@@ -191,7 +190,7 @@ function makeCompatDb(pgPool, schema, dataDir) {
       // the NEXT call gets a fresh pool) and propagate the original error.
       const pool = instances.get(`${resolve(dataDir)}|${schema}`)?.pool ?? pgPool;
       try {
-        const client = await _checkedConnect(pool, schema);
+        const client = await checkedConnect(pool, schema);
         try {
           await client.query(sql);
         } finally {
@@ -214,7 +213,7 @@ function makeCompatDb(pgPool, schema, dataDir) {
       let client = null;
       let releaseErr = null;
       try {
-        client = await _checkedConnect(pool, schema);
+        client = await checkedConnect(pool, schema);
         await client.query('BEGIN');
         const tx = {
           query: (sql, params) => client.query(sql, params),

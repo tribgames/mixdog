@@ -30,7 +30,9 @@ for (const status of ['done', 'failed', 'cancelled']) {
     let settled = 0;
     const result = intake.submitAndWait('continue', {
       priority: 'next',
-      onSettled: () => { settled += 1; },
+      onSettled: () => {
+        settled += 1;
+      },
     });
     const messages = steering.drainPendingSteering({ turnEpoch: 7 });
     assert.equal(messages[0].content, 'continue');

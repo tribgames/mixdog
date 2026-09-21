@@ -1,5 +1,4 @@
-// V4A + unified-as-V4A patch parsers and format-detection helpers. Moved
-// verbatim from patch.mjs; parsing behavior (V4A/unified) is unchanged.
+// V4A + unified-as-V4A patch parsers and format-detection helpers.
 
 import { stripDiffPrefix } from './paths.mjs';
 import {

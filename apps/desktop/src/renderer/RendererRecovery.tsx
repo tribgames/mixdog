@@ -225,18 +225,23 @@ export function DesktopLoadingSurface({
   label,
   overlay = false,
   brand = false,
+  delayed = !brand,
   className = '',
 }: {
   label: string;
   overlay?: boolean;
   brand?: boolean;
+  /** Hold the indicator invisible for the shared delay, so a warm/short load
+   *  never flashes one. The cold-boot cover opts out: it owns the window from
+   *  the first frame and has nothing to flash against. */
+  delayed?: boolean;
   /** Lets a caller dress the cover as the surface it is standing in for. */
   className?: string;
 }) {
   return (
     <div
       className={`desktop-loading-surface${
-        brand ? '' : ' desktop-loading-surface--delayed'
+        delayed ? ' desktop-loading-surface--delayed' : ''
       }${overlay ? ' desktop-loading-surface--overlay' : ''}${className ? ` ${className}` : ''}`}
       role="status"
       aria-live="polite"

@@ -58,8 +58,6 @@ export function createContextStatusCache({ getNativeTools }) {
       lastMessage,
       lastMessageRole: lastMessage?.role || null,
       lastMessageContent: lastMessage?.content || null,
-      toolCount: requestTools.length,
-      toolsSignature: requestToolsSignature,
       requestProvider,
       requestToolCount: requestTools.length,
       requestToolsSignature,

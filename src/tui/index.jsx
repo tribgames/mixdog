@@ -60,8 +60,8 @@ const ALT_SCROLL_RESTORE = '\x1b[?1007h';
 // synchronously at raw-mode-on (no query); here we just pop/disable them on
 // exit. POP_KITTY / DISABLE_MODIFY_OTHER_KEYS come from keyboard-protocol.mjs.
 const BOOT_PROFILE_ENABLED = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_BOOT_PROFILE || ''));
-const BOOT_PROFILE_START =
-  globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+globalThis.__mixdogBootProfileStart ||= performance.now();
+const BOOT_PROFILE_START = globalThis.__mixdogBootProfileStart;
 const EXIT_WAIT_TIMEOUT_MS = positiveIntEnv('MIXDOG_TUI_EXIT_WAIT_MS', 2500);
 const EXIT_HARD_DELAY_MS = positiveIntEnv('MIXDOG_TUI_HARD_EXIT_DELAY_MS', 500);
 const EXIT_HARD_ENABLED = !/^(0|false|no|off)$/i.test(String(process.env.MIXDOG_TUI_HARD_EXIT || '1'));

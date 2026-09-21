@@ -33,6 +33,7 @@ import {
   isInteractiveOfficeSession,
   microsoftOfficeOpenFields,
   normalizeOfficeFormat,
+  officeSessionForDocument,
   officeSessionId,
   registerOfficeSession,
   resolveOfficeDesignContext,
@@ -114,8 +115,7 @@ function officeDetectionFor(result, format) {
 }
 
 function reusedDocumentSession(target) {
-  const existingId = documentSessions.get(documentSessionKey(target));
-  const existing = existingId ? sessions.get(existingId) : null;
+  const existing = officeSessionForDocument(target);
   return existing ? { ...existing, reused: true } : null;
 }
 

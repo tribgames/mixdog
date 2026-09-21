@@ -359,13 +359,14 @@ function report(name, capture) {
       frame.textareaH,
       frame.composerBoxH,
     ].join('\t');
-    const rowsText = frame.rows.length
-      ? `${shortKey(frame.rows[0].key)}@${frame.rows[0].top} | ` +
-        frame.rows
-          .slice(-3)
-          .map((row) => `${shortKey(row.key)}@${row.top}+${row.h}${row.ch !== row.h ? `(c${row.ch})` : ''}[${row.sig}]`)
-          .join(' ')
-      : '(none)';
+    let rowsText = '(none)';
+    if (frame.rows.length) {
+      const recent = frame.rows
+        .slice(-3)
+        .map((row) => `${shortKey(row.key)}@${row.top}+${row.h}${row.ch !== row.h ? `(c${row.ch})` : ''}[${row.sig}]`)
+        .join(' ');
+      rowsText = `${shortKey(frame.rows[0].key)}@${frame.rows[0].top} | ${recent}`;
+    }
     const line = `${summary}\t${rowsText}\t${movedText}`;
     if (previous !== line) console.log(`${frame.t - base}${frame.hidden ? 'H' : ''}\t${line}`);
     previous = line;
@@ -471,7 +472,7 @@ try {
     for (let index = 0; index < historyTurns; index += 1) {
       await typeAndSubmit(
         client,
-        `History prompt ${index}\n` + 'A wrapped sentence to give the row some height. '.repeat(3),
+        `History prompt ${index}\n${'A wrapped sentence to give the row some height. '.repeat(3)}`,
         { record: false }
       );
       await settleTurn(client, `history ${index}`);

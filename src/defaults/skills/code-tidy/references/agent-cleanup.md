@@ -185,9 +185,11 @@ block before re-splitting. One tidying per change set.
 
 ## Final report template
 
-This is the shape of the closing reply to the user after each round. It is
-written in the conversation, not to a file, unless the user asks for a
-document.
+This is the shape of the closing reply after the last round. Each earlier round
+closes with a few lines instead — partition, what landed, verification result,
+complete or unfinished — while the inventory accumulates in the form above. The
+full template is written once, in the conversation, not to a file, unless the
+user asks for a document.
 
 ```text
 Scope: <user-selected paths | explicit whole project> · Mode: report|apply
@@ -219,5 +221,6 @@ Noticed but not applied (report-only or out of scope)
 
 Bugs found (not fixed here): <correctness issues surfaced while cleaning>
 Verification: tests <passed/failed/skipped/baseline-excluded counts> · typecheck <result> · lint <remaining diagnostics>
+Needs your decision: <one consolidated list — RISKY findings, bugs found, unresolved intent, unfinished candidates>
 Next round: <scope and IDs planned for next round, or none if overall complete>
 ```

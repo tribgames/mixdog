@@ -386,12 +386,10 @@ export const runner = {
     const names = [
       ...new Set((parsed.diagnostics || []).map((finding) => biomeRuleName(finding.code)).filter(Boolean)),
     ];
-    if (names.length) {
-      const kinds = await loadBiomeFixKinds({ bin, names, run: spawn, signal, timeoutMs: EXPLAIN_TIMEOUT_MS });
-      applyBiomeFixKinds(parsed.diagnostics, kinds);
-    } else {
-      applyBiomeFixKinds(parsed.diagnostics, new Map());
-    }
+    const kinds = names.length
+      ? await loadBiomeFixKinds({ bin, names, run: spawn, signal, timeoutMs: EXPLAIN_TIMEOUT_MS })
+      : new Map();
+    applyBiomeFixKinds(parsed.diagnostics, kinds);
     return finalizeBiome(parsed, tail(result.stderr));
   },
   async fix({ files, cwd, bin, args = [], timeoutMs, signal, run }) {

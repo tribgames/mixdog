@@ -13,8 +13,7 @@ import {
 import {
   OfficeConflictError,
   documentFingerprint,
-  documentSessionKey,
-  documentSessions,
+  indexOfficeSession,
   isInteractiveOfficeSession,
   isMicrosoftOfficeSession,
   sessions,
@@ -448,7 +447,6 @@ export async function recoverOfficeTransaction(args, dataDir) {
       documentId: reopened.documentId,
     });
   }
-  sessions.set(session.id, session);
-  documentSessions.set(documentSessionKey(session.target), session.id);
+  indexOfficeSession(session);
   return strategy === 'commit' ? await commitTransaction(session) : await rollbackTransaction(session);
 }

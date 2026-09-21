@@ -57,15 +57,11 @@ import {
   compareSemver,
   isNewerVersion,
   npmCliJsPath,
+  packageRootDir as packageRoot,
   UPDATE_PACKAGE_NAME as PACKAGE_NAME,
 } from './update-checker.mjs';
 
 const _MODULE_DIR = dirname(fileURLToPath(import.meta.url));
-// Package root = two levels up from src/runtime/shared → src/.. (the mixdog
-// package dir, i.e. <prefix>/node_modules/mixdog for a global install).
-function packageRoot() {
-  return join(_MODULE_DIR, '..', '..', '..');
-}
 
 const MARKER_NAME = '.staged-complete.json';
 // Name of the self-contained package dir inside a staging version folder.

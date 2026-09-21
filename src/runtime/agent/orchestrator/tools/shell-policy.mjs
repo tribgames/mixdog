@@ -120,8 +120,6 @@ export function decodePowerShellEncodedCommand(command) {
   return _decodePowerShellEncodedCommand(command);
 }
 
-// Shared catastrophic-delete target test — see shell-policy-danger-target.mjs
-
 // Token-level rm guard. BLOCKED_PATTERNS catches inline split-flag forms
 // (`rm -rf /`, `rm -r -f /`, `rm -fr /`), but the regex misses arbitrary
 // flag interleaving (`rm -r -f -v /`, `rm -v -r -f /`). Tokenise rm args

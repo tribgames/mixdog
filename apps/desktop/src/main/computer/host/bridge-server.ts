@@ -119,5 +119,3 @@ export function createBridgeServer(host: BridgeServerHost) {
 
   return { startBridge, stopBridge };
 }
-
-export type BridgeServer = ReturnType<typeof createBridgeServer>;

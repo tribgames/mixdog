@@ -420,28 +420,6 @@ function buildInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
   return parts.join('\n\n');
 }
 
-/**
- * Legacy joined agent injection. New sessions consume shared tool policy as
- * BP1 and buildAgentRoleContent() as BP3; this export remains for older smoke
- * tests / callers that expect the combined shape.
- *
- * @param {object} opts
- * @param {string} opts.PLUGIN_ROOT
- * @param {string} opts.DATA_DIR
- * @returns {string}
- */
-function buildAgentInjectionContent({ PLUGIN_ROOT, DATA_DIR }) {
-  const parts = [];
-
-  const tool = buildSharedToolContent({ PLUGIN_ROOT, DATA_DIR });
-  if (tool) parts.push(tool);
-
-  const role = buildAgentRoleContent({ PLUGIN_ROOT, DATA_DIR });
-  if (role) parts.push(role);
-
-  return parts.join('\n\n');
-}
-
 function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
   const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
   if (String(profile || 'full') === 'retrieval') {
@@ -477,7 +455,6 @@ module.exports = {
   buildLeadLanguageContent,
   buildAgentRoleContent,
   buildInjectionContent,
-  buildAgentInjectionContent,
   buildAgentRetrievalInjectionContent,
   omitToolRoutes,
 };

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createRequire } from 'node:module';
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
@@ -31,7 +31,6 @@ async function directorySize(path) {
   }
   if (info.isFile()) return info.size;
   if (!info.isDirectory()) return 0;
-  const { readdir } = await import('node:fs/promises');
   const entries = await readdir(path, { withFileTypes: true });
   let total = 0;
   for (const entry of entries) total += await directorySize(join(path, entry.name));

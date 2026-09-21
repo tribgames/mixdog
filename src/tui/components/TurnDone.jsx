@@ -13,26 +13,14 @@ import { Box, Text } from 'ink';
 import { theme } from '../theme.mjs';
 import { formatDuration } from '../time-format.mjs';
 import { TURN_DONE_MARKER } from '../figures.mjs';
-
-function statusMessageColor(tone) {
-  if (tone === 'error') return theme.error;
-  if (tone === 'warn' || tone === 'cancel') return theme.warning;
-  if (tone === 'plain') return theme.subtle;
-  return theme.inactive;
-}
-
-function cleanRightMessage(value) {
-  return String(value || '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+import { cleanRightMessage, promptStatusColor } from '../app/app-format.mjs';
 
 // Return the same element tree without introducing a component boundary.
 function renderRightMessage(rightText, rightWidth, rightTone) {
   if (!rightText) return null;
   return (
     <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
-      <Text color={statusMessageColor(rightTone)} wrap="truncate">
+      <Text color={promptStatusColor(rightTone)} wrap="truncate">
         {rightText}
       </Text>
     </Box>

@@ -589,20 +589,14 @@ export function renderSessionGroupedLines(
   // group's body. No line budget — the orchestrator's global tool-output KB
   // cap bounds total size; each group's body is already row-capped by the
   // caller.
-  if (spanHeaders) {
-    const parts = [];
-    for (const [sid, groupRows] of groups) {
-      parts.push(`## ${groupLabel(sid)}${spanGroupSuffix(groupRows, sessionMeta?.get?.(sid))}`);
-      const bodyStr = renderEntryLines(groupRows, renderOptions);
-      const bodyLines = bodyStr === '(no results)' ? [] : bodyStr.split('\n');
-      for (const l of bodyLines) parts.push(l);
-    }
-    return parts.join('\n');
-  }
   const parts = [];
   for (const [sid, groupRows] of groups) {
-    parts.push(`## ${groupLabel(sid)}`);
-    parts.push(renderEntryLines(groupRows, renderOptions));
+    const suffix = spanHeaders ? spanGroupSuffix(groupRows, sessionMeta?.get?.(sid)) : '';
+    parts.push(`## ${groupLabel(sid)}${suffix}`);
+    // A seeded-but-empty group (spanHeaders only) keeps its header and span,
+    // without a "(no results)" body line.
+    const body = renderEntryLines(groupRows, renderOptions);
+    if (body !== '(no results)') parts.push(body);
   }
   return parts.join('\n');
 }

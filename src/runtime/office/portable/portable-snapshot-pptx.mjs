@@ -1,7 +1,7 @@
 // Presentation snapshot: slide backgrounds, notes, shapes and text facts.
 import { zipText } from './portable-opc.mjs';
 import { pptxRelatedPart } from './portable-pptx-core.mjs';
-import { EMU_PER_POINT } from './portable-slide-shapes.mjs';
+import { EMU_PER_POINT, SLIDE_SHAPE_TAGS } from './portable-slide-shapes.mjs';
 import { blockText, containerInner, paragraphTexts, topLevelElements, xmlDecode } from './portable-xml.mjs';
 import { presentationSlides, slideLayoutParts } from './portable-pptx-package.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
@@ -194,7 +194,7 @@ function pptxShapeSnapshot(shape, shapeIndex, slideIndex, chartParts) {
 async function snapshotSlide(zip, path, index, slideId) {
   const xml = await zipText(zip, path);
   const tree = containerInner(xml, 'p:spTree');
-  const shapeBlocks = tree ? topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']) : [];
+  const shapeBlocks = tree ? topLevelElements(tree.inner, SLIDE_SHAPE_TAGS) : [];
   const chartParts = await slideChartParts(zip, path, shapeBlocks);
   return {
     path: `/slide[${index}]`,

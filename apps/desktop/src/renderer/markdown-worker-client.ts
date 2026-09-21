@@ -22,10 +22,7 @@ let rendererParserPromise: Promise<typeof import('./markdown-ast')> | null = nul
 const inFlight = new Map<string, Promise<MarkdownAstRoot>>();
 
 export function readCachedStreamingMarkdownAst(text: string): MarkdownAstRoot | null {
-  const value = String(text ?? '');
-  const cached = astCache.get(value);
-  if (!cached) return null;
-  return cached;
+  return astCache.get(String(text ?? '')) ?? null;
 }
 
 function rememberStreamingMarkdownAst(text: string, root: MarkdownAstRoot): void {

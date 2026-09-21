@@ -186,31 +186,28 @@ export async function deleteSchedule(name, { dataDir } = {}) {
   return rowCount > 0;
 }
 
-export async function setEnabled(name, enabled, { dataDir } = {}) {
+// Set one column by schedule name. `column` is always a literal from this
+// module — never caller input — so interpolating it carries no external value
+// into the statement; the name and the value stay bound parameters.
+async function updateScheduleColumn(name, column, value, dataDir) {
   const db = await getDb(dataDir);
   const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET enabled = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, !!enabled]
+    `UPDATE scheduler.schedules SET ${column} = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
+    [name, value]
   );
   return rowToDef(rows[0]);
+}
+
+export async function setEnabled(name, enabled, { dataDir } = {}) {
+  return updateScheduleColumn(name, 'enabled', !!enabled, dataDir);
 }
 
 export async function markFired(name, ts = new Date(), { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET last_fired_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts]
-  );
-  return rowToDef(rows[0]);
+  return updateScheduleColumn(name, 'last_fired_at', ts, dataDir);
 }
 
 export async function setNextFire(name, ts, { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET next_fire_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts ?? null]
-  );
-  return rowToDef(rows[0]);
+  return updateScheduleColumn(name, 'next_fire_at', ts ?? null, dataDir);
 }
 
 export async function advanceScheduleCursor(name, scheduledAt, nextFireAt, { dataDir } = {}) {
@@ -243,21 +240,11 @@ export async function claimScheduleRun(name, scheduledAt, startedAt, nextFireAt,
 }
 
 export async function markScheduleSuccess(name, ts = new Date(), { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET last_success_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts]
-  );
-  return rowToDef(rows[0]);
+  return updateScheduleColumn(name, 'last_success_at', ts, dataDir);
 }
 
 export async function markScheduleFailure(name, ts = new Date(), { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET last_failed_at = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts]
-  );
-  return rowToDef(rows[0]);
+  return updateScheduleColumn(name, 'last_failed_at', ts, dataDir);
 }
 
 export async function markDone(name, { dataDir } = {}) {
@@ -270,19 +257,9 @@ export async function markDone(name, { dataDir } = {}) {
 }
 
 export async function setDeferred(name, untilTs, { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET deferred_until = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, untilTs ?? null]
-  );
-  return rowToDef(rows[0]);
+  return updateScheduleColumn(name, 'deferred_until', untilTs ?? null, dataDir);
 }
 
 export async function setSkippedUntil(name, ts, { dataDir } = {}) {
-  const db = await getDb(dataDir);
-  const { rows } = await db.query(
-    `UPDATE scheduler.schedules SET skipped_until = $2, updated_at = now() WHERE name = $1 RETURNING ${COLS}`,
-    [name, ts ?? null]
-  );
-  return rowToDef(rows[0]);
+  return updateScheduleColumn(name, 'skipped_until', ts ?? null, dataDir);
 }

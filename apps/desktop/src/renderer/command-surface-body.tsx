@@ -79,7 +79,7 @@ export function SurfaceBody({
     return (
       <Group title={t('Diagnostic result')}>
         <pre className="tool-detail">{pretty(data.runDoctor) || t('No data available.')}</pre>
-        <button disabled={busy} onClick={() => void run('runDoctor')}>
+        <button type="button" disabled={busy} onClick={() => void run('runDoctor')}>
           {t('Run diagnostics again')}
         </button>
       </Group>

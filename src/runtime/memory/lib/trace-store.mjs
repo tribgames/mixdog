@@ -703,6 +703,12 @@ async function _flushQueue(db, q) {
   return q.flushPromise;
 }
 
+function _clearFlushTimer(q) {
+  if (!q.timer) return;
+  clearTimeout(q.timer);
+  q.timer = null;
+}
+
 function _scheduleFlush(db, q) {
   if (q.timer) return;
   q.timer = setTimeout(async () => {
@@ -723,10 +729,7 @@ async function drainTraceQueue(db) {
   const q = _traceQueues.get(db);
   if (!q) return;
   try {
-    if (q.timer) {
-      clearTimeout(q.timer);
-      q.timer = null;
-    }
+    _clearFlushTimer(q);
     if (q.flushPromise) await q.flushPromise.catch(() => {});
     if (q.pending.length > 0)
       await _insertTraceEventBatches(
@@ -741,10 +744,7 @@ async function drainTraceQueue(db) {
 function clearTraceQueue(db) {
   const q = _traceQueues.get(db);
   if (!q) return;
-  if (q.timer) {
-    clearTimeout(q.timer);
-    q.timer = null;
-  }
+  _clearFlushTimer(q);
   q.pending.length = 0;
   q.flushPromise = null;
   _traceQueues.delete(db);
@@ -835,27 +835,18 @@ export function enqueueTraceEvents(db, events) {
   const pendingEvents = _pendingEventCount(q);
   if (pendingEvents >= TRACE_QUEUE_MAX_ROWS) {
     // Flush immediately when row cap reached — don't wait for timer.
-    if (q.timer) {
-      clearTimeout(q.timer);
-      q.timer = null;
-    }
+    _clearFlushTimer(q);
     _flushQueue(db, q).catch((err) => __mixdogMemoryLog(`[trace-queue] flush error: ${err?.message}\n`));
   } else {
     _scheduleFlush(db, q);
   }
 }
 
-// Direct DB insert without queuing (used by queue flusher and
-// the existing intra-request multi-row path where immediate persistence matters).
-async function _insertTraceEventsDirect(db, events) {
-  return insertTraceEvents(db, events);
-}
-
 async function _insertTraceEventBatches(db, events, onBatchInserted) {
   let inserted = 0;
   for (let start = 0; start < events.length; start += TRACE_INSERT_MAX_ROWS) {
     const batch = events.slice(start, start + TRACE_INSERT_MAX_ROWS);
-    const result = await _insertTraceEventsDirect(db, batch);
+    const result = await insertTraceEvents(db, batch);
     inserted += result.inserted;
     onBatchInserted?.(batch.length);
   }

@@ -235,6 +235,8 @@ export const CATALOG = {
         'set_page_setup',
         'set_sheet_view',
         'add_chart',
+        'set_drawing',
+        'delete_drawing',
         'add_table',
         'insert_rows',
         'delete_rows',

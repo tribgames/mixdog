@@ -19,7 +19,7 @@ if (!sourceArg) {
 const source = resolve(sourceArg);
 const theme = JSON.parse(readFileSync(join(source, 'icons/vs-seti-icon-theme.json'), 'utf8'));
 
-const escapeChar = (definition) => '\\u' + definition.fontCharacter.replace(/^\\/, '').toUpperCase().padStart(4, '0');
+const escapeChar = (definition) => `\\u${definition.fontCharacter.replace(/^\\/, '').toUpperCase().padStart(4, '0')}`;
 
 const used = new Map();
 const claim = (id) => {

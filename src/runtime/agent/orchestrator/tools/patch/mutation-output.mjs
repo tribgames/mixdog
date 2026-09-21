@@ -20,7 +20,7 @@ export function planApplyPatchMutationRoute(_args, patchStr, requestedFormat) {
 // patch calls/day. Route diagnostics stay available via plan/extras callers.
 export function wrapPatchMutationOutput(text, _plan, _extras = {}) {
   // Per-file success rows already identify the edits; retain warnings/errors.
-  text = text.replace(/^Applied \d+ Files? \((?:Native|JS)\)\r?\n(?=  OK )/gm, '');
+  text = text.replace(/^Applied \d+ Files? \((?:Native|JS)\)\r?\n(?= {2}OK )/gm, '');
   // Non-fatal duplicate-context notices ride the success output: the edit
   // landed at the first match (spec), and the caller learns in the same turn
   // that another location was possible.

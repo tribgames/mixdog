@@ -5,6 +5,7 @@
  * actions, the input-recovery baseline for foreground delivery, and the
  * window list a transition is judged against.
  */
+import { backgroundDialogInputError } from '../input/background-dialog-input';
 import { prepareCursorFeedback } from '../overlay/cursor-readiness';
 import { CHROME_SETUP_SESSION_ID } from '../session/chrome-setup';
 import { elapsedMs } from '../shared/common';
@@ -121,6 +122,17 @@ export async function prepareInputRun(
     const beforeWindowsStartedAt = performance.now();
     windowsBefore = await host.readComputerWindows(command);
     actionTimings.before_windows_ms = elapsedMs(beforeWindowsStartedAt);
+    // The window list this transition is judged against also says whether the
+    // target can receive these keys at all; refusing here sends nothing.
+    const dialogRouteError = backgroundDialogInputError({
+      action,
+      delivery: command.delivery,
+      keys: typeof command.keys === 'string' ? command.keys : '',
+      hasRef: Boolean(command.ref),
+      targetWindowId: targetWindowId || '',
+      windows: windowsBefore,
+    });
+    if (dialogRouteError) throw new Error(dialogRouteError);
   }
   return { inputTarget, targetWindowId, logicalTargetWindowId, batchSequenceStep, inputRecovery, windowsBefore };
 }

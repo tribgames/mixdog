@@ -19,6 +19,43 @@ import type { InputResolutionHost } from './input-resolution';
 
 const LAUNCH_SUCCESSOR_TIMEOUT_MS = 4_000;
 const LAUNCH_POLL_INTERVAL_MS = 100;
+/** A modal dialog is created after the action returns, so one scan taken at
+ *  the settle mark can end before the dialog exists. Both watches below cost
+ *  nothing when no dialog appears beyond the scans they take. */
+const DIALOG_WATCH_TIMEOUT_MS = { expected: 1_200, focus_gap: 600 } as const;
+const DIALOG_POLL_INTERVAL_MS = 100;
+
+export type DialogSuccessorWatch = 'none' | 'expected' | 'focus_gap';
+
+/** Windows labels a command that opens a dialog with a trailing ellipsis;
+ *  invoking one is a promise that a window is coming. */
+function menuPathOpensDialog(menuPath: unknown): boolean {
+  if (!Array.isArray(menuPath)) return false;
+  const leaf = String(menuPath.at(-1) || '').trim();
+  return leaf.endsWith('...') || leaf.endsWith('…');
+}
+
+/** Whether the first scan may have run before the dialog existed: either the
+ *  command promised one, or focus currently belongs to no listed window —
+ *  the gap a modal leaves while it is being created. */
+export function dialogSuccessorWatch(
+  action: string,
+  menuPath: unknown,
+  transition: ComputerWindowTransition | null
+): DialogSuccessorWatch {
+  if (!transition || transition.opened_windows.length > 0) return 'none';
+  if (action === 'invoke_menu' && menuPathOpensDialog(menuPath)) return 'expected';
+  if (transition.closed_windows.length === 0 && transition.focused_after === '') return 'focus_gap';
+  return 'none';
+}
+
+export function dialogWatchSettled(watch: DialogSuccessorWatch, transition: ComputerWindowTransition | null): boolean {
+  if (!transition) return true;
+  if (transition.opened_windows.length > 0) return true;
+  // A promised dialog is worth the whole budget; a focus gap is settled as
+  // soon as some window owns focus again.
+  return watch === 'focus_gap' ? transition.focused_after !== '' : false;
+}
 
 export type WindowSettleHost = Pick<InputResolutionHost, 'assertExecutionNotAborted' | 'readComputerWindows'>;
 
@@ -78,6 +115,29 @@ async function awaitLaunchSuccessor(
   return { transition, settleDelayMs: Math.round(performance.now() - settleStartedAt) };
 }
 
+/** Keep scanning until the dialog the action opened is listed, or the watch
+ *  settles, or the budget ends. */
+async function awaitDialogSuccessor(
+  host: WindowSettleHost,
+  input: WindowSettleInput,
+  scan: { ms: number },
+  watch: Exclude<DialogSuccessorWatch, 'none'>,
+  first: ComputerWindowTransition | null
+): Promise<ComputerWindowTransition | null> {
+  const deadline = performance.now() + DIALOG_WATCH_TIMEOUT_MS[watch];
+  let transition = first;
+  while (performance.now() < deadline) {
+    const remainingMs = Math.max(0, deadline - performance.now());
+    await new Promise((resolve) => setTimeout(resolve, Math.min(DIALOG_POLL_INTERVAL_MS, remainingMs)));
+    host.assertExecutionNotAborted();
+    const next = await scanTransition(host, input, scan);
+    if (!next) break;
+    transition = next;
+    if (dialogWatchSettled(watch, next)) break;
+  }
+  return transition;
+}
+
 export async function settleWindowTransition(
   host: WindowSettleHost,
   input: WindowSettleInput
@@ -98,7 +158,14 @@ export async function settleWindowTransition(
   } else {
     if (settleDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, settleDelayMs));
     host.assertExecutionNotAborted();
-    outcome = { transition: await scanTransition(host, input, scan), settleDelayMs };
+    let transition = await scanTransition(host, input, scan);
+    const watch = dialogSuccessorWatch(action, command.path, transition);
+    if (watch !== 'none') {
+      transition = await awaitDialogSuccessor(host, input, scan, watch, transition);
+      outcome = { transition, settleDelayMs: Math.round(performance.now() - settleStartedAt) };
+    } else {
+      outcome = { transition, settleDelayMs };
+    }
   }
   timings.settle_ms = Math.max(0, elapsedMs(settleStartedAt) - scan.ms);
   timings.after_windows_ms = Number(scan.ms.toFixed(2));

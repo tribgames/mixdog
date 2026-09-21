@@ -1,8 +1,12 @@
+/** A window that just handed back addressable elements is not a visual-only
+ *  target, whatever the grounding heuristic decided about their placement:
+ *  caching it blinds the very reads a modal or menu-only moment needs most. */
 export function shouldRecordVisualOnlyCapabilityMiss(
   semanticAccessibilityAvailable: boolean,
-  accessibilityError: string
+  accessibilityError: string,
+  actionableElements = 0
 ): boolean {
-  return !semanticAccessibilityAvailable && !accessibilityError;
+  return !semanticAccessibilityAvailable && !accessibilityError && actionableElements === 0;
 }
 
 export function captureAccessibilityError(

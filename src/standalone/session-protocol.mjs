@@ -97,7 +97,6 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'goalControl',
   'inheritFrom',
   'loginOAuthProvider',
-  'loginOpenCodeGoUsage',
   'memoryControl',
   'openMediaAsset',
   'openMediaFolder',

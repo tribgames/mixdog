@@ -14,12 +14,10 @@
 // whole tree, but only these paths may be restored from it.
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { resolvePluginData } from './plugin-paths.mjs';
 
-// Same resolution as session-runtime/runtime-paths.mjs. Shared runtime code
-// cannot import the session layer, so the rule is repeated instead of inverted.
-const DATA_DIR = process.env.MIXDOG_DATA_DIR || join(process.env.MIXDOG_HOME || join(homedir(), '.mixdog'), 'data');
+const DATA_DIR = resolvePluginData();
 const RECORD_VERSION = 1;
 // Matches the shadow repository's own `gc --prune` window: once the tree object
 // is collected the record cannot restore anything anyway.

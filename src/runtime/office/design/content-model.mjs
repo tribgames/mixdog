@@ -85,6 +85,7 @@ export function normalizeOfficeContentModel(value) {
     // beside "92.8%" in the prose. The natural spellings reach numberFormat,
     // and anything else is named rather than ignored.
     const numberFormat = officeNumberFormat(fact);
+    const source = normalizeSource(fact.source);
     const unknown = Object.keys(fact).filter((key) => !FACT_KEYS.has(key));
     if (unknown.length) {
       throw new Error(
@@ -99,7 +100,7 @@ export function normalizeOfficeContentModel(value) {
       ...(fact.unit ? { unit: String(fact.unit) } : {}),
       ...(fact.detail ? { detail: String(fact.detail) } : {}),
       ...(numberFormat ? { numberFormat } : {}),
-      ...(normalizeSource(fact.source) ? { source: normalizeSource(fact.source) } : {}),
+      ...(source ? { source } : {}),
     };
   });
   const claimIds = new Set();

@@ -204,6 +204,14 @@ export const FORMAT_SIGNATURES = {
     }),
     add_note: signature(['cell', 'text'], ['sheet']),
     delete_note: signature(['cell'], ['sheet']),
+    set_drawing: signature(['drawing'], ['sheet', 'left', 'top', 'width', 'height'], {
+      notes:
+        'Moves or resizes a chart or picture already on the sheet. drawing is the name the snapshot reports or its 1-based index on that sheet; left/top/width/height are points, the unit add_chart places one with. This is the answer to drawing_overlap and drawing_outside_print_area.',
+    }),
+    delete_drawing: signature(['drawing'], ['sheet'], {
+      notes:
+        'Removes a chart or picture from the sheet along with the parts only it owned, such as its chart part and embedded workbook.',
+    }),
     add_image: signature(['path'], ['sheet', 'cell', 'left', 'top', 'width', 'height', 'altText'], {
       notes:
         'cell (H2) anchors the top-left corner where the snapshot reports it; left/top are points from the sheet origin and win when both are given. altText describes the picture for a reader who cannot see it; without it the audit reports missing_alt_text.',

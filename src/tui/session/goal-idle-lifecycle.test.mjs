@@ -46,7 +46,7 @@ test('completed duration work waits on the deadline timer without generating mor
     objective: 'Finish the approved duration',
     time_limit_minutes: 1,
     time_mode: 'duration',
-    tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'verification' }],
+    tasks: [{ text: 'Verified deliverable', status: 'completed' }],
   });
   await f.controller.onGoalTurnStarted();
   f.state.busy = false;
@@ -88,7 +88,7 @@ test('new work wakes a duration wait without extending the approved budget', asy
       objective: 'Finish the approved duration',
       time_limit_minutes: 60,
       time_mode: 'duration',
-      tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'work' }],
+      tasks: [{ text: 'Verified deliverable', status: 'completed' }],
     })
   ).goal;
   f.state.busy = false;
@@ -99,7 +99,7 @@ test('new work wakes a duration wait without extending the approved budget', asy
   f.pending.length = 0;
   await f.call({
     action: 'update_tasks',
-    tasks: [{ text: 'User-approved additional check', status: 'pending', kind: 'verification' }],
+    tasks: [{ text: 'User-approved additional check', status: 'pending' }],
   });
   await tick();
   assert.equal(f.state.goal.timeLimitMs, created.timeLimitMs);
@@ -115,7 +115,7 @@ test('a settled duration list gets one review turn before the deadline wait', as
     objective: 'Finish the approved duration',
     time_limit_minutes: 60,
     time_mode: 'duration',
-    tasks: [{ text: 'Verified deliverable', status: 'completed', kind: 'work' }],
+    tasks: [{ text: 'Verified deliverable', status: 'completed' }],
   });
   f.state.busy = false;
   await tick();
@@ -137,7 +137,7 @@ test('a settled duration list gets one review turn before the deadline wait', as
   // A changed task list is a new chance, not the same answered one.
   await f.call({
     action: 'update_tasks',
-    tasks: [{ text: 'Recorded follow-up outcome', status: 'completed', kind: 'work' }],
+    tasks: [{ text: 'Recorded follow-up outcome', status: 'completed' }],
   });
   assert.equal(f.runtime.continuation(f.sessionId).reason, 'idle-review');
 });
@@ -159,7 +159,6 @@ test('duration waiting cannot suppress unfinished work, objective review, or max
                 {
                   text: 'Required verification',
                   status: taskStatus,
-                  kind: 'verification',
                 },
               ],
             }),
@@ -183,7 +182,7 @@ test('a terminal compact error clears queued Goal work and remains blocked after
   await f.call({
     action: 'create',
     objective: 'Keep unfinished work honest',
-    tasks: [{ text: 'Unfinished deliverable', status: 'in_progress', kind: 'work' }],
+    tasks: [{ text: 'Unfinished deliverable', status: 'in_progress' }],
   });
   await f.controller.onGoalTurnStarted();
   const queued = { mode: 'goal-continuation', goalId: f.state.goal.id, content: 'Stale automatic work' };

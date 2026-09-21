@@ -21,7 +21,8 @@ export function renderedPageImages(images = []) {
 }
 
 async function renderedPageMetric(image) {
-  if (imagePages(image).length !== 1 || !image?.data) return null;
+  const pageNumbers = imagePages(image);
+  if (pageNumbers.length !== 1 || !image?.data) return null;
   const loaded = await loadImage(Buffer.from(image.data, 'base64'));
   const canvas = createCanvas(loaded.width, loaded.height);
   const context = canvas.getContext('2d');
@@ -70,7 +71,7 @@ async function renderedPageMetric(image) {
   const rightMargin = maxX >= minX ? Math.max(0, canvas.width - maxX - step) / canvas.width : 1;
   const bodyVerticalSpan = bodyMaxY >= bodyMinY ? (bodyMaxY - bodyMinY + step) / (bodyBottom - bodyTop) : 0;
   return {
-    page: imagePages(image)[0],
+    page: pageNumbers[0],
     width: canvas.width,
     height: canvas.height,
     inkCoverage: sampled ? Number((ink / sampled).toFixed(4)) : 0,

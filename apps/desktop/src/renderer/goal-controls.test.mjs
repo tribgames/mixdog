@@ -45,7 +45,7 @@ test('collapsed goal controls address their own session, confirm stop, and prese
     timeUsedMs: 5_000,
     remainingMs: 3_595_000,
     timeMode: 'max',
-    tasks: [{ id: 'one', text: 'Current work', status: 'in_progress', kind: 'work' }],
+    tasks: [{ id: 'one', text: 'Current work', status: 'in_progress' }],
   };
   const render = (current) =>
     act(async () =>

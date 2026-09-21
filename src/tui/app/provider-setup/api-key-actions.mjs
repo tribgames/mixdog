@@ -1,8 +1,7 @@
 // provider-setup/api-key-actions.mjs
-// The API-key action panel of one provider row: add/replace/delete a key,
-// open the key console, and the OpenCode Go usage-login wait panel. `flow` is
-// the per-open picker state (surface claim, paint, navigation) built by
-// provider-setup-picker.mjs.
+// The API-key action panel of one provider row: add/replace/delete a key and
+// open the key console. `flow` is the per-open picker state (surface claim,
+// paint, navigation) built by provider-setup-picker.mjs.
 import { openInBrowser } from '../../../runtime/shared/open-url.mjs';
 import { providerDetailText } from '../app-format.mjs';
 import { keyConsoleUrl, providerStatusFooter } from './provider-items.mjs';
@@ -49,71 +48,12 @@ function apiKeyActions(providerItem, provider) {
       _action: 'forget-key',
     });
   }
-  if (providerItem._providerId === 'opencode-go') {
-    apiActions.push({
-      value: 'usage-login-browser',
-      label: 'Usage login (browser)',
-      description: 'open browser; auth cookie captured automatically',
-      _action: 'usage-login-browser',
-    });
-  }
   return { apiActions, keyUrl };
 }
 
-/** Paints the wait panel and runs the browser usage login; Back returns to
- *  the actions and turns the eventual ack into a notice-only outcome. */
-function openUsageLoginWait(flow, providerItem, provider) {
-  let backedOut = false;
-  const backToActions = () => {
-    backedOut = true;
-    openApiProviderActions(flow, providerItem);
-  };
-  flow.paint({
-    title: `Provider · ${providerItem._providerName}`,
-    description: 'Opening browser. Sign in at opencode.ai/auth; the auth cookie is captured automatically.',
-    footer: () => providerStatusFooter(provider),
-    help: '↑/↓ Select · Enter Choose · Esc Providers',
-    indexMode: 'never',
-    labelWidth: 22,
-    metaWidth: 12,
-    pickerKey: `providers-usage-login:${providerItem.value}`,
-    initialIndex: 0,
-    items: [
-      {
-        value: 'waiting',
-        label: 'Waiting for login',
-        meta: 'Running',
-        description: 'sign in via the browser window',
-        _action: 'waiting',
-      },
-      {
-        value: 'back',
-        label: 'Back',
-        meta: '',
-        description: 'return to provider actions',
-        _action: 'back',
-      },
-    ],
-    onSelect: (_value, item) => {
-      if (item?._action === 'back') backToActions();
-    },
-    onCancel: backToActions,
-  });
-  void flow.store
-    .loginOpenCodeGoUsage()
-    .then(() => {
-      flow.store.pushNotice('OpenCode Go usage auth captured', 'info');
-      if (!backedOut) flow.reopenProviders();
-    })
-    .catch((e) => {
-      flow.store.pushNotice(`OpenCode Go usage login failed: ${e?.message || e}`, 'error');
-      if (!backedOut) openApiProviderActions(flow, providerItem);
-    });
-}
-
 export function openApiProviderActions(flow, providerItem) {
-  // Reached from acks (forget-key failure, usage-login back-out) as well as
-  // key presses: prove ownership at the sink so every caller is covered.
+  // Reached from acks (a failed forget-key) as well as key presses: prove
+  // ownership at the sink so every caller is covered.
   if (!flow.ownsSurface()) return;
   flow.rememberProviderSelection(providerItem);
   const provider = providerItem._provider || {};
@@ -154,9 +94,6 @@ export function openApiProviderActions(flow, providerItem) {
             flow.store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
             openApiProviderActions(flow, providerItem);
           });
-      }
-      if (detail._action === 'usage-login-browser') {
-        openUsageLoginWait(flow, providerItem, provider);
       }
     },
     onCancel: flow.reopenProviders,

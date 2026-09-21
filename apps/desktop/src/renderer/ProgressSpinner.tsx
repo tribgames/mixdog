@@ -25,7 +25,8 @@ export function ProgressSpinner({ className, size, strokeWidth, style, ...props 
   );
 }
 
-// The brand loading mark belongs only to the full-window cold-boot cover.
+// The brand loading mark belongs to full-surface covers — the cold-boot window
+// and the conversation pane while its transcript loads.
 // The knot stays fixed while its three arms carry a quiet light sweep.
 export function WindowLoadingMark({ className, size = 24, style, ...props }: WindowLoadingMarkProps) {
   return (

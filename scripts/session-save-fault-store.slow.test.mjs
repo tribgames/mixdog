@@ -1,5 +1,5 @@
 /**
- * session-save-fault-store-test.mjs — atomic-save failure semantics of the
+ * session-save-fault-store.slow.test.mjs — atomic-save failure semantics of the
  * session store, driven by NON-DESTRUCTIVE commit-fault injection
  * (store/save-fault.mjs): the rename is refused BEFORE it runs, so the
  * canonical destination is never deleted or replaced by the test rig itself.

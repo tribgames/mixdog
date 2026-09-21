@@ -1,22 +1,25 @@
 import { join } from 'node:path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
-import { getOpenCodeGoAuthCookie } from '../../../shared/config.mjs';
+import { getAgentApiKey, getOpenCodeGoConsoleKey } from '../../../shared/config.mjs';
 import { round, cleanString as clean } from './lib/usage-primitives.mjs';
 import { JsonMemoryCache } from './lib/json-memory-cache.mjs';
 
 const CACHE_FILE = 'opencode-go-usage-cache.json';
 const LIVE_TTL_MS = 5 * 60_000;
 const STALE_TTL_MS = 60 * 60_000;
-const BASE_URL = 'https://opencode.ai';
-const WORKSPACES_SERVER_ID = 'def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f';
+// The console replaced its server-rendered page (usage inlined in the HTML) with
+// a SPA over this REST API, so scraping `/workspace/{id}/go` now yields an empty
+// shell. `GET /api/go/status` answers a service-account key that carries the
+// `all` permission and rejects `inference-only` keys with 403. The key itself
+// resolves the workspace, so no workspace id or `x-org-id` header is needed.
+const BASE_URL = 'https://opencode.ai/console';
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143 Safari/537.36';
-const LIMITS_USD = Object.freeze({
-  rolling: { label: '5H', limitUsd: 12 },
-  weekly: { label: '7D', limitUsd: 30 },
-  monthly: { label: 'M', limitUsd: 60 },
-});
+// Meters report micro-cents as strings: "1200000000" is the $12 five-hour cap.
+// Limits come from the response, so a plan change needs no code change.
+const MICRO_CENTS_PER_USD = 1e8;
+const METER_LABELS = Object.freeze({ fiveHour: '5H', week: '7D', month: 'M' });
 const diskJsonCache = new JsonMemoryCache();
 
 // Local unguarded `num`: this module intentionally coerces '' to 0 via
@@ -51,171 +54,73 @@ function freshSnapshot(snapshot, ttlMs) {
   return Array.isArray(snapshot?.quotaWindows) && snapshot.quotaWindows.length ? snapshot : null;
 }
 
-function workspaceIdFromConfig(config = {}) {
-  return (
-    clean(process.env.OPENCODE_WORKSPACE_ID) ||
-    clean(process.env.OPENCODE_GO_WORKSPACE_ID) ||
-    clean(process.env.MIXDOG_OPENCODE_WORKSPACE_ID) ||
-    clean(config?.providers?.['opencode-go']?.workspaceId) ||
-    clean(config?.providers?.['opencode-go']?.workspace_id)
-  );
+function isConsoleKey(value) {
+  return /^(?:oc_sk_|sk-)/.test(String(value || ''));
 }
 
-function normalizeCookie(raw) {
-  const value = clean(raw);
-  if (!value) return null;
-  const authMatch = /(?:^|;\s*)auth=([^;]+)/.exec(value);
-  return authMatch ? authMatch[1] : value;
+// Usage auth is a console API key holding the `all` permission; the inference
+// key is the fallback when one key serves both roles. A stored value that is
+// not key-shaped predates the API migration, so it counts as "not configured"
+// and the UI asks for a key instead of surfacing an opaque 401.
+function consoleApiKey() {
+  const stored = clean(getOpenCodeGoConsoleKey());
+  if (isConsoleKey(stored)) return stored;
+  const inferenceKey = clean(getAgentApiKey('opencode-go'));
+  return isConsoleKey(inferenceKey) ? inferenceKey : null;
 }
 
-function parseObjectLiteral(text) {
-  const json = String(text || '')
-    .replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*:)/g, '$1"$2"$3')
-    .replace(/:\s*!0\b/g, ':true')
-    .replace(/:\s*!1\b/g, ':false')
-    .replace(/:\s*null\b/g, ':null');
-  return JSON.parse(json);
+function statusError(status) {
+  if (status === 401) {
+    const err = new Error('OpenCode console API key was rejected');
+    err.code = 'OPENCODE_GO_USAGE_AUTH_FAILED';
+    return err;
+  }
+  if (status === 403) {
+    const err = new Error(
+      'OpenCode console API key lacks permission: subscription usage needs an "all" key, not an inference-only key'
+    );
+    err.code = 'OPENCODE_GO_USAGE_FORBIDDEN';
+    return err;
+  }
+  const err = new Error(`OpenCode Go usage fetch failed (${status})`);
+  err.code = 'OPENCODE_GO_USAGE_FETCH_FAILED';
+  return err;
 }
 
-function cookieHeader(authCookie) {
-  return `auth=${authCookie}`;
+function usdFromMicroCents(value) {
+  const micro = num(value, null);
+  return micro === null ? null : round(micro / MICRO_CENTS_PER_USD, 4);
 }
 
-function requestHeaders(
-  authCookie,
-  { accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', referer = BASE_URL } = {}
-) {
+function windowFromMeter(kind, raw) {
+  const label = METER_LABELS[kind];
+  if (!label || !raw || typeof raw !== 'object') return null;
+  const limitUsd = usdFromMicroCents(raw.limitMicroCents);
+  const usedUsd = usdFromMicroCents(raw.usedMicroCents);
+  if (limitUsd === null || usedUsd === null) return null;
+  // `resetsAt` is an absolute ISO timestamp, and is null on a window that has
+  // not started (an idle five-hour meter), so an unparsable value drops the
+  // field rather than inventing a reset time.
+  const resetAt = Date.parse(clean(raw.resetsAt) || '');
   return {
-    Accept: accept,
-    Cookie: cookieHeader(authCookie),
-    Origin: BASE_URL,
-    Referer: referer,
-    'User-Agent': USER_AGENT,
-  };
-}
-
-function normalizeWorkspaceId(raw) {
-  const value = clean(raw);
-  if (!value) return null;
-  if (/^wrk_[a-zA-Z0-9]+$/.test(value)) return value;
-  const match = value.match(/wrk_[a-zA-Z0-9]+/);
-  return match ? match[0] : null;
-}
-
-function parseWorkspaceIdsFromJson(value, out = []) {
-  if (!value) return out;
-  if (typeof value === 'string') {
-    if (/^wrk_[a-zA-Z0-9]+$/.test(value) && !out.includes(value)) out.push(value);
-    return out;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) parseWorkspaceIdsFromJson(item, out);
-    return out;
-  }
-  if (typeof value === 'object') {
-    for (const item of Object.values(value)) parseWorkspaceIdsFromJson(item, out);
-  }
-  return out;
-}
-
-function parseWorkspaceIds(text) {
-  const body = String(text || '');
-  const ids = [];
-  for (const match of body.matchAll(/id\s*:\s*"?(wrk_[a-zA-Z0-9]+)"?/g)) {
-    if (!ids.includes(match[1])) ids.push(match[1]);
-  }
-  if (ids.length) return ids;
-  try {
-    return parseWorkspaceIdsFromJson(JSON.parse(body));
-  } catch {
-    return [];
-  }
-}
-
-function windowFromUsage(kind, raw) {
-  const limit = LIMITS_USD[kind];
-  if (!limit || !raw || typeof raw !== 'object') return null;
-  let usagePercent = num(
-    raw.usagePercent ??
-      raw.usage_percent ??
-      raw.usedPercent ??
-      raw.used_percent ??
-      raw.percentUsed ??
-      raw.percent ??
-      raw.utilizationPercent ??
-      raw.utilization_percent,
-    null
-  );
-  if (usagePercent === null) {
-    const used = num(raw.used ?? raw.usage ?? raw.consumed, null);
-    const quota = num(raw.limit ?? raw.total ?? raw.quota ?? raw.max ?? raw.cap, null);
-    if (used !== null && quota > 0) usagePercent = (used / quota) * 100;
-  }
-  if (usagePercent === null) return null;
-  // Console `usagePercent` values are already percentages (e.g. 0.1 means
-  // 0.1%), matching `used/limit*100` above. Do not scale 0~1 values: the old
-  // `<= 1 → ×100` heuristic turned real 0.1% readings into 10%.
-  const resetInSec = num(
-    raw.resetInSec ??
-      raw.resetInSeconds ??
-      raw.resetSeconds ??
-      raw.reset_sec ??
-      raw.reset_in_sec ??
-      raw.resetsInSec ??
-      raw.resetsInSeconds ??
-      raw.resets_in_seconds,
-    null
-  );
-  const usedUsd = round((limit.limitUsd * Math.max(0, usagePercent)) / 100, 4);
-  const remainingUsd = round(Math.max(0, limit.limitUsd - usedUsd), 4);
-  return {
-    label: limit.label,
+    label,
     source: 'opencode-go-console',
-    usedPct: round(usagePercent, 2),
-    limitUsd: limit.limitUsd,
+    usedPct: limitUsd > 0 ? round((usedUsd / limitUsd) * 100, 2) : 0,
+    limitUsd,
     usedUsd,
-    remainingUsd,
-    ...(resetInSec !== null ? { resetAt: Date.now() + Math.max(0, resetInSec) * 1000 } : {}),
+    remainingUsd: round(Math.max(0, limitUsd - usedUsd), 4),
+    ...(Number.isFinite(resetAt) ? { resetAt } : {}),
   };
 }
 
-function parseWindowObject(html, key) {
-  const source = String(html || '');
-  const match = source.match(new RegExp(`${key}\\s*:\\s*(?:\\$R\\[\\d+\\]\\s*=\\s*)?(\\{[^}]+\\})`));
-  if (!match) return null;
-  try {
-    return parseObjectLiteral(match[1]);
-  } catch {
-    return null;
-  }
-}
-
-function parseUsageHtml(html) {
-  const usage = {
-    rolling: parseWindowObject(html, 'rollingUsage'),
-    weekly: parseWindowObject(html, 'weeklyUsage'),
-    monthly: parseWindowObject(html, 'monthlyUsage'),
-  };
-  if (!usage.rolling || !usage.weekly) {
-    try {
-      const json = JSON.parse(String(html || ''));
-      const root = json?.usage || json?.data || json?.result || json?.payload || json;
-      usage.rolling ||= root?.rollingUsage || root?.rolling || root?.rolling_usage || null;
-      usage.weekly ||= root?.weeklyUsage || root?.weekly || root?.weekly_usage || null;
-      usage.monthly ||= root?.monthlyUsage || root?.monthly || root?.monthly_usage || null;
-    } catch {}
-  }
-  const quotaWindows = Object.entries(usage)
-    .filter(([, raw]) => raw)
-    .map(([kind, raw]) => windowFromUsage(kind, raw))
+function snapshotFromStatus(status) {
+  const meters = status?.access?.meters;
+  if (!meters || typeof meters !== 'object') return null;
+  const quotaWindows = Object.keys(METER_LABELS)
+    .map((kind) => windowFromMeter(kind, meters[kind]))
     .filter(Boolean);
   if (!quotaWindows.length) return null;
-  return {
-    provider: 'opencode-go',
-    source: 'opencode-go-console',
-    quotaWindows,
-    rawKeys: Object.keys(usage).sort(),
-  };
+  return { provider: 'opencode-go', source: 'opencode-go-console', quotaWindows };
 }
 
 export function readCachedOpenCodeGoUsageSnapshot({ allowStale = true } = {}) {
@@ -224,122 +129,40 @@ export function readCachedOpenCodeGoUsageSnapshot({ allowStale = true } = {}) {
   return freshSnapshot(snapshot, allowStale ? STALE_TTL_MS : LIVE_TTL_MS);
 }
 
-export function openCodeGoUsageConfigStatus(config = {}) {
-  const workspaceId = normalizeWorkspaceId(workspaceIdFromConfig(config));
-  const authCookie = normalizeCookie(getOpenCodeGoAuthCookie());
-  return {
-    workspaceIdSet: Boolean(workspaceId),
-    authCookieSet: Boolean(authCookie),
-    ready: Boolean(authCookie),
-  };
+export function openCodeGoUsageConfigStatus() {
+  return { ready: Boolean(consoleApiKey()) };
 }
 
-// Primary discovery: GET /auth with the auth cookie, follow-manual. The
-// console redirects authenticated sessions straight to /workspace/{id};
-// unauthenticated/invalid cookies redirect to /auth/authorize instead.
-// This avoids depending on the hashed server-fn id used by the /_server
-// probe (WORKSPACES_SERVER_ID), which can change across console deploys.
-async function fetchWorkspaceIdFromAuthRedirect(authCookie, { signal } = {}) {
-  let res;
-  try {
-    res = await fetch(`${BASE_URL}/auth`, {
-      signal,
-      redirect: 'manual',
-      headers: requestHeaders(authCookie),
-    });
-  } catch {
-    return null; // network/redirect-mode quirk: let the _server fallback decide
-  }
-  if (res.status === 401 || res.status === 403) {
-    const err = new Error('OpenCode Go console auth failed');
-    err.code = 'OPENCODE_GO_USAGE_AUTH_FAILED';
-    throw err;
-  }
-  const location = res.headers.get('location') || '';
-  if (!location) return null;
-  if (/(?:^|\/|\.\/)auth\/authorize\b/.test(location)) {
-    const err = new Error('OpenCode Go console auth failed');
-    err.code = 'OPENCODE_GO_USAGE_AUTH_FAILED';
-    throw err;
-  }
-  const workspaceMatch = location.match(/\/workspace\/(wrk_[a-zA-Z0-9]+)/);
-  return normalizeWorkspaceId(workspaceMatch ? workspaceMatch[1] : location);
-}
-
-async function fetchWorkspaceId(authCookie, { signal } = {}) {
-  const fromRedirect = await fetchWorkspaceIdFromAuthRedirect(authCookie, { signal });
-  if (fromRedirect) return fromRedirect;
-  const url = new URL(`${BASE_URL}/_server`);
-  url.searchParams.set('id', WORKSPACES_SERVER_ID);
-  const res = await fetch(url, {
-    signal,
-    headers: {
-      ...requestHeaders(authCookie, {
-        accept: 'text/javascript, application/json;q=0.9, */*;q=0.8',
-        referer: BASE_URL,
-      }),
-      'X-Server-Id': WORKSPACES_SERVER_ID,
-      'X-Server-Instance': `server-fn:${Date.now().toString(36)}`,
-    },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    const err = new Error(
-      res.status === 401 || res.status === 403
-        ? 'OpenCode Go console auth failed'
-        : `OpenCode Go workspace lookup failed (${res.status})`
-    );
-    err.code =
-      res.status === 401 || res.status === 403 ? 'OPENCODE_GO_USAGE_AUTH_FAILED' : 'OPENCODE_GO_USAGE_FETCH_FAILED';
-    throw err;
-  }
-  const [workspaceId] = parseWorkspaceIds(text);
-  if (!workspaceId) {
-    const err = new Error('OpenCode Go workspace id was not found');
-    err.code = 'OPENCODE_GO_USAGE_WORKSPACE_NOT_FOUND';
-    throw err;
-  }
-  return workspaceId;
-}
-
-export async function fetchOpenCodeGoUsageSnapshot(config = {}, { force = false } = {}) {
+export async function fetchOpenCodeGoUsageSnapshot(_config = {}, { force = false } = {}) {
   if (!force) {
     const fresh = readCachedOpenCodeGoUsageSnapshot({ allowStale: false });
     if (fresh) return fresh;
   }
-  let workspaceId = normalizeWorkspaceId(workspaceIdFromConfig(config));
-  const authCookie = normalizeCookie(getOpenCodeGoAuthCookie());
-  if (!authCookie) {
-    const err = new Error('OpenCode Go console usage requires auth cookie');
+  const apiKey = consoleApiKey();
+  if (!apiKey) {
+    const err = new Error('OpenCode Go usage requires an OpenCode console API key');
     err.code = 'OPENCODE_GO_USAGE_AUTH_REQUIRED';
     throw err;
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6500);
   try {
-    workspaceId ||= await fetchWorkspaceId(authCookie, { signal: controller.signal });
-    const res = await fetch(`${BASE_URL}/workspace/${encodeURIComponent(workspaceId)}/go`, {
+    const res = await fetch(`${BASE_URL}/api/go/status`, {
       signal: controller.signal,
-      headers: requestHeaders(authCookie, { referer: `${BASE_URL}/workspace/${workspaceId}` }),
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        'User-Agent': USER_AGENT,
+      },
     });
-    if (!res.ok) {
-      const err = new Error(
-        res.status === 401 || res.status === 403
-          ? 'OpenCode Go console auth failed'
-          : `OpenCode Go console usage fetch failed (${res.status})`
-      );
-      err.code =
-        res.status === 401 || res.status === 403 ? 'OPENCODE_GO_USAGE_AUTH_FAILED' : 'OPENCODE_GO_USAGE_FETCH_FAILED';
-      throw err;
-    }
-    const html = await res.text();
-    const parsed = parseUsageHtml(html);
+    if (!res.ok) throw statusError(res.status);
+    const parsed = snapshotFromStatus(await res.json().catch(() => null));
     if (!parsed) {
-      const err = new Error('OpenCode Go console usage data was not found');
+      const err = new Error('OpenCode Go subscription meters were not found');
       err.code = 'OPENCODE_GO_USAGE_PARSE_FAILED';
       throw err;
     }
-    const snapshot = { ...parsed, workspaceId, cachedAt: Date.now() };
+    const snapshot = { ...parsed, cachedAt: Date.now() };
     writeJson(cachePath(), { version: 1, updatedAt: Date.now(), snapshot });
     return snapshot;
   } finally {

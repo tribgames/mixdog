@@ -25,7 +25,7 @@
     .map((element) => {
       const style = getComputedStyle(element);
       return {
-        node: element.tagName.toLowerCase() + '.' + String(element.getAttribute('class') || '').split(/\s+/)[0],
+        node: `${element.tagName.toLowerCase()}.${String(element.getAttribute('class') || '').split(/\s+/)[0]}`,
         name: style.animationName,
         duration: style.animationDuration,
         state: style.animationPlayState,

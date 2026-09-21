@@ -43,6 +43,41 @@ export function isFatalHttpPathPolicyError(error) {
   return false;
 }
 
+/** Content-Length already exceeds the cap: reject before reading any byte. */
+async function assertAnnouncedSizeWithinCap(response, maxBytes) {
+  const contentLength = Number(response.headers.get('content-length') || 0);
+  if (contentLength <= maxBytes) return;
+  try {
+    await response.body?.cancel();
+  } catch {}
+  throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`);
+}
+
+/** Stream the body into chunks, stopping the moment the cap is passed. */
+async function readCappedChunks(reader, maxBytes) {
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {}
+        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch {}
+  }
+  return chunks;
+}
+
 async function readBodyWithCap(response, maxBytes) {
   // Reject non-text content-types early; decode by content-type charset.
   const contentType = (response.headers.get('content-type') || '').toLowerCase();
@@ -67,13 +102,7 @@ async function readBodyWithCap(response, maxBytes) {
   const charsetMatch = contentType.match(/charset=["']?([\w-]+)/i);
   const charset = charsetMatch ? charsetMatch[1] : 'utf-8';
 
-  const contentLength = Number(response.headers.get('content-length') || 0);
-  if (contentLength > maxBytes) {
-    try {
-      await response.body?.cancel();
-    } catch {}
-    throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`);
-  }
+  await assertAnnouncedSizeWithinCap(response, maxBytes);
   const reader = response.body?.getReader?.();
   if (!reader) {
     // Fallback for environments without a readable stream — post-check length.
@@ -87,26 +116,7 @@ async function readBodyWithCap(response, maxBytes) {
     }
     return text;
   }
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        try {
-          await reader.cancel();
-        } catch {}
-        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`);
-      }
-      chunks.push(value);
-    }
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {}
-  }
+  const chunks = await readCappedChunks(reader, maxBytes);
   let decoder;
   try {
     decoder = new TextDecoder(charset, { fatal: false });
@@ -121,13 +131,7 @@ async function readBodyWithCap(response, maxBytes) {
 
 /** Binary-safe body reader for CDP Fetch fulfillment (no text-only filter). */
 async function readBodyBytesWithCap(response, maxBytes) {
-  const contentLength = Number(response.headers.get('content-length') || 0);
-  if (contentLength > maxBytes) {
-    try {
-      await response.body?.cancel();
-    } catch {}
-    throw new Error(`response body too large: Content-Length=${contentLength} > cap=${maxBytes}`);
-  }
+  await assertAnnouncedSizeWithinCap(response, maxBytes);
   const reader = response.body?.getReader?.();
   if (!reader) {
     const buf = Buffer.from(await response.arrayBuffer());
@@ -139,26 +143,7 @@ async function readBodyBytesWithCap(response, maxBytes) {
     }
     return buf;
   }
-  const chunks = [];
-  let total = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        try {
-          await reader.cancel();
-        } catch {}
-        throw new Error(`response body too large: received ${total}+ bytes > cap=${maxBytes}`);
-      }
-      chunks.push(value);
-    }
-  } finally {
-    try {
-      reader.releaseLock();
-    } catch {}
-  }
+  const chunks = await readCappedChunks(reader, maxBytes);
   return Buffer.concat(chunks.map((c) => Buffer.from(c)));
 }
 

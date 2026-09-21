@@ -39,27 +39,35 @@ test('outline glow disappears while paused and returns on resume without hiding 
   }
 });
 
-test('one control changes between Pause and Resume and never offers unsafe resume', (t) => {
+test('one toggle changes between Pause and Resume; the check state adds a live Stop', async (t) => {
   for (const locale of ['ko', 'en']) {
     const f = fixture(t, locale);
-    assert.equal(f.document.querySelectorAll('button').length, 1);
+    const stop = f.document.getElementById('stop');
+    const visibleControls = () => [...f.document.querySelectorAll('button')].filter((button) => !button.hidden).length;
     f.publish({ title: 'Running', paused: false, canResume: false, generation: 6, renderRevision: 1 });
+    assert.equal(visibleControls(), 1);
     assert.equal(f.button.getAttribute('aria-label'), locale === 'ko' ? '중단' : 'Pause');
     assert.equal(f.button.disabled, false);
     const pauseIcon = f.button.querySelector('path').getAttribute('d');
     f.publish({ title: 'Check', attention: true, paused: true, canResume: false, generation: 7, renderRevision: 2 });
-    assert.equal(f.document.querySelectorAll('button').length, 1);
     assert.equal(f.button.getAttribute('aria-label'), locale === 'ko' ? '재개' : 'Resume');
     assert.notEqual(f.button.querySelector('path').getAttribute('d'), pauseIcon);
     assert.equal(f.button.disabled, true);
     assert.match(f.button.title, /Ctrl\+Alt\+Esc/);
     assert.equal(f.document.body.dataset.error, 'true');
+    // A dead toggle is not the only way out of a latched check state.
+    assert.equal(visibleControls(), 2);
+    assert.equal(stop.disabled, false);
+    stop.click();
+    await settle();
+    assert.deepEqual(f.calls, [{ action: 'stop', generation: 7 }]);
     f.publish({ title: 'stale', paused: false, generation: 6, renderRevision: 1 });
     assert.equal(f.document.getElementById('title').textContent, 'Check');
     assert.equal(f.button.disabled, true);
     f.publish({ paused: true, canResume: true, generation: 7, renderRevision: 3 });
     assert.equal(f.button.disabled, false);
     assert.equal(f.document.body.dataset.error, 'false');
+    assert.equal(visibleControls(), 1);
   }
 });
 

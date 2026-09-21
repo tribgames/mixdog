@@ -14,8 +14,8 @@ import {
 import { extractDocument } from './document-content.mjs';
 import { abortable, runFetchPipeline } from './fetch-pipeline.mjs';
 
-// Facade re-exports: SSRF-guard and HTTP-fetch clusters moved to dedicated
-// modules; keep the original public surface resolving unchanged for importers.
+// Facade re-exports: keep the original public surface resolving unchanged for
+// importers that predate the ssrf-guard / http-fetch split.
 export {
   assertPublicUrl,
   resolveAndValidate,

@@ -13,11 +13,6 @@ export const SMART_READ_MAX_BYTES = TOOL_OUTPUT_MAX_BYTES;
 export const SMART_READ_MAX_LINES = _readEnvInt('MIXDOG_READ_MAX_LINES', 2000);
 export const SMART_READ_HEAD_LINES = _readEnvInt('MIXDOG_READ_HEAD_LINES', 1200);
 export const SMART_READ_TAIL_LINES = _readEnvInt('MIXDOG_READ_TAIL_LINES', 400);
-// Only the genuinely large full reads warrant the anti-re-read advisory; below
-// this the smart-truncate path (30 KB) already caps normal reads, so a 16 KB
-// floor mostly fired on full:true mid-size reads where the advisory was pure
-// tail bloat. Raised to 40 KB to keep the guidance only where re-reading a big
-// file actually hurts.
 const READ_MAX_RENDERED_LINE_CHARS = 2_000;
 // The read line-prefix separator is `→` (the `→`
 // arrow), matching default cat -n format `<n>→<content>`. It

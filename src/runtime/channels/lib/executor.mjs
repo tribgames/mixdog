@@ -7,17 +7,20 @@ const EVENT_LOG = join(DATA_DIR, 'event.log');
 // Buffered async logger — coalesces per-line appends into batched writes.
 let _eventLogBuf = [];
 let _eventLogTimer = null;
+function _drainEventLog() {
+  if (_eventLogBuf.length === 0) return '';
+  const lines = _eventLogBuf.join('');
+  _eventLogBuf = [];
+  return lines;
+}
 function _flushEventLog() {
   _eventLogTimer = null;
-  if (_eventLogBuf.length === 0) return;
-  const lines = _eventLogBuf.join('');
-  _eventLogBuf = [];
-  _appendFileAsync(EVENT_LOG, lines, () => {});
+  const lines = _drainEventLog();
+  if (lines) _appendFileAsync(EVENT_LOG, lines, () => {});
 }
 function _flushEventLogSync() {
-  if (_eventLogBuf.length === 0) return;
-  const lines = _eventLogBuf.join('');
-  _eventLogBuf = [];
+  const lines = _drainEventLog();
+  if (!lines) return;
   try {
     appendFileSync(EVENT_LOG, lines);
   } catch {}

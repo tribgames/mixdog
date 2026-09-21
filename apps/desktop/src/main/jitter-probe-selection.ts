@@ -249,7 +249,7 @@ export async function runSelectionProbe({
       type,
       x: Math.round(point.x),
       y: Math.round(point.y),
-      button: type === 'mouseMoved' ? 'left' : 'left',
+      button: 'left',
       buttons: type === 'mouseReleased' ? 0 : 1,
       clickCount: type === 'mouseMoved' ? 0 : 1,
       pointerType: 'mouse',

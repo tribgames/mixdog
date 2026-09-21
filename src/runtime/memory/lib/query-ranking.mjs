@@ -67,6 +67,11 @@ export function latestRecallSearchTerms(text) {
   return identifiers.length > 0 ? identifiers : topicTerms;
 }
 
+function recallRowScore(row) {
+  const value = Number(row?.retrievalScore ?? row?.rrf ?? row?.score ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
 function recallRowTopicText(row) {
   const members = Array.isArray(row?.members) ? row.members : [];
   return [
@@ -109,10 +114,6 @@ export function rankLatestRecallRows(rows, query) {
     .normalize('NFKC')
     .trim()
     .toLowerCase();
-  const score = (row) => {
-    const value = Number(row?.retrievalScore ?? row?.rrf ?? row?.score ?? 0);
-    return Number.isFinite(value) ? value : 0;
-  };
   const annotated = [...(Array.isArray(rows) ? rows : [])].map((row, index) => ({
     row,
     index,
@@ -136,13 +137,13 @@ export function rankLatestRecallRows(rows, query) {
         return (
           compareRecallNewestFirst(a.row, b.row) ||
           b.coverage - a.coverage ||
-          score(b.row) - score(a.row) ||
+          recallRowScore(b.row) - recallRowScore(a.row) ||
           a.index - b.index
         );
       }
       return (
         b.coverage - a.coverage ||
-        score(b.row) - score(a.row) ||
+        recallRowScore(b.row) - recallRowScore(a.row) ||
         compareRecallNewestFirst(a.row, b.row) ||
         a.index - b.index
       );
@@ -291,12 +292,8 @@ export function sampleRecallTimeline(rows, limit) {
   const sorted = [...rows].sort(compareRecallNewestFirst);
   if (sorted.length <= cap) return sorted;
   const selected = new Set();
-  const score = (row) => {
-    const value = Number(row?.retrievalScore ?? row?.rrf ?? row?.score ?? 0);
-    return Number.isFinite(value) ? value : 0;
-  };
   const byRelevance = sorted
-    .map((row, index) => ({ index, score: score(row) }))
+    .map((row, index) => ({ index, score: recallRowScore(row) }))
     .sort((a, b) => b.score - a.score || a.index - b.index);
   const relevanceCount = Math.max(1, Math.ceil(cap / 2));
   for (const candidate of byRelevance) {

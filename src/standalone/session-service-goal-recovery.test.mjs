@@ -30,8 +30,8 @@ function writeGoal(
         title: `${status} Goal`,
         status,
         tasks: [
-          { id: 'task_1', text: 'Keep progress', status: 'in_progress', kind: 'work' },
-          { id: 'task_2', text: 'Verify recovery', status: 'pending', kind: 'verification' },
+          { id: 'task_1', text: 'Keep progress', status: 'in_progress' },
+          { id: 'task_2', text: 'Verify recovery', status: 'pending' },
         ],
         blocker: status === 'blocked' ? 'External service unavailable' : '',
         failureReason: '',

@@ -248,6 +248,18 @@ export function buildTidyReport({
   return report;
 }
 
+// The environment header describes the run itself, so a `results` page — which
+// only re-pages cached rows — leaves it out.
+function environmentHeader(parts) {
+  return {
+    languages: parts.languages,
+    ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
+    engines: parts.resolved,
+    ...(parts.missing.length ? { missing: parts.missing } : {}),
+    ...(parts.policy ? { policy: parts.policy } : {}),
+  };
+}
+
 // One report shape at a given diagnostic cap; optional sections appear only
 // when they carry something.
 function composeTidyReport(parts, diagnosticCap) {
@@ -259,15 +271,7 @@ function composeTidyReport(parts, diagnosticCap) {
     status: parts.status,
     action,
     ...(parts.scope ? { scope: parts.scope } : {}),
-    ...(action === 'results'
-      ? {}
-      : {
-          languages: parts.languages,
-          ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
-          engines: parts.resolved,
-          ...(parts.missing.length ? { missing: parts.missing } : {}),
-          ...(parts.policy ? { policy: parts.policy } : {}),
-        }),
+    ...(action === 'results' ? {} : environmentHeader(parts)),
     ...(results
       ? {
           results: results.map((result, index) =>

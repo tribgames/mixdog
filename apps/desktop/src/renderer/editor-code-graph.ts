@@ -43,8 +43,6 @@ export const UNIFIED_SYMBOL_KINDS = [
   'impl',
 ] as const;
 
-export type UnifiedSymbolKind = (typeof UNIFIED_SYMBOL_KINDS)[number];
-
 /** Map unified symbol kinds to Monaco SymbolKind numeric enum values. */
 export function codeGraphSymbolKindValue(kind: string): number {
   switch (kind.toLowerCase()) {
@@ -151,37 +149,46 @@ interface EditorGraphOutlineContext {
   relPath: string;
 }
 
-export function codeGraphOutlineItems(
+/** Rows sorted into document order, clamped to the model, each carrying the
+ *  nesting level the surfaces render: the row's own level when the source
+ *  emits indentation, span containment for older level-less rows. */
+function leveledGraphRows(
   model: EditorGraphOutlineModel,
-  context: EditorGraphOutlineContext,
   sourceRows: readonly EditorGraphSymbol[]
-): EditorOutlineItem[] {
+): Array<{ row: EditorGraphSymbol; line: number; endLine: number; level: number }> {
   const rows = [...sourceRows].sort(
     (left, right) => left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name)
   );
-  const hasExplicitLevels = rows.some((r) => (r.level ?? 0) > 0);
+  const hasExplicitLevels = rows.some((candidate) => (candidate.level ?? 0) > 0);
   const parents: Array<{ endLine: number }> = [];
-  return rows.slice(0, 200).map((row, index) => {
+  return rows.slice(0, 200).map((row) => {
     const line = Math.min(model.getLineCount(), Math.max(1, row.line));
     const endLine = Math.min(model.getLineCount(), Math.max(line, row.endLine));
     while (parents.length && line > parents.at(-1)!.endLine) parents.pop();
     const spanLevel = parents.length;
     if (endLine > line) parents.push({ endLine });
-    const level = hasExplicitLevels ? (row.level ?? 0) : spanLevel;
-    return {
-      key: `${model.uri.toString()}:${line}:${index}:${row.name}`,
-      projectPath: context.projectPath,
-      relPath: context.relPath,
-      uri: model.uri.toString(),
-      name: row.name,
-      detail: row.sig ?? row.kind,
-      kind: row.kind,
-      line,
-      column: 1,
-      endLine,
-      level,
-    };
+    return { row, line, endLine, level: hasExplicitLevels ? (row.level ?? 0) : spanLevel };
   });
+}
+
+export function codeGraphOutlineItems(
+  model: EditorGraphOutlineModel,
+  context: EditorGraphOutlineContext,
+  sourceRows: readonly EditorGraphSymbol[]
+): EditorOutlineItem[] {
+  return leveledGraphRows(model, sourceRows).map(({ row, line, endLine, level }, index) => ({
+    key: `${model.uri.toString()}:${line}:${index}:${row.name}`,
+    projectPath: context.projectPath,
+    relPath: context.relPath,
+    uri: model.uri.toString(),
+    name: row.name,
+    detail: row.sig ?? row.kind,
+    kind: row.kind,
+    line,
+    column: 1,
+    endLine,
+    level,
+  }));
 }
 
 interface EditorGraphSymbolModel extends EditorGraphOutlineModel {
@@ -223,22 +230,10 @@ export function codeGraphDocumentSymbols<TRange = EditorGraphRange>(
     ((sl, sc, el, ec) =>
       ({ startLineNumber: sl, startColumn: sc, endLineNumber: el, endColumn: ec }) as unknown as TRange);
 
-  const rows = [...sourceRows].sort(
-    (left, right) => left.line - right.line || right.endLine - left.endLine || left.name.localeCompare(right.name)
-  );
-  const hasExplicitLevels = rows.some((r) => (r.level ?? 0) > 0);
-  const parents: Array<{ endLine: number }> = [];
   const roots: Array<EditorGraphDocumentSymbol<TRange>> = [];
   const stack: Array<{ level: number; symbol: EditorGraphDocumentSymbol<TRange> }> = [];
 
-  for (const row of rows.slice(0, 200)) {
-    const line = Math.min(model.getLineCount(), Math.max(1, row.line));
-    const endLine = Math.min(model.getLineCount(), Math.max(line, row.endLine));
-    while (parents.length && line > parents.at(-1)!.endLine) parents.pop();
-    const spanLevel = parents.length;
-    if (endLine > line) parents.push({ endLine });
-    const level = hasExplicitLevels ? (row.level ?? 0) : spanLevel;
-
+  for (const { row, line, endLine, level } of leveledGraphRows(model, sourceRows)) {
     const lineContent = model.getLineContent(line) ?? '';
     const nameIndex = lineContent.indexOf(row.name);
     const selectionColumn = Math.max(1, nameIndex >= 0 ? nameIndex + 1 : 1);

@@ -2,11 +2,8 @@
 // its last transcript immediately instead of an empty frame while the session
 // re-attaches. Bounded by BOTH count and estimated retained JS bytes so six
 // unusually large transcripts cannot pin the renderer heap indefinitely.
-import { useCallback, useEffect, useRef } from 'react';
-
 import type { SessionSnapshot } from '../shared/contract';
 import type { Snapshot } from './desktop-types';
-import type { DesktopSnapshotStore } from './desktop-snapshot-store';
 import { RendererLruCache } from './renderer-lru-cache';
 
 const SESSION_SNAPSHOT_CACHE_LIMIT = 6;
@@ -98,38 +95,4 @@ export function createSessionSnapshotCache({
       entries.dispose();
     },
   };
-}
-
-export function useSessionSnapshotCache(snapshotStore: DesktopSnapshotStore) {
-  const cacheRef = useRef<SessionSnapshotCache | null>(null);
-  cacheRef.current ||= createSessionSnapshotCache({ registerBudget: false });
-
-  const rememberSessionSnapshot = useCallback((next: SessionSnapshot | Snapshot | null | undefined) => {
-    cacheRef.current?.remember(next);
-  }, []);
-
-  const cachedSessionSnapshot = useCallback((sessionId: string): Snapshot | null => {
-    return cacheRef.current?.get(sessionId) || null;
-  }, []);
-
-  // Every published snapshot updates the entry for its own session.
-  useEffect(() => {
-    const cache = cacheRef.current!;
-    cache.registerBudget();
-    const rememberCurrent = () => rememberSessionSnapshot(snapshotStore.getSnapshot());
-    rememberCurrent();
-    const unsubscribe = snapshotStore.subscribe(rememberCurrent);
-    return () => {
-      unsubscribe();
-      cache.dispose();
-    };
-  }, [rememberSessionSnapshot, snapshotStore]);
-
-  /** Deleting a session drops its cached frame so a reused id cannot resurrect
-   *  the old transcript. */
-  const forgetSessionSnapshot = useCallback((sessionId: string) => {
-    cacheRef.current?.forget(sessionId);
-  }, []);
-
-  return { rememberSessionSnapshot, cachedSessionSnapshot, forgetSessionSnapshot };
 }

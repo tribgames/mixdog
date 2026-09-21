@@ -1,16 +1,15 @@
-import { writeFile } from 'node:fs/promises';
 import JSZip from 'jszip';
+import { PACKAGE_RELATIONSHIP_NS as PACKAGE_RELATIONSHIPS, packageBuffer, savePackage } from './portable-opc.mjs';
 import {
   DRAWING_MAIN_NS as DRAWING_MAIN,
   OFFICE_RELATIONSHIP_BASE as OFFICE_RELATIONSHIPS,
   SPREADSHEET_MAIN as SHEET_MAIN,
+  WORD_MAIN_NS as WORD_MAIN,
   XML_HEADER,
   xmlEncode,
 } from './portable-xml.mjs';
 import { columnLabel } from './portable-cells.mjs';
 
-const PACKAGE_RELATIONSHIPS = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const WORD_MAIN = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
 const PRESENTATION_MAIN = 'http://schemas.openxmlformats.org/presentationml/2006/main';
 
 const MAIN_PART_TYPES = Object.freeze({
@@ -478,12 +477,7 @@ export async function createPortableChartWorkbook(rows = [], { sheetName = 'Shee
   parts.set('xl/worksheets/sheet1.xml', worksheetWithRows(rows));
   const zip = new JSZip();
   for (const [name, content] of parts) zip.file(name, content);
-  return await zip.generateAsync({
-    type: 'nodebuffer',
-    compression: 'DEFLATE',
-    compressionOptions: { level: 6 },
-    platform: 'DOS',
-  });
+  return await packageBuffer(zip);
 }
 
 const BUILDERS = Object.freeze({
@@ -496,16 +490,12 @@ export function portableCreateSupported(fileKind) {
   return Object.hasOwn(FILE_KIND_FAMILIES, String(fileKind || '').toLowerCase());
 }
 
-function portableCreateFileKinds() {
-  return Object.keys(FILE_KIND_FAMILIES);
-}
-
 export async function createPortableOoxmlDocument(path, { fileKind, title = '', sheetName = 'Sheet1' } = {}) {
   const kind = String(fileKind || '').toLowerCase();
   const family = FILE_KIND_FAMILIES[kind];
   if (!family) {
     throw new Error(
-      `Portable Office creation supports ${portableCreateFileKinds().join(', ')}; .${kind || 'unknown'} requires Microsoft Office`
+      `Portable Office creation supports ${Object.keys(FILE_KIND_FAMILIES).join(', ')}; .${kind || 'unknown'} requires Microsoft Office`
     );
   }
   const parts = BUILDERS[family]({
@@ -515,14 +505,6 @@ export async function createPortableOoxmlDocument(path, { fileKind, title = '', 
   });
   const zip = new JSZip();
   for (const [name, content] of parts) zip.file(name, content);
-  await writeFile(
-    path,
-    await zip.generateAsync({
-      type: 'nodebuffer',
-      compression: 'DEFLATE',
-      compressionOptions: { level: 6 },
-      platform: 'DOS',
-    })
-  );
+  await savePackage(zip, path);
   return { path, format: family, fileKind: kind, parts: [...parts.keys()] };
 }

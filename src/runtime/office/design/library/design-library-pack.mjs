@@ -96,6 +96,14 @@ function normalizeDesignTags(value, limit = 16) {
   ].slice(0, limit);
 }
 
+/** The layout defaults a pack may carry, refusing any key nothing reads. */
+function knownLayoutDefaults(value, label) {
+  const defaults = plainObject(value) ? clone(value) : {};
+  const unknown = Object.keys(defaults).filter((key) => !ALLOWED_LAYOUT_DEFAULTS.has(key));
+  if (unknown.length) throw new Error(`${label} has unsupported default(s): ${unknown.join(', ')}`);
+  return defaults;
+}
+
 export function normalizeLayouts(value, { templatePath = '' } = {}) {
   if (value == null) return [];
   if (!Array.isArray(value) || value.length > 1_000)
@@ -109,11 +117,7 @@ export function normalizeLayouts(value, { templatePath = '' } = {}) {
       .trim()
       .toLowerCase();
     if (!kind) throw new Error(`Office design layout ${id} requires kind`);
-    const defaults = plainObject(layout.defaults) ? clone(layout.defaults) : {};
-    const unknownDefaults = Object.keys(defaults).filter((key) => !ALLOWED_LAYOUT_DEFAULTS.has(key));
-    if (unknownDefaults.length) {
-      throw new Error(`Office design layout ${id} has unsupported default(s): ${unknownDefaults.join(', ')}`);
-    }
+    const defaults = knownLayoutDefaults(layout.defaults, `Office design layout ${id}`);
     const sourceSlide = Number(layout.sourceSlide || 0);
     if (sourceSlide && (!Number.isInteger(sourceSlide) || sourceSlide < 1)) {
       throw new Error(`Office design layout ${id} has invalid sourceSlide`);
@@ -139,17 +143,7 @@ export function normalizeLayouts(value, { templatePath = '' } = {}) {
       sourceLayout,
       slots: normalizeLayoutSlots(layout.slots),
       capacity: normalizeLayoutCapacity(layout.capacity),
-      capabilities: [
-        ...new Set(
-          (Array.isArray(layout.capabilities) ? layout.capabilities : [])
-            .map((entry) =>
-              String(entry || '')
-                .trim()
-                .toLowerCase()
-            )
-            .filter(Boolean)
-        ),
-      ].slice(0, 32),
+      capabilities: normalizeDesignTags(layout.capabilities, 32),
       priority: Math.max(-100, Math.min(100, Number(layout.priority) || 0)),
       strict: layout.strict === true,
       defaults,
@@ -179,13 +173,7 @@ export function normalizeLocalSamples(value) {
           })
         )
       : {};
-    const defaults = plainObject(sample.defaults) ? clone(sample.defaults) : {};
-    const unknownDefaults = Object.keys(defaults).filter((key) => !ALLOWED_LAYOUT_DEFAULTS.has(key));
-    if (unknownDefaults.length) {
-      throw new Error(
-        `Office local template sample ${slide} has unsupported default(s): ${unknownDefaults.join(', ')}`
-      );
-    }
+    const defaults = knownLayoutDefaults(sample.defaults, `Office local template sample ${slide}`);
     return {
       slide,
       id: sample.id ? safeId(sample.id, `sample ${slide} layout id`) : '',

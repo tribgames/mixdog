@@ -10,7 +10,12 @@ import {
 } from 'react';
 import type { RecordValue } from './desktop-types';
 import { absolutePathsForDragPayload, localFilesFromPaths } from './file-drag';
-import { attachmentFromFile, attachmentPolicyError, isSupportedComposerImagePath, UnsupportedComposerFileError } from './composer-attachments';
+import {
+  attachmentFromFile,
+  attachmentPolicyError,
+  isSupportedComposerImagePath,
+  UnsupportedComposerFileError,
+} from './composer-attachments';
 import { MAX_COMPOSER_ATTACHMENTS, type ComposerAttachment } from './composer-support';
 import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
 import { absolutePathTokens, projectMentionTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore';

@@ -29,12 +29,8 @@ function daemonAgentFor(control, urgent) {
   return urgent ? daemonUrgentAgent : daemonCallAgent;
 }
 
-function runtimeRoot() {
-  return resolveRuntimeRoot();
-}
-
 function sessionDiscoveryPath() {
-  return path.join(runtimeRoot(), 'daemon.json');
+  return path.join(resolveRuntimeRoot(), 'daemon.json');
 }
 
 function daemonOwnerPath() {
@@ -160,8 +156,8 @@ export async function probeSessionHealth({ port, token, timeoutMs = 800 } = {}) 
 }
 
 export function readSessionDiscovery(discoveryPath = sessionDiscoveryPath()) {
-  const readUnified = (candidate) => {
-    const parsed = JSON.parse(readFileSync(candidate, 'utf8'));
+  try {
+    const parsed = JSON.parse(readFileSync(discoveryPath, 'utf8'));
     const endpoint = parsed?.endpoints?.session;
     const channel = parsed?.endpoints?.channel;
     const pid = parsed?.pid;
@@ -171,9 +167,6 @@ export function readSessionDiscovery(discoveryPath = sessionDiscoveryPath()) {
       pid,
       ...(channel?.port && channel?.token ? { channel: { port: channel.port, token: channel.token } } : {}),
     };
-  };
-  try {
-    return readUnified(discoveryPath);
   } catch {}
   return null;
 }
@@ -300,7 +293,7 @@ export function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = dae
           ...process.env,
           ELECTRON_RUN_AS_NODE: '1',
           MIXDOG_DAEMON_HOST: '1',
-          MIXDOG_RUNTIME_ROOT: runtimeRoot(),
+          MIXDOG_RUNTIME_ROOT: resolveRuntimeRoot(),
           // Session-only spawn: the daemon stays dormant on the channels side
           // until a channels client registers.
           MIXDOG_DAEMON_SPAWNED_FOR: 'session',

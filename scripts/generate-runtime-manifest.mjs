@@ -46,7 +46,6 @@ try {
 
 const { assets } = JSON.parse(assetsJson);
 
-// Filter tarball assets
 const tarballs = assets.filter((a) => /^mixdog-runtime-.+\.tar\.gz$/.test(a.name));
 console.log(
   `Found ${tarballs.length} tarball(s):`,
@@ -85,7 +84,6 @@ for (const t of tarballs) {
 // 3. Fetch sha256 sidecar content for each tarball
 // ---------------------------------------------------------------------------
 async function fetchSha256(sha256AssetName, _downloadUrl) {
-  // Try matching .sha256 sidecar from the asset list first
   const sidecar = assets.find((a) => a.name === sha256AssetName);
   if (!sidecar) {
     throw new Error(`Missing required checksum sidecar: ${sha256AssetName}`);

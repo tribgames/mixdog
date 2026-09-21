@@ -10,6 +10,14 @@ function newCursor() {
   return { offset: 0, preview: '', decoder: new StringDecoder('utf8'), ansi: '' };
 }
 
+// Only the introducer is retained, plus the ESC that may open a split OSC
+// terminator (`ESC \`), so the next chunk can complete the sequence.
+function pendingAnsiIntroducer(sequence) {
+  if (sequence.startsWith('\x1b]')) return sequence.endsWith('\x1b') ? '\x1b]\x1b' : '\x1b]';
+  if (sequence.startsWith('\x1b[')) return '\x1b[';
+  return '\x1b';
+}
+
 function visibleText(cursor, text) {
   const value = cursor.ansi + text;
   // Retain only the introducer of an unfinished CSI/OSC, not its potentially
@@ -18,9 +26,7 @@ function visibleText(cursor, text) {
   cursor.ansi = '';
   if (!pending) return stripAnsi(value);
   const sequence = pending[0];
-  cursor.ansi = sequence.startsWith('\x1b]')
-    ? `\x1b]${sequence.endsWith('\x1b') ? '\x1b' : ''}`
-    : sequence.startsWith('\x1b[') ? '\x1b[' : '\x1b';
+  cursor.ansi = pendingAnsiIntroducer(sequence);
   return stripAnsi(value.slice(0, pending.index));
 }
 
@@ -92,7 +98,9 @@ export function readShellTaskOutput(task, result = {}, { output = 'new' } = {}) 
       const text = visibleText(cursor, decoded);
       if (text) sections.push(`[${stream}]\n${text}`);
       if (cursor.offset < size) {
-        sections.push(`[${stream}: ${size - cursor.offset} unread bytes; task read continues, read ${path} for the original log]`);
+        sections.push(
+          `[${stream}: ${size - cursor.offset} unread bytes; task read continues, read ${path} for the original log]`
+        );
       }
     } catch (error) {
       sections.push(`[${stream} read error: ${error.message}]`);

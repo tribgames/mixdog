@@ -146,7 +146,7 @@ export const observationActions = defineBrowserActions({
     });
     const candidates = lines.length
       ? `Visual candidates (${lines.length} shown of ${payload.total}):\n${lines.join('\n')}`
-      : `No DOM-backed visual candidates matched ${JSON.stringify(query)}; inspect the attached screenshot directly.`;
+      : `No DOM-backed visual candidate on screen matched ${JSON.stringify(query)}; scroll the target into view, or inspect the attached screenshot directly.`;
     return {
       text:
         `${snapshot.text}\n\nVisual locate query: ${JSON.stringify(query)}\n${candidates}\n\n` +

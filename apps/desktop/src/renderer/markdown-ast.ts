@@ -71,10 +71,11 @@ function normalizeAstNode(node: SyntaxNode): MarkdownAstNode {
     return { type: 'text', value: String(node.value ?? '') };
   }
   if (node.type === 'element') {
+    const properties = normalizedProperties(node.properties);
     return {
       type: 'element',
       tagName: String(node.tagName || 'span'),
-      ...(normalizedProperties(node.properties) ? { properties: normalizedProperties(node.properties) } : {}),
+      ...(properties ? { properties } : {}),
       children: Array.isArray(node.children) ? node.children.map(normalizeAstNode) : [],
     };
   }

@@ -5,6 +5,10 @@ export interface ComputerWindowRecord {
   app: string;
   pid: number;
   parentPid?: number;
+  /** The process that owns the content a frame window hosts. A packaged app's
+   *  window belongs to the system frame host, so its own pid never matches the
+   *  process the launch started; the hosted content's pid does. */
+  contentPid?: number;
   ownerId: string;
   focused: boolean;
   minimized: boolean;
@@ -31,6 +35,7 @@ export interface ComputerWindowTransition {
     | 'launched_process_window'
     | 'launched_app_opened'
     | 'launched_app_focused'
+    | 'launched_window_focused'
     | 'launched_app_existing';
 }
 
@@ -99,6 +104,7 @@ export function normalizeComputerWindowRecords(value: unknown): ComputerWindowRe
       app: text(row.app),
       pid: finiteNumber(row.pid),
       parentPid: finiteNumber(row.parent_pid ?? row.parentPid),
+      contentPid: finiteNumber(row.content_pid ?? row.contentPid),
       ownerId: text(row.owner_id ?? row.ownerId),
       focused: row.focused === true,
       minimized: row.minimized === true,
@@ -166,12 +172,16 @@ type ComputerWindowSuccessor = {
 // window that took focus, else an existing app window.
 function launchedSuccessor(
   opened: ComputerWindowRecord[],
+  allOpened: ComputerWindowRecord[],
   after: ComputerWindowRecord[],
   focusedBefore: string,
   { targetPid, contextApp }: { targetPid: number; contextApp: string }
 ): ComputerWindowSuccessor | null {
   const launchedProcess = uniquePreferred(
-    opened.filter((window) => targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid))
+    opened.filter(
+      (window) =>
+        targetPid > 0 && (window.pid === targetPid || window.parentPid === targetPid || window.contentPid === targetPid)
+    )
   );
   if (launchedProcess) return { window: launchedProcess, reason: 'launched_process_window' };
   const launchedApp = uniquePreferred(
@@ -186,6 +196,14 @@ function launchedSuccessor(
       normalizedAppName(window.app) === contextApp
   );
   if (focusedApp) return { window: focusedApp, reason: 'launched_app_focused' };
+  // A shell broker can host the launched app in another process under another
+  // name (packaged apps, shell folders), so neither pid nor app name matches.
+  // A window that both appeared during this launch and took focus is still
+  // that launch's window; discarding it costs the caller a whole round trip.
+  // Naming it is not proving it: this successor is offered as the window to
+  // observe next, while the launch itself stays unconfirmed.
+  const focusedOpened = allOpened.find((window) => window.focused && window.id !== focusedBefore);
+  if (focusedOpened) return { window: focusedOpened, reason: 'launched_window_focused' };
   const existingApp = uniquePreferred(
     after.filter((window) => Boolean(contextApp) && normalizedAppName(window.app) === contextApp)
   );
@@ -246,7 +264,8 @@ export function computeComputerWindowTransition(
   const contextApp = normalizedAppName(targetApp);
   const belongsToTarget = (window: ComputerWindowRecord, windowsById: Map<string, ComputerWindowRecord>): boolean =>
     window.id === targetWindowId ||
-    (contextPid > 0 && (window.pid === contextPid || window.parentPid === contextPid)) ||
+    (contextPid > 0 &&
+      (window.pid === contextPid || window.parentPid === contextPid || window.contentPid === contextPid)) ||
     (!targetWindowId && Boolean(contextApp) && normalizedAppName(window.app) === contextApp) ||
     (Boolean(targetWindowId) && ownerChainContains(window.id, targetWindowId, windowsById));
   const allOpened = after.filter((window) => !beforeById.has(window.id));
@@ -267,7 +286,7 @@ export function computeComputerWindowTransition(
 
   let successor: ComputerWindowSuccessor | null = null;
   if (!targetWindowId && (targetPid > 0 || Boolean(contextApp))) {
-    successor = launchedSuccessor(opened, after, transition.focused_before, { targetPid, contextApp });
+    successor = launchedSuccessor(opened, allOpened, after, transition.focused_before, { targetPid, contextApp });
   } else if (opened.length === 0) {
     const owner =
       targetWindowId && !afterById.has(targetWindowId) ? restoredOwner(beforeById, afterById, targetWindowId) : null;

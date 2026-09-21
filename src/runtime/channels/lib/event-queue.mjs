@@ -265,6 +265,19 @@ ${p.item.prompt}`
     const match = /^in-progress-\d+-(.+)$/.exec(claimed);
     return match ? match[1] : claimed;
   }
+  // Return one claimed handle to queue/ under its original enqueue-ordered
+  // name. A vanished handle is not an error; anything else is logged.
+  renameToQueue(claimed, original) {
+    try {
+      renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
+      return true;
+    } catch (err) {
+      if (err?.code && err.code !== 'ENOENT') {
+        logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
+      }
+      return false;
+    }
+  }
   // Move a single claimed in-progress/ handle back to queue/, restoring the
   // original enqueue-ordered filename. Used when inject fails after claim.
   // Retry budget: after INJECT_MAX_ATTEMPTS failures the item is dead-lettered
@@ -293,13 +306,7 @@ ${p.item.prompt}`
         writeJsonAtomicSync(join(IN_PROGRESS_DIR, claimed), { ...item, injectAttempts: fails }, { fsyncDir: true });
       } catch {}
     }
-    try {
-      renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
-    } catch (err) {
-      if (err?.code && err.code !== 'ENOENT') {
-        logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
-      }
-    }
+    this.renameToQueue(claimed, original);
   }
   // ── Helpers ───────────────────────────────────────────────────────
   readQueueFiles() {
@@ -374,16 +381,7 @@ ${p.item.prompt}`
     }
     let count = 0;
     for (const claimed of entries) {
-      const match = /^in-progress-\d+-(.+)$/.exec(claimed);
-      const original = match ? match[1] : claimed;
-      try {
-        renameWithRetrySync(join(IN_PROGRESS_DIR, claimed), join(QUEUE_DIR, original));
-        count++;
-      } catch (err) {
-        if (err?.code && err.code !== 'ENOENT') {
-          logEvent(`queue: requeue failed for ${claimed}: ${err.message ?? err}`);
-        }
-      }
+      if (this.renameToQueue(claimed, this.originalQueueName(claimed))) count++;
     }
     if (count > 0) logEvent(`queue: requeued ${count} stranded in-progress events`);
   }
@@ -408,9 +406,6 @@ ${p.item.prompt}`
   }
   existsSync(p) {
     try {
-      // readdirSync-free existence check via rename would be destructive —
-      // fall back to a cheap stat via readFileSync on non-content probe.
-      // Use fs.existsSync semantics without importing it twice.
       return fsExistsSync(p);
     } catch {
       return false;

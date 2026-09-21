@@ -23,11 +23,17 @@ export function browserInputRecovery(action: { type: string }): boolean {
   return action.type === 'stop' || action.type === 'reload' || browserTabControl(action);
 }
 
-/** Pane geometry is native presentation state, not an edit to the document. */
+/** Pane geometry and zoom are native presentation state, not edits to the
+ *  document. The pane re-applies them on every attach and navigation, so they
+ *  must never queue behind agent work or expire as stale human input. */
+export function browserInputPresentation(action: { type: string }): boolean {
+  return action.type === 'resize' || action.type === 'zoom';
+}
+
 export function browserInputImmediate(action: { type: string }): boolean {
   return (
     browserInputRecovery(action) ||
-    action.type === 'resize' ||
+    browserInputPresentation(action) ||
     action.type === 'answer-dialog' ||
     action.type === 'choose-files'
   );

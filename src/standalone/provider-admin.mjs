@@ -136,7 +136,6 @@ const OAUTH_PROVIDERS = Object.freeze(
   ].filter((p) => isOAuthProviderAvailable(p.id))
 );
 
-export const LOCAL_PROVIDERS = Object.freeze([]);
 const BUILTIN_PROVIDER_IDS = new Set(['mixdog-local']);
 
 const API_PROVIDER_IDS = new Set(API_PROVIDERS.map((p) => p.id));
@@ -145,7 +144,6 @@ const OAUTH_BY_ID = new Map(OAUTH_PROVIDERS.map((p) => [p.id, p]));
 const ALL_PROVIDER_IDS = new Set([
   ...API_PROVIDERS.map((p) => p.id),
   ...OAUTH_PROVIDERS.map((p) => p.id),
-  ...LOCAL_PROVIDERS.map((p) => p.id),
   ...BUILTIN_PROVIDER_IDS,
 ]);
 
@@ -316,16 +314,6 @@ export function providerStatus(config = {}) {
   return [
     ...API_PROVIDERS.map((p) => apiProviderStatusRow(p, config)),
     ...OAUTH_PROVIDERS.map((p) => oauthProviderStatusRow(p, config)),
-    ...LOCAL_PROVIDERS.map((p) => ({
-      id: p.id,
-      type: 'local',
-      enabled: config.providers?.[p.id]?.enabled === true,
-      authenticated: false,
-      stored: false,
-      env: false,
-      envName: null,
-      label: p.name,
-    })),
   ];
 }
 
@@ -536,29 +524,20 @@ export function saveOpenAIUsageSessionKey(cfgMod, secret) {
   return { provider: 'openai', type: 'usage-auth', authenticated: true };
 }
 
-export function saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie } = {}) {
-  const workspace = String(workspaceId || '').trim();
-  if (workspace && !/^wrk_[a-zA-Z0-9]+$/.test(workspace))
-    throw new Error('OpenCode Go workspaceId must look like wrk_...');
-  const cookie = String(authCookie || '').trim();
-  if (!cookie) throw new Error('OpenCode auth cookie is required for usage lookup');
-  const authMatch = /(?:^|;\s*)auth=([^;]+)/.exec(cookie);
-  saveSecret(SECRET_ACCOUNTS.opencodeGoAuthCookie, authMatch ? authMatch[1] : cookie);
-  // Usage auth is a console cookie, not a model API key. Only flip the model
-  // provider on when a key actually exists; otherwise cookie-only setups get
-  // routed to the provider with apiKey 'no-key' and fail with 401s.
-  const hasApiKey = Boolean(getAgentApiKey('opencode-go'));
-  updateConfigProvider(cfgMod, 'opencode-go', {
-    ...(hasApiKey ? { enabled: true } : {}),
-    ...(workspace ? { workspaceId: workspace } : {}),
-  });
-  return { provider: 'opencode-go', type: 'usage-auth', authenticated: true, workspaceId: workspace || null };
-}
-
-export async function loginOpenCodeGoUsage(cfgMod) {
-  const { loginOpenCodeGoConsoleWithBrowser } = await import('./opencode-go-login.mjs');
-  const { workspaceId, authCookie } = await loginOpenCodeGoConsoleWithBrowser();
-  return saveOpenCodeGoUsageAuth(cfgMod, { workspaceId, authCookie });
+export function saveOpenCodeGoUsageAuth(cfgMod, { apiKey } = {}) {
+  const secret = String(apiKey || '').trim();
+  if (!secret) throw new Error('OpenCode console API key is required for usage lookup');
+  // Subscription meters are read with a console service-account key holding the
+  // `all` permission. The console accepts no other credential for them, so
+  // rejecting anything else here keeps unusable auth out of the keychain.
+  if (!/^(?:oc_sk_|sk-)/.test(secret))
+    throw new Error('OpenCode usage auth must be a console API key (oc_sk_… or sk-…) with all permissions');
+  saveSecret(SECRET_ACCOUNTS.opencodeGoConsoleKey, secret);
+  // Usage auth may be a different key from the inference key. Only flip the
+  // model provider on when a model key actually exists; otherwise usage-only
+  // setups get routed to the provider with apiKey 'no-key' and fail with 401s.
+  if (getAgentApiKey('opencode-go')) updateConfigProvider(cfgMod, 'opencode-go', { enabled: true });
+  return { provider: 'opencode-go', type: 'usage-auth', authenticated: true };
 }
 
 export function forgetProviderAuth(cfgModOrProvider, maybeProvider, requestedAccountId) {

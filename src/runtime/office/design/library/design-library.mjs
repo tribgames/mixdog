@@ -58,6 +58,17 @@ export async function syncOfficeDesignLibrary({
   }
   let state = await readJson(paths.state, { schemaVersion: SCHEMA_VERSION });
   let activePack = null;
+  // Every exit reports the same library state; only the check/update outcome
+  // and an explicit failure differ.
+  const result = ({ ok = !warning, checked = false, updated = null } = {}) => ({
+    ok,
+    activePack,
+    active: packSummary(activePack),
+    templates: templateIndex,
+    checked,
+    ...(updated === null ? {} : { updated }),
+    warning,
+  });
   try {
     activePack = await loadCachedPack(paths, config, state.active?.id, state.active?.version);
   } catch (error) {
@@ -65,16 +76,7 @@ export async function syncOfficeDesignLibrary({
   }
   const now = Date.now();
   const due = force || !Number(state.lastCheckedAt) || now - Number(state.lastCheckedAt) >= config.checkIntervalMs;
-  if (!allowRemote || !config.manifestUrl || !due) {
-    return {
-      ok: !warning,
-      activePack,
-      active: packSummary(activePack),
-      templates: templateIndex,
-      checked: false,
-      warning,
-    };
-  }
+  if (!allowRemote || !config.manifestUrl || !due) return result();
   try {
     const url = new URL(config.manifestUrl);
     if (url.protocol !== 'https:') throw new Error('Office design pack manifest requires an HTTPS URL');
@@ -89,15 +91,7 @@ export async function syncOfficeDesignLibrary({
         lastError: '',
       };
       await writeState(paths, state);
-      return {
-        ok: !warning,
-        activePack,
-        active: packSummary(activePack),
-        templates: templateIndex,
-        checked: true,
-        updated: false,
-        warning,
-      };
+      return result({ checked: true, updated: false });
     }
     const bytes = await responseBytes(response, MAX_MANIFEST_BYTES, 'Office design pack manifest');
     const envelope = JSON.parse(bytes.toString('utf8'));
@@ -124,15 +118,7 @@ export async function syncOfficeDesignLibrary({
       lastError: '',
     };
     await writeState(paths, state);
-    return {
-      ok: !warning,
-      activePack,
-      active: packSummary(activePack),
-      templates: templateIndex,
-      checked: true,
-      updated: shouldActivate,
-      warning,
-    };
+    return result({ checked: true, updated: shouldActivate });
   } catch (error) {
     addWarning(error?.message || String(error));
     await writeState(paths, {
@@ -140,15 +126,7 @@ export async function syncOfficeDesignLibrary({
       lastCheckedAt: now,
       lastError: warning.slice(0, 1_000),
     }).catch(() => {});
-    return {
-      ok: false,
-      activePack,
-      active: packSummary(activePack),
-      templates: templateIndex,
-      checked: true,
-      updated: false,
-      warning,
-    };
+    return result({ ok: false, checked: true, updated: false });
   }
 }
 

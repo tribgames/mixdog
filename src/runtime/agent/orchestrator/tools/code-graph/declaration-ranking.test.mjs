@@ -68,8 +68,12 @@ const dispatch = async (graph, args) => String(await codeGraph(args, CWD, null, 
 
 test('a resolved declaration does not append usages as competing candidates', async () => {
   const graph = makeGraph([
-    { rel: 'src/decl.mjs', lang: 'javascript', text: 'export function uniqueTask() { return 42; }\n',
-      symbols: [sym('uniqueTask', 'function', 1, 1, 17, { exported: true })] },
+    {
+      rel: 'src/decl.mjs',
+      lang: 'javascript',
+      text: 'export function uniqueTask() { return 42; }\n',
+      symbols: [sym('uniqueTask', 'function', 1, 1, 17, { exported: true })],
+    },
     { rel: 'src/use.mjs', lang: 'javascript', text: 'export const task = uniqueTask;\n' },
   ]);
   const declaration = await dispatch(graph, { mode: 'find_symbol', symbol: 'uniqueTask' });
@@ -81,17 +85,19 @@ test('a resolved declaration does not append usages as competing candidates', as
 
 test('one declaration omits candidate and scope banners without losing its body', async () => {
   const text = 'export function uniqueTask() {\n  return 42;\n}\n';
-  const graph = makeGraph([{
-    rel: 'src/unique.mjs',
-    lang: 'javascript',
-    text,
-    symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true, sig: 'function uniqueTask()' })],
-  }]);
+  const graph = makeGraph([
+    {
+      rel: 'src/unique.mjs',
+      lang: 'javascript',
+      text,
+      symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true, sig: 'function uniqueTask()' })],
+    },
+  ]);
   for (const mode of ['find_symbol', 'symbol_search']) {
     const out = await codeGraph({ mode, symbol: 'uniqueTask' }, CWD, null, { graph, _defaultCwd: tmpdir() });
     assert.match(out, /src\/unique\.mjs:1-3:/);
     assert.doesNotMatch(out, /# candidates|# scope:|graph=\d+-nodes/);
-    if (mode === 'find_symbol') assert.match(out, /1: export function uniqueTask\(\) \{\n2:   return 42;\n3: \}/);
+    if (mode === 'find_symbol') assert.match(out, /1: export function uniqueTask\(\) \{\n2: {3}return 42;\n3: \}/);
   }
   for (const body of [true, false]) {
     const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'uniqueTask', body });
@@ -99,7 +105,7 @@ test('one declaration omits candidate and scope banners without losing its body'
     assert.equal(out.match(/function uniqueTask\(\)/g)?.length, 1);
     assert.doesNotMatch(out, /# candidates|context:/);
     if (body) {
-      assert.match(out, /1: export function uniqueTask\(\) \{\n2:   return 42;\n3: \}/);
+      assert.match(out, /1: export function uniqueTask\(\) \{\n2: {3}return 42;\n3: \}/);
     } else {
       assert.match(out, /^signature: function uniqueTask\(\)$/m);
       assert.doesNotMatch(out, /return 42|^\d+: /m);
@@ -108,12 +114,14 @@ test('one declaration omits candidate and scope banners without losing its body'
 });
 
 test('location-only lookup without a signature keeps one declaration head, not body context', async () => {
-  const graph = makeGraph([{
-    rel: 'src/unique.mjs',
-    lang: 'javascript',
-    text: 'export function uniqueTask() {\n  return 42;\n}\n',
-    symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true })],
-  }]);
+  const graph = makeGraph([
+    {
+      rel: 'src/unique.mjs',
+      lang: 'javascript',
+      text: 'export function uniqueTask() {\n  return 42;\n}\n',
+      symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true })],
+    },
+  ]);
   const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'uniqueTask', body: false });
   assert.equal(out.match(/src\/unique\.mjs:1-3:17/g)?.length, 1);
   assert.equal(out.match(/export function uniqueTask\(\)/g)?.length, 1);
@@ -121,12 +129,14 @@ test('location-only lookup without a signature keeps one declaration head, not b
 });
 
 test('a native declaration without source still returns its location and signature', async () => {
-  const graph = makeGraph([{
-    rel: 'src/unique.mjs',
-    lang: 'javascript',
-    text: '',
-    symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true, sig: 'function uniqueTask()' })],
-  }]);
+  const graph = makeGraph([
+    {
+      rel: 'src/unique.mjs',
+      lang: 'javascript',
+      text: '',
+      symbols: [sym('uniqueTask', 'function', 1, 3, 17, { exported: true, sig: 'function uniqueTask()' })],
+    },
+  ]);
   graph.nodes.get('src/unique.mjs').tokenSymbols = ['uniqueTask'];
   const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'uniqueTask', body: true });
   assert.equal(out.match(/src\/unique\.mjs:1-3:17/g)?.length, 1);
@@ -154,7 +164,7 @@ test('reference hits remain visible without repeating the unique declaration', a
     assert.doesNotMatch(declaration, /# candidates|context:/);
     assert.match(references, /^src\/use\.mjs:1:21\treference\t.*export const task = uniqueTask;/m);
     assert.match(out, /note: call sites are missing from this list/);
-    if (body === true) assert.match(declaration, /^2:   return 42;$/m);
+    if (body === true) assert.match(declaration, /^2: {3}return 42;$/m);
     else assert.doesNotMatch(declaration, /return 42/);
   }
 });
@@ -192,11 +202,14 @@ test('an implementation outranks its .d.mts type face, which is reported separat
     const out = await dispatch(typeFaceGraph(), { mode: 'find_symbol', symbol: 'computerErrorCode', body });
     assert.match(out, /^src\/bridge\/error-code\.mjs:1-3:\d+ \(javascript, export function, matches=\d+\)$/m);
     assert.doesNotMatch(out, /declarations found|declarations=|other declarations:|# candidates|context:/);
-    assert.match(out, /^type declaration: src\/bridge\/error-code\.d\.mts:1-1:\d+ \[typescript\] — function computerErrorCode\(error: unknown\): string$/m);
+    assert.match(
+      out,
+      /^type declaration: src\/bridge\/error-code\.d\.mts:1-1:\d+ \[typescript\] — function computerErrorCode\(error: unknown\): string$/m
+    );
     assert.equal(out.match(/src\/bridge\/error-code\.mjs:/g)?.length, 1);
     assert.equal(out.match(/src\/bridge\/error-code\.d\.mts:/g)?.length, 1);
     assert.equal(out.match(/function computerErrorCode\(error\)/g)?.length, 1);
-    if (body) assert.match(out, /^2:   return String\(error\);$/m);
+    if (body) assert.match(out, /^2: {3}return String\(error\);$/m);
     else assert.doesNotMatch(out, /return String/);
   }
 });
@@ -237,8 +250,14 @@ test('two real implementations still raise the ambiguity warning', async () => {
     const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'runTask', body });
     // The .d.ts is excluded from the count — two implementations, not three.
     assert.match(out, /^⚠ 2 declarations found — verify which one you intend$/m);
-    assert.match(out, /^1\. src\/a\/run\.mjs:1-3:17 \[decl, export function, javascript, matches=1\] — function runTask\(x\)$/m);
-    assert.match(out, /^2\. src\/b\/run\.mjs:1-3:17 \[decl, export function, javascript, matches=1\] — function runTask\(y\)$/m);
+    assert.match(
+      out,
+      /^1\. src\/a\/run\.mjs:1-3:17 \[decl, export function, javascript, matches=1\] — function runTask\(x\)$/m
+    );
+    assert.match(
+      out,
+      /^2\. src\/b\/run\.mjs:1-3:17 \[decl, export function, javascript, matches=1\] — function runTask\(y\)$/m
+    );
     assert.match(out, /^type declaration: src\/b\/run\.d\.ts:/m);
     for (const location of ['src/a/run.mjs:1-3:17', 'src/b/run.mjs:1-3:17', 'src/b/run.d.ts:1-1:17']) {
       assert.equal(out.split(location).length - 1, 1);
@@ -257,7 +276,7 @@ test('two real implementations still raise the ambiguity warning', async () => {
   }
   const scoped = await dispatch(graph, { mode: 'find_symbol', symbol: 'runTask', file: 'src/b/run.mjs', body: true });
   assert.match(scoped, /^src\/b\/run\.mjs:1-3:17 /m);
-  assert.match(scoped, /^2:   return y;$/m);
+  assert.match(scoped, /^2: {3}return y;$/m);
   assert.doesNotMatch(scoped, /declarations found|# candidates/);
   const external = await codeGraph({ mode: 'find_symbol', symbol: 'runTask' }, CWD, null, {
     graph,
@@ -294,12 +313,14 @@ test('a same-named .d.ts in ANOTHER package is a rival declaration, not a type f
 });
 
 test('ambiguous declarations without signatures do not substitute inline bodies', async () => {
-  const graph = makeGraph(['a', 'b'].map((name) => ({
-    rel: `src/${name}.mjs`,
-    lang: 'javascript',
-    text: `export function runTask() { return '${name} implementation'; }\n`,
-    symbols: [sym('runTask', 'function', 1, 1, 17, { exported: true })],
-  })));
+  const graph = makeGraph(
+    ['a', 'b'].map((name) => ({
+      rel: `src/${name}.mjs`,
+      lang: 'javascript',
+      text: `export function runTask() { return '${name} implementation'; }\n`,
+      symbols: [sym('runTask', 'function', 1, 1, 17, { exported: true })],
+    }))
+  );
   const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'runTask', body: true });
   assert.match(out, /^⚠ 2 declarations found/m);
   assert.equal(out.match(/src\/a\.mjs:1-1:17/g)?.length, 1);
@@ -338,7 +359,7 @@ test('truncated graphs keep warnings for unique, ambiguous, reference-only and m
     const out = await dispatch(graph, { mode: 'find_symbol', symbol: 'runTask', body: true });
     if (files[0] === implementation && files.length === 1) {
       assert.match(out, /GRAPH TRUNCATED — may not be canonical; re-run with a narrower cwd to confirm/);
-      assert.match(out, /^2:   return x;$/m);
+      assert.match(out, /^2: {3}return x;$/m);
     } else {
       assert.match(out, /WARN: graph truncated at CODE_GRAPH_MAX_FILES=/);
     }

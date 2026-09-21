@@ -183,6 +183,31 @@ function movableWithinLeft(
   return targetSide === 'left' && locateGroup(layout, sourceId)?.side === 'left';
 }
 
+/** Seat the moved members on the target side: inside the group holding
+ *  `targetRoot` for the `inside*` placements, beside that group otherwise, and
+ *  at the end when the move left no target to land against. */
+function insertMovedMembers(
+  next: { left: WorkbenchSideViewId[][]; right: WorkbenchSideViewId[][] },
+  targetSide: WorkbenchSide,
+  targetRoot: WorkbenchSideViewId | null,
+  members: WorkbenchSideViewId[],
+  placement: WorkbenchSideViewPlacement
+): void {
+  const targetIndex = targetRoot ? next[targetSide].findIndex((group) => group.includes(targetRoot)) : -1;
+  if (!targetRoot || targetIndex < 0) {
+    next[targetSide].push(members);
+    return;
+  }
+  if (placement === 'inside' || placement === 'inside-before' || placement === 'inside-after') {
+    const targetGroup = next[targetSide][targetIndex];
+    const targetViewIndex = targetGroup.indexOf(targetRoot);
+    const insertIndex = placement === 'inside-before' ? targetViewIndex : targetViewIndex + 1;
+    targetGroup.splice(insertIndex, 0, ...members);
+  } else {
+    next[targetSide].splice(targetIndex + (placement === 'after' ? 1 : 0), 0, members);
+  }
+}
+
 export function moveWorkbenchSideGroup(
   layout: WorkbenchSideViewLayout,
   sourceRoot: WorkbenchSideViewId,
@@ -196,23 +221,7 @@ export function moveWorkbenchSideGroup(
   if (targetRoot && layout[source.side][source.index].includes(targetRoot)) return layout;
   const next = mutableLayout(layout);
   const [sourceGroup] = next[source.side].splice(source.index, 1);
-  if (!targetRoot) {
-    next[targetSide].push(sourceGroup);
-    return next;
-  }
-  const targetIndex = next[targetSide].findIndex((group) => group.includes(targetRoot));
-  if (targetIndex < 0) {
-    next[targetSide].push(sourceGroup);
-    return next;
-  }
-  if (placement === 'inside' || placement === 'inside-before' || placement === 'inside-after') {
-    const targetGroup = next[targetSide][targetIndex];
-    const targetViewIndex = targetGroup.indexOf(targetRoot);
-    const insertIndex = placement === 'inside-before' ? targetViewIndex : targetViewIndex + 1;
-    targetGroup.splice(insertIndex, 0, ...sourceGroup);
-  } else {
-    next[targetSide].splice(targetIndex + (placement === 'after' ? 1 : 0), 0, sourceGroup);
-  }
+  insertMovedMembers(next, targetSide, targetRoot, sourceGroup, placement);
   return next;
 }
 
@@ -230,23 +239,7 @@ export function moveWorkbenchSideView(
   const next = mutableLayout(layout);
   next[source.side][source.index] = next[source.side][source.index].filter((id) => id !== sourceId);
   if (next[source.side][source.index].length === 0) next[source.side].splice(source.index, 1);
-  if (!targetRoot) {
-    next[targetSide].push([sourceId]);
-    return next;
-  }
-  const targetIndex = next[targetSide].findIndex((group) => group.includes(targetRoot));
-  if (targetIndex < 0) {
-    next[targetSide].push([sourceId]);
-    return next;
-  }
-  if (placement === 'inside' || placement === 'inside-before' || placement === 'inside-after') {
-    const targetGroup = next[targetSide][targetIndex];
-    const targetViewIndex = targetGroup.indexOf(targetRoot);
-    const insertIndex = placement === 'inside-before' ? targetViewIndex : targetViewIndex + 1;
-    targetGroup.splice(insertIndex, 0, sourceId);
-  } else {
-    next[targetSide].splice(targetIndex + (placement === 'after' ? 1 : 0), 0, [sourceId]);
-  }
+  insertMovedMembers(next, targetSide, targetRoot, [sourceId], placement);
   return next;
 }
 
@@ -457,6 +450,15 @@ export function workbenchSideBarDropTarget(
   return { root: last.root, placement: 'after' };
 }
 
+/** The previous bar drop reused as the hysteresis hint for the next one: only
+ *  the bar's own before/after placements qualify. */
+function barDropHint(
+  drop: { root: WorkbenchSideViewId; placement: WorkbenchSideViewPlacement } | null
+): { root: WorkbenchSideViewId; placement: 'before' | 'after' } | null {
+  const placement = drop?.placement;
+  return drop && (placement === 'before' || placement === 'after') ? { root: drop.root, placement } : null;
+}
+
 export function WorkbenchSideIconBar({
   side,
   groups,
@@ -537,15 +539,7 @@ export function WorkbenchSideIconBar({
         if (!acceptsDrag(event)) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
-        setDrop((current) =>
-          targetAt(
-            event.clientX,
-            event.clientY,
-            current?.placement === 'before' || current?.placement === 'after'
-              ? (current as { root: WorkbenchSideViewId; placement: 'before' | 'after' })
-              : null
-          )
-        );
+        setDrop((current) => targetAt(event.clientX, event.clientY, barDropHint(current)));
       }}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -557,13 +551,7 @@ export function WorkbenchSideIconBar({
         const payload = dragPayload(event);
         if (!payload) return;
         event.preventDefault();
-        const target = targetAt(
-          event.clientX,
-          event.clientY,
-          drop?.placement === 'before' || drop?.placement === 'after'
-            ? (drop as { root: WorkbenchSideViewId; placement: 'before' | 'after' })
-            : null
-        );
+        const target = targetAt(event.clientX, event.clientY, barDropHint(drop));
         if (payload.type === 'group') {
           onMoveGroup(payload.id, side, target?.root ?? null, target?.placement ?? 'after');
         } else {

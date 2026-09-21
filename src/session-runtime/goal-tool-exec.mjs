@@ -151,6 +151,6 @@ export async function executeGoalTool(ctx, name, args = {}, context = {}) {
   const id = assertSessionId(sessionId);
   if (name !== 'goal') throw new Error(`unknown Goal tool: ${name}`);
   const action = validateGoalToolCall(args);
-  const handler = GOAL_TOOL_ACTIONS[action] || settleStatus;
+  const handler = GOAL_TOOL_ACTIONS[action];
   return handler(ctx, id, args, action);
 }

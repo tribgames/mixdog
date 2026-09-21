@@ -25,9 +25,7 @@ export function _isMutationTool(name, args = null) {
 }
 export function _isGitMutationTool(name, args = null) {
   const n = String(_stripMcpPrefix(name) || '').toLowerCase();
-  return (
-    (n === 'git' && gitCommandMutates(args)) || (n === 'github' && githubRequestMutates(args))
-  );
+  return (n === 'git' && gitCommandMutates(args)) || (n === 'github' && githubRequestMutates(args));
 }
 export function _isEditTool(name) {
   return String(_stripMcpPrefix(name) || '').toLowerCase() === 'edit';

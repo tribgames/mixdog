@@ -267,6 +267,15 @@ namespace Mixdog {
   ].join('\n');
 }
 
+// zenity and kdialog share one policy: a spawn failure / timeout (broken
+// display, missing portal, etc.) means no usable dialog, so the caller falls
+// back to manual typing; any other exit without a path is a user cancel.
+async function runUnixPicker(cmd, args) {
+  const result = await runCapture(cmd, args);
+  if (spawnFailed(result)) return { available: false, path: null };
+  return { available: true, path: String(result.stdout || '').trim() || null };
+}
+
 /**
  * Open the native folder picker.
  * @returns {Promise<{ available: boolean, path: string|null }>}
@@ -306,20 +315,10 @@ export async function pickFolder({ title = 'Select a project folder', initialPat
 
   // Linux / other unix: prefer zenity, then kdialog.
   if (await commandExists('zenity')) {
-    const result = await runCapture('zenity', ['--file-selection', '--directory', `--title=${title}`]);
-    // Spawn failure / timeout (broken display, missing portal, etc.) → manual
-    // fallback rather than silently looping back to the picker.
-    if (spawnFailed(result)) return { available: false, path: null };
-    const path = String(result.stdout || '').trim();
-    if (!result.ok && !path) return { available: true, path: null }; // cancel
-    return { available: true, path: path || null };
+    return await runUnixPicker('zenity', ['--file-selection', '--directory', `--title=${title}`]);
   }
   if (await commandExists('kdialog')) {
-    const result = await runCapture('kdialog', ['--getexistingdirectory', '.']);
-    if (spawnFailed(result)) return { available: false, path: null };
-    const path = String(result.stdout || '').trim();
-    if (!result.ok && !path) return { available: true, path: null };
-    return { available: true, path: path || null };
+    return await runUnixPicker('kdialog', ['--getexistingdirectory', '.']);
   }
 
   return { available: false, path: null };

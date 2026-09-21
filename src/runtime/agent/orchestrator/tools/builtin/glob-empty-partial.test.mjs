@@ -13,13 +13,17 @@ test('the path cap does not hide errors from later groups or partial-result warn
     const result = await executeGlobTool(
       { path: root, pattern: ['a/*.mjs', 'b/*.mjs'], sort: 'natural', limit: 50000 },
       root,
-      { __runRgWindowedLines: async (_args, { cwd }) => {
-        if (cwd === join(root, 'b')) throw new Error('permission denied in second group');
-        return {
-          lines: Array.from({ length: 50000 }, (_, i) => `file-${i}.mjs`),
-          complete: false, partial: true, cacheSafe: false,
-        };
-      } }
+      {
+        __runRgWindowedLines: async (_args, { cwd }) => {
+          if (cwd === join(root, 'b')) throw new Error('permission denied in second group');
+          return {
+            lines: Array.from({ length: 50000 }, (_, i) => `file-${i}.mjs`),
+            complete: false,
+            partial: true,
+            cacheSafe: false,
+          };
+        },
+      }
     );
     assert.match(result, /accumulation cap \(50000\)/);
     assert.match(result, /rg exit 2 \(partial results\)/);

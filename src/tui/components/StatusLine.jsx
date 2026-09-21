@@ -299,8 +299,7 @@ function normalizeStatusLine(text) {
 
 function workflowModeLabel(workflow = {}) {
   const name = String(workflow?.name || workflow?.id || 'Default').trim() || 'Default';
-  const base = `${name} Mode`;
-  return base;
+  return `${name} Mode`;
 }
 
 function StatusLineView({

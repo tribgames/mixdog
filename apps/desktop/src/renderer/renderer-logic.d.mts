@@ -22,7 +22,6 @@ export type TurnFailureModel = {
   >;
 };
 
-export function mergeTranscript<T>(items: T[] | undefined, streamingTail: T | null | undefined): T[];
 export function transcriptTurnKeys<T>(items: T[] | undefined): string[];
 export function turnReviewScope<
   T extends {
@@ -101,30 +100,11 @@ export function shouldStopComposerGeneration(input?: {
   text?: string;
   attachments?: Array<{ token?: string; chipOnly?: boolean }>;
 }): boolean;
-export function mergeModelCatalog<T extends { provider?: string; model?: string }>(
-  current: T[] | undefined,
-  incoming: T[] | undefined
-): T[];
 export function approvalInstanceKey(id: unknown): string;
 export function isApprovalDismissKey(key: string): boolean;
-export function focusTrapIndex(currentIndex: number, count: number, backwards?: boolean): number;
-export function draftAfterSubmission(currentDraft: string, submittedText: string, accepted: unknown): string;
-export function attemptApproval(
-  resolve: (approved: boolean) => unknown | Promise<unknown>,
-  approved: boolean
-): Promise<boolean>;
 export function normalizeApplyPatch(value: unknown): string;
 export function diffFileStatus(section: unknown): string;
 export function parseUnifiedDiff(patch: string): DiffData[];
-type ToolInputRow = { key: string; value: string; block: boolean };
-export function toolInputRows(name: string, args: unknown): ToolInputRow[];
-interface SessionScopedSnapshotGate<T> {
-  select(live: T | null | undefined): {
-    snapshot: T | null;
-    suppressedSessionId: string;
-  };
-}
-export function createSessionScopedSnapshotGate<T>(scopeSessionId: string): SessionScopedSnapshotGate<T>;
 export function startupRestorePlan(input?: {
   storedSessionId?: string;
   storedSessionKnown?: boolean;

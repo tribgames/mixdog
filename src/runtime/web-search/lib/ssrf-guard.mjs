@@ -77,62 +77,24 @@ export function assertPublicUrl(url) {
   // IPv4 private/reserved ranges
   assertPrivateIpv4(hostname);
 
-  // Strip the brackets that WHATWG URL retains around IPv6 hostnames.
-  const bare = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
-
-  // IPv6 loopback
-  if (bare === '::1') {
-    throw new Error(`Blocked request to private address: ${hostname}`);
-  }
-
-  // IPv6 unspecified (::)
-  if (bare === '::') {
-    throw new Error(`Blocked request to private address: ${hostname}`);
-  }
-
-  // IPv6 multicast (ff00::/8)
-  if (/^ff/i.test(bare)) {
-    throw new Error(`Blocked request to private address: ${hostname}`);
-  }
-
-  // IPv4-mapped IPv6 — ::ffff:a.b.c.d
-  // Cover both dotted (::ffff:127.0.0.1) and hex (::ffff:7f00:1) forms —
-  // WHATWG URL canonicalises bracketed mapped literals to the hex shape.
-  const mappedIpv4 = _mappedIpv4FromIpv6(bare);
-  if (mappedIpv4) {
-    assertPrivateIpv4(mappedIpv4);
-  }
-
-  // IPv6 private (fc00::/7 — starts with fc or fd)
-  if (/^f[cd]/i.test(bare)) {
-    throw new Error(`Blocked request to private address: ${hostname}`);
-  }
-
-  // IPv6 link-local (fe80::/10 — starts with fe8, fe9, fea, feb)
-  if (/^fe[89ab]/i.test(bare)) {
-    throw new Error(`Blocked request to private address: ${hostname}`);
-  }
+  // Strip the brackets that WHATWG URL retains around IPv6 hostnames, then
+  // apply the same IPv6 rules the resolver path uses; the original hostname
+  // stays the reported one.
+  _validateIpv6(hostname.startsWith('[') ? hostname.slice(1, -1) : hostname, hostname);
 }
 
-function _validateIpv6(ip) {
+/** The IPv6 block rules, shared by URL validation and resolver output.
+ *  `label` is what a rejection reports, so a bracketed URL hostname keeps its
+ *  original form. */
+function _validateIpv6(ip, label = ip) {
   const lower = ip.toLowerCase();
-  if (lower === '::1') {
-    throw new Error(`Blocked request to private address: ${ip}`);
+  // Loopback (::1), unspecified (::), multicast (ff00::/8), unique-local
+  // (fc00::/7) and link-local (fe80::/10).
+  if (lower === '::1' || lower === '::' || /^(?:ff|f[cd]|fe[89ab])/i.test(lower)) {
+    throw new Error(`Blocked request to private address: ${label}`);
   }
-  if (lower === '::') {
-    throw new Error(`Blocked request to private address: ${ip}`);
-  }
-  if (/^ff/i.test(lower)) {
-    throw new Error(`Blocked request to private address: ${ip}`);
-  }
-  if (/^f[cd]/i.test(lower)) {
-    throw new Error(`Blocked request to private address: ${ip}`);
-  }
-  if (/^fe[89ab]/i.test(lower)) {
-    throw new Error(`Blocked request to private address: ${ip}`);
-  }
-  // Cover both dotted and hex IPv4-mapped IPv6 forms — resolver output and
-  // WHATWG-canonicalised URL hostnames may arrive as `::ffff:7f00:1`.
+  // Cover both dotted (::ffff:127.0.0.1) and hex (::ffff:7f00:1) IPv4-mapped
+  // forms — resolver output and WHATWG-canonicalised URL hostnames use either.
   const mappedIpv4 = _mappedIpv4FromIpv6(lower);
   if (mappedIpv4) {
     assertPrivateIpv4(mappedIpv4);

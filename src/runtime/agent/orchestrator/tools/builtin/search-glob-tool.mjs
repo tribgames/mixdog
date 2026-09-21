@@ -570,7 +570,7 @@ function globScanOptions(args) {
 
 export async function executeGlobTool(args, workDir, options = {}) {
   args = normalizeGlobArgs(args);
-  args.path = coerceReadFamilyPathArg(args.path, workDir);
+  args.path = coerceReadFamilyPathArg(args.path);
   if (Array.isArray(args.path)) {
     const list = globPathList(args.path);
     if (list.length > 1) return runGlobPerPath(args, workDir, options, list);

@@ -844,15 +844,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
     else window.addEventListener('DOMContentLoaded', mount, { once: true });
   };
 
-  const dispatchState = (snapshot: SessionSnapshot): void => {
-    for (const listener of [...stateListeners]) {
+  /** Fan a push out to one lane's listeners. A faulting renderer listener
+   *  must never stop the frame from reaching the rest. */
+  const fanOut = <T>(listeners: Set<(value: T) => void>, value: T): void => {
+    for (const listener of [...listeners]) {
       try {
-        listener(snapshot);
+        listener(value);
       } catch {
         /* renderer listener fault */
       }
     }
   };
+
+  const dispatchState = (snapshot: SessionSnapshot): void => fanOut(stateListeners, snapshot);
 
   // State pushes ride the same identity-prefix items delta the desktop IPC
   // uses (state-delta.ts): reassemble full snapshots here, and ask the
@@ -1191,44 +1195,19 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
       }
     } else if (message.event === 'termData') {
       const payload = (message.payload ?? {}) as { id?: unknown; data?: unknown };
-      const event = { id: String(payload.id || ''), data: String(payload.data ?? '') };
-      for (const listener of [...termListeners]) {
-        try {
-          listener(event);
-        } catch {
-          /* renderer listener fault */
-        }
-      }
+      fanOut(termListeners, { id: String(payload.id || ''), data: String(payload.data ?? '') });
     } else if (message.event === 'folderChanged') {
       const dir = String(message.payload || '');
       if (!dir) return;
-      for (const listener of [...folderChangeListeners]) {
-        try {
-          listener(dir);
-        } catch {
-          /* renderer listener fault */
-        }
-      }
+      fanOut(folderChangeListeners, dir);
     } else if (message.event === 'lspDiagnostics') {
       const payload = message.payload as DesktopLspDiagnosticEvent;
       if (!payload || typeof payload !== 'object') return;
-      for (const listener of [...lspDiagnosticsListeners]) {
-        try {
-          listener(payload);
-        } catch {
-          /* renderer listener fault */
-        }
-      }
+      fanOut(lspDiagnosticsListeners, payload);
     } else if (message.event === 'lspStatus') {
       const payload = message.payload as DesktopLspStatusEvent;
       if (!payload || typeof payload !== 'object') return;
-      for (const listener of [...lspStatusListeners]) {
-        try {
-          listener(payload);
-        } catch {
-          /* renderer listener fault */
-        }
-      }
+      fanOut(lspStatusListeners, payload);
     }
   };
 
@@ -1553,6 +1532,27 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
           queueMicrotask(() => window.dispatchEvent(new Event('mixdog:remote-reconnected')));
         }
       };
+      /** One path for every decrypted frame, whichever wire form carried it:
+       *  the handshake completion, the readiness guard and the authenticated
+       *  dispatch must never drift apart between the two. */
+      const deliverSecureFrame = async (payload: unknown): Promise<void> => {
+        if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
+        const decrypted = await secureChannel.decryptJson(payload);
+        if (closed) return;
+        if (!decrypted || typeof decrypted !== 'object') return;
+        const message = decrypted as Record<string, unknown>;
+        if (message.type === 'e2ee-ready' && message.version === 1) {
+          // The caps the desktop learned from the relay handshake; this leg
+          // never sees `relay-capabilities` itself.
+          learnRoutingCaps(message);
+          peerViewSync = message.viewSync === 1;
+          finishOpen();
+          return;
+        }
+        if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
+        // Decrypted on this leg's own channel: authenticated.
+        handleMessage(message, true);
+      };
       ws.onopen = () => {
         if (closed) return;
         socket = ws;
@@ -1577,22 +1577,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
         lastTrafficAt = Date.now();
         void (async () => {
           if (event.data instanceof ArrayBuffer) {
-            if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
-            const decrypted = await secureChannel.decryptJson(event.data);
-            if (closed) return;
-            if (!decrypted || typeof decrypted !== 'object') return;
-            const message = decrypted as Record<string, unknown>;
-            if (message.type === 'e2ee-ready' && message.version === 1) {
-              // The caps the desktop learned from the relay handshake; this leg
-              // never sees `relay-capabilities` itself.
-              learnRoutingCaps(message);
-              peerViewSync = message.viewSync === 1;
-              finishOpen();
-              return;
-            }
-            if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
-            // Decrypted on this leg's own channel: authenticated.
-            handleMessage(message, true);
+            await deliverSecureFrame(event.data);
             return;
           }
           let parsed: unknown;
@@ -1655,19 +1640,7 @@ const E2EE_SECRET_STORAGE_KEY = REMOTE_PAIRING_STORAGE_KEYS.e2eeSecret;
             ws.send(JSON.stringify({ ...handshake.hello, viewSync: 1 }));
             return;
           }
-          if (!secureChannel) throw new Error('Relay encryption handshake was not established.');
-          const decrypted = await secureChannel.decryptJson(clear);
-          if (closed) return;
-          if (!decrypted || typeof decrypted !== 'object') return;
-          const message = decrypted as Record<string, unknown>;
-          if (message.type === 'e2ee-ready' && message.version === 1) {
-            learnRoutingCaps(message);
-            peerViewSync = message.viewSync === 1;
-            finishOpen();
-            return;
-          }
-          if (!connectionReady) throw new Error('Relay sent data before encryption was ready.');
-          handleMessage(message, true);
+          await deliverSecureFrame(clear);
         })().catch((error) => {
           if (closed) return;
           reportFailure('frame-failed', error);

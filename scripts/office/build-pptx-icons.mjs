@@ -135,7 +135,6 @@ export const ICON_NAMES = [
   'circle-dollar-sign',
   'dollar-sign',
   'euro',
-  'landmark',
   // technology and product
   'cpu',
   'microchip',

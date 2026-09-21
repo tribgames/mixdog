@@ -48,6 +48,7 @@ export function BrowserPagePrompts({
           <div>
             {dialog.type !== 'alert' && (
               <button
+                type="button"
                 disabled={busy}
                 onClick={() =>
                   void answer({
@@ -61,6 +62,7 @@ export function BrowserPagePrompts({
               </button>
             )}
             <button
+              type="button"
               disabled={busy}
               onClick={() =>
                 void answer({
@@ -81,6 +83,7 @@ export function BrowserPagePrompts({
             <p>{t('Choose files')}</p>
             <div>
               <button
+                type="button"
                 disabled={busy}
                 onClick={() =>
                   void answer({
@@ -93,6 +96,7 @@ export function BrowserPagePrompts({
                 {t('Cancel')}
               </button>
               <button
+                type="button"
                 disabled={busy}
                 onClick={() =>
                   void answer({

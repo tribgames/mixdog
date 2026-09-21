@@ -47,6 +47,8 @@ export interface RelayClientLifecycleDeps {
   }) => Promise<boolean>;
 }
 
+const HANDSHAKE_REQUIRED = 'relay encryption handshake required';
+
 export interface RelayClientLifecycle {
   open(clientId: string): void;
   answerClaim(envelope: Record<string, unknown>): void;
@@ -102,18 +104,18 @@ export function createRelayClientLifecycle(deps: RelayClientLifecycleDeps): Rela
     frame: string | ArrayBufferView
   ): Promise<void> => {
     if (typeof frame !== 'string') {
-      deps.clients.close(clientId, 'relay encryption handshake required');
+      deps.clients.close(clientId, HANDSHAKE_REQUIRED);
       return;
     }
     let hello: unknown;
     try {
       hello = JSON.parse(frame);
     } catch {
-      deps.clients.close(clientId, 'relay encryption handshake required');
+      deps.clients.close(clientId, HANDSHAKE_REQUIRED);
       return;
     }
     if (!isRelayE2EEHello(hello)) {
-      deps.clients.close(clientId, 'relay encryption handshake required');
+      deps.clients.close(clientId, HANDSHAKE_REQUIRED);
       return;
     }
     try {

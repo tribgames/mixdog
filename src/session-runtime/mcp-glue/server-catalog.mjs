@@ -26,17 +26,15 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
     const config = getConfig();
     const configured = config?.mcpServers && typeof config.mcpServers === 'object' ? config.mcpServers : {};
     const servers = {};
-    for (const [name, cfg] of Object.entries(configured)) {
-      servers[name] = {
-        ...cfg,
-        ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}),
-      };
-    }
     // A plugin-owned server is installed by enablePluginMcp and carries the
     // plugin root in its env; it belongs to the plugin's own toggle and stays
     // out of the standalone MCP list.
     const sources = {};
     for (const [name, cfg] of Object.entries(configured)) {
+      servers[name] = {
+        ...cfg,
+        ...(cfg?._mixdogPluginDisabled === true ? { enabled: false } : {}),
+      };
       sources[name] = cfg?.env?.MIXDOG_PLUGIN_ROOT ? 'plugin' : 'config';
     }
     return { servers, sources };

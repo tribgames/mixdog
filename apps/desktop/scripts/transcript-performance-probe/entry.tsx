@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import { useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { TranscriptList } from '../../src/renderer/TranscriptList';
@@ -11,8 +11,8 @@ import '../../src/renderer/desktop.css';
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 const root = createRoot(document.getElementById('root')!);
 const code = Array.from({ length: 80 }, (_, i) => `const value${i} = { name: "item", index: ${i} };`).join('\n');
-const table =
-  '| Name | Value |\n| --- | ---: |\n' + Array.from({ length: 30 }, (_, i) => `| row ${i} | ${i * 3} |`).join('\n');
+const tableRows = Array.from({ length: 30 }, (_, i) => `| row ${i} | ${i * 3} |`).join('\n');
+const table = `| Name | Value |\n| --- | ---: |\n${tableRows}`;
 const rows: TranscriptRowModel[] = Array.from({ length: 2000 }, (_, i) => ({
   _tag: 'AssistantPart',
   key: `message-${i}`,

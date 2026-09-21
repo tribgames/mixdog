@@ -1,6 +1,6 @@
 // Native mixdog-patch engine transport: persistent stdio server, env-driven
 // mode gating, binary resolution, prewarm/idle lifecycle, and the char-indexed
-// EDIT client. Behavior is identical.
+// EDIT client.
 //
 // Executor: NATIVE-ONLY. Every supported apply/edit case is dispatched to the
 // mixdog-patch Rust engine via the persistent stdio server. There is NO JS

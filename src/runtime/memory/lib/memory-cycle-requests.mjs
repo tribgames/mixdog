@@ -36,27 +36,46 @@ export function makeCycleRequestSignature(...parts) {
   return shortHash(text);
 }
 
-function cycleRequestKey(kind, signature = 'default') {
+function cycleMetaKey(prefix, label, kind, signature) {
   const normalized = String(kind || '')
     .trim()
     .toLowerCase();
-  if (!VALID_CYCLES.has(normalized)) throw new Error(`invalid cycle request kind: ${kind}`);
+  if (!VALID_CYCLES.has(normalized)) throw new Error(`invalid cycle ${label} kind: ${kind}`);
   const sig = String(signature || 'default')
     .replace(/[^a-zA-Z0-9_.:-]/g, '_')
     .slice(0, 120);
-  return `${KEY_PREFIX}${normalized}.${sig}`;
+  return `${prefix}${normalized}.${sig}`;
+}
+
+function cycleRequestKey(kind, signature = 'default') {
+  return cycleMetaKey(KEY_PREFIX, 'request', kind, signature);
 }
 
 function cycleScheduleKey(kind, signature = 'default') {
-  const normalized = String(kind || '')
-    .trim()
-    .toLowerCase();
-  if (!VALID_CYCLES.has(normalized)) throw new Error(`invalid cycle schedule kind: ${kind}`);
-  const sig = String(signature || 'default')
-    .replace(/[^a-zA-Z0-9_.:-]/g, '_')
-    .slice(0, 120);
-  return `cycle_schedule.${normalized}.${sig}`;
+  return cycleMetaKey('cycle_schedule.', 'schedule', kind, signature);
 }
+
+// One coalesced-request counter upsert, shared by the scheduled claim and the
+// standalone mark: $1 key, $2 now (ms), $3 reason.
+const UPSERT_CYCLE_REQUEST = `INSERT INTO meta(key, value)
+   VALUES ($1, jsonb_build_object(
+     'count', 1,
+     'first_requested_at', $2::bigint,
+     'last_requested_at', $2::bigint,
+     'last_reason', $3::text
+   ))
+   ON CONFLICT(key) DO UPDATE SET value = jsonb_build_object(
+     'count',
+       CASE WHEN jsonb_typeof(meta.value->'count') = 'number'
+         THEN (meta.value->>'count')::integer + 1
+         ELSE 1
+       END,
+     'first_requested_at', COALESCE(meta.value->'first_requested_at', to_jsonb($2::bigint)),
+     'last_requested_at', to_jsonb($2::bigint),
+     'last_reason', to_jsonb($3::text),
+     'last_drained_at', meta.value->'last_drained_at',
+     'last_drained_count', meta.value->'last_drained_count'
+   )`;
 
 export async function claimAndMarkScheduledCycle(db, kind, intervalMs, signature = 'default', options = {}) {
   const scheduleKey = cycleScheduleKey(kind, signature);
@@ -95,28 +114,7 @@ export async function claimAndMarkScheduledCycle(db, kind, intervalMs, signature
         [scheduleKey, now, nextAllowedAt, safeReason]
       );
       if (claimed.rows.length === 0) return { claimed: false, nextAllowedAt };
-      await tx.query(
-        `INSERT INTO meta(key, value)
-         VALUES ($1, jsonb_build_object(
-           'count', 1,
-           'first_requested_at', $2::bigint,
-           'last_requested_at', $2::bigint,
-           'last_reason', $3::text
-         ))
-         ON CONFLICT(key) DO UPDATE SET value = jsonb_build_object(
-           'count',
-             CASE WHEN jsonb_typeof(meta.value->'count') = 'number'
-               THEN (meta.value->>'count')::integer + 1
-               ELSE 1
-             END,
-           'first_requested_at', COALESCE(meta.value->'first_requested_at', to_jsonb($2::bigint)),
-           'last_requested_at', to_jsonb($2::bigint),
-           'last_reason', to_jsonb($3::text),
-           'last_drained_at', meta.value->'last_drained_at',
-           'last_drained_count', meta.value->'last_drained_count'
-         )`,
-        [requestKey, now, safeReason]
-      );
+      await tx.query(UPSERT_CYCLE_REQUEST, [requestKey, now, safeReason]);
       return { claimed: true, nextAllowedAt };
     });
   } catch (err) {
@@ -130,28 +128,7 @@ export async function markCycleRequest(db, kind, reason = 'coalesced', signature
   const now = Date.now();
   const safeReason = String(reason || 'coalesced').slice(0, 80);
   try {
-    await db.query(
-      `INSERT INTO meta(key, value)
-       VALUES ($1, jsonb_build_object(
-         'count', 1,
-         'first_requested_at', $2::bigint,
-         'last_requested_at', $2::bigint,
-         'last_reason', $3::text
-       ))
-       ON CONFLICT(key) DO UPDATE SET value = jsonb_build_object(
-         'count',
-           CASE WHEN jsonb_typeof(meta.value->'count') = 'number'
-             THEN (meta.value->>'count')::integer + 1
-             ELSE 1
-           END,
-         'first_requested_at', COALESCE(meta.value->'first_requested_at', to_jsonb($2::bigint)),
-         'last_requested_at', to_jsonb($2::bigint),
-         'last_reason', to_jsonb($3::text),
-         'last_drained_at', meta.value->'last_drained_at',
-         'last_drained_count', meta.value->'last_drained_count'
-       )`,
-      [key, now, safeReason]
-    );
+    await db.query(UPSERT_CYCLE_REQUEST, [key, now, safeReason]);
     return true;
   } catch (err) {
     __mixdogMemoryLog(`[${kind}] coalesced request mark failed: ${err.message}\n`);
@@ -189,28 +166,45 @@ function firstFiniteNumber(candidates, fallback) {
   return hit === undefined ? fallback : hit;
 }
 
+function resolveCoalesceSetting(config, { directKey, nestedKey, envVar, fallback, min, max }) {
+  const value = firstFiniteNumber(
+    [Number(config?.[directKey]), Number(config?.coalesce?.[nestedKey]), Number(process.env[envVar])],
+    fallback
+  );
+  return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
 export function resolveCoalesceMaxDrains(config, fallback = 1) {
-  const direct = Number(config?.coalesce_max_drains);
-  const nested = Number(config?.coalesce?.max_drains);
-  const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_MAX_DRAINS);
-  const value = firstFiniteNumber([direct, nested, env], fallback);
-  return Math.max(0, Math.min(10, Math.floor(value)));
+  return resolveCoalesceSetting(config, {
+    directKey: 'coalesce_max_drains',
+    nestedKey: 'max_drains',
+    envVar: 'MIXDOG_MEMORY_CYCLE_COALESCE_MAX_DRAINS',
+    fallback,
+    min: 0,
+    max: 10,
+  });
 }
 
 function resolveCoalesceRetryDelayMs(config, fallback = 1000) {
-  const direct = Number(config?.coalesce_retry_delay_ms);
-  const nested = Number(config?.coalesce?.retry_delay_ms);
-  const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS);
-  const value = firstFiniteNumber([direct, nested, env], fallback);
-  return Math.max(50, Math.min(60_000, Math.floor(value)));
+  return resolveCoalesceSetting(config, {
+    directKey: 'coalesce_retry_delay_ms',
+    nestedKey: 'retry_delay_ms',
+    envVar: 'MIXDOG_MEMORY_CYCLE_COALESCE_RETRY_MS',
+    fallback,
+    min: 50,
+    max: 60_000,
+  });
 }
 
 export function resolveCoalesceMaxRetries(config, fallback = 3) {
-  const direct = Number(config?.coalesce_max_retries);
-  const nested = Number(config?.coalesce?.max_retries);
-  const env = Number(process.env.MIXDOG_MEMORY_CYCLE_COALESCE_MAX_RETRIES);
-  const value = firstFiniteNumber([direct, nested, env], fallback);
-  return Math.max(0, Math.min(10, Math.floor(value)));
+  return resolveCoalesceSetting(config, {
+    directKey: 'coalesce_max_retries',
+    nestedKey: 'max_retries',
+    envVar: 'MIXDOG_MEMORY_CYCLE_COALESCE_MAX_RETRIES',
+    fallback,
+    min: 0,
+    max: 10,
+  });
 }
 
 export function scheduleCoalescedCycleRetry(db, kind, runner, config = {}, signature = 'default') {

@@ -446,14 +446,18 @@ const TOOL_UNITS = new Map([
   ['bash_session', shellUnit],
   ['shell_command', shellUnit],
   ['job_wait', shellUnit],
-  ['git', (a) => a.action === 'stage'
-    ? unitDescriptor('Git', {
-        count: queryCount(a, 'change_ids', 'change_id') || 1,
-        active: 'Staging',
-        done: 'Staged',
-        noun: 'change',
-      })
-    : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' })],
+  [
+    'git',
+    (a) =>
+      a.action === 'stage'
+        ? unitDescriptor('Git', {
+            count: queryCount(a, 'change_ids', 'change_id') || 1,
+            active: 'Staging',
+            done: 'Staged',
+            noun: 'change',
+          })
+        : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' }),
+  ],
   ['github', () => unitDescriptor('Git', { count: 1, noun: 'GitHub operation' })],
   // Preserve the staging work unit when rendering historical transcripts.
   [

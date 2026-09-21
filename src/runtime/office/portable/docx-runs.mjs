@@ -5,11 +5,8 @@ import {
   revisionOwner,
 } from './docx-revisions.mjs';
 import { docxBodyModel } from './portable-snapshot.mjs';
-import { containerInner, xmlEncode } from './portable-xml.mjs';
+import { WORD_RUN_OPEN, WORD_RUN_PROPERTIES, WORD_RUN_SOURCE, containerInner, xmlEncode } from './portable-xml.mjs';
 
-const RUN = /<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g;
-const RUN_OPEN = /^<w:r(?:\s[^>]*)?>/;
-const RUN_PROPERTIES = /^\s*(?:<w:rPr(?:\s[^>]*)?>[\s\S]*?<\/w:rPr>|<w:rPr\/>)/;
 const EMPTY_RUN_PROPERTIES = /^\s*(?:<w:rPr\/>|<w:rPr>\s*<\/w:rPr>)?\s*$/;
 
 function consolidateText(content, tag) {
@@ -65,12 +62,12 @@ export function normalizeDocxRuns(xml) {
     output.push(`${pending.open}${pending.properties}${deleted.content}</w:r>`);
     pending = null;
   };
-  const runs = new RegExp(RUN.source, 'g');
+  const runs = new RegExp(WORD_RUN_SOURCE, 'g');
   for (let match = runs.exec(working); match; match = runs.exec(working)) {
     const between = working.slice(cursor, match.index);
-    const open = RUN_OPEN.exec(match[0])[0];
+    const open = WORD_RUN_OPEN.exec(match[0])[0];
     const inner = match[0].slice(open.length, match[0].length - '</w:r>'.length);
-    const rawProperties = RUN_PROPERTIES.exec(inner)?.[0] || '';
+    const rawProperties = WORD_RUN_PROPERTIES.exec(inner)?.[0] || '';
     const properties = EMPTY_RUN_PROPERTIES.test(rawProperties) ? '' : rawProperties.trim();
     const content = inner.slice(rawProperties.length);
     if (pending && !between.trim() && pending.properties === properties) {

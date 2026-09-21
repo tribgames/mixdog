@@ -2,14 +2,7 @@
 // switch and is a no-op on provider behavior; failures are swallowed so a
 // diagnostic can never end a turn.
 import { traceAgentLoop, estimateProviderPayloadBytes, appendAgentTrace } from '../../agent-trace.mjs';
-
-function writeDiagnostic(line) {
-  try {
-    process.stderr.write(line);
-  } catch {
-    /* diagnostics only */
-  }
-}
+import { writeLoopDiagnostic as writeDiagnostic } from './no-tool-turn/diagnostic.mjs';
 
 function responseStopReason(response) {
   return response?.stopReason ?? response?.stop_reason ?? 'length';

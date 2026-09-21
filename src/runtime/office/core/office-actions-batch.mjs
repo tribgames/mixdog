@@ -14,18 +14,6 @@ import { expandTemplatePageOperations } from '../design/library/design-template-
 import { assertOfficeMutationAllowed } from '../quality/assurance.mjs';
 import { inlineOfficeAudit } from '../quality/inline-audit.mjs';
 import { DEFAULT_SERIES_COLORS } from '../portable/portable-chart.mjs';
-
-// Excel fills an unstyled series from the workbook theme (a teal and an orange on the default one) while the
-// portable writer paints its own hue family, so the same add_chart drew two different charts. A chart that
-// names no colours takes the portable palette on both backends; a named palette is kept as written.
-function withSharedChartDefaults(session, operations) {
-  if (session.format !== 'xlsx') return operations;
-  return operations.map((operation) =>
-    operation?.op === 'add_chart' && !(Array.isArray(operation.seriesColors) && operation.seriesColors.length)
-      ? { ...operation, seriesColors: [...DEFAULT_SERIES_COLORS] }
-      : operation
-  );
-}
 import {
   TABULAR_FORMATS,
   emptyOfficeDesignState,
@@ -41,6 +29,18 @@ import {
   transactionDocumentDiff,
   transactionView,
 } from './office-transactions.mjs';
+
+// Excel fills an unstyled series from the workbook theme (a teal and an orange on the default one) while the
+// portable writer paints its own hue family, so the same add_chart drew two different charts. A chart that
+// names no colours takes the portable palette on both backends; a named palette is kept as written.
+function withSharedChartDefaults(session, operations) {
+  if (session.format !== 'xlsx') return operations;
+  return operations.map((operation) =>
+    operation?.op === 'add_chart' && !(Array.isArray(operation.seriesColors) && operation.seriesColors.length)
+      ? { ...operation, seriesColors: [...DEFAULT_SERIES_COLORS] }
+      : operation
+  );
+}
 
 // Operations whose `path` names a file the caller supplied relative to its cwd.
 const PATH_OPERATIONS = new Set([

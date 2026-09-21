@@ -1,4 +1,11 @@
-import { EMU_PER_POINT, backgroundXml, fromEmu, solidFillXml, toEmu } from './portable-slide-shapes.mjs';
+import {
+  EMU_PER_POINT,
+  SLIDE_SHAPE_TAGS,
+  backgroundXml,
+  fromEmu,
+  solidFillXml,
+  toEmu,
+} from './portable-slide-shapes.mjs';
 import { partRelationshipPath, relationshipTarget, zipText } from './portable-opc.mjs';
 import {
   containerBody,
@@ -13,24 +20,6 @@ import {
 } from './portable-xml.mjs';
 import { presentationSlides } from './portable-pptx-package.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
-
-export function balancedInner(xml, from, tag) {
-  const opener = new RegExp(`<${tag}(?:\\s[^>]*)?>`, 'g');
-  opener.lastIndex = from;
-  const open = opener.exec(xml);
-  if (!open) return null;
-  const scanner = new RegExp(`<${tag}(?:\\s[^>]*)?>|</${tag}>`, 'g');
-  scanner.lastIndex = open.index + open[0].length;
-  let depth = 1;
-  let match;
-  while ((match = scanner.exec(xml))) {
-    depth += match[0].startsWith('</') ? -1 : 1;
-    if (depth !== 0) continue;
-    const start = open.index + open[0].length;
-    return { start, end: match.index, inner: xml.slice(start, match.index) };
-  }
-  return null;
-}
 
 export const DEFAULT_TEXT_INSETS = Object.freeze({ left: 7.2, top: 3.6, right: 7.2, bottom: 3.6 });
 
@@ -224,7 +213,7 @@ export async function inspectPptxTextBoxes(zip) {
     const tree = containerInner(xml, 'p:spTree');
     if (!tree) continue;
     const page = { boxes, content, painted: [], background, slideId: slides[index].id };
-    const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+    const shapes = topLevelElements(tree.inner, SLIDE_SHAPE_TAGS);
     for (const [shapeIndex, shape] of shapes.entries()) {
       inspectPptxShape(shape, { slide: index + 1, shape: shapeIndex + 1 }, page);
     }
@@ -319,7 +308,7 @@ export async function presentationSlideSize(zip) {
 }
 
 export function selectedShapeSpans(tree, numbers) {
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+  const shapes = topLevelElements(tree.inner, SLIDE_SHAPE_TAGS);
   const selected = [];
   for (const number of numbers) {
     const shape = shapes[Number(number) - 1];

@@ -425,8 +425,6 @@ test('settings isolate OpenCode Go between OAuth and API providers while preserv
   );
   assert.equal(document.querySelector('[role="dialog"]'), null);
   const action = (label) => [...go.querySelectorAll('button')].find((button) => button.textContent === label);
-  await act(async () => action('Usage sign-in').click());
-  assert.deepEqual(calls.at(-1), ['loginOpenCodeGoUsage']);
   await act(async () => action('Get API key ↗').click());
   assert.deepEqual(opened, ['https://opencode.ai']);
   const input = go.querySelector('input');
@@ -447,7 +445,6 @@ test('settings isolate OpenCode Go between OAuth and API providers while preserv
   assert.equal(go.querySelector('.settings-status').textContent, 'Connected');
   assert.equal(go.querySelector('form'), null);
   assert.equal(action('Get API key ↗'), undefined);
-  assert.ok(action('Usage sign-in'));
   await act(async () => action('Forget').click());
   assert.equal(confirmations.length, 1);
   assert.equal(

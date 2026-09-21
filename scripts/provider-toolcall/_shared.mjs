@@ -26,10 +26,10 @@ import {
 } from '../../src/runtime/agent/orchestrator/providers/openai-compat-xai.mjs';
 import { GrokOAuthProvider } from '../../src/runtime/agent/orchestrator/providers/grok-oauth.mjs';
 import {
+  consumeCompatChatCompletionStream,
   consumeCompatResponsesStream,
   isInvalidToolArgsMarker,
 } from '../../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
-import { consumeCompatChatCompletionStream } from '../../src/runtime/agent/orchestrator/providers/openai-compat-stream.mjs';
 import {
   _computeDelta,
   _buildResponseCreateFrame,
@@ -49,11 +49,15 @@ import {
 } from '../../src/runtime/agent/orchestrator/providers/gemini-stream.mjs';
 import { parseToolCalls as geminiParseToolCalls } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
 import { _resolveGeminiCacheUsage } from '../../src/runtime/agent/orchestrator/providers/gemini-cache.mjs';
-import { parseSSEStream as anthropicParseSSEStream } from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
-import { _buildRequestBodyForCacheSmoke } from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
-import { _test as _anthropicApiKeyTest } from '../../src/runtime/agent/orchestrator/providers/anthropic.mjs';
-import { _toAnthropicMessagesForTest } from '../../src/runtime/agent/orchestrator/providers/anthropic.mjs';
-import { _test as _anthropicOAuthTest } from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import {
+  parseSSEStream as anthropicParseSSEStream,
+  _buildRequestBodyForCacheSmoke,
+  _test as _anthropicOAuthTest,
+} from '../../src/runtime/agent/orchestrator/providers/anthropic-oauth.mjs';
+import {
+  _test as _anthropicApiKeyTest,
+  _toAnthropicMessagesForTest,
+} from '../../src/runtime/agent/orchestrator/providers/anthropic.mjs';
 import {
   EFFORT_BETA_HEADER,
   LEGACY_EFFORT_BUDGET,
@@ -74,8 +78,8 @@ import {
   OpenAIOAuthProvider,
   buildCodexStartupPrewarmBody,
   buildRequestBody as buildOpenAIOAuthRequestBody,
+  _convertMessagesToResponsesInputForTest,
 } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
-import { _convertMessagesToResponsesInputForTest } from '../../src/runtime/agent/orchestrator/providers/openai-oauth.mjs';
 import { OpenAIDirectProvider } from '../../src/runtime/agent/orchestrator/providers/openai-ws.mjs';
 import { isVisibleStreamProgress } from '../../src/runtime/shared/stream-progress.mjs';
 
@@ -191,8 +195,10 @@ function textDeltaEvents(chunks, stopReason = 'end_turn') {
 // function_call path is covered by the openai-compat Responses test.
 
 import { customToolCallFromResponseItem } from '../../src/runtime/agent/orchestrator/providers/custom-tool-wire.mjs';
-import { parseToolSearchArgs } from '../../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
-import { _warmupContinuityTraceForTest } from '../../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
+import {
+  parseToolSearchArgs,
+  _warmupContinuityTraceForTest,
+} from '../../src/runtime/agent/orchestrator/providers/openai-oauth-ws.mjs';
 
 // === 6. OpenAI leaked tool-call recovery ===================================
 // The model sometimes emits a tool call as PLAIN TEXT (XML `<invoke>` family
@@ -224,13 +230,11 @@ function responsesTextStream(textChunks) {
 // the resolution and the delta branching without any network.
 import {
   resolveOpenAiTransportPolicy,
-  _normalizeTransportMode,
-} from '../../src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs';
-import {
   resolveResponsesTransportPolicy,
   RESPONSES_TRANSPORT_CAPABILITIES,
-  _gateTransportMode,
   FULL_RESPONSES_TRANSPORT_CAPS,
+  _normalizeTransportMode,
+  _gateTransportMode,
 } from '../../src/runtime/agent/orchestrator/providers/openai-transport-policy.mjs';
 
 import {

@@ -25,14 +25,20 @@ test('provider-reported reasoning formats normalize without inspecting text or s
     assert.equal(usageDeltaEvent({ usage: { raw } }).reasoningTokens, 17);
   }
   assert.deepEqual(reasoningUsage({ output_tokens_details: { thinking_tokens: 0 } }), {
-    reasoningTokens: 0, reasoningTokensComplete: true,
+    reasoningTokens: 0,
+    reasoningTokensComplete: true,
   });
   for (const value of [undefined, null, -1, NaN, Infinity, '17', 0.5]) {
     assert.equal(reasoningUsage({ output_tokens_details: { reasoning_tokens: value } }).reasoningTokens, null);
   }
-  assert.equal(reasoningUsage({
-    output_tokens: 500, signature: 'S'.repeat(5000), reasoning_content: 'reasoning text',
-  }).reasoningTokens, null);
+  assert.equal(
+    reasoningUsage({
+      output_tokens: 500,
+      signature: 'S'.repeat(5000),
+      reasoning_content: 'reasoning text',
+    }).reasoningTokens,
+    null
+  );
 });
 
 test('reported subtotals survive mixed-provider iterations without double-counting output', () => {
@@ -64,13 +70,23 @@ test('warmup usage contributes exactly once to reasoning and marks missing readi
 
 test('session accounting survives storage and exposes real usage outside context estimates', () => {
   const session = {
-    id: 'reasoning-test', provider: 'openai', model: 'test',
-    messages: [{ role: 'user', content: 'Hello' }, { role: 'assistant', content: 'Answer' }],
-    totalInputTokens: 0, totalOutputTokens: 0,
+    id: 'reasoning-test',
+    provider: 'openai',
+    model: 'test',
+    messages: [
+      { role: 'user', content: 'Hello' },
+      { role: 'assistant', content: 'Answer' },
+    ],
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
   };
-  const usage = normalizeUsage({ inputTokens: 100, outputTokens: 40, raw: {
-    output_tokens_details: { reasoning_tokens: 17 },
-  } });
+  const usage = normalizeUsage({
+    inputTokens: 100,
+    outputTokens: 40,
+    raw: {
+      output_tokens_details: { reasoning_tokens: 17 },
+    },
+  });
   applyAskTerminalUsageTotals(session, { usage, lastTurnUsage: usage });
   assert.deepEqual(session.reasoningUsage, { reasoningTokens: 17, reasoningTokensComplete: true });
   applyAskTerminalUsageTotals(session, { usage, lastTurnUsage: usage }, { skipTotalsIfIncremental: true });

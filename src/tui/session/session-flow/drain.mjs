@@ -16,7 +16,14 @@ import { appendTuiSteeringPersist } from '../tui-steering-persist.mjs';
 import { parseModelVisibleCompletionWrapper } from '../agent-envelope.mjs';
 import { rewoundFailedTurnItems } from './failed-turn-rewind.mjs';
 
+// Re-check cadence for a drain that found a gate closed. A gate is state, not
+// an event: the queue re-reads it instead of trusting that whoever closes it
+// will remember to kick the queue on the way out. Both timers exist only while
+// the queue actually holds work, so an idle session never polls.
 const BLOCKED_DRAIN_RETRY_MS = 50;
+// Session commands (setModel/newSession/resume/auto-clear) release in seconds;
+// an active turn can run for many minutes, so its gate is re-read coarsely.
+const ACTIVE_TURN_RECHECK_MS = 2_000;
 
 function earliestSubmittedAt(batch) {
   const earliest = batch.reduce((min, entry) => {
@@ -53,13 +60,13 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
     });
   }
 
-  function scheduleBlockedDrainRetry() {
-    if (pending.length === 0) return;
+  function scheduleBlockedDrainRetry(delayMs = BLOCKED_DRAIN_RETRY_MS) {
+    if (pending.length === 0 || flags.disposed) return;
     if (flags.blockedDrainRetryTimer) return;
     const timer = setTimeout(() => {
       flags.blockedDrainRetryTimer = null;
       if (pending.length > 0) void drain();
-    }, BLOCKED_DRAIN_RETRY_MS);
+    }, delayMs);
     if (typeof timer.unref === 'function') timer.unref();
     flags.blockedDrainRetryTimer = timer;
   }
@@ -168,11 +175,17 @@ export function createDrainLoop(bag, { queue, steering, submissions, flushDeferr
     // completion, or user input), but the unified queue only runs BETWEEN
     // turns. Do NOT start a second Lead runTurn from the post-turn drain in
     // that window: the active runtime.ask owns the session mutex/transcript.
-    // Anything pending is kicked again by runTurn.finally once busy flips
-    // false. Starting a parallel run here is what tangles turn order and can
+    // Starting a parallel run here is what tangles turn order and can
     // abort/interleave the active turn.
     if (getState().busy) {
       tuiDebug(`busy-queue drain deferred while active pending=${pending.length}`);
+      // The turn-settled edges (the busy-release hook and this loop's own
+      // finally) are one-shot events. A completion that lands after the running
+      // turn took its last look at the queue has no edge left to ride, and the
+      // queue then sits until the next user message — field report 2026-09-21:
+      // a lead idled 24 minutes on ten queued agent completions and only moved
+      // when the user typed. Queued work re-reads this gate on its own.
+      scheduleBlockedDrainRetry(ACTIVE_TURN_RECHECK_MS);
       return;
     }
     clearBlockedDrainRetry();

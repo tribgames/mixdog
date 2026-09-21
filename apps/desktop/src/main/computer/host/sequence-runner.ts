@@ -282,5 +282,3 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
 
   return { runBoundedSequence };
 }
-
-export type SequenceRunner = ReturnType<typeof createSequenceRunner>;

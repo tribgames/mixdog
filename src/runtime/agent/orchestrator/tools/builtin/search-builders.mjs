@@ -127,7 +127,7 @@ export function buildGrepRgArgs(parts) {
   if (caseInsensitive) rgArgs.push('-i');
   if (fixedStrings) rgArgs.push('-F');
   // PCRE2 engine: opt-in only when the caller already confirmed (via
-  // rgSupportsPcre2() in search-tool.mjs) that the installed rg binary was
+  // rgSupportsPcre2() in native-search-runner.mjs) that the installed rg binary was
   // built with PCRE2 support. Enables lookaround/backreference patterns
   // that the default Rust regex engine rejects outright.
   if (pcre2) rgArgs.push('-P');

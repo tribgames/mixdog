@@ -11,7 +11,7 @@ import {
   reviewVerticalBalance,
 } from './text-metrics.mjs';
 import { resolveSlideBackground } from './portable-pptx-core.mjs';
-import { workbookSheets } from './portable-cells.mjs';
+import { sheetFormulaTotals, workbookCalculation, workbookSheets } from './portable-cells.mjs';
 import { EMU_PER_POINT } from './portable-slide-shapes.mjs';
 import {
   imagePixelSize,
@@ -28,7 +28,7 @@ import { docxTables } from './portable-docx-xml.mjs';
 import { inspectPptxTextBoxes } from './portable-pptx.mjs';
 import { FULL_READ_CELL_LIMIT, snapshotDocx, snapshotPptx, snapshotXlsx } from './portable-snapshot.mjs';
 import { reviewOfficeStructure } from '../quality/assurance-structure.mjs';
-import { auditXlsxFormulas } from './xlsx-formula-audit.mjs';
+import { auditXlsxFormulas, isChecksSheetName } from './xlsx-formula-audit.mjs';
 import {
   cellInkIssues,
   columnFitIssues,
@@ -864,8 +864,34 @@ async function workbookContentIssues(zip, options) {
   for (const sheet of snapshot.sheets) issues.push(...sheetValueIssues(sheet));
   // Sheet names come from the workbook, not the (possibly selective)
   // snapshot, so a cross-sheet reference to an unselected sheet still audits.
-  const sheetNames = (await workbookSheets(zip)).map((sheet) => sheet.name);
-  if (options.auditProfile === 'financial-model' && !sheetNames.some((name) => name.toLowerCase() === 'checks')) {
+  const workbookSheetList = await workbookSheets(zip);
+  const sheetNames = workbookSheetList.map((sheet) => sheet.name);
+  // Every formula carries a cached value and the workbook is still marked for a
+  // full calculation: the numbers on this page are the ones from before the
+  // edit that set the mark. A successful recalculation clears it, and a
+  // workbook whose formulas were never calculated at all is already reported as
+  // formula_cache_missing, so this is the case a clean-looking cache hides.
+  let cachedFormulas = 0;
+  let uncachedFormulas = 0;
+  for (const sheet of workbookSheetList) {
+    const totals = sheetFormulaTotals(await zipText(zip, sheet.path));
+    cachedFormulas += totals.formulaCount - totals.formulaCacheMissing;
+    uncachedFormulas += totals.formulaCacheMissing;
+  }
+  if (
+    cachedFormulas > 0 &&
+    uncachedFormulas === 0 &&
+    workbookCalculation(await zipText(zip, 'xl/workbook.xml')).fullCalcOnLoad === true
+  ) {
+    issues.push({
+      severity: options.auditProfile === 'financial-model' ? 'error' : 'warning',
+      code: 'stale_calculation',
+      path: '/',
+      message:
+        'Formulas were edited and have not been recalculated since, so the cached values predate the edit. Recalculate (render, or qa with LibreOffice available) before reading the numbers.',
+    });
+  }
+  if (options.auditProfile === 'financial-model' && !sheetNames.some(isChecksSheetName)) {
     issues.push({
       severity: 'warning',
       code: 'missing_checks_sheet',

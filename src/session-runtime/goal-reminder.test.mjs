@@ -14,8 +14,8 @@ const goal = (overrides = {}) => ({
   objective: 'Ship the verified result',
   status: 'active',
   tasks: [
-    { id: 'task_1', text: 'Implement result', status: 'completed', kind: 'work' },
-    { id: 'task_2', text: 'Verify  result', status: 'in_progress', kind: 'verification' },
+    { id: 'task_1', text: 'Implement result', status: 'completed' },
+    { id: 'task_2', text: 'Verify  result', status: 'in_progress' },
   ],
   ...overrides,
 });
@@ -33,8 +33,8 @@ test('post-compaction Goal reminder renders durable state once and clears on acc
   assert.match(snapshot.content, /Context was compacted/);
   assert.match(snapshot.content, /Objective: Ship the verified result/);
   assert.match(snapshot.content, /Status: active · tasks 1\/2/);
-  assert.match(snapshot.content, /- \[x\] task_1 \(work\): Implement result/);
-  assert.match(snapshot.content, /- \[~\] task_2 \(verification\): Verify result/);
+  assert.match(snapshot.content, /- \[x\] task_1: Implement result/);
+  assert.match(snapshot.content, /- \[~\] task_2: Verify result/);
   // Behaviour rules stay in the cached tool description; the injected block
   // carries state only.
   assert.doesNotMatch(snapshot.content, /set_tasks/);
@@ -173,20 +173,20 @@ test('post-compact Goal state is prepended to the current user turn and leaves n
   assert.equal(session.pendingGoalReminder, undefined);
 });
 
-test('Goal task lines carry mark, id, and kind for every task', () => {
+test('Goal task lines carry mark and id for every task', () => {
   assert.deepEqual(goalTaskLines([]), ['- No durable tasks recorded yet.']);
-  assert.deepEqual(goalTaskLines([{ id: 'task_9', text: 'Do <it>', status: 'pending', kind: 'work' }]), [
-    '- [ ] task_9 (work): Do &lt;it&gt;',
+  assert.deepEqual(goalTaskLines([{ id: 'task_9', text: 'Do <it>', status: 'pending' }]), [
+    '- [ ] task_9: Do &lt;it&gt;',
   ]);
   assert.equal(goalStateReminder(null), '');
 });
 
 test('Goal reminders exclude dropped work from progress but preserve its task record', () => {
   const current = goal();
-  current.tasks.push({ id: 'task_3', text: 'Retired work', status: 'dropped', kind: 'work' });
+  current.tasks.push({ id: 'task_3', text: 'Retired work', status: 'dropped' });
   const text = goalStateReminder(current);
   assert.match(text, /Status: active · tasks 1\/2/);
-  assert.match(text, /- \[-\] task_3 \(work\): Retired work/);
+  assert.match(text, /- \[-\] task_3: Retired work/);
 });
 
 test('request preparation finds a paused Goal without any intake marker and does not resume it', () => {

@@ -11,20 +11,21 @@ function Do-ListWindows {
                 $info.Id, $info.App, $info.Pid, $info.ClassName, $owner, $focus, $state, $title,
                 $info.Width, $info.Height, $info.X, $info.Y))
         [void]$windows.Add([ordered]@{
-                id         = [string]$info.Id
-                title      = [string]$info.Title
-                class_name = [string]$info.ClassName
-                app        = [string]$info.App
-                pid        = [long]$info.Pid
-                parent_pid = [long]$info.ParentPid
-                owner_id   = [string]$info.OwnerId
-                focused    = [bool]$info.Focused
-                minimized  = [bool]$info.Minimized
-                maximized  = [bool]$info.Maximized
-                x          = [int]$info.X
-                y          = [int]$info.Y
-                width      = [int]$info.Width
-                height     = [int]$info.Height
+                id          = [string]$info.Id
+                title       = [string]$info.Title
+                class_name  = [string]$info.ClassName
+                app         = [string]$info.App
+                pid         = [long]$info.Pid
+                parent_pid  = [long]$info.ParentPid
+                content_pid = [long]$info.ContentPid
+                owner_id    = [string]$info.OwnerId
+                focused     = [bool]$info.Focused
+                minimized   = [bool]$info.Minimized
+                maximized   = [bool]$info.Maximized
+                x           = [int]$info.X
+                y           = [int]$info.Y
+                width       = [int]$info.Width
+                height      = [int]$info.Height
             })
     }
     if ($lines.Count -eq 0) { return @{ text = 'No windows found.'; windows = @() } }
@@ -38,20 +39,21 @@ function Do-WindowSnapshot {
     $windows = New-Object System.Collections.ArrayList
     foreach ($info in [MixWin32]::WindowSnapshot()) {
         [void]$windows.Add([ordered]@{
-                id         = [string]$info.Id
-                title      = [string]$info.Title
-                class_name = [string]$info.ClassName
-                app        = ''
-                pid        = [long]$info.Pid
-                parent_pid = [long]$info.ParentPid
-                owner_id   = [string]$info.OwnerId
-                focused    = [bool]$info.Focused
-                minimized  = [bool]$info.Minimized
-                maximized  = [bool]$info.Maximized
-                x          = [int]$info.X
-                y          = [int]$info.Y
-                width      = [int]$info.Width
-                height     = [int]$info.Height
+                id          = [string]$info.Id
+                title       = [string]$info.Title
+                class_name  = [string]$info.ClassName
+                app         = ''
+                pid         = [long]$info.Pid
+                parent_pid  = [long]$info.ParentPid
+                content_pid = [long]$info.ContentPid
+                owner_id    = [string]$info.OwnerId
+                focused     = [bool]$info.Focused
+                minimized   = [bool]$info.Minimized
+                maximized   = [bool]$info.Maximized
+                x           = [int]$info.X
+                y           = [int]$info.Y
+                width       = [int]$info.Width
+                height      = [int]$info.Height
             })
     }
     return @{ windows = @($windows) }

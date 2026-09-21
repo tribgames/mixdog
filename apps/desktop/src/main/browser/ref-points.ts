@@ -107,7 +107,8 @@ export function createBrowserRefPoints(host: BrowserRefPointHost) {
         fresh = null;
       }
       throw new Error(
-        `${error.message} Dismiss the blocker using a ref from the fresh snapshot below.\n\n` +
+        `${error.message} Dismiss or scroll past the blocker, or act on a different element; ` +
+          `an overlay is rarely named in the fresh snapshot below.\n\n` +
           (fresh ? formatSnapshot(fresh, diagnosticsFor(guest)) : 'A fresh snapshot could not be captured.')
       );
     }

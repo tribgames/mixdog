@@ -169,7 +169,6 @@
 .live-activity-meta {
   min-width: 0;
   color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
   /* Explicit 400: the band around it now runs at 600, and the readout was
      inheriting that — which made the running clock bolder than the settled
      one. The gauge is read, not emphasised, and it has to match the settled

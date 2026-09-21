@@ -4,10 +4,9 @@
  * root embedding resynced after a text change.
  */
 import { syncRootEmbedding } from '../memory-cycle.mjs';
+import { VALID_CATEGORY } from '../memory-categories.mjs';
 import { computeEntryScore } from '../memory-score.mjs';
 import { resolveProjectScope } from '../project-id-resolver.mjs';
-
-const VALID_CAT = new Set(['rule', 'constraint', 'decision', 'fact', 'goal', 'preference', 'task', 'issue']);
 
 const trimOrNull = (v) => {
   if (v == null) return null;
@@ -31,9 +30,9 @@ export function createManageActions({ getDb, log }) {
     if (!element || !summary) {
       return { text: 'manage add requires element and summary', isError: true };
     }
-    if (!VALID_CAT.has(category)) {
+    if (!VALID_CATEGORY.has(category)) {
       return {
-        text: `manage add: invalid category "${category}". Valid: ${[...VALID_CAT].join(', ')}`,
+        text: `manage add: invalid category "${category}". Valid: ${[...VALID_CATEGORY].join(', ')}`,
         isError: true,
       };
     }
@@ -88,9 +87,9 @@ export function createManageActions({ getDb, log }) {
     if (!newElement && !newSummary && !newCategory) {
       return { text: 'manage edit requires at least one field: element, summary, category', isError: true };
     }
-    if (newCategory && !VALID_CAT.has(newCategory)) {
+    if (newCategory && !VALID_CATEGORY.has(newCategory)) {
       return {
-        text: `manage edit: invalid category "${newCategory}". Valid: ${[...VALID_CAT].join(', ')}`,
+        text: `manage edit: invalid category "${newCategory}". Valid: ${[...VALID_CATEGORY].join(', ')}`,
         isError: true,
       };
     }

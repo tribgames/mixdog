@@ -25,14 +25,6 @@ interface GhPrEntry {
   checks: GhPrChecks;
 }
 
-export interface GhPrCreateInput {
-  base: string;
-  head: string;
-  title: string;
-  body?: string;
-  draft?: boolean;
-}
-
 interface GhPrCategory {
   key: string;
   label: string;

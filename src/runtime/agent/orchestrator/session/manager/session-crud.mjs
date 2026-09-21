@@ -234,10 +234,11 @@ export async function clearSessionMessages(sessionId, options = {}) {
   if (session.closed === true) return false;
   const clearOptions = options && typeof options === 'object' ? options : {};
   const compact = clearOptions.compact === true;
-  const beforeMessageTokens = estimateMessagesTokens(Array.isArray(session.messages) ? session.messages : []);
+  const currentMessages = Array.isArray(session.messages) ? session.messages : [];
+  const beforeMessageTokens = estimateMessagesTokens(currentMessages);
   const { messages, clearCompactError } = compact
     ? await compactBeforeClear(session, sessionId, clearOptions)
-    : { messages: Array.isArray(session.messages) ? session.messages : [], clearCompactError: null };
+    : { messages: currentMessages, clearCompactError: null };
   const keep = retainedMessagesAfterClear(messages, compact && clearOptions.keepCompactSummary !== false);
   const tokens = clearTokenAccounting(session, messages, keep, beforeMessageTokens);
   const now = Date.now();

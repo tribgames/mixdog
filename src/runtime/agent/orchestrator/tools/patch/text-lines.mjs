@@ -79,10 +79,6 @@ export function cloneTextLinesForPatch(sourceLines, eol) {
   return lines;
 }
 
-// The ONLY mutation entry point for a patch line array. Replaced lines hand
-// their own terminator to the new line at the same offset (a 1:1 replacement
-// is byte-identical outside the changed text), extra inserted lines adopt the
-// local convention, and every line the patch did not touch keeps its bytes.
 // Op-wise terminators for one hunk's output lines. Derived from the hunk's OWN
 // ops — never from content similarity, which cannot describe interior context,
 // several change runs, or a moved line:
@@ -169,6 +165,10 @@ export function localTerminatorForWindow(lines, start, oldLen) {
   );
 }
 
+// The ONLY mutation entry point for a patch line array. Replaced lines hand
+// their own terminator to the new line at the same offset (a 1:1 replacement
+// is byte-identical outside the changed text), extra inserted lines adopt the
+// local convention, and every line the patch did not touch keeps its bytes.
 export function spliceTextLinesForPatch(lines, start, oldLen, newLines, newTerminators = null) {
   const terms = lines?.terminators;
   if (Array.isArray(terms)) {

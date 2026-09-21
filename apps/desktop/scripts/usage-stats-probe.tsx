@@ -1,5 +1,5 @@
 // Isolated rendering of the real command surface with synthetic accounting.
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CommandSurface } from '../src/renderer/CommandSurface';
 import { initUiLanguage, setUiLanguagePreference } from '../src/renderer/i18n';

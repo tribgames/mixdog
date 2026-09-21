@@ -101,7 +101,7 @@ export async function executeReadTool(
 ) {
   const { normalizeInputPath, normaliseReadLineWindowArgs } = helpers;
   applyFilePathAlias(args);
-  args.path = coerceReadFamilyPathArg(args.path, workDir);
+  args.path = coerceReadFamilyPathArg(args.path);
   // Reachability preflight up front (all shapes) — before
   // readPathStringGuardError / image stat.
   // options._skipReachPreflight: set only by the batch dispatcher on its

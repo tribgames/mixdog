@@ -22,7 +22,6 @@ const admin = {
   renderProviderStatus: (config) => ['status', config],
   saveOpenAIUsageSessionKey: (_cfg, secret) => calls.push(['saveUsageKey', secret]) && 'saved-usage',
   saveOpenCodeGoUsageAuth: (_cfg, opts) => calls.push(['saveGoUsage', opts]) && 'saved-go',
-  loginOpenCodeGoUsage: async () => calls.push(['loginGo']) && 'go-logged-in',
   saveProviderApiKey: (_cfg, providerId, secret) => calls.push(['saveKey', providerId, secret]) && 'saved-key',
   listProviderAccounts: (providerId) => ({
     providerId,
@@ -111,17 +110,12 @@ test('authenticateProvider saves a secret when given one and otherwise runs the 
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {
   const api = fixture();
   assert.equal(api.saveOpenAIUsageSessionKey('usage-1'), 'saved-usage');
-  assert.equal(api.saveOpenCodeGoUsageAuth({ token: 't' }), 'saved-go');
-  assert.equal(await api.loginOpenCodeGoUsage(), 'go-logged-in');
+  assert.equal(api.saveOpenCodeGoUsageAuth({ apiKey: 'oc_sk_test' }), 'saved-go');
   assert.deepEqual(calls, [
     ['saveUsageKey', 'usage-1'],
     ['reload'],
     ['invalidate'],
-    ['saveGoUsage', { token: 't' }],
-    ['reload'],
-    ['invalidate'],
-    ['keychain'],
-    ['loginGo'],
+    ['saveGoUsage', { apiKey: 'oc_sk_test' }],
     ['reload'],
     ['invalidate'],
   ]);

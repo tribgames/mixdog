@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { textBodyXml, toEmu } from './portable-slide-shapes.mjs';
+import { SLIDE_SHAPE_TAGS, textBodyXml, toEmu } from './portable-slide-shapes.mjs';
 import { readFile } from 'node:fs/promises';
 import {
   addPackageRelationship,
@@ -10,6 +10,7 @@ import {
   nextRelationshipId,
   partRelationshipPath,
   provenanceCitation,
+  relationshipTargetByType,
   zipText,
 } from './portable-opc.mjs';
 import {
@@ -90,9 +91,7 @@ export async function handleAddCommentOrDeleteComment(context, op) {
   const slide = slides[Number(op.slide) - 1];
   if (!slide) throw new Error(`PPTX slide ${op.slide} not found`);
   if (op.op === 'delete_comment') {
-    const target = /<Relationship\b[^>]*\bType="[^"]*\/comments"[^>]*\bTarget="([^"]+)"/.exec(
-      await zipText(zip, partRelationshipPath(slide.path))
-    )?.[1];
+    const target = relationshipTargetByType(await zipText(zip, partRelationshipPath(slide.path)), 'comments');
     if (!target) throw new Error(`PPTX slide ${op.slide} has no comments`);
     const part = posix.normalize(posix.join(posix.dirname(slide.path), target));
     const xml = await zipText(zip, part);
@@ -250,7 +249,7 @@ export async function handleSetFooterOrSetSlideNumber(context, op) {
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
   const placeholder = op.op === 'set_footer' ? 'ftr' : 'sldNum';
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+  const shapes = topLevelElements(tree.inner, SLIDE_SHAPE_TAGS);
   let inner = tree.inner;
   for (let index = shapes.length - 1; index >= 0; index -= 1) {
     if (!new RegExp(`<p:ph\\b[^>]*\\btype="${placeholder}"`).test(shapes[index].xml)) continue;
@@ -298,9 +297,7 @@ export async function handleApplyTheme(context, op) {
   const masters = Object.keys(zip.files).filter((name) => /^ppt\/slideMasters\/slideMaster\d+\.xml$/.test(name));
   const targets = new Set();
   for (const master of masters) {
-    const target = /<Relationship\b[^>]*\bType="[^"]*\/theme"[^>]*\bTarget="([^"]+)"/.exec(
-      await zipText(zip, partRelationshipPath(master))
-    )?.[1];
+    const target = relationshipTargetByType(await zipText(zip, partRelationshipPath(master)), 'theme');
     if (target) targets.add(posix.normalize(posix.join(posix.dirname(master), target)));
   }
   if (!targets.size) targets.add('ppt/theme/theme1.xml');

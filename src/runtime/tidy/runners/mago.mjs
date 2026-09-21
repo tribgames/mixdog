@@ -13,7 +13,7 @@
 //                                    (crates/database/src/file.rs line_number), and
 //                                    `edits` when an automatic fix exists.
 //   `mago lint --fix <paths>`        applies the safe fixes.
-import { diagnostic, runChunked, spawnFailureResult, stripAnsi, tail, toRel, uniquePaths } from './shared.mjs';
+import { diagnostic, parseReformatReport, runChunked, spawnFailureResult, tail, toRel } from './shared.mjs';
 
 const DIFF_HEADER = /^diff of '(.+?)':\s*$/;
 const JSON_FLAGS = ['--reporting-format', 'json', '--reporting-target', 'stdout'];
@@ -24,25 +24,7 @@ const JSON_FLAGS = ['--reporting-format', 'json', '--reporting-target', 'stdout'
  * callers pass stdout and stderr merged and the SGR escapes come off first.
  */
 export function parseMagoFormatDryRun(output, cwd) {
-  const changedFiles = uniquePaths(
-    stripAnsi(output)
-      .split('\n')
-      .map((line) => line.trim().match(DIFF_HEADER)?.[1])
-      .filter(Boolean)
-      .map((file) => toRel(cwd, file))
-  );
-  return {
-    changedFiles,
-    diagnostics: changedFiles.map((file) =>
-      diagnostic({
-        file,
-        code: 'mago/format',
-        message: 'mago would reformat this file',
-        severity: 'warning',
-        fixable: true,
-      })
-    ),
-  };
+  return parseReformatReport(output, { pattern: DIFF_HEADER, cwd, id: 'mago', code: 'mago/format', strip: true });
 }
 
 function severityOf(level) {

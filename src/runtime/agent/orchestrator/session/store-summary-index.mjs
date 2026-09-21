@@ -24,10 +24,6 @@ export function summaryIndexPath() {
   return join(dir, 'session-summaries.json');
 }
 
-function _messageText(content) {
-  return sessionMessageText(content);
-}
-
 function _cleanPreview(text, max = 240) {
   const value = cleanSessionPreview(text, max);
   return value.length > max
@@ -38,16 +34,12 @@ function _cleanPreview(text, max = 240) {
     : value;
 }
 
-function _isPreviewNoise(text) {
-  return isSessionPreviewNoise(text);
-}
-
 const sessionMessageProjectionMemo = new WeakMap();
 
 function _previewFromMessage(message) {
   if (message?.role !== 'user') return '';
-  const raw = _messageText(message.content);
-  if (_isPreviewNoise(raw)) return '';
+  const raw = sessionMessageText(message.content);
+  if (isSessionPreviewNoise(raw)) return '';
   return _cleanPreview(raw);
 }
 

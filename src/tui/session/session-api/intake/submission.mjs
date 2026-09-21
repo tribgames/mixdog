@@ -11,13 +11,9 @@ export function createSubmissionIntake(bag) {
   const acceptingSubmissions = new Map();
 
   const submission = (text, options = {}) => {
-    const t = promptDisplayText(text, options).trim();
-    if (!t) return null;
+    const displayText = promptDisplayText(text, options);
+    if (!displayText.trim()) return null;
     const mode = options.mode || 'prompt';
-    // Prompt input queued while a turn is active keeps the default `next`
-    // priority, so it is injected at the next tool/model boundary. Explicit
-    // options.priority still wins.
-    const priority = options.priority;
     const intake = {
       text,
       queueOptions: {
@@ -26,8 +22,7 @@ export function createSubmissionIntake(bag) {
         // can dedupe instead of booking the same prompt twice.
         id: String(options.id || '').trim() || nextId(),
         mode,
-        displayText: promptDisplayText(text, options),
-        priority,
+        displayText,
       },
     };
     acceptingSubmissions.set(intake.queueOptions.id, intake);

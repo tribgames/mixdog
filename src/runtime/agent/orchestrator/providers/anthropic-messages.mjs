@@ -181,7 +181,8 @@ export function resolveMaxTokens(model) {
   return resolveAnthropicMaxTokens(model, { catalogLookup: _catalogOutputTokensFromSharedCache });
 }
 
-// Test-only escape hatch for scripts/anthropic-maxtokens-test.mjs.
+// Test-only escape hatch for the provider contract scripts
+// (scripts/provider-toolcall/_shared.mjs).
 export const _test = {
   resolveMaxTokens,
   deferredAnthropicTools,

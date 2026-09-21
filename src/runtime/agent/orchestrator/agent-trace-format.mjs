@@ -288,11 +288,6 @@ function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
   return out.length ? out : null;
 }
 
-// Patch failures all arrive as "apply_patch … failed" prose, but
-// a malformed envelope, a rejected hunk, a preflight veto and a size/lock
-// guard need different operator responses. Returning null means "nothing
-// patch-specific here" and lets the generic rules (path/enoent, schema/args,
-// runtime/failure) finish the classification.
 // Emitted by the sequence/wave reporters whenever section writes reached disk
 // and were NOT rolled back cleanly (committed-by-design, partial mode, or a
 // rollback that itself failed). Any of these means the working tree state is
@@ -300,6 +295,11 @@ function parseGrepCoverage(resultText, toolName, toolArgs, resultKind) {
 const PATCH_COMMITTED_WRITES_RE =
   /already applied to disk \(writes committed\)|applied to disk \(committed\) and left in place|applied \(committed to disk\)|rollback was incomplete|--- rollback incomplete ---|patch partially (?:applied|created|updated|written)/;
 
+// Patch failures all arrive as "apply_patch … failed" prose, but
+// a malformed envelope, a rejected hunk, a preflight veto and a size/lock
+// guard need different operator responses. Returning null means "nothing
+// patch-specific here" and lets the generic rules (path/enoent, schema/args,
+// runtime/failure) finish the classification.
 function classifyPatchFailure(text) {
   // Writes already committed outranks every other patch detail: the tree is
   // no longer in its pre-patch state and needs inspection before a retry.

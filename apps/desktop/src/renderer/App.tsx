@@ -908,4 +908,4 @@ export function App() {
 
 export { ApprovalCard } from './ApprovalCard';
 export { DesktopUpdateDialog } from './notifications';
-export { ContextUsageIndicator, LiveWorkStatus, TranscriptRow } from './TranscriptView';
+export { ContextUsageIndicator, TranscriptRow } from './TranscriptView';

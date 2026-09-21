@@ -50,7 +50,9 @@ public static class MixTaggedKeys
                 var node = new Node();
                 while (at < source.Length && "^%+".IndexOf(source[at]) >= 0)
                 {
-                    ushort modifier = (ushort)(source[at] == '^' ? 0x11 : source[at] == '%' ? 0x12 : 0x10);
+                    ushort modifier = 0x10;
+                    if (source[at] == '^') modifier = 0x11;
+                    else if (source[at] == '%') modifier = 0x12;
                     if (node.Modifiers.Contains(modifier)) Invalid();
                     node.Modifiers.Add(modifier); at++;
                 }

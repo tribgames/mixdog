@@ -10,6 +10,10 @@ function tableBorders(colors) {
   };
 }
 
+function styleCell(output, table, row, col, properties) {
+  output.push({ op: 'set_table_cell_style', table, row, col, properties });
+}
+
 function tableWidths(columns, variant) {
   if (columns <= 1) return [480];
   if (columns === 2) return variant === 'roadmap' ? [86, 394] : [150, 330];
@@ -75,33 +79,21 @@ export function addDocxDecisionCallout(output, state, text, design, { label = ''
   const fillColor = tone ? colors[`${tone}Weak`] : fallbackFill;
   const foreground = tone ? colors[`${tone}Text`] : fallbackForeground;
   const { table } = pushTable(output, state, [[caption], [String(text)]], design, 'callout');
-  output.push({
-    op: 'set_table_cell_style',
-    table,
-    row: 1,
-    col: 1,
-    properties: {
-      fillColor,
-      color: foreground,
-      fontName: design.tokens.typography.data,
-      fontSize: 9.5,
-      bold: true,
-      verticalAlignment: 'center',
-    },
+  styleCell(output, table, 1, 1, {
+    fillColor,
+    color: foreground,
+    fontName: design.tokens.typography.data,
+    fontSize: 9.5,
+    bold: true,
+    verticalAlignment: 'center',
   });
-  output.push({
-    op: 'set_table_cell_style',
-    table,
-    row: 2,
-    col: 1,
-    properties: {
-      fillColor: colors.surface,
-      color: colors.ink,
-      fontName: design.tokens.typography.display,
-      fontSize: design.format.body + 1.5,
-      bold: true,
-      verticalAlignment: 'center',
-    },
+  styleCell(output, table, 2, 1, {
+    fillColor: colors.surface,
+    color: colors.ink,
+    fontName: design.tokens.typography.display,
+    fontSize: design.format.body + 1.5,
+    bold: true,
+    verticalAlignment: 'center',
   });
 }
 
@@ -146,50 +138,32 @@ export function addDocxMetricStrip(output, state, metrics, design) {
   ];
   const { table, columns } = pushTable(output, state, values, design, 'scorecard');
   for (let column = 1; column <= columns; column += 1) {
-    output.push({
-      op: 'set_table_cell_style',
-      table,
-      row: 1,
-      col: column,
-      properties: {
-        fillColor: colors.inverse,
-        color: colors.onInverse,
-        fontName: design.tokens.typography.data,
-        fontSize: 8.5,
-        bold: true,
-        horizontalAlignment: 'center',
-        verticalAlignment: 'center',
-      },
+    styleCell(output, table, 1, column, {
+      fillColor: colors.inverse,
+      color: colors.onInverse,
+      fontName: design.tokens.typography.data,
+      fontSize: 8.5,
+      bold: true,
+      horizontalAlignment: 'center',
+      verticalAlignment: 'center',
     });
-    output.push({
-      op: 'set_table_cell_style',
-      table,
-      row: 2,
-      col: column,
-      properties: {
-        fillColor: column === 1 ? colors.accent : colors.surface,
-        color: column === 1 ? colors.onAccent : colors.ink,
-        fontName: design.tokens.typography.data,
-        fontSize: Math.max(15, design.format.body + 4),
-        bold: true,
-        horizontalAlignment: 'center',
-        verticalAlignment: 'center',
-      },
+    styleCell(output, table, 2, column, {
+      fillColor: column === 1 ? colors.accent : colors.surface,
+      color: column === 1 ? colors.onAccent : colors.ink,
+      fontName: design.tokens.typography.data,
+      fontSize: Math.max(15, design.format.body + 4),
+      bold: true,
+      horizontalAlignment: 'center',
+      verticalAlignment: 'center',
     });
     if (!hasDetails) continue;
-    output.push({
-      op: 'set_table_cell_style',
-      table,
-      row: 3,
-      col: column,
-      properties: {
-        fillColor: column % 2 === 0 ? colors.canvas : colors.surface,
-        color: colors.muted,
-        fontName: design.tokens.typography.body,
-        fontSize: 8.5,
-        horizontalAlignment: 'center',
-        verticalAlignment: 'center',
-      },
+    styleCell(output, table, 3, column, {
+      fillColor: column % 2 === 0 ? colors.canvas : colors.surface,
+      color: colors.muted,
+      fontName: design.tokens.typography.body,
+      fontSize: 8.5,
+      horizontalAlignment: 'center',
+      verticalAlignment: 'center',
     });
   }
   return true;
@@ -216,31 +190,19 @@ export function addDocxRoadmap(output, state, steps, design) {
   const { table } = pushTable(output, state, parsed, design, 'roadmap');
   parsed.forEach((_, index) => {
     const row = index + 1;
-    output.push({
-      op: 'set_table_cell_style',
-      table,
-      row,
-      col: 1,
-      properties: {
-        fillColor: index === 0 ? colors.accent : colors.inverse,
-        color: index === 0 ? colors.onAccent : colors.onInverse,
-        fontName: design.tokens.typography.data,
-        fontSize: 11.5,
-        bold: true,
-        verticalAlignment: 'center',
-      },
+    styleCell(output, table, row, 1, {
+      fillColor: index === 0 ? colors.accent : colors.inverse,
+      color: index === 0 ? colors.onAccent : colors.onInverse,
+      fontName: design.tokens.typography.data,
+      fontSize: 11.5,
+      bold: true,
+      verticalAlignment: 'center',
     });
-    output.push({
-      op: 'set_table_cell_style',
-      table,
-      row,
-      col: 2,
-      properties: {
-        fillColor: index % 2 === 0 ? colors.canvas : colors.surface,
-        color: colors.ink,
-        fontSize: Math.max(11.5, design.format.body),
-        verticalAlignment: 'center',
-      },
+    styleCell(output, table, row, 2, {
+      fillColor: index % 2 === 0 ? colors.canvas : colors.surface,
+      color: colors.ink,
+      fontSize: Math.max(11.5, design.format.body),
+      verticalAlignment: 'center',
     });
   });
   return true;
@@ -260,49 +222,31 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       ];
       const { table, columns } = pushTable(output, state, scorecard, design, 'scorecard');
       for (let column = 1; column <= columns; column += 1) {
-        output.push({
-          op: 'set_table_cell_style',
-          table,
-          row: 1,
-          col: column,
-          properties: {
-            fillColor: colors.inverse,
-            color: colors.onInverse,
-            fontName: design.tokens.typography.body,
-            fontSize: 8.5,
-            bold: true,
-            horizontalAlignment: 'center',
-            verticalAlignment: 'center',
-          },
+        styleCell(output, table, 1, column, {
+          fillColor: colors.inverse,
+          color: colors.onInverse,
+          fontName: design.tokens.typography.body,
+          fontSize: 8.5,
+          bold: true,
+          horizontalAlignment: 'center',
+          verticalAlignment: 'center',
         });
-        output.push({
-          op: 'set_table_cell_style',
-          table,
-          row: 2,
-          col: column,
-          properties: {
-            fillColor: column === 1 ? colors.surface : colors.canvas,
-            color: colors.accent,
-            fontName: design.tokens.typography.data,
-            fontSize: Math.max(12.5, design.format.body + 2),
-            bold: true,
-            horizontalAlignment: 'center',
-            verticalAlignment: 'center',
-          },
+        styleCell(output, table, 2, column, {
+          fillColor: column === 1 ? colors.surface : colors.canvas,
+          color: colors.accent,
+          fontName: design.tokens.typography.data,
+          fontSize: Math.max(12.5, design.format.body + 2),
+          bold: true,
+          horizontalAlignment: 'center',
+          verticalAlignment: 'center',
         });
-        output.push({
-          op: 'set_table_cell_style',
-          table,
-          row: 3,
-          col: column,
-          properties: {
-            fillColor: column % 2 === 0 ? colors.surface : colors.canvas,
-            color: colors.muted,
-            fontName: design.tokens.typography.body,
-            fontSize: 8.5,
-            horizontalAlignment: 'center',
-            verticalAlignment: 'center',
-          },
+        styleCell(output, table, 3, column, {
+          fillColor: column % 2 === 0 ? colors.surface : colors.canvas,
+          color: colors.muted,
+          fontName: design.tokens.typography.body,
+          fontSize: 8.5,
+          horizontalAlignment: 'center',
+          verticalAlignment: 'center',
         });
       }
       return true;
@@ -310,19 +254,13 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
   }
   const { table, columns } = pushTable(output, state, values, design, resolvedVariant);
   for (let column = 1; column <= columns; column += 1) {
-    output.push({
-      op: 'set_table_cell_style',
-      table,
-      row: 1,
-      col: column,
-      properties: {
-        fillColor: colors.inverse,
-        color: colors.onInverse,
-        fontName: design.tokens.typography.body,
-        fontSize: Math.max(9, design.format.body - 0.5),
-        bold: true,
-        verticalAlignment: 'center',
-      },
+    styleCell(output, table, 1, column, {
+      fillColor: colors.inverse,
+      color: colors.onInverse,
+      fontName: design.tokens.typography.body,
+      fontSize: Math.max(9, design.format.body - 0.5),
+      bold: true,
+      verticalAlignment: 'center',
     });
   }
   for (let row = 2; row <= values.length; row += 1) {
@@ -338,17 +276,11 @@ export function addDocxSectionTable(output, state, values, design, variant = 'de
       if (metricValue) color = colors.accent;
       else if (releaseCell) color = colors.positiveText || colors.accent;
       else if (stopCell) color = colors.criticalText || colors.accent2;
-      output.push({
-        op: 'set_table_cell_style',
-        table,
-        row,
-        col: column,
-        properties: {
-          fillColor,
-          color,
-          bold: column === 1 || metricValue,
-          verticalAlignment: 'center',
-        },
+      styleCell(output, table, row, column, {
+        fillColor,
+        color,
+        bold: column === 1 || metricValue,
+        verticalAlignment: 'center',
       });
     }
   }

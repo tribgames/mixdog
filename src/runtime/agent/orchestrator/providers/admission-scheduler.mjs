@@ -525,47 +525,48 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
     // Provider queueing and network wait consume no local CPU slot. The
     // resource controller reacquires the agent lease before model output
     // continues through local context/tool processing.
-    return resourceAdmission.runYielded(() =>
-      scheduler.run(
-        key,
-        (admissionSignal, admissionMetrics) => {
-          // Admission is the common request-clock boundary for WS/SSE/HTTP.
-          // Queue wait therefore cannot consume first-byte or agent-watchdog
-          // time. Provider-local retry remains the sole retry owner.
-          try {
-            opts.onStageChange?.('requesting');
-          } catch {}
-          const admittedOpts = {
-            ...opts,
-            signal: admissionSignal,
-            _providerAdmission: admissionMetrics,
-          };
-          return accountProviderSend(
-            providerName,
-            this,
-            () => originalSend.call(this, messages, model, tools, admittedOpts),
-            model,
-            admittedOpts
-          );
-        },
-        {
-          signal,
-          ownerKey: opts.admissionOwner || opts.sessionId || null,
-          priority: opts.admissionPriority || 'user-visible',
-          onCooldownWait: (waitMs) => {
-            // Display-only: the TUI/desktop 'reconnecting' stage already
-            // renders a custom verb, so no new stage vocabulary is needed.
-            const secs = Math.max(1, Math.ceil(waitMs / 1000));
+    return resourceAdmission.runYielded(
+      () =>
+        scheduler.run(
+          key,
+          (admissionSignal, admissionMetrics) => {
+            // Admission is the common request-clock boundary for WS/SSE/HTTP.
+            // Queue wait therefore cannot consume first-byte or agent-watchdog
+            // time. Provider-local retry remains the sole retry owner.
             try {
-              opts.onStageChange?.('reconnecting', {
-                message: `Rate-limited — waiting ~${secs}s for the provider window`,
-              });
-            } catch {
-              /* display-only */
-            }
+              opts.onStageChange?.('requesting');
+            } catch {}
+            const admittedOpts = {
+              ...opts,
+              signal: admissionSignal,
+              _providerAdmission: admissionMetrics,
+            };
+            return accountProviderSend(
+              providerName,
+              this,
+              () => originalSend.call(this, messages, model, tools, admittedOpts),
+              model,
+              admittedOpts
+            );
           },
-        }
-      ),
+          {
+            signal,
+            ownerKey: opts.admissionOwner || opts.sessionId || null,
+            priority: opts.admissionPriority || 'user-visible',
+            onCooldownWait: (waitMs) => {
+              // Display-only: the TUI/desktop 'reconnecting' stage already
+              // renders a custom verb, so no new stage vocabulary is needed.
+              const secs = Math.max(1, Math.ceil(waitMs / 1000));
+              try {
+                opts.onStageChange?.('reconnecting', {
+                  message: `Rate-limited — waiting ~${secs}s for the provider window`,
+                });
+              } catch {
+                /* display-only */
+              }
+            },
+          }
+        ),
       { signal, onRestoreWait: () => opts.onStageChange?.('resource_wait') }
     );
   };

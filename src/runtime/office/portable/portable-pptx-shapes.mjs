@@ -3,6 +3,7 @@ import { resolveImageLayout } from './image-layout.mjs';
 import { contrastRatio, shrinkFontSizeToFit } from './text-metrics.mjs';
 import {
   EMU_PER_POINT,
+  SLIDE_SHAPE_TAGS,
   fromEmu,
   pictureXml,
   resolveGeometry,
@@ -36,7 +37,6 @@ import { addSlideImage, slidePath } from './portable-pptx-package.mjs';
 import {
   DEFAULT_TEXT_INSETS,
   appendSlideShape,
-  balancedInner,
   nextShapeId,
   presentationSlideSize,
   selectedShapeSpans,
@@ -49,11 +49,8 @@ import {
 
 export async function handleSetHyperlink(context, op) {
   const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const slide = await slideShapeTree(context, op);
+  const { path, tree } = slide;
   const shape = slideShape(tree, op);
   const address = String(op.address || '').trim();
   if (!address && !op.subAddress) throw new Error('set_hyperlink requires address or subAddress');
@@ -75,18 +72,13 @@ export async function handleSetHyperlink(context, op) {
     .replace(/<p:cNvPr\b([^>]*?)(\/>|>)/, (_match, attrs, close) =>
       close === '/>' ? `<p:cNvPr${attrs}>${link}</p:cNvPr>` : `<p:cNvPr${attrs}>${link}`
     );
-  const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
-  zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape), address };
 }
 
 export async function handleZOrder(context, op) {
   const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const { path, current, tree } = await slideShapeTree(context, op);
   const command = String(op.command || '').toLowerCase();
   if (!['front', 'back', 'forward', 'backward'].includes(command)) {
     throw new Error('z_order command must be front, back, forward, or backward');
@@ -160,7 +152,7 @@ async function slideShapeTree(context, op) {
 }
 
 function slideShape(tree, op) {
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+  const shapes = topLevelElements(tree.inner, SLIDE_SHAPE_TAGS);
   const shape = shapes[Number(op.shape) - 1];
   if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
   return shape;
@@ -226,20 +218,15 @@ export async function handleAlignShapesOrDistributeShapes(context, op) {
 }
 
 export async function handleSetText(context, op) {
-  const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const slide = await slideShapeTree(context, op);
+  const { tree } = slide;
   const shape = slideShape(tree, op);
   const nodes = textNodes(shape.xml, 'a:t');
   if (!nodes.length) throw new Error(`PPTX shape ${op.shape} has no editable text`);
   nodes[0].text = String(op.text ?? '');
   for (let index = 1; index < nodes.length; index += 1) nodes[index].text = '';
   const nextShape = rebuildTextNodes(shape.xml, 'a:t', nodes);
-  const nextInner = `${tree.inner.slice(0, shape.start)}${nextShape}${tree.inner.slice(shape.end)}`;
-  zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${nextShape}${tree.inner.slice(shape.end)}`);
   return { op: op.op, changed: true };
 }
 
@@ -306,15 +293,10 @@ export async function handleAddTextboxOrAddShape(context, op) {
 }
 
 export async function handleDeleteShape(context, op) {
-  const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const slide = await slideShapeTree(context, op);
+  const { tree } = slide;
   const shape = slideShape(tree, op);
-  const nextInner = `${tree.inner.slice(0, shape.start)}${tree.inner.slice(shape.end)}`;
-  zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${tree.inner.slice(shape.end)}`);
   return { op: op.op, changed: true };
 }
 
@@ -490,11 +472,7 @@ async function replacedPicture(zip, path, shape, op) {
 
 export async function handleSetTableDataOrReplaceImage(context, op) {
   const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const { path, current, tree } = await slideShapeTree(context, op);
   const shape = slideShape(tree, op);
   let updated;
   let detail = {};
@@ -650,12 +628,8 @@ export async function handleAddMedia(context, op) {
 }
 
 export async function handleCropImage(context, op) {
-  const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const slide = await slideShapeTree(context, op);
+  const { tree } = slide;
   const shape = slideShape(tree, op);
   if (shape.name !== 'p:pic') throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} is not a picture`);
   const edge = (value) => Math.max(0, Math.min(100_000, Math.round((Number(value) || 0) * 1000)));
@@ -663,8 +637,7 @@ export async function handleCropImage(context, op) {
   const updated = shape.xml
     .replace(/<a:srcRect\b[^>]*\/>/, '')
     .replace(/(<a:blip\b[^>]*?(?:\/>|>[\s\S]*?<\/a:blip>))/, `$1${rect}`);
-  const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
-  zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`);
   return { op: op.op, changed: true, slide: Number(op.slide), shape: Number(op.shape) };
 }
 
@@ -748,7 +721,7 @@ function timingWithAnimation(existing, { node, group }, trigger, id) {
     );
   }
   const head = /<p:cTn\b[^>]*\bnodeType="mainSeq"[^>]*>/.exec(existing);
-  const sequence = head ? balancedInner(existing, head.index + head[0].length, 'p:childTnLst') : null;
+  const sequence = head ? containerInner(existing, 'p:childTnLst', head.index + head[0].length) : null;
   if (!sequence) throw new Error('PPTX slide timing has no main animation sequence');
   const last = topLevelElements(sequence.inner, ['p:par']).at(-1);
   let nextInner;
@@ -765,11 +738,7 @@ function timingWithAnimation(existing, { node, group }, trigger, id) {
 
 export async function handleAddAnimation(context, op) {
   const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const { path, current, tree } = await slideShapeTree(context, op);
   const shape = slideShape(tree, op);
   const shapeId = Number(/<p:cNvPr\b[^>]*\bid="(\d+)"/.exec(shape.xml)?.[1]);
   if (!shapeId) throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} has no shape id`);
@@ -792,15 +761,10 @@ export async function handleAddAnimation(context, op) {
 }
 
 export async function handleSetShape(context, op) {
-  const { zip } = context;
-  const slides = context.slides;
-  const path = slidePath(slides, op.slide);
-  const current = await zipText(zip, path);
-  const tree = containerInner(current, 'p:spTree');
-  if (!tree) throw new Error('PPTX slide shape tree is missing');
+  const slide = await slideShapeTree(context, op);
+  const { tree } = slide;
   const shape = slideShape(tree, op);
   const updated = updateShapeGeometry(shape.xml, op.properties || {});
-  const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
-  zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
+  writeSlideTree(context, slide, `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`);
   return { op: op.op, changed: updated !== shape.xml };
 }

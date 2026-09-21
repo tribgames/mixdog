@@ -188,27 +188,29 @@ export class DesktopServiceRegistry {
     return { desktopId: service.desktopId };
   }
 
-  async invoke({ desktopId, method, args = [] } = {}, ctx = null) {
+  // Every addressed call also (re)subscribes its caller to the service lane.
+  #requireSubscribed(desktopId, ctx) {
     const service = this.#require(desktopId);
     const token = subscriberToken(ctx);
     if (token) service.subscribers.add(token);
+    return { service, token };
+  }
+
+  async invoke({ desktopId, method, args = [] } = {}, ctx = null) {
+    const { service } = this.#requireSubscribed(desktopId, ctx);
     const name = String(method || '');
     if (!name) throw new TypeError('desktop service method is required');
     return sanitizeForWire(await service.instance.invoke(name, Array.isArray(args) ? args : [])) ?? null;
   }
 
   async control({ desktopId, message } = {}, ctx = null) {
-    const service = this.#require(desktopId);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.add(token);
+    const { service } = this.#requireSubscribed(desktopId, ctx);
     await service.instance.control(sanitizeForWire(message) || {});
     return { ok: true };
   }
 
   ready({ desktopId } = {}, ctx = null) {
-    const service = this.#require(desktopId);
-    const token = subscriberToken(ctx);
-    if (token) service.subscribers.add(token);
+    const { service, token } = this.#requireSubscribed(desktopId, ctx);
     this.#onReady({ desktopId: service.desktopId, clientToken: token || null });
     return { ok: true };
   }

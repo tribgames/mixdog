@@ -168,6 +168,12 @@ export function ReadyEditorPane(props: React.ComponentProps<typeof EditorPane>) 
   );
 }
 
+// Studio readiness includes the lane catalog, which is a provider network
+// read. A slow, rate-limited or offline provider must not hold an opaque cover
+// over a gallery and composer that are already interactive — the pane surfaces
+// a catalog error and a Retry of its own.
+const STUDIO_COVER_MAX_MS = 1_500;
+
 export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPane>) {
   const metricKey = 'studio';
   beginBootSurface('studio', metricKey);
@@ -176,8 +182,13 @@ export function ReadyStudioPane(props: React.ComponentProps<typeof StudioPane>) 
     reportBootSurfaceReady('studio', metricKey, 'shell');
   }, []);
   const [ready, setReady] = useState(false);
+  const [expired, setExpired] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setExpired(true), STUDIO_COVER_MAX_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
   return (
-    <PaneSurfaceGate ready={ready} transitionKey={metricKey} label="Preparing Studio…">
+    <PaneSurfaceGate ready={ready || expired} transitionKey={metricKey} label="Preparing Studio…">
       <Suspense fallback={null}>
         <StudioPane
           {...props}

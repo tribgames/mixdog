@@ -28,8 +28,6 @@ import type { NavigationSelection } from './nav-types';
 import { beginPaneDrag, finishPaneDrag, type PaneDragSession } from './pane-drag-session';
 import { RowOverflowMenu } from './RowOverflowMenu';
 import { sessionListInsertedAtTop, sessionListKeepsExistingTopInsert } from './first-submit-stability';
-import type { SidebarPanelKey } from './app-shell-components';
-import { SIDEBAR_VIEW_MIME, sidebarViewDragId, type SidebarViewPlacement } from './sidebar-view-layout';
 
 const SESSION_PREFETCH_INTENT_DELAY_MS = 40;
 const RECENT_SESSION_INITIAL_ROWS = 24;
@@ -152,105 +150,6 @@ export function SidebarPanelAction({
   // unit tests): keep the action inline so the surface stays complete.
   if (!slot) return button;
   return active ? createPortal(button, slot) : null;
-}
-
-export function SidebarPanelSection({
-  id,
-  title,
-  active,
-  sectioned,
-  order,
-  dragProps,
-  onMoveView,
-  children,
-}: {
-  id: SidebarPanelKey;
-  title: string;
-  active: boolean;
-  sectioned: boolean;
-  order?: number;
-  dragProps?: React.HTMLAttributes<HTMLElement>;
-  onMoveView?(sourceId: SidebarPanelKey, targetId: SidebarPanelKey, placement: SidebarViewPlacement): void;
-  children(active: boolean): React.ReactNode;
-}) {
-  const parentActionSlot = useContext(SidebarPanelHeaderSlot);
-  const storageKey = `mixdog.desktop.sidebar-view-section.${id}.collapsed.v1`;
-  const [collapsed, setCollapsed] = useState(() => {
-    try {
-      return window.localStorage.getItem(storageKey) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [actionSlot, setActionSlot] = useState<HTMLSpanElement | null>(null);
-  const [dropOver, setDropOver] = useState(false);
-  const toggleCollapsed = () => {
-    setCollapsed((current) => {
-      const next = !current;
-      try {
-        window.localStorage.setItem(storageKey, String(next));
-      } catch {
-        /* section state remains live for this renderer */
-      }
-      return next;
-    });
-  };
-  const sectionActive = active && (!sectioned || !collapsed);
-  return (
-    <section
-      className="sidebar-view-section"
-      style={order === undefined ? undefined : { order }}
-      data-active={active ? 'true' : 'false'}
-      data-sectioned={sectioned ? 'true' : 'false'}
-      data-collapsed={collapsed ? 'true' : 'false'}
-      data-drop-over={dropOver ? 'true' : undefined}
-    >
-      <div
-        {...dragProps}
-        className="sidebar-view-section-header"
-        hidden={!sectioned}
-        onDragOver={(event) => {
-          if (!Array.from(event.dataTransfer.types).includes(SIDEBAR_VIEW_MIME)) return;
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          setDropOver(true);
-        }}
-        onDragLeave={(event) => {
-          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropOver(false);
-        }}
-        onDrop={(event) => {
-          event.preventDefault();
-          const sourceId = sidebarViewDragId(event.nativeEvent);
-          if (sourceId && sourceId !== id) onMoveView?.(sourceId, id, 'inside');
-          setDropOver(false);
-        }}
-        onDragEnd={(event) => {
-          dragProps?.onDragEnd?.(event);
-          setDropOver(false);
-        }}
-      >
-        <button
-          type="button"
-          className="sidebar-view-section-toggle"
-          aria-expanded={!collapsed}
-          onClick={toggleCollapsed}
-        >
-          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-          <span>{t(title)}</span>
-        </button>
-        <span className="sidebar-view-section-actions" ref={setActionSlot} />
-      </div>
-      <div
-        className="sidebar-view-section-body"
-        inert={sectionActive ? undefined : true}
-        aria-hidden={sectionActive ? undefined : true}
-      >
-        <SidebarPanelHeaderSlot.Provider value={sectioned ? actionSlot : parentActionSlot}>
-          {children(sectionActive)}
-        </SidebarPanelHeaderSlot.Provider>
-      </div>
-    </section>
-  );
 }
 
 interface SessionSidebarProps {
@@ -663,6 +562,33 @@ export const SessionSidebar = React.memo(function SessionSidebar({
       setConfirmingSessionId('');
     }
   }, [confirmingSessionId, sessions]);
+  // Recent, Automations and Archived all render the same row with the same
+  // rename/confirm wiring; only the session differs.
+  const renderSessionRow = (session: DesktopSessionSummary) => (
+    <SessionSidebarRow
+      key={session.id}
+      session={session}
+      active={selection.kind === 'session' && selection.id === session.id}
+      working={workingSessionIds?.has(session.id) === true}
+      unread={unreadSessionIds?.has(session.id) === true}
+      editingSessionId={editingSessionId}
+      sessionTitleDraft={sessionTitleDraft}
+      sessionTitleInvalid={sessionTitleInvalid}
+      confirmingSessionId={confirmingSessionId}
+      deletingSessionId={deletingSessionId}
+      onTitleDraftChange={setSessionTitleDraft}
+      onStartRename={openSessionEditor}
+      onCancelRename={closeSessionEditor}
+      onCommitRename={commitSessionEditor}
+      onPrefetchSession={requestPrefetch}
+      onResumeSession={onResumeSession}
+      onCloseEditor={closeSessionEditor}
+      onSetConfirming={setConfirmingSessionId}
+      onSetDeleting={setDeletingSessionId}
+      onDeleteSession={onDeleteSession}
+      onArchiveSession={onArchiveSession}
+    />
+  );
   const displayedSidebarWidth = resizeStart.current?.pendingWidth ?? sidebarWidth;
   return (
     <aside
@@ -813,35 +739,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                             />
                           )}
                         </button>
-                        {expanded && (
-                          <div className="automation-group-past">
-                            {runs.map((session) => (
-                              <SessionSidebarRow
-                                key={session.id}
-                                session={session}
-                                active={selection.kind === 'session' && selection.id === session.id}
-                                working={workingSessionIds?.has(session.id) === true}
-                                unread={unreadSessionIds?.has(session.id) === true}
-                                editingSessionId={editingSessionId}
-                                sessionTitleDraft={sessionTitleDraft}
-                                sessionTitleInvalid={sessionTitleInvalid}
-                                confirmingSessionId={confirmingSessionId}
-                                deletingSessionId={deletingSessionId}
-                                onTitleDraftChange={setSessionTitleDraft}
-                                onStartRename={openSessionEditor}
-                                onCancelRename={closeSessionEditor}
-                                onCommitRename={commitSessionEditor}
-                                onPrefetchSession={requestPrefetch}
-                                onResumeSession={onResumeSession}
-                                onCloseEditor={closeSessionEditor}
-                                onSetConfirming={setConfirmingSessionId}
-                                onSetDeleting={setDeletingSessionId}
-                                onDeleteSession={onDeleteSession}
-                                onArchiveSession={onArchiveSession}
-                              />
-                            ))}
-                          </div>
-                        )}
+                        {expanded && <div className="automation-group-past">{runs.map(renderSessionRow)}</div>}
                       </div>
                     );
                   })}
@@ -890,31 +788,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
                 ) : (
                   sessionsReady && rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions')}</p>
                 )}
-                {visibleRecentRows.map((session) => (
-                  <SessionSidebarRow
-                    key={session.id}
-                    session={session}
-                    active={selection.kind === 'session' && selection.id === session.id}
-                    working={workingSessionIds?.has(session.id) === true}
-                    unread={unreadSessionIds?.has(session.id) === true}
-                    editingSessionId={editingSessionId}
-                    sessionTitleDraft={sessionTitleDraft}
-                    sessionTitleInvalid={sessionTitleInvalid}
-                    confirmingSessionId={confirmingSessionId}
-                    deletingSessionId={deletingSessionId}
-                    onTitleDraftChange={setSessionTitleDraft}
-                    onStartRename={openSessionEditor}
-                    onCancelRename={closeSessionEditor}
-                    onCommitRename={commitSessionEditor}
-                    onPrefetchSession={requestPrefetch}
-                    onResumeSession={onResumeSession}
-                    onCloseEditor={closeSessionEditor}
-                    onSetConfirming={setConfirmingSessionId}
-                    onSetDeleting={setDeletingSessionId}
-                    onDeleteSession={onDeleteSession}
-                    onArchiveSession={onArchiveSession}
-                  />
-                ))}
+                {visibleRecentRows.map(renderSessionRow)}
                 {hasMoreRecentRows && (
                   <div
                     ref={recentSentinelRef}
@@ -974,31 +848,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
               </div>
               {archivedOpen && (
                 <nav className="session-list archived-session-list" aria-label={t('Archived sessions')}>
-                  {visibleArchivedRows.map((session) => (
-                    <SessionSidebarRow
-                      key={session.id}
-                      session={session}
-                      active={selection.kind === 'session' && selection.id === session.id}
-                      working={workingSessionIds?.has(session.id) === true}
-                      unread={unreadSessionIds?.has(session.id) === true}
-                      editingSessionId={editingSessionId}
-                      sessionTitleDraft={sessionTitleDraft}
-                      sessionTitleInvalid={sessionTitleInvalid}
-                      confirmingSessionId={confirmingSessionId}
-                      deletingSessionId={deletingSessionId}
-                      onTitleDraftChange={setSessionTitleDraft}
-                      onStartRename={openSessionEditor}
-                      onCancelRename={closeSessionEditor}
-                      onCommitRename={commitSessionEditor}
-                      onPrefetchSession={requestPrefetch}
-                      onResumeSession={onResumeSession}
-                      onCloseEditor={closeSessionEditor}
-                      onSetConfirming={setConfirmingSessionId}
-                      onSetDeleting={setDeletingSessionId}
-                      onDeleteSession={onDeleteSession}
-                      onArchiveSession={onArchiveSession}
-                    />
-                  ))}
+                  {visibleArchivedRows.map(renderSessionRow)}
                   {hasMoreArchivedRows && (
                     <div
                       ref={archivedSentinelRef}

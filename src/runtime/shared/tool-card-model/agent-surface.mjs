@@ -32,6 +32,11 @@ export function titleizeAgentName(value) {
     .join(' ');
 }
 
+// The agent identity a card shows, from whichever field the caller supplied.
+function agentDisplayName(args) {
+  return titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
+}
+
 function agentModelLabel(args) {
   const a = args && typeof args === 'object' ? args : {};
   const provider = String(a.provider || a.providerId || a.provider_id || '').trim();
@@ -63,7 +68,7 @@ function joinActionAgent(action, agent) {
 export function agentResponseTitle(args, count = 1) {
   const total = Math.max(1, Number(count) || 1);
   if (total > 1) return `Responses ${total} agents`;
-  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '') || 'Agent';
+  const name = agentDisplayName(args) || 'Agent';
   // The agent + model identify the responder; the response summary itself
   // is hidden in the collapsed card (expanding still shows the full body).
   // Keep the surface identifiable even when a failed/legacy completion has no
@@ -72,7 +77,7 @@ export function agentResponseTitle(args, count = 1) {
 }
 
 export function agentActionTitle(args) {
-  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
+  const name = agentDisplayName(args);
   // Runtime treats an omitted type/action as "spawn" (see agent-tool.mjs default),
   // so mirror that contract here instead of falling through to the generic
   // "Called agent" status copy.
@@ -93,7 +98,7 @@ export function agentActionTitle(args) {
 export function agentActionSummary(args, summary) {
   const text = String(summary || '').trim();
   if (!text) return '';
-  const name = titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '');
+  const name = agentDisplayName(args);
   if (name && text === name) return '';
   const rest = name && text.startsWith(`${name} · `) ? text.slice(name.length + 3).trim() : text;
   // The agent/model/tag surface summary ("Heavy Worker · Opus 4.8") is now folded

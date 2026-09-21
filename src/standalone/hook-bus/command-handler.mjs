@@ -228,10 +228,10 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
       if (stderrBytes <= MAX_BUFFER_BYTES) stderrChunks.push(chunk);
     });
     child.on('error', fail);
-    child.on('close', (code, signal) => {
+    child.on('close', (code, terminationSignal) => {
       finish({
         exitCode: !timedOut && typeof code === 'number' ? code : -1,
-        stderr: signal ? `hook command terminated by ${signal}` : '',
+        stderr: terminationSignal ? `hook command terminated by ${terminationSignal}` : '',
         timedOut,
         spawnError: null,
       });

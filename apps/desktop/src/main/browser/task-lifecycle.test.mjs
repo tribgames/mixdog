@@ -39,13 +39,25 @@ test('background cleanup never reveals a surface and preserves other sessions an
   owner.use('a', 1, user, false);
   owner.use('a', 1, scratch, true);
   owner.use('b', 1, other, true);
-  assert.equal(owner.finish('a', 1), 1);
+  assert.equal(owner.finish('a', 1, { aborted: true }), 1);
   assert.equal(scratch.dead, true);
   assert.equal(user.dead, false);
   assert.equal(other.dead, false);
   assert.equal(selected.get('a'), user);
   assert.deepEqual(surfaces, []);
   assert.throws(() => owner.begin('a', 1), /already finished/);
+});
+
+test('a turn that ended well keeps its pages; only an aborted run reclaims them', () => {
+  const { owner, page } = fixture();
+  const scratch = page('scratch');
+  owner.use('a', 1, scratch, true);
+  // The next message usually continues this work, sign-ins and drafts included.
+  assert.equal(owner.finish('a', 1), 0);
+  assert.equal(scratch.dead, false);
+  owner.use('a', 2, scratch, true);
+  assert.equal(owner.finish('a', 2, { aborted: true }), 1);
+  assert.equal(scratch.dead, true);
 });
 
 test('temporary foreground work restores the previous selected page and panel', () => {
@@ -72,7 +84,7 @@ test('user interaction and explicit handoff preserve pages and their visible pan
   owner.reveal('a', 1, scratch);
   owner.retain(scratch);
   owner.use('a', 1, scratch, false);
-  assert.equal(owner.finish('a', 1), 0);
+  assert.equal(owner.finish('a', 1, { aborted: true }), 0);
   assert.equal(scratch.dead, false);
   assert.deepEqual(surfaces, [
     { session: 'a', temporaryTurnId: 1 },
@@ -88,13 +100,13 @@ test('late old-turn cleanup cannot close a page reused by newer work or restore 
   owner.reveal('a', 1, scratch);
   owner.use('a', 2, scratch, false);
   owner.reveal('a', 2, scratch);
-  assert.equal(owner.finish('a', 1), 0);
+  assert.equal(owner.finish('a', 1, { aborted: true }), 0);
   assert.equal(scratch.dead, false);
   assert.equal(
     surfaces.some((value) => value.restoreTurnId === 1),
     false
   );
-  assert.equal(owner.finish('a', 2), 1);
+  assert.equal(owner.finish('a', 2, { aborted: true }), 1);
 });
 
 test('popups inherit task ownership; blocked dialogs survive cleanup without affecting user popups', () => {
@@ -107,7 +119,7 @@ test('popups inherit task ownership; blocked dialogs survive cleanup without aff
   owner.inherit(scratch, popup);
   owner.inherit(scratch, prompt);
   owner.inherit(page('unowned opener'), userPopup);
-  assert.equal(owner.finish('a', 1), 2);
+  assert.equal(owner.finish('a', 1, { aborted: true }), 2);
   assert.equal(popup.dead, true);
   assert.equal(prompt.dead, false);
   assert.equal(prompt.preserved, true);
@@ -128,14 +140,14 @@ test('a failed page close remains owned and retry never closes an already releas
   const second = page('second');
   const third = page('third');
   for (const value of [first, second, third]) owner.use('s', 1, value, true);
-  assert.throws(() => owner.finish('s', 1), /window close failed/);
+  assert.throws(() => owner.finish('s', 1, { aborted: true }), /window close failed/);
   assert.equal(first.dead, true);
   assert.equal(second.dead, false);
   assert.equal(third.dead, false);
   fail = false;
-  assert.equal(owner.finish('s', 1), 2);
+  assert.equal(owner.finish('s', 1, { aborted: true }), 2);
   assert.deepEqual(attempts, ['first', 'second', 'second', 'third']);
-  assert.equal(owner.finish('s', 1), 0);
+  assert.equal(owner.finish('s', 1, { aborted: true }), 0);
 });
 
 test('failed-close recovery preserves newer ownership and handles a page destroyed while close threw', () => {
@@ -149,13 +161,13 @@ test('failed-close recovery preserves newer ownership and handles a page destroy
     });
     const scratch = page('scratch');
     owner.use('s', 1, scratch, true);
-    assert.throws(() => owner.finish('s', 1), /close interrupted/);
+    assert.throws(() => owner.finish('s', 1, { aborted: true }), /close interrupted/);
     fail = false;
     if (outcome === 'reused') owner.use('s', 2, scratch, false);
-    assert.equal(owner.finish('s', 1), 0);
+    assert.equal(owner.finish('s', 1, { aborted: true }), 0);
     if (outcome === 'reused') {
       assert.equal(scratch.dead, false);
-      assert.equal(owner.finish('s', 2), 1);
+      assert.equal(owner.finish('s', 2, { aborted: true }), 1);
     }
   }
 });

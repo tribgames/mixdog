@@ -37,11 +37,9 @@ export class StableTerminalFitScheduler<RestoreState> {
 
   constructor(private readonly options: StableTerminalFitOptions<RestoreState>) {}
 
-  schedule(): void;
-  schedule(restore: RestoreState | null): void;
-  schedule(restore?: RestoreState | null): void {
-    if (arguments.length > 0) {
-      this.pendingRestore = restore ?? null;
+  schedule(...args: [] | [restore: RestoreState | null]): void {
+    if (args.length > 0) {
+      this.pendingRestore = args[0] ?? null;
       this.hasPendingRestore = true;
     }
     if (this.frame !== null || !this.options.isActive()) return;

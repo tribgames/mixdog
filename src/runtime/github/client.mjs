@@ -4,7 +4,7 @@ import { lstat, mkdir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
 import { buildGithubCommand } from './commands.mjs';
-import { githubRepository, githubRequestMutates, validateGithubRequest } from './contract.mjs';
+import { githubRepository, githubRequestMutates, isRepoFreeGithubAction, validateGithubRequest } from './contract.mjs';
 import { withGitRepoWriteLock } from '../agent/orchestrator/tools/builtin/git-repo-rw-lock.mjs';
 
 const MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -96,11 +96,10 @@ export async function executeGithubRequest(value, cwd, options = {}) {
   if (typeof cwd !== 'string' || !isAbsolute(cwd) || cwd.includes('\0')) {
     throw new TypeError('An absolute Project directory is required.');
   }
-  const repoFree = input.action === 'repo.list' || input.action.startsWith('notification.');
   if (['repo.create', 'repo.clone', 'repo.fork'].includes(input.action) && !input.repo) {
     throw new TypeError('This action requires an explicit owner/name in repo.');
   }
-  if (!repoFree && !input.repo) {
+  if (!isRepoFreeGithubAction(input.action) && !input.repo) {
     // Bind every request to a concrete repository before any write is sent.
     const raw = await run(
       {

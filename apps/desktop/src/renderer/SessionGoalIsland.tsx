@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
-import type { GoalTask, Snapshot } from './desktop-types';
+import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { GoalSubmissionContext, useGoalAfterSubmission } from './session-goal-submission';
@@ -9,11 +9,11 @@ import {
   goalDisplayStatus,
   goalElapsedLabel,
   goalHasBackgroundWork,
+  goalStatusLabel,
+  goalTimeLabel,
   type GoalDisplayStatus,
 } from './session-goal-presentation';
-import { goalTimeLabel, goalStatusLabel } from './session-goal-presentation';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
-import type { GoalSnapshot } from './desktop-types';
 
 export {
   formatGoalDuration,

@@ -21,9 +21,6 @@ function routeForStatusline(route) {
   if (route.effectiveEffort) {
     out.effort = route.effectiveEffort;
     out.displayEffort = route.effectiveEffort;
-  } else if (hasOwn(route, 'effort')) {
-    delete out.effort;
-    delete out.displayEffort;
   }
   return out;
 }

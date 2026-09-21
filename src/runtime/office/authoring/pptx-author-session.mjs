@@ -3,7 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import { basename, dirname, extname, join } from 'node:path';
 import { callMicrosoftOffice } from '../com/com-adapter.mjs';
 import { closeSession } from '../core/office-actions.mjs';
-import { documentSessionKey, documentSessions, emptyOfficeDesignState, sessions } from '../core/office-core.mjs';
+import { emptyOfficeDesignState, officeSessionForDocument, releaseOfficeSession } from '../core/office-core.mjs';
 
 export async function exists(path) {
   try {
@@ -26,15 +26,13 @@ export function throwIfAuthoringCancelled(signal, result = null) {
 // is the source of truth.
 export async function releaseExistingSession(target, signal) {
   throwIfAuthoringCancelled(signal);
-  const existingId = documentSessions.get(documentSessionKey(target));
-  const existing = existingId ? sessions.get(existingId) : null;
+  const existing = officeSessionForDocument(target);
   if (!existing) return null;
   await closeSession(existing, { save: false, signal }).catch(() => {});
   throwIfAuthoringCancelled(signal);
-  sessions.delete(existing.id);
-  if (documentSessions.get(documentSessionKey(target)) === existing.id) {
-    documentSessions.delete(documentSessionKey(target));
-  }
+  // A close that failed leaves the record behind; the deck is being replaced
+  // either way, so the registries release it here too.
+  releaseOfficeSession(existing);
   return existing.id;
 }
 
@@ -44,8 +42,7 @@ export async function releaseExistingSession(target, signal) {
 // transaction belongs to someone else and is closed the old way.
 export function reusableAuthoredSession(target, mode = 'auto') {
   if (!['auto', 'background'].includes(mode)) return null;
-  const existingId = documentSessions.get(documentSessionKey(target));
-  const existing = existingId ? sessions.get(existingId) : null;
+  const existing = officeSessionForDocument(target);
   if (!existing || existing.transaction) return null;
   const reusable =
     existing.authored === true &&

@@ -681,9 +681,11 @@
 .studio-dock {
   box-sizing: border-box;
   /* Studio's gallery stays full-width, but its typing card follows the TASK
-     reading column: fluid below 800px, then the same 800→1000 ramp the chat
-     composer rides (12-transcript.css), measured against .studio-root. */
-  width: min(100%, clamp(800px, 80cqi, 1000px));
+     reading column: fluid below 800px, then the SAME 800→848 ramp --pane-column
+     gives the chat composer (12-transcript.css), measured against .studio-root.
+     A 1000px ceiling here made Studio's composer up to 152px wider than the
+     chat one on the same pane (user: 컴포저 좌우 넓이도 다르다). */
+  width: min(100%, clamp(800px, 80cqi, 848px));
   margin: 0 auto;
   /* Same floor gap as .composer-region so a 2×2 split lines the cards up. */
   padding: 0 var(--pane-inset) 16px;

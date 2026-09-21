@@ -47,10 +47,6 @@ export const DESKTOP_CAPTURE_TIMEOUT_MS = 2_000;
 
 export const CAPTURE_ACCESSIBILITY_TIMEOUT_MS = 2_500;
 
-/** Sampled points that must still show the exact window before a direct screen
- *  grab can stand in for a composited window capture. */
-export const NATIVE_CAPTURE_VISIBLE_SAMPLES = 5;
-
 export function elapsedMs(startedAt: number): number {
   return Number((performance.now() - startedAt).toFixed(2));
 }

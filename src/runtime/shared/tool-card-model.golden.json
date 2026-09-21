@@ -513,10 +513,7 @@
     "normalizedName": "load_tool",
     "label": "Load Tools",
     "parsedArgs": {
-      "names": [
-        "office",
-        "media"
-      ]
+      "names": ["office", "media"]
     },
     "isShellSurface": false,
     "isSkillSurface": false,
@@ -752,10 +749,7 @@
     "normalizedName": "",
     "label": "",
     "parsedArgs": {
-      "categoryOrder": [
-        "read",
-        "search"
-      ]
+      "categoryOrder": ["read", "search"]
     },
     "isShellSurface": false,
     "isSkillSurface": false,
@@ -825,10 +819,7 @@
     "normalizedName": "",
     "label": "",
     "parsedArgs": {
-      "loadingTargets": [
-        "office",
-        "media"
-      ]
+      "loadingTargets": ["office", "media"]
     },
     "isShellSurface": false,
     "isSkillSurface": false,

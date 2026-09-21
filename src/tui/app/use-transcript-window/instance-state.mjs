@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { createMeasureState, resetMeasureState } from '../transcript-measure.mjs';
 
-export function freshViewportGeom() {
+function freshViewportGeom() {
   return { contentHeight: 0, floatingPanelRows: 0 };
 }
 

@@ -64,6 +64,10 @@ export function createGoalRuntime({
     // one settled-duration review. In memory on purpose: a restart is a new
     // chance.
     idleReviewTurns: new Map(),
+    // Session -> { goalId, revision, quietTurns }: which continuation tier this
+    // context still owes, from the rules and state already delivered into it.
+    // In memory on purpose: a restart is a fresh context that needs them again.
+    continuationTiers: new Map(),
     closed: false,
   };
   Object.assign(ctx, createGoalStore(ctx));
@@ -114,6 +118,7 @@ export function createGoalRuntime({
       ctx.turnStartedAt.clear();
       ctx.observedGoals.clear();
       ctx.idleReviewTurns.clear();
+      ctx.continuationTiers.clear();
       listeners.clear();
       // Accepted writes keep their ordering until they settle. Callers may
       // await this barrier before releasing the session's backing resources.

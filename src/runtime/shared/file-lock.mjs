@@ -150,6 +150,14 @@ function tryReclaimStaleLock(lockPath, staleMs) {
   }
 }
 
+// Jittered backoff for one lock-acquisition attempt, never past the deadline.
+// Shared so the sync and async acquisition loops cannot drift apart.
+function lockRetryDelayMs(attempt, deadline) {
+  const base = DEFAULT_BACKOFFS_MS[Math.min(attempt, DEFAULT_BACKOFFS_MS.length - 1)];
+  const jitter = Math.floor(Math.random() * Math.min(75, Math.max(1, base)));
+  return Math.min(Math.max(1, deadline - Date.now()), base + jitter);
+}
+
 function releaseLock(lockPath, fd) {
   try {
     closeSync(fd);
@@ -222,9 +230,7 @@ export function withFileLockSync(lockPath, fn, opts = {}) {
       } catch {}
       if (timeoutMs <= 0) throw contentionError(lockPath, error);
       if (Date.now() >= deadline) break;
-      const base = DEFAULT_BACKOFFS_MS[Math.min(attempt, DEFAULT_BACKOFFS_MS.length - 1)];
-      const jitter = Math.floor(Math.random() * Math.min(75, Math.max(1, base)));
-      sleepSync(Math.min(Math.max(1, deadline - Date.now()), base + jitter));
+      sleepSync(lockRetryDelayMs(attempt, deadline));
       attempt += 1;
       continue;
     }
@@ -277,9 +283,7 @@ async function withOsFileLock(lockPath, fn, opts = {}) {
       } catch {}
       if (timeoutMs <= 0) throw contentionError(lockPath, error);
       if (Date.now() >= deadline) break;
-      const base = DEFAULT_BACKOFFS_MS[Math.min(attempt, DEFAULT_BACKOFFS_MS.length - 1)];
-      const jitter = Math.floor(Math.random() * Math.min(75, Math.max(1, base)));
-      await sleep(Math.min(Math.max(1, deadline - Date.now()), base + jitter));
+      await sleep(lockRetryDelayMs(attempt, deadline));
       attempt += 1;
       continue;
     }

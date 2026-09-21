@@ -691,7 +691,7 @@ async function replaceWinAsarIntegrity(executablePath, integrity) {
   await writeFile(executablePath, Buffer.from(executable.generate()));
 }
 
-async function stageShell({ installDir, artifactDir, plan }) {
+async function stageShell({ installDir, artifactDir, plan: _plan }) {
   const startedAt = performance.now();
   const installedResources = join(installDir, 'resources');
   const installedArchive = join(installedResources, 'app.asar');

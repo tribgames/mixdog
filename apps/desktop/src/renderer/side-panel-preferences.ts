@@ -1,8 +1,6 @@
 export type SidePanelMode = 'close-left' | 'close-right' | 'close-both' | 'keep-open';
 
 const SIDE_PANEL_MODE_KEY = 'mixdog.desktop.side-panel-mode.v1';
-export const SIDE_PANEL_MOTION_MS = 180;
-export const SIDE_PANEL_EASING = 'cubic-bezier(.2, .8, .2, 1)';
 const CHANGE_EVENT = 'mixdog:side-panel-mode-changed';
 const DEFAULT_MODE: SidePanelMode = 'close-both';
 let fallbackMode: SidePanelMode = DEFAULT_MODE;

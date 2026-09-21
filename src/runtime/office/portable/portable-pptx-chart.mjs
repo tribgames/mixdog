@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 import { createPortableChartWorkbook } from './portable-package.mjs';
-import { toEmu } from './portable-slide-shapes.mjs';
+import { SLIDE_SHAPE_TAGS, toEmu } from './portable-slide-shapes.mjs';
 import {
   CHART_CONTENT_TYPE,
   PACKAGE_RELATIONSHIP_NS,
@@ -49,6 +49,7 @@ export function readChartPresentation(xml) {
     const value = Number(pattern.exec(valueAxis)?.[1]);
     return Number.isFinite(value) ? value : null;
   };
+  const seriesBlocks = [...source.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map((match) => match[0]);
   return {
     // The axis is part of the reading, not scaffolding: a hidden axis, a zoomed
     // range, and gridlines off are how the approved chart says what it says.
@@ -61,9 +62,9 @@ export function readChartPresentation(xml) {
     },
     // The emphasized point (an accent bar, one highlighted slice) is per point,
     // not per series: rewriting the series alone flattens the chart's message.
-    pointColors: [...source.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map((match) => {
+    pointColors: seriesBlocks.map((series) => {
       const colors = [];
-      for (const point of match[0].matchAll(/<c:dPt>[\s\S]*?<\/c:dPt>/g)) {
+      for (const point of series.matchAll(/<c:dPt>[\s\S]*?<\/c:dPt>/g)) {
         const index = Number(/<c:idx val="(\d+)"\/>/.exec(point[0])?.[1]);
         const color = /<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(point[0])?.[1] || '';
         if (Number.isInteger(index) && color) colors[index] = color;
@@ -76,8 +77,8 @@ export function readChartPresentation(xml) {
     valueNumberFormat: xmlDecode(/<c:numFmt formatCode="([^"]*)"/.exec(valueAxis)?.[1] || ''),
     zeroBaseline: /<c:min val="0"\/>/.test(valueAxis),
     showLegend: /<c:legend>/.test(source),
-    seriesColors: [...source.matchAll(/<c:ser>[\s\S]*?<\/c:ser>/g)].map(
-      (match) => /<c:spPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(match[0])?.[1] || ''
+    seriesColors: seriesBlocks.map(
+      (series) => /<c:spPr>[\s\S]*?<a:srgbClr val="([0-9A-Fa-f]{6})"/.exec(series)?.[1] || ''
     ),
   };
 }
@@ -122,7 +123,7 @@ export async function resolveSlideChart(zip, slides, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+  const shapes = topLevelElements(tree.inner, SLIDE_SHAPE_TAGS);
   const shape = shapes[Number(op.shape) - 1];
   if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
   const reference = /<c:chart\b[^>]*\br:id="([^"]+)"/.exec(shape.xml)?.[1];

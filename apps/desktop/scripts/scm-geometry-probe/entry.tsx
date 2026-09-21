@@ -2,7 +2,7 @@
  *  jsdom has no layout engine, so overlay clamping (branch panel, remote
  *  dropdown, commit split menu) and label degradation are measured HERE, in
  *  the same Chromium that ships in Electron, against the real stylesheets. */
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { OpenSelect } from '../../src/renderer/OpenSelect';
 import { SourceControlDock } from '../../src/renderer/SourceControlDock';

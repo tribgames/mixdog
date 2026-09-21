@@ -1049,7 +1049,6 @@ test('[compat] native Office creates and reopens template and macro-enabled file
   for (const entry of cases) {
     await t.test(entry.fileKind, async (caseTest) => {
       caseTest.after(() => resetOfficeSessionsForTest());
-      console.log(`Office 호환성 검증 시작 — ${entry.fileKind}`);
       const path = join(cwd, `native.${entry.fileKind}`);
       const created = value(
         await executeOfficeTool(

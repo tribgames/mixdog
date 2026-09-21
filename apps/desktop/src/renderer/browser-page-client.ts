@@ -6,6 +6,7 @@ import {
   BROWSER_INPUT_EXPIRED,
   BROWSER_INPUT_WAIT_MS,
   browserInputImmediate,
+  browserInputPresentation,
   browserTabControl,
   browserTypingInput,
 } from '../shared/browser-input-policy';
@@ -211,7 +212,7 @@ export function createBrowserPageClient(options: {
       try {
         await options.api.browserPageControl!(options.sessionId, {
           ...action,
-          documentId: action.type === 'resize' ? current!.documentId : documentId,
+          documentId: browserInputPresentation(action) ? current!.documentId : documentId,
         });
       } catch (error) {
         // Navigation can win the race after the last displayed frame. Drop

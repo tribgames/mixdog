@@ -80,14 +80,15 @@ export function OpenSelect({
   const enabledIndexes = useMemo(() => options.flatMap((option, index) => (option.disabled ? [] : [index])), [options]);
   const selected = options.find((option) => option.value === current);
   const routeStyle = variant === 'route';
-  const settingsStyle = className.split(/\s+/).includes('settings-select');
+  const classNames = className.split(/\s+/);
+  const settingsStyle = classNames.includes('settings-select');
   // The composer pills and the route workflow chip read as ONE control each:
   // the menu hangs off the pill, never off the inner button, or two pickers
   // sitting in the same bar line up on different edges (user: 정렬 잘 시켜서).
   const contextPillStyle =
-    className.split(/\s+/).includes('context-pill-select') ||
-    className.split(/\s+/).includes('project-context-select') ||
-    className.split(/\s+/).includes('workflow-context-select');
+    classNames.includes('context-pill-select') ||
+    classNames.includes('project-context-select') ||
+    classNames.includes('workflow-context-select');
   const activeOption = options[active]?.disabled ? undefined : options[active];
   const triggerLabel = displayValue || selected?.label || options[0]?.label || 'Select…';
   const shownLabel = (label: string) => (localizeLabels ? t(label) : label);

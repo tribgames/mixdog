@@ -253,6 +253,14 @@ export function refineHistoryCommentMatches(matches, { sourceFor } = {}) {
       const text = buf.subarray(block.start, block.end).toString('utf8');
       const classified = classifyHistoryComment(text);
       const sample = block.match || fileMatches[0];
+      // Every refined row keeps the sample's identity but reports the expanded
+      // block's byte range.
+      const refine = (extra) => ({
+        ...sample,
+        file,
+        range: { ...sample.range, byteOffset: [block.start, block.end] },
+        ...extra,
+      });
       if (classified.kind === 'none') continue;
       if (classified.kind === 'pure') {
         const blockComment = isBlockCommentText(text);
@@ -261,37 +269,34 @@ export function refineHistoryCommentMatches(matches, { sourceFor } = {}) {
           (!isFullLineComment(buf, block.start) ||
             buf.subarray(block.end, lineEnd(buf, block.end)).toString('utf8').trim() !== '');
         if (embedded) {
-          refined.push({
-            ...sample,
-            file,
-            range: { ...sample.range, byteOffset: [block.start, block.end] },
-            fix: null,
-            manual: true,
-            message: 'History comment shares a line with code; preserve token boundaries and line terminators.',
-          });
+          refined.push(
+            refine({
+              fix: null,
+              manual: true,
+              message: 'History comment shares a line with code; preserve token boundaries and line terminators.',
+            })
+          );
           continue;
         }
-        refined.push({
-          ...sample,
-          file,
-          range: { ...sample.range, byteOffset: [block.start, block.end] },
-          fix: {
-            byteOffset: [block.start, block.end],
-            text: blockComment ? (text.match(/\r\n|[\r\n\u2028\u2029]/g) || []).join('') : '',
-          },
-          manual: false,
-          message: sample.message || 'Delete comments that only record a move or copy.',
-        });
+        refined.push(
+          refine({
+            fix: {
+              byteOffset: [block.start, block.end],
+              text: blockComment ? (text.match(/\r\n|[\r\n\u2028\u2029]/g) || []).join('') : '',
+            },
+            manual: false,
+            message: sample.message || 'Delete comments that only record a move or copy.',
+          })
+        );
         continue;
       }
-      refined.push({
-        ...sample,
-        file,
-        range: { ...sample.range, byteOffset: [block.start, block.end] },
-        fix: null,
-        manual: true,
-        message: `History phrase mixed with other comment text; edit by hand: "${classified.offending}"`,
-      });
+      refined.push(
+        refine({
+          fix: null,
+          manual: true,
+          message: `History phrase mixed with other comment text; edit by hand: "${classified.offending}"`,
+        })
+      );
     }
   }
   return [...rest, ...refined];

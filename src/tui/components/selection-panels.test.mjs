@@ -32,20 +32,22 @@ before(async () => {
     platform: 'node',
     format: 'esm',
     jsx: 'automatic',
-    plugins: [{
-      name: 'isolated-theme',
-      setup(build) {
-        build.onResolve({ filter: /\/theme\.mjs$/ }, () => ({ path: 'theme', namespace: 'fixture' }));
-        build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
-          contents: `export const theme = {
+    plugins: [
+      {
+        name: 'isolated-theme',
+        setup(build) {
+          build.onResolve({ filter: /\/theme\.mjs$/ }, () => ({ path: 'theme', namespace: 'fixture' }));
+          build.onLoad({ filter: /.*/, namespace: 'fixture' }, () => ({
+            contents: `export const theme = {
             text: 'white', subtle: 'gray', inactive: 'gray', error: 'red',
             warning: 'yellow', success: 'green', panelTitle: 'cyan',
             promptBorder: 'blue', selectionText: 'black', selectionBackground: 'white',
             userMessageBackground: 'black', mixdogIvory: 'white'
           };`,
-        }));
+          }));
+        },
       },
-    }],
+    ],
   });
   panels = await import(pathToFileURL(outfile).href);
 });
@@ -67,7 +69,12 @@ function mount(context, columns = 100) {
     return write(chunk, ...args);
   };
   const view = render(React.createElement(React.Fragment), {
-    stdout, stdin, stderr: stdout, debug: true, exitOnCtrlC: false, patchConsole: false,
+    stdout,
+    stdin,
+    stderr: stdout,
+    debug: true,
+    exitOnCtrlC: false,
+    patchConsole: false,
   });
   context.after(() => {
     view.unmount();
@@ -97,16 +104,27 @@ test('confirmation and overprint preserve empty, clamped and normalized content'
   assert.equal(panels.clampConfirmFocus(0, 0), -1);
   const view = mount(context);
   assert.equal(await view.show(panels.ConfirmBar, { buttons: [] }), '');
-  assert.match(await view.show(panels.ConfirmBar, {
-    buttons: [{ value: 'back', label: 'Back' }, null, { value: 'next', label: 'Next' }],
-    focusedIndex: 1,
-  }), /\[ Back \]\s+\[ Next \]/);
-  assert.equal(await view.show(panels.ItemRightHintOverprint, {
-    rightMessage: ' \n ', children: React.createElement(Text, null, 'body'),
-  }), 'body');
-  assert.match(await view.show(panels.ItemRightHintOverprint, {
-    rightMessage: 'two\n words', children: React.createElement(Text, null, 'body'),
-  }), /two words/);
+  assert.match(
+    await view.show(panels.ConfirmBar, {
+      buttons: [{ value: 'back', label: 'Back' }, null, { value: 'next', label: 'Next' }],
+      focusedIndex: 1,
+    }),
+    /\[ Back \]\s+\[ Next \]/
+  );
+  assert.equal(
+    await view.show(panels.ItemRightHintOverprint, {
+      rightMessage: ' \n ',
+      children: React.createElement(Text, null, 'body'),
+    }),
+    'body'
+  );
+  assert.match(
+    await view.show(panels.ItemRightHintOverprint, {
+      rightMessage: 'two\n words',
+      children: React.createElement(Text, null, 'body'),
+    }),
+    /two words/
+  );
 });
 
 test('picker preserves clipping, markers, metadata, selection and confirm navigation', async (context) => {
@@ -118,8 +136,13 @@ test('picker preserves clipping, markers, metadata, selection and confirm naviga
     { value: 'b', label: 'Beta', checked: false, labelSuffix: 'S', description: 'second' },
   ];
   const props = {
-    items, title: 'Choose', columns: 100, labelWidth: 4, metaWidth: 6,
-    onSelect: (value) => selected.push(value), onCancel() {},
+    items,
+    title: 'Choose',
+    columns: 100,
+    labelWidth: 4,
+    metaWidth: 6,
+    onSelect: (value) => selected.push(value),
+    onCancel() {},
     footer: [{ glyph: '!', text: 'footer' }],
     confirmBar: { buttons: [{ value: 'ok', label: 'OK' }], onConfirm: (button) => confirmed.push(button.value) },
   };
@@ -164,7 +187,12 @@ test('queued commands preserve compact UTF-16 slicing and full multiline output'
   assert.match(await view.show(panels.QueuedCommands, { queued, columns: 5, compact: true }), /…/);
   const expanded = await view.show(panels.QueuedCommands, { queued, columns: 30 });
   assert.match(expanded, /abcdef\n\s+ghi/);
-  assert.match(await view.show(panels.QueuedCommands, {
-    queued: [{ id: 'q', text: 'ignored', displayText: 'ok' }], columns: 9, compact: true,
-  }), /ok/);
+  assert.match(
+    await view.show(panels.QueuedCommands, {
+      queued: [{ id: 'q', text: 'ignored', displayText: 'ok' }],
+      columns: 9,
+      compact: true,
+    }),
+    /ok/
+  );
 });

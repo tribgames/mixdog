@@ -6,9 +6,22 @@
 import type { ChromeUiaAncestor } from '../../browser/chrome-uia';
 import type { ComputerElementRecord, ElementAliasTarget } from '../shared/types';
 
+/**
+ * A label identifies a control; it is not a text extraction surface. Chat and
+ * document clients publish entire message bodies as one element name, which
+ * would spend the reply budget on private content nobody asked for. Reading
+ * that text is what a capture's OCR or the app's own document tree is for.
+ */
+export const MAX_COMPUTER_ELEMENT_TEXT_CHARS = 200;
+
 /** An optional worker field: absent, null and '' all mean "not reported". */
 function optionalText(value: unknown): string | undefined {
   return String(value || '') || undefined;
+}
+
+function boundedText(value: unknown): string {
+  const text = String(value || '');
+  return text.length > MAX_COMPUTER_ELEMENT_TEXT_CHARS ? `${text.slice(0, MAX_COMPUTER_ELEMENT_TEXT_CHARS)}…` : text;
 }
 
 function normalizeAncestors(value: unknown): ChromeUiaAncestor[] {
@@ -40,8 +53,8 @@ export function normalizeElementRecords(value: unknown): ComputerElementRecord[]
       ref,
       source: row.source === 'msaa' ? 'msaa' : 'uia',
       role: String(row.role || ''),
-      name: String(row.name || ''),
-      value: String(row.value || ''),
+      name: boundedText(row.name),
+      value: boundedText(row.value),
       state: String(row.state || ''),
       enabled: row.enabled === true,
       x: Number(row.x) || 0,

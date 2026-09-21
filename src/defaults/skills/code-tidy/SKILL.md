@@ -67,8 +67,21 @@ limitation and ask before widening the work.
    scopes too large for one review (an explicitly requested whole project or
    several directories) by directory or responsibility. Each partition is one
    round: deterministic check on its paths (or the dry-run plan in section 3)
-   → deletion ladder → lenses → apply by tier → verification → round report.
-   Start the next partition only after that round closes.
+   → deletion ladder → lenses → apply by tier → verification → round close.
+   - **Size each partition so one round can actually finish it.** The round
+     owes the ladder on every source unit in the partition and the lenses on
+     every survivor; a partition that cannot get that pass is too big, so split
+     it further before starting. Hundreds of files in one partition is the
+     usual failure.
+   - **Run the partitions one at a time, and the whole set through to the
+     end.** Start the next partition as soon as the current round closes.
+     Never run two partitions concurrently, including when rounds are
+     delegated: concurrent edits make each round's verification unattributable.
+     Do not pause for user input between rounds — section 7 owns reporting.
+   - **More than one partition runs under a Goal.** Record the partition list
+     and the accumulating candidate inventory as durable tasks
+     (`goal-management`), so the remaining partitions and IDs survive turn
+     boundaries instead of being rebuilt from scratch.
    - Finish all applicable read-only checks and lens analysis for the current
      round before its edits, not for the whole scope. Accumulate registered
      candidates across rounds using `references/agent-cleanup.md`.
@@ -133,7 +146,10 @@ definitions, and the final report template. This section owns the order.
    files (skills, prompts, docs) have no behavior to pin.
 2. **Ladder, then lenses.** Run the deletion ladder on every selected source unit
    in the current round; only survivors go through the four lenses (reuse,
-   quality, efficiency, altitude). Every finding carries `file:line` evidence, a cost, an action, a
+   quality, efficiency, altitude). Engine diagnostics point at units; they never
+   define the round's coverage. A round that reviewed only the units an engine
+   flagged is **unfinished**, not complete: say so in its close and name what
+   stayed unreviewed. Every finding carries `file:line` evidence, a cost, an action, a
    confidence, and a risk tier; findings without evidence are dropped, and
    consult history only when code, contracts, and tests leave intent unclear;
    `git blame` is not a mandatory step for each removal. Unresolved intent
@@ -141,8 +157,9 @@ definitions, and the final report template. This section owns the order.
    The four lenses run over the ladder survivors and yield one merged,
    deduplicated finding list.
 3. **Execute in approved bounded rounds.**
-   - Use the partitions from section 2; accumulate the inventory across rounds
-     and close each round's report before starting the next partition.
+   - Use the partitions from section 2; accumulate the inventory across rounds,
+     close each round with its brief note, and start the next partition
+     immediately.
    - Within one file or module, CAREFUL source units must be edited sequentially.
    - Apply by tier: SAFE as one batch; CAREFUL one source unit at a time; RISKY
      reported, never auto-applied. Within a tier: comments → dead code →
@@ -226,10 +243,22 @@ does not resolve the finding. An unperformed confirmed split stays unfinished.
 - A dead-code scanner report is a candidate list, not proof → verify per
   `references/dead-code.md` before deleting.
 
-## 7. Final report and reconciliation
-Close each round in the conversation using the inventory reconciliation,
-completion criteria, and report template in `references/agent-cleanup.md`.
-Do not create a separate report file unless requested.
+## 7. Round close and final report
+Close each round in the conversation with a few lines: the partition, what
+landed, the verification result, and whether the round is complete or
+unfinished. Keep the inventory in `references/agent-cleanup.md` form as you go;
+do not spend a full report on every round.
+
+Deliver the full report once, after the last partition, using the
+reconciliation, completion criteria, and report template in
+`references/agent-cleanup.md`. It carries one consolidated list of everything
+that needs the user's decision — RISKY findings, bugs found, unresolved intent,
+unfinished candidates — so those questions arrive together at the end instead
+of interrupting the cycle. Do not create a separate report file unless
+requested.
+
+Interrupt the cycle only for a blocker that makes continuing impossible or an
+approval the active workflow requires.
 
 ## 8. References
 - `references/agent-cleanup.md` — before section 4: ladder, lenses, slop

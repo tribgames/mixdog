@@ -34,10 +34,6 @@ export const SHELL_OUTPUT_INLINE_CAP = TOOL_OUTPUT_MAX_BYTES;
 // loop within ~seconds on a typical SSD.
 export const SHELL_OUTPUT_DISK_CAP = 100 * 1024 * 1024;
 
-// Background-task disk watchdog cadence. The size guard polls the spilled
-// stdout/stderr files every interval and SIGKILLs the child once the
-// combined size exceeds SHELL_OUTPUT_DISK_CAP — short enough that a runaway loop is caught within a
-// few seconds, long enough that the stat overhead is negligible.
 // fsync throttle for spilled output reads. getStdout/getStderr call
 // fsyncSync before reading to ensure the caller sees the latest bytes.
 // On Windows every fsyncSync is a noticeable I/O syscall, so throttle

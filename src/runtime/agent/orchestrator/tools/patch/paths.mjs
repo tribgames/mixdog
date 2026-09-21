@@ -1,5 +1,4 @@
-// Path resolution / entry classification helpers for apply_patch. Moved
-// verbatim from patch.mjs; path/diff semantics unchanged.
+// Path resolution / entry classification helpers for apply_patch.
 
 import { existsSync, realpathSync } from 'node:fs';
 import { resolve as pathResolve, relative as pathRelative, isAbsolute, dirname as pathDirname } from 'node:path';

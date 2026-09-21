@@ -46,7 +46,6 @@ export function buildJobNotFoundMessage(jobId) {
 
 const backgroundShellJobWatchers = new Map();
 const jobNotifyCtxByJobId = new Map();
-const jobWaitWaiterCountByJobId = new Map();
 const shellJobResourceLeases = new Map();
 const shellJobResourceLeaseSubscriptions = new Map();
 
@@ -524,7 +523,6 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
       cancelNativeTask(task.jobId);
     } catch {}
     jobNotifyCtxByJobId.delete(task.jobId);
-    jobWaitWaiterCountByJobId.delete(task.jobId);
   }
   const settled = await Promise.all(jobs.map((task) => waitNativeTask(task.jobId, 1_200).catch(() => null)));
   for (const task of jobs) releaseShellJobResourceLease(task.jobId);
@@ -546,7 +544,6 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
       releaseShellJobResourceLease(jobId);
     }
     jobNotifyCtxByJobId.clear();
-    jobWaitWaiterCountByJobId.clear();
   }
   return {
     killed: jobs.length,

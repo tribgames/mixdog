@@ -115,12 +115,10 @@ export {
   invalidateBuiltinResultCache,
 } from './builtin/cache-layers.mjs';
 export { atomicWrite } from './builtin/atomic-write.mjs';
-// ---------------------------------------------------------------------------
 // User-cwd persistence hook: writes user-cwd.txt on SessionStart so
 // the MCP server (spawned from cache dir) resolves the correct sandbox root.
 // Helper extracted to src/shared/user-cwd.mjs so server-main.mjs can import
 // the same primitive without circular-import risk.
-// ---------------------------------------------------------------------------
 import { pwd } from '../../../shared/user-cwd.mjs';
 
 function _ioTraceEnabled() {
@@ -344,8 +342,6 @@ export function formatUnknownBuiltinToolMessage(name, _args = {}, noun = 'builti
   return `Error: unknown ${noun} "${name}". Did you mean "${suggestion}"?`;
 }
 
-// --- Mixdog scoped read snapshot tracking ---
-//
 process.on('exit', flushReadRangeIndexesSync);
 // SIGINT/SIGTERM go through the same path — Node's exit event fires
 // after the default handler in those cases too, so a single hook is

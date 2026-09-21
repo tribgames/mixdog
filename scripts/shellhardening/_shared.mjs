@@ -4,15 +4,20 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import {
   DEFAULT_SHELL_AUTO_BACKGROUND_MS,
-  _placeDestructiveWarningsAfterStatus,
+  SURVIVING_DESCENDANTS_UNREACHABLE_WARNING,
+  SURVIVING_DESCENDANTS_WARNING,
+  executeBashTool,
+  _backgroundResultLines,
+  _composeShellFailure,
   _exitClassDiagnostic,
   _isBenignSearchExitOne,
-  executeBashTool,
+  _placeDestructiveWarningsAfterStatus,
+  _shellFailureStatus,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import {
   buildPowerShellFilterTeePlan,
@@ -26,7 +31,7 @@ import {
   describeGitStartupState,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { checkExecPolicyMessage } from '../../src/runtime/agent/orchestrator/tools/bash-policy-scan.mjs';
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -52,16 +57,7 @@ import {
   waitForShellJob,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/shell-jobs.mjs';
 import { executeTaskTool } from '../../src/runtime/agent/orchestrator/tools/builtin/task-tool.mjs';
-import {
-  SURVIVING_DESCENDANTS_UNREACHABLE_WARNING,
-  SURVIVING_DESCENDANTS_WARNING,
-  _backgroundResultLines,
-} from '../../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import { TaskOutput } from '../../src/runtime/agent/orchestrator/tools/shell-exec-output.mjs';
-import {
-  _composeShellFailure,
-  _shellFailureStatus,
-} from '../../src/runtime/agent/orchestrator/tools/builtin/bash-tool.mjs';
 import {
   classifyResultKind,
   isShellFailureResult,
@@ -69,8 +65,6 @@ import {
 import { normalizeToolEnvelope } from '../../src/runtime/agent/orchestrator/session/tool-envelope.mjs';
 import { shellCommandExitCode } from '../../src/tui/session/tool-result-status.mjs';
 import { stripShellExitHeader } from '../../src/tui/session/tool-result-text.mjs';
-import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import {

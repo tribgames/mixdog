@@ -19,15 +19,25 @@ animation:outline-loop 2.8s linear infinite; }
 #title { font-size:17px;line-height:24px;font-weight:650;white-space:nowrap;text-align:center;
 animation:title-breathe 3.6s ease-in-out infinite; }
 button[hidden] { display:none; }
-button { position:absolute;right:10px;top:50%;transform:translateY(-50%);
-border:1px solid #ffffff33;border-radius:14px;background:#ffffff18;color:inherit;
+/* Reversed so the toggle keeps one fixed hit target: a check state that
+   arrives mid-click adds Stop to its left instead of shifting the toggle. */
+#controls { position:absolute;right:10px;top:50%;transform:translateY(-50%);
+display:flex;flex-direction:row-reverse;align-items:center;gap:6px; }
+button { border:1px solid #ffffff33;border-radius:14px;background:#ffffff18;color:inherit;
 width:30px;height:30px;padding:5px;cursor:pointer;flex-shrink:0;display:grid;place-items:center; }
 button:hover { background:#ffffff30; }
 button:disabled { opacity:.5;cursor:default; }
 button[aria-busy="true"] { opacity:.6; }
-body[data-error="true"] #title { color:#e3b341; }
 button:focus-visible { outline:2px solid var(--accent);outline-offset:2px; }
 button svg { width:18px;height:18px;fill:currentColor; }
+/* The check state asks for a decision, so the frame carries the warning and
+   the wording stays plain instead of turning amber on a dark pill. */
+#stop { border-color:#f0883e73;background:#f0883e2b; }
+#stop:hover { background:#f0883e45; }
+body[data-error="true"] #pill { padding-right:80px;background:rgba(28,20,13,.97);
+box-shadow:0 6px 16px #0006,inset 0 0 0 1.5px #f0883e66; }
+body[data-error="true"] #outline .track { stroke:#f0883e99;stroke-width:1.5; }
+body[data-error="true"] #title { color:#f7f2ec; }
 body[data-paused="true"] #outline .highlight { display:none; }
 body[data-paused="true"] #outline .highlight,body.hiding #outline .highlight { animation-play-state:paused; }
 body[data-paused="true"] #title,body[data-error="true"] #title { animation:none;opacity:1; }

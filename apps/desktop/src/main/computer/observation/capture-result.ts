@@ -5,12 +5,16 @@ function accessibilityStatus(
   mode: ReturnType<typeof captureMode>,
   visualOnlyCacheHit: boolean,
   accessibilityError: string,
-  semanticAccessibilityAvailable: boolean
+  semanticAccessibilityAvailable: boolean,
+  totalElements: number
 ) {
   if (mode === 'vision') return 'not_requested';
   if (visualOnlyCacheHit) return 'visual_only_cached';
   if (accessibilityError) return 'error';
-  return semanticAccessibilityAvailable ? 'available' : 'empty';
+  if (semanticAccessibilityAvailable) return 'available';
+  // Reporting "empty" while handing back a usable tree reads as a provider
+  // failure. Chrome without a grounded content surface is its own answer.
+  return totalElements > 0 ? 'chrome_only' : 'empty';
 }
 
 function pixelStatus(pixelUnavailable: unknown, mode: ReturnType<typeof captureMode>) {
@@ -76,7 +80,8 @@ export function captureResultPayload(input: {
       mode,
       visualOnlyCacheHit,
       accessibilityError,
-      semanticAccessibilityAvailable
+      semanticAccessibilityAvailable,
+      totalElements
     ),
     ...(visualOnlyCacheHit ? { accessibility_cache: 'visual_only' } : {}),
     ...(accessibilityError ? { accessibility_error: accessibilityError } : {}),

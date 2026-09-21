@@ -1410,9 +1410,28 @@
     --dock-scm-gutter: 6px;
   }
 }
+/* Empty + loading states center in the SCM scrollers, the same grammar the PR
+   list uses further down: .dock-scm-scroll / .dock-scm-history are plain
+   blocks, so a message inside them hugged the top (user: 상하로 정렬이 안
+   된다). The :not(:has()) guard keeps the rule to the states where the
+   scroller holds nothing but its zero-height row spacers — while paginating,
+   the same "Loading history…" line sits UNDER real rows and must not re-flow
+   them. */
+.dock-scm-scroll:not(:has(> :not(.dock-scm-row-spacer, .dock-scm-clean))),
+.dock-scm-history:not(:has(> :not(.dock-scm-row-spacer, .utility-dock-empty))) {
+  display: grid;
+  align-content: center;
+}
+/* Commit detail carries its own header: that stays pinned at the top and the
+   message centers in the band left under it. */
+.dock-scm-commit-detail:has(> .utility-dock-empty) {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
 .dock-scm-clean {
   margin: 0;
-  padding: 14px 14px 10px;
+  /* Symmetric now that the box is centered instead of hanging off the header. */
+  padding: 14px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   text-align: center;
@@ -1912,10 +1931,6 @@
 .titlebar-brand svg {
   width: var(--mx-icon-xl);
   height: var(--mx-icon-xl);
-}
-.dock-scm-commit-file-row > small em {
-  color: var(--mx-danger);
-  font-style: normal;
 }
 /* Pull Requests tab: the view/title actions
    live in the dock header; this compact toolbar is only the headerless

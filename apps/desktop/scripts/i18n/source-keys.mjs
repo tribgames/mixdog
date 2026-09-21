@@ -45,18 +45,16 @@ export function collectUiKeys(
   { explicitOnly = false, functions = ['t', 'tExisting', 'nativeT', 'bootT', 'earlyUiT'] } = {}
 ) {
   const results = new Map();
+  const sourcePattern = explicitOnly ? /\.(?:[cm]?js|tsx?)$/ : /\.tsx?$/;
   function files(directory) {
     if (statSync(directory).isFile()) return [directory];
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
       if (entry.name === 'locales') return [];
       const path = join(directory, entry.name);
-      return entry.isDirectory()
-        ? files(path)
-        : (explicitOnly ? /\.(?:[cm]?js|tsx?)$/ : /\.tsx?$/).test(entry.name) &&
-            !/\.(?:test|d)\./.test(entry.name) &&
-            !entry.name.includes('.integration.')
-          ? [path]
-          : [];
+      if (entry.isDirectory()) return files(path);
+      const selected =
+        sourcePattern.test(entry.name) && !/\.(?:test|d)\./.test(entry.name) && !entry.name.includes('.integration.');
+      return selected ? [path] : [];
     });
   }
   for (const path of files(root)) {

@@ -568,7 +568,7 @@ for (const scenario of report) {
   check(
     scenario,
     scenario.pagerControls === 0,
-    `the lists still render ${scenario.pagerControls} pager control(s)` + ' — every row must be reachable by SCROLLING'
+    `the lists still render ${scenario.pagerControls} pager control(s) — every row must be reachable by SCROLLING`
   );
   check(
     scenario,
@@ -635,7 +635,7 @@ for (const scenario of report) {
     check(
       scenario,
       skips.includes(40) && skips.includes(80),
-      `scrolling the history fetched skips [${skips.join(',')}] — the scroll pager` + ' never asked for the next pages'
+      `scrolling the history fetched skips [${skips.join(',')}] — the scroll pager never asked for the next pages`
     );
     check(
       scenario,

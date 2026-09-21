@@ -127,7 +127,6 @@ export const DESKTOP_CAPABILITIES = [
   'cancelOAuthProviderLogin',
   'saveProviderApiKey',
   'saveOpenCodeGoUsageAuth',
-  'loginOpenCodeGoUsage',
   'saveOpenAIUsageSessionKey',
   'authenticateProvider',
   'forgetProviderAuth',

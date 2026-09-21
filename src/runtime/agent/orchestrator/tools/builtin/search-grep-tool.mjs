@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { isAbsolute } from 'node:path';
-import { trueCasePath } from './path-utils.mjs';
 import {
   coerceReadFamilyPathArg,
   GREP_AUTO_CONTEXT_LINES,
   normalizeGrepArgs,
   normalizeOutputPath,
+  trueCasePath,
 } from './path-utils.mjs';
 import { _suggestIndexedPaths, buildNotFoundHint, finalizeReadFamilyEnoentTail } from './search-path-diagnostics.mjs';
 // Facade re-export: path-diagnostic helpers moved to search-path-diagnostics.mjs;
@@ -67,7 +67,7 @@ const GREP_CONTEXT_LINE_HARD_CAP = 4000;
 
 export async function executeGrepTool(args, workDir, executeChildBuiltinTool, readStateScope = null, options = {}) {
   args = normalizeGrepArgs(args);
-  args.path = coerceReadFamilyPathArg(args.path, workDir);
+  args.path = coerceReadFamilyPathArg(args.path);
   const call = {
     args,
     workDir,

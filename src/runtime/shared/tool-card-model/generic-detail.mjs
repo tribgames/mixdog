@@ -2,6 +2,8 @@
  * generic-detail.mjs — the completed-detail row for tools without a
  * dedicated surface, plus the load_tool and web-search conventions.
  */
+import { isShellTool } from './shell-surface.mjs';
+
 const OUTPUT_DETAIL_TOOL_NAMES = new Set([
   'shell',
   'bash',
@@ -40,9 +42,9 @@ export function genericCompletedDetail({ normalizedName, label, hasResult, first
   const n = String(normalizedName || '').toLowerCase();
   const l = String(label || '').toLowerCase();
   if (isError) return hasResult ? firstResultLine : 'Failed';
-  if (n === 'shell' || n === 'bash' || n === 'bash_session' || n === 'shell_command' || n === 'job_wait') {
-    return '';
-  }
+  // Name-only on purpose: a `run`-labelled non-shell tool keeps the output row
+  // below, which passing `l` to isShellTool would suppress.
+  if (isShellTool(n)) return '';
   if (isOutputDetailTool(n, l)) {
     return hasResult ? firstResultLine : '';
   }

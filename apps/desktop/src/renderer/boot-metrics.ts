@@ -291,13 +291,6 @@ export function reportBootSurfaceReady(surface: string, rawKey: string, details 
   }
 }
 
-export function _bootMetricStatsForTest() {
-  return {
-    surfaceCount: surfaceMetrics.size,
-    entryCount: typeof window === 'undefined' ? 0 : window.__mixdogBootMetrics?.length || 0,
-  };
-}
-
 export function _resetBootMetricsForTest() {
   surfaceMetrics.clear();
   queuedBarrierRegistrations.clear();

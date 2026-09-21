@@ -119,16 +119,19 @@ function renumberWorksheetRow(rowXml, index) {
   return `<row${attrs}>${body}</row>`;
 }
 
-function replaceSheetData(xml, inner) {
+function sheetDataSection(xml) {
   const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
   if (!sheetData) throw new Error('Worksheet is missing sheetData');
+  return sheetData;
+}
+
+function replaceSheetData(xml, inner) {
+  const sheetData = sheetDataSection(xml);
   return `${xml.slice(0, sheetData.index)}<sheetData>${inner}</sheetData>${xml.slice(sheetData.index + sheetData[0].length)}`;
 }
 
 export function shiftWorksheetRows(xml, from, count) {
-  const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
-  if (!sheetData) throw new Error('Worksheet is missing sheetData');
-  const inner = containerBody(sheetData[0], 'sheetData');
+  const inner = containerBody(sheetDataSection(xml)[0], 'sheetData');
   const kept = [];
   for (const span of elementSpans(inner, 'row')) {
     const index = Number(/\br="(\d+)"/.exec(span.attrs)?.[1] || 0);
@@ -141,9 +144,7 @@ export function shiftWorksheetRows(xml, from, count) {
 }
 
 export function shiftWorksheetColumns(xml, from, count) {
-  const sheetData = /<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)/.exec(xml);
-  if (!sheetData) throw new Error('Worksheet is missing sheetData');
-  const inner = containerBody(sheetData[0], 'sheetData');
+  const inner = containerBody(sheetDataSection(xml)[0], 'sheetData');
   const rows = elementSpans(inner, 'row').map((span) => {
     const open = /^<row\b([^>]*?)(\/>|>)/.exec(span.xml);
     if (!open || open[2] === '/>') return span.xml;

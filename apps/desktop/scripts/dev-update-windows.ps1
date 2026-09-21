@@ -67,7 +67,6 @@ $unpackedDir = Join-Path $distDir 'win-unpacked'
 $installedExe = Join-Path $InstallDir 'Mixdog.exe'
 $runtimeRoot = if ($env:MIXDOG_RUNTIME_ROOT) { $env:MIXDOG_RUNTIME_ROOT } else { Join-Path $env:TEMP 'mixdog' }
 $daemonDiscovery = Join-Path $runtimeRoot 'daemon.json'
-$mixdogDataDir = if ($env:MIXDOG_DATA_DIR) { $env:MIXDOG_DATA_DIR } else { Join-Path $env:USERPROFILE '.mixdog\data' }
 $fastDirectHelper = Join-Path $PSScriptRoot 'dev-fast-direct.mjs'
 $fastRendererWatchHelper = Join-Path $PSScriptRoot 'dev-renderer-watch.mjs'
 $fastRendererWatchState = Join-Path $desktopDir '.cache\dev-renderer-watch.json'
@@ -1142,7 +1141,6 @@ if ($RuntimeOnly) {
     $installedRuntimeUnpacked = Join-Path $installedResources 'runtime.asar.unpacked'
     $backupDir = Join-Path $env:TEMP ("mixdog-runtime-backup-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $backupDir -Force | Out-Null
-    $swapped = $false
     try {
         Write-Step 'swapping resources\runtime.asar'
         if (Test-Path -LiteralPath $installedRuntime -PathType Leaf) {
@@ -1155,7 +1153,6 @@ if ($RuntimeOnly) {
         if (Test-Path -LiteralPath $runtimeSidecarArtifact -PathType Container) {
             Copy-Item -LiteralPath $runtimeSidecarArtifact -Destination $installedRuntimeUnpacked -Recurse -Force
         }
-        $swapped = $true
     }
     catch {
         $failure = $_

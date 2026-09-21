@@ -23,9 +23,8 @@ export function goalTaskLines(tasks) {
   if (list.length === 0) return ['- No durable tasks recorded yet.'];
   return list.map((task) => {
     const mark = TASK_MARKS[String(task?.status || '')] || ' ';
-    const kind = String(task?.kind || 'work');
     const text = escapeGoalPromptText(task?.text).replace(/\s+/g, ' ');
-    return `- [${mark}] ${escapeGoalPromptText(task?.id)} (${kind}): ${text}`;
+    return `- [${mark}] ${escapeGoalPromptText(task?.id)}: ${text}`;
   });
 }
 
@@ -39,10 +38,12 @@ export function durationLabel(milliseconds) {
     .join(' ');
 }
 
+const goalTimeLimitMs = (goal) => Math.max(0, Number(goal?.timeLimitMs) || 0);
+
 // Both recovery and idle continuation carry the same timing facts. Exact
 // milliseconds keep a rounded display from becoming a new duration estimate.
 function goalTimeLines(goal) {
-  const limit = Math.max(0, Number(goal?.timeLimitMs) || 0);
+  const limit = goalTimeLimitMs(goal);
   const elapsed = Math.max(0, Number(goal?.timeUsedMs) || 0);
   const label = (ms) => `${durationLabel(ms)} (${ms} ms)`;
   const budgetName = goal?.timeMode === 'max' ? 'Maximum time budget' : 'Requested duration';
@@ -53,8 +54,9 @@ function goalTimeLines(goal) {
   ];
 }
 
-export function continuationPrompt(goal, { idleReview = false } = {}) {
-  const taskList = goalTaskLines(goal.tasks).join('\n');
+// Every continuation carries the same durable state: the objective, the
+// clocks, the revision and the task list the model has to move.
+function continuationStateLines(goal) {
   return [
     '<system-reminder>',
     '# Active Goal',
@@ -69,8 +71,45 @@ export function continuationPrompt(goal, { idleReview = false } = {}) {
     ...(goal.needsTaskReview ? ['The objective changed; reconcile the full task list with set_tasks.'] : []),
     '',
     'Durable tasks:',
-    taskList,
+    ...goalTaskLines(goal.tasks),
     '',
+  ];
+}
+
+// The one rule that differs by budget kind, so both prompt shapes carry it.
+const goalTimeModeRule = (goal) =>
+  goal.timeMode === 'max'
+    ? '- This is a maximum time budget, not a minimum work duration. Complete once the full objective is verified; do not invent extra work to fill the remaining time.'
+    : '- A requested duration is a full-period work commitment: continue approved implementation, verification, and improvement; do not complete early unless the user allows it.';
+
+// Three tiers, by what the context has actually lost. The rules block is
+// identical on every turn, so `includeRules: false` drops it and renders state
+// with only the few rules a turn boundary itself can erode; dropping
+// `includeState` too leaves a pointer at the work, because the objective and
+// task list are already in the model's own goal tool results.
+export function continuationPrompt(goal, { idleReview = false, includeRules = true, includeState = true } = {}) {
+  if (!includeRules && !includeState) {
+    return [
+      '<system-reminder>',
+      `# Active Goal (revision ${goal.revision}): carry the approved work forward against authoritative current state.`,
+      ...(goalTimeLimitMs(goal) > 0 ? goalTimeLines(goal) : []),
+      'The objective, durable task list, and continuation rules delivered earlier in this Goal still apply unchanged.',
+      '</system-reminder>',
+    ].join('\n');
+  }
+  if (!includeRules) {
+    return [
+      ...continuationStateLines(goal),
+      'Rules: the full continuation rules were delivered earlier in this Goal and still apply unchanged. State update only:',
+      '- A turn may end while this Goal remains active. Report that turn as progress, not as completion of the whole objective.',
+      '- Finish every approved task without stepwise approval, park work that needs a user response as awaiting_approval, and pause only once nothing else can proceed.',
+      goalTimeModeRule(goal),
+      '- Complete only on an audit that proves every user condition met, and never complete or block merely because time is low or the turn is ending.',
+      '</system-reminder>',
+    ].join('\n');
+  }
+  return [
+    ...continuationStateLines(goal),
     'Rules:',
     "- The user's completion conditions decide everything: the objective, what it references, and explicit user instructions. The task list records them; it never replaces them.",
     '- A turn may end while this Goal remains active. Report that turn as progress, not as completion of the whole objective; ending a turn does not complete the Goal.',
@@ -82,9 +121,7 @@ export function continuationPrompt(goal, { idleReview = false } = {}) {
     '- Classify the previous turn as concrete progress, a verified wait, or no progress. Progress completes work, changes authoritative state, or produces evidence that determines a different next action.',
     '- Wait only on a currently live process, job, or tool handle. An observation timeout is not termination: continue observing the same handle rather than restarting its work.',
     '- After no progress, re-evaluate the available safe actions and execute one. Do not substitute a status report or a narrower objective for the requested work.',
-    goal.timeMode === 'max'
-      ? '- This is a maximum time budget, not a minimum work duration. Complete once the full objective is verified; do not invent extra work to fill the remaining time.'
-      : '- A requested duration is a full-period work commitment: continue approved implementation, verification, and improvement; do not complete early unless the user allows it.',
+    goalTimeModeRule(goal),
     // Delivered once per settled task list: the runtime waits out the rest of
     // the duration on the deadline timer if this turn records nothing new.
     ...(idleReview

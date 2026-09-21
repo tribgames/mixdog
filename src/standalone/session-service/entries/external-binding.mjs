@@ -23,6 +23,9 @@ export function createExternalViewBinding({
     // synchronous reader crosses an `await` boundary, so a newer external
     // frame can otherwise arrive in that microtask, find no pending viewer,
     // and be dropped before the stale retained snapshot is bound.
+    // One resolution order for every settle path below: a daemon-owned runtime
+    // outranks a retained external view of the same address.
+    const boundEntry = () => sessionOwner(id) || externalEntryForView(id);
     const placeholder = new Set();
     const ownsPlaceholder = !pendingViewers.has(id);
     if (ownsPlaceholder) pendingViewers.set(id, placeholder);
@@ -37,11 +40,11 @@ export function createExternalViewBinding({
       snapshot = await readExternalSessionState(id);
     } catch (error) {
       log(`external session state read failed session=${id}: ${error?.message || error}`);
-      const raced = sessionOwner(id) || externalEntryForView(id);
+      const raced = boundEntry();
       clearPlaceholder();
       return raced;
     }
-    const raced = sessionOwner(id) || externalEntryForView(id);
+    const raced = boundEntry();
     if (raced) {
       clearPlaceholder();
       return raced;
@@ -51,7 +54,7 @@ export function createExternalViewBinding({
       return null;
     }
     publishExternalSessionState({ sessionId: id, snapshot });
-    const bound = sessionOwner(id) || externalEntryForView(id);
+    const bound = boundEntry();
     if (!bound) clearPlaceholder();
     return bound;
   }

@@ -121,7 +121,7 @@ test('Pause retains the task and its controls; Resume continues it and emergency
         },
         { action, generation }
       );
-    for (const action of ['dismiss', 'stop']) await assert.rejects(invoke(action, 0), /Invalid overlay request/);
+    for (const action of ['dismiss', 'cancel']) await assert.rejects(invoke(action, 0), /Invalid overlay request/);
     assert.equal((await invoke('pause', coordinator.snapshot().takeoverGeneration)).accepted, true);
     assert.equal(paused, 1);
     assert.equal(stopped, 0);
@@ -144,8 +144,12 @@ test('Pause retains the task and its controls; Resume continues it and emergency
     );
     stopShortcut();
     await settle();
-    assert.equal(stopped, 1, 'only emergency Stop ends the task');
+    assert.equal(stopped, 1, 'the emergency shortcut ends the task');
     assert.equal(coordinator.snapshot().userControlActive, false);
+    // The check state's Stop control reaches the same path over the trusted
+    // channel, so a latched pause is not left with a dead toggle alone.
+    assert.equal((await invoke('stop', coordinator.snapshot().takeoverGeneration)).accepted, true);
+    assert.equal(stopped, 2);
   } finally {
     overlay.dispose();
     coordinator.reset();

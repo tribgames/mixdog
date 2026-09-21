@@ -210,10 +210,10 @@ export function ApprovalCard({
       )}
       {approvalError && <ErrorNotice error={approvalError} />}
       <div className="approval-actions">
-        <button disabled={resolving} onClick={() => void decide(false)}>
+        <button type="button" disabled={resolving} onClick={() => void decide(false)}>
           <X size={16} /> {officeTransaction ? t('Keep editing') : t('Deny')}
         </button>
-        <button disabled={resolving} className="allow" onClick={() => void decide(true)}>
+        <button type="button" disabled={resolving} className="allow" onClick={() => void decide(true)}>
           <Check size={16} /> {officeTransaction ? actionLabel : t('Allow once')}
         </button>
       </div>

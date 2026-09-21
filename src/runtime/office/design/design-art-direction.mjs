@@ -102,6 +102,18 @@ const DIRECTION_BLUEPRINTS = Object.freeze([
   }),
 ]);
 
+// The creative system a blueprint prescribes. Built fresh per call so the
+// direction's own copy and the deck's copy never share their arrays.
+function creativeSystemOf(blueprint) {
+  return {
+    grid: blueprint.grid,
+    shapeLanguage: blueprint.shapeLanguage,
+    chartTreatment: blueprint.chartTreatment,
+    densityPattern: [...blueprint.densityPattern],
+    motifRules: [...blueprint.motifRules],
+  };
+}
+
 function hash(value) {
   return createHash('sha256')
     .update(String(value || ''))
@@ -221,31 +233,22 @@ export function resolveOfficeArtDirection(
   const baseHue = domain.hue ?? stableHue(seed);
   const candidates = DIRECTION_BLUEPRINTS.map((blueprint) => {
     const palette = directionPalette(baseHue, blueprint);
+    const motif = rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif;
     return {
       id: blueprint.id,
       label: blueprint.label,
       rationale: `${blueprint.label} fits ${purpose} through ${blueprint.motif}.`,
-      motif: rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif,
+      motif,
       palette,
       typography: { ...blueprint.typography },
       style: { ...blueprint.style, pageRhythm: [...blueprint.style.pageRhythm] },
-      creativeSystem: {
-        grid: blueprint.grid,
-        shapeLanguage: blueprint.shapeLanguage,
-        chartTreatment: blueprint.chartTreatment,
-        densityPattern: [...blueprint.densityPattern],
-        motifRules: [...blueprint.motifRules],
-      },
+      creativeSystem: creativeSystemOf(blueprint),
       deck: {
         backgroundMode: blueprint.backgroundMode,
-        motif: rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif,
+        motif,
         imageTreatment: blueprint.imageTreatment,
         layoutBias: [...blueprint.layoutBias],
-        grid: blueprint.grid,
-        shapeLanguage: blueprint.shapeLanguage,
-        chartTreatment: blueprint.chartTreatment,
-        densityPattern: [...blueprint.densityPattern],
-        motifRules: [...blueprint.motifRules],
+        ...creativeSystemOf(blueprint),
       },
       score: directionScore(blueprint, {
         purpose,

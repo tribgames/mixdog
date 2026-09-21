@@ -9,10 +9,7 @@ import { withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mj
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
-import {
-  commandHasShellSyntax,
-  gitPlanIsReadOnly as isReadOnly,
-} from './git-command-policy.mjs';
+import { commandHasShellSyntax, gitPlanIsReadOnly as isReadOnly, OPERATION_ALIASES } from './git-command-policy.mjs';
 import {
   buildSelectedStagePatch,
   createDiffSnapshot,
@@ -58,12 +55,6 @@ const SERVER_OPERATIONS = new Set(['daemon', 'instaweb']);
 // These answer anywhere: demanding a repository first turned an availability
 // probe into `git rev-parse exited 128` inside a plain directory.
 const REPO_FREE_OPERATIONS = new Set(['version', 'help']);
-const OPERATION_ALIASES = new Map([
-  ['--version', 'version'],
-  ['-v', 'version'],
-  ['--help', 'help'],
-  ['-h', 'help'],
-]);
 
 export const GIT_TOOL_DEF = {
   name: 'git',
@@ -102,7 +93,8 @@ export const GIT_TOOL_DEF = {
       },
       include_stage_ids: {
         type: 'boolean',
-        description: 'Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false.',
+        description:
+          'Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false.',
       },
       diff_id: { type: 'string', description: 'stage: exact diff_id from git diff with include_stage_ids:true.' },
       change_ids: {
@@ -173,7 +165,8 @@ function stageableDiffResult(plan, result, snapshot, limit) {
       rendered.text = appendText(rendered.text, `file: ${JSON.stringify(change.path)}`);
       previousPath = change.path;
     }
-    const location = change.kind || `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`;
+    const location =
+      change.kind || `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`;
     rendered.text = appendText(rendered.text, `change:${change.id} ${location}`);
   }
   return rendered;
@@ -413,13 +406,30 @@ async function runStageableDiff(plan, argv, repo, signal) {
   result.stdout = String(result.stdout);
   result.stderr = String(result.stderr);
   const paths = plan.args.slice(1);
-  const untracked = await runGit(plan, ['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ...paths], { signal });
+  const untracked = await runGit(
+    plan,
+    ['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ...paths],
+    { signal }
+  );
   if (!succeeded(untracked)) return untracked;
   for (const path of String(untracked.stdout).split('\0').filter(Boolean)) {
-    const added = await runGit({ ...plan, cwd: repo }, [
-      'diff', '--no-index', '--binary', '--no-ext-diff', '--no-textconv', '--no-color',
-      '--src-prefix=a/', '--dst-prefix=b/', '--', '/dev/null', path,
-    ], { signal });
+    const added = await runGit(
+      { ...plan, cwd: repo },
+      [
+        'diff',
+        '--no-index',
+        '--binary',
+        '--no-ext-diff',
+        '--no-textconv',
+        '--no-color',
+        '--src-prefix=a/',
+        '--dst-prefix=b/',
+        '--',
+        '/dev/null',
+        path,
+      ],
+      { signal }
+    );
     // --no-index uses exit 1 for a successfully produced patch.
     if (!succeeded({ ...added, exitCode: added.exitCode === 1 ? 0 : added.exitCode })) return added;
     result.stdout = appendText(result.stdout, String(added.stdout));

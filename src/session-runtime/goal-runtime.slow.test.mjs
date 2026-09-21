@@ -29,8 +29,8 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Persist Goal state', status: 'completed', kind: 'work' },
-          { text: 'Verify Goal continuation', status: 'completed', kind: 'verification' },
+          { text: 'Persist Goal state', status: 'completed' },
+          { text: 'Verify Goal continuation', status: 'completed' },
         ],
       },
       { callerSessionId: 'sess_goal_main' }
@@ -247,8 +247,8 @@ test('Goal completion cannot discard or skip unfinished durable work', async () 
         {
           action: 'set_tasks',
           tasks: [
-            { text: 'Implement result', status: 'completed', kind: 'work' },
-            { text: 'Verify result', status: 'pending', kind: 'verification' },
+            { text: 'Implement result', status: 'completed' },
+            { text: 'Verify result', status: 'pending' },
           ],
         },
         { callerSessionId: 'sess_goal_status' }
@@ -325,11 +325,11 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
     'block',
     'abandon',
   ]);
-  assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status', 'kind']);
+  assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status']);
   assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
   assert.match(goalTool.description, /idle reminder for unfinished work/i);
   assert.match(goalTool.inputSchema.properties.action.description, /abandon retires superseded work/i);
-  assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*3 consecutive turns/i);
+  assert.match(goalTool.inputSchema.properties.blocker.description, /external impasse.*stops after 3/i);
   // Retiring scoped-out work must not require falsely marking it completed.
   assert.deepEqual(goalTool.inputSchema.properties.tasks.items.properties.status.enum, [
     'pending',
@@ -341,8 +341,9 @@ test('Goal tool schemas expose lifecycle and durable task contracts', () => {
   // Schema bytes ride on every request, so this ceiling tracks the intended
   // surface rather than drifting: it covers abandon, the dropped and
   // awaiting_approval task states, the deferred-pause contract, and update
-  // triggers now owned by the always-present tool description.
-  assert.ok(JSON.stringify(goalTool).length < 4_500);
+  // triggers now owned by the always-present tool description, without the
+  // retired per-task kind field.
+  assert.ok(JSON.stringify(goalTool).length < 3_700);
 });
 
 test('a user completes their own Goal without the model evidence gate', async () => {
@@ -358,8 +359,8 @@ test('a user completes their own Goal without the model evidence gate', async ()
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Unfinished work', status: 'in_progress', kind: 'work' },
-          { text: 'Unrun verification', status: 'pending', kind: 'verification' },
+          { text: 'Unfinished work', status: 'in_progress' },
+          { text: 'Unrun verification', status: 'pending' },
         ],
       },
       { callerSessionId: 'sess_goal_user_complete' }
@@ -401,8 +402,8 @@ test('editing the objective keeps durable task progress', async () => {
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Finished step', status: 'completed', kind: 'work' },
-          { text: 'Remaining step', status: 'pending', kind: 'verification' },
+          { text: 'Finished step', status: 'completed' },
+          { text: 'Remaining step', status: 'pending' },
         ],
       },
       { callerSessionId: 'sess_goal_edit' }
@@ -435,9 +436,9 @@ test('dropped tasks retire scoped-out work without a false completion', async ()
         {
           action: 'set_tasks',
           tasks: [
-            { text: 'Build the feature', status: 'completed', kind: 'work' },
-            { text: 'Port the legacy path', status: 'pending', kind: 'work' },
-            { text: 'Verify the feature', status: 'completed', kind: 'verification' },
+            { text: 'Build the feature', status: 'completed' },
+            { text: 'Port the legacy path', status: 'pending' },
+            { text: 'Verify the feature', status: 'completed' },
           ],
         },
         { callerSessionId: 'sess_goal_dropped' }
@@ -509,9 +510,9 @@ test('work dropped this turn cannot also close the Goal in the same turn', async
         {
           action: 'set_tasks',
           tasks: [
-            { text: 'Ship the main path', status: 'completed', kind: 'work' },
-            { text: 'Ship the legacy path', status: 'pending', kind: 'work' },
-            { text: 'Verify both paths', status: 'completed', kind: 'verification' },
+            { text: 'Ship the main path', status: 'completed' },
+            { text: 'Ship the legacy path', status: 'pending' },
+            { text: 'Verify both paths', status: 'completed' },
           ],
         },
         { callerSessionId: 'sess_goal_drop_turn' }
@@ -649,7 +650,7 @@ test('a legacy time-capped Goal loads as a finished duration, never as active wo
           sessionId: 'sess_goal_legacy',
           objective: 'Legacy capped Goal',
           status: 'budget_limited',
-          tasks: [{ id: 'task_1', text: 'Legacy work', status: 'pending', kind: 'work' }],
+          tasks: [{ id: 'task_1', text: 'Legacy work', status: 'pending' }],
           timeLimitMs: 60_000,
           timeUsedMs: 60_000,
           createdAt: 1_800_000_000_000,
@@ -690,8 +691,8 @@ test('Goal observations report turns and real task movement without judging them
         {
           action: 'set_tasks',
           tasks: [
-            { text: 'Observed step', status: 'in_progress', kind: 'work' },
-            { text: 'Observed check', status: 'pending', kind: 'verification' },
+            { text: 'Observed step', status: 'in_progress' },
+            { text: 'Observed check', status: 'pending' },
           ],
         },
         { callerSessionId: 'sess_goal_observe' }
@@ -729,8 +730,8 @@ test('Goal status shows the model exactly what the user still sees', async () =>
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Archived step', status: 'completed', kind: 'work' },
-          { text: 'Archived check', status: 'completed', kind: 'verification' },
+          { text: 'Archived step', status: 'completed' },
+          { text: 'Archived check', status: 'completed' },
         ],
       },
       { callerSessionId: 'sess_goal_visible' }
@@ -768,7 +769,7 @@ test('unified Goal tool accepts model-shaped fields and rejects retired tool nam
     const filler = {
       objective: '',
       time_limit_minutes: 60,
-      tasks: [{ id: '', text: '', status: 'pending', kind: 'work' }],
+      tasks: [{ id: '', text: '', status: 'pending' }],
       blocker: '/',
     };
     const empty = JSON.parse(
@@ -801,8 +802,8 @@ test('unified Goal tool accepts model-shaped fields and rejects retired tool nam
           action: 'create',
           objective: 'Use one Goal tool',
           tasks: [
-            { id: '', text: 'Use the unified Goal tool', status: 'awaiting_approval', kind: 'work' },
-            { id: '', text: 'Verify the unified Goal tool', status: 'awaiting_approval', kind: 'verification' },
+            { id: '', text: 'Use the unified Goal tool', status: 'awaiting_approval' },
+            { id: '', text: 'Verify the unified Goal tool', status: 'awaiting_approval' },
           ],
           blocker: 'ignored for create',
         },
@@ -902,7 +903,7 @@ test('unified Goal tool accepts model-shaped fields and rejects retired tool nam
         action: 'create',
         objective: 'Block another Goal',
         time_limit_minutes: 60,
-        tasks: [{ id: '', text: 'Wait for external state', status: 'in_progress', kind: 'work' }],
+        tasks: [{ id: '', text: 'Wait for external state', status: 'in_progress' }],
         blocker: 'ignored for create',
       },
       { callerSessionId: 'sess_goal_block_shape' }
@@ -1028,8 +1029,8 @@ test('Goal tool rejects a stale turn update after the Goal is replaced', async (
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Finish original Goal', status: 'completed', kind: 'work' },
-          { text: 'Verify original Goal', status: 'completed', kind: 'verification' },
+          { text: 'Finish original Goal', status: 'completed' },
+          { text: 'Verify original Goal', status: 'completed' },
         ],
       },
       { callerSessionId: 'sess_goal_stale' }
@@ -1086,8 +1087,8 @@ test('model Goal creation rebinds the current turn and accepts immediate work up
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Finish previous Goal', status: 'completed', kind: 'work' },
-          { text: 'Verify previous Goal', status: 'completed', kind: 'verification' },
+          { text: 'Finish previous Goal', status: 'completed' },
+          { text: 'Verify previous Goal', status: 'completed' },
         ],
       },
       { callerSessionId: 'sess_goal_create_turn' }
@@ -1102,8 +1103,8 @@ test('model Goal creation rebinds the current turn and accepts immediate work up
           action: 'create',
           objective: 'Approved replacement Goal',
           tasks: [
-            { text: 'Start approved work', status: 'in_progress', kind: 'work' },
-            { text: 'Verify approved work', status: 'pending', kind: 'verification' },
+            { text: 'Start approved work', status: 'in_progress' },
+            { text: 'Verify approved work', status: 'pending' },
           ],
         },
         { callerSessionId: 'sess_goal_create_turn' }
@@ -1145,8 +1146,8 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Keep active progress', status: 'in_progress', kind: 'work' },
-          { text: 'Verify active recovery', status: 'pending', kind: 'verification' },
+          { text: 'Keep active progress', status: 'in_progress' },
+          { text: 'Verify active recovery', status: 'pending' },
         ],
       },
       { callerSessionId: 'sess_goal_restart_active' }
@@ -1197,8 +1198,8 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
       {
         action: 'set_tasks',
         tasks: [
-          { text: 'Finish recovery work', status: 'completed', kind: 'work' },
-          { text: 'Verify recovery work', status: 'completed', kind: 'verification' },
+          { text: 'Finish recovery work', status: 'completed' },
+          { text: 'Verify recovery work', status: 'completed' },
         ],
       },
       { callerSessionId: 'sess_goal_restart_complete' }

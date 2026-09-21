@@ -214,7 +214,8 @@ export const BUILTIN_TOOLS = [
         output: {
           type: 'string',
           enum: ['new', 'tail'],
-          description: 'read/wait only. Default new; tail replays recent output after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved.',
+          description:
+            'read/wait only. Default new; tail replays recent output after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved.',
         },
       },
       required: ['action'],

@@ -58,7 +58,7 @@ export function registerMediaProtocol(host: Pick<DesktopService, 'invokeCapabili
     if (!preview && (url.hostname !== 'asset' || !/^[0-9a-fA-F-]{8,64}$/.test(assetId))) {
       return textResponse(404, 'Not found.');
     }
-    let target;
+    let target: { path: string; mime: string } | null;
     if (preview) {
       target = { path: preview.path, mime: preview.mime };
     } else {

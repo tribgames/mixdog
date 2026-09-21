@@ -402,7 +402,13 @@ export function browserRefPointExpression(ref: string): string {
       const label = (covering.tagName || 'element').toLowerCase() + ' "'
         + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
           .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"';
-      return { error: 'covered', covering: label };
+      // An unnamed overlay owns no ref, so the caller needs a selector to act on.
+      const escape = (value) => String(value).replace(/[^A-Za-z0-9_-]/g, '\\\\$&');
+      const selector = covering.id
+        ? '#' + escape(covering.id)
+        : ((covering.tagName || 'element').toLowerCase()
+          + Array.from(covering.classList || []).slice(0, 2).map((name) => '.' + escape(name)).join(''));
+      return { error: 'covered', covering: label, coveringSelector: selector };
     }
     return { error: 'not-visible' };
   })()`;

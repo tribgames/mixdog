@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PDFDocument, rgb } from 'pdf-lib';
+import { SAVE_OPTIONS } from './pdf-draw.mjs';
 import { embedDocumentFont, fontCovers } from './pdf-fonts.mjs';
 import { renderPdfPages } from './pdf-render.mjs';
 import { selectedPages } from './pdf-document.mjs';
@@ -337,7 +338,7 @@ export async function ocrPdf(path, operation, { dataDir, signal = null } = {}) {
     const minConfidence = Number(operation.minConfidence ?? 40);
     for (const entry of recognizedPages) placeRecognizedText(document, entry, font, minConfidence, tally);
     if (tally.wordCount > 0) {
-      await writeFile(path, await document.save({ useObjectStreams: true, addDefaultPage: false }));
+      await writeFile(path, await document.save(SAVE_OPTIONS));
     }
     return ocrResult(operation, { pages, languages, text, tally, fontPath, embedded });
   } finally {

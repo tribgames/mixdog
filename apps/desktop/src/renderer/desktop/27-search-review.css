@@ -25,11 +25,9 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Empty state: one centered hint under generous whitespace. */
-.workbench-explorer > .utility-dock-empty {
-  margin-top: 44px;
-  text-align: center;
-}
+/* Empty state: no override — the base .utility-dock-empty (13-tool-cards.css)
+   already stretches with flex:1 and centers on both axes, so Search and Files
+   read like every other dock tab (user: 상하 정렬 통일). */
 .workbench-search-name-row {
   min-height: 24px;
   width: 100%;

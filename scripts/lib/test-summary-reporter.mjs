@@ -17,8 +17,8 @@ export default async function* summaryReporter(source) {
       }
       // A start without its matching pass leaves a pending name in spec's
       // parent stack. Suppress both; fail events carry their own location.
-      if (event.type !== 'test:start' &&
-          (event.type !== 'test:pass' || event.data.skip || event.data.todo)) yield event;
+      if (event.type !== 'test:start' && (event.type !== 'test:pass' || event.data.skip || event.data.todo))
+        yield event;
     }
   }
   yield* Readable.from(events()).pipe(new spec());

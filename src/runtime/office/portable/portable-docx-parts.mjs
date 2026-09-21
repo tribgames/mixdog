@@ -16,13 +16,15 @@ import {
   OFFICE_RELATIONSHIP_BASE,
   SECTION_PROPERTIES_SOURCE,
   TRAILING_SECTION_PATTERN,
+  WORD_MAIN_NS,
+  WORD_RUN_SOURCE,
   XML_HEADER,
   settingsTrackChanges,
   upsertOrderedChild,
   xmlEncode,
 } from './portable-xml.mjs';
 
-export const WORD_MAIN_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+export { WORD_MAIN_NS };
 
 const HEADER_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml';
 
@@ -506,7 +508,7 @@ export function nextRevisionId(documentXml) {
 }
 
 export function markRunsDeleted(paragraphXml, id, author) {
-  const runs = [...paragraphXml.matchAll(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g)];
+  const runs = [...paragraphXml.matchAll(new RegExp(WORD_RUN_SOURCE, 'g'))];
   if (!runs.length) return paragraphXml;
   let output = paragraphXml;
   for (let index = runs.length - 1; index >= 0; index -= 1) {

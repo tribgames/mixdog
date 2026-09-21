@@ -457,9 +457,6 @@ function documentNotes(buf, entries, notes) {
   return `\n\n--- notes ---\n${lines.join('\n')}`;
 }
 
-// A sheet's chart is its message, and it lives outside the cell grid: read as
-// rows alone, a dashboard sheet came back empty. Each figure is named after the
-// grid, with the chart's own title when it has one.
 function partText(buf, entries, name) {
   const entry = name ? entries.get(name) : null;
   return entry ? zipEntryContent(buf, entry).toString('utf8') : '';
@@ -472,6 +469,9 @@ function relatedPart(target, ownerPart) {
   return value.replace(/^\.\.\//, `${base.replace(/\/[^/]+$/, '')}/`);
 }
 
+// A sheet's chart is its message, and it lives outside the cell grid: read as
+// rows alone, a dashboard sheet came back empty. Each figure is named after the
+// grid, with the chart's own title when it has one.
 function sheetFigures(buf, entries, sheetPart) {
   const sheetRels = partText(buf, entries, sheetPart.replace(/([^/]+)$/, '_rels/$1.rels'));
   const drawingTarget = [...sheetRels.matchAll(/<Relationship\b[^>]*\bTarget="([^"]+)"/g)]

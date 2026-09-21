@@ -159,7 +159,6 @@ export async function runAskAgentLoop({
           outgoing,
           turn,
           askOpts,
-          onToolCall,
           interruption,
           checkpoint,
           turnEffort,

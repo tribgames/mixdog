@@ -203,9 +203,6 @@
     display: none;
   }
 }
-/* Short dividers (8px inset, never full height) separate EVERY cell — the
-   selected label included (user: 붙어있는 기본 테두리 구분). They frame the
-   selection without ever becoming a full-height box around it. */
 /* Tab DnD: the source tab stays in
    place; a text-only ghost label rides the cursor and a 2px accent border
    marks the insertion index between tabs (drop-target-left/right). */
@@ -263,6 +260,9 @@
   margin: 0;
   pointer-events: none;
 }
+/* Short dividers (8px inset, never full height) separate EVERY cell — the
+   selected label included (user: 붙어있는 기본 테두리 구분). They frame the
+   selection without ever becoming a full-height box around it. */
 .workspace-tab::before {
   content: "";
   position: absolute;

@@ -24,8 +24,12 @@ const original = (owner, extra = {}) => ({
   ...extra,
 });
 const legacy = (extra = {}) => ({
-  tag: 'shared', agent: 'worker', cwd: '/work', clientHostPid: 4242,
-  reapedAt: new Date(Date.now() - 10_000).toISOString(), ...extra,
+  tag: 'shared',
+  agent: 'worker',
+  cwd: '/work',
+  clientHostPid: 4242,
+  reapedAt: new Date(Date.now() - 10_000).toISOString(),
+  ...extra,
 });
 
 function fixture(t, sessions, tombstones = []) {
@@ -41,7 +45,10 @@ function fixture(t, sessions, tombstones = []) {
       getSessionRuntime: () => null,
     },
   });
-  t.after(() => { registry.clearScheduledReaps(); rmSync(root, { recursive: true, force: true }); });
+  t.after(() => {
+    registry.clearScheduledReaps();
+    rmSync(root, { recursive: true, force: true });
+  });
   return { registry, read: () => JSON.parse(readFileSync(file, 'utf8')) };
 }
 
@@ -95,7 +102,10 @@ test('new reap records preserve ownership and cannot overwrite a sibling tag', (
   assert.deepEqual(rows.map((r) => r.parentSessionId).sort(), ['lead-a', 'lead-b']);
   const own = registry.tagTombstoneForTag('shared', { callerSessionId: 'lead-a', clientHostPid: 9999 });
   registry.consumeTagTombstone(own);
-  assert.deepEqual(Object.values(read().tombstones).map((r) => r.parentSessionId), ['lead-b']);
+  assert.deepEqual(
+    Object.values(read().tombstones).map((r) => r.parentSessionId),
+    ['lead-b']
+  );
 });
 
 test('recovered legacy consumption preserves a newer replacement record', (t) => {

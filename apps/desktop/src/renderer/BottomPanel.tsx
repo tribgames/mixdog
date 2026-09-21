@@ -35,12 +35,6 @@ export function clampBottomPanelHeight(value: number, viewportHeight: number): n
   return Math.min(max, Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.round(value)));
 }
 
-export interface BottomPanelState {
-  open: boolean;
-  height: number;
-  tab: string;
-}
-
 type BottomPanelMotion = 'animated' | 'instant';
 
 interface StoredBottomPanelState {

@@ -5,7 +5,6 @@
    under reduced motion: freezing them leaves a broken-circle glyph that reads
    as a stuck state. The rotation is small, slow, and status-essential. */
 
-/* Transcript audit additions. Kept append-only so the consolidated v2 rules above remain stable. */
 .markdown-code {
   max-width: 100%;
   /* CARD rhythm (20px), same as tables, quotes and display math: at 10px the

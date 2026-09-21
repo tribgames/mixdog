@@ -115,6 +115,11 @@ export function createComputerUseOverlay(controls: ComputerUseOverlayControls, l
   const shortcutRegistered = globalShortcut.register(STOP_SHORTCUT, () => {
     if (latestPresentation.visible || latestSnapshot.userControlActive) stop();
   });
+  if (!shortcutRegistered) {
+    // Another process owns the chord. The pill's Stop control still works, but
+    // the documented emergency exit does not, so the failure stays visible.
+    console.warn('[computer-overlay] stop_shortcut_unavailable', STOP_SHORTCUT);
+  }
   const onDisplaysChanged = (): void => {
     if (disposed) return;
     if (latestPresentation.visible) {

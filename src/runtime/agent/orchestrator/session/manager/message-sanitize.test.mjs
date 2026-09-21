@@ -83,7 +83,12 @@ test('a drained notification and its tool results retain the provider prefix acr
   assert.deepEqual(nextRequest.slice(0, sentHistory.length), sentHistory);
   assert.doesNotThrow(() => prepareProviderPrefixGuard(guard, nextRequest, {}));
   assert.throws(
-    () => prepareProviderPrefixGuard(guard, nextRequest.filter((message) => message.role === 'user'), {}),
+    () =>
+      prepareProviderPrefixGuard(
+        guard,
+        nextRequest.filter((message) => message.role === 'user'),
+        {}
+      ),
     /provider message history shrank outside compaction/
   );
 });

@@ -12,8 +12,10 @@ import {
 } from '../../runtime/shared/tool-surface.mjs';
 import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 import { isBackgroundTaskResponseArgs } from '../../runtime/shared/tool-card-model.mjs';
+import { SKILL_SURFACE_NAMES } from '../../runtime/shared/tool-card-model/agent-surface.mjs';
 import { parseBackgroundTaskResult } from '../../runtime/shared/tool-card-model/background-task.mjs';
-import { parseTaskNotification } from '../../runtime/shared/task-notification-envelope.mjs';
+import { stripLeadingStatusMarkerFromText } from '../../runtime/shared/tool-card-model/terminal-status.mjs';
+import { hasAgentResponseResultText } from '../session/agent-envelope.mjs';
 import { formatExpandedResult, wrapExpandedResultLines } from '../components/tool-output-format.mjs';
 import {
   formatHookDenialDetail,
@@ -63,21 +65,6 @@ function estimateWrappedRows(text, columns, reserve = 4) {
     1,
     lines.reduce((sum, line) => sum + wrappedLineRows(line, width), 0)
   );
-}
-
-export const SKILL_SURFACE_NAMES = new Set(['skill', 'skill_execute', 'skill_view', 'skills_list', 'use_skill']);
-
-function isAgentResponseResultText(text) {
-  const value = String(text || '').trim();
-  if (!value) return false;
-  const notification = parseTaskNotification(value);
-  if (notification) return Boolean(notification.result);
-  if (
-    /^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$/i.test(value)
-  )
-    return false;
-  if (/^(?:background task\b|agent task:|task_id:)/i.test(value) && !/\n\s*\n[\s\S]*\S/.test(value)) return false;
-  return true;
 }
 
 const BACKGROUND_TASK_TOOL_NAMES = new Set(['web_search', 'shell', 'bash', 'bash_session', 'shell_command', 'task']);
@@ -133,14 +120,6 @@ function toolItemPendingForRows(item) {
   return done < count;
 }
 
-export const LEADING_STATUS_MARKER_LINE_RE = /^\[status:\s*[^\]]*\]\s*$/i;
-
-function stripLeadingStatusMarkerFromTextForRows(text) {
-  const lines = String(text || '').split('\n');
-  if (lines.length > 0 && LEADING_STATUS_MARKER_LINE_RE.test(String(lines[0] ?? '').trim())) lines.shift();
-  return lines.join('\n');
-}
-
 function toolDisplayedResultTextForRows(item) {
   const rt = item?.result == null ? '' : String(item.result).replace(/\s+$/, '');
   const bgArgs = backgroundArgsForRows(item?.args);
@@ -150,10 +129,10 @@ function toolDisplayedResultTextForRows(item) {
   if (!toolItemPendingForRows(item) && isBackgroundTaskToolName(normalizedName)) {
     const meta = parseBackgroundTaskResultForRows(rt);
     if (meta?.hasResponse && String(meta.body || '').trim()) {
-      return stripLeadingStatusMarkerFromTextForRows(String(meta.body));
+      return stripLeadingStatusMarkerFromText(String(meta.body));
     }
   }
-  return stripLeadingStatusMarkerFromTextForRows(errorOnlyResult ? '' : rt || '');
+  return stripLeadingStatusMarkerFromText(errorOnlyResult ? '' : rt || '');
 }
 
 function toolHasDisplayResultForRows(item) {
@@ -171,11 +150,9 @@ function toolHasDisplayResultForRows(item) {
 }
 
 function toolExpandedRawTextForRows(item, rawRt) {
-  if (item?.aggregate) return rawRt;
-  if (item?.agentResponseAggregate) return rawRt;
-  const hasDisplayResult = toolHasDisplayResultForRows(item);
-  if (hasDisplayResult) return toolDisplayedResultTextForRows(item);
-  return stripLeadingStatusMarkerFromTextForRows(rawRt || '');
+  if (item?.aggregate || item?.agentResponseAggregate) return rawRt;
+  if (toolHasDisplayResultForRows(item)) return toolDisplayedResultTextForRows(item);
+  return stripLeadingStatusMarkerFromText(rawRt || '');
 }
 
 function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
@@ -220,7 +197,7 @@ function agentCardKeepsCollapsedDetailForRows(item, normalizedName) {
   const hasDisplayResult = toolHasDisplayResultForRows(item);
   const displayedResultText = toolDisplayedResultTextForRows(item);
   const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
-  const isAgentResponse = hasDisplayResult && isAgentResponseResultText(rt);
+  const isAgentResponse = hasDisplayResult && hasAgentResponseResultText(rt);
   const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, displayedResultText, {
     isError,
     isResponse: isAgentResponse,
@@ -319,32 +296,27 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
           : TOOL_MARGIN_TOP + 1;
       }
       if (isSkillSurface && !hasResult) return TOOL_MARGIN_TOP + 1;
-      if (item.aggregate) {
-        return TOOL_MARGIN_TOP + 1 + 1;
-      } else {
-        const backgroundMeta =
-          hasResult && isBackgroundTaskToolName(normalizedName) ? parseBackgroundTaskResultForRows(rt) : null;
-        const isBackgroundResult = hasResult && isBackgroundTaskToolName(normalizedName);
-        const isBackgroundResponse =
-          isBackgroundResult &&
-          (backgroundMeta?.hasResponse ||
-            isBackgroundTaskResponseArgs(normalizedName, backgroundArgsForRows(item.args)));
-        const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
-        if (isBackgroundMetadataResult) {
-          const hasDisplayResult = toolHasDisplayResultForRows(item);
-          if (toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult)) {
-            return TOOL_MARGIN_TOP + 1;
-          }
-          return isSkillSurface ? TOOL_MARGIN_TOP + 1 : TOOL_MARGIN_TOP + 1 + 1;
+      if (item.aggregate) return TOOL_MARGIN_TOP + 1 + 1;
+      const isBackgroundResult = hasResult && isBackgroundTaskToolName(normalizedName);
+      const backgroundMeta = isBackgroundResult ? parseBackgroundTaskResultForRows(rt) : null;
+      const isBackgroundResponse =
+        isBackgroundResult &&
+        (backgroundMeta?.hasResponse || isBackgroundTaskResponseArgs(normalizedName, backgroundArgsForRows(item.args)));
+      const isBackgroundMetadataResult = isBackgroundResult && !isBackgroundResponse && Boolean(backgroundMeta);
+      if (isBackgroundMetadataResult) {
+        const hasDisplayResult = toolHasDisplayResultForRows(item);
+        if (toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult)) {
+          return TOOL_MARGIN_TOP + 1;
         }
-        const resultText = backgroundMeta?.hasResponse ? backgroundMeta.body : rt;
-        const resultRows = estimateToolRenderedResultRows(resultText, {
-          pathArg: toolArgPathForRows(item),
-          isShell: isShellSurfaceForToolItem(item, normalizedName),
-          columns,
-        });
-        return TOOL_MARGIN_TOP + 1 + resultRows;
+        return isSkillSurface ? TOOL_MARGIN_TOP + 1 : TOOL_MARGIN_TOP + 1 + 1;
       }
+      const resultText = backgroundMeta?.hasResponse ? backgroundMeta.body : rt;
+      const resultRows = estimateToolRenderedResultRows(resultText, {
+        pathArg: toolArgPathForRows(item),
+        isShell: isShellSurfaceForToolItem(item, normalizedName),
+        columns,
+      });
+      return TOOL_MARGIN_TOP + 1 + resultRows;
     }
     case 'notice':
       return 1 + estimateWrappedRows(item.text, columns, 6);

@@ -37,9 +37,19 @@ test('a held key in the background lane is refused as unsupported, not as bad gr
   assert.match(guard, /background_unsupported\|a held key requires the real keyboard/);
 });
 
+test('a value write reaches every layer that dispatches it', async () => {
+  // set_value writes through the element, so it is neither a pointer nor a key
+  // action; the layers that route it still have to recognise it by name.
+  assert.ok(COMPUTER_CORE_ACTION_SCHEMA.properties.type.enum.includes('set_value'));
+  for (const file of ['session/element-aliases.ts', 'backend/worker-pool.ts', 'backend/sources/sequence.ps1']) {
+    const source = await readFile(new URL(`../${file}`, import.meta.url), 'utf8');
+    assert.ok(source.includes(`'set_value'`), `${file} dispatches act actions but is missing set_value`);
+  }
+});
+
 test('every exposed pointer action reaches each host action list', async () => {
   const exposed = COMPUTER_CORE_ACTION_SCHEMA.properties.type.enum.filter(
-    (type) => !['type', 'key', 'key_down', 'key_up', 'wait'].includes(type)
+    (type) => !['type', 'set_value', 'key', 'key_down', 'key_up', 'wait'].includes(type)
   );
   // Changing this list means a new pointer action exists; add it to the lists below.
   assert.deepEqual(exposed, [

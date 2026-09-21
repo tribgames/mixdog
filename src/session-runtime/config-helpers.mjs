@@ -194,7 +194,7 @@ export function autoClearIdleMsForProvider(provider, providerIdleMs = null) {
   if (overrides[key]) return overrides[key];
   if (key && AUTO_CLEAR_PROVIDER_IDLE_MS[key]) return AUTO_CLEAR_PROVIDER_IDLE_MS[key];
   if (overrides.default) return overrides.default;
-  return AUTO_CLEAR_PROVIDER_IDLE_MS[key] ?? AUTO_CLEAR_PROVIDER_IDLE_MS.default;
+  return AUTO_CLEAR_PROVIDER_IDLE_MS.default;
 }
 
 export function autoClearProviderDefaults(providerIdleMs = null) {
@@ -315,10 +315,14 @@ export function normalizeCompactionConfig(value = {}) {
   };
 }
 
-export function moduleEnabled(configLike, name, fallback = true) {
-  const entry = configLike?.modules?.[name];
+// A config section disables its feature only with an explicit `enabled: false`.
+function sectionEnabled(entry, fallback) {
   if (entry && typeof entry === 'object' && entry.enabled === false) return false;
   return fallback !== false;
+}
+
+export function moduleEnabled(configLike, name, fallback = true) {
+  return sectionEnabled(configLike?.modules?.[name], fallback);
 }
 
 // Recap toggle: gates ONLY the background memory cycles (1/2/3). The memory
@@ -327,9 +331,7 @@ export function moduleEnabled(configLike, name, fallback = true) {
 // legacy `modules.memory === false` flag is present it is honored as recap off
 // (migration folds it into `recap.enabled` on config load).
 export function recapEnabled(configLike, fallback = true) {
-  const entry = configLike?.recap;
-  if (entry && typeof entry === 'object' && entry.enabled === false) return false;
-  return fallback !== false;
+  return sectionEnabled(configLike?.recap, fallback);
 }
 
 export function setRecapEnabledInConfig(configLike, enabled) {
@@ -356,9 +358,7 @@ export function setRecapEnabledInConfig(configLike, enabled) {
 // retrieval) for NEW sessions. Background ingest/watcher and user-curated core
 // memory stay always-on; the recap toggle above stays cycles-only. Default on.
 export function memoryToolsEnabled(configLike, fallback = true) {
-  const entry = configLike?.memoryTools;
-  if (entry && typeof entry === 'object' && entry.enabled === false) return false;
-  return fallback !== false;
+  return sectionEnabled(configLike?.memoryTools, fallback);
 }
 
 export function setMemoryToolsEnabledInConfig(configLike, enabled) {

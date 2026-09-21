@@ -11,7 +11,13 @@ import { classifyToolCategory } from '../runtime/shared/tool-surface.mjs';
 import { num, GRN, R, B } from './statusline-format.mjs';
 import { positiveInt } from '../runtime/shared/numbers.mjs';
 
-const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze(['cycle1-agent', 'cycle2-agent']);
+// One table owns both halves of a maintenance agent: which agents are hidden
+// from the worker list by default, and the short label they render as.
+const MAINTENANCE_AGENT_LABELS = new Map([
+  ['cycle1-agent', 'cycle1'],
+  ['cycle2-agent', 'cycle2'],
+]);
+const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze([...MAINTENANCE_AGENT_LABELS.keys()]);
 const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 const ACTIVE_AGENT_STATUS = /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting)$/i;
 const QUEUED_AGENT_STATUS = /^(?:queued|pending|starting)$/i;
@@ -194,10 +200,6 @@ export function activeHiddenAgentWorkers({ sessionId = '', clientHostPid = 0 } =
   return rows;
 }
 
-function isTerminalBridgeStatus(statusText) {
-  return TERMINAL_AGENT_STATUS.test(String(statusText || ''));
-}
-
 function agentStatusValues(value = {}) {
   return [value.stage, value.status]
     .map((status) => String(status || '').trim())
@@ -205,7 +207,7 @@ function agentStatusValues(value = {}) {
 }
 
 function isTerminalAgentEntry(statuses = []) {
-  return statuses.some((status) => isTerminalBridgeStatus(status));
+  return statuses.some((status) => TERMINAL_AGENT_STATUS.test(String(status || '')));
 }
 
 function isActiveAgentEntry(statuses = []) {
@@ -271,12 +273,5 @@ function timeMs(value) {
 }
 
 function maintenanceLabel(tag) {
-  switch (tag) {
-    case 'cycle1-agent':
-      return 'cycle1';
-    case 'cycle2-agent':
-      return 'cycle2';
-    default:
-      return '';
-  }
+  return MAINTENANCE_AGENT_LABELS.get(tag) || '';
 }

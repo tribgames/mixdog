@@ -68,19 +68,22 @@ function isStructurallyCompleteMixdogConfigBackup(parsed) {
  * Newest backup first: return the first structurally complete mixdog-config.json
  * (skips degenerate single-section snapshots from a prior failed RMW).
  */
-export function loadLatestMixdogConfigFromBackup(_dataDir) {
-  const root = getBackupRoot();
-  let entries = [];
+/** Backup directory names, newest first; empty when the root is unreadable. */
+function backupDirsNewestFirst() {
   try {
-    entries = readdirSync(root, { withFileTypes: true })
+    return readdirSync(getBackupRoot(), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
       .reverse();
   } catch {
-    return null;
+    return [];
   }
-  for (const name of entries) {
+}
+
+export function loadLatestMixdogConfigFromBackup(_dataDir) {
+  const root = getBackupRoot();
+  for (const name of backupDirsNewestFirst()) {
     const cfgPath = join(root, name, 'mixdog-config.json');
     if (!existsSync(cfgPath)) continue;
     try {
@@ -106,17 +109,7 @@ function copyTree(src, dst, copied) {
 }
 
 function pruneBackups(keep = 40) {
-  let entries = [];
-  try {
-    entries = readdirSync(getBackupRoot(), { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name)
-      .sort()
-      .reverse();
-  } catch {
-    return;
-  }
-  for (const name of entries.slice(keep)) {
+  for (const name of backupDirsNewestFirst().slice(keep)) {
     try {
       rmSync(join(getBackupRoot(), name), { recursive: true, force: true });
     } catch {}

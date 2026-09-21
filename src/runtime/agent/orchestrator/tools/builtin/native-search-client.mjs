@@ -43,7 +43,6 @@ let _consecutiveProcessFailures = 0;
 let _binaryResolveStarted = false;
 let _warmPromise = null;
 let _lastTimeoutRecycleAt = 0;
-let _lastTimedOutServer = null;
 const _abortSignalSubscribers = new WeakMap();
 
 function codedError(code, message, cause = null) {
@@ -112,9 +111,8 @@ function clearProcessFailures() {
   _consecutiveProcessFailures = 0;
 }
 
-function noteSearchTimeout(server, now = Date.now()) {
+function noteSearchTimeout(_server, now = Date.now()) {
   const sincePrevious = _lastTimeoutRecycleAt > 0 ? now - _lastTimeoutRecycleAt : Infinity;
-  _lastTimedOutServer = server || null;
   _lastTimeoutRecycleAt = now;
   // Requests issued as one batch time out together; that burst is a single
   // event, not a streak.
@@ -811,5 +809,4 @@ export function _resetNativeSearchClientForTest() {
   _binaryResolveStarted = false;
   _warmPromise = null;
   _lastTimeoutRecycleAt = 0;
-  _lastTimedOutServer = null;
 }

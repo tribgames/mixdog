@@ -9,9 +9,14 @@ import {
 } from './git-partial-stage.mjs';
 
 const plan = { cwd: process.cwd(), globalArgs: [], args: ['--', 'a.txt'] };
-const snapshotOf = (raw) => createDiffSnapshot({
-  repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff', '--', 'a.txt'], raw,
-});
+const snapshotOf = (raw) =>
+  createDiffSnapshot({
+    repo: process.cwd(),
+    scope: process.cwd(),
+    plan,
+    argv: ['diff', '--', 'a.txt'],
+    raw,
+  });
 
 test('snapshot retains its path scope and rejects content or index hash changes', () => {
   const raw = 'diff --git a/a.txt b/a.txt\nindex 123..456 100644\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-old\n+new \n';
@@ -47,22 +52,32 @@ test('new files, empty files and no-newline patches stage as whole files without
 });
 
 test('file IDs identify quoted UTF-8 paths and allow selecting just one new file', () => {
-  const first = 'diff --git "a/\\303\\251.txt" "b/\\303\\251.txt"\nnew file mode 100644\n--- /dev/null\n+++ "b/\\303\\251.txt"\n@@ -0,0 +1 @@\n+one\n';
-  const second = 'diff --git a/two.txt b/two.txt\nnew file mode 100644\n--- /dev/null\n+++ b/two.txt\n@@ -0,0 +1 @@\n+two\n';
+  const first =
+    'diff --git "a/\\303\\251.txt" "b/\\303\\251.txt"\nnew file mode 100644\n--- /dev/null\n+++ "b/\\303\\251.txt"\n@@ -0,0 +1 @@\n+one\n';
+  const second =
+    'diff --git a/two.txt b/two.txt\nnew file mode 100644\n--- /dev/null\n+++ b/two.txt\n@@ -0,0 +1 @@\n+two\n';
   const raw = first + second;
   const { changes } = snapshotOf(raw);
-  assert.deepEqual(changes.map(({ path }) => path), ['é.txt', 'two.txt']);
+  assert.deepEqual(
+    changes.map(({ path }) => path),
+    ['é.txt', 'two.txt']
+  );
   assert.equal(buildSelectedStagePatch(raw, [changes[0].id]).patch, first);
   assert.equal(buildSelectedStagePatch(raw, [changes[1].id]).patch, second);
   assert.deepEqual(buildSelectedStagePatch(raw, ['chg_missing']).missing, ['chg_missing']);
 });
 
 test('zero-context insertion groups and ordinary edit groups remain independently selectable', () => {
-  const raw = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -0,0 +1 @@\n+inserted\n@@ -3 +4 @@\n-old\n+new\n';
+  const raw =
+    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -0,0 +1 @@\n+inserted\n@@ -3 +4 @@\n-old\n+new\n';
   const { changes } = snapshotOf(raw);
   assert.equal(changes.length, 2);
-  assert.equal(buildSelectedStagePatch(raw, [changes[0].id]).patch,
-    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -0,0 +1 @@\n+inserted\n');
-  assert.equal(buildSelectedStagePatch(raw, [changes[1].id]).patch,
-    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -3 +3 @@\n-old\n+new\n');
+  assert.equal(
+    buildSelectedStagePatch(raw, [changes[0].id]).patch,
+    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -0,0 +1 @@\n+inserted\n'
+  );
+  assert.equal(
+    buildSelectedStagePatch(raw, [changes[1].id]).patch,
+    'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -3 +3 @@\n-old\n+new\n'
+  );
 });

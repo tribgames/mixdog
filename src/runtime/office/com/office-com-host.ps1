@@ -2642,6 +2642,29 @@ function Excel-Sheet($book, $op) {
     return $book.ActiveSheet
 }
 
+# A chart or picture already on the sheet, addressed by the name the snapshot
+# reports or by its 1-based position, so one address works on both backends.
+function Excel-Drawing($sheet, $op) {
+    $wanted = if ($null -ne $op.drawing) { $op.drawing } else { $op.name }
+    if ($null -eq $wanted -or [string]::IsNullOrWhiteSpace([string]$wanted)) {
+        throw "$([string]$op.op) requires drawing: the name the snapshot reports, or its 1-based index on the sheet."
+    }
+    $shapes = @($sheet.Shapes)
+    $ordinal = 0
+    if ([int]::TryParse([string]$wanted, [ref]$ordinal) -and $ordinal -ge 1 -and $ordinal -le $shapes.Count) {
+        return $shapes[$ordinal - 1]
+    }
+    foreach ($shape in $shapes) {
+        if ([string]::Equals([string]$shape.Name, [string]$wanted, [System.StringComparison]::OrdinalIgnoreCase)) {
+            return $shape
+        }
+    }
+    $known = @()
+    for ($index = 0; $index -lt $shapes.Count; $index += 1) { $known += "$($index + 1): $([string]$shapes[$index].Name)" }
+    $held = if ($known.Count) { $known -join ', ' } else { 'no drawings' }
+    throw "Drawing not found: $wanted. This sheet holds $held."
+}
+
 function Activate-ExcelSheetWindow($book, $sheet) {
     $appVisible = [bool]$book.Application.Visible
     $window = $book.Windows.Item(1)
@@ -2981,6 +3004,25 @@ function Apply-ExcelOperation($book, $op) {
             $sheet = Excel-Sheet $book $op
             $sheet.Name = Assert-WorksheetName 'rename_sheet' ([string]$op.name)
             return [ordered]@{ op = 'rename_sheet'; changed = $true; sheet = [string]$sheet.Name }
+        }
+        'set_drawing' {
+            $sheet = Excel-Sheet $book $op
+            $shape = Excel-Drawing $sheet $op
+            if ($null -eq $op.left -and $null -eq $op.top -and $null -eq $op.width -and $null -eq $op.height) {
+                throw 'set_drawing needs left, top, width, or height'
+            }
+            if ($null -ne $op.left) { $shape.Left = [single]$op.left }
+            if ($null -ne $op.top) { $shape.Top = [single]$op.top }
+            if ($null -ne $op.width) { $shape.Width = [single]$op.width }
+            if ($null -ne $op.height) { $shape.Height = [single]$op.height }
+            return [ordered]@{ op = 'set_drawing'; changed = $true; sheet = [string]$sheet.Name; drawing = [string]$shape.Name }
+        }
+        'delete_drawing' {
+            $sheet = Excel-Sheet $book $op
+            $shape = Excel-Drawing $sheet $op
+            $drawingName = [string]$shape.Name
+            $shape.Delete()
+            return [ordered]@{ op = 'delete_drawing'; changed = $true; sheet = [string]$sheet.Name; drawing = $drawingName }
         }
         'add_table' {
             $sheet = Excel-Sheet $book $op
@@ -4842,6 +4884,26 @@ function Inspect-ExcelFinancialRange($sheet, $used, $fonts, $commentAddresses) {
     }
 }
 
+# The tie-out sheet is named in the reader's language, and matching the English
+# convention alone left a Korean workbook's checks unread: the profile's central
+# test never ran and the model passed as if it had none. This file carries no
+# byte order mark and Windows PowerShell reads it under the ANSI codepage, so a
+# non-Latin name typed here would not survive to the comparison — the names are
+# built from their code points instead.
+function Is-ChecksSheetName($name) {
+    $label = ([string]$name).Trim()
+    $accepted = @(
+        'checks',
+        'check',
+        ([string][char]0xAC80 + [string][char]0xC99D),
+        ([string][char]0xC810 + [string][char]0xAC80)
+    )
+    foreach ($candidate in $accepted) {
+        if ([string]::Equals($label, $candidate, [System.StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
 function Issues-Excel($book, $payload) {
     $issues = @()
     $coverage = @()
@@ -4850,7 +4912,7 @@ function Issues-Excel($book, $payload) {
     if ($financialAudit) {
         $hasChecks = $false
         foreach ($candidate in @($book.Worksheets)) {
-            if ([string]::Equals([string]$candidate.Name, 'Checks', [System.StringComparison]::OrdinalIgnoreCase)) { $hasChecks = $true; break }
+            if (Is-ChecksSheetName $candidate.Name) { $hasChecks = $true; break }
         }
         if (-not $hasChecks) { $issues += Office-Issue 'warning' 'missing_checks_sheet' '/' 'Financial-model audit expects a Checks sheet with explicit tie-out formulas.' }
     }

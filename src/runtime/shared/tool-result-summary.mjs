@@ -175,6 +175,11 @@ function stripInlineMarkdown(value) {
     .trim();
 }
 
+// Envelope field lines (`status: …`, `task_id: …`) that precede or surround a
+// real agent answer. One list so both scanners below skip exactly the same set.
+const ENVELOPE_FIELD_LINE_RE =
+  /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i;
+
 function firstAgentResultLine(text) {
   const notification = parseTaskNotification(text);
   if (notification) return firstAgentResultLine(notification.result);
@@ -190,12 +195,7 @@ function firstAgentResultLine(text) {
       )
     )
       continue;
-    if (
-      /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i.test(
-        trimmed
-      )
-    )
-      continue;
+    if (ENVELOPE_FIELD_LINE_RE.test(trimmed)) continue;
     if (/^\[[a-z-]+:\s*[^\]]*\]$/i.test(trimmed)) continue;
     return truncateSingleLine(trimmed, AGENT_SURFACE_BRIEF_MAX);
   }
@@ -243,14 +243,7 @@ function summarizeGenericResult(text) {
     trimmed
       .split('\n')
       .map((item) => item.trim())
-      .find(
-        (item) =>
-          item &&
-          !/^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i.test(
-            item
-          ) &&
-          !/^\[[a-z-]+:\s*[^\]]*\]$/i.test(item)
-      ) ||
+      .find((item) => item && !ENVELOPE_FIELD_LINE_RE.test(item) && !/^\[[a-z-]+:\s*[^\]]*\]$/i.test(item)) ||
     '';
   if (!line || line === '{' || line === '[') return null;
   if (/^(ok|done|success|saved|sent|updated|reloaded|connected|enabled|disabled|active|inactive)$/i.test(line)) {

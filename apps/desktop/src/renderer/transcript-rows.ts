@@ -357,32 +357,6 @@ export function appendLiveTranscriptRows({
   return builder.rows;
 }
 
-export function projectTranscriptRows({
-  sessionKey,
-  items,
-  turnKeys,
-  failedTurns,
-  pendingItems = [],
-  liveItem,
-  thinking = false,
-}: {
-  sessionKey: string;
-  items: readonly TranscriptItem[];
-  turnKeys: readonly string[];
-  failedTurns: ReadonlySet<string>;
-  pendingItems?: readonly (TranscriptItem & { queuedBehindTurn?: boolean })[];
-  liveItem?: TranscriptItem | null;
-  thinking?: boolean;
-}): TranscriptRowModel[] {
-  return appendLiveTranscriptRows({
-    sessionKey,
-    settled: projectSettledTranscriptRows({ sessionKey, items, turnKeys, failedTurns }),
-    pendingItems,
-    liveItem,
-    thinking,
-  });
-}
-
 const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'statusdone', 'notice']);
 
 /** Whether the turn produced assistant or tool output before it ended — a

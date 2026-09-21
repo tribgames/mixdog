@@ -6,7 +6,14 @@ import { renderBackgroundTask, renderBackgroundTaskNotification } from '../../..
 test('completion notice omits logs while task read retains full output', () => {
   const detail = { status: 'completed', exitCode: 0, stdoutPreview: 'old\nnew\n', stderrPreview: 'warning\nlater\n' };
   const completion = buildShellCompletion('job_output', detail);
-  const task = { taskId: 'job_output', surface: 'shell', status: 'completed', meta: {}, result: completion.result, resultText: completion.body };
+  const task = {
+    taskId: 'job_output',
+    surface: 'shell',
+    status: 'completed',
+    meta: {},
+    result: completion.result,
+    resultText: completion.body,
+  };
   for (const notice of [completion.notification, renderBackgroundTaskNotification(task)]) {
     assert.doesNotMatch(notice, /old|warning|later/);
     assert.match(notice, /task read/);
@@ -18,7 +25,12 @@ test('completion notice omits logs while task read retains full output', () => {
 });
 
 test('changed previews and failure evidence are preserved', () => {
-  const detail = { status: 'completed', exitCode: 1, stdoutPreview: 'head\n...omitted...\ntail', stderrPreview: 'failure' };
+  const detail = {
+    status: 'completed',
+    exitCode: 1,
+    stdoutPreview: 'head\n...omitted...\ntail',
+    stderrPreview: 'failure',
+  };
   const completion = buildShellCompletion('job_failed', detail);
   assert.ok(completion.body.includes(detail.stdoutPreview));
   assert.match(completion.body, /failure/);

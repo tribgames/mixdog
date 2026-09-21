@@ -74,7 +74,3 @@ export function enforceRendererCacheBudget(budget = RENDERER_CACHE_BUDGET_CHARS)
   }
   return total;
 }
-
-export function _resetRendererCacheBudgetForTest(): void {
-  caches.clear();
-}

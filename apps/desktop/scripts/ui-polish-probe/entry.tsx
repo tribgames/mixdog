@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { Folder, Workflow, Clock, Plus, Settings, MessageSquare } from 'lucide-react';

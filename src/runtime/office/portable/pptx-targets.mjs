@@ -1,5 +1,6 @@
 import { zipText } from './portable-opc.mjs';
 import { containerInner, topLevelElements } from './portable-xml.mjs';
+import { SLIDE_SHAPE_TAGS } from './portable-slide-shapes.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
 
 export async function resolvePptxTargets({ zip, slides }, operation) {
@@ -20,7 +21,7 @@ export async function resolvePptxTargets({ zip, slides }, operation) {
     if (!slide) throw new Error('shapeId requires a valid slide or slideId');
     const xml = await zipText(zip, slide.path);
     const tree = containerInner(xml, 'p:spTree');
-    const shapes = topLevelElements(tree?.inner || '', ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+    const shapes = topLevelElements(tree?.inner || '', SLIDE_SHAPE_TAGS);
     const matches = shapes
       .map((shape, index) => ({ ...shapeIdentity(shape.xml), index }))
       .filter((shape) => String(shape.shapeId) === String(op.shapeId));

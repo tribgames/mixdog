@@ -123,11 +123,14 @@ function isAggregateOffloadEligible(toolName, result) {
 
 function rankAggregateOffloadCandidates(entries) {
   return entries
-    .map((entry, index) => ({
-      index,
-      length: offloadableTextLength(entry?.result),
-      eligible: isAggregateOffloadEligible(entry?.toolName, entry?.result) && offloadableTextLength(entry?.result) > 0,
-    }))
+    .map((entry, index) => {
+      const length = offloadableTextLength(entry?.result);
+      return {
+        index,
+        length,
+        eligible: isAggregateOffloadEligible(entry?.toolName, entry?.result) && length > 0,
+      };
+    })
     .filter((entry) => entry.eligible)
     .sort((a, b) => b.length - a.length || b.index - a.index)
     .map((entry) => entry.index);

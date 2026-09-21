@@ -2,9 +2,9 @@
 // and version discipline. Referenced by deploy.yml and test:release-assets.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import {
   GRAPH_PLATFORMS,
@@ -17,9 +17,7 @@ import {
   verifyAssetDownloads,
   verifyReleaseAssets,
 } from './verify-release-assets.mjs';
-import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildReleaseTimingReport } from './release-timing-report.mjs';
 import { desktopGateRegex, runtimeGateRegex, RELEASE_CRITICAL_PATHS } from './release-paths.mjs';

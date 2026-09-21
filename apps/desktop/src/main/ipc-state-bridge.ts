@@ -126,7 +126,6 @@ export class DesktopStateBridge {
       return;
     }
     this.sessionEncoders.set(sessionId, encoder);
-    this.latestSessionStates.delete(sessionId);
     this.latestSessionStates.set(sessionId, update.snapshot);
     this.latestSessionProvenance.set(sessionId, {
       frameSource: update.frameSource,

@@ -7,16 +7,11 @@ import { createPanelWrite } from './prompt-submit/panel-write.mjs';
 import { submitProviderPrompt } from './prompt-submit/provider-prompts.mjs';
 import { submitSettingsPrompt } from './prompt-submit/settings-prompts.mjs';
 import { submitChat, submitSlashCommand } from './prompt-submit/chat-submit.mjs';
+import { createStoreServiceCall } from './store-service-call.mjs';
 
 export function createPromptSubmit(deps) {
   const { store, providerPrompt, settingsPrompt, setProviderPrompt, setSettingsPrompt } = deps;
-  const serviceCall = (name, ...args) => {
-    const target = store?.[name];
-    if (typeof target !== 'function') {
-      return Promise.reject(new TypeError(`project service method ${name} is unavailable`));
-    }
-    return Promise.resolve(target.apply(store, args));
-  };
+  const serviceCall = createStoreServiceCall(store);
   // Panel openers are async on a daemon-backed store: a bare call leaves a
   // rejected open as an unhandled rejection, which terminates the TUI.
   const openPanel = (open, ...args) => {

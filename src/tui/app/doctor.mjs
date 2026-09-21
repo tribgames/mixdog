@@ -123,6 +123,19 @@ function reportProviders(getState) {
   };
 }
 
+// The MCP-server and skill/plugin registries share one entry shape: the
+// entries active in this project, plus the disabled / out-of-project counts
+// both details append before their own per-registry breakage markers.
+function scopedRegistryEntries(entries) {
+  const active = entries.filter((entry) => entry.enabled !== false && entry.activeHere !== false);
+  const disabled = entries.filter((entry) => entry.enabled === false).length;
+  const outside = entries.filter((entry) => entry.enabled !== false && entry.activeHere === false).length;
+  let scopeDetail = '';
+  if (disabled) scopeDetail += ` · ${disabled} disabled`;
+  if (outside) scopeDetail += ` · ${outside} outside this project`;
+  return { active, scopeDetail };
+}
+
 function reportMcp(status, row) {
   if (!Array.isArray(status.servers) || (!status.servers.length && status.configuredCount > 0)) {
     row('warn', 'status unavailable');
@@ -133,15 +146,11 @@ function reportMcp(status, row) {
     row('ok', 'no servers configured');
     return;
   }
-  const active = servers.filter((s) => s.enabled !== false && s.activeHere !== false);
+  const { active, scopeDetail } = scopedRegistryEntries(servers);
   const connected = active.filter((s) => s.connected === true);
   const failed = active.filter((s) => s.error || s.status === 'failed');
   const pending = active.filter((s) => s.connected !== true && !failed.includes(s));
-  const disabled = servers.filter((s) => s.enabled === false).length;
-  const outside = servers.filter((s) => s.enabled !== false && s.activeHere === false).length;
-  let detail = `${connected.length}/${active.length} connected`;
-  if (disabled) detail += ` · ${disabled} disabled`;
-  if (outside) detail += ` · ${outside} outside this project`;
+  let detail = `${connected.length}/${active.length} connected${scopeDetail}`;
   if (failed.length) detail += ` · failed: ${failed.map((s) => s.name).join(', ')}`;
   if (pending.length) detail += ` · disconnected: ${pending.map((s) => s.name).join(', ')}`;
   row(failed.length || pending.length ? 'warn' : 'ok', detail);
@@ -194,15 +203,11 @@ function reportRegistry(label) {
       row('warn', 'status unavailable');
       return;
     }
-    const active = entries.filter((entry) => entry.enabled !== false && entry.activeHere !== false);
-    const disabled = entries.filter((entry) => entry.enabled === false).length;
-    const outside = entries.filter((entry) => entry.enabled !== false && entry.activeHere === false).length;
+    const { active, scopeDetail } = scopedRegistryEntries(entries);
     const broken = active.filter(
       (entry) => entry.broken || entry.error || entry.invalid || entry.dependencyIssues?.length
     );
-    let detail = `${active.length}/${entries.length} active`;
-    if (disabled) detail += ` · ${disabled} disabled`;
-    if (outside) detail += ` · ${outside} outside this project`;
+    let detail = `${active.length}/${entries.length} active${scopeDetail}`;
     if (broken.length) detail += ` · issues: ${broken.map((entry) => entry.name || entry.id).join(', ')}`;
     row(broken.length ? 'warn' : 'ok', detail);
   };

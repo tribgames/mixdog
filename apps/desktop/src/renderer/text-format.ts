@@ -54,14 +54,6 @@ export function newStudioSelection(): Extract<WorkspaceSelection, { kind: 'studi
   return { kind: 'studio', id: workspaceInstanceId() };
 }
 
-export function newTerminalSelection(cwd = ''): Extract<WorkspaceSelection, { kind: 'terminal' }> {
-  return {
-    kind: 'terminal',
-    id: `term_tab_${workspaceInstanceId()}`,
-    ...(cwd ? { cwd } : {}),
-  };
-}
-
 export function textOf(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value === null || value === undefined) return '';

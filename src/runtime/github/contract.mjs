@@ -36,6 +36,13 @@ export const GITHUB_ACTIONS = Object.freeze({
   'notification.read': { fields: ['id'], write: true },
 });
 
+/** Actions addressed at the account rather than one repository: they neither
+ *  require `repo` nor resolve it from the current Project. */
+export function isRepoFreeGithubAction(action) {
+  const name = String(action || '');
+  return name === 'repo.list' || name.startsWith('notification.');
+}
+
 export function githubRequestMutates(input) {
   // Unknown requests must never enter a read-only/retry lane.
   return GITHUB_ACTIONS[input?.action]?.write !== undefined

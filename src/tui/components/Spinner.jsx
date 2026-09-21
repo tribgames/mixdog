@@ -323,8 +323,7 @@ export function Spinner({
   // hidden for short turns by default; thinking status can still show alone.
   const avail = columns - messageLen - 5; // glyph(2) + ' (' + ')'
 
-  const timerText = formatDuration(elapsedMs);
-  const timerLabel = timerText;
+  const timerLabel = formatDuration(elapsedMs);
   const timerW = timerLabel.length;
   const thinkingActive = meta.thinkingActive;
   const thinkingStatusText = meta.thinkingText;

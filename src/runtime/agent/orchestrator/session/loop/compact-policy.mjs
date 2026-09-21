@@ -613,11 +613,10 @@ export function shouldCompactForSession(
   // a compaction the growth since that reading could justify: it applies only
   // while NOTHING has been appended, so the two numbers describe one
   // transcript. A genuine overflow still enters through forceReactive above.
-  const resolved = resolveContextTokensWithSource(messageTokensEst, policy, { messages, sessionRef });
   if (
-    resolved.source === 'estimated' &&
     Number(sessionRef?.contextPressureBaselineMessageCount) === (Array.isArray(messages) ? messages.length : -1) &&
-    providerReadingBelowTrigger(sessionRef, trigger)
+    providerReadingBelowTrigger(sessionRef, trigger) &&
+    resolveContextTokensWithSource(messageTokensEst, policy, { messages, sessionRef }).source === 'estimated'
   )
     return false;
   return true;

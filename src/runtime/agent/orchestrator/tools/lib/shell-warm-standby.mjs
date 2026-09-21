@@ -113,7 +113,7 @@ function ensureWarmShellStandby({ shell, env }) {
 
 /** Take the parked standby for immediate use, or null on any mismatch.
  *  Always refills so the NEXT call finds a warm one. */
-export function takeWarmShellStandby({ shell, env, cwd }) {
+export function takeWarmShellStandby({ shell, env, cwd: _cwd }) {
   if (_disabled() || !shell) return null;
   const slot = _slot;
   const refill = () => {

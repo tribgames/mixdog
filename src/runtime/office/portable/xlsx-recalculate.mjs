@@ -211,7 +211,6 @@ export async function recalculateWithFormulaEngine(path) {
     return { recalculated: false, reason: 'The workbook reads another workbook, which this engine cannot open.' };
   }
   const { parts, grid, formulaCount } = await loadWorkbookGrid(zip);
-  const definedNames = workbookDefinedNames(await zipText(zip, 'xl/workbook.xml'));
   if (!formulaCount) return { recalculated: false, reason: 'The workbook has no formulas.' };
   if (formulaCount > MAX_ENGINE_FORMULAS) {
     return {
@@ -219,6 +218,7 @@ export async function recalculateWithFormulaEngine(path) {
       reason: `The workbook carries ${formulaCount} formulas, more than the ${MAX_ENGINE_FORMULAS} this engine evaluates; install LibreOffice to recalculate it.`,
     };
   }
+  const definedNames = workbookDefinedNames(await zipText(zip, 'xl/workbook.xml'));
   const cellValue = createCellEvaluator(grid, definedNames);
   const tally = { unevaluated: [], errorCells: [], evaluated: 0 };
   for (const part of parts) {

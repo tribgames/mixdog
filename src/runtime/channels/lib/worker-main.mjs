@@ -157,7 +157,7 @@ let webhookServer = null;
 let eventPipeline = null;
 let bridgeRuntimeConnected = false;
 // ── Bridge ownership snapshot + owner heartbeat ─────────────────────────────
-const { logOwnership, currentOwnerState, getBridgeOwnershipSnapshot } = createOwnerHeartbeat();
+const { logOwnership, currentOwnerState } = createOwnerHeartbeat();
 // ── Owned-runtime lifecycle ─────────────────────────────────────────────────
 // Live getters/setters keep shared worker state visible across lifecycle phases.
 const {
@@ -285,7 +285,7 @@ const { handleToolCall, handleToolCallWithBridgeRetry } = createToolDispatch({
   isChannelsDegraded,
   lifecycle: {
     getChannelBridgeActive: () => channelBridgeActive,
-    getOwned: () => getBridgeOwnershipSnapshot().owned,
+    getOwned: () => currentOwnerState().owned,
     setChannelBridgeActive: (v) => {
       channelBridgeActive = v;
     },

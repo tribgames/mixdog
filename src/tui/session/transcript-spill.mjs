@@ -11,13 +11,9 @@ import {
   writeOwnerRegistry,
 } from './transcript-spill/spill-dir.mjs';
 import { createSpillWriter } from './transcript-spill/spill-writer.mjs';
-import {
-  toolResultText,
-  toolAggregateDetailFallback,
-  toolGroupedDisplayFallback,
-} from '../session/tool-result-text.mjs';
-import { parseBackgroundTaskEnvelope } from '../session/agent-envelope.mjs';
-import { resolveTuiRuntimeNotificationDelivery } from '../session/notification-plan.mjs';
+import { toolResultText, toolAggregateDetailFallback, toolGroupedDisplayFallback } from './tool-result-text.mjs';
+import { parseBackgroundTaskEnvelope } from './agent-envelope.mjs';
+import { resolveTuiRuntimeNotificationDelivery } from './notification-plan.mjs';
 
 export const TUI_DEBUG = /^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_TUI_DEBUG || ''));
 export const tuiDebug = (msg) => {

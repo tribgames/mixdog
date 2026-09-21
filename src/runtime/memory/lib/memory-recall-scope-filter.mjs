@@ -1,4 +1,4 @@
-import { VALID_CATEGORY } from './memory.mjs';
+import { VALID_CATEGORY } from './memory-categories.mjs';
 
 export { VALID_CATEGORY };
 

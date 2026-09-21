@@ -113,44 +113,35 @@ export function prepareProviderPrefixGuard(previous, messages, requestPrefix, op
     return next;
   }
 
+  const mutationDetails = (kind, index, previousHash, nextHash) => ({
+    classification: 'unexpected',
+    reason: kind,
+    provider: options.provider || null,
+    model: options.model || null,
+    kind,
+    source: options.mutationSource || null,
+    index,
+    previousCount: previousHashes.length,
+    nextCount: nextHashes.length,
+    previousHash,
+    nextHash,
+    previousRequestPrefixHash: previous.requestPrefixHash,
+    nextRequestPrefixHash: next.requestPrefixHash,
+    requestPrefixChanged,
+  });
   if (nextHashes.length < previousHashes.length) {
-    const details = {
-      classification: 'unexpected',
-      reason: 'history_shrink',
-      provider: options.provider || null,
-      model: options.model || null,
-      kind: 'history_shrink',
-      source: options.mutationSource || null,
-      index: nextHashes.length,
-      previousCount: previousHashes.length,
-      nextCount: nextHashes.length,
-      previousHash: previousHashes[nextHashes.length] || null,
-      nextHash: null,
-      previousRequestPrefixHash: previous.requestPrefixHash,
-      nextRequestPrefixHash: next.requestPrefixHash,
-      requestPrefixChanged,
-    };
+    const details = mutationDetails(
+      'history_shrink',
+      nextHashes.length,
+      previousHashes[nextHashes.length] || null,
+      null
+    );
     notifyCacheBreak(options, details);
     throw new ProviderPrefixMutationError('provider message history shrank outside compaction', details);
   }
   for (let index = 0; index < previousHashes.length; index += 1) {
     if (previousHashes[index] === nextHashes[index]) continue;
-    const details = {
-      classification: 'unexpected',
-      reason: 'message_prefix',
-      provider: options.provider || null,
-      model: options.model || null,
-      kind: 'message_prefix',
-      source: options.mutationSource || null,
-      index,
-      previousCount: previousHashes.length,
-      nextCount: nextHashes.length,
-      previousHash: previousHashes[index],
-      nextHash: nextHashes[index],
-      previousRequestPrefixHash: previous.requestPrefixHash,
-      nextRequestPrefixHash: next.requestPrefixHash,
-      requestPrefixChanged,
-    };
+    const details = mutationDetails('message_prefix', index, previousHashes[index], nextHashes[index]);
     notifyCacheBreak(options, details);
     throw new ProviderPrefixMutationError('provider message prefix changed outside compaction', details);
   }

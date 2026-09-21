@@ -142,13 +142,27 @@ test('debugger initialization cannot retarget a local edit or bypass a newly ope
 
 test('geometry updates bypass blocked execution but still respect document and session ownership', async () => {
   const sizes = [];
-  const guest = { isDestroyed: () => false };
+  let zoom = 1;
+  let invalidated = 0;
+  const guest = {
+    isDestroyed: () => false,
+    getZoomFactor: () => zoom,
+    setZoomFactor: (factor) => {
+      zoom = factor;
+    },
+  };
   const record = { documentGeneration: 1, pendingDialog: {} };
   let selected = guest;
   const surface = createBrowserPageSurface({
     ensureGuest: async () => guest,
     currentGuest: () => selected,
-    state: { pageId: () => 'p1', for: () => record },
+    state: {
+      pageId: () => 'p1',
+      for: () => record,
+      invalidateInteraction: () => {
+        invalidated += 1;
+      },
+    },
     cdp: {
       waitForIdle: async () => {
         throw new Error('must not wait');
@@ -158,6 +172,12 @@ test('geometry updates bypass blocked execution but still respect document and s
   });
   const input = { type: 'resize', width: 1000, height: 700, documentId: 'p1:1' };
   await surface.control('owner', input);
+  // The pane reapplies its zoom on every attach and navigation: the factor the
+  // guest already has changes nothing and never discards the agent's refs.
+  await surface.control('owner', { type: 'zoom', factor: 0.8, documentId: 'p1:1' });
+  await surface.control('owner', { type: 'zoom', factor: 0.8, documentId: 'p1:1' });
+  assert.equal(zoom, 0.8);
+  assert.equal(invalidated, 1);
   await assert.rejects(surface.control('owner', { ...input, documentId: 'p1:0' }), /page changed/);
   selected = {};
   await assert.rejects(surface.control('owner', input), /page changed/);

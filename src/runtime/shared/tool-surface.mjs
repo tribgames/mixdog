@@ -425,13 +425,12 @@ export function formatToolActionHeader(
   return `${verb} ${n} ${pluralize(n, unit.noun, unit.pluralNoun)}`;
 }
 
-export function aggregateToolCategoryEntry(name, args = {}, category = '') {
-  const cat = category || classifyToolCategory(name, args);
-  const unit = toolWorkUnit(name, args, cat);
-  const key = [cat, unit.active, unit.done, unit.noun, unit.pluralNoun].join('|');
+// One aggregate entry per work unit. The key folds the whole verb/noun pair so
+// two units only merge when they render identically.
+function categoryEntryFromUnit(category, unit) {
   return {
-    key,
-    category: cat,
+    key: [category, unit.active, unit.done, unit.noun, unit.pluralNoun].join('|'),
+    category,
     active: unit.active,
     done: unit.done,
     noun: unit.noun,
@@ -440,22 +439,16 @@ export function aggregateToolCategoryEntry(name, args = {}, category = '') {
   };
 }
 
+export function aggregateToolCategoryEntry(name, args = {}, category = '') {
+  const cat = category || classifyToolCategory(name, args);
+  return categoryEntryFromUnit(cat, toolWorkUnit(name, args, cat));
+}
+
 export function aggregateToolCategoryEntries(name, args = {}, category = '') {
   const cat = category || classifyToolCategory(name, args);
   const normalized = normalizeToolName(name);
   const units = normalized === 'apply_patch' ? patchMutationUnits(args) : [toolWorkUnit(name, args, cat)];
-  return units.map((unit) => {
-    const key = [cat, unit.active, unit.done, unit.noun, unit.pluralNoun].join('|');
-    return {
-      key,
-      category: cat,
-      active: unit.active,
-      done: unit.done,
-      noun: unit.noun,
-      pluralNoun: unit.pluralNoun,
-      count: Math.max(1, Number(unit.count || 1)),
-    };
-  });
+  return units.map((unit) => categoryEntryFromUnit(cat, unit));
 }
 
 /**
@@ -558,6 +551,21 @@ function pluralNoun(singular) {
   return /(?:ch|sh|x|z|s)$/.test(singular) ? `${singular}es` : `${singular}s`;
 }
 
+/** The merged file target of an update/check metric: one filename or a count. */
+function mergedFileTarget(metric) {
+  const count = metric.fileCount + metric.files.size;
+  return count === 1 && metric.fileCount === 0 ? [...metric.files][0] : `${count} ${pluralize(count, 'file')}`;
+}
+
+/** Fold one parsed update summary into its metric (files, counts, deltas). */
+function accumulateUpdateMetric(metric, update) {
+  if (update.file) metric.files.add(update.file);
+  metric.fileCount += update.fileCount;
+  metric.added += update.added;
+  metric.removed += update.removed;
+  metric.seen = metric.seen || update.seen;
+}
+
 export function formatAggregateDetail(summaries) {
   if (!summaries || summaries.length === 0) return '';
   const metrics = new Map();
@@ -640,18 +648,13 @@ export function formatAggregateDetail(summaries) {
           removed: 0,
           seen: false,
           render: (m) => {
-            const count = m.fileCount + m.files.size;
-            const target = count === 1 && m.fileCount === 0 ? [...m.files][0] : `${count} ${pluralize(count, 'file')}`;
+            const target = mergedFileTarget(m);
             const editDelta = formatLineDelta(metrics.get('updated_files'));
             const delta = editDelta ? '' : formatLineDelta(m);
             return delta ? `Checked ${target} · ${delta}` : `Checked ${target}`;
           },
         });
-        if (update.file) metric.files.add(update.file);
-        metric.fileCount += update.fileCount;
-        metric.added += update.added;
-        metric.removed += update.removed;
-        metric.seen = metric.seen || update.seen;
+        accumulateUpdateMetric(metric, update);
         continue;
       }
     } else if (update) {
@@ -669,18 +672,12 @@ export function formatAggregateDetail(summaries) {
           // there is no +/- delta to show (e.g. pure create/delete).
           const delta = formatLineDelta(m);
           if (delta) return delta;
-          const count = m.fileCount + m.files.size;
           const action = m.actions.size === 1 ? [...m.actions][0] : 'Updated';
-          const target = count === 1 && m.fileCount === 0 ? [...m.files][0] : `${count} ${pluralize(count, 'file')}`;
-          return `${action} ${target}`;
+          return `${action} ${mergedFileTarget(m)}`;
         },
       });
-      if (update.file) metric.files.add(update.file);
-      metric.fileCount += update.fileCount;
       metric.actions.add(update.action);
-      metric.added += update.added;
-      metric.removed += update.removed;
-      metric.seen = metric.seen || update.seen;
+      accumulateUpdateMetric(metric, update);
       continue;
     }
 

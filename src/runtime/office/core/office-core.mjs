@@ -175,9 +175,28 @@ export async function registerOfficeSession(session) {
     if (session.designLibrary) session.designLibrary.warning = warning;
     if (session.design?.library) session.design.library.warning = warning;
   }
+  indexOfficeSession(session);
+  return session;
+}
+
+/** Publish a session under its id and its document path. */
+export function indexOfficeSession(session) {
   sessions.set(session.id, session);
   documentSessions.set(documentSessionKey(session.target), session.id);
-  return session;
+}
+
+/** The live session holding a document path, or null. */
+export function officeSessionForDocument(target) {
+  const existingId = documentSessions.get(documentSessionKey(target));
+  return (existingId ? sessions.get(existingId) : null) || null;
+}
+
+/** Drop a session from both registries. The document index only releases the
+ *  path when this session still owns it, so a newer session keeps its claim. */
+export function releaseOfficeSession(session) {
+  sessions.delete(session.id);
+  const key = documentSessionKey(session.target);
+  if (documentSessions.get(key) === session.id) documentSessions.delete(key);
 }
 
 export class OfficeConflictError extends Error {

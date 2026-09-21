@@ -29,8 +29,6 @@ const invocation = classifyCliInvocation(argv);
 const skipHostPrelude = invocation.kind === 'exec' || invocation.skipHostPrelude === true;
 if (!skipHostPrelude) {
   beginProcessLifecycle({ safeCommandLine: argv.length === 0 });
-}
-if (!skipHostPrelude) {
   // Interactive/general sessions retain the staged-update and live-session
   // semantics. Headless exec skips both because those helpers touch the
   // host data tree before the pristine boundary exists.

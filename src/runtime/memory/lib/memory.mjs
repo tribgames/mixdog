@@ -16,22 +16,14 @@ import { ensureScoreSchema } from './memory-schema/score-params.mjs';
 import { ensureEntriesSchema } from './memory-schema/entries.mjs';
 import { ensureEntryTriggers } from './memory-schema/entry-triggers.mjs';
 import { ensureCoreEntriesSchema, ensureMetaSchema, stampBootstrapMeta } from './memory-schema/core-and-meta.mjs';
+import { VALID_CATEGORY } from './memory-categories.mjs';
 
 const dbs = new Map();
 const opening = new Map();
 
 export { cleanMemoryText };
 
-export const VALID_CATEGORY = new Set([
-  'rule',
-  'constraint',
-  'decision',
-  'fact',
-  'goal',
-  'preference',
-  'task',
-  'issue',
-]);
+export { VALID_CATEGORY };
 
 // Schema bootstrap, in dependency order. Extensions are created once by
 // pg-adapter.bootstrapInstance; the phases live under memory-schema/.
@@ -115,17 +107,9 @@ export async function resetEmbeddingColumnsForModel(db, dimCount, embeddingIdent
   }
 
   await db.exec(`DROP TABLE IF EXISTS memory.embedding_cache`);
-  await db.query(
-    `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-     ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-    ['embedding.current_dims', JSON.stringify(dimCount)]
-  );
+  await setMetaValue(db, 'embedding.current_dims', JSON.stringify(dimCount));
   if (normalizedIdentity != null) {
-    await db.query(
-      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-      ['embedding.current_model', normalizedIdentity]
-    );
+    await setMetaValue(db, 'embedding.current_model', normalizedIdentity);
   }
   return true;
 }
@@ -250,11 +234,7 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
           __mixdogMemoryLog(`[memory] ensureCurrentSchemaExtensions: removed ${n} runtime notification rows\n`);
         }
       }
-      await db.query(
-        `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-         ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-        [NOTIFICATION_CLEANUP_META_KEY, JSON.stringify('1')]
-      );
+      await setMetaValue(db, NOTIFICATION_CLEANUP_META_KEY, JSON.stringify('1'));
     }
   } catch (err) {
     __mixdogMemoryLog(`[memory] notification-row cleanup failed: ${err?.message || err}\n`);
@@ -328,18 +308,10 @@ export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity 
   await ensureCoreKeyIndex(db);
 
   if (Number.isInteger(dims) && dims > 0) {
-    await db.query(
-      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-      ['embedding.current_dims', JSON.stringify(dims)]
-    );
+    await setMetaValue(db, 'embedding.current_dims', JSON.stringify(dims));
   }
   if (embeddingIdentity != null) {
-    await db.query(
-      `INSERT INTO meta(key, value) VALUES ($1, $2::jsonb)
-       ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value`,
-      ['embedding.current_model', JSON.stringify(embeddingIdentity)]
-    );
+    await setMetaValue(db, 'embedding.current_model', JSON.stringify(embeddingIdentity));
   }
 }
 

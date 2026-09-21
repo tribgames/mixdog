@@ -1,8 +1,5 @@
 // Native mixdog-graph binary runner — single source of truth for per-file
 // parsing. NO JS parse fallback: absent binary throws.
-// _graphBinaryPath's local-build relative path gains one extra `../` because
-// this module sits one directory deeper (tools/code-graph/ vs tools/). The
-// resolved absolute path is unchanged.
 import { resolve as pathResolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

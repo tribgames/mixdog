@@ -12,7 +12,7 @@ export function createNoticeSurface({ getState, set, isDisposed, pushItem, repla
     if (!value) return null;
     set({
       toasts: [
-        ...getState().toasts.filter((toast) => toast.id !== id),
+        ...getState().toasts,
         {
           id,
           text: value,

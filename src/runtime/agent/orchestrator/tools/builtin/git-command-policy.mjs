@@ -40,7 +40,10 @@ const ALWAYS_READ = new Set([
 ]);
 
 const SHELL_OPERATOR_CHARS = '|&;<>()';
-const OPERATION_ALIASES = new Map([
+// `git --version` / `-v` / `--help` / `-h` arrive in global-flag position; both
+// the policy classifier and the git tool fold them onto their subcommand form,
+// so the mapping is shared to keep the two from drifting apart.
+export const OPERATION_ALIASES = new Map([
   ['--version', 'version'],
   ['-v', 'version'],
   ['--help', 'help'],
@@ -94,7 +97,7 @@ export function commandHasShellSyntax(command) {
   return quote !== null;
 }
 
-export function gitActionOf(operation, args) {
+function gitActionOf(operation, args) {
   const first = args.find((value) => value && !value.startsWith('-'));
   if (operation === 'stash') return first || 'push';
   if (operation === 'worktree') return first || 'list';

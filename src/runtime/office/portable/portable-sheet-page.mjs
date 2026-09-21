@@ -162,21 +162,24 @@ export async function contentPrintArea(zip, sheet, xml) {
 // chart. A sheet that declares nothing takes one page wide and keeps paging down
 // (a fit only scales down, so a small sheet prints as before); a declared fit,
 // print scale, or print area is the author's and stays.
-export function fitDrawingSheetOnePageWide(xml) {
-  if (/<pageSetUpPr\b[^>]*\bfitToPage="1"/.test(xml)) return { xml, applied: false };
-  const setup = worksheetSection(xml, 'pageSetup');
-  if (setup && /\bscale="/.test(setup[0])) return { xml, applied: false };
+// The sheet's own sheetPr with fitToPage turned on: whatever else it declares
+// travels with it, and the fit flag it may already carry is replaced rather
+// than written twice.
+function sheetPrWithFitToPage(xml) {
   const sheetPr = worksheetSection(xml, 'sheetPr');
   const attrs = sheetPr ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(sheetPr[0])?.[1] || '' : '';
   const body =
     sheetPr && !sheetPr[0].endsWith('/>')
       ? sheetPr[0].slice(sheetPr[0].indexOf('>') + 1, sheetPr[0].lastIndexOf('</sheetPr>'))
       : '';
-  let next = upsertWorksheetSection(
-    xml,
-    'sheetPr',
-    `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`
-  );
+  return `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`;
+}
+
+export function fitDrawingSheetOnePageWide(xml) {
+  if (/<pageSetUpPr\b[^>]*\bfitToPage="1"/.test(xml)) return { xml, applied: false };
+  const setup = worksheetSection(xml, 'pageSetup');
+  if (setup && /\bscale="/.test(setup[0])) return { xml, applied: false };
+  let next = upsertWorksheetSection(xml, 'sheetPr', sheetPrWithFitToPage(xml));
   const existing = setup ? setup[0].replace(/\s+fitTo(?:Width|Height)="[^"]*"/g, '') : '<pageSetup/>';
   next = upsertWorksheetSection(next, 'pageSetup', existing.replace(/\/?>$/, ' fitToWidth="1" fitToHeight="0"/>'));
   return { xml: next, applied: true };
@@ -197,17 +200,7 @@ export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
       ? ''
       : (worksheetSection(xml, 'pageSetup')?.[0].match(/\s+fitTo(?:Width|Height)="[^"]*"/g) || []).join('');
   if (fitWide || fitTall != null) {
-    const existing = worksheetSection(xml, 'sheetPr');
-    const attrs = existing ? /^<sheetPr\b([^>]*?)(?:\/>|>)/.exec(existing[0])?.[1] || '' : '';
-    const body =
-      existing && !existing[0].endsWith('/>')
-        ? existing[0].slice(existing[0].indexOf('>') + 1, existing[0].lastIndexOf('</sheetPr>'))
-        : '';
-    xml = upsertWorksheetSection(
-      xml,
-      'sheetPr',
-      `<sheetPr${attrs}>${body.replace(/<pageSetUpPr\b[^>]*?\/>/, '')}<pageSetUpPr fitToPage="1"/></sheetPr>`
-    );
+    xml = upsertWorksheetSection(xml, 'sheetPr', sheetPrWithFitToPage(xml));
   }
   const centered = `${op.centerHorizontally === true ? ' horizontalCentered="1"' : ''}${op.centerVertically === true ? ' verticalCentered="1"' : ''}`;
   xml = upsertWorksheetSection(xml, 'printOptions', centered ? `<printOptions${centered}/>` : '');

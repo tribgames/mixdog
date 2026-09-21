@@ -1616,17 +1616,19 @@ for (const scenario of scenarios) {
     const data = result.interaction?.dataReadyAtMs;
     const paint = result.interaction?.keystrokePaintMs;
     const submit = result.firstSubmit?.acceptanceMs;
+    let windowText = '';
+    if (result.window?.window) {
+      windowText = ` window=${result.window.foreground ? 'front' : 'behind'}/${result.window.coveredPoints}of5covered`;
+    } else if (result.window?.error) {
+      windowText = ` window=error(${result.window.error})`;
+    }
     console.log(
       `${scenario.name} ${temperature}: renderer=${ready ?? 'n/a'}ms` +
         ` shown=${shown ?? 'n/a'}ms surface=${surface ?? 'n/a'}ms` +
         ` shell=${shell ?? 'n/a'}ms data=${data ?? 'n/a'}ms` +
         ` interactive=${interaction ?? 'n/a'}ms keypaint=${paint?.toFixed?.(1) ?? 'n/a'}ms` +
         ` submit=${submit?.toFixed?.(1) ?? 'n/a'}ms settled=${result.settled?.ok !== false}` +
-        (result.window?.window
-          ? ` window=${result.window.foreground ? 'front' : 'behind'}/${result.window.coveredPoints}of5covered`
-          : result.window?.error
-            ? ` window=error(${result.window.error})`
-            : '')
+        windowText
     );
     if (result.interaction?.runningAnimations?.length) {
       console.log(`  animating: ${result.interaction.runningAnimations.join(' | ')}`);

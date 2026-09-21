@@ -468,17 +468,20 @@ function renderFocusedContext(selected, sources, span, budget, notice) {
   const anchors = compact.length
     ? `\n# Additional matches\n${compact.map((anchor) => `${anchor.path}:${anchor.lineNo}:${compactAnchorContent(anchor.content)} [${anchorRangeHint(anchor, span)}]`).join('\n')}`
     : '';
-  const summary = compact.length
-    ? notice
-      ? notice.replace(/\]$/, `; ${rawBlocks.length} source spans, rest as path:line anchors]`)
-      : `\n[${rawBlocks.length} of ${ordered.length} shown; rest as path:line anchors]`
-    : notice;
+  const summary = compact.length ? anchorOverflowSummary(notice, rawBlocks.length, ordered.length) : notice;
   const text = `${raw}${anchors}${summary}`;
   return {
     text,
     sourceComplete: rawBlocks.every((block) => block.sourceComplete),
     blockCount: rawBlocks.length,
   };
+}
+
+// The overflow note extends an existing budget notice, or stands alone when the
+// output was not otherwise trimmed.
+function anchorOverflowSummary(notice, rawCount, totalCount) {
+  if (notice) return notice.replace(/\]$/, `; ${rawCount} source spans, rest as path:line anchors]`);
+  return `\n[${rawCount} of ${totalCount} shown; rest as path:line anchors]`;
 }
 
 export async function expandGrepAnchorContextOutput({

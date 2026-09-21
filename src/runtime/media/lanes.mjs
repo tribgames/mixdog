@@ -17,8 +17,9 @@ import {
 } from '../agent/orchestrator/providers/oauth-credential-probes.mjs';
 import { loadMediaModels, projectMediaModels } from './catalog.mjs';
 import { catalogDiagnostic } from './catalog-errors.mjs';
+import { MEDIA_KINDS } from './tool-defs.mjs';
 
-export const MEDIA_KINDS = Object.freeze(['image', 'video']);
+export { MEDIA_KINDS };
 
 // Aspect/resolution vocabularies are lane-native: xAI takes aspect_ratio +
 // resolution, Gemini/Codex take pixel sizes. The UI renders whatever the lane

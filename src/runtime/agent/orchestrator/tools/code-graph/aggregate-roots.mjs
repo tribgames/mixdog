@@ -208,6 +208,13 @@ export function _boundedExactFileAggregateRoot(args, baseCwd) {
   return roots.size === 1 ? [...roots][0] : null;
 }
 
+/** `files` remapped whether it arrives as an array or one string; other shapes pass through untouched. */
+function mapFilesArg(files, map, { skipBlank = false } = {}) {
+  if (Array.isArray(files)) return files.map(map);
+  if (typeof files === 'string' && (!skipBlank || files.trim())) return map(files);
+  return files;
+}
+
 // A sentinel-free working directory that HOLDS a project (a container's /app
 // with one cloned repo under it) answered every anchored call with a refusal:
 // the caller wrote the anchor the way the repo's own docs do
@@ -217,13 +224,6 @@ export function _boundedExactFileAggregateRoot(args, baseCwd) {
 // is the answer, and adopting it is the same recovery read and grep already
 // perform for a misplaced path. Ambiguity (several holders, none, an absolute
 // anchor, a wildcard) keeps refusing.
-/** `files` remapped whether it arrives as an array or one string; other shapes pass through untouched. */
-function mapFilesArg(files, map, { skipBlank = false } = {}) {
-  if (Array.isArray(files)) return files.map(map);
-  if (typeof files === 'string' && (!skipBlank || files.trim())) return map(files);
-  return files;
-}
-
 export function _relocateAggregateAnchorsUnderChildProject(args, baseCwd) {
   if (!_hasAggregateFileArgs(args)) return null;
   const files = _collectGraphFileList(args);

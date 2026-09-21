@@ -68,6 +68,13 @@ export function executeRemoteAgentControl(args = {}, context = {}) {
       }
       onAbort = null;
     };
+    // Every local failure path settles exactly once: a reply already handled by
+    // the message listener has dropped the pending entry.
+    const settleReject = (error) => {
+      if (!pending.delete(controlId)) return;
+      cleanup();
+      reject(error);
+    };
     pending.set(controlId, { resolve, reject, cleanup });
     if (signal) {
       onAbort = () => {
@@ -80,22 +87,14 @@ export function executeRemoteAgentControl(args = {}, context = {}) {
           },
           { onError: () => {} }
         );
-        const request = pending.get(controlId);
-        if (!request) return;
-        pending.delete(controlId);
-        cleanup();
-        reject(
+        settleReject(
           signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason || 'agent control canceled'))
         );
       };
       signal.addEventListener('abort', onAbort, { once: true });
     }
     timer = setTimeout(() => {
-      const request = pending.get(controlId);
-      if (!request) return;
-      pending.delete(controlId);
-      cleanup();
-      reject(new Error('remote agent control timed out'));
+      settleReject(new Error('remote agent control timed out'));
     }, 180_000);
     timer.unref?.();
     const sent = safeIpcSend(
@@ -111,23 +110,8 @@ export function executeRemoteAgentControl(args = {}, context = {}) {
           clientHostPid: Number(context?.clientHostPid) || null,
         },
       },
-      {
-        onError: (error) => {
-          const request = pending.get(controlId);
-          if (!request) return;
-          pending.delete(controlId);
-          cleanup();
-          reject(error);
-        },
-      }
+      { onError: settleReject }
     );
-    if (!sent) {
-      const request = pending.get(controlId);
-      if (request) {
-        pending.delete(controlId);
-        cleanup();
-        reject(new Error('runtime shard IPC is unavailable'));
-      }
-    }
+    if (!sent) settleReject(new Error('runtime shard IPC is unavailable'));
   });
 }

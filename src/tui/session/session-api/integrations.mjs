@@ -98,20 +98,9 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
       return true;
     },
     saveOpenCodeGoUsageAuth: (opts) => {
-      // User-facing notices never expose the raw workspace-derived `wrk_…`
-      // identifier (Project is the product vocabulary; "workspace" is not).
       runtime.saveOpenCodeGoUsageAuth(opts);
       pushNotice('OpenCode Go usage auth saved', 'info');
       return true;
-    },
-    loginOpenCodeGoUsage: async () => {
-      if (getState().commandBusy) throw new Error('command busy');
-      set({ commandBusy: true });
-      try {
-        return await runtime.loginOpenCodeGoUsage();
-      } finally {
-        set({ commandBusy: false });
-      }
     },
     saveOpenAIUsageSessionKey: (secret) => {
       runtime.saveOpenAIUsageSessionKey(secret);

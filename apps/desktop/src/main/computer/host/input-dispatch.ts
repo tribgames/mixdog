@@ -119,13 +119,14 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
     const authority = await authorizeDispatch();
     assertObservationInputAllowed(command, host.isObserveOnly());
     const authorizedRequest = { ...powerShellRequest, ...authority };
-    const response = usePrivilegedWorker
-      ? await callPowerShellElevated(authorizedRequest)
-      : await callPowerShell(
-          batchSequenceStep ? sequenceStepRequest(authorizedRequest) : authorizedRequest,
-          action === 'invoke_menu' ? 3_000 : undefined
-        );
-    if (usePrivilegedWorker) annotatePrivilegedResponse(response, integrity);
-    return response;
+    if (usePrivilegedWorker) {
+      const elevated = await callPowerShellElevated(authorizedRequest);
+      annotatePrivilegedResponse(elevated, integrity);
+      return elevated;
+    }
+    return await callPowerShell(
+      batchSequenceStep ? sequenceStepRequest(authorizedRequest) : authorizedRequest,
+      action === 'invoke_menu' ? 3_000 : undefined
+    );
   };
 }

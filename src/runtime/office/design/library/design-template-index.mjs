@@ -154,15 +154,7 @@ function sampleSlots(sample, sampleMetadata) {
     if (!shape) {
       throw new Error(`Office local template sample ${sample.slide} references missing shape ${shapeIndex}`);
     }
-    return {
-      role,
-      type: shape.type,
-      shape: shape.shape,
-      ...(shape.placeholderType ? { placeholderType: shape.placeholderType } : {}),
-      ...(Number.isInteger(shape.placeholderIndex) ? { placeholderIndex: shape.placeholderIndex } : {}),
-      geometry: shape.geometry,
-      required: role === 'title',
-    };
+    return pptxSlot(shape, role);
   });
 }
 

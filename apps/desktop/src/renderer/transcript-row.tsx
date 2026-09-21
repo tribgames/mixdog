@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, memo, useEffect, useMemo, useRef } from 'react';
+import { Suspense, lazy, memo, useEffect, useMemo, useRef } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import { preloadMarkdownBody } from './markdown-body-loader';
@@ -23,18 +23,12 @@ import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/sessio
 
 export const MarkdownBody = lazy(preloadMarkdownBody);
 
-const StableMarkdownBody = React.memo(function StableMarkdownBody({ text }: { text: string }) {
+const StableMarkdownBody = memo(function StableMarkdownBody({ text }: { text: string }) {
   if (isPlainTextMarkdown(text)) return <p>{text}</p>;
   return <MarkdownBody text={text} copyControl={CopyControl} />;
 });
 
-const MarkdownResponse = React.memo(function MarkdownResponse({
-  text,
-  streaming,
-}: {
-  text: string;
-  streaming: boolean;
-}) {
+const MarkdownResponse = memo(function MarkdownResponse({ text, streaming }: { text: string; streaming: boolean }) {
   const markdownCache = useRef(createStreamingMarkdownCache());
   const markdownRoot = useRef<HTMLDivElement>(null);
   const scheduleMarkdownMeasure = useMemo(

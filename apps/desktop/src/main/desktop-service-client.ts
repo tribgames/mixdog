@@ -90,6 +90,14 @@ class DesktopTransportExitError extends Error {
   }
 }
 
+/** The recovery toast is owned by this client: only one may ride a snapshot,
+ *  and a recovered connection removes it. */
+function withoutProcessFailureToast(toasts: readonly unknown[]): unknown[] {
+  return toasts.filter(
+    (toast) => !toast || typeof toast !== 'object' || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
+  );
+}
+
 function responseError(error: { name: string; message: string; code?: string }): Error {
   const result = new Error(error.message);
   result.name = error.name || 'Error';
@@ -493,10 +501,7 @@ export class DesktopServiceClient implements DesktopService {
     if (!snapshot || typeof snapshot !== 'object') return snapshot;
     const previous = snapshot as Record<string, unknown>;
     const existingToasts = Array.isArray(previous.toasts) ? previous.toasts : [];
-    const toasts = existingToasts.filter(
-      (toast) =>
-        !toast || typeof toast !== 'object' || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
-    );
+    const toasts = withoutProcessFailureToast(existingToasts);
     if (toasts.length === existingToasts.length) return snapshot;
     return { ...previous, toasts } as SessionSnapshot;
   }
@@ -511,10 +516,7 @@ export class DesktopServiceClient implements DesktopService {
       busy: false,
       commandBusy: false,
       toasts: [
-        ...existingToasts.filter(
-          (toast) =>
-            !toast || typeof toast !== 'object' || (toast as Record<string, unknown>).id !== PROCESS_FAILURE_TOAST_ID
-        ),
+        ...withoutProcessFailureToast(existingToasts),
         {
           id: PROCESS_FAILURE_TOAST_ID,
           tone: 'error',
@@ -682,13 +684,12 @@ export class DesktopServiceClient implements DesktopService {
   searchProjectFiles(projectIdOrWorkspaceId: string, query: string, limit = 50): Promise<string[]> {
     return this.invokeRead('searchProjectFiles', [projectIdOrWorkspaceId, query, limit]);
   }
-  async submitNewTask(
+  submitNewTask(
     prompt: DesktopPromptContent,
     options: DesktopSubmitOptions = {},
     draft: DesktopNewTaskDraft = {}
   ): Promise<DesktopNewTaskSubmitResult> {
-    const result = await this.invoke<DesktopNewTaskSubmitResult>('submitNewTask', [prompt, options, draft]);
-    return result;
+    return this.invoke<DesktopNewTaskSubmitResult>('submitNewTask', [prompt, options, draft]);
   }
   inheritSession(
     sourceSessionId: string,

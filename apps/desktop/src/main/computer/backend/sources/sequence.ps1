@@ -3,7 +3,7 @@
 # every checkpoint and decides whether a following step may run.
 function Invoke-SequenceStep($req) {
     $step = $req.step
-    $actions = @('invoke', 'click', 'right_click', 'middle_click', 'double_click',
+    $actions = @('invoke', 'set_value', 'click', 'right_click', 'middle_click', 'double_click',
         'triple_click', 'mouse_down', 'mouse_up', 'mouse_move', 'drag', 'scroll',
         'type', 'key', 'wait')
     # A held key is foreground-only. Say so instead of reporting bad grammar, so

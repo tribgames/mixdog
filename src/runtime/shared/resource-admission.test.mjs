@@ -77,7 +77,11 @@ test('a caller can retry after failure and reacquire on success', async () => {
   const admission = new ResourceAdmissionController({ env: {}, limits: { maxAgents: 1, maxHighLoad: 1 } });
   const lease = await admission.acquire('agent');
   await admission.runWithLease(lease, async () => {
-    await assert.rejects(admission.runYielded(async () => { throw new Error('disconnected'); }));
+    await assert.rejects(
+      admission.runYielded(async () => {
+        throw new Error('disconnected');
+      })
+    );
     assert.equal(admission.snapshot().active.agent, 0);
     assert.equal(await admission.runYielded(async () => 'recovered'), 'recovered');
     assert.equal(admission.snapshot().active.agent, 1);

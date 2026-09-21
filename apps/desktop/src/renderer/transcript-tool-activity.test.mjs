@@ -256,7 +256,13 @@ test('desktop activity drills through repeated categories but keeps singleton to
 test('desktop activity groups by work unit, not by shared category', () => {
   const groups = desktopToolActivityCategoryGroups([
     { kind: 'tool', id: 'git-1', name: 'git', args: { command: 'git status' }, result: 'clean' },
-    { kind: 'tool', id: 'stage-1', name: 'git', args: { action: 'stage', diff_id: 'd1', change_ids: ['c1'] }, result: 'staged' },
+    {
+      kind: 'tool',
+      id: 'stage-1',
+      name: 'git',
+      args: { action: 'stage', diff_id: 'd1', change_ids: ['c1'] },
+      result: 'staged',
+    },
     { kind: 'tool', id: 'graph-1', name: 'code_graph', args: { mode: 'overview', files: ['a.ts'] }, result: 'ok' },
     { kind: 'tool', id: 'read-1', name: 'read', args: { file_path: 'a.ts' }, result: 'ok' },
     // External MCP calls keep separate server-name buckets.

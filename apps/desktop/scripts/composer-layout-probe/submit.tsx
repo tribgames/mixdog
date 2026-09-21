@@ -1,4 +1,3 @@
-import React from 'react';
 import { flushSync } from 'react-dom';
 import type { Root } from 'react-dom/client';
 import { Conversation } from '../../src/renderer/Conversation';

@@ -77,19 +77,19 @@ export function setRemoteConnectionPhase(phase: RemoteConnectionPhase): void {
   window.dispatchEvent(new window.Event(REMOTE_CONNECTION_STATE_EVENT));
 }
 
-export function reportRemoteConnectionIssue(issue: RemoteConnectionIssue, error?: unknown, code?: number): void {
-  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+function diagnosticDetail(error: unknown): string {
+  if (error === undefined) return '';
   const failure = error as { name?: unknown; message?: unknown } | null;
   const message = failure?.message;
+  if (typeof message === 'string' && DIAGNOSTIC_ERROR_MESSAGES.has(message)) return message;
   const name = failure?.name;
-  const detail =
-    typeof message === 'string' && DIAGNOSTIC_ERROR_MESSAGES.has(message)
-      ? message
-      : typeof name === 'string' && DIAGNOSTIC_ERROR_NAMES.has(name)
-        ? name
-        : error === undefined
-          ? ''
-          : 'Error';
+  if (typeof name === 'string' && DIAGNOSTIC_ERROR_NAMES.has(name)) return name;
+  return 'Error';
+}
+
+export function reportRemoteConnectionIssue(issue: RemoteConnectionIssue, error?: unknown, code?: number): void {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return;
+  const detail = diagnosticDetail(error);
   const data = document.documentElement.dataset;
   data.mixdogRemoteError = [
     data.mixdogRemotePhase || 'approval',
