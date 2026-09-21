@@ -94,7 +94,7 @@ Separate UI metadata, model selection, and loaded instructions:
   the model's skill listing and must never be the sole home of an instruction.
 - `when_to_use`: English descriptions of user intents and implicit situations,
   then `not for …` naming the neighbouring owner. Strongest trigger first;
-  at most 250 characters, understandable with the skill name alone.
+  at most 100 characters, understandable with the skill name alone.
 - Write instructions and listing text in English, describing user intent
   across languages rather than listing translated keywords. Preserve exact
   literals and language-specific examples when needed.
@@ -181,7 +181,7 @@ findings with reasons, without promoting warnings to failures.
 
 - Discovery precedence is machine-global, enabled plugin, then built-in.
 - The directory name must equal frontmatter `name`.
-- The model sees `name: when_to_use [tools: linked tool names]`; the trigger is cut at 250 characters
+- The model sees `name: when_to_use [tools: linked tool names]`; the trigger is cut at 100 characters
   on a word boundary. UI descriptions are not injected. A missing trigger
   leaves a name-only entry; the body loads once through `Skill`.
 - `${MIXDOG_SKILL_DIR}` resolves to the active skill directory.
@@ -197,7 +197,7 @@ findings with reasons, without promoting warnings to failures.
 ## Final review
 
 - Is this genuinely a reusable skill rather than another deliverable?
-- Does the listing line fit 250 characters with the strongest trigger intact?
+- Does the trigger fit 100 characters with the strongest trigger intact?
 - Does every major step end in evidence, not “be careful”?
 - Are platform assumptions, external programs, network access, and secrets
   visible?

@@ -1,7 +1,7 @@
 ---
 name: computer-use
 description: Drive the built-in computer tool (Mixdog Computer Use) on the local Windows desktop.
-when_to_use: 'External browser windows, native app UI, OS dialogs, launch, or desktop capture; not Mixdog browser pages (browser-use), URL research (web_fetch/web_search), or shell work.'
+when_to_use: 'External browser windows, native apps, OS dialogs, desktop capture; not Mixdog browser or shell.'
 metadata:
   requires: computer
 dependencies:

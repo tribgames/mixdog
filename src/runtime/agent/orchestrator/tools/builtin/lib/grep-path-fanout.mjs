@@ -17,7 +17,7 @@ import { statReachable } from '../fs-reachability.mjs';
 import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
 import { GREP_CONTEXT_MAX, hasUnsupportedRipgrepRegex } from '../arg-guard.mjs';
 import { coerceNonNegInt, resolveHeadLimit } from './search-input-helpers.mjs';
-import { formatGrepOutput } from './grep-output.mjs';
+import { formatGrepFanoutSections, formatGrepOutput, grepNoMatchesBody } from './grep-output.mjs';
 import { expandGrepAnchorContextOutput } from './grep-context-expander.mjs';
 
 // Case-insensitive path keys on Windows, where rg echoes the operand path
@@ -161,7 +161,7 @@ async function combinedPathBody(request, root, linesFor, { workDir, wdFwd, optio
       signal: options.signal,
     });
     if (ctx.text) return ctx.text;
-    return `(no matches) pattern=${JSON.stringify(pattern)} path=${root.arg}; path exists (${root.isDir ? 'dir' : 'file'})`;
+    return grepNoMatchesBody({ totalKnown: true });
   }
   const post = offset > 0 ? linesFor.slice(offset) : linesFor;
   const windowedLines = headLimit === Infinity ? post : post.slice(0, headLimit);
@@ -243,22 +243,15 @@ function combinedPathRgArgs(args, request, roots, workDir) {
 // The per-root sections in argument order; roots without a hit collapse
 // into one trailing no-match line.
 async function renderCombinedPathSections(request, roots, byRoot, bodyContext) {
-  const sections = [];
-  const noMatchRoots = [];
+  const bodies = [];
   for (let i = 0; i < roots.length; i++) {
     if (byRoot[i].length === 0) {
-      noMatchRoots.push(roots[i].arg);
+      bodies.push(grepNoMatchesBody({ totalKnown: true }));
       continue;
     }
-    const body = await combinedPathBody(request, roots[i], byRoot[i], bodyContext);
-    sections.push(`# grep ${roots[i].arg}\n${body}`);
+    bodies.push(await combinedPathBody(request, roots[i], byRoot[i], bodyContext));
   }
-  if (noMatchRoots.length > 0) {
-    sections.push(
-      `(no matches) pattern=${JSON.stringify(request.pattern)} paths: ${noMatchRoots.join(', ')}; paths exist`
-    );
-  }
-  return sections.join('\n\n');
+  return formatGrepFanoutSections({ dimension: 'path', labels: roots.map((root) => root.arg), bodies });
 }
 
 // Runs the multi-path fan-out for `list` (2+ deduped path strings) and returns
@@ -293,7 +286,7 @@ export async function runGrepPathFanout(input) {
       }
     })
   );
-  const output = list.map((p, index) => `# grep ${p}\n${bodies[index]}`).join('\n\n');
+  const output = formatGrepFanoutSections({ dimension: 'path', labels: list, bodies });
   if (
     configuredOutputCap > 0 &&
     Buffer.byteLength(output, 'utf8') > configuredOutputCap &&

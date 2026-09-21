@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { executeBuiltinTool } from '../builtin.mjs';
-import { formatGrepOutput, formatGrepContextOutput } from './lib/grep-output.mjs';
+import { formatGrepOutput, formatGrepContextOutput, grepNoMatchesBody } from './lib/grep-output.mjs';
 import { expandGrepAnchorContextOutput } from './lib/grep-context-expander.mjs';
 import { extractGrepChunkResultLines } from './lib/search-grep-chunks.mjs';
 
@@ -121,4 +121,61 @@ test('focused grep spans and paging share one summary line', async (t) => {
     assert.match(out.text, /3\.mjs:1:needle.*\[lines 1-1\]/);
     assert.doesNotMatch(out.text, /Raw source spans|\[Top /);
   }
+});
+
+test('single and array no-match bodies omit repeated request metadata without masking partials', () => {
+  for (const patterns of [['absent'], ['absent', 'missing']]) {
+    const request = {
+      patterns, globPatterns: ['*.mjs'], searchPath: '/project/src', isDirectory: true,
+    };
+    assert.equal(grepNoMatchesBody({ ...request, totalKnown: true }), '(no matches)');
+    assert.equal(grepNoMatchesBody({ ...request, totalKnown: false }), '(no matches in partial results)');
+    const old = `(no matches) pattern=${JSON.stringify(patterns.length === 1 ? patterns[0] : patterns)} path=/project/src glob=["*.mjs"]; path exists (dir)`;
+    assert.ok(Buffer.byteLength(grepNoMatchesBody({ ...request, totalKnown: true })) < Buffer.byteLength(old) / 4);
+  }
+});
+
+test('public single, path, pattern and nested array misses share one whole-scope notice', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-grep-empty-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'a.txt'), 'alpha\n');
+  await writeFile(join(root, 'b.txt'), 'beta\n');
+  for (const path of ['a.txt', ['a.txt'], ['a.txt', 'b.txt'], '.']) {
+    for (const pattern of ['absent', ['absent'], ['absent', 'missing']]) {
+      const out = await executeBuiltinTool('grep', { path, pattern, context: 0 }, root);
+      assert.equal(out, '(no matches)', JSON.stringify({ path, pattern }));
+    }
+  }
+});
+
+test('public path batches retain hits and pages while summarizing unmatched paths', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-grep-path-sections-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'a.txt'), 'alpha\nalpha\n');
+  await writeFile(join(root, 'b.txt'), 'beta\n');
+  await writeFile(join(root, 'c.txt'), 'gamma\n');
+  const out = await executeBuiltinTool('grep', {
+    path: ['a.txt', 'b.txt', 'c.txt'], pattern: 'alpha', context: 0, limit: 1,
+  }, root);
+  assert.equal(out, '# grep a.txt\n1:alpha\n[1 of 2 shown; offset:1 for the rest]\n\n(no matches) paths=["b.txt","c.txt"]');
+  const old = [
+    '# grep a.txt\n1:alpha\n[1 of 2 shown; offset:1 for the rest]',
+    '(no matches) pattern="alpha" paths: b.txt, c.txt; paths exist',
+  ].join('\n\n');
+  assert.ok(Buffer.byteLength(out) < Buffer.byteLength(old));
+});
+
+test('public nested arrays keep malformed regexes and missing paths separate from no matches', async (t) => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-grep-errors-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'a.txt'), 'alpha\n');
+  const out = await executeBuiltinTool('grep', {
+    path: ['a.txt', 'missing'], pattern: ['absent', '['], context: 0,
+  }, root);
+  assert.match(out, /# grep a\.txt/);
+  assert.match(out, /Error:.*regex|regex parse error/i);
+  assert.match(out, /# grep missing/);
+  assert.match(out, /path does not exist:.*missing/);
+  assert.match(out, /\(no matches\) patterns=\["absent"\]/);
+  assert.doesNotMatch(out, /\(no matches\) paths=/);
 });

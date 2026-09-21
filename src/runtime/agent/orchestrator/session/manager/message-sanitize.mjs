@@ -1,30 +1,11 @@
-// Model-visible session filtering and compaction-failure persistence.
-import { isInternalRuntimeNotificationText } from './prompt-utils.mjs';
+// Model-visible session snapshots and compaction-failure persistence.
 import { saveSessionAsync } from '../store.mjs';
 import { _getRuntimeEntry } from './runtime-liveness.mjs';
 
 export function filterModelVisibleSessionMessages(messages) {
-  // Internal runtime notifications and their synthetic responses never enter
-  // model history. Image content remains intact; the store replaces image
-  // bytes only in its disk serialization snapshot.
-  if (!Array.isArray(messages) || messages.length === 0) return [];
-  const out = [];
-  let droppingInternalTurn = false;
-  for (const message of messages) {
-    if (message?.role === 'user' && isInternalRuntimeNotificationText(message.content)) {
-      droppingInternalTurn = true;
-      continue;
-    }
-    if (droppingInternalTurn) {
-      if (message?.role === 'user') {
-        droppingInternalTurn = false;
-      } else {
-        continue;
-      }
-    }
-    out.push(message);
-  }
-  return out;
+  // Runtime notifications already sent to the model are part of its history.
+  // Snapshot the array without dropping them or the work that followed them.
+  return Array.isArray(messages) ? messages.slice() : [];
 }
 
 function sessionMessagesSnapshotChanged(before, after) {

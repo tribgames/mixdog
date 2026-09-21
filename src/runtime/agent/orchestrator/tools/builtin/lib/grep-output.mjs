@@ -20,13 +20,33 @@ export function globMissingPatternMessage() {
   return 'Error: glob requires pattern.';
 }
 
-// Body for a search that found nothing: names what was searched so the
-// caller can tell an empty scope from a wrong pattern.
-export function grepNoMatchesBody({ patterns, globPatterns, isDirectory, searchPath, totalKnown }) {
-  const patternStr = patterns.length === 1 ? JSON.stringify(patterns[0]) : JSON.stringify(patterns);
-  const globStr = globPatterns.length > 0 ? ` glob=${JSON.stringify(globPatterns)}` : '';
-  const pathInfo = isDirectory ? 'path exists (dir)' : 'path exists (file)';
-  return `(no matches${totalKnown ? '' : ' in partial results'}) pattern=${patternStr} path=${searchPath}${globStr}; ${pathInfo}`;
+// A bare no-match body covers the entire requested scope. Fan-outs name
+// only the subset that missed; diagnostics must never be folded into it.
+export function grepNoMatchesBody({ totalKnown }) {
+  return `(no matches${totalKnown ? '' : ' in partial results'})`;
+}
+
+export function formatGrepFanoutSections({ dimension, labels, bodies }) {
+  const parts = [];
+  const missed = [];
+  const partialMissed = [];
+  for (let i = 0; i < labels.length; i++) {
+    const body = String(bodies[i]);
+    if (body === grepNoMatchesBody({ totalKnown: true })) {
+      missed.push(labels[i]);
+    } else if (body === grepNoMatchesBody({ totalKnown: false })) {
+      partialMissed.push(labels[i]);
+    } else if (body.trim()) {
+      const label = dimension === 'pattern' ? `pattern:${JSON.stringify(labels[i])}` : labels[i];
+      parts.push(`# grep ${label}\n${body}`);
+    }
+  }
+  for (const [items, totalKnown] of [[missed, true], [partialMissed, false]]) {
+    if (items.length === 0) continue;
+    const scope = items.length === labels.length ? '' : ` ${dimension}s=${JSON.stringify(items)}`;
+    parts.push(grepNoMatchesBody({ totalKnown }) + scope);
+  }
+  return parts.join('\n\n');
 }
 
 // Warning appended when rg stopped early; the caller has already marked the

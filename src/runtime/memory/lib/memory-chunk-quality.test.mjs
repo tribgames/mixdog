@@ -116,13 +116,42 @@ test('overlapping chunks are both rejected while unaffected rows can still be co
   assert.equal(result.stats.retries, 0);
 });
 
-test('expanded summaries stay RAW without unnecessary verification or fragmentation retries', async () => {
+test('an expanded summary gets one rewrite of its rows and stays RAW when still longer', async () => {
+  const prompts = [];
   const result = await generateCycle1Chunks([row(1, '{}'), row(2, 'ok')], {
-    callLlm: async () => answer('1,2', 'An expanded explanation with invented and unnecessary extra wording.'),
+    callLlm: async (_request, prompt) => {
+      prompts.push(prompt);
+      return answer('1,2', 'An expanded explanation with invented and unnecessary extra wording.');
+    },
   });
-  assert.equal(result.stats.groupingCalls, 1);
+  assert.equal(result.stats.groupingCalls, 2);
+  assert.equal(result.stats.retries, 1);
   assert.equal(result.stats.verificationCalls, 0);
+  assert.match(prompts[1], /^FIRST_LAYER\n[\s\S]*\nRewrite: /);
+  assert.doesNotMatch(prompts[0], /\nRewrite: /);
   assert.deepEqual(result.rawRowIds, [1, 2]);
+});
+
+test('a shorter rewrite replaces only the expanded grouping and maps back to the original rows', async () => {
+  const seen = [];
+  const brief = ['What does the omitted marker mean in the preview?', 'It hides non-text blocks in the preview only.'];
+  const result = await generateCycle1Chunks([row(1), row(2), row(3, brief[0]), row(4, brief[1])], {
+    callLlm: async (_request, prompt) => {
+      seen.push(sourceRows(prompt).map((source) => source.content));
+      return seen.length === 1
+        ? `${answer('1,2')}\n${answer('3,4', 'A long restatement of the exchange about the omitted marker that ends up longer than the exchange itself.')}`
+        : answer('1,2', 'Marker hides preview blocks.');
+    },
+  });
+  assert.deepEqual(seen[1], brief);
+  assert.equal(result.stats.groupingCalls, 2);
+  assert.equal(result.stats.retries, 1);
+  assert.deepEqual(
+    result.chunks.map((chunk) => chunk.members.map((member) => member.id)),
+    [[1, 2], [3, 4]]
+  );
+  assert.equal(result.chunks[1].summary, 'Marker hides preview blocks.');
+  assert.deepEqual(result.rawRowIds, []);
 });
 
 test('legitimate isolated topics do not trigger a singleton quota', async () => {

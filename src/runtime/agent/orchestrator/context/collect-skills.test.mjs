@@ -92,7 +92,7 @@ test('long skill triggers are bounded without exposing UI copy', () => {
   const line = long.split('\n').find((entry) => entry.startsWith('- verbose:')) || '';
   assert.ok(line.startsWith('- verbose: trigger'));
   assert.ok(line.endsWith('...'));
-  assert.ok(line.length <= '- verbose: '.length + 250);
+  assert.ok(line.length <= '- verbose: '.length + 100);
 });
 
 test('discovers global standard skill folders and ignores project-local skills and reference Markdown', () => {

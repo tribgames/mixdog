@@ -77,7 +77,7 @@ export const GIT_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. Returns Git text; bare unstaged diff adds change IDs and a diff_id for git_stage.',
+    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files and a complete change-ID list with diff_id for git_stage, outside the body line cap. Other diff forms return Git text without staging IDs.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -93,7 +93,7 @@ export const GIT_TOOL_DEF = {
         type: 'integer',
         minimum: 1,
         maximum: GIT_OUTPUT_LIMIT_MAX,
-        description: 'Line cap. Default 50; git log defaults to 10.',
+        description: 'Body line cap; staging IDs are not capped. Default 50; git log defaults to 10.',
       },
     },
     required: ['command'],
@@ -113,11 +113,11 @@ export const GIT_STAGE_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Stage selected change_ids from a bare unstaged git diff using its diff_id; rejects stale or cross-Project snapshots.',
+    'Stage selected change_ids from git diff or git diff -- <paths> using its diff_id, including new files; rejects stale or cross-Project snapshots. Returns staged change locations, not repository-wide status.',
   inputSchema: {
     type: 'object',
     properties: {
-      diff_id: { type: 'string', description: 'Exact diff_id returned by a bare unstaged git diff.' },
+      diff_id: { type: 'string', description: 'Exact diff_id returned by git diff or git diff -- <paths>.' },
       change_ids: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 50 }],
         description: 'Exact change ID or IDs to stage.',
@@ -126,7 +126,7 @@ export const GIT_STAGE_TOOL_DEF = {
         type: 'integer',
         minimum: 1,
         maximum: GIT_OUTPUT_LIMIT_MAX,
-        description: 'Status line cap; default 50.',
+        description: 'Git error output line cap; default 50. Successful change locations are not capped.',
       },
     },
     required: ['diff_id', 'change_ids'],
@@ -185,33 +185,12 @@ function commandResult(plan, result, limit) {
 
 function stageableDiffResult(plan, result, snapshot, limit) {
   if (!snapshot.diffId) return commandResult(plan, result, limit);
-  let path = '';
-  let shown = 0;
-  const changes = snapshot.changes.slice(0, limit);
-  const lines = outputLines(result.stdout).map((line, index) => {
-    if (line.startsWith('diff --git ')) {
-      const header = line.replace(/\r?\n$/, '');
-      const marker = header.indexOf(' b/');
-      path = marker >= 0 ? header.slice(marker + 3).replace(/^"|"$/g, '') : header.replace(/^diff --git\s+/, '');
-    }
-    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (!hunk || index >= limit) return line;
-    const oldStart = Number(hunk[1]);
-    const newStart = Number(hunk[3]);
-    const ids = changes.filter((change) =>
-      change.path === path &&
-      change.old_start >= oldStart && change.old_start <= oldStart + Number(hunk[2] ?? 1) &&
-      change.new_start >= newStart && change.new_start <= newStart + Number(hunk[4] ?? 1)
-    );
-    shown += ids.length;
-    // A snapshot ID denotes an edit group, so one Git hunk can carry several
-    // IDs, in patch order. Keep Git's context and body unchanged.
-    return line.replace(/(\r?\n)?$/, `${ids.map((change) => ` # change:${change.id}`).join('')}$1`);
-  });
-  const rendered = commandResult(plan, { ...result, stdout: lines.join('') }, limit);
+  const rendered = commandResult(plan, result, limit);
   rendered.text = appendText(rendered.text, `diff_id: ${snapshot.diffId}`);
-  const omitted = snapshot.changes.length - shown;
-  if (omitted) rendered.text = appendText(rendered.text, `… [${omitted} more changes omitted]`);
+  for (const change of snapshot.changes) {
+    const location = change.kind || `@@ -${change.old_start},${change.deletions} +${change.new_start},${change.additions} @@`;
+    rendered.text = appendText(rendered.text, `change:${change.id} ${JSON.stringify(change.path)} ${location}`);
+  }
   return rendered;
 }
 
@@ -443,53 +422,25 @@ function prepare(plan) {
   return { argv: [operation, ...args] };
 }
 
-function parseStatus(text) {
-  const lines = cleanText(text).split('\n').filter(Boolean);
-  const branch = lines[0]?.startsWith('## ') ? lines.shift().slice(3) : null;
-  return {
-    branch,
-    clean: lines.length === 0,
-    changes: lines.map((line) => ({ index: line[0] || ' ', worktree: line[1] || ' ', path: line.slice(3) })),
-  };
-}
-
-function statusSummary(snapshot) {
-  let staged = 0,
-    unstaged = 0,
-    untracked = 0,
-    conflicted = 0;
-  for (const row of snapshot?.changes || []) {
-    if (row.index === '?' && row.worktree === '?') untracked++;
-    else {
-      if (row.index !== ' ') staged++;
-      if (row.worktree !== ' ') unstaged++;
-      if ('UAD'.includes(row.index) && 'UAD'.includes(row.worktree)) conflicted++;
-    }
+async function runStageableDiff(plan, argv, repo, signal) {
+  const result = await runGit(plan, argv, { signal });
+  if (!succeeded(result)) return result;
+  result.stdout = String(result.stdout);
+  result.stderr = String(result.stderr);
+  const paths = plan.args.slice(1);
+  const untracked = await runGit(plan, ['ls-files', '--others', '--exclude-standard', '--full-name', '-z', '--', ...paths], { signal });
+  if (!succeeded(untracked)) return untracked;
+  for (const path of String(untracked.stdout).split('\0').filter(Boolean)) {
+    const added = await runGit({ ...plan, cwd: repo }, [
+      'diff', '--no-index', '--binary', '--no-ext-diff', '--no-textconv', '--no-color',
+      '--src-prefix=a/', '--dst-prefix=b/', '--', '/dev/null', path,
+    ], { signal });
+    // --no-index uses exit 1 for a successfully produced patch.
+    if (!succeeded({ ...added, exitCode: added.exitCode === 1 ? 0 : added.exitCode })) return added;
+    result.stdout = appendText(result.stdout, String(added.stdout));
+    result.stderr = appendText(result.stderr, String(added.stderr));
   }
-  return { branch: snapshot?.branch || null, clean: snapshot?.clean === true, staged, unstaged, untracked, conflicted };
-}
-
-async function statusSnapshot(repo, signal) {
-  const plan = { cwd: repo, globalArgs: [] };
-  const result = await runGit(plan, ['status', '--porcelain=v1', '-b', '--untracked-files=normal'], { signal });
-  return succeeded(result) ? parseStatus(result.stdout) : { error: true, changes: [] };
-}
-
-function statusDelta(before, after, limit) {
-  const left = new Map((before?.changes || []).map((row) => [row.path, `${row.index}${row.worktree}`]));
-  const right = new Map((after?.changes || []).map((row) => [row.path, `${row.index}${row.worktree}`]));
-  const changed = [];
-  for (const path of new Set([...left.keys(), ...right.keys()])) {
-    const from = left.get(path) || null,
-      to = right.get(path) || null;
-    if (from !== to) changed.push({ path, from, to });
-  }
-  return {
-    before: statusSummary(before),
-    after: statusSummary(after),
-    changed: changed.slice(0, limit),
-    omitted: Math.max(0, changed.length - limit),
-  };
+  return result;
 }
 
 // Repo-root resolution used to spawn an extra `git rev-parse` on EVERY call —
@@ -695,9 +646,9 @@ export async function executeGitStageTool(input, workDir, options = {}) {
     () =>
       withBuiltinPathLocks([repo], () =>
         withAdvisoryLocks([repo], async () => {
-          const current = await runGit(snapshot.plan, snapshot.argv, { signal });
+          const current = await runStageableDiff(snapshot.plan, snapshot.argv, repo, signal);
           if (!succeeded(current)) return commandFailure(snapshot.plan, current, limit);
-          const raw = cleanText(current.stdout);
+          const raw = current.stdout;
           if (!diffSnapshotMatches(snapshot, raw)) {
             return ok({
               staged: false,
@@ -711,28 +662,21 @@ export async function executeGitStageTool(input, workDir, options = {}) {
               `git stage change_ids are not present in the diff: ${built.missing.join(', ') || '(none selected)'}`
             );
           }
-          const before = await statusSnapshot(repo, signal);
           return withStagePatchFile(built.patch, async (patchPath) => {
             const applyArgs = ['apply', '--cached', '--unidiff-zero', patchPath];
-            const applyPlan = { ...snapshot.plan, operation: 'apply', args: applyArgs.slice(1) };
+            const applyPlan = { ...snapshot.plan, cwd: repo, operation: 'apply', args: applyArgs.slice(1) };
             const check = await runGit(applyPlan, ['apply', '--cached', '--check', '--unidiff-zero', patchPath], {
               signal,
             });
             if (!succeeded(check)) return commandFailure(applyPlan, check, limit);
             const applied = await runGit(applyPlan, applyArgs, { signal });
-            const after = await statusSnapshot(repo, signal);
-            if (!succeeded(applied)) {
-              return `${commandFailure(applyPlan, applied, limit)}\n${JSON.stringify({ status: statusDelta(before, after, limit) })}`;
-            }
+            if (!succeeded(applied)) return commandFailure(applyPlan, applied, limit);
             deleteDiffSnapshot(request.diffId);
             invalidateBuiltinResultCache();
             drainCodeGraphCache();
             return ok({
-              summary: 'staged selected changes',
               staged: true,
-              diff_id: request.diffId,
-              change_ids: built.selected,
-              status: statusDelta(before, after, limit),
+              changes: built.changes.map(({ id, preview, ...change }) => change),
             });
           });
         })
@@ -778,25 +722,25 @@ async function executeSingleGitTool(input, workDir, options = {}) {
     return commandResult(plan, missing, limit);
   }
   const prepared = prepare(plan);
+  const stageableRequest = plan.operation === 'diff' && (plan.args.length === 0 || plan.args[0] === '--');
+  if (stageableRequest) prepared.argv.splice(1, 0, '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/');
   if (isReadOnly(plan)) {
     return withGitRepoReadLock(
       repo,
       async () => {
-        const result = await runGit(plan, prepared.argv, { signal });
+        const result = stageableRequest
+          ? await runStageableDiff(plan, prepared.argv, repo, signal)
+          : await runGit(plan, prepared.argv, { signal });
         if (!succeeded(result)) return commandResult(plan, result, limit);
-        const raw = cleanText(result.stdout);
-        if (plan.operation === 'diff') {
-          const stageableRequest = plan.args.length === 0 || (plan.args.length === 1 && plan.args[0] === '--');
-          if (stageableRequest) {
-            const snapshot = createDiffSnapshot({
-              repo,
-              scope: resolve(workDir || process.cwd()),
-              plan,
-              argv: prepared.argv,
-              raw,
-            });
-            return stageableDiffResult(plan, result, snapshot, limit);
-          }
+        if (stageableRequest) {
+          const snapshot = createDiffSnapshot({
+            repo,
+            scope: resolve(workDir || process.cwd()),
+            plan,
+            argv: prepared.argv,
+            raw: result.stdout,
+          });
+          return stageableDiffResult(plan, result, snapshot, limit);
         }
         return commandResult(plan, result, limit);
       },

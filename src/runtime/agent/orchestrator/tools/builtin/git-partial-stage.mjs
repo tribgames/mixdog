@@ -9,13 +9,22 @@ function digest(value) {
     .digest('hex');
 }
 
+function decodePath(path) {
+  if (path.startsWith('"')) {
+    const escapes = { a: '\x07', b: '\b', t: '\t', n: '\n', v: '\v', f: '\f', r: '\r' };
+    const bytes = [];
+    for (const token of path.slice(1, -1).matchAll(/\\([0-7]{1,3}|.)|[^\\]+/g)) {
+      if (token[1] && /^[0-7]/.test(token[1])) bytes.push(Buffer.from([Number.parseInt(token[1], 8)]));
+      else bytes.push(Buffer.from(token[1] ? escapes[token[1]] ?? token[1] : token[0]));
+    }
+    path = Buffer.concat(bytes).toString('utf8');
+  }
+  return path.replace(/^[ab]\//, '');
+}
+
 function displayPath(diffLine) {
-  const marker = String(diffLine || '').indexOf(' b/');
-  return marker >= 0
-    ? String(diffLine)
-        .slice(marker + 3)
-        .replace(/^"|"$/g, '')
-    : String(diffLine || '').replace(/^diff --git\s+/, '');
+  const match = /^diff --git (?:"(?:[^"\\]|\\.)*"|a\/.*?) ("(?:[^"\\]|\\.)*"|b\/.*)$/.exec(diffLine);
+  return match ? decodePath(match[1]) : diffLine;
 }
 
 function parseHunkHeader(line) {
@@ -33,14 +42,12 @@ function parseHunkHeader(line) {
 
 function finishFile(files, file) {
   if (!file) return;
+  const pathLine = file.newLine === '+++ /dev/null' ? file.oldLine : file.newLine;
+  if (pathLine) file.path = decodePath(pathLine.slice(4).replace(/\t$/, ''));
   file.stageable = Boolean(
     file.diffLine &&
-      file.oldLine &&
-      file.newLine &&
       !file.blocked &&
-      !file.oldLine.includes('/dev/null') &&
-      !file.newLine.includes('/dev/null') &&
-      file.hunks.length
+      (file.kind || (file.oldLine && file.newLine && file.hunks.length))
   );
   files.push(file);
 }
@@ -57,6 +64,8 @@ function parseFiles(raw) {
         diffLine: line,
         oldLine: '',
         newLine: '',
+        lines: [line],
+        kind: null,
         blocked: false,
         stageable: false,
         hunks: [],
@@ -65,6 +74,7 @@ function parseFiles(raw) {
       continue;
     }
     if (!file) continue;
+    file.lines.push(line);
     if (line.startsWith('@@')) {
       hunk = parseHunkHeader(line);
       if (!hunk) {
@@ -76,20 +86,16 @@ function parseFiles(raw) {
     }
     if (hunk) {
       if (/^[ +\-\\]/.test(line)) {
-        if (line.startsWith('\\')) file.blocked = true;
+        if (line.startsWith('\\')) file.kind ||= 'file';
         hunk.entries.push({ line, changeId: null });
       }
       continue;
     }
     if (line.startsWith('--- ')) file.oldLine = line;
     else if (line.startsWith('+++ ')) file.newLine = line;
-    else if (
-      /^(new file mode |deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |GIT binary patch|Binary files )/.test(
-        line
-      )
-    ) {
-      file.blocked = true;
-    }
+    else if (line.startsWith('new file mode ')) file.kind = 'new_file';
+    else if (/^(deleted file mode |old mode |new mode |similarity index |rename from |rename to |copy from |copy to |GIT binary patch)/.test(line)) file.kind ||= 'file';
+    else if (line.startsWith('Binary files ')) file.blocked = true;
   }
   finishFile(files, file);
   return files;
@@ -99,9 +105,19 @@ function annotateChanges(files) {
   const changes = [];
   for (const file of files) {
     if (!file.stageable) continue;
+    if (file.kind) {
+      const entries = file.hunks.flatMap((hunk) => hunk.entries);
+      changes.push({
+        id: `chg_${digest(file.lines.join('\n')).slice(0, 16)}`,
+        path: file.path,
+        kind: file.kind,
+        additions: entries.filter(({ line }) => line.startsWith('+')).length,
+        deletions: entries.filter(({ line }) => line.startsWith('-')).length,
+      });
+      continue;
+    }
     for (let hunkIndex = 0; hunkIndex < file.hunks.length; hunkIndex++) {
       const hunk = file.hunks[hunkIndex];
-      if (hunk.oldCount === 0) continue;
       let oldLine = hunk.oldStart;
       let newLine = hunk.newStart;
       let group = null;
@@ -231,6 +247,11 @@ export function buildSelectedStagePatch(raw, requestedIds) {
     if (!file.stageable) continue;
     const fileSelected = parsed.changes.filter((change) => change.path === file.path && wanted.has(change.id));
     if (!fileSelected.length) continue;
+    if (file.kind) {
+      parts.push(file.lines.join('\n').replace(/\n$/, ''));
+      selected.push(...fileSelected.map((change) => change.id));
+      continue;
+    }
     const hunks = [];
     let selectedDelta = 0;
     for (const hunk of file.hunks) {
@@ -248,7 +269,7 @@ export function buildSelectedStagePatch(raw, requestedIds) {
       const oldCount = body.filter((line) => line[0] === ' ' || line[0] === '-').length;
       const newCount = body.filter((line) => line[0] === ' ' || line[0] === '+').length;
       const oldStart = hunk.oldStart;
-      const newStart = hunk.oldStart + selectedDelta;
+      const newStart = hunk.oldStart + selectedDelta + (oldCount === 0 ? 1 : 0) - (newCount === 0 ? 1 : 0);
       hunks.push(`@@ -${range(oldStart, oldCount)} +${range(newStart, newCount)} @@${hunk.tail}`);
       hunks.push(...body);
       selectedDelta += newCount - oldCount;
@@ -260,6 +281,7 @@ export function buildSelectedStagePatch(raw, requestedIds) {
   return {
     patch: parts.length ? `${parts.join('\n')}\n` : '',
     selected,
+    changes: parsed.changes.filter((change) => selected.includes(change.id)),
     missing: requested.filter((id) => !selected.includes(id)),
   };
 }

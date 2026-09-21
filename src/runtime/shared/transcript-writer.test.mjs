@@ -37,6 +37,12 @@ test('appended rows are stamped with the session cwd and a timestamp, blank text
     writer.appendAssistant('');
     writer.appendUser('hello');
     writer.appendAssistant('world');
+    writer.appendUser([
+      { type: 'text', text: 'look at this' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+      'and this',
+    ]);
+    writer.appendUser([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } }]);
     writer.appendToolUse('read', { path: 'a.txt' });
     writer.appendToolUse('', { path: 'ignored' });
     writer.appendToolResult({ ok: true });
@@ -47,12 +53,14 @@ test('appended rows are stamped with the session cwd and a timestamp, blank text
       [
         ['user', 'sess-1', 'text'],
         ['assistant', 'sess-1', 'text'],
+        ['user', 'sess-1', 'text'],
         ['assistant', 'sess-1', 'tool_use'],
         ['user', 'sess-1', 'tool_result'],
       ]
     );
-    assert.equal(out[2].message.content[0].name, 'read');
-    assert.deepEqual(out[3].toolUseResult, { ok: true });
+    assert.equal(out[2].message.content[0].text, 'look at this\nand this');
+    assert.equal(out[3].message.content[0].name, 'read');
+    assert.deepEqual(out[4].toolUseResult, { ok: true });
     for (const row of out) {
       assert.equal(row.cwd, cwd);
       assert.match(row.timestamp, /^\d{4}-\d{2}-\d{2}T/);

@@ -9,15 +9,17 @@ import { GREP_AUTO_CONTEXT_LINES, trueCasePath } from '../path-utils.mjs';
 import { buildGrepRgArgs } from '../search-builders.mjs';
 import { runRgWindowedLines } from '../native-search-runner.mjs';
 import { statReachable } from '../fs-reachability.mjs';
-import { dedupeFanoutMatchLines, formatGrepOutput, grepPartialWarning } from './grep-output.mjs';
+import {
+  dedupeFanoutMatchLines,
+  formatGrepFanoutSections,
+  formatGrepOutput,
+  grepNoMatchesBody,
+  grepPartialWarning,
+} from './grep-output.mjs';
 import { expandGrepAnchorContextOutput, prepareGrepContextSources } from './grep-context-expander.mjs';
 import { markScopedCacheIncomplete } from '../../../session/cache/scoped-cache-outcome.mjs';
 
 const GREP_FANOUT_PREFILTER_FILE_CAP = 400;
-
-function globSuffix(normalizedGlobPatterns) {
-  return normalizedGlobPatterns.length > 0 ? ` glob=${JSON.stringify(normalizedGlobPatterns)}` : '';
-}
 
 function perPatternCharBudget({ callContextCharBudget, patterns }) {
   return Math.max(512, Math.floor(callContextCharBudget / patterns.length));
@@ -165,8 +167,7 @@ async function combinedPatternBody(request, pattern, linesFor, { adaptive, rgCwd
       markScopedCacheIncomplete(options.scopedCacheOutcome);
     }
     if (ctx.text) return ctx.text;
-    const globStr = globSuffix(request.normalizedGlobPatterns);
-    return `(no matches) pattern=${JSON.stringify(pattern)} path=${searchPath}${globStr}; path exists (dir)`;
+    return grepNoMatchesBody({ totalKnown: !combinedPartial });
   }
   const post = offset > 0 ? linesFor.slice(offset) : linesFor;
   return formatGrepOutput({
@@ -210,11 +211,10 @@ async function renderCombinedSections(request, { byPattern, residual, combinedPa
       })
     : null;
   const seenCombined = new Set();
-  const sections = [];
-  const noMatchPatterns = [];
+  const bodies = [];
   for (let i = 0; i < patterns.length; i++) {
     if (byPattern[i].length === 0) {
-      noMatchPatterns.push(patterns[i]);
+      bodies.push(grepNoMatchesBody({ totalKnown: !combinedPartial }));
       continue;
     }
     const body = await combinedPatternBody(request, patterns[i], byPattern[i], {
@@ -223,14 +223,9 @@ async function renderCombinedSections(request, { byPattern, residual, combinedPa
       combinedPartial,
       sources,
     });
-    sections.push(`# grep pattern:${JSON.stringify(patterns[i])}\n${dedupeFanoutMatchLines(body, seenCombined)}`);
+    bodies.push(dedupeFanoutMatchLines(body, seenCombined));
   }
-  if (noMatchPatterns.length > 0) {
-    // Under a partial scan a zero-hit pattern is NOT a proven no-match.
-    sections.push(
-      `(no matches${combinedPartial ? ' in partial results' : ''}) pattern=${JSON.stringify(noMatchPatterns)} path=${searchPath}${globSuffix(request.normalizedGlobPatterns)}; path exists`
-    );
-  }
+  const sections = [formatGrepFanoutSections({ dimension: 'pattern', labels: patterns, bodies })];
   if (residual.length > 0) {
     // Rust/JS regex divergence or --max-columns truncation left
     // matches no pattern claimed; surface them rather than drop.
@@ -311,7 +306,7 @@ async function runCombinedFanout(request) {
 // dedup/section assembly follows the original pattern order so the shared
 // `seen` set and output text stay byte-identical to the sequential version.
 async function runPerPatternFanout(request) {
-  const { args, patterns, options, workDir, searchPath, patternCapNote } = request;
+  const { args, patterns, options, workDir, patternCapNote } = request;
   options.signal?.throwIfAborted();
   // One fallback prefilter: when it completes under the cap, K patterns
   // cost one repo walk plus K file-list scans instead of K full walks.
@@ -319,7 +314,7 @@ async function runPerPatternFanout(request) {
   const candidateFiles =
     process.env.MIXDOG_GREP_FANOUT_PREFILTER !== '0' ? await fanoutPrefilterCandidates(request) : null;
   if (candidateFiles && candidateFiles.length === 0) {
-    return `${patternCapNote}(no matches) pattern=${JSON.stringify(patterns)} path=${searchPath}${globSuffix(request.normalizedGlobPatterns)}; path exists (dir)`;
+    return patternCapNote + grepNoMatchesBody({ totalKnown: true });
   }
   const subOptions = {
     ...options,
@@ -355,24 +350,12 @@ async function runPerPatternFanout(request) {
 // sub-results are consolidated: K missed patterns collapse into ONE summary
 // line instead of K header+body sections.
 function assembleFanoutSections(request, subs) {
-  const { patterns, searchPath } = request;
   const seen = new Set();
-  const parts = [];
-  const missedPatterns = [];
-  for (let i = 0; i < patterns.length; i++) {
-    const body = dedupeFanoutMatchLines(subs[i], seen);
-    if (typeof body === 'string' && body.startsWith('(no matches) ') && !body.includes('\n')) {
-      missedPatterns.push(patterns[i]);
-      continue;
-    }
-    parts.push(`# grep pattern:${JSON.stringify(patterns[i])}\n${body}`);
-  }
-  if (missedPatterns.length > 0) {
-    parts.push(
-      `(no matches) pattern=${JSON.stringify(missedPatterns)} path=${searchPath}${globSuffix(request.normalizedGlobPatterns)}; path exists`
-    );
-  }
-  return parts.join('\n\n');
+  return formatGrepFanoutSections({
+    dimension: 'pattern',
+    labels: request.patterns,
+    bodies: subs.map((body) => dedupeFanoutMatchLines(body, seen)),
+  });
 }
 
 export async function runGrepPatternFanout(input) {

@@ -172,15 +172,17 @@ export function parseHistoryReview(raw, packet) {
     throw new Error('cycle2 review must cover every input exactly once');
   }
   const rows = new Map(packet.rows.map((row) => [Number(row.id), row]));
+  // bigint columns arrive as strings; the model echoes whatever it was shown.
   return actions.map((verdict) => {
-    const row = rows.get(verdict?.id);
+    const id = Number(verdict?.id);
+    const row = rows.get(id);
     if (!row || !['keep', 'merge', 'lineage'].includes(verdict.action))
       throw new Error('invalid cycle2 review verdict');
-    rows.delete(verdict.id);
+    rows.delete(id);
     const prior =
       verdict.action === 'keep'
         ? null
-        : packet.candidates.get(verdict.id)?.find((item) => Number(item.older_id) === verdict.older_id);
+        : packet.candidates.get(id)?.find((item) => Number(item.older_id) === Number(verdict.older_id));
     if (verdict.action !== 'keep' && !prior) throw new Error('cycle2 review references an unknown predecessor');
     return { row, action: verdict.action, prior };
   });

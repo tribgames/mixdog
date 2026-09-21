@@ -19,11 +19,13 @@ import { join, resolve } from 'node:path';
 import { appendBuffered } from './buffered-appender.mjs';
 import { formatUtcTimestamp } from './time-format.mjs';
 import { createRotationTracker } from './transcript-writer/rotation.mjs';
-import { createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
+import { conversationText, createTranscriptFile, cwdToProjectSlug } from './transcript-writer/transcript-file.mjs';
 import { createFailureLog, createSessionRecord } from './transcript-writer/session-record.mjs';
 
+// A user prompt with pasted images arrives as a content block array; only its
+// text reaches the transcript (String(array) would store "[object Object]").
 const textOrEmpty = (text) => {
-  if (typeof text === 'string') return text;
+  if (typeof text === 'string' || Array.isArray(text)) return conversationText(text);
   return text == null ? '' : String(text);
 };
 

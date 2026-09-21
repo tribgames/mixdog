@@ -405,7 +405,7 @@ export function buildSkillToolEnvelope(
 
 // Only selection triggers enter the model's listing. Descriptions belong to
 // the UI; operating instructions arrive in the body through Skill().
-const SKILL_MANIFEST_TRIGGER_MAX = 250;
+const SKILL_MANIFEST_TRIGGER_MAX = 100;
 const SKILL_MANIFEST_TRIGGER_MIN = 60;
 // Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
 const SKILL_MANIFEST_CHAR_BUDGET = 8_000;

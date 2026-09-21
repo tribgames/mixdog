@@ -113,28 +113,43 @@ export function countRawUnchunkedRows(db) {
  *  then fetch closest/recent rows per selected session. Memory fill is
  *  recency-first; session isolation keeps unrelated episodes out of the same
  *  classifier prompt. Rows come back newest-first. */
-export async function fetchCycle1Rows(db, plan) {
+export async function fetchCycle1Rows(db, plan, now = Date.now()) {
   const sessionFilterSql = plan.onlySessionId ? 'AND session_id = $4' : '';
-  const queryParams = [plan.sessionCap, Date.now() - CYCLE1_OMITTED_COOLDOWN_MS, plan.rowsPerSession];
+  const queryParams = [plan.sessionCap, now - CYCLE1_OMITTED_COOLDOWN_MS, plan.rowsPerSession];
   if (plan.onlySessionId) queryParams.push(plan.onlySessionId);
   queryParams.push(plan.backfillCap);
   const backfillParam = `$${queryParams.length}`;
+  // A session is due once no row of it (chunked or not) is newer than the quiet
+  // window, or once its oldest pending row has waited the force age. An explicit
+  // single-session run is an operator request and bypasses the gate.
+  let dueSql = '';
+  if (!plan.onlySessionId) {
+    queryParams.push(now - plan.sessionQuietMs, now - plan.sessionForceAgeMs);
+    dueSql = `WHERE oldest_ts <= $${queryParams.length}
+          OR NOT EXISTS (
+            SELECT 1 FROM entries active
+            WHERE active.session_id = eligible_sessions.session_id AND active.ts > $${queryParams.length - 1}
+          )`;
+  }
   const fetchStartedAt = Date.now();
   const fetchResult = await db.query(
     `WITH eligible_sessions AS (
-       SELECT session_id, MAX(ts) AS latest_ts, MAX(id) AS latest_id
+       SELECT session_id, MAX(ts) AS latest_ts, MAX(id) AS latest_id, MIN(ts) AS oldest_ts
        FROM entries
        WHERE chunk_root IS NULL
          AND NULLIF(btrim(session_id), '') IS NOT NULL
          AND (reviewed_at IS NULL OR reviewed_at < $2)
          ${sessionFilterSql}
        GROUP BY session_id
-     ), recent_sessions AS (
+     ), due_sessions AS (
        SELECT session_id, latest_ts, latest_id FROM eligible_sessions
+       ${dueSql}
+     ), recent_sessions AS (
+       SELECT session_id, latest_ts, latest_id FROM due_sessions
        ORDER BY latest_ts DESC, latest_id DESC
        LIMIT GREATEST($1::int - ${backfillParam}::int, 0)
      ), starved_sessions AS (
-       SELECT session_id, latest_ts, latest_id FROM eligible_sessions
+       SELECT session_id, latest_ts, latest_id FROM due_sessions
        ORDER BY latest_ts ASC, latest_id ASC
        LIMIT ${backfillParam}::int
      ), selected_sessions AS (

@@ -123,6 +123,34 @@ test('previews exclude opaque fields, binary content, and terminal control seque
   assert.deepEqual(input.messages[0].content[0].thinkingSignature, 'SECRET_SIGNATURE');
 });
 
+test('the agent tool is a system tool and a replayed turn previews its content once', () => {
+  const input = fixture({
+    messages: [
+      {
+        role: 'assistant',
+        content: 'Visible answer',
+        toolCalls: [{ id: 'call-1', name: 'Skill', arguments: { name: 'docx' } }],
+        providerReplay: {
+          items: [
+            { type: 'thinking', thinking: 'Replayed reasoning', signature: 'SECRET_SIGNATURE' },
+            { type: 'text', text: 'Visible answer' },
+            { type: 'tool_use', id: 'call-1', name: 'Skill', input: { name: 'docx' } },
+          ],
+        },
+      },
+    ],
+    tools: [{ name: 'agent', description: 'Delegate.', inputSchema: { type: 'object' } }],
+  });
+  const result = inspectContext(input);
+  assert.equal(result.entries.find((entry) => entry.label === 'agent').category, 'tools');
+  assert.equal(result.categories.find((category) => category.key === 'agents').count, 0);
+  const preview = inspectContext(input, { entryId: 'message:0', revision: result.revision }).preview.text;
+  assert.equal(preview.match(/Visible answer/g).length, 1);
+  assert.equal(preview.match(/"docx"/g).length, 1);
+  assert.match(preview, /Replayed reasoning/);
+  assert.doesNotMatch(preview, /SECRET_/);
+});
+
 test('previews are bounded, revisions reject stale indexes, and key order is not an extra message', () => {
   const input = fixture({ messages: [{ role: 'user', content: 'x'.repeat(40_000) }] });
   const initial = inspectContext(input);

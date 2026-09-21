@@ -9,6 +9,13 @@ export const CYCLE1_SESSION_CAP = 10;
 export const CYCLE1_PACKET_MAX_ROWS = 50;
 export const CYCLE1_MAX_PACKETS = 4;
 export const CYCLE1_OMITTED_COOLDOWN_MS = 60 * 60 * 1000;
+// A session is chunked only after it has been quiet this long, so one task's
+// request, work, result and correction reach the classifier together instead
+// of being split at every scheduler tick.
+export const CYCLE1_SESSION_QUIET_MS = 15 * 60 * 1000;
+// A session that never pauses is still drained once its oldest pending row has
+// waited this long.
+export const CYCLE1_SESSION_FORCE_AGE_MS = 2 * 60 * 60 * 1000;
 
 export function resolveCycle1Plan(config = {}, options = {}) {
   const batchSize = Math.max(1, Number(config.batch_size ?? 100));
@@ -70,6 +77,11 @@ export function resolveCycle1Plan(config = {}, options = {}) {
     minBatch,
     sessionCap,
     backfillCap,
+    sessionQuietMs: Math.max(0, Number(config.session_quiet_ms ?? config.sessionQuietMs ?? CYCLE1_SESSION_QUIET_MS) || 0),
+    sessionForceAgeMs: Math.max(
+      0,
+      Number(config.session_force_age_ms ?? config.sessionForceAgeMs ?? CYCLE1_SESSION_FORCE_AGE_MS) || 0
+    ),
     onlySessionId: String(config.session_id ?? config.sessionId ?? '').trim(),
     preset: options.preset || resolveMaintenancePreset('memory'),
     timeout: callerDeadlineMs > 0 ? Math.min(baseTimeout, Math.max(5000, callerDeadlineMs - 1000)) : baseTimeout,

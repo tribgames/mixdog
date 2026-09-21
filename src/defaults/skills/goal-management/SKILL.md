@@ -1,7 +1,7 @@
 ---
 name: goal-management
 description: Manage durable goals, task progress, approvals, and completion.
-when_to_use: 'Explicit Goal requests, delegated or approved time-budgeted work, or managing existing Goals; not ordinary tasks, planning, estimates, deadlines, or round counts alone.'
+when_to_use: 'Explicit Goals or approved time-budgeted work; not ordinary tasks, plans, estimates, or deadlines.'
 dependencies:
   tools:
     - type: tool

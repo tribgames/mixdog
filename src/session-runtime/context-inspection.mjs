@@ -159,6 +159,16 @@ function readableContent(content) {
     .join('\n');
 }
 
+// Replay items are the provider-native copy of the same turn: the wire resends
+// them INSTEAD of content/toolCalls, so their text and tool-call blocks repeat
+// what the projected content already shows (user: 연속두번들어가는게 맞는건가).
+// Only their reasoning blocks add anything to the preview.
+const REPLAYED_CONTENT_TYPES = new Set(['text', 'tool_use', 'toolCall', 'message', 'function_call', 'output_text']);
+
+function replayReasoning(items) {
+  return items.filter((block) => !REPLAYED_CONTENT_TYPES.has(block?.type));
+}
+
 function messagePreview(message) {
   const parts = [readableContent(message.content)];
   if (message.toolCalls?.length) {
@@ -170,7 +180,7 @@ function messagePreview(message) {
     );
   }
   const reasoning = message.providerReplay?.items ?? message.thinkingBlocks ?? message.reasoningItems;
-  if (reasoning?.length) parts.push(readableContent(reasoning));
+  if (reasoning?.length) parts.push(readableContent(replayReasoning(reasoning)));
   return parts.filter(Boolean).join('\n\n');
 }
 
@@ -436,7 +446,9 @@ function toolDrafts(tools, deferredCatalogNames) {
   const toolShares = contextShares(toolWeights, schemaTokens);
   const drafts = tools.map((tool, index) => {
     const bucket = toolSchemaBucket(tool);
-    const category = ['mcp', 'agents', 'memory', 'skills'].includes(bucket) ? bucket : 'tools';
+    // The agent tool is a built-in schema like any other; its `agents` bucket
+    // must not file it under "Custom agents" (user: AGENT 도구가 분류가 이상하게).
+    const category = ['mcp', 'memory', 'skills'].includes(bucket) ? bucket : 'tools';
     const name = String(tool.name || '');
     let state = 'active';
     if (index < nativeCount) state = 'native';

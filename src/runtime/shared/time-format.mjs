@@ -118,9 +118,10 @@ export function formatLocalAndUtcTimestamp(value = new Date(), options = {}) {
   return `Local: ${parts.date} ${parts.time} ${parts.timeZone} (${parts.offset})\nUTC: ${parts.utc}`;
 }
 
+// Local minute plus offset: still unambiguous across zones and out of order,
+// without restating the same instant three ways (~78 chars → 23 per row).
 export function formatRecallTimestamp(value, options = {}) {
   const parts = localTimestampParts(value, options);
   if (!parts) return '';
-  const localMilliseconds = parts.utc.slice(20, 23);
-  return `${parts.date} ${parts.time}.${localMilliseconds} ${parts.timeZone} (${parts.offset}; UTC ${parts.utc.replace('T', ' ')})`;
+  return `${parts.date} ${parts.time.slice(0, 5)} ${parts.offset.replace(/^UTC/, '')}`;
 }

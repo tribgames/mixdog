@@ -21,6 +21,7 @@ const { createSession } = await import('./session-lifecycle.mjs');
 const { askSession } = await import('./ask-session.mjs');
 const { deleteSession, loadSession } = await import('../store.mjs');
 const { enqueuePendingMessage } = await import('./pending-messages.mjs');
+const { renderShellCompletionEnvelope } = await import('../../../../shared/task-notification-envelope.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
 const { SessionClosedError } = await import('./session-errors.mjs');
 const { modelToolSchemaAllowlist } = await import('../../../../../session-runtime/tool-profile.mjs');
@@ -122,6 +123,34 @@ test('a message queued while the turn runs becomes the next turn and its result 
     assert.equal(assistants.length, 2);
     const users = stored.messages.filter((m) => m.role === 'user');
     assert.match(String(users.at(-1).content), /and then this/);
+  });
+});
+
+test('a delivered task notification survives turn commit and the next provider request', async (t) => {
+  await withAskHarness(t, async ({ session, askSession, loadSession, sends }) => {
+    const notification = renderShellCompletionEnvelope({
+      jobId: 'task_history',
+      status: 'completed',
+      exitCode: 0,
+      summary: 'The background check passed.',
+    });
+    const pending = [{ mode: 'task-notification', content: notification }];
+
+    await askSession(session.id, 'Check the background result.', null, null, null, null, {
+      drainSteering: () => pending.splice(0),
+    });
+    const sentHistory = structuredClone(sends.at(-1).messages);
+    assert.ok(sentHistory.some((message) => message.content === notification));
+    const stored = loadSession(session.id);
+    const storedNotification = stored.messages.find((message) => message.meta?.source === 'task-notification');
+    assert.equal(storedNotification?.content, notification);
+    assert.equal(stored.messages.at(-1).content, 'answer');
+    assert.ok(stored._providerPrefixGuardState);
+
+    await askSession(session.id, 'Continue after the check.', null, null, null, null, {});
+    const nextRequest = sends.at(-1).messages;
+    assert.deepEqual(nextRequest.slice(0, sentHistory.length), sentHistory);
+    assert.match(String(nextRequest.findLast((message) => message.role === 'user').content), /Continue after the check\./);
   });
 });
 

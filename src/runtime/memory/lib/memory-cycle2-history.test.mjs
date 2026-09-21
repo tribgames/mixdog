@@ -256,6 +256,14 @@ test('review parser rejects importance verbs, foreign targets, duplicate IDs and
   );
 });
 
+test('review parser matches IDs the database and the model serialize as strings', () => {
+  const packet = { rows: [{ id: '2' }], candidates: new Map([[2, [{ older_id: '1' }]]]) };
+  const [verdict] = parseHistoryReview('[{"id":"2","action":"lineage","older_id":"1"}]', packet);
+  assert.equal(verdict.action, 'lineage');
+  assert.equal(verdict.row, packet.rows[0]);
+  assert.equal(verdict.prior.older_id, '1');
+});
+
 test('all parallel review calls settle before a failed packet returns', async () => {
   const rows = [{ id: 1 }, { id: 2 }];
   let release;

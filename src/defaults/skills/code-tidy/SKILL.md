@@ -1,7 +1,7 @@
 ---
 name: code-tidy
 description: Format, lint, apply structural rules, and clean up user-selected code with the tidy tool.
-when_to_use: 'Format, lint, tidy, simplify, deslop, or clean up user-selected code: remove AI slop, dead code, and needless complexity without changing behavior; not feature work, bug hunting, or adding formatter configs.'
+when_to_use: 'Tidy, format, lint, deslop, or clean up selected code, behavior unchanged; not features or bugs.'
 metadata:
   requires: tidy
 dependencies:

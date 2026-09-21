@@ -229,32 +229,25 @@ export function _findSymbolAcrossGraph(
   const rivalDecls = declHits.filter((h) => !typeDeclHits.includes(h));
   const declCount = rivalDecls.length;
   const typeFaces = typeDeclHits;
+  const summary = (hit) => hit.symbolSig || (hit.content || '').slice(0, 100);
   const lines = [];
   if (declCount > 1) {
     lines.push(`⚠ ${declCount} declarations found — verify which one you intend`);
-    for (const h of rivalDecls.slice(0, Math.max(1, limit))) {
-      lines.push(`  ${_formatSymbolHitLocation(h)} [${h.lang}]`);
-    }
-    if (declCount > limit) {
-      lines.push(`  ... ${declCount - limit} more declarations; narrow file or raise limit`);
-    }
     lines.push('');
   }
-  if (primary?.declarationLike) {
+  if (primary?.declarationLike && declCount <= 1) {
     lines.push(
       graph?.truncated
         ? '# best declaration candidate (GRAPH TRUNCATED — may not be canonical; re-run with a narrower cwd to confirm)'
         : '# best declaration candidate'
     );
-    const multi = declCount > 1 ? `, declarations=${declCount}` : '';
     const namePath = primary.namePath ? `, path=${primary.namePath}` : '';
     // Record facts first: the unified kind and the export marker describe WHAT
     // was found before the position describes where.
     const facts = _formatSymbolFacts(primary);
     lines.push(
-      `${_formatSymbolHitLocation(primary)} (${primary.lang}${facts ? `, ${facts}` : ''}, matches=${primary.matchCount}${multi}${namePath})`
+      `${_formatSymbolHitLocation(primary)} (${primary.lang}${facts ? `, ${facts}` : ''}, matches=${primary.matchCount}${namePath})`
     );
-    if (primary.symbolSig) lines.push(`signature: ${primary.symbolSig}`);
     let bodyEmitted = false;
     if (body === true && Number.isFinite(Number(primary.line))) {
       const node = graph.nodes.get(primary.rel);
@@ -270,33 +263,39 @@ export function _findSymbolAcrossGraph(
         bodyEmitted = true;
       }
     }
-    if (!bodyEmitted) {
-      if (primary.content) lines.push(primary.content.slice(0, 100));
-      if (Array.isArray(primary.context) && primary.context.length > 1) {
-        lines.push(`context: ${primary.context.slice(0, 2).join(' | ').slice(0, 120)}`);
-      }
+    if (!bodyEmitted && summary(primary)) {
+      lines.push(`${primary.symbolSig ? 'signature: ' : ''}${summary(primary)}`);
     }
-    if (declCount > 1) {
-      const others = rivalDecls.slice(1, 3).map((h) => `${_formatSymbolHitLocation(h)} [${h.lang}]`);
-      if (others.length) lines.push(`other declarations: ${others.join(', ')}`);
-    }
-    if (typeFaces.length) {
-      const faces = typeFaces.slice(0, 3).map((h) => `${_formatSymbolHitLocation(h)} [${h.lang}]`);
-      lines.push(`type declaration: ${faces.join(', ')}`);
-    }
-    if (hits.length > 1) lines.push('');
   }
-  if (hits.length > 1) lines.push('# candidates');
+  // Ambiguous declarations get one selection list, never an arbitrary body.
+  // Otherwise the primary and its type faces already have their own rows.
+  const candidates = declCount > 1
+    ? rivalDecls.slice(0, Math.max(1, limit))
+    : topHits.filter((hit) => (!primary?.declarationLike || hit !== primary) && !typeFaces.includes(hit));
+  if (candidates.length && hits.length > 1) {
+    if (lines.length && lines.at(-1) !== '') lines.push('');
+    lines.push('# candidates');
+  }
   lines.push(
-    ...(hits.length > 1 || !primary?.declarationLike ? topHits : []).map((hit, idx) => {
+    ...candidates.map((hit, idx) => {
       const kind = hit.declarationLike ? 'decl' : 'ref';
       const facts = _formatSymbolFacts(hit);
-      const suffix = hit.content ? ` — ${hit.content.slice(0, 100)}` : '';
+      const detail = declCount > 1 ? hit.symbolSig : summary(hit);
+      const suffix = detail ? ` — ${detail}` : '';
       const namePath = hit.namePath ? ` path=${hit.namePath}` : '';
       const number = hits.length > 1 ? `${idx + 1}. ` : '';
       return `${number}${_formatSymbolHitLocation(hit)} [${kind}${facts ? `, ${facts}` : ''}, ${hit.lang}, matches=${hit.matchCount}]${namePath}${suffix}`;
     })
   );
+  if (declCount > 1 && declCount > candidates.length) {
+    lines.push(`  ... ${declCount - candidates.length} more declarations; narrow file or raise limit`);
+  }
+  if (typeFaces.length) {
+    for (const hit of typeFaces.slice(0, 3)) {
+      const detail = summary(hit);
+      lines.push(`type declaration: ${_formatSymbolHitLocation(hit)} [${hit.lang}]${detail ? ` — ${detail}` : ''}`);
+    }
+  }
   if (declCount === 0 && hits.length > 0) {
     lines.push('');
     // "global/builtin" is a verdict about the whole graph, so it may only be
@@ -309,7 +308,7 @@ export function _findSymbolAcrossGraph(
         : `(no user declaration found; likely a global/builtin identifier — all ${hits.length} hits are references)`
     );
   }
-  if (graph?.truncated && !primary?.declarationLike) {
+  if (graph?.truncated && (!primary?.declarationLike || declCount > 1)) {
     lines.push(`WARN: graph truncated at CODE_GRAPH_MAX_FILES=${CODE_GRAPH_MAX_FILES} — some files not indexed`);
   }
   if (hits.length > 1 && relative(defaultCwd, cwd)) lines.push(`\n# scope: cwd=${cwd}`);

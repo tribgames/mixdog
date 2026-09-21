@@ -1,7 +1,7 @@
 ---
 name: setup
 description: Inspect or change persisted Mixdog settings through the built-in setup tool.
-when_to_use: 'Settings, models, workflows, MCP, plugins, skills, output style, or profile changes; not Mixdog code/builds/deployment.'
+when_to_use: 'Settings, models, workflows, MCP, plugins, skills, output style, profile changes; not Mixdog code.'
 dependencies:
   tools:
     - type: tool

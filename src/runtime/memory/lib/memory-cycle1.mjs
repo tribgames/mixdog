@@ -272,10 +272,13 @@ async function _runCycle1Impl(db, config = {}, options = {}, _dataDir = null) {
   const { rowsDesc, fetchMs } = await fetchCycle1Rows(db, plan);
   throwIfAborted(signal);
 
-  if (shouldQuickExit(pendingRowsAtStart, rawUnchunkedAtStart, plan.minBatch)) {
+  // Pending rows whose session is still active are not due yet (fetchCycle1Rows).
+  if (shouldQuickExit(pendingRowsAtStart, rawUnchunkedAtStart, plan.minBatch) || rowsDesc.length === 0) {
     const pendingLog = Number.isFinite(rawUnchunkedAtStart) ? rawUnchunkedAtStart : 'na';
     const eligibleLog = Number.isFinite(pendingRowsAtStart) ? pendingRowsAtStart : 'na';
-    __mixdogMemoryLog(`[cycle1] quick-exit pending=${pendingLog} eligible=${eligibleLog} min_batch=${plan.minBatch}\n`);
+    __mixdogMemoryLog(
+      `[cycle1] quick-exit pending=${pendingLog} eligible=${eligibleLog} due=${rowsDesc.length} min_batch=${plan.minBatch}\n`
+    );
     throwIfAborted(signal);
     flushEmbeddingDirty(db, { signal }).catch((err) =>
       __mixdogMemoryLog(`[cycle1] quick-exit embedding flush failed: ${err.message}\n`)

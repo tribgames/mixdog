@@ -1,7 +1,7 @@
 ---
 name: xlsx
 description: Create, edit, audit, or model a spreadsheet (.xlsx/.xlsm/.csv/.tsv) with the office tool.
-when_to_use: 'Create, edit, audit, or model Excel spreadsheets, CSV/TSV, formulas, or tabular data; not for Word or PDF.'
+when_to_use: 'Create, edit, audit, or model Excel/CSV/TSV spreadsheets, formulas, or tables; not Word or PDF.'
 metadata:
   requires: office
 dependencies:

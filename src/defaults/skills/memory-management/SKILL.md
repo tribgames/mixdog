@@ -1,7 +1,7 @@
 ---
 name: memory-management
 description: Inspect and curate approved standing user preferences and constraints.
-when_to_use: 'Manage standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'
+when_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'
 dependencies:
   tools:
     - type: tool

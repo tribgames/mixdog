@@ -15,12 +15,14 @@ export function cwdToProjectSlug(cwd) {
     .replace(/\//g, '-');
 }
 
-function conversationText(content) {
+// The prose of a message content field: a string, or the string and text
+// blocks of a block array (images and other media carry no transcript text).
+export function conversationText(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content
-    .filter((block) => block?.type === 'text' && typeof block.text === 'string')
-    .map((block) => block.text)
+    .map((block) => (typeof block === 'string' ? block : block?.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+    .filter(Boolean)
     .join('\n');
 }
 

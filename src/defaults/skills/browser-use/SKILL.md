@@ -1,7 +1,7 @@
 ---
 name: browser-use
 description: Drive the built-in browser tool (Mixdog Browser Use) on a live web page.
-when_to_use: 'Interactive pages, forms, sign-in, or web-app tests in the Mixdog browser; not URL text (web_fetch first) or external browser windows and native apps (computer-use).'
+when_to_use: 'Mixdog browser for interactive pages, forms, sign-in, web-app tests; not URL text or external apps.'
 metadata:
   requires: browser
 dependencies:

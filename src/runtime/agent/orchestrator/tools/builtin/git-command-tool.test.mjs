@@ -26,13 +26,32 @@ test('git line caps include blank lines, retain headers, and count all omissions
   assert.equal(commandResult(plan, result('a\nb\n'), 2).text, 'a\nb\n');
 });
 
-test('stage discovery annotates every edit group on its original hunk and retains raw body', () => {
+test('stage discovery lists every change independently of the body cap and retains raw body', () => {
   const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw: patch.trimEnd() });
   assert.equal(snapshot.changes.length, 2);
   const text = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 50).text;
-  assert.ok(text.includes(`@@ -1,3 +1,3 @@${snapshot.changes.map(({ id }) => ` # change:${id}`).join('')}\n`));
-  assert.equal(text.replace(/ # change:chg_[0-9a-f]{16}/g, ''), `${patch}diff_id: ${snapshot.diffId}`);
+  const manifest = `diff_id: ${snapshot.diffId}\n${snapshot.changes.map((change) =>
+    `change:${change.id} "a.txt" @@ -${change.old_start},1 +${change.new_start},1 @@`).join('\n')}`;
+  assert.equal(text, `${patch}${manifest}`);
   const capped = _gitCommandInternals.stageableDiffResult(plan, result(patch), snapshot, 4).text;
-  assert.doesNotMatch(capped, / # change:/);
-  assert.ok(capped.endsWith(`diff_id: ${snapshot.diffId}\n… [2 more changes omitted]`));
+  assert.equal(capped, `${patch.split('\n').slice(0, 4).join('\n')}\n... [6 more lines omitted; raise output_limit or narrow the command]\n${manifest}`);
+});
+
+test('a one-line body cap still lists edit groups, whole files and new files exactly once', () => {
+  const raw = `${patch}diff --git a/mode.txt b/mode.txt\nold mode 100644\nnew mode 100755\n`
+    + 'diff --git a/new file.txt b/new file.txt\nnew file mode 100644\n--- /dev/null\n+++ b/new file.txt\t\n@@ -0,0 +1 @@\n+new\n';
+  const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw });
+  assert.equal(snapshot.changes.length, 4);
+  const text = _gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 1).text;
+  const ids = [...text.matchAll(/^change:(chg_[0-9a-f]{16}) /gm)].map((match) => match[1]);
+  assert.deepEqual(ids, snapshot.changes.map(({ id }) => id));
+  assert.match(text, /"mode.txt" file/);
+  assert.match(text, /"new file.txt" new_file/);
+  assert.doesNotMatch(text, /changes omitted/);
+});
+
+test('a diff with no selectable changes has no staging metadata', () => {
+  const raw = 'diff --git a/a.bin b/a.bin\nBinary files a/a.bin and b/a.bin differ\n';
+  const snapshot = createDiffSnapshot({ repo: process.cwd(), scope: process.cwd(), plan, argv: ['diff'], raw });
+  assert.equal(_gitCommandInternals.stageableDiffResult(plan, result(raw), snapshot, 50).text, raw);
 });
