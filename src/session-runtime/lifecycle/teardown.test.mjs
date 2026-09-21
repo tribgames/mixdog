@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createTeardown } from './teardown.mjs';
 
-function fixture({ session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] } } = {}) {
+function fixture({ session = { id: 's1', messages: [{ role: 'user', content: 'hi' }] }, flushConfig } = {}) {
   const calls = [];
   const state = { session, closeRequested: false };
   const record =
@@ -44,7 +44,7 @@ function fixture({ session = { id: 's1', messages: [{ role: 'user', content: 'hi
     mcpClient: { disconnectAll: record('mcp.disconnectAll') },
     warmupTimers: { providerWarmupTimer: setTimeout(() => {}, 60_000) },
     prewarmTimers: { channelStartTimer: setTimeout(() => {}, 60_000) },
-    flushAllConfigSavesAsync: async () => calls.push(['flushConfig']),
+    flushAllConfigSavesAsync: flushConfig || (async () => calls.push(['flushConfig'])),
     withTeardownDeadline: async (work) => await work,
     closePatchRuntimeIfLoaded: (...args) => {
       calls.push(['closePatchRuntime', ...args]);
@@ -160,6 +160,28 @@ test('closeCanonicalSession plants the tombstone barrier without whole-process t
   assert.equal(attached.teardown.closeCanonicalSession(), false);
   attached.cleanup();
   f.cleanup();
+});
+
+test('a config flush failure at teardown is reported instead of silently losing the write', async () => {
+  const f = fixture({
+    flushConfig: async () => {
+      throw new Error('config lock busy');
+    },
+  });
+  const warnings = [];
+  const onWarning = (warning) => warnings.push(warning);
+  process.on('warning', onWarning);
+  try {
+    assert.equal(await f.teardown.close('cli-exit'), true, 'teardown still completes');
+    await new Promise((resolve) => setImmediate(resolve));
+    const flushWarnings = warnings.filter((warning) => warning.code === 'TEARDOWN_CONFIG_FLUSH_FAILED');
+    assert.equal(flushWarnings.length, 1);
+    assert.match(flushWarnings[0].message, /config lock busy/);
+    assert.deepEqual(f.named('closeSurfaceSession'), [['closeSurfaceSession', 's1', 'cli-exit', { tombstone: false }]]);
+  } finally {
+    process.off('warning', onWarning);
+    f.cleanup();
+  }
 });
 
 test('abort reports whether the outer turn or the manager turn was aborted', () => {

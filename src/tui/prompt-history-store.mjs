@@ -263,12 +263,3 @@ export function appendPromptHistory(cwd, value) {
   else scheduleWriteBehind(filePath);
   return trimmed;
 }
-
-export function promptHistoryStoreStatsForTest() {
-  return {
-    cacheEntries: memCache.size,
-    pendingEntries: pendingAppends.size,
-    timerEntries: pendingTimers.size,
-    cacheLimit: PROMPT_HISTORY_CACHE_LIMIT,
-  };
-}

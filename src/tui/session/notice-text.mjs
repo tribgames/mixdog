@@ -1,6 +1,8 @@
 /**
  * src/tui/session/notice-text.mjs - polish user-facing failure/notice text.
  */
+// Keyed by the lowercased action: `polishNoticeAction` looks the action up
+// directly instead of scanning the table once per notice.
 const FAILED_NOTICE_ACTIONS = new Map([
   ['api key save', 'save API key'],
   ['auth-forget', 'forget auth'],
@@ -32,10 +34,10 @@ const FAILED_NOTICE_ACTIONS = new Map([
   ['oauth code', 'finish OAuth login'],
   ['oauth login', 'start OAuth login'],
   ['output style switch', 'switch output style'],
-  ['OpenAI usage auth save', 'save OpenAI usage auth'],
-  ['OpenCode Go usage auth save', 'save OpenCode Go usage auth'],
+  ['openai usage auth save', 'save OpenAI usage auth'],
+  ['opencode go usage auth save', 'save OpenCode Go usage auth'],
   ['plugin add', 'add plugin'],
-  ['plugin MCP enable', 'enable plugin MCP'],
+  ['plugin mcp enable', 'enable plugin MCP'],
   ['plugin uninstall', 'uninstall plugin'],
   ['plugin update', 'update plugin'],
   ['plugins status', 'load plugins'],
@@ -53,24 +55,26 @@ const FAILED_NOTICE_ACTIONS = new Map([
   ['workflow switch', 'switch workflow'],
 ]);
 
+// Fallback for an action outside the table: "<subject> <verb>" reads as
+// "<verb> <subject>".
+const FAILED_NOTICE_SUFFIXES = [
+  [' save', 'save'],
+  [' switch', 'switch'],
+  [' update', 'update'],
+  [' toggle', 'toggle'],
+  [' reconnect', 'reconnect'],
+  [' enable', 'enable'],
+  [' uninstall', 'uninstall'],
+  [' add', 'add'],
+];
+
 function polishNoticeAction(action) {
   const value = String(action || '').trim();
   if (!value) return 'finish';
   const key = value.toLowerCase();
-  for (const [candidate, replacement] of FAILED_NOTICE_ACTIONS.entries()) {
-    if (candidate.toLowerCase() === key) return replacement;
-  }
-  const suffixes = [
-    [' save', 'save'],
-    [' switch', 'switch'],
-    [' update', 'update'],
-    [' toggle', 'toggle'],
-    [' reconnect', 'reconnect'],
-    [' enable', 'enable'],
-    [' uninstall', 'uninstall'],
-    [' add', 'add'],
-  ];
-  for (const [suffix, verb] of suffixes) {
+  const known = FAILED_NOTICE_ACTIONS.get(key);
+  if (known) return known;
+  for (const [suffix, verb] of FAILED_NOTICE_SUFFIXES) {
     if (!key.endsWith(suffix)) continue;
     const subject = value.slice(0, -suffix.length).trim();
     return subject ? `${verb} ${subject}` : verb;

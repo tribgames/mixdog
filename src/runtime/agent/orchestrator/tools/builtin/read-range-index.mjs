@@ -251,6 +251,13 @@ export async function sweepStaleReadRangeIndexes(directory = READ_RANGE_INDEX_DI
   await Promise.all(Array.from({ length: Math.min(READ_RANGE_INDEX_SWEEP_CONCURRENCY, entries.length) }, worker));
 }
 
+// Re-insert so the entry moves to the LRU tail, then hand it back.
+function refreshReadRangeIndexSlot(key, index) {
+  READ_RANGE_INDEX_CACHE.delete(key);
+  READ_RANGE_INDEX_CACHE.set(key, index);
+  return index;
+}
+
 // A supplied handle is borrowed; validation never changes its position or closes it.
 export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffer = null) {
   if (!st) return null;
@@ -265,20 +272,10 @@ export async function getReadRangeIndex(fullPath, st, handle = null, prefixBuffe
     // When prefixHash is empty (e.g. a freshly-created index that no
     // streaming read has populated yet) keep the prior stat-only
     // behavior so genuinely unchanged files are not re-walked.
-    if (cached.prefixHash) {
-      const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
-      if (!cur || cur !== cached.prefixHash) {
-        READ_RANGE_INDEX_CACHE.delete(key);
-      } else {
-        READ_RANGE_INDEX_CACHE.delete(key);
-        READ_RANGE_INDEX_CACHE.set(key, cached);
-        return cached;
-      }
-    } else {
-      READ_RANGE_INDEX_CACHE.delete(key);
-      READ_RANGE_INDEX_CACHE.set(key, cached);
-      return cached;
-    }
+    if (!cached.prefixHash) return refreshReadRangeIndexSlot(key, cached);
+    const cur = await computePrefixHashForIndex(fullPath, st, handle, prefixBuffer);
+    if (cur && cur === cached.prefixHash) return refreshReadRangeIndexSlot(key, cached);
+    READ_RANGE_INDEX_CACHE.delete(key);
   }
   const loaded = await loadReadRangeIndexFromDisk(fullPath, st, handle, prefixBuffer);
   if (loaded) {

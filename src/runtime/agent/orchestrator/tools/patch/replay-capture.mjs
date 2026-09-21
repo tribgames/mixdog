@@ -7,8 +7,7 @@ import { getPluginData } from '../../config.mjs';
 import { isResolvedPathOutsideBase } from './paths.mjs';
 
 function patchReplayDir() {
-  const base = process.env.MIXDOG_PATCH_REPLAY_DIR || pathJoin(getPluginDataDir(), 'history', 'patch-replays');
-  return base;
+  return process.env.MIXDOG_PATCH_REPLAY_DIR || pathJoin(getPluginDataDir(), 'history', 'patch-replays');
 }
 
 function getPluginDataDir() {
@@ -20,7 +19,7 @@ function getPluginDataDir() {
   return process.env.MIXDOG_DATA_DIR || pathJoin(process.env.USERPROFILE || process.env.HOME || '.', '.mixdog', 'data');
 }
 
-function patchTargetPaths(patchStr, _basePath) {
+function patchTargetPaths(patchStr) {
   const text = String(patchStr || '');
   const out = [];
   for (const m of text.matchAll(/^\*\*\* (?:Update|Add|Delete) File:\s*(.+)$/gm)) {
@@ -65,7 +64,7 @@ export function preparePatchReplayCapture(args, cwd, options = {}) {
         fuzzy: args?.fuzzy ?? null,
         reject_partial: args?.reject_partial ?? null,
       },
-      targets: patchTargetPaths(patchStr, basePath),
+      targets: patchTargetPaths(patchStr),
       fileSnapshots: null,
       snapshotPhase: null,
       sessionId: options?.sessionId || null,
@@ -168,10 +167,10 @@ export function maybeCapturePatchReplay(capture, errorText) {
     // Retention: keep the newest 40 captures. The id prefix is Date.now() in
     // base36 (fixed width until ~2059), so a lexicographic sort is
     // chronological and the oldest records sort first.
-    const _kept = readdirSync(dir)
+    const kept = readdirSync(dir)
       .filter((f) => f.endsWith('.json'))
       .sort();
-    for (const stale of _kept.slice(0, Math.max(0, _kept.length - 40))) {
+    for (const stale of kept.slice(0, Math.max(0, kept.length - 40))) {
       try {
         rmSync(pathJoin(dir, stale), { force: true });
       } catch {

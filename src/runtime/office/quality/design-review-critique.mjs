@@ -2,6 +2,7 @@
 // plan-derived checks per slide) and the acknowledgement gate finalize reads.
 import { strings } from '../design/design-tokens.mjs';
 import { plainObject } from '../shared/values.mjs';
+import { issue } from './assurance-issue.mjs';
 
 // The five axes a slide is scored on (1-5 each); the pptx skill §6 names them.
 const PPTX_CRITIQUE_AXES = Object.freeze(['hierarchy', 'balance', 'legibility', 'cohesion', 'evidence']);
@@ -30,13 +31,14 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
     if (!plainObject(raw)) continue;
     const slide = Number(raw.slide);
     if (!Number.isInteger(slide) || slide < 1 || slide > total || bySlide.has(slide)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_invalid_slide',
-        path: '/',
-        message: `Visual critique has an invalid or duplicate slide index: ${raw.slide}`,
-        source: 'visual-critique',
-      });
+      issues.push(
+        issue(
+          'visual_critique_invalid_slide',
+          '/',
+          `Visual critique has an invalid or duplicate slide index: ${raw.slide}`,
+          'visual-critique'
+        )
+      );
       continue;
     }
     const scores = Object.fromEntries(PPTX_CRITIQUE_AXES.map((axis) => [axis, Number(raw[axis])]));
@@ -66,39 +68,42 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
     entries.push(entry);
     bySlide.set(slide, entry);
     if (!validScores || note.length < 40 || (requireChecks && checks.length < MIN_CHECKS)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_incomplete',
-        path: `/slide[${slide}]`,
-        message: requireChecks
-          ? `Visual critique requires five integer scores from 1-5, a slide-specific note of at least 40 characters, and at least ${MIN_CHECKS} checks ({ item, pass }) derived from the slide's plan line.`
-          : 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
-        source: 'visual-critique',
-      });
+      issues.push(
+        issue(
+          'visual_critique_incomplete',
+          `/slide[${slide}]`,
+          requireChecks
+            ? `Visual critique requires five integer scores from 1-5, a slide-specific note of at least 40 characters, and at least ${MIN_CHECKS} checks ({ item, pass }) derived from the slide's plan line.`
+            : 'Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.',
+          'visual-critique'
+        )
+      );
     } else if (
       verdict !== 'pass' ||
       fixes.length ||
       gatedAxes.some((axis) => scores[axis] < 4) ||
       checks.some((check) => !check.pass)
     ) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_needs_polish',
-        path: `/slide[${slide}]`,
-        message: `Slide ${slide} still needs polish before finalization.`,
-        source: 'visual-critique',
-      });
+      issues.push(
+        issue(
+          'visual_critique_needs_polish',
+          `/slide[${slide}]`,
+          `Slide ${slide} still needs polish before finalization.`,
+          'visual-critique'
+        )
+      );
     }
   }
   for (let slide = 1; slide <= total; slide += 1) {
     if (!bySlide.has(slide)) {
-      issues.push({
-        severity: 'warning',
-        code: 'visual_critique_missing_slide',
-        path: `/slide[${slide}]`,
-        message: `Slide ${slide} has no visual critique.`,
-        source: 'visual-critique',
-      });
+      issues.push(
+        issue(
+          'visual_critique_missing_slide',
+          `/slide[${slide}]`,
+          `Slide ${slide} has no visual critique.`,
+          'visual-critique'
+        )
+      );
     }
   }
   // A template answer is not a review: one sentence with the slide number swapped
@@ -129,13 +134,7 @@ export function reviewPptxVisualCritique({ critique = [], pageCount = 0, require
     } else if (repeatedNotes) {
       message = 'Each slide needs a distinct visual critique note; changing only the slide number is the same note.';
     }
-    issues.push({
-      severity: 'warning',
-      code: 'visual_critique_repeated_note',
-      path: '/',
-      message,
-      source: 'visual-critique',
-    });
+    issues.push(issue('visual_critique_repeated_note', '/', message, 'visual-critique'));
   }
   return {
     ok: total > 0 && issues.length === 0,

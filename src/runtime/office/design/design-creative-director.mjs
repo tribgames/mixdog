@@ -3,7 +3,7 @@ import { compact, plainObject } from '../shared/values.mjs';
 
 // Decks are authored as scripts (pptx skill); the director briefs the Word and
 // Excel composers only.
-const COMPOSE_OPERATION = Object.freeze({
+export const COMPOSE_OPERATION = Object.freeze({
   docx: 'compose_document',
   xlsx: 'compose_sheet',
 });

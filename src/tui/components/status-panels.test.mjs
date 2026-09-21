@@ -283,3 +283,31 @@ test('statusline retains measured context, cached quotas, route updates and stal
   assert.doesNotMatch(view.text(), /STALE FOOTER/);
   assert.ok(view.text().split('\n').length <= 2);
 });
+
+// The instant-local L2 reads the SAME activeTools keys the producers publish
+// (`web_search`, from session/active-tool-summary and app/use-transcript-activity)
+// and renders only segments the async full render also has — any other key
+// blinks in or out around every local snap.
+const activeToolsBase = {
+  sessionId: 'status-panels-active-tools',
+  provider: 'openai',
+  model: 'model-one',
+  stats: { currentContextTokens: 400, currentContextSource: 'last_api_request' },
+  contextWindow: 1000,
+};
+
+test('the instant-local L2 renders the web-search segment from the published activeTools key', async (context) => {
+  globalThis[backendKey] = () => 'FULL local │ 5H 17%';
+  context.after(() => delete globalThis[backendKey]);
+  const view = mountPanel(context);
+  const activeTools = { web_search: { count: 1, startedAt: Date.now() - 3000 } };
+  assert.match(await view.show(panels.StatusLine, { ...activeToolsBase, activeTools }), /Web Searching/);
+});
+
+test('the instant-local L2 renders no segment for an activeTools key no producer publishes', async (context) => {
+  globalThis[backendKey] = () => 'FULL local │ 5H 17%';
+  context.after(() => delete globalThis[backendKey]);
+  const view = mountPanel(context);
+  const activeTools = { explore: { count: 2, startedAt: Date.now() - 3000 } };
+  assert.doesNotMatch(await view.show(panels.StatusLine, { ...activeToolsBase, activeTools }), /Exploring/);
+});

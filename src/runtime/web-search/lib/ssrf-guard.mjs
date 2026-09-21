@@ -79,8 +79,13 @@ export function assertPublicUrl(url) {
 
   // Strip the brackets that WHATWG URL retains around IPv6 hostnames, then
   // apply the same IPv6 rules the resolver path uses; the original hostname
-  // stays the reported one.
-  _validateIpv6(hostname.startsWith('[') ? hostname.slice(1, -1) : hostname, hostname);
+  // stays the reported one. The rules are ADDRESS rules, so they run only on
+  // an actual IPv6 literal: a DNS name is not an address, and prefix-matching
+  // it blocked ordinary public domains (ffmpeg.org, fdroid.org) on their
+  // leading hex-looking letters. A name's real addresses are validated where
+  // they are learned — resolveAndValidate/_validateIpv6 on every A/AAAA record.
+  const bare = _bareHost(hostname);
+  if (net.isIPv6(bare)) _validateIpv6(bare, hostname);
 }
 
 /** The IPv6 block rules, shared by URL validation and resolver output.

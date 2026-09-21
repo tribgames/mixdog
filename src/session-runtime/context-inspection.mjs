@@ -516,15 +516,32 @@ function entryPreview(drafts, options, revision) {
   return { id: entry.id, text: text.slice(0, PREVIEW_LIMIT), truncated: text.length > PREVIEW_LIMIT, stale: false };
 }
 
-export function inspectContext(
-  { sessionId, provider, model, messages, tools, overheadTokens = 0, coverage = null, deferredCatalogNames = null },
-  options = {}
-) {
-  const revision = createHash('sha256')
+// The identity of one reading: the same inputs produce the same entry ids.
+// Computed from the caller's own arrays so the transcript/tool signature memos
+// hit, which is what lets a repeated read recognize a reading it already built.
+export function inspectionRevision({ sessionId, provider, model, messages, tools }) {
+  return createHash('sha256')
     .update(
       JSON.stringify([sessionId, provider, model, contextMessagesSignature(messages), toolSchemaSignature(tools)])
     )
     .digest('hex');
+}
+
+// Price the whole transcript and tool surface ONCE. Previews stay as closures
+// on the drafts, so a caller that keeps this build answers entry previews
+// without re-pricing anything (user: 컨텍스트창 로딩이 심하지).
+export function buildContextInspection({
+  sessionId,
+  provider,
+  model,
+  messages,
+  tools,
+  overheadTokens = 0,
+  coverage = null,
+  deferredCatalogNames = null,
+  revision = '',
+}) {
+  const readingRevision = revision || inspectionRevision({ sessionId, provider, model, messages, tools });
   const drafts = messageDrafts(messages);
   const toolSurface = toolDrafts(tools, deferredCatalogNames);
   drafts.push(...toolSurface.drafts);
@@ -550,13 +567,25 @@ export function inspectContext(
       count: children.length,
     };
   });
-  const result = {
-    revision,
-    categories,
-    entries,
-    calibration,
-    estimatedTokens: categories.reduce((sum, row) => sum + row.tokens, 0),
+  return {
+    revision: readingRevision,
+    drafts,
+    result: {
+      revision: readingRevision,
+      categories,
+      entries,
+      calibration,
+      estimatedTokens: categories.reduce((sum, row) => sum + row.tokens, 0),
+    },
   };
-  if (options.entryId !== undefined) result.preview = entryPreview(drafts, options, revision);
-  return result;
+}
+
+/** Answer one request from an already built reading. */
+export function readContextInspection(built, options = {}) {
+  if (options.entryId === undefined) return built.result;
+  return { ...built.result, preview: entryPreview(built.drafts, options, built.revision) };
+}
+
+export function inspectContext(input, options = {}) {
+  return readContextInspection(buildContextInspection(input), options);
 }

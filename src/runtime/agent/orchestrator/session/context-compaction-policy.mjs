@@ -82,9 +82,10 @@ export function compactionBufferTokensForBoundary(boundaryTokens, opts = {}) {
   const ratio = normalizeCompactionBufferRatio(opts.ratio, DEFAULT_COMPACTION_BUFFER_RATIO);
   return Math.max(0, Math.min(Math.floor(boundary * ratio), cap));
 }
-export function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
-  const boundary = positiveInt(boundaryTokens);
-  if (!boundary) return false;
+// Shared precondition of both buffer-telemetry predicates: a real boundary,
+// and a buffer that no env override and no percent/fraction field set.
+function bufferTelemetryBaseline(cfg, boundaryTokens) {
+  if (!positiveInt(boundaryTokens)) return false;
   if (envPositiveInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
   for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
     const n = Number(process.env[envName]);
@@ -94,23 +95,18 @@ export function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
     const n = Number(cfg?.[key]);
     if (Number.isFinite(n) && n > 0) return false;
   }
+  return true;
+}
+export function isPersistedZeroBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+  if (!bufferTelemetryBaseline(cfg, boundaryTokens)) return false;
   const ratio = Number(cfg?.bufferRatio);
   if (Number.isFinite(ratio) && ratio > 0) return false;
   const explicitTokens = Number(cfg?.bufferTokens ?? cfg?.buffer);
   return Number.isFinite(explicitTokens) && explicitTokens === 0;
 }
 export function isLegacyDefaultBufferTelemetry(cfg = {}, boundaryTokens = 0) {
+  if (!bufferTelemetryBaseline(cfg, boundaryTokens)) return false;
   const boundary = positiveInt(boundaryTokens);
-  if (!boundary) return false;
-  if (envPositiveInt('MIXDOG_AGENT_COMPACT_BUFFER_TOKENS')) return false;
-  for (const envName of ['MIXDOG_AGENT_COMPACT_BUFFER_PERCENT', 'MIXDOG_AGENT_COMPACT_BUFFER_RATIO']) {
-    const n = Number(process.env[envName]);
-    if (Number.isFinite(n) && n > 0) return false;
-  }
-  for (const key of ['bufferPercent', 'bufferPct', 'bufferFraction']) {
-    const n = Number(cfg?.[key]);
-    if (Number.isFinite(n) && n > 0) return false;
-  }
   const explicitTokens = positiveInt(cfg?.bufferTokens ?? cfg?.buffer);
   const ratio = Number(cfg?.bufferRatio);
   if (!explicitTokens || !Number.isFinite(ratio) || Math.abs(ratio - LEGACY_DEFAULT_COMPACTION_BUFFER_RATIO) > 1e-9)

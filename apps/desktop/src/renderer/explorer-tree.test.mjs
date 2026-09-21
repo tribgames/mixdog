@@ -210,6 +210,31 @@ test('F2 opens the inline rename with the basename pre-selected and Escape resto
   assert.ok(rowFor('report.txt'));
 });
 
+// The multi-select delete label must stay a catalog key: an interpolated
+// literal ("Delete 2 items") matches no key and renders untranslated.
+test('the multi-select delete menu item resolves through the translation catalog', async (t) => {
+  const i18n = (await import('./i18n')).default;
+  i18n.addResourceBundle('en', 'translation', { 'Delete {{name}}': 'Discard {{name}}' }, true, true);
+  t.after(() => i18n.addResourceBundle('en', 'translation', { 'Delete {{name}}': 'Delete {{name}}' }, true, true));
+  const view = fixture(t, {
+    listings: {
+      '': [
+        { name: 'a.txt', dir: false },
+        { name: 'b.txt', dir: false },
+      ],
+    },
+  });
+  await view.render();
+  await click(rowFor('a.txt'));
+  const mouse = (element, type, init) =>
+    act(async () => element.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, ...init })));
+  await mouse(rowFor('b.txt'), 'click', { ctrlKey: true });
+  await mouse(rowFor('b.txt'), 'contextmenu');
+
+  const remove = document.querySelector('.dock-file-menu button.danger span');
+  assert.equal(remove.textContent, 'Discard 2 items');
+});
+
 test('a nested new name creates the entry, expands each folder it introduced and opens the file', async (t) => {
   const listings = { '': [] };
   const created = [];

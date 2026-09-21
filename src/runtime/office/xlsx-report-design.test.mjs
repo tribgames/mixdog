@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import JSZip from 'jszip';
 import { readFile } from 'node:fs/promises';
 import { executeOfficeTool } from './index.mjs';
-import { contentPrintArea } from './portable/portable-sheet-page.mjs';
+import { contentPrintArea, fitDrawingSheetOnePageWide } from './portable/portable-sheet-page.mjs';
 import { value, workspace } from './office-test-support.mjs';
 
 test('report composition preserves equal category emphasis and writes each insight once', async (t) => {
@@ -41,6 +41,18 @@ test('report composition preserves equal category emphasis and writes each insig
   assert.equal(Boolean(cake.style?.bold), Boolean(coffee.style?.bold));
   assert.equal(cake.style?.fillColor, coffee.style?.fillColor);
   assert.equal(cells.filter((cell) => String(cell.value || '').includes('Illustrative operating data.')).length, 1);
+});
+
+// A sheet can carry its page setup as a paired <pageSetup …></pageSetup>, and
+// the section match then ended at the closing tag: appending the fit there
+// wrote </pageSetup fitToWidth="1" …/> and the part stopped being XML.
+test('the one-page-wide fit writes onto a paired pageSetup element, not its closing tag', () => {
+  const fitted = fitDrawingSheetOnePageWide(
+    '<worksheet><sheetData/><pageSetup orientation="landscape" r:id="rId1"></pageSetup></worksheet>'
+  );
+  assert.equal(fitted.applied, true);
+  assert.match(fitted.xml, /<pageSetup orientation="landscape" r:id="rId1" fitToWidth="1" fitToHeight="0"\/>/);
+  assert.doesNotMatch(fitted.xml, /<\/pageSetup[^>]/);
 });
 
 test('portable pie charts persist distinct category colors and page setup includes late drawings', async (t) => {

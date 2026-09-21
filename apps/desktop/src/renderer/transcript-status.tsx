@@ -261,7 +261,16 @@ export function LiveActivity({
   const activity = spinner || command;
   const optimisticActivity = !activity && optimisticStartedAt > 0;
   const [, setNow] = useState(Date.now());
-  const startedAt = Number(activity?.startedAt || (optimisticActivity ? optimisticStartedAt : 0));
+  const activityStartedAt = Number(activity?.startedAt || 0);
+  const submitStartedAt = optimisticStartedAt > 0 ? optimisticStartedAt : 0;
+  // The submit clock starts before the spinner exists. Keep that first
+  // timestamp for this mounted row; a later spinner.startedAt must not zero it.
+  const clockRef = useRef(0);
+  let earliest = 0;
+  if (activityStartedAt > 0) earliest = activityStartedAt;
+  if (submitStartedAt > 0 && (earliest === 0 || submitStartedAt < earliest)) earliest = submitStartedAt;
+  if (earliest > 0 && (clockRef.current === 0 || earliest < clockRef.current)) clockRef.current = earliest;
+  const startedAt = clockRef.current;
   // Keep the first timestamp for a turn so thinking/tool/response transitions
   // do not restart the phrase rotation.
   const anchorRef = useRef(0);
@@ -269,19 +278,20 @@ export function LiveActivity({
   const pauseTurnRef = useRef(0);
   const pausedTotalRef = useRef(0);
   const pauseStartRef = useRef(0);
+  const clockPaused = String(activity?.mode || '') === 'resuming';
   useEffect(() => {
-    if (!activity || !startedAt) return undefined;
+    if (!startedAt || clockPaused) return undefined;
     setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [activity, startedAt]);
-  if (!activity && !optimisticActivity && !snapshot.thinking) {
+  }, [clockPaused, startedAt]);
+  if (!activity && !optimisticActivity && !snapshot.thinking && !startedAt) {
     anchorRef.current = 0;
     return null;
   }
   let fallbackMode = 'responding';
   if (snapshot.thinking) fallbackMode = 'thinking';
-  else if (optimisticActivity) fallbackMode = 'requesting';
+  else if (optimisticActivity || !activity) fallbackMode = 'requesting';
   const mode = String(activity?.mode || fallbackMode);
   if (mode === 'resuming') {
     anchorRef.current = 0;

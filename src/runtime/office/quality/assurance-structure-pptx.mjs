@@ -1,6 +1,6 @@
 // Slide structure review: type hierarchy, alignment axes, peers, text walls
 // and collisions.
-import { fontFamilyKey, isMotifShape } from '../design/design-discipline.mjs';
+import { fontFamilyKey, isMotifShape, isPictureShape } from '../design/design-discipline.mjs';
 import { annotatePptxSnapshotRoles } from '../design/library/design-template-induct.mjs';
 import { issue } from './assurance-issue.mjs';
 
@@ -143,10 +143,11 @@ const PPTX_AXIS_SNAP_PT = 1;
 const PPTX_AXIS_DRIFT_PT = 6;
 // The kit's icon bands: glyph 0.3 in, marker 0.45 in (kit.md §5) — a picture that small is a mark inside a unit.
 const PPTX_INLINE_ICON_PT = 36;
-// A picture is `p:pic` in the portable snapshot and msoPicture (13) in the COM one (pptx-receipt.mjs isPicture);
-// PowerPoint reports a picture that carries an SVG source (the kit's icons) as msoGraphic (28).
+// A picture is `p:pic` in the portable snapshot and msoPicture (13) in the COM one, which the snapshot-aware
+// isPptxPicture below reads; PowerPoint reports a picture that carries an SVG source (the kit's icons) as
+// msoGraphic (28), a kind no other review counts as a picture.
 const isPptxInlineIcon = (shape) =>
-  (shape.picture || shape.image || shape.type === 'p:pic' || Number(shape.type) === 13 || Number(shape.type) === 28) &&
+  (isPptxPicture(shape) || Number(shape.type) === 28) &&
   Math.max(Number(shape.width) || 0, Number(shape.height) || 0) <= PPTX_INLINE_ICON_PT;
 const PPTX_AXIS_MEMBERS = 2;
 const PPTX_AXIS_REPORTS_PER_SLIDE = 3;
@@ -335,8 +336,10 @@ const TEXT_OCCLUSION_SHARE = 0.25;
 // in each other's space.
 const PPTX_TEXT_COLLISION_PT = 4;
 
+// A structure review also reads the snapshot's own picture fields, which the
+// shared kind predicate knows nothing about.
 function isPptxPicture(shape) {
-  return Boolean(shape?.picture || shape?.image || shape?.type === 'p:pic' || Number(shape?.type) === 13);
+  return Boolean(shape?.picture || shape?.image || isPictureShape(shape));
 }
 
 // The kit signs the glow it draws under a hero object; it is a gradient that ends at zero alpha, not a plane.
@@ -453,7 +456,7 @@ function reviewPptxTextWall(slide, width, height, issues) {
   const shapes = slide.shapes || [];
   // A chart, table, picture, or group carries the page instead of the words.
   if (!width || !height) return;
-  if (shapes.some((shape) => shape.chart || shape.table || shape.group || shape.type === 'p:pic')) return;
+  if (shapes.some((shape) => shape.chart || shape.table || shape.group || isPptxPicture(shape))) return;
   let chars = 0;
   let area = 0;
   for (const shape of shapes) {

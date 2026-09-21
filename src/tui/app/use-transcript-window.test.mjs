@@ -9,13 +9,34 @@ import {
   estimateTranscriptItemRowsCached,
   hasStreamingRowStateToPrune,
   pruneStreamingMeasuredRowsById,
+  selectionRectIsDegenerate,
+  statusBandRowRange,
   transcriptRowAt,
+  transcriptViewportRowRange,
   upperBound,
 } from './transcript-window.mjs';
 import { estimateTranscriptItemRows } from './transcript-row-estimate.mjs';
 
 const VIEW_ROWS = 6;
 const COLUMNS = 40;
+
+// The selection geometry every reader shares: the empty-rect predicate and the
+// two row ranges (transcript viewport, bottom status band).
+test('shared selection geometry normalizes both row ranges and the empty rect', () => {
+  assert.equal(selectionRectIsDegenerate({ x1: 3, y1: 4, x2: 3, y2: 4 }), true);
+  assert.equal(selectionRectIsDegenerate({ x1: 3, y1: 4, x2: 4, y2: 4 }), false);
+  assert.equal(selectionRectIsDegenerate({ x1: 3, y1: 4, x2: 3, y2: 5 }), false);
+
+  assert.deepEqual(transcriptViewportRowRange({ top: 2, bottom: 9 }), { top: 2, bottom: 9 });
+  assert.deepEqual(transcriptViewportRowRange({ top: -4, bottom: 3 }), { top: 0, bottom: 3 });
+  assert.deepEqual(transcriptViewportRowRange({ top: 7, bottom: 2 }), { top: 7, bottom: 7 });
+  assert.deepEqual(transcriptViewportRowRange(undefined), { top: 0, bottom: 0 });
+
+  assert.deepEqual(statusBandRowRange(24, 2), { top: 22, bottom: 23 });
+  assert.deepEqual(statusBandRowRange(0, 2), { top: 22, bottom: 23 }, 'a missing frame height means 24 rows');
+  assert.deepEqual(statusBandRowRange(3, 8), { top: 0, bottom: 2 });
+  assert.deepEqual(statusBandRowRange(1, 2), { top: 0, bottom: 0 });
+});
 
 function makeItems(count) {
   return Array.from({ length: count }, (_, index) => ({ id: `u${index}`, kind: 'user', text: `line ${index}` }));

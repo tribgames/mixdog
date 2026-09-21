@@ -20,7 +20,12 @@ import { displayLineForRead } from './read-lines.mjs';
 import { readLargeHeadWindowSync, readLargeTailWindowSync } from './read-windows.mjs';
 import { mergeReadRanges } from './read-ranges.mjs';
 import { hashText } from './hash-utils.mjs';
-import { getReadRangeIndex, nearestReadRangeAnchor, scheduleReadRangeIndexPersist } from './read-range-index.mjs';
+import {
+  getReadRangeIndex,
+  maybeRecordReadRangeAnchor,
+  nearestReadRangeAnchor,
+  scheduleReadRangeIndexPersist,
+} from './read-range-index.mjs';
 import { createReadLineCollector } from './read-line-collector.mjs';
 
 function streamingHooks(hooks = {}) {

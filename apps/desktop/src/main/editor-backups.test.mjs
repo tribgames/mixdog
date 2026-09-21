@@ -79,6 +79,16 @@ test('deleting a backup waits for an earlier accepted write instead of reviving 
   assert.equal(await readEditorBackup(root, source), null);
 });
 
+test('a later write prunes again instead of reusing the first settled pass', async (t) => {
+  const { root, source } = await fixture(t);
+  const stale = join(root, 'editor-backups', `${'a'.repeat(64)}.json`);
+  await fs.writeFile(stale, '{}');
+  const aged = new Date(Date.now() - 31 * 24 * 60 * 60 * 1_000);
+  await fs.utimes(stale, aged, aged);
+  await writeEditorBackup(root, source, 'later draft', 'disk contents');
+  await assert.rejects(fs.stat(stale), { code: 'ENOENT' });
+});
+
 test('malformed backup recovery still removes only the invalid draft', async (t) => {
   const { root, source, path } = await fixture(t);
   await fs.writeFile(path, '{incomplete');

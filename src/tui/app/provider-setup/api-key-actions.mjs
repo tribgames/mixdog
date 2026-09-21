@@ -4,7 +4,7 @@
 // paint, navigation) built by provider-setup-picker.mjs.
 import { openInBrowser } from '../../../runtime/shared/open-url.mjs';
 import { providerDetailText } from '../app-format.mjs';
-import { keyConsoleUrl, providerStatusFooter } from './provider-items.mjs';
+import { forgetProviderAuth, keyConsoleUrl, providerStatusFooter } from './provider-items.mjs';
 
 const setApiKeyPrompt = (flow, providerItem) => {
   if (!flow.ownsSurface()) return;
@@ -83,17 +83,7 @@ export function openApiProviderActions(flow, providerItem) {
         return;
       }
       if (detail._action === 'forget-key') {
-        // Daemon RPC: only navigate once the removal is acknowledged, and
-        // return to these actions (not an empty panel) when it fails.
-        void Promise.resolve(flow.store.forgetProviderAuth?.(providerItem._providerId))
-          .then(() => {
-            flow.clearModelCaches('all');
-            flow.reopenProviders();
-          })
-          .catch((e) => {
-            flow.store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-            openApiProviderActions(flow, providerItem);
-          });
+        forgetProviderAuth(flow, providerItem, () => openApiProviderActions(flow, providerItem));
       }
     },
     onCancel: flow.reopenProviders,

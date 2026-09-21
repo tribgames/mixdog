@@ -193,6 +193,13 @@ function convertWithLibreOffice(program, input, { to, outDir, signal = null, tim
   });
 }
 
+// LibreOffice names what it writes after the source it read, minus the
+// source's own extension: `report.v2.docx` converted to pdf lands in the out
+// directory as `report.v2.pdf`. Every caller finds its output by that rule.
+function convertedOutputPath(outDir, input, extension) {
+  return join(outDir, `${basename(input, extname(input))}.${extension}`);
+}
+
 /** Whether a LibreOffice front-end answers on this machine; portable rendering and recalculation need it. */
 export async function libreOfficeAvailable() {
   return Boolean(await libreOfficeProgram());
@@ -266,7 +273,7 @@ async function convertWorkbookWithLibreOffice(program, path, source, signal) {
       },
     });
     if (!result.ok) return { reason: result.error };
-    const generated = join(outputDir, `${basename(path, extname(path))}.xlsx`);
+    const generated = convertedOutputPath(outputDir, path, 'xlsx');
     const details = await stat(generated).catch(() => null);
     if (!details?.isFile() || details.size <= 0) return { reason: 'LibreOffice produced no recalculated workbook.' };
     return { recalculated: await readFile(generated), outputBytes: details.size };
@@ -487,7 +494,7 @@ export async function validateLibreOfficeReopen(path, { signal = null } = {}) {
       },
     });
     if (!result.ok) return { available: true, opened: false, backend: 'libreoffice', error: result.error };
-    const details = await stat(join(outputDir, `${basename(path, extname(path))}.pdf`)).catch(() => null);
+    const details = await stat(convertedOutputPath(outputDir, path, 'pdf')).catch(() => null);
     if (!details?.isFile() || details.size <= 0)
       return { available: true, opened: false, backend: 'libreoffice', error: 'LibreOffice produced no review PDF' };
     return { available: true, opened: true, backend: 'libreoffice', outputBytes: details.size };
@@ -515,7 +522,7 @@ export async function renderPortableOoxml(path, output, { signal = null } = {}) 
     },
   });
   if (!result.ok) throw new Error(result.error);
-  const generated = join(outputDir, `${basename(path, extname(path))}.pdf`);
+  const generated = convertedOutputPath(outputDir, path, 'pdf');
   if (generated !== output) await rename(generated, output);
   return output;
 }

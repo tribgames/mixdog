@@ -5,6 +5,7 @@
 // reason or a fix (pptx skill §2 step 7). Counts are not quotas.
 
 import { plannedCarrierGaps } from './pptx-brief.mjs';
+import { isPictureShape } from '../design/design-discipline.mjs';
 import { rectangleGap } from '../portable/pptx-relations.mjs';
 
 const CANVAS_AREA = 960 * 540; // 13.33 × 7.5 in, in points
@@ -40,10 +41,6 @@ function isBeatField(fill, area) {
   if (!fill || area < CANVAS_AREA * 0.6) return false;
   const l = luminance(fill);
   return (l !== null && l < 0.35) || saturation(fill) > 0.35;
-}
-
-function isPicture(shape) {
-  return shape?.type === 'p:pic' || Number(shape?.type) === 13;
 }
 
 // The surface color of a shape: the portable snapshot's hex, or the COM
@@ -412,13 +409,13 @@ export function slideReceipt(slide) {
     // names it `mixdog-svg:<svg>` and the normalizer renames it "Icon" once the SVG is attached (pptx-script-normalize.mjs).
     // A raster the kit drew as a device with no vector source (the beat's sphere, `orb()`) is named `mixdog-device:<kind>`
     // and reads the same way, so a cover with its object stays a beat.
-    if (isPicture(shape) && /^(?:mixdog-svg:|mixdog-device:|Icon$)/.test(String(shape.name || ''))) {
+    if (isPictureShape(shape) && /^(?:mixdog-svg:|mixdog-device:|Icon$)/.test(String(shape.name || ''))) {
       receipt.drawn += 1;
       covered += area;
       if (box) visuals.push(box);
       continue;
     }
-    if (isPicture(shape)) {
+    if (isPictureShape(shape)) {
       receipt.pictures += 1;
       countCarrier(area, box);
       continue;

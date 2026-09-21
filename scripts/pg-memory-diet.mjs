@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { searchRelevantHybrid } from '../src/runtime/memory/lib/memory-recall-store.mjs';
 
@@ -250,10 +251,7 @@ async function prepare(dataDir, runtimeDir, sourcePort) {
   }
 }
 
-if (
-  process.argv[1] &&
-  resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'))
-) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   if (process.argv[2] !== 'prepare' || !process.argv[3] || !process.argv[4]) {
     throw new Error('Usage: node scripts/pg-memory-diet.mjs prepare <data-dir> <runtime-dir> <source-port>');
   }

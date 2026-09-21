@@ -70,6 +70,15 @@ interface TranscriptRowBuilder {
   previousRowWasUser: boolean;
 }
 
+/** pending:${id} and turn:${id} are one submission. The virtualizer identifies
+ *  the thinking row by this key, so the prefix flip must not remount its timer. */
+function thinkingRowKey(sessionKey: string, turnKey: string): string {
+  let identity = turnKey;
+  if (identity.startsWith('pending:')) identity = identity.slice('pending:'.length);
+  else if (identity.startsWith('turn:')) identity = identity.slice('turn:'.length);
+  return `${sessionKey}:thinking:${identity}`;
+}
+
 function beginBuilderTurn(builder: TranscriptRowBuilder, sessionKey: string, turnKey: string): void {
   if (builder.rows.length > 0 && builder.currentTurnKey && turnKey !== builder.currentTurnKey) {
     builder.rows.push({
@@ -338,7 +347,7 @@ export function appendLiveTranscriptRows({
     beginBuilderTurn(builder, sessionKey, activeTurnKey);
     builder.rows.push({
       _tag: 'Thinking',
-      key: `${sessionKey}:thinking:${activeTurnKey}`,
+      key: thinkingRowKey(sessionKey, activeTurnKey),
       turnKey: activeTurnKey,
       active: true,
     });

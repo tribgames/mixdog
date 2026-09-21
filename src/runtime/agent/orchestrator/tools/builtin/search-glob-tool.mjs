@@ -366,7 +366,7 @@ async function runGlobGroup(scan, root, rels) {
 
 // Folds the group runs into one file list and the integrity flags the
 // listing reports; the accumulation cap stops the fold.
-function mergeGlobRuns(groupRuns) {
+export function mergeGlobRuns(groupRuns) {
   const merged = {
     allFiles: [],
     rgErrors: [],
@@ -394,11 +394,11 @@ function mergeGlobRuns(groupRuns) {
         merged.accumTruncated = true;
         break;
       }
+      // Only the pre-push check above may set the flag: reaching the cap
+      // exactly means the last path FIT, nothing was dropped, and a listing
+      // of exactly GLOB_ACCUM_CAP files is complete. The next path (this run
+      // or a later one) trips the pre-push check and reports the truncation.
       merged.allFiles.push(p);
-      if (merged.allFiles.length >= GLOB_ACCUM_CAP) {
-        merged.accumTruncated = true;
-        break;
-      }
     }
   }
   return merged;

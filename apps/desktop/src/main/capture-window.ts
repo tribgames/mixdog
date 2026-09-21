@@ -736,6 +736,10 @@ async function captureWindow(): Promise<void> {
       mainLeft: liveDesktop.rects.main.left,
       gap: liveDesktop.sidebarGap,
     };
+    // Sidebar geometry in the artifact is reported from the live DOM rects the
+    // renderer measured, and the sampled colors come from the captured image.
+    // There is no second, pixel-scanned measurement to cross-check it against:
+    // that scan belonged to the removed desktopCapturer path.
     const imageMeasuredSidebar = {
       method: 'dom-geometry-fallback',
       scanlineY: 600,
@@ -757,21 +761,6 @@ async function captureWindow(): Promise<void> {
         rightGap: pixel(domSidebarGeometry.mainLeft, 600),
       },
     };
-    if (
-      imageMeasuredSidebar.left !== domSidebarGeometry.left ||
-      imageMeasuredSidebar.right !== domSidebarGeometry.right - 1 ||
-      imageMeasuredSidebar.width !== domSidebarGeometry.width ||
-      imageMeasuredSidebar.rightGap.left !== domSidebarGeometry.right ||
-      imageMeasuredSidebar.rightGap.right !== domSidebarGeometry.mainLeft - 1 ||
-      imageMeasuredSidebar.rightGap.width !== domSidebarGeometry.gap
-    ) {
-      throw new Error(
-        `Desktop DOM/pixel geometry mismatch: ${JSON.stringify({
-          domSidebarGeometry,
-          imageMeasuredSidebar,
-        })}`
-      );
-    }
     const png = image.toPNG();
     const metadata = {
       schemaVersion,

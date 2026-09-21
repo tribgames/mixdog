@@ -812,6 +812,23 @@ function guardTask(a) {
   return null;
 }
 
+// head_limit is spelled identically for list/find/glob: coerce a numeric
+// string in place, then validate. 0 is the valid "no cap" sentinel; a negative
+// value is nonsensical and downstream produces a degenerate window (clamps to
+// 0 → empty).
+function checkHeadLimit(a, toolName) {
+  if (!hasOwn(a, 'head_limit') || a.head_limit === undefined || a.head_limit === null) return null;
+  const coerced = coerceIntegerString(a.head_limit);
+  if (coerced !== null) a.head_limit = coerced;
+  if (!isFiniteInt(a.head_limit)) {
+    return `Error: ${toolName} arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
+  }
+  if (a.head_limit < 0) {
+    return `Error: ${toolName} arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
+  }
+  return null;
+}
+
 function guardList(a) {
   if (hasOwn(a, 'path') && !isString(a.path)) {
     return `Error: list arg "path" must be string (got ${describeType(a.path)})`;
@@ -834,19 +851,7 @@ function guardList(a) {
       return `Error: list arg "offset" must be a non-negative integer (got ${describeType(a.offset)})`;
     }
   }
-  if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
-    const coerced = coerceIntegerString(a.head_limit);
-    if (coerced !== null) a.head_limit = coerced;
-    if (!isFiniteInt(a.head_limit)) {
-      return `Error: list arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
-    }
-    // 0 is the valid "no cap" sentinel; a negative value is nonsensical
-    // and downstream produces a degenerate window (clamps to 0 → empty).
-    if (a.head_limit < 0) {
-      return `Error: list arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
-    }
-  }
-  return null;
+  return checkHeadLimit(a, 'list');
 }
 
 function guardFind(a) {
@@ -863,17 +868,7 @@ function guardFind(a) {
   if (hasOwn(a, 'include_noise') && typeof a.include_noise !== 'boolean') {
     return `Error: find arg "include_noise" must be a boolean (got ${describeType(a.include_noise)})`;
   }
-  if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
-    const coerced = coerceIntegerString(a.head_limit);
-    if (coerced !== null) a.head_limit = coerced;
-    if (!isFiniteInt(a.head_limit)) {
-      return `Error: find arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
-    }
-    if (a.head_limit < 0) {
-      return `Error: find arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
-    }
-  }
-  return null;
+  return checkHeadLimit(a, 'find');
 }
 
 function guardGlob(a) {
@@ -918,19 +913,7 @@ function guardGlob(a) {
       return `Error: glob arg "sort" must be one of natural|mtime (got ${JSON.stringify(a.sort)})`;
     }
   }
-  if (hasOwn(a, 'head_limit') && a.head_limit !== undefined && a.head_limit !== null) {
-    const coerced = coerceIntegerString(a.head_limit);
-    if (coerced !== null) a.head_limit = coerced;
-    if (!isFiniteInt(a.head_limit)) {
-      return `Error: glob arg "limit" must be a finite integer (got ${describeType(a.head_limit)})`;
-    }
-    // 0 is the valid "no cap" sentinel; a negative value is nonsensical
-    // and downstream produces a degenerate window (clamps to 0 → empty).
-    if (a.head_limit < 0) {
-      return `Error: glob arg "limit" must be >= 0 (0 means no cap); got ${a.head_limit}`;
-    }
-  }
-  return null;
+  return checkHeadLimit(a, 'glob');
 }
 
 // Valid code_graph modes — mirrors the enum in code-graph-tool-defs.mjs.

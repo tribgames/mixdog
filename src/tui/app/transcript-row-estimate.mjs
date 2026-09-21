@@ -2,8 +2,8 @@
 import {
   measureMarkdownRenderedRows,
   measureStreamingMarkdownRenderedRows,
+  wrappedLineRows,
 } from '../markdown/measure-rendered-rows.mjs';
-import { displayWidth } from '../display-width.mjs';
 import {
   formatToolSurface,
   normalizeToolName,
@@ -24,40 +24,8 @@ import {
   toolItemResultText,
 } from '../transcript-tool-failures.mjs';
 
-// Count how many terminal rows ONE logical line (no '\n') occupies once ink
-// word-wraps it. Mirror the greedy word-wrap so the row estimate is never lower
-// than what ink actually renders.
-export function wrappedLineRows(line, width) {
-  const text = String(line);
-  const full = displayWidth(text);
-  if (full === 0) return 1;
-  if (full <= width) return 1;
-  let rows = 1;
-  let col = 0;
-  for (const token of text.split(/(\s+)/)) {
-    if (!token) continue;
-    const tw = displayWidth(token);
-    if (tw === 0) continue;
-    if (tw > width) {
-      // Over-long unbreakable token: ink hard-splits it across rows.
-      if (col > 0) {
-        rows++;
-        col = 0;
-      }
-      rows += Math.ceil(tw / width) - 1;
-      col = tw % width || width;
-      continue;
-    }
-    if (col + tw > width) {
-      rows++;
-      col = tw;
-    } else {
-      col += tw;
-    }
-  }
-  return Math.max(1, rows);
-}
-
+// Same greedy wrap as the markdown measurement, but the transcript reserves a
+// different gutter per item kind, so the width comes from `reserve` here.
 function estimateWrappedRows(text, columns, reserve = 4) {
   const width = Math.max(8, Number(columns || 80) - reserve);
   const lines = String(text ?? '').split('\n');

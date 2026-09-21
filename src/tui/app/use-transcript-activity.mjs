@@ -144,5 +144,5 @@ export function useTranscriptActivity({ state }) {
     state.stats?.turns,
   ]);
 
-  return { agentRevision, activeToolsSignature, activeTools, statuslineStats };
+  return { agentRevision, activeTools, statuslineStats };
 }

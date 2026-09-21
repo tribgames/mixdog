@@ -23,7 +23,7 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
   const welcomePromptHintVisibleRef = useRef(false);
   const dismissWelcomePromptHint = useCallback(() => {
     if (!welcomePromptHintVisibleRef.current) return;
-    setWelcomePromptHintDismissed((dismissed) => dismissed || true);
+    setWelcomePromptHintDismissed(true);
   }, []);
 
   useEffect(() => {

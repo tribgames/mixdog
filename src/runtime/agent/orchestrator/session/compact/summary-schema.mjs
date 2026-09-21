@@ -151,7 +151,7 @@ function summarySectionIsRecognized(heading) {
   return false;
 }
 
-export function summaryHasUnrecognizedHeadings(summary) {
+function summaryHasUnrecognizedHeadings(summary) {
   for (const heading of parseSummarySections(summary).keys()) {
     if (!summarySectionIsRecognized(heading)) return true;
   }

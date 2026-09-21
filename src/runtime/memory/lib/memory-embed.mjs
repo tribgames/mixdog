@@ -285,6 +285,7 @@ export async function flushEmbeddingDirty(db, options = {}) {
       cursor = ids[ids.length - 1];
       totalAttempted += ids.length;
       let batchDone = false;
+      let abortFailure = null;
       try {
         // One embedding flush batch owns row locks until COMMIT/ROLLBACK;
         // cancellation is checked before each batch and after its locked work.
@@ -301,7 +302,10 @@ export async function flushEmbeddingDirty(db, options = {}) {
         }
         batchDone = true;
       } catch (err) {
-        if (signal?.aborted) throw signal.reason ?? err;
+        if (signal?.aborted) {
+          abortFailure = signal.reason ?? err;
+          throw abortFailure;
+        }
         __mixdogMemoryLog(`[embed] batch failed (ids=${ids[0]}..${ids[ids.length - 1]}): ${err.message}\n`);
         for (const id of ids) allFailed.push(id);
       } finally {
@@ -311,7 +315,11 @@ export async function flushEmbeddingDirty(db, options = {}) {
           else await client.query('ROLLBACK');
         } catch (err) {
           transactionError = err;
-          throw markStoreFault(err);
+          // Cancelled work reports as cancelled: a throw here would replace the
+          // in-flight abort with a store fault, so the rollback failure is only
+          // logged (and still poisons the released connection) in that case.
+          if (abortFailure) __mixdogMemoryLog(`[embed] rollback after cancellation failed: ${err.message}\n`);
+          else throw markStoreFault(err);
         } finally {
           client.release(transactionError);
         }

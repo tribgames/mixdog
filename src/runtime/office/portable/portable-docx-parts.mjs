@@ -180,27 +180,39 @@ function noteDefinition(kind) {
   return definition;
 }
 
+// A part Word did not ship with takes three steps, never one: the part itself,
+// the content-type override that names it, and the relationship the document
+// reads it through. A part already in the package is returned as it stands.
+export async function ensurePart(zip, { part, xml, contentType, relationship }) {
+  const existing = await zipText(zip, part);
+  if (existing) return existing;
+  zip.file(part, xml);
+  await ensureContentTypeOverride(zip, `/${part}`, contentType);
+  await addPackageRelationship(
+    zip,
+    partRelationshipPath('word/document.xml'),
+    relationship,
+    part.replace(/^word\//, '')
+  );
+  return xml;
+}
+
 // Word reads the separator notes (ids -1 and 0) before any real note: without
 // them the note area has no rule above it and Word repairs the file on open.
 export async function ensureNotePart(zip, kind) {
   const definition = noteDefinition(kind);
-  const existing = await zipText(zip, definition.part);
-  if (existing) return { ...definition, xml: existing };
   const separator = (id, element) =>
     `<${definition.tag} w:type="${element}" w:id="${id}">` +
     `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr>` +
     `<w:r><w:${element === 'separator' ? 'separator' : 'continuationSeparator'}/></w:r></w:p></${definition.tag}>`;
-  const xml =
-    `${XML_HEADER}<${definition.root} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">` +
-    `${separator(-1, 'separator')}${separator(0, 'continuationSeparator')}</${definition.root}>`;
-  zip.file(definition.part, xml);
-  await ensureContentTypeOverride(zip, `/${definition.part}`, definition.contentType);
-  await addPackageRelationship(
-    zip,
-    partRelationshipPath('word/document.xml'),
-    definition.relationship,
-    definition.part.replace(/^word\//, '')
-  );
+  const xml = await ensurePart(zip, {
+    part: definition.part,
+    xml:
+      `${XML_HEADER}<${definition.root} xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}">` +
+      `${separator(-1, 'separator')}${separator(0, 'continuationSeparator')}</${definition.root}>`,
+    contentType: definition.contentType,
+    relationship: definition.relationship,
+  });
   return { ...definition, xml };
 }
 
@@ -219,17 +231,12 @@ export function commentParagraphId(commentId) {
 
 async function ensureCommentsExtendedPart(zip) {
   const part = 'word/commentsExtended.xml';
-  const existing = await zipText(zip, part);
-  if (existing) return { part, xml: existing };
-  const xml = `${XML_HEADER}<w15:commentsEx xmlns:w15="${WORD_2012_NS}"></w15:commentsEx>`;
-  zip.file(part, xml);
-  await ensureContentTypeOverride(zip, `/${part}`, COMMENTS_EXTENDED_CONTENT_TYPE);
-  await addPackageRelationship(
-    zip,
-    partRelationshipPath('word/document.xml'),
-    COMMENTS_EXTENDED_RELATIONSHIP,
-    'commentsExtended.xml'
-  );
+  const xml = await ensurePart(zip, {
+    part,
+    xml: `${XML_HEADER}<w15:commentsEx xmlns:w15="${WORD_2012_NS}"></w15:commentsEx>`,
+    contentType: COMMENTS_EXTENDED_CONTENT_TYPE,
+    relationship: COMMENTS_EXTENDED_RELATIONSHIP,
+  });
   return { part, xml };
 }
 
@@ -250,17 +257,12 @@ export async function registerCommentThread(zip, { commentId, parentId = 0, done
 
 export async function ensureCommentsPart(zip) {
   const part = 'word/comments.xml';
-  const existing = await zipText(zip, part);
-  if (existing) return { part, xml: existing };
-  const xml = `${XML_HEADER}<w:comments xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}"></w:comments>`;
-  zip.file(part, xml);
-  await ensureContentTypeOverride(zip, `/${part}`, COMMENTS_CONTENT_TYPE);
-  await addPackageRelationship(
-    zip,
-    partRelationshipPath('word/document.xml'),
-    `${OFFICE_RELATIONSHIP_BASE}/comments`,
-    'comments.xml'
-  );
+  const xml = await ensurePart(zip, {
+    part,
+    xml: `${XML_HEADER}<w:comments xmlns:w="${WORD_MAIN_NS}" xmlns:r="${OFFICE_RELATIONSHIP_BASE}"></w:comments>`,
+    contentType: COMMENTS_CONTENT_TYPE,
+    relationship: `${OFFICE_RELATIONSHIP_BASE}/comments`,
+  });
   return { part, xml };
 }
 
@@ -287,17 +289,12 @@ const COMMENT_SIDECARS = Object.freeze({
 });
 
 async function ensureCommentSidecar(zip, sidecar) {
-  const existing = await zipText(zip, sidecar.part);
-  if (existing) return { part: sidecar.part, xml: existing };
-  const xml = `${XML_HEADER}<${sidecar.root} xmlns:${sidecar.prefix}="${sidecar.ns}" xmlns:mc="${MARKUP_COMPATIBILITY_NS}" mc:Ignorable="${sidecar.prefix}"></${sidecar.root}>`;
-  zip.file(sidecar.part, xml);
-  await ensureContentTypeOverride(zip, `/${sidecar.part}`, sidecar.contentType);
-  await addPackageRelationship(
-    zip,
-    partRelationshipPath('word/document.xml'),
-    sidecar.relationship,
-    sidecar.part.replace(/^word\//, '')
-  );
+  const xml = await ensurePart(zip, {
+    part: sidecar.part,
+    xml: `${XML_HEADER}<${sidecar.root} xmlns:${sidecar.prefix}="${sidecar.ns}" xmlns:mc="${MARKUP_COMPATIBILITY_NS}" mc:Ignorable="${sidecar.prefix}"></${sidecar.root}>`,
+    contentType: sidecar.contentType,
+    relationship: sidecar.relationship,
+  });
   return { part: sidecar.part, xml };
 }
 
@@ -432,17 +429,12 @@ export async function writeHeaderFooterPart(zip, { header, body, documentXml = '
 // is when Word writes the real thing (verified against Word, 2026-09-18).
 export async function ensureDocxUpdateFields(zip) {
   const part = 'word/settings.xml';
-  let settings = await zipText(zip, part);
-  if (!settings) {
-    settings = `${XML_HEADER}<w:settings xmlns:w="${WORD_MAIN_NS}"></w:settings>`;
-    await ensureContentTypeOverride(zip, `/${part}`, SETTINGS_CONTENT_TYPE);
-    await addPackageRelationship(
-      zip,
-      partRelationshipPath('word/document.xml'),
-      `${OFFICE_RELATIONSHIP_BASE}/settings`,
-      'settings.xml'
-    );
-  }
+  const settings = await ensurePart(zip, {
+    part,
+    xml: `${XML_HEADER}<w:settings xmlns:w="${WORD_MAIN_NS}"></w:settings>`,
+    contentType: SETTINGS_CONTENT_TYPE,
+    relationship: `${OFFICE_RELATIONSHIP_BASE}/settings`,
+  });
   zip.file(part, upsertOrderedChild(settings, SETTINGS_ORDER, 'w:updateFields', '<w:updateFields w:val="true"/>'));
   return { part };
 }
@@ -548,17 +540,12 @@ function numberingDefinition(abstractId, kind) {
 
 export async function ensureNumbering(zip, kind) {
   const part = 'word/numbering.xml';
-  let xml = await zipText(zip, part);
-  if (!xml) {
-    xml = `${XML_HEADER}<w:numbering xmlns:w="${WORD_MAIN_NS}"></w:numbering>`;
-    await ensureContentTypeOverride(zip, `/${part}`, NUMBERING_CONTENT_TYPE);
-    await addPackageRelationship(
-      zip,
-      partRelationshipPath('word/document.xml'),
-      `${OFFICE_RELATIONSHIP_BASE}/numbering`,
-      'numbering.xml'
-    );
-  }
+  const xml = await ensurePart(zip, {
+    part,
+    xml: `${XML_HEADER}<w:numbering xmlns:w="${WORD_MAIN_NS}"></w:numbering>`,
+    contentType: NUMBERING_CONTENT_TYPE,
+    relationship: `${OFFICE_RELATIONSHIP_BASE}/numbering`,
+  });
   const marker = kind === 'bullet' ? 'w:numFmt w:val="bullet"' : 'w:numFmt w:val="decimal"';
   for (const match of xml.matchAll(/<w:abstractNum\b[^>]*\bw:abstractNumId="(\d+)"[^>]*>[\s\S]*?<\/w:abstractNum>/g)) {
     if (!match[0].includes(marker)) continue;

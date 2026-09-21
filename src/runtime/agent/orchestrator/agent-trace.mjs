@@ -77,26 +77,6 @@ function messagePrefixHash(messages) {
     return null;
   }
 }
-function traceStreamStalled({ sessionId, info }) {
-  appendAgentTrace({
-    sessionId,
-    kind: 'stream_stalled',
-    stale_seconds: info.staleSeconds,
-    last_tool_call: info.lastToolCall,
-    stage: info.stage,
-  });
-}
-
-function traceStreamAborted({ sessionId, info }) {
-  appendAgentTrace({
-    sessionId,
-    kind: 'stream_aborted',
-    stale_seconds: info.staleSeconds,
-    last_tool_call: info.lastToolCall,
-    stage: info.stage,
-  });
-}
-
 function traceAgentPreset({ sessionId, agent, presetName, model, provider, parentSessionId }) {
   // Fires once per dispatch right after the preset has been resolved and
   // its runtime spec (provider/model) assembled. Useful for after-the-fact
@@ -337,7 +317,5 @@ export {
   traceAgentShellOutput,
   traceAgentToolOutput,
   traceAgentBatch,
-  traceStreamAborted,
-  traceStreamStalled,
   warnAgentOnce,
 };

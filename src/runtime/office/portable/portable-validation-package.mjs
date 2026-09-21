@@ -160,7 +160,7 @@ async function docxStoryParts(zip) {
   return parts;
 }
 
-async function validateDocxRedlining(zip, originalPath, author = '') {
+async function validateDocxRedlining(storyParts, originalPath, author = '') {
   if (!originalPath) {
     return {
       requested: true,
@@ -170,7 +170,7 @@ async function validateDocxRedlining(zip, originalPath, author = '') {
   }
   try {
     const original = await loadPackage(originalPath);
-    return auditDocxRedliningStories(await docxStoryParts(zip), await docxStoryParts(original), { author });
+    return auditDocxRedliningStories(storyParts, await docxStoryParts(original), { author });
   } catch (error) {
     return {
       requested: true,
@@ -208,14 +208,9 @@ async function relationshipIssues(zip, entries) {
   return { missingRelationships, duplicateRelationshipIds, externalRelationships };
 }
 
-async function docxDocumentLint(zip, entries) {
+async function docxDocumentLint(zip, storyParts) {
   return lintDocxRevisions(
-    await Promise.all(
-      entries
-        .filter((name) => DOCX_STORY_PART.test(name))
-        .sort()
-        .map(async (name) => ({ part: name, xml: await zipText(zip, name) }))
-    ),
+    [...storyParts].map(([part, xml]) => ({ part, xml })),
     await zipText(zip, 'word/comments.xml')
   );
 }
@@ -269,10 +264,13 @@ export async function validatePortableOoxml(path, format, options = {}) {
   const contentTypes = contentTypeCoverage(entries, await zipText(zip, '[Content_Types].xml'), format);
   const relationships = await relationshipIssues(zip, entries);
   const baseline = await baselinePackage(zip, options.original, { savedBy: options.savedBy, chartWorkbooks });
-  const documentLint = format === 'docx' ? await docxDocumentLint(zip, entries) : [];
+  // The lint and the redlining audit read the same story parts; reading them
+  // once keeps a redlining docx from unpacking every story twice.
+  const storyParts = format === 'docx' ? await docxStoryParts(zip) : null;
+  const documentLint = storyParts ? await docxDocumentLint(zip, storyParts) : [];
   const redlining =
-    format === 'docx' && options.auditProfile === 'redlining'
-      ? await validateDocxRedlining(zip, options.original, options.author)
+    storyParts && options.auditProfile === 'redlining'
+      ? await validateDocxRedlining(storyParts, options.original, options.author)
       : null;
   return {
     ok: ooxmlPackageOk({

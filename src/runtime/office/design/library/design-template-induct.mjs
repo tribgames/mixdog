@@ -1,4 +1,5 @@
 import { inferPptxSampleKind } from './design-template-inspect.mjs';
+import { isPictureShape } from '../design-discipline.mjs';
 
 // A deck someone brings was drawn, not filled in: its pages carry plain text
 // boxes instead of {{TOKEN}} slots or layout placeholders, so the token and
@@ -138,7 +139,7 @@ function strongestRow(rows, captions = () => false) {
 function objectRole(shape) {
   if (shape.chart || Number(shape.type) === 3) return 'chart';
   if (shape.table) return 'table';
-  if (shape.type === 'p:pic' || Number(shape.type) === 13) return 'image';
+  if (isPictureShape(shape)) return 'image';
   return '';
 }
 

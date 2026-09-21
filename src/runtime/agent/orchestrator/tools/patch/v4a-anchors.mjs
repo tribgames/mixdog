@@ -127,23 +127,26 @@ export function findAnchorLine(lines, anchors, fromLine) {
 const _v4aAmbiguityNotices = new Set();
 const V4A_AMBIGUITY_NOTICE_CAP = 4;
 
-function countExactWindows(lines, pattern, cap = 2) {
-  if (!Array.isArray(pattern) || pattern.length === 0) return 0;
-  let hits = 0;
+// The one exact-window scan: start index of every place `pattern` appears
+// verbatim in `lines`, stopping as soon as `cap` of them are known. Callers
+// differ only in that cap (count them, or prove a single occurrence).
+export function findExactWindowStarts(lines, pattern, cap = Infinity) {
+  if (!Array.isArray(pattern) || pattern.length === 0) return [];
+  const starts = [];
   outer: for (let i = 0; i + pattern.length <= lines.length; i++) {
     for (let k = 0; k < pattern.length; k++) {
       if (lines[i + k] !== pattern[k]) continue outer;
     }
-    hits += 1;
-    if (hits >= cap) break;
+    starts.push(i);
+    if (starts.length >= cap) break;
   }
-  return hits;
+  return starts;
 }
 
 export function noteV4AHunkAmbiguity(displayPath, sourceLines, loc) {
   if (_v4aAmbiguityNotices.size >= V4A_AMBIGUITY_NOTICE_CAP) return;
   if (loc.anchored || !(loc.matchLen > 0)) return;
-  if (countExactWindows(sourceLines, loc.pattern) < 2) return;
+  if (findExactWindowStarts(sourceLines, loc.pattern, 2).length < 2) return;
   _v4aAmbiguityNotices.add(
     `${displayPath}: hunk context matches more than one place; applied at line ${loc.oldStartIdx + 1} ` +
       '(first match after the previous hunk). Add an @@ anchor to target a different one.'

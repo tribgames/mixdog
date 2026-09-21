@@ -105,7 +105,10 @@ export async function renderedAir(base64, { width = 320, window = 0.05, threshol
 // covers (a chart's frame with its bars, a picture, a dark field, a table), the way the reference reads measured it
 // (thirteen decks: 0.21-0.71, median 0.4; our pages 0.12-0.21 before the R11 work). The background is the tone the
 // borders show; a pixel a tenth of the range away from it is ink, and ink is joined four ways. Numbers, never a verdict.
-function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
+// How far from the background tone a pixel must sit to read as ink.
+const INK_TOLERANCE = 0.04;
+
+function largestObject(gray, w, h) {
   const border = [];
   for (let x = 0; x < w; x += 1) border.push(gray[x], gray[(h - 1) * w + x]);
   for (let y = 0; y < h; y += 1) border.push(gray[y * w], gray[y * w + w - 1]);
@@ -115,7 +118,7 @@ function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
   const stack = new Int32Array(w * h);
   let best = 0;
   for (let start = 0; start < w * h; start += 1) {
-    if (seen[start] || Math.abs(gray[start] - bg) <= tolerance) continue;
+    if (seen[start] || Math.abs(gray[start] - bg) <= INK_TOLERANCE) continue;
     let top = 0,
       size = 0;
     stack[top++] = start;
@@ -126,7 +129,7 @@ function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
       const x = i % w,
         y = (i - x) / w;
       for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) {
-        if (j < 0 || seen[j] || Math.abs(gray[j] - bg) <= tolerance) continue;
+        if (j < 0 || seen[j] || Math.abs(gray[j] - bg) <= INK_TOLERANCE) continue;
         seen[j] = 1;
         stack[top++] = j;
       }
@@ -141,7 +144,11 @@ function largestObject(gray, w, h, { tolerance = 0.04 } = {}) {
 // mass (centered = 1 at dead center, 0 at a corner) and the left/right and top/bottom weight shares
 // (1 = even, 0 = all on one side). A page whose title band is empty and whose content sits low reads
 // as topBottom well under 1 — the number for "the top is empty". Numbers, never a verdict.
-function weightBalance(gray, sum, stride, w, h, r, lambda = 0.5) {
+// How the weight map splits between a pixel's deviation from the page median
+// and its local contrast; DeepSlides mixes them evenly.
+const LOCAL_CONTRAST_SHARE = 0.5;
+
+function weightBalance(gray, sum, stride, w, h, r) {
   const sorted = Float64Array.from(gray).sort();
   const median = sorted[Math.floor(sorted.length / 2)];
   let total = 0,
@@ -158,7 +165,7 @@ function weightBalance(gray, sum, stride, w, h, r, lambda = 0.5) {
       const n = (y1 - y0) * (x1 - x0);
       const local = (sum[y1 * stride + x1] - sum[y0 * stride + x1] - sum[y1 * stride + x0] + sum[y0 * stride + x0]) / n;
       const v = gray[y * w + x];
-      const weight = (1 - lambda) * Math.abs(v - median) + lambda * Math.abs(v - local);
+      const weight = (1 - LOCAL_CONTRAST_SHARE) * Math.abs(v - median) + LOCAL_CONTRAST_SHARE * Math.abs(v - local);
       total += weight;
       sx += weight * (x + 0.5);
       sy += weight * (y + 0.5);

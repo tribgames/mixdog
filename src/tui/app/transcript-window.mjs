@@ -91,6 +91,25 @@ export const WHEEL_STEP_MAX_ROWS = Math.max(
 );
 export const WHEEL_ACCEL_IDLE_MS = positiveIntEnv('MIXDOG_TUI_SCROLL_ACCEL_IDLE_MS', 150);
 
+// A rect whose two ends sit on the same cell selects nothing. Every selection
+// reader (geometry, focus move, global keys, the mouse handler) asks this.
+export function selectionRectIsDegenerate(rect) {
+  return rect.x1 === rect.x2 && rect.y1 === rect.y2;
+}
+
+// The transcript-viewport row range, normalized: bottom never above top.
+export function transcriptViewportRowRange(viewport) {
+  const top = Math.max(0, Number(viewport?.top) || 0);
+  return { top, bottom: Math.max(top, Number(viewport?.bottom) || top) };
+}
+
+// The bottom statusline band = the last `statuslineBandRows` rows of the frame.
+export function statusBandRowRange(frameRows, statuslineBandRows) {
+  const rows = Math.max(1, Number(frameRows) || 24);
+  const top = Math.max(0, rows - statuslineBandRows);
+  return { top, bottom: Math.max(top, rows - 1) };
+}
+
 export function selectionRectsEqual(a, b) {
   if (a === b) return true;
   if (!a || !b) return false;

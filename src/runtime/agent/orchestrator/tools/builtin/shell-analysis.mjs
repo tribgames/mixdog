@@ -387,13 +387,13 @@ function classifyShellProbeToken(token, cwd, { cwdKnown = true } = {}) {
   if (hasShellGlobMeta(value)) return { kind: 'skip' };
   const normalized = normalizeInputPath(value);
   if (!cwdKnown && !isExplicitAbsoluteShellPath(normalized)) {
-    return { kind: 'relative-unknown', raw: value };
+    return { kind: 'relative-unknown' };
   }
-  return { kind: 'path', path: resolveAgainstCwd(normalized, cwd), raw: value };
+  return { kind: 'path', path: resolveAgainstCwd(normalized, cwd) };
 }
 
 function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true } = {}) {
-  const out = { paths: [], dynamicToken: null, skippedRelativeUnknown: false };
+  const out = { paths: [], skippedRelativeUnknown: false };
   for (let i = minIndex; i < tokens.length; i++) {
     const tok = tokens[i];
     if (!tok || tok === '--') continue;
@@ -407,7 +407,6 @@ function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true }
     if (isShellInputRedirectToken(tok)) {
       const info = classifyShellProbeToken(tokens[i + 1], cwd, { cwdKnown });
       if (info.kind === 'path') out.paths.push(info.path);
-      else if (info.kind === 'dynamic' && !out.dynamicToken) out.dynamicToken = info.raw;
       else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
       i++;
       continue;
@@ -418,13 +417,11 @@ function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true }
     if (inputInline) {
       const info = classifyShellProbeToken(inputInline[1], cwd, { cwdKnown });
       if (info.kind === 'path') out.paths.push(info.path);
-      else if (info.kind === 'dynamic' && !out.dynamicToken) out.dynamicToken = info.raw;
       else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
       continue;
     }
     const info = classifyShellProbeToken(tok, cwd, { cwdKnown });
     if (info.kind === 'path') out.paths.push(info.path);
-    else if (info.kind === 'dynamic' && !out.dynamicToken) out.dynamicToken = info.raw;
     else if (info.kind === 'relative-unknown') out.skippedRelativeUnknown = true;
   }
   return out;
@@ -432,16 +429,16 @@ function extractShellProbeTargets(tokens, cwd, { minIndex = 1, cwdKnown = true }
 
 function extractShellProbePaths(tokens, cwd, { cwdKnown = true } = {}) {
   const cmd = String(tokens?.[0] || '').toLowerCase();
-  if (!cmd) return { paths: [], dynamicToken: null, skippedRelativeUnknown: false, cmd: '' };
+  if (!cmd) return { paths: [], skippedRelativeUnknown: false, cmd: '' };
   if (LARGE_FILE_READ_CMDS.has(cmd)) {
     return { ...extractShellProbeTargets(tokens, cwd, { minIndex: 1, cwdKnown }), cmd };
   }
   if (cmd === 'head' || cmd === 'tail') {
-    if (isHeadTailBounded(tokens)) return { paths: [], dynamicToken: null, skippedRelativeUnknown: false, cmd };
+    if (isHeadTailBounded(tokens)) return { paths: [], skippedRelativeUnknown: false, cmd };
     return { ...extractShellProbeTargets(tokens, cwd, { minIndex: 1, cwdKnown }), cmd };
   }
   if (cmd === 'grep' || cmd === 'rg') {
-    if (isGrepBounded(tokens)) return { paths: [], dynamicToken: null, skippedRelativeUnknown: false, cmd };
+    if (isGrepBounded(tokens)) return { paths: [], skippedRelativeUnknown: false, cmd };
     let i = 1;
     let sawPattern = false;
     while (i < tokens.length) {
@@ -468,7 +465,7 @@ function extractShellProbePaths(tokens, cwd, { cwdKnown = true } = {}) {
     return { ...extractShellProbeTargets(tokens, cwd, { minIndex: i, cwdKnown }), cmd };
   }
   if (cmd === 'sed') {
-    if (isSedBounded(tokens)) return { paths: [], dynamicToken: null, skippedRelativeUnknown: false, cmd };
+    if (isSedBounded(tokens)) return { paths: [], skippedRelativeUnknown: false, cmd };
     let i = 1;
     while (i < tokens.length) {
       const tok = tokens[i];
@@ -492,7 +489,7 @@ function extractShellProbePaths(tokens, cwd, { cwdKnown = true } = {}) {
     return { ...extractShellProbeTargets(tokens, cwd, { minIndex: i, cwdKnown }), cmd };
   }
   if (cmd === 'awk') {
-    if (isAwkBounded(tokens)) return { paths: [], dynamicToken: null, skippedRelativeUnknown: false, cmd };
+    if (isAwkBounded(tokens)) return { paths: [], skippedRelativeUnknown: false, cmd };
     let i = 1;
     while (i < tokens.length) {
       const tok = tokens[i];
@@ -513,7 +510,7 @@ function extractShellProbePaths(tokens, cwd, { cwdKnown = true } = {}) {
     }
     return { ...extractShellProbeTargets(tokens, cwd, { minIndex: i, cwdKnown }), cmd };
   }
-  return { paths: [], dynamicToken: null, skippedRelativeUnknown: false, cmd };
+  return { paths: [], skippedRelativeUnknown: false, cmd };
 }
 
 function buildLargeShellFileProbeMessage(fullPath, sizeBytes, cmd, cwd) {
@@ -805,14 +802,6 @@ export async function preflightShellLargeFileProbe(command, cwd) {
         continue;
       }
       const probe = extractShellProbePaths(tokens, localCwd, { cwdKnown });
-      if (probe.dynamicToken) {
-        return {
-          cmd: probe.cmd,
-          path: null,
-          sizeBytes: null,
-          message: `shell probe requires an explicit path: \`${probe.cmd}\` is using dynamic path token \`${probe.dynamicToken}\`.`,
-        };
-      }
       if (probe.skippedRelativeUnknown && probe.paths.length === 0) {
         continue;
       }

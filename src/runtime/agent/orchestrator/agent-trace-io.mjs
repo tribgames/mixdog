@@ -136,6 +136,19 @@ function _appendLocalTrace(row) {
   }
 }
 
+// Throttle rotation stat checks to avoid unnecessary statSync calls
+// on every flush. First flush (_lastRotateCheckMs === 0) always checks.
+// Explicit sinks can have many short-lived headless writers. Keep that
+// shared file append-only so no writer can rename it out from under a
+// peer or from session-bench while scoring.
+function _maybeRotateLocalTrace(path) {
+  if (_localTraceIsExplicit) return;
+  const now = Date.now();
+  if (_lastRotateCheckMs !== 0 && now - _lastRotateCheckMs < MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS) return;
+  _rotateLocalTraceIfNeeded(path);
+  _lastRotateCheckMs = now;
+}
+
 function _flushLocalTrace() {
   if (_localTraceTimer) {
     clearTimeout(_localTraceTimer);
@@ -151,19 +164,7 @@ function _flushLocalTrace() {
   _localTraceBuffer = [];
   try {
     _ensureLocalTraceDirectory(path);
-    // Throttle rotation stat checks to avoid unnecessary statSync calls
-    // on every flush. First flush (_lastRotateCheckMs === 0) always checks.
-    const now = Date.now();
-    // Explicit sinks can have many short-lived headless writers. Keep that
-    // shared file append-only so no writer can rename it out from under a
-    // peer or from session-bench while scoring.
-    if (
-      !_localTraceIsExplicit &&
-      (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS)
-    ) {
-      _rotateLocalTraceIfNeeded(path);
-      _lastRotateCheckMs = now;
-    }
+    _maybeRotateLocalTrace(path);
   } catch (err) {
     warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
     return;
@@ -199,14 +200,7 @@ function _flushLocalTraceSync() {
   _localTraceBuffer = [];
   try {
     _ensureLocalTraceDirectory(path);
-    const now = Date.now();
-    if (
-      !_localTraceIsExplicit &&
-      (_lastRotateCheckMs === 0 || now - _lastRotateCheckMs >= MIXDOG_AGENT_TRACE_ROTATE_CHECK_MS)
-    ) {
-      _rotateLocalTraceIfNeeded(path);
-      _lastRotateCheckMs = now;
-    }
+    _maybeRotateLocalTrace(path);
     appendFileSync(path, chunk, { encoding: 'utf8', mode: 0o600 });
   } catch (err) {
     warnAgentOnce('agent-trace:local-spool', `[agent-trace] local spool failed (${err?.message})`);
@@ -481,7 +475,6 @@ export {
   drainAgentTrace,
   normalizeSessionId,
   warnAgentOnce,
-  _resolveLocalTracePath,
   _resolveToolFailurePath,
   _appendToolFailureRow,
 };

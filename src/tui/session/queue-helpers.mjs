@@ -155,16 +155,22 @@ export function mergePromptContents(entries) {
   return parts.length === 1 && parts[0]?.type === 'text' && typeof parts[0].text === 'string' ? parts[0].text : parts;
 }
 
-export function mergePastedImages(entries) {
+// Last non-empty entry wins per id; a merge that found nothing stays null so
+// the caller can omit the field entirely.
+function mergePastedField(entries, field) {
   const out = {};
   for (const entry of entries || []) {
-    const images = entry?.pastedImages;
-    if (!images || typeof images !== 'object') continue;
-    for (const [id, image] of Object.entries(images)) {
-      if (image) out[id] = image;
+    const buffers = entry?.[field];
+    if (!buffers || typeof buffers !== 'object') continue;
+    for (const [id, buffer] of Object.entries(buffers)) {
+      if (buffer) out[id] = buffer;
     }
   }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+export function mergePastedImages(entries) {
+  return mergePastedField(entries, 'pastedImages');
 }
 
 // Byte-free image metadata for the user transcript item. Prompt content carries
@@ -189,15 +195,7 @@ export function promptContentImageMeta(content, pastedImages) {
 }
 
 export function mergePastedTexts(entries) {
-  const out = {};
-  for (const entry of entries || []) {
-    const texts = entry?.pastedTexts;
-    if (!texts || typeof texts !== 'object') continue;
-    for (const [id, text] of Object.entries(texts)) {
-      if (text) out[id] = text;
-    }
-  }
-  return Object.keys(out).length > 0 ? out : null;
+  return mergePastedField(entries, 'pastedTexts');
 }
 
 export function callCommitCallbacks(entries) {

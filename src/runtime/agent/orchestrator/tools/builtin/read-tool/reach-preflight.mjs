@@ -15,7 +15,7 @@ const GUARDS = [
   ],
   ['isBlockedDevicePath', 'cannot read device file (would block or produce infinite output)'],
 ];
-export const ALL_READ_GUARDS = GUARDS.map(([name]) => name);
+const ALL_READ_GUARDS = GUARDS.map(([name]) => name);
 // The resolved (absolute) form of a path is checked for the string-shape
 // guards only; the /dev/* block is decided on the normalized input.
 export const PATH_STRING_GUARDS = ALL_READ_GUARDS.filter((name) => name !== 'isBlockedDevicePath');

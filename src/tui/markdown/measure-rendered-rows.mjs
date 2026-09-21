@@ -29,7 +29,10 @@ function stableChunksOf(parts) {
   return parts.stablePrefix ? [parts.stablePrefix] : [];
 }
 
-function wrappedLineRows(line, width) {
+// Count how many terminal rows ONE logical line (no '\n') occupies once ink
+// word-wraps it. Mirror the greedy word-wrap so a row estimate is never lower
+// than what ink actually renders. Shared with the transcript row estimate.
+export function wrappedLineRows(line, width) {
   const text = String(line);
   const full = displayWidth(text);
   if (full === 0) return 1;
@@ -92,34 +95,6 @@ export function measureMarkdownRenderedRows(text, columns, { trimPartialFences =
   }
   rows += segments.length - 1;
   return Math.max(1, rows);
-}
-
-function measureStreamingPartsUncached(parts, columns) {
-  if (parts.plain) {
-    return estimateWrappedRowsFallback(parts.unstableForRender, columns);
-  }
-  let rows = 0;
-  let childCount = 0;
-  const stableChunks = stableChunksOf(parts);
-  for (const chunk of stableChunks) {
-    if (childCount > 0) rows += 1;
-    rows += measureMarkdownRenderedRows(chunk, columns, { trimPartialFences: false });
-    childCount += 1;
-  }
-  if (parts.unstableSuffix) {
-    if (childCount > 0) rows += 1;
-    rows += measureMarkdownRenderedRows(parts.unstableForRender, columns, { trimPartialFences: true });
-    childCount += 1;
-  }
-  return childCount === 0 ? 1 : Math.max(1, rows);
-}
-
-// Test/reference path: resolve the same renderer split, but deliberately bypass
-// streamingRowsByKey and remeasure every rendered child from scratch.
-export function measureStreamingMarkdownRenderedRowsUncached(text, columns, streamKey) {
-  const value = String(text ?? '');
-  if (!value) return 1;
-  return measureStreamingPartsUncached(resolveStreamingMarkdownParts(value, streamKey), columns);
 }
 
 export function measureStreamingMarkdownRenderedRows(text, columns, streamKey) {

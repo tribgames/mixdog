@@ -792,11 +792,15 @@ export const FilesRootPane = memo(function FilesRootPane({
             let pasteTarget = '';
             if (!menu.background) pasteTarget = menu.isDir ? menu.rel : menu.parent;
             const copyRels = multi ? [...selected] : [menu.rel];
-            const deleteLabel = multi ? `Delete ${selected.size} items` : 'Delete';
+            // Catalog keys only: an interpolated literal ("Delete 3 items")
+            // matches no key, so the multi-select label is composed from the
+            // same keys the confirm dialog above uses.
+            const deleteLabel = multi ? 'Delete {{name}}' : 'Delete';
+            const deleteValues = multi ? { name: t('{{count}} items', { count: selected.size }) } : undefined;
             const item = (
               label: string,
               onClick: () => void,
-              options?: { hint?: string; danger?: boolean; disabled?: boolean }
+              options?: { hint?: string; danger?: boolean; disabled?: boolean; values?: Record<string, unknown> }
             ) => (
               <button
                 type="button"
@@ -806,7 +810,7 @@ export const FilesRootPane = memo(function FilesRootPane({
                 disabled={options?.disabled}
                 onClick={menuAction(onClick)}
               >
-                <span>{t(label)}</span>
+                <span>{t(label, options?.values)}</span>
                 {options?.hint && <span className="dock-file-menu-key">{options.hint}</span>}
               </button>
             );
@@ -880,6 +884,7 @@ export const FilesRootPane = memo(function FilesRootPane({
                     {item(deleteLabel, deleteSelection, {
                       hint: 'Del',
                       danger: true,
+                      values: deleteValues,
                     })}
                   </>
                 )}

@@ -5,6 +5,8 @@
 // deck may show, with their sources). The plan is the contract the author
 // writes before any geometry exists, and `planGate` holds the deck to it.
 
+import { isPictureShape } from '../design/design-discipline.mjs';
+
 const PLAN_KEYS = ['job', 'relationship', 'move', 'composition', 'carriers', 'texture', 'rhythm'];
 
 function briefLine(script, key) {
@@ -159,12 +161,11 @@ function slideFacts(slide) {
   for (const shape of shapes) {
     if (shape.chart) charts += 1;
     if (shape.table) tables += 1;
-    if (shape.type === 'p:pic' || Number(shape.type) === 13) pictures += 1;
+    if (isPictureShape(shape)) pictures += 1;
     if (shape.geometry) geometry.add(shape.geometry);
     if (String(shape.text || '').trim() && !shape.placeholder)
       text.push({ size: Number(shape.font?.size) || 0, bold: shape.font?.bold === true, text: String(shape.text) });
-    else if (!shape.chart && !shape.table && !shape.placeholder && shape.type !== 'p:pic' && Number(shape.type) !== 13)
-      drawn += 1;
+    else if (!shape.chart && !shape.table && !shape.placeholder && !isPictureShape(shape)) drawn += 1;
   }
   return { geometry, charts, tables, pictures, drawn, text };
 }

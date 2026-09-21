@@ -479,8 +479,6 @@ export const UtilityDock = memo(function UtilityDock({
   titleDragProps?: React.HTMLAttributes<HTMLElement>;
   metricSurface?: 'sidebar' | 'dock';
 }) {
-  const resolvedOpenFileAt =
-    onOpenFileAt ?? (onOpenFile as ((project: string, rel: string, line?: number) => void) | undefined);
   // One view per host section: the workbench side layout owns grouping and
   // ordering, so this dock only ever presents the tab it was given.
   const presentedTab = tab;
@@ -809,7 +807,7 @@ export const UtilityDock = memo(function UtilityDock({
                 gitStatus={dockGitStatus}
                 active={paneActive('search')}
                 onOpenFile={onOpenFile}
-                onOpenFileAt={resolvedOpenFileAt}
+                onOpenFileAt={onOpenFileAt}
               />
             </DockPane>
           </UtilityDockViewSection>

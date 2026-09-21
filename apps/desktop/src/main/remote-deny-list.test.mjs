@@ -19,10 +19,32 @@ const sensitiveCapabilities = DESKTOP_CAPABILITIES.filter(
   (capability) => SECRET_CAPABILITY_PATTERN.test(capability) || OAUTH_CAPABILITY_PATTERN.test(capability)
 );
 
+// Guards the guard: a pattern that stops matching anything would pass
+// vacuously. Anchored by NAME instead of by a hand-pinned count, because a
+// count expires on any legitimate surface change and takes the whole scan down
+// with it: once `loginOpenCodeGoUsage` was retired the floor sat one above the
+// real surface, so the denial assertion below never ran again. A name catches
+// the dangerous case a count cannot — a secret lane renamed out of the
+// patterns while it is still callable.
+const GUARDED_SECRET_LANES = [
+  'saveProviderApiKey',
+  'saveOpenAIUsageSessionKey',
+  'saveOpenCodeGoUsageAuth',
+  'authenticateProvider',
+  'loginOAuthProvider',
+  'beginOAuthProviderLogin',
+  'completeOAuthProviderLogin',
+  'cancelOAuthProviderLogin',
+  'getOAuthProviderLoginStatus',
+];
+
 test('every secret- or OAuth-bearing capability on the desktop surface is denied remotely', () => {
-  // Guards the guard: a pattern that stops matching anything would pass
-  // vacuously.
-  assert.ok(sensitiveCapabilities.length >= 10, 'capability scan found nothing to check');
+  for (const lane of GUARDED_SECRET_LANES) {
+    assert.ok(
+      sensitiveCapabilities.includes(lane),
+      `${lane} is no longer selected by the secret/OAuth scan — a rename or a retirement must be carried into this guard deliberately`
+    );
+  }
   for (const capability of sensitiveCapabilities) {
     assert.equal(
       REMOTE_BLOCKED_CAPABILITIES.has(capability),

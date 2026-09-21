@@ -114,8 +114,12 @@ export function CommandSurface({
   const title = commandSurfaceTitle(surface);
   if (surface === 'stats' && !open) return null;
 
+  // These surfaces read their headline from the snapshot they already hold, so
+  // they paint complete at once and fill in the measured detail when it lands
+  // (user: 컨텍스트창 왜 바로 안 열리고 로딩이 심하지).
+  const paintsFromSnapshot = surface === 'context' || surface === 'inherit' || surface === 'stats';
   const showStatsErrorOnly = surface === 'stats' && Boolean(error) && !data.getUsageStats;
-  const showLoadingPlaceholder = loading && surface !== 'inherit' && surface !== 'stats';
+  const showLoadingPlaceholder = loading && !paintsFromSnapshot;
 
   return createPortal(
     <div
@@ -159,13 +163,10 @@ export function CommandSurface({
             </div>
           </header>
           <div className="mixdog-settings__body">
-            {/* /inherit reads its facts from the snapshot it already holds, so it
-              paints complete at once and only waits on the context percentage
-              before unlocking the decision — never behind a loading cover. */}
-            <PaneSurfaceGate
-              ready={!loading || surface === 'inherit' || surface === 'stats'}
-              label={t('Loading {{title}}…', { title })}
-            >
+            {/* /inherit only waits on the context percentage before unlocking
+              the decision, and /context opens on the gauge reading it was
+              clicked from — neither belongs behind a loading cover. */}
+            <PaneSurfaceGate ready={!loading || paintsFromSnapshot} label={t('Loading {{title}}…', { title })}>
               <div className="command-surface-content">
                 {/* The dialog heading already names the surface, so the old
               "/usage — Read-only …" restatement only pushed the content down

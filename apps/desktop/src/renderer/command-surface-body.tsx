@@ -55,6 +55,7 @@ export function SurfaceBody({
         status={data.contextStatus}
         snapshot={commandSurfaceDisplaySnapshot(data, snapshot)}
         request={request}
+        loading={loading}
       />
     );
   }

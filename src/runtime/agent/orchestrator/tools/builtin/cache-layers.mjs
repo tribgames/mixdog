@@ -232,37 +232,38 @@ export async function runResultCacheInFlight(key, compute, options = {}) {
   return subscribeResultCacheInFlight(entry, subscriberSignal);
 }
 
-export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile) {
-  const key = canonicalCachePath(fullPath);
-  const generation = getPathMutationGeneration(key);
-  const existing = RAW_CONTENT_INFLIGHT.get(key);
+// A concurrent caller joins the read already in flight for this key instead
+// of issuing a second syscall; a mutation bumps the path generation, so an
+// entry recorded before it is never joined.
+async function runInFlightForGeneration(inFlight, key, generation, start) {
+  const existing = inFlight.get(key);
   if (existing?.generation === generation) return await existing.promise;
   const promise = Promise.resolve()
-    .then(() => loader(fullPath))
+    .then(start)
     .finally(() => {
-      if (RAW_CONTENT_INFLIGHT.get(key)?.promise === promise) {
-        RAW_CONTENT_INFLIGHT.delete(key);
+      if (inFlight.get(key)?.promise === promise) {
+        inFlight.delete(key);
       }
     });
-  RAW_CONTENT_INFLIGHT.set(key, { generation, promise });
+  inFlight.set(key, { generation, promise });
   return await promise;
+}
+
+export async function runRawContentInFlight(fullPath, loader = fsPromises.readFile) {
+  const key = canonicalCachePath(fullPath);
+  return await runInFlightForGeneration(RAW_CONTENT_INFLIGHT, key, getPathMutationGeneration(key), () =>
+    loader(fullPath)
+  );
 }
 
 export async function runReadOnlyStatInFlight(fullPath, loader = fsPromises.stat, kind = 'stat') {
   const canonicalPath = canonicalCachePath(fullPath);
-  const key = `${kind}|${canonicalPath}`;
-  const generation = getPathMutationGeneration(canonicalPath);
-  const existing = READ_ONLY_STAT_INFLIGHT.get(key);
-  if (existing?.generation === generation) return await existing.promise;
-  const promise = Promise.resolve()
-    .then(() => loader(fullPath))
-    .finally(() => {
-      if (READ_ONLY_STAT_INFLIGHT.get(key)?.promise === promise) {
-        READ_ONLY_STAT_INFLIGHT.delete(key);
-      }
-    });
-  READ_ONLY_STAT_INFLIGHT.set(key, { generation, promise });
-  return await promise;
+  return await runInFlightForGeneration(
+    READ_ONLY_STAT_INFLIGHT,
+    `${kind}|${canonicalPath}`,
+    getPathMutationGeneration(canonicalPath),
+    () => loader(fullPath)
+  );
 }
 
 function rawContentCacheDelete(key) {

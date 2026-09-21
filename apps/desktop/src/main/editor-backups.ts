@@ -67,7 +67,14 @@ async function pruneBackups(userDataPath: string): Promise<void> {
     }
   })();
   pruningByRoot.set(root, pending);
-  return pending;
+  try {
+    await pending;
+  } finally {
+    // Only the in-flight pass is shared. A settled pass must not stay parked
+    // here: a desktop that runs for weeks has to re-enforce the file count and
+    // age caps on later writes instead of waiting for a restart.
+    pruningByRoot.delete(root);
+  }
 }
 
 export async function readEditorBackup(userDataPath: string, sourcePath: string): Promise<EditorBackup | null> {

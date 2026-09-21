@@ -98,6 +98,40 @@ const BASENAME_SCAN_SKIP_DIRS = new Set([
   '.idea',
   '.vscode',
 ]);
+// The BFS both basename scans share: shallow hits first, hard caps on
+// directories scanned and wall-clock. `visitEntry` decides what counts as a
+// match and which directories to queue, and returns true to stop reading the
+// current directory (its own limit break).
+function scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, visitEntry) {
+  const matches = [];
+  const queue = [searchRoot];
+  const stopAt = Date.now() + Math.max(1, deadlineMs);
+  let scanned = 0;
+  let expired = false;
+  while (queue.length && matches.length < limit && scanned < maxDirs) {
+    if (Date.now() >= stopAt) {
+      expired = true;
+      break;
+    }
+    const dir = queue.shift();
+    scanned++;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const ent of entries) {
+      if (visitEntry(dir, ent, matches, queue) === true) break;
+    }
+  }
+  // Queue drained without hitting maxDirs/limit/deadline → the walk
+  // covered the whole (non-vendor, non-hidden) tree; a miss is
+  // conclusive. A walk that ran out of time proves nothing.
+  matches.exhaustive = queue.length === 0 && !expired;
+  return matches;
+}
+
 export function findFileByBasename(
   searchRoot,
   fullPath,
@@ -107,45 +141,21 @@ export function findFileByBasename(
     if (typeof searchRoot !== 'string' || !searchRoot) return [];
     const target = basename(fullPath).toLowerCase();
     if (!target) return [];
-    const matches = [];
-    const queue = [searchRoot];
-    const stopAt = Date.now() + Math.max(1, deadlineMs);
-    let scanned = 0;
-    let expired = false;
-    while (queue.length && matches.length < limit && scanned < maxDirs) {
-      if (Date.now() >= stopAt) {
-        expired = true;
-        break;
+    return scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, (dir, ent, matches, queue) => {
+      const name = ent.name;
+      if (ent.isDirectory()) {
+        if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) return false;
+        queue.push(join(dir, name));
+        return false;
       }
-      const dir = queue.shift();
-      scanned++;
-      let entries;
-      try {
-        entries = readdirSync(dir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const ent of entries) {
-        const name = ent.name;
-        if (ent.isDirectory()) {
-          if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) continue;
-          queue.push(join(dir, name));
-        } else if (ent.isFile() && name.toLowerCase() === target) {
-          const hit = join(dir, name);
-          if (hit !== fullPath) {
-            // Return search-root-relative so the hint stays leak-safe
-            // (no home / cache absolute) and is directly read-usable.
-            matches.push(relative(searchRoot, hit));
-            if (matches.length >= limit) break;
-          }
-        }
-      }
-    }
-    // Queue drained without hitting maxDirs/limit/deadline → the walk
-    // covered the whole (non-vendor, non-hidden) tree; a miss is
-    // conclusive. A walk that ran out of time proves nothing.
-    matches.exhaustive = queue.length === 0 && !expired;
-    return matches;
+      if (!ent.isFile() || name.toLowerCase() !== target) return false;
+      const hit = join(dir, name);
+      if (hit === fullPath) return false;
+      // Return search-root-relative so the hint stays leak-safe
+      // (no home / cache absolute) and is directly read-usable.
+      matches.push(relative(searchRoot, hit));
+      return matches.length >= limit;
+    });
   } catch {
     return [];
   }
@@ -209,42 +219,21 @@ export function findDirectoryByBasename(
     if (typeof searchRoot !== 'string' || !searchRoot) return [];
     const target = basename(fullPath).toLowerCase();
     if (!target) return [];
-    const matches = [];
-    const queue = [searchRoot];
-    const stopAt = Date.now() + Math.max(1, deadlineMs);
-    let scanned = 0;
-    let expired = false;
-    while (queue.length && matches.length < limit && scanned < maxDirs) {
-      if (Date.now() >= stopAt) {
-        expired = true;
-        break;
-      }
-      const dir = queue.shift();
-      scanned++;
-      let entries;
-      try {
-        entries = readdirSync(dir, { withFileTypes: true });
-      } catch {
-        continue;
-      }
-      for (const ent of entries) {
-        const name = ent.name;
-        if (ent.isDirectory()) {
-          if (name.toLowerCase() === target) {
-            const hit = join(dir, name);
-            const rel = relative(searchRoot, hit);
-            if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
-              matches.push(rel.replace(/\\/g, '/'));
-              if (matches.length >= limit) break;
-            }
-          }
-          if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) continue;
-          queue.push(join(dir, name));
+    return scanByBasename(searchRoot, { limit, maxDirs, deadlineMs }, (dir, ent, matches, queue) => {
+      const name = ent.name;
+      if (!ent.isDirectory()) return false;
+      if (name.toLowerCase() === target) {
+        const hit = join(dir, name);
+        const rel = relative(searchRoot, hit);
+        if (rel && !rel.startsWith('..') && !isAbsolute(rel)) {
+          matches.push(rel.replace(/\\/g, '/'));
+          if (matches.length >= limit) return true;
         }
       }
-    }
-    matches.exhaustive = queue.length === 0 && !expired;
-    return matches;
+      if (name.startsWith('.') || BASENAME_SCAN_SKIP_DIRS.has(name)) return false;
+      queue.push(join(dir, name));
+      return false;
+    });
   } catch {
     return [];
   }

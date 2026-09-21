@@ -661,6 +661,28 @@ class NativePatchServer {
     }
   }
 
+  // The server's response line, raced against the caller's abort signal.
+  // Registering the abort listener here rather than before the request bytes
+  // are written is safe: no await separates the two, so no abort event can
+  // land in between. The listener is always removed.
+  async #lineOrAbort(linePromise, signal) {
+    if (!signal) return await linePromise;
+    let abortListener = null;
+    const abortPromise = new Promise((_, reject) => {
+      abortListener = () => {
+        reject(this.abort(signal));
+      };
+      signal.addEventListener('abort', abortListener, { once: true });
+    });
+    try {
+      return await Promise.race([linePromise, abortPromise]);
+    } finally {
+      try {
+        signal.removeEventListener('abort', abortListener);
+      } catch {}
+    }
+  }
+
   async apply(basePath, patchText, { fuzz = 2, rejectPartial = true, dryRun = false, signal = null } = {}) {
     this.ref();
     this.assertContractVerified('apply');
@@ -675,15 +697,6 @@ class NativePatchServer {
     const patchBuf = Buffer.from(patchText, 'utf8');
     const linePromise = this.nextLine();
     if (signal) linePromise.catch(() => {});
-    let abortListener = null;
-    const abortPromise = signal
-      ? new Promise((_, reject) => {
-          abortListener = () => {
-            reject(this.abort(signal));
-          };
-          signal.addEventListener('abort', abortListener, { once: true });
-        })
-      : null;
     // 7-token APPLY protocol: APPLY <base_len> <patch_len> <timing> <dry_run> <fuzz> <reject_partial>
     // - timing=1 keeps the server emitting per-phase ms fields
     // - dry_run=1 validates without writing; useful for tests and explicit callers
@@ -695,16 +708,7 @@ class NativePatchServer {
     this.#child.stdin.write(`APPLY ${baseBuf.length} ${patchBuf.length} 1 ${dryTok} ${fuzzTok} ${rpTok}\n`);
     this.#child.stdin.write(baseBuf);
     this.#child.stdin.write(patchBuf);
-    let line;
-    try {
-      line = abortPromise ? await Promise.race([linePromise, abortPromise]) : await linePromise;
-    } finally {
-      if (abortListener) {
-        try {
-          signal.removeEventListener('abort', abortListener);
-        } catch {}
-      }
-    }
+    const line = await this.#lineOrAbort(linePromise, signal);
     if (!line) throw new Error('no native response');
     if (line.startsWith('ERR\t')) throw new Error(line.slice(4));
     const okFull = line.startsWith('OK\t');
@@ -782,31 +786,13 @@ class NativePatchServer {
     const pathBuf = Buffer.from(fullPath, 'utf8');
     const linePromise = this.nextLine();
     if (signal) linePromise.catch(() => {});
-    let abortListener = null;
-    const abortPromise = signal
-      ? new Promise((_, reject) => {
-          abortListener = () => {
-            reject(this.abort(signal));
-          };
-          signal.addEventListener('abort', abortListener, { once: true });
-        })
-      : null;
     this.#child.stdin.write(
       `EDIT ${pathBuf.length} ${oldBuf.length} ${newBuf.length} ${replaceAll ? 1 : 0} ${dryRun ? 1 : 0}\n`
     );
     this.#child.stdin.write(pathBuf);
     this.#child.stdin.write(oldBuf);
     this.#child.stdin.write(newBuf);
-    let line;
-    try {
-      line = abortPromise ? await Promise.race([linePromise, abortPromise]) : await linePromise;
-    } finally {
-      if (abortListener) {
-        try {
-          signal.removeEventListener('abort', abortListener);
-        } catch {}
-      }
-    }
+    const line = await this.#lineOrAbort(linePromise, signal);
     if (!line) throw new Error('no native response');
     if (line.startsWith('ERR\t')) throw new Error(line.slice(4));
     if (!line.startsWith('OK\t')) throw new Error(line);

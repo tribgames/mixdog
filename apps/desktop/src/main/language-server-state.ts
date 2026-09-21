@@ -97,10 +97,6 @@ export class LanguageServerState {
     return this.states.get(key);
   }
 
-  setState(key: string, state: DesktopLspServerState): void {
-    this.states.set(key, state);
-  }
-
   activeSessions(): ServerSession[] {
     return [...this.sessions.values()];
   }
@@ -121,6 +117,7 @@ export class LanguageServerState {
 
   emitStatus(
     projectPath: string,
+    root: string,
     languageId: string,
     spec: LanguageServerSpec | null,
     status: DesktopLspServerState['status'],
@@ -129,7 +126,10 @@ export class LanguageServerState {
     relPath?: string
   ): DesktopLspServerState {
     const state = publicState(spec, status, detail, capabilities);
-    if (spec) this.states.set(sessionKey(projectPath, spec), state);
+    // Readers look a recorded state up by the resolved session root, which is
+    // not the project path the renderer sent: keying this cache by anything
+    // else drops missing/error/stopped detail on a key nobody reads.
+    if (spec) this.states.set(sessionKey(root, spec), state);
     const event: DesktopLspStatusEvent = {
       projectPath,
       languageId,
@@ -156,6 +156,7 @@ export class LanguageServerState {
       emittedLanguages.add(document.languageId);
       this.emitStatus(
         session.projectPath,
+        session.root,
         document.languageId,
         session.spec,
         'ready',
@@ -171,7 +172,7 @@ export class LanguageServerState {
         session.registrations.values(),
         languageId
       );
-      this.emitStatus(session.projectPath, languageId, session.spec, 'ready', undefined, capabilities);
+      this.emitStatus(session.projectPath, session.root, languageId, session.spec, 'ready', undefined, capabilities);
     }
   }
 }

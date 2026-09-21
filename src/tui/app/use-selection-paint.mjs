@@ -6,7 +6,12 @@
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { theme } from '../theme.mjs';
-import { SELECTION_PAINT_INTERVAL_MS, selectionRectsEqual } from './transcript-window.mjs';
+import {
+  SELECTION_PAINT_INTERVAL_MS,
+  selectionRectsEqual,
+  statusBandRowRange,
+  transcriptViewportRowRange,
+} from './transcript-window.mjs';
 import { yieldToRenderer } from '../session/render-timing.mjs';
 
 export function useSelectionPaint({
@@ -51,15 +56,11 @@ export function useSelectionPaint({
     // transcript viewport — clip there so the highlight cannot spill into the
     // prompt/transcript rows. Everything else (transcript, word-select) keeps the
     // transcript-viewport clip.
-    if (dragRef.current.region === 'status') {
-      const rows = Math.max(1, Number(frameRowsRef.current) || 24);
-      const top = Math.max(0, rows - statuslineBandRows);
-      return { y1: top, y2: Math.max(top, rows - 1) };
-    }
-    return {
-      y1: Math.max(0, Number(transcriptViewportRef.current?.top) || 0),
-      y2: Math.max(0, Number(transcriptViewportRef.current?.bottom) || 0),
-    };
+    const band =
+      dragRef.current.region === 'status'
+        ? statusBandRowRange(frameRowsRef.current, statuslineBandRows)
+        : transcriptViewportRowRange(transcriptViewportRef.current);
+    return { y1: band.top, y2: band.bottom };
   }, []);
 
   const withSelectionClip = useCallback(

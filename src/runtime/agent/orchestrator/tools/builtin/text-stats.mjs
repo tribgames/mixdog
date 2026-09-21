@@ -22,7 +22,10 @@ async function countTextStatsStreamingUtf8(fullPath, size) {
   let lines = 0;
   let words = 0;
   let inWord = false;
-  let lastChar = '';
+  // Sentinel, not '': the last code unit may legitimately be 0 (U+0000), and
+  // a falsy test would then drop the unterminated final line. Same contract as
+  // the `lastByte = -1` sentinel in countTextStatsStreaming below.
+  let lastCharCode = -1;
   for await (const chunk of stream) {
     if (!chunk) continue;
     for (let i = 0; i < chunk.length; i++) {
@@ -34,10 +37,10 @@ async function countTextStatsStreamingUtf8(fullPath, size) {
         words++;
         inWord = true;
       }
-      lastChar = code;
+      lastCharCode = code;
     }
   }
-  if (lastChar && lastChar !== 10) lines++;
+  if (lastCharCode !== -1 && lastCharCode !== 10) lines++;
   return { lines, words, bytes: size };
 }
 

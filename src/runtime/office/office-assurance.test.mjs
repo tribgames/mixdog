@@ -1560,6 +1560,34 @@ test('slide review reports the words a later picture or filled shape covers', ()
   assert.deepEqual(carded, []);
 });
 
+// A deck read through COM names its pictures the way COM does — msoPicture,
+// 13 — which is what isPptxPicture and the hierarchy rule already read. A page
+// whose carrier is such a picture is a captioned picture, not a wall of prose.
+test('slide review reads a COM-sourced picture as the carrier of a text-heavy page', () => {
+  const prose = '야간 출고는 묶음 단위로 실어 대기가 길어졌고 도크별 분할 이후 대기가 사라졌다. '.repeat(20);
+  const page = (carrier) => ({
+    format: 'pptx',
+    document: {
+      slideWidth: 960,
+      slideHeight: 540,
+      slides: [
+        {
+          path: '/slide[1]',
+          index: 1,
+          shapes: [
+            { index: 1, type: 'p:sp', left: 50, top: 110, width: 860, height: 360, text: prose, font: { size: 12 } },
+            { index: 2, left: 50, top: 36, width: 300, height: 60, text: '', ...carrier },
+          ],
+        },
+      ],
+    },
+  });
+  const walls = (carrier) => reviewOfficeStructure(page(carrier)).filter((entry) => entry.code === 'slide_text_dense');
+  assert.deepEqual(walls({ type: 13 }), [], 'msoPicture is a picture');
+  assert.deepEqual(walls({ type: 'picture', picture: { path: '/slide[1]/picture[1]' } }), []);
+  assert.equal(walls({ type: 'p:sp' }).length, 1, 'a page of boxes alone is still a wall');
+});
+
 test('task checklist blocks pending manual requirements and reports deterministic format gates', () => {
   const checklist = evaluateOfficeChecklist({
     format: 'xlsx',

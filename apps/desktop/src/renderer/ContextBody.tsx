@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { nonNegativeNumber, resolveContextDisplayUsage } from './context-usage';
 import { t } from './i18n';
 import { record } from './record-utils';
@@ -30,10 +31,14 @@ export function ContextBody({
   status,
   snapshot,
   request: inspectRequest,
+  loading = false,
 }: {
   status: unknown;
   snapshot: unknown;
   request?: ContextRequest;
+  /** The measured breakdown is still in flight. The headline comes from the
+   *  gauge's own snapshot, so only the category list waits. */
+  loading?: boolean;
 }) {
   const context = record(status);
   const state = record(snapshot);
@@ -94,6 +99,49 @@ export function ContextBody({
   const estimatedFreeTokens = Math.max(0, windowTokens - categorizedTokens);
   const categoryWindowTokens = Math.max(windowTokens, categorizedTokens);
   categories.push({ key: 'free', label: t('Free space'), tokens: estimatedFreeTokens });
+  // Without a reading, every category is 0 and the window reads as free space.
+  // Say the breakdown is still being measured instead of showing that as fact.
+  const measuring = loading && !inspection && categorizedTokens <= 0;
+
+  let breakdown: ReactNode;
+  if (inspection) {
+    breakdown = <ContextInspector inspection={inspection} windowTokens={windowTokens} request={inspectRequest} />;
+  } else if (measuring) {
+    breakdown = (
+      <section className="context-mix" aria-labelledby="context-mix-title">
+        <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
+        <p className="settings-loading" role="status">
+          {t('Loading…')}
+        </p>
+      </section>
+    );
+  } else {
+    breakdown = (
+      <section className="context-mix" aria-labelledby="context-mix-title">
+        <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
+        <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
+          {categories
+            .filter((category) => category.tokens > 0)
+            .map((category) => (
+              <b
+                key={category.key}
+                data-context-key={category.key}
+                style={{ width: `${Math.max(0.75, contextPercent(category.tokens, categoryWindowTokens) || 0)}%` }}
+              />
+            ))}
+        </div>
+        <div className="context-mix-grid">
+          {categories.map((category) => (
+            <div className="context-mix-row" key={category.key} data-context-key={category.key}>
+              <i aria-hidden="true" />
+              <span>{category.label}</span>
+              <strong>{compactTokens(category.tokens)}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <div className="context-surface-view">
@@ -132,33 +180,7 @@ export function ContextBody({
             </span>
           </div>
         </section>
-        {inspection ? (
-          <ContextInspector inspection={inspection} windowTokens={windowTokens} request={inspectRequest} />
-        ) : (
-          <section className="context-mix" aria-labelledby="context-mix-title">
-            <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
-            <div className="context-stack-bar" role="img" aria-label={t('Context composition')}>
-              {categories
-                .filter((category) => category.tokens > 0)
-                .map((category) => (
-                  <b
-                    key={category.key}
-                    data-context-key={category.key}
-                    style={{ width: `${Math.max(0.75, contextPercent(category.tokens, categoryWindowTokens) || 0)}%` }}
-                  />
-                ))}
-            </div>
-            <div className="context-mix-grid">
-              {categories.map((category) => (
-                <div className="context-mix-row" key={category.key} data-context-key={category.key}>
-                  <i aria-hidden="true" />
-                  <span>{category.label}</span>
-                  <strong>{compactTokens(category.tokens)}</strong>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {breakdown}
       </div>
     </div>
   );

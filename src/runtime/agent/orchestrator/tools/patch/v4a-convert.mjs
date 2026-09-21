@@ -10,7 +10,7 @@ import { atomicWrite } from '../builtin/atomic-write.mjs';
 import { assertPathReachable, assertPathsReachable } from '../builtin/fs-reachability.mjs';
 import { markCodeGraphDirtyPaths } from '../code-graph-state.mjs';
 import { isSpecialFileStat } from '../builtin/device-paths.mjs';
-import { resolveV4AEntryPath } from './paths.mjs';
+import { pathKey, resolveV4AEntryPath } from './paths.mjs';
 import { isV4AEndOfFileMarker } from './parsing.mjs';
 import {
   findLineSequence,
@@ -491,10 +491,6 @@ export function isV4ARenameSection(section) {
   return section?.kind === 'update' && !!section?.movePath;
 }
 
-function v4aRenamePathKey(absPath) {
-  return process.platform === 'win32' ? String(absPath || '').toLowerCase() : String(absPath || '');
-}
-
 // True when src and dest point at the SAME physical file despite differing
 // path strings — the case-only rename case on a case-insensitive fs (macOS,
 // Windows). realpathSync collapses casing to the canonical on-disk form, so
@@ -531,11 +527,11 @@ export function validateV4ARenameSection(section, basePath, seenDestKeys) {
   // Case-only rename (foo.js -> Foo.js) on a case-insensitive fs resolves to
   // the same key but is a legitimate rename. Reject "same path" only when the
   // raw paths are byte-identical; a case-only difference falls through.
-  if (v4aRenamePathKey(srcFull) === v4aRenamePathKey(destFull) && srcFull === destFull) {
+  if (pathKey(srcFull) === pathKey(destFull) && srcFull === destFull) {
     return `apply_patch: V4A rename source and destination are the same path (${normalizeOutputPath(section.path)})`;
   }
-  const caseOnlyRename = v4aRenamePathKey(srcFull) === v4aRenamePathKey(destFull) && srcFull !== destFull;
-  const destKey = v4aRenamePathKey(destFull);
+  const caseOnlyRename = pathKey(srcFull) === pathKey(destFull) && srcFull !== destFull;
+  const destKey = pathKey(destFull);
   if (seenDestKeys.has(destKey)) {
     return `apply_patch: duplicate V4A rename destination ${normalizeOutputPath(section.movePath)}`;
   }
@@ -620,7 +616,7 @@ export async function applyV4ARenameSection(section, basePath, options = {}) {
   // physical file. atomicWrite(destFull) rewrites (and re-cases) it; the
   // source unlink below would then delete the just-written file, so skip it.
   const caseOnlySameFile =
-    (v4aRenamePathKey(srcFull) === v4aRenamePathKey(destFull) && srcFull !== destFull) ||
+    (pathKey(srcFull) === pathKey(destFull) && srcFull !== destFull) ||
     renameTargetsSamePhysicalFile(srcFull, destFull);
   const displaySrc = normalizeOutputPath(section.path);
   const displayDest = normalizeOutputPath(section.movePath);
@@ -686,13 +682,13 @@ export async function planV4ARenameSections(sections, basePath) {
   // a shared target would silently reorder operations. Refuse overlaps and
   // duplicate sources up front.
   const remainingKeys = new Set(
-    remainingSections.map((section) => v4aRenamePathKey(resolveV4AEntryPath(basePath, section.path)))
+    remainingSections.map((section) => pathKey(resolveV4AEntryPath(basePath, section.path)))
   );
   const seenDestKeys = new Set();
   const seenSrcKeys = new Set();
   for (const section of renameSections) {
-    const srcKey = v4aRenamePathKey(resolveV4AEntryPath(basePath, section.path));
-    const destKey = v4aRenamePathKey(resolveV4AEntryPath(basePath, section.movePath));
+    const srcKey = pathKey(resolveV4AEntryPath(basePath, section.path));
+    const destKey = pathKey(resolveV4AEntryPath(basePath, section.movePath));
     if (seenSrcKeys.has(srcKey)) {
       throw new Error(`apply_patch: duplicate V4A rename source ${normalizeOutputPath(section.path)}`);
     }
@@ -731,15 +727,11 @@ function readRawBufForV4AConversion(fullPath) {
 }
 
 // win32 filesystems are case-insensitive, so `Foo` and `foo` are the same
-// file: the V4A source-line cache MUST key on this normalized form at every
-// get/set, otherwise a mixed-case duplicate section refreshed under one
+// file: the V4A source-line cache MUST key on the pathKey-normalized form at
+// every get/set, otherwise a mixed-case duplicate section refreshed under one
 // casing is missed under another and converts against stale/original lines.
-function v4aLinesCacheKey(fullPath) {
-  return process.platform === 'win32' ? String(fullPath).toLowerCase() : String(fullPath);
-}
-
 function v4aConversionSourceLines(fullPath, linesCache) {
-  const cacheKey = v4aLinesCacheKey(fullPath);
+  const cacheKey = pathKey(fullPath);
   if (linesCache.has(cacheKey)) return linesCache.get(cacheKey);
   // BOM-driven decode + refusal for non-UTF-8/UTF-16 bytes: the rename path
   // rewrites the WHOLE file from these lines.
@@ -772,7 +764,7 @@ function duplicateUpdatePathKeys(sections, basePath) {
   const seenUpd = new Set();
   for (const s of sections || []) {
     if (!s || s.kind === 'add' || s.kind === 'delete' || typeof s.path !== 'string' || !s.path) continue;
-    const key = v4aLinesCacheKey(resolveV4AEntryPath(basePath, s.path));
+    const key = pathKey(resolveV4AEntryPath(basePath, s.path));
     if (seenUpd.has(key)) dupUpdatePaths.add(key);
     else seenUpd.add(key);
   }
@@ -887,10 +879,10 @@ export async function convertV4ASectionsToUnifiedPatch(sections, basePath, optio
     // these hunks to the cached lines so duplicate V4A blocks convert to a
     // sequentially-appliable unified patch. Best-effort: on any mismatch we
     // keep the original cache and let native wave application surface it.
-    if (dupUpdatePaths.has(v4aLinesCacheKey(fullPath))) {
+    if (dupUpdatePaths.has(pathKey(fullPath))) {
       try {
         v4aLinesCache.set(
-          v4aLinesCacheKey(fullPath),
+          pathKey(fullPath),
           applyV4AHunksToLines(sourceLines, section.hunks, { fuzzy: hunkOptions.fuzzy })
         );
       } catch {

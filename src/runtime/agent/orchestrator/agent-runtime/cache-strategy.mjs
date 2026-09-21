@@ -42,6 +42,7 @@
  */
 
 import { createHash } from 'node:crypto';
+import { stableHashStringify } from '../stable-hash-stringify.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 import { nonNegativeInt, positiveInt } from '../../../shared/numbers.mjs';
 
@@ -201,15 +202,8 @@ export function resolveProviderCacheKey(opts, provider) {
   );
 }
 
-function stableStringify(value) {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map((v) => stableStringify(v)).join(',')}]`;
-  const keys = Object.keys(value).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(',')}}`;
-}
-
 function shortHash(value, chars = 18) {
-  return createHash('sha256').update(stableStringify(value)).digest('hex').slice(0, chars);
+  return createHash('sha256').update(stableHashStringify(value)).digest('hex').slice(0, chars);
 }
 
 function cleanString(value) {

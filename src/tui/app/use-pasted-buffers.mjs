@@ -7,109 +7,83 @@
 import { useCallback, useRef, useState } from 'react';
 import { formatImageRef, formatPastedTextRef } from '../paste-attachments.mjs';
 
+// One buffer kind (images or texts): the mirrored ref + state, the id
+// sequence, and the install / snapshot-clear / register trio. `toEntry` builds
+// the stored payload for a fresh paste — a falsy entry registers nothing and
+// leaves the id sequence untouched — and `formatRef` mints its prompt token.
+function usePastedBufferSlice({ toEntry, formatRef }) {
+  const [, setBuffers] = useState({});
+  const buffersRef = useRef({});
+  const nextIdRef = useRef(1);
+
+  const install = useCallback((buffers, { merge = true } = {}) => {
+    if (!buffers || typeof buffers !== 'object' || Object.keys(buffers).length === 0) return;
+    const next = merge ? { ...buffersRef.current, ...buffers } : { ...buffers };
+    buffersRef.current = next;
+    const maxId = Object.keys(next)
+      .map((id) => Number(id) || 0)
+      .reduce((max, id) => Math.max(max, id), 0);
+    if (maxId >= nextIdRef.current) nextIdRef.current = maxId + 1;
+    setBuffers(next);
+  }, []);
+
+  const clearSnapshot = useCallback((snapshot = null) => {
+    if (!snapshot) {
+      if (Object.keys(buffersRef.current || {}).length === 0) return;
+      buffersRef.current = {};
+      setBuffers({});
+      return;
+    }
+    if (typeof snapshot !== 'object' || Object.keys(snapshot).length === 0) return;
+    const next = { ...buffersRef.current };
+    let changed = false;
+    for (const [id, buffer] of Object.entries(snapshot)) {
+      if (next[id] === buffer) {
+        delete next[id];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    buffersRef.current = next;
+    setBuffers(next);
+  }, []);
+
+  const register = useCallback((input) => {
+    const id = nextIdRef.current;
+    const entry = toEntry(input, id);
+    if (!entry) return '';
+    nextIdRef.current = id + 1;
+    buffersRef.current = { ...buffersRef.current, [id]: entry };
+    setBuffers(buffersRef.current);
+    return formatRef(entry);
+  }, []);
+
+  return { buffersRef, nextIdRef, install, clearSnapshot, register };
+}
+
 export function usePastedBuffers() {
-  const [, setPastedImages] = useState({});
-  const pastedImagesRef = useRef({});
-  const nextPastedImageIdRef = useRef(1);
-  const [, setPastedTexts] = useState({});
-  const pastedTextsRef = useRef({});
-  const nextPastedTextIdRef = useRef(1);
-
-  const installPastedImages = useCallback((images, { merge = true } = {}) => {
-    if (!images || typeof images !== 'object' || Object.keys(images).length === 0) return;
-    const next = merge ? { ...pastedImagesRef.current, ...images } : { ...images };
-    pastedImagesRef.current = next;
-    const maxId = Object.keys(next)
-      .map((id) => Number(id) || 0)
-      .reduce((max, id) => Math.max(max, id), 0);
-    if (maxId >= nextPastedImageIdRef.current) nextPastedImageIdRef.current = maxId + 1;
-    setPastedImages(next);
-  }, []);
-
-  const clearPastedImagesSnapshot = useCallback((snapshot = null) => {
-    if (!snapshot) {
-      if (Object.keys(pastedImagesRef.current || {}).length === 0) return;
-      pastedImagesRef.current = {};
-      setPastedImages({});
-      return;
-    }
-    if (typeof snapshot !== 'object' || Object.keys(snapshot).length === 0) return;
-    const next = { ...pastedImagesRef.current };
-    let changed = false;
-    for (const [id, image] of Object.entries(snapshot)) {
-      if (next[id] === image) {
-        delete next[id];
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    pastedImagesRef.current = next;
-    setPastedImages(next);
-  }, []);
-
-  const registerPastedImage = useCallback((image) => {
-    if (image?.type !== 'image' || !image.content) return '';
-    const id = nextPastedImageIdRef.current++;
-    const entry = { ...image, id };
-    pastedImagesRef.current = { ...pastedImagesRef.current, [id]: entry };
-    setPastedImages(pastedImagesRef.current);
-    return formatImageRef(id);
-  }, []);
-
-  const installPastedTexts = useCallback((texts, { merge = true } = {}) => {
-    if (!texts || typeof texts !== 'object' || Object.keys(texts).length === 0) return;
-    const next = merge ? { ...pastedTextsRef.current, ...texts } : { ...texts };
-    pastedTextsRef.current = next;
-    const maxId = Object.keys(next)
-      .map((id) => Number(id) || 0)
-      .reduce((max, id) => Math.max(max, id), 0);
-    if (maxId >= nextPastedTextIdRef.current) nextPastedTextIdRef.current = maxId + 1;
-    setPastedTexts(next);
-  }, []);
-
-  const clearPastedTextsSnapshot = useCallback((snapshot = null) => {
-    if (!snapshot) {
-      if (Object.keys(pastedTextsRef.current || {}).length === 0) return;
-      pastedTextsRef.current = {};
-      setPastedTexts({});
-      return;
-    }
-    if (typeof snapshot !== 'object' || Object.keys(snapshot).length === 0) return;
-    const next = { ...pastedTextsRef.current };
-    let changed = false;
-    for (const [id, text] of Object.entries(snapshot)) {
-      if (next[id] === text) {
-        delete next[id];
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    pastedTextsRef.current = next;
-    setPastedTexts(next);
-  }, []);
-
-  const registerPastedText = useCallback((text) => {
-    const value = String(text ?? '');
-    if (!value) return '';
-    const id = nextPastedTextIdRef.current++;
-    const entry = { id, text: value };
-    pastedTextsRef.current = { ...pastedTextsRef.current, [id]: entry };
-    setPastedTexts(pastedTextsRef.current);
-    return formatPastedTextRef(id, value);
-  }, []);
+  const images = usePastedBufferSlice({
+    toEntry: (image, id) => (image?.type === 'image' && image.content ? { ...image, id } : null),
+    formatRef: (entry) => formatImageRef(entry.id),
+  });
+  const texts = usePastedBufferSlice({
+    toEntry: (text, id) => {
+      const value = String(text ?? '');
+      return value ? { id, text: value } : null;
+    },
+    formatRef: (entry) => formatPastedTextRef(entry.id, entry.text),
+  });
 
   return {
-    pastedImagesRef,
-    nextPastedImageIdRef,
-    pastedTextsRef,
-    nextPastedTextIdRef,
-    setPastedImages,
-    setPastedTexts,
-    installPastedImages,
-    clearPastedImagesSnapshot,
-    registerPastedImage,
-    installPastedTexts,
-    clearPastedTextsSnapshot,
-    registerPastedText,
+    pastedImagesRef: images.buffersRef,
+    nextPastedImageIdRef: images.nextIdRef,
+    pastedTextsRef: texts.buffersRef,
+    nextPastedTextIdRef: texts.nextIdRef,
+    installPastedImages: images.install,
+    clearPastedImagesSnapshot: images.clearSnapshot,
+    registerPastedImage: images.register,
+    installPastedTexts: texts.install,
+    clearPastedTextsSnapshot: texts.clearSnapshot,
+    registerPastedText: texts.register,
   };
 }

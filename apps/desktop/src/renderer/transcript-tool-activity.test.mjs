@@ -11,6 +11,7 @@ import {
   desktopToolActivityItemPresentation,
   flattenedToolActivityItems,
   formatTokenCount,
+  LiveActivity,
   transcriptItemsEqual,
   ToolActivityGroup,
 } from './TranscriptView.tsx';
@@ -202,6 +203,62 @@ test('a visible assistant message seals the current tool activity run', () => {
   );
   assert.deepEqual(rows[0].items, [first]);
   assert.deepEqual(rows[2].items, [second]);
+});
+
+test('thinking row keeps its key when the optimistic prompt settles', () => {
+  const id = 'sub-1';
+  const pending = appendLiveTranscriptRows({
+    sessionKey: 'session',
+    settled: project([]),
+    pendingItems: [{ kind: 'user', id, text: 'hi', submittedAt: 1_000 }],
+    thinking: true,
+  });
+  const settled = appendLiveTranscriptRows({
+    sessionKey: 'session',
+    settled: project([{ kind: 'user', id, text: 'hi' }], [`turn:${id}`]),
+    thinking: true,
+  });
+  const pendingKey = pending.find((row) => row._tag === 'Thinking')?.key;
+  const settledKey = settled.find((row) => row._tag === 'Thinking')?.key;
+  const next = appendLiveTranscriptRows({
+    sessionKey: 'session',
+    settled: project([{ kind: 'user', id: 'sub-2', text: 'next' }], ['turn:sub-2']),
+    thinking: true,
+  });
+
+  assert.equal(pendingKey, 'session:thinking:sub-1');
+  assert.equal(settledKey, pendingKey);
+  assert.notEqual(next.find((row) => row._tag === 'Thinking')?.key, pendingKey);
+});
+
+test('the thinking clock keeps the submit time when the spinner arrives', async () => {
+  const dom = installToolActivityDom('Mozilla/5.0 Electron/41.0.0');
+  const secondsOf = (text) => Number((String(text || '').match(/\d+/) || [])[0] || 0);
+  try {
+    await act(async () => {
+      dom.root.render(
+        React.createElement(LiveActivity, {
+          snapshot: {},
+          optimisticStartedAt: Date.now() - 4_000,
+        })
+      );
+    });
+    const before = secondsOf(document.querySelector('.live-activity-meta')?.textContent);
+    await act(async () => {
+      dom.root.render(
+        React.createElement(LiveActivity, {
+          snapshot: { spinner: { active: true, startedAt: Date.now(), mode: 'requesting' } },
+          optimisticStartedAt: 0,
+        })
+      );
+    });
+    const after = secondsOf(document.querySelector('.live-activity-meta')?.textContent);
+    assert.ok(before >= 3);
+    assert.ok(after >= 3);
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
 });
 
 test('thinking remains a separate row after grouped tool activity', () => {

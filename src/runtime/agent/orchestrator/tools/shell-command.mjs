@@ -16,9 +16,11 @@
 // (lib/shell-run-background.mjs). This module owns admission, preflight and
 // the wiring between those phases.
 import { resourceAdmission } from '../../../shared/resource-admission.mjs';
-import { ExecResult } from './shell-exec-output.mjs';
+import { ExecResult, treeKill } from './shell-exec-output.mjs';
 import {
+  clearForegroundTimers,
   createShellRun,
+  detachAbortHandler,
   elapsedSinceStart,
   releaseResourceLease,
   treeKillForceSettle,
@@ -260,6 +262,20 @@ async function admitAndSpawn(run, params) {
   }
 }
 
+// A fault in the wiring BELOW admitAndSpawn (capture, settle, deadlines) has
+// no phase of its own to report it: nothing is armed yet, so no timer, exit
+// handler or settle() can ever resolve the run. Tear the half-built run down
+// by hand and report the same tool-phase failure the spawn path reports.
+function settleSetupFailure(run, err) {
+  detachAbortHandler(run);
+  clearForegroundTimers(run);
+  try {
+    treeKill(run.child);
+  } catch {}
+  void releaseResourceLease(run);
+  run.resolveResult(failedResult(run, String(err?.message || err), 'spawn failed'));
+}
+
 // Binary bytes are sanitized by the capture layer and the run CONTINUES.
 // Killing the whole process tree on the first non-text chunk also killed
 // the servers and pipelines that legitimately emit binary (git http
@@ -444,42 +460,50 @@ export function execShellCommand({
 }) {
   return new Promise(async (resolve) => {
     const run = createShellRun({ abortSignal, resolve });
-    const spawned = await admitAndSpawn(run, {
-      admission,
-      shell,
-      shellArg,
-      shellArgs,
-      command,
-      env,
-      cwd,
-      abortSignal,
-      directArgv,
-      execScript,
-      ownerSessionId,
-      clientHostPid,
-    });
-    if (!spawned) return;
+    // An async executor's throw is NOT routed to this Promise — it becomes an
+    // unhandled rejection of the executor's own promise while the awaiting
+    // caller hangs forever. Every path below therefore has to settle the run
+    // itself, including the unexpected one.
+    try {
+      const spawned = await admitAndSpawn(run, {
+        admission,
+        shell,
+        shellArg,
+        shellArgs,
+        command,
+        env,
+        cwd,
+        abortSignal,
+        directArgv,
+        execScript,
+        ownerSessionId,
+        clientHostPid,
+      });
+      if (!spawned) return;
 
-    // Pre-aborted signal: kill immediately if the abort already fired
-    // before spawn returned (synchronous reentry from a parent abort), so
-    // the child doesn't run for the full timeoutMs window.
-    if (abortSignal?.aborted) {
-      treeKillForceSettle(run, 'cancellation');
+      // Pre-aborted signal: kill immediately if the abort already fired
+      // before spawn returned (synchronous reentry from a parent abort), so
+      // the child doesn't run for the full timeoutMs window.
+      if (abortSignal?.aborted) {
+        treeKillForceSettle(run, 'cancellation');
+      }
+      attachOutputCapture(run);
+      const releasePromotedCapture = createPromotedCaptureRelease(run);
+      run.settle = createSettle(run, releasePromotedCapture);
+      attachChildExit(run, releasePromotedCapture);
+      const fireAutoBackground = createAutoBackground({
+        run,
+        command,
+        cwd,
+        clientHostPid,
+        ownerSessionId,
+        promotedTimeoutMs,
+        backgroundDeadlineMs,
+      });
+      armDeadlines(run, { timeoutMs, autoBackgroundMs, backgroundOnTimeout, abortSignal }, fireAutoBackground);
+      armProgressTimers(run, { onProgress, onOutputTail });
+    } catch (err) {
+      settleSetupFailure(run, err);
     }
-    attachOutputCapture(run);
-    const releasePromotedCapture = createPromotedCaptureRelease(run);
-    run.settle = createSettle(run, releasePromotedCapture);
-    attachChildExit(run, releasePromotedCapture);
-    const fireAutoBackground = createAutoBackground({
-      run,
-      command,
-      cwd,
-      clientHostPid,
-      ownerSessionId,
-      promotedTimeoutMs,
-      backgroundDeadlineMs,
-    });
-    armDeadlines(run, { timeoutMs, autoBackgroundMs, backgroundOnTimeout, abortSignal }, fireAutoBackground);
-    armProgressTimers(run, { onProgress, onOutputTail });
   });
 }

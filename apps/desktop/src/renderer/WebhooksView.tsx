@@ -63,7 +63,11 @@ function webhookDraft(webhook: RecordValue | undefined): WebhookDraft {
   return {
     name: String(source.name || ''),
     description: String(source.description || ''),
-    parser: String(source.parser || 'generic'),
+    // Stored rows carry no parser default (webhooks.endpoints.parser is
+    // nullable); the store's own reader substitutes 'github' for a missing
+    // value, so the editor must open a legacy row as the same parser the list
+    // shows — and save it back unchanged.
+    parser: String(source.parser || 'github'),
     model: String(source.model || ''),
     cwd: String(source.cwd || ''),
     // New-task parity: an automation always carries a workflow; legacy rows

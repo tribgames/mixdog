@@ -7,6 +7,7 @@ import {
   MAX_FONT_FAMILIES_PER_SLIDE,
   fontFamilyKey,
   isMotifShape,
+  isPictureShape,
   isSafeFontFamily,
   saturatedHueFamilies,
 } from '../design/design-discipline.mjs';
@@ -189,13 +190,8 @@ function reviewPptxDiscipline(slides, design, issues) {
   }
 }
 
-// Shape kind arrives in two vocabularies: Microsoft Office reports integer
-// MsoShapeType values while the portable backend reports the OOXML element name.
-// Every rule below reads through these helpers so both backends agree.
-function isPictureShape(shape) {
-  return Number(shape.type) === 13 || shape.type === 'p:pic';
-}
-
+// A picture reads through design-discipline's own predicate; an auto shape is
+// the same two vocabularies, Office's MsoShapeType 1 and the OOXML element.
 function isAutoShape(shape) {
   return Number(shape.type) === 1 || shape.type === 'p:sp';
 }
@@ -216,97 +212,89 @@ function normalizedShapeSignature(slide) {
     .join('|');
 }
 
-function reviewPptx(document, design) {
+// One slide read on its own: the issues it earns, plus what it contributes to
+// the deck-scale reading — whether it carries native evidence, whether it is
+// another card grid, and the composition signature a content page repeats.
+function reviewPptxSlide(slide, { slides, design, plansBySlide, size }) {
   const issues = [];
-  const slides = Array.isArray(document?.slides) ? document.slides : [];
-  const plansBySlide = new Map((design.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
-  const size = slideSize(document);
-  reviewPptxTheme(document, design, issues);
-  reviewPptxDiscipline(slides, design, issues);
-  // An authored deck is held to its own brief: the skeleton each plan line
-  // promised, and the fact sheet behind every figure it shows.
-  if (design.brief) {
+  const shapes = (Array.isArray(slide.shapes) ? slide.shapes : []).filter((shape) => !isMotifShape(shape));
+  const textShapes = shapes.filter((shape) => String(shape.text || '').trim());
+  const pictures = shapes.filter(isPictureShape);
+  const richVisuals = shapes.filter((shape) => shape.chart || shape.table || shape.group);
+  const nonTextShapes = shapes.filter((shape) => !String(shape.text || '').trim() && !shape.placeholder);
+  // One statement, a band of hero numerals, or a drawn specimen (the subject
+  // itself set in three or more size/weight steps down one column) is a
+  // typographic visual; an authored brief whose plan line names a statement,
+  // quote, hero, or specimen carrier says so directly.
+  const plannedCarriers =
+    (design.brief?.plan || []).find((entry) => Number(entry.slide) === Number(slide.index))?.carriers || [];
+  const typographicVisual =
+    isPptxStatementSlide(slide) ||
+    textShapes.filter((shape) => (Number(shape.font?.size) || 0) >= 40).length >= 3 ||
+    isPptxSpecimenSlide(textShapes) ||
+    plannedCarriers.some((carrier) => ['statement', 'quote', 'hero', 'specimen'].includes(carrier));
+  const semanticVisual = String(plansBySlide.get(Number(slide.index))?.visualType || '');
+  const inferredDiagram = nonTextShapes.length >= 2 && nonTextShapes.length <= 8 && textShapes.length >= 4;
+  const purposefulDiagram =
+    (['comparison', 'diagram', 'matrix', 'process', 'table'].includes(semanticVisual) && nonTextShapes.length > 0) ||
+    inferredDiagram;
+  const nativeEvidence = Boolean(
+    pictures.length || shapes.some((shape) => shape.chart || shape.table) || purposefulDiagram
+  );
+  // The opening slide is a cover and never owes a chart or table. Treating a
+  // short deck as all-content flagged its own cover for missing evidence, a
+  // demand no author can satisfy without wrecking the cover.
+  const contentSlide = slide.index !== 1 && !(slides.length >= 3 && slide.index === slides.length);
+  if (
+    contentSlide &&
+    textShapes.length &&
+    pictures.length === 0 &&
+    richVisuals.length === 0 &&
+    nonTextShapes.length < 2 &&
+    !typographicVisual &&
+    !purposefulDiagram &&
+    !design.review.allowTextOnly
+  ) {
     issues.push(
-      ...reviewBriefPromises(document, design.brief),
-      ...reviewFactCoverage(document, design.brief),
-      ...reviewSourceGrounding(design.brief)
+      designIssue(
+        'meaningful_visual_missing',
+        `/slide[${slide.index}]`,
+        'Content slide has no image, chart, table, group, or purposeful diagram.'
+      )
     );
   }
-  let cardGridSlides = 0;
-  const signatures = new Map();
-  let nativeEvidenceSlides = 0;
-  for (const slide of slides) {
-    const shapes = (Array.isArray(slide.shapes) ? slide.shapes : []).filter((shape) => !isMotifShape(shape));
-    const textShapes = shapes.filter((shape) => String(shape.text || '').trim());
-    const pictures = shapes.filter(isPictureShape);
-    const richVisuals = shapes.filter((shape) => shape.chart || shape.table || shape.group);
-    const nonTextShapes = shapes.filter((shape) => !String(shape.text || '').trim() && !shape.placeholder);
-    // One statement, a band of hero numerals, or a drawn specimen (the subject
-    // itself set in three or more size/weight steps down one column) is a
-    // typographic visual; an authored brief whose plan line names a statement,
-    // quote, hero, or specimen carrier says so directly.
-    const plannedCarriers =
-      (design.brief?.plan || []).find((entry) => Number(entry.slide) === Number(slide.index))?.carriers || [];
-    const typographicVisual =
-      isPptxStatementSlide(slide) ||
-      textShapes.filter((shape) => (Number(shape.font?.size) || 0) >= 40).length >= 3 ||
-      isPptxSpecimenSlide(textShapes) ||
-      plannedCarriers.some((carrier) => ['statement', 'quote', 'hero', 'specimen'].includes(carrier));
-    const semanticVisual = String(plansBySlide.get(Number(slide.index))?.visualType || '');
-    const inferredDiagram = nonTextShapes.length >= 2 && nonTextShapes.length <= 8 && textShapes.length >= 4;
-    const purposefulDiagram =
-      (['comparison', 'diagram', 'matrix', 'process', 'table'].includes(semanticVisual) && nonTextShapes.length > 0) ||
-      inferredDiagram;
-    if (pictures.length || shapes.some((shape) => shape.chart || shape.table) || purposefulDiagram)
-      nativeEvidenceSlides += 1;
-    // The opening slide is a cover and never owes a chart or table. Treating a
-    // short deck as all-content flagged its own cover for missing evidence, a
-    // demand no author can satisfy without wrecking the cover.
-    const contentSlide = slide.index !== 1 && !(slides.length >= 3 && slide.index === slides.length);
-    if (
-      contentSlide &&
-      textShapes.length &&
-      pictures.length === 0 &&
-      richVisuals.length === 0 &&
-      nonTextShapes.length < 2 &&
-      !typographicVisual &&
-      !purposefulDiagram &&
-      !design.review.allowTextOnly
-    ) {
-      issues.push(
-        designIssue(
-          'meaningful_visual_missing',
-          `/slide[${slide.index}]`,
-          'Content slide has no image, chart, table, group, or purposeful diagram.'
-        )
-      );
-    }
-    const textLength = textShapes.reduce((total, shape) => total + String(shape.text || '').length, 0);
-    if (textLength > 650) {
-      issues.push(
-        designIssue(
-          'excessive_slide_text',
-          `/slide[${slide.index}]`,
-          `Slide contains ${textLength} characters; split or visualize the content.`
-        )
-      );
-    }
-    const ornamental = nonTextShapes.filter((shape) => isOrnamentalStripe(shape, shapes, size));
-    if (ornamental.length && !design.review.allowDecorativeLines) {
-      issues.push(
-        designIssue(
-          'decorative_stripe',
-          `/slide[${slide.index}]`,
-          'Thin decorative stripe or rule resembles generic AI slide ornamentation.'
-        )
-      );
-    }
-    if (isCardGridSlide(textShapes.filter(isAutoShape), shapes.filter(isAutoShape))) cardGridSlides += 1;
-    if (contentSlide) {
-      const signature = normalizedShapeSignature(slide);
-      if (signature) signatures.set(signature, (signatures.get(signature) || 0) + 1);
-    }
+  const textLength = textShapes.reduce((total, shape) => total + String(shape.text || '').length, 0);
+  if (textLength > 650) {
+    issues.push(
+      designIssue(
+        'excessive_slide_text',
+        `/slide[${slide.index}]`,
+        `Slide contains ${textLength} characters; split or visualize the content.`
+      )
+    );
   }
+  const ornamental = nonTextShapes.filter((shape) => isOrnamentalStripe(shape, shapes, size));
+  if (ornamental.length && !design.review.allowDecorativeLines) {
+    issues.push(
+      designIssue(
+        'decorative_stripe',
+        `/slide[${slide.index}]`,
+        'Thin decorative stripe or rule resembles generic AI slide ornamentation.'
+      )
+    );
+  }
+  return {
+    issues,
+    nativeEvidence,
+    cardGrid: isCardGridSlide(textShapes.filter(isAutoShape), shapes.filter(isAutoShape)),
+    signature: contentSlide ? normalizedShapeSignature(slide) : '',
+  };
+}
+
+// What only the whole deck can say: the same composition page after page, card
+// grids past the authoring rule, and too little native evidence for its length.
+function reviewPptxDeckScale({ slides, design, signatures, cardGridSlides, nativeEvidenceSlides }) {
+  const issues = [];
   const contentCount = slides.length >= 3 ? slides.length - 2 : Math.max(0, slides.length - 1);
   const repeated = Math.max(0, ...signatures.values());
   if (contentCount >= 4 && repeated / contentCount >= 0.75 && !design.review.allowRepetition) {
@@ -338,6 +326,36 @@ function reviewPptx(document, design) {
       )
     );
   }
+  return issues;
+}
+
+function reviewPptx(document, design) {
+  const issues = [];
+  const slides = Array.isArray(document?.slides) ? document.slides : [];
+  const plansBySlide = new Map((design.slidePlans || []).map((plan) => [Number(plan.slide), plan]));
+  const size = slideSize(document);
+  reviewPptxTheme(document, design, issues);
+  reviewPptxDiscipline(slides, design, issues);
+  // An authored deck is held to its own brief: the skeleton each plan line
+  // promised, and the fact sheet behind every figure it shows.
+  if (design.brief) {
+    issues.push(
+      ...reviewBriefPromises(document, design.brief),
+      ...reviewFactCoverage(document, design.brief),
+      ...reviewSourceGrounding(design.brief)
+    );
+  }
+  let cardGridSlides = 0;
+  const signatures = new Map();
+  let nativeEvidenceSlides = 0;
+  for (const slide of slides) {
+    const read = reviewPptxSlide(slide, { slides, design, plansBySlide, size });
+    issues.push(...read.issues);
+    if (read.nativeEvidence) nativeEvidenceSlides += 1;
+    if (read.cardGrid) cardGridSlides += 1;
+    if (read.signature) signatures.set(read.signature, (signatures.get(read.signature) || 0) + 1);
+  }
+  issues.push(...reviewPptxDeckScale({ slides, design, signatures, cardGridSlides, nativeEvidenceSlides }));
   issues.push(...reviewPptxDeckDiversity({ document, design }));
   return issues;
 }

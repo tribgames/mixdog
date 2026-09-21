@@ -109,10 +109,21 @@ export function overlayBlocksGlobalTranscriptScroll(owner = {}) {
   );
 }
 
+// Name/alias lookups run per keystroke (argument hints, palette accept), so the
+// registry is indexed once instead of scanned per call. First registration
+// wins, matching the `find` order these tables replaced.
+const SLASH_COMMAND_BY_NAME = new Map();
+const SLASH_COMMAND_BY_TOKEN = new Map();
+for (const command of SLASH_COMMANDS) {
+  if (!SLASH_COMMAND_BY_NAME.has(command.name)) SLASH_COMMAND_BY_NAME.set(command.name, command);
+  for (const token of [command.name, ...(command.aliases || [])]) {
+    if (!SLASH_COMMAND_BY_TOKEN.has(token)) SLASH_COMMAND_BY_TOKEN.set(token, command);
+  }
+}
+
 export function normalizeSlashCommandName(cmd) {
   const name = String(cmd || '').toLowerCase();
-  const command = SLASH_COMMANDS.find((item) => item.name === name || (item.aliases || []).includes(name));
-  return command?.name || name;
+  return SLASH_COMMAND_BY_TOKEN.get(name)?.name || name;
 }
 
 export function slashCommandTokenForPaletteAccept(command, draftValue = '') {
@@ -128,8 +139,7 @@ export function slashCommandTokenForPaletteAccept(command, draftValue = '') {
 }
 
 function slashCommandForName(cmd) {
-  const name = normalizeSlashCommandName(cmd);
-  return SLASH_COMMANDS.find((item) => item.name === name) || null;
+  return SLASH_COMMAND_BY_NAME.get(normalizeSlashCommandName(cmd)) || null;
 }
 
 export function slashArgumentHint(value) {

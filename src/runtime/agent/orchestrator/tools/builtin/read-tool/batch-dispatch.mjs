@@ -115,9 +115,12 @@ export async function dispatchBatchReads({
     if (src === i) continue;
     const e = entries[i];
     const s = results[src];
-    results[i] = s
-      ? { path: e.path, mode: e.mode || 'full', n: e.n, body: s.body }
-      : { path: e.path, mode: e.mode || 'full', n: e.n, body: 'Error: dedup mapping failed' };
+    results[i] = {
+      path: e.path,
+      mode: e.mode || 'full',
+      n: e.n,
+      body: s ? s.body : 'Error: dedup mapping failed',
+    };
   }
   return results;
 }

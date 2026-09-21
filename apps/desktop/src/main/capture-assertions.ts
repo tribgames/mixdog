@@ -58,24 +58,6 @@ interface RectMeasurement {
   height: number;
 }
 
-interface ImageMeasuredSidebar {
-  method: string;
-  scanlineY: number;
-  left: number;
-  right: number;
-  width: number;
-  leftInset: number;
-  rightGap: { left: number; right: number; width: number };
-  sidebarExcludedRuns: { leftInset: boolean; rightGap: boolean };
-  sampledColors: {
-    leftOutside: string;
-    leftBorder: string;
-    interior: string;
-    rightBorder: string;
-    rightGap: string;
-  };
-}
-
 interface ShellTopEdgeSample {
   theme: 'dark' | 'light';
   x: number;
@@ -753,45 +735,5 @@ export function measureShellTopEdge(image: NativeImage, theme: ShellTopEdgeSampl
     yStart,
     yEnd,
     colors: Array.from({ length: yEnd - yStart + 1 }, (_, index) => pixel(x, yStart + index)),
-  };
-}
-
-export function measureSidebarGeometry(image: NativeImage): ImageMeasuredSidebar {
-  const pixel = imageReader(image);
-  // Stay above the footer controls so icon pixels cannot split the interior run.
-  const scanlineY = 600;
-  // Flat shell: the sidebar begins at x=0 and the workspace sheet starts
-  // immediately after its right hairline. Measure that band→sheet transition
-  // so the border remains part of the sidebar's DOM width.
-  const sidebarColor = '#111114';
-  const workspaceColor = '#000000';
-  const left = 0;
-  let mainLeft = -1;
-  for (let x = 1; x <= 400; x += 1) {
-    if (pixel(x, scanlineY) === workspaceColor) {
-      mainLeft = x;
-      break;
-    }
-  }
-  if (pixel(left, scanlineY) !== sidebarColor || mainLeft < 1) {
-    throw new Error('Could not measure flat sidebar band→sheet boundary from capture pixels.');
-  }
-  const right = mainLeft - 1;
-  return {
-    method: 'horizontal-pixel-scan',
-    scanlineY,
-    left,
-    right,
-    width: right - left + 1,
-    leftInset: 0,
-    rightGap: { left: mainLeft, right, width: 0 },
-    sidebarExcludedRuns: { leftInset: true, rightGap: true },
-    sampledColors: {
-      leftOutside: pixel(left, scanlineY),
-      leftBorder: pixel(left, scanlineY),
-      interior: pixel(left + 1, scanlineY),
-      rightBorder: pixel(right, scanlineY),
-      rightGap: pixel(mainLeft, scanlineY),
-    },
   };
 }

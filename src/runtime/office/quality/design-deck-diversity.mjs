@@ -1,4 +1,5 @@
 import { slideReceipt } from '../authoring/pptx-receipt.mjs';
+import { isPictureShape } from '../design/design-discipline.mjs';
 
 function issue(code, message) {
   return {
@@ -64,14 +65,10 @@ function deckShapeIssues(slides) {
   return issues;
 }
 
-function isPicture(shape) {
-  return Number(shape?.type) === 13 || shape?.type === 'p:pic';
-}
-
 function shapeRole(shape) {
   if (shape?.chart) return 'chart';
   if (shape?.table) return 'table';
-  if (isPicture(shape)) return 'image';
+  if (isPictureShape(shape)) return 'image';
   if (shape?.group) return 'group';
   const text = String(shape?.text || '').trim();
   if (!text) return 'shape';

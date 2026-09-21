@@ -650,7 +650,7 @@ export function renderAppView(ctx) {
                         thinkingActiveSince={liveSpinner?.thinkingSegmentStartedAt ?? 0}
                         thinkingMs={liveSpinner?.thinkingAccumulatedMs ?? 0}
                         effort={state.effort || ''}
-                        hasActiveTools={!!(activeTools?.explore?.count || activeTools?.web_search?.count)}
+                        hasActiveTools={!!activeTools?.web_search?.count}
                         paused={!!toolApproval}
                         interruptible={!!(state.busy && state.spinner?.active)}
                         mode={liveSpinner?.mode || 'responding'}

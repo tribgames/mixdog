@@ -37,6 +37,15 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     }, remainingMs);
     entry.timer.unref?.();
   }
+  // Settle one entry: drop its timeout, then hand the waiter its answer. The
+  // resolve stays guarded — a waiter whose caller already went away must never
+  // take the rest of the queue down with it.
+  function settleToolApproval(entry, approved, reason) {
+    if (entry?.timer) clearTimeout(entry.timer);
+    try {
+      entry.resolve({ approved, reason });
+    } catch {}
+  }
   function presentNextToolApproval() {
     if (activeToolApproval || getDisposed()) return;
     const entry = toolApprovalQueue.shift();
@@ -53,21 +62,15 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (activeToolApproval && activeToolApproval.id === targetId) {
       const entry = activeToolApproval;
       activeToolApproval = null;
-      if (entry.timer) clearTimeout(entry.timer);
       set({ toolApproval: null });
-      try {
-        entry.resolve({ approved: approved === true, reason: String(reason || '') });
-      } catch {}
+      settleToolApproval(entry, approved === true, String(reason || ''));
       presentNextToolApproval();
       return true;
     }
     const index = toolApprovalQueue.findIndex((entry) => entry.id === targetId);
     if (index >= 0) {
       const [entry] = toolApprovalQueue.splice(index, 1);
-      if (entry?.timer) clearTimeout(entry.timer);
-      try {
-        entry.resolve({ approved: approved === true, reason: String(reason || '') });
-      } catch {}
+      settleToolApproval(entry, approved === true, String(reason || ''));
       return true;
     }
     return false;
@@ -76,17 +79,10 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (activeToolApproval) {
       const entry = activeToolApproval;
       activeToolApproval = null;
-      if (entry.timer) clearTimeout(entry.timer);
-      try {
-        entry.resolve({ approved: false, reason });
-      } catch {}
+      settleToolApproval(entry, false, reason);
     }
     while (toolApprovalQueue.length > 0) {
-      const entry = toolApprovalQueue.shift();
-      if (entry?.timer) clearTimeout(entry.timer);
-      try {
-        entry.resolve({ approved: false, reason });
-      } catch {}
+      settleToolApproval(toolApprovalQueue.shift(), false, reason);
     }
     if (getState().toolApproval) set({ toolApproval: null });
   }

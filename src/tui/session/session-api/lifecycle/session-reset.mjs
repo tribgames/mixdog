@@ -62,84 +62,86 @@ export function createSessionResetActions(bag) {
     commitTuiSessionReset(rollbackSnapshot);
   };
 
+  // The lock all four resets share: refused while another command holds
+  // commandBusy, held for the runtime call, and always released with the
+  // pending-reset flag first (listeners read it during the commandBusy emit).
+  const withResetLock = async (run, afterUnlock = null) => {
+    if (getState().commandBusy) return false;
+    set({ commandBusy: true });
+    try {
+      return await run();
+    } finally {
+      flags.pendingSessionReset = false;
+      set({ commandBusy: false });
+      afterUnlock?.();
+    }
+  };
+
   return {
-    clear: async () => {
-      if (getState().commandBusy) return false;
-      set({ commandBusy: true });
-      const rollbackSnapshot = beginTuiReset();
-      set(blankSessionPatch());
-      try {
-        await runtime.clear({ recoverAgent: true });
-        commitEmptySession(rollbackSnapshot);
-        flags.lastUserActivityAt = Date.now();
-        return true;
-      } catch (error) {
-        restoreTuiAfterFailedSessionReset(rollbackSnapshot);
-        throw error;
-      } finally {
-        flags.pendingSessionReset = false;
-        set({ commandBusy: false });
-      }
-    },
-    deleteSession: async (id) => {
-      if (getState().commandBusy) return false;
-      const deletingCurrent = String(runtime.session?.id || getState().sessionId || '') === String(id || '');
-      set({ commandBusy: true });
-      const rollbackSnapshot = beginTuiReset(deletingCurrent);
-      try {
-        if ((await runtime.deleteSession(id)) !== true) {
-          if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
-          return false;
+    clear: () =>
+      withResetLock(async () => {
+        const rollbackSnapshot = beginTuiReset();
+        set(blankSessionPatch());
+        try {
+          await runtime.clear({ recoverAgent: true });
+          commitEmptySession(rollbackSnapshot);
+          flags.lastUserActivityAt = Date.now();
+          return true;
+        } catch (error) {
+          restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+          throw error;
         }
-        if (deletingCurrent) commitEmptySession(rollbackSnapshot, { sessionId: null, cwd: runtime.cwd });
-        return true;
-      } catch (error) {
-        if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
-        throw error;
-      } finally {
-        flags.pendingSessionReset = false;
-        set({ commandBusy: false });
-      }
-    },
-    switchContext: async (options) => {
-      if (getState().commandBusy) return false;
-      set({ commandBusy: true });
-      const rollbackSnapshot = beginTuiReset();
-      try {
-        await runtime.switchContext(options);
-        commitEmptySession(rollbackSnapshot, { sessionId: null, cwd: runtime.cwd });
-        return true;
-      } catch (error) {
-        restoreTuiAfterFailedSessionReset(rollbackSnapshot);
-        throw error;
-      } finally {
-        flags.pendingSessionReset = false;
-        set({ commandBusy: false });
-      }
-    },
-    newSession: async () => {
-      if (getState().commandBusy) return false;
-      set({ commandBusy: true });
-      const rollbackSnapshot = beginTuiReset();
-      set(blankSessionPatch());
-      // Publish the blank session boundary before runtime session creation can
-      // block on disk/provider work. Otherwise the old transcript remains the
-      // last committed React snapshot until the async command completes.
-      flushEmitImmediate();
-      try {
-        await runtime.newSession();
-        commitEmptySession(rollbackSnapshot);
-        return true;
-      } catch (error) {
-        restoreTuiAfterFailedSessionReset(rollbackSnapshot);
-        throw error;
-      } finally {
-        flags.pendingSessionReset = false;
-        set({ commandBusy: false });
+      }),
+    deleteSession: (id) =>
+      withResetLock(async () => {
+        const deletingCurrent = String(runtime.session?.id || getState().sessionId || '') === String(id || '');
+        const rollbackSnapshot = beginTuiReset(deletingCurrent);
+        try {
+          if ((await runtime.deleteSession(id)) !== true) {
+            if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+            return false;
+          }
+          if (deletingCurrent) commitEmptySession(rollbackSnapshot, { sessionId: null, cwd: runtime.cwd });
+          return true;
+        } catch (error) {
+          if (rollbackSnapshot) restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+          throw error;
+        }
+      }),
+    switchContext: (options) =>
+      withResetLock(async () => {
+        const rollbackSnapshot = beginTuiReset();
+        try {
+          await runtime.switchContext(options);
+          commitEmptySession(rollbackSnapshot, { sessionId: null, cwd: runtime.cwd });
+          return true;
+        } catch (error) {
+          restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+          throw error;
+        }
+      }),
+    newSession: () =>
+      withResetLock(
+        async () => {
+          const rollbackSnapshot = beginTuiReset();
+          set(blankSessionPatch());
+          // Publish the blank session boundary before runtime session creation
+          // can block on disk/provider work. Otherwise the old transcript
+          // remains the last committed React snapshot until the async command
+          // completes.
+          flushEmitImmediate();
+          try {
+            await runtime.newSession();
+            commitEmptySession(rollbackSnapshot);
+            return true;
+          } catch (error) {
+            restoreTuiAfterFailedSessionReset(rollbackSnapshot);
+            throw error;
+          }
+        },
         // Match resume's atomic handoff: callers (and the forced terminal
         // repaint triggered by /new) must observe the completed empty session.
-        flushEmitImmediate();
-      }
-    },
+        flushEmitImmediate
+      ),
   };
 }

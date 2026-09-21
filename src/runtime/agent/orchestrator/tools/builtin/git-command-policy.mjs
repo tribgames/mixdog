@@ -154,42 +154,56 @@ export function gitPlanIsReadOnly(plan) {
   return false;
 }
 
-function parsedGitOperation(command) {
-  if (commandHasShellSyntax(command)) return null;
-  const tokens = tokenizeDirectArgv(command);
-  if (!tokens?.length || !/(^|[\\/])git(?:\.exe)?$/i.test(tokens[0])) return null;
+const GIT_GLOBAL_VALUE_FLAGS = ['-c', '--config-env', '--git-dir', '--work-tree', '--namespace'];
+const GIT_GLOBAL_BARE_FLAGS = [
+  '--no-pager',
+  '--paginate',
+  '--bare',
+  '--literal-pathspecs',
+  '--glob-pathspecs',
+  '--noglob-pathspecs',
+  '--icase-pathspecs',
+];
+
+// git's global flags sit between `git` and the subcommand, and every consumer
+// has to step over exactly the same set to find that subcommand. Returns its
+// index; the optional handlers let a caller capture what it skipped (the git
+// tool keeps `-C` as its cwd and the rest as global args, and rejects a
+// missing value) while a pure scan passes none.
+export function skipGitGlobalFlags(tokens, { onChdir, onValueFlag, onBareFlag } = {}) {
   let index = 1;
   while (index < tokens.length) {
     const token = tokens[index];
-    if (
-      token === '-C' ||
-      token === '-c' ||
-      token === '--config-env' ||
-      token === '--git-dir' ||
-      token === '--work-tree' ||
-      token === '--namespace'
-    ) {
+    if (token === '-C') {
+      onChdir?.(tokens[index + 1]);
       index += 2;
       continue;
     }
-    if (
-      /^-C.+/.test(token) ||
-      /^--(?:git-dir|work-tree|namespace|config-env)=/.test(token) ||
-      [
-        '--no-pager',
-        '--paginate',
-        '--bare',
-        '--literal-pathspecs',
-        '--glob-pathspecs',
-        '--noglob-pathspecs',
-        '--icase-pathspecs',
-      ].includes(token)
-    ) {
+    if (/^-C.+/.test(token)) {
+      onChdir?.(token.slice(2));
+      index++;
+      continue;
+    }
+    if (GIT_GLOBAL_VALUE_FLAGS.includes(token)) {
+      onValueFlag?.(token, tokens[index + 1]);
+      index += 2;
+      continue;
+    }
+    if (/^--(?:git-dir|work-tree|namespace|config-env)=/.test(token) || GIT_GLOBAL_BARE_FLAGS.includes(token)) {
+      onBareFlag?.(token);
       index++;
       continue;
     }
     break;
   }
+  return index;
+}
+
+function parsedGitOperation(command) {
+  if (commandHasShellSyntax(command)) return null;
+  const tokens = tokenizeDirectArgv(command);
+  if (!tokens?.length || !/(^|[\\/])git(?:\.exe)?$/i.test(tokens[0])) return null;
+  const index = skipGitGlobalFlags(tokens);
   const rawOperation = String(tokens[index] || '').toLowerCase();
   const operation = OPERATION_ALIASES.get(rawOperation) ?? rawOperation;
   return operation ? { operation, args: tokens.slice(index + 1) } : null;

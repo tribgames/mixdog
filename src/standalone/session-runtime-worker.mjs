@@ -416,6 +416,19 @@ function abortDispatchController(controller, reason) {
   }
 }
 
+// One full event-loop iteration. IPC frames are read in the poll phase, and an
+// immediate scheduled from inside the check phase runs on the NEXT iteration,
+// so the poll phase in between delivers every frame the channel already holds.
+// A cancel that reached this process is therefore handled before the caller
+// commits to work that holds the loop.
+function drainPendingControlFrames() {
+  return new Promise((resolve) => {
+    setImmediate(() => {
+      setImmediate(resolve);
+    });
+  });
+}
+
 function throwIfDispatchAborted(controller) {
   if (!controller.signal.aborted) return;
   const reason = controller.signal.reason;
@@ -466,6 +479,13 @@ async function runAgentDispatch(message) {
   if (retained) abortDispatchController(controller, retained);
   try {
     throwIfDispatchAborted(controller);
+    // A cancel frame for this dispatch can already be sitting in the channel:
+    // the cold start below compiles the orchestrator graph and holds the event
+    // loop for hundreds of milliseconds, so without a turn here the abort is
+    // only read after the run has finished — dropped for the very run it was
+    // sent to stop, and answered with a retained tombstone nobody adopts.
+    await drainPendingControlFrames();
+    throwIfDispatchAborted(controller);
     const agent = String(message.agent || '');
     const { dispatch } = await agentGraph();
     throwIfDispatchAborted(controller);
@@ -492,6 +512,12 @@ async function runAgentDispatch(message) {
         : {}),
     });
     return { value: sanitizeForWire(value) ?? null };
+  } catch (error) {
+    // An abort that landed while another failure was already in flight still
+    // owns the outcome: reporting the incidental error instead would answer a
+    // cancelled dispatch as a provider/runtime failure and lose the cancel.
+    throwIfDispatchAborted(controller);
+    throw error;
   } finally {
     agentDispatchRuns.delete(dispatchId);
     publishProviderCooldownNow();

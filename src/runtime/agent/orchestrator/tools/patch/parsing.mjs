@@ -165,10 +165,10 @@ function v4aEnsureUpdateHunk(_current, pendingAnchors) {
   return { anchors: pendingAnchors.slice(), lines: [] };
 }
 
-function v4aPushBlankContextLine(currentHunk, pendingAnchors) {
-  if (!currentHunk) currentHunk = v4aEnsureUpdateHunk(null, pendingAnchors);
+// Only reached with an open hunk: a blank line outside one is envelope
+// whitespace, which both callers drop before getting here.
+function v4aPushBlankContextLine(currentHunk) {
   currentHunk.lines.push(' ');
-  return currentHunk;
 }
 
 function v4aMarkHunkEndOfFile(currentHunk, finishHunk) {
@@ -204,12 +204,6 @@ function splitPatchLines(patchStr) {
 // etc.), so anchor on the "[mixdog compacted …]" bracket span alone.
 const COMPACTED_PLACEHOLDER_RE = /^\s*\[mixdog compacted\b[^\]\n]*\]/;
 
-// Mid-body scan reuses the same broad bracket shape. It only runs on lines that
-// are NOT unified diff content (+/-/space-prefixed), so a legit edit whose real
-// content mentions the placeholder text still parses; the skip discipline below
-// is what prevents false positives, not a narrower regex.
-const COMPACTED_PLACEHOLDER_LINE_RE = COMPACTED_PLACEHOLDER_RE;
-
 export function isCompactedPlaceholderPatch(patchStr) {
   const str = String(patchStr ?? '');
   if (COMPACTED_PLACEHOLDER_RE.test(str)) return true;
@@ -219,9 +213,11 @@ export function isCompactedPlaceholderPatch(patchStr) {
   // Scan for that shape too, but only on lines that are NOT diff content
   // (unified +/-/space-prefixed lines), so a legit edit to a file whose
   // real content happens to contain this literal text still parses normally.
+  // The mid-body scan reuses the same broad bracket shape: the skip
+  // discipline is what prevents false positives, not a narrower regex.
   for (const line of str.split('\n')) {
     if (line.startsWith('+') || line.startsWith('-') || line.startsWith(' ')) continue;
-    if (COMPACTED_PLACEHOLDER_LINE_RE.test(line)) return true;
+    if (COMPACTED_PLACEHOLDER_RE.test(line)) return true;
   }
   return false;
 }
@@ -287,7 +283,7 @@ export function parseV4APatch(patchStr) {
       continue;
     }
     if (rawLine === '') {
-      if (currentHunk) currentHunk = v4aPushBlankContextLine(currentHunk, pendingAnchors);
+      if (currentHunk) v4aPushBlankContextLine(currentHunk);
       continue;
     }
     if (isV4AEndOfFileMarker(rawLine)) {
@@ -394,7 +390,7 @@ function parseUnifiedAsV4APatch(patchStr, { label, resolveAnchor }) {
     if (!current) continue;
     if (rawLine === '') {
       if (current.kind !== 'update') continue;
-      if (currentHunk) currentHunk = v4aPushBlankContextLine(currentHunk, pendingAnchors);
+      if (currentHunk) v4aPushBlankContextLine(currentHunk);
       continue;
     }
     if (current.kind === 'update' && isV4AEndOfFileMarker(rawLine)) {

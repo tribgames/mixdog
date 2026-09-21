@@ -77,6 +77,17 @@ test('summarizeOfficeAudit ranks touched locations first, drops advisories from 
   assert.deepEqual(clean.locations, []);
 });
 
+// A severity is one of the three counted words, not any name Object.prototype
+// answers to: reading the counter through the prototype took "toString" for a
+// severity and wrote it into the counts and the location it was grouped under.
+test('summarizeOfficeAudit keeps a prototype name out of the severity counts', () => {
+  const audit = summarizeOfficeAudit([
+    { severity: 'toString', code: 'low_contrast', path: '/slide[1]/shape[1]', message: 'dim' },
+  ]);
+  assert.deepEqual(audit.counts, { error: 0, warning: 1, info: 0 });
+  assert.deepEqual(audit.locations, [{ label: 'slide 1', slide: 1, error: 0, warning: 1, info: 0 }]);
+});
+
 test('touchedLocations reads the edited slide, sheet, or body from the batch operations', () => {
   assert.deepEqual(
     touchedLocations('pptx', [

@@ -308,6 +308,13 @@ export function parseAreaRange(range) {
   throw new Error(`Unsupported range: ${range}`);
 }
 
+// A parsed area written back as the bounded reference Excel reads ("A1:D5"):
+// the inverse of parseAreaRange, and the one spelling every operation that
+// records a range uses.
+export function areaReference(area) {
+  return `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+}
+
 export function displayWidth(text) {
   let width = 0;
   for (const character of String(text ?? '')) {

@@ -4,7 +4,7 @@
 // store.beginOAuthProviderLogin, and the legacy store.loginOAuthProvider
 // path. `flow` is the per-open picker state built by provider-setup-picker.mjs.
 import { providerDetailText } from '../app-format.mjs';
-import { providerStatusFooter } from './provider-items.mjs';
+import { forgetProviderAuth, providerStatusFooter } from './provider-items.mjs';
 
 const panelFrame = (providerItem, provider, pickerKey) => ({
   title: `Provider · ${providerItem._providerName}`,
@@ -214,15 +214,7 @@ export function openOAuthProviderActions(flow, providerItem) {
         return;
       }
       if (detail._action === 'forget-oauth') {
-        void Promise.resolve(flow.store.forgetProviderAuth?.(providerItem._providerId))
-          .then(() => {
-            flow.clearModelCaches('all');
-            flow.reopenProviders();
-          })
-          .catch((e) => {
-            flow.store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
-            openOAuthProviderActions(flow, providerItem);
-          });
+        forgetProviderAuth(flow, providerItem, () => openOAuthProviderActions(flow, providerItem));
       }
     },
     onCancel: flow.reopenProviders,

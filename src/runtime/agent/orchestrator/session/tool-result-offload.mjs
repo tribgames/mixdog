@@ -241,7 +241,9 @@ export function persistToolResultArtifactSync({ sessionId, toolCallId, channel =
       try {
         if (fd !== undefined) closeSync(fd);
       } catch {
-        return null;
+        // The artifact is already written and byte-verified above; a failed
+        // descriptor close is cleanup, not a failed persist, and must never
+        // replace the verified meta this function returns.
       }
     }
   }
@@ -277,7 +279,8 @@ async function persistToolResultArtifact({ sessionId, toolCallId, channel = 'res
       try {
         await handle?.close();
       } catch {
-        return null;
+        // See persistToolResultArtifactSync: the verified artifact stands even
+        // when releasing the handle fails, so cleanup never nulls the result.
       }
     }
   }

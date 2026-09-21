@@ -4,14 +4,10 @@
 // produce the cell shape these read ({ ref, path?, value, formula?,
 // cachedValue?, style?, note?, dataType? }).
 import { columnNumber, parseCellRef } from './portable-cells.mjs';
+import { GENERAL_NUMBER_FORMAT } from './portable-sheet-styles.mjs';
 import { parseAreaRange } from './portable-sheet-xml.mjs';
 
 export const MAX_ISSUES_PER_CODE = 100;
-
-// The General format under any Excel UI language (Korean G/표준, Japanese
-// G/標準, German Standard): a number that carries no format at all.
-const GENERAL_FORMAT =
-  /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$/i;
 
 export function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -66,7 +62,7 @@ export function locate(cells) {
 }
 
 export function generalFormat(style) {
-  return GENERAL_FORMAT.test(String(style?.numberFormat || '').trim());
+  return GENERAL_NUMBER_FORMAT.test(String(style?.numberFormat || '').trim());
 }
 
 // COM reports colors as BGR integers (black 0, no fill 16777215); the portable

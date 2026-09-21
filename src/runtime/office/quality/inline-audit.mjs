@@ -59,7 +59,10 @@ export function summarizeOfficeAudit(issueList, { touched = [] } = {}) {
   const groups = new Map();
   const locationKeys = new Map();
   for (const issue of normalized) {
-    const severity = counts[issue.severity] === undefined ? 'warning' : issue.severity;
+    // Only the three counted severities are severities: reading the key off
+    // the prototype let "toString" or "constructor" through as one and
+    // corrupted the counts and the location group it landed in.
+    const severity = Object.hasOwn(counts, issue.severity) ? issue.severity : 'warning';
     counts[severity] += 1;
     const location = locationOf(issue.path);
     locationKeys.set(issue, location.key);

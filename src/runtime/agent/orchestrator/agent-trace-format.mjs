@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { stableHashStringify } from './stable-hash-stringify.mjs';
 import { countJsonNextCalls } from './tools/next-call-utils.mjs';
 import { parseGrepContextHeader, splitGrepLinePrefix } from './tools/builtin/grep-formatting.mjs';
 import { isReadOnlyNavigationMiss } from './session/result-classification.mjs';
@@ -142,23 +143,31 @@ const TOOL_ARG_KEYS = {
 
 const REDACT_KEY_RE = /token|secret|password|passwd|credential|authorization|api[_-]?key/i;
 const BODY_KEY_RE = /content|old_string|new_string|patch|rewrite/i;
+// Secret shapes redacted from more than one surface (shell commands and log
+// text). Each redaction keeps the matched prefix and drops the value.
+const REDACTED = '$1[redacted]';
+// Assignment RHS: PASSWORD=, SECRET=, TOKEN=, API_KEY=/APIKEY=.
+const SECRET_ASSIGNMENT_RE = /((?:PASSWORD|SECRET|TOKEN|API_KEY|APIKEY)\s*=\s*)\S+/gi;
+// Authorization: Bearer <token>.
+const BEARER_HEADER_RE = /(Authorization:\s*Bearer\s+)\S+/gi;
+// URL query params carrying tokens/keys.
+const SECRET_QUERY_PARAM_RE = /([?&](?:token|api[-_]?key|access[-_]?token|auth|password|secret)=)[^&\s#]+/gi;
 // Redact shell `command` values that look like they carry secrets. Covers
-// assignment forms, Authorization headers, --password / -p flags, and
+// assignment forms, Authorization headers, --password / -p flags, URL
+// userinfo and token query params. The shapes shared with log text are the
+// named constants above; the rest are shell-only and stay inline.
 function _redactShellCommand(cmd) {
   if (typeof cmd !== 'string') return cmd;
   let out = cmd;
-  // Assignment RHS: PASSWORD=, SECRET=, TOKEN=, API_KEY=/APIKEY=.
-  out = out.replace(/((?:PASSWORD|SECRET|TOKEN|API_KEY|APIKEY)\s*=\s*)\S+/gi, '$1[redacted]');
-  // Authorization: Bearer <token>.
-  out = out.replace(/(Authorization:\s*Bearer\s+)\S+/gi, '$1[redacted]');
+  out = out.replace(SECRET_ASSIGNMENT_RE, REDACTED);
+  out = out.replace(BEARER_HEADER_RE, REDACTED);
   // Long flags: --password <v> / --password=<v> (also --token, --secret, --api-key).
   out = out.replace(/(--(?:password|token|secret|api[-_]?key)(?:\s+|=))\S+/gi, '$1[redacted]');
   // Short -p <v> flag (mysql/psql/curl style).
   out = out.replace(/((?:^|\s)-p(?:\s+|=))\S+/g, '$1[redacted]');
   // URL userinfo: scheme://user:secret@host -> scheme://user:[redacted]@host.
   out = out.replace(/(:\/\/[^:/\s@]+:)[^@\s]+(@)/g, '$1[redacted]$2');
-  // URL query params carrying tokens/keys.
-  out = out.replace(/([?&](?:token|api[-_]?key|access[-_]?token|auth|password|secret)=)[^&\s#]+/gi, '$1[redacted]');
+  out = out.replace(SECRET_QUERY_PARAM_RE, REDACTED);
   return out;
 }
 
@@ -205,17 +214,9 @@ function summarizeToolArgs(toolName, args) {
   return Object.keys(out).length ? out : null;
 }
 
-function stableTraceStringify(value) {
-  if (value === null || value === undefined) return JSON.stringify(value);
-  if (typeof value !== 'object') return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(stableTraceStringify).join(',')}]`;
-  const keys = Object.keys(value).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableTraceStringify(value[k])}`).join(',')}}`;
-}
-
 function hashTraceValue(value) {
   try {
-    return createHash('sha256').update(stableTraceStringify(value)).digest('hex').slice(0, 16);
+    return createHash('sha256').update(stableHashStringify(value)).digest('hex').slice(0, 16);
   } catch {
     return null;
   }
@@ -233,9 +234,9 @@ function _firstNonEmptyLine(text) {
 function _redactLogText(text) {
   if (typeof text !== 'string') return '';
   let out = text;
-  out = out.replace(/(Authorization:\s*Bearer\s+)\S+/gi, '$1[redacted]');
-  out = out.replace(/([?&](?:token|api[-_]?key|access[-_]?token|auth|password|secret)=)[^&\s#]+/gi, '$1[redacted]');
-  out = out.replace(/((?:PASSWORD|SECRET|TOKEN|API_KEY|APIKEY)\s*=\s*)\S+/gi, '$1[redacted]');
+  out = out.replace(BEARER_HEADER_RE, REDACTED);
+  out = out.replace(SECRET_QUERY_PARAM_RE, REDACTED);
+  out = out.replace(SECRET_ASSIGNMENT_RE, REDACTED);
   return out;
 }
 

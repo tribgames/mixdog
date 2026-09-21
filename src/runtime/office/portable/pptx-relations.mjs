@@ -37,6 +37,17 @@ export function shapeIdentity(xml) {
   }
 }
 
+// Inspected shape entries (text boxes, bounds, content) grouped by the slide
+// they sit on, in the order they were read. Every per-slide review starts here.
+export function bySlide(entries) {
+  const slides = new Map();
+  for (const entry of entries) {
+    if (!slides.has(entry.slide)) slides.set(entry.slide, []);
+    slides.get(entry.slide).push(entry);
+  }
+  return slides;
+}
+
 export function relationIndex(shapes) {
   const index = new Map();
   for (const shape of shapes) {

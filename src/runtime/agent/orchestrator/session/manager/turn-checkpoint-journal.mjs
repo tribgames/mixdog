@@ -326,12 +326,6 @@ export function openJournalForTurn(sessionId, openLines) {
   return false;
 }
 
-/** Opening lines for a journal with no encoder behind it (full-snapshot
- * writes): just the sequence-0 head record that binds the file to its turn. */
-export function journalHeadLines(turnToken) {
-  return [`${JSON.stringify({ t: 'h', turnToken, at: Date.now(), s: 0 })}\n`];
-}
-
 export function removeTurnJournal(sessionId) {
   const path = turnJournalPath(sessionId);
   cancelJournalWrites(sessionId);

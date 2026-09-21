@@ -19,6 +19,7 @@ import {
   formattedNumberWidth,
   hiddenSheetAreas,
   mergedRanges,
+  parseAreaRange,
   worksheetSection,
 } from './portable-sheet-xml.mjs';
 import { resolveCellStyles } from './portable-sheet-styles.mjs';
@@ -162,18 +163,12 @@ function narrowNumberColumns(xml, { widths, withheld, styles }) {
   return sortedByColumn(narrowColumns);
 }
 
-// An A1 reference ('B2' or 'B2:D9') as the block of cells it covers.
+// An A1 reference ('B2' or 'B2:D9') as the block of cells it covers; a range
+// the sheet never wrote is no area at all.
 function referenceArea(reference) {
-  const [start, end] = String(reference || '').split(':');
-  if (!start) return null;
-  const from = parseCellRef(start);
-  const to = parseCellRef(end || start);
-  return {
-    startCol: columnNumber(from.col),
-    endCol: columnNumber(to.col),
-    startRow: from.row,
-    endRow: to.row,
-  };
+  const text = String(reference || '');
+  if (!text.split(':')[0]) return null;
+  return parseAreaRange(text);
 }
 
 function mergedAreas(xml) {

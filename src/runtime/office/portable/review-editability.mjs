@@ -2,18 +2,9 @@
 // slide instead of a slide. Both checks run on the inspected shape geometry
 // (points) that the text-fit review already collects.
 
-import { independentTextUnit, relationIndex } from './pptx-relations.mjs';
+import { bySlide, independentTextUnit, relationIndex } from './pptx-relations.mjs';
 
 const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
-
-function bySlide(entries) {
-  const slides = new Map();
-  for (const entry of entries) {
-    if (!slides.has(entry.slide)) slides.set(entry.slide, []);
-    slides.get(entry.slide).push(entry);
-  }
-  return slides;
-}
 
 function singleLineText(box) {
   const paragraphs = Array.isArray(box.paragraphs) ? box.paragraphs : [];
@@ -45,7 +36,9 @@ export function reviewTextFragmentation(boxes = [], { minimumRun = 3 } = {}) {
       const run = [start];
       let last = start;
       for (const candidate of lines) {
-        if (candidate === start || used.has(candidate) || run.includes(candidate)) continue;
+        // `run` opens with `start`, so the run scan also skips the line the run
+        // began at — and finds it at its first entry.
+        if (used.has(candidate) || run.includes(candidate)) continue;
         const sameColumn =
           near(candidate.box.left, last.box.left, 4) &&
           near(candidate.box.width, last.box.width, Math.max(12, last.box.width * 0.15));

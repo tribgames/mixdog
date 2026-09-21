@@ -7,7 +7,7 @@ import { createServer } from 'node:net';
 import { unlinkSync } from 'node:fs';
 import { attachLineReader, destroyQuietly, frameLine } from './wire.mjs';
 import { EMPTY_BASELINE, baselineOf, deltaFrame, fullFrame } from './delta.mjs';
-import { createRetryTimer } from './retry.mjs';
+import { createRetryTimer, reconcileLeg } from './retry.mjs';
 
 function isSubmitFrame(frame) {
   return (
@@ -224,12 +224,14 @@ export function createOwnerLeg({
   };
 
   // Reconcile against the session this surface currently owns ('' = none).
-  const ensure = (ownerId) => {
-    if (retry.id() && retry.id() !== ownerId) retry.clear();
-    if (!ownerId && retry.pending()) retry.clear();
-    if (serverId && serverId !== ownerId) stopServer();
-    if (ownerId && !server && !retry.pending()) startServer(ownerId);
-  };
+  const ensure = (ownerId) =>
+    reconcileLeg(ownerId, {
+      retry,
+      legId: () => serverId,
+      legUp: () => Boolean(server),
+      stop: stopServer,
+      start: startServer,
+    });
 
   return { ensure, stop: stopServer, onPublish };
 }

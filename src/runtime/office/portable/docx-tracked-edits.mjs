@@ -67,6 +67,10 @@ export function anchorPhraseInParagraph(paragraphXml, find, id, markers = null) 
   const start = find ? joined.indexOf(find) : -1;
   if (start < 0) return null;
   const end = start + find.length;
+  // The phrase is dropped in every run it covers, not only the one holding its
+  // end: a replaced phrase split across runs left its leading fragment and any
+  // wholly covered run beside the marker that stands in its place.
+  const replace = markers?.replace === true;
   const output = [];
   let sourceCursor = 0;
   let offset = 0;
@@ -81,6 +85,10 @@ export function anchorPhraseInParagraph(paragraphXml, find, id, markers = null) 
     const holdsStart = !opened && start >= runStart && start < runEnd;
     const holdsEnd = !closed && end > runStart && end <= runEnd;
     if (!holdsStart && !holdsEnd) {
+      if (replace && opened && !closed && run.text) {
+        if (!run.textOnly) return null;
+        continue;
+      }
       output.push(run.xml);
       continue;
     }
@@ -95,14 +103,14 @@ export function anchorPhraseInParagraph(paragraphXml, find, id, markers = null) 
     }
     if (holdsEnd) {
       const inside = run.text.slice(position - runStart, end - runStart);
-      if (inside && markers?.replace !== true) output.push(textRun(run, inside));
+      if (inside && !replace) output.push(textRun(run, inside));
       output.push(closing);
       closed = true;
       const after = run.text.slice(end - runStart);
       if (after) output.push(textRun(run, after));
     } else {
       const rest = run.text.slice(position - runStart);
-      if (rest) output.push(textRun(run, rest));
+      if (rest && !replace) output.push(textRun(run, rest));
     }
   }
   if (!opened || !closed) return null;

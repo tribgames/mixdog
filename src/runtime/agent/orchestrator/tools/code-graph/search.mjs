@@ -247,7 +247,7 @@ export function _cheapReferenceSearch(
   }
   const result = lines.length ? lines.join('\n') : '(no references)';
   const finalResult = cappedOut
-    ? `${result}\n\n[truncated — total hits exceeded ${REFERENCE_HIT_CAP * 4}, showing first ${REFERENCE_HIT_CAP}; raise REFERENCE_HIT_CAP env var for more]`
+    ? `${result}\n\n[truncated — total hits exceeded ${REFERENCE_HIT_CAP}, showing first ${REFERENCE_HIT_CAP}; raise REFERENCE_HIT_CAP env var for more]`
     : result;
   graph?._referenceSearchCache?.set(cacheKey, finalResult);
   return finalResult;

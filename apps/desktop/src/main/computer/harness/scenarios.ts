@@ -8,6 +8,7 @@ import { createComputerHost, type ComputerHost } from '../index';
 import { createComputerUseOverlay, type ComputerUseOverlay } from '../overlay';
 import { compileNativeTextFixture } from '../backend/native-fixture';
 import { createPolling } from '../../host-harness-poll';
+import { SCENARIO_IDS, unknownScenarioIds } from './scenario-ids';
 
 interface CommandResult {
   text: string;
@@ -243,6 +244,7 @@ const { eventually, readDiscovery } = createPolling({
 
 async function runScenario(id: string, name: string, area: string, operation: () => Promise<void>): Promise<void> {
   if (declaredScenarioIds.has(id)) throw new Error(`duplicate scenario declaration: ${id}`);
+  if (!SCENARIO_IDS.includes(id)) throw new Error(`scenario id is missing from SCENARIO_IDS: ${id}`);
   declaredScenarioIds.add(id);
   if (scenarioOnly.size && !scenarioOnly.has(id)) return;
   const metrics = emptyMetrics();
@@ -441,6 +443,10 @@ async function createDenseFixture(): Promise<BrowserWindow> {
 }
 
 async function run(): Promise<void> {
+  // A typo in --only has to fail here, before any fixture work: checked during
+  // cleanup it masked the real scenario failure and skipped the report.
+  const unknown = unknownScenarioIds(scenarioOnly);
+  if (unknown.length) throw new Error(`unknown scenario id(s): ${unknown.join(', ')}`);
   let host: ComputerHost | null = null;
   let overlay: ComputerUseOverlay | null = null;
   let externalChild: ChildProcess | null = null;
@@ -3103,10 +3109,6 @@ $form.Add_KeyDown({
     await host?.dispose();
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.destroy();
-    }
-    const unknownScenarioIds = [...scenarioOnly].filter((id) => !declaredScenarioIds.has(id));
-    if (unknownScenarioIds.length) {
-      throw new Error(`unknown scenario id(s): ${unknownScenarioIds.join(', ')}`);
     }
     if (reportDirectory) mkdirSync(reportDirectory, { recursive: true });
     const passed = results.filter((result) => result.status === 'pass').length;

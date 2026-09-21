@@ -942,6 +942,36 @@ test('portable workbook shifts rows and columns and manages sheet metadata', asy
   assert.equal(shown.document.sheets.find((sheet) => sheet.name === 'Sheet1')?.visibility, 'visible');
 });
 
+// add_sheet writes an empty <sheetData/>, and a row still hides on such a
+// sheet: the row element was anchored only at a closing </sheetData>, so
+// withholding a row on a sheet just added was refused outright.
+test('a row hides on a freshly added sheet whose sheetData is still empty', async (t) => {
+  const cwd = await workspace(t);
+  const target = join(cwd, 'fresh-sheet.xlsx');
+  const created = value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: target,
+        mode: 'portable',
+        operations: [
+          { op: 'set_cell', cell: 'A1', value: '허브' },
+          { op: 'add_sheet', name: 'Notes' },
+          { op: 'set_row_visibility', sheet: 'Notes', row: 3, visible: false },
+        ],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(created.batch.results.at(-1).visible, false);
+  const sheetXml = await (await parts(target)).text('xl/worksheets/sheet2.xml');
+  assert.match(sheetXml, /<sheetData><row r="3" hidden="1"\/><\/sheetData>/);
+  const snapshot = value(
+    await executeOfficeTool({ action: 'snapshot', session: created.session, sheet: 'Notes' }, { cwd })
+  );
+  assert.deepEqual(snapshot.document.sheets.find((entry) => entry.name === 'Notes').hiddenRows, [3]);
+});
+
 // A printed sheet carries its marking on every page, as a document and a deck do.
 // Without the operation a workbook in the same pack went out unmarked.
 test('a worksheet carries the mark its printed pages show', async (t) => {

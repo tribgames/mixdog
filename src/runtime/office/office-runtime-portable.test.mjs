@@ -8,10 +8,38 @@ import { recalculateLibreOfficeWorkbook } from './portable/portable-ooxml.mjs';
 import { parseXlsxAutofitRange } from './portable/xlsx-contract.mjs';
 import { auditDocxRedlining } from './portable/docx-revisions.mjs';
 import { issuesPortableOoxml, validatePortableOoxml } from './portable/portable-validation.mjs';
+import { ensureNumbering } from './portable/portable-docx-parts.mjs';
 import { officeOpenFailure } from './core/office-sessions.mjs';
 import { parts, value, workspace, writeZip } from './office-test-support.mjs';
 
 process.env.MIXDOG_OOXML_VALIDATOR_DISABLED = '1';
+
+// A numbering part a document does not have takes three package steps: the
+// part, the content-type override that names it, and the relationship the
+// document reads it through. set_list is the only route there and it runs in
+// the slow lane, so the three steps are pinned here.
+test('ensureNumbering registers the numbering part, its content type and its relationship', async () => {
+  const zip = new JSZip();
+  zip.file(
+    '[Content_Types].xml',
+    '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"></Types>'
+  );
+  const created = await ensureNumbering(zip, 'bullet');
+  assert.equal(created.created, true);
+  assert.equal(created.numId, 1);
+  assert.match(await zip.file('word/numbering.xml').async('string'), /<w:numFmt w:val="bullet"\/>/);
+  assert.match(
+    await zip.file('[Content_Types].xml').async('string'),
+    /PartName="\/word\/numbering\.xml" ContentType="[^"]*wordprocessingml\.numbering\+xml"/
+  );
+  assert.match(
+    await zip.file('word/_rels/document.xml.rels').async('string'),
+    /Type="[^"]*\/relationships\/numbering" Target="numbering\.xml"/
+  );
+  const reused = await ensureNumbering(zip, 'bullet');
+  assert.equal(reused.created, false);
+  assert.equal(reused.numId, 1);
+});
 
 // A newsletter page is a section property: the prose flows through the columns
 // the section declares, and a later page edit leaves them alone.
@@ -1926,6 +1954,41 @@ test('a hyperlink asked for by phrase lands on that phrase, or says it is absent
   assert.match(relabelled, /<w:hyperlink[^>]*><w:r><w:rPr>[^<]*(?:<[^>]+>)*<w:t>월간 지표 보드<\/w:t>/);
 });
 
+// Word splits a phrase across runs for reasons of its own, and a link asked
+// for by phrase replaces all of it: dropping only the run that held the end of
+// the phrase left the rest of it standing beside the new link.
+test('a hyperlink on a phrase split across runs replaces the whole phrase', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'split-phrase.docx');
+  const output = join(cwd, 'split-phrase-linked.docx');
+  await writeZip(source, {
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    'word/document.xml':
+      '<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p>' +
+      '<w:r><w:t xml:space="preserve">자세한 내용은 운영 </w:t></w:r><w:r><w:t>대시</w:t></w:r>' +
+      '<w:r><w:t xml:space="preserve">보드에서 확인하십시오.</w:t></w:r></w:p></w:body></w:document>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, output, mode: 'portable' }, { cwd }));
+  const linked = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [{ op: 'add_hyperlink', find: '운영 대시보드', address: 'https://example.com/ops' }],
+      },
+      { cwd }
+    )
+  );
+  assert.equal(linked.results[0].anchor, 'phrase');
+  const document = await (await JSZip.loadAsync(await readFile(output))).file('word/document.xml').async('string');
+  assert.equal((document.match(/대시/g) || []).length, 1, 'the phrase is not left beside the link');
+  assert.match(
+    document,
+    /자세한 내용은 <\/w:t><\/w:r><w:hyperlink r:id="[^"]+"><w:r>[\s\S]*?<w:t>운영 대시보드<\/w:t><\/w:r><\/w:hyperlink><w:r><w:t xml:space="preserve">에서 확인하십시오\./
+  );
+});
+
 test('a worksheet name Excel would refuse is refused here', async (t) => {
   const cwd = await workspace(t);
   const path = join(cwd, 'named.xlsx');
@@ -2328,6 +2391,65 @@ test('portable DOCX comments carry the cross-linked identity parts and delete cl
   const snapshot = value(await executeOfficeTool({ action: 'snapshot', session: opened.session }, { cwd }));
   assert.equal(snapshot.document.commentCount, 1);
   assert.equal(snapshot.document.commentThreadCount, 1);
+});
+
+// A comment can be anchored in any story Word writes — a header, a footer, a
+// note — and its reply belongs beside it. A reply marked only where the body
+// happens to hold the id reached no story at all, was reported as written, and
+// the next accept-all pruned it as orphaned.
+test('a reply to a comment anchored in a header is marked in that header', async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'header-comment.docx');
+  const output = join(cwd, 'header-comment-reply.docx');
+  const WORD = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const OFFICE_RELATIONSHIPS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  await writeZip(source, {
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+      '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+      '<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>' +
+      '<Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/></Types>',
+    'word/_rels/document.xml.rels':
+      '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      `<Relationship Id="rId1" Type="${OFFICE_RELATIONSHIPS}/header" Target="header1.xml"/>` +
+      `<Relationship Id="rId2" Type="${OFFICE_RELATIONSHIPS}/comments" Target="comments.xml"/></Relationships>`,
+    'word/document.xml':
+      `<?xml version="1.0"?><w:document xmlns:w="${WORD}" xmlns:r="${OFFICE_RELATIONSHIPS}"><w:body>` +
+      '<w:p><w:r><w:t>야간 운영 합의서</w:t></w:r></w:p>' +
+      '<w:sectPr><w:headerReference w:type="default" r:id="rId1"/></w:sectPr></w:body></w:document>',
+    'word/header1.xml':
+      `<?xml version="1.0"?><w:hdr xmlns:w="${WORD}"><w:p><w:commentRangeStart w:id="1"/>` +
+      '<w:r><w:t>대외비</w:t></w:r><w:commentRangeEnd w:id="1"/>' +
+      '<w:r><w:commentReference w:id="1"/></w:r></w:p></w:hdr>',
+    'word/comments.xml':
+      `<?xml version="1.0"?><w:comments xmlns:w="${WORD}">` +
+      '<w:comment w:id="1" w:author="재영" w:initials="JY" w:date="2026-01-05T09:00:00Z">' +
+      '<w:p><w:r><w:t>이 표기가 맞습니까?</w:t></w:r></w:p></w:comment></w:comments>',
+  });
+  const opened = value(await executeOfficeTool({ action: 'open', path: source, output, mode: 'portable' }, { cwd }));
+  const replied = value(
+    await executeOfficeTool(
+      {
+        action: 'batch',
+        session: opened.session,
+        operations: [
+          { op: 'add_comment_reply', comment: 1, text: '확인했습니다.', author: '운영기획팀', initials: 'OP' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const reply = replied.results[0].comment;
+  const zip = await JSZip.loadAsync(await readFile(output));
+  const header = await zip.file('word/header1.xml').async('string');
+  assert.ok(
+    header.includes(
+      `<w:commentRangeStart w:id="${reply}"/><w:commentRangeEnd w:id="${reply}"/>` +
+        `<w:r><w:commentReference w:id="${reply}"/></w:r><w:commentRangeEnd w:id="1"/>`
+    ),
+    header
+  );
+  assert.doesNotMatch(await zip.file('word/document.xml').async('string'), new RegExp(`w:id="${reply}"`));
 });
 
 // A review thread is a thread: a reply belongs to the comment it answers, and
@@ -3375,6 +3497,30 @@ test('unreadable ink is reported in a workbook cell and a shaded document row', 
   assert.equal(rows.length, 4, JSON.stringify(rows));
   assert.equal(rows[0].path, '/body/tbl[1]/row[1]/cell[1]');
   assert.match(rows[0].message, /readable minimum at 10pt/);
+});
+
+// A run can switch an inherited hidden-text flag back off, and Word prints it:
+// reading every self-closing <w:vanish/> as hidden skipped such a run, so pale
+// ink a reader does see was never measured.
+test('a run that switches vanish off is measured for contrast', async (t) => {
+  const cwd = await workspace(t);
+  const path = join(cwd, 'vanish.docx');
+  const WORD = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+  const paragraph = (vanish, text) =>
+    `<w:p><w:r><w:rPr>${vanish}<w:color w:val="D8D8D8"/><w:sz w:val="22"/></w:rPr>` + `<w:t>${text}</w:t></w:r></w:p>`;
+  await writeZip(path, {
+    '[Content_Types].xml':
+      '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
+    'word/document.xml':
+      `<?xml version="1.0"?><w:document xmlns:w="${WORD}"><w:body>` +
+      `${paragraph('<w:vanish w:val="0"/>', '표시되는 회색 문장')}${paragraph('<w:vanish/>', '숨겨진 작업 메모')}` +
+      '</w:body></w:document>',
+  });
+  const reported = (await issuesPortableOoxml(path, 'docx')).issues.filter((issue) => issue.code === 'low_contrast');
+  assert.deepEqual(
+    reported.map((issue) => issue.path),
+    ['/body/p[1]']
+  );
 });
 
 test('a paged workbook snapshot reports the whole workbook calculation state', async (t) => {

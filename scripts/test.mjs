@@ -6,11 +6,15 @@
 //   *.slow.test.mjs   slow   files over ~10s; their own CI job
 //   *.live.test.mjs   live   need a built artifact or a live system
 //
-// Usage: node scripts/test.mjs [--lane fast|slow|live|all] [--list]
+// Usage: node scripts/test.mjs [--lane fast|slow|live|all] [--list] [--coverage]
 //                              [--import <spec>]... [--test-*]... [filter...]
-//   filter   substring of a file path; only matching files run.
-//   --import forwarded to node (desktop passes its test-env and tsx loaders).
-//   --test-* forwarded to node --test (e.g. --test-name-pattern, --test-only).
+//   filter     substring of a file path; only matching files run.
+//   --import   forwarded to node (desktop passes its test-env and tsx loaders).
+//   --test-*   forwarded to node --test (e.g. --test-name-pattern, --test-only).
+//   --coverage collect V8 coverage (NODE_V8_COVERAGE, no dependency) and fold
+//              it into .runtime/coverage/coverage.json, which answers "did the
+//              suite execute this function?" — see scripts/coverage-query.mjs.
+//              Selection, lanes, reporting and exit codes are untouched.
 //
 // Runs from the package that invokes it: `src/` and `scripts/` under cwd are
 // the roots, so the root package and apps/desktop share this one entry.
@@ -36,8 +40,14 @@ export function parseArgs(argv) {
     if (arg === '--lane') options.lane = argv[++index];
     else if (arg.startsWith('--lane=')) options.lane = arg.slice('--lane='.length);
     else if (arg === '--list') options.list = true;
-    else if (arg === '--import') options.nodeArgs.push(arg, argv[++index]);
-    else if (arg.startsWith('--import=') || arg.startsWith('--test-')) options.nodeArgs.push(arg);
+    // Opt-in only: an absent flag leaves the parsed options exactly as they
+    // were, so nothing downstream can branch on coverage by accident.
+    else if (arg === '--coverage') options.coverage = true;
+    else if (arg === '--import') {
+      const spec = argv[++index];
+      if (spec === undefined) throw new Error('--import requires a value');
+      options.nodeArgs.push(arg, spec);
+    } else if (arg.startsWith('--import=') || arg.startsWith('--test-')) options.nodeArgs.push(arg);
     else options.filters.push(arg.replaceAll('\\', '/'));
   }
   if (!['fast', 'slow', 'live', 'all'].includes(options.lane)) {
@@ -93,7 +103,8 @@ async function main() {
       // waiting for its children) must not hang the whole run.
       '--test-force-exit',
     ],
-    files
+    files,
+    { coverage: options.coverage === true }
   );
 }
 

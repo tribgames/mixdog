@@ -114,7 +114,15 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
     // holder still needs the event loop to finish and release it.
     try {
       await flushAllConfigSavesAsync();
-    } catch {}
+    } catch (error) {
+      // A failed final flush means config written during this session never
+      // reached disk. Teardown still completes (the remaining stops must run),
+      // but silent data loss at shutdown is invisible to the user — report it
+      // on the same diagnostic channel the rest of session-runtime uses.
+      process.emitWarning(`config flush failed during teardown: ${error?.message || error}`, {
+        code: 'TEARDOWN_CONFIG_FLUSH_FAILED',
+      });
+    }
     try {
       hooks.flushRules?.();
     } catch {}

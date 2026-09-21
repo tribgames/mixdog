@@ -107,7 +107,7 @@ export function detachAbortHandler(run) {
   }
 }
 
-export function clearProgressTimers(run) {
+function clearProgressTimers(run) {
   if (run.progressTimer) {
     clearInterval(run.progressTimer);
     run.progressTimer = null;

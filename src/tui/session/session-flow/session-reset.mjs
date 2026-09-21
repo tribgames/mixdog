@@ -99,14 +99,9 @@ export function createSessionResetOps(bag) {
       stats: { ...snapshot.stats },
     });
     syncContextStats({ allowEstimated: true });
+    // The rows and live activity above are already published; this republish
+    // exists for the route/agent state and the freshly synced stats.
     set({
-      items: getState().items,
-      toasts: getState().toasts,
-      queued: getState().queued,
-      thinking: getState().thinking,
-      spinner: getState().spinner,
-      lastTurn: getState().lastTurn,
-      busy: getState().busy,
       ...routeState(),
       stats: { ...getState().stats },
       ...agentStatusState(),

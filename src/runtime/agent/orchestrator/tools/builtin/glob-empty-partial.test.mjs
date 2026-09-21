@@ -17,7 +17,10 @@ test('the path cap does not hide errors from later groups or partial-result warn
         __runRgWindowedLines: async (_args, { cwd }) => {
           if (cwd === join(root, 'b')) throw new Error('permission denied in second group');
           return {
-            lines: Array.from({ length: 50000 }, (_, i) => `file-${i}.mjs`),
+            // One past the accumulation cap: the fold really does drop a
+            // path here, which is what makes the cap notice below correct.
+            // (Exactly 50000 fits and is a complete listing.)
+            lines: Array.from({ length: 50001 }, (_, i) => `file-${i}.mjs`),
             complete: false,
             partial: true,
             cacheSafe: false,

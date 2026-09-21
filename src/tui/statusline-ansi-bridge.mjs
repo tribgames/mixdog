@@ -58,8 +58,7 @@ function isResetStatsState(stats) {
  * must only kick off the async full-render refresh (the render effect already
  * depends on `agentRevision`), never snap the footer back to the usage-less
  * `localBootStatusLine` before/after the first full render — that was the
- * source of the boot-entry flicker. `agentRevision` still participates in
- * `statuslineFooterCacheKey` below so the async cache key churns correctly.
+ * source of the boot-entry flicker.
  */
 export function statuslineFooterIdentityChanged(args, lastArgs) {
   if (!args) return false;
@@ -73,44 +72,6 @@ export function statuslineFooterIdentityChanged(args, lastArgs) {
   if (args.autoCompactTokenLimit !== lastArgs.autoCompactTokenLimit) return true;
   if (isResetStatsState(args.stats) && !isResetStatsState(lastArgs.stats)) return true;
   return false;
-}
-
-/**
- * Cache key for the last async full statusline (identity-changing props only).
- * Includes `agentRevision` as a churn key (so a stale async result is not kept
- * forever), but `agentRevision` is deliberately excluded from
- * `statuslineFooterIdentityChanged` above — it must not itself force a local
- * snap-back. Stats reset is not keyed here; `statuslineFooterIdentityChanged`
- * clears cache instead.
- */
-export function statuslineFooterCacheKey({
-  agentRevision = '',
-  sessionId = '',
-  clientHostPid = '',
-  provider = '',
-  model = '',
-  effort = '',
-  fast = false,
-  contextWindow = 0,
-  displayContextWindow = 0,
-  rawContextWindow = 0,
-  compactBoundaryTokens = 0,
-  autoCompactTokenLimit = 0,
-} = {}) {
-  return [
-    String(agentRevision),
-    String(sessionId),
-    String(clientHostPid ?? ''),
-    String(provider),
-    String(model),
-    String(effort),
-    fast === true ? '1' : '0',
-    String(contextWindow),
-    String(displayContextWindow),
-    String(rawContextWindow),
-    String(compactBoundaryTokens),
-    String(autoCompactTokenLimit),
-  ].join('\0');
 }
 
 /**

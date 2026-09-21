@@ -202,6 +202,9 @@ export function _findSymbolAcrossGraph(
         }
       }
     }
+    if (ciHits.length) {
+      lines.push(`hint: indexed under different casing: ${ciHits.join(', ')}`);
+    }
     if (outsideLine) lines.push(outsideLine);
     return lines.join('\n');
   }

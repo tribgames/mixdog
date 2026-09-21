@@ -1,4 +1,4 @@
-import { xmlEncode } from './portable-xml.mjs';
+import { xmlDecode, xmlEncode } from './portable-xml.mjs';
 
 const SECTION_ORDER = Object.freeze([
   'numFmts',
@@ -35,15 +35,6 @@ const VERTICAL = Object.freeze({
   justify: 'justify',
   distributed: 'distributed',
 });
-
-function decode(value = '') {
-  return String(value)
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&amp;/g, '&');
-}
 
 function sectionMatch(xml, name) {
   return new RegExp(`<${name}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${name}>)`).exec(xml);
@@ -98,7 +89,7 @@ function parseFont(xml) {
     italic: flag(xml, 'i'),
     size: Number(attribute(/<sz\b([^>]*?)\/>/.exec(xml)?.[1], 'val')) || 11,
     color: normalizeColor(attribute(/<color\b([^>]*?)\/>/.exec(xml)?.[1], 'rgb')),
-    name: decode(attribute(/<name\b([^>]*?)\/>/.exec(xml)?.[1], 'val')) || 'Calibri',
+    name: xmlDecode(attribute(/<name\b([^>]*?)\/>/.exec(xml)?.[1], 'val')) || 'Calibri',
   };
 }
 
@@ -227,7 +218,7 @@ function registerNumberFormat(numFmts, code) {
   const normalized = String(code || '').trim();
   if (!normalized || normalized.toLowerCase() === 'general') return 0;
   for (const entry of numFmts) {
-    if (decode(attribute(entry, 'formatCode')) === normalized) return Number(attribute(entry, 'numFmtId')) || 0;
+    if (xmlDecode(attribute(entry, 'formatCode')) === normalized) return Number(attribute(entry, 'numFmtId')) || 0;
   }
   const used = numFmts.map((entry) => Number(attribute(entry, 'numFmtId')) || 0);
   const id = Math.max(FIRST_CUSTOM_NUMBER_FORMAT - 1, ...used) + 1;
@@ -347,6 +338,12 @@ const BUILT_IN_NUMBER_FORMATS = Object.freeze({
   49: '@',
 });
 
+// The General format under any Excel UI language (Korean G/표준, Japanese
+// G/標準, German Standard), and the empty format a cell carries when it has
+// none: neither is a format anyone chose. Every reader asks here.
+export const GENERAL_NUMBER_FORMAT =
+  /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)?$/i;
+
 // Excel reports a cell's colors as BGR integers (black font 0, no fill
 // 16777215) and its number format as General on every cell; the portable
 // snapshot reports RRGGBB and omits defaults. One shape for both readers.
@@ -364,12 +361,7 @@ export function normalizeExcelCellStyle(style) {
   const color = hex(style.color, 0);
   const fillColor = hex(style.fillColor, 16777215);
   const numberFormat = String(style.numberFormat || '').trim();
-  // A localized Excel reports the General format in its own language
-  // (Korean G/표준, Japanese G/標準, German Standard); none is a format.
-  const general =
-    /^(?:general|g\/표준|g\/標準|standard|standaard|général|generale|estándar|padrão|общий|常规|通用格式)$/i.test(
-      numberFormat
-    );
+  const general = GENERAL_NUMBER_FORMAT.test(numberFormat);
   const { color: _color, fillColor: _fill, numberFormat: _format, bold, italic, ...rest } = style;
   return {
     ...rest,
@@ -389,7 +381,7 @@ export function resolveCellStyles(stylesXml) {
   const sections = parseStyleSheet(stylesXml);
   const numberFormats = new Map();
   for (const entry of sections.numFmts) {
-    numberFormats.set(Number(attribute(entry, 'numFmtId')) || 0, decode(attribute(entry, 'formatCode')));
+    numberFormats.set(Number(attribute(entry, 'numFmtId')) || 0, xmlDecode(attribute(entry, 'formatCode')));
   }
   return sections.cellXfs.map((xfXml) => {
     const xf = parseXf(xfXml);

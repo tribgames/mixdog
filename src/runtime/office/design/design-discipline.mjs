@@ -59,6 +59,14 @@ const MOTIF_SHAPE_PREFIX = 'Mixdog Motif';
 export function isMotifShape(shape) {
   return String(shape?.name || '').startsWith(MOTIF_SHAPE_PREFIX);
 }
+
+// Shape kind arrives in two vocabularies: Microsoft Office reports integer
+// MsoShapeType values (13 is a picture) while the portable backend reports the
+// OOXML element name. Every review reads a picture through this one predicate
+// so both backends agree.
+export function isPictureShape(shape) {
+  return Number(shape?.type) === 13 || shape?.type === 'p:pic';
+}
 export const MAX_FONT_FAMILIES_PER_SLIDE = 3;
 export const MAX_ACCENT_HUE_FAMILIES = 2;
 export const STATE_ROLES = Object.freeze(['positive', 'warning', 'critical', 'informative']);

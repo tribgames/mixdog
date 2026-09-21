@@ -39,7 +39,7 @@ const child = `
                 console.log(JSON.stringify({
                     tool, scope, attempt, ms: +(performance.now() - start).toFixed(1),
                     bytes: Buffer.byteLength(text), partial: /partial|incomplete|timed out/i.test(text),
-                    malformedPath: /\\?\\/[A-Za-z]:/.test(text),
+                    malformedPath: /\\\\?\\/[A-Za-z]:/.test(text),
                     preview: text.slice(0, 150), tail: text.slice(-300), telemetry,
                 }));
             } catch (error) {

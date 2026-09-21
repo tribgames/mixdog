@@ -5,7 +5,6 @@
 import {
   PIXELS_TO_POINTS,
   addPackageRelationship,
-  ensureContentTypeOverride,
   fillTemplateParts,
   partRelationshipPath,
   provenanceCitation,
@@ -33,6 +32,7 @@ import {
   ensureCommentsPart,
   ensureDocxUpdateFields,
   ensureNumbering,
+  ensurePart,
   forgetCommentIdentity,
   markRunsDeleted,
   nextRevisionId,
@@ -76,6 +76,17 @@ import {
 
 const DOCUMENT_PART = 'word/document.xml';
 const STORY_VARIANTS = ['default', 'first', 'even'];
+const DOCX_STORY_PART = /^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$/i;
+
+// The stories text can stand in, body first; the comments part carries no
+// text of its own.
+function docxStoryPartNames(zip) {
+  return Object.keys(zip.files)
+    .filter((name) => DOCX_STORY_PART.test(name))
+    .sort(
+      (left, right) => Number(right === DOCUMENT_PART) - Number(left === DOCUMENT_PART) || left.localeCompare(right)
+    );
+}
 
 function bodyParagraphs(model) {
   return model.blocks.filter((block) => block.name === 'w:p');
@@ -159,17 +170,12 @@ function storyTarget(op) {
 export async function setDocxTrackChanges(zip, op) {
   const enabled = op.enabled !== false;
   const part = 'word/settings.xml';
-  let settings = await zipText(zip, part);
-  if (!settings) {
-    settings = `${XML_HEADER}<w:settings xmlns:w="${WORD_MAIN_NS}"></w:settings>`;
-    await ensureContentTypeOverride(zip, `/${part}`, SETTINGS_CONTENT_TYPE);
-    await addPackageRelationship(
-      zip,
-      partRelationshipPath(DOCUMENT_PART),
-      `${OFFICE_RELATIONSHIP_BASE}/settings`,
-      'settings.xml'
-    );
-  }
+  const settings = await ensurePart(zip, {
+    part,
+    xml: `${XML_HEADER}<w:settings xmlns:w="${WORD_MAIN_NS}"></w:settings>`,
+    contentType: SETTINGS_CONTENT_TYPE,
+    relationship: `${OFFICE_RELATIONSHIP_BASE}/settings`,
+  });
   zip.file(
     part,
     upsertOrderedChild(settings, SETTINGS_ORDER, 'w:trackRevisions', enabled ? '<w:trackRevisions/>' : '')
@@ -559,14 +565,19 @@ export async function replyOrResolveDocxComment(zip, op) {
   const text = String(op.text || '');
   if (!text) throw new Error('add_comment_reply requires text');
   const id = await appendComment(zip, comments, op, text, { parentId: parent });
-  const current = await zipText(zip, DOCUMENT_PART);
-  const anchor = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${parent}"[^>]*\\/>`).exec(current);
-  if (anchor) {
-    const position = anchor.index;
-    const marks =
-      `<w:commentRangeStart w:id="${id}"/><w:commentRangeEnd w:id="${id}"/>` +
-      `<w:r><w:commentReference w:id="${id}"/></w:r>`;
-    zip.file(DOCUMENT_PART, `${current.slice(0, position)}${marks}${current.slice(position)}`);
+  const marks =
+    `<w:commentRangeStart w:id="${id}"/><w:commentRangeEnd w:id="${id}"/>` +
+    `<w:r><w:commentReference w:id="${id}"/></w:r>`;
+  // The parent may be anchored in any story — the body, a header, a footer, a
+  // note. A reply marked only where the body happens to hold the id reached no
+  // story at all, and the next accept-all pruned it as orphaned.
+  const pattern = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${parent}"[^>]*\\/>`);
+  for (const part of docxStoryPartNames(zip)) {
+    const story = await zipText(zip, part);
+    const anchor = pattern.exec(story);
+    if (!anchor) continue;
+    zip.file(part, `${story.slice(0, anchor.index)}${marks}${story.slice(anchor.index)}`);
+    break;
   }
   return { op: op.op, changed: true, comment: id, parent };
 }

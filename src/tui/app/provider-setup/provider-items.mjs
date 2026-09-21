@@ -1,7 +1,7 @@
 // provider-setup/provider-items.mjs
-// Pure helpers of the Provider setup picker: which providers count as active,
-// the status footer, the key-console URL, and the sorted provider rows of the
-// main list.
+// Shared parts of the Provider setup picker: which providers count as active,
+// the status footer, the key-console URL, the sorted provider rows of the main
+// list, and the forget-auth action both action panels offer.
 import { theme } from '../../theme.mjs';
 import { providerStatusLabel, providerDetailText, providerKindLabel } from '../app-format.mjs';
 import { providerDisplayRank } from '../model-options.mjs';
@@ -30,6 +30,23 @@ export const providerStatusFooter = (provider) => {
     },
   ];
 };
+
+/**
+ * Daemon RPC: only navigate once the removal is acknowledged, and return to the
+ * provider's own action panel (`reopenActions`, not an empty panel) when it
+ * fails. Shared by the OAuth and API-key panels.
+ */
+export function forgetProviderAuth(flow, providerItem, reopenActions) {
+  void Promise.resolve(flow.store.forgetProviderAuth?.(providerItem._providerId))
+    .then(() => {
+      flow.clearModelCaches('all');
+      flow.reopenProviders();
+    })
+    .catch((e) => {
+      flow.store.pushNotice(`auth-forget failed: ${e?.message || e}`, 'error');
+      reopenActions();
+    });
+}
 
 const providerItemRank = (item) => providerDisplayRank(item._providerId || item.value);
 

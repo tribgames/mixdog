@@ -77,7 +77,7 @@ function rangeFooter(ctx, render, rendered) {
  *   actually saw (W1 H): smart-middle elision and byte-cap truncation both
  *   drop lines, and the snapshot must not claim coverage of them.
  */
-export function renderReadWindow(content, ctx, helpers) {
+function renderReadWindow(content, ctx, helpers) {
   const { filePath, st, offset, limit, hasRangeArgs, wantFull, readMaxOutputBytes } = ctx;
   const { renderReadLine, smartReadTruncate, appendReadContextAdvisory, normalizeOutputPath } = helpers;
   const lines = content.split(/\r?\n/);
@@ -145,7 +145,7 @@ export function renderReadWindow(content, ctx, helpers) {
  * snapshotCoversFullFile never green-lights an overwrite against bytes the
  * read never returned.
  */
-export function bufferedReadSnapshotMeta(content, render, ctx, helpers) {
+function bufferedReadSnapshotMeta(content, render, ctx, helpers) {
   const { offset, limit } = ctx;
   const { _hashText, _rangeHashesForReadRanges } = helpers;
   const { lineCount, renderedLineCount, smartTruncated, smartVisibleRanges, byteCapTruncated } = render;

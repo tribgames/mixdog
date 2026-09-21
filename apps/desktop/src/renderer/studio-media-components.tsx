@@ -147,7 +147,11 @@ export function StudioDetailViewer({
               aria-label={t('Open image')}
               onClick={() => onOpenAsset(asset)}
             >
-              <img src={displayUrl} alt={asset.prompt} onError={() => onUrlBroken(asset.id, 'display')} />
+              {/* alt stays empty: a prompt here painted as a wall of text in the
+                  image's place until the display rendition landed (user: 섬네일
+                  자리에 긴 글자가 뜸). The button above carries the label and the
+                  side rail already shows the prompt itself. */}
+              <img src={displayUrl} alt="" onError={() => onUrlBroken(asset.id, 'display')} />
             </button>
           )}
           <button type="button" className="studio-detail-stage-close" aria-label={t('Close preview')} onClick={onClose}>

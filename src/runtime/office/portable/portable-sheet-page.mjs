@@ -4,6 +4,7 @@ import { partRelationshipPath, zipText } from './portable-opc.mjs';
 import { xmlAttribute, xmlEncode } from './portable-xml.mjs';
 import {
   absoluteRange,
+  areaReference,
   mergedRanges,
   parseAreaRange,
   quoteSheetName,
@@ -180,8 +181,14 @@ export function fitDrawingSheetOnePageWide(xml) {
   const setup = worksheetSection(xml, 'pageSetup');
   if (setup && /\bscale="/.test(setup[0])) return { xml, applied: false };
   let next = upsertWorksheetSection(xml, 'sheetPr', sheetPrWithFitToPage(xml));
-  const existing = setup ? setup[0].replace(/\s+fitTo(?:Width|Height)="[^"]*"/g, '') : '<pageSetup/>';
-  next = upsertWorksheetSection(next, 'pageSetup', existing.replace(/\/?>$/, ' fitToWidth="1" fitToHeight="0"/>'));
+  // pageSetup is attributes and no children, and the section also matches the
+  // paired <pageSetup …></pageSetup> a sheet may carry: the fit is written
+  // onto the opening tag's attributes, never appended after a closing one.
+  const attributes = (setup ? /^<pageSetup\b([^>]*?)\/?>/.exec(setup[0])?.[1] || '' : '').replace(
+    /\s+fitTo(?:Width|Height)="[^"]*"/g,
+    ''
+  );
+  next = upsertWorksheetSection(next, 'pageSetup', `<pageSetup${attributes} fitToWidth="1" fitToHeight="0"/>`);
   return { xml: next, applied: true };
 }
 
@@ -217,8 +224,7 @@ export async function applyWorksheetPageSetup(zip, sheets, sheet, xml, op) {
   );
   const printArea = op.fitToContent === true ? await contentPrintArea(zip, sheet, xml) : op.printArea;
   if (printArea) {
-    const area = parseAreaRange(printArea);
-    const reference = `${quoteSheetName(sheet.name)}!${absoluteRange(`${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`)}`;
+    const reference = `${quoteSheetName(sheet.name)}!${absoluteRange(areaReference(parseAreaRange(printArea)))}`;
     const localSheetId = sheets.findIndex((entry) => entry.name === sheet.name);
     const workbook = await zipText(zip, 'xl/workbook.xml');
     zip.file(

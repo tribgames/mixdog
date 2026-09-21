@@ -80,11 +80,7 @@ export function prepareToolCall(name, args, cwd, callerSessionId, sessionRef, ex
   // A background tool belongs to the session that invoked it. Subagent
   // sessions carry the top-level UI session in ownerSessionId, but routing a
   // shell completion there leaks the child task into the lead transcript.
-  const notificationSessionId = resolveToolCompletionSessionId({
-    callerSessionId,
-    ownerSessionId: sessionRef?.ownerSessionId,
-    requestedNotificationSessionId: executeOpts.notifySessionId,
-  });
+  const notificationSessionId = resolveToolCompletionSessionId({ callerSessionId });
   const notifyFn =
     typeof executeOpts.notifyFn === 'function' ? executeOpts.notifyFn : completionNotifier(notificationSessionId);
   const completionToolOpts = {

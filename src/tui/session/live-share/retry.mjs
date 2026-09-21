@@ -37,3 +37,18 @@ export function createRetryTimer({ minMs, maxMs, shouldStart, start }) {
     schedule,
   };
 }
+
+/**
+ * Reconcile one live-share leg (the owner's pipe server, the viewer's client)
+ * against the session it should serve/follow — '' = none. A retry aimed at
+ * another session is dropped, a leg bound to another session is stopped, and a
+ * leg is (re)started only when nothing is up and no retry is already pending.
+ * `legId`/`legUp` are read lazily because both callers keep them in mutable
+ * closure state.
+ */
+export function reconcileLeg(targetId, { retry, legId, legUp, stop, start }) {
+  if (retry.id() && retry.id() !== targetId) retry.clear();
+  if (!targetId && retry.pending()) retry.clear();
+  if (legId() && legId() !== targetId) stop();
+  if (targetId && !legUp() && !retry.pending()) start(targetId);
+}

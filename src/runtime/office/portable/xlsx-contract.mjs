@@ -90,6 +90,10 @@ const SPILLING_FUNCTIONS = Object.freeze([
   'RANDARRAY',
 ]);
 
+// Deliberately narrower than the audit's rule (xlsx-sheet-hygiene.mjs), which
+// accepts every script's letters: quoting a name Excel would also read bare
+// ('모델'!B8) evaluates the same, while reporting one as unquoted would be a
+// warning nobody can resolve. A writer may over-quote; an audit may not.
 const SHEET_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 
 // `My Sheet!B5` evaluates to #VALUE!; Excel needs `'My Sheet'!B5`. Only names

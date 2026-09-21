@@ -126,7 +126,7 @@ export function emptyContextStatus(session, route, env) {
       requestOverheadTokens: 0,
       reserveTokens: 0,
     },
-    usage: emptyUsageCounters(),
+    usage: sessionUsageCounters(null, 0),
   };
 }
 

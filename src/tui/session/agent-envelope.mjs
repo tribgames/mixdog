@@ -8,7 +8,10 @@ import { isBackgroundErrorOnlyBody } from '../../runtime/shared/err-text.mjs';
 import { textBetweenTag } from '../../runtime/shared/tool-result-summary.mjs';
 import { parseTaskNotification, taskNotificationHasBody } from '../../runtime/shared/task-notification-envelope.mjs';
 
-export { textBetweenTag };
+// The terminal status words that mark an agent/background result as an error.
+// The near-variants further down (isErrorToolStatus, the shell result branch)
+// deliberately drop `denied`/`canceled` and must stay written out separately.
+const TERMINAL_ERROR_STATUS = /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i;
 
 function stripSyntheticAgentTags(text) {
   const value = String(text ?? '').trim();
@@ -90,7 +93,7 @@ export function parseAgentResultEnvelope(text, fallback = {}) {
         status: fallback.status || attrs.status || 'completed',
         taskId: fallback.taskId || attrs.task_id || attrs.taskid || '',
       }),
-    isError: /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(fallback.status || attrs.status || ''),
+    isError: TERMINAL_ERROR_STATUS.test(fallback.status || attrs.status || ''),
   };
 }
 
@@ -180,10 +183,7 @@ export function parseBackgroundTaskEnvelope(text) {
     },
     result: resultBody || (errorText ? '' : statusLine),
     rawResult: value,
-    isError:
-      /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(status) ||
-      /^error:/i.test(body) ||
-      Boolean(errorText),
+    isError: TERMINAL_ERROR_STATUS.test(status) || /^error:/i.test(body) || Boolean(errorText),
   };
 }
 
@@ -333,7 +333,7 @@ export function parseSyntheticAgentMessage(text) {
         agentJob
       ),
       result: result || agentJobStatusText(agentJob) || 'agent notification',
-      isError: /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(label),
+      isError: TERMINAL_ERROR_STATUS.test(label),
     };
   }
   return null;
@@ -392,7 +392,7 @@ export function buildExecutionResponseToolItem(
     args,
     result: synthetic.result,
     rawResult,
-    isError: synthetic.isError ?? /^(failed|error|timeout|cancelled|canceled|killed|denied)$/i.test(label),
+    isError: synthetic.isError ?? TERMINAL_ERROR_STATUS.test(label),
     expanded: false,
     count: 1,
     completedCount: 1,

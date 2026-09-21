@@ -58,7 +58,7 @@ if (child) {
     console.error(`${spec.name}: ${error.message}`);
     process.exitCode = 1;
   } finally {
-    await runtime?.stop?.('context-renewal-live-check');
+    await runtime?.close('context-renewal-live-check');
   }
   process.exit(process.exitCode || 0);
 }

@@ -70,13 +70,41 @@ function cloneState(state) {
   return { ...state };
 }
 
-function rgbCode(codes, index) {
-  if (codes[index + 1] !== 2) return null;
-  const r = codes[index + 2];
-  const g = codes[index + 3];
-  const b = codes[index + 4];
-  if ([r, g, b].some((n) => !Number.isFinite(n))) return null;
-  return `rgb(${r},${g},${b})`;
+// xterm-256 indexes 0-15 are the named SGR colors, so they resolve through the
+// same theme maps as `31`/`41` instead of a hard-coded palette.
+const ANSI_256_NAMED = [30, 31, 32, 33, 34, 35, 36, 37, 90, 91, 92, 93, 94, 95, 96, 97];
+const ANSI_256_NAMED_BG = [40, 41, 42, 43, 44, 45, 46, 47, 100, 101, 102, 103, 104, 105, 106, 107];
+
+// 16-231 is the 6×6×6 color cube, 232-255 the 24-step gray ramp.
+function xterm256Rgb(index) {
+  if (index >= 232) {
+    const gray = 8 + (index - 232) * 10;
+    return `rgb(${gray},${gray},${gray})`;
+  }
+  const offset = index - 16;
+  const level = (step) => (step ? 55 + step * 40 : 0);
+  return `rgb(${level(Math.floor(offset / 36))},${level(Math.floor(offset / 6) % 6)},${level(offset % 6)})`;
+}
+
+// `38`/`48` carry either the truecolor form `;2;r;g;b` or the 256-color form
+// `;5;n`. Both are decoded here, with the number of trailing codes the caller
+// must skip: an undecoded `;5;n` used to fall through to the named-color
+// default, where neither `5` nor `n` matches and the color was dropped.
+function extendedColor(codes, index, palette) {
+  const kind = codes[index + 1];
+  if (kind === 2) {
+    const r = codes[index + 2];
+    const g = codes[index + 3];
+    const b = codes[index + 4];
+    if ([r, g, b].some((n) => !Number.isFinite(n))) return null;
+    return { color: `rgb(${r},${g},${b})`, consumed: 4 };
+  }
+  if (kind === 5) {
+    const value = codes[index + 2];
+    if (!Number.isFinite(value) || value < 0 || value > 255) return null;
+    return { color: palette(value), consumed: 2 };
+  }
+  return null;
 }
 
 function applySgr(state, codes, defaultColor, ansiColors) {
@@ -116,18 +144,22 @@ function applySgr(state, codes, defaultColor, ansiColors) {
         state.inverse = false;
         break;
       case 38: {
-        const color = rgbCode(codes, i);
-        if (color) {
-          state.color = color;
-          i += 4;
+        const resolved = extendedColor(codes, i, (value) =>
+          value < 16 ? ansiColors[ANSI_256_NAMED[value]] : xterm256Rgb(value)
+        );
+        if (resolved) {
+          state.color = resolved.color;
+          i += resolved.consumed;
         }
         break;
       }
       case 48: {
-        const color = rgbCode(codes, i);
-        if (color) {
-          state.backgroundColor = color;
-          i += 4;
+        const resolved = extendedColor(codes, i, (value) =>
+          value < 16 ? ANSI_BG_COLORS[ANSI_256_NAMED_BG[value]] : xterm256Rgb(value)
+        );
+        if (resolved) {
+          state.backgroundColor = resolved.color;
+          i += resolved.consumed;
         }
         break;
       }

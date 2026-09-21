@@ -6,31 +6,31 @@
  */
 import { presentErrorText } from '../../runtime/shared/err-text.mjs';
 
+// Every shape that carries a list of parts flattens the same way: render each
+// part at the given depth, drop the empties, join with newlines.
+function joinPartTexts(parts, depth) {
+  return parts
+    .map((c) => toolResultPartText(c, depth))
+    .filter((t) => t !== '')
+    .join('\n');
+}
+
 export function toolResultText(content) {
   if (content == null) return '';
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) {
-    return content
-      .map((c) => toolResultPartText(c))
-      .filter((t) => t !== '')
-      .join('\n');
+    return joinPartTexts(content, 0);
   }
   if (typeof content === 'object') {
     if (Array.isArray(content.content)) {
-      const nested = content.content
-        .map((c) => toolResultPartText(c))
-        .filter((t) => t !== '')
-        .join('\n');
+      const nested = joinPartTexts(content.content, 0);
       if (nested) return nested;
     } else if (content.content != null && typeof content.content === 'object') {
       const nested = toolResultPartText(content.content);
       if (nested) return nested;
     }
     if (Array.isArray(content.parts)) {
-      const nested = content.parts
-        .map((c) => toolResultPartText(c))
-        .filter((t) => t !== '')
-        .join('\n');
+      const nested = joinPartTexts(content.parts, 0);
       if (nested) return nested;
     }
     const fromPart = toolResultPartText(content);
@@ -76,10 +76,7 @@ function toolResultPartText(part, depth = 0) {
     const inner = part.content;
     if (typeof inner === 'string') return inner;
     if (Array.isArray(inner)) {
-      return inner
-        .map((c) => toolResultPartText(c, depth + 1))
-        .filter((t) => t !== '')
-        .join('\n');
+      return joinPartTexts(inner, depth + 1);
     }
     if (inner != null && typeof inner === 'object') {
       return toolResultPartText(inner, depth + 1);
@@ -90,17 +87,11 @@ function toolResultPartText(part, depth = 0) {
     return part.text ?? '';
   }
   if (Array.isArray(part)) {
-    return part
-      .map((c) => toolResultPartText(c, depth + 1))
-      .filter((t) => t !== '')
-      .join('\n');
+    return joinPartTexts(part, depth + 1);
   }
   if (typeof part === 'object') {
     if (Array.isArray(part.content)) {
-      const nested = part.content
-        .map((c) => toolResultPartText(c, depth + 1))
-        .filter((t) => t !== '')
-        .join('\n');
+      const nested = joinPartTexts(part.content, depth + 1);
       if (nested) return nested;
     }
     if (part.content != null && typeof part.content === 'object') {
@@ -108,10 +99,7 @@ function toolResultPartText(part, depth = 0) {
       if (nested) return nested;
     }
     if (Array.isArray(part.parts)) {
-      const nested = part.parts
-        .map((c) => toolResultPartText(c, depth + 1))
-        .filter((t) => t !== '')
-        .join('\n');
+      const nested = joinPartTexts(part.parts, depth + 1);
       if (nested) return nested;
     }
     if (typeof part.text === 'string' && part.text) return part.text;

@@ -49,6 +49,7 @@ import { ensureWorksheetDrawing } from './portable-sheet-parts.mjs';
 import {
   appendDifferentialFormat,
   appendWorksheetSection,
+  areaReference,
   conditionalScaleRule,
   displayWidth,
   formattedNumberWidth,
@@ -355,6 +356,12 @@ function imageAnchorXml({ embedId, anchorCount, left, top, width, height, altTex
   );
 }
 
+// The anchors already on a sheet's drawing: a picture or a chart frame is
+// numbered after them.
+function countDrawingAnchors(drawingXml) {
+  return (drawingXml.match(/<xdr:(?:absolute|two|one)CellAnchor\b/g) || []).length;
+}
+
 /** Places a picture on the sheet's drawing, sized from the file when no size is given. */
 export async function addWorksheetImage(zip, sheet, xml, op) {
   const { mediaPart, data } = await storeImageMedia(zip, op);
@@ -368,7 +375,7 @@ export async function addWorksheetImage(zip, sheet, xml, op) {
     posix.relative(posix.dirname(drawing.part), mediaPart)
   );
   const drawingXml = await zipText(zip, drawing.part);
-  const anchorCount = (drawingXml.match(/<xdr:(absolute|two|one)CellAnchor\b/g) || []).length;
+  const anchorCount = countDrawingAnchors(drawingXml);
   const placement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 0, top: 0 };
   const anchor = imageAnchorXml({
     embedId,
@@ -457,8 +464,7 @@ export async function setWorksheetHeaderFooter(zip, sheet, xml, op) {
 
 /** Adds a conditional rule over a range, or removes the rules already on it. */
 export async function applyConditionalFormat(zip, sheet, xml, op) {
-  const area = parseAreaRange(op.range);
-  const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+  const reference = areaReference(parseAreaRange(op.range));
   if (op.op === 'delete_conditional_formats') {
     const pattern = new RegExp(
       `<conditionalFormatting\\b[^>]*\\bsqref="${tagPattern(reference)}"[^>]*>[\\s\\S]*?<\\/conditionalFormatting>`,
@@ -536,8 +542,7 @@ function dataValidationXml(op, { type, operator, reference }) {
 
 /** One data validation over a range, appended to the validations already there. */
 export function addWorksheetValidation(zip, sheet, xml, op) {
-  const area = parseAreaRange(op.range);
-  const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+  const reference = areaReference(parseAreaRange(op.range));
   // A list is the common case and what Excel writes through the same
   // operation, so it is the default; the other kinds guard a number, a
   // date, or a length, and take a second bound. A formula that states a
@@ -819,7 +824,7 @@ export async function addWorksheetPivotTable(zip, sheet, xml, op) {
     fields: summarizePivotFields(headers, records),
     records,
     sourceSheet: sheet.name,
-    sourceRef: `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`,
+    sourceRef: areaReference(area),
     destinationSheetPath: destination.path,
     destination: String(op.destination || 'A1'),
     name: pivotName,
@@ -996,7 +1001,7 @@ export async function addWorksheetChart(zip, sheet, xml, op) {
     posix.relative(posix.dirname(drawingPart), chartPart)
   );
   const drawingXml = await zipText(zip, drawingPart);
-  const anchorCount = (drawingXml.match(/<xdr:(absolute|two|one)CellAnchor\b/g) || []).length;
+  const anchorCount = countDrawingAnchors(drawingXml);
   const framePlacement = op.cell ? cellAnchorPoints(xml, op.cell) : { left: 300, top: 20 };
   const anchor = chartFrameAnchor(op, framePlacement, anchorCount, chartRelationshipId);
   zip.file(drawingPart, drawingXml.replace('</xdr:wsDr>', `${anchor}</xdr:wsDr>`));

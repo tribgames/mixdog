@@ -4,7 +4,7 @@
 // tier keeps its uniqueness guard so a rescue can never mis-anchor.
 import { longestCommonSubstringLen, boundedEditDistance, EDIT_DISTANCE_ALLOWANCE_PER_LINE } from './matcher.mjs';
 import { isV4AEndOfFileMarker } from './parsing.mjs';
-import { v4AHunkLineStats } from './v4a-anchors.mjs';
+import { findExactWindowStarts, v4AHunkLineStats } from './v4a-anchors.mjs';
 
 // Bounded context-tolerance tier (fuzzy, non-EOF, last resort before the
 // context-miss error). Recovers the measured top remaining failure class —
@@ -129,14 +129,7 @@ export function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
       const newLines = stats.newLines.slice(leading, stats.newLines.length - trailing);
       if (oldLines.length === 0) continue;
 
-      const starts = [];
-      outer: for (let i = 0; i + oldLines.length <= sourceLines.length; i++) {
-        for (let k = 0; k < oldLines.length; k++) {
-          if (sourceLines[i + k] !== oldLines[k]) continue outer;
-        }
-        starts.push(i);
-        if (starts.length > 1) break;
-      }
+      const starts = findExactWindowStarts(sourceLines, oldLines, 2);
       if (starts.length > 1) {
         ambiguous = true;
       } else if (starts.length === 1) {
@@ -156,16 +149,8 @@ export function findOuterContextTrimmedWindow(sourceLines, hunk, stats) {
 }
 
 export function uniqueExactSequenceStart(sourceLines, pattern) {
-  if (!Array.isArray(pattern) || pattern.length === 0) return -1;
-  let found = -1;
-  outer: for (let i = 0; i + pattern.length <= sourceLines.length; i++) {
-    for (let k = 0; k < pattern.length; k++) {
-      if (sourceLines[i + k] !== pattern[k]) continue outer;
-    }
-    if (found >= 0) return -1;
-    found = i;
-  }
-  return found;
+  const starts = findExactWindowStarts(sourceLines, pattern, 2);
+  return starts.length === 1 ? starts[0] : -1;
 }
 
 function trimLeadingWs(value) {

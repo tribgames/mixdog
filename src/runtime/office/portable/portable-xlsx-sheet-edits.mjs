@@ -37,6 +37,7 @@ import {
 } from './portable-xml.mjs';
 import { excelPasswordHash, writeWorksheetNote } from './portable-sheet-parts.mjs';
 import {
+  areaReference,
   composeSheetView,
   freezePaneXml,
   mergedCellAnchor,
@@ -188,7 +189,7 @@ export async function setWorksheetStyle(zip, sheet, xml, op) {
 export function mergeWorksheetCells(zip, sheet, xml, op) {
   const area = parseAreaRange(op.range);
   if (!area.startRow || !area.startCol) throw new Error(`${op.op} requires a bounded range such as A1:D1`);
-  const ref = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+  const ref = areaReference(area);
   const current = mergedRanges(xml);
   const next = op.op === 'merge_cells' ? [...current, ref] : current.filter((entry) => entry !== ref);
   const changed = new Set(next).size !== new Set(current).size;
@@ -249,8 +250,7 @@ export function setWorksheetAutofilter(zip, sheet, xml, op) {
   const enabled = op.enabled !== false;
   let next;
   if (enabled) {
-    const area = parseAreaRange(op.range);
-    const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+    const reference = areaReference(parseAreaRange(op.range));
     next = upsertWorksheetSection(xml, 'autoFilter', `<autoFilter ref="${reference}"/>`);
   } else {
     next = upsertWorksheetSection(xml, 'autoFilter', '');
@@ -322,8 +322,16 @@ export function setRowOrColumnVisibility(zip, sheet, xml, op) {
       const later = [...next.matchAll(/<row\b[^>]*\br="(\d+)"[^>]*?(?:\/>|>)/g)].find(
         (entry) => Number(entry[1]) > row
       );
-      const anchor = later ? later.index : next.indexOf('</sheetData>');
-      if (anchor < 0) throw new Error('Worksheet has no sheetData to hide a row in');
+      let anchor = later ? later.index : next.indexOf('</sheetData>');
+      if (anchor < 0) {
+        // A sheet with no rows yet carries <sheetData/> — what add_sheet
+        // writes — and the row still has to go inside it.
+        const empty = /<sheetData\b([^>]*?)\/>/.exec(next);
+        if (!empty) throw new Error('Worksheet has no sheetData to hide a row in');
+        const opening = `<sheetData${empty[1]}>`;
+        next = `${next.slice(0, empty.index)}${opening}</sheetData>${next.slice(empty.index + empty[0].length)}`;
+        anchor = empty.index + opening.length;
+      }
       next = `${next.slice(0, anchor)}<row r="${row}" hidden="1"/>${next.slice(anchor)}`;
     }
   } else {
@@ -495,7 +503,7 @@ export async function addWorksheetTable(zip, sheet, xml, op) {
   let tableOrdinal = 1;
   while (zip.file(`xl/tables/table${tableOrdinal}.xml`)) tableOrdinal += 1;
   const tablePart = `xl/tables/table${tableOrdinal}.xml`;
-  const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
+  const reference = areaReference(area);
   const tableName = safeWorkbookTableName(op.name || `Table${tableOrdinal}`);
   zip.file(
     tablePart,

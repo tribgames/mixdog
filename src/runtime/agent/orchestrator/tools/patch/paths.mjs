@@ -84,6 +84,12 @@ export function parsedEntryResolvedPath(entry, basePath) {
   return resolveEntryPath(basePath, headerName);
 }
 
+// win32 filesystems are case-insensitive, so `Foo` and `foo` name the same
+// file: one rule for every "have I already seen this target?" key.
+export function pathKey(fullPath) {
+  return process.platform === 'win32' ? String(fullPath || '').toLowerCase() : String(fullPath || '');
+}
+
 // Codex patches allow one operation per target path. Validate the complete
 // parsed patch before dispatch and return its single all-or-nothing batch.
 export function splitParsedModifyWaves(parsed, basePath) {
@@ -94,7 +100,7 @@ export function splitParsedModifyWaves(parsed, basePath) {
     const headerName = kind === 'create' ? entry.newFileName : entry.oldFileName;
     if (!headerName || DEV_NULL.test(headerName)) continue;
     const full = resolveEntryPath(basePath, headerName);
-    const key = process.platform === 'win32' ? full.toLowerCase() : full;
+    const key = pathKey(full);
     const rec = kindsByPath.get(key) || { kinds: [], headerName };
     rec.kinds.push(kind);
     kindsByPath.set(key, rec);
@@ -242,12 +248,12 @@ export async function preValidateNativeBatch(parsed, basePath) {
       );
     }
     const fullPath = resolveEntryPath(basePath, headerName);
-    const pathKey = process.platform === 'win32' ? fullPath.toLowerCase() : fullPath;
-    if (seenPaths.has(pathKey)) {
+    const seenKey = pathKey(fullPath);
+    if (seenPaths.has(seenKey)) {
       const display = normalizeOutputPath(stripDiffPrefix(headerName));
       throw new Error(`apply_patch: duplicate target ${display} — patch lists the same path twice.`);
     }
-    seenPaths.add(pathKey);
+    seenPaths.add(seenKey);
     const displayPath = normalizeOutputPath(stripDiffPrefix(headerName));
     const { added, removed } = countHunkChanges(entry.hunks);
     entries.push({

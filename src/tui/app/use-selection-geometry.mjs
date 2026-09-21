@@ -5,7 +5,12 @@
  * column of a row, and the synchronous "is a grid selection live" predicate.
  */
 import { useCallback, useRef } from 'react';
-import { compareCellOrder } from './transcript-window.mjs';
+import {
+  compareCellOrder,
+  selectionRectIsDegenerate,
+  statusBandRowRange,
+  transcriptViewportRowRange,
+} from './transcript-window.mjs';
 
 export function useSelectionGeometry({
   store,
@@ -63,17 +68,9 @@ export function useSelectionGeometry({
     [store, frameColumns, selectionPointAtCurrentScroll]
   );
 
-  const transcriptViewportRows = useCallback(() => {
-    const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
-    const bottom = Math.max(top, Number(transcriptViewportRef.current?.bottom) || top);
-    return { top, bottom };
-  }, []);
+  const transcriptViewportRows = useCallback(() => transcriptViewportRowRange(transcriptViewportRef.current), []);
 
-  const statusBandRows = useCallback(() => {
-    const rows = Math.max(1, Number(frameRowsRef.current) || 24);
-    const top = Math.max(0, rows - statuslineBandRows);
-    return { top, bottom: Math.max(top, rows - 1) };
-  }, []);
+  const statusBandRows = useCallback(() => statusBandRowRange(frameRowsRef.current, statuslineBandRows), []);
 
   const selectionMaxColAtRow = useCallback(
     (row) => {
@@ -94,7 +91,7 @@ export function useSelectionGeometry({
     if (!drag || drag.active) return false;
     if (drag.region !== 'transcript' && drag.region !== 'status') return false;
     const rect = drag.rect;
-    return Boolean(rect) && !(rect.x1 === rect.x2 && rect.y1 === rect.y2);
+    return Boolean(rect) && !selectionRectIsDegenerate(rect);
   });
 
   return {

@@ -91,6 +91,9 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
       'clipboard',
       'launch',
     ]);
+    // Core input actions survive every provider transform: a path that drops
+    // one would silently offer a narrower `computer` than the host accepts.
+    assert.equal(JSON.stringify(schema).includes('set_value'), true);
     assert.equal(JSON.stringify(schema).includes('computer_use_preview'), false);
     assert.equal(JSON.stringify(schema).includes('computer_20250124'), false);
   }
@@ -106,6 +109,7 @@ test('Computer Use stays one shared custom-tool contract across providers', () =
     'drag',
     'scroll',
     'type',
+    'set_value',
     'key',
     'key_down',
     'key_up',

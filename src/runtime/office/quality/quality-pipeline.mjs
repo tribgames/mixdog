@@ -1,4 +1,7 @@
 import { extname } from 'node:path';
+// `issue` is the shape every review record carries; the gate's own records are
+// the same shape, aliased because `issue` names a record in this file.
+import { issue as gateIssue } from './assurance-issue.mjs';
 
 // Measurable integrity faults: the file is broken, unreadable, or lies about
 // its own fit. Only these block a submission.
@@ -374,22 +377,26 @@ export function evaluateOfficeSubmissionGate({ issues = [], persisted = null, vi
   const normalized = normalizeOfficeReviewIssues(issues);
   const blocking = normalized.filter((issue) => issue.severity === 'error');
   if (persisted === false) {
-    blocking.push({
-      severity: 'error',
-      code: 'post_save_reopen_missing',
-      path: '/',
-      message: 'The saved Office document was not reopened, so persistence is unproven.',
-      source: 'post-save-gate',
-    });
+    blocking.push(
+      gateIssue(
+        'post_save_reopen_missing',
+        '/',
+        'The saved Office document was not reopened, so persistence is unproven.',
+        'post-save-gate',
+        'error'
+      )
+    );
   }
   if (visualCoverage && visualCoverage.complete !== true) {
-    blocking.push({
-      severity: 'error',
-      code: 'visual_coverage_incomplete',
-      path: '/',
-      message: 'Not every rendered page or slide was reviewed.',
-      source: 'render-review',
-    });
+    blocking.push(
+      gateIssue(
+        'visual_coverage_incomplete',
+        '/',
+        'Not every rendered page or slide was reviewed.',
+        'render-review',
+        'error'
+      )
+    );
   }
   return {
     ok: blocking.length === 0,

@@ -14,6 +14,9 @@ import {
   WHEEL_ACCEL_IDLE_MS,
   WHEEL_STEP_MAX_ROWS,
   WHEEL_STEP_ROWS,
+  selectionRectIsDegenerate,
+  statusBandRowRange,
+  transcriptViewportRowRange,
 } from './transcript-window.mjs';
 
 const MOUSE_TRACKING_ON = '\x1b[?1000h\x1b[?1002h\x1b[?1006h';
@@ -239,11 +242,7 @@ export function useMouseInput({
     };
     // Word/line multi-click drag-extension uses the hoisted buildSpanRect (same
     // logic reachable from the auto-scroll path in scrollTranscriptRows).
-    const transcriptViewport = () => {
-      const top = Math.max(0, Number(transcriptViewportRef.current?.top) || 0);
-      const bottom = Math.max(top, Number(transcriptViewportRef.current?.bottom) || top);
-      return { top, bottom };
-    };
+    const transcriptViewport = () => transcriptViewportRowRange(transcriptViewportRef.current);
     const isInTranscriptViewport = (row) => {
       const { top, bottom } = transcriptViewport();
       return row >= top && row <= bottom;
@@ -254,11 +253,7 @@ export function useMouseInput({
     };
     // [mixdog] Status-bar band = the bottom statuslineBandRows rows. The
     // prompt box occupies the rows reported by PromptInput's measured rect.
-    const statusBand = () => {
-      const rows = Math.max(1, Number(frameRowsRef.current) || 24);
-      const top = Math.max(0, rows - statuslineBandRows);
-      return { top, bottom: Math.max(top, rows - 1) };
-    };
+    const statusBand = () => statusBandRowRange(frameRowsRef.current, statuslineBandRows);
     const isInStatusBand = (row) => {
       const { top, bottom } = statusBand();
       return row >= top && row <= bottom;
@@ -552,9 +547,7 @@ export function useMouseInput({
             !dragRef.current.anchorSpan &&
             dragRef.current.anchor &&
             dragRef.current.rect &&
-            !(
-              dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2
-            )
+            !selectionRectIsDegenerate(dragRef.current.rect)
           ) {
             promptMouseSelectionRef.current?.clear?.();
             const selectionY = regionR === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
@@ -678,9 +671,7 @@ export function useMouseInput({
             !dragRef.current.anchorSpan &&
             dragRef.current.anchor &&
             dragRef.current.rect &&
-            !(
-              dragRef.current.rect.x1 === dragRef.current.rect.x2 && dragRef.current.rect.y1 === dragRef.current.rect.y2
-            )
+            !selectionRectIsDegenerate(dragRef.current.rect)
           ) {
             const selectionY = region === 'status' ? clampToStatusBand(y) : clampToTranscriptViewport(y);
             const anchor =

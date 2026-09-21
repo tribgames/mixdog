@@ -109,7 +109,12 @@ export function GitFileDiff({
   return (
     <>
       {files.map((file) => (
-        <GitDiffBody file={file} mode={mode} hideHunkHeader={hideHunkHeader} key={`${file.oldFile}\n${file.newFile}`} />
+        <GitDiffBody
+          file={file}
+          mode={mode}
+          hideHunkHeader={hideHunkHeader}
+          key={`${file.oldFile.fileName}\n${file.newFile.fileName}`}
+        />
       ))}
     </>
   );

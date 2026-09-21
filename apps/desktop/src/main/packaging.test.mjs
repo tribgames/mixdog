@@ -383,8 +383,8 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /Capture ID is required/);
   assert.match(capture, /refusing to resize evidence/);
   assert.doesNotMatch(capture, /thumbnail\.resize/);
-  assert.match(capture, /measureSidebarGeometry/);
-  assert.match(capture, /method:\s*'horizontal-pixel-scan'/);
+  assert.match(capture, /method:\s*'dom-geometry-fallback'/);
+  assert.doesNotMatch(capture, /measureSidebarGeometry|horizontal-pixel-scan/);
   assert.match(capture, /class CaptureService implements DesktopService/);
   assert.match(capture, /SETTINGS_CATEGORIES/);
   assert.doesNotMatch(capture, /railButtonCount\s*!==\s*14|railButtonCount,\s*14/);
@@ -484,12 +484,12 @@ test('production entry has no capture side effects and capture harness is exclud
   assert.match(capture, /bottomInset:\s*liveDesktop\.viewport\.height - liveDesktop\.rects\.sidebar\.bottom/);
   assert.match(capture, /mainLeft:\s*liveDesktop\.rects\.main\.left/);
   assert.match(capture, /gap:\s*liveDesktop\.sidebarGap/);
-  assert.match(capture, /imageMeasuredSidebar\.left !== domSidebarGeometry\.left/);
-  assert.match(capture, /imageMeasuredSidebar\.right !== domSidebarGeometry\.right - 1/);
-  assert.match(capture, /imageMeasuredSidebar\.width !== domSidebarGeometry\.width/);
-  assert.match(capture, /imageMeasuredSidebar\.rightGap\.left !== domSidebarGeometry\.right/);
-  assert.match(capture, /imageMeasuredSidebar\.rightGap\.right !== domSidebarGeometry\.mainLeft - 1/);
-  assert.match(capture, /imageMeasuredSidebar\.rightGap\.width !== domSidebarGeometry\.gap/);
+  // imageMeasuredSidebar is built from domSidebarGeometry, so comparing the two
+  // in the capture could never fail: the guard reported a DOM/pixel mismatch it
+  // was structurally unable to see. The artifact adapter still checks both
+  // records; nothing here may reintroduce that self-comparison.
+  assert.doesNotMatch(capture, /imageMeasuredSidebar\.[\w.]+ !== domSidebarGeometry\./);
+  assert.doesNotMatch(capture, /DOM\/pixel geometry mismatch/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.width,\s*260/);
   assert.match(adapter, /mainLeft:\s*260/);
   assert.match(adapter, /metadata\.imageMeasuredSidebar\.left,\s*metadata\.domSidebarGeometry\.left/);

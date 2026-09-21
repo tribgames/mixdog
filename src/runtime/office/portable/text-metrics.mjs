@@ -1,6 +1,6 @@
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas';
 import { warmupInstalledOfficeFonts } from './font-provisioner.mjs';
-import { rectangleGap, reviewDeclaredRelations } from './pptx-relations.mjs';
+import { bySlide, rectangleGap, reviewDeclaredRelations } from './pptx-relations.mjs';
 
 const LINE_HEIGHT_RATIO = 1.2;
 const CJK = /[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/;
@@ -356,24 +356,23 @@ function isLabelBox(box) {
 
 export function reviewShapeSpacing(boxes = [], { minimumGap = 21.6 } = {}) {
   const issues = [];
-  const slides = new Map();
-  for (const box of boxes) {
-    if (!slides.has(box.slide)) slides.set(box.slide, []);
-    slides.get(box.slide).push(box);
-  }
-  for (const [slide, shapes] of slides) {
+  for (const [slide, shapes] of bySlide(boxes)) {
     for (let first = 0; first < shapes.length; first += 1) {
       for (let second = first + 1; second < shapes.length; second += 1) {
         const left = shapes[first];
         const right = shapes[second];
         const horizontal = Math.max(left.left - (right.left + right.width), right.left - (left.left + left.width));
         const vertical = Math.max(left.top - (right.top + right.height), right.top - (left.top + left.height));
-        const apart = [horizontal >= 0, vertical >= 0];
-        if (apart[0] === apart[1]) continue;
-        const gap = apart[0] ? horizontal : vertical;
+        // Boxes clear of each other on exactly one axis are neighbours in a
+        // row or a column; clear on both is a diagonal, clear on neither is an
+        // overlap, and neither is a gap this rule measures.
+        const apartHorizontally = horizontal >= 0;
+        const apartVertically = vertical >= 0;
+        if (apartHorizontally === apartVertically) continue;
+        const gap = apartHorizontally ? horizontal : vertical;
         if (gap >= minimumGap) continue;
         if (isLabelBox(left) || isLabelBox(right)) continue;
-        if (!apart[0]) {
+        if (!apartHorizontally) {
           const aligned = Math.min(left.left + left.width, right.left + right.width) - Math.max(left.left, right.left);
           if (aligned >= Math.min(left.width, right.width) * 0.6) continue;
         }
@@ -628,15 +627,6 @@ function hollowBand(content = []) {
     reach = Math.max(reach, end);
   }
   return { depth, top };
-}
-
-function bySlide(boxes) {
-  const slides = new Map();
-  for (const box of boxes) {
-    if (!slides.has(box.slide)) slides.set(box.slide, []);
-    slides.get(box.slide).push(box);
-  }
-  return slides;
 }
 
 export function reviewVerticalBalance(bounds = [], { slideWidth = 0, slideHeight = 0, boxes = [] } = {}) {

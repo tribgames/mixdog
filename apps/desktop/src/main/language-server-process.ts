@@ -89,11 +89,11 @@ export class LanguageServerProcessManager {
     spec: LanguageServerSpec,
     key: string
   ): Promise<ServerSession | null> {
-    this.state.emitStatus(projectPath, languageId, spec, 'starting');
+    this.state.emitStatus(projectPath, root, languageId, spec, 'starting');
     const executable = await this.dependencies.resolveExecutable(spec, root);
     if (!executable) {
       this.state.markMissing(key, Date.now() + 30_000);
-      this.state.emitStatus(projectPath, languageId, spec, 'missing');
+      this.state.emitStatus(projectPath, root, languageId, spec, 'missing');
       return null;
     }
     const child = this.dependencies.spawnServer(executable, spec.args, root);
@@ -181,6 +181,7 @@ export class LanguageServerProcessManager {
       const delayMs = this.state.recordRestartFailure(key);
       this.state.emitStatus(
         projectPath,
+        root,
         languageId,
         spec,
         'stopped',
@@ -357,7 +358,7 @@ export class LanguageServerProcessManager {
       this.state.setSession(key, session);
       this.state.clearRestartFailures(key);
       connection.sendNotification('initialized', {});
-      this.state.setState(key, this.state.emitStatus(projectPath, languageId, spec, 'ready', undefined, capabilities));
+      this.state.emitStatus(projectPath, root, languageId, spec, 'ready', undefined, capabilities);
       return session;
     } catch (error) {
       if (session) {
@@ -374,6 +375,7 @@ export class LanguageServerProcessManager {
       const stderrDetail = stderr.trim().split(/\r?\n/).at(-1)?.slice(0, 500);
       this.state.emitStatus(
         projectPath,
+        root,
         languageId,
         spec,
         'error',

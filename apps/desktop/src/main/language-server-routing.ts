@@ -34,6 +34,7 @@ export class LanguageServerRouter {
     } catch (error) {
       return this.state.emitStatus(
         projectPath,
+        root,
         input.languageId,
         null,
         'error',

@@ -24,6 +24,7 @@ import {
   resolveEntryPath,
   parsedEntryResolvedPath,
   countHunkChanges,
+  pathKey,
 } from './paths.mjs';
 import { NATIVE_PATCH_TRANSPORT_DEAD, runServerApply, scheduleNativePatchIdleClose } from './native-server.mjs';
 import {
@@ -171,10 +172,6 @@ export async function dispatchNativePatch({
   traceNativeApply({ writtenEntries, stats, dryRun, timings });
   scheduleNativePatchIdleClose();
   return formatNativeSummary({ writtenEntries, stats, dryRun, failureContext });
-}
-
-function entryPathKey(fullPath) {
-  return process.platform === 'win32' ? String(fullPath || '').toLowerCase() : String(fullPath || '');
 }
 
 // Which side of the hunk, if any, carries an explicit
@@ -328,9 +325,9 @@ function assertAddTargetAbsent(fullPath, displayPath) {
 }
 
 function findParsedForRow(row, parsed, basePath) {
-  const key = entryPathKey(row.fullPath);
+  const key = pathKey(row.fullPath);
   for (const entry of parsed || []) {
-    if (entryPathKey(parsedEntryResolvedPath(entry, basePath)) === key) return entry;
+    if (pathKey(parsedEntryResolvedPath(entry, basePath)) === key) return entry;
   }
   return null;
 }

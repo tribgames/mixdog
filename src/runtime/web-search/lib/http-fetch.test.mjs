@@ -32,6 +32,26 @@ test('public URL guard keeps exact protocol errors and rejects credentials and p
   });
 });
 
+test('the IPv6 address rules reject only IPv6 literals, never hostnames that start like one', () => {
+  for (const host of ['ffmpeg.org', 'fdroid.org', 'fe80.example.com', 'fc-barcelona.example.com']) {
+    assert.equal(assertPublicUrl(`https://${host}`), undefined);
+  }
+  for (const host of [
+    '[::1]',
+    '[fe80::1]',
+    '[fc00::1]',
+    '[fd00::1]',
+    '[ff02::1]',
+    '[::ffff:10.0.0.1]',
+    '127.0.0.1',
+    '10.0.0.1',
+    '169.254.169.254',
+    'localhost',
+  ]) {
+    assert.throws(() => assertPublicUrl(`https://${host}`), /^Error: Blocked request to private address: /);
+  }
+});
+
 test('public cross-host redirects preserve final URL and format without forwarding cookies', async () => {
   const calls = [];
   const document = await fetchDocument('https://example.com/start', 5000, undefined, {

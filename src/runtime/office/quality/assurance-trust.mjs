@@ -56,6 +56,21 @@ const INJECTION_PATTERNS = Object.freeze([
   },
 ]);
 
+// A scan reports what a reader must act on, not everything it saw: past this
+// many findings the review is already "this document carries injected
+// instructions", and every scan stops adding to it.
+const MAX_FINDINGS = 50;
+// How many strings one structured scan reads before it stops walking, and how
+// much of a single string it reads: a snapshot can carry a generated table of
+// hundreds of thousands of cells, and an injected instruction that hides past
+// the first 100k characters of one cell is not a document a reader meets.
+const MAX_SCANNED_STRINGS = 100_000;
+const MAX_STRING_CHARS = 100_000;
+// The same two limits for a package read from disk: how many bytes of parts one
+// scan unpacks, and how much visible text it reads out of a single part.
+const MAX_SCANNED_BYTES = 25 * 1024 * 1024;
+const MAX_PART_CHARS = 2_000_000;
+
 function logicalPath(value, fallback) {
   return plainObject(value) && typeof value.path === 'string' ? value.path : fallback;
 }
@@ -82,21 +97,21 @@ function scanString(text, path, findings, seen) {
       path,
       snippet: injectionSnippet(value, match),
     });
-    if (findings.length >= 50) break;
+    if (findings.length >= MAX_FINDINGS) break;
   }
   return 1;
 }
 
 function scanValue(value, path, state, depth = 0) {
-  if (state.findings.length >= 50 || state.scannedStrings >= 100_000 || depth > 40) return;
+  if (state.findings.length >= MAX_FINDINGS || state.scannedStrings >= MAX_SCANNED_STRINGS || depth > 40) return;
   if (typeof value === 'string') {
-    state.scannedStrings += scanString(value.slice(0, 100_000), path, state.findings, state.seen);
+    state.scannedStrings += scanString(value.slice(0, MAX_STRING_CHARS), path, state.findings, state.seen);
     return;
   }
   if (Array.isArray(value)) {
     for (let index = 0; index < value.length; index += 1) {
       scanValue(value[index], `${path}[${index}]`, state, depth + 1);
-      if (state.findings.length >= 50) break;
+      if (state.findings.length >= MAX_FINDINGS) break;
     }
     return;
   }
@@ -105,7 +120,7 @@ function scanValue(value, path, state, depth = 0) {
   for (const [key, entry] of Object.entries(value)) {
     if (key === 'path') continue;
     scanValue(entry, `${base}.${key}`, state, depth + 1);
-    if (state.findings.length >= 50) break;
+    if (state.findings.length >= MAX_FINDINGS) break;
   }
 }
 
@@ -162,7 +177,7 @@ function xmlVisibleText(xml) {
 }
 
 // Scans the package's text-bearing parts in name order, stopping once the
-// scan has read 25 MiB or collected 50 findings.
+// scan has read 25 MiB or collected its findings cap.
 async function scanOfficePackage(zip, selector) {
   const names = Object.keys(zip.files)
     .filter((name) => selector.test(name))
@@ -174,9 +189,9 @@ async function scanOfficePackage(zip, selector) {
   for (const name of names) {
     const xml = (await zip.file(name)?.async('string')) || '';
     scannedBytes += Buffer.byteLength(xml);
-    if (scannedBytes > 25 * 1024 * 1024) return { findings, scannedStrings, complete: false };
-    scannedStrings += scanString(xmlVisibleText(xml).slice(0, 2_000_000), `/package/${name}`, findings, seen);
-    if (findings.length >= 50) return { findings, scannedStrings, complete: false };
+    if (scannedBytes > MAX_SCANNED_BYTES) return { findings, scannedStrings, complete: false };
+    scannedStrings += scanString(xmlVisibleText(xml).slice(0, MAX_PART_CHARS), `/package/${name}`, findings, seen);
+    if (findings.length >= MAX_FINDINGS) return { findings, scannedStrings, complete: false };
   }
   return { findings, scannedStrings, complete: true };
 }
@@ -224,7 +239,7 @@ export function combineOfficeTrustReviews(...reviews) {
         .map((entry) => entry.source)
         .filter(Boolean)
         .join('+') || 'combined',
-    findings: findings.slice(0, 50),
+    findings: findings.slice(0, MAX_FINDINGS),
     scannedStrings: entries.reduce((total, entry) => total + (Number(entry.scannedStrings) || 0), 0),
     complete: entries.length > 0 && entries.every((entry) => entry.complete !== false),
     warning: entries

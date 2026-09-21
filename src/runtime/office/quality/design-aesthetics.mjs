@@ -110,6 +110,166 @@ function contentPages(pages) {
   return pages.length >= 3 ? pages.slice(1, -1) : pages.slice(1);
 }
 
+// What one rendered page can be faulted for on its own reading: its contrast,
+// the two density gates a slide answers, and the worksheet's clutter.
+function pageGateIssues(metric, { format, pageCount, role }) {
+  const issues = [];
+  // Beat pages (section/statement) are sparse on purpose; density gates
+  // apply to inner pages that carry evidence.
+  const beatPage = role === 'section';
+  // A diagram role is granted from the saved shapes (they cover a quarter of
+  // the canvas with the text registered to them), so the canvas is not empty
+  // however little of its tinted fields and hairlines the sampler sees at the
+  // document scale; its density still weighs on the composition score.
+  const densityGated = !beatPage && role !== 'diagram';
+  // The mean foreground delta drops when tinted fields (planes, lanes, cards)
+  // make up most of the foreground; the marks are judged by the ink decile.
+  if (metric.foregroundCoverage >= 0.008 && metric.foregroundContrast < 0.15 && (metric.inkContrast || 0) < 0.35) {
+    issues.push(
+      aestheticIssue(
+        'low_visual_contrast',
+        `/${format === 'pptx' ? 'slide' : 'page'}[${metric.page}]`,
+        `Rendered foreground contrast is ${metric.foregroundContrast.toFixed(2)}; foreground and background are too similar.`
+      )
+    );
+  }
+  if (
+    format === 'pptx' &&
+    densityGated &&
+    metric.page > 1 &&
+    metric.page < pageCount &&
+    // Under the frontier tenth percentile on both reads (foreground 0.024,
+    // entropy 0.06-0.12 on Naver, Kakao, and Evans pages that are authored).
+    metric.foregroundCoverage < 0.012 &&
+    metric.entropy < 0.1
+  ) {
+    issues.push(
+      aestheticIssue(
+        'slide_visual_density_low',
+        `/slide[${metric.page}]`,
+        'The content slide has too little visual evidence or hierarchy for a presentation canvas.'
+      )
+    );
+  }
+  if (
+    format === 'pptx' &&
+    !beatPage &&
+    metric.page > 1 &&
+    metric.page < pageCount &&
+    // The earlier floors (0.06 / 0.3) flagged 15 of 48 Evans pages, 5 of 52
+    // Sequoia pages, and 3 of 30 Coatue pages; these sit under every
+    // reference deck's tenth percentile (foreground 0.024, spatial 0.07-0.18).
+    densityGated &&
+    metric.foregroundCoverage < 0.025 &&
+    metric.spatialCoverage < 0.15
+  ) {
+    issues.push(
+      aestheticIssue(
+        'under_composed_slide',
+        `/slide[${metric.page}]`,
+        'The rendered content slide leaves too much of the canvas visually inactive for its evidence load.'
+      )
+    );
+  }
+  if (format === 'xlsx' && metric.foregroundCoverage > 0.62 && metric.entropy > 0.45 && metric.edgeDensity > 0.28) {
+    issues.push(
+      aestheticIssue(
+        'worksheet_visual_clutter',
+        `/page[${metric.page}]`,
+        'The worksheet render is visually saturated; separate the dashboard from supporting detail.'
+      )
+    );
+  }
+  return issues;
+}
+
+// How much the content pages differ from each other, and the two findings a
+// deck that repeats itself earns. Only a deck has rhythm; every other format
+// reports the empty reading.
+function deckRhythm(measured, format) {
+  const rhythm = {
+    pageCount: measured.length,
+    featureSpread: 0,
+    adjacentChange: 0,
+    repeatedPairs: 0,
+    maximumSimilarity: 0,
+  };
+  if (format !== 'pptx') return { rhythm, issues: [] };
+  const content = contentPages(measured);
+  const featureSpread = mean([
+    deviation(content.map((metric) => metric.backgroundLuminance)),
+    deviation(content.map((metric) => metric.colorfulnessScore)),
+    deviation(content.map((metric) => metric.entropy)),
+    deviation(content.map((metric) => metric.edgeDensity)),
+    deviation(content.map((metric) => metric.foregroundCoverage)),
+  ]);
+  const adjacentDistances = content.slice(1).map((metric, index) => metricDistance(content[index], metric));
+  let repeatedPairs = 0;
+  let maximumSimilarity = 0;
+  for (let left = 0; left < content.length; left += 1) {
+    for (let right = left + 1; right < content.length; right += 1) {
+      const similarity = structureSimilarity(content[left]._structure, content[right]._structure);
+      maximumSimilarity = Math.max(maximumSimilarity, similarity);
+      if (similarity >= 0.985) repeatedPairs += 1;
+    }
+  }
+  const measuredRhythm = {
+    pageCount: measured.length,
+    featureSpread: rounded(featureSpread),
+    adjacentChange: rounded(mean(adjacentDistances)),
+    repeatedPairs,
+    maximumSimilarity: rounded(maximumSimilarity),
+  };
+  const issues = [];
+  if (
+    content.length >= 4 &&
+    measuredRhythm.featureSpread < 0.06 &&
+    measuredRhythm.adjacentChange < 0.065 &&
+    measuredRhythm.maximumSimilarity >= 0.9
+  ) {
+    issues.push(
+      aestheticIssue(
+        'flat_visual_rhythm',
+        '/',
+        'Rendered content slides keep nearly the same background, density, color, and complexity; introduce deliberate deck rhythm.'
+      )
+    );
+  }
+  if (content.length >= 4 && repeatedPairs >= Math.max(2, Math.ceil(content.length / 2))) {
+    issues.push(
+      aestheticIssue(
+        'repeated_render_composition',
+        '/',
+        `${repeatedPairs} content-slide pairs share a near-identical rendered structure.`
+      )
+    );
+  }
+  return { rhythm: measuredRhythm, issues };
+}
+
+// The v2 score: the four dimensions the pages and the deck's rhythm read, and
+// the weighted overall the frontier gate compares against.
+function aestheticScore(pages, rhythm, format) {
+  const contrast = mean(
+    pages.map((metric) =>
+      clamp((Math.max(metric.contrastSpan, metric.foregroundContrast, metric.inkContrast || 0) - 0.1) / 0.65)
+    )
+  );
+  const palette = mean(pages.map((metric) => metric.paletteDiscipline));
+  const composition = mean(pages.map((metric) => metric.compositionScore));
+  const rhythmScore =
+    format === 'pptx'
+      ? clamp(rhythm.featureSpread * 3.5 + rhythm.adjacentChange * 3 + (1 - rhythm.maximumSimilarity) * 0.25)
+      : 1;
+  return {
+    contrast,
+    palette,
+    rhythm: rhythmScore,
+    composition,
+    overall: contrast * 0.32 + palette * 0.18 + rhythmScore * 0.2 + composition * 0.3,
+  };
+}
+
 export async function reviewRenderedOfficeAesthetics(images = [], { format = '', pageRoles = {} } = {}) {
   const normalized = String(format || '').toLowerCase();
   const measured = (await Promise.all((images || []).map(renderedAestheticMetric))).filter(Boolean);
@@ -119,136 +279,10 @@ export async function reviewRenderedOfficeAesthetics(images = [], { format = '',
   );
   const issues = [];
   for (const metric of measured) {
-    // Beat pages (section/statement) are sparse on purpose; density gates
-    // apply to inner pages that carry evidence.
-    const role = roles.get(metric);
-    const beatPage = role === 'section';
-    // A diagram role is granted from the saved shapes (they cover a quarter of
-    // the canvas with the text registered to them), so the canvas is not empty
-    // however little of its tinted fields and hairlines the sampler sees at the
-    // document scale; its density still weighs on the composition score.
-    const densityGated = !beatPage && role !== 'diagram';
-    // The mean foreground delta drops when tinted fields (planes, lanes, cards)
-    // make up most of the foreground; the marks are judged by the ink decile.
-    if (metric.foregroundCoverage >= 0.008 && metric.foregroundContrast < 0.15 && (metric.inkContrast || 0) < 0.35) {
-      issues.push(
-        aestheticIssue(
-          'low_visual_contrast',
-          `/${normalized === 'pptx' ? 'slide' : 'page'}[${metric.page}]`,
-          `Rendered foreground contrast is ${metric.foregroundContrast.toFixed(2)}; foreground and background are too similar.`
-        )
-      );
-    }
-    if (
-      normalized === 'pptx' &&
-      densityGated &&
-      metric.page > 1 &&
-      metric.page < measured.length &&
-      // Under the frontier tenth percentile on both reads (foreground 0.024,
-      // entropy 0.06-0.12 on Naver, Kakao, and Evans pages that are authored).
-      metric.foregroundCoverage < 0.012 &&
-      metric.entropy < 0.1
-    ) {
-      issues.push(
-        aestheticIssue(
-          'slide_visual_density_low',
-          `/slide[${metric.page}]`,
-          'The content slide has too little visual evidence or hierarchy for a presentation canvas.'
-        )
-      );
-    }
-    if (
-      normalized === 'pptx' &&
-      !beatPage &&
-      metric.page > 1 &&
-      metric.page < measured.length &&
-      // The earlier floors (0.06 / 0.3) flagged 15 of 48 Evans pages, 5 of 52
-      // Sequoia pages, and 3 of 30 Coatue pages; these sit under every
-      // reference deck's tenth percentile (foreground 0.024, spatial 0.07-0.18).
-      densityGated &&
-      metric.foregroundCoverage < 0.025 &&
-      metric.spatialCoverage < 0.15
-    ) {
-      issues.push(
-        aestheticIssue(
-          'under_composed_slide',
-          `/slide[${metric.page}]`,
-          'The rendered content slide leaves too much of the canvas visually inactive for its evidence load.'
-        )
-      );
-    }
-    if (
-      normalized === 'xlsx' &&
-      metric.foregroundCoverage > 0.62 &&
-      metric.entropy > 0.45 &&
-      metric.edgeDensity > 0.28
-    ) {
-      issues.push(
-        aestheticIssue(
-          'worksheet_visual_clutter',
-          `/page[${metric.page}]`,
-          'The worksheet render is visually saturated; separate the dashboard from supporting detail.'
-        )
-      );
-    }
+    issues.push(...pageGateIssues(metric, { format: normalized, pageCount: measured.length, role: roles.get(metric) }));
   }
-  let rhythm = {
-    pageCount: measured.length,
-    featureSpread: 0,
-    adjacentChange: 0,
-    repeatedPairs: 0,
-    maximumSimilarity: 0,
-  };
-  if (normalized === 'pptx') {
-    const content = contentPages(measured);
-    const featureSpread = mean([
-      deviation(content.map((metric) => metric.backgroundLuminance)),
-      deviation(content.map((metric) => metric.colorfulnessScore)),
-      deviation(content.map((metric) => metric.entropy)),
-      deviation(content.map((metric) => metric.edgeDensity)),
-      deviation(content.map((metric) => metric.foregroundCoverage)),
-    ]);
-    const adjacentDistances = content.slice(1).map((metric, index) => metricDistance(content[index], metric));
-    let repeatedPairs = 0;
-    let maximumSimilarity = 0;
-    for (let left = 0; left < content.length; left += 1) {
-      for (let right = left + 1; right < content.length; right += 1) {
-        const similarity = structureSimilarity(content[left]._structure, content[right]._structure);
-        maximumSimilarity = Math.max(maximumSimilarity, similarity);
-        if (similarity >= 0.985) repeatedPairs += 1;
-      }
-    }
-    rhythm = {
-      pageCount: measured.length,
-      featureSpread: rounded(featureSpread),
-      adjacentChange: rounded(mean(adjacentDistances)),
-      repeatedPairs,
-      maximumSimilarity: rounded(maximumSimilarity),
-    };
-    if (
-      content.length >= 4 &&
-      rhythm.featureSpread < 0.06 &&
-      rhythm.adjacentChange < 0.065 &&
-      rhythm.maximumSimilarity >= 0.9
-    ) {
-      issues.push(
-        aestheticIssue(
-          'flat_visual_rhythm',
-          '/',
-          'Rendered content slides keep nearly the same background, density, color, and complexity; introduce deliberate deck rhythm.'
-        )
-      );
-    }
-    if (content.length >= 4 && repeatedPairs >= Math.max(2, Math.ceil(content.length / 2))) {
-      issues.push(
-        aestheticIssue(
-          'repeated_render_composition',
-          '/',
-          `${repeatedPairs} content-slide pairs share a near-identical rendered structure.`
-        )
-      );
-    }
-  }
+  const { rhythm, issues: rhythmIssues } = deckRhythm(measured, normalized);
+  issues.push(...rhythmIssues);
   const evaluated = measured.map((metric) => {
     const role = roles.get(metric);
     const composition = roleAwareComposition(metric, role);
@@ -261,24 +295,13 @@ export async function reviewRenderedOfficeAesthetics(images = [], { format = '',
     };
   });
   const pages = evaluated.map(({ _structure, ...metric }) => metric);
-  const contrastScore = mean(
-    pages.map((metric) =>
-      clamp((Math.max(metric.contrastSpan, metric.foregroundContrast, metric.inkContrast || 0) - 0.1) / 0.65)
-    )
-  );
-  const paletteScore = mean(pages.map((metric) => metric.paletteDiscipline));
-  const compositionScore = mean(pages.map((metric) => metric.compositionScore));
-  const rhythmScore =
-    normalized === 'pptx'
-      ? clamp(rhythm.featureSpread * 3.5 + rhythm.adjacentChange * 3 + (1 - rhythm.maximumSimilarity) * 0.25)
-      : 1;
-  const overallScore = contrastScore * 0.32 + paletteScore * 0.18 + rhythmScore * 0.2 + compositionScore * 0.3;
-  if (normalized === 'pptx' && measured.length >= 5 && overallScore < 0.62) {
+  const score = aestheticScore(pages, rhythm, normalized);
+  if (normalized === 'pptx' && measured.length >= 5 && score.overall < 0.62) {
     issues.push(
       aestheticIssue(
         'frontier_aesthetic_score_low',
         '/',
-        `Rendered aesthetics v2 score is ${overallScore.toFixed(2)}; frontier decks require at least 0.62.`
+        `Rendered aesthetics v2 score is ${score.overall.toFixed(2)}; frontier decks require at least 0.62.`
       )
     );
   }
@@ -286,13 +309,13 @@ export async function reviewRenderedOfficeAesthetics(images = [], { format = '',
     ok: issues.length === 0,
     format: normalized,
     scoreVersion: 2,
-    score: rounded(overallScore),
+    score: rounded(score.overall),
     confidence: rounded(clamp(measured.length / (normalized === 'pptx' ? 6 : 1))),
     dimensions: {
-      contrast: rounded(contrastScore),
-      palette: rounded(paletteScore),
-      rhythm: rounded(rhythmScore),
-      composition: rounded(compositionScore),
+      contrast: rounded(score.contrast),
+      palette: rounded(score.palette),
+      rhythm: rounded(score.rhythm),
+      composition: rounded(score.composition),
     },
     rhythm,
     pages,

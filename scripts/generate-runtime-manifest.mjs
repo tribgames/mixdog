@@ -64,21 +64,19 @@ if (tarballs.length === 0) {
 const PG_RE = /pg(\d+)\.(\d+)/;
 const VEC_RE = /pgvector(\d+(?:\.\d+)+)/;
 
-let pgMajor = 16,
-  pgMinor = 4,
-  pgvectorVersion = '0.7.4';
-for (const t of tarballs) {
-  const pgM = PG_RE.exec(t.name);
-  const vM = VEC_RE.exec(t.name);
-  if (pgM) {
-    pgMajor = parseInt(pgM[1], 10);
-    pgMinor = parseInt(pgM[2], 10);
-  }
-  if (vM) {
-    pgvectorVersion = vM[1];
-  }
-  break; // all tarballs share the same version; just read the first
+// All tarballs of one release share the same versions, so the first asset
+// carrying both wins. A release whose names carry neither must fail here: a
+// manifest built from hardcoded defaults would publish the wrong runtime.
+const versioned = tarballs.find((t) => PG_RE.test(t.name) && VEC_RE.test(t.name));
+if (!versioned) {
+  console.error(
+    `Cannot read pg/pgvector versions from release asset name(s): ${tarballs.map((t) => t.name).join(', ')}`
+  );
+  process.exit(1);
 }
+const pgMajor = parseInt(PG_RE.exec(versioned.name)[1], 10);
+const pgMinor = parseInt(PG_RE.exec(versioned.name)[2], 10);
+const pgvectorVersion = VEC_RE.exec(versioned.name)[1];
 
 // ---------------------------------------------------------------------------
 // 3. Fetch sha256 sidecar content for each tarball

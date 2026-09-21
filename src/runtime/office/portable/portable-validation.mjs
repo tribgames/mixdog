@@ -11,7 +11,7 @@ import {
   reviewVerticalBalance,
 } from './text-metrics.mjs';
 import { resolveSlideBackground } from './portable-pptx-core.mjs';
-import { sheetFormulaTotals, workbookCalculation, workbookSheets } from './portable-cells.mjs';
+import { booleanXmlAttribute, sheetFormulaTotals, workbookCalculation, workbookSheets } from './portable-cells.mjs';
 import { EMU_PER_POINT } from './portable-slide-shapes.mjs';
 import {
   imagePixelSize,
@@ -49,9 +49,11 @@ function runInkReading(xml, fill) {
     if (!text) continue;
     const properties = /<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run[0])?.[0] || '';
     // Hidden text is not on the printed page: measuring its ink reports a
-    // defect about a working note no reader sees.
-    if (/<w:vanish(?:\s[^>]*)?\/>/.test(properties) || /<w:vanish\b[^>]*\bw:val="(?:1|true|on)"/.test(properties))
-      continue;
+    // defect about a working note no reader sees. A run that switches an
+    // inherited vanish off — w:val="0", "false", "off" — is on the page, and
+    // reading that flag as hidden left its ink unmeasured.
+    const vanish = /<w:vanish\b([^>]*?)\/?>/.exec(properties)?.[1];
+    if (vanish !== undefined && (!/\bw:val=/.test(vanish) || booleanXmlAttribute(vanish, 'w:val'))) continue;
     const color = /<w:color\b[^>]*\bw:val="([0-9A-Fa-f]{6})"/.exec(properties)?.[1] || '';
     if (!color) continue;
     const size = Number(/<w:sz\b[^>]*\bw:val="(\d+)"/.exec(properties)?.[1] || 0) / 2 || 11;
@@ -74,6 +76,10 @@ function describesPicture(description) {
   if (!text) return false;
   return !/^[\w ().\-\u00C0-\u024F]+\.(?:png|jpe?g|gif|bmp|tiff?|svg|webp|emf|wmf)$/i.test(text);
 }
+
+// Twenty findings of one kind are all a reader can act on in one pass; the
+// audit keeps measuring past that, it just stops reporting.
+const MAX_ISSUES = 20;
 
 // Ink a reader cannot see, by the rule the deck and the workbook already use:
 // a shaded table row that keeps the body's dark colour, or text so pale it
@@ -100,7 +106,7 @@ function documentInkIssues(document) {
         message: `Text contrast is ${worst.ratio.toFixed(2)}:1 against its field; ${worst.minimum}:1 is the readable minimum at ${Math.round(worst.size)}pt.`,
         source: 'text-metrics',
       });
-      if (issues.length >= 20) return issues;
+      if (issues.length >= MAX_ISSUES) return issues;
       continue;
     }
     tableOrdinal += 1;
@@ -120,7 +126,7 @@ function documentInkIssues(document) {
           message: `Cell text contrast is ${worst.ratio.toFixed(2)}:1 against its field; ${worst.minimum}:1 is the readable minimum at ${Math.round(worst.size)}pt.`,
           source: 'text-metrics',
         });
-        if (issues.length >= 20) return issues;
+        if (issues.length >= MAX_ISSUES) return issues;
       }
     }
   }
@@ -234,8 +240,8 @@ function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues) {
     const cellPath = `${pathPrefix}/cell[${columnOrdinal}]`;
     const ratio = tableCellContrast(cell[0], body, slideSurface);
     const minimum = size >= 18 || (size >= 14 && bold) ? 3 : 4.5;
-    // Twenty cell reports are enough to read; the rows are still measured so the table's height is known.
-    if (ratio != null && ratio < minimum && issues.length < 20) {
+    // The cap is on the reports; the rows are still measured so the table's height is known.
+    if (ratio != null && ratio < minimum && issues.length < MAX_ISSUES) {
       issues.push({
         severity: 'warning',
         code: 'low_contrast',
@@ -253,7 +259,7 @@ function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues) {
         measured.height * EMU_PER_POINT + DEFAULT_CELL_INSETS.top + DEFAULT_CELL_INSETS.bottom
       );
     }
-    if (measured.height <= available * 1.08 || issues.length >= 20) continue;
+    if (measured.height <= available * 1.08 || issues.length >= MAX_ISSUES) continue;
     issues.push({
       severity: 'warning',
       code: 'table_cell_overflow',
@@ -451,7 +457,7 @@ async function imagePlacementIssues(zip, format) {
       const path = slide ? `/slide[${slide}]/picture[${ordinal}]` : `/body/picture[${ordinal}]`;
       for (const issue of await pictureIssues({ bytes, source, extent, picture: picture[0], format, path })) {
         issues.push(issue);
-        if (issues.length >= 20) return issues;
+        if (issues.length >= MAX_ISSUES) return issues;
       }
     }
   }
@@ -760,15 +766,19 @@ function emptyDocumentIssues(document) {
 // without one leaves the same reader with nothing. The snapshot's own
 // picture list is the reading, so the finding points at the element the
 // caller can look up — a header logo included.
+function missingAltTextIssue(path) {
+  return {
+    severity: 'warning',
+    code: 'missing_alt_text',
+    path,
+    message: 'Picture has no alternative text; add_image takes altText.',
+  };
+}
+
 function pictureDescriptionIssues(snapshot) {
   return (snapshot.images || [])
     .filter((picture) => !describesPicture(picture.altText))
-    .map((picture) => ({
-      severity: 'warning',
-      code: 'missing_alt_text',
-      path: picture.path,
-      message: 'Picture has no alternative text; add_image takes altText.',
-    }));
+    .map((picture) => missingAltTextIssue(picture.path));
 }
 
 /** What the Word document says about itself: revisions, comments, lint, emptiness,
@@ -902,12 +912,7 @@ async function workbookContentIssues(zip, options) {
   for (const sheet of snapshot.sheets) {
     for (const image of sheet.images || []) {
       if (describesPicture(image.altText)) continue;
-      issues.push({
-        severity: 'warning',
-        code: 'missing_alt_text',
-        path: image.path,
-        message: 'Picture has no alternative text; add_image takes altText.',
-      });
+      issues.push(missingAltTextIssue(image.path));
     }
   }
   issues.push(...auditXlsxFormulas(snapshot.sheets, { auditProfile: options.auditProfile, sheetNames }));
@@ -931,12 +936,7 @@ async function slidePictureIssues(zip, options) {
       picture += 1;
       const descr = /\bdescr="([^"]*)"/.exec(match[0])?.[1] || '';
       if (describesPicture(descr)) continue;
-      issues.push({
-        severity: 'warning',
-        code: 'missing_alt_text',
-        path: `/slide[${slide}]/picture[${picture}]`,
-        message: 'Picture has no alternative text; add_image takes altText.',
-      });
+      issues.push(missingAltTextIssue(`/slide[${slide}]/picture[${picture}]`));
     }
   }
   return issues;

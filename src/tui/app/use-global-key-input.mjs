@@ -5,6 +5,7 @@
 import { useInput } from 'ink';
 import { copyToClipboard } from './clipboard.mjs';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
+import { selectionRectIsDegenerate } from './transcript-window.mjs';
 export function useGlobalKeyInput({
   store,
   state: _state,
@@ -65,7 +66,7 @@ export function useGlobalKeyInput({
         const promptSelectionText = promptSelectionRef.current?.text;
         const lastRegion = dragRef.current.region;
         const inkRect = dragRef.current.rect;
-        const hasInkSelection = inkRect && !(inkRect.x1 === inkRect.x2 && inkRect.y1 === inkRect.y2);
+        const hasInkSelection = inkRect && !selectionRectIsDegenerate(inkRect);
         if (promptSelectionText && (lastRegion === 'prompt' || !hasInkSelection)) {
           copyToClipboard(promptSelectionText)
             .then(() =>

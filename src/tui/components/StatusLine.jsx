@@ -81,9 +81,7 @@ function stripAnsi(text) {
 
 function hasActiveStatuslineTools(activeTools = null) {
   if (!activeTools || typeof activeTools !== 'object') return false;
-  const e = Number(activeTools.explore?.count) > 0;
-  const s = Number(activeTools.web_search?.count) > 0;
-  return e || s;
+  return Number(activeTools.web_search?.count) > 0;
 }
 
 function hasActiveStatuslineWork(line, agentWorkers = [], agentJobs = [], activeTools = null) {
@@ -221,7 +219,7 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
 // L2 assembly only — themed SGR (statusColors SUCCESS/STATUS/SUBTLE), already in
 // the active palette, so this must NOT be passed through normalizeStatusLine.
 // Returns the joined L2 string or '' when no active segment. Order:
-// Agents → Shells → Exploring → Web Searching. shellJobsStatus() is a cache-only
+// Agents → Shells → Web Searching. shellJobsStatus() is a cache-only
 // synchronous read (its refresh runs in the background, never on the render
 // path), so the shell count is computed here directly instead of being grafted
 // out of the previously cached full line.
@@ -252,13 +250,11 @@ function localStatusLineL2(
     const label = `Running ${shellCount} Shell${shellCount === 1 ? '' : 's'}`;
     l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(shellStatus.elapsedLabel || '')}`);
   }
+  // `web_search` is the key the producers publish (session/active-tool-summary
+  // and app/use-transcript-activity); the async full render reads the same key,
+  // so both paths light the segment on the same snapshot.
   const tools = activeTools && typeof activeTools === 'object' ? activeTools : {};
-  const exploreInfo = tools.explore || null;
-  const searchInfo = tools.search || null;
-  if (exploreInfo && num(exploreInfo.count) > 0) {
-    const elapsed = num(exploreInfo.startedAt) > 0 ? formatElapsed(now - num(exploreInfo.startedAt)) : '';
-    l2Parts.push(`${spin} ${STATUS}Exploring${RESET}${elapsedSuffix(elapsed)}`);
-  }
+  const searchInfo = tools.web_search || null;
   if (searchInfo && num(searchInfo.count) > 0) {
     const elapsed = num(searchInfo.startedAt) > 0 ? formatElapsed(now - num(searchInfo.startedAt)) : '';
     l2Parts.push(`${spin} ${STATUS}Web Searching${RESET}${elapsedSuffix(elapsed)}`);
@@ -378,15 +374,10 @@ function StatusLineView({
   statuslineArgsRef.current = statuslineArgs;
   lineRef.current = line;
   // Stable primitive signature for the activeTools object so the render effect
-  // re-runs when explore/web-search counts or start times change (object identity
+  // re-runs when the web-search count or start time changes (object identity
   // would otherwise be a new ref every render and over-fire the effect).
   const activeToolsSignature = activeTools
-    ? [
-        Number(activeTools.explore?.count) || 0,
-        Number(activeTools.explore?.startedAt) || 0,
-        Number(activeTools.web_search?.count) || 0,
-        Number(activeTools.web_search?.startedAt) || 0,
-      ].join('|')
+    ? [Number(activeTools.web_search?.count) || 0, Number(activeTools.web_search?.startedAt) || 0].join('|')
     : '';
   // Stable primitive signatures so the render effect's dep array doesn't
   // churn on new array/object identities carrying unchanged content — a new
@@ -498,7 +489,7 @@ function StatusLineView({
       let localNext;
       if (useCachedRaw) {
         // Keep the cached L1 (usage segment preserved, re-toned via normalize) but
-        // graft a FRESH L2 from the CURRENT args so agent count/elapsed/explore/
+        // graft a FRESH L2 from the CURRENT args so agent count/elapsed/web
         // search are never stale even for one ~150ms frame. The cached full line
         // is canonical-truecolor → normalizeStatusLine re-tones it to the active
         // palette; the fresh L2 is built with statusColors() (already themed) so it
@@ -510,7 +501,7 @@ function StatusLineView({
           const now = Date.now();
           // One shared `now` so every L2 spinner shows the SAME frame even
           // across a 120ms frame boundary. The local L2 now renders every
-          // segment itself (Agents → Shells → Explore → Search), so the cached
+          // segment itself (Agents → Shells → Web Search), so the cached
           // L2 is discarded outright instead of being mined for its Shell tail.
           const freshL2 = localStatusLineL2(args, now); // already themed — do NOT normalize
           localNext = freshL2 ? `${cachedL1}\n${freshL2}` : cachedL1;

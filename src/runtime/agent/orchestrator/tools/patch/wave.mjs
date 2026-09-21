@@ -57,8 +57,19 @@ export async function applyParsedWave({ parsed: wparsed, entries: wentries, head
   // points at. Delete is exempt — removing the link itself is correct there.
   const symlinkNeedsJs = (fullPath, kind) =>
     kind !== 'create' && kind !== 'delete' && symlinkWriteTarget(fullPath) !== null;
-  const needsJsWriter = (fullPath, kind) =>
-    !engineContractOk || codecNeedsJs(fullPath, kind) || symlinkNeedsJs(fullPath, kind);
+  // Each decision costs a whole-file read (codec sniff) plus an lstat, and the
+  // three filters below classify the same targets, so route once per target.
+  const jsWriterRouting = new Map();
+  const needsJsWriter = (fullPath, kind) => {
+    if (!engineContractOk) return true;
+    const routeKey = `${kind}\u0000${fullPath}`;
+    let decided = jsWriterRouting.get(routeKey);
+    if (decided === undefined) {
+      decided = codecNeedsJs(fullPath, kind) || symlinkNeedsJs(fullPath, kind);
+      jsWriterRouting.set(routeKey, decided);
+    }
+    return decided;
+  };
   const nativeEntries = wentries.filter(
     (entry) =>
       entry.kind !== 'create' &&

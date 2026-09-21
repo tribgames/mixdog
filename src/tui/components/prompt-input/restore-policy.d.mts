@@ -10,7 +10,6 @@ export type MergedPromptDraft = {
   selectionAnchor: number | null;
 };
 
-export function mergeQueuedRestoreText(queuedText?: string, currentText?: string): string;
 export function mergeQueuedRestoreDraft(queuedText?: string, currentDraft?: PromptDraft | string): MergedPromptDraft;
 export function queuedRestoreProjection(
   entries?: unknown[],

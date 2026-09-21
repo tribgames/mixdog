@@ -7,6 +7,9 @@ import { join } from 'node:path';
 const VERSION = '0.3.0';
 const MAX_ARCHIVE_BYTES = 160 * 1024 * 1024;
 const MAX_OUTPUT_BYTES = 5 * 1024 * 1024;
+// A cached binary smaller than this is a truncated or failed download, never
+// the validator: the real executable is tens of megabytes.
+const MIN_BINARY_BYTES = 1024 * 1024;
 const PLATFORM_PACKAGES = Object.freeze({
   'win32-x64': {
     name: '@xarsh/ooxml-validator-win32-x64',
@@ -141,7 +144,7 @@ function cachePaths(dataDir, entry) {
 async function usableBinary(path) {
   try {
     const details = await stat(path);
-    return details.isFile() && details.size > 1024 * 1024;
+    return details.isFile() && details.size > MIN_BINARY_BYTES;
   } catch {
     return false;
   }

@@ -9,7 +9,12 @@ import { withGitRepoReadLock, withGitRepoWriteLock } from './git-repo-rw-lock.mj
 import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
 import { ensureNativeSpawnServer, tryNativeSpawn } from '../lib/native-spawn-client.mjs';
-import { commandHasShellSyntax, gitPlanIsReadOnly as isReadOnly, OPERATION_ALIASES } from './git-command-policy.mjs';
+import {
+  commandHasShellSyntax,
+  gitPlanIsReadOnly as isReadOnly,
+  OPERATION_ALIASES,
+  skipGitGlobalFlags,
+} from './git-command-policy.mjs';
 import {
   buildSelectedStagePatch,
   createDiffSnapshot,
@@ -199,52 +204,19 @@ function parseCommand(rawCommand, workDir) {
   }
   let cwd = resolve(workDir || process.cwd());
   const globalArgs = [];
-  let index = 1;
-  while (index < tokens.length) {
-    const token = tokens[index];
-    if (token === '-C') {
-      const path = tokens[++index];
+  const index = skipGitGlobalFlags(tokens, {
+    onChdir: (path) => {
       if (!path) throw new Error('git -C requires a path');
       cwd = resolve(cwd, path);
-      index++;
-      continue;
-    }
-    if (token.startsWith('-C') && token.length > 2) {
-      cwd = resolve(cwd, token.slice(2));
-      index++;
-      continue;
-    }
-    if (
-      token === '-c' ||
-      token === '--config-env' ||
-      token === '--git-dir' ||
-      token === '--work-tree' ||
-      token === '--namespace'
-    ) {
-      const value = tokens[index + 1];
+    },
+    onValueFlag: (token, value) => {
       if (!value) throw new Error(`${token} requires a value`);
       globalArgs.push(token, value);
-      index += 2;
-      continue;
-    }
-    if (
-      /^--(?:git-dir|work-tree|namespace|config-env)=/.test(token) ||
-      [
-        '--no-pager',
-        '--paginate',
-        '--bare',
-        '--literal-pathspecs',
-        '--glob-pathspecs',
-        '--noglob-pathspecs',
-        '--icase-pathspecs',
-      ].includes(token)
-    ) {
+    },
+    onBareFlag: (token) => {
       globalArgs.push(token);
-      index++;
-      continue;
-    }
-    break;
-  }
+    },
+  });
   const rawOperation = String(tokens[index] || '').toLowerCase();
   const operation = OPERATION_ALIASES.get(rawOperation) ?? rawOperation;
   if (!operation) throw new Error('git requires a subcommand');

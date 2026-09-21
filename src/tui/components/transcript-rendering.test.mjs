@@ -114,6 +114,17 @@ test('ANSI spans preserve style resets, RGB colors, Unicode and repeated parsing
   assert.equal((await show(surfaces.AnsiText, props)).frame, colored.frame);
 });
 
+test('256-color SGR sequences keep their color instead of being dropped', async (context) => {
+  const show = mountSurface(context);
+  // 196 = cube index (5,0,0); 21 = cube index (0,0,5).
+  const cube = await show(surfaces.AnsiText, { children: '\x1b[38;5;196mred\x1b[39m plain' });
+  assert.equal(cube.text, 'red plain');
+  assert.ok(cube.frame.includes('\x1b[38;2;255;0;0m'));
+  const background = await show(surfaces.AnsiText, { children: '\x1b[48;5;21mBG\x1b[49m plain' });
+  assert.equal(background.text, 'BG plain');
+  assert.ok(background.frame.includes('\x1b[48;2;0;0;255m'));
+});
+
 test('theme versions and memo-busting props repaint unchanged ANSI, markdown and user text', async (context) => {
   const show = mountSurface(context);
   context.after(() => surfaces.setThemeSetting(initialTheme, { persist: false }));

@@ -5,6 +5,7 @@
  * edge-drag auto-scroll) instead of clamping the selection in place.
  */
 import { useCallback } from 'react';
+import { selectionRectIsDegenerate } from './transcript-window.mjs';
 
 export function useSelectionFocusMove({
   dragRef,
@@ -40,7 +41,7 @@ export function useSelectionFocusMove({
       if (region !== 'transcript' && region !== 'status') return false;
       const rect = drag.rect;
       if (!rect) return false;
-      if (rect.x1 === rect.x2 && rect.y1 === rect.y2) return false;
+      if (selectionRectIsDegenerate(rect)) return false;
 
       let anchor = { x: rect.x1, y: rect.y1 };
       let col = rect.x2;

@@ -6,7 +6,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import { getPluginData } from '../../config.mjs';
 import { getStoreDir } from './paths-heartbeat.mjs';
-import { probePath, PROBE_PRESENT } from './fs-probe.mjs';
+import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './fs-probe.mjs';
 import { isCancelledWrite as _isCancelledWrite } from './write-guards.mjs';
 import {
   SESSION_SUMMARY_INDEX_VERSION,

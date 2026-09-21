@@ -8,7 +8,7 @@
 import { connect } from 'node:net';
 import { attachLineReader, destroyQuietly, frameLine } from './wire.mjs';
 import { createMirror } from './mirror.mjs';
-import { createRetryTimer } from './retry.mjs';
+import { createRetryTimer, reconcileLeg } from './retry.mjs';
 import { createSyncWaiters } from './viewer/sync-waiters.mjs';
 import { createSubmitAcks, submitFrame } from './viewer/submit-acks.mjs';
 
@@ -146,12 +146,14 @@ export function createViewerLeg({
   };
 
   // Reconcile against the session this surface is attached to ('' = none).
-  const ensure = (attachId) => {
-    if (retry.id() && retry.id() !== attachId) retry.clear();
-    if (!attachId && retry.pending()) retry.clear();
-    if (link.id && link.id !== attachId) stopClient();
-    if (attachId && !link.socket && !retry.pending()) startClient(attachId);
-  };
+  const ensure = (attachId) =>
+    reconcileLeg(attachId, {
+      retry,
+      legId: () => link.id,
+      legUp: () => Boolean(link.socket),
+      stop: stopClient,
+      start: startClient,
+    });
 
   const sendSubmit = (prompt, meta = null) => {
     if (!link.up || !link.socket) return false;

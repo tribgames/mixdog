@@ -1,13 +1,8 @@
 /**
  * Queue restore RPCs may settle after the user has continued editing. The
- * session service is asked for queued text only; prepend it to the latest local draft
- * so a delayed response can never replace newer typing.
- */
-export function mergeQueuedRestoreText(queuedText = '', currentText = '') {
-  return mergeQueuedRestoreDraft(queuedText, { value: currentText }).value;
-}
-
-/**
+ * session service is asked for queued text only; prepend it to the latest local
+ * draft so a delayed response can never replace newer typing.
+ *
  * Reclaimed queued commands are inserted before the current input while
  * preserving the caret's position inside that input. Keep the same invariant
  * when a daemon-backed restore settles after further local editing.

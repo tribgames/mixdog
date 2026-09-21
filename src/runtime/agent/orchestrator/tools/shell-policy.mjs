@@ -267,17 +267,18 @@ export function isBlockedCommand(command) {
   if (_removeItemRecursiveForceUnsafe(command)) return true;
   // cmd-style recursive delete (`del /s`, `rd /s`, `rmdir /s`) — target-checked.
   if (_cmdRecursiveDeleteUnsafe(command)) return true;
-  const decodedForRm = _decodePowerShellEncodedCommand(command);
-  if (decodedForRm && _rmRecursiveForceUnsafe(decodedForRm)) return true;
-  if (decodedForRm && _removeItemRecursiveForceUnsafe(decodedForRm)) return true;
-  if (decodedForRm && _cmdRecursiveDeleteUnsafe(decodedForRm)) return true;
+  // One decode feeds both scans below: the target-checked delete guards and
+  // the BLOCKED_PATTERNS re-scan see exactly the same payload.
+  const decoded = _decodePowerShellEncodedCommand(command);
+  if (decoded && _rmRecursiveForceUnsafe(decoded)) return true;
+  if (decoded && _removeItemRecursiveForceUnsafe(decoded)) return true;
+  if (decoded && _cmdRecursiveDeleteUnsafe(decoded)) return true;
   // Re-scan decoded PowerShell -EncodedCommand payload. A destructive script
   // smuggled as base64 (UTF-16LE) was previously invisible to the literal
   // pattern match. Decode is best-effort; bad base64 / non-text bytes just
   // return null and the function below skips. The decoded form is fed
   // through the same BLOCKED_PATTERNS so any future addition automatically
   // covers the encoded variant too.
-  const decoded = _decodePowerShellEncodedCommand(command);
   if (decoded) {
     for (const pat of BLOCKED_PATTERNS) {
       if (pat.test(decoded)) return true;

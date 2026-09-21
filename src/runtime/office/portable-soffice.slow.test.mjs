@@ -6,7 +6,12 @@ import assert from 'node:assert/strict';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { executeOfficeTool } from './index.mjs';
-import { libreOfficeAvailable, renderPortableOoxml } from './portable/portable-soffice.mjs';
+import {
+  libreOfficeAvailable,
+  recalculateLibreOfficeWorkbook,
+  renderPortableOoxml,
+  validateLibreOfficeReopen,
+} from './portable/portable-soffice.mjs';
 import { value, workspace } from './office-test-support.mjs';
 
 const RENDERED = { skip: !(await libreOfficeAvailable()) && 'LibreOffice is not installed' };
@@ -57,4 +62,60 @@ test('concurrent portable renders both produce a PDF through the shared profile'
     const details = await stat(output);
     assert.ok(details.isFile() && details.size > 0, output);
   }
+});
+
+// LibreOffice names what it converts after the source it read, minus the
+// source's own extension: a document named `reopen.check.docx` comes back as
+// `reopen.check.pdf`. Every caller finds its output by rebuilding that name,
+// and a wrong name reads as "LibreOffice produced nothing".
+test('a reopen validation finds the PDF named after the source', RENDERED, async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'reopen.check.docx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: source,
+        mode: 'portable',
+        operations: [{ op: 'append_text', text: '재열기 확인' }],
+      },
+      { cwd }
+    )
+  );
+  const reopened = await validateLibreOfficeReopen(source);
+  assert.equal(reopened.available, true);
+  assert.equal(reopened.opened, true);
+  assert.equal(reopened.backend, 'libreoffice');
+  assert.ok(reopened.outputBytes > 0);
+});
+
+test('a recalculation reads back the workbook named after the source', RENDERED, async (t) => {
+  const cwd = await workspace(t);
+  const source = join(cwd, 'recalculate.check.xlsx');
+  value(
+    await executeOfficeTool(
+      {
+        action: 'create',
+        path: source,
+        mode: 'portable',
+        operations: [
+          {
+            op: 'set_range',
+            range: 'A1:B3',
+            values: [
+              ['Region', 'Revenue'],
+              ['Korea', 120],
+              ['Japan', 95],
+            ],
+          },
+          { op: 'set_formula', cell: 'B4', formula: '=SUM(B2:B3)' },
+        ],
+      },
+      { cwd }
+    )
+  );
+  const recalculated = await recalculateLibreOfficeWorkbook(source, { force: true });
+  assert.equal(recalculated.available, true);
+  assert.equal(recalculated.recalculated, true);
+  assert.ok(recalculated.outputBytes > 0);
 });
