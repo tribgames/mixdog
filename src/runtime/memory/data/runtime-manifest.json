@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-09-16T20:08:13.286Z",
+  "generated_at": "2026-09-21T10:56:02.274Z",
   "release_tag": "runtime-v0.4.1",
   "pg": {
     "major": 16,
@@ -12,23 +12,23 @@
   "assets": {
     "darwin-arm64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-darwin-arm64-pg16.4-pgvector0.8.2.tar.gz",
-      "sha256": "999f278c82b772204615af45c9df3c80a4f4de415183e4b3229daba71b04ee15",
-      "size": 23425578
+      "sha256": "22169fca882e631fcfd6c76e18df7fb67847065b9910bae53e218caeb3a5c713",
+      "size": 23430087
     },
     "darwin-x64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-darwin-x64-pg16.4-pgvector0.8.2.tar.gz",
-      "sha256": "d63ea837d76456b273d31edc502987a3d50f9d0148511446246c0dfa25fe2650",
-      "size": 23713156
+      "sha256": "51fdafa57972de495d09001f5f0b6fca174bbe26d3ffbc719371310dc667a09e",
+      "size": 23713034
     },
     "linux-arm64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-linux-arm64-pg16.4-pgvector0.8.2.tar.gz",
-      "sha256": "380264637844cff7d1262787cc2ba375fbe5d90384226147c7171a2210b9e64b",
-      "size": 22915400
+      "sha256": "64707d41d823093bcd35cdf4fafa473bf118a228d3be516673fe2f5ba45d9e3c",
+      "size": 22914202
     },
     "linux-x64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-linux-x64-pg16.4-pgvector0.8.2.tar.gz",
-      "sha256": "caaf0851ff250e92789595513ac481ea8276836218d44d980bd5170930473729",
-      "size": 23308966
+      "sha256": "3e3b7c37b0fc6260e518890b4b1c2303c1485eb911a5af4d1ff11f85a1a50b8f",
+      "size": 23308864
     },
     "win32-x64": {
       "url": "https://github.com/tribgames/mixdog/releases/download/runtime-v0.4.1/mixdog-runtime-win32-x64-pg16.4-pgvector0.8.2.tar.gz",
