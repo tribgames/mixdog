@@ -130,12 +130,9 @@ export function resolveCacheStrategy(agent, { autoClear } = {}) {
     }
     return strategy;
   };
-  if (getHiddenAgent(agent)) {
-    return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '1h' });
-  }
-  if (agent && agent !== 'lead') {
-    // Public (non-hidden, non-lead) agents keep the flat 1h tail — only
-    // the Lead session's tail is linked to autoClear.
+  if (getHiddenAgent(agent) || (agent && agent !== 'lead')) {
+    // Hidden and public agents keep the flat 1h tail — only the Lead
+    // session's tail is linked to autoClear.
     return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: '1h' });
   }
   // Lead session (agent === 'lead', or no agent — raw/CLI callers default
@@ -366,16 +363,12 @@ function promptCacheLaneAutoRequested(value) {
   return false;
 }
 
-function parsePromptCacheLaneLimit(raw, fallback = DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS) {
-  if (raw === null || raw === undefined || raw === '') return fallback;
+function parsePromptCacheLaneLimit(raw) {
+  if (raw === null || raw === undefined || raw === '') return DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS;
   if (promptCacheLaneAutoRequested(raw)) return 0;
   const n = Number(raw);
   if (!Number.isFinite(n) || n <= 0) return 0;
   return Math.floor(n);
-}
-
-function defaultPromptCacheLaneShards(_provider) {
-  return DEFAULT_PROVIDER_PROMPT_CACHE_LANE_SHARDS;
 }
 
 function assignPromptCacheLaneSlot(provider, opts, shards, seed, { auto = false } = {}) {
@@ -453,7 +446,7 @@ function requestedPromptCacheLaneLimit(provider, opts, config) {
 
 export function resolveProviderPromptCacheLane(provider, opts = {}, config = {}) {
   const rawLimit = requestedPromptCacheLaneLimit(provider, opts, config);
-  const shards = parsePromptCacheLaneLimit(rawLimit, defaultPromptCacheLaneShards(provider));
+  const shards = parsePromptCacheLaneLimit(rawLimit);
   const auto = shards <= 0;
   const seed = cleanString(
     opts?.promptCacheLaneSeed ??

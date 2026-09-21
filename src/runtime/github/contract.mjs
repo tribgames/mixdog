@@ -144,7 +144,9 @@ export function validateGithubRequest(input) {
     if (out[key] !== undefined && (!Array.isArray(out[key]) || out[key].length > 50)) {
       throw new TypeError(`${key} must be an array with at most 50 entries.`);
     }
-    out[key]?.forEach((value) => githubText(value, key, 100));
+    out[key]?.forEach((value) => {
+      githubText(value, key, 100);
+    });
   }
   if (out.state !== undefined && !['open', 'closed', 'all'].includes(out.state)) throw new TypeError('Invalid state.');
   if (out.visibility !== undefined && !['private', 'public'].includes(out.visibility))

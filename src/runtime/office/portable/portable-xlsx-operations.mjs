@@ -302,7 +302,6 @@ export async function deleteWorksheet(zip, sheets, sheet) {
   return { sheet: sheet.name };
 }
 
-/** Places a picture on the sheet's drawing, sized from the file when no size is given. */
 // Stores the image bytes as the next xl/media part of its type.
 async function storeImageMedia(zip, op) {
   const extension = extname(String(op.path || ''))
@@ -348,6 +347,7 @@ function imageAnchorXml({ embedId, anchorCount, left, top, width, height, altTex
   );
 }
 
+/** Places a picture on the sheet's drawing, sized from the file when no size is given. */
 export async function addWorksheetImage(zip, sheet, xml, op) {
   const { mediaPart, data } = await storeImageMedia(zip, op);
   const drawing = await ensureWorksheetDrawing(zip, sheet, xml);
@@ -499,7 +499,6 @@ async function expressionConditionalRule(zip, op, priority) {
   );
 }
 
-/** One data validation over a range, appended to the validations already there. */
 // The comparison a bounded validation applies; a second bound without one
 // means between.
 function validationOperator(op, type) {
@@ -527,6 +526,7 @@ function dataValidationXml(op, { type, operator, reference }) {
   );
 }
 
+/** One data validation over a range, appended to the validations already there. */
 export function addWorksheetValidation(zip, sheet, xml, op) {
   const area = parseAreaRange(op.range);
   const reference = `${columnLabel(area.startCol)}${area.startRow}:${columnLabel(area.endCol)}${area.endRow}`;
@@ -612,7 +612,6 @@ function refuseUnsortableRange(xml, area, firstRow, records, refAt) {
   }
 }
 
-/** Sorts the values of a range, refusing the cases Excel itself refuses. */
 // The cell refs of the sortable body, row by row.
 function rangeRows(area, firstRow, refAt) {
   return Array.from({ length: area.endRow - firstRow + 1 }, (_unused, offset) => firstRow + offset).map((row) =>
@@ -733,7 +732,6 @@ export async function autofitWorksheetRange(zip, sheet, xml, op) {
   return { op: op.op, changed: true, sheet: sheet.name, columns: widths.size };
 }
 
-/** One row field and one column field over a bounded source range. */
 // The row, column and value field names an add_pivot_table op names, within
 // what the portable writer can lay out.
 function pivotFieldNames(op) {
@@ -781,6 +779,7 @@ async function pivotSourceTable(zip, xml, area) {
   return { headers, records };
 }
 
+/** One row field and one column field over a bounded source range. */
 export async function addWorksheetPivotTable(zip, sheet, xml, op) {
   const area = parseAreaRange(op.source);
   if (!area.startRow || !area.startCol || area.endRow <= area.startRow) {
@@ -861,7 +860,6 @@ function chartDataBlock(op) {
   return { plotByRows, area, lanes };
 }
 
-// Categories, series values and the sheet references the chart part cites.
 // The category labels along the header row (plotted by rows) or the first column.
 function chartCategories(cellValue, area, plotByRows) {
   const categories = [];
@@ -892,6 +890,7 @@ function laneValues(cellValue, area, plotByRows, lane) {
   return numbers;
 }
 
+// Categories, series values and the sheet references the chart part cites.
 async function readChartData(zip, xml, sheet, op, { plotByRows, area, lanes }) {
   const grid = new Map(cellRecords(xml, await sharedStrings(zip)).map((record) => [record.ref, record]));
   const cellValue = (column, row) => {

@@ -38,7 +38,7 @@ name: $NAME
 isExported: true
 ---
 # mixdog-kind: function
-# Nested `f() { g() { ... } }` is a member because outline items prune their subtree.
+# Nested `f() { g() { ... } }` attaches `g` as a member of the enclosing function.
 id: bash-nested-function
 language: Bash
 role: member

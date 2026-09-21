@@ -26,12 +26,11 @@ export function summarizePivotFields(headers, records) {
         items: [],
       };
     }
-    const items = [];
+    const items = new Set();
     for (const value of column) {
-      const text = String(value ?? '');
-      if (!items.includes(text)) items.push(text);
+      items.add(String(value ?? ''));
     }
-    return { name, numeric: false, items };
+    return { name, numeric: false, items: [...items] };
   });
 }
 

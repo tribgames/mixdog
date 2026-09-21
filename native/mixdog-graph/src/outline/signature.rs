@@ -382,8 +382,6 @@ mod tests {
         let sig = &record(&symbols, "run").sig;
         assert!(sig.ends_with('…'), "{sig}");
         assert_eq!(sig.chars().count(), SIG_MAX_CHARS + 1);
-        // A round trip through the string type proves the boundary held.
-        assert_eq!(String::from_utf8(sig.as_bytes().to_vec()).unwrap(), *sig);
         assert!(sig.starts_with("function run( 각각각"));
 
         // A head exactly at the cap keeps every character and no marker.

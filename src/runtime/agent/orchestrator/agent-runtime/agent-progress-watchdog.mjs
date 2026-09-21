@@ -121,8 +121,7 @@ function collectSessionAssistantHandoffText(session, messageStartIndex = 0) {
 
 export function watchdogPartialHandoffFromError(error, session, messageStartIndex = 0) {
   if (!isAgentProgressWatchdogAbortError(error)) return null;
-  const text = collectSessionAssistantHandoffText(session, messageStartIndex);
-  return text.trim() ? text : null;
+  return partialHandoffTextFromSession(session, messageStartIndex);
 }
 
 // Salvage path for NON-watchdog aborts that explicitly opt in (the abort error

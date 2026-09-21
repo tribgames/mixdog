@@ -87,14 +87,16 @@ export class DesktopSessionMetadata {
 
   async setName(sessionId: string, normalized: string): Promise<void> {
     await this.load();
-    (this.nameMap ??= Object.create(null) as Record<string, string>)[sessionId] = normalized;
+    this.nameMap ??= Object.create(null) as Record<string, string>;
+    this.nameMap[sessionId] = normalized;
     await this.queueWrite();
   }
 
   /** True when the archive state actually changed (and was persisted). */
   async setArchived(sessionId: string, archived: boolean): Promise<boolean> {
     await this.load();
-    const map = (this.archivedMap ??= Object.create(null) as Record<string, number>);
+    this.archivedMap ??= Object.create(null) as Record<string, number>;
+    const map = this.archivedMap;
     const has = Object.hasOwn(map, sessionId);
     if (archived === has) {
       await this.flush();
@@ -113,7 +115,8 @@ export class DesktopSessionMetadata {
       throw new TypeError('Session read cursor is invalid.');
     }
     await this.load();
-    const map = (this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>);
+    this.readMap ??= Object.create(null) as Record<string, SessionReadCursor>;
+    const map = this.readMap;
     const current = map[sessionId];
     const nextCount = Math.max(current?.messageCount || 0, messageCount);
     if (current && nextCount === current.messageCount && !consumedUnread) {

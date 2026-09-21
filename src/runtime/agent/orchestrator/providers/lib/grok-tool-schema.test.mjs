@@ -64,3 +64,44 @@ test('tools without alternatives are returned untouched', () => {
   const plain = tool({ name: { type: 'string' } }, ['name']);
   assert.equal(normalizeGrokToolSchemas([plain])[0], plain);
 });
+
+test('merging repeated alternatives preserves first-seen enum order without mutating tools', () => {
+  const tools = [
+    {
+      name: 'probe',
+      inputSchema: {
+        oneOf: [
+          {
+            type: 'object',
+            properties: {
+              mode: {
+                anyOf: [
+                  { type: 'string', enum: ['read'] },
+                  { enum: ['read'], type: 'string' },
+                  { type: 'string', enum: ['write'] },
+                ],
+              },
+            },
+          },
+          {
+            type: 'object',
+            properties: {
+              mode: {
+                anyOf: [
+                  { type: 'string', enum: ['write'] },
+                  { type: 'string', enum: ['edit'] },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    },
+  ];
+  const before = structuredClone(tools);
+  assert.deepEqual(normalizeGrokToolSchemas(tools)[0].inputSchema.properties.mode, {
+    type: 'string',
+    enum: ['read', 'write', 'edit'],
+  });
+  assert.deepEqual(tools, before);
+});

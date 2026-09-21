@@ -29,13 +29,11 @@ export async function finalizeTurnOutput({ out, sink, finalText, renderMarkdown 
   } else if (!sink.printedAny()) {
     // Nothing streamed live (provider without onTextDelta) — render once.
     out.write(`${await renderMarkdown(finalText)}\n`);
-  } else if (sink.printedToolCard()) {
+  } else {
     // Tool cards are printed after the streamed text. Erasing only the
     // streamed text from the current cursor position would clear/move
     // through the card rows and make the terminal scroll jump. Keep the
     // live transcript as-is for mixed text+tool turns.
-    out.write('\n');
-  } else {
     // Non-TTY / NO_COLOR: leave the raw stream, just terminate the line.
     out.write('\n');
   }

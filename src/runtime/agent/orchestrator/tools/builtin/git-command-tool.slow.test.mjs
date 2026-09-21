@@ -5,9 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
 import {
-  executeGitStageTool,
   executeGitTool,
-  GIT_STAGE_TOOL_DEF,
   GIT_TOOL_DEF,
   _gitCommandInternals,
 } from './git-command-tool.mjs';
@@ -128,7 +126,7 @@ test('git command tool preserves native text, shell syntax, and destructive comm
 
   writeFileSync(join(repo, 'base.txt'), `${Array.from({ length: 120 }, (_, i) => `changed-${i}`).join('\n')}\n`);
   const rawDiff = spawnSync('git', ['-C', repo, 'diff', '--', 'base.txt'], { encoding: 'utf8' }).stdout;
-  const diff = parseOk(await git(repo, 'diff -- base.txt', { output_limit: 5 }));
+  const diff = parseOk(await git(repo, 'diff -- base.txt', { output_limit: 5, include_stage_ids: true }));
   const rawLines = rawDiff.trimEnd().split('\n');
   assert.equal(diff.split('\ndiff_id:')[0], `${rawLines.slice(0, 5).join('\n')}\n... [${rawLines.length - 5} more lines omitted; raise output_limit or narrow the command]`);
   assert.equal(parseDiff(diff).changes.length, 1);
@@ -348,10 +346,12 @@ test('git renders process output verbatim with stderr and numeric exits', () => 
   assert.deepEqual(render('exit 1\n', ''), { text: 'exit 1\n', failed: false });
 });
 
-test('git and deferred git_stage expose separate compact contracts', () => {
+test('git exposes command and selected staging in one compact contract', () => {
   const properties = GIT_TOOL_DEF.inputSchema.properties;
-  assert.deepEqual(Object.keys(properties), ['command', 'output_limit']);
-  assert.deepEqual(GIT_TOOL_DEF.inputSchema.required, ['command']);
+  assert.deepEqual(Object.keys(properties), ['action', 'command', 'output_limit', 'include_stage_ids', 'diff_id', 'change_ids']);
+  assert.equal(properties.include_stage_ids.type, 'boolean');
+  assert.deepEqual(properties.action.enum, ['command', 'stage']);
+  assert.equal(GIT_TOOL_DEF.inputSchema.required, undefined);
   assert.deepEqual(
     properties.command.anyOf.map((entry) => entry.type),
     ['string', 'array']
@@ -359,12 +359,8 @@ test('git and deferred git_stage expose separate compact contracts', () => {
   assert.equal(properties.command.anyOf[1].minItems, 1);
   assert.equal(properties.command.anyOf[1].maxItems, 10);
   assert.equal(properties.output_limit.maximum, 200);
-  const stageProperties = GIT_STAGE_TOOL_DEF.inputSchema.properties;
-  assert.deepEqual(Object.keys(stageProperties), ['diff_id', 'change_ids', 'output_limit']);
-  assert.deepEqual(GIT_STAGE_TOOL_DEF.inputSchema.required, ['diff_id', 'change_ids']);
-  assert.equal(stageProperties.change_ids.anyOf[1].maxItems, 50);
-  assert.equal(stageProperties.output_limit.maximum, 200);
-  assert.equal(GIT_STAGE_TOOL_DEF.annotations.destructiveHint, true);
+  assert.equal(properties.change_ids.anyOf[1].maxItems, 50);
+  assert.equal(GIT_TOOL_DEF.annotations.destructiveHint, true);
   // Advisory wording anchors; update when the public description changes.
   assert.doesNotMatch(GIT_TOOL_DEF.description, /confirm/i);
   assert.match(GIT_TOOL_DEF.description, /Run Git here, never through shell/i);
@@ -372,6 +368,23 @@ test('git and deferred git_stage expose separate compact contracts', () => {
   assert.match(GIT_TOOL_DEF.description, /history only when needed/i);
   assert.match(properties.command.description, /no pipes\/redirects\/substitution/i);
   assert.match(properties.command.description, /&& chain runs as the array/i);
+});
+
+test('git rejects mixed command/staging requests before executing either action', async () => {
+  for (const args of [
+    { action: 'stage', command: 'git status', diff_id: 'd', change_ids: 'c' },
+    { action: 'stage', include_stage_ids: true, diff_id: 'd', change_ids: 'c' },
+    { command: 'git status', diff_id: 'd', change_ids: 'c' },
+    { action: 'unknown', command: 'git status' },
+    { action: 'stage' },
+    { action: 'stage', diff_id: 'd' },
+    { action: 'stage', change_ids: ['c'] },
+  ]) {
+    assert.match(await executeGitTool(args, process.cwd()), /^error:/, JSON.stringify(args));
+  }
+  assert.equal(parseStage(await executeGitTool({
+    action: 'stage', diff_id: 'expired', change_ids: ['c'],
+  }, process.cwd())).reason, 'expired_diff');
 });
 
 test('git answers read and mutation commands inside a bare repository', async (t) => {
@@ -570,8 +583,11 @@ test('git stages selected change IDs and rejects stale diff snapshots without to
   changed[8] = 'remaining-change';
   writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
 
-  const scopedDiff = parseOk(await git(repo, 'diff -- sample.txt', { output_limit: 100 }));
-  const text = parseOk(await git(repo, 'diff', { output_limit: 100 }));
+  const review = parseOk(await git(repo, 'diff -- sample.txt', { output_limit: 100 }));
+  assert.doesNotMatch(review, /^diff_id:|^file:|^change:/m);
+  const scopedDiff = parseOk(await git(repo, 'diff -- sample.txt', { output_limit: 100, include_stage_ids: true }));
+  const text = parseOk(await git(repo, 'diff', { output_limit: 100, include_stage_ids: true }));
+  assert.equal(review, scopedDiff.split('diff_id:')[0]);
   const diff = parseDiff(scopedDiff);
   assert.match(diff.diff_id, /^diff_[0-9a-f]{20}$/);
   assert.equal(diff.changes.length, 2);
@@ -580,8 +596,9 @@ test('git stages selected change IDs and rejects stale diff snapshots without to
   const selected = diff.changes[0];
   assert.ok(selected);
   const wrongScope = parseStage(
-    await executeGitStageTool(
+    await executeGitTool(
       {
+        action: 'stage',
         diff_id: diff.diff_id,
         change_ids: [selected.id],
       },
@@ -592,8 +609,9 @@ test('git stages selected change IDs and rejects stale diff snapshots without to
   assert.equal(wrongScope.reason, 'scope_mismatch');
   assert.equal(spawnSync('git', ['-C', repo, 'diff', '--cached'], { encoding: 'utf8' }).stdout, '');
   const staged = parseStage(
-    await executeGitStageTool(
+    await executeGitTool(
       {
+        action: 'stage',
         diff_id: diff.diff_id,
         change_ids: [selected.id],
       },
@@ -613,12 +631,13 @@ test('git stages selected change IDs and rejects stale diff snapshots without to
   assert.match(unstaged, /remaining-change/);
   assert.doesNotMatch(unstaged, /selected-change/);
 
-  const next = parseDiff(parseOk(await git(repo, 'diff', { output_limit: 100 })));
+  const next = parseDiff(parseOk(await git(repo, 'diff', { output_limit: 100, include_stage_ids: true })));
   changed[8] = 'changed-after-diff';
   writeFileSync(join(repo, 'sample.txt'), `${changed.join('\n')}\n`);
   const stale = parseStage(
-    await executeGitStageTool(
+    await executeGitTool(
       {
+        action: 'stage',
         diff_id: next.diff_id,
         change_ids: next.changes[0].id,
       },
@@ -644,12 +663,13 @@ test('scoped tiny diffs include all IDs, preserve out-of-scope changes and never
   writeFileSync(join(repo, 'selected.txt'), 'selected\n');
   writeFileSync(join(repo, 'outside.txt'), 'unselected\n');
   writeFileSync(join(repo, 'outside-new.txt'), 'untracked\n');
-  const text = parseOk(await git(repo, 'diff -- selected.txt', { output_limit: 1 }));
+  const text = parseOk(await git(repo, 'diff -- selected.txt', { output_limit: 1, include_stage_ids: true }));
   const diff = parseDiff(text);
   assert.deepEqual(diff.changes.map(({ path }) => path), ['selected.txt']);
   assert.match(text, /more lines omitted/);
   writeFileSync(join(repo, 'outside.txt'), 'changed outside scope\n');
-  const staged = parseStage(await executeGitStageTool({
+  const staged = parseStage(await executeGitTool({
+    action: 'stage',
     diff_id: diff.diff_id, change_ids: diff.changes.map(({ id }) => id), output_limit: 1,
   }, repo));
   assert.deepEqual(staged.changes, [{ path: 'selected.txt', old_start: 1, new_start: 1, additions: 1, deletions: 1 }]);
@@ -673,56 +693,61 @@ test('untracked scoped files stage without discovery mutations and reject extern
   writeFileSync(join(repo, 'outside.txt'), 'outside\n');
   writeFileSync(join(repo, '.git', 'info', 'exclude'), 'ignored.txt\n');
   writeFileSync(join(repo, 'nested', 'ignored.txt'), 'ignored\n');
-  const all = parseDiff(parseOk(await git(repo, 'diff', { output_limit: 1 })));
+  const review = parseOk(await git(repo, 'diff -- "nested/새 파일.txt"', { output_limit: 100 }));
+  assert.match(review, /new content without newline/);
+  assert.doesNotMatch(review, /^diff_id:|^change:/m);
+  const all = parseDiff(parseOk(await git(repo, 'diff', { output_limit: 1, include_stage_ids: true })));
   assert.deepEqual(all.changes.map(({ path }) => path).sort(), [
     'nested/empty.txt', 'nested/새 파일.txt', 'outside.txt',
   ]);
   const directory = join(repo, 'nested');
-  const text = parseOk(await executeGitTool({ command: 'git diff -- .', output_limit: 1 }, directory));
+  const text = parseOk(await executeGitTool({ command: 'git diff -- .', output_limit: 1, include_stage_ids: true }, directory));
   const diff = parseDiff(text);
   assert.deepEqual(diff.changes.map(({ path }) => path).sort(), ['nested/empty.txt', 'nested/새 파일.txt']);
   assert.ok(diff.changes.every(({ location }) => location === 'new_file'));
   assert.equal(parseOk(await git(repo, 'diff --cached')), '');
   assert.equal(parseOk(await git(repo, 'ls-files')), '');
   const selected = diff.changes.find(({ path }) => path.endsWith('새 파일.txt'));
-  const request = { diff_id: diff.diff_id, change_ids: selected.id };
+  const request = { action: 'stage', diff_id: diff.diff_id, change_ids: selected.id };
   writeFileSync(join(directory, '새 파일.txt'), 'external edit');
-  assert.equal(parseStage(await executeGitStageTool(request, directory)).reason, 'stale_diff');
+  assert.equal(parseStage(await executeGitTool(request, directory)).reason, 'stale_diff');
   assert.equal(parseOk(await git(repo, 'ls-files')), '');
   writeFileSync(join(directory, '새 파일.txt'), 'new content without newline');
-  const invalid = await executeGitStageTool({ ...request, change_ids: 'chg_missing' }, directory);
+  const invalid = await executeGitTool({ ...request, change_ids: 'chg_missing' }, directory);
   assert.match(invalid, /^error: git stage change_ids are not present/);
   const lock = join(repo, '.git', 'index.lock');
   writeFileSync(lock, '');
-  const locked = await executeGitStageTool(request, directory);
+  const locked = await executeGitTool(request, directory);
   assert.match(locked, /^exit 128/);
   assert.match(locked, /index\.lock/);
   rmSync(lock);
-  const staged = parseStage(await executeGitStageTool(request, directory));
+  const staged = parseStage(await executeGitTool(request, directory));
   assert.deepEqual(staged, {
     ok: true, staged: true,
     changes: [{ path: 'nested/새 파일.txt', kind: 'new_file', additions: 1, deletions: 0 }],
   });
   assert.equal(parseOk(await git(repo, 'show ":nested/새 파일.txt"')), 'new content without newline');
-  assert.equal(parseStage(await executeGitStageTool(request, directory)).reason, 'expired_diff');
-  const empty = parseDiff(parseOk(await git(repo, 'diff -- nested/empty.txt', { output_limit: 1 })));
+  assert.equal(parseStage(await executeGitTool(request, directory)).reason, 'expired_diff');
+  const empty = parseDiff(parseOk(await git(repo, 'diff -- nested/empty.txt', { output_limit: 1, include_stage_ids: true })));
   assert.equal(empty.changes.length, 1);
-  const emptyRequest = { diff_id: empty.diff_id, change_ids: empty.changes[0].id };
-  assert.equal(parseStage(await executeGitStageTool(emptyRequest, repo)).staged, true);
+  const emptyRequest = { action: 'stage', diff_id: empty.diff_id, change_ids: empty.changes[0].id };
+  assert.equal(parseStage(await executeGitTool(emptyRequest, repo)).staged, true);
   assert.equal(parseOk(await git(repo, 'show :nested/empty.txt')), '');
-  const outside = parseDiff(parseOk(await git(repo, 'diff -- outside.txt', { output_limit: 1 })));
+  const outside = parseDiff(parseOk(await git(repo, 'diff -- outside.txt', { output_limit: 1, include_stage_ids: true })));
   parseOk(await git(repo, 'add -- outside.txt'));
   const before = parseOk(await git(repo, 'diff --cached'));
-  assert.equal(parseStage(await executeGitStageTool({
+  assert.equal(parseStage(await executeGitTool({
+    action: 'stage',
     diff_id: outside.diff_id, change_ids: outside.changes[0].id,
   }, repo)).reason, 'stale_diff');
   assert.equal(parseOk(await git(repo, 'diff --cached')), before);
   writeFileSync(join(repo, 'intent.txt'), 'intent to add\n');
   parseOk(await git(repo, 'add -N -- intent.txt'));
-  const intent = parseDiff(parseOk(await git(repo, 'diff -- intent.txt', { output_limit: 1 })));
+  const intent = parseDiff(parseOk(await git(repo, 'diff -- intent.txt', { output_limit: 1, include_stage_ids: true })));
   assert.equal(intent.changes.length, 1);
   assert.equal(intent.changes[0].location, 'new_file');
-  assert.equal(parseStage(await executeGitStageTool({
+  assert.equal(parseStage(await executeGitTool({
+    action: 'stage',
     diff_id: intent.diff_id, change_ids: intent.changes[0].id,
   }, repo)).staged, true);
   assert.equal(parseOk(await git(repo, 'show :intent.txt')), 'intent to add\n');

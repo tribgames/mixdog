@@ -58,7 +58,6 @@ export function createConfigLoader({ dataDir, rulesPath, emit, pendingPatches })
     const sourceEntries = [];
     const errors = [];
     let disabled = false;
-    let disableSeen = false;
     for (const entry of entries) {
       const filePath = entry.path;
       let parsed = null;
@@ -78,7 +77,6 @@ export function createConfigLoader({ dataDir, rulesPath, emit, pendingPatches })
       });
       if (Object.hasOwn(parsed || {}, 'disableAllHooks')) {
         disabled = parsed.disableAllHooks === true;
-        disableSeen = true;
       }
       const report = standardConfigReport(parsed);
       if (report.standard) {
@@ -109,7 +107,7 @@ export function createConfigLoader({ dataDir, rulesPath, emit, pendingPatches })
     configCache = {
       key: cacheable ? stamped.key : '',
       standard: Object.keys(events).length > 0,
-      disabled: disableSeen ? disabled : false,
+      disabled,
       events,
       legacyRules,
       sources,

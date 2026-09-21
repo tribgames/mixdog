@@ -76,8 +76,7 @@ export function resolveAnthropicMessageCacheSlots(systemBlocks, ttls) {
 
 // Single lowering of orchestrator messages to the Anthropic wire shape. The
 // API-key provider (anthropic.mjs, via anthropic-messages.mjs) and the OAuth
-// provider (anthropic-oauth.mjs) both used to carry byte-identical copies;
-// they now share this one.
+// provider (anthropic-oauth.mjs) share this lowering.
 //
 // Marker-free lowering. cache_control is applied AFTER sanitization by
 // applyAnthropicCacheMarkers() so that block drops/inserts/reorders performed

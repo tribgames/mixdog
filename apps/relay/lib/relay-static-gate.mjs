@@ -45,12 +45,9 @@ export function parseDeviceRoute(pathname) {
 const SHARE_TARGET_PATH = /^\/(?:d\/[^/]+\/)?share-target$/;
 
 export function shareTargetShell(requestUrl) {
-  let pathname;
-  try {
-    pathname = decodeURIComponent(new URL(requestUrl || '/', 'http://localhost').pathname);
-  } catch {
-    return '';
-  }
+  const parsed = decodedRequestPath({ url: requestUrl });
+  if (!parsed) return '';
+  const { pathname } = parsed;
   return SHARE_TARGET_PATH.test(pathname) ? pathname.replace(/share-target$/, '') : '';
 }
 

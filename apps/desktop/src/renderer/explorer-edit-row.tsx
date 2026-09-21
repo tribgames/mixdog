@@ -73,7 +73,6 @@ export function ExplorerEditRow({
       style={{ paddingLeft: `calc(var(--mx-explorer-inset, 12px) + ${level * 8}px)` }}
     >
       <span className="explorer-twistie" aria-hidden="true" />
-      {/* renderInputBox updates the icon live while the user types. */}
       {!editDir && <SetiFileIcon name={value || 'file'} className="dock-file-icon" />}
       <span className="explorer-edit-box" data-problem={problem?.severity || undefined}>
         <input

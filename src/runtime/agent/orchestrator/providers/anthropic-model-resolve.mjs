@@ -115,12 +115,11 @@ export function _prettyName(id, family) {
   return `${base} ${v[1]}${minor}`;
 }
 
-export function _defaultContextForModel(id, family) {
+export function _defaultContextForModel(id, _family) {
   const text = String(id || '');
   const version = text.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/i);
   if (Number(version?.[1] || 0) >= 5) return 1000000;
   if (/^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)/i.test(text)) return 1000000;
-  if (family && family !== 'other') return 200000;
   return 200000;
 }
 

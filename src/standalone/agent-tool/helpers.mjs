@@ -59,21 +59,7 @@ export function agentTagOf(session) {
   return clean(session?.agentTag);
 }
 
-/** Timestamps reach the agent tool in three shapes: ISO strings, epoch-ms
- * NUMBERS (session-service stamps `Date.now()`) and numeric strings once such a
- * stamp round-trips through the JSON row store. Date.parse() returns NaN for
- * the latter two, so every stamp comparison must go through here. Mirrors
- * stampMs() in runtime/agent/orchestrator/session/store-summary-reader.mjs,
- * which is module-private there. Never returns NaN. */
-export function stampMs(value) {
-  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : 0;
-  const text = clean(value);
-  if (!text) return 0;
-  const numeric = Number(text);
-  if (Number.isFinite(numeric) && numeric > 0 && !/^\d{4}-/.test(text)) return numeric;
-  const parsed = Date.parse(text);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
-}
+export { stampMs } from '../../runtime/shared/agent-reap-state.mjs';
 
 export function normalizeAgentName(value) {
   const id = clean(value)

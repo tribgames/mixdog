@@ -212,7 +212,7 @@ export function mediaResponseHeaders(supplied) {
     'Content-Type': 'application/octet-stream',
   };
   for (const [key, value] of Object.entries(source)) {
-    const name = MEDIA_PASS_HEADERS.get(String(key).toLowerCase());
+    const name = MEDIA_PASS_HEADERS.get(key.toLowerCase());
     if (!name || value == null || Array.isArray(value) || typeof value === 'object') continue;
     const text = String(value);
     if (!/^[\x20-\x7e]{0,4096}$/.test(text)) continue;

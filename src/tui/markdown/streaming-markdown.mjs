@@ -115,13 +115,7 @@ function getResolvedPartsKey(key, text) {
 
 function cacheResolvedPartsKey(key, text, parts) {
   if (!key) return parts;
-  if (resolvedPartsByStreamKey.has(key)) resolvedPartsByStreamKey.delete(key);
-  resolvedPartsByStreamKey.set(key, { text, parts });
-  while (resolvedPartsByStreamKey.size > STABLE_PREFIX_LRU_MAX) {
-    const oldest = resolvedPartsByStreamKey.keys().next().value;
-    if (oldest === undefined) break;
-    resolvedPartsByStreamKey.delete(oldest);
-  }
+  touchLruKey(resolvedPartsByStreamKey, key, { text, parts });
   return parts;
 }
 

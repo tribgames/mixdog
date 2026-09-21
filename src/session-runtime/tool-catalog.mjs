@@ -50,9 +50,8 @@ export {
 } from './tool-catalog-data.mjs';
 
 export function filterDisallowedTools(tools, disallowed = []) {
-  if (!Array.isArray(disallowed) || disallowed.length === 0) return tools;
-  const deny = new Set(disallowed.map((name) => clean(name)).filter(Boolean));
-  if (deny.size === 0) return tools;
+  // Old session catalogs must not resurrect the separate staging schema.
+  const deny = new Set(['git_stage', ...(Array.isArray(disallowed) ? disallowed : [])].map(clean).filter(Boolean));
   return (tools || []).filter((tool) => !deny.has(clean(tool?.name)));
 }
 

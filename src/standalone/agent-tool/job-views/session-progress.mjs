@@ -3,6 +3,7 @@
 // follow-ups) and the frozen fields a finished job reports instead.
 import { resolveAgentWatchdogPolicy } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { buildAgentTaskProgressFields } from '../../agent-task-status.mjs';
+import { getProgressWatchdogState } from '../../agent-watchdog-registry.mjs';
 
 // Job statuses that can never progress again (mirrors TERMINAL_STATUSES in
 // runtime/shared/background-tasks.mjs; 'canceled' accepted defensively).
@@ -53,6 +54,7 @@ export function createSessionProgress({ mgr }) {
       snapshot,
       runtime,
       policy,
+      watchdogState: getProgressWatchdogState(mgr, sessionId),
       queuedFollowups,
       taskStatus,
       lastToolCall: runtime?.lastToolCall || null,

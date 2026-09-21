@@ -59,8 +59,6 @@ function fullPath(path, cwd) {
   return isAbsolute(text) ? text : resolve(cwd, text);
 }
 
-// ── list ─────────────────────────────────────────────────────────────────────
-
 function compactLane(lane) {
   return {
     id: lane.id,
@@ -129,8 +127,6 @@ export function listMediaCatalog(lanes, { kind = '', model = '' } = {}, remember
   }
   return { kind, models: matches };
 }
-
-// ── generate ─────────────────────────────────────────────────────────────────
 
 /**
  * Lane for a generate: the requested one, else the lane the user last chose

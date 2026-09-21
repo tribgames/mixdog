@@ -1,8 +1,6 @@
 // Session transcript writer: every user-facing main session owns a
 // conversation JSONL that the always-on memory watcher tails. The mutable
 // runtime-core locals it needs are injected as accessors.
-// (The channel-relay rebind/forwarding half of this module was deleted with
-// Discord/Telegram messaging.)
 import { createTranscriptWriter } from '../runtime/shared/transcript-writer.mjs';
 import { mixdogHome } from '../runtime/shared/plugin-paths.mjs';
 import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';

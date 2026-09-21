@@ -1,11 +1,8 @@
 /**
  * resume-picker.mjs — the /resume saved-chat session picker.
  *
- * A dependency-injection
- * factory: openResumePicker drives the panel surface and reads live store
- * state, so it can't be pure. The function body is the original App logic
- * verbatim, with closure identifiers (store, surface, and the two session
- * formatters from projects.mjs) threaded in through the factory argument.
+ * A dependency-injection factory: openResumePicker drives the panel surface
+ * and reads live store state. The caller supplies the session formatters.
  */
 export function createResumePicker({ store, surface, formatSessionUpdatedAt, formatSessionMessageCount }) {
   const openResumePicker = async () => {

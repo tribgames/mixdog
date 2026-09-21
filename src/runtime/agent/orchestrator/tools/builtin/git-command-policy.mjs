@@ -201,6 +201,7 @@ export function gitCommandMutates(value) {
       args = { command: args };
     }
   }
+  if (args?.action !== undefined && args.action !== 'command') return true;
   const parsed = parsedGitOperation(args?.command);
   return !parsed || !gitPlanIsReadOnly(parsed);
 }

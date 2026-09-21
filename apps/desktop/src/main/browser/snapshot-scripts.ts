@@ -399,11 +399,9 @@ export function browserRefPointExpression(ref: string): string {
     }
     if (!visible) return { error: 'not-visible' };
     if (covering) {
-      const label = covering
-        ? ((covering.tagName || 'element').toLowerCase() + ' "'
-          + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
-            .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"')
-        : 'nothing';
+      const label = (covering.tagName || 'element').toLowerCase() + ' "'
+        + String(covering.getAttribute?.('aria-label') || covering.textContent || '')
+          .replace(/\\s+/g, ' ').trim().slice(0, 60) + '"';
       return { error: 'covered', covering: label };
     }
     return { error: 'not-visible' };

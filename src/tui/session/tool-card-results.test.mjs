@@ -24,7 +24,6 @@ function harness({ buildAgentJobCardPatch } = {}) {
     set: (patch) => sets.push(patch),
     patchItem,
     markToolCallDone: (id) => markedDone.push(id),
-    updateAgentJobCard: () => {},
     buildAgentJobCardPatch: buildAgentJobCardPatch || (() => ({})),
     agentStatusState: ({ force }) => ({ agentStatus: { force } }),
     itemIndexById,

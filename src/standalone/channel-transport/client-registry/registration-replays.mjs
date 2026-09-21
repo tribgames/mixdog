@@ -1,4 +1,3 @@
-// client-registry/registration-replays.mjs
 // Reconnect register replay: a server may commit a replacement just before
 // its HTTP response is lost. The retry supplies the same stable registration
 // id and receives the already-created fresh token instead of creating an

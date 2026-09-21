@@ -5,13 +5,12 @@
 // parking stamp that lets accepted user input survive an owner crash — and
 // that orphan cleanup only reaps TUI-owned (`tui_`) buckets.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-tui-steering-persist-'));
-mkdirSync(dataDir, { recursive: true });
 process.env.MIXDOG_DATA_DIR = dataDir;
 
 const { appendTuiSteeringPersist, drainTuiSteeringPersist, flushTuiSteeringPersist } = await import(
@@ -81,16 +80,6 @@ test('a TUI steering append round-trips foreign runtime spool rows losslessly', 
   const store = readSpool();
   // Every field of every foreign row survives the TUI write untouched.
   assert.deepEqual(store.sessions.sess_runtime_owner, foreignRows);
-  const parked = store.sessions.sess_runtime_owner[0];
-  assert.equal(parked.handoffAt, OLD_AT);
-  assert.equal(parked.handoffPid, 4242);
-  assert.equal(parked.id, 'pm_structured_1');
-  assert.equal(parked.enqueuedAt, OLD_AT);
-  assert.deepEqual(parked.options, { mode: 'user', priority: 'next', displayText: 'look at this shot' });
-  assert.equal(Array.isArray(parked.content), true);
-  assert.equal(parked.content[1].mimeType, 'image/png');
-  assert.equal(store.sessions.sess_runtime_owner[1].notificationKind, 'completion_notification');
-  assert.equal(store.sessions.sess_runtime_owner[1].executionId, 'exec_7');
   // A foreign session's touch stamp is carried, never refreshed by our write.
   assert.equal(store.sessionTouchedAt.sess_runtime_owner, OLD_AT);
 

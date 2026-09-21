@@ -1,6 +1,6 @@
 /**
  * clipboard.mjs — OS-clipboard write helpers.
- * Pure module functions (spawn/process/Buffer only); no React, no App state.
+ * Module functions using spawn/process/Buffer; no React or App state.
  */
 import { Buffer } from 'node:buffer';
 import { spawn } from 'node:child_process';

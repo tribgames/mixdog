@@ -147,11 +147,9 @@ export function TranscriptList({
   // the range to an unrelated surviving node and the highlight appears to
   // flip back up the transcript. Keep the selected row span mounted until the
   // browser selection collapses.
-  type SelectionEndpoint = TranscriptSelectionEndpoint;
-  type SelectionPin = TranscriptSelectionPin;
-  const selectionPinned = useRef<SelectionPin | null>(null);
+  const selectionPinned = useRef<TranscriptSelectionPin | null>(null);
   const [, invalidateSelectionPin] = useState(0);
-  const setSelectionPin = useCallback((next: SelectionPin | null) => {
+  const setSelectionPin = useCallback((next: TranscriptSelectionPin | null) => {
     const current = selectionPinned.current;
     if (
       current === next ||
@@ -167,7 +165,7 @@ export function TranscriptList({
   const selectionPinnedIndexes = () => {
     const pin = selectionPinned.current;
     if (!pin) return [];
-    const resolve = (endpoint: SelectionEndpoint) => {
+    const resolve = (endpoint: TranscriptSelectionEndpoint) => {
       if (Object.is(rowsRef.current[endpoint.index]?.key, endpoint.key)) {
         return endpoint.index;
       }

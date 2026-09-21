@@ -28,3 +28,11 @@ test('a hint that only re-spaces the id does not override the canonical rule', (
   assert.equal(displayModelName('gpt-5.5', 'openai-oauth', 'gpt-5.5'), 'GPT-5.5');
   assert.equal(displayModelName('deepseek-v4-pro', 'opencode-go', 'DeepSeek V4 Pro'), 'DeepSeek V4 Pro');
 });
+
+test('unchanged model ids preserve fallback hints and empty-model labels', () => {
+  assert.equal(displayModelName('local/custom-model', 'mixdog-local'), 'custom-model');
+  assert.equal(displayModelName('custom-model', 'mixdog-local', 'Custom Model'), 'Custom Model');
+  assert.equal(displayModelName('GPT-5.5', 'openai-oauth'), 'GPT-5.5');
+  assert.equal(displayModelName('', '', { displayName: 'Local Alias' }), 'Local Alias');
+  assert.equal(displayModelName(''), '');
+});

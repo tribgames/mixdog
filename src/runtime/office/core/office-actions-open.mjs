@@ -8,6 +8,7 @@ import {
   ensureOfficeSessionDesign,
   finalizeOfficeResult,
   isMicrosoftOfficeSession,
+  microsoftOfficeOpenFields,
   sessions,
   toolResult,
 } from './office-core.mjs';
@@ -104,13 +105,7 @@ export async function openCreateOrAttachOffice({ action, args, cwd, dataDir, sig
         fileKind: session.fileKind,
         source: session.source,
         output: session.target,
-        ownership: session.ownership,
-        visible: session.visible,
-        appPid: session.appPid,
-        windowHwnd: session.windowHwnd,
-        foregroundActivated: session.foregroundActivated === true,
-        backgroundIsolation: session.backgroundIsolation || null,
-        documentId: session.documentId,
+        ...microsoftOfficeOpenFields(session),
         batch: initialEdit,
       };
     } else {

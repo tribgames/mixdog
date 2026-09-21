@@ -182,9 +182,8 @@ async function executeSerially(batch, call, exec) {
   classifyExecuted(call, exec);
 }
 
-// Boundary: tool-return string convention → structural kind. The only
-// prefix check in this codebase; downstream layers operate on resultKind,
-// which stays 'normal' for a non-error return.
+// Downstream layers operate on resultKind, which stays 'normal' for a
+// non-error return. Prefix classification belongs to result-classification.mjs.
 function classifyExecuted(call, exec) {
   if (classifyToolReturn(exec.result, call.name) === 'error') {
     exec.resultKind = 'error';

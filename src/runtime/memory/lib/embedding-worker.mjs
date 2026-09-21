@@ -444,7 +444,6 @@ async function processMessage(msg) {
         for (let i = 0; i < texts.length; i++) vectors[i] = Array.from(output.data.subarray(i * dims, (i + 1) * dims));
         parentPort.postMessage({ id, type: 'result', vectors, dims, wallMs, device: _device, dtype: configuredDtype });
         break;
-        // _embedInFlight cleared in drainQueue / catch
       }
       case 'embed': {
         if (_embedInFlight) {
@@ -464,7 +463,6 @@ async function processMessage(msg) {
         const vector = Array.from(output.data);
         parentPort.postMessage({ id, type: 'result', vector, dims, wallMs, device: _device, dtype: configuredDtype });
         break;
-        // _embedInFlight cleared in finally below
       }
       case 'warmup': {
         if (_embedInFlight) {

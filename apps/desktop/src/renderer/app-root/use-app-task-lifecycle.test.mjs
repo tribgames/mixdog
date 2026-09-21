@@ -98,6 +98,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   assert.equal(hookResult.selection.kind, 'new');
   assert.equal(hookResult.selection, harnessSelection);
   assert.equal(hookResult.selectionRef, harnessSelectionRef);
+  const activateSelection = hookResult.activateSelection;
 
   // 1. activateSelection switches selection and updates viewedSessionRef
   await act(async () => {
@@ -108,6 +109,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   assert.equal(harnessSelectionRef.current.kind, 'session');
   assert.equal(viewedSessionRef.current, 's1');
   assert.equal(focusedSelection.kind, 'session');
+  assert.equal(hookResult.activateSelection, activateSelection);
 
   // 2. tabs registry has Session 1
   assert.equal(hookResult.tabs.length, 1);
@@ -120,6 +122,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   });
   assert.equal(navigationEpoch.current, epochBefore + 1);
   assert.equal(hookResult.selection.kind, 'new');
+  assert.equal(hookResult.activateSelection, activateSelection);
 
   // 4. clearSessionToNewTask creates draft seeded from session
   await act(async () => {

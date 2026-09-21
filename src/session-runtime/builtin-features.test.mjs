@@ -133,7 +133,6 @@ test('a fresh profile keeps every gated tool family off the session surface', ()
     'memory',
     'recall',
     'git',
-    'git_stage',
     'github',
     'browser',
     'browser_devtools',
@@ -156,7 +155,6 @@ test('headless Git needs no install marker but respects OFF and does not enable 
   const config = { builtins: {} };
   const blocked = featureDisallowedToolsFor(config, { toolProfile: 'headless' });
   assert.equal(blocked.includes('git'), false);
-  assert.equal(blocked.includes('git_stage'), true);
   assert.equal(blocked.includes('github'), true);
   assert.deepEqual(config, { builtins: {} });
   const off = featureDisallowedToolsFor(
@@ -166,13 +164,12 @@ test('headless Git needs no install marker but respects OFF and does not enable 
     },
     { toolProfile: 'headless' }
   );
-  for (const name of ['git', 'git_stage', 'github']) assert.ok(off.includes(name));
+  for (const name of ['git', 'github']) assert.ok(off.includes(name));
   const previous = process.env.MIXDOG_FEATURE_GIT;
   process.env.MIXDOG_FEATURE_GIT = '0';
   try {
     const denied = featureDisallowedToolsFor(config, { toolProfile: 'headless' });
     assert.ok(denied.includes('git'));
-    assert.ok(denied.includes('git_stage'));
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_FEATURE_GIT;
     else process.env.MIXDOG_FEATURE_GIT = previous;
@@ -206,7 +203,7 @@ test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions'
         browserAvailable: true,
         computerAvailable: true,
       }),
-      ['git', 'git_stage', 'github']
+      ['git', 'github']
     );
   } finally {
     delete process.env.MIXDOG_FEATURE_OFFICE;

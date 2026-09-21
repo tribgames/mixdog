@@ -107,3 +107,34 @@ test('a scope that failed is reported as failed instead of counting as cleared',
     view.destroy();
   }
 });
+
+test('Escape respects an in-flight clear and cleanup restores the trigger focus', async () => {
+  const trigger = document.createElement('button');
+  document.body.append(trigger);
+  trigger.focus();
+  let finish;
+  let closed = 0;
+  const view = renderDialog(
+    {
+      browserClearData: () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    },
+    () => closed++
+  );
+  const pressEscape = () =>
+    document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+  try {
+    await act(async () => view.button('Clear now').click());
+    await act(async () => pressEscape());
+    assert.equal(closed, 0);
+    await act(async () => finish({ cleared: ['cache'], errors: {} }));
+    await act(async () => pressEscape());
+    assert.equal(closed, 1);
+  } finally {
+    view.destroy();
+    assert.equal(document.activeElement, trigger);
+    trigger.remove();
+  }
+});

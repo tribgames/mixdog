@@ -259,9 +259,10 @@ export function Spinner({
   // Keep the verb shimmer moving even during stalls/tool waits. Stall tinting is
   // limited to the glyph; tinting the whole verb made the sweep disappear after
   // a few seconds and read as a stuck dark label.
-  const verbContent =
-    messageLen > 0 && !reducedMotion && TEXT_RGB && SHIMMER_RGB ? (
-      renderShimmerText(
+  let verbContent = null;
+  if (messageLen > 0) {
+    if (!reducedMotion && TEXT_RGB && SHIMMER_RGB) {
+      verbContent = renderShimmerText(
         messageText,
         shimmerHead,
         GLIMMER_TRAIL,
@@ -270,10 +271,11 @@ export function Spinner({
         theme.spinnerText,
         'verb',
         shimmerSpan
-      )
-    ) : messageLen > 0 ? (
-      <Text color={theme.spinnerText}>{messageText}</Text>
-    ) : null;
+      );
+    } else {
+      verbContent = <Text color={theme.spinnerText}>{messageText}</Text>;
+    }
+  }
 
   const advanceCounter = (ref, target) => {
     if (reducedMotion) {
@@ -310,7 +312,10 @@ export function Spinner({
     effort,
   });
   const tokenGlyph = tokenModeGlyph(mode);
-  const tokenText = meta.tokensText ? (tokenGlyph ? `${tokenGlyph} ${meta.tokensText}` : meta.tokensText) : '';
+  let tokenText = '';
+  if (meta.tokensText) {
+    tokenText = tokenGlyph ? `${tokenGlyph} ${meta.tokensText}` : meta.tokensText;
+  }
   const tokenW = tokenText.length;
 
   // Progressive width gating: show status parts
@@ -389,6 +394,17 @@ export function Spinner({
       </Text>
     );
   }
+  const separatedSegments = [];
+  for (const [index, segment] of segments.entries()) {
+    if (index > 0) {
+      separatedSegments.push(
+        <Text key={`s${index}`} color={theme.statusSubtle}>
+          {STATUS_SEP}
+        </Text>
+      );
+    }
+    separatedSegments.push(segment);
+  }
   return (
     <Box marginTop={marginTop} flexDirection="row">
       <Box flexWrap="wrap" height={1} width={2}>
@@ -398,19 +414,7 @@ export function Spinner({
       {segments.length > 0 ? (
         <Text color={theme.inactive}>
           {' ('}
-          {segments.reduce(
-            (acc, el, i) =>
-              i === 0
-                ? [el]
-                : [
-                    ...acc,
-                    <Text key={`s${i}`} color={theme.statusSubtle}>
-                      {STATUS_SEP}
-                    </Text>,
-                    el,
-                  ],
-            []
-          )}
+          {separatedSegments}
           {')'}
         </Text>
       ) : null}

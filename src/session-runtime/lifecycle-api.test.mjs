@@ -43,7 +43,7 @@ test('resume preserves loaded and unloaded tools through asynchronous route prep
   // the surface from the lead defaults on resume, so a tool outside them
   // (recall, web_search) is only ever loaded on demand.
   const shell = { name: 'shell', description: 'Run a command' };
-  const deferredGitTools = BUILTIN_TOOLS.filter((tool) => ['git_stage', 'github'].includes(tool.name));
+  const deferredGitTools = BUILTIN_TOOLS.filter((tool) => tool.name === 'github');
   const resumed = {
     id: 'resume-deferred-tools',
     provider: 'openai-oauth',
@@ -103,13 +103,12 @@ test('resume preserves loaded and unloaded tools through asynchronous route prep
   assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'shell']));
   assert.equal(current.deferredSelectedTools.includes('shell'), true);
   assert.equal(typeof pendingRoutePreparation, 'function');
-  assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'git_stage'));
   assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'github'));
 
   assert.equal(await pendingRoutePreparation(), true);
   assert.deepEqual(new Set(current.tools.map((tool) => tool.name)), new Set(['read', 'shell']));
-  const loaded = JSON.parse(renderToolSearch({ names: ['git_stage', 'github'] }, current, 'lead'));
-  assert.deepEqual(loaded.loaded, ['git_stage', 'github']);
+  const loaded = JSON.parse(renderToolSearch({ names: ['github'] }, current, 'lead'));
+  assert.deepEqual(loaded.loaded, ['github']);
   assert.deepEqual(loaded.missing, []);
 });
 

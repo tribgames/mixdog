@@ -32,7 +32,7 @@ export function commandQueueKey(host: QueueKeyHost, command: BrowserCommand): st
   if (command.background === true) {
     return `${prefix}background:${normalizeBackgroundTabName(tab)}`;
   }
-  if (tab && !/^v\d+$/i.test(tab) && !/^p\d+$/i.test(tab)) {
+  if (tab && !/^v\d+$/i.test(tab)) {
     return `${prefix}background:${normalizeBackgroundTabName(tab, { required: true })}`;
   }
   return `${prefix}foreground`;

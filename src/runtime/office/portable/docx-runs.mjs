@@ -66,8 +66,7 @@ export function normalizeDocxRuns(xml) {
     pending = null;
   };
   const runs = new RegExp(RUN.source, 'g');
-  let match;
-  while ((match = runs.exec(working))) {
+  for (let match = runs.exec(working); match; match = runs.exec(working)) {
     const between = working.slice(cursor, match.index);
     const open = RUN_OPEN.exec(match[0])[0];
     const inner = match[0].slice(open.length, match[0].length - '</w:r>'.length);
@@ -126,8 +125,7 @@ function clearedParagraph(paragraphXml, tag, author = '') {
 function elementExtents(xml, tag) {
   const opener = new RegExp(`<${tag}(?:\\s[^>]*)?>`, 'g');
   const found = [];
-  let match;
-  while ((match = opener.exec(xml))) {
+  for (let match = opener.exec(xml); match; match = opener.exec(xml)) {
     const inner = containerInner(xml, tag, match.index);
     if (!inner) continue;
     found.push({

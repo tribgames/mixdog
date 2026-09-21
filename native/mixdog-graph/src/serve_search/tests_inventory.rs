@@ -2,6 +2,26 @@ use super::test_support::request;
 use super::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn pending_walk() -> LiveWalk {
+    LiveWalk {
+        files: Mutex::new(Vec::new()),
+        state: Mutex::new(LiveState::Running),
+        cond: Condvar::new(),
+        files_cond: Condvar::new(),
+        waiters: AtomicUsize::new(0),
+        cancelled: AtomicBool::new(false),
+        enumeration_done: AtomicBool::new(false),
+        keep_warm: AtomicBool::new(false),
+        inventory_lease: InventoryLease::new(0, 0),
+        cacheable: AtomicBool::new(true),
+        walk_errors: AtomicUsize::new(0),
+        walk_error_details: Mutex::new(Vec::new()),
+        directory_failures: Mutex::new(Vec::new()),
+        generation: 0,
+        change_sequence: 0,
+    }
+}
+
 #[test]
 fn inventory_key_preserves_request_globs() {
     let first = request(&["--files", "--glob", "*.rs", "."], 20);
@@ -108,23 +128,7 @@ fn inventory_walk_parallelism_stays_bounded() {
 
 #[test]
 fn complete_inventory_wait_honors_request_cancellation() {
-    let live = LiveWalk {
-        files: Mutex::new(Vec::new()),
-        state: Mutex::new(LiveState::Running),
-        cond: Condvar::new(),
-        files_cond: Condvar::new(),
-        waiters: AtomicUsize::new(0),
-        cancelled: AtomicBool::new(false),
-        enumeration_done: AtomicBool::new(false),
-        keep_warm: AtomicBool::new(false),
-        inventory_lease: InventoryLease::new(0, 0),
-        cacheable: AtomicBool::new(true),
-        walk_errors: AtomicUsize::new(0),
-        walk_error_details: Mutex::new(Vec::new()),
-        directory_failures: Mutex::new(Vec::new()),
-        generation: 0,
-        change_sequence: 0,
-    };
+    let live = pending_walk();
     let cancelled = AtomicBool::new(true);
     assert_eq!(
         wait_live_complete(&live, &cancelled, None).unwrap_err(),
@@ -134,23 +138,7 @@ fn complete_inventory_wait_honors_request_cancellation() {
 
 #[test]
 fn complete_inventory_wait_honors_soft_deadline() {
-    let live = LiveWalk {
-        files: Mutex::new(Vec::new()),
-        state: Mutex::new(LiveState::Running),
-        cond: Condvar::new(),
-        files_cond: Condvar::new(),
-        waiters: AtomicUsize::new(0),
-        cancelled: AtomicBool::new(false),
-        enumeration_done: AtomicBool::new(false),
-        keep_warm: AtomicBool::new(false),
-        inventory_lease: InventoryLease::new(0, 0),
-        cacheable: AtomicBool::new(true),
-        walk_errors: AtomicUsize::new(0),
-        walk_error_details: Mutex::new(Vec::new()),
-        directory_failures: Mutex::new(Vec::new()),
-        generation: 0,
-        change_sequence: 0,
-    };
+    let live = pending_walk();
     let cancelled = AtomicBool::new(false);
     assert_eq!(
         wait_live_complete(

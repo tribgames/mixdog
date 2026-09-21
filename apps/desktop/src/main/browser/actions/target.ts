@@ -29,7 +29,7 @@ export async function dragRefs(context: BrowserActionContext): Promise<{ source?
       destination: command.targetRef ? String(command.targetRef) : undefined,
     };
   }
-  const resolved = await services.targets.resolveTargetRefs(guest, [command.target, command.dropTarget!], signal);
+  const resolved = await services.targets.resolveTargetRefs(guest, [command.target, command.dropTarget], signal);
   adoptResolvedTargets(context, resolved);
   return { source: resolved[0].ref, destination: resolved[1].ref };
 }

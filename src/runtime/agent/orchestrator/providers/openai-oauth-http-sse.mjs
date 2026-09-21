@@ -26,8 +26,9 @@ export { _envFlag };
 function _sseEventsFromBuffer(buffer) {
   const frames = [];
   let rest = buffer.replace(/\r\n/g, '\n');
-  let idx;
-  while ((idx = rest.indexOf('\n\n')) >= 0) {
+  while (true) {
+    const idx = rest.indexOf('\n\n');
+    if (idx < 0) break;
     frames.push(rest.slice(0, idx));
     rest = rest.slice(idx + 2);
   }

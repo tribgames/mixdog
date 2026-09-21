@@ -10,9 +10,20 @@ import {
 } from '../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 
 const WATCHDOG_SWEEP_INTERVAL_MS = 1000;
+const registrations = new WeakMap();
+
+export function getProgressWatchdogState(mgr, sessionId) {
+  const state = registrations.get(mgr)?.get(sessionId);
+  return {
+    registered: Boolean(state && !state.controller.signal.aborted),
+    lastCheckedAt: state?.lastCheckedAt || null,
+    error: state?.error || null,
+  };
+}
 
 export function createProgressWatchdogRegistry({ mgr }) {
   const watched = new Map();
+  registrations.set(mgr, watched);
   let timer = null;
 
   function stopTimerIfIdle() {
@@ -26,11 +37,14 @@ export function createProgressWatchdogRegistry({ mgr }) {
   function check(state) {
     const { sessionId, watchdogPolicy, agent, controller, anchorTs } = state;
     if (controller.signal?.aborted) {
+      state.unlink?.();
       watched.delete(sessionId);
       stopTimerIfIdle();
       return;
     }
     const now = Date.now();
+    state.lastCheckedAt = now;
+    state.error = null;
     const snapshot =
       typeof mgr.getSessionProgressSnapshot === 'function' ? mgr.getSessionProgressSnapshot(sessionId) : null;
     // Turn boundary: askStartedAt is re-stamped by markSessionAskStart for
@@ -54,12 +68,12 @@ export function createProgressWatchdogRegistry({ mgr }) {
     // report: 위임한 세션이 안 도는 것처럼 보인다). This sweep already holds the
     // live session, so reporting the change costs no extra read.
     if (state.onProgress) {
-      const messages = Array.isArray(sess?.messages) ? sess.messages.length : 0;
-      const signature = `${iteration ?? ''}:${messages}`;
+      const messages = Array.isArray(sess?.messages) ? sess.messages.length : Number(sess?.messageCount) || 0;
+      const signature = `${iteration ?? ''}:${messages}:${snapshot?.lastProgressAt || 0}`;
       if (signature !== state.lastProgressSignature) {
         state.lastProgressSignature = signature;
         try {
-          state.onProgress({ iteration, messages });
+          state.onProgress({ iteration, messages, stage: snapshot?.stage || null });
         } catch {
           /* bookkeeping only */
         }
@@ -116,8 +130,19 @@ export function createProgressWatchdogRegistry({ mgr }) {
       for (const state of [...watched.values()]) {
         try {
           check(state);
-        } catch {
-          /* watchdog is best-effort */
+          state.lastSuccessfulCheckAt = Date.now();
+        } catch (error) {
+          state.error = String(error?.message || error);
+          const elapsed = Date.now() - (state.lastSuccessfulCheckAt || state.anchorTs);
+          if (state.watchdogPolicy.idleStaleMs > 0 && elapsed > state.watchdogPolicy.idleStaleMs) {
+            abortAgentProgressWatchdog(state.controller, {
+              sessionId: state.sessionId,
+              agent: state.agent,
+              error: new AgentStallAbortError(`agent progress checks failed: ${state.error}`),
+              policy: state.watchdogPolicy,
+              anchorTs: state.anchorTs,
+            });
+          }
         }
       }
     }, WATCHDOG_SWEEP_INTERVAL_MS);
@@ -134,8 +159,9 @@ export function createProgressWatchdogRegistry({ mgr }) {
       if (typeof mgr.linkParentSignalToSession !== 'function') return null;
       const controller = new AbortController();
       const anchorTs = Date.now();
+      let unlink;
       try {
-        mgr.linkParentSignalToSession(sessionId, controller.signal);
+        unlink = mgr.linkParentSignalToSession(sessionId, controller.signal);
       } catch {
         return null;
       }
@@ -144,6 +170,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
         watchdogPolicy,
         agent,
         controller,
+        unlink: typeof unlink === 'function' ? unlink : null,
         anchorTs,
         onTurnStart: typeof onTurnStart === 'function' ? onTurnStart : null,
         onProgress: typeof onProgress === 'function' ? onProgress : null,
@@ -154,6 +181,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
       ensureTimer();
       return {
         stop: () => {
+          state.unlink?.();
           if (watched.get(sessionId) === state) watched.delete(sessionId);
           stopTimerIfIdle();
         },

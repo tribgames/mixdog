@@ -1,12 +1,8 @@
 import { pathToFileURL } from 'node:url';
 
-import type {
-  DesktopLspDocumentInput,
-  DesktopLspRequestResult,
-  DesktopLspServerState,
-} from '../shared/contract';
+import type { DesktopLspDocumentInput, DesktopLspRequestResult, DesktopLspServerState } from '../shared/contract';
 import { projectEntryPathIn } from './project-files';
-import { publicState, sessionKey, LanguageServerState } from './language-server-state';
+import { publicState, sessionKey, type LanguageServerState } from './language-server-state';
 import type { LanguageServerProcessManager } from './language-server-process';
 import type { CapabilityResolver, LanguageServerSpec } from './language-server-types';
 

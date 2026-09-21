@@ -1,12 +1,12 @@
 // Tag tombstones: the record a reap leaves behind so a later session scan
 // cannot re-bind the reaped tag, plus the lookups spawn/send use to consume
 // one when the tag is legitimately reused.
-import { clean, positiveInt, stampMs } from '../helpers.mjs';
+import { clean, positiveInt } from '../helpers.mjs';
 import { tagTombstoneKey } from '../worker-rows.mjs';
-import { insertTombstone, isTerminalRow, sessionActivityAt } from './row-helpers.mjs';
+import { insertTombstone, isTerminalRow } from './row-helpers.mjs';
+import { findTagTombstone, tombstoneBlocksWork } from '../../../runtime/shared/agent-reap-state.mjs';
 
 export function createTagTombstones({ tagMaps, index }) {
-  const { tags } = tagMaps;
   const { readAllTagTombstones, readTagTombstones, writeWorkerRows, flushWorkerIndexMutations, removeWorkerRow } =
     index;
 
@@ -23,15 +23,11 @@ export function createTagTombstones({ tagMaps, index }) {
     const value = clean(tag);
     const sessionId = clean(session?.id);
     if (!value || !sessionId) return false;
-    // A tag that currently maps to this session was re-bound by a real
-    // lifecycle write (spawn/send/index row); the tombstone is spent.
-    if (tags.get(value) === sessionId) return false;
-    const tombstone = tombstones.get(tagTombstoneKey({ tag: value, clientHostPid: session?.clientHostPid }));
-    const reapedAt = stampMs(tombstone?.reapedAt);
-    if (!reapedAt) return false;
-    // Activity after the reap means the session legitimately came back; only a
-    // session that has been idle since its own reap stays suppressed.
-    return reapedAt >= sessionActivityAt(session);
+    const tombstone = findTagTombstone({ ...session, tag: value }, tombstones);
+    if (!tombstoneBlocksWork(session, tombstone)) return false;
+    // A cached binding alone may have come from an old scan. Only a worker
+    // row admitted by the same reap rule can prove a subsequent real turn.
+    return !index.readWorkerRows().some((row) => row.sessionId === sessionId && row.tag === value);
   }
 
   function forgetTerminalSession(tag, sessionId) {
@@ -65,6 +61,9 @@ export function createTagTombstones({ tagMaps, index }) {
         agent: clean(session?.agent || source.agent) || null,
         cwd: clean(session?.cwd || source.cwd) || null,
         clientHostPid: positiveInt(session?.clientHostPid || source.clientHostPid),
+        sessionId: id,
+        parentSessionId: clean(session?.parentSessionId || source.parentSessionId) || null,
+        ownerSessionId: clean(session?.ownerSessionId || source.ownerSessionId) || null,
         reapedAt: new Date().toISOString(),
       });
       applied = true;
@@ -84,7 +83,22 @@ export function createTagTombstones({ tagMaps, index }) {
     if (!tombstone?.tag) return false;
     const key = tagTombstoneKey(tombstone);
     flushWorkerIndexMutations();
-    writeWorkerRows((_byKey, tombstonesByKey) => tombstonesByKey.delete(key));
+    writeWorkerRows((_byKey, tombstonesByKey) => {
+      tombstonesByKey.delete(key);
+      const legacyKey = tagTombstoneKey({ tag: tombstone.tag, clientHostPid: tombstone.clientHostPid });
+      const legacy = tombstonesByKey.get(legacyKey);
+      // A recovered legacy record is consumed only if it has not been
+      // replaced since ownership was established.
+      if (
+        legacyKey !== key &&
+        legacy &&
+        !clean(legacy.parentSessionId || legacy.ownerSessionId) &&
+        legacy.reapedAt === tombstone.reapedAt &&
+        (!legacy.sessionId || legacy.sessionId === tombstone.sessionId)
+      ) {
+        tombstonesByKey.delete(legacyKey);
+      }
+    });
     return true;
   }
 

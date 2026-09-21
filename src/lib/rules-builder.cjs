@@ -341,7 +341,7 @@ function matchingRouteFiles({ PLUGIN_ROOT, provider, model }) {
     const raw = readOptional(path.join(ROUTES_DIR, name));
     if (!raw) continue;
     const meta = parseRouteFrontmatter(raw);
-    if (routeRulesApply(meta, provider, model)) files.push({ raw, meta });
+    if (routeRulesApply(meta, provider, model)) files.push(raw);
   }
   return files;
 }
@@ -354,14 +354,14 @@ function buildRouteRulesContent({
   allowTools = null,
 } = {}) {
   const parts = [];
-  for (const { raw } of matchingRouteFiles({ PLUGIN_ROOT, provider, model })) {
+  for (const raw of matchingRouteFiles({ PLUGIN_ROOT, provider, model })) {
     const body = stripFrontmatter(raw);
     if (body) parts.push(body);
   }
   return omitToolRoutes(parts.join('\n'), omitTools, allowTools);
 }
 
-function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR, includeLeadBrief = true }) {
+function buildLeadRoleContent({ PLUGIN_ROOT, DATA_DIR: _DATA_DIR, includeLeadBrief = true }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
   const lead = readOptional(path.join(RULES_DIR, 'lead', 'LEAD.md'));
   if (!lead) return '';
@@ -447,7 +447,7 @@ function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
   if (String(profile || 'full') === 'retrieval') {
     return buildAgentRetrievalInjectionContent({ PLUGIN_ROOT });
   }
-  return readOptional(path.join(AGENT_DIR, 'AGENT.md')) || '';
+  return readOptional(path.join(AGENT_DIR, 'AGENT.md'));
 }
 
 /**
@@ -464,7 +464,7 @@ function buildAgentRetrievalInjectionContent({ PLUGIN_ROOT }) {
   // Full ordered shared policy now ships via BP1 for retrieval
   // roles too; no compact duplicate here.
   const parts = [];
-  if (core) parts.push(core.trim());
+  if (core) parts.push(core);
   parts.push('', '- Read-only retrieval role: do not edit files, run shell, or use git.');
   return parts.join('\n');
 }

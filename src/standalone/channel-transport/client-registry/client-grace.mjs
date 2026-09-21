@@ -1,4 +1,3 @@
-// client-registry/client-grace.mjs
 // Daemon self-shutdown when the last client is gone: a grace timer armed on
 // every removal, a periodic sweep that prunes dead pids and re-arms it, and a
 // no-op-fire backoff for when onClientsEmpty() keeps declining to shut down.

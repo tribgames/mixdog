@@ -28,14 +28,8 @@ test('time displays pair local zone and UTC', () => {
     formatLocalAndUtcTimestamp(instant, { timeZone: 'Asia/Seoul' }),
     'Local: 2026-08-13 20:43:30 Asia/Seoul (UTC+09:00)\nUTC: 2026-08-13T11:43:30.000Z'
   );
-  assert.equal(
-    formatRecallTimestamp(instant, { timeZone: 'Asia/Seoul' }),
-    '2026-08-13 20:43:30.000 Asia/Seoul (UTC+09:00; UTC 2026-08-13 11:43:30.000Z)'
-  );
-  assert.equal(
-    formatTs(instant.getTime(), { timeZone: 'Asia/Seoul' }),
-    '2026-08-13 20:43:30.000 Asia/Seoul (UTC+09:00; UTC 2026-08-13 11:43:30.000Z)'
-  );
+  assert.equal(formatRecallTimestamp(instant, { timeZone: 'Asia/Seoul' }), '2026-08-13 20:43 +09:00');
+  assert.equal(formatTs(instant.getTime(), { timeZone: 'Asia/Seoul' }), '2026-08-13 20:43 +09:00');
 });
 
 test('time-related prompts receive both local and UTC context', () => {

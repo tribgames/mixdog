@@ -22,7 +22,7 @@ test('cold history pages load on demand, survive delayed publications and stay s
   };
   const root = createRoot(document.getElementById('root'));
   const Reader = ({ sessionId, count }) =>
-    React.createElement('button', { onClick: useTranscriptHistory(sessionId, count) }, 'Earlier');
+    React.createElement('button', { type: 'button', onClick: useTranscriptHistory(sessionId, count) }, 'Earlier');
   const render = (sessionId, count) =>
     act(async () => {
       root.render(React.createElement(Reader, { sessionId, count }));

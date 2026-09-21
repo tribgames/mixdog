@@ -1,13 +1,11 @@
 /**
  * core-memory-picker.mjs — the Core Memory picker + add/edit/delete flow.
  *
- * A dependency-injection
- * factory: these openers drive the panel surface + setSettingsPrompt and read
- * live store state, so they can't be pure. Every function body is the original
- * App logic verbatim, with closure identifiers threaded through the factory
- * argument. The Esc-return target is per-entry: the Settings row passes
- * { returnTo }, the standalone /memory command passes { returnTo: null },
- * and Esc either reopens the caller or simply closes the picker.
+ * A dependency-injection factory: these openers drive the panel surface +
+ * setSettingsPrompt and read live store state, so they can't be pure.
+ * The Esc-return target is per-entry: the Settings row passes { returnTo },
+ * the standalone /memory command passes { returnTo: null }, and Esc either
+ * reopens the caller or simply closes the picker.
  */
 export function createCoreMemoryPicker({ store, surface, setSettingsPrompt, parseMemoryCoreRows }) {
   // Sticky Esc-return target. Settings entry passes { returnTo: openSettingsPicker };
@@ -28,8 +26,7 @@ export function createCoreMemoryPicker({ store, surface, setSettingsPrompt, pars
     // it, so the loading frame can take the surface while a list (or failure
     // close) landing after Esc cannot touch it.
     const own = surface.claim();
-    const paintPanel = (panel) => own.paint(panel);
-    paintPanel({
+    own.paint({
       title: 'Memory',
       // Loading state lives in the header description row, not as a fake
       // selectable menu item.
@@ -59,10 +56,10 @@ export function createCoreMemoryPicker({ store, surface, setSettingsPrompt, pars
             _rows: coreRows,
           },
         ];
-        paintPanel({
+        own.paint({
           title: 'Memory',
           description: 'User-curated core memories across projects.',
-          items: rows.length ? rows : [{ value: 'empty', label: 'Memory', description: 'empty' }],
+          items: rows,
           // Summary-first layout: entry rows carry the sentence in
           // `description`, so keep the label column minimal and show the
           // full untruncated sentence for the highlighted row in the footer.
@@ -85,9 +82,8 @@ export function createCoreMemoryPicker({ store, surface, setSettingsPrompt, pars
   const openCoreMemoryListPicker = (rows = null) => {
     // Same ownership rule as openMemoryCorePicker.
     const own = surface.claim();
-    const paintPanel = (panel) => own.paint(panel);
     const renderList = (coreRows) => {
-      paintPanel({
+      own.paint({
         title: 'Memory · List',
         description: coreRows.length ? 'Select a memory to edit or delete.' : 'No stored memories yet.',
         items: coreRows.length ? coreRows : [{ value: 'empty', label: 'Memory', description: 'empty' }],
@@ -106,7 +102,7 @@ export function createCoreMemoryPicker({ store, surface, setSettingsPrompt, pars
       return;
     }
 
-    paintPanel({
+    own.paint({
       title: 'Memory · List',
       description: 'Loading memories…',
       loading: true,

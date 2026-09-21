@@ -23,6 +23,22 @@ slow default lane always names its cause; a file over ~10s belongs in the
 slow lane (rename it). The desktop package passes its `--import` loaders
 through the same entry.
 
+Successful test names are omitted from the console summary; failures, warnings,
+skip/todo reasons, totals and slow-file timings remain. `Full test log:` points
+to an unfiltered report in a unique temporary directory.
+
+For exact file paths/globs and Node options without discovery or lane filtering,
+use `node scripts/test-direct.mjs [Node test options] <files...>` instead of
+`node --test`. For example:
+
+```sh
+node scripts/test-direct.mjs --test-name-pattern=parsing src/example.test.mjs
+```
+
+This entry uses the same summary and full-log reporting, forwards Node options
+unchanged, and does not add force-exit or module-mock flags. Direct `node --test`,
+Cargo and arbitrary shell commands remain unfiltered.
+
 The 2026-09 sweep found 201 of 401 test files registered nowhere: hand-kept
 path lists in `package.json` had drifted for weeks, and two of the unlisted
 files were already broken (a `find` widening notice dropped in a refactor, a

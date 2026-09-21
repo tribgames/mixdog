@@ -77,14 +77,13 @@ export function createBrowserCommandQueue(host: BrowserCommandQueueHost) {
     let dispatched: Promise<unknown> | undefined;
     const run = ready.then(async () => {
       if (signal.aborted) throw signal.reason || new Error('browser command cancelled');
-      const execute = <Result>(work: () => Promise<Result>) =>
-        bounded(
-          (dispatched = work()) as Promise<Result>,
-          COMMAND_TIMEOUT_MS,
-          `browser ${String(command.action || 'command')}`,
-          signal,
-          () => controller.abort(new Error(`browser command exceeded ${COMMAND_TIMEOUT_MS}ms`))
+      const execute = <Result>(work: () => Promise<Result>) => {
+        const pending = work();
+        dispatched = pending;
+        return bounded(pending, COMMAND_TIMEOUT_MS, `browser ${String(command.action || 'command')}`, signal, () =>
+          controller.abort(new Error(`browser command exceeded ${COMMAND_TIMEOUT_MS}ms`))
         );
+      };
       return operation
         ? execute(() => operation(signal))
         : (timeBrowserCommand(performance.now() - enqueuedAt, () =>

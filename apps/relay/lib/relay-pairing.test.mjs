@@ -43,26 +43,39 @@ test('claim GET for an unknown id is expired, not 404', async () => {
   assert.deepEqual(JSON.parse(response.recorded[0].body), { status: 'expired' });
 });
 
-test('claim POST for an unknown desktop is refused with 404', async () => {
-  const request = new EventEmitter();
-  request.method = 'POST';
-  request.url = '/claim';
-  request.headers = { origin: 'https://relay.example', host: 'relay.example' };
-  request.socket = { encrypted: true };
-  queueMicrotask(() => {
-    request.emit('data', Buffer.from(JSON.stringify({ deviceId: 'nope', clientId: 'nope', publicKey: 'x' })));
-    request.emit('end');
-  });
-  const response = recordingResponse();
-  await handleClaimRequest(
-    {
-      store: { isKnown: () => false },
-      liveDesktops: new Map(),
-      claims: new Map(),
-      unauthorizedLimiter: { allow: () => true },
-    },
-    request,
-    response
-  );
-  assert.equal(response.recorded[0].status, 404);
+test('claim POST refuses malformed fields before lookup and unknown desktops after lookup', async () => {
+  const deviceId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  for (const [body, expectedChecks] of [
+    [{ deviceId: 'nope', clientId: 'nope', publicKey: 'x' }, []],
+    [{ deviceId, clientId: 'bbbbbbbb', publicKey: 'A'.repeat(86) }, [deviceId]],
+  ]) {
+    const request = new EventEmitter();
+    request.method = 'POST';
+    request.url = '/claim';
+    request.headers = { origin: 'https://relay.example', host: 'relay.example' };
+    request.socket = { encrypted: true };
+    queueMicrotask(() => {
+      request.emit('data', Buffer.from(JSON.stringify(body)));
+      request.emit('end');
+    });
+    const checkedDevices = [];
+    const response = recordingResponse();
+    await handleClaimRequest(
+      {
+        store: {
+          isKnown(id) {
+            checkedDevices.push(id);
+            return false;
+          },
+        },
+        liveDesktops: new Map(),
+        claims: new Map(),
+        unauthorizedLimiter: { allow: () => true },
+      },
+      request,
+      response
+    );
+    assert.equal(response.recorded[0].status, 404);
+    assert.deepEqual(checkedDevices, expectedChecks);
+  }
 });

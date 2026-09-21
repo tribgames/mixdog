@@ -469,9 +469,10 @@ const api: DesktopApi = {
       const sessionId = String(update?.sessionId || '');
       if (!sessionId) return;
       let decoder = decoders.get(sessionId);
-      if (decoder) decoders.delete(sessionId);
-      else decoder = createSnapshotDeltaDecoder();
-      decoders.set(sessionId, decoder);
+      if (!decoder) {
+        decoder = createSnapshotDeltaDecoder();
+        decoders.set(sessionId, decoder);
+      }
       const decoded = decoder.decode(update.wire);
       if (!decoded.ok) {
         decoder.reset();

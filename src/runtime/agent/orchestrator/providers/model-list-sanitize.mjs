@@ -41,7 +41,7 @@ const HOSTED_PROVIDERS = new Set([
 ]);
 
 // (a) Non-chat modality ids. Matched as whole word-ish tokens on the id so we
-// don't nuke unrelated substrings. NOTE: 'search'/'voice' intentionally
+// don't nuke unrelated substrings. NOTE: 'search' intentionally
 // excluded — chat SKUs like *-search-preview exist.
 const NON_CHAT_RE = new RegExp(
   '(^|[-_/\\s])(' +
@@ -221,7 +221,7 @@ function _staleMonths() {
 }
 
 // Apply catalog-driven staleness to the already-filtered `kept` rows.
-// Rules (see slice brief): (1) family supersession by newer release_date,
+// Rules: (1) family supersession by newer release_date,
 // (2) absolute cut older than N months. Both consult the provider's
 // models.dev catalog; rows not found in the catalog are KEPT (fallback to the
 // static LEGACY_PATTERNS already applied earlier). Catalog cold → no-op.

@@ -142,8 +142,8 @@ export function openCursorStream({ accessToken, path = RUN_PATH, url = API_URL }
       // heartbeat every 5s, tool results) are OUR traffic and say nothing
       // about the server still being alive. Refreshing the deadline on
       // every write let a silent server hold the connection open
-      // indefinitely, defeating the 120s silence bound this transport
-      // owns. Only 'response'/'data' from the server re-arm it.
+      // indefinitely even when an idle timeout was configured.
+      // Only 'response'/'data' from the server re-arm it.
       request.write(bytes);
     },
     close,

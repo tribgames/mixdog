@@ -2,9 +2,16 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
-import { createTagRegistry } from './tag-registry.mjs';
+// Reaping must not touch the user's statusline routes while exercising temp rows.
+mock.module('../../vendor/statusline/src/gateway/session-routes.mjs', {
+  namedExports: {
+    clearGatewaySessionRoute: () => true,
+    writeGatewaySessionRoutes: () => true,
+  },
+});
+const { createTagRegistry } = await import('./tag-registry.mjs');
 
 const HOUR_MS = 60 * 60 * 1000;
 const HOST_PID = 4242;
@@ -72,6 +79,34 @@ function storedRows(root) {
 function storedTombstones(root) {
   return Object.values(readStored(root).tombstones || {});
 }
+
+test('checkpoint recovery and cached bindings cannot revive a reaped worker', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-reap-recovery-'));
+  const session = workerSession('old-child', 'review', { updatedAt: iso(Date.now() - 2 * HOUR_MS) });
+  const registry = makeRegistry(root, fakeManager(new Map([[session.id, session]])));
+  try {
+    registry.bindTag('review', session, { status: 'idle' });
+    registry.tombstoneTerminalSession('review', session.id, session);
+    session.updatedAt = iso(Date.now() + 1000);
+    session.lastUsedAt = session.updatedAt;
+    session.finishedAt = session.updatedAt;
+    // Simulate an old version having already reinserted the row and tag.
+    registry.upsertWorkerSession(session, 'review', { status: 'idle' });
+    for (let i = 0; i < 3; i += 1) {
+      registry.refreshTagsFromSessions({ scanSessions: true });
+      assert.deepEqual(registry.agentSessionEntries({ scanSessions: true }), []);
+      assert.equal(registry.tags.has('review'), false);
+    }
+    const startedAt = iso(Date.now() + 2000);
+    registry.bindTag('review', session, { status: 'running', turnStartedAt: startedAt });
+    registry.flushWorkerIndexMutations();
+    registry.refreshTagsFromSessions({ scanSessions: true });
+    assert.equal(registry.agentSessionEntries().length, 1, 'a new real turn remains visible');
+  } finally {
+    registry.clearScheduledReaps();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test('session scan does not resurrect a session the reaper just tombstoned', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-tag-reap-scan-'));

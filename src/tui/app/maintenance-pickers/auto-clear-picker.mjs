@@ -53,7 +53,6 @@ export function createAutoClearPicker({
     // after Esc — on open or on any later toggle — can never paint over the
     // user's surface.
     const own = surface.claim();
-    const paintPanel = (panel) => own.paint(panel);
     const applyAutoClear = (patch = {}) => {
       // Bound to the claim on this keypress: a write acking after Esc must not
       // re-open the Auto-clear panel.
@@ -91,7 +90,7 @@ export function createAutoClearPicker({
     };
     const renderAdvanced = async () => {
       const current = await readCurrent();
-      paintPanel({
+      own.paint({
         title: 'Auto-clear · Advanced',
         description: 'Provider default idle windows. Enter edits the duration text.',
         help: '↑/↓ Select · Enter Edit · Esc Back',
@@ -129,7 +128,7 @@ export function createAutoClearPicker({
           _action: 'advanced',
         },
       ];
-      paintPanel({
+      own.paint({
         title: 'Auto-clear',
         description: `Clear idle context after ${enabled ? formatDuration(idleMs) : 'never'} · lead cache TTL ${cacheTtlLabel}.`,
         help: '↑/↓ Select · ←/→ Toggle On/Off · Enter Open/Toggle · Esc Close',

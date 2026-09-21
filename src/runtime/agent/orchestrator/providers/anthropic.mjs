@@ -777,7 +777,6 @@ export class AnthropicProvider {
             try {
               err.midstreamClassifier = firstAttemptClassifier;
             } catch {}
-            throw err;
           }
           throw err;
         } finally {

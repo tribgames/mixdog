@@ -4,6 +4,8 @@ import { PassThrough } from 'node:stream';
 import React, { useState } from 'react';
 import { Text, render } from 'ink';
 import { useTranscriptScroll } from './use-transcript-scroll.mjs';
+import { readingAnchorAt } from './transcript-scroll-anchor.mjs';
+import { captureTopEdgeAnchor } from './transcript-anchor-lock.mjs';
 import { theme } from '../theme.mjs';
 
 const VIEW_ROWS = 10;
@@ -260,4 +262,91 @@ test('word spans extend by whole words and coalesced wheel deltas flush as one s
   control.api.armTranscriptFollow();
   assert.equal(refs.followingRef.current, true);
   assert.equal(refs.transcriptAnchorRef.current, null);
+});
+
+test('manual and render-time anchor capture preserve row boundaries, clamps, and missing geometry', () => {
+  const geom = {
+    prefixRows: [0, 2, 5, 9],
+    items: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    totalRows: 9,
+    viewRows: 3,
+  };
+  const cases = [
+    [geom, 0, { id: 'c', offset: 1 }],
+    [geom, 1, { id: 'c', offset: 0 }],
+    [geom, 1.5, { id: 'b', offset: 2.5 }],
+    [geom, '2', { id: 'b', offset: 2 }],
+    [geom, -4, { id: 'c', offset: 1 }],
+    [geom, 99, { id: 'a', offset: 0 }],
+    [{}, 0, null],
+    [{ ...geom, prefixRows: [0] }, 0, null],
+    [{ ...geom, items: [] }, 0, null],
+    [{ ...geom, items: [{ id: 0 }] }, 99, { id: 0, offset: 0 }],
+    [
+      { prefixRows: [0, 0, 2], items: [{ id: 'a' }, { id: 'b' }], totalRows: 2, viewRows: 1 },
+      1,
+      { id: 'b', offset: 0 },
+    ],
+  ];
+  for (const [geometry, offset, expected] of cases) {
+    assert.deepEqual(readingAnchorAt(geometry, offset), expected);
+    assert.deepEqual(captureTopEdgeAnchor({ ...geometry, offset }), expected);
+  }
+});
+
+test('stitching normalizes harvested rows and rejects incomplete or empty selection coverage', async (context) => {
+  const { refs, store, control, settle } = mount(context);
+  await settle();
+  refs.dragRef.current.region = 'transcript';
+  const rect = { mode: 'linear', x1: 0, y1: 1, x2: 5, y2: 5 };
+  store.selectionRows = [
+    null,
+    { y: '1', text: 'invalid row' },
+    { y: 1, text: 'alpha ', sw: false },
+    { y: 2, text: 'beta  ', sw: true },
+    { y: 3, text: 7, sw: true },
+    { y: 4, text: 'gamma ', sw: 'true' },
+    { y: 5, text: 'delta', sw: 1 },
+  ];
+  control.api.applySelectionRect(rect);
+  await settle();
+  assert.deepEqual(control.api.getStitchedSelectionText(), { text: 'alpha beta\ngamma\ndelta', complete: true });
+
+  control.api.clearStitchBuffer();
+  store.selectionRows = [
+    { y: 1, text: 'start' },
+    { y: 5, text: 'end' },
+  ];
+  control.api.applySelectionRect(rect);
+  await settle();
+  assert.deepEqual(control.api.getStitchedSelectionText(), { text: 'start\nend', complete: false });
+
+  control.api.clearStitchBuffer();
+  store.selectionRows = Array.from({ length: 5 }, (_, index) => ({ y: index + 1, text: ' ' }));
+  control.api.applySelectionRect(rect);
+  await settle();
+  assert.deepEqual(control.api.getStitchedSelectionText(), { text: '', complete: false });
+});
+
+test('an unchanged selection refresh captures text only when capture remains enabled', async (context) => {
+  const { refs, store, control, settle } = mount(context);
+  await settle();
+  refs.dragRef.current.region = 'transcript';
+  const rect = { mode: 'linear', x1: 0, y1: 1, x2: 4, y2: 1 };
+  control.api.applySelectionRect(rect);
+  assert.equal(control.api.paintSelectionRect(clipped(rect), { rememberText: false }), false);
+  assert.equal(store.painted.length, 1);
+
+  store.selectionText = 'fresh';
+  store.selectionRows = [{ y: 1, text: 'fresh' }];
+  assert.equal(control.api.paintSelectionRect(clipped(rect)), true);
+  assert.equal(store.painted.length, 2);
+  await settle();
+  assert.equal(refs.selectionTextRef.current, 'fresh');
+  assert.deepEqual(control.api.getStitchedSelectionText(), { text: 'fresh', complete: true });
+
+  const withoutCapture = clipped(rect, { captureText: false });
+  assert.equal(control.api.paintSelectionRect(withoutCapture), true);
+  assert.equal(control.api.paintSelectionRect(withoutCapture), false);
+  assert.equal(store.painted.length, 3);
 });

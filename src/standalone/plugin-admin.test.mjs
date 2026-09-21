@@ -16,7 +16,7 @@ test('plugin registry persists atomically with owner-only permissions', () => {
   try {
     mkdirSync(source, { recursive: true });
     writeFileSync(join(source, 'plugin.json'), JSON.stringify({ name: 'local-test' }));
-    addPlugin(source, { dataDir });
+    const added = addPlugin(source, { dataDir });
 
     const registryPath = join(dataDir, 'plugins', 'registry.json');
     const registry = JSON.parse(readFileSync(registryPath, 'utf8'));
@@ -33,6 +33,11 @@ test('plugin registry persists atomically with owner-only permissions', () => {
       hookConfigEntries(dataDir, root).some((entry) => entry.sourceType === 'plugin'),
       false
     );
+    const updated = addPlugin(source, { dataDir });
+    assert.equal(updated.id, added.id);
+    assert.equal(updated.installedAt, added.installedAt);
+    assert.equal(updated.enabled, false);
+    assert.equal(listRegisteredPlugins({ dataDir }).length, 1);
     if (process.platform !== 'win32') {
       assert.equal(statSync(registryPath).mode & 0o777, 0o600);
     }

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import type { DesktopCapability } from '../shared/contract';
 import { t } from './i18n';
 import { record } from './record-utils';
+import MarkdownBody from './MarkdownBody';
+import { CopyControl } from './transcript-primitives';
 // @ts-expect-error Shared context map has no separate declaration file.
 import { buildContextMap } from '../../../../src/ui/context-inspection.mjs';
 
@@ -64,6 +66,14 @@ export function groupLabel(group: string): string {
 }
 export type ContextRequest = (capability: DesktopCapability, args?: unknown[]) => Promise<unknown>;
 type Preview = { id: string; text: string; truncated?: boolean; stale?: boolean };
+
+export function contextPreviewMarkdown(text: string, kind?: string): string {
+  if (kind !== 'tool') return text;
+  // Tool previews already contain indented JSON, including possibly truncated
+  // schemas. A longer fence preserves literal backticks in descriptions.
+  const fence = '`'.repeat(Math.max(3, ...(text.match(/`+/g) || []).map((run) => run.length + 1)));
+  return `${fence}json\n${text}\n${fence}`;
+}
 
 const ROLE_LABELS: Record<string, string> = {
   user: 'User',
@@ -247,7 +257,7 @@ export function ContextInspector({
   // Master/detail: categories on the left are the only navigation, and the
   // right pane always shows the result of the last choice — a placeholder,
   // the entry list, or one entry's preview with a way back to the list.
-  let detail;
+  let detail: ReactNode;
   if (!selected) {
     detail = (
       <div className="context-detail-empty">
@@ -274,7 +284,13 @@ export function ContextInspector({
         {preview.truncated ? (
           <p className="context-inspector-note context-detail-note">{t('Preview limited to 32,000 characters.')}</p>
         ) : null}
-        <pre tabIndex={0}>{preview.text}</pre>
+        <div className="context-preview-content markdown" data-scrollable data-i18n-skip tabIndex={0}>
+          <MarkdownBody
+            key={preview.id}
+            text={contextPreviewMarkdown(preview.text, previewEntry?.kind)}
+            copyControl={CopyControl}
+          />
+        </div>
       </section>
     );
   } else {

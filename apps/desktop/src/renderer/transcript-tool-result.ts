@@ -135,7 +135,9 @@ export function toolActivityOutputText(value: unknown): string {
   if (/^[{[]/.test(trimmed)) {
     try {
       return JSON.stringify(JSON.parse(trimmed), null, 2).slice(0, 100_000);
-    } catch {}
+    } catch {
+      // JSON-looking tool output may still be plain text; preserve it below.
+    }
   }
   return boundedTextOf(text, 100_000).trimEnd();
 }

@@ -10,7 +10,6 @@ import { createInlineSessionRuntimeHost } from './session-runtime-inline-host.mj
 function createHarness({ providers = { openai: { key: 'a' } } } = {}) {
   const events = [];
   const dispatchCalls = [];
-  const runtimes = [];
   const graph = {
     config: { loadConfig: () => ({ providers }) },
     registry: {
@@ -46,7 +45,6 @@ function createHarness({ providers = { openai: { key: 'a' } } } = {}) {
             events.push(['dispose', reason]);
           },
         };
-        runtimes.push(runtime);
         return runtime;
       },
     }),
@@ -54,7 +52,7 @@ function createHarness({ providers = { openai: { key: 'a' } } } = {}) {
     warmKeychain: async () => events.push('keychain'),
     executeAgentControl: async (args, context) => ['control', args, context],
   });
-  return { host, events, dispatchCalls, runtimes };
+  return { host, events, dispatchCalls };
 }
 
 test('agentDispatch caches one dispatcher per agent and forwards the call parameters', async () => {
@@ -90,6 +88,40 @@ test('agentDispatch caches one dispatcher per agent and forwards the call parame
     h.events.filter((event) => event[0] === 'initProviders'),
     [['initProviders', { openai: { key: 'a' } }]]
   );
+});
+
+test('agent graph loading retries after a failure and shares the successful graph', async () => {
+  let loads = 0;
+  const failure = new Error('graph import failed');
+  const host = createInlineSessionRuntimeHost({
+    warmKeychain: async () => {},
+    loadAgentGraph: async () => {
+      loads += 1;
+      if (loads === 1) throw failure;
+      return {
+        config: { loadConfig: () => ({}) },
+        registry: { initProviders: async () => {} },
+        dispatch: {
+          makeAgentDispatch:
+            () =>
+            async ({ prompt }) =>
+              `answer for ${prompt}`,
+        },
+      };
+    },
+  });
+  try {
+    await assert.rejects(host.agentDispatch({ dispatchId: 'failed', agent: 'worker' }), (error) => error === failure);
+    for (const dispatchId of ['retried', 'cached']) {
+      assert.equal(
+        await host.agentDispatch({ dispatchId, agent: 'worker', params: { prompt: dispatchId } }),
+        `answer for ${dispatchId}`
+      );
+    }
+    assert.equal(loads, 2);
+  } finally {
+    await host.close();
+  }
 });
 
 test('agentDispatch rejects a missing or already-running dispatch id and aborts with the caller signal', async () => {

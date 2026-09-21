@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deriveToolCardModel } from './tool-card-model.mjs';
+import { deriveToolCardModel, splitLineDeltaTokens } from './tool-card-model.mjs';
 import { GOLDEN_CASES, GIT_GOLDEN_CASES } from './tool-card-model.golden-cases.mjs';
 
 // Golden models were captured from deriveToolCardModel itself; regenerate the
@@ -30,4 +30,19 @@ for (const { id, input, options } of GOLDEN_CASES) {
 
 test('golden file covers exactly the case list', () => {
   assert.deepEqual(Object.keys(golden).sort(), GOLDEN_CASES.map((c) => c.id).sort());
+});
+
+test('line delta tokens preserve punctuation and normalize only signed counts', () => {
+  const expected = [
+    { text: '[' },
+    { text: '+2', delta: '+' },
+    { text: ' Lines] ' },
+    { text: '(' },
+    { text: '-3', delta: '-' },
+    { text: ' lines)' },
+  ];
+  assert.deepEqual(splitLineDeltaTokens('[+ 2 Lines] (-3 lines)'), expected);
+  assert.deepEqual(splitLineDeltaTokens('report-3.md +2 bytes'), [{ text: 'report-3.md +2 bytes' }]);
+  assert.deepEqual(splitLineDeltaTokens(null), []);
+  assert.deepEqual(splitLineDeltaTokens('[+ 2 Lines] (-3 lines)'), expected);
 });

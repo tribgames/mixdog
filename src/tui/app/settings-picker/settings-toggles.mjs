@@ -35,7 +35,7 @@ export function createSettingsToggles({
   // (openAutoClearPicker), opened via Enter on this row.
   const toggleAutoClear = () => applyAutoClear({ enabled: !view.autoClearEnabled });
   const toggleCompaction = () => {
-    void Promise.resolve(store.setCompactionSettings?.({ auto: !(view.compaction.auto !== false) }))
+    void Promise.resolve(store.setCompactionSettings?.({ auto: view.compaction.auto === false }))
       .then((next) => {
         if (!next) {
           store.pushNotice('compaction setting is busy', 'warn');

@@ -36,6 +36,29 @@ test('a split-pane conversation portal fills its slot so the composer stays at t
   assert.equal(workspaceRule.style.flex, '1 1 0%');
 });
 
+test('transcript content rows retain their shared width and turn spacing', async () => {
+  const css = await readFile(new URL('./desktop/12-transcript.css', import.meta.url), 'utf8');
+  const dom = new JSDOM(`<!doctype html><style>${css}</style><main></main>`);
+  try {
+    for (const tag of ['UserMessage', 'AssistantPart', 'ToolActivity', 'Thinking', 'Error']) {
+      for (const turnEnd of [false, true]) {
+        const row = dom.window.document.createElement('div');
+        row.className = 'transcript-virtual-row-content';
+        row.dataset.tag = tag;
+        if (turnEnd) row.dataset.turnEnd = 'true';
+        dom.window.document.querySelector('main').append(row);
+        const style = dom.window.getComputedStyle(row);
+        let padding = tag === 'UserMessage' ? '24px' : '12px';
+        if (turnEnd) padding = '0px';
+        assert.equal(style.width, '100%', `${tag}: shared reading width`);
+        assert.equal(style.paddingBottom, padding, `${tag}: turnEnd=${turnEnd}`);
+      }
+    }
+  } finally {
+    dom.window.close();
+  }
+});
+
 test('a persistent pane portal mounts layout-sensitive children after its target appears', async () => {
   const dom = new JSDOM('<!doctype html><html><body><main id="root"></main></body></html>', {
     url: 'https://mixdog.test/',

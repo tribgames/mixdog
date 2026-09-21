@@ -34,12 +34,8 @@ function loadAgentClassification() {
 }
 
 const _scopedRoleInstructionsCache = new Map();
-// Short-TTL gate for the role-instruction freshness stat. loadScopedRoleInstructions() ran
-// maxMtimeRecursive() over agents/ + rules/agent/ on EVERY call (many per
-// turn across roles), so even a warm cache paid dozens of statSync per turn.
-// Mirror collectSkillsCached(): only re-stat after _ROLE_INSTRUCTIONS_MTIME_TTL_MS, and
-// trust the cached mtime within that window. Edits still propagate within ~1
-// stat interval, which is well under human-perceptible latency.
+// Like collectSkillsCached(), trust cached mtimes within the TTL to avoid
+// re-statting role trees on repeated same-turn calls.
 const _scopedRoleInstructionsMtimeCache = new Map();
 const _ROLE_INSTRUCTIONS_MTIME_TTL_MS = 2000;
 
@@ -85,10 +81,6 @@ function agentSectionDirs(pluginRoot) {
 function loadAgentSections(pluginRoot) {
   // agents/ accepts both the compatibility flat layout and the current
   // nested agents/<agent>/AGENT.md layout.
-  // The previous flat-only readdir silently dropped every nested agent, so a
-  // public agent like heavy-worker produced an EMPTY scoped instruction block
-  // (BP2) — the model lost its agent contract and the tool smoke's
-  // "heavy-worker AGENT.md must be included" assertion failed. Walk both.
   const byName = new Map();
   for (const agentsDir of agentSectionDirs(pluginRoot)) {
     if (!existsSync(agentsDir)) continue;

@@ -147,7 +147,6 @@ const PUPPETEER_POOL_IDLE_MS = Math.max(5_000, Number(process.env.PUPPETEER_POOL
 let _poolBrowser = null;
 let _poolLaunching = null;
 let _poolActive = 0;
-let _poolLastActivity = Date.now();
 let _poolIdleTimer = null;
 const _poolWaiters = [];
 
@@ -185,7 +184,6 @@ async function _acquirePoolSlot(signal) {
     throw abortError();
   }
   _poolActive++;
-  _poolLastActivity = Date.now();
   if (_poolIdleTimer) {
     clearTimeout(_poolIdleTimer);
     _poolIdleTimer = null;
@@ -208,7 +206,6 @@ function schedulePoolIdleClose() {
 
 function _releasePoolSlot() {
   _poolActive = Math.max(0, _poolActive - 1);
-  _poolLastActivity = Date.now();
   _notifyPoolWaiter();
   schedulePoolIdleClose();
 }

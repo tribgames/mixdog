@@ -14,7 +14,7 @@ function responseEntry(response = {}) {
 function formatAgentResponseRaw(entries = []) {
   return entries
     .map((entry, index) => {
-      const raw = String(entry?.raw || '').trim();
+      const raw = entry.raw;
       return raw ? `${index + 1}. agent\n${raw}` : '';
     })
     .filter(Boolean)

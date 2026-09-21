@@ -225,6 +225,14 @@ test('the composer offers only frequent commands and preserves direct command ex
     assert.match(document.body.textContent, /Unknown command: \/not-a-command/);
     assert.deepEqual(calls, []);
 
+    await type('draft to keep');
+    await key('Escape');
+    assert.equal(input.value, 'draft to keep');
+    assert.match(document.body.textContent, /Esc again to clear/);
+    await key('Escape');
+    assert.equal(input.value, '');
+    assert.deepEqual(calls, []);
+
     await type('/');
     await act(async () => input.blur());
     assert.equal(palette(), null);

@@ -74,7 +74,7 @@ export function createTurnCompletionTracker(): TurnCompletionTracker {
           at: nowMs,
         });
       }
-      for (const id of [...working.keys()]) {
+      for (const id of working.keys()) {
         if (present.has(id)) continue;
         working.delete(id);
         lastNotifiedAt.delete(id);

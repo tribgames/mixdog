@@ -10,9 +10,8 @@ function writeDocxFooter(output, operation) {
       op: 'add_page_numbers',
       includeTotal: true,
       alignment: 'center',
-      ...(operation.footer
-        ? { prefix: `${String(operation.footer)} · `, separator: ' / ' }
-        : { prefix: '', separator: ' / ' }),
+      prefix: operation.footer ? `${String(operation.footer)} · ` : '',
+      separator: ' / ',
     });
   } else if (operation.footer) {
     output.push({ op: 'set_header_footer', header: false, text: String(operation.footer) });

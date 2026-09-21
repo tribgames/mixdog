@@ -175,10 +175,7 @@ function extractImageMarkers(text: string): { text: string; chips: ImageMarkerCh
     const inlineRefs = rawLine.match(/\[Image #\d+(?::[^\]]*)?\]/g);
     if (inlineRefs && inlineRefs.length > 0) {
       pendingRefs += inlineRefs.length;
-      const strippedLine = rawLine
-        .replace(/ ?\[Image #\d+(?::[^\]]*)?\] ?/g, ' ')
-        .replace(/ {2,}/g, ' ')
-        .trim();
+      const strippedLine = stripImageTokens(rawLine);
       if (strippedLine) kept.push(strippedLine);
       continue;
     }

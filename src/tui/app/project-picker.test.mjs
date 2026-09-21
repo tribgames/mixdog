@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as settle } from 'node:timers/promises';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createProjectPicker } from './project-picker.mjs';
 
@@ -40,8 +41,6 @@ function harness({ pickFolder, listProjects } = {}) {
   });
   return { factory, calls, notices, prompts, picker: () => picker };
 }
-
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
 test('the picker lists registered projects then the current-path shortcut, with loading state first', async () => {
   const h = harness();

@@ -40,7 +40,8 @@ export const TOOL_DEFS = [
         rules: {
           type: 'array',
           items: { type: 'string' },
-          description: 'results only: exact rule ids from byRule; matches structural ruleId and engine code/ruleId. OR within rules/paths; AND between the two filters.',
+          description:
+            'results only: exact rule ids from byRule; matches structural ruleId and engine code/ruleId. OR within rules/paths; AND between the two filters.',
         },
         apply: {
           type: 'boolean',
@@ -58,7 +59,8 @@ export const TOOL_DEFS = [
         offset: {
           type: 'integer',
           minimum: 0,
-          description: 'Skip this many diagnostics/matches per list; default 0. results applies rules/paths filters first.',
+          description:
+            'Skip this many diagnostics/matches per list; default 0. results applies rules/paths filters first.',
         },
         limit: {
           type: 'integer',

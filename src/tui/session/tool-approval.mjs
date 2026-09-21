@@ -1,12 +1,10 @@
 /**
- * src/tui/session/tool-approval.mjs — tool-approval queue plumbing extracted
- * from the session runtime as a dependency-injection factory.
+ * src/tui/session/tool-approval.mjs — session-owned tool-approval queue.
  *
  * These handlers drive a small FIFO of hook approval requests and reflect the
  * active one into store state (state.toolApproval). They need live session
  * state, so the closure identifiers (state/set/nextId/disposed/timeout) are
  * threaded through the factory argument via getters — never stale snapshots.
- * Every body is the original session-local.mjs logic verbatim.
  */
 export function createToolApproval({ getState, set, nextId, getDisposed, timeoutMs }) {
   const toolApprovalQueue = [];

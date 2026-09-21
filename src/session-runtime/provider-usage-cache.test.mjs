@@ -5,10 +5,7 @@ import { createProviderReadiness } from './provider-readiness.mjs';
 import { createProviderUsage } from './provider-usage.mjs';
 
 function deferred() {
-  let resolve;
-  const promise = new Promise((yes) => {
-    resolve = yes;
-  });
+  const { promise, resolve } = Promise.withResolvers();
   return { promise, resolve };
 }
 

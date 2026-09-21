@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { createPassthroughSignal, createTimeoutSignal } from '../agent/orchestrator/stall-policy.mjs';
 import { createAbortController } from './abort-controller.mjs';
+import { sleep } from './sleep.mjs';
 import {
   createRuntimeLagTracker,
   recordRuntimeDirectoryReadSuccess,
@@ -46,7 +47,7 @@ test('the event-loop lag monitor samples this process and stops cleanly', async 
   try {
     const deadline = Date.now() + 2_000;
     while (samples.length === 0 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await sleep(20);
     }
   } finally {
     stop();
@@ -58,7 +59,7 @@ test('the event-loop lag monitor samples this process and stops cleanly', async 
     assert.ok(sample[key] >= 0);
   }
   const seen = samples.length;
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  await sleep(80);
   assert.equal(samples.length, seen, 'no samples after stop');
 });
 

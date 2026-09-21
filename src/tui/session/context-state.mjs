@@ -106,7 +106,10 @@ export function createContextState({ runtime, getState, updateState, getPendingS
     if (Object.keys(patch).length > 0) updateState(patch);
   }
 
-  const syncContextStats = ({ allowEstimated = false, invalidateExact = false } = {}) => {
+  const syncContextStats = ({
+    allowEstimated: _allowEstimated = false,
+    invalidateExact: _invalidateExact = false,
+  } = {}) => {
     if (getPendingSessionReset()) return null;
     const ctx = runtime.contextStatus?.() || null;
     if (!ctx) return null;

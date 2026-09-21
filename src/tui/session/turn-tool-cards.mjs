@@ -95,22 +95,11 @@ function aggregateCallEntry(callKey, name, args, category) {
   };
 }
 
-// deps: runtime, isCurrentTurn, flags, getState, set, nextId, pushItem,
+// deps: runtime, isCurrentTurn, flags, getState, set, nextId,
 // appendItems, patchItem, itemIndexById, markToolCallActive, markToolCallDone,
 // flushToolResults.
 export function createTurnToolCards(deps) {
-  const {
-    isCurrentTurn,
-    flags,
-    pushItem,
-    appendItems,
-    getState,
-    set,
-    itemIndexById,
-    nextId,
-    patchItem,
-    markToolCallDone,
-  } = deps;
+  const { isCurrentTurn, flags, appendItems, getState, set, itemIndexById, nextId, patchItem, markToolCallDone } = deps;
   const cards = {
     ...deps,
     cardByCallId: new Map(),
@@ -133,7 +122,6 @@ export function createTurnToolCards(deps) {
   cards.deferredCards = createDeferredCardRegistry({
     isCurrentTurn,
     flags,
-    pushItem,
     appendItems,
     getState,
     set,

@@ -4,6 +4,46 @@ import { createSteeringDrain } from '../../../runtime/agent/orchestrator/session
 import { STEERING_SUPPRESSED_DISPLAY } from '../queue-helpers.mjs';
 import { createQueueOps, createSubmissionMemory } from './queue.mjs';
 import { createSteeringOps } from './steering.mjs';
+import { createSubmissionIntake } from '../session-api/intake/submission.mjs';
+
+for (const status of ['done', 'failed', 'cancelled']) {
+  test(`a steered submitAndWait receives its owning turn's ${status} result exactly once`, async () => {
+    const pending = [];
+    const state = { busy: true, commandBusy: false, queued: [] };
+    const bag = {
+      runtime: { id: '' },
+      flags: {},
+      pending,
+      pendingNotificationKeys: new Set(),
+      getState: () => state,
+      set: (patch) => Object.assign(state, patch),
+      nextId: () => 'followup',
+      autoClearBeforeSubmit: async () => {},
+    };
+    const queue = createQueueOps(bag, { kickDrain() {} });
+    bag.enqueue = (text, options) => {
+      pending.push(queue.makeQueueEntry(text, options));
+      return true;
+    };
+    const steering = createSteeringOps(bag, { queue, submissions: createSubmissionMemory() });
+    const intake = createSubmissionIntake(bag);
+    let settled = 0;
+    const result = intake.submitAndWait('continue', {
+      priority: 'next',
+      onSettled: () => { settled += 1; },
+    });
+    const messages = steering.drainPendingSteering({ turnEpoch: 7 });
+    assert.equal(messages[0].content, 'continue');
+    assert.equal(pending.length, 0);
+    const detail = { status, result: { content: 'turn result' } };
+    steering.settleSteeredSubmissions(8, detail);
+    assert.equal(settled, 0, 'another turn cannot settle this submission');
+    steering.settleSteeredSubmissions(7, detail);
+    assert.equal(await result, detail);
+    steering.settleSteeredSubmissions(7, detail);
+    assert.equal(settled, 1);
+  });
+}
 
 for (const suppressDisplay of [false, true]) {
   for (const structured of [false, true]) {

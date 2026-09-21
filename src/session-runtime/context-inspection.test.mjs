@@ -10,6 +10,7 @@ import {
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { SUMMARY_PREFIX } from '../runtime/agent/orchestrator/session/compact.mjs';
 import { recordProviderContextBaseline } from '../runtime/agent/orchestrator/session/loop/compact-policy.mjs';
+import { withRuntimeUserContext } from '../runtime/agent/orchestrator/session/runtime-user-context.mjs';
 
 const fixture = (extra = {}) => ({
   sessionId: 'inspection',
@@ -38,7 +39,7 @@ test('inspection conserves estimates and reports every item without exposing pre
     result.estimatedTokens
   );
   assert.ok(result.categories.find((row) => row.key === 'memory').tokens > 0);
-  assert.ok(result.categories.find((row) => row.key === 'skills').tokens > 0);
+  assert.ok(result.categories.find((row) => row.key === 'user').tokens > 0);
   assert.doesNotMatch(JSON.stringify(result), /Private memory|normal answer|Read a file/);
   const memory = result.entries.find((row) => row.category === 'memory');
   assert.match(inspectContext(input, { entryId: memory.id, revision: result.revision }).preview.text, /Private memory/);
@@ -48,7 +49,7 @@ test('inspection conserves estimates and reports every item without exposing pre
     [answer.kind, answer.role, answer.ordinal, answer.label],
     ['message', 'assistant', 1, 'assistant · 1']
   );
-  assert.equal(result.entries.find((row) => row.category === 'skills').role, undefined);
+  assert.equal(result.entries.find((row) => row.label === 'Skill: sample').category, 'system');
   const many = inspectContext(
     fixture({ messages: Array.from({ length: 1001 }, (_, index) => ({ role: 'user', content: `message ${index}` })) })
   );
@@ -94,13 +95,107 @@ test('runtime-authored user rows read as system sections and skill sections name
     ]
   );
   assert.deepEqual(
-    result.entries.filter((entry) => entry.category === 'skills').map((entry) => entry.label),
+    result.entries
+      .filter((entry) => entry.category === 'system' && entry.group === 'instruction')
+      .map((entry) => entry.label),
     ['Skill instructions', 'Available skills']
   );
   assert.equal(
     result.entries.reduce((sum, row) => sum + row.tokens, 0),
     result.estimatedTokens
   );
+});
+
+test('injected skill bodies are system context while actual tool results remain tool results', () => {
+  const body = '<skill>\n<name>sample</name>\nSkill instructions.\n</skill>';
+  const input = fixture({
+    messages: [
+      { role: 'system', content: body },
+      { role: 'user', content: body },
+      { role: 'assistant', content: body },
+      { role: 'tool', name: 'tool_search', toolCallId: 'skill-load', content: body },
+    ],
+    tools: [],
+    overheadTokens: 0,
+  });
+  const result = inspectContext(input);
+  assert.deepEqual(
+    result.entries.map((entry) => entry.category),
+    ['system', 'system', 'assistant', 'toolResults']
+  );
+  for (const entry of result.entries) {
+    assert.equal(inspectContext(input, { entryId: entry.id, revision: result.revision }).preview.text, body);
+  }
+  assert.equal(result.estimatedTokens, estimateMessagesTokens(input.messages));
+  assert.equal(result.entries.reduce((sum, entry) => sum + entry.tokens, 0), result.estimatedTokens);
+});
+
+test('runtime provenance and text blocks distinguish injected context from human turns', () => {
+  const reminder = '<system-reminder>\n# Current Time\n2026-01-01\n</system-reminder>';
+  const notification =
+    '<task-notification>\n<task-id>job_1</task-id>\n<status>completed</status>\n<summary>Shell task job_1 completed</summary>\n</task-notification>';
+  const cases = [
+    [{ role: 'user', content: 'Human request', meta: { source: 'steering' } }, 'user'],
+    [{ role: 'user', content: notification, meta: { source: 'task-notification' } }, 'system'],
+    [{ role: 'user', content: notification }, 'system'],
+    [{ role: 'user', content: [{ type: 'text', text: reminder }] }, 'system'],
+    [{ role: 'user', content: [{ type: 'text', text: '<skill>\n<name>sample</name>\nBody\n</skill>' }] }, 'system'],
+    [{ role: 'user', content: 'Injected skill body', meta: 'skill' }, 'system'],
+    [{ role: 'user', content: 'Reference files: example.txt' }, 'system'],
+    [{ role: 'user', content: '<mixdog-runtime kind="context-attachment">\nContext\n</mixdog-runtime>' }, 'system'],
+    [{ role: 'user', content: '<mixdog-runtime kind="compact-state">\nSummary\n</mixdog-runtime>' }, 'system'],
+    [{ role: 'user', content: 'Saved summary', meta: { source: 'compact-summary' } }, 'system'],
+    [{ role: 'user', content: 'Continue working', meta: { source: 'goal-continuation' } }, 'system'],
+    [{ role: 'developer', content: 'Follow these rules.' }, 'system'],
+    [{ role: 'tool', name: 'tool_search', toolCallId: 'load-1', content: 'Loaded deferred tools: browser' }, 'toolResults'],
+  ];
+  for (const [message, category] of cases) {
+    const input = fixture({ messages: [message], tools: [], overheadTokens: 0 });
+    const before = JSON.stringify(message);
+    const result = inspectContext(input);
+    assert.deepEqual(result.entries.map((entry) => entry.category), [category], before);
+    assert.equal(result.entries.reduce((sum, entry) => sum + entry.tokens, 0), estimateMessagesTokens([message]));
+    assert.equal(JSON.stringify(message), before);
+  }
+});
+
+test('mixed human and runtime content is split without losing attachments, previews or tokens', () => {
+  const reminder = '<system-reminder>\n# Current Time\n2026-01-01\n</system-reminder>';
+  const human = 'Human request';
+  const image = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } };
+  const messages = [
+    withRuntimeUserContext({ role: 'user', content: human }, { suffix: `\n${reminder}` }),
+    withRuntimeUserContext(
+      { role: 'user', content: [{ type: 'text', text: human }, image] },
+      { prefix: `${reminder}\n`, suffix: `\n${reminder}` }
+    ),
+    { role: 'user', content: `${reminder}\n${human}` },
+    { role: 'user', content: `${human}\n${reminder}` },
+    { role: 'user', content: `${reminder}\n${human}\n${reminder}` },
+  ];
+  for (const message of messages) {
+    const input = fixture({ messages: [message], tools: [], overheadTokens: 0 });
+    const before = JSON.stringify(message);
+    const result = inspectContext(input);
+    const user = result.entries.filter((entry) => entry.category === 'user');
+    assert.equal(user.length, 1);
+    assert.equal(user[0].ordinal, 1);
+    const userPreview = inspectContext(input, { entryId: user[0].id, revision: result.revision }).preview.text;
+    assert.match(userPreview, /Human request/);
+    assert.doesNotMatch(userPreview, /Current Time|2026-01-01/);
+    const system = result.entries.filter((entry) => entry.category === 'system');
+    assert.ok(system.length > 0);
+    for (const entry of system) {
+      const preview = inspectContext(input, { entryId: entry.id, revision: result.revision }).preview.text;
+      assert.doesNotMatch(preview, /Human request/);
+    }
+    if (Array.isArray(message.content)) {
+      assert.equal(result.entries.filter((entry) => entry.category === 'attachments').length, 1);
+    }
+    assert.equal(new Set(result.entries.map((entry) => entry.id)).size, result.entries.length);
+    assert.equal(result.entries.reduce((sum, entry) => sum + entry.tokens, 0), estimateMessagesTokens([message]));
+    assert.equal(JSON.stringify(message), before);
+  }
 });
 
 test('previews exclude opaque fields, binary content, and terminal control sequences', () => {
@@ -164,11 +259,26 @@ test('current reasoning is split from assistant occupancy without changing total
     { reasoningItems: [reasoning] },
     { assistantBlocks: [thought, { type: 'text', text: 'Visible answer' }] },
     { content: [thought, { type: 'text', text: 'Visible answer' }] },
-    { providerMetadata: { gemini: { thoughtParts: [{ thought: true, text: 'plan '.repeat(80), thoughtSignature: 'S'.repeat(400) }] } } },
-    { providerReplay: { items: [reasoning, { type: 'message', content: [{ type: 'output_text', text: 'Visible answer' }] }] }, reasoningItems: [reasoning] },
+    {
+      providerMetadata: {
+        gemini: {
+          thoughtParts: [{ thought: true, text: 'plan '.repeat(80), thoughtSignature: 'S'.repeat(400) }],
+        },
+      },
+    },
+    {
+      providerReplay: {
+        items: [reasoning, { type: 'message', content: [{ type: 'output_text', text: 'Visible answer' }] }],
+      },
+      reasoningItems: [reasoning],
+    },
   ];
   for (const variant of variants) {
-    const input = fixture({ messages: [{ role: 'assistant', content: 'Visible answer', ...variant }], tools: [], overheadTokens: 0 });
+    const input = fixture({
+      messages: [{ role: 'assistant', content: 'Visible answer', ...variant }],
+      tools: [],
+      overheadTokens: 0,
+    });
     const before = JSON.stringify(input.messages);
     const result = inspectContext(input);
     const total = estimateMessagesTokens(input.messages);
@@ -227,14 +337,14 @@ test('entries group by role and producing tool, and tools carry their wire state
   const turns = result.entries.filter((entry) => entry.kind === 'message');
   // Ordinals count turns per role, so the second assistant turn is "assistant 2"
   // even though it sits at transcript index 3.
-  // The compaction summary is a user-role row, so it stays on the user side.
+  // A compaction summary is runtime context, not a human turn.
   assert.deepEqual(
     turns.map((entry) => [entry.category, entry.group, entry.ordinal]),
     [
       ['user', 'user', 1],
       ['assistant', 'assistant', 1],
       ['assistant', 'assistant', 2],
-      ['user', 'summary', 1],
+      ['system', 'summary', 1],
     ]
   );
   // A tool result is a row of its own, grouped under the tool that produced it

@@ -86,7 +86,7 @@ export function priceUsage(args) {
     return { input, costUsd: null, rates: { ...provenance, unpricedReason: 'request-boundaries-unavailable' } };
   }
   let multiplier = 1;
-  if (meta.longContextThreshold && input + cached + written >= meta.longContextThreshold) {
+  if (meta.longContextThreshold && promptTokens >= meta.longContextThreshold) {
     multiplier *= meta.longContextMultiplier || 1;
   }
   // DeepSeek's published peak/off-peak schedule is UTC, not the UI timezone.

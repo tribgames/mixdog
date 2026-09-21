@@ -792,10 +792,14 @@ function guardTask(a) {
   if (!['list', 'read', 'wait', 'cancel'].includes(action)) {
     return `Error: task arg "action" must be one of list|read|wait|cancel (got ${JSON.stringify(a.action)})`;
   }
-  const allowed = new Set(['action', 'task_id', 'timeout_ms']);
+  const allowed = new Set(['action', 'task_id', 'timeout_ms', 'output']);
   const unsupported = Object.keys(a).find((key) => !allowed.has(key));
   if (unsupported) {
-    return `Error: task arg "${unsupported}" is unsupported; use only action, task_id, and timeout_ms`;
+    return `Error: task arg "${unsupported}" is unsupported; use only action, task_id, timeout_ms, and output`;
+  }
+  if (hasOwn(a, 'output')) {
+    if (action !== 'read' && action !== 'wait') return 'Error: task arg "output" is only valid for action=read or wait';
+    if (!['new', 'tail'].includes(a.output)) return 'Error: task arg "output" must be new or tail';
   }
   if (action === 'list') {
     return hasOwn(a, 'timeout_ms') ? 'Error: task arg "timeout_ms" is only valid for action=wait' : null;

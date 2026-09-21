@@ -3,7 +3,7 @@ const projectedTranscriptItems = new WeakMap<object, object>();
 
 function remoteTranscriptItem(item: unknown): unknown {
   if (!item || typeof item !== 'object') return item;
-  const cached = projectedTranscriptItems.get(item as object);
+  const cached = projectedTranscriptItems.get(item);
   if (cached) return cached;
   let projected: Record<string, unknown> | null = null;
   for (const field of REMOTE_TRANSCRIPT_DROP_FIELDS) {
@@ -12,7 +12,7 @@ function remoteTranscriptItem(item: unknown): unknown {
     delete projected[field];
   }
   const result = projected ?? item;
-  projectedTranscriptItems.set(item as object, result as object);
+  projectedTranscriptItems.set(item, result);
   return result;
 }
 

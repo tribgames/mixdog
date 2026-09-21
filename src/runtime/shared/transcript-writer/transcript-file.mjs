@@ -21,7 +21,11 @@ export function conversationText(content) {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
   return content
-    .map((block) => (typeof block === 'string' ? block : block?.type === 'text' && typeof block.text === 'string' ? block.text : ''))
+    .map((block) => {
+      if (typeof block === 'string') return block;
+      if (block?.type === 'text' && typeof block.text === 'string') return block.text;
+      return '';
+    })
     .filter(Boolean)
     .join('\n');
 }

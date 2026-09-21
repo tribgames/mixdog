@@ -105,11 +105,7 @@ function sameTree(left, right) {
       if (!sameTree(a, b)) return false;
       continue;
     }
-    try {
-      if (!sameBytes(readFileSync(a), readFileSync(b))) return false;
-    } catch {
-      return false;
-    }
+    if (!sameFile(a, b)) return false;
   }
   return true;
 }

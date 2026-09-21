@@ -58,6 +58,23 @@ test('wait timeouts retain both observation and final snapshot failure reasons',
   assert.equal(f.closes(), 1);
 });
 
+test('wait trims each condition and rejects blank or non-string conditions before observation', async () => {
+  for (const [key, value] of [
+    ['text', '  Saved  '],
+    ['textGone', '  Loading  '],
+    ['url', '  /Complete  '],
+  ]) {
+    const f = fixture({ [key]: value }, async () => 'Saved');
+    assert.match((await flowActions.wait(f.context)).text, /Condition met/);
+    assert.equal(f.closes(), 1);
+    for (const empty of [' \t ', undefined, 1]) {
+      const invalid = fixture({ [key]: empty }, async () => assert.fail('invalid condition read'));
+      invalid.context.services.documents.observeChanges = async () => assert.fail('invalid observer setup');
+      await assert.rejects(flowActions.wait(invalid.context), /wait requires text, textGone, and\/or url/);
+    }
+  }
+});
+
 test('wait cancellation preserves the reason and closes observation without taking a final snapshot', async () => {
   const controller = new AbortController();
   const reason = new Error('user takeover');

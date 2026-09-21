@@ -5,8 +5,7 @@ import { isRoutingId } from './ids.mjs';
 const PROFILE_FIELD_LIMIT = 80;
 const DEFAULT_CLIENT_NAME = 'Browser';
 const MAX_PAIRED_CLIENTS_PER_DEVICE = 256;
-const REGISTRABLE_DEVICE_ID =
-  /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,64})$/;
+const REGISTRABLE_DEVICE_ID = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{32,64})$/;
 
 function sha256(value) {
   return createHash('sha256').update(String(value)).digest('hex');

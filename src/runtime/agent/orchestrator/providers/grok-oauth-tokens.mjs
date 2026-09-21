@@ -24,7 +24,6 @@ import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { decodeJwtPayload, expiryFromAccessToken, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 
-// --- Constants ---
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
 
 export const CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
@@ -35,27 +34,24 @@ export const CALLBACK_HOST = '127.0.0.1';
 export const CALLBACK_PORT = 56121;
 export const CALLBACK_PATH = '/callback';
 export const REDIRECT_URI = `http://${CALLBACK_HOST}:${CALLBACK_PORT}${CALLBACK_PATH}`;
-// Primary inference + search target. The OAuth token's `api:access` scope works
-// against the STANDARD xAI API (GET /models 200, POST /responses 200, web_search
-// 200 with citations). grok-4.x and web search live here. Proxy-only models
-// (grok-build, grok-composer-2.5-fast) are NOT published on api.x.ai — they route
-// to PROXY_BASE_URL below, which is version-gated and needs the Grok CLI client
-// headers (see proxyHeaders).
+// Native xAI model catalog. Proxy-only models (grok-build,
+// grok-composer-2.5-fast) are not published here, so discovery merges both
+// catalogs. All OAuth inference uses PROXY_BASE_URL instead.
 export const INFERENCE_BASE_URL = 'https://api.x.ai/v1';
 export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
 
 // --- grok-build CLI proxy (Composer 2.5, grok-build) ---
 // These models live ONLY on the grok-build proxy, not api.x.ai. /models is
 // readable with the bare OAuth bearer; /responses is version-gated (HTTP 426)
-// and requires the Grok CLI's client headers. We route only proxy-only models
-// here and keep grok-4.x + search on api.x.ai.
+// and requires the Grok CLI's client headers. All OAuth models route here
+// for inference, including those discovered through api.x.ai.
 export const PROXY_BASE_URL = 'https://cli-chat-proxy.grok.com/v1';
 const GROK_CLIENT_IDENTIFIER = 'grok-shell';
 const GROK_CLI_VERSION_FALLBACK = '0.2.16';
 
-// Route to the proxy: any grok-composer* model, plus the bare `grok-build`
+// Proxy-only catalog models: any grok-composer* model, plus the bare `grok-build`
 // coding agent. NOT grok-build-0.1 — that is a real api.x.ai model and must stay
-// on api.x.ai, so we match grok-build exactly rather than by prefix.
+// in the native catalog, so we match grok-build exactly rather than by prefix.
 const PROXY_EXACT_MODELS = new Set(['grok-build']);
 export function isProxyOnlyModel(model) {
   const m = String(model || '');
@@ -187,12 +183,6 @@ export function _normalizeExpiresAt(value) {
   return n < 1e12 ? n * 1000 : n;
 }
 
-// Fallback expiry from the access_token's JWT `exp` claim (epoch ms) when the
-// store carries no explicit expires_at — without it expires_at stays 0, which
-// ensureAuth reads as "never expires", disabling proactive refresh. Returns 0
-// for opaque (non-JWT) tokens. JWT `exp` is epoch SECONDS (RFC 7519).
-const _expiryFromAccessToken = expiryFromAccessToken;
-
 export function _identityFromAccessToken(token) {
   const payload = decodeJwtPayload(token);
   if (!payload) return {};
@@ -226,7 +216,11 @@ export function _loadOwnTokens() {
     return {
       access_token: raw.access_token,
       refresh_token: raw.refresh_token,
-      expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || _expiryFromAccessToken(raw.access_token),
+      // Fallback expiry from the access_token's JWT `exp` claim (epoch ms) when the
+      // store carries no explicit expires_at — without it expires_at stays 0, which
+      // ensureAuth reads as "never expires", disabling proactive refresh. Returns 0
+      // for opaque (non-JWT) tokens. JWT `exp` is epoch SECONDS (RFC 7519).
+      expires_at: _normalizeExpiresAt(raw.expires_at ?? raw.expiresAt) || expiryFromAccessToken(raw.access_token),
       token_endpoint: raw.token_endpoint || null,
       user_id: raw.user_id || raw.userId || identity.user_id || '',
       principal_type: raw.principal_type || raw.principalType || identity.principal_type || '',
@@ -494,5 +488,3 @@ export async function refreshTokens(tokens, { force = false } = {}) {
     }
   );
 }
-
-// --- Model catalog cache (24h disk TTL) ---

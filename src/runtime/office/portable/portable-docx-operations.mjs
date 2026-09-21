@@ -3,7 +3,7 @@
 // table cells and revision resolution.
 import { zipText } from './portable-opc.mjs';
 import { docxBodyModel } from './portable-snapshot.mjs';
-import { paragraphTexts, rebuildTextNodes, textNodes, xmlDecode, xmlEncode } from './portable-xml.mjs';
+import { paragraphTexts, rebuildTextNodes, tagPattern, textNodes, xmlDecode, xmlEncode } from './portable-xml.mjs';
 import {
   ensureNotePart,
   forgetCommentIdentity,
@@ -178,13 +178,7 @@ async function pruneOrphanComments(zip, parts) {
     const xml = await zipText(zip, part);
     const stripped = removedIds.reduce(
       (value, id) =>
-        value.replace(
-          new RegExp(
-            `<w:commentRange(?:Start|End)\\b[^>]*\\bw:id="${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"[^>]*\\/>`,
-            'g'
-          ),
-          ''
-        ),
+        value.replace(new RegExp(`<w:commentRange(?:Start|End)\\b[^>]*\\bw:id="${tagPattern(id)}"[^>]*\\/>`, 'g'), ''),
       xml
     );
     if (stripped !== xml) zip.file(part, stripped);
@@ -322,7 +316,6 @@ export async function setDocxPage(zip, op) {
   };
 }
 
-/** Rebalances a table across the text column, keeping each column's share and every cell's own properties. */
 // The text column's width in twips: the trailing section's page width less
 // its side margins.
 function usableTextWidth(documentXml) {
@@ -362,6 +355,7 @@ function fitTableCells(tableXml, widths) {
   });
 }
 
+/** Rebalances a table across the text column, keeping each column's share and every cell's own properties. */
 export async function fitDocxTable(zip, op) {
   let current = await zipText(zip, 'word/document.xml');
   const table = docxTable(current, op.table);
@@ -398,7 +392,6 @@ export async function fitDocxTable(zip, op) {
   return { op: op.op, changed: true, table: Number(op.table), width: usable, columns: count };
 }
 
-/** Fills one named or numbered content control, in the body, a header, or a footer. */
 // One run carries the value, the rest are dropped: a control filled across
 // its old runs keeps fragments of the placeholder it replaced. A placeholder
 // control shows grey prompt text until the flag goes.
@@ -414,6 +407,7 @@ function controlFilledWith(control, contentInner, text) {
   return cleaned.replace(/<w:sdtContent\b[^>]*>[\s\S]*?<\/w:sdtContent>/, `<w:sdtContent>${paragraph}</w:sdtContent>`);
 }
 
+/** Fills one named or numbered content control, in the body, a header, or a footer. */
 export async function fillDocxContentControl(zip, op) {
   const text = String(op.text ?? '');
   const tag = String(op.tag || '').trim();
@@ -463,7 +457,6 @@ export async function fillDocxContentControl(zip, op) {
   };
 }
 
-/** Rewrites, removes, or moves one body paragraph, tracked when the document tracks. */
 // Moves the paragraph before the destination-th remaining paragraph, or to
 // the end of the body when there is none.
 function movedParagraphInner(inner, model, paragraph, destination) {
@@ -498,6 +491,7 @@ function paragraphWithText(paragraph, op) {
   return rebuildTextNodes(paragraph.xml, 'w:t', nodes);
 }
 
+/** Rewrites, removes, or moves one body paragraph, tracked when the document tracks. */
 export async function editDocxParagraph(zip, op, tracking) {
   let current = await zipText(zip, 'word/document.xml');
   const model = docxBodyModel(current);

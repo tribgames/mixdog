@@ -1048,20 +1048,12 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
     let mut id = 2;
     while std::time::Instant::now() < deadline && !found {
         writeln!(stdin, "{}", request(id)).unwrap();
-        loop {
-            let mut line = String::new();
-            stdout.read_line(&mut line).unwrap();
-            let response: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-            if response["event"] == "invalidate" {
-                continue;
-            }
-            assert_eq!(response["id"], id);
-            found = response["matches"].as_array().unwrap().iter().any(|path| {
-                path.as_str()
-                    .is_some_and(|path| path.ends_with("watcher-created.rs"))
-            });
-            break;
-        }
+        let response = read_search_message(&mut stdout);
+        assert_eq!(response["id"], id);
+        found = response["matches"].as_array().unwrap().iter().any(|path| {
+            path.as_str()
+                .is_some_and(|path| path.ends_with("watcher-created.rs"))
+        });
         id += 1;
         if !found {
             std::thread::sleep(std::time::Duration::from_millis(40));
@@ -1159,12 +1151,7 @@ fn serve_search_parallel_load_keeps_one_server_responsive() {
     let mut queue_ms = Vec::new();
     let mut cancel_elapsed = None;
     while ids.len() < REQUESTS as usize || cancel_elapsed.is_none() {
-        let mut line = String::new();
-        stdout.read_line(&mut line).unwrap();
-        let response: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
-        if response["event"] == "invalidate" {
-            continue;
-        }
+        let response = read_search_message(&mut stdout);
         if response["id"] == cancel_id && response["event"] == "cancelled" {
             cancel_elapsed = Some(cancel_started.elapsed());
             continue;

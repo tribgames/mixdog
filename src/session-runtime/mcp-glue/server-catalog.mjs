@@ -19,10 +19,6 @@ export function createMcpServerCatalog({ mcpClient, getConfig, getMcpScopeId, st
     }
   }
 
-  // Merge mixdog-config `agent.mcpServers` with project-local `.mcp.json`.
-  // On name collision the project-local `.mcp.json` entry WINS
-  // (precedence: project > user config). `sources[name]` records each server's
-  // origin ('config' | 'project') for status reporting.
   function resolveEffectiveMcpServers() {
     // MCP is machine-global. Project `.mcp.json` files and per-project
     // overrides are intentionally outside the runtime resolution chain.

@@ -334,10 +334,9 @@ function unknownFieldsFault(batch, name, operation, index, { allowed, propertyKe
 // the rendered page says otherwise.
 function unknownPropertiesFault(batch, name, operation, index, signatureValue) {
   const { format, backend, catalog } = batch;
-  const declaredProperties = signatureValue.propertySets.flatMap((set) => catalog.properties?.[set] || []);
+  const allowedProperties = propertyKeySet(catalog, signatureValue);
   const properties = operation.properties;
-  if (!declaredProperties.length || !plainObject(properties)) return null;
-  const allowedProperties = new Set(declaredProperties.map((entry) => String(entry).split('.')[0]));
+  if (!allowedProperties.size || !plainObject(properties)) return null;
   // The same font key is spelled two ways inside one format — a run takes
   // name/size, a table cell fontName/fontSize — because each set grew on
   // its own. Either spelling reaches the key the operation declares.

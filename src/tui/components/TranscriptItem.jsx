@@ -5,13 +5,13 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
-import stripAnsi from 'strip-ansi';
 import { theme, TURN_MARKER, RESULT_GUTTER } from '../theme.mjs';
 import { AssistantMessage, UserMessage, NoticeMessage } from './Message.jsx';
 import { ToolExecution } from './ToolExecution.jsx';
 import { StatusDone, TurnDone } from './TurnDone.jsx';
 import { ItemRightHintOverprint } from './ItemRightHintOverprint.jsx';
 import { formatToolSurface } from '../../runtime/shared/tool-surface.mjs';
+import { safeInlineText } from '../../runtime/shared/tool-card-model.mjs';
 import {
   formatHookDenialDetail,
   isHookApprovalDenialToolItem,
@@ -22,18 +22,9 @@ import {
 export function ToolHookDenialCard({ item, columns = 80 }) {
   const { label, summary } = formatToolSurface(item.name, item.args);
   const detail = formatHookDenialDetail(toolItemResultText(item));
-  const safeLabel = stripAnsi(String(label || ''))
-    .replace(/[\u0000-\u001F\u007F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const safeSummary = stripAnsi(String(summary || ''))
-    .replace(/[\u0000-\u001F\u007F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  const safeDetail = stripAnsi(String(detail || ''))
-    .replace(/[\u0000-\u001F\u007F]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const safeLabel = safeInlineText(label || '');
+  const safeSummary = safeInlineText(summary || '');
+  const safeDetail = safeInlineText(detail || '');
   const summaryText = safeSummary ? ` (${safeSummary})` : '';
   const rowWidth = Math.max(1, Number(columns || 80));
   const detailWidth = Math.max(1, rowWidth - stringWidth(RESULT_GUTTER));

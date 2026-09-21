@@ -53,7 +53,6 @@ const SESSION_ROUTE_TOOL_ORDER = [
   'edit',
   'apply_patch',
   'git',
-  'git_stage',
   'github',
   'shell',
   'task',
@@ -176,8 +175,6 @@ function _computeBaseTools(toolSpec, mcp, skillTools, { ownerIsAgentSession = fa
             ALL_BUILTIN_SESSION_TOOLS.filter(
               (t) =>
                 t.name === 'git' ||
-                t.name === 'git_stage' ||
-                t.name === 'github' ||
                 t.name === 'shell' ||
                 t.name === 'task'
             )

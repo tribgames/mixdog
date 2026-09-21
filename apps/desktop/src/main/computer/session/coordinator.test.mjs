@@ -306,3 +306,26 @@ test('takeover can cancel a host-queued session before its activity begins', () 
     coordinator.reset();
   }
 });
+
+for (const finish of ['endExecution', 'cancelSession']) {
+  test(`${finish} preserves user control when removing the last activity`, () => {
+    const coordinator = new ComputerUseCoordinator();
+    try {
+      begin(coordinator, 'session-last');
+      coordinator[finish]('session-last');
+      assert.equal(coordinator.snapshot().userControlActive, false);
+      assert.equal(coordinator.snapshot().takeoverReason, undefined);
+
+      begin(coordinator, 'session-paused');
+      coordinator.pauseForUser('user_stop');
+      coordinator[finish]('session-paused');
+      const paused = coordinator.snapshot();
+      assert.equal(paused.activities.length, 0);
+      assert.equal(paused.userControlActive, true);
+      assert.equal(paused.takeoverReason, 'user_stop');
+      assert.throws(() => begin(coordinator, 'session-blocked'), /computer_user_control_active/);
+    } finally {
+      coordinator.reset();
+    }
+  });
+}

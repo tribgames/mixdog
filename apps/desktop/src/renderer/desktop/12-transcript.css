@@ -287,12 +287,6 @@ html[data-mixdog-mobile-tabs] .conversation {
      transcript and typed text share one reading column. */
   padding-left: calc(var(--pane-inset) + var(--transcript-text-inset));
   padding-right: calc(var(--pane-inset) + var(--transcript-text-inset) - var(--mx-scrollbar-gutter));
-}
-.transcript-virtual-row-content[data-tag="UserMessage"],
-.transcript-virtual-row-content[data-tag="AssistantPart"],
-.transcript-virtual-row-content[data-tag="ToolActivity"],
-.transcript-virtual-row-content[data-tag="Thinking"],
-.transcript-virtual-row-content[data-tag="Error"] {
   padding-bottom: 12px;
 }
 /* The hover meta line (top:100% overlay, 24px) must fit INSIDE the clipped

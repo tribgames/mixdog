@@ -21,8 +21,7 @@ const READ_SELECT_OPTIONS = `function() {
     (_, index) => el.options[index],
   )
     .map((option) => String(option.label || option.text || option.value || '').trim().slice(0, 200))
-    .filter(Boolean)
-    .slice(0, 200);
+    .filter(Boolean);
   return { options };
 }`;
 

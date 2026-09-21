@@ -72,7 +72,7 @@ test('an uninstalled built-in stays inactive and is denied at the session surfac
 
   assert.equal(gates.memoryToolsEnabledFn(), false);
   assert.equal(gates.localProviderEnabledFn(), false);
-  for (const denied of ['memory', 'recall', 'git_stage', 'github']) {
+  for (const denied of ['memory', 'recall', 'git', 'github']) {
     assert.equal(gates.featureDisallowedTools().includes(denied), true);
   }
   // Module-level features keep their enabled-by-default answer.

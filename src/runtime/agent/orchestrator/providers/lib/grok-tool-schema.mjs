@@ -41,11 +41,10 @@ function mergeObjectBranchProperties(objectBranches) {
       }
       if (schemasDeepEqual(properties[name], schema)) continue;
       const alternatives = [...pureAnyOfAlternatives(properties[name]), ...pureAnyOfAlternatives(schema)];
-      const deduped = alternatives.reduce(
-        (unique, alternative) =>
-          unique.some((item) => schemasDeepEqual(item, alternative)) ? unique : [...unique, alternative],
-        []
-      );
+      const deduped = [];
+      for (const alternative of alternatives) {
+        if (!deduped.some((item) => schemasDeepEqual(item, alternative))) deduped.push(alternative);
+      }
       if (deduped.every((value) => value.type === 'object' || value.properties)) {
         const { required: _required, properties: _properties, ...base } = deduped[0];
         const required = requiredKeys(deduped[0]).filter((key) =>

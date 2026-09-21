@@ -29,12 +29,9 @@ import { withFileLockSync } from '../../../shared/atomic-file.mjs';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../../../shared/runtime-root.mjs';
 
-// ── pg-process interface (Track A) ───────────────────────────────────────────
-// Dynamic import so this module loads even before Track A's file exists.
 let _pgProc = null;
 async function _getPgProc() {
   if (_pgProc) return _pgProc;
-  // import.meta.url is in src/memory/lib/pg/ — process.mjs lives alongside.
   const mod = await import('./process.mjs');
   _pgProc = {
     startPg: mod.startPg,
@@ -434,8 +431,6 @@ async function _startFresh(dataDir, pgdata, port, runtimeDir) {
   const logPath = join(dataDir, 'pg.log');
   rotateLogIfNeeded(logPath);
   mkdirSync(pgdata, { recursive: true });
-  // Track A's startPg handles initdb (if needed) then pg_ctl start.
-  // stdout/stderr are directed to logPath by Track A's implementation.
   const pgdataDir = pgdata;
   const proc = await startPg({ runtimeDir, pgdataDir, port, logPath });
   const actualPort = proc?.port ?? port;

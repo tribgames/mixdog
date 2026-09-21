@@ -40,10 +40,6 @@ test('transcript history grows in bounded pages only at a full window', () => {
 
 test('every active reader gesture defers corrective transcript scroll writes', () => {
   assert.equal(shouldDeferTranscriptScrollAdjustment(true), true);
-  assert.equal(shouldDeferTranscriptScrollAdjustment(false), false);
-});
-
-test('core motion alone never defers corrective writes: an idle reader keeps its compensation', () => {
   // The core sets isScrolling for its own corrective writes, so treating that
   // as ownership left an untouched transcript bouncing on the deferred flush.
   assert.equal(shouldDeferTranscriptScrollAdjustment(false), false);

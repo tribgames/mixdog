@@ -69,16 +69,17 @@ test('a steering abort preserves requested Goal time while a later explicit stop
 });
 
 test('rejected or failed abort requests cannot authorize a steering handoff', () => {
-  for (const abort of [
-    () => false,
-    () => {
-      throw new Error('abort unavailable');
-    },
-  ]) {
+  for (const shouldThrow of [false, true]) {
     const flags = { leadTurnEpoch: 2, goalSteeringAbortEpoch: 1 };
-    try {
-      abortGoalTurn({ abort }, flags, true);
-    } catch {}
+    const error = new Error('abort unavailable');
+    const abort = () => {
+      if (shouldThrow) throw error;
+      return false;
+    };
+    const invoke = () => abortGoalTurn({ abort }, flags, true);
+    if (shouldThrow) assert.throws(invoke, (actual) => actual === error);
+    else assert.equal(invoke(), false);
+    assert.equal(flags.goalSteeringAbortEpoch, 1);
     assert.equal(
       preserveGoalStateAfterTurn({
         cancelled: true,

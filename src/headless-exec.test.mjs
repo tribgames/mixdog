@@ -65,7 +65,7 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
     const session = {
       provider: 'openai-oauth',
       model: 'gpt-test',
-      tools: ['git', 'office', 'git_stage', 'github'].map((name) => ({
+      tools: ['git', 'office', 'github'].map((name) => ({
         name,
         inputSchema: { type: 'object', properties: {} },
       })),
@@ -76,7 +76,7 @@ test('pristine headless execution binds Cursor OAuth credentials in process', as
       deferredCatalogUnion(session).map((tool) => tool.name),
       ['git']
     );
-    assert.deepEqual(selectDeferredTools(session, ['office', 'git_stage', 'github'], 'full').added, []);
+    assert.deepEqual(selectDeferredTools(session, ['office', 'github'], 'full').added, []);
   } finally {
     boundary.cleanup();
     rmSync(root, { recursive: true, force: true });

@@ -138,8 +138,7 @@ export function splitPastedImagePathCandidates(text) {
   for (let li = 0; li < lines.length; li += 1) {
     const line = lines[li];
     const chunks = line.split(/ (?=\/|~\/|\.\.?\/|[A-Za-z]:\\|file:\/\/)/g);
-    for (let ci = 0; ci < chunks.length; ci += 1) {
-      const raw = chunks[ci];
+    for (const raw of chunks) {
       if (!raw) continue;
       out.push({ text: raw, imagePath: isImagePathText(raw) });
     }

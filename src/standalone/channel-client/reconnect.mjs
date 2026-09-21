@@ -1,4 +1,3 @@
-// channel-client/reconnect.mjs
 // Bounded reconnect for a verified-live daemon's transient SSE loss. A
 // stale/dead endpoint signals onFatal immediately so the owner re-reads
 // discovery instead of spinning against the captured port. Owns the retry

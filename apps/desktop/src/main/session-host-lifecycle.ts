@@ -74,7 +74,12 @@ export interface SessionHostLifecycleOwner {
     value: Record<string, unknown> | null | undefined,
     publish?: boolean
   ): SessionSnapshot;
-  publishSession(sessionId: string, snapshot: SessionSnapshot, frameSource?: DesktopSessionFrameSource, readTraceId?: string): void;
+  publishSession(
+    sessionId: string,
+    snapshot: SessionSnapshot,
+    frameSource?: DesktopSessionFrameSource,
+    readTraceId?: string
+  ): void;
   snapshotWithRemoteSession(snapshot: SessionSnapshot): SessionSnapshot;
   snapshotWithShellJobs(sessionId: string, snapshot: SessionSnapshot): SessionSnapshot;
   publishShell(snapshot: SessionSnapshot): void;
@@ -235,10 +240,7 @@ export class SessionHostLifecycle {
     const traceId = transcriptReadTraceId(readTraceId);
     const startedAt = performance.now();
     reportTranscriptRead(id, traceId, 'host-start');
-    const limit = Math.max(
-      1,
-      Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT))
-    );
+    const limit = Math.max(1, Math.min(8_192, Math.floor(Number(transcriptItemLimit) || DESKTOP_TRANSCRIPT_ITEM_LIMIT)));
     try {
       let snapshot: SessionSnapshot;
       if (limit <= DESKTOP_TRANSCRIPT_ITEM_LIMIT) {
@@ -304,7 +306,10 @@ export class SessionHostLifecycle {
           snapshot: gone.has(sessionId)
             ? null
             : this.owner.snapshotWithRemoteSession(
-                this.owner.snapshotWithShellJobs(sessionId, this.owner.publication.projections.get(sessionId)?.snapshot ?? null)
+                this.owner.snapshotWithShellJobs(
+                  sessionId,
+                  this.owner.publication.projections.get(sessionId)?.snapshot ?? null
+                )
               ),
           frameSource: 'replay' as const,
           ...(gone.has(sessionId) ? { laneEnd: 'gone' as const } : {}),

@@ -8,14 +8,6 @@ import { _registerMcpServerForTest, executeMcpTool, getMcpAdmissionSnapshot } fr
 
 const never = () => new Promise(() => {});
 
-function deferred() {
-  let resolve;
-  const promise = new Promise((res) => {
-    resolve = res;
-  });
-  return { promise, resolve };
-}
-
 async function waitFor(predicate, label, timeoutMs = 2_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -72,7 +64,7 @@ test('an aborted caller settles a QUEUED call and frees its queue seat', async (
 test('an aborted caller settles an ADMITTED call whose server ignores cancellation', async () => {
   const scopeId = 'mcp-cancel-active';
   let sawSignal = false;
-  _registerMcpServerForTest(scopeId, 'deaf', [{ name: 'hang' }], {
+  const server = _registerMcpServerForTest(scopeId, 'deaf', [{ name: 'hang' }], {
     // Server call timeout DISABLED: the caller's abort is the only bound.
     cfg: { maxConcurrency: 1, timeoutMs: 'off' },
     callTool: (_params, _schema, options) => {
@@ -92,16 +84,13 @@ test('an aborted caller settles an ADMITTED call whose server ignores cancellati
   await waitFor(() => slotsFor(scopeId, 'deaf').active === 0, 'the admission slot to be released');
 
   // The freed slot is genuinely reusable.
-  _registerMcpServerForTest(scopeId, 'deaf-ok', [{ name: 'go' }], {
-    cfg: { maxConcurrency: 1 },
-    callTool: async () => ({ content: [{ type: 'text', text: 'ran after cancel' }] }),
-  });
-  assert.equal(await executeMcpTool('mcp__deaf-ok__go', {}, { scopeId }), 'ran after cancel');
+  server.client.callTool = async () => ({ content: [{ type: 'text', text: 'ran after cancel' }] });
+  assert.equal(await executeMcpTool('mcp__deaf__hang', {}, { scopeId }), 'ran after cancel');
 });
 
 test('an aborted caller settles a call stalled inside a shared reconnect', async () => {
   const scopeId = 'mcp-cancel-reconnect';
-  const closeEntered = deferred();
+  const closeEntered = Promise.withResolvers();
   _registerMcpServerForTest(scopeId, 'flaky', [{ name: 'boom' }], {
     cfg: { maxConcurrency: 1, timeoutMs: 'off' },
     // A plain failure (not a timeout, not an abort) is what sends the call into
@@ -133,7 +122,7 @@ test('an aborted caller settles a call stalled inside a shared reconnect', async
 test('cancellation never turns into a reconnect-and-retry (no duplicate side effect)', async () => {
   const scopeId = 'mcp-cancel-no-retry';
   let calls = 0;
-  const closeEntered = deferred();
+  const closeEntered = Promise.withResolvers();
   _registerMcpServerForTest(scopeId, 'once', [{ name: 'effect' }], {
     cfg: { maxConcurrency: 1, timeoutMs: 'off' },
     callTool: async () => {

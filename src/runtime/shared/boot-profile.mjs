@@ -8,8 +8,12 @@ import { performance } from 'node:perf_hooks';
 import { envFlag } from './env.mjs';
 
 export const BOOT_PROFILE_ENABLED = envFlag('MIXDOG_BOOT_PROFILE');
-export const BOOT_PROFILE_START =
-  globalThis.__mixdogBootProfileStart || (globalThis.__mixdogBootProfileStart = performance.now());
+let bootProfileStart = globalThis.__mixdogBootProfileStart;
+if (!bootProfileStart) {
+  bootProfileStart = performance.now();
+  globalThis.__mixdogBootProfileStart = bootProfileStart;
+}
+export const BOOT_PROFILE_START = bootProfileStart;
 
 export function createBootProfiler(scope = '') {
   const prefix = scope ? `${scope}:` : '';

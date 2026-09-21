@@ -262,7 +262,7 @@ test('short shell commands complete inline without tasks or notifications', asyn
   }
 });
 
-test('task read returns snapshots and task wait returns only settled tasks', async () => {
+test('task read returns incremental output and task wait returns a settled verdict', async () => {
   const shellCheckEvents = [];
   const shellCheckOptions = shellNotifyOptions(shellCheckEvents, 'snapshot_read');
   const _priorSnapshotAutoBg = process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS;
@@ -293,10 +293,7 @@ test('task read returns snapshots and task wait returns only settled tasks', asy
     root,
     shellCheckOptions
   );
-  if (
-    !/status:\s*running/i.test(String(shellSnapshotRead)) ||
-    !/"status":\s*"running"/i.test(String(shellSnapshotRead))
-  ) {
+  if (!/status:\s*running/i.test(String(shellSnapshotRead))) {
     throw new Error(`task read must return the current running snapshot:\n${shellSnapshotRead}`);
   }
   // wait replaces the polling loop: one call returns the settled task, so a
@@ -311,8 +308,17 @@ test('task read returns snapshots and task wait returns only settled tasks', asy
     root,
     shellCheckOptions
   );
-  if (/"status":\s*"running"/i.test(String(shellWaitSettled))) {
+  if (!/status:\s*completed/i.test(String(shellWaitSettled)) || !/exit_code:\s*0/.test(String(shellWaitSettled))) {
     throw new Error(`task wait must return only after the task settles:\n${shellWaitSettled}`);
+  }
+  if (!String(shellWaitSettled).includes('tool-contracts-snapshot-read-done')) {
+    throw new Error(`task wait must retain the new final output:\n${shellWaitSettled}`);
+  }
+  if (
+    /tool-contracts-snapshot-read-progress/.test(`${shellCheckOut}\n${shellSnapshotRead}`) &&
+    /tool-contracts-snapshot-read-progress/.test(String(shellWaitSettled))
+  ) {
+    throw new Error(`task wait repeated previously delivered progress:\n${shellWaitSettled}`);
   }
   await assertSingleShellCompletion(shellCheckEvents, shellCheckTaskId, 'shell snapshot read');
 });

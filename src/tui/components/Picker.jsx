@@ -18,6 +18,7 @@ import { Box, Text, useInput } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { ConfirmBar, clampConfirmFocus } from './ConfirmBar.jsx';
+import { truncatePanelText as truncateText, padPanelCells as padCells } from './panel-cell-text.mjs';
 
 /** Max items visible at once before scrolling kicks in. */
 const MAX_VISIBLE = 8;
@@ -25,25 +26,6 @@ const DEFAULT_LABEL_WIDTH = 28;
 const SELECT_HELP = '↑/↓ Select · Enter Choose · Esc Back';
 const ADJUST_HELP = '↑/↓ Select · ←/→ Adjust · Enter Choose · Esc Back';
 const CONFIRM_HELP = '↑/↓ Select · ←/→ Back/Next · Enter Choose · Esc Skip';
-
-function truncateText(value, width) {
-  const text = String(value || '');
-  if (!(width > 0)) return '';
-  if (stringWidth(text) <= width) return text;
-  if (width <= 1) return '…'.repeat(Math.max(0, width));
-  let out = '';
-  for (const ch of text) {
-    if (stringWidth(`${out}${ch}…`) > width) break;
-    out += ch;
-  }
-  return `${out}…`;
-}
-
-function padCells(value, width) {
-  const text = String(value || '');
-  const gap = Math.max(0, width - stringWidth(text));
-  return `${text}${' '.repeat(gap)}`;
-}
 
 function clampLabelWidth(value, columns) {
   const maxWidth = Math.max(12, Math.floor(columns * 0.45));
@@ -57,7 +39,8 @@ function clampMetaWidth(value, columns, labelWidth) {
 }
 
 function normalizeFooterLines(activeFooter, columns) {
-  const rawLines = Array.isArray(activeFooter) ? activeFooter : activeFooter ? [activeFooter] : [];
+  let rawLines = activeFooter;
+  if (!Array.isArray(rawLines)) rawLines = activeFooter ? [activeFooter] : [];
   return rawLines
     .map((line) => {
       const isObject = line && typeof line === 'object';
@@ -171,12 +154,10 @@ export function Picker({
   }, [onHighlight, items, selectedIndex]);
 
   const activeFooter = typeof footer === 'function' ? footer(items[selectedIndex], selectedIndex) : footer;
-  const confirmInlineWidth = hasConfirm
-    ? confirmButtons.reduce(
-        (sum, button, index) => sum + (index > 0 ? 1 : 0) + stringWidth(`[ ${button?.label || ''} ]`) + 2,
-        0
-      )
-    : 0;
+  const confirmInlineWidth = confirmButtons.reduce(
+    (sum, button, index) => sum + (index > 0 ? 1 : 0) + stringWidth(`[ ${button?.label || ''} ]`) + 2,
+    0
+  );
   const footerLines = normalizeFooterLines(
     activeFooter,
     Math.max(0, columns - (hasConfirm ? confirmInlineWidth + 1 : 0))
@@ -185,7 +166,11 @@ export function Picker({
   const footerReserveRows = footerLines.length > 0 ? footerLines.length + footerGap : 0;
   const confirmReserveRows = hasConfirm && footerLines.length === 0 ? 2 : 0;
   const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows);
-  const helpText = help || (hasConfirm ? CONFIRM_HELP : onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP);
+  let helpText = help;
+  if (!helpText) {
+    if (hasConfirm) helpText = CONFIRM_HELP;
+    else helpText = onLeft || onRight || onTab ? ADJUST_HELP : SELECT_HELP;
+  }
 
   useInput(
     useCallback(
@@ -282,7 +267,10 @@ export function Picker({
           if (now - lastTabAtRef.current < 120) return;
           lastTabAtRef.current = now;
           if (hasConfirm) {
-            setConfirmFocus((f) => (f < 0 ? 0 : f + 1 > confirmButtons.length - 1 ? -1 : f + 1));
+            setConfirmFocus((f) => {
+              if (f < 0) return 0;
+              return f + 1 > confirmButtons.length - 1 ? -1 : f + 1;
+            });
             return;
           }
           if (onTab) onTab(items[selectedIndex], selectedIndex);
@@ -387,7 +375,9 @@ export function Picker({
     start = Math.max(0, end - effectiveVisibleLimit);
   }
   const visible = items.slice(start, end);
-  const showIndex = indexMode === 'always' ? total > 0 : indexMode === 'never' ? false : total > effectiveVisibleLimit;
+  let showIndex = total > effectiveVisibleLimit;
+  if (indexMode === 'always') showIndex = total > 0;
+  else if (indexMode === 'never') showIndex = false;
   const indexWidth = showIndex ? stringWidth(`${total}.`) : 0;
   const indexOffset = showIndex ? indexWidth + 1 : 0;
 
@@ -434,12 +424,17 @@ export function Picker({
         {visible.map((item, i) => {
           const idx = start + i;
           const isSelected = idx === selectedIndex && confirmFocus < 0;
+          let marker = item.marker;
+          if (!marker) {
+            if (item.checked === true) marker = '✓';
+            else marker = item.checked === false ? ' ' : '';
+          }
           return (
             <ItemRow
               key={item.value}
               indexText={showIndex ? `${idx + 1}.` : ''}
               indexWidth={indexWidth}
-              marker={item.marker || (item.checked === true ? '✓' : item.checked === false ? ' ' : '')}
+              marker={marker}
               markerColor={item.markerColor}
               markerWidth={markerWidth}
               label={item.label}
@@ -517,7 +512,7 @@ const ItemRow = React.memo(function ItemRow({
   descriptionWidth,
   showMeta,
   isSelected,
-  themeEpoch = 0,
+  themeEpoch: _themeEpoch = 0,
 }) {
   const rowText = isSelected ? theme.selectionText : theme.text;
   const rowIndexColor = isSelected ? theme.selectionText : theme.subtle;
@@ -531,18 +526,37 @@ const ItemRow = React.memo(function ItemRow({
   const displayMeta = truncateText(meta, metaWidth);
   const displayDescription = truncateText(description, descriptionWidth);
   const parts = Array.isArray(metaParts) ? metaParts : null;
+  let rowMarkerColor = rowText;
+  if (markerWidth > 0) {
+    if (isSelected) rowMarkerColor = theme.selectionText;
+    else if (marker) rowMarkerColor = markerColor || theme.success;
+  }
+  const suffixColor = isSelected ? theme.selectionText : labelSuffixColor || theme.success;
+  let metaText = '';
+  if (showMeta) {
+    metaText = parts
+      ? padCells(
+          parts
+            .map((part) =>
+              padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1)
+            )
+            .join('  '),
+          metaWidth
+        )
+      : padCells(displayMeta, metaWidth);
+  }
 
   return (
     <Box flexDirection="row" width="100%" backgroundColor={isSelected ? theme.selectionBackground : undefined}>
       {indexWidth > 0 ? <Text color={rowIndexColor}>{padCells(indexText, indexWidth)} </Text> : null}
       {markerWidth > 0 ? (
-        <Text color={isSelected ? theme.selectionText : marker ? markerColor || theme.success : rowText}>
+        <Text color={rowMarkerColor}>
           {padCells(displayMarker, markerWidth)}
         </Text>
       ) : null}
       <Text color={rowText}>{displayLabel}</Text>
       {suffix ? (
-        <Text color={isSelected ? theme.selectionText : labelSuffixColor || theme.success}>
+        <Text color={suffixColor}>
           {suffixGap}
           {suffix}
         </Text>
@@ -551,16 +565,7 @@ const ItemRow = React.memo(function ItemRow({
       {showMeta ? (
         <Text color={rowText}>
           {'  '}
-          {parts
-            ? padCells(
-                parts
-                  .map((part) =>
-                    padCells(truncateText(part?.text || '', Number(part?.width) || 1), Number(part?.width) || 1)
-                  )
-                  .join('  '),
-                metaWidth
-              )
-            : padCells(displayMeta, metaWidth)}
+          {metaText}
         </Text>
       ) : null}
       {displayDescription ? (

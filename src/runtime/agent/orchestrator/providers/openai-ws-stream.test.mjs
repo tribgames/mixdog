@@ -43,7 +43,10 @@ test('streamed text, a native function call and the completed usage land in one 
     created,
     { type: 'response.output_text.delta', delta: 'Hello ' },
     { type: 'response.output_text.delta', delta: 'world' },
-    { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read' } },
+    {
+      type: 'response.output_item.added',
+      item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'read' },
+    },
     { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '{"path"' },
     { type: 'response.function_call_arguments.done', item_id: 'fc_1', arguments: '{"path":"a.txt"}' },
     {
@@ -110,7 +113,8 @@ test('a function call whose id arrives only in the completed bundle is salvaged,
 });
 
 test('a tool call leaked as text is recovered once and never rendered', async () => {
-  const leaked = '<function_calls><invoke name="read"><parameter name="path">a.txt</parameter></invoke></function_calls>';
+  const leaked =
+    '<function_calls><invoke name="read"><parameter name="path">a.txt</parameter></invoke></function_calls>';
   const { pending, seen } = run(
     [
       created,
@@ -190,10 +194,9 @@ test('the pre-stream watchdog closes a silent socket with a retryable first-byte
 });
 
 test('an inter-chunk stall after output rejects as a continuation carrying the partial text', async () => {
-  const { pending, socket } = run(
-    [created, { type: 'response.output_text.delta', delta: 'kept' }],
-    { _timeouts: { preResponseCreatedMs: 5_000, interChunkMs: 20, firstMeaningfulMs: 5_000 } }
-  );
+  const { pending, socket } = run([created, { type: 'response.output_text.delta', delta: 'kept' }], {
+    _timeouts: { preResponseCreatedMs: 5_000, interChunkMs: 20, firstMeaningfulMs: 5_000 },
+  });
   await assert.rejects(pending, (err) => {
     assert.equal(err.streamStalled, true);
     assert.equal(err.partialContent, 'kept');

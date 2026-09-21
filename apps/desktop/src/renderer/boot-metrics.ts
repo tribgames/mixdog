@@ -170,7 +170,11 @@ function hashKey(value: string): string {
 
 function append(entry: BootMetricEntry): void {
   if (typeof window === 'undefined') return;
-  const metrics = (window.__mixdogBootMetrics ||= []);
+  let metrics = window.__mixdogBootMetrics;
+  if (!metrics) {
+    metrics = [];
+    window.__mixdogBootMetrics = metrics;
+  }
   metrics.push(entry);
   if (metrics.length > BOOT_METRIC_ENTRY_LIMIT) {
     metrics.splice(0, metrics.length - BOOT_METRIC_ENTRY_LIMIT);

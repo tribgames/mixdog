@@ -9,6 +9,7 @@ const ACTIVE_RUNTIME_STAGES = new Set([
   'requesting',
   'streaming',
   'tool_running',
+  'resource_wait',
   'running',
   'cancelling',
 ]);
@@ -19,8 +20,10 @@ function positiveSeconds(now, ts) {
   return Math.max(0, Math.floor((now - n) / 1000));
 }
 
-function formatAgentWatchdogSummary(policy, snapshot = null) {
+function formatAgentWatchdogSummary(policy, snapshot = null, watchdogState = null) {
   if (!policy || !agentWatchdogPolicyActive(policy)) return null;
+  if (!watchdogState?.registered) return 'not armed (no registered progress watchdog)';
+  if (watchdogState.error) return `check failed: ${watchdogState.error}`;
   const transportMs = policy.firstTransportMs ?? policy.firstResponseMs ?? 0;
   const semanticMs = policy.firstSemanticMs ?? policy.firstVisibleCeilingMs ?? 0;
   if (snapshot) {
@@ -65,6 +68,7 @@ export function buildAgentTaskProgressFields({
   snapshot = null,
   runtime = null,
   policy = null,
+  watchdogState = null,
   queuedFollowups = null,
   taskStatus = null,
   lastToolCall = null,
@@ -72,7 +76,7 @@ export function buildAgentTaskProgressFields({
   const stage = cleanStage(runtimeStage || snapshot?.stage || sessionStatus || 'unknown');
   const workerStage = stage;
   const silentFor = resolveSilentForSeconds(now, snapshot, runtime);
-  const watchdog = formatAgentWatchdogSummary(policy, snapshot);
+  const watchdog = formatAgentWatchdogSummary(policy, snapshot, watchdogState);
   const queued =
     Number.isFinite(Number(queuedFollowups)) && Number(queuedFollowups) > 0
       ? Math.floor(Number(queuedFollowups))
@@ -139,6 +143,7 @@ function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCal
     return 'streaming';
   }
   if (stage === 'cancelling') return 'cancelling';
+  if (stage === 'resource_wait') return 'waiting for execution capacity';
   if (stage === 'done' || stage === 'idle') {
     if (runtime?.emptyFinal) return 'finished empty';
     return 'idle';
@@ -193,6 +198,7 @@ function describeAgentDiagnostic({ taskStatus, sessionStatus, stage, snapshot, s
   }
 
   if (stage === 'tool_running') return 'tool running';
+  if (stage === 'resource_wait') return 'waiting to reacquire execution capacity';
   if (stage === 'connecting' || stage === 'requesting') return 'waiting for first response';
 
   if (silentFor != null && policy && ACTIVE_RUNTIME_STAGES.has(stage)) {

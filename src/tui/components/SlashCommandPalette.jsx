@@ -9,30 +9,13 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
+import { truncatePanelText as truncateText, padPanelCells as padCells } from './panel-cell-text.mjs';
 
 const MAX_VISIBLE = 8;
 const COMMAND_LABEL_WIDTH = 18;
 const SLASH_HELP = '↑/↓ select · ←/→ change · Enter run · Esc cancel';
 const SLASH_DESCRIPTION = 'Type to filter · Enter runs the highlighted command.';
 const ACRONYM_LABELS = new Map([['mcp', 'MCP']]);
-
-function truncateText(value, width) {
-  const text = String(value || '');
-  if (!(width > 0)) return '';
-  if (stringWidth(text) <= width) return text;
-  if (width <= 1) return '…'.repeat(Math.max(0, width));
-  let out = '';
-  for (const ch of text) {
-    if (stringWidth(`${out}${ch}…`) > width) break;
-    out += ch;
-  }
-  return `${out}…`;
-}
-
-function padCells(value, width) {
-  const text = String(value || '');
-  return `${text}${' '.repeat(Math.max(0, width - stringWidth(text)))}`;
-}
 
 function queryMatchesAlias(command, query) {
   const needle = String(query || '').toLowerCase();

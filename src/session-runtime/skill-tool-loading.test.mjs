@@ -52,7 +52,10 @@ test('skill dependencies do not resend eager tool definitions', () => {
   const current = session('openai-oauth');
   const result = loadSkillToolDependencies(envelope([{ type: 'tool', value: 'read' }, dependency]), current);
   const native = parseNativeToolSearchPayload('Skill', result.result);
-  assert.deepEqual(native.openaiTools.map((tool) => tool.name), ['office']);
+  assert.deepEqual(
+    native.openaiTools.map((tool) => tool.name),
+    ['office']
+  );
   assert.ok(current.skillLoadedTools.includes('read'));
   const eagerOnly = loadSkillToolDependencies(envelope([{ type: 'tool', value: 'read' }]), current);
   assert.match(eagerOnly.result, /Required tools loaded: read/);

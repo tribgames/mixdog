@@ -81,7 +81,7 @@ export function createMcpServersPicker({ store, theme, surface, getPicker, setPr
     const own = surface.claim();
     const status = await readStatus(store, 'mcpStatus', 'servers', 'mcp status');
     if (!status) return;
-    const items = serverItems(status.servers || [], options?.optimistic || null);
+    const items = serverItems(status.servers, options?.optimistic || null);
     if (!own.owns()) return;
     setProviderPrompt(null);
     setSettingsPrompt(null);

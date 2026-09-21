@@ -9,9 +9,10 @@ const PLAN_KEYS = ['job', 'relationship', 'move', 'composition', 'carriers', 'te
 
 function briefLine(script, key) {
   const lines = String(script || '').split('\n');
-  const start = lines.findIndex((line) => new RegExp(`^\\s*//\\s*${key}\\s*:`, 'i').test(line));
+  const prefix = new RegExp(`^\\s*//\\s*${key}\\s*:`, 'i');
+  const start = lines.findIndex((line) => prefix.test(line));
   if (start < 0) return '';
-  const collected = [lines[start].replace(new RegExp(`^\\s*//\\s*${key}\\s*:`, 'i'), '')];
+  const collected = [lines[start].replace(prefix, '')];
   for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index];
     if (!/^\s*\/\//.test(line)) break;

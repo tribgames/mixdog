@@ -191,13 +191,13 @@ export function createAgentExecute({
       }
       switch (type) {
         case 'status':
-          if (clean(args.task_id) || clean(args.tag) || clean(args.sessionId)) {
+        case 'list':
+          if (type === 'status' && (clean(args.task_id) || clean(args.tag) || clean(args.sessionId))) {
             return renderResult(views.renderJob(views.getJobOrWorker(args, scopedContext), false), {
               includeDiagnostics: true,
             });
           }
-        // Targetless status is the same compact overview as list.
-        case 'list':
+          // Targetless status is the same compact overview as list.
           return renderResult({
             workers: views.list({ scanSessions: registry.wantsSessionScan(args), context: scopedContext }),
             jobs: views.listJobs(scopedContext),

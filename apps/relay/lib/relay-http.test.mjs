@@ -64,14 +64,12 @@ test('caller identity falls back when the socket has no address', () => {
 
 test('trust-on-first-use upgrades charge unknown ids and failed secrets', () => {
   const store = {
-    known: new Set(),
     secrets: new Map(),
     isKnown(id) {
-      return this.known.has(id);
+      return this.secrets.has(id);
     },
     authenticate(id, secret) {
-      if (!this.known.has(id)) {
-        this.known.add(id);
+      if (!this.secrets.has(id)) {
         this.secrets.set(id, secret);
         return true;
       }

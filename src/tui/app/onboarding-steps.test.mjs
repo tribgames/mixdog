@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createOnboardingSteps } from './onboarding-steps.mjs';
@@ -8,13 +9,6 @@ import { agentModelParts, normalizeModelOptions, routeFromModel } from './model-
 // The first-run wizard against a recording store and panel host: what each
 // step paints, where a pick lands in onboardingRef, and what finish/skip
 // persist. Surface-ownership races live in panel-epoch.test.mjs.
-
-const flush = async (rounds = 6) => {
-  for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-};
 
 const MODELS = [
   { provider: 'openai', id: 'gpt-5' },
@@ -193,7 +187,7 @@ test('Main and Web Search picks land on their own routes; Web Search Default sto
     web.items.map((item) => [item.value, item.marker, item.description]),
     [
       ['__default__', '✓', 'follows Main Model'],
-      ['openai:gpt-5-search', '', web.items[1].description],
+      ['openai:gpt-5-search', '', ''],
     ]
   );
   web.onSelect('__default__', web.items[0]);

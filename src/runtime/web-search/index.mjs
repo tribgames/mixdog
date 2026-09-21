@@ -145,8 +145,8 @@ function getWebSearchCacheTtlMs(type = 'web') {
   }
 }
 
-function getScrapeCacheTtlMs(isXRoute = false) {
-  return isXRoute ? 10 * 60 * 1000 : 60 * 60 * 1000;
+function getScrapeCacheTtlMs() {
+  return 60 * 60 * 1000;
 }
 
 function normalizeCacheUrl(url) {
@@ -174,8 +174,6 @@ async function writeStartupSnapshot() {
     source: 'local',
   });
 }
-
-// ── Core action implementations (shared by individual and batch handlers) ──
 
 const _webSearchInFlight = new Map();
 
@@ -392,7 +390,7 @@ async function _fetchCore(args, { usageState, cacheState, timeoutMs, signal }) {
         };
       }
       const payload = { tool: 'web_fetch', ...page };
-      const cachedEntry = setCachedEntry(cacheState, fetchCacheKey, payload, getScrapeCacheTtlMs(false));
+      const cachedEntry = setCachedEntry(cacheState, fetchCacheKey, payload, getScrapeCacheTtlMs());
       return {
         index: index + 1,
         status: 'success',
@@ -616,7 +614,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
   return handleToolCall(request.params.name, request.params.arguments, { signal: extra?.signal });
 });
 
-/* ── Module exports (used when imported by mixdog-unified) ── */
 export { toolDefinitions as TOOL_DEFS };
 export { WEB_SEARCH_INSTRUCTIONS as instructions };
 

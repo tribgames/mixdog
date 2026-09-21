@@ -20,7 +20,15 @@ function store(t, rows) {
     'INSERT INTO entries (id, ts, role, content, session_id, chunk_root, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
   );
   for (const row of rows) {
-    insert.run(row.id, row.ts, 'user', `row ${row.id}`, row.session_id, row.chunk_root ?? null, row.reviewed_at ?? null);
+    insert.run(
+      row.id,
+      row.ts,
+      'user',
+      `row ${row.id}`,
+      row.session_id,
+      row.chunk_root ?? null,
+      row.reviewed_at ?? null
+    );
   }
   return {
     async query(sql, args = []) {

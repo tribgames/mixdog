@@ -28,8 +28,14 @@ test('a failed turn with assistant or tool activity stays so the retry continues
 });
 
 test('a completed turn, a different prompt or an empty transcript never rewinds', () => {
-  assert.equal(rewoundFailedTurnItems([...history, failedPrompt, { kind: 'turndone', id: 9, status: 'done' }], PROMPT), null);
-  assert.equal(rewoundFailedTurnItems([...history, failedPrompt, ...failure], 'Continue from where you left off.'), null);
+  assert.equal(
+    rewoundFailedTurnItems([...history, failedPrompt, { kind: 'turndone', id: 9, status: 'done' }], PROMPT),
+    null
+  );
+  assert.equal(
+    rewoundFailedTurnItems([...history, failedPrompt, ...failure], 'Continue from where you left off.'),
+    null
+  );
   assert.equal(rewoundFailedTurnItems([...history, failedPrompt, ...failure], ''), null);
   assert.equal(rewoundFailedTurnItems([], PROMPT), null);
 });

@@ -39,6 +39,7 @@ test('renderer delta copies only changed files and reconstructs the exact tree',
   });
 
   assert.equal(result.changedFiles, 2);
+  assert.equal(result.removedFiles, 1);
   await assert.rejects(readFile(join(paths.delta, 'same.js')), /ENOENT/);
   assert.equal(await readFile(join(paths.delta, 'changed.js'), 'utf8'), 'after');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));

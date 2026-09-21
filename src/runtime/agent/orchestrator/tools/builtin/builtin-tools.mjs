@@ -5,7 +5,7 @@
 // behavior, argument shapes, and the usage boundaries that only apply to that
 // tool; cross-tool policy lives in rules/shared/*.md.
 // Platform-specific command syntax belongs next to the command argument.
-import { GIT_STAGE_TOOL_DEF, GIT_TOOL_DEF } from './git-command-tool.mjs';
+import { GIT_TOOL_DEF } from './git-command-tool.mjs';
 import { PUBLIC_PATH_BATCH_LIMIT, PUBLIC_READ_WINDOW_MAX } from './arg-guard.mjs';
 import { GITHUB_TOOL_DEF } from '../../../../github/tool.mjs';
 import { envFlag } from '../../../../shared/env.mjs';
@@ -164,7 +164,6 @@ export const BUILTIN_TOOLS = [
     },
   },
   GIT_TOOL_DEF,
-  GIT_STAGE_TOOL_DEF,
   GITHUB_TOOL_DEF,
   {
     name: 'task',
@@ -197,7 +196,7 @@ export const BUILTIN_TOOLS = [
       openWorldHint: false,
     },
     description:
-      'Manage shell tasks. Wait for completion instead of repeatedly polling task output; completion notifications are automatic, not final reports. Continue independent work meanwhile.',
+      'Manage shell tasks. read/wait return new output, prioritizing the tail on completion. output:tail re-reads recent output without advancing the cursor; use read on the log path for omitted content. Wait instead of polling; completion notifications are automatic.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -205,12 +204,17 @@ export const BUILTIN_TOOLS = [
         action: {
           type: 'string',
           enum: ['list', 'read', 'wait', 'cancel'],
-          description: 'list all; read snapshot; wait for completion; cancel task.',
+          description: 'list all; read next output; wait for completion and next output; cancel task.',
         },
         timeout_ms: {
           type: 'integer',
           minimum: 0,
           description: `Wait ceiling in ms; returns on completion, else current output at the ceiling. Default ${TASK_WAIT_TIMEOUT_DEFAULT_MS}; clamped to ${TASK_WAIT_TIMEOUT_MIN_MS}-${TASK_WAIT_TIMEOUT_MAX_MS}.`,
+        },
+        output: {
+          type: 'string',
+          enum: ['new', 'tail'],
+          description: 'read/wait only. Default new; tail replays recent output after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved.',
         },
       },
       required: ['action'],

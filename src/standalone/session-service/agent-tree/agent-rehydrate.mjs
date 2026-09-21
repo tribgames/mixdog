@@ -31,13 +31,10 @@ function storedAgentCandidate(row) {
 export function lastStoredAgentHandoff(row) {
   if (typeof row?.lastHandoff === 'string') return row.lastHandoff;
   const messages = Array.isArray(row?.messages) ? row.messages : [];
-  const assistant = [...messages]
-    .reverse()
-    .find(
-      (message) =>
-        message?.role === 'assistant' &&
-        (typeof message.content === 'string' ? message.content.trim() : message.content)
-    );
+  const assistant = messages.findLast(
+    (message) =>
+      message?.role === 'assistant' && (typeof message.content === 'string' ? message.content.trim() : message.content)
+  );
   if (!assistant) return '';
   return typeof assistant.content === 'string' ? assistant.content : JSON.stringify(assistant.content);
 }

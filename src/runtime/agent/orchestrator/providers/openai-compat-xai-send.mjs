@@ -70,7 +70,10 @@ export async function sendXaiResponses(provider, messages, useModel, tools, opts
     /* heartbeat best-effort */
   }
   const reasoningEffort = normalizeXaiReasoningEffort(
-    opts.xaiReasoningEffort ?? opts.effort ?? provider.config?.reasoningEffort ?? process.env.MIXDOG_XAI_REASONING_EFFORT
+    opts.xaiReasoningEffort ??
+      opts.effort ??
+      provider.config?.reasoningEffort ??
+      process.env.MIXDOG_XAI_REASONING_EFFORT
   );
   if (reasoningEffort && xaiModelSupportsReasoningEffort(useModel)) {
     params.reasoning = { effort: reasoningEffort };
@@ -197,7 +200,10 @@ export async function sendXaiResponsesWebSocket(provider, messages, useModel, to
   if (params.tools?.length) params.parallel_tool_calls = true;
   applyCompatToolChoice(params, opts);
   const reasoningEffort = normalizeXaiReasoningEffort(
-    opts.xaiReasoningEffort ?? opts.effort ?? provider.config?.reasoningEffort ?? process.env.MIXDOG_XAI_REASONING_EFFORT
+    opts.xaiReasoningEffort ??
+      opts.effort ??
+      provider.config?.reasoningEffort ??
+      process.env.MIXDOG_XAI_REASONING_EFFORT
   );
   if (reasoningEffort && xaiModelSupportsReasoningEffort(useModel)) {
     params.reasoning = { effort: reasoningEffort };

@@ -157,13 +157,9 @@ let webhookServer = null;
 let eventPipeline = null;
 let bridgeRuntimeConnected = false;
 // ── Bridge ownership snapshot + owner heartbeat ─────────────────────────────
-// Extracted → lib/owner-heartbeat.mjs. Owns its own heartbeat timer + last-note
-// dedup; bound to live identity + active-instance primitives.
 const { logOwnership, currentOwnerState, getBridgeOwnershipSnapshot } = createOwnerHeartbeat();
 // ── Owned-runtime lifecycle ─────────────────────────────────────────────────
-// Extracted -> lib/owned-runtime.mjs. Owns its own start/stop/refresh in-flight
-// flags + ownership timer + memory-drain timer; shares config/provider/
-// bridgeRuntimeConnected/webhookServer/eventPipeline with the worker via get/set.
+// Live getters/setters keep shared worker state visible across lifecycle phases.
 const {
   startAutomationRuntime,
   startOwnedRuntime,

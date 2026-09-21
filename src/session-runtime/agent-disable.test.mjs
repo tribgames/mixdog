@@ -4,7 +4,7 @@
 // that still means "follow the Main Model" when left unset.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -26,8 +26,9 @@ import {
 import { createNativeWebSearch } from './native-web-search.mjs';
 import { resolveMaintenanceRoute } from '../runtime/agent/orchestrator/agent-runtime/maintenance-route.mjs';
 
-function fixture(agentIds = ['worker', 'reviewer']) {
+function fixture(t, agentIds = ['worker', 'reviewer']) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-agent-off-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const data = join(root, 'data');
   mkdirSync(join(root, 'workflows', 'default'), { recursive: true });
   writeFileSync(join(root, 'workflows', 'default', 'WORKFLOW.md'), '# Default\n\nLead delegates.\n');
@@ -75,8 +76,8 @@ test('disabled agents are stored apart from the route and survive canonicalizati
   assert.equal(Object.hasOwn(on, 'disabledAgents'), false);
 });
 
-test('a disabled agent leaves the Lead prompt and the delegation surface', () => {
-  const { data, helpers } = fixture(['worker', 'reviewer']);
+test('a disabled agent leaves the Lead prompt and the delegation surface', (t) => {
+  const { data, helpers } = fixture(t, ['worker', 'reviewer']);
   // The shipped fallback is Solo, so a delegating pack is selected explicitly.
   const cowork = (extra = {}) => ({ workflow: { active: 'default' }, ...extra });
   const enabled = helpers.activeWorkflowContext(cowork(), data);

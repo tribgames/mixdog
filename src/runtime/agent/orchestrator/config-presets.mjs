@@ -102,7 +102,7 @@ export function normalizePreset(preset) {
 }
 
 export function getPreset(config, key) {
-  const presets = Array.isArray(config?.presets) ? config.presets : [];
+  const presets = listPresets(config);
   if (key == null || key === '') return null;
   if (typeof key === 'number' || /^\d+$/.test(String(key))) {
     const idx = Number(key);

@@ -439,9 +439,10 @@ export function reconcileBackgroundTask(
 
 export function renderBackgroundTaskNotification(task) {
   if (!task) return '';
-  const result = task.surface === 'agent' && typeof task.result?.content === 'string'
-    ? task.result.content
-    : resultTextForTask(task);
+  const result =
+    task.surface === 'agent' && typeof task.result?.content === 'string'
+      ? task.result.content
+      : resultTextForTask(task);
   if (task.surface === 'shell') {
     const parsed = parseTaskNotification(result);
     return renderShellCompletionNotice({
@@ -482,6 +483,9 @@ function taskSummary(task) {
 export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   const task = typeof taskOrId === 'string' ? getBackgroundTask(taskOrId) : taskOrId;
   if (!task) return 'Error: background task not found';
+  const body = includeResult ? resultTextForTask(task) : '';
+  const envelope = task.surface === 'shell' ? parseTaskNotification(body) : null;
+  const exitCode = task.surface === 'shell' ? (envelope?.exitCode ?? task.result?.exit_code) : null;
   const visibleMeta = publicTaskMeta(sanitizeTaskMeta(task.meta));
   const lines = [
     'background task',
@@ -490,9 +494,12 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
     `operation: ${task.operation}`,
     task.label ? `label: ${task.label}` : null,
     `status: ${task.status}`,
+    exitCode != null ? `exit_code: ${exitCode}` : null,
+    task.result?.timed_out === true ? 'timed_out: true' : null,
+    task.result?.signal ? `signal: ${task.result.signal}` : null,
     `started: ${task.startedAt}`,
     task.finishedAt ? `finished: ${task.finishedAt}` : null,
-    task.error ? `error: ${task.error}` : null,
+    task.error || envelope?.error ? `error: ${task.error || envelope.error}` : null,
   ];
   // stdout/stderr log paths differ only by suffix — collapse to one line.
   const _so = typeof visibleMeta.stdout === 'string' ? visibleMeta.stdout : null;
@@ -508,9 +515,8 @@ export function renderBackgroundTask(taskOrId, { includeResult = false } = {}) {
   }
   if (logsBase) lines.push(`logs: ${logsBase}.{stdout,stderr}.log`);
   if (includeResult) {
-    const body = resultTextForTask(task);
     if (body) {
-      lines.push('', body);
+      lines.push('', envelope ? envelope.result : body);
     } else if (TERMINAL_STATUSES.has(task.status) && task.status === 'completed' && !task.error) {
       // Terminal-completed task with no extractable body: surface a placeholder
       // instead of silently omitting the result so the owner isn't left with a

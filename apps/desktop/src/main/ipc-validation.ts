@@ -457,9 +457,6 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
   if (orchestrationMode !== undefined && !['none', 'focused', 'balanced', 'swarm'].includes(orchestrationMode)) {
     throw new TypeError('orchestrationMode is invalid.');
   }
-  // A legacy `remote` flag was validated here, but NEW_TASK_DRAFT_KEYS rejects
-  // the key before this point, the contract has no such field, and no caller
-  // sends one: the branch was unreachable and is gone with its passthrough.
   return {
     ...(projectPath ? { projectPath } : {}),
     ...(route ? { route } : {}),
@@ -717,7 +714,7 @@ export function requiredGitDiscardMode(value: unknown): 'worktree' | 'all' {
 }
 
 export function requiredGitBranchName(value: unknown): string {
-  const branch = requiredString(value, 'git branch', 512).trim();
+  const branch = requiredString(value, 'git branch', 512);
   if (branch.startsWith('-') || branch.includes('\0') || /[\r\n]/.test(branch)) {
     throw new TypeError('git branch is invalid.');
   }

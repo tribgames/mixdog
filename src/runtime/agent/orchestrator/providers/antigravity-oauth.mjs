@@ -253,9 +253,6 @@ export class AntigravityOAuthProvider {
     const endpoint = this._contentEndpoint();
     let lastErr = null;
     let response = null;
-    // One forced token refresh per send: a second 401 after a fresh token is
-    // a real authorization failure, not a stale bearer.
-    let refreshedAuth = false;
     const requestOnce = () =>
       withRetry(
         async ({ signal: attemptSignal }) => {
@@ -357,8 +354,7 @@ export class AntigravityOAuthProvider {
         // refresh. shouldRefresh() alone never covers this: a
         // server-side revocation/rotation happens while the local
         // expiry still looks valid.
-        if (status === 401 && !emitted && !refreshedAuth) {
-          refreshedAuth = true;
+        if (status === 401 && !emitted) {
           let refreshed = null;
           try {
             refreshed = await this._ensureAuth({ fetchFn: this._fetch, force: true });
@@ -373,6 +369,7 @@ export class AntigravityOAuthProvider {
           headers.Authorization = `Bearer ${refreshed.accessToken}`;
           textLeakGuard = null;
           process.stderr.write('[antigravity] 401 — refreshed credentials and retrying once\n');
+          // A second failure escapes this catch; only one refresh is attempted.
           response = await requestOnce();
         } else {
           throw err;

@@ -252,5 +252,3 @@ export function buildRequestBody(messages, model, tools, sendOpts) {
     ...(maxOutputTokens ? { max_output_tokens: maxOutputTokens } : {}),
   };
 }
-
-// --- Provider ---

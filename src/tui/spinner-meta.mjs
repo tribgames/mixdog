@@ -49,13 +49,13 @@ export function spinnerThinkingLabel({ thinking = false, thinkingSince = 0, thin
  * WHAT is worth showing and how it reads.
  */
 export function buildSpinnerMeta({
-  elapsedMs = 0,
+  elapsedMs: _elapsedMs = 0,
   outputTokens = 0,
   thinking = false,
   thinkingSince = 0,
   thinkingMs = 0,
   effort = '',
-  verbose = false,
+  verbose: _verbose = false,
 } = {}) {
   const tokens = Math.max(0, Number(outputTokens) || 0);
   const thinkingText = spinnerThinkingLabel({ thinking, thinkingSince, thinkingMs, effort });

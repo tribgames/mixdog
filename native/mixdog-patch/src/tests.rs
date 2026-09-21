@@ -581,6 +581,12 @@ fn normalize_typographic_maps_dashes_quotes_spaces() {
         normalize_typographic("\u{2014}a\u{00A0}b\u{2019}c\u{201D}".as_bytes()),
         "-a b'c\""
     );
+    assert_eq!(
+        normalize_typographic(
+            "\u{2018}\u{2019}\u{201A}\u{201B}\u{201C}\u{201D}\u{201E}\u{201F}".as_bytes()
+        ),
+        "''''\"\"\"\""
+    );
 }
 
 #[test]

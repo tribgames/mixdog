@@ -252,10 +252,6 @@ function boundaryTarget(root: HTMLElement, target: EventTarget | null): HTMLElem
   return nested && nested !== root ? nested : root;
 }
 
-function shouldMarkBoundaryGesture(target: HTMLElement, delta: number): boolean {
-  return boundaryGestureReached(target, delta);
-}
-
 function distanceFromBottom(element: HTMLElement): number {
   return element.scrollHeight - element.clientHeight - element.scrollTop;
 }
@@ -594,7 +590,7 @@ export function useTranscriptFollow({
     ) {
       stop('scroll', previousTop);
     }
-  }, [hasReaderScroll, isProgrammatic, markGesture, markReaderMotion, publish, scheduleScrollState, stop, viewport]);
+  }, [hasReaderScroll, isProgrammatic, markReaderMotion, publish, scheduleScrollState, stop, viewport]);
 
   const handleWheel = useCallback(
     (event: WheelLike) => {
@@ -606,7 +602,7 @@ export function useTranscriptFollow({
       // scroller?" separately kept follow armed for an upward wheel at a nested
       // scroller's leading edge: the gesture was marked, the transcript scrolled
       // up by chaining, and the end anchor then fought the reader every frame.
-      const transcriptReached = target === root || shouldMarkBoundaryGesture(target, delta);
+      const transcriptReached = target === root || boundaryGestureReached(target, delta);
       if (!transcriptReached) return;
       markGesture();
       // Wheel rule: an upward wheel is explicit intent
@@ -693,7 +689,7 @@ export function useTranscriptFollow({
       const delta = previous - next;
       if (!delta) return;
       const target = boundaryTarget(event.currentTarget, event.target);
-      const transcriptReached = target === event.currentTarget || shouldMarkBoundaryGesture(target, delta);
+      const transcriptReached = target === event.currentTarget || boundaryGestureReached(target, delta);
       if (transcriptReached) {
         markGesture();
         // This drag is moving the transcript itself: ownership now belongs to

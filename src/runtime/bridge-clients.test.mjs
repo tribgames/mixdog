@@ -1608,15 +1608,8 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
     /does not accept root field/i
   );
   assert.deepEqual(
-    [
-      ['focus', 'focus_window'],
-      ['move', 'move_window'],
-      ['minimize', 'window_state'],
-      ['maximize', 'window_state'],
-      ['restore', 'window_state'],
-      ['close', 'close_window'],
-    ].map(
-      ([operation, _expected]) =>
+    ['focus', 'move', 'minimize', 'maximize', 'restore', 'close'].map(
+      (operation) =>
         toComputerHostCommand({
           action: 'window',
           input: {
@@ -1650,8 +1643,6 @@ test('computer tool contract exposes stable targets, frames, and explicit delive
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('never move, resize'));
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('Screen content'));
   assert.ok(!COMPUTER_TOOL_DEFS[0].description.includes('Never call the bridge'));
-  // Same budget as the browser tool: the last-resort ordering sentence above
-  // pushed the contract past the old 800.
   assert.ok(COMPUTER_TOOL_DEFS[0].description.length < 1000);
 });
 

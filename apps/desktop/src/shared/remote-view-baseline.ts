@@ -55,8 +55,9 @@ export function createRemoteViewBaselineCache(maxBytes = MAX_VIEW_BASELINE_BYTES
         remove(value.key);
         const size = text.length * 2;
         if (size <= maxBytes) {
-          while (entries.size && (bytes + size > maxBytes || entries.size >= MAX_VIEW_BASELINES)) {
-            remove(entries.keys().next().value!);
+          for (const key of entries.keys()) {
+            if (bytes + size <= maxBytes && entries.size < MAX_VIEW_BASELINES) break;
+            remove(key);
           }
           entries.set(value.key, { text, expires: now() + 5 * 60_000 });
           bytes += size;

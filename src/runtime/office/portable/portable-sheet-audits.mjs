@@ -150,8 +150,9 @@ function narrowNumberColumns(xml, { widths, withheld, styles }) {
     if (!Number.isFinite(value)) continue;
     const reference = cell.ref;
     if (!reference) continue;
-    const column = columnNumber(parseCellRef(reference).col);
-    if (withheld.columns.has(column) || withheld.rows.has(parseCellRef(reference).row)) continue;
+    const position = parseCellRef(reference);
+    const column = columnNumber(position.col);
+    if (withheld.columns.has(column) || withheld.rows.has(position.row)) continue;
     const width = widths.get(column) ?? DEFAULT_COLUMN_WIDTH;
     const style = Number(/\bs="(\d+)"/.exec(attributes)?.[1]);
     const format = Number.isInteger(style) ? styles[style]?.numberFormat || '' : '';
@@ -281,9 +282,6 @@ export async function columnFitIssues(zip, sheets) {
   return issues;
 }
 
-// The ranges Excel tables own: inside one, the table style paints the header
-// and banding, so a cell there carries a fill this scan cannot read from the
-// cell itself.
 // A pasted result where a formula belongs stops recalculating, and the row goes
 // on looking right. Only a constant the row's formulas have already started is
 // read that way: the first period of a projection is the input every later
@@ -325,6 +323,9 @@ export async function formulaConsistencyIssues(zip, sheets) {
   return issues;
 }
 
+// The ranges Excel tables own: inside one, the table style paints the header
+// and banding, so a cell there carries a fill this scan cannot read from the
+// cell itself.
 async function tableRanges(zip, sheet, xml) {
   const parts = worksheetSection(xml, 'tableParts');
   if (!parts) return [];

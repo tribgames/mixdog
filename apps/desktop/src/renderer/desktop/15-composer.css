@@ -435,8 +435,6 @@
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-ui);
-  /* Controls read as controls: medium weight separates chrome from prose
-     (user: "위계가 없다" — New task/Project/pickers all sat at 400). */
   font-weight: var(--mx-weight-regular);
 }
 /* The 28px square icon-button sizing above must not apply to the effort
@@ -580,12 +578,6 @@
   line-height: var(--mx-line-ui);
 }
 .slash-palette {
-  padding: 2px;
-  border: var(--mx-popup-border);
-  border-radius: var(--mx-popup-radius);
-  color: var(--mx-text);
-  background: var(--mx-popup-bg);
-  box-shadow: var(--mx-popup-shadow);
   animation: mx-menu-in var(--mx-motion-chrome);
 }
 @keyframes mx-menu-in {
@@ -660,15 +652,11 @@
   border: 0;
   border-radius: var(--mx-radius-md);
   color: var(--mx-icon-muted);
-  background: var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border-muted);
   cursor: pointer;
 }
 .model-provider-add:hover,
 .model-provider-add:focus-visible {
   color: var(--mx-icon);
-  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-bg-layer-1);
-  box-shadow: inset 0 0 0 0.5px var(--mx-border);
   outline: none;
 }
 .model-catalog-body {

@@ -77,7 +77,10 @@ export function resolveCycle1Plan(config = {}, options = {}) {
     minBatch,
     sessionCap,
     backfillCap,
-    sessionQuietMs: Math.max(0, Number(config.session_quiet_ms ?? config.sessionQuietMs ?? CYCLE1_SESSION_QUIET_MS) || 0),
+    sessionQuietMs: Math.max(
+      0,
+      Number(config.session_quiet_ms ?? config.sessionQuietMs ?? CYCLE1_SESSION_QUIET_MS) || 0
+    ),
     sessionForceAgeMs: Math.max(
       0,
       Number(config.session_force_age_ms ?? config.sessionForceAgeMs ?? CYCLE1_SESSION_FORCE_AGE_MS) || 0

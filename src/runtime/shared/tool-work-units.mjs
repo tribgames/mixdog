@@ -446,10 +446,16 @@ const TOOL_UNITS = new Map([
   ['bash_session', shellUnit],
   ['shell_command', shellUnit],
   ['job_wait', shellUnit],
-  ['git', (a) => unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' })],
+  ['git', (a) => a.action === 'stage'
+    ? unitDescriptor('Git', {
+        count: queryCount(a, 'change_ids', 'change_id') || 1,
+        active: 'Staging',
+        done: 'Staged',
+        noun: 'change',
+      })
+    : unitDescriptor('Git', { count: queryCount(a, 'command', 'commands') || 1, noun: 'Git command' })],
   ['github', () => unitDescriptor('Git', { count: 1, noun: 'GitHub operation' })],
-  // Staging is not "running a Git command": it selects change_ids out of an
-  // existing diff. Its own work unit keeps the two apart on the activity row.
+  // Preserve the staging work unit when rendering historical transcripts.
   [
     'git_stage',
     (a) =>

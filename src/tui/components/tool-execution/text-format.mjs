@@ -40,8 +40,7 @@ export function deltaTextParts(text) {
   const parts = [];
   const re = /(^|[\s([,{·])([+-]\s*\d+)(?=\s+Lines?\b)/gi;
   let last = 0;
-  let match;
-  while ((match = re.exec(value))) {
+  for (const match of value.matchAll(re)) {
     const prefix = match[1] || '';
     const token = (match[2] || '').replace(/\s+/g, '');
     const tokenStart = match.index + prefix.length;

@@ -6,8 +6,8 @@
 #   a LOCAL PATH. Registry (`hashicorp/consul/aws`) and remote (`git::…`,
 #   `github.com/…`) sources name no file in this repository, so they are not
 #   edges — see `hcl-module-source`.
-# - `terraform.required_providers` `source` values ARE import items because the
-#   `terraform` block is not extracted as an item (subtree stays visible).
+# - `terraform.required_providers` `source` values are also import items;
+#   the native walk reaches them regardless of enclosing item matches.
 # Nested `dynamic` blocks are not extracted.
 #
 # mixdog-kind: resource

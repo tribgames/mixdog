@@ -126,6 +126,18 @@ test('a submit during a busy turn or a session command is queued immediately', (
   assert.equal(command.calls[0][0], 'enqueue');
 });
 
+test('a submit during auto-clear is queued immediately', () => {
+  const h = createHarness({ flags: { autoClearRunning: true } });
+  assert.equal(h.api.submit('after auto-clear'), true);
+  assert.deepEqual(h.calls, [
+    ['enqueue', 'after auto-clear', 'auto-1', 'prompt', false],
+    'cancelGoalContinuations',
+    'archiveCompletedGoal',
+    ['interruptTaskWait', 'user-message'],
+  ]);
+  assert.equal(h.flags.autoClearRunning, true);
+});
+
 test('submitAsync requests persistence and kicks auto-clear without waiting on it', async () => {
   const h = createHarness();
   assert.equal(await h.api.submitAsync('durable'), true);

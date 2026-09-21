@@ -171,9 +171,7 @@ function featureFlags(rt) {
   return Object.fromEntries(
     Object.entries(rt.getToolModuleSettings?.() || {}).map(([name, settings]) => [
       name,
-      Object.fromEntries(
-        Object.entries(settings).filter(([key]) => key === 'enabled' || key === 'installed')
-      ),
+      Object.fromEntries(Object.entries(settings).filter(([key]) => key === 'enabled' || key === 'installed')),
     ])
   );
 }

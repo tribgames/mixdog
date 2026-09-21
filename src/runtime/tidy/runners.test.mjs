@@ -2,9 +2,9 @@
 // installed in CI, and the parsers are the part that can silently drift.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { parseBiomeJson } from './runners/biome.mjs';
 import { parseRuffFormatCheck, parseRuffJson } from './runners/ruff.mjs';
@@ -648,20 +648,13 @@ test('dotnet-format missing or old SDK reports installHint and never installs', 
 });
 
 test('dotnet-format --report from a mis-formatted temp .cs maps to the shared shape', async (t) => {
-  const repoRoot = fileURLToPath(new URL('../../..', import.meta.url));
+  const repoRoot = mkdtempSync(join(tmpdir(), 'tidy-dotnet-format-'));
+  t.after(() => rmSync(repoRoot, { recursive: true, force: true }));
   const dir = join(repoRoot, '.tmp', 'tidy-dotnet-format');
   mkdirSync(dir, { recursive: true });
   const rel = '.tmp/tidy-dotnet-format/Misformatted.cs';
   const full = join(repoRoot, rel);
   writeFileSync(full, 'class  Foo{int  x=1;}\n');
-  t.after(() => {
-    try {
-      rmSync(full, { force: true });
-    } catch {
-      /* keep .tmp */
-    }
-  });
-
   const bin = which('dotnet');
   if (!bin) {
     t.skip('dotnet SDK is not on PATH');

@@ -131,6 +131,13 @@ export async function commit(cwd, path, content, message) {
   await git(cwd, ['commit', '-m', message]);
 }
 
+async function hostGitVersion(cwd) {
+  const version = await git(cwd, ['--version']);
+  const parsed = /(\d+)\.(\d+)/.exec(version);
+  if (!parsed) throw new Error(`unreadable git version: ${version.trim()}`);
+  return [Number(parsed[1]), Number(parsed[2])];
+}
+
 // Probes the host git directly (never through gitBranches) so a parser
 // regression fails the ahead/behind assertions instead of silently skipping.
 // Capability is decided by the git VERSION (`%(ahead-behind:<commit>)` landed
@@ -139,10 +146,7 @@ export async function commit(cwd, path, content, message) {
 // caught — every such error propagates and fails the test. The one tolerated
 // outcome is a parsed version below 2.31, which no runtime fault can fake.
 export async function hostCountsAheadBehind(cwd) {
-  const version = await git(cwd, ['--version']);
-  const parsed = /(\d+)\.(\d+)/.exec(version);
-  if (!parsed) throw new Error(`unreadable git version: ${version.trim()}`);
-  const [major, minor] = [Number(parsed[1]), Number(parsed[2])];
+  const [major, minor] = await hostGitVersion(cwd);
   if (major < 2 || (major === 2 && minor < 31)) return false;
   const raw = await git(cwd, ['for-each-ref', '--format=%(ahead-behind:HEAD)', '--count=1', 'refs/heads']);
   // git >= 2.31 must answer "<ahead> <behind>"; anything else is a broken
@@ -155,10 +159,7 @@ export async function hostCountsAheadBehind(cwd) {
 // on a plumbing commit; below that version a repository that defines one is
 // refused rather than committed with the hook skipped.
 export async function hostRunsCommitHooks(cwd) {
-  const version = await git(cwd, ['--version']);
-  const parsed = /(\d+)\.(\d+)/.exec(version);
-  if (!parsed) throw new Error(`unreadable git version: ${version.trim()}`);
-  const [major, minor] = [Number(parsed[1]), Number(parsed[2])];
+  const [major, minor] = await hostGitVersion(cwd);
   return major > 2 || (major === 2 && minor >= 36);
 }
 

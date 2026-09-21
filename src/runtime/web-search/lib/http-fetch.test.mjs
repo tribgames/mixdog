@@ -2,7 +2,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import dns from 'node:dns';
 import { fetchDocument, fetchPinnedForPausedRequest, MAX_BODY_BYTES, parseRetryAfter } from './http-fetch.mjs';
-import { resolveAndValidate } from './ssrf-guard.mjs';
+import { assertPublicUrl, resolveAndValidate } from './ssrf-guard.mjs';
+
+test('public URL guard keeps exact protocol errors and rejects credentials and private hosts', () => {
+  for (const [url, protocol] of [
+    ['file:///secret', 'file:'],
+    ['ftp://example.com/file', 'ftp:'],
+    ['data:text/plain,secret', 'data:'],
+    ['javascript:alert(1)', 'javascript:'],
+    ['ws://example.com/socket', 'ws:'],
+    ['wss://example.com/socket', 'wss:'],
+    ['custom://example.com/path', 'custom:'],
+  ]) {
+    assert.throws(() => assertPublicUrl(url), { message: `Blocked non-HTTP protocol: ${protocol}` });
+  }
+  for (const url of ['http://example.com', 'https://example.com', 'HTTPS://example.com']) {
+    assert.equal(assertPublicUrl(url), undefined);
+  }
+  assert.throws(() => assertPublicUrl('https://user:secret@example.com'), {
+    message: 'Blocked URL with userinfo credentials: example.com',
+  });
+  for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+    assert.throws(() => assertPublicUrl(`https://${host}`), {
+      message: `Blocked request to private address: ${host}`,
+    });
+  }
+  assert.throws(() => assertPublicUrl('https://[::ffff:127.0.0.1]'), {
+    message: 'Blocked request to private address: 127.0.0.1',
+  });
+});
 
 test('public cross-host redirects preserve final URL and format without forwarding cookies', async () => {
   const calls = [];

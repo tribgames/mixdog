@@ -106,7 +106,7 @@ export function midstreamBackoffFor(retryNumber) {
 }
 
 export function _backoffFor(attempt) {
-  // attempt is 1-based. retry 1 → 500, retry 2 → 1000, retry 3 → 2000 … capped.
+  // attempt is 1-based; exponential backoff is capped before jitter.
   const raw = HANDSHAKE_BACKOFF_BASE_MS * (1 << (attempt - 1));
   return jitterDelayMs(Math.min(raw, HANDSHAKE_BACKOFF_CAP_MS), CODEX_RETRY_JITTER_RATIO);
 }

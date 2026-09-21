@@ -55,8 +55,7 @@ export function createActiveToolTracker({ getState, set }) {
     recomputeActiveToolSummary();
   };
   const markToolCallDone = (callKey) => {
-    if (!callKey || !activeToolCalls.has(callKey)) return;
-    activeToolCalls.delete(callKey);
+    if (!callKey || !activeToolCalls.delete(callKey)) return;
     recomputeActiveToolSummary();
   };
   const clearActiveToolSummary = () => {

@@ -63,8 +63,8 @@ pub(crate) fn run_server() -> Result<(), String> {
         // EDIT protocol: invariant-safe char-indexed edit over the persistent
         // server. EDIT <path_len> <old_len> <new_len> <replace_all> <dry_run>
         // then path+old+new bytes on stdin. Reuses apply_invariant_safe_edit.
+        let parts: Vec<&str> = header.split_whitespace().collect();
         {
-            let parts: Vec<&str> = header.split_whitespace().collect();
             if parts.first() == Some(&"EDIT") {
                 if parts.len() != 6 {
                     write_server_err(&mut stdout, "bad edit header")?;
@@ -153,7 +153,6 @@ pub(crate) fn run_server() -> Result<(), String> {
                 continue;
             }
         }
-        let parts: Vec<&str> = header.split_whitespace().collect();
         // Protocol: APPLY base_len patch_len timing dry_run fuzz reject_partial
         if parts.len() != 7 || parts[0] != "APPLY" {
             write_server_err(&mut stdout, "bad header")?;

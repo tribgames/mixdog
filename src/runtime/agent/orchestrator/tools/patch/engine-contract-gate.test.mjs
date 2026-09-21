@@ -232,7 +232,7 @@ test('an executable carrying the marker cannot serve the protocol, so it routes 
         {}
       )
     );
-    assert.match(result, /\(JS\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -259,7 +259,7 @@ test('a markerless artifact routes JS without spawning anything', async (t) => {
         {}
       )
     );
-    assert.match(result, /\(JS\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -286,7 +286,7 @@ test('a genuine engine passes at any path or filename and routes Native', {
         {}
       )
     );
-    assert.match(result, /\(Native\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -319,7 +319,7 @@ test('an artifact swapped after verification cannot apply unverified', {
         {}
       )
     );
-    assert.match(result, /\(JS\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -358,7 +358,7 @@ test('a genuine engine replacing a bad one at the same path/size/mtime is re-ver
         {}
       )
     );
-    assert.match(result, /\(Native\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -404,7 +404,7 @@ test('a swap between read and spawn never poisons the original bytes', {
         {}
       )
     );
-    assert.match(result, /\(Native\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -571,7 +571,7 @@ test('a swap-back before the verdict never poisons the restored artifact', {
         {}
       )
     );
-    assert.match(result, /\(Native\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });
@@ -663,7 +663,7 @@ test('no exported surface reaches a write without a verified contract', {
         {}
       )
     );
-    assert.match(result, /\(Native\)/);
+    assert.match(result, /^ {2}OK /);
     assert.equal(readFileSync(file, 'utf8'), 'omega\nkeep\n');
   });
 });

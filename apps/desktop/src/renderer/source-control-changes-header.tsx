@@ -11,6 +11,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { elementMenuPoint, type ScmContextMenuItem } from './ScmContextMenu';
 import type { sourceControlRemoteActions } from './source-control-remote-actions';
 import type { MenuPoint } from './source-control-history-list';
+import type { ScmSortKey } from './source-control-support';
 
 type RemoteEntry = ReturnType<typeof sourceControlRemoteActions>['pushEntry'];
 
@@ -118,7 +119,7 @@ export function OperationBanner({
   );
 }
 
-export type SortKey = 'path' | 'name' | 'status';
+export type SortKey = ScmSortKey;
 
 // ONE flat changed-files list leaves ordering as the only view choice (the
 // deleted menu's View & Sort group).

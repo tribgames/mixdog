@@ -21,14 +21,18 @@ test('one receiver resyncs in full while its sibling continues a valid compact d
     status: 'idle',
     streamingTail: null,
   };
-  lanes.forEach((lane) => lane.reset(initial));
+  lanes.forEach((lane) => {
+    lane.reset(initial);
+  });
   await new Promise(setImmediate);
   lanes[0].reset(initial);
   await new Promise(setImmediate);
   assert.equal(received[0].length, 2);
   assert.equal(received[1].length, 1);
   const next = { ...initial, status: 'running' };
-  lanes.forEach((lane) => lane.publish(next));
+  lanes.forEach((lane) => {
+    lane.publish(next);
+  });
   await new Promise(setImmediate);
   assert.deepEqual(received[1].at(-1).snapshot, next);
   assert.equal(received[0][1].droppable, false);

@@ -25,11 +25,7 @@ export interface RelaySessionWiringDeps {
     onSent?: (bytes: number) => void,
     requireDelivery?: boolean
   ): Promise<void>;
-  broadcastEncrypted(
-    payload: unknown,
-    droppable: boolean,
-    include?: (state: RelayClientState) => boolean
-  ): void;
+  broadcastEncrypted(payload: unknown, droppable: boolean, include?: (state: RelayClientState) => boolean): void;
   subscribeTerminalData?: (listener: (event: { id: string; data: string }) => void) => () => void;
 }
 

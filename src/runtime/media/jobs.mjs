@@ -119,7 +119,6 @@ export async function startMediaJob({ lane: laneId, kind, model, prompt, options
     model: resolved.model,
     prompt: text,
     options: { ...options },
-    referenceCount: refs.length,
     progress: 0,
     assetId: null,
     error: null,

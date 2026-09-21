@@ -38,6 +38,7 @@ import {
 } from './transcript-tool-result';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { formatToolSurface } from '../../../../src/runtime/shared/tool-surface.mjs';
+// biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { agentActionTitle, agentResponseTitle, deriveToolCardModel } from '../../../../src/runtime/shared/tool-card-model.mjs';
 
@@ -116,12 +117,14 @@ export function desktopToolActivityItemPresentation(
   if (baseTone === 'neutral' && failed) tone = 'error';
   const resultValue = toolActivityResultValue(item);
   const structured = toolActivityStructuredRows(normalizedName, args, resultValue);
-  const title =
-    normalizedName === 'agent'
-      ? model.isAgentResponse
-        ? agentResponseTitle(args, 1)
-        : agentActionTitle(args) || toolActivityTitle(normalizedName, originalName, surface.label, args)
-      : toolActivityTitle(normalizedName, originalName, surface.label, args);
+  let title: string;
+  if (normalizedName !== 'agent') {
+    title = toolActivityTitle(normalizedName, originalName, surface.label, args);
+  } else if (model.isAgentResponse) {
+    title = agentResponseTitle(args, 1);
+  } else {
+    title = agentActionTitle(args) || toolActivityTitle(normalizedName, originalName, surface.label, args);
+  }
   const subject = toolActivityRedactInlineSecrets(
     toolActivitySubject(normalizedName, args, oneLine(String(model.summaryText || ''))),
     args
@@ -131,7 +134,9 @@ export function desktopToolActivityItemPresentation(
     : '';
   const represented = toolActivityRepresentedKeys(normalizedName);
   if (desktopToolActivityCategory(name, item.args) === 'MCP') {
-    ['query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action'].forEach((key) => represented.add(key));
+    ['query', 'q', 'text', 'prompt', 'path', 'uri', 'name', 'id', 'action'].forEach((key) => {
+      represented.add(key);
+    });
   }
   const fields = Object.entries(args)
     .filter(
@@ -165,9 +170,10 @@ export function desktopToolActivityItemPresentation(
   const targetPath = toolActivityFirstText(args, 'file_path', 'filePath', 'path', 'file', 'target');
   const previewLanguage = previewText ? toolActivityCodeLanguage(targetPath) : '';
   const replacementLanguage = beforeText || afterText ? toolActivityCodeLanguage(targetPath) : '';
-  let outputText = normalizedName === 'git'
-    ? String(item.result ?? model.displayedResultBodyText ?? item.rawResult ?? '').trimEnd()
-    : toolActivityCleanOutput(toolActivityOutputText(item.result ?? model.displayedResultBodyText ?? item.rawResult));
+  let outputText =
+    normalizedName === 'git'
+      ? String(item.result ?? model.displayedResultBodyText ?? item.rawResult ?? '').trimEnd()
+      : toolActivityCleanOutput(toolActivityOutputText(item.result ?? model.displayedResultBodyText ?? item.rawResult));
   const backgroundTask = toolActivityBackgroundTask(outputText);
   const metaText = backgroundTask ? backgroundTask.meta : '';
   if (backgroundTask) outputText = backgroundTask.body;
@@ -216,10 +222,15 @@ export function desktopToolActivityItemPresentation(
     const completed = structured.rows.filter((row) => toolActivityIsCompleted(row.status)).length;
     resultLabel = `${completed}/${structured.rows.length}`;
   }
-  if (!resultLabel && normalizedName === 'git_stage' && /^staged\b/i.test(outputText.trim())) {
+  if (!resultLabel && (normalizedName === 'git_stage' || (normalizedName === 'git' && args.action === 'stage')) && /^staged\b/i.test(outputText.trim())) {
     resultLabel = 'Staged';
   }
-  if (normalizedName !== 'git' && resultLabel && outputText && oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()) {
+  if (
+    normalizedName !== 'git' &&
+    resultLabel &&
+    outputText &&
+    oneLine(outputText).toLocaleLowerCase() === resultLabel.toLocaleLowerCase()
+  ) {
     outputText = '';
   }
   resultLabel = resultLabel ? toolActivityLocalizedResult(resultLabel) : '';

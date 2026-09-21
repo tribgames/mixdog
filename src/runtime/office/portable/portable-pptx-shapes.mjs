@@ -54,9 +54,7 @@ export async function handleSetHyperlink(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   const address = String(op.address || '').trim();
   if (!address && !op.subAddress) throw new Error('set_hyperlink requires address or subAddress');
   const relationshipId = address
@@ -131,7 +129,7 @@ function distributePlacements(placements, bounds, op) {
     throw new Error('distribute direction must be horizontal or vertical');
   }
   const order = placements
-    .map((placement, index) => ({ placement, index }))
+    .map((placement) => ({ placement }))
     .sort((left, right) =>
       direction === 'horizontal' ? left.placement.left - right.placement.left : left.placement.top - right.placement.top
     );
@@ -159,6 +157,13 @@ async function slideShapeTree(context, op) {
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
   return { path, current, tree };
+}
+
+function slideShape(tree, op) {
+  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
+  const shape = shapes[Number(op.shape) - 1];
+  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  return shape;
 }
 
 function writeSlideTree(context, { path, current, tree }, inner) {
@@ -227,9 +232,7 @@ export async function handleSetText(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   const nodes = textNodes(shape.xml, 'a:t');
   if (!nodes.length) throw new Error(`PPTX shape ${op.shape} has no editable text`);
   nodes[0].text = String(op.text ?? '');
@@ -309,9 +312,7 @@ export async function handleDeleteShape(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   const nextInner = `${tree.inner.slice(0, shape.start)}${tree.inner.slice(shape.end)}`;
   zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);
   return { op: op.op, changed: true };
@@ -385,9 +386,7 @@ export async function handleAddImage(context, op) {
 // text run or no explicit size cannot be fitted.
 async function measurableShape(context, op) {
   const { path, current, tree } = await slideShapeTree(context, op);
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   const paragraphs = shapeParagraphs(shape.xml);
   if (!paragraphs?.length) throw new Error(`PPTX shape ${op.shape} has no measurable text run`);
   const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(shape.xml);
@@ -496,9 +495,7 @@ export async function handleSetTableDataOrReplaceImage(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   let updated;
   let detail = {};
   if (op.op === 'set_table_data') {
@@ -523,9 +520,7 @@ export async function handleSetTableDataOrReplaceImage(context, op) {
 }
 
 function ungroupShape(context, op, slide) {
-  const shapes = topLevelElements(slide.tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const group = shapes[Number(op.shape) - 1];
-  if (!group) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const group = slideShape(slide.tree, op);
   if (group.name !== 'p:grpSp') throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} is not a group`);
   const children = containerBody(group.xml, 'p:grpSp')
     .replace(/<p:nvGrpSpPr>[\s\S]*?<\/p:nvGrpSpPr>/, '')
@@ -661,9 +656,7 @@ export async function handleCropImage(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   if (shape.name !== 'p:pic') throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} is not a picture`);
   const edge = (value) => Math.max(0, Math.min(100_000, Math.round((Number(value) || 0) * 1000)));
   const rect = `<a:srcRect l="${edge(op.left)}" t="${edge(op.top)}" r="${edge(op.right)}" b="${edge(op.bottom)}"/>`;
@@ -777,9 +770,7 @@ export async function handleAddAnimation(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   const shapeId = Number(/<p:cNvPr\b[^>]*\bid="(\d+)"/.exec(shape.xml)?.[1]);
   if (!shapeId) throw new Error(`PPTX shape ${op.shape} on slide ${op.slide} has no shape id`);
   const request = animationRequest(op);
@@ -807,9 +798,7 @@ export async function handleSetShape(context, op) {
   const current = await zipText(zip, path);
   const tree = containerInner(current, 'p:spTree');
   if (!tree) throw new Error('PPTX slide shape tree is missing');
-  const shapes = topLevelElements(tree.inner, ['p:sp', 'p:pic', 'p:graphicFrame', 'p:grpSp']);
-  const shape = shapes[Number(op.shape) - 1];
-  if (!shape) throw new Error(`PPTX shape ${op.shape} not found on slide ${op.slide}`);
+  const shape = slideShape(tree, op);
   const updated = updateShapeGeometry(shape.xml, op.properties || {});
   const nextInner = `${tree.inner.slice(0, shape.start)}${updated}${tree.inner.slice(shape.end)}`;
   zip.file(path, `${current.slice(0, tree.start)}${nextInner}${current.slice(tree.end)}`);

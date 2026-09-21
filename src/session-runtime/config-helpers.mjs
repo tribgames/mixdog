@@ -71,39 +71,8 @@ export function makeResolveRoute(resolveDefaultProvider) {
     const hasExplicitModelParameters = modelParameters !== undefined;
     const hasExplicitContextPercent = contextPercent !== undefined;
 
-    if (explicitModel && !explicitProvider) {
-      const preset = findPreset(config, explicitModel);
-      if (preset) {
-        const p = clean(preset.provider);
-        const m = clean(preset.model) || DEFAULT_MODEL;
-        if (p && m) {
-          const saved = modelSettingsFor(config, p, m);
-          return {
-            provider: p,
-            model: m,
-            preset,
-            effort: hasExplicitEffort ? explicitEffort : normalizeSavedEffort(saved.effort ?? preset.effort),
-            fast: resolveFast({
-              hasExplicitFast,
-              explicitFast,
-              saved,
-              presetFast: preset.fast === true,
-              preference: () => fastPreferenceFor(config, p, m),
-            }),
-            modelParameters: hasExplicitModelParameters
-              ? cleanModelParameters(modelParameters)
-              : cleanModelParameters(saved.modelParameters ?? preset.modelParameters),
-            contextPercent: hasExplicitContextPercent
-              ? cleanContextPercent(contextPercent)
-              : cleanContextPercent(saved.contextPercent ?? preset.contextPercent),
-          };
-        }
-      }
-    }
-
-    if (!explicitProvider && !explicitModel) {
-      const defaultKey = config?.default;
-      const preset = findPreset(config, defaultKey);
+    if (!explicitProvider) {
+      const preset = findPreset(config, explicitModel || config?.default);
       if (preset) {
         const p = clean(preset.provider);
         const m = clean(preset.model) || DEFAULT_MODEL;

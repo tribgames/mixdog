@@ -1,9 +1,4 @@
-// Header helpers retained after the webhook store moved to PG
 import { createHash } from 'node:crypto';
-
-// (src/runtime/shared/webhooks-db.mjs). The file-based endpoint config,
-// secret side-file, deliveries.jsonl log and the fs.watch cache are retired
-// from the serving path; only these pure helpers remain.
 
 function extractDeliveryId(headers) {
   return headers['x-github-delivery'] || headers['x-delivery-id'] || headers['x-request-id'] || null;

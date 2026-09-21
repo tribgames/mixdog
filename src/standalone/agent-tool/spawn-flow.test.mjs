@@ -1,8 +1,35 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { cleanupBackgroundTasks } from '../../runtime/shared/background-tasks.mjs';
-import { createSpawnFlow } from './spawn-flow.mjs';
+
+// Install synthetic boundaries before loading the flow's transitive imports:
+// these lifecycle tests must not prepare real agents or access user stores.
+mock.module('../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs', {
+  namedExports: {
+    prepareAgentSession: () => {
+      throw new Error('unexpected real session preparation');
+    },
+  },
+});
+mock.module('../../runtime/agent/orchestrator/providers/registry.mjs', {
+  namedExports: { getProvider: () => undefined },
+});
+mock.module('../../runtime/agent/orchestrator/session/store.mjs', {
+  namedExports: {
+    loadSession: () => null,
+    readSessionLifecycleStateFromDisk: () => ({ state: 'absent', generation: 0 }),
+    saveSessionAsync: async () => {},
+    registerSessionPurgeHook: () => () => {},
+  },
+});
+mock.module('../../vendor/statusline/src/gateway/session-routes.mjs', {
+  namedExports: {
+    clearGatewaySessionRoute: () => true,
+    writeGatewaySessionRoutes: () => true,
+  },
+});
+const { createSpawnFlow } = await import('./spawn-flow.mjs');
 
 test('agent job lifecycle publishes status immediately and after terminal settlement', async () => {
   let publications = 0;

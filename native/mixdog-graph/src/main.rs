@@ -408,13 +408,13 @@ struct SrcFile {
 }
 
 // Full parse (tokens/imports/symbols) from an already-collected SrcFile.
-// Unreadable/non-UTF8 files fail the build instead of producing a partial
-// graph that can be mistaken for a complete cache entry.
+// Unreadable files fail the build; unsupported encodings produce a parse-error
+// record without claiming that call extraction ran.
 fn parse_file_from(src: &SrcFile, patterns: &TypePatterns) -> Result<FileRecord, String> {
     let lang = src.lang;
     let bytes = fs::read(&src.path)
         .map_err(|err| format!("read failed for {}: {err}", src.path.display()))?;
-    let decoded = decode_source_text(&bytes);
+    let decoded = decode_source_text(bytes);
     let (text, parse_error) = match decoded {
         Ok(text) => (text, String::new()),
         Err(error) => (String::new(), error.to_string()),
@@ -460,8 +460,8 @@ fn parse_file_from(src: &SrcFile, patterns: &TypePatterns) -> Result<FileRecord,
     })
 }
 
-fn decode_source_text(bytes: &[u8]) -> Result<String, &'static str> {
-    String::from_utf8(bytes.to_vec()).map_err(|_| "unsupported source encoding; file not indexed")
+fn decode_source_text(bytes: Vec<u8>) -> Result<String, &'static str> {
+    String::from_utf8(bytes).map_err(|_| "unsupported source encoding; file not indexed")
 }
 
 // Stat-and-parse a single path (used by --files, where paths come from the
@@ -2229,8 +2229,8 @@ fn resolve_and_link(records: &mut [FileRecord], root: &Path, file_set: &HashSet<
             }
         }
     }
-    for (i, rec) in records.iter_mut().enumerate() {
-        rec.resolved_imports = resolved[i].clone();
+    for (rec, resolved_imports) in records.iter_mut().zip(resolved) {
+        rec.resolved_imports = resolved_imports;
         if let Some(importers) = reverse.remove(&rec.rel) {
             rec.imported_by = importers;
         }

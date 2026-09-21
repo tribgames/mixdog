@@ -21,15 +21,20 @@ export function overlayScript(locale = 'en'): string {
     let state = { paused:false, canResume:false, busy:false, generation:0 };
     let armed, renderedRevision = -1, requestSequence = 0, pending = '', failed = false;
     const toggle = document.getElementById('toggle');
-    const action = () => armed?.action || (pending === 'resume' ? 'pause' : state.paused ? 'resume' : 'pause');
+    const action = () => {
+      if (armed?.action) return armed.action;
+      if (pending === 'resume') return 'pause';
+      return state.paused ? 'resume' : 'pause';
+    };
     const render = () => {
       document.body.dataset.paused = String(state.paused);
       document.body.dataset.error = String(failed || Boolean(state.attention));
-      document.getElementById('title').textContent = failed
-        ? ${JSON.stringify(ko ? '실패' : 'Failed')}
-        : pending === 'pause' ? ${JSON.stringify(ko ? '중단 중' : 'Pausing')}
-        : pending === 'resume' ? ${JSON.stringify(ko ? '재개 중' : 'Resuming')}
-        : state.title || ${JSON.stringify(ko ? '컴퓨터 사용 중' : 'Computer in use')};
+      let title;
+      if (failed) title = ${JSON.stringify(ko ? '실패' : 'Failed')};
+      else if (pending === 'pause') title = ${JSON.stringify(ko ? '중단 중' : 'Pausing')};
+      else if (pending === 'resume') title = ${JSON.stringify(ko ? '재개 중' : 'Resuming')};
+      else title = state.title || ${JSON.stringify(ko ? '컴퓨터 사용 중' : 'Computer in use')};
+      document.getElementById('title').textContent = title;
       const resuming = action() === 'resume';
       const label = resuming ? ${JSON.stringify(ko ? '재개' : 'Resume')} : ${JSON.stringify(ko ? '중단' : 'Pause')};
       toggle.setAttribute('aria-label', label);

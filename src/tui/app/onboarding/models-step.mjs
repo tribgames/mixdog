@@ -88,9 +88,8 @@ export function createModelsStep({
           { value: 'next', label: 'Next ▶' },
         ],
         onConfirm: (button) => {
-          // Both neighbors are async (Step 1 preloads provider setup; theme
-          // list is sync but keep symmetric) — leave Step 2 visible until the
-          // next picker replaces it to avoid a blank frame.
+          // Leave Step 2 visible until the next picker replaces it: Step 1
+          // preloads provider setup, so clearing now would flash a blank frame.
           if (button.value === 'back') nav.openAuthStep();
           else nav.openThemeStep();
         },

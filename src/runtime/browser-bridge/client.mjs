@@ -153,15 +153,7 @@ async function requestBridge(discovery, encodedPayload, signal, timingContext) {
 }
 
 function uncertainMutation(message) {
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Error: ${message}; the action may have executed and was not replayed`,
-      },
-    ],
-    isError: true,
-  };
+  return browserToolError(`${message}; the action may have executed and was not replayed`);
 }
 
 /** Execute one `browser` tool call. Returns MCP-shaped content so the

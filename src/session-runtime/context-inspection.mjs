@@ -12,7 +12,10 @@ import {
   toolSchemaSignature,
 } from '../runtime/agent/orchestrator/session/context-utils.mjs';
 import { estimateTokens } from '../runtime/agent/orchestrator/session/token-estimate.mjs';
-import { latestSkillBodies } from '../runtime/agent/orchestrator/context/skill-state.mjs';
+import { latestSkillBodies, skillMessageText } from '../runtime/agent/orchestrator/context/skill-state.mjs';
+import { stripRuntimeUserContext } from '../runtime/agent/orchestrator/session/runtime-user-context.mjs';
+import { isSummaryMessage } from '../runtime/agent/orchestrator/session/compact/messages.mjs';
+import { parseTaskNotification } from '../runtime/shared/task-notification-envelope.mjs';
 import {
   classifySyntheticUserMessage,
   SYNTHETIC_USER_ENVELOPE_TAG,
@@ -38,12 +41,9 @@ const OPAQUE_FIELDS = new Set([
   'encrypted_reasoning',
   'encryptedReasoning',
 ]);
-// Runtime-authored role:'user' rows — a bare <system-reminder>, or the
-// <mixdog-runtime kind="runtime-control"> envelope the wire projection wraps
-// one in — are context the runtime sent, not words the person typed. They read
-// as system prompt sections, so the message rows stay the real conversation.
+// All runtime envelopes describe injected context, not a human turn.
 const RUNTIME_CONTROL_OPEN = new RegExp(
-  `^\\s*<${SYNTHETIC_USER_ENVELOPE_TAG}\\s+kind="${SYNTHETIC_USER_KINDS.RUNTIME_CONTROL}"[^>]*>`,
+  `^\\s*<${SYNTHETIC_USER_ENVELOPE_TAG}\\s+kind="(?:${Object.values(SYNTHETIC_USER_KINDS).join('|')})"[^>]*>`,
   'i'
 );
 const RUNTIME_CONTROL_CLOSE = new RegExp(`</${SYNTHETIC_USER_ENVELOPE_TAG}>\\s*$`, 'i');
@@ -57,13 +57,35 @@ const SKILL_SECTION_LABELS = new Map([
 
 function runtimeAuthored(message, text) {
   if (!text.trim()) return false;
-  if (text.trimStart().startsWith('<system-reminder>') || RUNTIME_CONTROL_OPEN.test(text)) return true;
-  // The envelope exists only on the provider-bound copy; the transcript this
-  // inspector reads is the STORED one, where an async task notification or a
-  // recovery row is a bare role:'user' string and was counted as the person's
-  // own words (user: 이건뭐지 잘못된건가). Ask the same classifier the wire
-  // projection uses, so both agree with or without the envelope.
-  return classifySyntheticUserMessage(message) === SYNTHETIC_USER_KINDS.RUNTIME_CONTROL;
+  if (RUNTIME_CONTROL_OPEN.test(text) || parseTaskNotification(text)) return true;
+  return classifySyntheticUserMessage({ ...message, content: text }) !== null;
+}
+
+// Use exact producer boundaries first. Legacy string transcripts may only
+// have reminder envelopes at their edges; never consume the human remainder.
+function splitInjectedContext(message) {
+  if (message.role !== 'user') return { message, injected: '' };
+  const stripped = stripRuntimeUserContext(message);
+  if (stripped !== message) {
+    const { prefix, suffix } = message.meta.runtimeUserContext;
+    return { message: stripped, injected: [prefix, suffix].filter(Boolean).join('\n') };
+  }
+  if (typeof message.content !== 'string') return { message, injected: '' };
+  let content = message.content;
+  const injected = [];
+  let match;
+  while ((match = /^\s*<system-reminder>[\s\S]*?<\/system-reminder>\s*/i.exec(content))) {
+    injected.push(match[0]);
+    content = content.slice(match[0].length);
+  }
+  const trailing = /\s*<system-reminder>(?:(?!<\/?system-reminder>)[\s\S])*<\/system-reminder>\s*$/i;
+  while ((match = trailing.exec(content))) {
+    injected.push(match[0]);
+    content = content.slice(0, match.index);
+  }
+  // Keep standalone reminders on the normal system-section path.
+  if (!content.trim() || !injected.length) return { message, injected: '' };
+  return { message: { ...message, content }, injected: injected.join('\n') };
 }
 
 // Prompt-head manifests arrive as XML blocks with no markdown heading, so the
@@ -251,7 +273,6 @@ function sectionDrafts(sections, index, tokens, reminder) {
     const skillLabel = SKILL_SECTION_LABELS.get(heading.trim().toLowerCase());
     let category = 'system';
     if (bucket === 'memory') category = 'memory';
-    else if (skillLabel) category = 'skills';
     return {
       id: `message:${index}:section:${sectionIndex}`,
       category,
@@ -291,19 +312,6 @@ function attachmentDraft(attachments, index, { role = '', ordinal = 0, name = ''
 // are numbered per tool instead, so one tool's whole cost reads off a single
 // group. The turn keeps a name-only trace of the tools it called, so the pair
 // still reads as one turn while the sizes live on the tool rows themselves.
-function skillDraft(skill, message, index, tokens) {
-  return {
-    id: `message:${index}`,
-    category: 'skills',
-    group: 'instruction',
-    label: label(skill.name),
-    tokens,
-    kind: 'instruction',
-    messageIndex: index,
-    preview: () => messagePreview(message),
-  };
-}
-
 // A tool result answers the turn that called it, but its size is the
 // tool's doing, not the model's. It rides as its own row grouped under the
 // producing tool, so the group head reads as that tool's whole share.
@@ -323,7 +331,7 @@ function toolResultDraft(message, index, tokens, toolName, ordinal) {
 }
 
 function turnDraft(message, index, tokens, { role, group, ordinal, name }) {
-  const category = role === 'system' || role === 'user' ? role : 'assistant';
+  const category = group === 'summary' || role === 'developer' ? 'system' : role === 'system' || role === 'user' ? role : 'assistant';
   return {
     id: `message:${index}`,
     category,
@@ -353,8 +361,13 @@ function ordinalCounter() {
 // Runtime-authored reminders and system prompts split into named sections;
 // every other message is one draft.
 function frameSections(message, text, reminder) {
-  if (reminder) return reminderSections(text);
-  if (message.role === 'system') return promptSections(text);
+  if (reminder) {
+    const skill = latestSkillBodies([{ ...message, content: text }])[0];
+    if (skill) return [{ text, label: `Skill: ${skill.name}` }];
+    if (parseTaskNotification(text)) return [{ text, label: 'Task notification' }];
+    return reminderSections(text);
+  }
+  if (message.role === 'system' || message.role === 'developer') return promptSections(text);
   return [];
 }
 
@@ -374,10 +387,25 @@ function messageDrafts(messages) {
   const nextOrdinal = ordinalCounter();
   let openTurn = null;
   for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index];
+    const original = messages[index];
+    const split = splitInjectedContext(original);
+    const message = split.message;
     const attachments = messageAttachmentBreakdown(message);
     const reasoning = messageReasoningBreakdown(message);
-    const tokens = estimateMessageTokens(message) - attachments.tokens - reasoning.tokens;
+    let tokens = estimateMessageTokens(original) - attachments.tokens - reasoning.tokens;
+    if (split.injected) {
+      const bodyWeight = skillMessageText(message.content).trim()
+        ? estimateMessageTokens(message) - attachments.tokens - reasoning.tokens
+        : 0;
+      const [injectedTokens, bodyTokens] = contextShares([estimateTokens(split.injected), bodyWeight], tokens);
+      drafts.push(
+        ...sectionDrafts(reminderSections(split.injected), index, injectedTokens, true).map((draft) => ({
+          ...draft,
+          id: `${draft.id}:injected`,
+        }))
+      );
+      tokens = bodyTokens;
+    }
     if (reasoning.blocks.length) {
       drafts.push({
         id: `reasoning:${index}`,
@@ -394,17 +422,12 @@ function messageDrafts(messages) {
       const draft = attachmentDraft(attachments, index, identity);
       if (draft) drafts.push(draft);
     };
-    const skill = latestSkillBodies([message])[0];
-    const text = typeof message.content === 'string' ? message.content : '';
-    const reminder = message.role === 'user' && runtimeAuthored(message, text);
+    const text = skillMessageText(message.content);
+    const summary = message.role === 'user' && (isSummaryMessage(message) || text.startsWith(SUMMARY_PREFIX));
+    const reminder = message.role === 'user' && !summary && runtimeAuthored(message, text);
     const sections = frameSections(message, text, reminder);
     if (sections.length) {
       drafts.push(...sectionDrafts(sections, index, tokens, reminder));
-      pushAttachment();
-      continue;
-    }
-    if (skill) {
-      drafts.push(skillDraft(skill, message, index, tokens));
       pushAttachment();
       continue;
     }
@@ -418,7 +441,7 @@ function messageDrafts(messages) {
       continue;
     }
     openTurn = null;
-    const summary = role === 'user' && text.startsWith(SUMMARY_PREFIX);
+    if (split.injected && !text.trim() && !attachments.items?.length) continue;
     const group = summary ? 'summary' : role;
     const ordinal = nextOrdinal(group);
     const name = message.name ? String(message.name) : '';

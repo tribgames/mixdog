@@ -7,7 +7,7 @@ import { copyToClipboard } from './clipboard.mjs';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
 export function useGlobalKeyInput({
   store,
-  state,
+  state: _state,
   toolApproval,
   picker,
   usagePanel,
@@ -30,7 +30,6 @@ export function useGlobalKeyInput({
   applySelectionRect,
   settleStuckDrag,
 }) {
-  // (body moved verbatim)
   useInput(
     (input, key) => {
       // A drag whose button release never reached the app (button let go OUTSIDE

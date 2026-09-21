@@ -1,4 +1,3 @@
-// client-registry/sse-attach.mjs
 // Binding a registered client's notify stream: the SSE response headers, the
 // prelude that flushes them, frames buffered while the client had no stream,
 // the keepalive comment, and stream-loss bookkeeping.

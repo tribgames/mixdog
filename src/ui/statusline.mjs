@@ -158,31 +158,20 @@ function l2SpinnerFrame(now = Date.now()) {
   return WORKER_SPINNER_FRAMES[index] || WORKER_SPINNER_FRAMES[0];
 }
 
-/**
- * Build the status-line JSON the vendored renderer reads, from our REPL
- * state. Only the fields `renderStatusLine()` actually consumes are emitted:
- *   - display_name              → model name (L1)
- *   - effort.level              → effort string
- *   - context_window.*          → context% bar (used_percentage + raw tokens
- *                                 so the lib's activeContextTokens() also works)
- *   - session_id                → gateway session lookup
- * model / context% / effort / 5H-7D are overridden by the live gateway via
- * loadGatewayStatus() when it's running; these are the standalone fallbacks.
- */
 function activeContextNumerator(_provider, stats) {
   return measuredContextUsage({ stats }).used;
 }
 
 export function resolveContextUsedPct({
-  provider = '',
-  model = '',
+  provider: _provider = '',
+  model: _model = '',
   stats = null,
   contextWindow = 0,
   displayContextWindow = 0,
   rawContextWindow = 0,
-  compactBoundaryTokens = 0,
-  autoCompactTokenLimit = 0,
-  gatewayStatus = null,
+  compactBoundaryTokens: _compactBoundaryTokens = 0,
+  autoCompactTokenLimit: _autoCompactTokenLimit = 0,
+  gatewayStatus: _gatewayStatus = null,
 } = {}) {
   return measuredContextUsage({ stats, contextWindow, displayContextWindow, rawContextWindow }).percent;
 }
@@ -682,7 +671,7 @@ function fallbackLine({
   model = '',
   effort = '',
   fast = false,
-  cwd = '',
+  cwd: _cwd = '',
   stats,
   contextWindow = 0,
   displayContextWindow = 0,

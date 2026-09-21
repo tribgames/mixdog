@@ -34,25 +34,18 @@ function isAnthropicLane(key) {
   return provider === 'anthropic' || provider === 'anthropic-oauth';
 }
 
-function providerLabelForLane(key) {
-  const prefix = String(key).split(':', 1)[0];
-  const lower = prefix.toLowerCase();
-  if (lower === 'anthropic-oauth') return 'Anthropic OAuth';
-  if (lower === 'anthropic') return 'Anthropic';
-  return prefix;
-}
-
-// Compact duration without spaces/colons so err-text's `retryAfter=([^\s:]+)`
-// capture keeps the full value (e.g. 1h42m, 3m20s, 45s).
-function formatCooldownMs(ms) {
-  const totalSec = Math.max(1, Math.ceil((Number(ms) || 0) / 1000));
-  if (totalSec < 60) return `${totalSec}s`;
-  const totalMin = Math.floor(totalSec / 60);
-  const sec = totalSec % 60;
-  if (totalMin < 60) return sec ? `${totalMin}m${sec}s` : `${totalMin}m`;
-  const hr = Math.floor(totalMin / 60);
-  const min = totalMin % 60;
-  return min ? `${hr}h${min}m` : `${hr}h`;
+function createAdmissionLane(key, concurrency) {
+  return {
+    active: 0,
+    queue: [],
+    adaptive: isAnthropicLane(key),
+    limit: concurrency,
+    cooldownUntil: 0,
+    recoverySuccesses: 0,
+    recoveryTarget: null,
+    cooldownTimer: null,
+    fairCursor: null,
+  };
 }
 
 function retryAfterMs(error, now) {
@@ -74,28 +67,6 @@ class ProviderAdmissionQueueOverflowError extends Error {
     this.code = 'EPROVIDERQUEUEFULL';
     this.laneKey = key;
     this.maxQueue = maxQueue;
-  }
-}
-
-/**
- * Deterministic refusal while a long rate-limit cooldown is active. Surfaced
- * to the caller immediately (turn fails with a visible error) instead of
- * silently parking the request until the quota window resets. httpStatus 429
- * routes it through the existing quota/rate-limit error presentation.
- */
-class ProviderCooldownError extends Error {
-  constructor(key, cooldownUntil, now) {
-    const remaining = Math.max(0, Number(cooldownUntil) - Number(now));
-    super(
-      `${providerLabelForLane(key)} rate-limit cooldown active; retryAfter=${formatCooldownMs(remaining)} — ` +
-        'wait for the quota window reset, or re-login / switch the provider account to continue now.'
-    );
-    this.name = 'ProviderCooldownError';
-    this.code = 'EPROVIDERCOOLDOWN';
-    this.httpStatus = 429;
-    this.laneKey = key;
-    this.cooldownUntil = cooldownUntil;
-    this.retryAfterMs = remaining;
   }
 }
 
@@ -157,17 +128,7 @@ export class ProviderAdmissionScheduler {
     const now = this.now();
     if (!laneKey || until <= now || this.closedReason) return false;
     if (until - now > PROVIDER_COOLDOWN_FAIL_FAST_MS) return false;
-    const lane = this.lanes.get(laneKey) || {
-      active: 0,
-      queue: [],
-      adaptive: isAnthropicLane(laneKey),
-      limit: this.concurrency,
-      cooldownUntil: 0,
-      recoverySuccesses: 0,
-      recoveryTarget: null,
-      cooldownTimer: null,
-      fairCursor: null,
-    };
+    const lane = this.lanes.get(laneKey) || createAdmissionLane(laneKey, this.concurrency);
     if (!lane.adaptive || until <= lane.cooldownUntil) return false;
     this.lanes.set(laneKey, lane);
     lane.cooldownUntil = until;
@@ -199,17 +160,7 @@ export class ProviderAdmissionScheduler {
     if (this.closedReason) return Promise.reject(this.closedReason);
     if (signal?.aborted) return Promise.reject(abortError(signal));
 
-    const lane = this.lanes.get(laneKey) || {
-      active: 0,
-      queue: [],
-      adaptive: isAnthropicLane(laneKey),
-      limit: this.concurrency,
-      cooldownUntil: 0,
-      recoverySuccesses: 0,
-      recoveryTarget: null,
-      cooldownTimer: null,
-      fairCursor: null,
-    };
+    const lane = this.lanes.get(laneKey) || createAdmissionLane(laneKey, this.concurrency);
     this.lanes.set(laneKey, lane);
     if (lane.queue.length >= this.maxQueue) {
       return Promise.reject(new ProviderAdmissionQueueOverflowError(laneKey, this.maxQueue));
@@ -395,20 +346,6 @@ export class ProviderAdmissionScheduler {
     this._scheduleCooldown(key, lane);
     this._emitCooldownEvent({ type: 'cooldown', key, cooldownUntil: lane.cooldownUntil });
     return true;
-  }
-
-  _rejectQueueForCooldown(key, lane) {
-    if (!lane.queue.length) return;
-    for (const item of lane.queue.splice(0)) {
-      if (item.canceled) {
-        this._detach(item);
-        continue;
-      }
-      item.canceled = true;
-      this._detach(item);
-      item.task = null;
-      item.reject(new ProviderCooldownError(key, lane.cooldownUntil, this.now()));
-    }
   }
 
   /**
@@ -628,7 +565,8 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
             }
           },
         }
-      )
+      ),
+      { signal, onRestoreWait: () => opts.onStageChange?.('resource_wait') }
     );
   };
   return provider;

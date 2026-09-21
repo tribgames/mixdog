@@ -60,7 +60,10 @@ test('the session launcher records the daemon exit and mirrors boot stderr once'
     'the ready handshake is logged'
   );
 
-  const exitLine = await Promise.race([exitLogged, delay(20_000).then(() => null)]);
+  const timeout = new AbortController();
+  const exitLine = await Promise.race([exitLogged, delay(20_000, null, { signal: timeout.signal })]).finally(() =>
+    timeout.abort()
+  );
   assert.ok(exitLine, `the launcher logged the daemon exit: ${logs.join(' | ')}`);
   assert.match(exitLine, /code=7 signal=- ready=1 uptimeMs=\d+/);
 

@@ -24,10 +24,14 @@ function normalizeProjectId(value) {
   return text || null;
 }
 
-export function formatCuratedCoreMemoryLine(row) {
-  const summary = String(row?.summary || '')
+function normalizeSummary(value) {
+  return String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+export function formatCuratedCoreMemoryLine(row) {
+  const summary = normalizeSummary(row?.summary);
   if (!summary) return '';
   const id = Number(row?.id);
   const scope = row?.project_id ?? row?.projectId ?? 'common';
@@ -38,9 +42,7 @@ export function formatCuratedCoreMemoryLine(row) {
 }
 
 function normalizeCuratedEntry(row) {
-  const summary = String(row?.summary || '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const summary = normalizeSummary(row?.summary);
   if (!summary) return null;
   return {
     id: finiteNumber(row?.id),

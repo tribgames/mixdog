@@ -605,19 +605,15 @@
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
 }
-.context-entry-preview pre {
+.context-preview-content {
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   margin: 12px 0 0;
   overflow: auto;
   overscroll-behavior: contain;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
-  tab-size: 4;
   padding: 12px;
-  background: var(--mx-bg-base);
-  color: var(--mx-text);
-  border-radius: var(--mx-radius-md);
 }
 @media (max-width: 640px) {
   .context-block-map {

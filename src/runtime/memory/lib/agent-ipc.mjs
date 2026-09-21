@@ -3,7 +3,7 @@
  *
  * PG/embedding/recall remain isolated in the memory process, while the heavy
  * provider/session graph lives exactly once in the machine-global daemon.
- * daemon. Calls use its authenticated loopback broker, so the memory process
+ * Calls use its authenticated loopback broker, so the memory process
  * can outlive its original fork parent and reconnect after a daemon restart.
  */
 import http from 'node:http';

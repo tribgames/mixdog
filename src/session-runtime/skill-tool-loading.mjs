@@ -16,7 +16,10 @@ export function loadSkillToolDependencies(envelope, session, mode) {
     if (type === 'tool') names.add(value);
     else if (type === 'mcp') {
       const matches = [...catalog.keys()].filter((name) => name.startsWith(`mcp__${value}__`));
-      if (matches.length) matches.forEach((name) => names.add(name));
+      if (matches.length)
+        matches.forEach((name) => {
+          names.add(name);
+        });
       else unavailable.push(`mcp:${value} (no available connected tools)`);
     } else unavailable.push(`${type}:${value} (unsupported dependency type)`);
   }
@@ -56,7 +59,11 @@ export function loadSkillToolDependencies(envelope, session, mode) {
   ].join('\n');
   const eager = new Set((session?.tools || []).map((tool) => tool.name));
   const native = selection?.native
-    ? toolSearchNativePayload([...catalog.values()], loaded.filter((name) => !eager.has(name)), session?.provider)
+    ? toolSearchNativePayload(
+        [...catalog.values()],
+        loaded.filter((name) => !eager.has(name)),
+        session?.provider
+      )
     : null;
   return {
     ...envelope,

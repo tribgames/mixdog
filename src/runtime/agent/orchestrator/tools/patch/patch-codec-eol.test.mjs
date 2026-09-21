@@ -249,7 +249,7 @@ test('a UTF-16 update routes to the BOM-preserving writer', async (t) => {
     )
   );
 
-  assert.match(result, /\(JS\)/);
+  assert.match(result, /^ {2}OK /);
   const raw = readFileSync(file);
   assert.deepEqual([raw[0], raw[1]], [0xff, 0xfe]);
   assert.equal(raw.subarray(2).toString('utf16le'), 'omega\r\nkeep\r\n');

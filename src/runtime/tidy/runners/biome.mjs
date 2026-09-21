@@ -40,16 +40,16 @@ export function endOfJsonValue(text, start = 0) {
   const close = open === '{' ? '}' : ']';
   let depth = 0;
   let inString = false;
-  let escape = false;
+  let escaped = false;
   for (; index < source.length; index += 1) {
     const char = source[index];
     if (inString) {
-      if (escape) {
-        escape = false;
+      if (escaped) {
+        escaped = false;
         continue;
       }
       if (char === '\\') {
-        escape = true;
+        escaped = true;
         continue;
       }
       if (char === '"') inString = false;

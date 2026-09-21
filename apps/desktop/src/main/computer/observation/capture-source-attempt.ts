@@ -45,13 +45,13 @@ export const RECOVERABLE_CAPTURE_CODES = new Set([
   'coordinate_mismatch',
 ]);
 
-export async function attemptCapture(
+export async function attemptCapture<T extends Surface>(
   host: Pick<CaptureEngineHost, 'assertExecutionNotAborted'>,
   backend: CaptureBackend,
   attempts: CaptureAttempt[],
-  acquire: () => Promise<Surface>,
-  check: (surface: Surface) => PixelUnavailable | undefined
-): Promise<Surface> {
+  acquire: () => Promise<T>,
+  check: (surface: T) => PixelUnavailable | undefined
+): Promise<T> {
   const started = performance.now();
   try {
     const surface = await acquire();

@@ -148,11 +148,10 @@ test('bridge discovery does not overwrite an identity that changes during a dead
 test('bridge discovery isolates stale generations and reports own endpoint loss', async () => {
   const directory = await temporaryDirectory();
   try {
-    let probeOutcome = 'dead';
     const discovery = createBridgeDiscovery({
       fileName: 'computer-bridge.json',
       dataDirectory: () => directory,
-      probeDiscovery: async () => probeOutcome,
+      probeDiscovery: async () => 'dead',
     });
     const first = createBridgeDiscoveryRecord({
       port: 42001,
@@ -173,7 +172,6 @@ test('bridge discovery isolates stale generations and reports own endpoint loss'
     assert.equal(await discovery.heartbeatDiscovery(first), 'superseded');
     discovery.removeDiscovery(first);
     assert.deepEqual(await readDiscovery(directory), second);
-    probeOutcome = 'dead';
     assert.equal(await discovery.heartbeatDiscovery(second), 'lost');
     discovery.removeDiscovery(second);
     await assert.rejects(readDiscovery(directory), /ENOENT/);

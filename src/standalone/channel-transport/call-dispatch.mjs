@@ -143,7 +143,7 @@ export function createCallDispatch({
   // and expiring its entry mid-flight would let a transport retry replay-miss
   // and dispatch a second real side-effect.
   function rememberDispatch(cacheKey, dispatch, signature) {
-    const record = { promise: dispatch, signature, at: Date.now(), timer: null };
+    const record = { promise: dispatch, signature, timer: null };
     callCache.set(cacheKey, record);
     dispatch
       .then(

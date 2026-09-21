@@ -3,7 +3,8 @@
  * transcript window: which item sits at the viewport's top edge, and the
  * render-time scroll offset that keeps it there while the row table changes.
  */
-import { resolveAnchorScrollOffset, transcriptRowAt, upperBound } from './transcript-window.mjs';
+import { resolveAnchorScrollOffset } from './transcript-window.mjs';
+import { readingAnchorAt } from './transcript-scroll-anchor.mjs';
 
 /**
  * The item id + row offset sitting at the viewport TOP edge for a
@@ -12,17 +13,7 @@ import { resolveAnchorScrollOffset, transcriptRowAt, upperBound } from './transc
  * table is empty or the item at that row has no id.
  */
 export function captureTopEdgeAnchor({ prefixRows, items, totalRows, viewRows, offset }) {
-  if (!prefixRows || prefixRows.length < 2) return null;
-  const total = Math.max(0, Number(totalRows) || 0);
-  const view = Math.max(1, Number(viewRows) || 1);
-  const scrolled = Math.max(0, Number(offset) || 0);
-  const anchorRow = Math.max(0, Math.min(total, total - scrolled - view));
-  let index = upperBound(prefixRows, anchorRow) - 1;
-  if (index < 0) index = 0;
-  if (index > prefixRows.length - 2) index = prefixRows.length - 2;
-  const anchorItem = (items || [])[index];
-  if (!anchorItem || anchorItem.id == null) return null;
-  return { id: anchorItem.id, offset: Math.max(0, anchorRow - transcriptRowAt(prefixRows, index)) };
+  return readingAnchorAt({ prefixRows, items, totalRows, viewRows }, offset);
 }
 
 /**
@@ -75,8 +66,7 @@ export function resolveRenderScrollOffset({
   // pinned, so a wheel notch inside the former slack band cannot re-enable
   // follow while a stream is appending rows.
   const scrolledUp = Math.max(0, Number(scrollTargetRef.current) || 0) > 0;
-  // A genuine reading anchor wins even if followingRef is stale-true while the
-  // user is scrolled up; the plain !following gate covers the anchor-less case.
+  // An explicit follow arm owns the tail even if a stale reading anchor remains.
   const anchorLockActive = hasReadingAnchor && !followingRef.current && scrolledUp;
   const targetNearBottom = followingRef.current || !scrolledUp;
   const nearBottomWithoutAnchor = !anchorRef.current && !anchorDirtyRef.current && targetNearBottom;

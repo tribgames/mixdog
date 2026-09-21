@@ -11,7 +11,7 @@
  *
  * The decision is computed once at import time.
  */
-import { stdout, env, platform } from 'node:process';
+import { stdout, env } from 'node:process';
 
 const COLOR_ENABLED = computeColorEnabled();
 
@@ -39,21 +39,11 @@ const RESET = `${ESC}0m`;
  * xterm TERM while not implementing truecolor. Unknown terminals retain the
  * historical truecolor default.
  */
-function supportsTruecolor(environment = env, platformName = platform) {
+function supportsTruecolor(environment = env) {
   const termProgram = String(environment?.TERM_PROGRAM || '')
     .trim()
     .toLowerCase();
-  if (termProgram === 'apple_terminal') return false;
-
-  const colorTerm = String(environment?.COLORTERM || '')
-    .trim()
-    .toLowerCase();
-  if (colorTerm === 'truecolor' || colorTerm === '24bit') return true;
-  if (environment?.WT_SESSION !== undefined && environment.WT_SESSION !== '') return true;
-  if (['iterm.app', 'wezterm', 'ghostty', 'vscode'].includes(termProgram)) return true;
-  if (/(?:direct|truecolor)/i.test(String(environment?.TERM || ''))) return true;
-  if (platformName === 'win32') return true;
-  return true;
+  return termProgram !== 'apple_terminal';
 }
 
 const ANSI_256_CUBE_LEVELS = Object.freeze([0, 95, 135, 175, 215, 255]);

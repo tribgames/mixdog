@@ -3,8 +3,8 @@ type AgentRecord = Record<string, unknown>;
 export const DESKTOP_TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 
 const DESKTOP_ACTIVE_AGENT_STATUS =
-  /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting)$/i;
-const DESKTOP_QUEUED_AGENT_STATUS = /^(?:queued|pending|starting)$/i;
+  /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|resource_wait)$/i;
+const DESKTOP_QUEUED_AGENT_STATUS = /^(?:queued|pending|starting|resource_wait)$/i;
 
 /** Cancellation is a THIRD outcome and never a completion. The runtime reports
  *  it in three shapes, and every one of them lands in the generic terminal
@@ -50,6 +50,7 @@ export function isActiveDesktopAgentEntry(value: unknown): boolean {
 
 export function isQueuedDesktopAgentEntry(value: unknown): boolean {
   const statuses = statusValues(value);
+  if (statuses.includes('resource_wait') && isActiveDesktopAgentEntry(value)) return true;
   return isActiveDesktopAgentEntry(value) && statuses.every((status) => DESKTOP_QUEUED_AGENT_STATUS.test(status));
 }
 
@@ -75,6 +76,7 @@ export type DesktopAgentActivityState =
   | 'cancel-unconfirmed'
   | 'cancelled'
   | 'done'
+  | 'unknown'
   | 'idle';
 
 /** Single lifecycle mapping for every agent surface. Cancellation outranks the
@@ -90,6 +92,7 @@ export function desktopAgentActivityState(
   if (isCancelledDesktopAgentEntry(value)) {
     return isCancelUnconfirmedDesktopAgentEntry(value) ? 'cancel-unconfirmed' : 'cancelled';
   }
+  if (statusValues(value).includes('unknown')) return 'unknown';
   if (isQueuedDesktopAgentEntry(value)) return 'queued';
   if (isActiveDesktopAgentEntry(value)) return 'running';
   if (options.waitingForAgents === true) return 'waiting';

@@ -243,10 +243,7 @@ export function createRevocationDrain(deps: RevocationDrainDeps): () => Promise<
 
 /** Delete this install's authenticated registration over the live relay leg,
  *  waiting (briefly) for the leg to be open before sending. */
-export function revokeDeviceOverSocket(deps: {
-  currentSocket(): WebSocket | null;
-  closed(): boolean;
-}): Promise<void> {
+export function revokeDeviceOverSocket(deps: { currentSocket(): WebSocket | null; closed(): boolean }): Promise<void> {
   return new Promise((resolve, reject) => {
     let retryTimer: NodeJS.Timeout | null = null;
     let target: WebSocket | null = null;

@@ -17,6 +17,18 @@ const { writeJsonAtomicSync } = await import('../runtime/shared/atomic-file.mjs'
 const { forgetProviderAuth, beginOAuthProviderLogin, listProviderAccounts } = await import('./provider-admin.mjs');
 after(() => rmSync(dir, { recursive: true, force: true }));
 
+function mockTokenExchange(t, response) {
+  t.mock.method(
+    globalThis,
+    'fetch',
+    async () =>
+      new Response(JSON.stringify(response), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+}
+
 test('disconnect removes only the requested account, without selecting it or disabling remaining accounts', () => {
   const provider = 'openai-oauth';
   const ids = [newProviderAccountId(), newProviderAccountId()];
@@ -67,19 +79,11 @@ test('adding a second Anthropic account writes its own credential file and leave
   };
   writeJsonAtomicSync(firstPath, first, { mode: 0o600, secret: true });
   // Token endpoint stub: the login must never reach the network here.
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        access_token: 'access-second',
-        refresh_token: 'refresh-second',
-        expires_in: 3600,
-        scope: 'user:inference user:profile',
-      }),
-      { status: 200, headers: { 'content-type': 'application/json' } }
-    );
-  t.after(() => {
-    globalThis.fetch = realFetch;
+  mockTokenExchange(t, {
+    access_token: 'access-second',
+    refresh_token: 'refresh-second',
+    expires_in: 3600,
+    scope: 'user:inference user:profile',
   });
   // Both the loopback listener and the browser opener are side effects the
   // test must not trigger; the manual-code path exercises the same exchange.
@@ -112,22 +116,14 @@ test('adding a second Anthropic account writes its own credential file and leave
 
 test('an account login that ends unauthenticated leaves the provider enabled', async (t) => {
   const provider = 'anthropic-oauth';
-  const realFetch = globalThis.fetch;
   // The exchange itself succeeds, but the token comes back WITHOUT the inference
   // scope, so the credential it stores is unusable and describe() reports "not
   // authenticated" — the same shape as any login that fails to complete.
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        access_token: 'access-scopeless',
-        refresh_token: 'refresh-scopeless',
-        expires_in: 3600,
-        scope: 'user:profile',
-      }),
-      { status: 200, headers: { 'content-type': 'application/json' } }
-    );
-  t.after(() => {
-    globalThis.fetch = realFetch;
+  mockTokenExchange(t, {
+    access_token: 'access-scopeless',
+    refresh_token: 'refresh-scopeless',
+    expires_in: 3600,
+    scope: 'user:profile',
   });
   process.env.ANTHROPIC_OAUTH_MANUAL_REDIRECT_URI ||= 'https://platform.claude.com/oauth/code/callback';
   let config = { providers: { [provider]: { enabled: true } } };

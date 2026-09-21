@@ -40,12 +40,13 @@ export function QueuedCommands({ queued, columns, compact = false }) {
           // Compact fallback: exactly 1 row per entry (queued.length reserve).
           // Collapse newlines first — a raw '\n' would still break the row.
           const oneLine = sourceText.replace(/\r?\n/g, ' ');
-          displayText =
-            oneLine.length > contentWidth
-              ? contentWidth <= 1
+          displayText = oneLine;
+          if (oneLine.length > contentWidth) {
+            displayText =
+              contentWidth <= 1
                 ? '…'.repeat(contentWidth)
-                : `${oneLine.slice(0, Math.max(1, contentWidth - 1))}…`
-              : oneLine;
+                : `${oneLine.slice(0, Math.max(1, contentWidth - 1))}…`;
+          }
         }
         return (
           <Box

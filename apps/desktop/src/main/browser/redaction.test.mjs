@@ -14,6 +14,18 @@ test('browser URL secret detection covers encoded token shapes without blocking 
   assert.equal(browserUrlContainsSecret('https://example.com/docs?key=keyboard'), false);
 });
 
+test('browser URL secret decoding stays bounded and tolerates malformed escapes', () => {
+  assert.equal(browserUrlContainsSecret('https://example.test/%2567%2568%2570%255Fabcdefghijklmnopqrstuvwxyz'), true);
+  assert.equal(
+    browserUrlContainsSecret('https://example.test/%252567%252568%252570%25255Fabcdefghijklmnopqrstuvwxyz'),
+    false
+  );
+  assert.equal(browserUrlContainsSecret('https://example.test/Bearer+abcdefghijklmnop'), true);
+  assert.equal(browserUrlContainsSecret('https://example.test/%zz'), false);
+  assert.equal(browserUrlContainsSecret('https://example.test/%zz/ghp_abcdefghijklmnopqrstuvwxyz'), true);
+  assert.equal(browserUrlContainsSecret(''), false);
+});
+
 test('browser output redacts URL credentials and common token shapes', () => {
   const redacted = redactBrowserText(
     'https://alice:secret@example.com/?access_token=abc123 sk-proj-abcdefghijklmnop ghp_abcdefghijklmnopqrstuvwxyz'

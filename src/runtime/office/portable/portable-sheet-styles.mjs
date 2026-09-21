@@ -57,8 +57,7 @@ function sectionBody(elementXml, name) {
 function childElements(body, name) {
   const items = [];
   const regex = new RegExp(`<${name}\\b[^>]*?(?:\\/>|>[\\s\\S]*?<\\/${name}>)`, 'g');
-  let match;
-  while ((match = regex.exec(body))) items.push(match[0]);
+  for (const match of body.matchAll(regex)) items.push(match[0]);
   return items;
 }
 

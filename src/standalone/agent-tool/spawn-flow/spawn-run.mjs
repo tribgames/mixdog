@@ -67,9 +67,11 @@ export function createSpawnRunner({
       const messages = Number(progress?.messages) || 0;
       upsertWorkerSessionDeferred(session, tag, {
         status: 'running',
-        stage: 'running',
+        stage: progress.stage || 'running',
         ...(messages > 0 ? { messages } : {}),
       });
+      // The canonical runtime owns persistence; this session is only its descriptor.
+      if (sessionSurface?.canonical === true) return;
       // Mid-turn durability. A worker transcript otherwise reaches disk only
       // when the turn ENDS, so a pane opened on a running worker shows the
       // prompt and nothing after it — the work is real but invisible to every

@@ -521,9 +521,6 @@ async function main() {
   // loading its provider graph here consumed the control loop before any
   // memory cycle requested it.
 
-  // ── Session front door ──────────────────────────────────────────────────────
-  // All session runtimes share one supervised child process. The daemon keeps
-  // health, transport, and restart control isolated from session execution.
   const localSessionClients = new Map();
   let nextLocalSessionClient = 0;
   localSessionBridge = {

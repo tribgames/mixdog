@@ -52,6 +52,31 @@ pub(crate) struct TaskState {
 }
 
 impl TaskState {
+    pub(crate) fn update_metadata(
+        &mut self,
+        command: Option<String>,
+        cwd: Option<String>,
+        shell_type: Option<String>,
+        owner_session_id: Option<String>,
+        client_host_pid: Option<u32>,
+    ) {
+        if let Some(command) = command {
+            self.command = command;
+        }
+        if let Some(cwd) = cwd {
+            self.cwd = cwd;
+        }
+        if shell_type.is_some() {
+            self.shell_type = shell_type;
+        }
+        if owner_session_id.is_some() {
+            self.owner_session_id = owner_session_id;
+        }
+        if client_host_pid.is_some() {
+            self.client_host_pid = client_host_pid;
+        }
+    }
+
     pub(crate) fn append(&mut self, kind: &str, bytes: &[u8]) -> bool {
         let (tail, total) = if kind == "stderr" && !self.merge_stderr {
             (&mut self.stderr_tail, &mut self.stderr_bytes)

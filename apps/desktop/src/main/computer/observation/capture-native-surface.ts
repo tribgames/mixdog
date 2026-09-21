@@ -96,7 +96,7 @@ export async function nativeWindowSurface(
         windowId,
         backend
       ),
-    (value) => frameQualityIssue(value.image, value.bounds!.width, value.bounds!.height)
+    (value) => frameQualityIssue(value.image, value.bounds.width, value.bounds.height)
   );
-  return surface as Surface & { bounds: Bounds };
+  return surface;
 }

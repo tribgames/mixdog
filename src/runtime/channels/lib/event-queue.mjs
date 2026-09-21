@@ -80,7 +80,6 @@ class EventQueue {
   // from being decided by Math.random() (lex sort on the random suffix).
   // Counter is 8-digit zero-padded so lex sort matches numeric order.
   enqueueSeq = 0;
-  // track files already notified during active state
   constructor(config, channelId) {
     this.config = config ?? {};
     this.channelId = channelId ?? '';

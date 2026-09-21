@@ -35,15 +35,9 @@ export function createTurnOutcome({ turn, blocks, state }) {
     toolCallsDispatched: state?.emittedToolCall === true ? Math.max(1, turn.toolCalls.length) : 0,
   });
 
-  // Attach the partial stream state to a mid-stream stall error so the agent
-  // loop can decide SUCCESS vs FAILURE. The recurring "worker finished but
-  // owner never notified" case is a FINAL no-tool summary stream that wedges
-  // ping-only after the real work (tool calls) already completed in earlier
-  // iterations: there is streamed `content`, no pending tool_use, and no
-  // emitted tool call this iteration. The loop treats that as a successful
-  // partial-final (deliver the summary we have) instead of dropping it. A
-  // stall WITH a pending/emitted tool call stays a hard failure (a tool whose
-  // input never completed must never be reported as done).
+  // Preserve partial state for the agent loop's recovery decision and
+  // interrupted-turn persistence. Partial final text alone is not success;
+  // completed tool calls and incomplete input have distinct recovery rules.
   const attachStallPartial = (err) => {
     try {
       // `toolInputInFlight()` is the single authority for "arguments never

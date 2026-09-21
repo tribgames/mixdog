@@ -10,7 +10,6 @@ import { parseTaskNotification, taskNotificationHasBody } from '../../../runtime
 
 const FAILURE_STATUS = /^(failed|error|timeout|killed|cancelled|canceled|denied)$/;
 const SUCCESS_STATUS = /^(completed|complete|done|success|succeeded|ok)$/;
-const hasBodyText = taskNotificationHasBody;
 
 // EXPLICIT ack to the emitting runtime: the model-visible completion body is
 // pending delivery on the TUI path (enqueued here, already queued, or already
@@ -27,7 +26,7 @@ export function createExecutionDelivery({ dedup, pendingResume, enqueue, nextId,
   function pushCard({ event, text, parsed, delivery, executionId, status, terminal }) {
     const cardKey = executionCardKey(event, text, parsed);
     const firstDelivery = !cardKey || !dedup.hasNotificationKey(cardKey);
-    const hasBody = hasBodyText(text);
+    const hasBody = taskNotificationHasBody(text);
     const isFailure = FAILURE_STATUS.test(status);
     const successfulPreview = !parseTaskNotification(text) && !hasBody && !isFailure && SUCCESS_STATUS.test(status);
     const bodyAlreadyDisplayed = dedup.responseState(executionId) === 'body';

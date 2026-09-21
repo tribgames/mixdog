@@ -14,7 +14,7 @@ export function createSyncWaiters() {
 
   /** Resolve every waiter on `id` with `synced`. */
   function settle(id, synced) {
-    for (const waiter of [...waiters]) {
+    for (const waiter of waiters) {
       if (waiter.id === id) waiter.finish(synced);
     }
   }
@@ -46,7 +46,7 @@ export function createSyncWaiters() {
   }
 
   function failAll() {
-    for (const waiter of [...waiters]) waiter.finish(false);
+    for (const waiter of waiters) waiter.finish(false);
   }
 
   return { settle, wait, requestSync, failAll };

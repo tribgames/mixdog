@@ -6,7 +6,7 @@
  * These handlers own the per-turn accounting that reflects tool results into
  * store items: aggregate cards, non-aggregate/legacy agent-job cards, grouped
  * fallbacks, and the finalize/cancelled sweeps. They mutate live session state,
- * so state/set/patchItem/markToolCallDone/updateAgentJobCard are threaded via
+ * so state/set/patchItem/markToolCallDone/buildAgentJobCardPatch are threaded via
  * the factory argument (getters/callbacks) — never stale snapshots.
  *
  *   tool-card-results/item-patch.mjs       — store access, measured-rows carry-over

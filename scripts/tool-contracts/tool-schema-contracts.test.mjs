@@ -122,7 +122,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
     assertHas(fullDefaults, name);
   }
-  for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'cwd', 'git_stage']) {
+  for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'cwd', 'github']) {
     assertLacks(fullDefaults, name);
   }
 
@@ -151,7 +151,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   ]) {
     assertHas(leadDefaults, name);
   }
-  for (const name of ['recall', 'web_search', 'web_fetch', 'cwd', 'git_stage', 'session_manage']) {
+  for (const name of ['recall', 'web_search', 'web_fetch', 'cwd', 'github', 'session_manage']) {
     assertLacks(leadDefaults, name);
   }
   if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
@@ -189,7 +189,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'Skill', 'load_tool']) {
     assertHas(readonlyDefaults, name);
   }
-  for (const name of ['apply_patch', 'agent', 'shell', 'git_stage']) {
+  for (const name of ['apply_patch', 'agent', 'shell', 'git']) {
     assertLacks(readonlyDefaults, name);
   }
 });

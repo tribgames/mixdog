@@ -154,10 +154,8 @@ function parseAnsi(text, defaultColor) {
   const state = defaultState(defaultColor);
   const ansiColors = ansiColorMap();
   let lastIndex = 0;
-  let match;
 
-  ANSI_RE.lastIndex = 0;
-  while ((match = ANSI_RE.exec(source)) !== null) {
+  for (const match of source.matchAll(ANSI_RE)) {
     if (match.index > lastIndex) {
       spans.push({ text: source.slice(lastIndex, match.index), style: cloneState(state) });
     }
@@ -166,7 +164,7 @@ function parseAnsi(text, defaultColor) {
       .filter(Boolean)
       .map((n) => Number(n));
     applySgr(state, codes, defaultColor, ansiColors);
-    lastIndex = ANSI_RE.lastIndex;
+    lastIndex = match.index + match[0].length;
   }
 
   if (lastIndex < source.length) {

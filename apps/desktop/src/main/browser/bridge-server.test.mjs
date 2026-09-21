@@ -10,18 +10,9 @@ import { BrowserBridgeServer } from './bridge-server.ts';
 test('browser bridge authenticates commands and removes its discovery file', async () => {
   const dataDirectory = mkdtempSync(join(tmpdir(), 'mixdog-browser-bridge-'));
   const discoveryPath = join(dataDirectory, 'browser-bridge.json');
-  let ready;
-  let releaseHeld;
-  let announceHeld;
-  const readyPromise = new Promise((resolve) => {
-    ready = resolve;
-  });
-  const held = new Promise((resolve) => {
-    announceHeld = resolve;
-  });
-  const heldRelease = new Promise((resolve) => {
-    releaseHeld = resolve;
-  });
+  const { promise: readyPromise, resolve: ready } = Promise.withResolvers();
+  const { promise: held, resolve: announceHeld } = Promise.withResolvers();
+  const { promise: heldRelease, resolve: releaseHeld } = Promise.withResolvers();
   const server = new BrowserBridgeServer({
     dataDirectory,
     redactError: String,
@@ -91,10 +82,7 @@ test('browser bridge authenticates commands and removes its discovery file', asy
 test('browser bridge reclaims its discovery file from a dead foreign writer', async () => {
   const dataDirectory = mkdtempSync(join(tmpdir(), 'mixdog-browser-bridge-'));
   const discoveryPath = join(dataDirectory, 'browser-bridge.json');
-  let ready;
-  const readyPromise = new Promise((resolve) => {
-    ready = resolve;
-  });
+  const { promise: readyPromise, resolve: ready } = Promise.withResolvers();
   const server = new BrowserBridgeServer({
     dataDirectory,
     redactError: String,

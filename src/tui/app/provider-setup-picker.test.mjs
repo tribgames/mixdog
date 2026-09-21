@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as nextTurn, setTimeout as delay } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createProviderSetupPicker } from './provider-setup-picker.mjs';
@@ -10,20 +11,10 @@ import { createProviderSetupPicker } from './provider-setup-picker.mjs';
 
 const flush = async (rounds = 8) => {
   for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
+    await delay(0);
+    await nextTurn();
   }
 };
-
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 const SETUP = {
   api: [
@@ -170,7 +161,7 @@ test('set-key hands the surface to the API-key prompt with mode and console URL'
 });
 
 test('forget-key: the ack clears model caches and reopens the list; a failure returns to the actions', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const forgotten = [];
   const h = createHarness({
     store: {
@@ -203,7 +194,7 @@ test('forget-key: the ack clears model caches and reopens the list; a failure re
 });
 
 test('OAuth actions: Login only when signed out, legacy login shows progress then a result panel', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const h = createHarness({ store: { loginOAuthProvider: () => gate.promise } });
   await h.openProviderSetupPicker({});
   await flush();
@@ -244,7 +235,7 @@ test('OAuth actions: Login only when signed out, legacy login shows progress the
 });
 
 test('OAuth progress Back returns to the actions and turns the late ack into a notice', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const h = createHarness({ store: { loginOAuthProvider: () => gate.promise } });
   await h.openProviderSetupPicker({});
   await flush();
@@ -259,7 +250,7 @@ test('OAuth progress Back returns to the actions and turns the late ack into a n
 });
 
 test('interactive OAuth login hands over to the code prompt and the callback shows the result', async () => {
-  const callback = deferred();
+  const callback = Promise.withResolvers();
   const h = createHarness({
     store: {
       beginOAuthProviderLogin: async () => ({

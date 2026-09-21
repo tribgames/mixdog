@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createExtensionPickers } from './extension-pickers.mjs';
@@ -7,23 +8,6 @@ import { createExtensionPickers } from './extension-pickers.mjs';
 // The MCP / Skills / Plugins picker cluster against a fake store: what each
 // list paints, how toggles reopen optimistically and settle, and where the
 // detail panels navigate.
-
-const flush = async (rounds = 8) => {
-  for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-};
-
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
 
 function createHarness({ store: overrides = {}, disabled = new Set() } = {}) {
   supersedePanelEpoch();
@@ -72,7 +56,7 @@ function createHarness({ store: overrides = {}, disabled = new Set() } = {}) {
 }
 
 test('MCP list: markers and scoped descriptions, a toggle reopens optimistically then settles', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const toggles = [];
   let enabled = true;
   const h = createHarness({
@@ -116,7 +100,7 @@ test('MCP list: markers and scoped descriptions, a toggle reopens optimistically
 });
 
 test('MCP toggle settle after Esc paints nothing', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const h = createHarness({
     store: {
       mcpStatus: async () => ({ servers: [{ name: 'graph', enabled: true }] }),

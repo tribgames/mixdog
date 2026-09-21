@@ -5,20 +5,27 @@ import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { ContextBody } from './ContextBody.tsx';
-import { toolResultLine } from './ContextInspector.tsx';
+import { contextPreviewMarkdown, toolResultLine } from './ContextInspector.tsx';
+import MarkdownBody from './MarkdownBody.tsx';
+import { CopyControl } from './transcript-primitives.tsx';
+import { parseStreamingMarkdownAst } from './markdown-worker-client.ts';
 import { t } from './i18n.ts';
 import { requiredDesktopCapabilityRequest } from '../main/ipc-validation.ts';
 
 test('reasoning uses current occupancy for category percentages and maps, never cumulative generation', () => {
   for (const reasoningTokens of [0, 1200]) {
-    for (const inspection of [undefined, {
-      revision: 'reasoning', estimatedTokens: 100 + reasoningTokens,
-      categories: [
-        { key: 'system', label: 'System prompt', tokens: 100, count: 1 },
-        { key: 'reasoning', label: 'Reasoning tokens', tokens: reasoningTokens, count: reasoningTokens ? 1 : 0 },
-      ],
-      entries: [],
-    }]) {
+    for (const inspection of [
+      undefined,
+      {
+        revision: 'reasoning',
+        estimatedTokens: 100 + reasoningTokens,
+        categories: [
+          { key: 'system', label: 'System prompt', tokens: 100, count: 1 },
+          { key: 'reasoning', label: 'Reasoning tokens', tokens: reasoningTokens, count: reasoningTokens ? 1 : 0 },
+        ],
+        entries: [],
+      },
+    ]) {
       const status = {
         contextWindow: 10000,
         measurement: { source: 'last_api_request', tokens: 100 + reasoningTokens },
@@ -34,13 +41,21 @@ test('reasoning uses current occupancy for category percentages and maps, never 
       assert.ok(row.textContent.includes(t('Reasoning tokens')));
       assert.doesNotMatch(document.body.textContent, /999,999|999999/);
       assert.equal(document.querySelectorAll('.context-usage-overview').length, 1);
-      assert.equal(Boolean(document.querySelector(
-        '.context-main-bar [data-context-key="reasoning"], .context-block-map [data-context-key="reasoning"], .context-stack-bar [data-context-key="reasoning"]'
-      )), reasoningTokens > 0);
+      assert.equal(
+        Boolean(
+          document.querySelector(
+            '.context-main-bar [data-context-key="reasoning"], .context-block-map [data-context-key="reasoning"], .context-stack-bar [data-context-key="reasoning"]'
+          )
+        ),
+        reasoningTokens > 0
+      );
       if (inspection) {
         assert.equal(row.querySelector('strong').textContent, `≈${reasoningTokens.toLocaleString()}`);
         assert.equal(row.querySelector('em').textContent, `${reasoningTokens / 100}%`);
-        assert.equal(document.querySelector('[data-context-key="free"] strong').textContent, `≈${(9900 - reasoningTokens).toLocaleString()}`);
+        assert.equal(
+          document.querySelector('[data-context-key="free"] strong').textContent,
+          `≈${(9900 - reasoningTokens).toLocaleString()}`
+        );
       }
       dom.window.close();
     }
@@ -81,6 +96,26 @@ test('inspection capability validates opt-in and preview revision without changi
   );
 });
 
+test('context tool previews use highlighted JSON cards without changing the source', async () => {
+  for (const source of ['{\n  "description": "```example```"\n}', '{\n  "name": "truncated']) {
+    const markdown = contextPreviewMarkdown(source, 'tool');
+    await parseStreamingMarkdownAst(markdown);
+    const dom = new JSDOM(renderToStaticMarkup(React.createElement(MarkdownBody, {
+      text: markdown, copyControl: CopyControl,
+    })));
+    const code = dom.window.document.querySelector('.markdown-code code.language-json');
+    assert.ok(code);
+    // The highlighter keeps the fence's closing newline only inside an
+    // unterminated string token; the visible source is the same either way.
+    assert.equal(code.textContent.replace(/\n$/, ''), source);
+    assert.ok(code.querySelector('span'));
+    assert.ok(dom.window.document.querySelector('.markdown-code-copy'));
+    dom.window.close();
+  }
+  const prose = '# Heading\n\n**Unchanged**';
+  assert.equal(contextPreviewMarkdown(prose, 'instruction'), prose);
+});
+
 test('desktop reveals content only on selection and drops preview state on a new revision', async (context) => {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
   const previous = {
@@ -115,13 +150,15 @@ test('desktop reveals content only on selection and drops preview state on a new
   };
   let deferred = false;
   let release;
+  const previewText = '# PRIVATE_PREVIEW\n\n**Formatted**\n\n- Item\n\n<script>not executable</script>';
+  await parseStreamingMarkdownAst(previewText);
   const request = async (capability, args) => {
     requests.push({ capability, args });
     if (deferred)
       return new Promise((resolve) => {
         release = resolve;
       });
-    return { inspection: { preview: { id: 'message:0', text: 'PRIVATE_PREVIEW <script>not executable</script>' } } };
+    return { inspection: { preview: { id: 'message:0', text: previewText } } };
   };
   const render = () => act(() => root.render(React.createElement(ContextBody, { status, snapshot: {}, request })));
   await render();
@@ -137,22 +174,24 @@ test('desktop reveals content only on selection and drops preview state on a new
   });
   assert.equal(requests.length, 1);
   assert.deepEqual(requests[0].args, [{ inspect: true, entryId: 'message:0', revision: 'first' }]);
-  assert.match(document.querySelector('pre').textContent, /PRIVATE_PREVIEW/);
+  assert.equal(document.querySelector('.context-preview-content h1').textContent, 'PRIVATE_PREVIEW');
+  assert.equal(document.querySelector('.context-preview-content strong').textContent, 'Formatted');
+  assert.equal(document.querySelector('.context-preview-content li').textContent, 'Item');
   assert.equal(document.querySelector('script'), null);
   // The preview replaces the list in the same pane; the back control returns to it.
   assert.equal(document.querySelector('.context-entry-list'), null);
   await act(async () => {
     document.querySelector('.context-entry-preview .context-detail-icon').click();
   });
-  assert.equal(document.querySelector('pre'), null);
+  assert.equal(document.querySelector('.context-preview-content'), null);
   assert.ok(document.querySelector('.context-entry-list'));
   await act(async () => {
     document.querySelector('.context-entry-list button').click();
   });
-  assert.match(document.querySelector('pre').textContent, /PRIVATE_PREVIEW/);
+  assert.match(document.querySelector('.context-preview-content').textContent, /PRIVATE_PREVIEW/);
   status.inspection = { ...inspection, revision: 'second' };
   await render();
-  assert.equal(document.querySelector('pre'), null);
+  assert.equal(document.querySelector('.context-preview-content'), null);
   assert.doesNotMatch(document.body.textContent, /PRIVATE_PREVIEW/);
   deferred = true;
   await act(async () => {
@@ -166,7 +205,7 @@ test('desktop reveals content only on selection and drops preview state on a new
   await act(async () => {
     release({ inspection: { preview: { text: 'LATE_PRIVATE_PREVIEW' } } });
   });
-  assert.equal(document.querySelector('pre'), null);
+  assert.equal(document.querySelector('.context-preview-content'), null);
   assert.doesNotMatch(document.body.textContent, /LATE_PRIVATE_PREVIEW/);
 });
 

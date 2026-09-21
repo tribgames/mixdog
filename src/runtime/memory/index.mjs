@@ -205,8 +205,7 @@ const CYCLE_LAST_RUN_KEY = 'state.cycle_last_run';
 // duplicate). Stored in the `meta` kv (entries schema untouched).
 const SESSION_INGEST_ORDINALS_KEY_PREFIX = 'state.session_ingest_ordinals.';
 
-// Transcript ingest cluster (extracted to lib/transcript-ingest.mjs). Live
-// db/config coupling is injected so index.mjs keeps lifecycle ownership.
+// Live db/config coupling is injected so index.mjs keeps lifecycle ownership.
 const _transcriptIngest = createTranscriptIngest({
   getDb: () => db,
   loadMeta: () => getMetaValue(db, TRANSCRIPT_OFFSETS_KEY, '{}'),
@@ -217,9 +216,9 @@ const _transcriptIngest = createTranscriptIngest({
 });
 const { loadTranscriptOffsets, ingestTranscriptFile, cwdFromTranscriptPath, parseTsToMs } = _transcriptIngest;
 
-// Session ingest runtime (extracted to lib/session-ingest-runtime.mjs). Owns
-// the per-session chains, identity cache, and post-ingest raw-embedding flush
-// chain; live db + parseTsToMs are injected so the facade keeps db ownership.
+// Session ingest owns the per-session chains, identity cache, and post-ingest
+// raw-embedding flush chain; live db + parseTsToMs are injected so the facade
+// keeps db ownership.
 const _sessionIngest = createSessionIngestRuntime({
   getDb: () => db,
   log: __mixdogMemoryLog,
@@ -237,9 +236,7 @@ const _sessionIngest = createSessionIngestRuntime({
 });
 const { ingestSessionMessages } = _sessionIngest;
 
-// DATA_DIR-bound wrappers over the extracted pure flag helpers (see
-// ./lib/memory-config-flags.mjs). The pg-attach check needs DATA_DIR, which is
-// module-local here.
+// The pg-attach check needs DATA_DIR, which is module-local here.
 function assertSecondaryPgAttachable() {
   return _assertSecondaryPgAttachable(DATA_DIR);
 }
@@ -383,7 +380,6 @@ async function refreshCoreMemorySnapshot(reason = 'mutation') {
   }
 }
 
-// ── Cycle scheduling cluster (extracted to lib/cycle-scheduler.mjs) ────────
 // The mutually-referential cycle machinery (health ledger, cycle1 outer
 // coalesce layer, scheduled enqueue/retry paths, checkCycles, tick loop) lives
 // in the factory below. index.mjs keeps lifecycle ownership by injecting live
@@ -513,9 +509,8 @@ const __queryHandlers = createQueryHandlers({
 });
 const { handleSearch, dumpSessionRootChunks, entryStats } = __queryHandlers;
 
-// ── Memory action + tool-call handlers (extracted to
-// lib/memory-action-handlers.mjs). The facade keeps db/scheduler ownership and
-// injects live getters plus the query/ingest/cycle primitives.
+// The facade keeps db/scheduler ownership and injects live getters plus the
+// query/ingest/cycle primitives.
 const _actionHandlers = createMemoryActionHandlers({
   getDb: () => db,
   dataDir: DATA_DIR,
@@ -544,8 +539,7 @@ const mcp = new Server(
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOL_DEFS }));
 mcp.setRequestHandler(CallToolRequestSchema, (req) => handleToolCall(req.params.name, req.params.arguments ?? {}));
 
-// ── HTTP request router (extracted to lib/http-router.mjs). The facade owns
-// the http.Server + listen/stop lifecycle; the router builds the request
+// The facade owns the http.Server + listen/stop lifecycle; the router builds the request
 // handler and buildSessionCoreMemoryPayload from injected live state.
 const _httpRouter = createHttpRouter({
   getDb: () => db,

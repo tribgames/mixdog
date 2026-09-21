@@ -6,7 +6,10 @@ import { adoptTranscriptIdentity } from './transcript-identity.ts';
 
 test('optimized alignment preserves exhaustive ranking across duplicate ids, windows and history rewrites', () => {
   let seed = 1729;
-  const random = (n) => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) % n;
+  const random = (n) => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed % n;
+  };
   const row = () => ({
     kind: ['assistant', 'user', 'tool', 'statusdone'][random(4)],
     id: [undefined, null, 'a', 'b', 1, '1'][random(6)],

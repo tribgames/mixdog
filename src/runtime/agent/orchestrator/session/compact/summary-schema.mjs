@@ -83,8 +83,9 @@ function deriveRelevantFilesBullets(head) {
   for (const m of Array.isArray(head) ? head : []) {
     const text = extractText(m);
     if (!text) continue;
-    let match;
-    while ((match = fileRe.exec(text)) && out.length < 8) {
+    while (true) {
+      const match = fileRe.exec(text);
+      if (!match || out.length >= 8) break;
       const file = match[0];
       const key = file.toLowerCase();
       if (seen.has(key)) continue;

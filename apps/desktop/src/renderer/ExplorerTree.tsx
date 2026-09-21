@@ -736,7 +736,6 @@ export const FilesRootPane = memo(function FilesRootPane({
                 {rootLabel || rootName}
               </span>
             </button>
-            {/* "Remove from workspace" dropped with the multi-root concept. */}
           </div>
         )}
         <div

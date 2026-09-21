@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 import { TranscriptAssistantRow } from './TranscriptAssistantRow';
+import { TranscriptRow } from './transcript-row';
 import { ComposerDock } from './ComposerDock';
 import { TranscriptArtifacts } from './transcript-artifacts-ui';
 import { rememberAgentReviews } from './turn-review-cache';
@@ -155,4 +156,32 @@ test('media preview frames survive decoding, metadata and fallback failures', as
   assert.deepEqual([...document.querySelectorAll('.transcript-artifact-frame')], frames);
   assert.equal(document.querySelector('.transcript-artifact-image img, video'), null);
   assert.equal(document.querySelectorAll('.transcript-artifact-media figcaption').length, 2);
+});
+
+test('inline image markers preserve user text and attachment chips', async (t) => {
+  const { root, document } = mount(t);
+  const item = {
+    kind: 'user',
+    id: 'image-message',
+    text: 'Compare [Image #1]   with [Image #2: source] now.\n[Image: source: C:/work/a.png, 640x480]',
+  };
+  await act(async () => root.render(React.createElement(TranscriptRow, { item })));
+  assert.equal(document.querySelector('.message-body > p').textContent, 'Compare with now.');
+  assert.deepEqual(
+    [...document.querySelectorAll('.message-image-chip')].map((chip) => chip.textContent),
+    ['a.png640×480', 'Image']
+  );
+
+  await act(async () =>
+    root.render(
+      React.createElement(TranscriptRow, {
+        item: { ...item, images: [{ id: 1, name: 'uploaded.png', bytes: 12 }] },
+      })
+    )
+  );
+  assert.equal(document.querySelector('.message-body > p').textContent, 'Compare with now.');
+  assert.deepEqual(
+    [...document.querySelectorAll('.message-image-chip')].map((chip) => chip.textContent),
+    ['uploaded.png']
+  );
 });

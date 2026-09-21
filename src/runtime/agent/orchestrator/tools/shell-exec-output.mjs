@@ -55,7 +55,9 @@ const _stripAnsiImpl =
 
 export function stripAnsi(s) {
   if (typeof s !== 'string' || s.length === 0) return s;
-  return _stripAnsiImpl(s);
+  // Some Node versions only recognize selected OSC commands. Remove complete
+  // CSI/OSC sequences first so window titles and links cannot leak as text.
+  return _stripAnsiImpl(s.replace(_ANSI_REGEX, ''));
 }
 
 const UNSAFE_TEXT_CONTROL_RE = /[\u0001-\u0006\u0008\u000B\u000C\u000E-\u001A\u001C-\u001F\u007F]/g;
@@ -578,8 +580,3 @@ export class ExecResult {
     this.descendants = opts.descendants || null;
   }
 }
-
-// One-shot async shell runner. abortSignal optional (session-scoped abort
-// from getAbortSignalForSession in builtin.mjs). Timeout implemented via
-// treeKill so forked grandchildren also come down. Output streams capture
-// to TaskOutput which transparently spills to disk past the inline cap.

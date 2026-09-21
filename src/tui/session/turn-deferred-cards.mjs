@@ -11,15 +11,7 @@
 
 const TOOL_CARD_PUSH_DELAY_MS = 0;
 
-export function createDeferredCardRegistry({
-  isCurrentTurn,
-  flags,
-  pushItem,
-  appendItems,
-  getState,
-  set,
-  itemIndexById,
-}) {
+export function createDeferredCardRegistry({ isCurrentTurn, flags, appendItems, getState, set, itemIndexById }) {
   let seqCounter = 0;
   const entries = []; // creation-order list; each is pushed at most once
 
@@ -99,18 +91,7 @@ export function createDeferredCardRegistry({
         spec.deferredDisplayReady = true;
         return spec;
       },
-      push: () => {
-        const spec = entry.materialize();
-        if (!spec) return;
-        flags.pushingFromDeferredEntry = true;
-        try {
-          pushItem(spec);
-        } finally {
-          flags.pushingFromDeferredEntry = false;
-        }
-      },
     };
-    target.deferred = entry;
     target.ensureVisible = () => flushUpTo(entry);
     entries.push(entry);
     entry.timer = setTimeout(() => {

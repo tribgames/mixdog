@@ -28,7 +28,6 @@ import {
   normalizeCountMap,
   truncateToWidth,
   resultTerminalStatus,
-  stripLeadingStatusMarkerLines,
   stripLeadingStatusMarkerFromText,
 } from './tool-execution/text-format.mjs';
 import {
@@ -70,7 +69,8 @@ export function ToolExecution({
   doneCategories = null,
   headerFinalized = true,
   deferredDisplayReady = false,
-  agentResponseAggregate = false,
+  // Retain the public prop; ResultBody selects expanded content from rawText.
+  agentResponseAggregate: _agentResponseAggregate = false,
 }) {
   const rowWidth = Math.max(1, Number(columns || 80));
   const groupCount = Math.max(1, Number(count || 1));
@@ -204,9 +204,13 @@ export function ToolExecution({
     // aggregate was cancelled) plus isError/failedCount for failures. Pending
     // stays running; a clean completion stays success. toolStatusColor is the
     // single source of dot color for both aggregate and normal cards.
-    const aggregateTerminalStatus = pending
-      ? 'running'
-      : resultTerminalStatus(rt) || (isError || failedCount > 0 ? 'failed' : 'completed');
+    let aggregateTerminalStatus = 'running';
+    if (!pending) {
+      aggregateTerminalStatus = resultTerminalStatus(rt);
+      if (!aggregateTerminalStatus) {
+        aggregateTerminalStatus = isError || failedCount > 0 ? 'failed' : 'completed';
+      }
+    }
     const dotColor = toolStatusColor({
       pending,
       groupCount,
@@ -253,7 +257,7 @@ export function ToolExecution({
     // the header verb stays active until the block seals, but the detail row
     // must not keep saying "Running" after every call already resolved.
     const pendingPlaceholder = pending ? 'Running' : 'Finished';
-    const detailLines = showRawAggregate ? rawRt.split('\n') : detailText ? [detailText] : [pendingPlaceholder];
+    const detailLines = showRawAggregate ? [] : [detailText || pendingPlaceholder];
     const aggregateDetailColor = isPlaceholderDetail ? theme.subtle : theme.text;
     return (
       <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
@@ -325,24 +329,13 @@ export function ToolExecution({
     shellCollapsedSummary,
     toolArgPath,
   } = model;
-  const lines = displayedResultBodyText ? displayedResultBodyText.split('\n') : [];
   const resultColor = theme.text;
   const firstResultLineClipped = hasDisplayBody && stringWidth(firstResultLine) > maxResultChars;
   const hasHiddenDetail =
     !pending && hasDisplayBody && (totalLines > 1 || firstResultLineClipped || Boolean(resultSummary));
   const backgroundMetadataExpandable = isBackgroundMetadataResult && hasRawResult && !pending;
   const showRawResult = expanded && (hasDisplayBody || hasRawResult) && (!isBackgroundMetadataResult || hasRawResult);
-  const detailLines = showRawResult
-    ? agentResponseAggregate && hasRawResult
-      ? stripLeadingStatusMarkerLines(rawRt.split('\n'))
-      : hasDisplayBody
-        ? lines
-        : rawRt
-          ? stripLeadingStatusMarkerLines(rawRt.split('\n'))
-          : []
-    : collapsedDetailLine
-      ? [collapsedDetailLine]
-      : [];
+  const detailLines = !showRawResult && collapsedDetailLine ? [collapsedDetailLine] : [];
   const isPendingPlaceholderDetail = !showRawResult && detailIsPlaceholder;
   const detailColor = isPendingPlaceholderDetail ? theme.subtle : theme.text;
   // Skill/agent collapsed gating lives in the shared model (detailLine).
@@ -360,7 +353,9 @@ export function ToolExecution({
   // (spawn/send/etc.) and `→` for the response coming back IN. Background
   // task cards (shell async / explore / search / task) and every other tool
   // keep the BLACK_CIRCLE turn marker. Blink behavior is shared.
-  const markerGlyph = isAgentResponse ? AGENT_RESPONSE_MARKER : isAgentSurfaceCard ? AGENT_CALL_MARKER : TURN_MARKER;
+  let markerGlyph = TURN_MARKER;
+  if (isAgentResponse) markerGlyph = AGENT_RESPONSE_MARKER;
+  else if (isAgentSurfaceCard) markerGlyph = AGENT_CALL_MARKER;
   // Directional arrow markers (`←` spawn/send out, `→` response back) render 2
   // cells wide in some terminals (Windows Terminal / Cascadia) while our width
   // math counts them as 1, so the `Box minWidth={2}` gutter padding gets
@@ -389,12 +384,11 @@ export function ToolExecution({
     (totalLines > 1 ||
       firstResultLineClipped ||
       Boolean(shellCollapsedSummary && shellCollapsedSummary !== firstResultLine));
-  const showHeaderExpandHint =
-    (isShellSurface
-      ? shellHasExpandableBody
-      : isAgentSurfaceCard
-        ? agentHasExpandableBody
-        : hasHiddenDetail || backgroundMetadataExpandable) && normalizedName !== 'load_tool';
+  let hasExpandableBody;
+  if (isShellSurface) hasExpandableBody = shellHasExpandableBody;
+  else if (isAgentSurfaceCard) hasExpandableBody = agentHasExpandableBody;
+  else hasExpandableBody = hasHiddenDetail || backgroundMetadataExpandable;
+  const showHeaderExpandHint = hasExpandableBody && normalizedName !== 'load_tool';
   const expandHintColor = theme.subtle;
 
   // Build a single-line header that never wraps: reserve width for the fixed
@@ -403,16 +397,15 @@ export function ToolExecution({
   // shown by the verb (Running/Reading/etc.), the blinking dot, and the detail
   // row, so avoid an extra standalone ellipsis between parenthesized segments.
   const gutter = 2;
-  const hintLabel = showHeaderExpandHint ? `ctrl+o ${expanded ? 'collapse' : 'expand'}` : '';
-  const hintText = hintLabel ? ` ${BULLET_OPERATOR} ${hintLabel}` : '';
+  const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
+  const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
+  const hintText = showHeaderExpandHint ? hintReserveText : '';
   // The header right-side trailing slot only ever shows the ctrl+o hint. The
   // pending elapsed meta was removed from the header — it lives on the detail
   // row now (`Running · 12s`) so a per-second digit change (9s→10s) or the
   // pending→done swap never reflows the header. The hint slot is reserved for
   // the whole lifecycle (even while pending) so its later appearance on
   // completion does not push the body clip point.
-  const hintReserveLabel = `ctrl+o ${expanded ? 'collapse' : 'expand'}`;
-  const hintReserveText = ` ${BULLET_OPERATOR} ${hintReserveLabel}`;
   const headerFailureText = headerFailureStatus ? truncateToWidth(headerFailureStatus, HEADER_FAILURE_STATUS_MAX) : '';
   const inlineFailureText = headerFailureText ? ` ${BULLET_OPERATOR} ${headerFailureText}` : '';
   const rightReserve = stringWidth(hintReserveText) + stringWidth(inlineFailureText);

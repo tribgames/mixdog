@@ -5,7 +5,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { DesktopLspCapabilities } from '../shared/contract';
 // @ts-expect-error The shared runtime helper is plain ESM and has no declaration file.
 import { shutdownStdioChild } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
-import { LanguageServerState, sessionKey } from './language-server-state';
+import { type LanguageServerState, sessionKey } from './language-server-state';
 import type { LanguageServerSpec, ServerSession } from './language-server-types';
 
 const LANGUAGE_SERVER_IDLE_MS = 30_000;
@@ -404,11 +404,7 @@ export class LanguageServerProcessManager {
     if (session.idleTimer) clearTimeout(session.idleTimer);
     this.state.deleteSession(session.key);
     try {
-      await this.dependencies.withTimeout(
-        session.connection.sendRequest('shutdown'),
-        1_000,
-        'shutdown timeout'
-      );
+      await this.dependencies.withTimeout(session.connection.sendRequest('shutdown'), 1_000, 'shutdown timeout');
       session.connection.sendNotification('exit');
     } catch {
       // Forceful tree cleanup below covers an unresponsive server.

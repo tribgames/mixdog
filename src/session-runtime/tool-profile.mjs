@@ -11,7 +11,6 @@ export const HEADLESS_MODEL_TOOL_NAMES = Object.freeze([
   'edit',
   'apply_patch',
   'git',
-  'git_stage',
   'github',
   'shell',
   'task',

@@ -44,7 +44,6 @@ export async function compareRenderedPages(beforeImages, afterImages, outputPdf)
         Math.abs(beforePixels[index + 1] - afterPixels[index + 1]),
         Math.abs(beforePixels[index + 2] - afterPixels[index + 2])
       );
-      const pixel = index / 4;
       if (delta >= 24) {
         changed += 1;
         diff.data[index] = 239;
@@ -58,7 +57,6 @@ export async function compareRenderedPages(beforeImages, afterImages, outputPdf)
         diff.data[index + 2] = gray;
         diff.data[index + 3] = 55;
       }
-      if (pixel >= width * height) break;
     }
     diffContext.putImageData(diff, 0, 0);
     const data = diffCanvas.toBuffer('image/png');

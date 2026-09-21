@@ -86,9 +86,15 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
     const eagerBefore = JSON.stringify(requestTools(session));
 
     assert.equal(refreshInitialDeferredMcpSurface(session, [blocked, allowed]), true);
-    assert.equal(session.deferredToolCatalog.some((tool) => tool.name === blocked.name), false);
+    assert.equal(
+      session.deferredToolCatalog.some((tool) => tool.name === blocked.name),
+      false
+    );
     assert.ok(deferredCatalogUnion(session).some((tool) => tool.name === allowed.name));
-    assert.equal(requestTools(session).some((tool) => tool.name === blocked.name), false);
+    assert.equal(
+      requestTools(session).some((tool) => tool.name === blocked.name),
+      false
+    );
     assert.equal(JSON.stringify(session.messages).includes(blocked.name), false);
     assert.equal(session.messages[0].content, 'BP1 BASE');
     assert.equal(session.messages[2].content, 'BP3 SESSION');
@@ -114,18 +120,22 @@ for (const provider of ['openai-oauth', 'anthropic-oauth', 'gemini', 'openrouter
     const session = initialSession(provider, [blocked.name]);
     const toolsBefore = JSON.stringify(requestTools(session));
     const messagesBefore = JSON.stringify(session.messages);
-    const body = () => buildRequestBody(
-      [...session.messages, { role: 'user', content: 'Inspect the project.' }],
-      session.model,
-      requestTools(session),
-      { sessionId: session.id }
-    );
+    const body = () =>
+      buildRequestBody(
+        [...session.messages, { role: 'user', content: 'Inspect the project.' }],
+        session.model,
+        requestTools(session),
+        { sessionId: session.id }
+      );
     const openaiBefore = provider === 'openai-oauth' ? body() : null;
 
     assert.equal(refreshInitialDeferredMcpSurface(session, [blocked]), false);
     assert.equal(JSON.stringify(requestTools(session)), toolsBefore);
     assert.equal(JSON.stringify(session.messages), messagesBefore);
-    assert.equal(session.deferredToolCatalog.some((tool) => tool.name === blocked.name), false);
+    assert.equal(
+      session.deferredToolCatalog.some((tool) => tool.name === blocked.name),
+      false
+    );
     if (openaiBefore) {
       const after = body();
       assert.equal(after.prompt_cache_key, openaiBefore.prompt_cache_key);

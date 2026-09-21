@@ -133,32 +133,14 @@ impl FileListStore {
             let cancelled = AtomicBool::new(false);
             for key in keys {
                 let parsed = ParsedArgs {
-                    patterns: Vec::new(),
-                    globs: Vec::new(),
-                    iglobs: Vec::new(),
                     targets: vec![key.operand.to_string_lossy().into_owned()],
-                    before: 0,
-                    after: 0,
-                    case_insensitive: false,
-                    fixed_strings: false,
                     hidden: key.hidden,
                     no_ignore: key.no_ignore,
-                    text: false,
                     no_require_git: key.no_require_git,
                     max_depth: key.max_depth,
-                    line_numbers: false,
-                    with_filename: false,
-                    files_with_matches: false,
-                    count: false,
-                    only_matching: false,
-                    pcre2: false,
-                    multiline: false,
-                    multiline_dotall: false,
-                    file_types: Vec::new(),
                     files_list: true,
                     directories: key.directories,
-                    max_columns: 0,
-                    literal_trigrams: None,
+                    ..ParsedArgs::default()
                 };
                 let _ =
                     complete_operand_files(&store, &key.operand, &parsed, &cancelled, None, true);

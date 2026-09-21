@@ -5,7 +5,7 @@
 
 // Cached picker opens stay instant, but a catalog older than this is treated as
 // stale: cached rows render immediately and a background force refresh updates
-// the picker in place. Avoids the "stale /model & /agents catalog" without
+// the cache for the next open. Avoids the "stale /model & /agents catalog" without
 // paying a remote provider-list round-trip on every open.
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 

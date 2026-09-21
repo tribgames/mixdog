@@ -11,16 +11,9 @@ function normalizeWhisperLanguage(value) {
   // treating them as a language poisoned detection ('c.utf-8' reached whisper
   // and blocked the ko-KR Intl fallback from ever being consulted).
   if (raw === 'c' || raw === 'posix' || raw.startsWith('c.') || raw.startsWith('posix.')) return null;
-  if (raw.startsWith('ko')) return 'ko';
-  if (raw.startsWith('ja')) return 'ja';
-  if (raw.startsWith('en')) return 'en';
-  if (raw.startsWith('zh')) return 'zh';
-  if (raw.startsWith('de')) return 'de';
-  if (raw.startsWith('fr')) return 'fr';
-  if (raw.startsWith('es')) return 'es';
-  if (raw.startsWith('it')) return 'it';
-  if (raw.startsWith('pt')) return 'pt';
-  if (raw.startsWith('ru')) return 'ru';
+  for (const language of ['ko', 'ja', 'en', 'zh', 'de', 'fr', 'es', 'it', 'pt', 'ru']) {
+    if (raw.startsWith(language)) return language;
+  }
   return raw;
 }
 

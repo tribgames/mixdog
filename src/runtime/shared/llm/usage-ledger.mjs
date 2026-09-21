@@ -516,15 +516,17 @@ export class UsageLedger {
               conversation: isConversationUsageSource(row.source_type),
             }));
     for (const row of amounts) {
-      const day = (days[row.day] ||= { ...empty(), models: {}, sessions: {}, conversation: empty() });
+      days[row.day] ||= { ...empty(), models: {}, sessions: {}, conversation: empty() };
+      const day = days[row.day];
       const key = `${row.provider}/${row.model}`;
-      const route = (day.models[key] ||= {
+      day.models[key] ||= {
         ...empty(),
         provider: row.provider,
         model: row.model,
         kind: row.kind,
         conversation: empty(),
-      });
+      };
+      const route = day.models[key];
       add(day, row);
       add(route, row);
       if (row.conversation) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createSettingsPicker } from './settings-picker.mjs';
@@ -7,13 +8,6 @@ import { createSettingsPicker } from './settings-picker.mjs';
 // The Settings panel against a fake snapshot: what each row shows, which
 // writes ←/→ and Enter perform, and where Enter navigates. (The ownership /
 // epoch rules of the same panel are pinned in panel-epoch.test.mjs.)
-
-const flush = async (rounds = 8) => {
-  for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-};
 
 const SNAPSHOT = {
   autoClear: { enabled: true, idleMs: 60 * 60_000, provider: 'openai' },

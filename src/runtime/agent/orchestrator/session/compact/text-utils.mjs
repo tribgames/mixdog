@@ -52,8 +52,9 @@ function redactRawSecretString(text) {
     keyRe.lastIndex = 0;
     let out = '';
     let last = 0;
-    let match;
-    while ((match = keyRe.exec(value)) !== null) {
+    while (true) {
+      const match = keyRe.exec(value);
+      if (match === null) break;
       const prefixEnd = match.index + match[0].length;
       out += value.slice(last, prefixEnd);
       let i = prefixEnd;

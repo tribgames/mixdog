@@ -1,4 +1,3 @@
-// channel-worker/client-heartbeat.mjs
 // The per-process heartbeat file under <runtime>/channel-clients/ that tells
 // the daemon which client processes are alive, plus the sweep that removes
 // rows whose pid died or whose stamp went stale.

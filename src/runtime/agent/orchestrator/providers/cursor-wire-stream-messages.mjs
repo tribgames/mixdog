@@ -9,36 +9,6 @@ import { buildCursorInteractionResponse } from './cursor-wire-interactions.mjs';
 import { cursorError } from './cursor-wire-transport.mjs';
 import { handleExecMessage, handleKvMessage, sendClientMessage } from './cursor-wire-exec.mjs';
 
-// Records a streamed tool-call lifecycle event on the shared stream state.
-function recordStreamedTool(state, update) {
-  const { toolCallStarted, partialToolCall, toolCallDelta, toolCallCompleted } = update;
-  if (toolCallStarted?.callId) {
-    state.streamedTools.set(toolCallStarted.callId, {
-      status: 'started',
-      modelCallId: toolCallStarted.modelCallId || '',
-    });
-  }
-  if (partialToolCall?.callId) {
-    state.streamedTools.set(partialToolCall.callId, {
-      status: 'partial',
-      modelCallId: partialToolCall.modelCallId || '',
-      argsText: partialToolCall.argsTextDelta || '',
-    });
-  }
-  if (toolCallDelta?.callId && !state.streamedTools.has(toolCallDelta.callId)) {
-    state.streamedTools.set(toolCallDelta.callId, {
-      status: 'delta',
-      modelCallId: toolCallDelta.modelCallId || '',
-    });
-  }
-  if (toolCallCompleted?.callId) {
-    state.streamedTools.set(toolCallCompleted.callId, {
-      status: 'completed',
-      modelCallId: toolCallCompleted.modelCallId || '',
-    });
-  }
-}
-
 // Relays one interaction update to the SSE stream and returns its progress.
 function applyInteractionUpdate(update, state, filter, emit) {
   if (update.textDelta?.text) {
@@ -56,7 +26,6 @@ function applyInteractionUpdate(update, state, filter, emit) {
     state.visibleOutput = true;
     emit({ reasoning_content: update.thinkingDelta.text });
   }
-  recordStreamedTool(state, update);
   if (update.turnEnded) {
     state.sawTurnEnded = true;
     state.batchBoundaryChunkSeq = state.chunkSeq;

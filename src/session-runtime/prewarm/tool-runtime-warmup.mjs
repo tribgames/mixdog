@@ -25,7 +25,6 @@ export function createToolRuntimeWarmup({ timers, bootProfile, isCloseRequested,
     }
   }
 
-  // Tool-runtime warmup: start the native shell manager and token estimator.
   function scheduleToolRuntimeWarmup(delayMs = 2500) {
     if (envFlag('MIXDOG_DISABLE_TOOL_PREWARM')) {
       bootProfile('tool-runtime:prewarm-skipped');

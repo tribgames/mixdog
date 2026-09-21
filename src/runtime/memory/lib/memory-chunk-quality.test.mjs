@@ -148,7 +148,10 @@ test('a shorter rewrite replaces only the expanded grouping and maps back to the
   assert.equal(result.stats.retries, 1);
   assert.deepEqual(
     result.chunks.map((chunk) => chunk.members.map((member) => member.id)),
-    [[1, 2], [3, 4]]
+    [
+      [1, 2],
+      [3, 4],
+    ]
   );
   assert.equal(result.chunks[1].summary, 'Marker hides preview blocks.');
   assert.deepEqual(result.rawRowIds, []);

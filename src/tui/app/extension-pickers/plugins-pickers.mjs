@@ -156,7 +156,7 @@ export function createPluginsPickers({
     const own = surface.claim();
     const status = await readStatus(store, 'pluginsStatus', 'plugins', 'plugins status');
     if (!status) return;
-    const plugins = status.plugins || [];
+    const plugins = status.plugins;
     const items = [];
     if (plugins.length === 0) {
       items.push({

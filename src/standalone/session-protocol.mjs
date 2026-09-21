@@ -37,6 +37,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getLocalProviderModelDetails',
   'getSessionReviewDiff',
   'getTurnReviewDiff',
+  'getTurnLiveness',
   'getUpdateSettings',
   'getUpdateStatus',
   'getUsageDashboard',

@@ -323,7 +323,6 @@ const UNIFIED_AGENT_BUILTINS = [
   'read',
   'edit',
   'git',
-  'git_stage',
   'shell',
   'task',
   'Skill',

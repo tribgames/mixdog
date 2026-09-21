@@ -167,8 +167,7 @@ function parseParams(text) {
   const out = {};
   const re =
     /<(?:antml:)?parameter\b[^>]*\bname\s*=\s*["']?([^"'>\s]+)["']?[^>]*>([\s\S]*?)<\/(?:antml:)?parameter\s*>/gi;
-  let m;
-  while ((m = re.exec(text)) !== null) {
+  for (let m = re.exec(text); m !== null; m = re.exec(text)) {
     out[m[1]] = coerceValue(m[2]);
   }
   return out;

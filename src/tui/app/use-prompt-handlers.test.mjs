@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import React, { useState } from 'react';
 import { Text, render } from 'ink';
 import { usePromptHandlers } from './use-prompt-handlers.mjs';
@@ -52,10 +53,6 @@ function mount(
   const control = { busy: false };
   const refs = {
     promptValueRef: { current: '' },
-    pastedImagesRef: { current: [] },
-    nextPastedImageIdRef: { current: 1 },
-    pastedTextsRef: { current: [] },
-    nextPastedTextIdRef: { current: 1 },
     promptHistoryNavRef: { current: { active: false, index: -1, seed: '', lastValue: '' } },
     promptHistoryDraftChangeRef: { current: false },
   };
@@ -68,8 +65,6 @@ function mount(
     },
     state: { cwd: process.cwd(), provider: 'openai' },
     ...refs,
-    setPastedImages: () => {},
-    setPastedTexts: () => {},
     setPromptDraftOverride: (value) => calls.draftOverrides.push(value),
     surface: { claim: () => ({ context: (value) => calls.contexts.push(value) }) },
     syncPromptLayoutRows: (text) => calls.layoutRows.push(text),
@@ -130,7 +125,7 @@ function mount(
     stdin.end();
     stdout.end();
   });
-  const settle = (ms = 40) => new Promise((resolve) => setTimeout(resolve, ms));
+  const settle = (ms = 40) => delay(ms);
   return { control, calls, refs, settle };
 }
 

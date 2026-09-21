@@ -1,6 +1,7 @@
 import { registerBackgroundTask, renderBackgroundTask } from '../../../../../shared/background-tasks.mjs';
 import { killShellJob, watchBackgroundShellJob } from '../shell-jobs.mjs';
 import { renderBackgroundPartialOutput } from '../shell-output.mjs';
+import { readShellTaskOutput } from '../lib/shell-task-output.mjs';
 import { normalizeOutputPath } from '../path-utils.mjs';
 import { cleanupArtifactOnTaskSettled, consumeTeeArtifact } from './transport-artifacts.mjs';
 import { _backgroundResultLines, _prependDestructiveWarning } from './result-format.mjs';
@@ -26,9 +27,7 @@ function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
       meta: {
         task_id: result.jobId,
         stdout: result.stdoutPath ? normalizeOutputPath(result.stdoutPath) : null,
-        // Both streams render as one body, so the task record carries the
-        // stdout path only.
-        stderr: null,
+        stderr: result.stderrPath ? normalizeOutputPath(result.stderrPath) : null,
         cwd,
         timeoutMs: result.backgroundTimeoutMs || 0,
       },
@@ -45,7 +44,6 @@ function registerPromotedTask({ result, command, cwd, options, startedAtMs }) {
 // output for manual task control instead of keeping the tool call open until
 // the hard timeout.
 export function renderBackgroundedResult({ result, command, cwd, options, startedAtMs, teePlan, stdout, stderr }) {
-  const partialOutput = renderBackgroundPartialOutput(stdout, stderr);
   let task = null;
   if (result.jobId) {
     task = registerPromotedTask({ result, command, cwd, options, startedAtMs });
@@ -67,6 +65,14 @@ export function renderBackgroundedResult({ result, command, cwd, options, starte
   let taskBlock = null;
   if (task) taskBlock = renderBackgroundTask(task);
   else if (result.jobId) taskBlock = `[task_id: ${result.jobId}]`;
+  const partialOutput = task
+    ? readShellTaskOutput(task, {
+        stdout_path: result.stdoutPath,
+        stderr_path: result.stderrPath,
+        stdout_preview: stdout,
+        stderr_preview: stderr,
+      })
+    : renderBackgroundPartialOutput(stdout, stderr);
   const lines = _backgroundResultLines({
     taskBlock,
     message: result.backgroundMessage || DEFAULT_BACKGROUND_MESSAGE,

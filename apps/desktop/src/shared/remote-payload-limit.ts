@@ -75,7 +75,7 @@ const positiveSize = (value: unknown): number | null => {
 const callIdOf = (value: unknown): number | null =>
   typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
 
-const NON_ASCII = /[^\u0000-\u007F]/;
+const NON_ASCII = /[\u0080-\uFFFF]/;
 
 /** The unit the relay measures a frame in: UTF-8 bytes for text, byte length
  *  for a binary box (apps/relay/server.mjs `frameBytes`). A recorded size that

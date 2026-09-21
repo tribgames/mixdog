@@ -22,7 +22,13 @@ const repoRoot = path.resolve(here, '..', '..', '..');
 const run = async (executor, args) => JSON.parse(await executor.execute(args));
 
 test('feature and summary status omit details retained by dedicated domains', async () => {
-  const localProvider = { enabled: true, installed: true, hardware: { gpu: 'GPU' }, models: ['model'], disk: { availableBytes: 123 } };
+  const localProvider = {
+    enabled: true,
+    installed: true,
+    hardware: { gpu: 'GPU' },
+    models: ['model'],
+    disk: { availableBytes: 123 },
+  };
   const memory = { enabled: true, installed: true, info: { model: 'embedding' } };
   const executor = createSetupToolExecutor({
     getApi: () => ({

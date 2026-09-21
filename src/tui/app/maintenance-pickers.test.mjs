@@ -1,18 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createMaintenancePickers } from './maintenance-pickers.mjs';
 
 // Update / Auto-clear / Profile panels against a fake store: rows from the
 // daemon reads, what each key writes, and where Esc returns.
-
-const flush = async (rounds = 8) => {
-  for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-};
 
 function createHarness(storeOverrides = {}) {
   supersedePanelEpoch();

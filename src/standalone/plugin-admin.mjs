@@ -253,16 +253,13 @@ export function listRegisteredPlugins({ dataDir = resolvePluginData() } = {}) {
 export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } = {}) {
   const normalized = normalizeSource(sourceInput);
   const id = stableIdForSource(normalized.displaySource || normalized.url || normalized.path);
+  const matchesSource = (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource);
   const initial = loadRegistry(dataDir);
-  const initialExisting = initial.plugins.find(
-    (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource)
-  );
+  const initialExisting = initial.plugins.find(matchesSource);
   const lockId = initialExisting?.id || id;
   return withPluginMutation(dataDir, lockId, () => {
     const currentRegistry = loadRegistry(dataDir);
-    const existing = currentRegistry.plugins.find(
-      (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource)
-    );
+    const existing = currentRegistry.plugins.find(matchesSource);
     if (existing) return updatePluginLocked(existing, dataDir);
     const materialized = materializePlugin(normalized, id, dataDir);
     const manifest = pluginManifest(materialized.root);
@@ -286,9 +283,7 @@ export function addPlugin(sourceInput, { dataDir = resolvePluginData(), name } =
       updatedAt: nowIso(),
     };
     return mutateRegistry(dataDir, (registry) => {
-      const duplicate = registry.plugins.findIndex(
-        (plugin) => plugin.id === id || clean(plugin.source) === clean(normalized.displaySource)
-      );
+      const duplicate = registry.plugins.findIndex(matchesSource);
       if (duplicate >= 0) {
         entry.installedAt = registry.plugins[duplicate].installedAt || entry.installedAt;
         registry.plugins[duplicate] = entry;

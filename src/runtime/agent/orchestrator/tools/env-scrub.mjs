@@ -77,17 +77,6 @@ const SECRET_EXACT = new Set([
 export function scrubLoaderVars(env) {
   if (!env || typeof env !== 'object') return env;
   for (const k of LOADER_VARS) delete env[k];
-  return _continueScrubLoaderVars(env);
-}
-
-// Web-search availability is independent from ordinary shell networking.
-// Keep this boundary explicit so disabling the search tool never blocks
-// package managers, source-control clients, or user-configured proxies.
-export function applyShellEgressPolicy(env) {
-  return env;
-}
-
-function _continueScrubLoaderVars(env) {
   // Wildcard sweep: the exact-name list covers the common loader vars but
   // the DYLD_/LD_ families have many siblings (DYLD_FRAMEWORK_PATH,
   // DYLD_FALLBACK_LIBRARY_PATH, LD_AUDIT, LD_BIND_NOW, …). Delete every
@@ -95,6 +84,13 @@ function _continueScrubLoaderVars(env) {
   for (const k of Object.keys(env)) {
     if (/^DYLD_/.test(k) || /^LD_/.test(k)) delete env[k];
   }
+  return env;
+}
+
+// Web-search availability is independent from ordinary shell networking.
+// Keep this boundary explicit so disabling the search tool never blocks
+// package managers, source-control clients, or user-configured proxies.
+export function applyShellEgressPolicy(env) {
   return env;
 }
 

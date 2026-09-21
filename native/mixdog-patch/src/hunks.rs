@@ -427,9 +427,7 @@ pub(crate) fn apply_fuzzy_hunk(
         let replace = match &best {
             None => true,
             Some((best_fuzz, best_norm, best_dist, _, _, _)) => {
-                fuzz < *best_fuzz
-                    || (fuzz == *best_fuzz && norm_count < *best_norm)
-                    || (fuzz == *best_fuzz && norm_count == *best_norm && distance < *best_dist)
+                (fuzz, norm_count, distance) < (*best_fuzz, *best_norm, *best_dist)
             }
         };
         if replace {
@@ -678,15 +676,11 @@ pub(crate) fn normalize_typographic(bytes: &[u8]) -> String {
             // Various dash / hyphen code-points -> ASCII '-'
             '\u{2010}' | '\u{2011}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}'
             | '\u{2212}' => '-',
-            // Fancy single quotes -> '\''
-            '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
-            // Fancy double quotes -> '"'
-            '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
             // Non-breaking space and other odd spaces -> normal space
             '\u{00A0}' | '\u{2002}' | '\u{2003}' | '\u{2004}' | '\u{2005}' | '\u{2006}'
             | '\u{2007}' | '\u{2008}' | '\u{2009}' | '\u{200A}' | '\u{202F}' | '\u{205F}'
             | '\u{3000}' => ' ',
-            other => other,
+            other => fold_char_curly(other),
         })
         .collect::<String>()
         .trim()

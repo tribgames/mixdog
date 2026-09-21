@@ -186,6 +186,21 @@ test('a worker session without a task answers read/status with a synthetic job b
   assert.throws(() => api.getJobOrWorker({ tag: 'nobody' }), /no task found/);
 });
 
+test('worker fallback picks the last nonempty assistant output without changing message order', () => {
+  const messages = [
+    { role: 'assistant', content: 'earlier output' },
+    { role: 'assistant', content: [{ type: 'text', text: 'structured output' }] },
+    null,
+    { role: 'assistant', content: ' \n ' },
+    { role: 'user', content: 'later question' },
+  ];
+  const original = structuredClone(messages);
+  const worker = session('jv-s-structured', { messages, lastHandoff: 'older handoff' });
+  const { api } = views({ sessions: new Map([[worker.id, worker]]) });
+  assert.equal(api.workerFallbackJob(worker.id).result, '[{"type":"text","text":"structured output"}]');
+  assert.deepEqual(messages, original);
+});
+
 test('spawn meta builders, meta merge and the busy check', () => {
   const busy = { id: 'b', runtime: { controller: { signal: { aborted: false } } } };
   const aborted = { id: 'a', runtime: { controller: { signal: { aborted: true } }, stage: 'idle' } };

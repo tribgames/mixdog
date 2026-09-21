@@ -8,9 +8,29 @@ import test from 'node:test';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
 
+function runIsolatedConfigTest(prefix, source) {
+  const dataDir = mkdtempSync(join(tmpdir(), prefix));
+  try {
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        MIXDOG_DATA_DIR: dataDir,
+        MIXDOG_CONFIG_READ_TTL_MS: '0',
+        MIXDOG_USER_DATA_BACKUP_ROOT: join(dataDir, 'backups'),
+      },
+      encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
 test('sync and async config writes preserve user fields without persisting secrets or probe failures', () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-config-persistence-'));
-  const source = `
+  runIsolatedConfigTest(
+    'mixdog-config-persistence-',
+    `
     import assert from 'node:assert/strict';
     import { readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';
@@ -91,27 +111,14 @@ test('sync and async config writes preserve user fields without persisting secre
     assert.deepEqual(sanitized.mcpServers, { keep: { command: 'other' } });
     assert.deepEqual(read().mcpServers, sanitized.mcpServers);
     assert.deepEqual(read().agent, nested);
-  `;
-  try {
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        MIXDOG_DATA_DIR: dataDir,
-        MIXDOG_CONFIG_READ_TTL_MS: '0',
-        MIXDOG_USER_DATA_BACKUP_ROOT: join(dataDir, 'backups'),
-      },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true });
-  }
+  `
+  );
 });
 
 test('read-time canonicalization cannot restore settings removed by a newer writer', () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-config-rebase-'));
-  const source = `
+  runIsolatedConfigTest(
+    'mixdog-config-rebase-',
+    `
     import assert from 'node:assert/strict';
     import fs from 'node:fs';
     import { syncBuiltinESMExports } from 'node:module';
@@ -147,27 +154,14 @@ test('read-time canonicalization cannot restore settings removed by a newer writ
     }
     assert.equal(saved.profile.title, '');
     assert.equal(saved.profile.language, 'en');
-  `;
-  try {
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        MIXDOG_DATA_DIR: dataDir,
-        MIXDOG_CONFIG_READ_TTL_MS: '0',
-        MIXDOG_USER_DATA_BACKUP_ROOT: join(dataDir, 'backups'),
-      },
-      encoding: 'utf8',
-    });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true });
-  }
+  `
+  );
 });
 
 test('saving a secrets-less snapshot keeps a signed-in OAuth provider usable', () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-config-oauth-probe-'));
-  const source = `
+  runIsolatedConfigTest(
+    'mixdog-config-oauth-probe-',
+    `
     import assert from 'node:assert/strict';
     import { readFileSync, writeFileSync } from 'node:fs';
     import { join } from 'node:path';
@@ -199,20 +193,51 @@ test('saving a secrets-less snapshot keeps a signed-in OAuth provider usable', (
     saveConfig(loadConfig({ secrets: false }));
     assert.deepEqual(read().providers['anthropic-oauth'], { enabled: false });
     assert.equal(loadConfig().providers['anthropic-oauth'].enabled, false);
-  `;
-  try {
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
-      cwd: repoRoot,
-      env: {
-        ...process.env,
-        MIXDOG_DATA_DIR: dataDir,
-        MIXDOG_CONFIG_READ_TTL_MS: '0',
-        MIXDOG_USER_DATA_BACKUP_ROOT: join(dataDir, 'backups'),
-      },
-      encoding: 'utf8',
+  `
+  );
+});
+
+test('preset lookup and maintenance normalization preserve storage boundaries', () => {
+  runIsolatedConfigTest(
+    'mixdog-config-normalization-',
+    `
+    import assert from 'node:assert/strict';
+    import { getPreset, listPresets } from './src/runtime/agent/orchestrator/config-presets.mjs';
+    import { normalizeMaintenanceRoutes } from './src/runtime/agent/orchestrator/config-storage.mjs';
+
+    const named = { id: 'first', name: 'First' };
+    const nameOnly = { name: 'Name only' };
+    const config = { presets: [null, named, nameOnly] };
+    assert.equal(listPresets(config), config.presets);
+    for (const key of ['first', 1, '01']) assert.equal(getPreset(config, key), named);
+    assert.equal(getPreset(config, 'Name only'), nameOnly);
+    for (const key of [null, '', 0, -1, 'First', 'missing']) assert.equal(getPreset(config, key), null);
+    for (const value of [null, {}, { presets: {} }]) {
+      assert.deepEqual(listPresets(value), []);
+      assert.equal(getPreset(value, 'first'), null);
+    }
+
+    assert.deepEqual(normalizeMaintenanceRoutes({
+      aliased: { provider: ' openai-api ', model: ' gpt-test ', effort: ' high ', fast: true, ignored: 'x' },
+      ordinary: { provider: 'anthropic', model: 'haiku', effort: ' ', fast: 1 },
+      noProvider: { model: 'haiku' },
+      noModel: { provider: 'openai' },
+      nil: null,
+      flag: true,
+      list: [{ provider: 'openai', model: 'gpt-test' }],
+    }), {
+      aliased: { provider: 'openai', model: 'gpt-test', effort: 'high', fast: true },
+      ordinary: { provider: 'anthropic', model: 'haiku' },
     });
-    assert.equal(result.status, 0, result.stderr || result.stdout);
-  } finally {
-    rmSync(dataDir, { recursive: true, force: true });
-  }
+    assert.deepEqual(normalizeMaintenanceRoutes(null), {});
+    assert.deepEqual(normalizeMaintenanceRoutes([{ provider: 'gemini-api', model: 'gemini-test' }]), {
+      0: { provider: 'gemini', model: 'gemini-test' },
+    });
+    const failure = new Error('provider fixture failure');
+    assert.throws(
+      () => normalizeMaintenanceRoutes({ broken: { get provider() { throw failure; } } }),
+      (error) => error === failure
+    );
+  `
+  );
 });

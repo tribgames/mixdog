@@ -11,7 +11,7 @@ import { streamingLayoutText } from '../markdown/streaming-markdown.mjs';
 import { normalizeToolName } from '../../runtime/shared/tool-surface.mjs';
 import { shouldSuppressFullyFailedToolItem } from '../transcript-tool-failures.mjs';
 import { backgroundArgsForRows, estimateTranscriptItemRows } from './transcript-row-estimate.mjs';
-import { envPositiveInt as positiveIntEnv } from '../../runtime/shared/env.mjs';
+import { envFlag, envPositiveInt as positiveIntEnv } from '../../runtime/shared/env.mjs';
 
 // Per-keystroke render cost is proportional to the number of MOUNTED transcript
 // items: ink's renderNodeToOutput still serializes (squashTextNodes/wrapText/
@@ -67,17 +67,10 @@ export function accumulateDirectionalScrollDelta(state, deltaRows) {
   return reversed;
 }
 
-// Parse a boolean env var that DEFAULTS ON. Any of 0/false/off/no (case-
+// Boolean env vars DEFAULT ON. Any of 0/false/off/no (case-
 // insensitive, trimmed) disables it; everything else (including unset) leaves it
 // on. Used as the kill switch for the app-level measured-height feature below.
-function boolEnvDefaultTrue(name) {
-  const raw = process.env[name];
-  if (raw == null) return true;
-  const v = String(raw).trim().toLowerCase();
-  return !(v === '0' || v === 'false' || v === 'off' || v === 'no');
-}
-
-export const TRANSCRIPT_MEASURED_ROWS = boolEnvDefaultTrue('MIXDOG_TUI_TRANSCRIPT_MEASURED');
+export const TRANSCRIPT_MEASURED_ROWS = envFlag('MIXDOG_TUI_TRANSCRIPT_MEASURED', true);
 
 // ── Wheel scroll speed / acceleration ─────────────────────────────────────
 // Rows per wheel notch, and the same-direction acceleration that lets a fast
@@ -91,7 +84,7 @@ export const TRANSCRIPT_MEASURED_ROWS = boolEnvDefaultTrue('MIXDOG_TUI_TRANSCRIP
 // expose both knobs: MIXDOG_TUI_SCROLL_ACCELERATION=0 gives the fixed-speed
 // mode, MIXDOG_TUI_SCROLL_SPEED sets the base row step.
 export const WHEEL_STEP_ROWS = positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED', 3);
-export const WHEEL_ACCEL_ENABLED = boolEnvDefaultTrue('MIXDOG_TUI_SCROLL_ACCELERATION');
+export const WHEEL_ACCEL_ENABLED = envFlag('MIXDOG_TUI_SCROLL_ACCELERATION', true);
 export const WHEEL_STEP_MAX_ROWS = Math.max(
   WHEEL_STEP_ROWS,
   positiveIntEnv('MIXDOG_TUI_SCROLL_SPEED_MAX', WHEEL_STEP_ROWS * 3)
@@ -237,14 +230,6 @@ const transcriptRowsCache = new WeakMap();
 // (variantKey + columns + toolExpanded) tuple as the estimate caches.
 export const transcriptMeasuredRowsCache = new WeakMap();
 
-// Streaming assistant items are REPLACED (new object) on every token flush
-// (see engine.mjs `{ ...current, text, streaming: true }`), so a WeakMap keyed
-// on the item object is orphaned by the very next frame and can never observe
-// live re-slice growth. Key streaming measurements by item id instead — they
-// survive the per-token object swap. Cleared once the item stops streaming
-// (its final settled height is then captured by the normal WeakMap path).
-const streamingMeasuredRowsById = new Map();
-
 // High-water clamp for the STREAMING row ESTIMATE, keyed by stream item id.
 // measureStreamingMarkdownRenderedRows (measure-rendered-rows.mjs) adds a +1
 // gap row only while childCount===2 (stablePrefix box + unstableSuffix box).
@@ -255,9 +240,9 @@ const streamingMeasuredRowsById = new Map();
 // streaming run so streamingEstimateRows is NON-DECREASING, killing the -1 dip
 // that shifts the transcript when a newline settles. Entry stores columns/
 // toolExpanded so a real layout-basis change resets the water line (row count
-// legitimately changes with width). Lifecycle mirrors streamingMeasuredRowsById
-// exactly: pruned by pruneStreamingMeasuredRowsById and cleared at the same
-// settle / invalidate delete sites in estimateTranscriptItemRowsCached.
+// legitimately changes with width). Entries are pruned by
+// pruneStreamingMeasuredRowsById and cleared when the item settles in
+// estimateTranscriptItemRowsCached.
 const streamingEstimateHighWaterById = new Map();
 
 // The App asks for the live-tail estimate on every render, including renders
@@ -287,9 +272,7 @@ function cacheStreamingTailEstimate(id, entry) {
  * item that never got a Yoga measurement but reached an estimate high-water,
  * then was bulk-replaced, must still be pruned). */
 export function hasStreamingRowStateToPrune() {
-  return (
-    streamingMeasuredRowsById.size > 0 || streamingEstimateHighWaterById.size > 0 || streamingTailEstimateById.size > 0
-  );
+  return streamingEstimateHighWaterById.size > 0 || streamingTailEstimateById.size > 0;
 }
 
 export function transcriptHarvestInputsEqual(left, right) {
@@ -311,16 +294,11 @@ export function transcriptHarvestInputsEqual(left, right) {
   );
 }
 
-/** Drop streamingMeasuredRowsById entries for ids no longer mounted, so the
- * store does not grow unbounded over a long session (mirrors the id→item /
+/** Drop streaming row estimates for ids no longer mounted, so the
+ * stores do not grow unbounded over a long session (mirrors the id→item /
  * id→callback map pruning already done for the mounted set). */
 export function pruneStreamingMeasuredRowsById(liveIds) {
   if (!liveIds) return;
-  if (streamingMeasuredRowsById.size > 0) {
-    for (const id of streamingMeasuredRowsById.keys()) {
-      if (!liveIds.has(id)) streamingMeasuredRowsById.delete(id);
-    }
-  }
   if (streamingEstimateHighWaterById.size > 0) {
     for (const id of streamingEstimateHighWaterById.keys()) {
       if (!liveIds.has(id)) streamingEstimateHighWaterById.delete(id);
@@ -363,10 +341,6 @@ function measuredTranscriptRows(item, columns, toolOutputExpanded) {
 
 const STREAMING_ROW_QUANTUM = 1;
 
-function assistantTextForStreamingRowEstimate(text) {
-  return streamingLayoutText(text);
-}
-
 function streamingEstimateRows(item, columns, toolOutputExpanded) {
   const id = item?.id;
   const exactText = String(item?.text ?? '');
@@ -383,7 +357,7 @@ function streamingEstimateRows(item, columns, toolOutputExpanded) {
     cacheStreamingTailEstimate(id, cached);
     return cached.rows;
   }
-  const trimmedText = assistantTextForStreamingRowEstimate(item.text);
+  const trimmedText = streamingLayoutText(item.text);
   const estimateItem = trimmedText === item.text ? item : { ...item, text: trimmedText };
   const raw = Math.max(1, Math.ceil(estimateTranscriptItemRows(estimateItem, columns, toolOutputExpanded)));
   const quantized = Math.ceil(raw / STREAMING_ROW_QUANTUM) * STREAMING_ROW_QUANTUM;
@@ -439,16 +413,12 @@ export function estimateTranscriptItemRowsCached(item, columns, toolOutputExpand
     // estimate→measure→correct cycle produced the newline dip/snap. The
     // high-water estimate is monotonic for this stream id, so code fences and
     // stable/unstable chunk promotion cannot move the viewport backward.
-    if (streamingMeasuredRowsById.has(item.id)) {
-      streamingMeasuredRowsById.delete(item.id);
-    }
     return streamingEstimateRows(item, columns, toolOutputExpanded);
   }
   if (item.kind === 'assistant') {
     // Item settled (no longer streaming): the id-keyed floor and the estimate
     // high-water are no longer relevant — the normal WeakMap-measured path now
     // owns its height. Clear both so a later id reuse / this run cannot leak.
-    if (streamingMeasuredRowsById.has(item.id)) streamingMeasuredRowsById.delete(item.id);
     if (streamingEstimateHighWaterById.has(item.id)) streamingEstimateHighWaterById.delete(item.id);
     if (streamingTailEstimateById.has(item.id)) streamingTailEstimateById.delete(item.id);
   }

@@ -1,6 +1,5 @@
 // HTTP wire helpers. All pure request/response
 // utilities with no module state — no db, _traceDb, or timer dependencies.
-// index.mjs imports these; behavior and signatures are unchanged.
 import { readJsonRequestBody } from '../../shared/http-request-body.mjs';
 
 const MAX_HTTP_BODY_BYTES = 1024 * 1024;

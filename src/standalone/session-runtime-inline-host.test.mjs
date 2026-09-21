@@ -213,6 +213,7 @@ test('inline host keeps session actors in the daemon process and releases them',
   const host = createInlineSessionRuntimeHost({
     cwd: 'C:\\project',
     loadLocalModule: async () => createFakeLocalModule(events),
+    warmKeychain: async () => {},
     executeAgentControl: async (args) => JSON.stringify(args),
   });
 

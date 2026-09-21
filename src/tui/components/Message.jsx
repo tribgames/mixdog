@@ -62,7 +62,12 @@ export const AssistantMessage = React.memo(function AssistantMessage({
   );
 });
 
-export const UserMessage = React.memo(function UserMessage({ text, attached = false, columns, themeEpoch = 0 }) {
+export const UserMessage = React.memo(function UserMessage({
+  text,
+  attached = false,
+  columns,
+  themeEpoch: _themeEpoch = 0,
+}) {
   // `attached` = the previous transcript row is also a user message (consecutive
   // steering prompts). Those stack flush together; a user message that follows
   // an assistant/tool row gets a one-row gap above it.
@@ -91,7 +96,9 @@ export const UserMessage = React.memo(function UserMessage({ text, attached = fa
 });
 
 export function NoticeMessage({ text, tone, columns = 80 }) {
-  const accentColor = tone === 'error' ? theme.error : tone === 'warn' ? theme.warning : theme.inactive;
+  let accentColor = theme.inactive;
+  if (tone === 'error') accentColor = theme.error;
+  else if (tone === 'warn') accentColor = theme.warning;
   const bodyColor = tone === 'info' || tone === 'plain' ? theme.inactive : theme.statusText;
   const prefix = tone === 'plain' || tone === 'error' ? '' : '·';
   const iconWidth = prefix ? 2 : 0;

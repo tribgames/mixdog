@@ -319,7 +319,7 @@ export function collectCompatResponseSearchSources(response) {
   return { citations, webSearchCalls };
 }
 
-function toResponsesInputMessage(m, pendingToolMedia = null, _customToolCallNameById = null) {
+function toResponsesInputMessage(m, pendingToolMedia = null) {
   if (m.role === 'tool') {
     const { output, mediaContent } = splitToolContentForXaiResponses(m.content);
     // xai path: never emit `custom_tool_call_output` (the `custom` variant
@@ -415,7 +415,6 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     }
   }
   const pendingToolMedia = [];
-  const customToolCallNameById = new Map();
   const flushToolMedia = () => {
     if (!pendingToolMedia.length) return;
     input.push({ role: 'user', content: pendingToolMedia.splice(0) });
@@ -434,7 +433,7 @@ export function toXaiResponsesInput(messages, providerState, options = {}) {
     // A missing/reset server anchor requires the full tool trajectory.
     // The converter lowers foreign native calls to ordinary functions;
     // discarding their results here would turn completed work into stubs.
-    const converted = toResponsesInputMessage(m, pendingToolMedia, customToolCallNameById);
+    const converted = toResponsesInputMessage(m, pendingToolMedia);
     if (Array.isArray(converted)) input.push(...converted);
     else input.push(converted);
   }

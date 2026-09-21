@@ -1,4 +1,3 @@
-// channel-client/registration.mjs
 // This client's seat at the daemon: verifying the daemon behind the discovered
 // port is the one discovery named, passive register / re-register, and the
 // best-effort deregister on close. A passive registration observes the current

@@ -58,11 +58,6 @@ function _mappedIpv4FromIpv6(bare) {
 export function assertPublicUrl(url) {
   const parsed = new URL(url);
 
-  // Block dangerous protocols
-  const blockedProtocols = ['file:', 'ftp:', 'data:', 'javascript:'];
-  if (blockedProtocols.includes(parsed.protocol)) {
-    throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`);
-  }
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     throw new Error(`Blocked non-HTTP protocol: ${parsed.protocol}`);
   }
@@ -82,7 +77,7 @@ export function assertPublicUrl(url) {
   // IPv4 private/reserved ranges
   assertPrivateIpv4(hostname);
 
-  // Strip brackets for IPv6 analysis (URL parser stores IPv6 without brackets in .hostname)
+  // Strip the brackets that WHATWG URL retains around IPv6 hostnames.
   const bare = hostname.startsWith('[') ? hostname.slice(1, -1) : hostname;
 
   // IPv6 loopback

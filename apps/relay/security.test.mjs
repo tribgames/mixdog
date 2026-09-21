@@ -98,32 +98,16 @@ test('precompressed siblings are negotiated and never served directly', () => {
   writeFileSync(`${target}.br`, 'brotli-body-placeholder');
   writeFileSync(`${target}.gz`, 'gzip-body-placeholder');
 
-  const head = (acceptEncoding, file = target) => {
-    let headers = {};
-    sendStaticFile(
-      { method: 'HEAD', headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {} },
-      {
-        writeHead(_status, next) {
-          headers = next;
-        },
-        end() {},
-        destroy() {},
-      },
-      file
-    );
-    return headers;
-  };
-
-  const brotli = head('gzip, deflate, br');
+  const brotli = staticHead(target, 'gzip, deflate, br');
   assert.equal(brotli['Content-Encoding'], 'br');
   assert.equal(brotli['Content-Length'], statSync(`${target}.br`).size);
   assert.equal(brotli.Vary, 'Accept-Encoding');
 
-  const gzipOnly = head('gzip');
+  const gzipOnly = staticHead(target, 'gzip');
   assert.equal(gzipOnly['Content-Encoding'], 'gzip');
   assert.equal(gzipOnly['Content-Length'], statSync(`${target}.gz`).size);
 
-  const identity = head('');
+  const identity = staticHead(target, '');
   assert.equal(identity['Content-Encoding'], undefined);
   assert.equal(identity['Content-Length'], statSync(target).size);
 
@@ -131,7 +115,7 @@ test('precompressed siblings are negotiated and never served directly', () => {
   // whose length is unknown until the stream ends.
   const plain = join(assets, 'plain-Zz9YyXx87.css');
   writeFileSync(plain, `body{color:blue}${' '.repeat(2048)}`);
-  const live = head('br, gzip', plain);
+  const live = staticHead(plain, 'br, gzip');
   assert.equal(live['Content-Encoding'], 'gzip');
   assert.equal(live['Content-Length'], undefined);
 
@@ -143,7 +127,7 @@ test('precompressed siblings are negotiated and never served directly', () => {
 });
 
 /** HEAD a file through the real static handler and return its headers. */
-const staticHead = (target, acceptEncoding) => {
+function staticHead(target, acceptEncoding) {
   let headers = {};
   sendStaticFile(
     { method: 'HEAD', headers: acceptEncoding ? { 'accept-encoding': acceptEncoding } : {} },
@@ -157,7 +141,7 @@ const staticHead = (target, acceptEncoding) => {
     target
   );
   return headers;
-};
+}
 
 test('encoding negotiation honours q=0 on staged AND live-gzip bodies', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-relay-negotiation-'));
@@ -264,58 +248,19 @@ test('static responses apply browser security headers without changing HEAD beha
   mkdirSync(assets);
   const hashedAsset = join(assets, 'index-AbCdEf123.js');
   writeFileSync(hashedAsset, 'export const ready = true;');
-  sendStaticFile(
-    { method: 'HEAD', headers: {} },
-    {
-      writeHead(nextStatus, nextHeaders) {
-        status = nextStatus;
-        headers = nextHeaders;
-      },
-      end() {
-        ended = true;
-      },
-      destroy() {},
-    },
-    hashedAsset
-  );
+  headers = staticHead(hashedAsset);
   assert.equal(headers['Cache-Control'], 'public, max-age=31536000, immutable');
 
   const plain = join(dir, 'style.css');
   writeFileSync(plain, 'body{color:red}');
-  sendStaticFile(
-    { method: 'HEAD', headers: {} },
-    {
-      writeHead(nextStatus, nextHeaders) {
-        status = nextStatus;
-        headers = nextHeaders;
-      },
-      end() {
-        ended = true;
-      },
-      destroy() {},
-    },
-    plain
-  );
+  headers = staticHead(plain);
   assert.equal(headers['Cache-Control'], 'public, max-age=86400');
 
   // These unhashed bootstrap files are version-locked to the document/worker.
   for (const name of ['boot.js', 'ui-language.js', 'sw-shell.js']) {
     const boot = join(dir, name);
     writeFileSync(boot, 'window.mixdogBoot = true;');
-    sendStaticFile(
-      { method: 'HEAD', headers: {} },
-      {
-        writeHead(nextStatus, nextHeaders) {
-          status = nextStatus;
-          headers = nextHeaders;
-        },
-        end() {
-          ended = true;
-        },
-        destroy() {},
-      },
-      boot
-    );
+    headers = staticHead(boot);
     assert.equal(headers['Cache-Control'], 'no-cache', name);
   }
 });
@@ -346,18 +291,7 @@ test('inlined renderer boot script receives only its exact CSP hash', () => {
   const target = join(dir, 'index.html');
   writeFileSync(join(dir, 'boot.js'), source);
   writeFileSync(target, `<!doctype html><script>${source}</script>`);
-  let headers = {};
-  sendStaticFile(
-    { method: 'HEAD', headers: {} },
-    {
-      writeHead(_status, nextHeaders) {
-        headers = nextHeaders;
-      },
-      end() {},
-      destroy() {},
-    },
-    target
-  );
+  const headers = staticHead(target);
   const hash = createHash('sha256').update(source).digest('base64');
   assert.equal(headers['Content-Security-Policy'].match(/script-src[^;]*/)?.[0], `script-src 'self' 'sha256-${hash}'`);
 });

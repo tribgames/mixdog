@@ -153,23 +153,21 @@ function traceAgentFetch({
 }
 
 function traceAgentSse({ sessionId, sseParseMs, ttftMs, provider, model, transport }) {
-  const streamTotalMs = sseParseMs;
-  const firstTokenMs = ttftMs;
   appendAgentTrace({
     sessionId,
     kind: 'sse',
     sse_parse_ms: sseParseMs,
-    stream_total_ms: streamTotalMs,
+    stream_total_ms: sseParseMs,
     ttft_ms: ttftMs,
-    first_token_ms: firstTokenMs,
+    first_token_ms: ttftMs,
     provider: provider || null,
     model: model || null,
     transport: transport || null,
     payload: {
       sse_parse_ms: sseParseMs,
-      stream_total_ms: streamTotalMs,
+      stream_total_ms: sseParseMs,
       ttft_ms: ttftMs,
-      first_token_ms: firstTokenMs,
+      first_token_ms: ttftMs,
       provider: provider || null,
       model: model || null,
       transport: transport || null,

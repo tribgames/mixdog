@@ -330,7 +330,6 @@ function freshStreamState(sawTurnEnded) {
     outputTokens: 0,
     contextTokens: null,
     pending: [],
-    streamedTools: new Map(),
     closed: false,
     sawEnd: false,
     sawTurnEnded: sawTurnEnded === true,
@@ -442,7 +441,7 @@ function resumeRun(active, toolResults, userText, model, key) {
       payload.content += `\n\n<user_message>\n${pendingUserText}\n</user_message>`;
       userTextDelivered = true;
     }
-    sendToolResult(active.bridge, pending, payload, Boolean(result) && result.isError !== true);
+    sendToolResult(active.bridge, pending, payload, result.isError !== true);
   }
   active.pending = remaining;
   active.pendingUserText = userTextDelivered ? '' : pendingUserText;

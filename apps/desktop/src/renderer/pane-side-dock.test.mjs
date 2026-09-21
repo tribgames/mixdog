@@ -307,7 +307,9 @@ test('a cold pane dock paints its open shell before mounting the heavy body', as
     await act(async () => {
       const callbacks = [...pendingFrames.values()];
       pendingFrames.clear();
-      callbacks.forEach((callback) => callback(16));
+      callbacks.forEach((callback) => {
+        callback(16);
+      });
     });
     assert.ok(document.querySelector('[data-testid="heavy-dock-body"]'));
   } finally {

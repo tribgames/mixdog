@@ -143,12 +143,6 @@ function geminiCacheTunables() {
   return { refreshEveryN, ttlSeconds };
 }
 
-// Whether the session's recorded cache can still be attached (live TTL,
-// same model, credential and prefix) and whether it is fresh enough to
-// reuse outright. Reuse requires remaining TTL headroom so we never attach a
-// cache that expires mid-request — scaled with TTL (25%, clamped to
-// 10s..6m); the old fixed 6-minute floor silently disabled reuse for any
-// TTL <= 6m, forcing a full-price rebuild every turn.
 // The recorded prefix length and the hash the current request produces at
 // that length; both null when the state records no prefix.
 function geminiStatePrefix(state, model, request) {
@@ -162,6 +156,12 @@ function geminiStatePrefix(state, model, request) {
   return { statePrefixContentCount, currentStatePrefixHash };
 }
 
+// Whether the session's recorded cache can still be attached (live TTL,
+// same model, credential and prefix) and whether it is fresh enough to
+// reuse outright. Reuse requires remaining TTL headroom so we never attach a
+// cache that expires mid-request — scaled with TTL (25%, clamped to
+// 10s..6m); the old fixed 6-minute floor silently disabled reuse for any
+// TTL <= 6m, forcing a full-price rebuild every turn.
 function geminiCacheStateDecision({
   state,
   model,
@@ -504,10 +504,6 @@ function resolveGeminiUsage(response, opts, cachedContent, useModel) {
   return resolvedUsage;
 }
 
-// --- Cache accounting/trace: extracted to gemini-cache.mjs ---
-// --- Stream consumption/guards: extracted to gemini-stream.mjs ---
-// --- Schema/content/tool-call mapping: extracted to gemini-schema.mjs ---
-
 // Kill-switch: MIXDOG_GEMINI_EXPLICIT_CACHE=0 skips cachedContents
 // entirely and relies on Gemini's implicit prefix caching (2.5+/3.x
 // default, same 90% discount, no storage fee). A/B probe knob.
@@ -551,9 +547,6 @@ async function joinInFlightGeminiCreate(inFlightCreate, { globalCacheKey, opts, 
   return _getGeminiGlobalCache(globalCacheKey, Date.now());
 }
 
-// Pre-flight invariant: cachedContents.create rejects prefixes below
-// the model-specific minimum. Skip the POST entirely when the estimate
-// is under threshold so we don't spam 400 responses turn-after-turn.
 function geminiCacheEntry({
   cacheName,
   ttlSeconds,
@@ -631,6 +624,9 @@ function dropRejectedGeminiCache(cachedContent, opts) {
   }
 }
 
+// Pre-flight invariant: cachedContents.create rejects prefixes below
+// the model-specific minimum. Skip the POST entirely when the estimate
+// is under threshold so we don't spam 400 responses turn-after-turn.
 function geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter }) {
   const minTokens = _geminiCacheMinTokens(model);
   const estimatedTokens = _estimateGeminiCacheTokens(systemInstruction, geminiTools, contents);
@@ -870,8 +866,6 @@ export class GeminiProvider {
     return await awaitSharedCreate(createTask, opts.signal);
   }
 
-  // The process-global cachedContents.create for one prefix. Never rejects:
-  // a failure logs and resolves null so every waiter proceeds uncached.
   // POSTs the cachedContents.create request under the shared create budget.
   // Deliberately NOT merged with opts.signal. This create is the
   // process-global singleflight every concurrent session waits on, so
@@ -911,6 +905,8 @@ export class GeminiProvider {
     }
   }
 
+  // The process-global cachedContents.create for one prefix. Never rejects:
+  // a failure logs and resolves null so every waiter proceeds uncached.
   async _createGeminiCache({
     apiKey,
     model,

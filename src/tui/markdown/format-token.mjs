@@ -15,10 +15,10 @@
 import { createRequire } from 'node:module';
 import { Chalk } from 'chalk';
 import stripAnsi from 'strip-ansi';
-import wrapAnsi from 'wrap-ansi';
 import { theme, getThemeVersion } from '../theme.mjs';
 import { BLOCKQUOTE_BAR, HR_LINE } from '../figures.mjs';
 import { displayWidth } from '../display-width.mjs';
+import { hardWrapAnsiLines } from './ansi-line-wrap.mjs';
 
 // Force truecolor so chalk emits 24-bit SGR even when the ambient level is 0.
 // ink's <Text> passes these escapes through verbatim.
@@ -195,41 +195,6 @@ function normalizeCodeText(text) {
   return out;
 }
 
-/** Wrap text to width, ANSI-aware (lockstep with table-layout hard wrap). */
-function wrapTextToWidth(text, width, options) {
-  if (width <= 0) return [text];
-  const trimmedText = String(text).trimEnd();
-  const wrapped = wrapAnsi(trimmedText, width, {
-    hard: options?.hard ?? false,
-    trim: false,
-    wordWrap: true,
-  });
-  const lines = wrapped.split('\n').filter((line) => line.length > 0);
-  return lines.length > 0 ? lines : [''];
-}
-
-/** Hard-wrap so every line satisfies stringWidth(line) <= width. */
-function hardWrapAnsiLines(text, width) {
-  const max = Math.max(1, Math.floor(Number(width) || 1));
-  const input = String(text ?? '');
-  if (!input) return [''];
-  const out = [];
-  for (const softLine of wrapTextToWidth(input, max, { hard: true })) {
-    let rest = softLine;
-    while (rest.length > 0 && displayWidth(rest) > max) {
-      let take = 1;
-      for (let i = 1; i <= rest.length; i++) {
-        if (displayWidth(rest.slice(0, i)) <= max) take = i;
-        else break;
-      }
-      out.push(rest.slice(0, take));
-      rest = rest.slice(take);
-    }
-    if (rest.length > 0) out.push(rest);
-  }
-  return out.length > 0 ? out : [''];
-}
-
 /** Wrap one logical code line (ANSI content) to max visible width. */
 function wrapCodeLine(ansiContent, maxLineWidth) {
   const contentMax = Math.max(1, maxLineWidth);
@@ -263,7 +228,7 @@ export function looksLikeUnifiedDiff(text) {
   let hasSign = false;
   let hasStat = false;
   for (const line of lines) {
-    if (/^@@ .* @@/.test(line) || /^@@ /.test(line)) hasHunk = true;
+    if (/^@@ /.test(line)) hasHunk = true;
     if (/^(\+\+\+ |--- |diff --git |index [0-9a-f]+)/.test(line)) hasFileHeader = true;
     if (/^[+-](?![+-])/.test(line)) hasSign = true;
     // `git diff --stat` summary rows: `path | 4 +-` and the trailer
@@ -932,8 +897,7 @@ function prefixLines(value, prefix) {
 
 function prefixFirstAndRest(value, firstPrefix, restPrefix) {
   const lines = String(value ?? '').split(EOL);
-  if (lines.length === 0) return '';
-  return [`${firstPrefix}${lines[0] ?? ''}`, ...lines.slice(1).map((line) => `${restPrefix}${line}`)].join(EOL);
+  return [`${firstPrefix}${lines[0]}`, ...lines.slice(1).map((line) => `${restPrefix}${line}`)].join(EOL);
 }
 
 function formatListItem(token, listBaseIndent, orderedListNumber, _parent, depth = 0, width = 0) {

@@ -143,9 +143,10 @@ export class ResourceAdmissionController {
     return parent;
   }
 
-  _resumeParent(parent) {
+  _resumeParent(parent, { reacquire = true, signal = null } = {}) {
     if (!parent) return Promise.resolve();
     parent.dependencyDepth = Math.max(0, parent.dependencyDepth - 1);
+    if (!reacquire) return Promise.resolve();
     if (parent.dependencyDepth > 0 || parent.released || parent.counted) return Promise.resolve();
     if (parent.restorePending) return parent.restorePending.promise;
     const pending = Promise.withResolvers();
@@ -154,7 +155,7 @@ export class ResourceAdmissionController {
       kind: parent.kind,
       label: `restore:${parent.label || parent.kind}`,
       queuedAt: this.now(),
-      signal: parent.signal,
+      signal: signal && parent.signal ? AbortSignal.any([signal, parent.signal]) : signal || parent.signal,
       parent,
       ownerKey: parent.ownerKey,
       priority: parent.priority,
@@ -249,7 +250,7 @@ export class ResourceAdmissionController {
    * it before the caller continues local processing. Non-agent callers are a
    * no-op. Nested yields share the same dependency depth and restore once.
    */
-  async runYielded(task) {
+  async runYielded(task, { signal = null, onRestoreWait = null } = {}) {
     if (typeof task !== 'function') return Promise.resolve().then(task);
     const lease = this.context.getStore();
     if (!lease || lease.controller !== this || lease.kind !== 'agent' || lease.released) {
@@ -257,10 +258,23 @@ export class ResourceAdmissionController {
     }
     const suspended = this._suspendParent(lease);
     this._drain();
+    let succeeded = false;
     try {
-      return await task();
+      const result = await task();
+      succeeded = true;
+      return result;
     } finally {
-      await this._resumeParent(suspended);
+      // Failure must reach the caller even when every execution slot is held.
+      // Keep the lease suspended until its owner releases it or a later
+      // successful provider call reacquires it.
+      if (succeeded && !this._canStart(lease.kind)) {
+        try {
+          onRestoreWait?.();
+        } catch {
+          // Display callbacks cannot prevent cancellation or slot restoration.
+        }
+      }
+      await this._resumeParent(suspended, { reacquire: succeeded, signal });
     }
   }
 
@@ -292,7 +306,7 @@ export class ResourceAdmissionController {
     }
     if (this.queue.length >= this.limits.maxQueue) {
       const error = new ResourceAdmissionQueueFullError(this.limits.maxQueue);
-      return this._resumeParent(parent).then(
+      return this._resumeParent(parent, { reacquire: false }).then(
         () => Promise.reject(error),
         (restoreError) => Promise.reject(restoreError)
       );
@@ -319,7 +333,7 @@ export class ResourceAdmissionController {
           if (index >= 0) this.queue.splice(index, 1);
           this._detach(item);
           const error = abortError(signal);
-          this._resumeParent(item.parent).then(
+          this._resumeParent(item.parent, { reacquire: false }).then(
             () => reject(error),
             (restoreError) => reject(restoreError)
           );
@@ -402,7 +416,7 @@ export class ResourceAdmissionController {
           this.queue.splice(index, 1);
           this._detach(item);
           const error = abortError(item.signal);
-          this._resumeParent(item.parent).then(
+          this._resumeParent(item.parent, { reacquire: false }).then(
             () => item.reject(error),
             (restoreError) => item.reject(restoreError)
           );
@@ -455,12 +469,22 @@ export class ResourceAdmissionController {
         label: lease.label,
         ownerKey: lease.ownerKey || null,
         priority: lease.priority,
+        counted: lease.counted,
+        waitingForRestore: Boolean(lease.restorePending),
+        dependencyDepth: lease.dependencyDepth,
         ageMs: Math.max(0, now - (lease.startedAt || now)),
       })),
       oldestQueuedMs: this.queue.reduce(
         (oldest, item) => Math.max(oldest, Math.max(0, now - (item.queuedAt || now))),
         0
       ),
+      waits: this.queue.map((item) => ({
+        kind: item.kind,
+        label: item.label,
+        restoring: item.restore === true,
+        ownerKey: item.ownerKey || null,
+        ageMs: Math.max(0, now - item.queuedAt),
+      })),
     };
   }
 }

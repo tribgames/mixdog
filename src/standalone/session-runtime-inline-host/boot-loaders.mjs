@@ -54,13 +54,10 @@ export function createInlineBootLoaders({
     agentGraphPromise ??= measured('agent-dispatch-graph-import', () => {
       assertOpen();
       return loadAgentGraph();
-    }).then(
-      (graph) => graph,
-      (error) => {
-        agentGraphPromise = null;
-        throw error;
-      }
-    );
+    }).catch((error) => {
+      agentGraphPromise = null;
+      throw error;
+    });
     return agentGraphPromise;
   }
 

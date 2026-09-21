@@ -54,7 +54,6 @@ function isExcelTotalRow(row) {
 
 // Everything the sheet's sections share: the composition's flags, the palette
 // and type the design chose, and the column/point geometry of the canvas.
-// The column/point geometry of the canvas.
 // The canvas is as wide as the table under it, because the table's columns are
 // the canvas's columns: a strip two columns per metric made every band twice
 // the width of the four-column table below, and the sheet read as an unfinished

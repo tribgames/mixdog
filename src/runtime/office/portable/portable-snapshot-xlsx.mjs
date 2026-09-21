@@ -301,8 +301,6 @@ function applyCellNotes(cells, notes) {
   }
 }
 
-// One sheet of the snapshot, with the cell records it was read from (a
-// paged read reports the page's totals from them).
 // The cells a sheet entry reports: the page's records, or the first
 // `cellLimit` of an unpaged read.
 function worksheetCellPage(sheet, cells, cellResult, { paged, cellLimit }) {
@@ -324,6 +322,8 @@ function worksheetVisualEntries(visuals) {
   };
 }
 
+// One sheet of the snapshot, with the cell records it was read from (a
+// paged read reports the page's totals from them).
 async function snapshotWorksheet(zip, sheet, { strings, styles, definedNames, sheets, options, paged, cellLimit }) {
   const xml = await zipText(zip, sheet.path);
   const cellResult = cellRecords(xml, strings, paged ? { ...options, styles } : { styles });
@@ -396,8 +396,11 @@ async function snapshotSelectedSheets(zip, selectedSheets, context) {
     const { entry, cellResult, cells } = await snapshotWorksheet(zip, sheet, context);
     if (context.paged) page = cellResult;
     else {
-      totals.formulaCount += cells.filter((cell) => cell.formula).length;
-      totals.formulaCacheMissing += cells.filter((cell) => cell.formula && cell.cacheState === 'missing').length;
+      for (const cell of cells) {
+        if (!cell.formula) continue;
+        totals.formulaCount += 1;
+        if (cell.cacheState === 'missing') totals.formulaCacheMissing += 1;
+      }
     }
     output.push(entry);
   }

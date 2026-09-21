@@ -107,7 +107,7 @@ export function featureDisallowedToolsFor(
     ...(builtinFeatureActive(configLike, 'webSearch') ? [] : ['web_search', 'web_fetch']),
     ...(builtinFeatureActive(configLike, 'memory') ? [] : ['memory', 'recall']),
     ...(localGitToolsActive(configLike, toolProfile) ? [] : ['git']),
-    ...(builtinFeatureActive(configLike, 'git') ? [] : ['git_stage', 'github']),
+    ...(builtinFeatureActive(configLike, 'git') ? [] : ['github']),
     ...(browser ? [] : ['browser', 'browser_devtools']),
     ...(computer ? [] : ['computer']),
     ...(builtinFeatureActive(configLike, 'office') ? [] : ['office']),

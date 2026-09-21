@@ -37,7 +37,7 @@ export function expandOfficeDesignOperations({
   const composedSheets = new Set();
   const compositionUsage = new Map();
   for (const [operationIndex, operation] of (operations || []).entries()) {
-    const directedOperation = applyOfficeCreativeBrief(operation, creative, operationIndex, operations);
+    const directedOperation = applyOfficeCreativeBrief(operation, creative, operationIndex);
     const bound = bindOfficeContent(directedOperation, design.content);
     const contentOperation = bound.operation;
     const name = String(contentOperation?.op || '');

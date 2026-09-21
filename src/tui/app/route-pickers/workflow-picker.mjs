@@ -2,6 +2,7 @@
 // The Workflow list: Enter switches the active workflow and hands the surface
 // back to the caller once the switch acks.
 import { theme } from '../../theme.mjs';
+import { pickerHelp } from '../app-format.mjs';
 
 export function createWorkflowPicker({
   store,
@@ -42,7 +43,7 @@ export function createWorkflowPicker({
     own.paint({
       title: 'Workflow',
       description: 'Select active workflow.',
-      help: returnTo ? '↑/↓ Select · Enter Choose · Esc Settings' : '↑/↓ Select · Enter Choose · Esc Back',
+      help: pickerHelp(null, returnTo, '↑/↓ Select · Enter Choose'),
       labelWidth: 18,
       items,
       onSelect: (_value, item) => {

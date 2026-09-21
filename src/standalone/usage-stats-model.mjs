@@ -170,16 +170,7 @@ function foldRoute(state, providerId, modelId, kind, usage) {
     }
     for (const id of Object.keys(usage.sessions || {})) bucket.sessions.add(id);
   }
-  state.turns += usage.turns;
-  state.input += usage.input;
-  state.output += usage.output;
-  state.cacheRead += usage.cacheRead;
-  state.cacheWrite += usage.cacheWrite;
-  state.costUsd += usage.costUsd;
-  state.costKnownTurns += usage.costKnownTurns || 0;
-  state.costBilled += usage.costBilled || 0;
-  state.costEstimated += usage.costEstimated || 0;
-  state.unmeasuredTurns += usage.unmeasuredTurns || 0;
+  addUsage(state, usage);
 }
 
 function addDaily(state, key, usage, providerId) {

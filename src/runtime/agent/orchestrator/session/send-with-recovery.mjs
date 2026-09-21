@@ -2,8 +2,7 @@
 // Returns { action } so the loop keeps control of the
 // while-loop: proceed carries the response, retry signals a reactive
 // context-overflow compact retry (caller re-enters the pre-send compact
-// pass), and unrecoverable errors throw. Behavior identical to the inline
-// try/catch it replaced.
+// pass), and unrecoverable errors throw.
 import { appendAgentTrace } from '../agent-trace.mjs';
 import {
   classifyError,

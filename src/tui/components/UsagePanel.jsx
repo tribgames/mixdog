@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
+import { truncatePanelText as truncate, padPanelCells as padCells } from './panel-cell-text.mjs';
 
 const PROVIDER_LABEL_WIDTH = 28;
 const CREDIT_LABEL = 'Credit';
@@ -18,24 +19,6 @@ function money(value) {
   if (n >= 1) return `$${n.toFixed(2)}`;
   if (n >= 0.01) return `$${n.toFixed(3)}`;
   return `$${n.toFixed(4)}`;
-}
-
-function truncate(value, width) {
-  const text = String(value || '');
-  if (!(width > 0)) return '';
-  if (stringWidth(text) <= width) return text;
-  if (width <= 1) return '…'.repeat(Math.max(0, width));
-  let out = '';
-  for (const ch of text) {
-    if (stringWidth(`${out}${ch}…`) > width) break;
-    out += ch;
-  }
-  return `${out}…`;
-}
-
-function padCells(value, width) {
-  const text = String(value || '');
-  return `${text}${' '.repeat(Math.max(0, width - stringWidth(text)))}`;
 }
 
 function compactNumber(value) {
@@ -297,6 +280,58 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
     }
   });
 
+  let content;
+  if ((isLoading || isChecking) && rows.length === 0) {
+    content = (
+      <>
+        <Text> </Text>
+        <Text color={theme.statusSubtle}>Checking providers...</Text>
+        <Text> </Text>
+      </>
+    );
+  } else {
+    content = (
+      <>
+        <Text> </Text>
+        <Text color={theme.text}>{panelDescription}</Text>
+        <Text> </Text>
+
+        {visibleRows.map((row, idx) => {
+          const provider = padCells(truncate(row.label || row.id, labelWidth), labelWidth);
+          const index = padCells(`${scrollOffset + idx + 1}.`, indexWidth);
+          const statusParts = fitParts(rowStatusParts(row, columns, statusWidth), statusWidth);
+          return (
+            <Box key={row.id} flexDirection="row" width="100%">
+              <Text color={theme.subtle}>
+                {index}
+                {indexWidth > 0 ? ' ' : ''}
+              </Text>
+              <Text color={theme.text}>{provider}</Text>
+              <Text color={theme.inactive}> </Text>
+              <Box flexDirection="row" width={statusWidth}>
+                {statusParts.map((part, partIdx) => {
+                  if (part.color) {
+                    return (
+                      <Text key={partIdx} color={part.color}>
+                        {part.text}
+                      </Text>
+                    );
+                  }
+                  return <Text key={partIdx}>{part.text}</Text>;
+                })}
+              </Box>
+            </Box>
+          );
+        })}
+
+        {rows.length === 0 ? (
+          <Box marginTop={1}>
+            <Text color={theme.inactive}>No providers configured.</Text>
+          </Box>
+        ) : null}
+      </>
+    );
+  }
   return (
     <Box flexDirection="column" flexShrink={0} width="100%" height={fillHeight ? '100%' : undefined}>
       <Box
@@ -311,53 +346,7 @@ export function UsagePanel({ dashboard, loading = false, columns = 80, fillHeigh
           <Text color={theme.panelTitle}>{panelTitle}</Text>
           <Text color={theme.subtle}>{helpText}</Text>
         </Box>
-
-        {(isLoading || isChecking) && rows.length === 0 ? (
-          <>
-            <Text> </Text>
-            <Text color={theme.statusSubtle}>Checking providers...</Text>
-            <Text> </Text>
-          </>
-        ) : (
-          <>
-            <Text> </Text>
-            <Text color={theme.text}>{panelDescription}</Text>
-            <Text> </Text>
-
-            {visibleRows.map((row, idx) => {
-              const provider = padCells(truncate(row.label || row.id, labelWidth), labelWidth);
-              const index = padCells(`${scrollOffset + idx + 1}.`, indexWidth);
-              const statusParts = fitParts(rowStatusParts(row, columns, statusWidth), statusWidth);
-              return (
-                <Box key={row.id} flexDirection="row" width="100%">
-                  <Text color={theme.subtle}>
-                    {index}
-                    {indexWidth > 0 ? ' ' : ''}
-                  </Text>
-                  <Text color={theme.text}>{provider}</Text>
-                  <Text color={theme.inactive}> </Text>
-                  <Box flexDirection="row" width={statusWidth}>
-                    {statusParts.map((part, partIdx) =>
-                      part.color ? (
-                        <Text key={partIdx} color={part.color}>
-                          {part.text}
-                        </Text>
-                      ) : (
-                        <Text key={partIdx}>{part.text}</Text>
-                      )
-                    )}
-                  </Box>
-                </Box>
-              );
-            })}
-
-            {rows.length === 0 ? (
-              <Box marginTop={1}>
-                <Text color={theme.inactive}>No providers configured.</Text>
-              </Box>
-            ) : null}
-          </>
-        )}
+        {content}
       </Box>
     </Box>
   );

@@ -1,15 +1,6 @@
-// Transcript spill buffer + session runtime item state.
 /**
- * src/tui/session-local.mjs - the session runtime<->React bridge (React-free).
- *
- * Runs mixdog's session manager outside React and exposes a tiny subscribable
- * store. The React/ink layer consumes it via useSyncExternalStore
- * (see hooks/useSession.mjs).
- *
- * Pure/stateless helpers live in ./session/* (boot-profile, session-stats,
- * labels, notice-text, tool-result-text, tool-call-fields, agent-envelope,
- * queue-helpers) and are re-exported here so the public surface is unchanged.
- * This file keeps the stateful session store + notification plan.
+ * Transcript spill storage, history paging, and session item-state mutations.
+ * Compatibility re-exports preserve the session runtime's public surface.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -124,7 +115,6 @@ export function createTranscriptSpillBuffer({
       const retained = [...snapshots].some((snapshot) => snapshot.spillDir === spillDir);
       const oldPages = pages.splice(0);
       const oldDir = spillDir;
-      pages.length = 0;
       cursor = null;
       spillDir = null;
       pageSequence = 0;

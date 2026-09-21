@@ -216,14 +216,17 @@ test('denial errors list the reported tiers for diagnosis', async () => {
 test('an explicitly allowed free tier takes precedence over ineligibility details', async () => {
   const { fetchFn, calls } = scriptedFetch([
     {
-      ...account(),
+      currentTier: null,
       allowedTiers: [{ id: 'free-tier' }],
       ineligibleTiers: [{ tierId: 'free-tier', reasonMessage: 'Stale denial' }],
     },
+    { done: true, response: onboardResponse },
     account(),
   ]);
   assert.equal(await discoverProject('access-token', { fetchFn }), 'current-project');
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1].url, `${baseUrl}:onboardUser`);
+  assert.deepEqual(calls[1].body, { tierId: 'free-tier', metadata });
 });
 
 for (const status of [201, 400, 403, 500]) {

@@ -133,11 +133,7 @@ export function ContextBody({
           </div>
         </section>
         {inspection ? (
-          <ContextInspector
-            inspection={inspection}
-            windowTokens={windowTokens}
-            request={inspectRequest}
-          />
+          <ContextInspector inspection={inspection} windowTokens={windowTokens} request={inspectRequest} />
         ) : (
           <section className="context-mix" aria-labelledby="context-mix-title">
             <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>

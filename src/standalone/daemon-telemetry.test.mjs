@@ -11,7 +11,6 @@ import {
 } from './daemon-telemetry.mjs';
 
 const TELEMETRY_URL = new URL('./daemon-telemetry.mjs', import.meta.url).href;
-const TEN_MINUTES_MS = 10 * 60 * 1000;
 const MB = 1024 * 1024;
 
 function fixture(overrides = {}) {
@@ -194,7 +193,6 @@ test('session bodies, tokens, and env never enter the record or log line', () =>
 
 test('the production timer is a single 30s unrefed loop that samples then runs onInterval, and stop clears it', () => {
   assert.equal(DAEMON_TELEMETRY_INTERVAL_MS, 30_000);
-  assert.ok(DAEMON_TELEMETRY_INTERVAL_MS < TEN_MINUTES_MS);
 
   const { telemetry, lines, timers, intervalTicks } = fixture();
   telemetry.emit('boot');

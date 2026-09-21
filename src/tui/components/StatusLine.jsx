@@ -12,11 +12,7 @@ import { rgbSgr } from '../../ui/ansi.mjs';
 import { measuredContextUsage, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
 import { displayModelName, shortenModelName } from '../../ui/model-display.mjs';
 import { theme, surfaceBackground } from '../theme.mjs';
-import {
-  normalizeStatuslineAnsi,
-  statuslineFooterCacheKey,
-  statuslineFooterIdentityChanged,
-} from '../statusline-ansi-bridge.mjs';
+import { normalizeStatuslineAnsi, statuslineFooterIdentityChanged } from '../statusline-ansi-bridge.mjs';
 import { useSharedTick } from '../hooks/useSharedTick.mjs';
 // Cache-only synchronous read (never touches fs on the render path), so the
 // instant-local L2 can render the Shell segment itself instead of grafting it
@@ -143,18 +139,6 @@ function statusColors() {
   };
 }
 
-function localContextPct({
-  provider = '',
-  stats = null,
-  contextWindow = 0,
-  displayContextWindow = 0,
-  rawContextWindow = 0,
-  compactBoundaryTokens = 0,
-  autoCompactTokenLimit = 0,
-} = {}) {
-  return measuredContextUsage({ stats, contextWindow, displayContextWindow, rawContextWindow }).percent;
-}
-
 function localContextPctDisplayLabel(ctxPct) {
   const pct = Number(ctxPct);
   if (!Number.isFinite(pct) || pct <= 0) return '0';
@@ -169,7 +153,9 @@ function localContextSegmentFromPct(ctxPct, source = 'pending') {
   const raw = Number(ctxPct);
   const pct = Number.isFinite(raw) ? Math.max(0, raw) : 0;
   const barPct = Math.max(0, Math.min(100, pct));
-  const fill = pct >= 90 ? ERROR : pct >= 70 ? WARNING : SUCCESS;
+  let fill = SUCCESS;
+  if (pct >= 90) fill = ERROR;
+  else if (pct >= 70) fill = WARNING;
   const label = localContextPctDisplayLabel(pct);
   if (!cells) return `${fill}${label}%${RESET}`;
   let filled = Math.floor((barPct * cells) / 100);
@@ -290,23 +276,18 @@ function localBootStatusLine(args = {}) {
     contextWindow = 0,
     displayContextWindow = 0,
     rawContextWindow = 0,
-    compactBoundaryTokens = 0,
-    autoCompactTokenLimit = 0,
   } = args;
   const raw = String(model || '').trim();
   const { STATUS, SUBTLE } = statusColors();
   const display = shortenModelName(displayModelName(raw, provider, ''), terminalColumns());
   const flags = [effort ? String(effort).toUpperCase() : '', fast === true ? 'FAST' : ''].filter(Boolean);
   const modelBits = [display, ...flags].join(` ${SUBTLE}·${RESET} `);
-  const ctxPct = localContextPct({
-    provider,
+  const ctxPct = measuredContextUsage({
     stats,
     contextWindow,
     displayContextWindow,
     rawContextWindow,
-    compactBoundaryTokens,
-    autoCompactTokenLimit,
-  });
+  }).percent;
   const l1 = `${STATUS}${modelBits}${RESET} ${SUBTLE}│${RESET} ${localContextSegmentFromPct(ctxPct, stats?.currentContextSource)}`;
   const l2 = localStatusLineL2(args);
   return l2 ? `${l1}\n${l2}` : l1;
@@ -376,7 +357,6 @@ function StatusLineView({
   const lastImmediateArgsRef = useRef(null);
   const themeEpochRef = useRef(themeEpoch);
   const lastRawFullLineRef = useRef('');
-  const lastRawFullLineCacheKeyRef = useRef('');
 
   const statuslineArgs = {
     sessionId,
@@ -464,7 +444,6 @@ function StatusLineView({
     renderEffectIdRef.current = effectId;
     const isCurrentEffect = () => alive && renderEffectIdRef.current === effectId;
     const args = statuslineArgsRef.current || statuslineArgs;
-    const footerCacheKey = statuslineFooterCacheKey({ ...args, agentRevision });
     const identityChanged = shouldSnapLocalStatusline({ ...args, agentRevision }, lastImmediateArgsRef.current);
     // ROUTE identity = the subset that actually changes the async full line's L1
     // usage/quota segment (provider/model/session/effort/fast). agentRevision,
@@ -504,7 +483,6 @@ function StatusLineView({
     // L2 within ~150ms (and every ~250ms while active).
     if (routeChanged) {
       lastRawFullLineRef.current = '';
-      lastRawFullLineCacheKeyRef.current = '';
       bootFullDoneRef.current = false;
     }
     const snapLocalNow = themeChanged || bootFullDoneRef.current !== true || identityChanged;
@@ -512,7 +490,7 @@ function StatusLineView({
       // Reuse the last good FULL line (with its L1 usage segment) whenever this is
       // NOT a route switch and a cached full line exists — covers theme re-tone,
       // agent churn, compact/auto-compact changes and stats reset. We intentionally
-      // do NOT require `=== footerCacheKey` here: footerCacheKey embeds agentRevision
+      // do NOT require a matching footer cache key here: it embeds agentRevision
       // + compact fields, so it differs on exactly the non-route churn we want to
       // ride through, and requiring equality would fall back to the usage-less
       // localBootStatusLine and reintroduce the blink. Route switches (routeChanged)
@@ -605,7 +583,6 @@ function StatusLineView({
         })
         .then((s) => {
           if (!isCurrentEffect() || s == null) return;
-          lastRawFullLineCacheKeyRef.current = footerCacheKey;
           lastRawFullLineRef.current = String(s);
           bootFullDoneRef.current = true;
           bootFullRetryBackoffMsRef.current = STATUSLINE_BOOT_FULL_RETRY_MS;

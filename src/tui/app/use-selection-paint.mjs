@@ -89,8 +89,8 @@ export function useSelectionPaint({
         // Keep selection refreshes on Ink's normal maxFps render path. The
         // selection rect itself is published synchronously by setSelection.
         store.setRenderSelection?.(nextRect);
-        if (needsCapture) rememberSelectionTextSoon();
-        if (nextRect) harvestStitchRowsSoon();
+        rememberSelectionTextSoon();
+        harvestStitchRowsSoon();
         return true;
       }
       state.rect = nextRect;

@@ -100,7 +100,7 @@ function finalizeShellPhysicalCap(buffer, omitted, maxRows) {
   const extraHidden = Math.max(0, buffer.length - bodySlots);
   const totalOmitted = omitted + extraHidden;
   const out = [omittedPhysicalRowsMarker(totalOmitted, true), ...tail];
-  return out.length > 0 ? out.slice(0, maxRows) : [' '];
+  return out.slice(0, maxRows);
 }
 
 // `<n>→<content>` (read) OR `<n>:<content>` / `<path>:<n>:<content>` (grep).
@@ -630,8 +630,8 @@ export function wrapExpandedResultLines(logicalLines, columns = 80, { isShell = 
   if (truncated) {
     const bodySlots = Math.max(0, maxRows - 1);
     if (out.length > bodySlots) out.length = bodySlots;
-    if (maxRows > 0) out.push(omittedPhysicalRowsMarker(1, false));
-    return out.length > 0 ? clampAll(out.slice(0, maxRows)) : [' '];
+    out.push(omittedPhysicalRowsMarker(1, false));
+    return clampAll(out.slice(0, maxRows));
   }
   return out.length > 0 ? clampAll(out) : [' '];
 }

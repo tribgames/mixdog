@@ -36,6 +36,9 @@ export function createStaleRowTransition({ cfgMod, tagMaps, index, getLiveSessio
           agent: clean(row.agent) || null,
           cwd: clean(row.cwd) || null,
           clientHostPid: positiveInt(row.clientHostPid),
+          sessionId,
+          parentSessionId: clean(row.parentSessionId) || null,
+          ownerSessionId: clean(row.ownerSessionId) || null,
           reapedAt: nowIso,
         };
         insertTombstone(tombstonesByKey, priorityTombstoneKeys, tombstone);

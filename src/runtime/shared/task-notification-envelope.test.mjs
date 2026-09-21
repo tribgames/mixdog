@@ -24,15 +24,18 @@ import { shouldExcludeIngestMessage } from '../memory/lib/session-ingest.mjs';
 test('agent completion is exactly one tagged block with verbatim result and no usage', () => {
   const result = '  **Done**\r\n<result>literal nested tag</result>\n';
   const text = renderAgentCompletionEnvelope({ id: 'task_agent_1', tag: 'tidy-skill', status: 'completed', result });
-  assert.equal(text, [
-    '<task-notification>',
-    '<task-id>task_agent_1</task-id>',
-    '<tag>tidy-skill</tag>',
-    '<status>completed</status>',
-    '<summary>Agent "tidy-skill" completed</summary>',
-    `<result>\n${result}\n</result>`,
-    '</task-notification>',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      '<task-notification>',
+      '<task-id>task_agent_1</task-id>',
+      '<tag>tidy-skill</tag>',
+      '<status>completed</status>',
+      '<summary>Agent "tidy-skill" completed</summary>',
+      `<result>\n${result}\n</result>`,
+      '</task-notification>',
+    ].join('\n')
+  );
   assert.equal(parseTaskNotification(text).result, result);
   assert.equal(modelVisibleToolCompletionMessage(text), text);
   assert.equal(isModelVisibleToolCompletionWrapper(text), true);
@@ -43,46 +46,63 @@ test('agent completion is exactly one tagged block with verbatim result and no u
 
 test('failure without a result carries its error, not a synthetic result or usage', () => {
   const text = renderAgentCompletionEnvelope({ id: 'task_agent_2', status: 'failed', error: 'quota <limit> & retry' });
-  assert.equal(text, [
-    '<task-notification>',
-    '<task-id>task_agent_2</task-id>',
-    '<status>failed</status>',
-    '<summary>Agent "task_agent_2" failed</summary>',
-    '<error>quota &lt;limit&gt; &amp; retry</error>',
-    '</task-notification>',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      '<task-notification>',
+      '<task-id>task_agent_2</task-id>',
+      '<status>failed</status>',
+      '<summary>Agent "task_agent_2" failed</summary>',
+      '<error>quota &lt;limit&gt; &amp; retry</error>',
+      '</task-notification>',
+    ].join('\n')
+  );
   assert.equal(parseTaskNotification(text).error, 'quota <limit> & retry');
   assert.equal(text.split('quota &lt;limit&gt; &amp; retry').length - 1, 1);
   assert.equal(shouldPersistModelVisibleToolCompletion(text), true);
   assert.equal(modelVisibleToolCompletionMessage(text, { model_visible: false }), '');
-  const cancelled = renderAgentCompletionEnvelope({ id: 'task_agent_3', tag: 'review', status: 'cancelled', error: 'cancelled' });
+  const cancelled = renderAgentCompletionEnvelope({
+    id: 'task_agent_3',
+    tag: 'review',
+    status: 'cancelled',
+    error: 'cancelled',
+  });
   assert.match(cancelled, /<summary>Agent "review" was cancelled<\/summary>/);
   assert.doesNotMatch(cancelled, /<(?:result|error|usage)>/);
 });
 
 test('shell non-zero exit remains a completed command result, with log and preview sections', () => {
   const text = renderShellCompletionEnvelope({
-    jobId: 'job_1', status: 'completed', exitCode: 2, command: 'npm\n  test',
-    outputFile: 'C:/logs/job_1.stdout.log', summary: '1 failing test', stdoutPreview: 'out', stderrPreview: 'err',
+    jobId: 'job_1',
+    status: 'completed',
+    exitCode: 2,
+    command: 'npm\n  test',
+    outputFile: 'C:/logs/job_1.stdout.log',
+    summary: '1 failing test',
+    stdoutPreview: 'out',
+    stderrPreview: 'err',
   });
-  assert.equal(text, [
-    '<task-notification>',
-    '<task-id>job_1</task-id>',
-    '<status>completed</status>',
-    '<exit-code>2</exit-code>',
-    '<summary>Shell task completed (exit 2): npm test</summary>',
-    '<output-file>C:/logs/job_1.stdout.log</output-file>',
-    '<result>',
-    'Summary: 1 failing test',
-    '',
-    '[stdout preview]',
-    'out',
-    '',
-    '[stderr preview]',
-    'err',
-    '</result>',
-    '</task-notification>',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      '<task-notification>',
+      '<task-id>job_1</task-id>',
+      '<status>completed</status>',
+      '<exit-code>2</exit-code>',
+      '<summary>Shell task completed (exit 2): npm test</summary>',
+      '<output-file>C:/logs/job_1.stdout.log</output-file>',
+      '<result>',
+      'Summary: 1 failing test',
+      '',
+      '[stdout preview]',
+      'out',
+      '',
+      '[stderr preview]',
+      'err',
+      '</result>',
+      '</task-notification>',
+    ].join('\n')
+  );
   assert.equal(isBracketedShellNotificationEnvelope(text), true);
   assert.equal(modelVisibleToolCompletionMessage(text), text);
   assert.equal(parseTaskNotification(text).exitCode, 2);
@@ -100,7 +120,8 @@ test('large results are not truncated by wrapping or re-enqueue', () => {
 });
 
 test('legacy quoted rows still classify and dedupe against new rows by task identity', () => {
-  const legacy = 'Async agent task task_agent_legacy (completed) finished.\n\nResult:\n> background task\n> task_id: task_agent_legacy\n> surface: agent\n> status: completed\n> \n> done';
+  const legacy =
+    'Async agent task task_agent_legacy (completed) finished.\n\nResult:\n> background task\n> task_id: task_agent_legacy\n> surface: agent\n> status: completed\n> \n> done';
   const current = renderAgentCompletionEnvelope({ id: 'task_agent_legacy', status: 'completed', result: 'done' });
   assert.equal(isModelVisibleToolCompletionWrapper(legacy), true);
   assert.equal(shouldExcludeIngestMessage({ role: 'user', content: legacy }), true);

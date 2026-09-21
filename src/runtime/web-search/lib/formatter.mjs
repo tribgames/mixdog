@@ -4,7 +4,6 @@
 
 function formatWebSearchResults(data) {
   // data may be the full jsonText payload: { tool, providers, response, cache, ... }
-  // response.results is the array we care about
   const response = data.response || data;
   const results = response.results || [];
   const answer = String(response.answer || '').trim();
@@ -108,10 +107,13 @@ export function applyFetchPagination(payload, args) {
 function fetchDiagnostics(item) {
   const lines = [];
   if (item.errorCode) lines.push(`errorCode: ${item.errorCode}`);
-  if (item.attempts?.length && (
-    item.errorCode || item.status === 'error' || item.failures?.length ||
-    item.attempts.some((attempt) => (attempt.code || attempt.status) !== 'success')
-  )) {
+  if (
+    item.attempts?.length &&
+    (item.errorCode ||
+      item.status === 'error' ||
+      item.failures?.length ||
+      item.attempts.some((attempt) => (attempt.code || attempt.status) !== 'success'))
+  ) {
     lines.push(
       `attempts: ${item.attempts
         .map(

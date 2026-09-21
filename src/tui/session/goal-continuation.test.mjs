@@ -118,10 +118,7 @@ test('route publications read the completed Goal through the archive mask', asyn
   const goal = { id: 'goal-route', status: 'complete', objective: 'Retire me' };
   const state = { busy: false, commandBusy: false, sessionId: 'sess_goal_route', goal };
   let runtimeGoal = goal;
-  let resolveArchive;
-  const archive = new Promise((resolve) => {
-    resolveArchive = resolve;
-  });
+  const { promise: archive, resolve: resolveArchive } = Promise.withResolvers();
   const controller = createGoalContinuation({
     runtime: {
       id: state.sessionId,
@@ -164,10 +161,7 @@ test('completed Goal stays hidden while its user-input archive is in flight', as
   };
   let runtimeGoal = goal;
   let listener = null;
-  let resolveArchive;
-  const archive = new Promise((resolve) => {
-    resolveArchive = resolve;
-  });
+  const { promise: archive, resolve: resolveArchive } = Promise.withResolvers();
   const controller = createGoalContinuation({
     runtime: {
       id: state.sessionId,
@@ -208,10 +202,7 @@ for (const status of ['complete', 'stopped']) {
     const goal = { id: `goal-turn-${status}`, status, objective: 'Retired work' };
     const state = { busy: false, commandBusy: false, sessionId: `sess_goal_turn_${status}`, goal };
     let runtimeGoal = goal;
-    let resolveArchive;
-    const archive = new Promise((resolve) => {
-      resolveArchive = resolve;
-    });
+    const { promise: archive, resolve: resolveArchive } = Promise.withResolvers();
     const controller = createGoalContinuation({
       runtime: {
         id: state.sessionId,
@@ -260,10 +251,7 @@ test('failed completed Goal archive restores the persisted Goal snapshot', async
     sessionId: 'sess_goal_restore',
     goal,
   };
-  let rejectArchive;
-  const archive = new Promise((_resolve, reject) => {
-    rejectArchive = reject;
-  });
+  const { promise: archive, reject: rejectArchive } = Promise.withResolvers();
   const controller = createGoalContinuation({
     runtime: {
       id: state.sessionId,

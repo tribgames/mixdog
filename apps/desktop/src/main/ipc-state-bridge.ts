@@ -200,13 +200,15 @@ export class DesktopStateBridge {
       return;
     }
     const sessionId = String(value || '');
-    if (!isSessionId(sessionId) || !this.latestSessionStates.has(sessionId)) return;
+    if (!isSessionId(sessionId)) return;
+    const snapshot = this.latestSessionStates.get(sessionId);
+    if (!snapshot) return;
     const provenance = this.latestSessionProvenance.get(sessionId);
     if (!provenance) return;
     this.sessionEncoders.get(sessionId)?.reset();
     this.sendSessionState({
       sessionId,
-      snapshot: this.latestSessionStates.get(sessionId)!,
+      snapshot,
       ...provenance,
     });
   };

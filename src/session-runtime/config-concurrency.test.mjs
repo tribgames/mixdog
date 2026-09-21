@@ -11,10 +11,33 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
   const source = `
     import assert from 'node:assert/strict';
     import { resolve } from 'node:path';
-    import * as cfgMod from './src/runtime/agent/orchestrator/config.mjs';
-    import * as sharedCfgMod from './src/runtime/shared/config.mjs';
-    import { createConfigLifecycle } from './src/session-runtime/config-lifecycle.mjs';
-    import { createSettingsApi } from './src/session-runtime/settings-api.mjs';
+    import { mock } from 'node:test';
+
+    const keychain = {
+      getSecret: () => null,
+      hasSecret: () => false,
+      setSecret: () => assert.fail('unexpected credential write'),
+      deleteSecret: () => assert.fail('unexpected credential deletion'),
+      invalidateSecretCache() {},
+      prewarmSecrets: async () => {},
+      SERVICE: 'mixdog',
+    };
+    mock.module('./src/lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });
+    mock.module('./src/runtime/agent/orchestrator/providers/oauth-credential-probes.mjs', {
+      namedExports: {
+        oauthCredentialProbeState: () => 'absent',
+        isOAuthProviderAvailable: () => false,
+        hasAnthropicOAuthCredentials: () => false,
+        hasOpenAIOAuthCredentials: () => false,
+        hasGrokOAuthCredentials: () => false,
+        hasAntigravityOAuthCredentials: () => false,
+        hasCursorOAuthCredentials: () => false,
+      },
+    });
+    const cfgMod = await import('./src/runtime/agent/orchestrator/config.mjs');
+    const sharedCfgMod = await import('./src/runtime/shared/config.mjs');
+    const { createConfigLifecycle } = await import('./src/session-runtime/config-lifecycle.mjs');
+    const { createSettingsApi } = await import('./src/session-runtime/settings-api.mjs');
 
     function runtime() {
       let config = cfgMod.loadConfig({ secrets: false });
@@ -139,29 +162,41 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
     assert.deepEqual(read().memory, { embedding: { dtype: 'q8' } });
   `;
   try {
-    const result = spawnSync(process.execPath, ['--input-type=module', '-e', source], {
-      cwd: fileURLToPath(new URL('../../', import.meta.url)),
-      env: {
-        ...process.env,
-        MIXDOG_HOME: dir,
-        MIXDOG_DATA_DIR: join(dir, 'data'),
-        MIXDOG_USER_DATA_BACKUP_ROOT: join(dir, 'backups'),
-        MIXDOG_CONFIG_READ_TTL_MS: '0',
-        ...Object.fromEntries(
-          [
-            'OPENAI_API_KEY',
-            'ANTHROPIC_API_KEY',
-            'GEMINI_API_KEY',
-            'DEEPSEEK_API_KEY',
-            'XAI_API_KEY',
-            'OPENCODE_API_KEY',
-            'OPENROUTER_API_KEY',
-          ].map((key) => [key, 'fixture-key-not-a-real-credential'])
-        ),
-      },
-      encoding: 'utf8',
-      timeout: 30_000,
-    });
+    const result = spawnSync(
+      process.execPath,
+      ['--experimental-test-module-mocks', '--input-type=module', '-e', source],
+      {
+        cwd: fileURLToPath(new URL('../../', import.meta.url)),
+        env: {
+          ...Object.fromEntries(
+            Object.entries(process.env).filter(([key]) =>
+              /^(PATH|PATHEXT|SystemRoot|WINDIR|COMSPEC|TEMP|TMP|TMPDIR)$/i.test(key)
+            )
+          ),
+          HOME: dir,
+          USERPROFILE: dir,
+          APPDATA: join(dir, 'appdata'),
+          LOCALAPPDATA: join(dir, 'localappdata'),
+          MIXDOG_HOME: dir,
+          MIXDOG_DATA_DIR: join(dir, 'data'),
+          MIXDOG_USER_DATA_BACKUP_ROOT: join(dir, 'backups'),
+          MIXDOG_CONFIG_READ_TTL_MS: '0',
+          ...Object.fromEntries(
+            [
+              'OPENAI_API_KEY',
+              'ANTHROPIC_API_KEY',
+              'GEMINI_API_KEY',
+              'DEEPSEEK_API_KEY',
+              'XAI_API_KEY',
+              'OPENCODE_API_KEY',
+              'OPENROUTER_API_KEY',
+            ].map((key) => [key, 'fixture-key-not-a-real-credential'])
+          ),
+        },
+        encoding: 'utf8',
+        timeout: 30_000,
+      }
+    );
     assert.equal(result.error, undefined, result.error?.message);
     assert.equal(result.status, 0, result.stderr || result.stdout);
   } finally {

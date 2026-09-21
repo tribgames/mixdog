@@ -254,11 +254,7 @@ function renderTable(rows, delimiterRow, width, defs) {
 }
 
 function stripCellLabel(cell) {
-  return (
-    String(cell ?? '')
-      .replace(/\u001b\[[0-9;]*m/g, '')
-      .trim() || '-'
-  );
+  return stripAnsi(cell).trim() || '-';
 }
 
 function clampWidth(w) {

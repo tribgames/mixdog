@@ -1,18 +1,7 @@
 // Codex WS handshake helpers: CF cookie jar, id parity, debug dump redaction.
-/**
- * openai-ws-pool.mjs — WebSocket connection pool for the OpenAI OAuth provider.
- *
- * Owns the socket pool singleton
- * (_wsPool), handshake/open/acquire/release lifecycle, idle-close timers and
- * the process-exit drain fence. openai-oauth-ws.mjs imports acquire/release/
- * _sendFrame and re-exports the drain hooks for legacy import paths.
- */
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-
-// Human-readable transport label for handshake/acquire error messages. Shared
-// with openai-oauth-ws.mjs (stream-side errors use the same labels).
 
 const _cfCookieJar = new Map(); // accountKey -> { name -> value }
 const _CF_COOKIE_ALLOWLIST = new Set(['__cf_bm', '_cfuvid']);
@@ -23,10 +12,6 @@ export function _envOn(name) {
     .toLowerCase();
   return ['1', 'true', 'yes', 'on'].includes(v);
 }
-
-// Dashed handshake ids are derived deterministically from the cache key, so a
-// session keeps the same pair for its whole life and prefix-cache continuity
-// holds.
 
 // Beta features advertised on the WS handshake. MIXDOG_CODEX_BETA_FEATURES
 // replaces the list when an operator needs to pin exactly what a known-good

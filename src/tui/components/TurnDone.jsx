@@ -27,6 +27,18 @@ function cleanRightMessage(value) {
     .trim();
 }
 
+// Return the same element tree without introducing a component boundary.
+function renderRightMessage(rightText, rightWidth, rightTone) {
+  if (!rightText) return null;
+  return (
+    <Box flexShrink={0} width={rightWidth} marginLeft={1} marginRight={1} justifyContent="flex-end" overflow="hidden">
+      <Text color={statusMessageColor(rightTone)} wrap="truncate">
+        {rightText}
+      </Text>
+    </Box>
+  );
+}
+
 export function TurnDone({
   elapsedMs = 0,
   status = 'done',
@@ -63,20 +75,7 @@ export function TurnDone({
           <Text color={theme.thinkingAccent}>{copy}</Text>
         </Text>
       </Box>
-      {rightText ? (
-        <Box
-          flexShrink={0}
-          width={rightWidth}
-          marginLeft={1}
-          marginRight={1}
-          justifyContent="flex-end"
-          overflow="hidden"
-        >
-          <Text color={statusMessageColor(rightTone)} wrap="truncate">
-            {rightText}
-          </Text>
-        </Box>
-      ) : null}
+      {renderRightMessage(rightText, rightWidth, rightTone)}
     </Box>
   );
 }
@@ -103,20 +102,7 @@ export function StatusDone({
           {suffix ? <Text color={theme.subtle}> · {suffix}</Text> : null}
         </Text>
       </Box>
-      {rightText ? (
-        <Box
-          flexShrink={0}
-          width={rightWidth}
-          marginLeft={1}
-          marginRight={1}
-          justifyContent="flex-end"
-          overflow="hidden"
-        >
-          <Text color={statusMessageColor(rightTone)} wrap="truncate">
-            {rightText}
-          </Text>
-        </Box>
-      ) : null}
+      {renderRightMessage(rightText, rightWidth, rightTone)}
     </Box>
   );
 }

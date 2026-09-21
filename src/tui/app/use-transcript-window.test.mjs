@@ -5,7 +5,14 @@ import { stripVTControlCharacters } from 'node:util';
 import React, { useState } from 'react';
 import { Box, Text, render } from 'ink';
 import { useTranscriptWindow } from './use-transcript-window.mjs';
-import { transcriptRowAt, upperBound } from './transcript-window.mjs';
+import {
+  estimateTranscriptItemRowsCached,
+  hasStreamingRowStateToPrune,
+  pruneStreamingMeasuredRowsById,
+  transcriptRowAt,
+  upperBound,
+} from './transcript-window.mjs';
+import { estimateTranscriptItemRows } from './transcript-row-estimate.mjs';
 
 const VIEW_ROWS = 6;
 const COLUMNS = 40;
@@ -170,4 +177,87 @@ test('transcript window follows the tail, then holds the reading anchor while ro
   assert.deepEqual(visibleLines(), expectedLines(204, 209), 'returning to the tail re-pins the newest rows');
   assert.equal(control.view.transcriptTailPinned, true);
   assert.ok(refs.maxScrollRowsRef.current >= 210 - VIEW_ROWS, 'the committed max scroll reaches the oldest row');
+});
+
+test('streaming estimates trim boundary newlines and retain high-water rows only until pruning or settlement', () => {
+  pruneStreamingMeasuredRowsById(new Set());
+  const short = { id: 'row-estimate-stream', kind: 'assistant', streaming: true, text: '\nalpha\n' };
+  const long = { ...short, text: '\nalpha\nbeta\ngamma\n' };
+  assert.equal(estimateTranscriptItemRowsCached(short, 80, false), 2);
+  assert.equal(estimateTranscriptItemRowsCached(long, 80, false), 4);
+  assert.equal(estimateTranscriptItemRowsCached(short, 80, false), 4);
+  pruneStreamingMeasuredRowsById(new Set([short.id]));
+  assert.equal(hasStreamingRowStateToPrune(), true);
+  pruneStreamingMeasuredRowsById(new Set());
+  assert.equal(hasStreamingRowStateToPrune(), false);
+  assert.equal(estimateTranscriptItemRowsCached(short, 80, false), 2);
+  estimateTranscriptItemRowsCached({ ...short, streaming: false }, 80, false);
+  assert.equal(hasStreamingRowStateToPrune(), false);
+});
+
+test('expanded aggregate row estimates distinguish pending, raw-body, and summary-only cards', () => {
+  const item = {
+    id: 'aggregate-rows',
+    kind: 'tool',
+    name: 'read',
+    aggregate: true,
+    count: 2,
+    completedCount: 2,
+    result: 'summary',
+    rawResult: 'first\nsecond',
+  };
+  assert.equal(estimateTranscriptItemRows(item, 80, true), 4, 'margin, header, and two body rows');
+  assert.equal(estimateTranscriptItemRows(item, 80, true, true), 3, 'attached cards omit the margin');
+  assert.equal(estimateTranscriptItemRows(item, 80, false), 3, 'collapsed cards keep one detail row');
+  assert.equal(estimateTranscriptItemRows({ ...item, completedCount: 1 }, 80, true), 3, 'pending cards stay collapsed');
+  assert.equal(estimateTranscriptItemRows({ ...item, completedCount: undefined }, 80, true), 4);
+  assert.equal(estimateTranscriptItemRows({ ...item, rawResult: null }, 80, true), 3);
+  assert.equal(estimateTranscriptItemRows({ ...item, rawResult: ' \n' }, 80, true), 3);
+});
+
+test('failed agent cards show a detail row only when a brief is available', () => {
+  const item = {
+    id: 'agent-rows',
+    kind: 'tool',
+    name: 'agent',
+    count: 1,
+    completedCount: 1,
+    isError: true,
+    args: { task_id: 'task-rows', status: 'failed', error: 'timed out' },
+  };
+  assert.equal(estimateTranscriptItemRows(item, 80, false), 2, 'margin and failure header only');
+  assert.equal(estimateTranscriptItemRows({ ...item, args: { ...item.args, prompt: 'check rows' } }, 80, false), 3);
+});
+
+test('transcript environment switches default on and recognize only explicit off values', async (context) => {
+  const names = ['MIXDOG_TUI_TRANSCRIPT_MEASURED', 'MIXDOG_TUI_SCROLL_ACCELERATION'];
+  const previous = names.map((name) => process.env[name]);
+  context.after(() => {
+    for (const [index, name] of names.entries()) {
+      if (previous[index] === undefined) delete process.env[name];
+      else process.env[name] = previous[index];
+    }
+  });
+  const cases = [
+    [undefined, true],
+    ['', true],
+    ['unexpected', true],
+    ['1', true],
+    ['true', true],
+    ['yes', true],
+    ['on', true],
+    ['0', false],
+    ['FALSE', false],
+    [' off ', false],
+    ['no', false],
+  ];
+  for (const [index, [value, expected]] of cases.entries()) {
+    for (const name of names) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    const switches = await import(`./transcript-window.mjs?env-switch-case=${index}`);
+    assert.equal(switches.TRANSCRIPT_MEASURED_ROWS, expected, `measured rows: ${value}`);
+    assert.equal(switches.WHEEL_ACCEL_ENABLED, expected, `wheel acceleration: ${value}`);
+  }
 });

@@ -40,11 +40,8 @@ import { join } from 'node:path';
 import { mixdogRoot } from '../../shared/plugin-paths.mjs';
 import { normalizeAgentPermissionOrNone, parseMarkdownFrontmatter } from '../../shared/markdown-frontmatter.mjs';
 
-// Resolve the path to defaults/agents.json once.
 const _MIXDOG_ROOT = mixdogRoot();
-const _AGENTS_PATH = (() => {
-  return join(_MIXDOG_ROOT, 'defaults', 'agents.json');
-})();
+const _AGENTS_PATH = join(_MIXDOG_ROOT, 'defaults', 'agents.json');
 
 /** @type {{ mtime: number, map: object } | null} */
 let _hiddenAgentsCache = null;

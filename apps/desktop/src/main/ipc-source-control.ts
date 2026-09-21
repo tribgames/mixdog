@@ -27,7 +27,7 @@ import {
 } from './ipc-validation';
 import { validateGithubRequest } from '../../../../src/runtime/github/contract.mjs';
 
-type ServiceOperation = (...args: any[]) => Promise<any>;
+type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
 type Handle = (channel: string, listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown) => void;
 
 interface SourceControlIpcOptions {

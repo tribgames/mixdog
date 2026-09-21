@@ -56,7 +56,8 @@ test('quality rank and recency operate on items, not physical lines', () => {
   assert.equal(scoreRecencyOrdered(items).ordered, true);
 });
 
-test('equal-millisecond turns sort newest source turn first after chunking', () => {
+test('equal-millisecond turns sort newest source turn first after chunking', (t) => {
+  t.mock.method(Intl.DateTimeFormat.prototype, 'resolvedOptions', () => ({ timeZone: 'UTC' }));
   const ts = Date.parse('2026-08-13T11:43:30.123Z');
   const rendered = renderEntryLines(
     [
@@ -73,11 +74,43 @@ test('equal-millisecond turns sort newest source turn first after chunking', () 
     ],
     { recencyOrder: true }
   );
-  assert.deepEqual(
-    rendered.split('\n').map((line) => line.match(/#(\d+)$/)?.[1]),
-    ['2', '1']
-  );
-  assert.match(rendered, /^\[2026-08-13 \d{2}:\d{2}:30\.123 /);
+  assert.equal(rendered, '[2026-08-13 11:43 +00:00] a: newer #2\n[2026-08-13 11:43 +00:00] u: older #1');
+});
+
+test('quality scoring preserves first ranks, misses, empty needles, and cutoff bounds', () => {
+  const items = [{ text: 'alpha first' }, { text: 'beta second' }, { text: 'alpha third' }];
+  assert.deepEqual(scoreTopNContains(items, ['ALPHA', 'Beta', 'missing', '', null, 0], 1), {
+    perSubstring: [
+      { needle: 'ALPHA', rank: 1, hit: true, rr: 1 },
+      { needle: 'Beta', rank: 2, hit: false, rr: 0 },
+      { needle: 'missing', rank: null, hit: false, rr: 0 },
+      { needle: '', rank: null, hit: false, rr: 0 },
+      { needle: null, rank: null, hit: false, rr: 0 },
+      { needle: 0, rank: null, hit: false, rr: 0 },
+    ],
+    hitAtN: 1 / 6,
+    mrr: 1 / 6,
+    n: 1,
+  });
+  assert.deepEqual(scoreTopNContains(items, ['Beta'], 2), {
+    perSubstring: [{ needle: 'Beta', rank: 2, hit: true, rr: 0.5 }],
+    hitAtN: 1,
+    mrr: 0.5,
+    n: 2,
+  });
+  assert.deepEqual(scoreTopNContains(items, ['alpha'], 0), {
+    perSubstring: [{ needle: 'alpha', rank: 1, hit: false, rr: 0 }],
+    hitAtN: 0,
+    mrr: 0,
+    n: 0,
+  });
+  assert.deepEqual(scoreTopNContains([], ['alpha'], 3), {
+    perSubstring: [{ needle: 'alpha', rank: null, hit: false, rr: 0 }],
+    hitAtN: 0,
+    mrr: 0,
+    n: 3,
+  });
+  assert.deepEqual(scoreTopNContains(items, [], 3), { perSubstring: [], hitAtN: 0, mrr: 0, n: 3 });
 });
 
 test('last-page cursor is opaque, stable, and scope-bound', () => {

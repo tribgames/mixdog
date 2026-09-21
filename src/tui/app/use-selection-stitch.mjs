@@ -116,12 +116,9 @@ export function useSelectionStitchBuffer({ store, dragRef, scrollTargetRef }) {
     // Trailing whitespace is trimmed once per logical-line end.
     const logical = [];
     for (const k of keys) {
-      const entry = buf.get(k);
-      if (entry == null) continue;
-      const t = typeof entry === 'string' ? entry : (entry.text ?? '');
-      const sw = typeof entry === 'string' ? false : entry.sw === true;
-      if (sw && logical.length > 0) logical[logical.length - 1] += t;
-      else logical.push(t);
+      const { text: rowText, sw } = buf.get(k);
+      if (sw && logical.length > 0) logical[logical.length - 1] += rowText;
+      else logical.push(rowText);
     }
     const text = logical.map((l) => l.replace(/\s+$/u, '')).join('\n');
     return text.trim() ? { text, complete } : empty;

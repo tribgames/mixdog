@@ -380,8 +380,8 @@ function compare(operator, left, right) {
   const b = single(right);
   let order = null;
   if (typeof a === 'number' || typeof b === 'number') {
-    const x = isBlank(a) ? 0 : toNumber(a);
-    const y = isBlank(b) ? 0 : toNumber(b);
+    const x = toNumber(a);
+    const y = toNumber(b);
     if (!isFormulaError(x) && !isFormulaError(y)) order = ordering(x, y);
   }
   if (order === null) order = ordering(toText(a).toUpperCase(), toText(b).toUpperCase());

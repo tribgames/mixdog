@@ -3,19 +3,10 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { createBrowserFrameCollector } from './document-frames.ts';
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
-}
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test('ready frames start without a slow sibling and collected output keeps frame order under bounded concurrency', async () => {
-  const readiness = deferred();
+  const readiness = Promise.withResolvers();
   const frameIds = ['root', 'a', 'b', 'c', 'd', 'e'];
   const sessions = new Map(
     frameIds
@@ -39,7 +30,7 @@ test('ready frames start without a slow sibling and collected output keeps frame
         if (method === 'Page.createIsolatedWorld') return { executionContextId: args.frameId };
         active++;
         peak = Math.max(peak, active);
-        const gate = deferred();
+        const gate = Promise.withResolvers();
         gates.set(args.contextId, gate);
         try {
           await gate.promise;
@@ -65,7 +56,7 @@ test('ready frames start without a slow sibling and collected output keeps frame
 });
 
 test('a failed frame drains in-flight sibling reads and never becomes empty page text', async () => {
-  const sibling = deferred();
+  const sibling = Promise.withResolvers();
   const failure = new Error('frame lost');
   let finished = false;
   const collect = createBrowserFrameCollector({

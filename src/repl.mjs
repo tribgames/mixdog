@@ -124,8 +124,7 @@ export async function runRepl({
   output: out = stdout,
 } = {}) {
   // `--help` short-circuits before any provider init so the smoke test (which
-  // invokes `src/cli.mjs --help`) gets clean help output and a 0 exit. We read
-  // argv here rather than editing app.mjs, keeping changes confined to the REPL.
+  // invokes `src/cli.mjs --help`) gets clean help output and a 0 exit.
   if (process.argv.slice(2).some((a) => a === '--help' || a === '-h')) {
     printHelp();
     return 0;

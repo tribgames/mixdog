@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { collectGarbageNow, createIdleGc } from './idle-gc.mjs';
+import { sleep } from './sleep.mjs';
 
 async function withEnv(vars, run) {
   const saved = new Map();
@@ -18,11 +19,6 @@ async function withEnv(vars, run) {
     }
   }
 }
-
-const sleep = (ms) =>
-  new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 
 test('a full collection runs without --expose-gc at launch', async () => {
   assert.equal(await collectGarbageNow(), true);

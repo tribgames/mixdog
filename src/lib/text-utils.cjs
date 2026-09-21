@@ -1,9 +1,7 @@
 'use strict';
 
 /**
- * Shared text-cleaning utilities. Used by both:
- *   - hooks/session-start.cjs (CJS hook)
- *   - src/memory/lib/memory-extraction.mjs (ESM, via createRequire re-export)
+ * Shared text-cleaning utilities.
  *
  * Single source of truth for the regex set that strips:
  *   - markdown fences, headers, list markers, bold

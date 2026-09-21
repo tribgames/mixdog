@@ -61,6 +61,11 @@ function installDom() {
   };
 }
 
+test('missing liveness is unknown, and execution capacity waits are queued', () => {
+  assert.equal(desktopAgentActivityState({ status: 'unknown', stage: 'unknown' }), 'unknown');
+  assert.equal(desktopAgentActivityState({ status: 'running', stage: 'resource_wait' }), 'queued');
+});
+
 async function expandAllAgentGroups() {
   await act(async () => window.dispatchEvent(new window.CustomEvent(AGENT_GROUP_EXPANSION_EVENT, { detail: true })));
 }

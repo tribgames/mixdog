@@ -74,7 +74,8 @@ export function createPanelSurface({ setPicker, setContextPanel, setUsagePanel }
   };
 
   const claimUsage = () => {
-    const generation = (usageGeneration += 1);
+    usageGeneration += 1;
+    const generation = usageGeneration;
     const owns = () => generation === usageGeneration;
     return {
       owns,

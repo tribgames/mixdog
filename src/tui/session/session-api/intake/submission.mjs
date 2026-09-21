@@ -57,20 +57,10 @@ export function createSubmissionIntake(bag) {
   const submit = (text, options = {}) => {
     const intake = submission(text, options);
     if (!intake) return false;
-    // A running idle auto-clear sets commandBusy;
-    // queue the prompt instead of dropping it — it drains after the clear.
-    if (flags.autoClearRunning) {
-      return enqueueSubmission(intake) !== false;
-    }
-    // Any in-flight session command (clear/setModel/newSession/resume/...)
-    // holds commandBusy. Previously the prompt was dropped here and only the
-    // prompt-history side effect survived. Queue it instead: drain bails while
-    // commandBusy, and the central release hook re-kicks drain once the
-    // command settles, so the prompt runs afterwards rather than vanishing.
-    if (getState().commandBusy) {
-      return enqueueSubmission(intake) !== false;
-    }
-    if (getState().busy) {
+    // Queue during auto-clear, a session command, or an active turn instead
+    // of dropping the prompt. Drain waits for busy/commandBusy to clear, and
+    // the command/turn release path kicks it once the session is ready.
+    if (flags.autoClearRunning || getState().commandBusy || getState().busy) {
       return enqueueSubmission(intake) !== false;
     }
     // If autoClearBeforeSubmit rejects (e.g. compaction timeout throws), the

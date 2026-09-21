@@ -28,8 +28,7 @@ pub(super) fn import_specs(lang: &str, ast_kind: &str, name: &str, text: &str) -
             "mod_item" => single(format!("mod::{name}")),
             _ => single(name.to_string()),
         },
-        "scala" => single(leading_dotted_path(name)),
-        "swift" => single(leading_dotted_path(name)),
+        "scala" | "swift" => single(leading_dotted_path(name)),
         // `#include "a.h"` and `#include <a.h>` both resolve on the bare path;
         // an unquoted `#include MACRO` was never an import edge.
         "c" | "cpp" => match delimited_include(name, text) {
@@ -44,11 +43,7 @@ pub(super) fn import_specs(lang: &str, ast_kind: &str, name: &str, text: &str) -
             _ => single(strip_quotes(name)),
         },
         "java" | "kotlin" | "csharp" => single(name.to_string()),
-        "python" | "go" => single(strip_quotes(name)),
-        _ => {
-            let _ = text;
-            single(strip_quotes(name))
-        }
+        _ => single(strip_quotes(name)),
     }
 }
 

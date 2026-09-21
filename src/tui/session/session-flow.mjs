@@ -29,6 +29,7 @@ export function createSessionFlow(bag) {
     leadSessionId: steering.leadSessionId,
     shouldMirrorSteeringEntry: steering.shouldMirrorSteeringEntry,
     commitSteeringQueueEntries: steering.commitSteeringQueueEntries,
+    settleSteeredSubmissions: steering.settleSteeredSubmissions,
     makeQueueEntry: queue.makeQueueEntry,
     removeQueuedEntries: queue.removeQueuedEntries,
     requeueEntriesFront: queue.requeueEntriesFront,

@@ -5,6 +5,7 @@ import {
   blockText,
   containerInner,
   settingsTrackChanges,
+  tagPattern,
   textNodes,
   topLevelElements,
   xmlAttribute,
@@ -313,7 +314,7 @@ function docxCommentParaIds(commentsXml) {
 // The words a comment is anchored to, from the first story part that
 // carries both ends of its range.
 function docxCommentAnchor(storyXml, id) {
-  const escapedId = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedId = tagPattern(id);
   for (const [part, xml] of storyXml) {
     const start = new RegExp(`<w:commentRangeStart\\b[^>]*\\bw:id="${escapedId}"[^>]*/?>`).exec(xml);
     const end = new RegExp(`<w:commentRangeEnd\\b[^>]*\\bw:id="${escapedId}"[^>]*/?>`).exec(xml);
@@ -450,14 +451,16 @@ async function docxNotes(zip) {
   ]) {
     const xml = await zipText(zip, part);
     const pattern = new RegExp(`<${tag}\\b([^>]*)>([\\s\\S]*?)<\\/${tag}>`, 'g');
+    let ordinal = 0;
     for (const match of xml.matchAll(pattern)) {
       const id = xmlDecode(/\bw:id="([^"]+)"/.exec(match[1])?.[1] || '');
       // The separator and continuation-separator entries are the rule Word
       // draws above the note area, not notes: counting them would report a
       // source the document does not carry.
       if (Number(id) < 1 || /\bw:type="/.test(match[1])) continue;
+      ordinal += 1;
       notes.push({
-        path: `/body/${kind}[${notes.filter((entry) => entry.kind === kind).length + 1}]`,
+        path: `/body/${kind}[${ordinal}]`,
         kind,
         id,
         text: blockText(match[2], 'w:t'),

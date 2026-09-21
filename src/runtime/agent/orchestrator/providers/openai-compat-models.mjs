@@ -1,10 +1,6 @@
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
-import {
-  PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
-  createTimeoutSignal,
-  resolveTimeoutMs,
-} from '../stall-policy.mjs';
+import { PROVIDER_GENERATE_TOTAL_TIMEOUT_MS, createTimeoutSignal, resolveTimeoutMs } from '../stall-policy.mjs';
 
 const MODEL_LIST_TIMEOUT_MS = resolveTimeoutMs('MIXDOG_COMPAT_MODEL_LIST_TIMEOUT_MS', 10_000, {
   minMs: 1_000,

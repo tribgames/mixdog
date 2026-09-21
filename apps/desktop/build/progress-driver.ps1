@@ -1,8 +1,8 @@
 # Drives the installer-owned progress control without creating any window.
 param(
-  [long]$InstallerHwnd,
-  [long]$PrimaryHwnd,
-  [long]$ProgressHwnd
+    [long]$InstallerHwnd,
+    [long]$PrimaryHwnd,
+    [long]$ProgressHwnd
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -58,10 +58,10 @@ $lastNorm = 0.0
 $display = 0.0
 
 for ($attempt = 0; $attempt -lt 200 -and $source -eq [IntPtr]::Zero; $attempt++) {
-  if (-not [MixdogProgressDriver]::IsWindow($installer) -or
-      -not [MixdogProgressDriver]::IsWindow($progress)) { exit }
-  $source = [MixdogProgressDriver]::FindProgress($installer, 1001)
-  if ($source -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 10 }
+    if (-not [MixdogProgressDriver]::IsWindow($installer) -or
+        -not [MixdogProgressDriver]::IsWindow($progress)) { exit }
+    $source = [MixdogProgressDriver]::FindProgress($installer, 1001)
+    if ($source -eq [IntPtr]::Zero) { Start-Sleep -Milliseconds 10 }
 }
 if ($source -eq [IntPtr]::Zero) { exit }
 
@@ -72,7 +72,7 @@ if (-not [MixdogProgressDriver]::GetWindowRect($source, [ref]$rect)) { exit }
 $width = $rect.Right - $rect.Left
 $height = $rect.Bottom - $rect.Top
 [void][MixdogProgressDriver]::SetWindowPos(
-  $progress, [IntPtr]::Zero, $rect.Left, $rect.Top, $width, $height, 0x0010)
+    $progress, [IntPtr]::Zero, $rect.Left, $rect.Top, $width, $height, 0x0010)
 
 # Seed only the source baseline. The installer is still fully transparent, so
 # reveal the replacement at a true 0% and let it catch up smoothly.
@@ -81,10 +81,10 @@ $low = [MixdogProgressDriver]::SendMessage($source, 0x0407, [IntPtr]1, [IntPtr]:
 $high = [MixdogProgressDriver]::SendMessage($source, 0x0407, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()
 $span = $high - $low
 if ($span -gt 0) {
-  $lastNorm = [Math]::Min(1.0, [Math]::Max(0.0, ($position - $low) / $span))
+    $lastNorm = [Math]::Min(1.0, [Math]::Max(0.0, ($position - $low) / $span))
 }
 [void][MixdogProgressDriver]::SetWindowPos(
-  $source, [IntPtr]::Zero, -32000, -32000, 0, 0, 0x0015)
+    $source, [IntPtr]::Zero, -32000, -32000, 0, 0, 0x0015)
 [void][MixdogProgressDriver]::ShowWindow($progress, 4) # SW_SHOWNOACTIVATE
 
 # Reveal only the final centred 387x156 shell with its aligned 0% bar.
@@ -95,33 +95,34 @@ $extendedStyle = [MixdogProgressDriver]::GetWindowLong($installer, -20)
 Start-Sleep -Milliseconds 120
 
 while ([MixdogProgressDriver]::IsWindow($installer) -and
-       [MixdogProgressDriver]::IsWindow($progress) -and
-       [MixdogProgressDriver]::GetProp($progress, 'MixdogProgressComplete') -eq [IntPtr]::Zero) {
-  $position = [MixdogProgressDriver]::SendMessage($source, 0x0408, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()
-  $low = [MixdogProgressDriver]::SendMessage($source, 0x0407, [IntPtr]1, [IntPtr]::Zero).ToInt64()
-  $high = [MixdogProgressDriver]::SendMessage($source, 0x0407, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()
-  $span = $high - $low
-  $norm = if ($span -gt 0) {
-    [Math]::Min(1.0, [Math]::Max(0.0, ($position - $low) / $span))
-  } else {
-    $lastNorm
-  }
+    [MixdogProgressDriver]::IsWindow($progress) -and
+    [MixdogProgressDriver]::GetProp($progress, 'MixdogProgressComplete') -eq [IntPtr]::Zero) {
+    $position = [MixdogProgressDriver]::SendMessage($source, 0x0408, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()
+    $low = [MixdogProgressDriver]::SendMessage($source, 0x0407, [IntPtr]1, [IntPtr]::Zero).ToInt64()
+    $high = [MixdogProgressDriver]::SendMessage($source, 0x0407, [IntPtr]::Zero, [IntPtr]::Zero).ToInt64()
+    $span = $high - $low
+    $norm = if ($span -gt 0) {
+        [Math]::Min(1.0, [Math]::Max(0.0, ($position - $low) / $span))
+    }
+    else {
+        $lastNorm
+    }
 
-  $drop = $lastNorm - $norm
-  if (($norm -lt 0.15 -and $drop -gt 0.25) -or $drop -gt 0.35) {
-    if ($phase -lt 2) { $phase++ }
-  }
-  $lastNorm = $norm
+    $drop = $lastNorm - $norm
+    if (($norm -lt 0.15 -and $drop -gt 0.25) -or $drop -gt 0.35) {
+        if ($phase -lt 2) { $phase++ }
+    }
+    $lastNorm = $norm
 
-  $target = switch ($phase) {
-    0 { [Math]::Min(0.75, ($norm / 0.57) * 0.75) }
-    1 { 0.75 + [Math]::Min(0.20, $norm * 0.20) }
-    default { 0.95 + $norm * 0.05 }
-  }
-  if ($target -gt $display) {
-    $display = [Math]::Min($target, $display + 0.025)
-    [void][MixdogProgressDriver]::SendMessage(
-      $progress, 0x0402, [IntPtr]([int]($display * 1000)), [IntPtr]::Zero)
-  }
-  Start-Sleep -Milliseconds 25
+    $target = switch ($phase) {
+        0 { [Math]::Min(0.75, ($norm / 0.57) * 0.75) }
+        1 { 0.75 + [Math]::Min(0.20, $norm * 0.20) }
+        default { 0.95 + $norm * 0.05 }
+    }
+    if ($target -gt $display) {
+        $display = [Math]::Min($target, $display + 0.025)
+        [void][MixdogProgressDriver]::SendMessage(
+            $progress, 0x0402, [IntPtr]([int]($display * 1000)), [IntPtr]::Zero)
+    }
+    Start-Sleep -Milliseconds 25
 }

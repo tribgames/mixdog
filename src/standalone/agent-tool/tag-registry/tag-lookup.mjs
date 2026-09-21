@@ -31,6 +31,7 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
   function agentSessionEntries({ scanSessions = false, context = {}, excludeTerminalTraces = false } = {}) {
     const rows = [];
     const seen = new Set();
+    const tombstones = reaper.tagTombstoneIndex();
     const add = (session, fallbackTag = '') => {
       const tag = agentTagOf(session) || clean(fallbackTag);
       if (!tag || !session?.id || session.closed === true) return;
@@ -60,7 +61,6 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
     };
     for (const row of readWorkerRows(context)) addIndexRow(row);
     if (scanSessions) {
-      const tombstones = reaper.tagTombstoneIndex();
       const pendingTerminal = [];
       for (const session of mgr.listSessions({ includeClosed: false }) || []) {
         if (session?.closed === true) continue;
@@ -72,7 +72,9 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
       reaper.settleScannedTerminalRows(pendingTerminal);
     }
     for (const [tag, sessionId] of tags.entries()) {
-      add(getLiveSession(sessionId), tag);
+      const session = getLiveSession(sessionId);
+      if (session && reaper.tombstoneBlocksScan(session, tag, tombstones)) continue;
+      add(session, tag);
     }
     return rows;
   }

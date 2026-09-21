@@ -17,6 +17,7 @@ test('provider setup auto-detects an installed first-party Local Provider withou
       },
     },
     {
+      checkSecrets: false,
       getLocalProviderStatus: () => ({
         runtime: { installed: true },
         models: [{ id: 'qwen3.8-27b-q4-k-m', installed: true }],

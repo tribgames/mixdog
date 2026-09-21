@@ -1,4 +1,3 @@
-// channel-worker/daemon-spawn.mjs
 // Launching the machine daemon when discovery finds none: the detached fork
 // with the daemon heap policy, fd 2 on a capture FILE (a V8 fatal abort is
 // written below every JS hook and a pipe stops being drained once this worker

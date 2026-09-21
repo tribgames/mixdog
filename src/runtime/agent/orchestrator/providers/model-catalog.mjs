@@ -97,9 +97,8 @@ function _relayPricingProvider(provider, id) {
   return _relayedModelVendor(id);
 }
 
-// Provider prefix variants used for catalog key lookup. Named constants so
-// all three lookup sites (getModelMetadataSync, getModelMetadata, enrichModels)
-// stay in sync. A provider needing a new prefix adds it here.
+// Provider prefix variants used by the shared catalog resolver.
+// A provider needing a new prefix adds it here.
 // Source: LiteLLM catalog key conventions (see CATALOG_URL above).
 const _CATALOG_SIMPLE_PREFIXES = [
   'anthropic/',
@@ -115,8 +114,8 @@ const _CATALOG_SIMPLE_PREFIXES = [
 // Bedrock-style variants: catalog key = <prefix><id>-v1:0
 const _CATALOG_BEDROCK_PREFIXES = ['anthropic.', 'bedrock/anthropic.'];
 
-// Provider hint → catalog prefixes to try (subset of _CATALOG_SIMPLE_PREFIXES /
-// _CATALOG_ENRICH_PREFIXES). Keyed by the *mapped* models.dev provider id
+// Provider hint → catalog prefixes to try (subset of _CATALOG_SIMPLE_PREFIXES).
+// Keyed by the *mapped* models.dev provider id
 // (see _modelsDevProviderId), so anthropic-oauth and anthropic share one
 // entry, likewise grok-oauth/xai and gemini/google. A provider missing here
 // (unknown/custom) gets bare-id lookup only — no prefix guessing across
@@ -464,15 +463,15 @@ function _modelsDevMetadata(row) {
 }
 
 // Raw models.dev catalog row accessor for the model-list sanitizer's
-// data-driven staleness filter. Unlike _modelsDevMetadataSync this does NOT
-// require a `cost` field (staleness only needs family/release_date) and
-// returns the raw row untouched. Warms from disk one-shot if memory is cold;
+// data-driven staleness filter. Pricing is not required: staleness only needs
+// family/release_date. Returns the raw row untouched. Warms from disk if memory is cold;
 // returns null when the catalog is unavailable so callers can skip filtering.
 // Sync reads never start network work: session warmup owns remote catalog I/O,
 // and injected/provider-local transports must remain request-hermetic.
 // `_test` (tests only) injects a fake catalog map without touching disk.
 export function getModelsDevRowSync(id, provider, _test) {
-  const cat = _test || _mdCache || (warmModelsDevFromDiskSync(), _mdCache);
+  if (!_test) warmModelsDevFromDiskSync();
+  const cat = _test || _mdCache;
   if (!cat) return null;
   const pid = _modelsDevProviderId(provider);
   if (!pid) return null;
@@ -484,7 +483,8 @@ export function getModelsDevRowSync(id, provider, _test) {
 // the sanitizer's family-supersession pass to compare release dates across a
 // provider's whole catalog. Returns null when the catalog is cold/unavailable.
 export function getModelsDevProviderModelsSync(provider, _test) {
-  const cat = _test || _mdCache || (warmModelsDevFromDiskSync(), _mdCache);
+  if (!_test) warmModelsDevFromDiskSync();
+  const cat = _test || _mdCache;
   if (!cat) return null;
   const pid = _modelsDevProviderId(provider);
   if (!pid) return null;
@@ -689,8 +689,8 @@ export async function enrichModels(models, { fetchFn, force = false } = {}) {
     const id = m.id || m.name;
     if (!id) return m;
     const meta = lookupModelMetadata(id, m.provider, catalog, modelsDevCatalog || {});
-    const catalogDisplay = meta?.displayName;
-    if (!meta) return catalogDisplay && !m.display ? { ...m, display: catalogDisplay } : m;
+    if (!meta) return m;
+    const catalogDisplay = meta.displayName;
     return {
       ...m,
       // Provider endpoints that expose no label (opencode-go /models)
@@ -785,7 +785,7 @@ function auditCachedModelPricing() {
 /**
  * Force-refresh the catalog by ignoring cached data and re-fetching.
  * Exposed so a user-initiated "refresh catalog" action in the UI can
- * bypass the process-lifetime overlay cache.
+ * bypass the periodic overlay cache.
  */
 export async function refreshCatalog() {
   // A failed refresh must retain the last usable price table on disk.

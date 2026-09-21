@@ -152,7 +152,6 @@ export async function cachedEmbedTextBatch(db, texts, options = {}) {
     return { text, hash: Buffer.from(createHash('sha256').update(text).digest()) };
   });
 
-  // Single SELECT for all hashes
   const hashBufs = entries.map((e) => e.hash);
   const hits = (
     await db.query(
@@ -189,7 +188,6 @@ export async function cachedEmbedTextBatch(db, texts, options = {}) {
       for (let j = 0; j < chunk.length; j++) chunk[j].vector = vectors[j];
     }
     throwIfAborted(signal);
-    // Bulk INSERT misses
     await db.query(
       `INSERT INTO memory.embedding_cache (model_id, text_hash, vector)
        SELECT $1, unnest($2::bytea[]), unnest($3::text[])::halfvec
@@ -531,7 +529,6 @@ async function syncRawBatchEmbeddings(db, ids, options = {}) {
 async function syncBatchEmbeddings(db, ids, options = {}) {
   const signal = options?.signal;
   throwIfAborted(signal);
-  // 1. Fetch element+summary for all ids in one query
   const rows = (
     await db.query(`SELECT id, element, summary FROM memory.entries WHERE id = ANY($1::bigint[]) AND is_root = 1`, [
       ids,
@@ -540,12 +537,10 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
   throwIfAborted(signal);
   if (rows.length === 0) return [];
 
-  // 2. Fetch dims from meta once
   const dimsRow = (await db.query(`SELECT value FROM memory.meta WHERE key = 'embedding.current_dims'`)).rows[0];
   throwIfAborted(signal);
   const expected = Number(dimsRow?.value ?? 0);
 
-  // 3. Embed each row via batch cache lookup (one SELECT + one INSERT for misses)
   const texts = rows.map((row) => [row.element, row.summary].filter(Boolean).join(' — ').trim());
   const vectors = await cachedEmbedTextBatch(db, texts.filter(Boolean), { signal });
   throwIfAborted(signal);
@@ -567,7 +562,6 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
 
   if (updates.length === 0) return [];
 
-  // 4. Bulk UPDATE using VALUES list
   // The VALUES update is one SQL batch; do not split it with an abort checkpoint.
   const valClauses = updates.map((_u, i) => {
     const base = i * 4;

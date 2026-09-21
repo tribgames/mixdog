@@ -138,6 +138,25 @@ test('rule edits preserve standard handlers and unrelated hook settings', async 
   assert.equal(saved.toolBefore.length, 1);
 });
 
+for (const [name, projectSetting, dataSetting, enabled] of [
+  ['defaults to enabled when absent', {}, {}, true],
+  ['retains an earlier setting when absent later', { disableAllHooks: true }, {}, false],
+  ['accepts a later explicit false', { disableAllHooks: true }, { disableAllHooks: false }, true],
+  ['accepts a later explicit true', { disableAllHooks: false }, { disableAllHooks: true }, false],
+  ['does not treat a truthy string as true', { disableAllHooks: true }, { disableAllHooks: 'true' }, true],
+]) {
+  test(`disableAllHooks ${name}`, async (t) => {
+    const f = await fixture(t);
+    delete process.env.MIXDOG_HOOKS_FILE;
+    await writeFile(join(f.project, '.mixdog/hooks.json'), JSON.stringify(projectSetting));
+    await f.write({ ...standard(), ...dataSetting });
+    const bus = f.bus();
+    const decision = await f.run(bus);
+    assert.equal(bus.status().enabled, enabled);
+    assert.deepEqual(decision, enabled ? { action: 'ask', reason: 'fixture_yes' } : null);
+  });
+}
+
 test('a failed rule flush reports failure and retains its pending update for retry', async (t) => {
   const f = await fixture(t);
   await f.write({ toolBefore: [rule] });

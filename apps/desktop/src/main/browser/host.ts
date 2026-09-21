@@ -186,7 +186,6 @@ export function createBrowserHost(
   const browserUrlPolicy = browserUrlPolicyFromEnvironment();
   const urls = createBrowserUrlAdmission({ policy: browserUrlPolicy });
 
-  // ---- Partition: permissions, request admission, downloads -----------------
   const partition = createBrowserPartition({
     assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
     downloadsDirectory: () => app.getPath('downloads'),
@@ -216,7 +215,6 @@ export function createBrowserHost(
     nativeImporterPath: defaultNativeBrowserImporterPath(),
   });
 
-  // ---- Page services --------------------------------------------------------
   const intercept = createBrowserIntercept();
   const cdp = createBrowserGuestCdp({
     state,
@@ -538,7 +536,6 @@ export function createBrowserHost(
     runCommand: (command, signal) => runCommand(command, signal),
   };
 
-  // ---- Dispatch -------------------------------------------------------------
   async function runCommand(command: BrowserCommand, signal?: AbortSignal): Promise<BrowserCommandResult> {
     const action = normalizeBrowserAction(command);
     if (!action) throw new Error('browser command requires action');
@@ -678,7 +675,6 @@ export function createBrowserHost(
     commandTimeoutMs: COMMAND_TIMEOUT_MS,
   });
 
-  // ---- Agent bridge ---------------------------------------------------------
   // Loopback command server + discovery file — the pair that exposes the
   // runtime's `browser` tool. Opt-in via Settings, mirroring Computer Use;
   // the pane infrastructure above runs regardless of the toggle.

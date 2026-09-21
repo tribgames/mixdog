@@ -48,11 +48,22 @@ test('emitted input errors, upstream HTTP failures and user cancellations have d
     ],
     ['browser', 'Error: page target crashed; navigate to reload this page or choose another tab', 'runtime/failure'],
     ['browser', 'Error: observation crashed\nQuoted page text: schema is required', 'runtime/failure'],
+    [
+      'shell',
+      '\r\n ⚠️ destructive command warning\r\n eRrOr: Session "sess_cancelled" closed: aborted during call \r\n',
+      'expected-cancellation',
+    ],
+    [
+      'shell',
+      '⚠️ destructive command warning\nError: [shell-run-failed] exit code: 7\nSession "quoted" closed: aborted during call',
+      'command-exit',
+    ],
+    ['browser', '\r\n ⚠️ warning only \r\n', 'runtime/failure'],
   ];
   for (const [tool, text, category] of rows) assert.equal(classifyToolFailure(text, tool), category, text);
 });
 
-test('failure traces preserve structured error text but never copy image bytes or bearer secrets', () => {
+test('failure traces redact secrets and preserve structured errors without logging session cancellations', () => {
   const directory = mkdtempSync(join(tmpdir(), 'mixdog-structured-failure-'));
   try {
     const result = spawnSync(
@@ -70,6 +81,11 @@ test('failure traces preserve structured error text but never copy image bytes o
           { type: 'text', text: 'Error: foreground_unavailable\\nAuthorization: Bearer secret-example-token' },
           { type: 'image', mimeType: 'image/png', data: 'image-bytes-must-not-enter-logs' },
         ] },
+      });
+      traceAgentTool({
+        sessionId: 'structured-failure', iteration: 1, toolName: 'shell', toolKind: 'internal',
+        toolMs: 1, resultKind: 'error',
+        resultText: '\\r\\n ⚠️ destructive command warning\\r\\n Error: Session "sess_cancelled" closed: aborted during call',
       });
       await drainAgentTrace();
       await new Promise((resolve) => setTimeout(resolve, 300));
@@ -95,8 +111,10 @@ test('failure traces preserve structured error text but never copy image bytes o
     assert.equal(row.error_first_line, 'Error: foreground_unavailable');
     assert.match(row.error_preview, /Authorization: Bearer \[redacted\]/);
     assert.doesNotMatch(log, /\[object Object\]|image-bytes-must-not-enter-logs|secret-example-token/);
-    const trace = JSON.parse(readFileSync(join(directory, 'trace.jsonl'), 'utf8').trim());
-    assert.equal(trace.result_error_first_line, row.error_first_line);
+    const traces = readFileSync(join(directory, 'trace.jsonl'), 'utf8').trim().split(/\r?\n/).map(JSON.parse);
+    assert.equal(traces.length, 2);
+    assert.equal(traces[0].result_error_first_line, row.error_first_line);
+    assert.equal(traces[1].result_error_category, 'expected-cancellation');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

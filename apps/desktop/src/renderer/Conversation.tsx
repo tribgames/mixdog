@@ -564,7 +564,9 @@ export function Conversation({
     // Union + latched hydration: a transient empty frame during a source swap
     // must not re-arm animation for keys that already rendered.
     seen.hydrated = seen.hydrated || transcriptHydrated;
-    currentCompletionAnimationKeys.forEach((key) => seen.keys.add(key));
+    currentCompletionAnimationKeys.forEach((key) => {
+      seen.keys.add(key);
+    });
   }, [currentCompletionAnimationKeys, transcriptSessionKey, transcriptHydrated]);
   const jumpToLatest = useCallback(() => {
     resumeFollow();
@@ -580,16 +582,10 @@ export function Conversation({
     // different offsets across the first frames (re-entry jump/flicker).
     armFollow();
   }, [armFollow, transcriptSessionKey]);
-  // A bulk item swap — mid-turn COMPACTION above all — deletes the rows the
-  // reader was anchored to, so the viewport returns to the live tail with
-  // follow re-armed. Mirrors the TUI's transcriptSwapReturnsToTail
-  // (src/tui/app/transcript-window.mjs): live appends never touch index 0, so a
-  // changed HEAD id WITHOUT growth is the swap signal. Growth that changes the
-  // head (older-history restore) is a prepend and keeps the reading position.
-  // Without this the desktop had no return-to-tail path at all: the follow hook
-  // only re-arms on a scroll event or a VIEWPORT resize, and a compaction
-  // shrinks the CONTENT, so auto-scroll stayed released for the rest of the
-  // session (user: 컴팩트 상황에서 자동스크롤이 풀린다).
+  // Shrinking the settled transcript — especially during compaction — removes
+  // rows the reader may be anchored to, so return to the live tail. The follow
+  // hook watches viewport size, not content shrinkage. Same-length lane
+  // publications and growing history leave the reading position alone.
   const transcriptSwapRef = useRef({ sessionKey: '', count: 0 });
   useLayoutEffect(() => {
     const count = settledItems.length;

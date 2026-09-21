@@ -142,12 +142,10 @@ export function hintWidths({ frameColumns, inputHint, liveSpinner }) {
   const hintWidth = inputHint
     ? Math.max(1, Math.min(Math.max(1, frameColumns - 4), Math.max(12, Math.floor(frameColumns * 0.42))))
     : 0;
-  const spinnerHintWidth = hintWidth;
-  const guardHintWidth = hintWidth;
   return {
-    spinnerHintWidth,
-    guardHintWidth,
-    transientStatusWidth: liveSpinner ? spinnerHintWidth : guardHintWidth,
-    promptSpinnerColumns: liveSpinner && inputHint ? Math.max(1, frameColumns - spinnerHintWidth - 1) : frameColumns,
+    spinnerHintWidth: hintWidth,
+    guardHintWidth: hintWidth,
+    transientStatusWidth: hintWidth,
+    promptSpinnerColumns: liveSpinner && inputHint ? Math.max(1, frameColumns - hintWidth - 1) : frameColumns,
   };
 }

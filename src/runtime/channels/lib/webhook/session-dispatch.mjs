@@ -32,12 +32,12 @@ ${payload}
 }
 
 function trackDispatch({ name, deliveryId, dispatchP, controller }) {
-let settled = false;
-const timeoutHandle = setTimeout(
+  let settled = false;
+  const timeoutHandle = setTimeout(
     () => controller.abort(new Error(`bridge dispatch timed out after ${DISPATCH_TIMEOUT_MS}ms`)),
     DISPATCH_TIMEOUT_MS
-);
-const finish = (status, fields, message) => {
+  );
+  const finish = (status, fields, message) => {
     if (settled) return;
     settled = true;
     clearTimeout(timeoutHandle);
@@ -45,8 +45,8 @@ const finish = (status, fields, message) => {
       logWebhook(`${name}: delivery status update failed: ${e?.message || e}`)
     );
     logWebhook(message);
-};
-controller.signal.addEventListener(
+  };
+  controller.signal.addEventListener(
     'abort',
     () => {
       const reason = controller.signal.reason;
@@ -57,8 +57,8 @@ controller.signal.addEventListener(
       );
     },
     { once: true }
-);
-dispatchP.then(
+  );
+  dispatchP.then(
     () => finish('done', {}, `${name}: webhook session run dispatched (id=${deliveryId})`),
     (err) =>
       finish(
@@ -66,11 +66,11 @@ dispatchP.then(
         { error: String(err?.message || err) },
         `${name}: webhook session run failed: ${err?.message || err}`
       )
-);
+  );
 }
 
 function createWebhookSessionDispatcher({ getConfig, getBridgeDispatch }) {
-async function dispatchSessionRun(name, model, fullPrompt, headers, deliveryId, res, extra = {}) {
+  async function dispatchSessionRun(name, model, fullPrompt, headers, deliveryId, res, extra = {}) {
     await updateDeliveryStatus(name, deliveryId, 'processing');
     // Session dispatch must not be allowed to hang forever — without a
     // ceiling a stuck LLM call leaves the delivery in `processing`

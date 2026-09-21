@@ -34,7 +34,7 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
         documentId,
         requestId: text('requestId', 100),
         accept: input.accept,
-        promptText: input.promptText as string | undefined,
+        promptText: input.promptText,
       };
     }
     case 'choose-files': {
@@ -44,7 +44,7 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
         type: input.type,
         documentId,
         requestId: text('requestId', 100),
-        cancel: input.cancel as boolean | undefined,
+        cancel: input.cancel,
       };
     }
     case 'new-tab':

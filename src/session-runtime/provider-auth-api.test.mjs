@@ -70,7 +70,8 @@ function fixture(overrides = {}) {
     refreshProviderCatalogs: async (options) => calls.push(['refreshCatalogs', options]),
     cachedProviderSetup: async (options) => {
       calls.push(['setup', options]);
-      return { providers: options.quick ? 'quick' : options.force ? 'forced' : 'full' };
+      if (options.quick) return { providers: 'quick' };
+      return { providers: options.force ? 'forced' : 'full' };
     },
     getUsageDashboard: async (options) => ['dashboard', options],
     consumeCodexRateLimitResetCredit: async (options) => ['reset', options],

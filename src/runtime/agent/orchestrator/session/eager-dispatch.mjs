@@ -73,13 +73,9 @@ export function createEagerDispatcher({
       const call = calls[j];
       if (!call?.id || !isParallelDispatchable(call.name)) continue;
       if (dupSet?.has(call.id)) continue;
-      // A null return here is NOT a state barrier. It means a
-      // non-barrier stub — intra-turn in-flight dup, repeat-failure /
-      // cross-turn dedup, pre-dispatch-deny, invalid-args, or a cache
-      // short-circuit. `continue` (not `break`) so a stub in the
-      // middle of the run does not stop LATER independent calls from
-      // starting early.
-      if (!startEagerTool(call) && !pending.has(call.id)) continue;
+      // Admission skips are not ordering barriers: later independent calls
+      // must still start after a dedup, denial, invalid-args, or cache stub.
+      startEagerTool(call);
     }
   };
   const onToolCall = (call) => {

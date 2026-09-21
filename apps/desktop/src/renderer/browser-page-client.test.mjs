@@ -277,6 +277,32 @@ test('stale hover is silent but rejected clicks and other errors report once wit
   assert.equal(sent.length, 3);
 });
 
+test('tab controls refresh the displayed page while ordinary controls do not', async () => {
+  let reads = 0;
+  const client = createBrowserPageClient({
+    sessionId: 's',
+    update() {},
+    failure: (error) => assert.fail(error),
+    api: {
+      browserPageFrame: async () => frame(`p1:${++reads}`),
+      browserPageControl: async () => {},
+    },
+  });
+  await client.poll();
+  for (const [action, expectedDocument] of [
+    [{ type: 'new-tab' }, 'p1:2'],
+    [{ type: 'select-tab', tabId: 'p2' }, 'p1:3'],
+    [{ type: 'close-tab', tabId: 'p2' }, 'p1:4'],
+    [{ type: 'text', text: 'edit' }, 'p1:4'],
+    [{ type: 'reload' }, 'p1:4'],
+    [{ type: 'stop' }, 'p1:4'],
+  ]) {
+    await client.control(action);
+    assert.equal(client.frame().documentId, expectedDocument);
+  }
+  client.dispose();
+});
+
 test('fire reports an input admission failure only once', async () => {
   const failures = [];
   const client = createBrowserPageClient({

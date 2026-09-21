@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { RecordValue } from './desktop-types';
 import { absolutePathsForDragPayload, localFilesFromPaths } from './file-drag';
-import { attachmentFromFile, attachmentPolicyError, isSupportedComposerImagePath } from './composer-attachments';
+import { attachmentFromFile, attachmentPolicyError, isSupportedComposerImagePath, UnsupportedComposerFileError } from './composer-attachments';
 import { MAX_COMPOSER_ATTACHMENTS, type ComposerAttachment } from './composer-support';
 import { insertComposerToken, takeRejectedComposerSubmissionRecoveries } from './composer-draft';
 import { absolutePathTokens, projectMentionTokens, restoreAttachmentsFromRecord } from './composer-attachment-restore';
@@ -171,7 +171,9 @@ export function useComposerAttachments({
           if (insertAttachment(attachment)) continue;
         } catch (reason) {
           if (transitioningRef.current) return;
-          setAttachmentError(reason instanceof Error ? reason.message : String(reason));
+          if (!(reason instanceof UnsupportedComposerFileError)) {
+            setAttachmentError(reason instanceof Error ? reason.message : String(reason));
+          }
         }
         // Native selections retain their OS path; materialized internal drops
         // need the source path carried separately from their in-memory File.
@@ -190,6 +192,7 @@ export function useComposerAttachments({
   const attachLocalPaths = useCallback(
     async (paths: string[]) => {
       if (transitioningRef.current) return;
+      setAttachmentError('');
       const loaded = await localFilesFromPaths(window.mixdogDesktop, paths);
       if (transitioningRef.current) return;
       if (loaded.files.length) await attachFiles(loaded.files, loaded.sourcePaths);
@@ -225,6 +228,7 @@ export function useComposerAttachments({
     attachFiles,
     attachLocalPaths,
     attachProjectPaths,
+    insertAbsolutePaths,
   });
 
   const restoredAttachments = useCallback(

@@ -361,10 +361,8 @@ async function startHeadlessRuntime(
   }
 ) {
   run.boundary = boundaryFactory({ provider, model, effort, fast });
-  // Fire-and-forget search prewarm, matching the long-lived host. Warm both
-  // the resident server and this Project's complete path inventory so the
-  // first normal find/glob does real indexed work instead of paying startup
-  // or a cold tree walk. Non-fatal by construction.
+  // Fire-and-forget resident search server prewarm, matching the long-lived
+  // host. Non-fatal by construction.
   if (!/^(1|true|yes|on)$/i.test(String(process.env.MIXDOG_DISABLE_TOOL_PREWARM || '').trim())) {
     void prewarmHeadlessSearch(cwd).catch(() => {});
   }
@@ -390,9 +388,8 @@ async function startHeadlessRuntime(
   }
 }
 
-// Headless defaults: web research and memory tools stay OFF unless the
-// caller opts in via --web-search / --memory. Delegation is already
-// disallowed below, completing the solo surface. The per-process
+// Headless defaults: web research stays OFF unless the caller opts in via
+// --web-search; memory and delegation stay disallowed. The per-process
 // MIXDOG_FEATURE_* overrides are the runtime's canonical switches.
 async function createHeadlessSessionRuntime(boundary, { provider, model, cwd, webSearch, runtimeFactory }) {
   const createRuntime = runtimeFactory || (await import('./mixdog-session-runtime.mjs')).createMixdogSessionRuntime;

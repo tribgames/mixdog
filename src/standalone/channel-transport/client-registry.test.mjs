@@ -196,6 +196,9 @@ test('attachSse flushes the pending frame, replays the sticky badge only to the 
 
   reg.dropClient(a, 'test');
   reg.dropClient(b, 'test');
+  const removalLogCount = logs.length;
+  reg.dropClient(a, 'already removed');
+  assert.equal(logs.length, removalLogCount, 'dropping an absent client is a no-op');
   assert.equal(state.pointerToken, null);
   assert.equal(published.length, 2);
   assert.equal(res2.ended, true, 'dropping a client ends its stream');

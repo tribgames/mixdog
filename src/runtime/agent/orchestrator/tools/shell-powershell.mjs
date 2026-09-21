@@ -42,7 +42,7 @@ export function _maybeEncodePowerShellCommand(command) {
       // outer-shell wrappers commonly use backslash form. Without
       // backslash unescape, `pwsh -Command "Get-Process \"foo\""` would
       // base64-encode the literal backslash, breaking inside PowerShell.
-      const unescaped = body.replace(/""/g, '"').replace(/''/g, "'").replace(/\\"/g, '"').replace(/\\'/g, "'");
+      const unescaped = _unescapePowerShellCommandBody(body);
       const encoded = Buffer.from(unescaped, 'utf16le').toString('base64');
       const trimmedFlags = (flags || '').replace(/\s+/g, ' ').trim();
       return `${exe}${trimmedFlags ? ` ${trimmedFlags}` : ''} -EncodedCommand ${encoded}`;

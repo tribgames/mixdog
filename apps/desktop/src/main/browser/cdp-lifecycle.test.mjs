@@ -6,13 +6,6 @@ import { BrowserGuestStateStore } from './guest-state.ts';
 import { MAX_CHILD_CDP_SESSIONS } from './command.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
-function deferred() {
-  let resolve;
-  const promise = new Promise((yes) => {
-    resolve = yes;
-  });
-  return { promise, resolve };
-}
 function fixture(send = async () => ({}), matchInterceptRule = () => undefined, pageGuardScripts = undefined) {
   const state = new BrowserGuestStateStore();
   const calls = [];
@@ -243,7 +236,7 @@ test('a cancelled request is recorded but never volunteered as a page failure', 
 });
 
 test('detach during initialization prevents late auto-attach and permits a fresh connection', async () => {
-  const pending = deferred();
+  const pending = Promise.withResolvers();
   let hold = true;
   const f = fixture((method) => (method === 'Page.enable' && hold ? pending.promise : Promise.resolve({})));
   const ready = f.cdp.guestDebugger(f.guest);
@@ -262,7 +255,7 @@ test('detach during initialization prevents late auto-attach and permits a fresh
 });
 
 test('closing a page before its initial document commits never attaches the debugger', async () => {
-  const pending = deferred();
+  const pending = Promise.withResolvers();
   const f = fixture();
   f.guest.getURL = () => '';
   f.guest.loadURL = () => pending.promise;
@@ -276,7 +269,7 @@ test('closing a page before its initial document commits never attaches the debu
 });
 
 test('frame removal during initialization does not start late observation domains', async () => {
-  const pending = deferred();
+  const pending = Promise.withResolvers();
   const f = fixture((method, _params, sessionId) =>
     method === 'Page.enable' && sessionId ? pending.promise : Promise.resolve({})
   );
@@ -294,7 +287,7 @@ test('frame removal during initialization does not start late observation domain
 });
 
 test('bridge uninstall blocks concurrent reattachment until detach finishes', async () => {
-  const pending = deferred();
+  const pending = Promise.withResolvers();
   const f = fixture((method) => (method === 'Runtime.evaluate' ? pending.promise : Promise.resolve({})));
   await f.cdp.guestDebugger(f.guest);
   const closing = f.cdp.detach(f.guest, { uninstallScript: 'void 0' });

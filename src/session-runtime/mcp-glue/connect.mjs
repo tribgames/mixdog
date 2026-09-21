@@ -14,10 +14,6 @@ export function createMcpConnect({ mcpClient, getMcpScopeId, state, resolveEffec
     const target = clean(name);
     if (!target) return;
     const { servers } = resolveEffectiveMcpServers();
-    // Definitions stay in their original source. Enabled state is folded from
-    // Mixdog's per-project override for both global and `.mcp.json` entries, so
-    // acting on the effective entry keeps live state aligned without rewriting
-    // a shared project file.
     // Changing this server's state clears any stale failure record for it.
     if (Array.isArray(state.mcpFailures)) {
       state.mcpFailures = state.mcpFailures.filter((row) => row.name !== target);

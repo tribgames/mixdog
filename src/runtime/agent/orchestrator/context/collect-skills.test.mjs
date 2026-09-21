@@ -95,6 +95,35 @@ test('long skill triggers are bounded without exposing UI copy', () => {
   assert.ok(line.length <= '- verbose: '.length + 100);
 });
 
+test('manifest budgets shrink triggers without changing names, ordering, or omission counts', () => {
+  const skills = Array.from({ length: 20 }, (_, index) => ({
+    name: `skill-${String(index).padStart(2, '0')}`,
+    whenToUse: 'word '.repeat(40),
+  })).reverse();
+  const header = [
+    '# available-skills',
+    'Selection triggers and linked tools for Skill({"name":"<skill-name>"}). mcp:<server> denotes that server’s tools.',
+    '<available_skills>',
+  ];
+  assert.equal(
+    buildSkillManifest(skills, { charBudget: 1_000 }),
+    [
+      ...header,
+      ...Array.from(
+        { length: 20 },
+        (_, index) => `- skill-${String(index).padStart(2, '0')}: ${'word '.repeat(10)}word...`
+      ),
+      '</available_skills>',
+    ].join('\n')
+  );
+  assert.equal(
+    buildSkillManifest(skills, { limit: 1 }),
+    [...header, `- skill-00: ${'word '.repeat(18)}word...`, '- ... 19 more skills omitted', '</available_skills>'].join(
+      '\n'
+    )
+  );
+});
+
 test('discovers global standard skill folders and ignores project-local skills and reference Markdown', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-standard-skill-'));
   const previousDataDir = process.env.MIXDOG_DATA_DIR;

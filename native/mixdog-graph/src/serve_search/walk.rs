@@ -335,10 +335,7 @@ pub(super) fn repair_inventory(
         .filter(|path| !anchors.iter().any(|anchor| path_starts_with(path, anchor)))
         .cloned()
         .collect::<Vec<_>>();
-    let mut additions = Vec::new();
-    additions.extend(scan_inventory_anchors(key, &anchors)?);
-    additions.par_sort_unstable();
-    additions.dedup();
+    let additions = scan_inventory_anchors(key, &anchors)?;
     Ok(Arc::new(merge_sorted_inventory(&retained, &additions)))
 }
 

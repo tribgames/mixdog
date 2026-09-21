@@ -8,13 +8,35 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { restoreTranscriptItems } from './session-api-ext.mjs';
 import { preserveGoalStateAfterTurn, transcriptToolCallDisplayMode } from './turn.mjs';
-import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from '../../runtime/shared/task-notification-envelope.mjs';
+import {
+  renderAgentCompletionEnvelope,
+  renderShellCompletionEnvelope,
+} from '../../runtime/shared/task-notification-envelope.mjs';
 
 test('tagged agent and non-zero shell completions restore as tool cards without metadata dumps', () => {
-  const agent = renderAgentCompletionEnvelope({ id: 'task_agent_restore', tag: 'review', status: 'completed', result: 'reviewed files' });
-  const failure = renderAgentCompletionEnvelope({ id: 'task_agent_failed', tag: 'review', status: 'failed', error: 'quota exhausted' });
-  const shell = renderShellCompletionEnvelope({ jobId: 'job_restore', status: 'completed', exitCode: 2, command: 'npm test', stdoutPreview: 'one test failed' });
-  const items = restoreTranscriptItems([agent, failure, shell].map((content) => ({ role: 'user', content })), { sessionId: 'sess_tagged_restore' });
+  const agent = renderAgentCompletionEnvelope({
+    id: 'task_agent_restore',
+    tag: 'review',
+    status: 'completed',
+    result: 'reviewed files',
+  });
+  const failure = renderAgentCompletionEnvelope({
+    id: 'task_agent_failed',
+    tag: 'review',
+    status: 'failed',
+    error: 'quota exhausted',
+  });
+  const shell = renderShellCompletionEnvelope({
+    jobId: 'job_restore',
+    status: 'completed',
+    exitCode: 2,
+    command: 'npm test',
+    stdoutPreview: 'one test failed',
+  });
+  const items = restoreTranscriptItems(
+    [agent, failure, shell].map((content) => ({ role: 'user', content })),
+    { sessionId: 'sess_tagged_restore' }
+  );
   const cards = items.filter((item) => item.kind === 'tool');
   assert.equal(cards.length, 3);
   assert.equal(cards[0].args.tag, 'review');
@@ -24,7 +46,10 @@ test('tagged agent and non-zero shell completions restore as tool cards without 
   assert.equal(cards[2].name, 'shell');
   assert.equal(cards[2].isError, false);
   assert.match(cards[2].result, /one test failed/);
-  assert.equal(items.some((item) => item.kind === 'user'), false);
+  assert.equal(
+    items.some((item) => item.kind === 'user'),
+    false
+  );
 });
 
 const wrapper = (taskId, body) =>
@@ -59,8 +84,7 @@ test('completion wrapper user rows restore as tool cards, not dropped rows', () 
     { role: 'user', content: wrapper('job_regress_1', bodyFor('job_regress_1')) },
     { role: 'assistant', content: '완료 보고.' },
   ];
-  const restored = restoreTranscriptItems(messages, { sessionId: 'sess_test' });
-  const items = Array.isArray(restored) ? restored : restored.items;
+  const items = restoreTranscriptItems(messages, { sessionId: 'sess_test' });
   const card = items.find((it) => it?.kind === 'tool' && it?.args?.task_id === 'job_regress_1');
   assert.ok(card, 'wrapper row must project a tool card');
   assert.equal(card.isError, false);
@@ -74,8 +98,7 @@ test('non-wrapper internal rows stay suppressed on restore', () => {
     { role: 'user', content: '<system-reminder>internal</system-reminder>' },
     { role: 'user', content: '[mixdog-runtime] nudge' },
   ];
-  const restored = restoreTranscriptItems(messages, { sessionId: 'sess_test2' });
-  const items = Array.isArray(restored) ? restored : restored.items;
+  const items = restoreTranscriptItems(messages, { sessionId: 'sess_test2' });
   assert.equal(items.filter((it) => it?.kind === 'user').length, 0);
 });
 

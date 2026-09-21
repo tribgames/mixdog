@@ -1,10 +1,26 @@
-import { canFallbackNonStreaming, markProviderRecoveryExhausted, retryDelayLabel, withRetry } from './retry-classifier.mjs';
+import {
+  canFallbackNonStreaming,
+  markProviderRecoveryExhausted,
+  retryDelayLabel,
+  withRetry,
+} from './retry-classifier.mjs';
 import { consumeCompatChatCompletionStream } from './openai-compat-stream.mjs';
 import { getModelMetadataSync } from './model-catalog.mjs';
 import { appendAgentTrace } from '../agent-trace.mjs';
 import { providerRetryStatusText } from '../../../shared/err-text.mjs';
-import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, PROVIDER_GENERATE_TOTAL_TIMEOUT_MS, createPassthroughSignal } from '../stall-policy.mjs';
-import { resolveCompatMaxOutputTokens, toOpenAIMessages, toOpenAITools, parseToolCalls, knownToolNamesFromOpenAITools, deepseekReplaysReasoningContent } from './openai-compat-wire.mjs';
+import {
+  PROVIDER_FIRST_BYTE_TIMEOUT_MS,
+  PROVIDER_GENERATE_TOTAL_TIMEOUT_MS,
+  createPassthroughSignal,
+} from '../stall-policy.mjs';
+import {
+  resolveCompatMaxOutputTokens,
+  toOpenAIMessages,
+  toOpenAITools,
+  parseToolCalls,
+  knownToolNamesFromOpenAITools,
+  deepseekReplaysReasoningContent,
+} from './openai-compat-wire.mjs';
 import { applyCompatProviderChatOptions } from './openai-compat-options.mjs';
 import { normalizeCompatChatResponse } from './openai-compat-response-normalization.mjs';
 import { applyCompatToolChoice } from './compat-request-policy.mjs';

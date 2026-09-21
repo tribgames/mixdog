@@ -7,7 +7,10 @@ export {
 import { displayShellCommand } from './shell-display.mjs';
 
 function escapeField(value) {
-  return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function decodeField(value) {
@@ -19,7 +22,10 @@ function field(name, value) {
 }
 
 export function taskCompletionSummary({ surface = 'tool', id, tag, status, error, detail } = {}) {
-  const subject = surface === 'agent' ? `Agent "${tag || id}"` : `${surface === 'shell' ? 'Shell' : surface} task`;
+  let subject;
+  if (surface === 'agent') subject = `Agent "${tag || id}"`;
+  else if (surface === 'shell') subject = 'Shell task';
+  else subject = `${surface} task`;
   const outcome = status === 'cancelled' || status === 'canceled' ? 'was cancelled' : status || 'completed';
   return `${subject} ${outcome}${status === 'failed' && error ? `: ${error}` : ''}${detail ? ` (${detail})` : ''}`;
 }
@@ -34,7 +40,9 @@ export function renderTaskCompletionEnvelope({ surface = 'tool', id, tag, status
     result ? `<result>\n${result}\n</result>` : null,
     status === 'failed' && error ? field('error', error) : null,
     '</task-notification>',
-  ].filter((line) => line !== null).join('\n');
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
 }
 
 export function renderAgentCompletionEnvelope(options = {}) {
@@ -60,8 +68,10 @@ export function parseTaskNotification(text) {
     fields[match[1]] = decodeField(match[2]);
   }
   if (!fields['task-id'] || !/^(completed|failed|cancelled)$/.test(fields.status || '') || !fields.summary) return null;
-  const surface = fields.summary.startsWith('Agent "') ? 'agent' : fields.summary.startsWith('Shell task ')
-    ? 'shell' : /^(\S+) task /.exec(fields.summary)?.[1] || 'tool';
+  let surface;
+  if (fields.summary.startsWith('Agent "')) surface = 'agent';
+  else if (fields.summary.startsWith('Shell task ')) surface = 'shell';
+  else surface = /^(\S+) task /.exec(fields.summary)?.[1] || 'tool';
   return {
     taskId: fields['task-id'],
     tag: fields.tag || '',
@@ -85,8 +95,11 @@ export function taskNotificationId(text) {
   const parsed = parseTaskNotification(text);
   if (parsed) return parsed.taskId;
   const value = String(text ?? '');
-  return /^(?:> )?(?:\[?task_id:|agent task:)\s*([^\s\]]+)/im.exec(value)?.[1]
-    || /^Async \S+ task (\S+) /i.exec(value)?.[1] || '';
+  return (
+    /^(?:> )?(?:\[?task_id:|agent task:)\s*([^\s\]]+)/im.exec(value)?.[1] ||
+    /^Async \S+ task (\S+) /i.exec(value)?.[1] ||
+    ''
+  );
 }
 
 // The full command is already visible in the start response / task record;
@@ -132,7 +145,9 @@ export function renderShellCompletionEnvelope({
     body ? `<result>\n${body}\n</result>` : null,
     normalizedStatus === 'failed' && error ? field('error', error) : null,
     '</task-notification>',
-  ].filter((line) => line !== null).join('\n');
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
 }
 
 export function renderShellCompletionNotice(options) {

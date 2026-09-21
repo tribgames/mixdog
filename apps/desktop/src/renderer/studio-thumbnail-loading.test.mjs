@@ -140,3 +140,67 @@ test('thumbnail hydration cancels active work on unmount and skips already-cance
   );
   assert.equal(started, false);
 });
+
+for (const interruption of ['direct load', 'deactivation', 'unmount']) {
+  test(`late Studio thumbnail fallback is ignored after ${interruption}`, async () => {
+    window.localStorage.clear();
+    window.localStorage.setItem('mixdog.studio-draft.v1', JSON.stringify({ kind: 'video' }));
+    let finishRead;
+    const cached = [];
+    const api = {
+      mediaUrl: (id) => `https://mixdog.test/media/${id}`,
+      invokeCapability: async ({ capability, args = [] }) => {
+        let value = null;
+        if (capability === 'listMediaLanes') value = [];
+        if (capability === 'listMediaAssets') {
+          const rows = args[0].kind === 'video' ? [{ ...assets[0], kind: 'video', mime: 'video/mp4' }] : [];
+          value = { assets: rows, total: rows.length };
+        }
+        if (capability === 'readMediaAsset') {
+          value = await new Promise((resolve) => {
+            finishRead = resolve;
+          });
+        }
+        if (capability === 'cacheMediaThumbnail') cached.push(args);
+        return { value, snapshot: null };
+      },
+    };
+    const referenceStore = { read: async () => [], write: async () => {}, remove: async () => {} };
+    const host = document.createElement('main');
+    document.body.append(host);
+    const root = createRoot(host);
+    let mounted = true;
+    try {
+      await act(async () => root.render(React.createElement(StudioPane, { api, referenceStore })));
+      const image = host.querySelector('[data-studio-asset-id="first"] img');
+      assert.equal(image?.getAttribute('src'), 'https://mixdog.test/media/first');
+      // Video tiles retain their direct URL while the 120ms stall timer starts fallback.
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      });
+      assert.equal(typeof finishRead, 'function');
+      await act(async () => {
+        if (interruption === 'direct load') image.dispatchEvent(new window.Event('load'));
+        else if (interruption === 'deactivation') {
+          root.render(React.createElement(StudioPane, { api, referenceStore, active: false }));
+        } else {
+          root.unmount();
+          mounted = false;
+        }
+      });
+      await act(async () => finishRead(payload));
+      assert.deepEqual(cached, [], 'discarded fallback results must not be persisted');
+      if (mounted) {
+        assert.equal(
+          host.querySelector('[data-studio-asset-id="first"] img')?.getAttribute('src'),
+          'https://mixdog.test/media/first'
+        );
+      } else {
+        assert.equal(host.childElementCount, 0);
+      }
+    } finally {
+      if (mounted) await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}

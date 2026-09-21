@@ -1,7 +1,5 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-// runtime-fetcher.mjs — P1 runtime fetcher for mixdog 0.4.0
-// runtime-fetcher.mjs
 // REQUIRES: `tar` (bsdtar-compatible) on PATH.
 // On Windows, bsdtar ships with Windows 10 1803+ as %SystemRoot%\System32\tar.exe.
 // If tar is missing, ensureRuntime() throws with an actionable error message.

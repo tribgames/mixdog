@@ -73,13 +73,8 @@ export function scoreTopNContains(items, substrings, n) {
   const lower = items.map((item) => item.text.toLowerCase());
   const perSubstring = substrings.map((needle) => {
     const target = String(needle || '').toLowerCase();
-    let rank = null;
-    for (let i = 0; i < lower.length; i += 1) {
-      if (target && lower[i].includes(target)) {
-        rank = i + 1;
-        break;
-      }
-    }
+    const index = lower.findIndex((text) => target && text.includes(target));
+    const rank = index === -1 ? null : index + 1;
     const hit = rank !== null && rank <= n;
     return { needle, rank, hit, rr: hit ? 1 / rank : 0 };
   });

@@ -676,7 +676,6 @@ function scalarBytes(type, value) {
 
 function shouldWrite(type, value) {
   if (value == null) return false;
-  if (isMessageType(type) || type === 'raw' || type === 'bytes') return true;
   if (type === 'string') return value !== '';
   return true;
 }

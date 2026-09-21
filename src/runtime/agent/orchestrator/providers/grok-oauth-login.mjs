@@ -18,7 +18,6 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 
-// --- Constants ---
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
 import {
   CLIENT_ID,

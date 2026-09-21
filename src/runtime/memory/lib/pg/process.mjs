@@ -2,7 +2,6 @@ import { __mixdogMemoryLog } from '../memory-log.mjs';
 import { sleep as delay } from '../../../shared/sleep.mjs';
 
 // pg-process.mjs — lower-level PG lifecycle helpers for mixdog 0.4.0
-// Track B can wire these into the supervisor; pg-adapter calls them directly.
 //
 // Public API:
 //   startPg({ runtimeDir, pgdataDir, port?, logPath? }) → { pid, port }
@@ -71,7 +70,7 @@ function readPostmasterInfo(pgdataDir) {
   }
 }
 
-async function awaitExistingPostmaster({ runtimeDir, pgdataDir, env, waitMs }) {
+async function awaitExistingPostmaster({ pgdataDir, waitMs }) {
   const deadline = Date.now() + Math.max(0, Number(waitMs) || 0);
   let info = readPostmasterInfo(pgdataDir);
   while (info.pid && info.port) {

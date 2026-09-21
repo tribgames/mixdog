@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { appendBuffered } from '../runtime/shared/buffered-appender.mjs';
 import { ensurePrivateRuntimeRoot, resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
@@ -26,8 +27,6 @@ function logLine(path, line) {
     appendBuffered(path, `[${new Date().toISOString()}] ${line}\n`);
   } catch {}
 }
-
-const delay = (ms) => new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 
 export function createStandaloneChannelWorker({
   rootDir,

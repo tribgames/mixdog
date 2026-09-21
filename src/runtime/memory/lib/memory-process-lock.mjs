@@ -1,4 +1,4 @@
-// Process lock for the standalone memory MCP entry. Product mode is hosted
+// Process lock for the standalone memory MCP entry.
 // A direct entry (including the isolated daemon child) owns this lock.
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';

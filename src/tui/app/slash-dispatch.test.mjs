@@ -1,18 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createSlashDispatch } from './slash-dispatch.mjs';
+import { normalizeSlashCommandName, SLASH_COMMANDS, slashCommandTokenForPaletteAccept } from './slash-commands.mjs';
 
 // runSlashCommand against a fake store: which opener or store call each
 // command reaches, what it reports, and when a busy state refuses it.
-
-const flush = async (rounds = 4) => {
-  for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-};
 
 function createHarness({ state = {}, store: overrides = {} } = {}) {
   supersedePanelEpoch();
@@ -72,10 +67,7 @@ function createHarness({ state = {}, store: overrides = {} } = {}) {
   const { runSlashCommand } = createSlashDispatch({
     state: { busy: false, commandBusy: false, provider: 'openai', model: 'gpt-5', ...state },
     store,
-    normalizeSlashCommandName: (cmd) => {
-      const lower = String(cmd || '').toLowerCase();
-      return lower === 'new' ? 'clear' : lower;
-    },
+    normalizeSlashCommandName,
     surface,
     closeUsagePanel: () => {},
     openModelPicker: opener('model'),
@@ -263,4 +255,37 @@ test('session commands: /new, /clear, /compact outcomes, /resume id, /inherit, /
   assert.ok(messages.includes('unknown command: /bogus'));
   assert.deepEqual(h.doctors, [1]);
   assert.deepEqual(h.exits, [1]);
+});
+
+test('command aliases reach the same panels and exit action through the real normalizer', () => {
+  const h = createHarness();
+  for (const [command, opener] of [
+    ['projects', 'project'],
+    ['style', 'outputstyle'],
+    ['output-style', 'outputstyle'],
+    ['setting', 'settings'],
+    ['config', 'settings'],
+  ]) {
+    assert.equal(h.runSlashCommand(command), true);
+    assert.equal(h.opened.at(-1)[0], opener);
+  }
+  assert.equal(h.runSlashCommand('exit'), true);
+  assert.equal(h.runSlashCommand('q'), true);
+  assert.deepEqual(h.exits, [1, 1]);
+});
+
+test('palette acceptance preserves the full /new alias while partial matches use /clear', async () => {
+  const command = SLASH_COMMANDS.find((entry) => entry.name === 'clear');
+  const h = createHarness();
+  const newToken = slashCommandTokenForPaletteAccept(command, '/NEW');
+  const clearToken = slashCommandTokenForPaletteAccept(command, '/ne');
+  assert.equal(newToken, 'new');
+  assert.equal(clearToken, 'clear');
+  assert.equal(h.runSlashCommand(newToken), true);
+  assert.equal(h.runSlashCommand(clearToken), true);
+  await flush();
+  assert.deepEqual(
+    h.calls.map(([name]) => name),
+    ['newSession', 'clear']
+  );
 });

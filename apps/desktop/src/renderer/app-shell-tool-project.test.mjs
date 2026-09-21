@@ -24,7 +24,7 @@ test('useAppToolProject tracks active tool project, allows override, and persist
     Object.defineProperty(globalThis, key, { configurable: true, value });
 
   let hookResult;
-  function TestHarness({ navSel, overridePath }) {
+  function TestHarness({ navSel }) {
     const res = useAppToolProject({
       navigationSelection: navSel,
       focusedPaneSelection: null,

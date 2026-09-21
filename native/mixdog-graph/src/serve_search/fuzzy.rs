@@ -88,18 +88,7 @@ pub(super) fn retain_fuzzy_path(
         score,
         path: path.to_string(),
     };
-    if matches.len() < limit {
-        matches.push(candidate);
-        return;
-    }
-    let replace = matches.peek().is_some_and(|worst| {
-        candidate.score > worst.score
-            || (candidate.score == worst.score && candidate.path < worst.path)
-    });
-    if replace {
-        matches.pop();
-        matches.push(candidate);
-    }
+    retain_bounded(matches, candidate, limit);
 }
 
 impl Ord for FuzzyHit {
@@ -140,32 +129,16 @@ pub(super) fn handle_fuzzy(
         0
     };
     let parsed = ParsedArgs {
-        patterns: Vec::new(),
         globs: req.exclude.clone(),
-        iglobs: Vec::new(),
         targets: vec![".".to_string()],
-        before: 0,
-        after: 0,
         case_insensitive: true,
-        fixed_strings: false,
         hidden: req.hidden,
         no_ignore: req.include_noise,
-        text: false,
         no_require_git: !req.include_noise,
         max_depth: req.max_depth,
-        line_numbers: false,
-        with_filename: false,
-        files_with_matches: false,
-        count: false,
-        only_matching: false,
-        pcre2: false,
-        multiline: false,
-        multiline_dotall: false,
-        file_types: Vec::new(),
         files_list: true,
         directories: true,
-        max_columns: 0,
-        literal_trigrams: None,
+        ..ParsedArgs::default()
     };
     let root = Path::new(&req.cwd);
     let key = fuzzy_key(root, &parsed);
@@ -357,4 +330,33 @@ pub(super) fn handle_fuzzy(
         "inventoryContinues": !walk_complete && inventory_lease_ms > 0,
         "inventoryLeaseMs": if !walk_complete { inventory_lease_ms } else { 0 },
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounded_fuzzy_hits_keep_best_scores_and_lexical_ties() {
+        let mut hits = std::collections::BinaryHeap::new();
+        for (score, path) in [(5, "early"), (10, "beta"), (10, "alpha"), (3, "late")] {
+            retain_bounded(
+                &mut hits,
+                FuzzyHit {
+                    score,
+                    path: path.to_string(),
+                },
+                2,
+            );
+        }
+        let kept: Vec<_> = hits
+            .into_sorted_vec()
+            .into_iter()
+            .map(|hit| (hit.score, hit.path))
+            .collect();
+        assert_eq!(
+            kept,
+            vec![(10, "alpha".to_string()), (10, "beta".to_string())]
+        );
+    }
 }

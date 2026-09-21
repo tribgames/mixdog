@@ -256,7 +256,7 @@ test('desktop activity drills through repeated categories but keeps singleton to
 test('desktop activity groups by work unit, not by shared category', () => {
   const groups = desktopToolActivityCategoryGroups([
     { kind: 'tool', id: 'git-1', name: 'git', args: { command: 'git status' }, result: 'clean' },
-    { kind: 'tool', id: 'stage-1', name: 'git_stage', args: { diff_id: 'd1', change_ids: ['c1'] }, result: 'staged' },
+    { kind: 'tool', id: 'stage-1', name: 'git', args: { action: 'stage', diff_id: 'd1', change_ids: ['c1'] }, result: 'staged' },
     { kind: 'tool', id: 'graph-1', name: 'code_graph', args: { mode: 'overview', files: ['a.ts'] }, result: 'ok' },
     { kind: 'tool', id: 'read-1', name: 'read', args: { file_path: 'a.ts' }, result: 'ok' },
     // External MCP calls keep separate server-name buckets.
@@ -345,9 +345,18 @@ test('desktop activity normalizes common provider tool aliases', () => {
 });
 
 test('desktop git cards retain native output and label command failures', () => {
-  for (const result of ['## main\n M a.txt\n', '{"keep": "spacing"}\n', '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing']) {
+  for (const result of [
+    '## main\n M a.txt\n',
+    '{"keep": "spacing"}\n',
+    '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing',
+  ]) {
     const card = desktopToolActivityItemPresentation({
-      kind: 'tool', id: 'git-text', name: 'git', args: { command: 'git status' }, result, completedAt: 1,
+      kind: 'tool',
+      id: 'git-text',
+      name: 'git',
+      args: { command: 'git status' },
+      result,
+      completedAt: 1,
     });
     assert.equal(card.outputText, result.trimEnd());
     assert.equal(card.outputLanguage, '');
@@ -509,6 +518,16 @@ test('desktop activity keeps agent action and response titles specific', () => {
     completedAt: 1,
   });
   assert.match(spawn.title, /^Spawn Worker/);
+
+  const response = desktopToolActivityItemPresentation({
+    kind: 'tool',
+    id: 'agent-response',
+    name: 'agent',
+    args: { agent: 'worker' },
+    result: 'Reviewed the change.',
+    completedAt: 1,
+  });
+  assert.equal(response.title, 'Response Worker');
 });
 
 test('expanded tool detail stays in the runtime English while chips localize', () => {

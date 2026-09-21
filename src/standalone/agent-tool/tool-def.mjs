@@ -1,5 +1,4 @@
-// Static agent-tool descriptor + spawn/route constants. Values are byte-identical
-// to the originals.
+// Static agent-tool descriptor and spawn/route constants.
 
 export const PRESET_ALIASES = new Map([
   ['opus-xhigh', { base: 'opus-high', effort: 'xhigh', id: 'opus-xhigh', name: 'OPUS XHIGH' }],

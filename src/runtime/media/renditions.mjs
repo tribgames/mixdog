@@ -25,8 +25,8 @@ const SPECS = {
   thumb: { maxEdge: 512, quality: 70 },
   display: { maxEdge: 2048, quality: 82 },
 };
-// Probe order when reading a cached rendition: sharp writes webp, the
-// ffmpeg-only poster path writes png.
+// Probe order when reading a cached rendition: sharp writes webp, browser
+// thumbnails may be png, and ffmpeg posters are jpg.
 const EXTENSION_MIME = {
   '.webp': 'image/webp',
   '.png': 'image/png',
@@ -401,11 +401,7 @@ export async function ensureRendition({
   return pending;
 }
 
-const RENDITION_EXTENSIONS = new Map([
-  ['image/webp', '.webp'],
-  ['image/png', '.png'],
-  ['image/jpeg', '.jpg'],
-]);
+const RENDITION_EXTENSIONS = new Map(Object.entries(EXTENSION_MIME).map(([extension, mime]) => [mime, extension]));
 
 /** Persist a small browser-generated fallback so a codec miss is paid once. */
 export function cacheRendition({ id, variant = 'thumb', mime, buffer, cacheDir }) {

@@ -131,7 +131,7 @@ pub(super) enum WireRequest {
     },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub(super) struct ParsedArgs {
     pub(super) patterns: Vec<String>,
     pub(super) globs: Vec<String>,
@@ -211,34 +211,7 @@ impl PathFilter {
 }
 
 pub(super) fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
-    let mut p = ParsedArgs {
-        patterns: Vec::new(),
-        globs: Vec::new(),
-        iglobs: Vec::new(),
-        targets: Vec::new(),
-        before: 0,
-        after: 0,
-        case_insensitive: false,
-        fixed_strings: false,
-        hidden: false,
-        no_ignore: false,
-        text: false,
-        no_require_git: false,
-        max_depth: None,
-        line_numbers: false,
-        with_filename: false,
-        files_with_matches: false,
-        count: false,
-        only_matching: false,
-        pcre2: false,
-        multiline: false,
-        multiline_dotall: false,
-        file_types: Vec::new(),
-        files_list: false,
-        directories: false,
-        max_columns: 0,
-        literal_trigrams: None,
-    };
+    let mut p = ParsedArgs::default();
     let mut i = 0usize;
     let mut options = true;
     let take = |i: &mut usize, args: &[String]| -> Result<String, String> {

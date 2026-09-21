@@ -289,7 +289,8 @@ function applyTurnUsageDelta({ turn, getState, set, syncContextStats }, delta) {
 function turnHandlers(ctx) {
   const { isCurrentTurn, drainPendingSteering } = ctx;
   return {
-    drainSteering: (_sessionId, drainOptions) => (isCurrentTurn() ? drainPendingSteering(drainOptions) : []),
+    drainSteering: (_sessionId, drainOptions) =>
+      isCurrentTurn() ? drainPendingSteering({ ...drainOptions, turnEpoch: ctx.turn.epoch }) : [],
     onStreamDelta: () => {},
     onSteerMessage: (text, steeringMeta = {}) => {
       if (isCurrentTurn()) injectSteerMessage(ctx, text, steeringMeta);
@@ -480,6 +481,17 @@ async function settleTurn(ctx) {
   ctx.flushEmit?.();
   stream.publishedThinkingActive = false; // turn teardown cleared thinking
   const finalStatus = turnOutcome(turn.cancelled, turn.failed);
+  const detail = {
+    status: finalStatus,
+    result: turn.askResult,
+    session: runtime.session || null,
+    error: turn.failureDetail || null,
+  };
+  // Publish termination before optional Goal work can delay the caller.
+  bag.settleSteeredSubmissions?.(turn.epoch, detail);
+  try {
+    options.onSettled?.(detail);
+  } catch {}
   try {
     await bag.onGoalTurnSettled?.({
       status: finalStatus,
@@ -495,14 +507,6 @@ async function settleTurn(ctx) {
     });
   } catch {}
   if (flags.goalSteeringAbortEpoch === turn.epoch) flags.goalSteeringAbortEpoch = null;
-  try {
-    options.onSettled?.({
-      status: finalStatus,
-      result: turn.askResult,
-      session: runtime.session || null,
-      error: turn.failureDetail || null,
-    });
-  } catch {}
   ctx.tuiDebug(
     `runTurn end turn=${turn.index} status=${finalStatus} elapsedMs=${Date.now() - turn.startedAt} pending=${ctx.pending.length}`
   );

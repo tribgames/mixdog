@@ -2,18 +2,16 @@ import { traceAgentBatch } from '../agent-trace.mjs';
 import { randomUUID } from 'node:crypto';
 
 // The one definition of the tools that take several targets in one call:
-// `fields` are the documented array inputs (aliases included) the batch trace
+// Values are the documented array inputs (aliases included) the batch trace
 // counts. Keep dimensions separate: grep patterns and scopes, for example,
 // are not interchangeable units of work.
-const ARRAY_SURFACE = new Map([
-  ['read', { fields: ['file_path', 'path'] }],
-  ['grep', { fields: ['pattern', 'path'] }],
-  ['glob', { fields: ['pattern'] }],
-  ['git', { fields: ['command'] }],
-  ['code_graph', { fields: ['files', 'symbols'] }],
+const ARRAY_INPUTS = new Map([
+  ['read', ['file_path', 'path']],
+  ['grep', ['pattern', 'path']],
+  ['glob', ['pattern']],
+  ['git', ['command']],
+  ['code_graph', ['files', 'symbols']],
 ]);
-
-const ARRAY_INPUTS = new Map([...ARRAY_SURFACE].map(([name, surface]) => [name, surface.fields]));
 
 export function recordToolBatch(sessionId, calls, iteration) {
   const n = Array.isArray(calls) ? calls.length : Number(calls);

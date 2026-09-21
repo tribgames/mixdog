@@ -406,7 +406,7 @@ pub(crate) fn preserve_eol(new_bytes: &[u8], slice: &[u8], file: &[u8]) -> Vec<u
     let has_crlf = slice_str.contains("\r\n");
     let has_lf = slice_str.contains('\n');
     if !has_crlf && !has_lf {
-        if file.contains(&b'\r') && !file.contains(&b'\n') {
+        if source_uses_cr_only(file) {
             return new_str
                 .replace("\r\n", "\n")
                 .replace('\n', "\r")

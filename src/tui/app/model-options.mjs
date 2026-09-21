@@ -15,14 +15,9 @@ export const parsedModelVersion = (id) => {
   const compact = text.match(
     /(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/
   );
-  if (compact)
-    return compact
-      .slice(1)
-      .filter((v) => v != null)
-      .map((v) => Number(v) || 0);
-  const generic = text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
-  if (!generic) return [];
-  return generic
+  const version = compact || text.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?/);
+  if (!version) return [];
+  return version
     .slice(1)
     .filter((v) => v != null)
     .map((v) => Number(v) || 0);

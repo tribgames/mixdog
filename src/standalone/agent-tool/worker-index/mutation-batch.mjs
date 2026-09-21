@@ -1,5 +1,5 @@
 // worker-index/mutation-batch.mjs
-// Spawn-path writes are batched onto one microtask so a parallel fanout pays a
+// Spawn-path writes are batched onto one immediate so a parallel fanout pays a
 // single locked rewrite instead of one per worker.
 export function createMutationBatch(write) {
   const pending = [];

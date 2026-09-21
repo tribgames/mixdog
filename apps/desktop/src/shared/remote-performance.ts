@@ -93,9 +93,6 @@ interface RemoteByteMeter {
   clear(): void;
 }
 
-/** Which lane a payload belongs to, read from the shapes remote-relay.ts
- *  actually sends: a named `event`, a compact-wire `e` tag, or an RPC answer
- *  carrying an `id`. */
 /** What a compact frame actually carried. Two frames both named `compact:T`
  *  can be a six-byte streamed suffix and a whole rebuilt state block; only the
  *  shape separates them, and only the field names say which block keeps
@@ -115,6 +112,9 @@ function compactFrameShape(wire: unknown): string {
   return parts.length > 0 ? `:${parts.join('+')}` : ':idle';
 }
 
+/** Which lane a payload belongs to, read from the shapes remote-relay.ts
+ *  actually sends: a named `event`, a compact-wire `e` tag, or an RPC answer
+ *  carrying an `id`. */
 export function remoteFrameLane(payload: unknown): string {
   if (!payload || typeof payload !== 'object') return 'other';
   const record = payload as { event?: unknown; e?: unknown; id?: unknown; w?: unknown };

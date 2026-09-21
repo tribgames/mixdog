@@ -37,6 +37,12 @@ test('a share POST that outran the worker reopens the app shell', () => {
   );
   assert.equal(shareTargetShell('/share-target'), '/');
   assert.equal(shareTargetShell('/other'), '');
+  assert.equal(shareTargetShell('/share-target?source=share#ignored'), '/');
+  assert.equal(shareTargetShell('/%73hare-target'), '/');
+  assert.equal(shareTargetShell('/d/aaaaaaaa/share-target'), '/d/aaaaaaaa/');
+  assert.equal(shareTargetShell('/share-target%'), '');
+  assert.equal(shareTargetShell('http://['), '');
+  assert.equal(shareTargetShell(undefined), '');
   const response = recordingResponse();
   const { recorded } = response;
   serveStatic(

@@ -28,9 +28,6 @@ export function mixdogGlobalDir(kind) {
     return join(process.env.MIXDOG_DATA_DIR || join(mixdogHome(), 'data'), kind);
   }
 }
-function mixdogAssetDirs(_projectDir, kind) {
-  return [mixdogGlobalDir(kind)];
-}
 /**
  * The package's own bundle (src/defaults/) is a plugin root like any other:
  * `plugin.json` + `skills/<name>/SKILL.md`, read in place through the same
@@ -124,7 +121,7 @@ export function collectSkills(cwd) {
   // Each entry remembers its owner so a plugin's skills can be shown and
   // toggled with the plugin instead of as loose entries.
   const sources = [
-    ...mixdogAssetDirs(null, 'skills').map((dir) => ({ dir, source: 'global', plugin: null })),
+    { dir: mixdogGlobalDir('skills'), source: 'global', plugin: null },
     ...pluginSkillDirs().map(({ dir, plugin }) => ({ dir, source: 'plugin', plugin })),
     ...builtinSkillDirs().map((dir) => ({ dir, source: 'builtin', plugin: null })),
   ];
@@ -253,7 +250,7 @@ export function filterSkillsExcludingDisabled(skills, config = null, cwd = null)
 export function collectPromptSkillsCached(cwd, config = null) {
   return filterSkillsExcludingDisabled(collectSkillsCached(cwd), config, cwd);
 }
-// --- Skill cache (mtime-based, keyed by cwd) ---
+// --- Global skill cache (mtime-based) ---
 const _skillsCache = new Map();
 const _mtimeCache = new Map();
 const _MTIME_TTL_MS = 2000;
@@ -263,7 +260,7 @@ export function collectSkillsCached(cwd) {
   void cwd;
   const key = 'global';
   // Same mixdog-owned dirs collectSkills() reads, used as the freshness gate.
-  const skillsDirs = mixdogAssetDirs(null, 'skills');
+  const skillsDirs = [mixdogGlobalDir('skills')];
   skillsDirs.push(skillToolDependenciesRoot());
   skillsDirs.push(...pluginSkillDirs().map(({ dir }) => dir), ...builtinSkillDirs());
   // registry.json itself gates plugin add/remove: removal deletes the
@@ -410,10 +407,6 @@ const SKILL_MANIFEST_TRIGGER_MIN = 60;
 // Whole-manifest ceiling (~1% of a 200k-token window at 4 chars/token).
 const SKILL_MANIFEST_CHAR_BUDGET = 8_000;
 
-function compactSkillManifestText(value, max = SKILL_MANIFEST_TRIGGER_MAX) {
-  return compactPromptManifestText(value, max);
-}
-
 function skillManifestToolNames(skill) {
   const dependencies = Array.isArray(skill?.toolDependencies) ? skill.toolDependencies : [];
   return [
@@ -454,7 +447,7 @@ export function buildSkillManifest(skills, { limit = 80, charBudget = SKILL_MANI
     SKILL_MANIFEST_TRIGGER_MAX,
     Math.max(SKILL_MANIFEST_TRIGGER_MIN, Number.isFinite(perEntry) ? perEntry : SKILL_MANIFEST_TRIGGER_MAX)
   );
-  for (const skill of visible) skill.trigger = compactSkillManifestText(skill.trigger, triggerCap);
+  for (const skill of visible) skill.trigger = compactPromptManifestText(skill.trigger, triggerCap);
   const lines = [
     '# available-skills',
     'Selection triggers and linked tools for Skill({"name":"<skill-name>"}). mcp:<server> denotes that server’s tools.',

@@ -380,7 +380,6 @@ export class ComputerUseCoordinator {
     this.cursors.delete(sessionId);
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
     if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
-      this.userControlActive = false;
       this.takeoverReason = '';
     }
     this.changed();
@@ -516,7 +515,6 @@ export class ComputerUseCoordinator {
     if (this.attentionRequired?.sessionId === sessionId) this.attentionRequired = null;
     this.releaseTargets(sessionId);
     if (this.activities.size === 0 && !this.cleanup.blocked && !this.userControlActive) {
-      this.userControlActive = false;
       this.takeoverReason = '';
     }
   }

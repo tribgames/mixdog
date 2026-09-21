@@ -318,12 +318,8 @@ async function callRuntime(message) {
 }
 
 // ── Memory-cycle agent dispatch ────────────────────────────────────────────
-// Cycle agents (LLM maintenance calls brokered by the daemon) execute in THIS
-// worker: the daemon process is permanent and allocator churn there is
-// unreclaimable, while this worker already recycles above its RSS threshold
-// once fully idle. The orchestrator graph and providers load lazily on the
-// first dispatch; an in-flight dispatch holds an 'agent' admission lease, so
-// the host's recycle guard (activeResources) never interrupts one.
+// Cycle agents (LLM maintenance calls brokered by the daemon) execute in this
+// worker. The orchestrator graph and providers load lazily on the first dispatch.
 let agentGraphPromise = null;
 function loadAgentGraph() {
   const testModule =

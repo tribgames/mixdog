@@ -28,6 +28,7 @@ export function createSessionIntakeApi(bag) {
 
   return {
     getState: () => getPublishedState(),
+    getTurnLiveness: () => runtime.getTurnLiveness?.() || null,
     patchItem,
     restoreOlderTranscript,
     restoreNewerTranscript,

@@ -14,19 +14,14 @@
 //
 // Runs from the package that invokes it: `src/` and `scripts/` under cwd are
 // the roots, so the root package and apps/desktop share this one entry.
-import { spawn } from 'node:child_process';
 import { glob } from 'node:fs/promises';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runNodeTests } from './lib/run-node-tests.mjs';
 
 const ROOTS = ['src', 'scripts'];
 const PATTERNS = ['**/*.test.mjs', '**/*-test.mjs'];
 const EXCLUDED_DIRS = new Set(['node_modules', '.runtime', 'out', 'dist', 'target']);
-// A file URL: node resolves reporter specifiers through the ESM loader, which
-// rejects a bare Windows drive path as an unknown "c:" scheme.
-const REPORTER = pathToFileURL(
-  resolve(dirname(fileURLToPath(import.meta.url)), 'lib', 'test-timing-reporter.mjs')
-).href;
 
 export function laneOf(file) {
   if (/\.live\.test\.mjs$/.test(file)) return 'live';
@@ -54,16 +49,17 @@ export function parseArgs(argv) {
 export async function discoverTestFiles(cwd = process.cwd()) {
   const files = new Set();
   for (const root of ROOTS) {
-    for (const pattern of PATTERNS) {
-      for await (const entry of glob(`${root}/${pattern}`, {
+    for await (const entry of glob(
+      PATTERNS.map((pattern) => `${root}/${pattern}`),
+      {
         cwd,
         exclude: (path) =>
           String(path)
             .split(/[\\/]/)
             .some((segment) => EXCLUDED_DIRS.has(segment)),
-      }))
-        files.add(entry.replaceAll('\\', '/'));
-    }
+      }
+    ))
+      files.add(entry.replaceAll('\\', '/'));
   }
   return [...files].sort();
 }
@@ -86,7 +82,7 @@ async function main() {
     process.exitCode = 1;
     return;
   }
-  const args = [
+  await runNodeTests([
     ...options.nodeArgs,
     // node:test `mock.module` (module-boundary stubs such as the pinned fetch
     // in the browser-document live suite) is still flag-gated on 22/24.
@@ -95,16 +91,7 @@ async function main() {
     // A suite that leaves a handle open (a session runtime closed without
     // waiting for its children) must not hang the whole run.
     '--test-force-exit',
-    '--test-reporter=spec',
-    '--test-reporter-destination=stdout',
-    `--test-reporter=${REPORTER}`,
-    '--test-reporter-destination=stderr',
-    ...files,
-  ];
-  const child = spawn(process.execPath, args, { stdio: 'inherit' });
-  child.on('exit', (code, signal) => {
-    process.exitCode = code ?? (signal ? 1 : 0);
-  });
+  ], files);
 }
 
 const invoked = process.argv[1] ? resolve(process.argv[1]) : '';

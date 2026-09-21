@@ -3,9 +3,7 @@
  *
  * Owns chunk aggregation, completion assertions,
  * timeout/truncation error shapes and the text leak guard that recovers
- * tool calls emitted as plain text. gemini.mjs imports the consumer entry
- * points; parseToolCalls/emitGeminiToolCalls stay in gemini.mjs and are
- * imported back (function-level, no init-time cycle).
+ * tool calls emitted as plain text.
  */
 import {
   PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -107,10 +105,7 @@ function normalizeGeminiSdkStreamError(err, label) {
 // never shown, so it is not a replay boundary. Relayed-text stalls also gain
 // streamStalled + partialContent so the loop's partial-final path can keep
 // the streamed output instead of dropping the turn.
-function stampGeminiStreamFailure(
-  err,
-  { relayedText = '', textLeakGuard = null, sawFunctionCall = false, chunks = [] } = {}
-) {
+function stampGeminiStreamFailure(err, { relayedText = '', textLeakGuard = null, chunks = [] } = {}) {
   if (!err || typeof err !== 'object') return err;
   const leaked = (textLeakGuard?.getLeakedToolCalls?.() || []).length > 0;
   const finalizedText = textLeakGuard?.getRelayedText?.();
@@ -148,14 +143,6 @@ function stampGeminiStreamFailure(
     /* best-effort */
   }
   return err;
-}
-
-// True when a streamed Gemini chunk carries a native functionCall part (as
-// opposed to a tool call leaked as plain text, tracked by textLeakGuard).
-function geminiChunkHasFunctionCall(chunk) {
-  const parts = chunk?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return false;
-  return parts.some((p) => p?.functionCall);
 }
 
 export function geminiChunkProgressKind(chunk) {
@@ -399,7 +386,6 @@ export async function consumeGeminiRestStreamResponse(
   const allChunks = [];
   let sawStreamChunk = false;
   let relayedText = '';
-  let sawFunctionCall = false;
   let leakGuardFinalized = false;
   const finalizeLeakGuard = () => {
     if (leakGuardFinalized) return;
@@ -426,7 +412,6 @@ export async function consumeGeminiRestStreamResponse(
     try {
       onStreamDelta?.(geminiChunkProgressKind(parsed));
     } catch {}
-    if (!sawFunctionCall && geminiChunkHasFunctionCall(parsed)) sawFunctionCall = true;
     if (onTextDelta || textLeakGuard) {
       relayedText += relayGeminiStreamText(geminiChunkText(parsed), { onTextDelta, textLeakGuard });
     }
@@ -492,7 +477,7 @@ export async function consumeGeminiRestStreamResponse(
     }
   } catch (err) {
     finalizeLeakGuard();
-    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: allChunks });
+    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks });
   } finally {
     watchdogs.stop();
     if (signal) signal.removeEventListener('abort', onAbort);
@@ -515,7 +500,7 @@ export async function consumeGeminiRestStreamResponse(
   try {
     assertGeminiStreamCompleted({ sawStreamChunk, finishReason, promptBlockReason, label });
   } catch (err) {
-    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, sawFunctionCall, chunks: allChunks });
+    throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks });
   }
   return aggregated;
 }
@@ -534,7 +519,6 @@ export async function consumeGeminiSdkStream(
   }
 ) {
   let relayedText = '';
-  let sawFunctionCall = false;
   let leakGuardFinalized = false;
   const finalizeLeakGuard = () => {
     if (leakGuardFinalized) return;
@@ -594,7 +578,6 @@ export async function consumeGeminiSdkStream(
       try {
         onStreamDelta?.(geminiChunkProgressKind(step.value));
       } catch {}
-      if (!sawFunctionCall && geminiChunkHasFunctionCall(step.value)) sawFunctionCall = true;
       if (onTextDelta || textLeakGuard) {
         const t = geminiChunkText(step.value);
         relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
@@ -626,7 +609,7 @@ export async function consumeGeminiSdkStream(
     const failure = signal?.aborted ? abortError() : err;
     await cancellation.cancelInFlight(failure);
     finalizeLeakGuard();
-    throw stampGeminiStreamFailure(failure, { relayedText, textLeakGuard, sawFunctionCall, chunks: collectedChunks });
+    throw stampGeminiStreamFailure(failure, { relayedText, textLeakGuard, chunks: collectedChunks });
   } finally {
     reader?.stop();
     if (signal && onSignalAbort) {

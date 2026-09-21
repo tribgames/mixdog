@@ -3,23 +3,13 @@ import assert from 'node:assert/strict';
 
 import { createSessionOAuthFlowRegistry } from './oauth-flows.mjs';
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((nextResolve, nextReject) => {
-    resolve = nextResolve;
-    reject = nextReject;
-  });
-  return { promise, resolve, reject };
-}
-
 async function settle() {
   await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 test('OAuth flow records null completion and rejection as terminal failures', async () => {
   const registry = createSessionOAuthFlowRegistry();
-  const empty = deferred();
+  const empty = Promise.withResolvers();
   const first = registry.register({ provider: 'openai-oauth', waitForCallback: empty.promise });
   empty.resolve(null);
   await settle();
@@ -28,7 +18,7 @@ test('OAuth flow records null completion and rejection as terminal failures', as
     { state: 'failed', error: 'OAuth login did not complete.' }
   );
 
-  const rejected = deferred();
+  const rejected = Promise.withResolvers();
   const second = registry.register({ provider: 'grok-oauth', waitForCallback: rejected.promise });
   rejected.reject(new Error('token exchange rejected'));
   await settle();
@@ -42,7 +32,7 @@ test('OAuth flow records null completion and rejection as terminal failures', as
 test('OAuth flow cancellation remains queryable and duplicate provider login supersedes only the active flow', async () => {
   const registry = createSessionOAuthFlowRegistry();
   let cancelled = 0;
-  const firstWait = deferred();
+  const firstWait = Promise.withResolvers();
   const first = registry.register({
     provider: 'anthropic-oauth',
     waitForCallback: firstWait.promise,
@@ -51,7 +41,7 @@ test('OAuth flow cancellation remains queryable and duplicate provider login sup
       firstWait.resolve(null);
     },
   });
-  const secondWait = deferred();
+  const secondWait = Promise.withResolvers();
   const second = registry.register({
     provider: 'anthropic-oauth',
     waitForCallback: secondWait.promise,
@@ -75,7 +65,7 @@ test('OAuth flow cancellation remains queryable and duplicate provider login sup
 test('OAuth flow expiry remains queryable and cancels provider work', async () => {
   const registry = createSessionOAuthFlowRegistry({ ttlMs: 5 });
   let cancelled = false;
-  const waiting = deferred();
+  const waiting = Promise.withResolvers();
   const flow = registry.register({
     provider: 'cursor-oauth',
     waitForCallback: waiting.promise,
@@ -94,7 +84,7 @@ test('OAuth flow expiry remains queryable and cancels provider work', async () =
 
 test('manual OAuth completion is single-use and preserves its terminal result', async () => {
   const registry = createSessionOAuthFlowRegistry();
-  const waiting = deferred();
+  const waiting = Promise.withResolvers();
   const flow = registry.register({
     provider: 'anthropic-oauth',
     waitForCallback: waiting.promise,
@@ -113,8 +103,8 @@ test('manual OAuth completion is single-use and preserves its terminal result', 
 
 test('manual OAuth completion cannot run twice or lose to its callback settling empty', async () => {
   const registry = createSessionOAuthFlowRegistry();
-  const callback = deferred();
-  const exchange = deferred();
+  const callback = Promise.withResolvers();
+  const exchange = Promise.withResolvers();
   let exchanges = 0;
   const flow = registry.register({
     provider: 'anthropic-oauth',

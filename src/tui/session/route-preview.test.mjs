@@ -3,16 +3,6 @@ import test from 'node:test';
 
 import { createSessionApiB } from './session-api-ext.mjs';
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
 // The runtime write behind setRoute awaits provider readiness, model metadata,
 // the config save and (on an empty session) a session rebuild. The surface must
 // never wait for that chain to show the route the user just chose.
@@ -40,7 +30,7 @@ function createRouteHarness(setRoute, extra = {}) {
 }
 
 test('a chosen model reaches the surface before the runtime write settles', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const harness = createRouteHarness(() => gate.promise);
 
   const pending = harness.api.setRoute({ provider: 'anthropic-oauth', model: 'claude-opus-5' });
@@ -65,7 +55,7 @@ test('a chosen model reaches the surface before the runtime write settles', asyn
 });
 
 test('same-model tuning previews only what the request carries', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const harness = createRouteHarness(() => gate.promise);
 
   const pending = harness.api.setRoute({ provider: 'openai-oauth', model: 'gpt-5', effort: 'low' });
@@ -78,7 +68,7 @@ test('same-model tuning previews only what the request carries', async () => {
 });
 
 test('a failed model change restores the route that was live before it', async () => {
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const harness = createRouteHarness(() => gate.promise);
 
   const pending = harness.api.setRoute({ provider: 'anthropic-oauth', model: 'claude-opus-5', effort: 'low' });
@@ -96,10 +86,10 @@ test('a failed model change restores the route that was live before it', async (
 
 test('rapid model choices stay immediate while every write is serialized during a turn', async () => {
   const calls = [];
-  const secondStarted = deferred();
+  const secondStarted = Promise.withResolvers();
   const harness = createRouteHarness(
     (next) => {
-      const gate = deferred();
+      const gate = Promise.withResolvers();
       calls.push({ next, gate });
       if (calls.length === 2) secondStarted.resolve();
       return gate.promise;
@@ -142,9 +132,9 @@ test('a model choice does not bypass an unrelated session command', async () => 
 
 test('a queued route survives an earlier failure and its own failure restores the last applied route', async () => {
   const calls = [];
-  const started = [deferred(), deferred(), deferred()];
+  const started = [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
   const harness = createRouteHarness((next) => {
-    const gate = deferred();
+    const gate = Promise.withResolvers();
     calls.push({ next, gate });
     started[calls.length - 1].resolve();
     return gate.promise;

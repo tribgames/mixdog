@@ -184,18 +184,14 @@ export function selectDeterministicCorpus(documents, evaluations, limit, positiv
     };
   }
   const positiveIds = new Set(selectedPositiveIds);
-  const remaining = documents
-    .filter((document) => !positiveIds.has(document.id))
-    .map((document) => ({
-      id: document.id,
-      digest: createHash('sha256').update(String(document.id)).digest('hex'),
-    }))
-    .sort((left, right) => left.digest.localeCompare(right.digest) || left.id - right.id);
+  const remaining = deterministicIds(
+    documents.filter((document) => !positiveIds.has(document.id)).map((document) => document.id)
+  );
   const selectedIds = new Set(positiveIds);
   const targetSize = Math.max(requested, selectedIds.size);
-  for (const row of remaining) {
+  for (const id of remaining) {
     if (selectedIds.size >= targetSize) break;
-    selectedIds.add(row.id);
+    selectedIds.add(id);
   }
   return {
     documents: documents.filter((document) => selectedIds.has(document.id)),

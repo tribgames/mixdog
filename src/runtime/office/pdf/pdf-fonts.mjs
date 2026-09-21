@@ -113,7 +113,7 @@ export async function embedDocumentFont(
   const candidates = await unicodeFontCandidates(fontPath);
   if (fontPath && !candidates.length) throw new Error(`PDF font file was not found: ${fontPath}`);
   document.registerFontkit(fontkit);
-  // The last face that embedded is what the missing characters are reported
+  // The first face that embedded is what the missing characters are reported
   // against: it is the coverage the machine actually has.
   let widest = null;
   for (const candidate of fontPath ? candidates.slice(0, 1) : candidates) {

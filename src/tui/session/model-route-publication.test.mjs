@@ -3,16 +3,6 @@ import test from 'node:test';
 import { createSessionApi } from './session-api.mjs';
 import { createFrameBatchedStorePublisher } from './frame-batched-store.mjs';
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((done, fail) => {
-    resolve = done;
-    reject = fail;
-  });
-  return { promise, resolve, reject };
-}
-
 function fixture(t, onCall = () => {}) {
   const initial = {
     provider: 'openai',
@@ -49,7 +39,7 @@ function fixture(t, onCall = () => {}) {
   };
   const calls = [];
   const change = async (next) => {
-    const gate = deferred();
+    const gate = Promise.withResolvers();
     calls.push({ next, gate });
     onCall(calls.length);
     await gate.promise;
@@ -145,7 +135,7 @@ for (const { name, action, value, expected } of selections) {
 
 for (const outcome of ['success', 'failure']) {
   test(`latest model preview survives an earlier reply and publishes its ${outcome}`, async (t) => {
-    const secondStarted = deferred();
+    const secondStarted = Promise.withResolvers();
     const { api, calls, initial } = fixture(t, (count) => {
       if (count === 2) secondStarted.resolve();
     });

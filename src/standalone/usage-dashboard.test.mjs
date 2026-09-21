@@ -106,3 +106,37 @@ test('usage progress observers cannot modify the collector through a published r
   assert.equal(dashboard.rows[0].label, 'Fixture quota');
   assert.deepEqual(dashboard.rows[0].windows, []);
 });
+
+test('dashboard rows keep provider priority, label ordering and stable ties without reordering setup', async () => {
+  const setup = {
+    api: [
+      { id: 'custom-b', name: 'Beta' },
+      { id: 'deepseek', name: 'DeepSeek' },
+      { id: 'custom-a-first', name: 'Alpha' },
+      { id: 'openai', name: 'OpenAI' },
+      { id: 'custom-a-second', name: 'Alpha' },
+    ],
+    oauth: [
+      { id: 'antigravity-oauth', name: 'Antigravity' },
+      { id: 'cursor-oauth', name: 'Cursor' },
+      { id: 'openai-oauth', name: 'OpenAI OAuth' },
+    ],
+    local: [],
+  };
+  const originalSetup = structuredClone(setup);
+  const dashboard = await createUsageDashboard({}, { setup, preview: true });
+  assert.deepEqual(
+    dashboard.rows.map((row) => row.id),
+    [
+      'openai-oauth',
+      'cursor-oauth',
+      'antigravity-oauth',
+      'openai',
+      'deepseek',
+      'custom-a-first',
+      'custom-a-second',
+      'custom-b',
+    ]
+  );
+  assert.deepEqual(setup, originalSetup);
+});

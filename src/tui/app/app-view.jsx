@@ -136,7 +136,10 @@ export function renderAppView(ctx) {
           if (total === 0) return 0;
           if (direction === 'home') return 0;
           if (direction === 'end') return total - 1;
-          const step = direction === 'left' ? -1 : direction === 'right' ? 1 : Number(direction) || 0;
+          let step;
+          if (direction === 'left') step = -1;
+          else if (direction === 'right') step = 1;
+          else step = Number(direction) || 0;
           if (step === 1 || step === -1) return (index + step + total) % total;
           return Math.max(0, Math.min(total - 1, index + step));
         });
@@ -149,6 +152,254 @@ export function renderAppView(ctx) {
       hasMessages={hasUserMessages}
     />
   );
+
+  const renderFloatingPanel = () => {
+    if (toolApproval) {
+      return (
+        <Picker
+          items={[
+            {
+              value: 'deny',
+              label: 'Deny',
+              marker: '×',
+              markerColor: theme.error,
+              description: 'block this tool call',
+            },
+            {
+              value: 'approve',
+              label: 'Approve once',
+              marker: '✓',
+              markerColor: theme.success,
+              description: 'run this tool call',
+            },
+          ]}
+          onSelect={(value) => {
+            store.resolveToolApproval?.(toolApproval.id, {
+              approved: value === 'approve',
+              reason: value === 'approve' ? 'approved by user' : 'denied by user',
+            });
+          }}
+          onCancel={() => {
+            store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
+          }}
+          onKey={(input) => {
+            const value = String(input || '')
+              .trim()
+              .toLowerCase();
+            if (value === 'a' || value === 'y') {
+              store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
+            } else if (value === 'd' || value === 'n') {
+              store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
+            }
+          }}
+          title="Tool approval"
+          description={toolApprovalDescription(toolApproval)}
+          help="↑/↓ Select · Enter Choose · a/y Approve · d/n/Esc Deny"
+          columns={frameColumns}
+          labelWidth={18}
+          initialIndex={0}
+          indexMode="never"
+          visibleCount={2}
+          fillHeight={expandedOptionPanel}
+        />
+      );
+    }
+    if (picker) {
+      return (
+        <Picker
+          key={picker.pickerKey}
+          items={picker.items}
+          onSelect={(value, item) => {
+            pickerOpenedFromEnterRef.current = true;
+            if (pickerOpenedFromEnterTimerRef.current) {
+              clearTimeout(pickerOpenedFromEnterTimerRef.current);
+              pickerOpenedFromEnterTimerRef.current = null;
+            }
+            try {
+              if (picker.onSelect) picker.onSelect(value, item);
+            } finally {
+              pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
+                pickerOpenedFromEnterRef.current = false;
+                pickerOpenedFromEnterTimerRef.current = null;
+              }, 3000);
+            }
+          }}
+          onCancel={() => {
+            if (picker.onCancel) picker.onCancel();
+            else {
+              // Esc with no owner-supplied handler: this keypress owns
+              // the surface it clears (app/panel-surface.mjs).
+              surface.claim().close();
+              clearPromptHint();
+            }
+          }}
+          onLeft={picker.onLeft}
+          onRight={picker.onRight}
+          onTab={picker.onTab}
+          onKey={picker.onKey}
+          onHighlight={picker.onHighlight}
+          title={picker.title}
+          description={picker.description}
+          footer={picker.footer}
+          footerGapRows={picker.footerGapRows}
+          help={picker.help}
+          columns={frameColumns}
+          labelWidth={picker.labelWidth}
+          metaWidth={picker.metaWidth}
+          initialIndex={picker.initialIndex}
+          indexMode={picker.indexMode}
+          visibleCount={pickerVisibleRows}
+          fillHeight={expandedOptionPanel}
+          loading={picker.loading === true}
+          themeEpoch={state.themeEpoch || 0}
+          confirmBar={picker.confirmBar}
+        />
+      );
+    }
+    if (contextPanel) {
+      return (
+        <ContextPanel
+          rows={contextPanel.rows}
+          title={contextPanel.title}
+          detail={contextPanel.detail}
+          onInspect={contextPanel.onInspect}
+          onRefresh={contextPanel.onRefresh}
+          panelRows={floatingPanelRows}
+          columns={frameColumns}
+          fillHeight={expandedOptionPanel}
+        />
+      );
+    }
+    if (usagePanel) {
+      return (
+        <UsagePanel
+          dashboard={usagePanel}
+          columns={frameColumns}
+          fillHeight={expandedOptionPanel}
+          panelRows={floatingPanelRows}
+        />
+      );
+    }
+    if (slashPaletteOpen) {
+      return (
+        <SlashCommandPalette
+          commands={slashCommands}
+          selectedIndex={slashIndex}
+          title="Commands"
+          columns={frameColumns}
+          query={activeSlashQuery}
+        />
+      );
+    }
+    if (providerPrompt) {
+      let title;
+      let hint;
+      let promptLabel;
+      switch (providerPrompt.kind) {
+        case 'api-key':
+          title = `${providerPrompt.mode === 'replace' ? 'Replace' : 'Set'} API key · ${providerPrompt.label}`;
+          hint = [
+            providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
+            providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
+            providerPrompt.keyUrl ? `Get a key: ${providerPrompt.keyUrl}` : '',
+            'Stored in the OS keychain.',
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          promptLabel = 'API key > ';
+          break;
+        case 'oauth-code':
+          title = providerPrompt.label;
+          hint = providerPrompt.hint || 'Paste the browser code.';
+          promptLabel = 'Paste code here if prompted > ';
+          break;
+        case 'openai-usage-session':
+          title = 'OpenAI Usage · Session Key';
+          hint =
+            'Paste an OpenAI dashboard/session key for the undocumented credit lookup. It is stored in the OS keychain.';
+          promptLabel = 'Session key > ';
+          break;
+        default:
+          title = `Base URL · ${providerPrompt.label}`;
+          hint = `Default: ${providerPrompt.defaultURL}`;
+          promptLabel = 'Base URL > ';
+      }
+      return (
+        <TextEntryPanel
+          // Remount on a restore so a repeated failed save re-seeds the
+          // editor even when the restored text is byte-identical.
+          key={`provider-prompt:${providerPrompt.restoreEpoch || 0}`}
+          title={title}
+          hint={hint}
+          detail={providerPrompt.detail || ''}
+          mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'openai-usage-session'}
+          columns={frameColumns}
+          // Restored after a REJECTED daemon save so the entered secret
+          // is not lost with the failed round-trip (normally empty).
+          initialValue={providerPrompt.initialValue || ''}
+          actionLabel={providerPrompt.kind === 'oauth-code' ? 'continue' : 'save'}
+          promptLabel={promptLabel}
+          onSubmit={onSubmit}
+          onCancel={cancelProviderPrompt}
+        />
+      );
+    }
+    if (settingsPrompt) {
+      let actionLabel = 'save';
+      let promptLabel = 'Value > ';
+      switch (settingsPrompt.kind) {
+        case 'skill-use':
+          actionLabel = 'run';
+          promptLabel = 'Command > ';
+          break;
+        case 'autoclear-provider':
+          promptLabel = 'Duration > ';
+          break;
+        case 'project-new':
+          actionLabel = 'open';
+          promptLabel = 'Path > ';
+          break;
+        case 'project-create-confirm':
+          actionLabel = 'confirm';
+          promptLabel = 'Create? (y/n) > ';
+          break;
+        case 'project-rename':
+          actionLabel = 'rename';
+          promptLabel = 'Name > ';
+          break;
+        case 'core-add':
+          actionLabel = 'add';
+          promptLabel = 'Sentence > ';
+          break;
+        case 'core-edit':
+          promptLabel = 'Sentence > ';
+          break;
+        case 'core-delete-confirm':
+          actionLabel = 'confirm';
+          promptLabel = 'Delete? (y/n) > ';
+          break;
+      }
+      return (
+        <TextEntryPanel
+          key={`settings-prompt:${settingsPrompt.kind}:${settingsPrompt.restoreEpoch || 0}`}
+          title={settingsPrompt.label}
+          hint={settingsPrompt.hint || 'Save setting.'}
+          columns={frameColumns}
+          initialValue={settingsPrompt.initialValue || ''}
+          // Reset/clear prompts document an empty submit as the action.
+          allowEmpty={textEntryClearsByEmpty(settingsPrompt.kind)}
+          multiline={settingsPrompt.kind === 'core-add' || settingsPrompt.kind === 'core-edit'}
+          maxContentRows={PANEL_MAX_VISIBLE}
+          onContentRowsChange={setTextEntryLayoutRows}
+          actionLabel={actionLabel}
+          promptLabel={promptLabel}
+          onSubmit={onSubmit}
+          onCancel={cancelSettingsPrompt}
+        />
+      );
+    }
+    return null;
+  };
 
   return (
     // Fullscreen layout: a full-height column (height = terminal rows) pins the
@@ -374,231 +625,7 @@ export function renderAppView(ctx) {
             justifyContent="flex-end"
             backgroundColor={surfaceBackground()}
           >
-            {toolApproval ? (
-              <Picker
-                items={[
-                  {
-                    value: 'deny',
-                    label: 'Deny',
-                    marker: '×',
-                    markerColor: theme.error,
-                    description: 'block this tool call',
-                  },
-                  {
-                    value: 'approve',
-                    label: 'Approve once',
-                    marker: '✓',
-                    markerColor: theme.success,
-                    description: 'run this tool call',
-                  },
-                ]}
-                onSelect={(value) => {
-                  store.resolveToolApproval?.(toolApproval.id, {
-                    approved: value === 'approve',
-                    reason: value === 'approve' ? 'approved by user' : 'denied by user',
-                  });
-                }}
-                onCancel={() => {
-                  store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
-                }}
-                onKey={(input) => {
-                  const value = String(input || '')
-                    .trim()
-                    .toLowerCase();
-                  if (value === 'a' || value === 'y') {
-                    store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'approved by user' });
-                  } else if (value === 'd' || value === 'n') {
-                    store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'denied by user' });
-                  }
-                }}
-                title="Tool approval"
-                description={toolApprovalDescription(toolApproval)}
-                help="↑/↓ Select · Enter Choose · a/y Approve · d/n/Esc Deny"
-                columns={frameColumns}
-                labelWidth={18}
-                initialIndex={0}
-                indexMode="never"
-                visibleCount={2}
-                fillHeight={expandedOptionPanel}
-              />
-            ) : picker ? (
-              <Picker
-                key={picker.pickerKey}
-                items={picker.items}
-                onSelect={(value, item) => {
-                  pickerOpenedFromEnterRef.current = true;
-                  if (pickerOpenedFromEnterTimerRef.current) {
-                    clearTimeout(pickerOpenedFromEnterTimerRef.current);
-                    pickerOpenedFromEnterTimerRef.current = null;
-                  }
-                  try {
-                    if (picker.onSelect) picker.onSelect(value, item);
-                  } finally {
-                    pickerOpenedFromEnterTimerRef.current = setTimeout(() => {
-                      pickerOpenedFromEnterRef.current = false;
-                      pickerOpenedFromEnterTimerRef.current = null;
-                    }, 3000);
-                  }
-                }}
-                onCancel={() => {
-                  if (picker.onCancel) picker.onCancel();
-                  else {
-                    // Esc with no owner-supplied handler: this keypress owns
-                    // the surface it clears (app/panel-surface.mjs).
-                    surface.claim().close();
-                    clearPromptHint();
-                  }
-                }}
-                onLeft={picker.onLeft}
-                onRight={picker.onRight}
-                onTab={picker.onTab}
-                onKey={picker.onKey}
-                onHighlight={picker.onHighlight}
-                title={picker.title}
-                description={picker.description}
-                footer={picker.footer}
-                footerGapRows={picker.footerGapRows}
-                help={picker.help}
-                columns={frameColumns}
-                labelWidth={picker.labelWidth}
-                metaWidth={picker.metaWidth}
-                initialIndex={picker.initialIndex}
-                indexMode={picker.indexMode}
-                visibleCount={pickerVisibleRows}
-                fillHeight={expandedOptionPanel}
-                loading={picker.loading === true}
-                themeEpoch={state.themeEpoch || 0}
-                confirmBar={picker.confirmBar}
-              />
-            ) : contextPanel ? (
-              <ContextPanel
-                rows={contextPanel.rows}
-                title={contextPanel.title}
-                detail={contextPanel.detail}
-                onInspect={contextPanel.onInspect}
-                onRefresh={contextPanel.onRefresh}
-                panelRows={floatingPanelRows}
-                columns={frameColumns}
-                fillHeight={expandedOptionPanel}
-              />
-            ) : usagePanel ? (
-              <UsagePanel
-                dashboard={usagePanel}
-                columns={frameColumns}
-                fillHeight={expandedOptionPanel}
-                panelRows={floatingPanelRows}
-              />
-            ) : slashPaletteOpen ? (
-              <SlashCommandPalette
-                commands={slashCommands}
-                selectedIndex={slashIndex}
-                title="Commands"
-                columns={frameColumns}
-                query={activeSlashQuery}
-              />
-            ) : providerPrompt ? (
-              <TextEntryPanel
-                // Remount on a restore so a repeated failed save re-seeds the
-                // editor even when the restored text is byte-identical.
-                key={`provider-prompt:${providerPrompt.restoreEpoch || 0}`}
-                title={
-                  providerPrompt.kind === 'api-key'
-                    ? `${providerPrompt.mode === 'replace' ? 'Replace' : 'Set'} API key · ${providerPrompt.label}`
-                    : providerPrompt.kind === 'oauth-code'
-                      ? providerPrompt.label
-                      : providerPrompt.kind === 'openai-usage-session'
-                        ? 'OpenAI Usage · Session Key'
-                        : `Base URL · ${providerPrompt.label}`
-                }
-                hint={
-                  providerPrompt.kind === 'api-key'
-                    ? [
-                        providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
-                        providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
-                        providerPrompt.keyUrl ? `Get a key: ${providerPrompt.keyUrl}` : '',
-                        'Stored in the OS keychain.',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')
-                    : providerPrompt.kind === 'oauth-code'
-                      ? providerPrompt.hint || 'Paste the browser code.'
-                      : providerPrompt.kind === 'openai-usage-session'
-                        ? 'Paste an OpenAI dashboard/session key for the undocumented credit lookup. It is stored in the OS keychain.'
-                        : `Default: ${providerPrompt.defaultURL}`
-                }
-                detail={providerPrompt.detail || ''}
-                mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'openai-usage-session'}
-                columns={frameColumns}
-                // Restored after a REJECTED daemon save so the entered secret
-                // is not lost with the failed round-trip (normally empty).
-                initialValue={providerPrompt.initialValue || ''}
-                actionLabel={providerPrompt.kind === 'oauth-code' ? 'continue' : 'save'}
-                promptLabel={
-                  providerPrompt.kind === 'api-key'
-                    ? 'API key > '
-                    : providerPrompt.kind === 'oauth-code'
-                      ? 'Paste code here if prompted > '
-                      : providerPrompt.kind === 'openai-usage-session'
-                        ? 'Session key > '
-                        : 'Base URL > '
-                }
-                onSubmit={onSubmit}
-                onCancel={cancelProviderPrompt}
-              />
-            ) : settingsPrompt ? (
-              <TextEntryPanel
-                key={`settings-prompt:${settingsPrompt.kind}:${settingsPrompt.restoreEpoch || 0}`}
-                title={settingsPrompt.label}
-                hint={settingsPrompt.hint || 'Save setting.'}
-                columns={frameColumns}
-                initialValue={settingsPrompt.initialValue || ''}
-                // Reset/clear prompts document an empty submit as the action.
-                allowEmpty={textEntryClearsByEmpty(settingsPrompt.kind)}
-                multiline={settingsPrompt.kind === 'core-add' || settingsPrompt.kind === 'core-edit'}
-                maxContentRows={PANEL_MAX_VISIBLE}
-                onContentRowsChange={setTextEntryLayoutRows}
-                actionLabel={
-                  settingsPrompt.kind === 'skill-use'
-                    ? 'run'
-                    : settingsPrompt.kind === 'autoclear-provider'
-                      ? 'save'
-                      : settingsPrompt.kind === 'project-new'
-                        ? 'open'
-                        : settingsPrompt.kind === 'project-create-confirm'
-                          ? 'confirm'
-                          : settingsPrompt.kind === 'project-rename'
-                            ? 'rename'
-                            : settingsPrompt.kind === 'core-add'
-                              ? 'add'
-                              : settingsPrompt.kind === 'core-edit'
-                                ? 'save'
-                                : settingsPrompt.kind === 'core-delete-confirm'
-                                  ? 'confirm'
-                                  : 'save'
-                }
-                promptLabel={
-                  settingsPrompt.kind === 'skill-use'
-                    ? 'Command > '
-                    : settingsPrompt.kind === 'autoclear-provider'
-                      ? 'Duration > '
-                      : settingsPrompt.kind === 'project-new'
-                        ? 'Path > '
-                        : settingsPrompt.kind === 'project-create-confirm'
-                          ? 'Create? (y/n) > '
-                          : settingsPrompt.kind === 'project-rename'
-                            ? 'Name > '
-                            : settingsPrompt.kind === 'core-add'
-                              ? 'Sentence > '
-                              : settingsPrompt.kind === 'core-edit'
-                                ? 'Sentence > '
-                                : settingsPrompt.kind === 'core-delete-confirm'
-                                  ? 'Delete? (y/n) > '
-                                  : 'Value > '
-                }
-                onSubmit={onSubmit}
-                onCancel={cancelSettingsPrompt}
-              />
-            ) : null}
+            {renderFloatingPanel()}
           </Box>
         ) : null}
         {!inputBoxHidden ? (

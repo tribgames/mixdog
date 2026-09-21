@@ -75,6 +75,17 @@ function recentUserTexts(session, window) {
 
 export function createSteeringOps(bag, { queue, submissions }) {
   const { runtime, pending, getState, set } = bag;
+  const turnSettlements = new Map();
+
+  function settleSteeredSubmissions(epoch, detail) {
+    const entries = turnSettlements.get(epoch);
+    turnSettlements.delete(epoch);
+    for (const entry of entries || []) {
+      try {
+        entry.onSettled(detail);
+      } catch {}
+    }
+  }
 
   const leadSessionId = () => runtime.id;
 
@@ -106,7 +117,15 @@ export function createSteeringOps(bag, { queue, submissions }) {
       );
       for (const entry of accepted) {
         const message = steeringMessageFromEntry(entry);
-        if (message) out.push(message);
+        if (message) {
+          out.push(message);
+          if (typeof entry.onSettled === 'function') {
+            const epoch = options.turnEpoch;
+            const entries = turnSettlements.get(epoch) || new Set();
+            entries.add(entry);
+            turnSettlements.set(epoch, entries);
+          }
+        }
       }
       commitSteeringQueueEntries(accepted);
     }
@@ -164,6 +183,7 @@ export function createSteeringOps(bag, { queue, submissions }) {
     leadSessionId,
     shouldMirrorSteeringEntry,
     commitSteeringQueueEntries,
+    settleSteeredSubmissions,
     drainPendingSteering,
     restoreLeadSteeringFromDisk,
   };

@@ -1,5 +1,5 @@
 // Prompt submit dispatcher. One entry point for
-// everything the prompt box can accept: provider/channel/hook/settings
+// everything the prompt box can accept: provider/settings
 // text-entry prompts, slash commands, and the normal chat submit with
 // pasted image/text token expansion. Factory pattern (like the pickers):
 // re-created per render so it closes over the CURRENT prompt/panel state.

@@ -1,6 +1,6 @@
 // Picker/panel factory wiring. Every create*Picker
 // factory (theme/effort, resume, core memory, extensions, maintenance,
-// onboarding, channels, provider setup, model, routes, settings) plus the
+// onboarding, provider setup, model, routes, settings) plus the
 // slash dispatcher instantiate here in one scope, preserving the original
 // order and the lazy-getter forward references between them.
 import { createThemeEffortPickers, themeNotice } from './theme-effort-pickers.mjs';

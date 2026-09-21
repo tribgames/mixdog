@@ -55,17 +55,17 @@ export async function handleAddSlide(context, op) {
 
 export async function handleDeleteSlide(context, op) {
   const { zip } = context;
-  let slides = context.slides;
+  const slides = context.slides;
   await deletePresentationSlide(zip, slides, op.slide);
-  slides = context.slides = await presentationSlides(zip);
+  context.slides = await presentationSlides(zip);
   return { op: op.op, changed: true, slide: Number(op.slide) };
 }
 
 export async function handleMoveSlide(context, op) {
   const { zip } = context;
-  let slides = context.slides;
+  const slides = context.slides;
   await movePresentationSlide(zip, slides, op.slide, op.index);
-  slides = context.slides = await presentationSlides(zip);
+  context.slides = await presentationSlides(zip);
   return { op: op.op, changed: true, slide: Number(op.slide), index: Number(op.index) };
 }
 
@@ -139,7 +139,7 @@ export async function handleAddProvenance(context, op) {
 
 export async function handleDuplicateSlide(context, op) {
   const { zip } = context;
-  let slides = context.slides;
+  const slides = context.slides;
   const source = slides[Number(op.slide) - 1];
   if (!source) throw new Error(`PPTX slide ${op.slide} not found`);
   let ordinal = 1;
@@ -170,7 +170,7 @@ export async function handleDuplicateSlide(context, op) {
   const position = Number(op.index) > 0 ? Math.min(Number(op.index) - 1, entries.length) : Number(op.slide);
   entries.splice(position, 0, `<p:sldId id="${Math.max(255, ...ids) + 1}" r:id="${relationshipId}"/>`);
   zip.file('ppt/presentation.xml', writeSlideIdList(presentation, entries));
-  slides = context.slides = await presentationSlides(zip);
+  context.slides = await presentationSlides(zip);
   return {
     op: op.op,
     changed: true,

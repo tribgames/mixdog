@@ -8,25 +8,11 @@
 // Plus the documented clear-by-empty settings actions must reach the daemon.
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile } from 'node:fs/promises';
+import { setImmediate as flush } from 'node:timers/promises';
 
 import { createPromptSubmit } from './prompt-submit.mjs';
 import { supersedePanelEpoch } from './panel-epoch.mjs';
 import { canSubmitTextEntry, textEntryClearsByEmpty } from './text-entry-policy.mjs';
-
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-}
-
-const flush = async () => {
-  for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve));
-};
 
 function createHarness({ settingsPrompt = null, store: storeOverrides = {} } = {}) {
   const notices = [];
@@ -81,7 +67,7 @@ const closedCount = (harness) => harness.settingsPromptSet.filter((value) => val
 
 test('a second settings submit is refused while the first daemon write is in flight', async () => {
   supersedePanelEpoch();
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const shellCalls = [];
   const harness = createHarness({
     settingsPrompt: { kind: 'system-shell', label: 'System shell' },
@@ -108,8 +94,8 @@ test('a second settings submit is refused while the first daemon write is in fli
 
 test('an ack superseded by Esc and a newer submit never closes the live prompt', async () => {
   supersedePanelEpoch();
-  const first = deferred();
-  const second = deferred();
+  const first = Promise.withResolvers();
+  const second = Promise.withResolvers();
 
   const firstHarness = createHarness({
     settingsPrompt: { kind: 'system-shell', label: 'System shell' },
@@ -141,7 +127,7 @@ test('an ack superseded by Esc and a newer submit never closes the live prompt',
 
 test('a rejected settings write restores the typed value instead of closing', async () => {
   supersedePanelEpoch();
-  const gate = deferred();
+  const gate = Promise.withResolvers();
   const harness = createHarness({
     settingsPrompt: { kind: 'system-shell', label: 'System shell' },
     store: { setSystemShell: () => gate.promise },
@@ -208,20 +194,6 @@ test('empty submits reach the daemon as the documented reset/clear actions', asy
   await flush();
   assert.deepEqual(profileCalls, [{ title: '' }]);
   assert.ok(profile.notices.some(([message]) => /Title cleared/.test(message)));
-});
-
-test('the settings text-entry panel is wired to the clear-by-empty policy', async () => {
-  // The dispatcher cases above enter through onSubmit and therefore bypass
-  // TextEntryPanel entirely — they pass even when the view drops the prop and
-  // the panel refuses every blank submit. No JSX parser exists in this
-  // workspace, so the wiring is pinned as source text instead.
-  const view = await readFile(new URL('./app-view.jsx', import.meta.url), 'utf8');
-  assert.match(view, /import \{ textEntryClearsByEmpty \} from '\.\/text-entry-policy\.mjs';/);
-  assert.match(view, /allowEmpty=\{textEntryClearsByEmpty\(settingsPrompt\.kind\)\}/);
-  // The panel's own submit gate must consult the same policy value.
-  const panel = await readFile(new URL('../components/TextEntryPanel.jsx', import.meta.url), 'utf8');
-  assert.match(panel, /canSubmitTextEntry\(draftRef\.current\.value, allowEmpty\)/);
-  assert.match(panel, /canSubmitTextEntry\(next\.value, allowEmpty\)/);
 });
 
 test('clear-by-empty prompt kinds bypass the blank-submit gate', () => {

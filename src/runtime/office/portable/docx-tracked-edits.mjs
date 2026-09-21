@@ -24,8 +24,7 @@ export function trackedParagraphRewrite(paragraphXml, text, id, author) {
 function paragraphRuns(paragraphXml) {
   const runs = [];
   const pattern = new RegExp(RUN.source, 'g');
-  let match;
-  while ((match = pattern.exec(paragraphXml))) {
+  for (let match = pattern.exec(paragraphXml); match; match = pattern.exec(paragraphXml)) {
     const open = RUN_OPEN.exec(match[0])[0];
     const inner = match[0].slice(open.length, match[0].length - '</w:r>'.length);
     const properties = RUN_PROPERTIES.exec(inner)?.[0] || '';

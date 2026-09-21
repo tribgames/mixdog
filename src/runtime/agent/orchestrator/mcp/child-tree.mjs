@@ -68,7 +68,7 @@ async function enumerate() {
   return { childrenOf, tokenOf, nameOf };
 }
 
-// BFS every descendant pid of rootPid (excludes rootPid).
+// Walk every descendant pid of rootPid (excludes rootPid).
 function descendantsOf(childrenOf, rootPid) {
   const result = [];
   const seen = new Set([rootPid]);
@@ -86,7 +86,6 @@ function descendantsOf(childrenOf, rootPid) {
   return result;
 }
 
-// Exposed for tests: descendant pid list captured while the tree is intact.
 async function collectDescendants(rootPid) {
   const { childrenOf } = await enumerate();
   return descendantsOf(childrenOf, rootPid);

@@ -153,7 +153,6 @@ async function collectProjectFiles(
   return files;
 }
 
-/** Drop one root's cached index (or every index). */
 async function projectFilesFor(root: string): Promise<string[]> {
   const now = Date.now();
   const cached = projectFileIndexes.get(root);
@@ -193,7 +192,7 @@ export async function searchProjectDirectory(
   const normalizedQuery = query.trim().replace(/\\/g, '/').toLowerCase();
   // Explicit traversal options (tests, capped callers) bypass the cache so
   // scan-cap semantics stay exact; the interactive keystroke path shares the
-  // watcher-invalidated index.
+  // TTL-cached index.
   const usesCache = options.maxScannedEntries === undefined && options.yieldEvery === undefined;
   const files = usesCache ? await projectFilesFor(root) : await collectProjectFiles(root, options);
   const matches: Array<{ path: string; score: number }> = [];

@@ -47,7 +47,6 @@ class WebhookServer {
   setBridgeDispatch(fn) {
     this.bridgeDispatch = typeof fn === 'function' ? fn : null;
   }
-  // ── HTTP server ───────────────────────────────────────────────────
   start() {
     this.listener.start();
   }
@@ -67,7 +66,6 @@ class WebhookServer {
   stop() {
     return this.listener.stop();
   }
-  // reloadConfig(webhookCfg, options?)
   async reloadConfig(config, options = {}) {
     await this.listener.reloadConfig(config, options);
   }

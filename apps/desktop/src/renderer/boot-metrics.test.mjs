@@ -115,3 +115,51 @@ test('already-painted surfaces never register as pending on the next microtask',
   assert.equal(barrier.getSnapshot().pending, 0);
   barrier.dispose();
 });
+
+test('boot metrics initialize storage once and publish appended entries in order', () => {
+  const windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  let storage;
+  let assignments = 0;
+  const published = [];
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      get __mixdogBootMetrics() {
+        return storage;
+      },
+      set __mixdogBootMetrics(value) {
+        assignments += 1;
+        storage = value;
+      },
+      mixdogDesktop: {
+        perfLog() {
+          published.push(['log', storage.at(-1)]);
+        },
+      },
+      dispatchEvent(event) {
+        published.push(['event', event.detail]);
+      },
+    },
+  });
+  try {
+    _resetBootMetricsForTest();
+    beginBootSurface('conversation', 'storage-a');
+    const firstStorage = storage;
+    beginBootSurface('conversation', 'storage-b');
+    assert.equal(assignments, 1);
+    assert.equal(storage, firstStorage);
+    assert.equal(storage.length, 2);
+    assert.deepEqual(
+      published.map(([kind]) => kind),
+      ['log', 'event', 'log', 'event']
+    );
+    assert.equal(published[0][1], storage[0]);
+    assert.equal(published[1][1], storage[0]);
+    assert.equal(published[2][1], storage[1]);
+    assert.equal(published[3][1], storage[1]);
+  } finally {
+    _resetBootMetricsForTest();
+    if (windowDescriptor) Object.defineProperty(globalThis, 'window', windowDescriptor);
+    else delete globalThis.window;
+  }
+});

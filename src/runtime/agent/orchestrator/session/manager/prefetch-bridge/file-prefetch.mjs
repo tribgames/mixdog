@@ -29,17 +29,18 @@ export async function prefetchFiles(session, { files, readOpts }, signal) {
   const failed = [];
   const missResults = {}; // file → content string
   if (misses.length > 0) {
-    // Read each miss individually so we can cache per file; the list is small
-    // (typically 2-5), so N awaits is fine.
+    // Read misses concurrently while retaining per-file cache provenance.
     const readStates = new Map();
     await runAbortable(signal, () =>
       Promise.all(
         misses.map(async ({ file, abs }) => {
           const opts = readOpts.get(file) || {};
-          const readArgs =
-            opts.mode === 'full'
-              ? { path: file, mode: 'full' }
-              : { path: file, mode: 'head', n: Number.isFinite(opts.n) ? opts.n : DEFAULT_HEAD_LINES };
+          let readArgs;
+          if (opts.mode === 'full') {
+            readArgs = { path: file, mode: 'full' };
+          } else {
+            readArgs = { path: file, mode: 'head', n: Number.isFinite(opts.n) ? opts.n : DEFAULT_HEAD_LINES };
+          }
           readStates.set(file, capturePrefetchCacheState(abs));
           const out = await executeInternalTool('read', readArgs, {
             scopeId: session.mcpScopeId || null,

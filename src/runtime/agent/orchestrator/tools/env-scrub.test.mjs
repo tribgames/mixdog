@@ -1,7 +1,59 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyShellEgressPolicy, scrubRuntimeRootVars } from './env-scrub.mjs';
+import { applyShellEgressPolicy, scrubLoaderVars, scrubProviderSecrets, scrubRuntimeRootVars } from './env-scrub.mjs';
+
+test('loader scrub removes exact and wildcard injection keys in place, preserving ordinary configuration', () => {
+  const env = {
+    NODE_OPTIONS: '--require fixture',
+    BASH_ENV: '/fixture/startup',
+    SSH_AUTH_SOCK: '/fixture/agent',
+    DYLD_FRAMEWORK_PATH: '/fixture/frameworks',
+    LD_AUDIT: '/fixture/audit',
+    PATH: '/fixture/bin',
+    HOME: '/fixture/home',
+    AWS_REGION: 'fixture-region',
+    CUSTOM_LD_PATH: '/fixture/custom',
+  };
+  assert.equal(scrubLoaderVars(env), env);
+  assert.deepEqual(env, {
+    PATH: '/fixture/bin',
+    HOME: '/fixture/home',
+    AWS_REGION: 'fixture-region',
+    CUSTOM_LD_PATH: '/fixture/custom',
+  });
+  assert.equal(scrubLoaderVars(env), env);
+});
+
+test('environment scrub boundaries preserve non-object inputs', () => {
+  for (const value of [undefined, null, false, 0, 'fixture']) {
+    assert.equal(scrubLoaderVars(value), value);
+    assert.equal(scrubProviderSecrets(value), value);
+    assert.equal(scrubRuntimeRootVars(value), value);
+  }
+});
+
+test('secret scrub preserves public build keys and non-secret provider configuration', () => {
+  const env = {
+    AWS_ACCESS_KEY_ID: 'fixture-secret',
+    DATABASE_URL: 'fixture-secret',
+    CUSTOM_TOKEN: 'fixture-secret',
+    npm_config__auth: 'fixture-secret',
+    NEXT_PUBLIC_API_KEY: 'fixture-public',
+    VITE_API_KEY: 'fixture-public',
+    AWS_REGION: 'fixture-region',
+    GPG_KEY: 'fixture-public',
+    PATH: '/fixture/bin',
+  };
+  assert.equal(scrubProviderSecrets(env), env);
+  assert.deepEqual(env, {
+    NEXT_PUBLIC_API_KEY: 'fixture-public',
+    VITE_API_KEY: 'fixture-public',
+    AWS_REGION: 'fixture-region',
+    GPG_KEY: 'fixture-public',
+    PATH: '/fixture/bin',
+  });
+});
 
 test('web-search disabled preserves ordinary shell network environment', () => {
   const previous = process.env.MIXDOG_FEATURE_WEB_SEARCH;

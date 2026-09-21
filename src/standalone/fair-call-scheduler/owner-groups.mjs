@@ -66,7 +66,7 @@ export function createOwnerGroups({ maxQueued, ownerFloor }) {
   }
 
   function pickGroup() {
-    const ready = [...groups.values()].filter((group) => group.queue.length > 0);
+    const ready = queuedGroups();
     if (ready.length === 0) return null;
     const totalWeight = ready.reduce((sum, group) => sum + group.weight, 0);
     let chosen = null;

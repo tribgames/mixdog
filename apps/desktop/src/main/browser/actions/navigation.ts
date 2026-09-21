@@ -35,7 +35,7 @@ export const navigationActions = defineBrowserActions({
       }
     };
     signal?.addEventListener('abort', stopNavigation, { once: true });
-    const load = guest.loadURL(url).catch(async (error: Error & { errno?: number }) => {
+    const load = guest.loadURL(url).catch(async (error: Error) => {
       // Aborted top-level loads (redirect chains, downloads) are not
       // failures of the command itself.
       if (/ERR_ABORTED/.test(String(error?.message))) return;

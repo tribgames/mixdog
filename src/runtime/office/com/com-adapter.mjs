@@ -126,8 +126,8 @@ async function callMicrosoftOfficeOnce(payload, { timeoutMs = DEFAULT_TIMEOUT_MS
 // price is that a process leaving without `close` (a crashed run, a script that
 // exits after a failed finalize) would orphan the host and the background
 // PowerPoint it owns, which then holds the file open (EBUSY on the next author).
-// One synchronous exit hook stops every live client — an attached (user-owned)
-// application is never killed, only its host.
+// One synchronous exit hook requests EOF cleanup for every live client without
+// force-killing its host or an attached (user-owned) application.
 let exitHookInstalled = false;
 function installExitHook() {
   if (exitHookInstalled) return;

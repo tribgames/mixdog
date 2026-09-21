@@ -257,8 +257,6 @@ test('a stop landing mid-connect makes the in-flight start bail without arming a
   await start;
   assert.deepEqual(names(), ['provider.disconnect', 'locks.release', 'advert.clear']);
   assert.equal(state.connected, false);
-  assert.ok(!names().includes('scheduler.start'));
-  assert.ok(!names().includes('notify'));
 });
 
 test('a connect failure degrades to automation-only, and a later reconnect does not re-arm the scheduler', async (t) => {

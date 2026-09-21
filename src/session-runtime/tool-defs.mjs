@@ -1,6 +1,6 @@
 // Standalone session tool definitions (wrapper tools surfaced by the runtime).
-// Pure, self-contained schemas + the agent-hidden default helper. Extracted
-// from mixdog-session-runtime.mjs; no runtime closure dependencies.
+// Pure, self-contained schemas + the agent-hidden default helper; no runtime
+// closure dependencies.
 
 export const TOOL_SEARCH_TOOL = {
   name: 'load_tool',

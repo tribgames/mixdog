@@ -18,7 +18,9 @@ type UpdaterLog = (message: string, data?: Readonly<Record<string, unknown>>) =>
 
 function publish(next: DesktopUpdaterState): void {
   state = next;
-  listeners.forEach((listener) => listener(state));
+  listeners.forEach((listener) => {
+    listener(state);
+  });
 }
 
 function readyPersistence(filePath: string) {

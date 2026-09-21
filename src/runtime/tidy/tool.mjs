@@ -416,12 +416,12 @@ async function resultsAction({ args, cwd, sessionId, engineFilter, pathFilter, s
   const prefixes = pathFilter.map((path) => path.replace(/\/+$/, ''));
   const matchesPath = (file) => {
     const path = matchFileKey(file, cwd);
-    return !prefixes.length || prefixes.some(
-      (prefix) => !prefix || prefix === '.' || path === prefix || path.startsWith(`${prefix}/`)
+    return (
+      !prefixes.length ||
+      prefixes.some((prefix) => !prefix || prefix === '.' || path === prefix || path.startsWith(`${prefix}/`))
     );
   };
-  const matchesRow = (row) =>
-    (!rules.length || rules.includes(row.ruleId ?? row.code)) && matchesPath(row.file);
+  const matchesRow = (row) => (!rules.length || rules.includes(row.ruleId ?? row.code)) && matchesPath(row.file);
   let structural = args.structural === false ? null : cached.structural;
   if (rules.length || prefixes.length) {
     results = results?.map((result) => ({
@@ -440,7 +440,9 @@ async function resultsAction({ args, cwd, sessionId, engineFilter, pathFilter, s
     notes: [
       'paged from the last check/fix; engines were not re-run',
       ...(rules.length || prefixes.length
-        ? ['diagnosticsCount/matchesCount and byRule/byDir describe filtered rows; counts/filesChecked retain run totals']
+        ? [
+            'diagnosticsCount/matchesCount and byRule/byDir describe filtered rows; counts/filesChecked retain run totals',
+          ]
         : []),
     ],
     offset: parseOffset(args.offset),

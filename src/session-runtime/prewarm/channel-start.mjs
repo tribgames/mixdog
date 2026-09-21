@@ -73,8 +73,7 @@ export function createChannelStart({
   // enabled schedules/webhooks boot the worker on their own — no messaging
   // provider. The worker runs headless (scheduler/webhooks/voice only).
   // Unlike scheduleChannelStart this probes once at the boot delay and never
-  // re-arms, so a runtime that boots busy simply leaves the worker to the
-  // next scheduleChannelStart caller.
+  // re-arms.
   function scheduleAutomationAutostart(delayMs) {
     timers.channelStartTimer = setTimeout(() => {
       timers.channelStartTimer = null;

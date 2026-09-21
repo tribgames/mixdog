@@ -255,8 +255,9 @@ test('the catalog is served from the gateway and cached, with the curated list a
   const offline = providerWith(async () => {
     throw new Error('offline');
   });
+  const dataDir = process.env.MIXDOG_DATA_DIR;
   t.after(() => {
-    delete process.env.MIXDOG_DATA_DIR;
+    process.env.MIXDOG_DATA_DIR = dataDir;
   });
   process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-antigravity-offline-'));
   assert.equal(await offline.listModels(), ANTIGRAVITY_MODELS);
@@ -478,6 +479,61 @@ test('401 refreshes credentials once on the same daily host', async () => {
     { host: DAILY_HOST, auth: 'Bearer fresh-token' },
   ]);
   assert.deepEqual(auths, [false, true]);
+});
+
+test('a second 401 is terminal after one refresh and reuses the serialized request', async () => {
+  const auths = [];
+  const requests = [];
+  const provider = providerWith(
+    async (_url, init) => {
+      requests.push({ auth: init.headers.Authorization, body: init.body });
+      return Response.json({ error: { message: `credentials rejected ${requests.length}` } }, { status: 401 });
+    },
+    {
+      ensureAuthFn: async ({ force } = {}) => {
+        auths.push(Boolean(force));
+        return { accessToken: force ? 'fresh-token' : 'stale-token', projectId: 'test-project' };
+      },
+    }
+  );
+  await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], {}), (error) => {
+    assert.equal(error.status, 401);
+    assert.match(error.message, /credentials rejected 2/);
+    return true;
+  });
+  assert.deepEqual(auths, [false, true]);
+  assert.deepEqual(
+    requests.map((request) => request.auth),
+    ['Bearer stale-token', 'Bearer fresh-token']
+  );
+  assert.equal(requests[1].body, requests[0].body);
+  assert.equal(JSON.parse(requests[1].body).project, 'test-project');
+});
+
+test('a failed forced refresh preserves the original 401 without another request', async () => {
+  const auths = [];
+  let requests = 0;
+  const provider = providerWith(
+    async () => {
+      requests += 1;
+      return Response.json({ error: { message: 'original authorization failure' } }, { status: 401 });
+    },
+    {
+      ensureAuthFn: async ({ force } = {}) => {
+        auths.push(Boolean(force));
+        if (force) throw new Error('refresh failed');
+        return { accessToken: 'stale-token', projectId: 'test-project' };
+      },
+    }
+  );
+  await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'gemini-3-pro-high', [], {}), (error) => {
+    assert.equal(error.status, 401);
+    assert.match(error.message, /original authorization failure/);
+    assert.doesNotMatch(error.message, /refresh failed/);
+    return true;
+  });
+  assert.deepEqual(auths, [false, true]);
+  assert.equal(requests, 1);
 });
 
 test('caller cancellation does not switch hosts', async () => {

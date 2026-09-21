@@ -54,8 +54,7 @@ function surfaceColor(shape) {
   if (shape?.fillVisible === false || Number(shape?.fillTransparency) >= 1) return '';
   const rgb = Number(shape?.fillColor);
   if (!Number.isFinite(rgb) || rgb < 0 || shape?.fillVisible !== true) return '';
-  const part = (value) => Math.round(value).toString(16).padStart(2, '0').toUpperCase();
-  return `${part(rgb % 256)}${part(Math.floor(rgb / 256) % 256)}${part(Math.floor(rgb / 65536) % 256)}`;
+  return bgrHex(rgb);
 }
 
 // --- Observations: what a designer would read off the canvas, as numbers. ---
@@ -205,7 +204,8 @@ function anatomyOf(shape) {
 function noteSpec(specs, shape) {
   const found = specOf(shape);
   if (!found) return;
-  const entry = specs[found.spec] || (specs[found.spec] = { count: 0, variants: [], anatomies: [] });
+  specs[found.spec] ||= { count: 0, variants: [], anatomies: [] };
+  const entry = specs[found.spec];
   entry.count += 1;
   if (found.variant && !entry.variants.includes(found.variant)) entry.variants.push(found.variant);
   const anatomy = anatomyOf(shape);
@@ -550,7 +550,8 @@ export function compositionReceipt(document, brief = null) {
   const specs = {};
   for (const s of slides) {
     for (const [name, entry] of Object.entries(s.specs || {})) {
-      const total = specs[name] || (specs[name] = { count: 0, slides: 0, variants: [], anatomies: [] });
+      specs[name] ||= { count: 0, slides: 0, variants: [], anatomies: [] };
+      const total = specs[name];
       total.count += entry.count;
       total.slides += 1;
       for (const variant of entry.variants) if (!total.variants.includes(variant)) total.variants.push(variant);

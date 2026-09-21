@@ -5,7 +5,8 @@ import { isInternalTranscriptDisplayText } from './tool-execution-contract.mjs';
 import { stripInjectedDisplayText } from '../../../apps/desktop/src/shared/session-title.mjs';
 
 test('closed injected blocks are removed, user prose around them survives', () => {
-  const text = '컨텍스트 창 실시간 반영하지말고\n\n<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>';
+  const text =
+    '컨텍스트 창 실시간 반영하지말고\n\n<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>';
   assert.equal(stripInjectedBlocks(text).trim(), '컨텍스트 창 실시간 반영하지말고');
 });
 
@@ -19,7 +20,6 @@ test('an unterminated tag the user typed never eats the rest of the message', ()
 
   const quoted = '위에서부터하나씩 1부터\n\n<mixdog-runtime>과 <system-reminder> 블록은 제어 컨텍스트다\n\n이거 빼자';
   assert.equal(stripInjectedDisplayText(quoted), quoted);
-  assert.ok(stripInjectedDisplayText(quoted).includes('이거 빼자'));
 });
 
 test('truncated sources opt into dropping the unterminated tail', () => {

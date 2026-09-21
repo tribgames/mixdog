@@ -239,7 +239,8 @@ test('fresh layout keeps session injection and stable summary before the volatil
     withRuntimeUserContext({ role: 'user', content: latestInstruction }, { prefix: staleGoal }),
     {
       role: 'user',
-      content: '<task-notification>\n<task-id>task-1</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n</task-notification>',
+      content:
+        '<task-notification>\n<task-id>task-1</task-id>\n<status>completed</status>\n<exit-code>0</exit-code>\n<summary>Shell task completed (exit 0)</summary>\n</task-notification>',
     },
     { role: 'user', content: '[mixdog-runtime] Empty response (1/2). Return final text.' },
     { role: 'user', content: '[Request interrupted]' },

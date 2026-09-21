@@ -132,6 +132,7 @@ test('a cancel racing a cold-start dispatch is never answered "not running"', as
 
     const dispatch = await worker.wait('dispatch-warm-1', 60_000);
     assert.equal(dispatch.ok, false);
+    assert.match(String(dispatch.error?.message || ''), /aborted mid cold start/);
   } finally {
     await stopWorker(worker);
     await rm(runtimeRoot, { recursive: true, force: true });

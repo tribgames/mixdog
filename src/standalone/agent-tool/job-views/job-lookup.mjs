@@ -10,9 +10,9 @@ import { clean } from '../helpers.mjs';
  *  its last handoff, else a placeholder. */
 function workerResultText(session) {
   const msgs = Array.isArray(session.messages) ? session.messages : [];
-  const lastAssistant = [...msgs]
-    .reverse()
-    .find((m) => m?.role === 'assistant' && (typeof m.content === 'string' ? m.content.trim() : m.content));
+  const lastAssistant = msgs.findLast(
+    (m) => m?.role === 'assistant' && (typeof m.content === 'string' ? m.content.trim() : m.content)
+  );
   if (lastAssistant) {
     return typeof lastAssistant.content === 'string' ? lastAssistant.content : JSON.stringify(lastAssistant.content);
   }

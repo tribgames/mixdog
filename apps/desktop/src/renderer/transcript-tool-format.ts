@@ -431,7 +431,9 @@ export function toolActivityFieldValue(key: string, value: unknown): string {
   if (value && typeof value === 'object') {
     try {
       return JSON.stringify(value, null, 2).slice(0, 8_000);
-    } catch {}
+    } catch {
+      // Cyclic or non-JSON values fall back to the bounded text serializer.
+    }
   }
   return boundedTextOf(value, 8_000);
 }

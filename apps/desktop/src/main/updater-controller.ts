@@ -37,7 +37,9 @@ export function createUpdaterController(input: {
   const transition = (next: UpdaterState): UpdaterState => {
     input.log?.('updater state changed', { from: state.status, to: next.status });
     state = next;
-    listeners.forEach((listener) => listener(state));
+    listeners.forEach((listener) => {
+      listener(state);
+    });
     return state;
   };
 

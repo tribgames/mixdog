@@ -573,18 +573,18 @@ pub fn finish(mut raw: Vec<RawCall>, symbols: &[SymbolSpan<'_>]) -> Vec<CallInfo
 
     let mut sweep = ContainmentSweep::new(symbols);
     let mut calls = Vec::with_capacity(raw.len());
-    for call in &mut raw {
+    for call in raw {
         let in_symbol = sweep
             .innermost_at(call.name_start)
             .map(str::to_string)
             .unwrap_or_default();
         calls.push(CallInfo {
-            name: std::mem::take(&mut call.name),
+            name: call.name,
             line: call.line,
             col: call.col,
             end_col: call.end_col,
             kind: call.kind,
-            recv: std::mem::take(&mut call.recv),
+            recv: call.recv,
             in_symbol,
         });
     }

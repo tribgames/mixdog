@@ -161,8 +161,7 @@ export function displayModelName(model, provider = '', displayHint = '') {
     if (canonical && canonical !== id) return canonical;
   }
   if (hint) return hint;
-  if (id) return canonicalModelDisplay(id, provider) || id;
-  return '';
+  return id;
 }
 
 export function shortenModelName(name, cols) {

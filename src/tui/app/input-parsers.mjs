@@ -3,10 +3,13 @@
  * (MCP servers, skills, memory commands + memory row tables).
  * No hooks, no App state, no closures.
  */
-export function parseMcpServerInput(text) {
-  const parts = String(text || '')
+const splitPipeFields = (text) =>
+  String(text || '')
     .split('|')
     .map((part) => part.trim());
+
+export function parseMcpServerInput(text) {
+  const parts = splitPipeFields(text);
   const [name, commandOrUrl, argsText = '', cwd = ''] = parts;
   if (!name || !commandOrUrl) return { error: 'usage: name | command-or-url | args(optional) | cwd(optional)' };
   if (/^(?:https?|wss?):\/\//i.test(commandOrUrl)) return { server: { name, url: commandOrUrl } };
@@ -21,9 +24,7 @@ export function parseMcpServerInput(text) {
 }
 
 export function parseSkillInput(text) {
-  const parts = String(text || '')
-    .split('|')
-    .map((part) => part.trim());
+  const parts = splitPipeFields(text);
   const [name, description = 'Project skill.', whenToUse = ''] = parts;
   if (!name) return { error: 'usage: name | description(optional) | trigger(optional)' };
   return { skill: { name, description, ...(whenToUse ? { whenToUse } : {}) } };

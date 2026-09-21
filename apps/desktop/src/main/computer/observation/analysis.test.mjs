@@ -73,7 +73,7 @@ test('element identity survives a recapture and numbers repeated labels', () => 
     refIdentities
   );
   assert.deepEqual([...identities.keys()], ['Button|Save', 'Button|Save#2', 'Edit|File name']);
-  assert.match(identities.get('Edit|File name'), /^report\.txt\u0000/);
+  assert.ok(identities.get('Edit|File name').startsWith('report.txt\u0000'));
   assert.equal(refIdentities.get('s1:e0'), 'Button|Save');
   assert.equal(refIdentities.get('s1:e1'), 'Button|Save#2');
   assert.equal(refIdentities.has('s1:e8'), false);

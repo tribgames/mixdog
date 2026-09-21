@@ -1,10 +1,10 @@
 import sharp from 'sharp';
 import { openPdfJs, selectedPages } from './pdf-document.mjs';
+import { round2 } from './pdf-draw.mjs';
 
 export { ocrPdf, ocrTextLines, parseOcrBlocks, parseOcrTsv, pdfOcrReadiness } from './pdf-ocr.mjs';
 
 const MAX_SHAPES_PER_PAGE = 2000;
-const round2 = (value) => Number(Number(value).toFixed(2));
 const near = (left, right, tolerance = 0.5) => Math.abs(left - right) <= tolerance;
 // pdf.js's own applyTransform mutates its argument in place, so map points here.
 const applyPoint = ([x, y], m) => [x * m[0] + y * m[2] + m[4], x * m[1] + y * m[3] + m[5]];

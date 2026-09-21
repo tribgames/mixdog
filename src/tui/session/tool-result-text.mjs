@@ -128,9 +128,7 @@ function toolResultPartText(part, depth = 0) {
 
 export function toolAggregateDetailFallback(detailText, rawResult) {
   if (String(detailText || '').trim()) return detailText;
-  const raw = String(rawResult || '')
-    .replace(/\s+$/, '')
-    .trim();
+  const raw = String(rawResult || '').trim();
   if (!raw) return detailText;
   const line =
     raw

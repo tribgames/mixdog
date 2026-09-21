@@ -163,7 +163,3 @@ export function noteProviderFailure(state, provider, errorMessage, errorKind, { 
   }
   updateProviderState(state, provider, payload);
 }
-
-// Selection is config-driven (no preference cache, no historical ranking).
-// We only honor active cooldownUntil set by noteProviderFailure so callers
-// don't spin on a known-rate-limited extractor within the same window.

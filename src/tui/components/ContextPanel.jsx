@@ -6,24 +6,7 @@ import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
 import { contextPercent, contextMeasurementLabel } from '../../ui/context-measurement.mjs';
 import { ContextInspector } from './ContextInspector.jsx';
-
-function truncateText(value, width) {
-  const text = String(value || '');
-  if (!(width > 0)) return '';
-  if (stringWidth(text) <= width) return text;
-  if (width <= 1) return '…'.repeat(Math.max(0, width));
-  let out = '';
-  for (const ch of text) {
-    if (stringWidth(`${out}${ch}…`) > width) break;
-    out += ch;
-  }
-  return `${out}…`;
-}
-
-function padCells(value, width) {
-  const text = String(value || '');
-  return `${text}${' '.repeat(Math.max(0, width - stringWidth(text)))}`;
-}
+import { truncatePanelText as truncateText, padPanelCells as padCells } from './panel-cell-text.mjs';
 
 function finiteNumber(value) {
   const n = Number(value);
@@ -96,10 +79,6 @@ function bucketTokens(map, names) {
   return names.reduce((sum, name) => sum + finiteNumber(map?.[name]?.tokens), 0);
 }
 
-function semanticTokens(semantic, names) {
-  return names.reduce((sum, name) => sum + finiteNumber(semantic?.[name]?.tokens), 0);
-}
-
 function CategoryItem({ label, tokens, total, width }) {
   const rowWidth = Math.max(0, Math.floor(width));
   const labelWidth = Math.min(11, Math.max(7, Math.floor(rowWidth * 0.22)));
@@ -169,7 +148,7 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
   const summaryText = `${formatTokens(usedTokens)} / ${formatTokens(windowTokens)} · ${formatTokens(freeTokens)} free`;
   const pctText = usedTokens == null ? '—' : `${percentLabel(usedTokens, windowTokens)} used`;
   const barWidth = Math.max(12, Math.min(34, innerWidth - stringWidth(summaryText) - stringWidth(pctText) - 5));
-  const systemPromptTokens = semanticTokens(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']);
+  const systemPromptTokens = bucketTokens(semantic, ['system', 'workflow', 'workspace', 'environment', 'other']);
   const systemToolsTokens = bucketTokens(schema, [
     'code',
     'web',
@@ -210,10 +189,10 @@ function ContextUsageView({ detail, columns, panelRows, onInspect, onRefresh }) 
     { label: 'System tools', tokens: systemToolsTokens },
     { label: 'MCP tools', tokens: bucketTokens(schema, ['mcp']) },
     { label: 'Custom agents', tokens: bucketTokens(schema, ['agents']) },
-    { label: 'Memory files', tokens: semanticTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']) },
+    { label: 'Memory files', tokens: bucketTokens(semantic, ['memory']) + bucketTokens(schema, ['memory']) },
     { label: 'Skills', tokens: bucketTokens(schema, ['skills']) },
-    { label: 'Messages', tokens: semanticTokens(semantic, ['chat', 'assistant', 'toolResults']) },
-    { label: 'Reasoning tokens', tokens: semanticTokens(semantic, ['reasoning']) },
+    { label: 'Messages', tokens: bucketTokens(semantic, ['chat', 'assistant', 'toolResults']) },
+    { label: 'Reasoning tokens', tokens: bucketTokens(semantic, ['reasoning']) },
   ];
   const categorizedTokens = categories.reduce((sum, category) => sum + category.tokens, 0);
   const categoryWindowTokens = Math.max(rawWindowTokens, categorizedTokens);

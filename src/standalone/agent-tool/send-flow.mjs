@@ -147,9 +147,15 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
   // `send` branch AND by the `spawn` branch when an explicit tag maps to a
   // live session (reuse path). Busy sessions queue the prompt; idle ones run a
   // background send job that continues the existing session (context kept).
-  function dispatchToExistingSession(prepared, notifyContext, extras = {}) {
+  async function dispatchToExistingSession(prepared, notifyContext, extras = {}) {
     const { session, sessionId, prompt } = prepared;
     const tag = registry.tagForSession(sessionId);
+    if (canUseSessionSurface(session) && views.isSessionBusy(sessionId)) {
+      const queued = await sessionSurface.enqueueTurn({ session, prompt, context: prepared.args.context || null });
+      if (queued) {
+        return renderResult({ queued: true, ...extras, tag, sessionId, agent: session.agent || null, ...queued });
+      }
+    }
     if (
       !canUseSessionSurface(session) &&
       views.isSessionBusy(sessionId) &&

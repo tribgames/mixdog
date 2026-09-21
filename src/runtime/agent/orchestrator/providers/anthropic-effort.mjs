@@ -352,7 +352,7 @@ export function effortValuesForModel(capabilities, modelId) {
   // Catalog-first: when capabilities.effort enumerates per-level support,
   // that map is the source of truth — expose exactly the levels the model
   // advertises (xhigh, max, or anything future), no hardcoded allowlist.
-  if (effort !== true && typeof effort === 'object') {
+  if (typeof effort === 'object') {
     const advertised = Object.keys(effort).filter(
       (level) =>
         !CONTROL_EFFORT_KEYS.has(String(level).trim().toLowerCase()) &&

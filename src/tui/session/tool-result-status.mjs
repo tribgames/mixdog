@@ -1,10 +1,6 @@
 /**
- * src/tui/session/tool-result-status.mjs — pure tool-result status + aggregate
- * text helpers for the session runtime.
- *
- * These functions reference only their arguments plus toolErrorDisplay
- * (imported below) — no session state — so they live here as free functions;
- * session-local.mjs imports them.
+ * Tool-result status, display text, and aggregate-record helpers for the
+ * session runtime.
  */
 import { stripShellExitHeader, toolErrorDisplay } from './tool-result-text.mjs';
 import { normalizeToolTerminalStatus, toolResultTerminalStatus } from '../../runtime/shared/tool-status.mjs';
@@ -82,19 +78,11 @@ export function failureDetailText({ succeeded = 0, realErrors = 0, exitErrors = 
   return parts.join(' · ');
 }
 
-function normalizedResultStatusToken(value) {
-  return normalizeToolTerminalStatus(value);
-}
-
-function resultTextTerminalStatus(text) {
-  return toolResultTerminalStatus(text);
-}
-
 function itemHasKnownTerminalStatus(item, texts = []) {
   const settled = (token) => token === 'completed' || token === 'failed' || token === 'cancelled';
-  if (settled(normalizedResultStatusToken(item?.args?.status))) return true;
+  if (settled(normalizeToolTerminalStatus(item?.args?.status))) return true;
   for (const text of texts) {
-    if (settled(resultTextTerminalStatus(text))) return true;
+    if (settled(toolResultTerminalStatus(text))) return true;
   }
   return false;
 }

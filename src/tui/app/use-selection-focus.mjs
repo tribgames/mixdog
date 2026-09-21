@@ -17,10 +17,10 @@ export function useSelectionFocusMove({
   applySelectionRect,
 }) {
   // Scroll the transcript by deltaRows on behalf of an edge move. Returns null
-  // when the scroll did not move; otherwise the anchor re-read from the
+  // when the scroll did not move; otherwise an object with the anchor re-read from the
   // shifted rect (scrollTranscriptRows REPLACES dragRef.current with a shifted
-  // copy, so the caller's `drag` binding is stale) or undefined when there is
-  // no rect to re-read.
+  // copy, so the caller's `drag` binding is stale). The anchor is null when
+  // there is no rect to re-read.
   const scrollFocusPastEdge = useCallback(
     (deltaRows) => {
       const beforeTarget = scrollTargetRef.current;

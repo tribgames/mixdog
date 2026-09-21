@@ -1,15 +1,17 @@
 import { writeFile } from 'node:fs/promises';
 import JSZip from 'jszip';
-import { xmlEncode } from './portable-xml.mjs';
+import {
+  DRAWING_MAIN_NS as DRAWING_MAIN,
+  OFFICE_RELATIONSHIP_BASE as OFFICE_RELATIONSHIPS,
+  SPREADSHEET_MAIN as SHEET_MAIN,
+  XML_HEADER,
+  xmlEncode,
+} from './portable-xml.mjs';
 import { columnLabel } from './portable-cells.mjs';
 
-const DECLARATION = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
 const PACKAGE_RELATIONSHIPS = 'http://schemas.openxmlformats.org/package/2006/relationships';
-const OFFICE_RELATIONSHIPS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 const WORD_MAIN = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
-const SHEET_MAIN = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
 const PRESENTATION_MAIN = 'http://schemas.openxmlformats.org/presentationml/2006/main';
-const DRAWING_MAIN = 'http://schemas.openxmlformats.org/drawingml/2006/main';
 
 const MAIN_PART_TYPES = Object.freeze({
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml',
@@ -35,7 +37,7 @@ const NOTES_WIDTH = 6_858_000;
 const NOTES_HEIGHT = 9_144_000;
 
 function document(body) {
-  return `${DECLARATION}\r\n${body}`;
+  return `${XML_HEADER}${body}`;
 }
 
 function relationships(entries) {

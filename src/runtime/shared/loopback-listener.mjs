@@ -13,12 +13,7 @@ export function createLoopbackListener({
     if (closing) return Promise.reject(new Error('HTTP listener is stopping'));
     if (current) return current.promise;
 
-    let resolve;
-    let reject;
-    const promise = new Promise((yes, no) => {
-      resolve = yes;
-      reject = no;
-    });
+    const { promise, resolve, reject } = Promise.withResolvers();
     const controller = new AbortController();
     const attempt = { promise, reject, controller, port: basePort, bound: false, detach };
     current = attempt;

@@ -75,23 +75,13 @@ export function createMcpTransport({ name, cfg, sdk, log }) {
     log(`[mcp-client] Connecting "${name}" via autoDetect HTTP: ${url}\n`);
     return { transport: new StreamableHTTPClientTransport(new URL(url)), autoDetectAdvert: advert };
   }
-  if (kind === 'http') {
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'http');
+  if (kind === 'http' || kind === 'sse') {
+    const Transport = kind === 'http' ? StreamableHTTPClientTransport : SSEClientTransport;
+    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
     const opts = requestInitFor(cfg);
-    log(`[mcp-client] Connecting "${name}" via HTTP: ${mcpUrlForLog(url)}\n`);
+    log(`[mcp-client] Connecting "${name}" via ${kind.toUpperCase()}: ${mcpUrlForLog(url)}\n`);
     return {
-      transport: opts
-        ? new StreamableHTTPClientTransport(new URL(url), opts)
-        : new StreamableHTTPClientTransport(new URL(url)),
-      autoDetectAdvert: null,
-    };
-  }
-  if (kind === 'sse') {
-    const url = normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), 'sse');
-    const opts = requestInitFor(cfg);
-    log(`[mcp-client] Connecting "${name}" via SSE: ${mcpUrlForLog(url)}\n`);
-    return {
-      transport: opts ? new SSEClientTransport(new URL(url), opts) : new SSEClientTransport(new URL(url)),
+      transport: opts ? new Transport(new URL(url), opts) : new Transport(new URL(url)),
       autoDetectAdvert: null,
     };
   }

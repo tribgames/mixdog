@@ -172,6 +172,7 @@ export async function createRendererDelta({ root, baseManifest, deltaDir, manife
   let changedFiles = 0;
   for (const file of current.files) {
     const previous = baseFiles.get(file.path);
+    baseFiles.delete(file.path);
     if (previous?.size === file.size && previous.sha256 === file.sha256) continue;
     const source = join(resolve(root), ...file.path.split('/'));
     const destination = join(resolve(deltaDir), ...file.path.split('/'));
@@ -188,7 +189,7 @@ export async function createRendererDelta({ root, baseManifest, deltaDir, manife
     totalBytes: current.files.reduce((sum, file) => sum + file.size, 0),
     changedFiles,
     changedBytes,
-    removedFiles: base.files.filter((file) => !current.files.some((candidate) => candidate.path === file.path)).length,
+    removedFiles: baseFiles.size,
     treeHash: current.treeHash,
   };
 }

@@ -402,21 +402,13 @@ fn track(req: TrackRequest, manager: &Arc<Manager>) {
     };
     if let Ok(mut state) = managed.state.lock() {
         state.job_id = Some(req.job_id.clone());
-        if let Some(command) = req.command {
-            state.command = command;
-        }
-        if let Some(cwd) = req.cwd {
-            state.cwd = cwd;
-        }
-        if req.shell_type.is_some() {
-            state.shell_type = req.shell_type;
-        }
-        if req.owner_session_id.is_some() {
-            state.owner_session_id = req.owner_session_id;
-        }
-        if req.client_host_pid.is_some() {
-            state.client_host_pid = req.client_host_pid;
-        }
+        state.update_metadata(
+            req.command,
+            req.cwd,
+            req.shell_type,
+            req.owner_session_id,
+            req.client_host_pid,
+        );
     }
     manager
         .jobs
@@ -439,21 +431,13 @@ fn promote(req: PromoteRequest, manager: &Arc<Manager>) {
     };
     managed.retained.store(true, Ordering::Release);
     if let Ok(mut state) = managed.state.lock() {
-        if let Some(command) = req.command {
-            state.command = command;
-        }
-        if let Some(cwd) = req.cwd {
-            state.cwd = cwd;
-        }
-        if req.shell_type.is_some() {
-            state.shell_type = req.shell_type;
-        }
-        if req.owner_session_id.is_some() {
-            state.owner_session_id = req.owner_session_id;
-        }
-        if req.client_host_pid.is_some() {
-            state.client_host_pid = req.client_host_pid;
-        }
+        state.update_metadata(
+            req.command,
+            req.cwd,
+            req.shell_type,
+            req.owner_session_id,
+            req.client_host_pid,
+        );
     }
     arm_timeout(Arc::clone(&managed), req.timeout_ms);
     emit_task(req.id, "task_started", &managed);

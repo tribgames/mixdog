@@ -1,7 +1,6 @@
 // Reference/caller/impact analysis + formatting.
 // Symbol search / callers / callees / references / impact query layer over a
-// built graph. Pure over {graph,cwd,args}; owns no cache state. Extracted
-// verbatim from code-graph.mjs.
+// built graph. Pure over {graph,cwd,args}; owns no cache state.
 import { relative } from 'node:path';
 import { _graphRel, _getSourceTextForNode, _getSourceLinesForNode } from './source-access.mjs';
 import { _astCallerCallSites, _astFileCallSites, _astCallDisplayCol, _astRelInScope } from './ast-calls.mjs';
@@ -269,9 +268,12 @@ export function _findSymbolAcrossGraph(
   }
   // Ambiguous declarations get one selection list, never an arbitrary body.
   // Otherwise the primary and its type faces already have their own rows.
-  const candidates = declCount > 1
-    ? rivalDecls.slice(0, Math.max(1, limit))
-    : primary?.declarationLike ? [] : topHits.filter((hit) => !typeFaces.includes(hit));
+  let candidates = [];
+  if (declCount > 1) {
+    candidates = rivalDecls.slice(0, Math.max(1, limit));
+  } else if (!primary?.declarationLike) {
+    candidates = topHits.filter((hit) => !typeFaces.includes(hit));
+  }
   if (candidates.length && hits.length > 1) {
     if (lines.length && lines.at(-1) !== '') lines.push('');
     lines.push('# candidates');

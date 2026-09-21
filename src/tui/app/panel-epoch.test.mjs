@@ -7,9 +7,8 @@
 //      the user is looking at now;
 //   2. an object → object panel replacement — opening a different panel over
 //      Settings must supersede, or a deferred Settings refresh clobbers it.
-// App.jsx cannot be imported here (no JSX parser in this workspace), so its
-// handover rule is exercised through the shared helper it delegates to, plus a
-// source-text pin on the one call site.
+// This suite exercises App.jsx's handover rule through the shared helper it
+// delegates to, plus a source-text pin on that delegation.
 //
 // The class rule is no longer audited by pattern matching: panel-surface.mjs
 // owns the sinks, so the two structural tests at the bottom are the whole
@@ -32,13 +31,7 @@ import { createProviderSetupPicker } from './provider-setup-picker.mjs';
 import { createRoutePickers } from './route-pickers.mjs';
 
 function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
+  return Promise.withResolvers();
 }
 
 // Drain BOTH phases repeatedly: these chains hop through timers (setTimeout 0)
@@ -336,8 +329,7 @@ test('Esc on the Update panel still kills its in-flight first check', async () =
 });
 
 test('App.jsx routes every picker handover through shouldSupersedePanelEpoch', async () => {
-  // No JSX parser exists in this workspace, so the one line that cannot be
-  // executed from a test is pinned as source text.
+  // Pin the delegation separately from the shared helper's behavior tests.
   const source = await readFile(new URL('../App.jsx', import.meta.url), 'utf8');
   assert.match(source, /import \{ shouldSupersedePanelEpoch, supersedePanelEpoch \} from '\.\/app\/panel-epoch\.mjs';/);
   assert.match(

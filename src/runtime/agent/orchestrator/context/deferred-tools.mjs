@@ -115,21 +115,14 @@ function buildMcpInstructionsManifest(mcpServerInstructions, poolNames) {
       (Array.isArray(poolNames) ? poolNames : []).map((name) => sanitizeDeferredToolManifestName(name)).filter(Boolean)
     ),
   ];
-  const toolsByServer = new Map();
+  const deferredServers = new Set();
   for (const name of pool) {
     const match = name.match(/^mcp__(.+?)__(.+)$/);
     if (!match) continue;
-    const server = match[1];
-    if (!toolsByServer.has(server)) toolsByServer.set(server, []);
-    toolsByServer.get(server).push(name);
+    deferredServers.add(match[1]);
   }
-  const servers = [...toolsByServer.keys()]
-    .filter(
-      (server) =>
-        sanitizeMcpManifestServerName(server) &&
-        sanitizeMcpInstructionText(map[server]) &&
-        toolsByServer.get(server).length
-    )
+  const servers = [...deferredServers]
+    .filter((server) => sanitizeMcpManifestServerName(server) && sanitizeMcpInstructionText(map[server]))
     .sort((a, b) => a.localeCompare(b));
   if (!servers.length) return '';
   const lines = ['<mcp-instructions>'];

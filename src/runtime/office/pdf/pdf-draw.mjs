@@ -102,7 +102,7 @@ export async function embedImage(document, imagePath) {
 function breakWord(word, font, size, width) {
   const pieces = [];
   let piece = '';
-  for (const char of Array.from(word)) {
+  for (const char of word) {
     if (piece && font.widthOfTextAtSize(piece + char, size) > width) {
       pieces.push(piece);
       piece = char;

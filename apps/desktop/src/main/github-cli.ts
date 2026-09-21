@@ -229,7 +229,8 @@ export async function githubCliLoginStart(): Promise<DesktopGithubCliLoginFlow> 
   if (!gh) throw new Error('GitHub CLI is not installed.');
   // One login at a time: a fresh start supersedes (and kills) earlier flows.
   for (const id of [...loginFlows.keys()]) cancelGithubCliLogin(id);
-  const { spawn } = await (ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch'));
+  ptyModule ??= import('@homebridge/node-pty-prebuilt-multiarch');
+  const { spawn } = await ptyModule;
   const flowId = `ghlogin_${process.pid}_${++flowSequence}`;
   const entry: ActiveLoginFlow = {
     flow: { flowId, state: 'pending' },

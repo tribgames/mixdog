@@ -10,7 +10,6 @@ export const ROUTE_TOOL_ORDER = Object.freeze([
   'edit',
   'apply_patch',
   'git',
-  'git_stage',
   'github',
   'shell',
   'task',
@@ -101,6 +100,6 @@ export const DEFERRED_SELECT_ALIASES = {
   graph: ['code_graph'],
   code: ['code_graph'],
   shell: ['shell', 'task'],
-  git: ['git', 'git_stage', 'github'],
+  git: ['git'],
   github: ['github'],
 };

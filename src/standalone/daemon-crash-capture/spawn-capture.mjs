@@ -245,7 +245,7 @@ function noteSpawnError(capture, error) {
 // this stream, so nothing here extends its lifetime.
 function drainStderrPipe(capture, stream) {
   const onData = (chunk) => {
-    mirrorText(capture.log, String(chunk || ''));
+    mirrorText(capture.log, chunk);
   };
   stream.on('data', onData);
   return new Promise((resolve) => {

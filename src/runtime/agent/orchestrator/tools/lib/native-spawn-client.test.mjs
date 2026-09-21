@@ -1,3 +1,4 @@
+import { fixtureRoot } from './isolated-test-env.mjs';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,7 +68,7 @@ test('foreground shell has stable owner identity before promotion', { timeout: 1
       command: 'native stable foreground ownership test',
       directArgv: ['-e', 'setTimeout(() => {}, 10000)'],
       env: process.env,
-      cwd: process.cwd(),
+      cwd: fixtureRoot,
       timeoutMs: 5_000,
       autoBackgroundMs: 250,
       backgroundOnTimeout: true,

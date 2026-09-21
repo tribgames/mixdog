@@ -616,6 +616,47 @@ function writeFreshHeartbeat(root, sessionId) {
   writeFileSync(join(root, 'sessions', `${sessionId}.hb`), `${Date.now()}\n${process.pid}\n`);
 }
 
+test('reaped rows and leftover heartbeats stay hidden after recovery saves', () => {
+  withAgentPoolRoot('mixdog-reaped-pool-', (root) => {
+    const now = Date.now();
+    const row = {
+      tag: 'old', sessionId: 'reaped-child', ownerSessionId: 'lead-a', agent: 'worker',
+      clientHostPid: process.pid, runtimePid: process.pid, status: 'idle', stage: 'idle',
+      createdAt: now - 60_000, updatedAt: new Date(now).toISOString(),
+      lastUsedAt: now, finishedAt: new Date(now).toISOString(),
+    };
+    writeAgentChild(root, row.sessionId, { ...row, agentTag: row.tag });
+    const tombstone = { tag: row.tag, clientHostPid: process.pid, reapedAt: new Date(now - 30_000).toISOString() };
+    const writeIndex = (workers) => writeFileSync(join(root, 'agent-workers.json'), JSON.stringify({
+      workers, tombstones: [tombstone],
+    }));
+    writeIndex({ old: row });
+    writeFreshHeartbeat(root, row.sessionId);
+    assert.equal(listStoredAgentWorkers().some((r) => r.sessionId === row.sessionId), false);
+    writeIndex({});
+    assert.equal(listStoredAgentWorkers().some((r) => r.sessionId === row.sessionId), false);
+    writeIndex({ old: { ...row, status: 'running', stage: 'running', turnStartedAt: new Date(now).toISOString() } });
+    assert.equal(listStoredAgentWorkers().some((r) => r.sessionId === row.sessionId), true);
+    assert.equal(existsSync(join(root, 'sessions', `${row.sessionId}.json`)), true, 'the transcript is retained');
+  });
+});
+
+test('expired running-worker evidence is unknown rather than normal idle', () => {
+  withAgentPoolRoot('mixdog-unknown-worker-', (root) => {
+    writeAgentChild(root, 'child-stale', { status: 'running', tag: 'stale' });
+    writeAgentWorkerIndex(root, {
+      stale: {
+        tag: 'stale', sessionId: 'child-stale', agent: 'worker', ownerSessionId: 'lead-a',
+        status: 'running', stage: 'running', runtimePid: process.pid,
+        updatedAt: new Date(Date.now() - 180_000).toISOString(),
+      },
+    });
+    const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'child-stale');
+    assert.equal(row?.status, 'unknown');
+    assert.equal(row?.stage, 'unknown');
+  });
+});
+
 test('a cancelled session whose heartbeat is still fresh is not reported as running', () => {
   withAgentPoolRoot('mixdog-cancel-hb-', (root) => {
     writeAgentChild(root, 'child-cancel', { status: 'cancelled', stage: 'running' });

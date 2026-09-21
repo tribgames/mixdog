@@ -20,9 +20,7 @@ export function rewoundFailedTurnItems(items, text) {
   }
   if (start < 0 || String(list[start].text || '').trim() !== resubmitted) return null;
   const tail = list.slice(start + 1);
-  const failed = tail.some(
-    (item) => item?.kind === 'turndone' && String(item.status || '').toLowerCase() === 'failed'
-  );
+  const failed = tail.some((item) => item?.kind === 'turndone' && String(item.status || '').toLowerCase() === 'failed');
   if (!failed) return null;
   if (tail.some((item) => !TURN_CHROME_KINDS.has(String(item?.kind || '')))) return null;
   return list.slice(0, start);

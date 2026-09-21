@@ -1,12 +1,8 @@
 /**
  * theme-effort-pickers.mjs — the Theme picker + Effort picker cluster.
  *
- * A dependency-injection
- * factory (these openers drive the panel surface + the prompt setters and read
- * live App state, so they can't be pure). Every function body is the original
- * App logic verbatim, with closure identifiers threaded through the factory
- * argument. themeNotice moves here alongside its sole external callers being
- * re-exported so the runSlashCommand /theme-by-id path keeps using it.
+ * A dependency-injection factory: these openers drive the panel surface +
+ * prompt setters and read live App state, so they can't be pure.
  */
 import { theme } from '../theme.mjs';
 import { pickerHelp } from './app-format.mjs';

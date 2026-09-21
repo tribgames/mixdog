@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
+  requiredGitBranchName,
   requiredNewTaskDraft,
 } from './ipc-validation.ts';
 
@@ -95,4 +96,13 @@ test('orchestration modes cross the read/configure and new-task IPC boundaries',
     });
   }
   assert.throws(() => requiredNewTaskDraft({ orchestrationMode: 'invalid' }), /orchestrationMode is invalid/);
+});
+
+test('git branch validation trims surrounding whitespace without weakening rejection rules', () => {
+  assert.equal(requiredGitBranchName('\t feature/topic \n'), 'feature/topic');
+  assert.equal(requiredGitBranchName(` ${'x'.repeat(512)} `), 'x'.repeat(512));
+  assert.throws(() => requiredGitBranchName(null), { name: 'TypeError', message: 'git branch must be a string.' });
+  for (const value of [' \t\n', 'x'.repeat(513), ' -main ', 'fea\0ture', 'fea\nture', 'fea\rture']) {
+    assert.throws(() => requiredGitBranchName(value), { name: 'TypeError', message: 'git branch is invalid.' });
+  }
 });

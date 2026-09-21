@@ -17,12 +17,10 @@ export function createReplayItems() {
   const items = [];
   const keys = new Set();
   // Reasoning items collected from response.output_item.done (or salvaged
-  // from response.completed.response.output). The request still includes
-  // `reasoning.encrypted_content` so the server keeps emitting the blobs, but
-  // explicit input-side replay is omitted by default in
-  // convertMessagesToResponsesInput — openai-oauth rejects the same `rs_*` id
-  // twice in one stateful handshake session_id. Server-side conversation
-  // state carries the prefix across the WS_IDLE_MS window.
+  // from response.completed.response.output) stay in the logical history.
+  // The delta builder strips already-anchored items from the wire tail;
+  // the reasoning replay policy suppresses them only after a duplicate-item
+  // rejection, so full frames remain self-contained.
   const reasoningItems = [];
 
   function push(item) {

@@ -76,19 +76,28 @@ test('list keeps progress and failed errors on one line, bounds progress, and ne
       { tag: 'multiline', status: 'running', last_progress: ' read\n  render.mjs\t now ' },
     ],
     jobs: [
-      { task_id: 'task_no_tag', type: 'send', status: 'failed', sessionId: 'sess_hidden', error: ' timeout\n  waiting ' },
+      {
+        task_id: 'task_no_tag',
+        type: 'send',
+        status: 'failed',
+        sessionId: 'sess_hidden',
+        error: ' timeout\n  waiting ',
+      },
       { task_id: 'task_done', type: 'spawn', status: 'completed', tag: 'edge', error: 'stale error' },
     ],
   });
-  assert.equal(text, [
-    'agents: 4 · tasks: 2',
-    `- edge  idle  ${'x'.repeat(60)}`,
-    `- long  running/tool  ${'x'.repeat(59)}…`,
-    '- blank  idle',
-    '- multiline  running  read render.mjs now',
-    '- task_no_tag  send  failed  - error=timeout waiting',
-    '- task_done  spawn  completed  edge',
-  ].join('\n'));
+  assert.equal(
+    text,
+    [
+      'agents: 4 · tasks: 2',
+      `- edge  idle  ${'x'.repeat(60)}`,
+      `- long  running/tool  ${'x'.repeat(59)}…`,
+      '- blank  idle',
+      '- multiline  running  read render.mjs now',
+      '- task_no_tag  send  failed  - error=timeout waiting',
+      '- task_done  spawn  completed  edge',
+    ].join('\n')
+  );
   assert.equal(hasAgentResponseResult(text), false);
 });
 
@@ -98,7 +107,10 @@ test('empty and one-sided lists retain stable count headers', () => {
     assert.equal(text, 'agents: 0 · tasks: 0\n(no agents or tasks)');
     assert.equal(hasAgentResponseResult(text), false);
   }
-  assert.equal(renderResult({ workers: [{ tag: 'alpha', status: 'running' }] }), 'agents: 1 · tasks: 0\n- alpha  running');
+  assert.equal(
+    renderResult({ workers: [{ tag: 'alpha', status: 'running' }] }),
+    'agents: 1 · tasks: 0\n- alpha  running'
+  );
   assert.equal(
     renderResult({ jobs: [{ task_id: 'task_alpha', type: 'spawn', status: 'running', tag: 'alpha' }] }),
     'agents: 0 · tasks: 1\n- task_alpha  spawn  running  alpha'

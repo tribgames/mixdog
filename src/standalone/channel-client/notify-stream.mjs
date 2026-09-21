@@ -1,4 +1,3 @@
-// channel-client/notify-stream.mjs
 // The persistent GET /events SSE stream that replaces the old node-IPC
 // `{type:'notify'}` messages. Owns one live request at a time plus the two
 // timers that judge it: the stable timer (a bare 200 followed by an immediate

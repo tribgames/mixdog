@@ -4,17 +4,18 @@
 // store observe the same live state. The pieces live under ./worker-index/:
 //   row-shape      — one row shape; session → row projection
 //   row-store      — the file, its parse cache, the locked writer
-//   mutation-batch — spawn-path writes coalesced onto one microtask
+//   mutation-batch — spawn-path writes coalesced onto one immediate
 //   row-liveness   — stale-active detection and idle settlement
 import { resolve } from 'node:path';
 
 import { WORKER_INDEX_FILE } from './tool-def.mjs';
 import { clean, positiveInt, registerExitFlush, rowMatchesContext } from './helpers.mjs';
-import { applyWorkerRowUpsert, workerRowKey } from './worker-rows.mjs';
+import { applyWorkerRowUpsert, recoverTagTombstoneOwner, workerRowKey } from './worker-rows.mjs';
 import { createMutationBatch } from './worker-index/mutation-batch.mjs';
 import { createRowLiveness, isActiveWorkerRow } from './worker-index/row-liveness.mjs';
 import { normalizeWorkerRows, workerRowFromSession } from './worker-index/row-shape.mjs';
 import { createWorkerRowStore } from './worker-index/row-store.mjs';
+import { findTagTombstone, tagTombstoneKey, tombstoneBlocksWork } from '../../runtime/shared/agent-reap-state.mjs';
 
 export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCwds }) {
   const file = dataDir ? resolve(dataDir, WORKER_INDEX_FILE) : null;
@@ -28,7 +29,19 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   function readWorkerRows(context = {}) {
     const rows = store.readAll();
     if (rows.length === 0) return rows;
-    return rows.filter((row) => rowMatchesContext(row, context));
+    const tombstones = new Map(readAllTagTombstones().map((row) => [tagTombstoneKey(row), row]));
+    return rows.filter(
+      (row) => rowMatchesContext(row, context) && !tombstoneBlocksWork(row, findTagTombstone(row, tombstones))
+    );
+  }
+
+  function readAllTagTombstones() {
+    const rows = store.readTombstones();
+    if (!rows.some((row) => !clean(row.parentSessionId || row.ownerSessionId))) return rows;
+    const sessions = typeof mgr.listSessions === 'function' ? mgr.listSessions({ includeClosed: true }) : [];
+    // Resolve legacy ownership against all sessions, never just the caller's
+    // scope: filtering first would conceal an ambiguous sibling owner.
+    return rows.map((row) => recoverTagTombstoneOwner(row, sessions));
   }
 
   // Every upsert also projects the row into the in-memory tag maps so tag
@@ -116,8 +129,8 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     workerIndexPath: () => file,
     invalidateWorkerRowsCache: store.invalidate,
     readAllWorkerRows: store.readAll,
-    readAllTagTombstones: store.readTombstones,
-    readTagTombstones: (context = {}) => store.readTombstones().filter((row) => rowMatchesContext(row, context)),
+    readAllTagTombstones,
+    readTagTombstones: (context = {}) => readAllTagTombstones().filter((row) => rowMatchesContext(row, context)),
     readWorkerRows,
     writeWorkerRows: store.write,
     flushWorkerIndexMutations: batch.flush,

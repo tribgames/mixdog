@@ -109,7 +109,7 @@ const rows = [
       const hasPatch = active.has('apply_patch');
       if (!hasEdit && !hasPatch) throw new Error('missing edit/apply_patch in ' + [...active].join(','));
       if (hasEdit && hasPatch) throw new Error('both edit dialects unexpectedly active: ' + [...active].join(','));
-      for (const name of ['cwd','git_stage','web_fetch']) {
+      for (const name of ['cwd','github','web_fetch']) {
         if (!catalog.has(name)) throw new Error('missing deferred ' + name + ' in tool catalog');
         if (catalog.get(name)?.active === true) throw new Error('deferred tool unexpectedly active: ' + name);
       }

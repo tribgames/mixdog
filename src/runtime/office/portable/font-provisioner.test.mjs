@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import {
   NOTO_FONT_DEFINITIONS,
@@ -33,12 +34,9 @@ test('user font directory is absolute and unknown fonts report their install tar
 });
 
 test('prepareOfficeFonts absorbs download failures per font instead of throwing', async (t) => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
+  t.mock.method(fs, 'mkdir', async () => {});
+  t.mock.method(globalThis, 'fetch', async () => {
     throw new Error('offline');
-  };
-  t.after(() => {
-    globalThis.fetch = originalFetch;
   });
   const targets = [
     {

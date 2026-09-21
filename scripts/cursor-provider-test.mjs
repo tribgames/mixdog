@@ -44,6 +44,29 @@ function sseResponse(events, onCancel = () => {}) {
   );
 }
 
+function bridgeFixture() {
+  let dataHandler = null;
+  let closeHandler = null;
+  return {
+    alive: true,
+    onData(handler) {
+      dataHandler = handler;
+    },
+    onClose(handler) {
+      closeHandler = handler;
+    },
+    write() {},
+    close(error = null) {
+      if (!this.alive) return;
+      this.alive = false;
+      closeHandler?.(error);
+    },
+    emit(bytes) {
+      dataHandler?.(bytes);
+    },
+  };
+}
+
 test('Cursor account login wraps the browser deep-link contract', () => {
   const params = generateCursorOAuthParams();
   const url = new URL(params.loginUrl);
@@ -1576,26 +1599,7 @@ test('Cursor native shell redirects omit unsupported workingDirectory', () => {
 });
 
 test('Cursor clean end-stream flushes pending tool calls as a recoverable batch', async () => {
-  let dataHandler = null;
-  let closeHandler = null;
-  const bridge = {
-    alive: true,
-    onData(handler) {
-      dataHandler = handler;
-    },
-    onClose(handler) {
-      closeHandler = handler;
-    },
-    write() {},
-    close(error = null) {
-      if (!this.alive) return;
-      this.alive = false;
-      closeHandler?.(error);
-    },
-    emit(bytes) {
-      dataHandler?.(bytes);
-    },
-  };
+  const bridge = bridgeFixture();
   const key = 'end-stream-pending-fixture';
   const response = __cursorWireInternals.createStreamResponse({
     bridge,
@@ -1873,28 +1877,6 @@ test('Cursor answers interaction queries, rejects unknown native execs, and acce
 });
 
 test('Cursor resumes a partially visible stream only from a checkpoint', async () => {
-  const bridgeFixture = () => {
-    let dataHandler = null;
-    let closeHandler = null;
-    return {
-      alive: true,
-      onData(handler) {
-        dataHandler = handler;
-      },
-      onClose(handler) {
-        closeHandler = handler;
-      },
-      write() {},
-      close(error = null) {
-        if (!this.alive) return;
-        this.alive = false;
-        closeHandler?.(error);
-      },
-      emit(bytes) {
-        dataHandler?.(bytes);
-      },
-    };
-  };
   const first = bridgeFixture();
   const second = bridgeFixture();
   const conversation = { blobs: new Map(), checkpoint: null };
@@ -1957,27 +1939,8 @@ test('Cursor resumes a partially visible stream only from a checkpoint', async (
 });
 
 test('Cursor never blindly replays a partially visible stream without a checkpoint', async () => {
-  let dataHandler = null;
-  let closeHandler = null;
   let restartCount = 0;
-  const bridge = {
-    alive: true,
-    onData(handler) {
-      dataHandler = handler;
-    },
-    onClose(handler) {
-      closeHandler = handler;
-    },
-    write() {},
-    close(error = null) {
-      if (!this.alive) return;
-      this.alive = false;
-      closeHandler?.(error);
-    },
-    emit(bytes) {
-      dataHandler?.(bytes);
-    },
-  };
+  const bridge = bridgeFixture();
   const response = __cursorWireInternals.createStreamResponse({
     bridge,
     heartbeat: setInterval(() => {}, 10_000),

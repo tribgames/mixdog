@@ -1,6 +1,7 @@
-import { clean, positiveInt } from './helpers.mjs';
+import { agentTagOf, clean, positiveInt, stampMs } from './helpers.mjs';
 
-export const TAG_TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+import { TAG_TOMBSTONE_TTL_MS, tagTombstoneKey } from '../../runtime/shared/agent-reap-state.mjs';
+export { TAG_TOMBSTONE_TTL_MS, tagTombstoneKey };
 const MAX_TAG_TOMBSTONES = 500;
 
 export function workerRowKey(row = {}) {
@@ -33,8 +34,31 @@ export function isDeadWorkerStatus(status) {
   );
 }
 
-export function tagTombstoneKey(row = {}) {
-  return `${positiveInt(row.clientHostPid) || 0}\0${clean(row.tag)}`;
+export function recoverTagTombstoneOwner(row, sessions) {
+  if (clean(row.parentSessionId || row.ownerSessionId)) return row;
+  const pid = positiveInt(row.clientHostPid);
+  const reapedAt = stampMs(row.reapedAt);
+  if (!pid || !reapedAt) return row;
+  const candidates = sessions.filter((session) => {
+    const createdAt = stampMs(session.createdAt);
+    return (
+      clean(session.id) &&
+      (!row.sessionId || clean(row.sessionId) === clean(session.id)) &&
+      agentTagOf(session) === clean(row.tag) &&
+      positiveInt(session.clientHostPid) === pid &&
+      clean(session.parentSessionId || session.ownerSessionId) &&
+      createdAt > 0 &&
+      createdAt <= reapedAt
+    );
+  });
+  if (candidates.length !== 1) return row;
+  const session = candidates[0];
+  return {
+    ...row,
+    sessionId: clean(session.id),
+    parentSessionId: clean(session.parentSessionId || session.ownerSessionId),
+    ownerSessionId: clean(session.ownerSessionId || session.parentSessionId),
+  };
 }
 
 export function normalizeTagTombstones(value, { cap = true, priorityKeys = null } = {}) {
@@ -52,6 +76,9 @@ export function normalizeTagTombstones(value, { cap = true, priorityKeys = null 
         agent: clean(row.agent) || null,
         cwd: clean(row.cwd) || null,
         clientHostPid: positiveInt(row.clientHostPid),
+        ...(clean(row.sessionId) ? { sessionId: clean(row.sessionId) } : {}),
+        ...(clean(row.parentSessionId) ? { parentSessionId: clean(row.parentSessionId) } : {}),
+        ...(clean(row.ownerSessionId) ? { ownerSessionId: clean(row.ownerSessionId) } : {}),
         // A future clock must not outrank tombstones created by this process.
         reapedAt: parsedReapedAt ? new Date(Math.min(parsedReapedAt, now)).toISOString() : null,
       };

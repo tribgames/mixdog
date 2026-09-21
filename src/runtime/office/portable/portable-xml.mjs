@@ -52,8 +52,7 @@ export function tagPattern(tag) {
 export function textNodes(xml, tag) {
   const regex = new RegExp(`<${tagPattern(tag)}(\\s[^>]*)?>([\\s\\S]*?)</${tagPattern(tag)}>`, 'g');
   const nodes = [];
-  let match;
-  while ((match = regex.exec(xml))) {
+  for (let match = regex.exec(xml); match; match = regex.exec(xml)) {
     nodes.push({
       start: match.index,
       end: regex.lastIndex,
@@ -153,8 +152,7 @@ export function topLevelElements(fragment, acceptedTags) {
   const stack = [];
   let tracked = null;
   const regex = /<([/]?)([A-Za-z_][\w:.-]*)(?:\s[^<>]*?)?([/]?)>/g;
-  let match;
-  while ((match = regex.exec(fragment))) {
+  for (let match = regex.exec(fragment); match; match = regex.exec(fragment)) {
     const closing = match[1] === '/';
     const name = match[2];
     const selfClosing = match[3] === '/';
@@ -192,8 +190,7 @@ export function containerInner(xml, tag, from = 0) {
   const scanner = new RegExp(`<${tagPattern(tag)}(?:\\s[^>]*?)?(/?)>|</${tagPattern(tag)}>`, 'g');
   scanner.lastIndex = open.index + open[0].length;
   let depth = 1;
-  let match;
-  while ((match = scanner.exec(xml))) {
+  for (let match = scanner.exec(xml); match; match = scanner.exec(xml)) {
     if (match[0].startsWith('</')) {
       depth -= 1;
       if (depth > 0) continue;
@@ -215,8 +212,7 @@ export function setXmlAttribute(attributes, name, value) {
 export function elementSpans(fragment, tag) {
   const spans = [];
   const regex = new RegExp(`<${tagPattern(tag)}\\b([^>]*?)(\\/>|>[\\s\\S]*?<\\/${tagPattern(tag)}>)`, 'g');
-  let match;
-  while ((match = regex.exec(fragment))) {
+  for (let match = regex.exec(fragment); match; match = regex.exec(fragment)) {
     spans.push({
       start: match.index,
       end: regex.lastIndex,

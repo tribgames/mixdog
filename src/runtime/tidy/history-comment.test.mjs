@@ -377,8 +377,7 @@ test('every history autofix leaves the comment-stripped token stream unchanged',
   for (const source of fixtures) {
     const matches = [];
     const commentRe = /\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
-    let found;
-    while ((found = commentRe.exec(source))) {
+    for (const found of source.matchAll(commentRe)) {
       matches.push(hit('a.js', found.index, found.index + found[0].length));
     }
     const { after } = applyHistoryFixes(source, matches);

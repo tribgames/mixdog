@@ -43,7 +43,7 @@ test('file selection cannot cross document, prompt, cancellation, or ownership c
 
 test('a second file choice cannot open another native picker for the same prompt', async () => {
   const record = { pendingFileChooser: { mode: 'selectMultiple' } };
-  let resolve;
+  const { promise, resolve } = Promise.withResolvers();
   let calls = 0;
   const service = createBrowserLocalPrompts({
     state: { for: () => record },
@@ -51,9 +51,7 @@ test('a second file choice cannot open another native picker for the same prompt
     uploads: {},
     chooseFiles: () => {
       calls++;
-      return new Promise((done) => {
-        resolve = done;
-      });
+      return promise;
     },
   });
   const input = { type: 'choose-files', requestId: service.describe({}).fileChooser.id };

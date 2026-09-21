@@ -77,10 +77,15 @@ export const GIT_TOOL_DEF = {
     compressible: true,
   },
   description:
-    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files and a complete change-ID list with diff_id for git_stage, outside the body line cap. Other diff forms return Git text without staging IDs.',
+    'Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns selected locations.',
   inputSchema: {
     type: 'object',
     properties: {
+      action: {
+        type: 'string',
+        enum: ['command', 'stage'],
+        description: 'Default command. stage uses diff_id/change_ids instead of command.',
+      },
       command: {
         anyOf: [
           { type: 'string' },
@@ -95,41 +100,16 @@ export const GIT_TOOL_DEF = {
         maximum: GIT_OUTPUT_LIMIT_MAX,
         description: 'Body line cap; staging IDs are not capped. Default 50; git log defaults to 10.',
       },
-    },
-    required: ['command'],
-    additionalProperties: false,
-  },
-};
-
-export const GIT_STAGE_TOOL_DEF = {
-  name: 'git_stage',
-  title: 'Git Stage',
-  annotations: {
-    title: 'Git Stage',
-    readOnlyHint: false,
-    destructiveHint: true,
-    idempotentHint: false,
-    openWorldHint: false,
-    compressible: true,
-  },
-  description:
-    'Stage selected change_ids from git diff or git diff -- <paths> using its diff_id, including new files; rejects stale or cross-Project snapshots. Returns staged change locations, not repository-wide status.',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      diff_id: { type: 'string', description: 'Exact diff_id returned by git diff or git diff -- <paths>.' },
+      include_stage_ids: {
+        type: 'boolean',
+        description: 'Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false.',
+      },
+      diff_id: { type: 'string', description: 'stage: exact diff_id from git diff with include_stage_ids:true.' },
       change_ids: {
         anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' }, maxItems: 50 }],
-        description: 'Exact change ID or IDs to stage.',
-      },
-      output_limit: {
-        type: 'integer',
-        minimum: 1,
-        maximum: GIT_OUTPUT_LIMIT_MAX,
-        description: 'Git error output line cap; default 50. Successful change locations are not capped.',
+        description: 'stage: exact change ID or IDs to stage, including new files.',
       },
     },
-    required: ['diff_id', 'change_ids'],
     additionalProperties: false,
   },
 };
@@ -625,7 +605,7 @@ async function withStagePatchFile(patch, callback) {
   }
 }
 
-export async function executeGitStageTool(input, workDir, options = {}) {
+async function executeGitStage(input, workDir, options = {}) {
   const request = stageRequest(input);
   if (request.error) return fail(request.error);
   const snapshot = getDiffSnapshot(request.diffId);
@@ -633,14 +613,14 @@ export async function executeGitStageTool(input, workDir, options = {}) {
     return ok({
       staged: false,
       reason: 'expired_diff',
-      hint: 'Run git diff again and use its new diff_id/change_ids.',
+      hint: 'Run git diff with include_stage_ids:true again and use its new diff_id/change_ids.',
     });
   }
   if (snapshot.scope !== resolve(workDir || process.cwd())) {
     return ok({
       staged: false,
       reason: 'scope_mismatch',
-      hint: 'Run git diff in the current Project and use its diff_id/change_ids.',
+      hint: 'Run git diff with include_stage_ids:true in the current Project and use its diff_id/change_ids.',
     });
   }
   const limit = Math.min(GIT_OUTPUT_LIMIT_MAX, Math.max(1, Number(input?.output_limit) || 50));
@@ -658,7 +638,7 @@ export async function executeGitStageTool(input, workDir, options = {}) {
             return ok({
               staged: false,
               reason: 'stale_diff',
-              hint: 'The working diff changed. Run git diff again and select current change_ids.',
+              hint: 'The working diff changed. Run git diff with include_stage_ids:true again and select current change_ids.',
             });
           }
           const built = buildSelectedStagePatch(raw, request.changeIds);
@@ -737,7 +717,7 @@ async function executeSingleGitTool(input, workDir, options = {}) {
           ? await runStageableDiff(plan, prepared.argv, repo, signal)
           : await runGit(plan, prepared.argv, { signal });
         if (!succeeded(result)) return commandResult(plan, result, limit);
-        if (stageableRequest) {
+        if (stageableRequest && input.include_stage_ids === true) {
           const snapshot = createDiffSnapshot({
             repo,
             scope: resolve(workDir || process.cwd()),
@@ -808,6 +788,17 @@ function splitChainedGitCommands(command) {
 
 export async function executeGitTool(input, workDir, options = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return fail('git requires an arguments object');
+  const action = input.action ?? 'command';
+  if (action === 'stage') {
+    if (input.command !== undefined || input.include_stage_ids !== undefined) {
+      return fail('git action:stage accepts diff_id/change_ids, not command/include_stage_ids');
+    }
+    return executeGitStage(input, workDir, options);
+  }
+  if (action !== 'command') return fail('git action must be command or stage');
+  if (input.diff_id !== undefined || input.change_ids !== undefined) {
+    return fail('git diff_id/change_ids require action:stage');
+  }
   const chained = typeof input.command === 'string' ? splitChainedGitCommands(input.command) : null;
   if (!Array.isArray(input.command) && !chained) return (await executeSingleGitTool(input, workDir, options)).text;
   const commands = chained || input.command;

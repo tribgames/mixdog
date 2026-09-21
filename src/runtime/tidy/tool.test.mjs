@@ -519,16 +519,28 @@ test('results filters cached rules and directory prefixes before paging without 
   const cwd = process.cwd();
   const sessionId = 'tidy-filtered-results';
   const files = [
-    'src/runtime/a.js', 'src/runtime/b.js', 'src/runtime/c.js',
-    'src/runtime-more/no.js', 'apps/desktop/d.js',
+    'src/runtime/a.js',
+    'src/runtime/b.js',
+    'src/runtime/c.js',
+    'src/runtime-more/no.js',
+    'apps/desktop/d.js',
   ];
   const matches = files.map((file, index) => ({
-    file, ruleId: index === 1 ? 'other' : 'no-debugger', severity: 'warning', message: 'debugger',
+    file,
+    ruleId: index === 1 ? 'other' : 'no-debugger',
+    severity: 'warning',
+    message: 'debugger',
     range: { start: { line: 1, column: 2 }, end: { line: 1, column: 10 }, byteOffset: [1, 9] },
     fix: { byteOffset: [1, 9], text: '' },
   }));
   const diagnostics = matches.map(({ file, ruleId }) => ({
-    file, code: ruleId, line: 1, col: 2, severity: 'warning', message: 'debugger', fixable: false,
+    file,
+    code: ruleId,
+    line: 1,
+    col: 2,
+    severity: 'warning',
+    message: 'debugger',
+    fixable: false,
   }));
   const error = { language: 'kotlin', kind: 'rules', message: 'invalid rule' };
   const cached = {
@@ -537,17 +549,28 @@ test('results filters cached rules and directory prefixes before paging without 
     languageSource: 'git',
     engines: [{ id: 'eslint', kind: ['lint'] }],
     policy: { downloads: 'ask' },
-    results: [{
-      id: 'eslint', filesChecked: 5, diagnostics, filesChanged: files,
-      counts: { diagnostics: 5, bySeverity: { warning: 5 } },
-    }],
+    results: [
+      {
+        id: 'eslint',
+        filesChecked: 5,
+        diagnostics,
+        filesChanged: files,
+        counts: { diagnostics: 5, bySeverity: { warning: 5 } },
+      },
+    ],
     structural: { matches, error, ruleErrors: [error] },
   };
   const original = structuredClone(cached);
   rememberTidyRun(cwd, sessionId, cached);
-  const page = await executeTidyTool({
-    action: 'results', paths: [join(cwd, 'src/runtime')], rules: ['no-debugger'], limit: 1,
-  }, { cwd, sessionId });
+  const page = await executeTidyTool(
+    {
+      action: 'results',
+      paths: [join(cwd, 'src/runtime')],
+      rules: ['no-debugger'],
+      limit: 1,
+    },
+    { cwd, sessionId }
+  );
   const report = parseResult(page);
   assert.equal(page.isError, undefined);
   assert.equal(report.ok, true);
@@ -571,9 +594,18 @@ test('results filters cached rules and directory prefixes before paging without 
   assert.deepEqual(report.structural.byRule, { 'no-debugger': { count: 2, severity: 'warning', fixable: 2 } });
   assert.deepEqual(report.structural.byDir, { 'src/runtime': 2 });
 
-  const last = parseResult(await executeTidyTool({
-    action: 'results', paths: ['src\\runtime\\'], rules: ['no-debugger'], offset: 1, limit: 1,
-  }, { cwd, sessionId }));
+  const last = parseResult(
+    await executeTidyTool(
+      {
+        action: 'results',
+        paths: ['src\\runtime\\'],
+        rules: ['no-debugger'],
+        offset: 1,
+        limit: 1,
+      },
+      { cwd, sessionId }
+    )
+  );
   assert.equal(last.results[0].diagnostics[0].loc, 'src/runtime/c.js:1:2');
   assert.equal(last.results[0].more, 0);
   assert.equal(last.results[0].nextOffset, undefined);
@@ -596,6 +628,6 @@ test('results filters cached rules and directory prefixes before paging without 
     assert.equal(selected.structural.matchesCount, count);
   }
   assert.deepEqual(cached, original, 'projection and filtering must preserve full write payloads');
-  const escape = await executeTidyTool({ action: 'results', paths: ['../outside'] }, { cwd, sessionId });
-  assert.equal(escape.isError, true);
+  const escaping = await executeTidyTool({ action: 'results', paths: ['../outside'] }, { cwd, sessionId });
+  assert.equal(escaping.isError, true);
 });

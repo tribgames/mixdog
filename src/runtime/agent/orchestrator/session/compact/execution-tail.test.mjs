@@ -18,8 +18,17 @@ import { isActualUserInstructionMessage } from './messages.mjs';
 import { renderAgentCompletionEnvelope } from '../../../../shared/task-notification-envelope.mjs';
 
 test('tagged completions are neither user instructions nor memory conversation', () => {
-  const content = renderAgentCompletionEnvelope({ id: 'task_agent_tail', tag: 'review', status: 'completed', result: 'reviewed' });
-  const message = { role: 'user', content, meta: { source: 'task-notification', execution: { id: 'task_agent_tail', surface: 'agent', status: 'completed' } } };
+  const content = renderAgentCompletionEnvelope({
+    id: 'task_agent_tail',
+    tag: 'review',
+    status: 'completed',
+    result: 'reviewed',
+  });
+  const message = {
+    role: 'user',
+    content,
+    meta: { source: 'task-notification', execution: { id: 'task_agent_tail', surface: 'agent', status: 'completed' } },
+  };
   assert.equal(isActualUserInstructionMessage(message), false);
   assert.equal(isActualUserInstructionMessage({ role: 'user', content }), false);
   assert.deepEqual(projectSessionMessagesForIngest([message]), []);

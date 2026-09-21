@@ -9,7 +9,7 @@ import {
   smartMiddleTruncate,
 } from './builtin/shell-output.mjs';
 import { executeBashTool, executeTaskTool, formatShellToolFailure } from './builtin/bash-tool.mjs';
-import { executeGitStageTool, executeGitTool } from './builtin/git-command-tool.mjs';
+import { executeGitTool } from './builtin/git-command-tool.mjs';
 import { executeGithubTool } from '../../../github/tool.mjs';
 import { executeFindFilesTool, executeFuzzyFindTool, executeListTool, executeTreeTool } from './builtin/list-tool.mjs';
 import {
@@ -444,8 +444,6 @@ export async function executeBuiltinTool(name, args, cwd, options = {}) {
         return executeBashTool(args, workDir, options);
       case 'git':
         return executeGitTool(args, workDir, options);
-      case 'git_stage':
-        return executeGitStageTool(args, workDir, options);
       case 'github':
         return executeGithubTool(args, workDir, options);
       case 'task':

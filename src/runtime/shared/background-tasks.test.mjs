@@ -27,9 +27,14 @@ import { parseTaskNotification } from './task-notification-envelope.mjs';
 test('task output reports each error once while preserving metadata and verbatim results', () => {
   const body = '  stdout\r\nstderr\n\n';
   const task = {
-    taskId: 'job_lossless', surface: 'shell', operation: 'shell', status: 'failed',
-    startedAt: '2026-09-21T00:00:00Z', finishedAt: '2026-09-21T00:00:01Z',
-    error: 'terminated by signal', meta: { cwd: '/work', stdout: '/logs/out', stderr: '/logs/err' },
+    taskId: 'job_lossless',
+    surface: 'shell',
+    operation: 'shell',
+    status: 'failed',
+    startedAt: '2026-09-21T00:00:00Z',
+    finishedAt: '2026-09-21T00:00:01Z',
+    error: 'terminated by signal',
+    meta: { cwd: '/work', stdout: '/logs/out', stderr: '/logs/err' },
     resultText: body,
   };
   const output = renderBackgroundTask(task, { includeResult: true });
@@ -60,7 +65,10 @@ test('agent notifications bypass the card renderer and retain the entire final m
     assert.equal(parseTaskNotification(notifications[0]).result, result);
     assert.equal(notifications[0], renderBackgroundTaskNotification(task));
     assert.doesNotMatch(notifications[0], /card-only|provider:|model:|<usage>/);
-    assert.match(renderBackgroundTask(task, { includeResult: true }), /provider: provider[\s\S]*card-only result metadata/);
+    assert.match(
+      renderBackgroundTask(task, { includeResult: true }),
+      /provider: provider[\s\S]*card-only result metadata/
+    );
   } finally {
     cleanupBackgroundTasks({ force: true });
   }

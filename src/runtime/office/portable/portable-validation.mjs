@@ -201,9 +201,6 @@ function tableCellContrast(cellXml, body, slideSurface) {
   return fill && ink ? contrastRatio(ink, fill) : null;
 }
 
-// Measures one table row's cells for contrast and overflow, pushing at most
-// twenty cell reports in total; returns the row's drawn height in EMU (the
-// larger of its declared height and its tallest cell).
 // The height a cell's text needs against the room its row gives it, or null
 // when the row or column carries no size. A merged label cell (rowSpan) owns
 // the rows it spans: its room is theirs together, not one row's.
@@ -220,6 +217,9 @@ function tableCellFit(cellXml, { text, size, bold, widths, columnOrdinal, declar
   return { measured: measureTextBlock([{ text, fontSize: size, bold }], { width: usable }), rowSpan, available };
 }
 
+// Measures one table row's cells for contrast and overflow, pushing at most
+// twenty cell reports in total; returns the row's drawn height in EMU (the
+// larger of its declared height and its tallest cell).
 function auditTableRow(rowXml, { widths, pathPrefix, slideSurface }, issues) {
   const declared = Number(/<a:tr\b[^>]*\bh="(\d+)"/.exec(rowXml)?.[1]) || 0;
   let tallest = declared;
@@ -346,8 +346,6 @@ async function drawsNothing(data) {
   }
 }
 
-// The findings for one placed picture: a blank raster ends that picture's
-// audit; otherwise enlargement past its own detail, then aspect distortion.
 // The fraction of the raster a pptx crop leaves visible on each axis.
 function visibleFraction(picture, format) {
   const sourceRect = format === 'pptx' ? /<a:srcRect\b([^>]*)\/?>/.exec(picture)?.[1] : '';
@@ -398,6 +396,8 @@ function aspectDistortionIssue({ source, extent, visible, path }) {
   };
 }
 
+// The findings for one placed picture: a blank raster ends that picture's
+// audit; otherwise enlargement past its own detail, then aspect distortion.
 async function pictureIssues({ bytes, source, extent, picture, format, path }) {
   if (await drawsNothing(bytes)) {
     return [
@@ -506,10 +506,10 @@ export async function removeOrphanPackageParts(zip) {
   return { removed };
 }
 
-/** What the package itself is missing or contradicts, read from a validation result. */
 const packageError = (code, path, message) => ({ severity: 'error', code, path, message });
 const packageWarning = (code, path, message) => ({ severity: 'warning', code, path, message });
 
+/** What the package itself is missing or contradicts, read from a validation result. */
 function packageStructureIssues(validation) {
   return [
     ...validation.missing.map((missing) =>
@@ -718,9 +718,6 @@ function documentTableIssues(document) {
   return issues;
 }
 
-/** What the Word document says about itself: revisions, comments, lint, emptiness,
- *  tables wider than the text column or losing their header after a page break,
- *  ink, and pictures without a description. */
 function reviewStateIssues(snapshot) {
   const issues = [];
   if (snapshot.revisionCount || snapshot.propertyChangeCount) {
@@ -774,6 +771,9 @@ function pictureDescriptionIssues(snapshot) {
     }));
 }
 
+/** What the Word document says about itself: revisions, comments, lint, emptiness,
+ *  tables wider than the text column or losing their header after a page break,
+ *  ink, and pictures without a description. */
 async function documentContentIssues(zip, validation) {
   const snapshot = await snapshotDocx(zip);
   const document = await zipText(zip, 'word/document.xml');

@@ -1,15 +1,9 @@
 /**
  * hooks/useSharedTick.mjs — one process-wide animation timer for the TUI.
  *
- * The transcript used to fan out timers: Spinner's useAnimation, a 500ms blink
- * + 1s elapsed setInterval PER pending ToolExecution card, and StatusLine's own
- * refresh interval. With N pending cards that is 1 + 2N + 1 OS timers all waking
- * the event loop independently, which showed up in the stutter bench as +369
- * CPU-ms/s and 143ms frame gaps while idle-animated.
- *
- * This collapses every animated component onto a SINGLE shared setInterval.
- * Subscribers register the cadence they want; the shared timer runs at the
- * finest requested interval and only notifies each subscriber once its own
+ * A single shared timer avoids independent wakeups for every animated component.
+ * Subscribers register the cadence they want; the timer targets the next due
+ * boundary and only notifies each subscriber once its own
  * interval has elapsed (derived from Date.now()), so a 500ms blink and a 130ms
  * spinner still animate at their own rates off one timer. When the last
  * subscriber unmounts the timer is cleared, so nothing ticks when nothing

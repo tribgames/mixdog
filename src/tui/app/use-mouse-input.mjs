@@ -3,8 +3,8 @@
  *
  * Covers the ctrl+wheel zoom passthrough and the SGR input effect (wheel
  * scroll routing, prompt/transcript/status text selection with word/line
- * multi-click, drag auto-scroll). All shared state stays owned by App and is
- * injected via refs/callbacks; only the zoom-passthrough timer is owned here.
+ * multi-click, drag auto-scroll). Shared App state is injected via
+ * refs/callbacks; gesture timers and wheel acceleration stay local to the hook.
  */
 import { useCallback, useEffect, useRef } from 'react';
 import { overlayBlocksGlobalTranscriptScroll } from './slash-commands.mjs';
@@ -47,9 +47,8 @@ const MOUSE_SHIFT_MASK = 4;
 const IS_WINDOWS_TERMINAL = Boolean(process.env.WT_SESSION);
 
 // Console-stream writes can fail asynchronously (notably transient EAGAIN on
-// Windows): try/catch only sees a synchronous throw. Keep this tiny helper
-// exported so the mode-restore failure path can be exercised without mounting
-// the full Ink app.
+// Windows): try/catch only sees a synchronous throw, so restoration also
+// handles errors reported to the write callback.
 function writeMouseTrackingRestore(stdout, onError) {
   try {
     stdout.write(MOUSE_TRACKING_ON + ALT_SCROLL_OFF, (error) => {
@@ -487,14 +486,11 @@ export function useMouseInput({
         // Low 2 bits = button id; bit 5 (32) = motion-while-pressed flag.
         const baseButton = button & 3;
         const isMotion = (button & 32) !== 0;
-        // Shift bit must be read BEFORE baseButton drops every modifier bit
-        // (button & 3); MOUSE_MODIFIER_MASK above is scroll-routing-only and
-        // deliberately treats shift as noise there.
+        // Read Shift separately: baseButton retains only the button id.
         const shiftHeld = (button & MOUSE_SHIFT_MASK) !== 0;
         const ctrlHeld = (button & MOUSE_CTRL_MASK) !== 0;
-        // WT reserves shift+mouse for its NATIVE selection and (per its docs)
-        // never forwards those events; keep this guard as a belt-and-braces so
-        // a future WT that starts forwarding them can never double-paint.
+        // Keep Shift+mouse native in WT even when it forwards the event, so
+        // app and terminal selections cannot double-paint.
         if (IS_WINDOWS_TERMINAL && shiftHeld) return;
         // Do not force a full clear/rewrite on app-owned presses. Selection
         // changes below repaint through Ink's normal maxFps render throttle.

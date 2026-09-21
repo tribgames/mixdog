@@ -35,12 +35,12 @@ function stubDaemon({ failCalls = 0 } = {}) {
           state.deregisters.push(parsed);
           return json(200, { ok: true });
         case '/call':
+          state.calls.push(parsed);
           if (state.failCalls > 0) {
             state.failCalls -= 1;
             req.socket.destroy();
             return undefined;
           }
-          state.calls.push(parsed);
           return json(200, { result: { ran: parsed.name, args: parsed.args } });
         case '/events': {
           res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -149,8 +149,12 @@ test('a transport failure drops the stale attach and the retry re-attaches with 
     args: {},
   });
   assert.equal(daemon.state.registers.length, 2, 'the failed transport re-attached');
-  assert.equal(daemon.state.calls[0].token, 'tok-2');
+  assert.deepEqual(
+    daemon.state.calls.map((call) => call.token),
+    ['tok-1', 'tok-2']
+  );
   assert.match(daemon.state.calls[0].callId, /_1$/);
+  assert.equal(daemon.state.calls[1].callId, daemon.state.calls[0].callId, 'a retry preserves the logical call id');
   assert.deepEqual(daemon.state.deregisters, [{ token: 'tok-1' }]);
   assert.equal(worker.status().running, true);
   await worker.stop();

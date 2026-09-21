@@ -237,10 +237,11 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   assert.match(full, /Write each file complete in one pass/i);
   assert.doesNotMatch(full, /Fewest safe calls|result-dependent changes/i);
   assert.match(full, /Commit, push, release, deployment and any irreversible action/i);
-  assert.match(full, /Stage selected diff changes with `git_stage`/i);
-  // Delivery is only the git_stage line; without that tool the section is gone.
+  assert.match(full, /Stage selected diff changes with `git` using `action:"stage"`/i);
+  assert.match(full, /A commit request includes selecting and staging/i);
+  // Delivery's Git workflow is hidden without the unified tool.
   assert.doesNotMatch(
-    buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git_stage'] }),
+    buildSharedToolContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), omitTools: ['git'] }),
     /# Delivery/
   );
   assert.match(full, /`recall` only on request or for an open decision/i);
@@ -266,7 +267,7 @@ test('shared tool rules keep workflow and shell-boundary anchors', () => {
   );
   assert.ok(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git'));
   assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('goal'), false);
-  assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('git_stage'), false);
+  assert.equal(DEFERRED_DEFAULT_LEAD_TOOLS.includes('github'), false);
   assert.deepEqual(LEAD_DISALLOWED_TOOLS, ['get_goal', 'create_goal', 'set_goal_tasks', 'update_goal']);
 });
 
@@ -338,7 +339,7 @@ test('modelStandaloneTools hides agent and disabled first-party feature tools', 
     { name: 'read' },
     { name: 'agent' },
     { name: 'git' },
-    { name: 'git_stage' },
+    { name: 'github' },
     { name: 'web_search' },
     { name: 'web_fetch' },
     { name: 'memory' },
@@ -348,7 +349,7 @@ test('modelStandaloneTools hides agent and disabled first-party feature tools', 
   ];
   const { modelStandaloneTools } = surfaceFor({
     session: { workflow: { id: 'solo', delegatesAgents: false } },
-    denied: ['git', 'git_stage', 'web_search', 'web_fetch', 'memory', 'recall', 'office', 'tidy'],
+    denied: ['git', 'github', 'web_search', 'web_fetch', 'memory', 'recall', 'office', 'tidy'],
     standalone,
   });
   assert.deepEqual(
@@ -421,7 +422,7 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
     { name: 'load_tool' },
     { name: 'office' },
     { name: 'tidy' },
-    { name: 'git_stage' },
+    { name: 'git' },
     { name: 'web_search' },
     { name: 'goal' },
     { name: 'agent' },
@@ -440,12 +441,12 @@ test('headless tool profile keeps task-scoped tools and removes persistent or in
   const catalogNames = new Set((surface.deferredToolCatalog || []).map((tool) => tool.name));
   const activeNames = new Set((surface.tools || []).map((tool) => tool.name));
 
-  for (const name of ['read', 'load_tool', 'office', 'tidy', 'git_stage', 'web_search']) {
+  for (const name of ['read', 'load_tool', 'office', 'tidy', 'git', 'web_search']) {
     assert.equal(catalogNames.has(name), true, `${name} should remain available`);
   }
   assert.equal(activeNames.has('office'), false);
   assert.equal(activeNames.has('tidy'), false);
-  assert.equal(activeNames.has('git_stage'), false);
+  assert.equal(activeNames.has('git'), true);
   for (const name of ['goal', 'agent', 'memory', 'recall', 'cwd', 'Skill', 'browser', 'browser_devtools', 'computer']) {
     assert.equal(catalogNames.has(name), false, `${name} should be absent`);
     assert.equal(activeNames.has(name), false, `${name} should not be active`);

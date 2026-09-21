@@ -56,10 +56,18 @@ test('success, failure and cancellation request cleanup for the exact turn witho
     markSessionAskStart(id);
     const controller = new AbortController();
     if (id === 'cancel') controller.abort();
-    await executeBrowserTool(
+    const result = await executeBrowserTool(
       { action: 'navigate', input: { url: 'https://example.test', background: true } },
       { sessionId: id, turnId: 7, signal: controller.signal }
     );
+    if (id === 'cancel') {
+      assert.deepEqual(result, {
+        content: [
+          { type: 'text', text: 'Error: browser command cancelled; the action may have executed and was not replayed' },
+        ],
+        isError: true,
+      });
+    }
     finish(id);
     await new Promise((resolve) => setImmediate(resolve));
     const cleanup = requests.filter((request) => request.session_id === id && request.action === 'finish_turn');

@@ -210,13 +210,10 @@ function parseCommitFiles(statusRaw: string, numstatRaw: string): GitCommitFile[
     if (!token) continue;
     const status = token[0] || 'M';
     let oldPath: string | undefined;
-    let path = '';
     if (status === 'R' || status === 'C') {
       oldPath = fields[index++] || undefined;
-      path = fields[index++] || '';
-    } else {
-      path = fields[index++] || '';
     }
+    const path = fields[index++] || '';
     if (!path) continue;
     const stat = stats.get(path);
     files.push({

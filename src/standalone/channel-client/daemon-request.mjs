@@ -1,4 +1,3 @@
-// channel-client/daemon-request.mjs
 // One JSON request to the local channel daemon (127.0.0.1 only), the health
 // probe built on it, and the tool-call wrapper that classifies failures.
 import http from 'node:http';

@@ -22,11 +22,13 @@ import {
   cancelBackgroundTask,
   completeBackgroundTask,
   getBackgroundTask,
+  registerBackgroundTask,
   renderBackgroundTask,
   renderBackgroundTaskList,
 } from '../../../../shared/background-tasks.mjs';
 import { recordDeliveredCompletion } from '../../session/manager/delivered-completions.mjs';
 import { listShellJobRecords, readShellJobRecord } from './lib/shell-job-records.mjs';
+import { readShellTaskOutput } from './lib/shell-task-output.mjs';
 
 function recoveredTaskMatches(record, options = {}) {
   const context =
@@ -47,18 +49,6 @@ function recoveredTaskMatches(record, options = {}) {
     return Boolean(record.ownerSessionId) && sessionIds.has(String(record.ownerSessionId));
   }
   return Boolean(clientHostPid && Number(record.ownerHostPid) === clientHostPid);
-}
-
-function renderRecoveredShellTask(record) {
-  const result = shellJobPublicTaskResult(record);
-  return [
-    'background task',
-    `task_id: ${record.jobId}`,
-    `status: ${record.status}`,
-    'recovered: true',
-    '',
-    JSON.stringify(result, null, 2),
-  ].join('\n');
 }
 
 function refreshShellTask(taskId, { includeRunning = false } = {}) {
@@ -128,7 +118,7 @@ export async function executeTaskTool(args, options = {}) {
     return `Error: task action must be one of list|read|wait|cancel (got ${JSON.stringify(args.action)})`;
   }
 
-  const task = getBackgroundTask(taskId, { context: options });
+  let task = getBackgroundTask(taskId, { context: options });
   if (!task) {
     const recovered = await readShellJobRecord(taskId);
     if (!recovered || !recoveredTaskMatches(recovered, options)) {
@@ -138,8 +128,23 @@ export async function executeTaskTool(args, options = {}) {
       // Nothing to wait ON after a restart: the process is gone, so wait
       // degrades to the recovered snapshot rather than blocking.
       if (!recovered.terminal) return `Error: task state is unavailable after restart: ${taskId}`;
-      recordDeliveredCompletion({ executionId: taskId });
-      return renderRecoveredShellTask(recovered);
+      task = registerBackgroundTask({
+        taskId,
+        surface: 'shell',
+        operation: 'shell',
+        label: recovered.command,
+        context: {
+          callerSessionId: recovered.ownerSessionId,
+          clientHostPid: recovered.ownerHostPid,
+        },
+        meta: { recovered: true, stdout: recovered.stdoutPath, stderr: recovered.stderrPath, cwd: recovered.cwd },
+      });
+      completeBackgroundTask(taskId, {
+        status: shellJobTaskStatus(recovered),
+        result: shellJobPublicTaskResult(recovered),
+        error: recovered.error,
+        notify: false,
+      });
     }
     if (action === 'cancel') {
       return recovered.terminal
@@ -201,7 +206,10 @@ export async function executeTaskTool(args, options = {}) {
     }
     if (isShellTask) refreshShellTask(taskId, { includeRunning: true });
     const latest = getBackgroundTask(taskId, { context: options }) || task;
-    let rendered = renderBackgroundTask(latest, { includeResult: true });
+    const visible = isShellTask && latest.result && typeof latest.result === 'object'
+      ? { ...latest, resultText: readShellTaskOutput(latest, latest.result, { output: args.output }) }
+      : latest;
+    let rendered = renderBackgroundTask(visible, { includeResult: true });
     if (action === 'wait' && latest.status === 'running') {
       if (waitInterruptedByUser) {
         rendered +=

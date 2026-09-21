@@ -53,8 +53,10 @@ export async function measureBrowserMouseEvent<T>(
     return await operation();
   } finally {
     if (!collector.closed) {
-      const events = (collector.timing.mouseEvents ??= {});
-      const event = (events[type] ??= { count: 0, totalMs: 0 });
+      collector.timing.mouseEvents ??= {};
+      const events = collector.timing.mouseEvents;
+      events[type] ??= { count: 0, totalMs: 0 };
+      const event = events[type];
       event.count++;
       event.totalMs += performance.now() - started;
     }
@@ -94,7 +96,8 @@ export async function measureBrowserStep<T>(index: number, operation: () => Prom
     return await operation();
   } finally {
     if (!collector.closed && index >= 1 && index <= 6) {
-      const steps = (collector.timing.steps ??= []);
+      collector.timing.steps ??= [];
+      const steps = collector.timing.steps;
       if (steps.length < 6)
         steps.push({
           index,

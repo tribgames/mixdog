@@ -120,10 +120,6 @@ function targetFormError(action, { required = true, frameId = '' } = {}) {
   return null;
 }
 
-function finiteInteger(value) {
-  return Number.isInteger(value);
-}
-
 function fieldValueError(field, value, label) {
   const schema = COMPUTER_CORE_ACTION_SCHEMA.properties[field];
   if (schema.enum && !schema.enum.includes(value)) {
@@ -142,7 +138,7 @@ function fieldValueError(field, value, label) {
       return `${label}.${field} must match the required format`;
     }
   }
-  if (schema.type === 'integer' && !finiteInteger(value)) {
+  if (schema.type === 'integer' && !Number.isInteger(value)) {
     return `${label}.${field} must be an integer`;
   }
   if (schema.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {

@@ -372,20 +372,25 @@ function toolFailureCause(text) {
   return text;
 }
 
-function classifyToolFailure(resultText, toolName) {
-  const raw = toolFailureCause(toolTraceText(resultText));
-  const text = raw.toLowerCase();
-  if (isExpectedToolCancellation(raw)) return 'expected-cancellation';
+function toolFailureLeadingLine(resultText) {
   // Shell renderers put the machine-readable status on the leading line.
   // Only inspect that marker: command text and stderr frequently contain
   // words such as "timeout" or "aborted" and must not rewrite a real exit
   // code into a runtime failure category.
-  const leading =
-    raw
+  return (
+    String(resultText ?? '')
       .split(/\r?\n/)
       .map((line) => line.trim())
       .find((line) => line && !line.startsWith('⚠️ '))
-      ?.replace(/^Error:\s*/i, '') || '';
+      ?.replace(/^Error:\s*/i, '') || ''
+  );
+}
+
+function classifyToolFailure(resultText, toolName) {
+  const raw = toolFailureCause(toolTraceText(resultText));
+  const text = raw.toLowerCase();
+  if (isExpectedToolCancellation(raw)) return 'expected-cancellation';
+  const leading = toolFailureLeadingLine(raw);
   if (/^\[shell-tool-failed\]\s+shell arg "[^"]+" is unsupported\b/i.test(leading)) return 'schema/args';
   if (/^\[shell-tool-failed\](?:\s|$)/i.test(leading)) return 'tool-call/failure';
   if (/^\[shell-run-failed\](?:\s|$)/i.test(leading)) {
@@ -471,12 +476,7 @@ function classifyToolFailure(resultText, toolName) {
 }
 
 function isExpectedToolCancellation(resultText) {
-  const leading =
-    String(resultText ?? '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((line) => line && !line.startsWith('⚠️ '))
-      ?.replace(/^Error:\s*/i, '') || '';
+  const leading = toolFailureLeadingLine(resultText);
   return /^Session\s+"[^"]+"\s+closed:\s*(?:aborted|closed)\s+during call\b/i.test(leading);
 }
 

@@ -318,7 +318,7 @@ export function useComposerKeyboard({
       if (navigateMentionPalette(event)) return;
       if (event.key === 'Escape') {
         const element = event.currentTarget;
-        const escape = classifyPromptEscape({
+        const escapeIntent = classifyPromptEscape({
           interruptActive: shouldInterruptPrompt({
             turnBusy: runtime.turnBusy,
             pendingSubmissionId: queue.pendingSubmissionId,
@@ -330,36 +330,36 @@ export function useComposerKeyboard({
           value: draft.value || (runtime.attachments.length ? 'attachment' : ''),
           lastClearPressAt: runtime.escapeClearAt.current,
         });
-        runtime.escapeClearAt.current = escape.nextClearPressAt;
-        if (escape.action === 'interrupt') {
+        runtime.escapeClearAt.current = escapeIntent.nextClearPressAt;
+        if (escapeIntent.action === 'interrupt') {
           event.preventDefault();
           void actions.stop(
             Boolean(draft.value || runtime.attachments.length),
             runtime.turnBusy ? '' : queue.pendingSubmissionId
           );
-        } else if (escape.action === 'collapse-selection') {
+        } else if (escapeIntent.action === 'collapse-selection') {
           event.preventDefault();
           const end = element.selectionEnd;
           window.setTimeout(() => element.setSelectionRange(end, end), 0);
-        } else if (escape.action === 'restore-queue') {
+        } else if (escapeIntent.action === 'restore-queue') {
           event.preventDefault();
           queue.restore('escape');
-        } else if (escape.action === 'arm-clear') {
+        } else if (escapeIntent.action === 'arm-clear') {
           event.preventDefault();
           runtime.showNotice('Esc again to clear', PROMPT_ESCAPE_HINT_TIMEOUT_MS);
-        } else if (escape.action === 'clear') {
+        } else if (escapeIntent.action === 'clear') {
           event.preventDefault();
           draft.set('');
           actions.clearAttachments();
           runtime.showNotice('');
           history.navigation.current = { index: -1, seed: '' };
-        } else if (escape.action === 'arm-select') {
+        } else if (escapeIntent.action === 'arm-select') {
           // Silent arm: the first Esc on an empty composer used to announce
           // "Esc again to pick a message", which read as noise for a key that
           // otherwise does nothing (user: ESC 아무것도 없을 때 UI 없어도 될 듯).
           // The second press still opens the picker.
           event.preventDefault();
-        } else if (escape.action === 'message-selector') {
+        } else if (escapeIntent.action === 'message-selector') {
           event.preventDefault();
           runtime.showNotice('');
           selector.openSelector();

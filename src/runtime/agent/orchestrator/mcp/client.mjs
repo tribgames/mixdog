@@ -28,7 +28,6 @@ export {
   resolveMcpTransportKind,
   resolveMcpStartupTimeoutMs,
 } from './client-config.mjs';
-// --- State ---
 const servers = new Map();
 const reconnects = createKeyedSingleflight();
 const callAdmissions = new Map();
@@ -37,7 +36,7 @@ const _knownMcpScopes = new Set([DEFAULT_MCP_SCOPE_ID]);
 const _connectAbortGenerations = new Map();
 const _pendingConnects = new Set();
 let mcpSdkPromise = null;
-// Memo for mcpToolHasField(name, field) — keyed by `${toolName}|${field}`.
+// Memo for mcpToolHasField(name, field) — keyed by `${scopeId}|${toolName}|${field}`.
 // The lookup (regex parse + servers Map get + tools.find + schema property
 // inspection) runs on every MCP tool invocation but its result only changes
 // when the servers/tools registry is (re)built. Cleared at every registry
@@ -95,7 +94,6 @@ async function loadMcpSdk() {
   }));
   return mcpSdkPromise;
 }
-// --- Public API ---
 /**
  * Connect to MCP servers defined in config.
  * Supports stdio (child process) and http (Streamable HTTP) transports.
@@ -316,7 +314,6 @@ async function reconnectMcpServer(scopeId, serverName, failedServer) {
  * Name format: `mcp__{serverName}__{toolName}`
  */
 export async function executeMcpTool(name, args, options = {}) {
-  // Parse: mcp__{server}__{tool}
   const match = name.match(/^mcp__(.+?)__(.+)$/);
   if (!match) throw new Error(`Not an MCP tool name: ${name}`);
   const [, serverName, toolName] = match;
@@ -586,7 +583,7 @@ function capMcpOutput(content) {
   const { text, truncated } = smartReadTruncate(s, bodyLines, bodyBytes);
   if (!truncated) return text;
   // Spill the full body to a tmp file so the caller can recover content
-  // elided by the head/tail cap (parity with the prior head-only spill).
+  // elided by the head/tail cap.
   let spillPath = null;
   try {
     const dir = join(tmpdir(), 'mixdog-mcp-output');

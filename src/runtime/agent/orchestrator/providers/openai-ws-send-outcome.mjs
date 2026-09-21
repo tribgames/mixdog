@@ -210,7 +210,16 @@ function recordResponseChain({ entry, result, requestBody, useCodexWsClientMetad
   return keepResponseChain;
 }
 
-function traceCacheMiss({ send, attempt, result, requestBody, frame, cacheObservation, liveModel, transportCacheKeyHash }) {
+function traceCacheMiss({
+  send,
+  attempt,
+  result,
+  requestBody,
+  frame,
+  cacheObservation,
+  liveModel,
+  transportCacheKeyHash,
+}) {
   if (!cacheObservation.actualMiss) return;
   const requestHasPreviousResponseId =
     typeof frame.previous_response_id === 'string' && frame.previous_response_id.length > 0;
@@ -592,7 +601,12 @@ export function completeWsSend({ send, attempt, entry, result, requestBody, comp
     } catch {}
   }
   releaseWebSocket({ entry, poolKey: send.poolKey, keep: keepSocket });
-  const { responseId: _ignored, responseItems: _responseItemsIgnored, closeSocket: _closeSocketIgnored, ...out } = result;
+  const {
+    responseId: _ignored,
+    responseItems: _responseItemsIgnored,
+    closeSocket: _closeSocketIgnored,
+    ...out
+  } = result;
   if (send.includeResponseId && result.responseId) out.responseId = result.responseId;
   if (completedWarmup) {
     try {

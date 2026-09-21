@@ -472,8 +472,7 @@ export function formattedNumberWidth(value, format = '') {
   return width;
 }
 
-export function writeColumnWidths(xml, widths) {
-  if (!widths.size) return xml;
+function columnAttributes(xml) {
   const entries = new Map();
   const existing = worksheetSection(xml, 'cols');
   if (existing) {
@@ -485,6 +484,20 @@ export function writeColumnWidths(xml, widths) {
       }
     }
   }
+  return entries;
+}
+
+function writeColumnAttributes(xml, entries) {
+  const body = [...entries.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([column, attrs]) => `<col${setXmlAttribute(setXmlAttribute(attrs, 'min', column), 'max', column)}/>`)
+    .join('');
+  return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
+}
+
+export function writeColumnWidths(xml, widths) {
+  if (!widths.size) return xml;
+  const entries = columnAttributes(xml);
   for (const [column, width] of widths) {
     // A column declaration carries more than its width: hidden keeps a working
     // column out of the sheet, and the outline level and style belong to it
@@ -493,11 +506,7 @@ export function writeColumnWidths(xml, widths) {
     const previous = entries.get(column) ?? ` min="${column}" max="${column}"`;
     entries.set(column, setXmlAttribute(setXmlAttribute(previous, 'width', width), 'customWidth', 1));
   }
-  const body = [...entries.entries()]
-    .sort((left, right) => left[0] - right[0])
-    .map(([column, attrs]) => `<col${setXmlAttribute(setXmlAttribute(attrs, 'min', column), 'max', column)}/>`)
-    .join('');
-  return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
+  return writeColumnAttributes(xml, entries);
 }
 
 // What the sheet does not show: a filtered or outlined row, a working column.
@@ -527,17 +536,7 @@ export function hiddenSheetAreas(xml) {
 // as its own entry rather than splitting someone else's range by hand.
 export function writeColumnVisibility(xml, columns, visible) {
   if (!columns.length) return xml;
-  const entries = new Map();
-  const existing = worksheetSection(xml, 'cols');
-  if (existing) {
-    for (const match of existing[0].matchAll(/<col\b([^>]*?)\/>/g)) {
-      const min = Number(xmlAttribute(match[1], 'min')) || 0;
-      const max = Number(xmlAttribute(match[1], 'max')) || min;
-      for (let column = min; column >= 1 && column <= max && column - min < 2048; column += 1) {
-        entries.set(column, match[1]);
-      }
-    }
-  }
+  const entries = columnAttributes(xml);
   for (const column of columns) {
     const attrs = (entries.get(column) || ` min="${column}" max="${column}" width="9.14" customWidth="1"`).replace(
       /\s*\bhidden="[^"]*"/,
@@ -545,11 +544,7 @@ export function writeColumnVisibility(xml, columns, visible) {
     );
     entries.set(column, visible ? attrs : setXmlAttribute(attrs, 'hidden', '1'));
   }
-  const body = [...entries.entries()]
-    .sort((left, right) => left[0] - right[0])
-    .map(([column, attrs]) => `<col${setXmlAttribute(setXmlAttribute(attrs, 'min', column), 'max', column)}/>`)
-    .join('');
-  return upsertWorksheetSection(xml, 'cols', `<cols>${body}</cols>`);
+  return writeColumnAttributes(xml, entries);
 }
 
 export function quoteSheetName(name) {

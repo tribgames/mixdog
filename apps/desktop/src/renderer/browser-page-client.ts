@@ -233,7 +233,7 @@ export function createBrowserPageClient(options: {
         if (action.phase === 'mousePressed') heldPointer = { action, documentId };
         if (action.phase === 'mouseReleased') heldPointer = null;
       }
-      if (action.type === 'new-tab' || action.type === 'select-tab' || action.type === 'close-tab') {
+      if (browserTabControl(action)) {
         await poll();
       }
       // A release finishing a failed press, or an older queued success, must

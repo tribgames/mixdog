@@ -1,6 +1,6 @@
 import { __mixdogMemoryLog } from './memory-log.mjs';
 
-// trace-store.mjs — native-PG trace analytics store for mixdog 0.4.0.
+// Native-PG trace analytics store.
 // Uses pg-adapter (schema='trace') so trace_events live in the trace schema.
 // Isolated from memory schema; shares the same PG instance.
 
@@ -110,7 +110,7 @@ async function init(client) {
   // Drift repair MUST run before index creation: an old cluster whose
   // trace_events predates the `agent` column would otherwise die right below
   // at idx_trace_agent_ts (CREATE INDEX references the missing column) before
-  // initAgentTables() ever gets a chance to repair it. Reviewer High fix.
+  // initAgentTables() ever gets a chance to repair it.
   await migrateSchemaDrift(client);
 
   // BRIN on ts — ~1000× smaller than btree for append-only timeseries; ideal
@@ -153,7 +153,7 @@ async function init(client) {
 async function migrateSchemaDrift(client) {
   // Bounded lock wait: nullable ADD COLUMN is metadata-only once the ACCESS
   // EXCLUSIVE lock is held, but acquiring that lock can queue behind live
-  // readers/writers indefinitely and wedge boot (reviewer Medium). 5s is
+  // readers/writers indefinitely and wedge boot. 5s is
   // generous for a metadata change; on timeout we leave the drift in place
   // (inserts keep failing as before — no worse) instead of hanging startup.
   //
@@ -845,7 +845,7 @@ export function enqueueTraceEvents(db, events) {
   }
 }
 
-// Renamed internal: direct DB insert without queuing (used by queue flusher and
+// Direct DB insert without queuing (used by queue flusher and
 // the existing intra-request multi-row path where immediate persistence matters).
 async function _insertTraceEventsDirect(db, events) {
   return insertTraceEvents(db, events);

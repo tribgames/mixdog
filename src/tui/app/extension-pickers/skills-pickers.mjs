@@ -20,7 +20,7 @@ export function createSkillsPickers({
     const own = surface.claim();
     const status = await readStatus(store, 'skillsStatus', 'skills', 'skills status');
     if (!status) return;
-    const skills = status.skills || [];
+    const skills = status.skills;
     const items = [];
     if (skills.length === 0) {
       items.push({
@@ -94,7 +94,7 @@ export function createSkillsPickers({
     } else {
       const status = await readStatus(store, 'skillsStatus', 'skills', 'skills status');
       if (!status) return;
-      skills = status.skills || [];
+      skills = status.skills;
     }
     const disabledSet = options.disabledOverride instanceof Set ? options.disabledOverride : getDisabledSkills();
     const items = skillItems(skills, disabledSet);

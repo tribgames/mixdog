@@ -1,3 +1,5 @@
+import { fileExtension } from './file-extension';
+
 const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
   png: 'image/png',
   jpg: 'image/jpeg',
@@ -46,13 +48,9 @@ const MIME_TYPES: Readonly<Record<string, string>> = Object.freeze({
  *  Binary documents/media stay with the OS even when Monaco could decode
  *  arbitrary bytes into replacement characters. */
 export function localFileMimeTypeForPath(path: string): string {
-  const name =
-    String(path || '')
-      .split(/[\\/]/)
-      .at(-1) || '';
-  const dot = name.lastIndexOf('.');
-  if (dot < 0 || dot === name.length - 1) return 'application/octet-stream';
-  return MIME_TYPES[name.slice(dot + 1).toLocaleLowerCase()] || 'application/octet-stream';
+  const extension = fileExtension(path);
+  if (!extension) return 'application/octet-stream';
+  return MIME_TYPES[extension] || 'application/octet-stream';
 }
 
 // Binary documents and media that only an OS-associated app can show. Chat
@@ -107,15 +105,6 @@ export function isOsDocumentExtension(extension: string): boolean {
       .replace(/^\./, '')
       .toLocaleLowerCase()
   );
-}
-
-function fileExtension(path: string): string {
-  const name =
-    String(path || '')
-      .split(/[\\/]/)
-      .at(-1) || '';
-  const dot = name.lastIndexOf('.');
-  return dot < 0 || dot === name.length - 1 ? '' : name.slice(dot + 1).toLocaleLowerCase();
 }
 
 /** Which surface a chat file link opens: Mixdog's editor or the OS default app. */

@@ -1,8 +1,6 @@
 import { grokCacheChainTraceFields, traceAgentUsage } from '../agent-trace.mjs';
 import { extractCompatCachedTokens } from './openai-compat-trace.mjs';
-import {
-  collectCompatResponseSearchSources,
-} from './openai-compat-wire.mjs';
+import { collectCompatResponseSearchSources } from './openai-compat-wire.mjs';
 import {
   traceXaiResponsesCacheContext,
   writeCompatCacheTrace,

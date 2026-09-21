@@ -1,10 +1,9 @@
 // Presentation snapshot: slide backgrounds, notes, shapes and text facts.
-import { basename } from 'node:path';
 import { zipText } from './portable-opc.mjs';
 import { pptxRelatedPart } from './portable-pptx-core.mjs';
 import { EMU_PER_POINT } from './portable-slide-shapes.mjs';
 import { blockText, containerInner, paragraphTexts, topLevelElements, xmlDecode } from './portable-xml.mjs';
-import { presentationSlides } from './portable-pptx-package.mjs';
+import { presentationSlides, slideLayoutParts } from './portable-pptx-package.mjs';
 import { shapeIdentity } from './pptx-relations.mjs';
 import { chartPartSnapshot, nextPageOffset, relatedPartById } from './portable-snapshot-shared.mjs';
 
@@ -212,20 +211,13 @@ async function snapshotSlide(zip, path, index, slideId) {
 }
 
 async function pptxLayouts(zip) {
-  const layoutPaths = Object.keys(zip.files)
-    .filter((name) => /^ppt\/slideLayouts\/slideLayout\d+\.xml$/.test(name))
-    .sort((a, b) => Number(/\d+/.exec(basename(a))?.[0]) - Number(/\d+/.exec(basename(b))?.[0]));
-  const layouts = [];
-  for (const path of layoutPaths) {
-    const xml = await zipText(zip, path);
-    layouts.push({
-      path: `/layout[${layouts.length + 1}]`,
-      index: layouts.length + 1,
-      name: xmlDecode(/<p:cSld\b[^>]*\bname="([^"]*)"/.exec(xml)?.[1] || ''),
-      packagePart: path,
-    });
-  }
-  return layouts;
+  const layouts = await slideLayoutParts(zip);
+  return layouts.map((layout, index) => ({
+    path: `/layout[${index + 1}]`,
+    index: index + 1,
+    name: layout.name,
+    packagePart: layout.path,
+  }));
 }
 
 export async function snapshotPptx(zip, options = {}) {

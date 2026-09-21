@@ -125,7 +125,7 @@ function floatingPanelBudget({
   else if (picker) desiredFloatingPanelRows = PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS;
   else if (contextPanel) desiredFloatingPanelRows = PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS + 3;
   else if (usagePanel) desiredFloatingPanelRows = PANEL_BASE_ROWS + OPTION_PANEL_EXTRA_ROWS;
-  else if (slashPaletteOpen) desiredFloatingPanelRows = PANEL_MAX_VISIBLE + PANEL_CHROME_ROWS;
+  else if (slashPaletteOpen) desiredFloatingPanelRows = SLASH_PALETTE_ROWS;
   else if (hasTextEntryPrompt) desiredFloatingPanelRows = TEXT_ENTRY_ROWS;
   const floatingPanelRows = desiredFloatingPanelRows > 0 ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows) : 0;
   // Give the list every content row the panel exposes. The panel already grew

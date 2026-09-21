@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { setImmediate as flush } from 'node:timers/promises';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './panel-epoch.mjs';
 import { createPanelSurface } from './panel-surface.mjs';
 import { createModelPicker } from './model-picker.mjs';
@@ -7,13 +8,6 @@ import { createModelPicker } from './model-picker.mjs';
 // The Model picker's per-provider model list: the effort / Fast / context /
 // thinking selections a row carries, what the footer shows for them, and the
 // route the Enter key saves.
-
-const flush = async (rounds = 6) => {
-  for (let i = 0; i < rounds; i += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await new Promise((resolve) => setImmediate(resolve));
-  }
-};
 
 const EFFORTS = [
   { value: 'low', label: 'low' },

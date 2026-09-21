@@ -85,8 +85,14 @@ function summarizeDiagnostics(rows = [], includeRules = true) {
   const severityRank = { error: 3, warning: 2, info: 1 };
   for (const row of rows) {
     const finding = shapeDiagnostic(row);
-    const dir = String(row.file || '').replaceAll('\\', '/').replace(/^\.\//, '')
-      .split('/').slice(0, -1).slice(0, 2).join('/') || '.';
+    const dir =
+      String(row.file || '')
+        .replaceAll('\\', '/')
+        .replace(/^\.\//, '')
+        .split('/')
+        .slice(0, -1)
+        .slice(0, 2)
+        .join('/') || '.';
     byDir.set(dir, (byDir.get(dir) || 0) + 1);
     if (!includeRules || !finding.rule) continue;
     const tally = byRule.get(finding.rule) || { count: 0, severity: finding.severity, fixable: 0 };
@@ -253,21 +259,28 @@ function composeTidyReport(parts, diagnosticCap) {
     status: parts.status,
     action,
     ...(parts.scope ? { scope: parts.scope } : {}),
-    ...(action === 'results' ? {} : {
-      languages: parts.languages,
-      ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
-      engines: parts.resolved,
-      ...(parts.missing.length ? { missing: parts.missing } : {}),
-      ...(parts.policy ? { policy: parts.policy } : {}),
-    }),
+    ...(action === 'results'
+      ? {}
+      : {
+          languages: parts.languages,
+          ...(parts.languageSource ? { languageSource: parts.languageSource } : {}),
+          engines: parts.resolved,
+          ...(parts.missing.length ? { missing: parts.missing } : {}),
+          ...(parts.policy ? { policy: parts.policy } : {}),
+        }),
     ...(results
-      ? { results: results.map((result, index) =>
-        shapeEngineResult(result, parts.resultSummaries[index], diagnosticCap, pageOffset, resultFilePage)) }
+      ? {
+          results: results.map((result, index) =>
+            shapeEngineResult(result, parts.resultSummaries[index], diagnosticCap, pageOffset, resultFilePage)
+          ),
+        }
       : {}),
     ...(parts.rolled ? { counts: parts.rolled } : {}),
-    ...(structural ? {
-      structural: shapeStructural(structural, parts.structuralSummary, parts.passErrors, diagnosticCap, pageOffset),
-    } : {}),
+    ...(structural
+      ? {
+          structural: shapeStructural(structural, parts.structuralSummary, parts.passErrors, diagnosticCap, pageOffset),
+        }
+      : {}),
     ...(results || structural ? { paging: { offset: pageOffset, limit: diagnosticCap } } : {}),
     ...(parts.rules ? { rules: parts.rules } : {}),
     ...(parts.installed ? { installed: parts.installed } : {}),

@@ -49,7 +49,10 @@ test('Compact restores the latest complete skill body and resume can reuse it wi
     latestSkillBodies(second.messages).map((entry) => entry.message),
     [other, current]
   );
-  assert.equal(second.messages.some((message) => message.meta?.source === 'skill-context'), false);
+  assert.equal(
+    second.messages.some((message) => message.meta?.source === 'skill-context'),
+    false
+  );
   const events = [];
   const baseline = prepareProviderPrefixGuard(null, second.messages, { tools: [] }, { provider: 'openai-oauth' });
   const followup = [...second.messages, { role: 'user', content: 'Next step' }];

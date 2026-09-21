@@ -139,7 +139,7 @@ test('unsupported native selections insert their real quoted path at the selecti
   assert.equal(harness.current.draftRef.current, harness.current.draft);
   assert.deepEqual(harness.current.historyNavigation.current, { index: -1, seed: '' });
   assert.equal(harness.current.attachments.length, 0);
-  assert.match(harness.current.attachmentError, /use PNG, JPEG, GIF, or WebP/);
+  assert.equal(harness.current.attachmentError, '');
 });
 
 test('native file-item drops fall back without needing a Files transfer entry', async (t) => {
@@ -153,6 +153,37 @@ test('native file-item drops fall back without needing a Files transfer entry', 
   });
   assert.equal(harness.current.draft, `${path} `);
   assert.equal(harness.current.attachments.length, 0);
+  assert.equal(harness.current.attachmentError, '');
+});
+
+test('native directories insert only their path without reading or attaching them', async (t) => {
+  const folder = new File([], 'folder.png', { type: 'image/png' });
+  const path = 'C:/my folders/folder.png';
+  const harness = await mountComposer(t, { api: { folderPathForFile: () => path } });
+  await harness.drop({
+    types: ['Files'],
+    items: [{ kind: 'file', getAsFile: () => folder, webkitGetAsEntry: () => ({ isDirectory: true }) }],
+    files: [folder],
+  });
+  assert.equal(harness.current.draft, `"${path}" `);
+  assert.equal(harness.current.attachments.length, 0);
+  assert.equal(harness.current.attachmentError, '');
+});
+
+test('internal directory drops clear an earlier error and insert only the path', async (t) => {
+  const path = 'C:/folders/art';
+  const harness = await mountComposer(t, {
+    api: {
+      resolveLocalPaths: async () => [{ absolutePath: path, dir: true }],
+      readLocalFile: async () => assert.fail('directories must not be read'),
+    },
+  });
+  await harness.attach([new File(['<svg/>'], 'missing.svg', { type: 'image/svg+xml' })]);
+  assert.match(harness.current.attachmentError, /local file path is unavailable/);
+  await harness.drop(pathTransfer([path]));
+  assert.equal(harness.current.draft, `${path} `);
+  assert.equal(harness.current.attachments.length, 0);
+  assert.equal(harness.current.attachmentError, '');
 });
 
 test('mixed files retain successful image, PDF and text attachments and every rejected path', async (t) => {
@@ -178,6 +209,7 @@ test('mixed files retain successful image, PDF and text attachments and every re
   assert.equal(harness.current.draft.match(/C:\/files\/vector\.svg/g)?.length, 1);
   assert.equal(harness.current.draft.match(/C:\/files\/data\.bin/g)?.length, 1);
   assert.doesNotMatch(harness.current.draft, /C:\/files\/(?:photo\.png|report\.pdf|notes\.txt)/);
+  assert.equal(harness.current.attachmentError, '');
 });
 
 test('files without an accessible local path show the limitation without inventing a path', async (t) => {
@@ -258,6 +290,7 @@ test('internal absolute drops preserve source paths even for files with identica
   await harness.drop(pathTransfer(paths));
   assert.equal(harness.current.draft, `${paths.join(' ')} `);
   assert.equal(harness.current.attachments.length, 0);
+  assert.equal(harness.current.attachmentError, '');
 });
 
 test('project SVG drops retain their existing project mention behavior', async (t) => {

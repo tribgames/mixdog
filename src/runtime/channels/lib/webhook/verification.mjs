@@ -18,7 +18,16 @@ function verifySignedRequest(name, secret, parser, body, headers, res) {
   return true;
 }
 
-function verifyUnsignedRequest({ name, endpoint, isTableEndpoint, parser, config, res, isWarningShown, markWarningShown }) {
+function verifyUnsignedRequest({
+  name,
+  endpoint,
+  isTableEndpoint,
+  parser,
+  config,
+  res,
+  isWarningShown,
+  markWarningShown,
+}) {
   // Fail closed: if a parser is explicitly configured (implying a
   // signed integration), reject unsigned requests with 401.
   if (parser) {

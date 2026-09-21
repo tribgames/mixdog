@@ -12,6 +12,7 @@ import {
   toolResultDisplay,
   uiDiffFromMessage,
   uiDiffPatchFromMessage,
+  withCancelledResultMarker,
 } from './tool-result-status.mjs';
 import {
   deriveToolOutcomeTone,
@@ -25,9 +26,14 @@ import {
 // - envelope isError  → real call failure ("Failed", red)
 
 test('git raw and batched failures retain exit classification', () => {
-  for (const text of ['exit 128\nfatal: missing\n', '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing']) {
+  for (const text of [
+    'exit 128\nfatal: missing\n',
+    '## git status\n## main\n\n## git show missing\nexit 128\nfatal: missing\nerror: command failed: git show missing',
+  ]) {
     assert.deepEqual(toolCallOutcome({ name: 'git' }, text), {
-      isCallError: false, isExitError: true, exitCode: 128,
+      isCallError: false,
+      isExitError: true,
+      exitCode: 128,
     });
   }
   assert.equal(toolCallOutcome({ name: 'git' }, 'error: git requires command').isCallError, true);
@@ -147,6 +153,21 @@ test('tool result display keeps shell exits as detail and envelope errors as fai
   assert.equal(failed.isCallError, true);
   assert.equal(failed.isError, true);
   assert.match(failed.text, /^Error:/);
+});
+
+test('cancellation preserves terminal status from arguments and trusted result fields', () => {
+  for (const item of [{ args: { status: ' DONE ' } }, { result: '[status: failed]' }, { text: 'status: canceled' }]) {
+    assert.equal(withCancelledResultMarker('detail', item), 'detail');
+  }
+  assert.equal(withCancelledResultMarker('[status: cancelled]\ndetail'), '[status: cancelled]\ndetail');
+});
+
+test('cancellation marks unfinished cards without trusting raw tool output', () => {
+  assert.equal(withCancelledResultMarker(' \n'), '[status: cancelled]\n');
+  assert.equal(
+    withCancelledResultMarker('detail', { args: { status: 'running' }, rawResult: '[status: completed]' }),
+    '[status: cancelled]\ndetail'
+  );
 });
 
 test('aggregate result patch shares Ok/Failed/Exited counts across live and restore paths', () => {

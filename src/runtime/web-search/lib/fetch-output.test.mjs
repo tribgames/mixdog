@@ -9,19 +9,25 @@ const options = () => ({ timeoutMs: 3000, hostPacer: new HostPacer({ intervalMs:
 const outputBody = (text) => text.slice(text.indexOf('\n\n') + 2);
 
 test('empty searches retain warnings and crawls retain the actual failure cause', () => {
-  assert.equal(formatResponse('web_search', { results: [], warnings: ['provider timed out', 'partial results'] }),
-    'Warnings: provider timed out; partial results\n\n(no search results)');
+  assert.equal(
+    formatResponse('web_search', { results: [], warnings: ['provider timed out', 'partial results'] }),
+    'Warnings: provider timed out; partial results\n\n(no search results)'
+  );
   assert.equal(formatResponse('web_search', { results: [] }), '(no search results)');
-  assert.equal(formatResponse('crawl', { pages: [{ url, error: 'HTTP 403: denied' }] }),
-    `[${url}]\n(error: HTTP 403: denied)`);
+  assert.equal(
+    formatResponse('crawl', { pages: [{ url, error: 'HTTP 403: denied' }] }),
+    `[${url}]\n(error: HTTP 403: denied)`
+  );
 });
 
 test('search omits only snippets identical to already visible title or URL', () => {
-  const output = formatResponse('web_search', { results: [
-    { title: 'Same title', url, snippet: 'Same title', publishedDate: '2026-09-21' },
-    { title: 'URL repeat', url, snippet: url },
-    { title: 'Distinct', url, snippet: 'Different details, kept intact.' },
-  ] });
+  const output = formatResponse('web_search', {
+    results: [
+      { title: 'Same title', url, snippet: 'Same title', publishedDate: '2026-09-21' },
+      { title: 'URL repeat', url, snippet: url },
+      { title: 'Distinct', url, snippet: 'Different details, kept intact.' },
+    ],
+  });
   assert.equal(output.split('Same title').length - 1, 1);
   assert.equal(output.split(url).length - 1, 3);
   assert.match(output, /2026-09-21/);
@@ -56,9 +62,8 @@ test('final paginated output reconstructs the exact source, including whitespace
 });
 
 test('final error output exposes the error code and every failed stage', async () => {
-  let failed;
-  try {
-    await runFetchPipeline(url, {
+  await assert.rejects(
+    runFetchPipeline(url, {
       ...options(),
       http: async () => {
         throw Object.assign(new Error('HTTP 403'), { status: 403 });
@@ -66,28 +71,28 @@ test('final error output exposes the error code and every failed stage', async (
       browser: async () => {
         throw Object.assign(new Error('Explicit challenge'), { status: 200, code: 'BLOCKED_CONTENT' });
       },
-    });
-    assert.fail('expected failure');
-  } catch (failure) {
-    failed = failure;
-  }
-  const rendered = formatResponse('fetch', {
-    results: [
-      {
-        url,
-        status: 'error',
-        error: failed.message,
-        errorCode: failed.code,
-        attempts: failed.attempts,
-        failures: failed.failures,
-      },
-    ],
-  });
-  assert.match(rendered, /errorCode: BLOCKED_CONTENT/);
-  assert.match(rendered, /http=HTTP_BLOCKED/);
-  assert.match(rendered, /puppeteer=BLOCKED_CONTENT/);
-  assert.match(rendered, /failure: http \[HTTP_BLOCKED\] HTTP 403: HTTP 403/);
-  assert.match(rendered, /failure: puppeteer \[BLOCKED_CONTENT\] HTTP 200: Explicit challenge/);
+    }),
+    (failed) => {
+      const rendered = formatResponse('fetch', {
+        results: [
+          {
+            url,
+            status: 'error',
+            error: failed.message,
+            errorCode: failed.code,
+            attempts: failed.attempts,
+            failures: failed.failures,
+          },
+        ],
+      });
+      assert.match(rendered, /errorCode: BLOCKED_CONTENT/);
+      assert.match(rendered, /http=HTTP_BLOCKED/);
+      assert.match(rendered, /puppeteer=BLOCKED_CONTENT/);
+      assert.match(rendered, /failure: http \[HTTP_BLOCKED\] HTTP 403: HTTP 403/);
+      assert.match(rendered, /failure: puppeteer \[BLOCKED_CONTENT\] HTTP 200: Explicit challenge/);
+      return true;
+    }
+  );
 });
 
 test('successful fallback keeps diagnostics separate from the unchanged body', async () => {

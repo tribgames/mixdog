@@ -69,9 +69,8 @@ export function createClientRegistry({
   }
 
   function dropClient(token, reason) {
-    const c = clients.get(token);
+    const c = removeClientRecord(token);
     if (!c) return;
-    removeClientRecord(token);
     if (state.pointerToken === token) state.pointerToken = null;
     log(`client ${token} (lead=${c.leadPid}) removed: ${reason}`);
     // Client presence is not channel authority. The durable session pin stays

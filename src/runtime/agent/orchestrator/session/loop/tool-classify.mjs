@@ -19,7 +19,6 @@ export function _isMutationTool(name, args = null) {
   return (
     n === 'apply_patch' ||
     n === 'edit' ||
-    n === 'git_stage' ||
     (n === 'git' && gitCommandMutates(args)) ||
     (n === 'github' && githubRequestMutates(args))
   );
@@ -27,7 +26,7 @@ export function _isMutationTool(name, args = null) {
 export function _isGitMutationTool(name, args = null) {
   const n = String(_stripMcpPrefix(name) || '').toLowerCase();
   return (
-    n === 'git_stage' || (n === 'git' && gitCommandMutates(args)) || (n === 'github' && githubRequestMutates(args))
+    (n === 'git' && gitCommandMutates(args)) || (n === 'github' && githubRequestMutates(args))
   );
 }
 export function _isEditTool(name) {

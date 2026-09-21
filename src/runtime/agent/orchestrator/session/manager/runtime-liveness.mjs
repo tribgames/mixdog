@@ -33,6 +33,7 @@ const VALID_STAGES = new Set([
   'requesting',
   'streaming',
   'tool_running',
+  'resource_wait',
   'idle',
   'error',
   'done',

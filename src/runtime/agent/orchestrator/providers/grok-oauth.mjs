@@ -21,7 +21,6 @@ import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
 import { normalizeGrokToolSchemas } from './lib/grok-tool-schema.mjs';
 
-// --- Constants ---
 // xAI's shared OAuth client. The consent screen renders this as "Grok Build".
 import {
   INFERENCE_BASE_URL,
@@ -139,9 +138,7 @@ function _displayGrokModel(model) {
     .replace(/^grok-/i, 'Grok ')
     .replace(/-0?309\b/g, '')
     .replace(/-/g, ' ')
-    .replace(/\b\w/g, (m) => m.toUpperCase())
-    .replace(/\bNon Reasoning\b/g, 'Non Reasoning')
-    .replace(/\bMulti Agent\b/g, 'Multi Agent');
+    .replace(/\b\w/g, (m) => m.toUpperCase());
   text = text.replace(/\s+/g, ' ').trim();
   return text || raw;
 }
@@ -419,8 +416,7 @@ export class GrokOAuthProvider {
       // own 401 handler — that one reloads a static apiKey from config,
       // which is wrong for OAuth. We own the refresh-and-retry below.
       // Caller's model passes through (or catalog-top default), with
-      // retired aliases normalized. api.x.ai exposes the full grok-4.x
-      // catalog to this token — no single-model lock.
+      // retired aliases normalized — no single-model lock.
       return await inner._doSend(messages, useModel, grokTools, sendOpts);
     } catch (err) {
       // Refresh-and-retry on a server-rejected OAuth session (401/403).
@@ -554,5 +550,3 @@ export class GrokOAuthProvider {
     return this.tokens !== null || loadTokens() !== null;
   }
 }
-
-// --- Login flow (PKCE, export for CLI / setup use) ---

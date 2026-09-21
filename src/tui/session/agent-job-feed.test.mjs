@@ -6,8 +6,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAgentJobFeed } from './agent-job-feed.mjs';
 import { notificationQueueKey, resolveTuiRuntimeNotificationDelivery } from './notification-plan.mjs';
-import { agentArgsWithResultMetadata, agentJobResultText, parseAgentJob } from './agent-envelope.mjs';
-import { toolErrorDisplay } from './tool-result-text.mjs';
+import { parseAgentJob } from './agent-envelope.mjs';
 import { sleep } from '../../runtime/shared/sleep.mjs';
 import { _clearDeliveredCompletions } from '../../runtime/agent/orchestrator/session/manager/delivered-completions.mjs';
 import { renderAgentCompletionEnvelope } from '../../runtime/shared/task-notification-envelope.mjs';
@@ -143,22 +142,20 @@ test('buildAgentJobCardPatch merges the parsed envelope into the card args and f
   h.state.items = [{ id: 'card-1', args: { type: 'spawn', agent: 'Reviewer' } }];
   h.itemIndexById.set('card-1', 0);
   const text = 'agent task: task-9\nstatus: completed\ntype: spawn\nagent: Reviewer\n\nAll good.';
-  const parsed = parseAgentJob(text);
-  const expectedText = agentJobResultText(text, parsed);
   assert.deepEqual(h.feed.buildAgentJobCardPatch('card-1', text), {
-    result: expectedText,
-    text: expectedText,
+    result: 'All good.',
+    text: 'All good.',
     isError: false,
     errorCount: 0,
-    args: agentArgsWithResultMetadata(h.state.items[0].args, parsed),
+    args: { type: 'spawn', agent: 'Reviewer', jobType: 'spawn', status: 'completed', task_id: 'task-9' },
   });
   h.feed.updateAgentJobCard('card-1', text);
   assert.equal(h.named('patchItem').length, 1);
   assert.equal(h.named('patchItem')[0][1], 'card-1');
 
   assert.deepEqual(h.feed.buildAgentJobCardPatch('card-1', 'boom', true), {
-    result: toolErrorDisplay('boom', 'agent'),
-    text: toolErrorDisplay('boom', 'agent'),
+    result: 'Error: boom',
+    text: 'Error: boom',
     isError: true,
     errorCount: 1,
   });

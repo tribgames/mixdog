@@ -41,7 +41,8 @@ export function createViewerRegistry({
   function addSubscriber(entry, ctx) {
     const token = subscriberToken(ctx);
     if (!entry || !token) return entry;
-    (entry.subscribers ??= new Set()).add(token);
+    entry.subscribers ??= new Set();
+    entry.subscribers.add(token);
     entry.retainedAt = null;
     entry.headless = false;
     // A watched session carries a reclaimable projection, so the sweep has to
@@ -54,7 +55,10 @@ export function createViewerRegistry({
     const token = subscriberToken(ctx);
     if (!token) return;
     let tokens = pendingViewers.get(sessionId);
-    if (!tokens) pendingViewers.set(sessionId, (tokens = new Set()));
+    if (!tokens) {
+      tokens = new Set();
+      pendingViewers.set(sessionId, tokens);
+    }
     tokens.add(token);
   }
 

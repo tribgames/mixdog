@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createAgentTree } from './agent-tree.mjs';
+import { lastStoredAgentHandoff } from './agent-tree/agent-rehydrate.mjs';
 
 // The Agent child catalog against fake session-service hooks: how children
 // are linked and rooted, what a turn does to a descriptor, how cancellation
@@ -54,6 +55,19 @@ const spec = (parentSessionId, extra = {}) => ({
   preset: { provider: 'openai', model: 'gpt-5', effort: 'high', id: 'fast-review' },
   cwd: 'C:/work',
   ...extra,
+});
+
+test('a busy child accepts follow-ups on its existing runtime', async () => {
+  const h = createHarness({ busyIds: new Set(['child-1']) });
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const runtime = h.runtimeFor(session.id);
+  const accepted = [];
+  runtime.submitAsync = async (prompt, options) => { accepted.push({ prompt, options }); return true; };
+  assert.ok(await h.tree.agentSurface.enqueueTurn({ session, prompt: 'follow-up', context: 'extra' }));
+  assert.equal(h.turns.length, 0, 'no second submitAndWait turn is started');
+  assert.equal(accepted[0].prompt, 'follow-up');
+  assert.equal(accepted[0].options.priority, 'next');
+  assert.equal(accepted[0].options.context, 'extra');
 });
 
 test('createAgentChild links the child under its parent with the root owner carried down the chain', async () => {
@@ -177,4 +191,36 @@ test('descriptor status reflects the live runtime and handoff falls back to the 
   assert.equal(await h.tree.agentManager.readSessionHandoff('w'), 'stored answer');
   assert.equal(h.tree.agentDescriptor('w').lastHandoff, 'stored answer', 'cached after the read');
   assert.equal(await h.tree.agentManager.readSessionHandoff('missing'), '');
+});
+
+test('stored handoffs preserve explicit text and otherwise select the last nonempty assistant output', () => {
+  const messages = Object.freeze([
+    { role: 'assistant', content: 'old answer' },
+    { role: 'assistant', content: '  latest answer  ' },
+    { role: 'assistant', content: ' \n ' },
+    { role: 'assistant', content: null },
+    { role: 'user', content: 'new question' },
+    null,
+  ]);
+  assert.equal(lastStoredAgentHandoff({ messages }), '  latest answer  ');
+  assert.equal(lastStoredAgentHandoff({ lastHandoff: '', messages }), '');
+  assert.equal(lastStoredAgentHandoff({ lastHandoff: 'explicit', messages }), 'explicit');
+  assert.equal(
+    lastStoredAgentHandoff({
+      messages: [{ role: 'assistant', content: [{ type: 'text', text: 'structured' }] }],
+    }),
+    '[{"type":"text","text":"structured"}]'
+  );
+  assert.equal(lastStoredAgentHandoff({ messages: new Array(3) }), '');
+  assert.equal(
+    lastStoredAgentHandoff({
+      messages: [
+        { role: 'assistant', content: false },
+        { role: 'assistant', content: 0 },
+      ],
+    }),
+    ''
+  );
+  assert.equal(lastStoredAgentHandoff({ messages: 'invalid' }), '');
+  assert.equal(lastStoredAgentHandoff(null), '');
 });

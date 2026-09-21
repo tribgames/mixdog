@@ -9,6 +9,7 @@ import { SessionClosedError } from '../src/runtime/agent/orchestrator/session/ma
 import { acquireSessionLock } from '../src/runtime/agent/orchestrator/session/manager/session-lock.mjs';
 import { settleAskCleanup } from '../src/runtime/agent/orchestrator/session/manager/ask-session.mjs';
 import { renderBackgroundTask } from '../src/runtime/shared/background-tasks.mjs';
+import { parseTaskNotification } from '../src/runtime/shared/task-notification-envelope.mjs';
 import { deriveToolCardModel } from '../src/runtime/shared/tool-card-model.mjs';
 import {
   buildExecutionResponseToolItem,
@@ -500,7 +501,12 @@ test('running shell output is progress until the terminal completion arrives', (
     },
     completedText
   );
-  assert.match(completedDelivery.modelContent, /^Async shell shell-1 completed finished\./i);
+  const completion = parseTaskNotification(completedDelivery.modelContent);
+  assert.ok(completion, 'terminal shell completion must use the canonical task-notification envelope');
+  assert.equal(completion.taskId, 'shell-1');
+  assert.equal(completion.surface, 'shell');
+  assert.equal(completion.status, 'completed');
+  assert.equal(completion.result, '[stdout preview]\nbuilding...');
 });
 
 test('fallback shell completion wrapper remains renderable as one UI card', () => {

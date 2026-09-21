@@ -63,12 +63,10 @@ const SSE_VERBOSE = process.env.MIXDOG_SSE_VERBOSE === '1';
 
 let _modelRefreshInFlight = null;
 const _oauthRefreshes = new Map();
-// No in-memory credential cache: the canonical credentials file is the
-// single source of truth. Cross-process refresh_token rotation by another
-// concurrent reader would invalidate any cached copy here and produce
-// invalid_grant on the next refresh. Reading from
-// disk on demand is cheap (one stat + one small JSON parse) and removes
-// the cache-vs-disk skew entirely.
+// The credentials file is canonical: ensureAuth reloads the in-memory copy
+// when its mtime changes, and refresh re-reads disk before exchanging tokens.
+// This picks up cross-process refresh_token rotation rather than replaying
+// a stale single-use token.
 
 // Anthropic OAuth contract for first-party OAuth clients: Opus/Sonnet
 // requests are gated on this exact system-prompt prefix. Haiku is not

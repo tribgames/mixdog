@@ -68,8 +68,6 @@ function toolIdentityIds(m) {
 // shaped content. It never folds in a synthesized Date.now() fallback ts or the
 // volatile loop index, so the same untimestamped message produces the same ref
 // regardless of its position after compaction shrinks/reindexes the transcript.
-// Two textually identical untimestamped plain messages intentionally dedupe to
-// one row (stable dedupe preferred over positional separation).
 export function stableSessionSourceRef(sessionId, m, role, content, ordinal) {
   const toolIds = toolIdentityIds(m);
   // Only an ORIGINAL, caller-supplied timestamp counts as durable identity.

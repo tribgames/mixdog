@@ -78,18 +78,7 @@ const CELL_PROPERTY_ORDER = Object.freeze([
 
 export function mergeWordCellProperties(cellXml, properties = {}) {
   const existing = /<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>/.exec(cellXml)?.[1] || '';
-  const merged = new Map();
-  for (const element of [...runPropertyElements(existing), ...runPropertyElements(wordCellProperties(properties))]) {
-    merged.set(element.tag, element.xml);
-  }
-  const rank = (tag) => {
-    const index = CELL_PROPERTY_ORDER.indexOf(tag);
-    return index === -1 ? CELL_PROPERTY_ORDER.length : index;
-  };
-  const inner = [...merged.entries()]
-    .sort(([left], [right]) => rank(left) - rank(right))
-    .map(([, xml]) => xml)
-    .join('');
+  const inner = mergeWordPropertyElements(existing, wordCellProperties(properties), CELL_PROPERTY_ORDER);
   return replaceWordProperties(cellXml, 'tc', 'tcPr', inner);
 }
 
@@ -292,14 +281,14 @@ function runPropertyElements(xml) {
   return [...matches].map((match) => ({ tag: match[1], xml: match[0] }));
 }
 
-function mergeWordRunProperties(existing, overrides) {
+function mergeWordPropertyElements(existing, overrides, order) {
   const merged = new Map();
   for (const element of [...runPropertyElements(existing), ...runPropertyElements(overrides)]) {
     merged.set(element.tag, element.xml);
   }
   const rank = (tag) => {
-    const index = RUN_PROPERTY_ORDER.indexOf(tag);
-    return index === -1 ? RUN_PROPERTY_ORDER.length : index;
+    const index = order.indexOf(tag);
+    return index === -1 ? order.length : index;
   };
   return [...merged.entries()]
     .sort(([left], [right]) => rank(left) - rank(right))
@@ -312,7 +301,10 @@ export function applyWordRunFormat(xml, runFormat) {
   return String(xml).replace(/<w:r(?:\s[^>]*)?>[\s\S]*?<\/w:r>/g, (run) => {
     const selfClosed = /<w:rPr\b[^>]*\/>/.exec(run);
     const opened = /<w:rPr(?:\s[^>]*)?>([\s\S]*?)<\/w:rPr>/.exec(run);
-    if (opened) return run.replace(opened[0], `<w:rPr>${mergeWordRunProperties(opened[1], runFormat)}</w:rPr>`);
+    if (opened) {
+      const merged = mergeWordPropertyElements(opened[1], runFormat, RUN_PROPERTY_ORDER);
+      return run.replace(opened[0], `<w:rPr>${merged}</w:rPr>`);
+    }
     if (selfClosed) return run.replace(selfClosed[0], `<w:rPr>${runFormat}</w:rPr>`);
     return run.replace(/<w:r(?:\s[^>]*)?>/, (open) => `${open}<w:rPr>${runFormat}</w:rPr>`);
   });

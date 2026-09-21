@@ -14,9 +14,7 @@ import {
 } from './session-runtime-shard-router.mjs';
 
 test('production always uses one shared actor runtime process', () => {
-  assert.equal(resolveShardCount({}, 1), 1);
-  assert.equal(resolveShardCount({}, 2), 1);
-  assert.equal(resolveShardCount({}, 128), 1);
+  assert.equal(resolveShardCount(), 1);
   assert.equal(resolveShardCount({ MIXDOG_SESSION_RUNTIME_SHARDS: '6' }, 128), 1);
   // Explicit constructor counts remain a bounded recovery/routing test seam.
   assert.equal(normalizeShardCount(999), 16);

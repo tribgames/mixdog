@@ -96,14 +96,13 @@ function run(cmd, args, opts) {
   // one powershell.exe spawn — users saw 8-15 console flashes during
   // config-UI page load.
   // Default opts go BEFORE the spread so callers can still override.
-  const result = spawnSync(cmd, args, {
+  return spawnSync(cmd, args, {
     encoding: 'utf8',
     shell: false,
     windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
     ...opts,
   });
-  return result;
 }
 
 // PS 5.1(powershell.exe) first: pwsh(PS 7) does not auto-load ProtectedData assembly,

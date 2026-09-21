@@ -139,9 +139,10 @@ function resolveKeyPress(rawKey: string): KeyPress {
   const typesText = (modifierBits & ~SHIFT_MODIFIER) === 0;
   const normalized = keyName.toLowerCase();
   const typed = modifierNames.has('shift') ? keyName.toUpperCase() : keyName;
-  const printable: KeySpec | null = character
-    ? { key: typed, code: character.code, keyCode: character.keyCode, text: typesText ? typed : undefined }
-    : null;
+  let printable: KeySpec | null = null;
+  if (character) {
+    printable = { key: typed, code: character.code, keyCode: character.keyCode, text: typesText ? typed : undefined };
+  }
   const functionKey: KeySpec | null = /^f([1-9]|1\d|2[0-4])$/.test(normalized)
     ? {
         key: normalized.toUpperCase(),

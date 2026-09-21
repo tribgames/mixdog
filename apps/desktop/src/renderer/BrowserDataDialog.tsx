@@ -4,6 +4,7 @@ import { AlertTriangle, Check, Cookie, Database, HardDrive, LoaderCircle, X } fr
 import type { DesktopBrowserDataClearResult, DesktopBrowserDataScope } from '../shared/contract';
 import { t } from './i18n';
 import { ErrorNotice } from './ErrorNotice';
+import { watchBrowserDialogFocus } from './browser-dialog-focus';
 
 interface BrowserDataDialogProps {
   open: boolean;
@@ -21,7 +22,6 @@ const DEFAULT_SCOPES: Record<DesktopBrowserDataScope, boolean> = {
 export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
   const desktopApi = window.mixdogDesktop;
   const dialogRef = useRef<HTMLElement | null>(null);
-  const returnFocusRef = useRef<HTMLElement | null>(null);
   const busyRef = useRef(false);
   const [scopes, setScopes] = useState<Record<DesktopBrowserDataScope, boolean>>(DEFAULT_SCOPES);
   const [busy, setBusy] = useState(false);
@@ -39,38 +39,12 @@ export function BrowserDataDialog({ open, onClose }: BrowserDataDialogProps) {
     setScopes(DEFAULT_SCOPES);
     setResult(null);
     setError('');
-    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const focusFrame = window.requestAnimationFrame(() => {
-      dialogRef.current?.querySelector<HTMLElement>('input:not(:disabled), button:not(:disabled)')?.focus();
-    });
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        requestClose();
-        return;
-      }
-      if (event.key !== 'Tab' || !dialogRef.current) return;
-      const focusable = [
-        ...dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)'),
-      ].filter((element) => element.offsetParent !== null || element === document.activeElement);
-      const first = focusable[0];
-      const last = focusable.at(-1);
-      if (!first || !last) return;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      window.cancelAnimationFrame(focusFrame);
-      document.removeEventListener('keydown', onKeyDown);
-      returnFocusRef.current?.focus();
-      returnFocusRef.current = null;
-    };
+    return watchBrowserDialogFocus(
+      dialogRef,
+      requestClose,
+      'button:not(:disabled), input:not(:disabled)',
+      'input:not(:disabled), button:not(:disabled)'
+    );
   }, [open, requestClose]);
 
   const selected = (Object.keys(scopes) as DesktopBrowserDataScope[]).filter((scope) => scopes[scope]);

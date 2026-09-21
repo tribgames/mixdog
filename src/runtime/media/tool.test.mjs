@@ -52,7 +52,6 @@ function fakeGraph({ outcome = 'done', lanes = LANES, remembered = null } = {}) 
   const assetPath = join(tmpdir(), `mixdog-media-asset-${process.pid}.png`);
   return {
     assetPath,
-    calls: [],
     lanes: { listMediaLanes: async () => lanes },
     defaults: { getMediaDefault: (kind) => (remembered && remembered.kind === kind ? remembered : null) },
     jobs: {

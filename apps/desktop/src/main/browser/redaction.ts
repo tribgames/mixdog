@@ -8,8 +8,9 @@ function decodedUrlCandidates(raw: string): string[] {
   const values = [String(raw || '')];
   for (let index = 0; index < 2; index += 1) {
     try {
-      const decoded = decodeURIComponent(values.at(-1)!.replace(/\+/g, '%20'));
-      if (decoded === values.at(-1)) break;
+      const current = values[values.length - 1];
+      const decoded = decodeURIComponent(current.replace(/\+/g, '%20'));
+      if (decoded === current) break;
       values.push(decoded);
     } catch {
       break;

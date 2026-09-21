@@ -11,6 +11,7 @@ import { createAgentCancellation } from './agent-tree/agent-cancel.mjs';
 import { createAgentRegistry } from './agent-tree/agent-registry.mjs';
 import { createAgentRehydration, lastStoredAgentHandoff } from './agent-tree/agent-rehydrate.mjs';
 import { createAgentTurns } from './agent-tree/agent-turns.mjs';
+import { randomUUID } from 'node:crypto';
 
 export { SESSION_ID_PATTERN } from './agent-tree/agent-registry.mjs';
 
@@ -25,6 +26,21 @@ export function createAgentTree({
   createSession,
 } = {}) {
   const registry = createAgentRegistry();
+  const progress = new Map();
+  const progressReads = new Set();
+  function getSessionProgressSnapshot(sessionId) {
+    const runtime = sessionOwner(sessionId)?.runtime;
+    if (typeof runtime?.getTurnLiveness !== 'function') return null;
+    if (runtime.isWireSafe !== true) return runtime.getTurnLiveness();
+    if (!progressReads.has(sessionId)) {
+      progressReads.add(sessionId);
+      Promise.resolve(runtime.getTurnLiveness())
+        .then((snapshot) => progress.set(sessionId, snapshot))
+        .catch((error) => log(`agent progress read failed session=${sessionId}: ${error?.message || error}`))
+        .finally(() => progressReads.delete(sessionId));
+    }
+    return progress.get(sessionId) || null;
+  }
   const { rehydrateAgentSessions } = createAgentRehydration({ registry, listSessions, readStoredSession, log });
   const { createAgentChild, runAgentTurn } = createAgentTurns({
     registry,
@@ -50,7 +66,10 @@ export function createAgentTree({
     const state = owner?.runtime?.getState?.() || {};
     let status = descriptor.status || 'idle';
     if (descriptor.closed) status = descriptor.status || 'closed';
-    else if (stateBusy(state)) status = 'running';
+    else if (owner) {
+      if (stateBusy(state)) status = 'running';
+      else if (status === 'running') status = 'idle';
+    }
     return {
       ...descriptor,
       status,
@@ -68,6 +87,21 @@ export function createAgentTree({
     canRun: (session) => Boolean(registry.get(session?.id)),
     createChild: createAgentChild,
     runTurn: runAgentTurn,
+    async enqueueTurn({ session, prompt, context = null }) {
+      const descriptor = registry.get(session?.id);
+      if (!descriptor || descriptor.closed) throw new Error('agent session is closed');
+      const runtime = sessionOwner(descriptor.id)?.runtime;
+      if (!runtime || !stateBusy(runtime.getState())) return null;
+      const accepted = await runtime.submitAsync(String(prompt || ''), {
+        id: `agent-message-${randomUUID()}`,
+        mode: 'prompt',
+        priority: 'next',
+        context,
+        transcriptMeta: { sender: 'lead' },
+      });
+      if (accepted === false) throw new Error('agent follow-up was not accepted');
+      return { queueDepth: runtime.getState()?.queued?.length ?? null };
+    },
   });
 
   const agentManager = Object.freeze({
@@ -81,7 +115,20 @@ export function createAgentTree({
         .filter((session) => session && (includeClosed || session.closed !== true)),
     getSessionRuntime: (sessionId) => {
       const session = agentDescriptor(sessionId);
-      return session ? { stage: session.stage || session.status || 'idle' } : null;
+      return session ? getSessionProgressSnapshot(sessionId) || { stage: session.stage || session.status || 'idle' } : null;
+    },
+    getSessionProgressSnapshot,
+    linkParentSignalToSession(sessionId, signal) {
+      const runtime = sessionOwner(sessionId)?.runtime;
+      if (typeof runtime?.abort !== 'function') throw new Error(`agent runtime cannot abort session ${sessionId}`);
+      const abort = () => {
+        Promise.resolve(runtime.abort({ restorePrompt: false })).catch((error) => {
+          log(`agent watchdog abort failed session=${sessionId}: ${error?.message || error}`);
+        });
+      };
+      if (signal.aborted) abort();
+      else signal.addEventListener('abort', abort, { once: true });
+      return () => signal.removeEventListener('abort', abort);
     },
     async readSessionHandoff(sessionId) {
       const descriptor = registry.get(sessionId);
@@ -99,7 +146,10 @@ export function createAgentTree({
       await rehydrateAgentSessions();
       return cancelAgentTree(sessionId, reason);
     },
-    unloadSessionRuntime: () => false,
+    unloadSessionRuntime: (sessionId) => {
+      progress.delete(sessionId);
+      return false;
+    },
     hideSessionFromList: () => false,
   });
 

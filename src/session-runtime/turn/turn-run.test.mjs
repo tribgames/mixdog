@@ -299,5 +299,6 @@ test('getTurnLiveness projects the manager progress snapshot for the current ses
     lastProgressAt: 5,
     toolStartedAt: 3,
     toolSelfDeadlineMs: 9,
+    extra: 1,
   });
 });

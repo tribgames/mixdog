@@ -20,7 +20,9 @@ function machOFat(cpus) {
   const buffer = Buffer.alloc(8 + cpus.length * 20);
   buffer.writeUInt32BE(0xcafebabe, 0);
   buffer.writeUInt32BE(cpus.length, 4);
-  cpus.forEach((cpu, index) => buffer.writeUInt32BE(cpu, 8 + index * 20));
+  cpus.forEach((cpu, index) => {
+    buffer.writeUInt32BE(cpu, 8 + index * 20);
+  });
   return buffer;
 }
 

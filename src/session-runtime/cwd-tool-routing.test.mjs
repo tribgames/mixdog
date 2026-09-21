@@ -12,16 +12,98 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
   mkdirSync(cwdA);
   mkdirSync(cwdB);
   mkdirSync(cwdNext);
-  const previousProcessCwd = process.env.MIXDOG_SESSION_CWD;
-  const previousHome = process.env.MIXDOG_HOME;
-  const previousData = process.env.MIXDOG_DATA_DIR;
+  const previousEnv = { ...process.env };
+  // Runtime imports cache paths and can probe credentials. Keep only process
+  // plumbing, then install sandbox roots before importing any runtime module.
+  for (const key of Object.keys(process.env)) {
+    if (!/^(PATH|PATHEXT|SystemRoot|WINDIR|COMSPEC|TEMP|TMP|TMPDIR)$/i.test(key)) delete process.env[key];
+  }
+  process.env.HOME = root;
+  process.env.USERPROFILE = root;
+  process.env.APPDATA = join(root, 'appdata');
+  process.env.LOCALAPPDATA = join(root, 'localappdata');
   process.env.MIXDOG_HOME = join(root, 'home');
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  process.env.MIXDOG_CONFIG_DIR = join(root, 'config');
   process.env.MIXDOG_SESSION_CWD = 'process-global-must-not-change';
+  process.env.MIXDOG_DISABLE_MCP = '1';
 
+  const noop = () => {};
+  const keychain = {
+    getSecret: () => null,
+    hasSecret: () => false,
+    setSecret: () => assert.fail('unexpected credential write'),
+    deleteSecret: () => assert.fail('unexpected credential deletion'),
+    invalidateSecretCache: noop,
+    prewarmSecrets: async () => {},
+    SERVICE: 'mixdog',
+  };
+  t.mock.module('../lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });
+  const provider = { name: 'openai', send: () => assert.fail('unexpected provider request') };
+  t.mock.module('../runtime/agent/orchestrator/providers/registry.mjs', {
+    namedExports: {
+      initProviders: async () => {},
+      getProvider: () => provider,
+      getAllProviders: () => new Map([['openai', provider]]),
+      providerInputExcludesCache: () => false,
+      providerCatalogRevision: () => 0,
+      refreshProviderCatalogsOnStartup: async () => {},
+      refreshCatalogs: async () => {},
+      disableProvider: noop,
+    },
+  });
+  t.mock.module('./warmup-schedulers.mjs', {
+    namedExports: {
+      createWarmupSchedulers: () => ({
+        scheduleProviderWarmup: noop,
+        scheduleProviderSetupWarmup: noop,
+        scheduleProviderModelWarmup: noop,
+        scheduleModelCatalogWarmup: noop,
+        scheduleStatuslineUsageWarmup: noop,
+        scheduleStatuslineUsageRefresh: noop,
+      }),
+    },
+  });
+  t.mock.module('./prewarm.mjs', {
+    namedExports: {
+      createPrewarmSchedulers: () => ({
+        scheduleCodeGraphPrewarm: noop,
+        scheduleToolRuntimeWarmup: noop,
+        scheduleSearchRuntimeWarmup: noop,
+        invokeChannelStart: noop,
+        scheduleChannelStart: noop,
+        scheduleAutomationAutostart: noop,
+      }),
+    },
+  });
+  t.mock.module('./self-update.mjs', {
+    namedExports: { createSelfUpdateController: () => ({ startBootCheck: noop, stopBootCheck: noop }) },
+  });
+  const fetchMock = t.mock.method(globalThis, 'fetch', () => {
+    throw new Error('network is forbidden in the cwd routing test');
+  });
+  let runtimeA;
+  let runtimeB;
+  let restored;
+  let drainSessionStore;
+  t.after(async () => {
+    try {
+      await Promise.all([
+        runtimeA?.close('cwd-routing-test', { waitForExit: false }),
+        runtimeB?.close('cwd-routing-test', { waitForExit: false }),
+        restored?.close('cwd-routing-test', { waitForExit: false }),
+      ]);
+      drainSessionStore?.();
+      assert.equal(fetchMock.mock.callCount(), 0, 'no network requests during runtime creation or teardown');
+    } finally {
+      for (const key of Object.keys(process.env)) delete process.env[key];
+      Object.assign(process.env, previousEnv);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
   const { createMixdogSessionRuntime } = await import('./runtime-core.mjs');
   const { executeTool } = await import('../runtime/agent/orchestrator/session/loop/tool-exec.mjs');
-  const { drainSessionStore } = await import('../runtime/agent/orchestrator/session/store.mjs');
+  ({ drainSessionStore } = await import('../runtime/agent/orchestrator/session/store.mjs'));
   const options = {
     provider: 'openai',
     model: 'gpt-4o-mini',
@@ -30,28 +112,12 @@ test('cwd internal tool stays bound to its caller when another runtime owns the 
       providers: { openai: { enabled: true, apiKey: 'cwd-test-only', baseUrl: 'http://127.0.0.1:1/v1' } },
     },
   };
-  const runtimeA = await createMixdogSessionRuntime({
+  runtimeA = await createMixdogSessionRuntime({
     ...options,
     cwd: cwdA,
     desktopSession: { classification: 'project', projectPath: cwdA },
   });
-  const runtimeB = await createMixdogSessionRuntime({ ...options, cwd: cwdB });
-  let restored = null;
-  t.after(async () => {
-    await Promise.allSettled([
-      runtimeA.close('cwd-routing-test', { waitForExit: false }),
-      runtimeB.close('cwd-routing-test', { waitForExit: false }),
-      restored?.close('cwd-routing-test', { waitForExit: false }),
-    ]);
-    drainSessionStore();
-    if (previousProcessCwd === undefined) delete process.env.MIXDOG_SESSION_CWD;
-    else process.env.MIXDOG_SESSION_CWD = previousProcessCwd;
-    if (previousHome === undefined) delete process.env.MIXDOG_HOME;
-    else process.env.MIXDOG_HOME = previousHome;
-    if (previousData === undefined) delete process.env.MIXDOG_DATA_DIR;
-    else process.env.MIXDOG_DATA_DIR = previousData;
-    rmSync(root, { recursive: true, force: true });
-  });
+  runtimeB = await createMixdogSessionRuntime({ ...options, cwd: cwdB });
   await runtimeA.newSession();
 
   // runtimeB registered the process-global internal-tool executor last. The

@@ -2,11 +2,6 @@
  * gemini-schema.mjs — Gemini request-shape conversion: JSON Schema → Gemini
  * FunctionDeclarationSchema, tool/tool-config mapping, message → content
  * mapping, tool-call parsing/emission, and grounding-source collection.
- *
- * Pure functions only — no
- * module state. gemini.mjs re-exports parseToolCalls / emitGeminiToolCalls /
- * collectGeminiGroundingSources so existing importers (tests, gemini-stream)
- * keep resolving through the facade.
  */
 import { SchemaType } from '@google/generative-ai';
 import { traceHash, stableTraceStringify } from './trace-utils.mjs';
@@ -163,8 +158,7 @@ const GEMINI_SCHEMA_FIELDS = new Set([
 ]);
 
 const SCHEMA_CONFLICT_ENUM = '__mixdog_unrepresentable_schema_conjunction__';
-const schemaValueKey = (value) => stableTraceStringify(value);
-const sameSchemaValue = (a, b) => schemaValueKey(a) === schemaValueKey(b);
+const sameSchemaValue = (a, b) => stableTraceStringify(a) === stableTraceStringify(b);
 const defineSchemaProperty = (target, name, value) => {
   Object.defineProperty(target, name, {
     value,
@@ -589,7 +583,6 @@ export function toGeminiNativeTools(nativeTools) {
   return out;
 }
 
-// Exported for gemini-stream.mjs (stream consumers collect citations).
 export function collectGeminiGroundingSources(candidate) {
   const out = [];
   const seen = new Set();
@@ -884,7 +877,6 @@ export function parseToolCalls(parts) {
   });
 }
 
-// Exported for gemini-stream.mjs (leak-guard + stream consumers).
 export function emitGeminiToolCalls(toolCalls, onToolCall) {
   if (typeof onToolCall !== 'function' || !Array.isArray(toolCalls)) return;
   const emitted = new Set();

@@ -1,5 +1,4 @@
-// Result-rendering + finish-classification helpers. Pure functions (bodies identical to
-// the originals, only cross-module deps are now imported).
+// Pure result-rendering and finish-classification helpers.
 import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helpers.mjs';
 
 // A worker that gets truncated mid-synthesis or produces an empty terminal
@@ -41,7 +40,9 @@ export function abnormalEmptyFinishError(result, agent) {
 }
 
 function singleLine(value) {
-  return String(value ?? '').replace(/\s+/g, ' ').trim();
+  return String(value ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function renderResult(value, { includeDiagnostics = false } = {}) {

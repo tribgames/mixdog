@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { updateJsonAtomicSync } from '../../../shared/atomic-file.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
@@ -46,7 +46,6 @@ function loadLearnedCliVersion() {
   learnedCliVersionLoaded = true;
   try {
     const path = cliVersionCachePath();
-    if (!existsSync(path)) return null;
     const raw = JSON.parse(readFileSync(path, 'utf-8'));
     if (raw?.version !== CACHE_SCHEMA_VERSION) return null;
     const parsed = parseCliVersion(raw?.cliVersion);

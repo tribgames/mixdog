@@ -141,7 +141,10 @@ test('an oversized report trims samples but keeps counts and marks truncation', 
     maxBytes: 3500,
   });
   assert.equal(report.truncated, true);
-  assert.ok(Buffer.byteLength(tidyToolResult(report).content[0].text, 'utf8') <= 3500, 'wire report must fit the budget');
+  assert.ok(
+    Buffer.byteLength(tidyToolResult(report).content[0].text, 'utf8') <= 3500,
+    'wire report must fit the budget'
+  );
   assert.equal(report.results[0].diagnosticsCount, 300);
   assert.ok(report.results[0].diagnostics.length < DIAGNOSTIC_CAP, 'samples must shrink under budget pressure');
   assert.equal(report.results[0].more, 300 - report.results[0].diagnostics.length);
@@ -308,16 +311,26 @@ test('flat report rows do not mutate full cached/write payloads', (t) => {
   const original = structuredClone(source);
   const report = buildTidyReport(source);
   assert.deepEqual(report.results[0].diagnostics[0], {
-    loc: 'src/f0.py:1:1', rule: 'F401', severity: 'error', message: 'imported but unused', fix: true,
+    loc: 'src/f0.py:1:1',
+    rule: 'F401',
+    severity: 'error',
+    message: 'imported but unused',
+    fix: true,
   });
   assert.deepEqual(report.structural.matches[0], {
-    loc: 'src/runtime/a.js:2:3', rule: 'no-debugger', severity: 'warning', message: 'Remove debugger.', fix: true,
+    loc: 'src/runtime/a.js:2:3',
+    rule: 'no-debugger',
+    severity: 'warning',
+    message: 'Remove debugger.',
+    fix: true,
   });
   assert.deepEqual(source, original);
   const before = Buffer.byteLength(JSON.stringify(match, null, 2));
   const after = Buffer.byteLength(JSON.stringify(report.structural.matches[0]));
   assert.ok(after < before);
-  t.diagnostic(`diagnostic row bytes: ${before} pretty/full -> ${after} compact/projected (${(before / after).toFixed(2)}x)`);
+  t.diagnostic(
+    `diagnostic row bytes: ${before} pretty/full -> ${after} compact/projected (${(before / after).toFixed(2)}x)`
+  );
 });
 
 test('summaries group directories, mixed fixability and severity, and survive zero-row trimming', () => {

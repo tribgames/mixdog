@@ -164,8 +164,6 @@ function computerUncertainMutationResult(
   };
 }
 
-/** Execute one `computer` tool call. Returns MCP-shaped content so the
- *  internal-tools normalizer forwards text and screenshot images as-is. */
 async function cancelledComputerResult(sessionId, mutationMayHaveExecuted) {
   const confirmed = sessionId ? await abortComputerSession(sessionId) : false;
   const cleanup = confirmed ? 'input state and session resources were released' : 'host cleanup could not be confirmed';
@@ -291,6 +289,8 @@ function computerToolResult(value, args) {
   };
 }
 
+/** Execute one `computer` tool call. Returns MCP-shaped content so the
+ *  internal-tools normalizer forwards text and screenshot images as-is. */
 export async function executeComputerTool(rawArgs, context = {}) {
   const discovery = readDiscovery();
   if (!discovery) return computerErrorResult(`Error: ${BRIDGE_UNAVAILABLE_MESSAGE}`);
@@ -333,7 +333,7 @@ function trackComputerSession(sessionId, command) {
   if (!sessionId) return;
   hostBoundComputerSessions.add(sessionId);
   activeComputerExecutions.add(sessionId);
-  if (!isReplaySafeComputerCommand(command) && command?.read_only !== true) {
+  if (computerMutationMayHaveExecuted(command)) {
     activeComputerSessions.add(sessionId);
   }
 }

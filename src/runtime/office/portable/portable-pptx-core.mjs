@@ -171,18 +171,6 @@ function textInsets(bodyProperties) {
   };
 }
 
-function shapeBounds(xml) {
-  const offset = /<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)"/.exec(xml);
-  const extent = /<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)"/.exec(xml);
-  if (!offset || !extent) return null;
-  return {
-    left: Number(offset[1]) / EMU_PER_POINT,
-    top: Number(offset[2]) / EMU_PER_POINT,
-    width: Number(extent[1]) / EMU_PER_POINT,
-    height: Number(extent[2]) / EMU_PER_POINT,
-  };
-}
-
 // Records one top-level shape on the page: every visible object joins the
 // balance read (`content`), and a text-bearing shape also becomes a box.
 function inspectPptxShape(shape, at, page) {
@@ -190,7 +178,7 @@ function inspectPptxShape(shape, at, page) {
   // overflow, contrast, and collisions about something no reader sees, and
   // the fix round then chases an invisible box.
   if (/<p:cNvPr\b[^>]*\bhidden="(?:1|true)"/.test(shape.xml)) return;
-  const bounds = shapeBounds(shape.xml);
+  const bounds = shapeFrame(shape.xml);
   if (!bounds) return;
   if (shape.name !== 'p:sp') {
     // The object's own name travels with its box: the kit signs the devices it draws (a motif, an orb, an icon)
@@ -288,8 +276,8 @@ export function setTableValues(shapeXml, values) {
       }
       continue;
     }
-    const cells = elementSpans(containerBody(row.xml, 'a:tr'), 'a:tc');
     let body = containerBody(row.xml, 'a:tr');
+    const cells = elementSpans(body, 'a:tc');
     for (let cellIndex = cells.length - 1; cellIndex >= 0; cellIndex -= 1) {
       const cell = cells[cellIndex];
       const text = cellIndex < source.length ? source[cellIndex] : '';

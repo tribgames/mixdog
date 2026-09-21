@@ -116,7 +116,10 @@ export function StreamingMarkdown({ children, themeEpoch = 0, columns, streamKey
       </Box>
     );
   }
-  const stableChunks = parts.stableChunks?.length ? parts.stableChunks : parts.stablePrefix ? [parts.stablePrefix] : [];
+  let stableChunks = parts.stableChunks;
+  if (!stableChunks?.length) {
+    stableChunks = parts.stablePrefix ? [parts.stablePrefix] : [];
+  }
   return (
     <Box flexDirection="column" gap={1}>
       {stableChunks.map((text, index) => (

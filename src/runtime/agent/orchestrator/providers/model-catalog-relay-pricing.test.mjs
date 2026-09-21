@@ -2,12 +2,13 @@
 // pricing catalog. These cover the repricing that keeps such a route from
 // reporting a real spend as zero.
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-relay-pricing-'));
+test.after(() => rmSync(dataDir, { recursive: true, force: true }));
 writeFileSync(
   join(dataDir, 'litellm-catalog.json'),
   JSON.stringify({
@@ -34,7 +35,9 @@ writeFileSync(
 );
 process.env.MIXDOG_DATA_DIR = dataDir;
 
-const { getModelMetadataSync } = await import('./model-catalog.mjs');
+const { enrichModels, getModelMetadataSync, getModelsDevRowSync, getModelsDevProviderModelsSync } = await import(
+  './model-catalog.mjs'
+);
 const { computeCostUsd } = await import('../../../shared/llm/cost.mjs');
 
 test('a relayed model is priced at the rate of the vendor that served it', () => {
@@ -108,4 +111,25 @@ test('an ordinary provider is never repriced by a name that merely resembles one
   // The id starts with a vendor family token, but the route is not a relay, so
   // the provider guard still owns the answer.
   assert.equal(getModelMetadataSync('claude-relay-test-1', 'openai-oauth'), null);
+});
+
+test('injected models.dev lookups stay separate from the disk catalog', () => {
+  const row = { family: 'fixture' };
+  const models = { 'injected-model': row };
+  const injected = { openai: { models } };
+  assert.equal(getModelsDevRowSync('injected-model', 'openai-oauth', injected), row);
+  assert.equal(getModelsDevProviderModelsSync('openai-oauth', injected), models);
+  assert.equal(getModelsDevRowSync('injected-model', 'openai-oauth'), null);
+  assert.equal(getModelsDevProviderModelsSync('openai-oauth'), null);
+});
+
+test('enrichment preserves unknown and id-less rows by reference and in order', async () => {
+  const unknown = { id: 'unknown-fixture', provider: 'fixture', display: 'Native label' };
+  const idless = { provider: 'fixture' };
+  const enriched = await enrichModels([unknown, idless], {
+    fetchFn: async () => ({ ok: true, json: async () => ({}) }),
+  });
+  assert.equal(enriched.length, 2);
+  assert.equal(enriched[0], unknown);
+  assert.equal(enriched[1], idless);
 });

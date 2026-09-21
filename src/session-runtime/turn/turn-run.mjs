@@ -66,12 +66,7 @@ export function createTurnRunner(deps) {
     if (!sessionId || typeof mgr.getSessionProgressSnapshot !== 'function') return null;
     const snapshot = mgr.getSessionProgressSnapshot(sessionId);
     if (!snapshot) return null;
-    return {
-      stage: snapshot.stage,
-      lastProgressAt: snapshot.lastProgressAt,
-      toolStartedAt: snapshot.toolStartedAt,
-      toolSelfDeadlineMs: snapshot.toolSelfDeadlineMs,
-    };
+    return { ...snapshot };
   }
 
   // Remote-attach: this surface is a viewer on a session that another live

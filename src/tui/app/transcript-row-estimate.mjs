@@ -189,12 +189,9 @@ function toolHeaderFailureOnlyForRows(item, normalizedName, hasDisplayResult) {
     const agentHeaderFailure = !pending && isError && error && !hasDisplayResult;
     if (!agentHeaderFailure) return false;
     const displayedResultText = toolDisplayedResultTextForRows(item);
-    const rt = item.result == null ? '' : String(item.result).replace(/\s+$/, '');
-    const isAgentResult = !pending && hasDisplayResult;
-    const isAgentResponse = isAgentResult && isAgentResponseResultText(rt);
     const briefRaw = summarizeAgentSurfaceBrief(item.name, bgArgs, displayedResultText, {
       isError,
-      isResponse: isAgentResponse,
+      isResponse: false,
     });
     const agentSurfaceBriefNonempty = Boolean(String(briefRaw || '').trim());
     return !agentSurfaceBriefNonempty;
@@ -288,9 +285,7 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
         return TOOL_MARGIN_TOP + 1 + (detail ? 1 : 0);
       }
       const normalizedName = String(normalizeToolName(item.name) || '').toLowerCase();
-      const count = Math.max(1, Number(item.count || 1));
-      const done = Math.max(0, Math.min(count, Number(item.completedCount || (item.result == null ? 0 : count))));
-      const pending = done < count;
+      const pending = toolItemPendingForRows(item);
       const isSkillSurface = !item.aggregate && SKILL_SURFACE_NAMES.has(normalizedName);
       const isAgentSurface = normalizedName === 'agent';
       const rt = item.result == null ? null : String(item.result).replace(/\s+$/, '');
@@ -325,10 +320,6 @@ export function estimateTranscriptItemRows(item, columns, toolOutputExpanded, at
       }
       if (isSkillSurface && !hasResult) return TOOL_MARGIN_TOP + 1;
       if (item.aggregate) {
-        if (hasRawResult) {
-          const resultRows = estimateToolRenderedResultRows(rawRt, { columns });
-          return TOOL_MARGIN_TOP + 1 + resultRows;
-        }
         return TOOL_MARGIN_TOP + 1 + 1;
       } else {
         const backgroundMeta =

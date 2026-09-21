@@ -63,7 +63,9 @@ export function reviewTextFragmentation(boxes = [], { minimumRun = 3 } = {}) {
       }
       if (run.length < minimumRun) continue;
       // Bulleted or numbered lines are a list drawn line by line: the same fault.
-      run.forEach((entry) => used.add(entry));
+      run.forEach((entry) => {
+        used.add(entry);
+      });
       issues.push({
         code: 'text_fragmentation',
         severity: 'info',

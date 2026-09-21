@@ -13,9 +13,9 @@ export const flowActions = defineBrowserActions({
   async wait({ guest, command, signal, targetIsBackground, services }) {
     signal?.throwIfAborted();
     const { documents, reply } = services;
-    const wantText = typeof command.text === 'string' && command.text.trim() ? command.text.trim() : '';
-    const wantTextGone = typeof command.textGone === 'string' && command.textGone.trim() ? command.textGone.trim() : '';
-    const wantUrl = typeof command.url === 'string' && command.url.trim() ? command.url.trim() : '';
+    const wantText = typeof command.text === 'string' ? command.text.trim() : '';
+    const wantTextGone = typeof command.textGone === 'string' ? command.textGone.trim() : '';
+    const wantUrl = typeof command.url === 'string' ? command.url.trim() : '';
     if (!wantText && !wantTextGone && !wantUrl) {
       throw new Error('wait requires text, textGone, and/or url (substrings to wait for)');
     }

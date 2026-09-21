@@ -49,8 +49,7 @@ export function docxRevisionTree(xml) {
   const roots = [];
   const stack = [];
   const tags = /<(\/?)w:(ins|del|moveTo|moveFrom)\b([^>]*?)(\/?)>/g;
-  let match;
-  while ((match = tags.exec(source))) {
+  for (let match = tags.exec(source); match; match = tags.exec(source)) {
     if (match[4] === '/') continue;
     const tag = match[2];
     if (match[1] !== '/') {

@@ -463,9 +463,6 @@ pub const LANG_INFOS: &[LangInfo] = &[
         extract_extensions: &["r", "R"],
         scan: true,
     },
-    // Scan-only today. `solidity`, `haskell` and `hcl` carry graph extensions
-    // already, so they become graph languages as soon as their outline rules
-    // land in `rules/outline/`.
     LangInfo {
         id: "solidity",
         extensions: &["sol"],

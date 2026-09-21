@@ -15,7 +15,7 @@
  * caller (the component resolves it from useStdout()/forceWidth).
  */
 import stripAnsi from 'strip-ansi';
-import wrapAnsi from 'wrap-ansi';
+import { wrapText, hardWrapAnsiLines as hardWrapLines } from './ansi-line-wrap.mjs';
 import { formatToken, padAligned } from './format-token.mjs';
 import { displayWidth } from '../display-width.mjs';
 
@@ -30,40 +30,7 @@ export function assistantBodyWidth(columns) {
   return Math.max(8, Number(columns || 80) - 3);
 }
 
-/** Wrap text to width, ANSI-aware, returning lines. */
-export function wrapText(text, width, options) {
-  if (width <= 0) return [text];
-  const trimmedText = String(text).trimEnd();
-  const wrapped = wrapAnsi(trimmedText, width, {
-    hard: options?.hard ?? false,
-    trim: false,
-    wordWrap: true,
-  });
-  const lines = wrapped.split('\n').filter((line) => line.length > 0);
-  return lines.length > 0 ? lines : [''];
-}
-
-/** Hard-wrap so every line satisfies stringWidth(line) <= width (vertical tables). */
-function hardWrapLines(text, width) {
-  const max = Math.max(1, Math.floor(Number(width) || 1));
-  const input = String(text ?? '');
-  if (!input) return [''];
-  const out = [];
-  for (const softLine of wrapText(input, max, { hard: true })) {
-    let rest = softLine;
-    while (rest.length > 0 && displayWidth(rest) > max) {
-      let take = 1;
-      for (let i = 1; i <= rest.length; i++) {
-        if (displayWidth(rest.slice(0, i)) <= max) take = i;
-        else break;
-      }
-      out.push(rest.slice(0, take));
-      rest = rest.slice(take);
-    }
-    if (rest.length > 0) out.push(rest);
-  }
-  return out.length > 0 ? out : [''];
-}
+export { wrapText };
 
 /**
  * Compute the full table render as an ordered array of terminal lines plus the
@@ -198,10 +165,6 @@ export function buildTableRender(token, terminalWidth) {
         const firstValueWidth = Math.max(1, width - prefixWidth);
         const contValueWidth = Math.max(1, width - indentWidth);
         const firstValueLines = hardWrapLines(value, firstValueWidth);
-        if (firstValueLines.length === 0) {
-          pushFitted(prefix.trimEnd());
-          return;
-        }
         pushFitted(prefix + firstValueLines[0]);
         const tail = firstValueLines.slice(1).join(' ').trim();
         if (tail) {

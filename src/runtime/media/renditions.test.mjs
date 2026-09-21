@@ -106,6 +106,30 @@ test('rendition files reject oversized entries and obey a total disk budget', ()
   }
 });
 
+test('browser renditions retain each supported MIME type and extension', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-rendition-formats-'));
+  try {
+    for (const [mime, extension] of [
+      ['image/webp', '.webp'],
+      ['image/png', '.png'],
+      ['image/jpeg', '.jpg'],
+    ]) {
+      const buffer = Buffer.from(mime);
+      const result = cacheRendition({ id: 'browser', mime, buffer, cacheDir: root });
+      assert.equal(result.path, join(root, 'thumb', `browser${extension}`));
+      assert.equal(result.mime, mime);
+      assert.equal(result.bytes, buffer.length);
+      assert.deepEqual(readFileSync(result.path), buffer);
+    }
+    assert.equal(
+      cacheRendition({ id: 'unsupported', mime: 'image/gif', buffer: Buffer.from('gif'), cacheDir: root }),
+      null
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('cache-miss stills generate a valid webp rendition', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-rendition-generate-'));
   try {

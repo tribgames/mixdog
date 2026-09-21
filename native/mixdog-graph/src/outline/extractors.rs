@@ -192,10 +192,7 @@ impl LangExtractors {
                         let scope = member_scopes.len() - 1;
                         // SAFETY of the key lifetime: `member_parents` outlives
                         // the map, which is dropped at the end of this fn.
-                        scope_by_parent.insert(
-                            Box::leak(parent.clone().into_boxed_str()) as &'static str,
-                            scope,
-                        );
+                        scope_by_parent.insert(parent.as_str(), scope);
                         scope
                     }
                 };

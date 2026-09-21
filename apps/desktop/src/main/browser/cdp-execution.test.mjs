@@ -3,16 +3,6 @@ import test from 'node:test';
 import { createBrowserGuestCdp } from './cdp.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
 
-function deferred() {
-  let resolve;
-  let reject;
-  const promise = new Promise((yes, no) => {
-    resolve = yes;
-    reject = no;
-  });
-  return { promise, resolve, reject };
-}
-
 function fixture(send) {
   const state = new BrowserGuestStateStore();
   const guest = {};
@@ -27,8 +17,8 @@ function fixture(send) {
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
 test('local input admission is checked again after transport cleanup and immediately before dispatch', async () => {
-  const running = deferred();
-  const started = deferred();
+  const running = Promise.withResolvers();
+  const started = Promise.withResolvers();
   const calls = [];
   const { guest, cdp, debug } = fixture((method) => {
     calls.push(method);
@@ -76,9 +66,9 @@ test('already-cancelled CDP operations dispatch nothing', async () => {
 
 test('script cancellation terminates the owning CDP target and fences page reuse until both operations settle', async () => {
   for (const method of ['Runtime.evaluate', 'Runtime.callFunctionOn']) {
-    const running = deferred();
-    const termination = deferred();
-    const started = deferred();
+    const running = Promise.withResolvers();
+    const termination = Promise.withResolvers();
+    const started = Promise.withResolvers();
     const calls = [];
     const { guest, cdp, debug } = fixture((name, _params, sessionId) => {
       calls.push({ name, sessionId });
@@ -115,7 +105,7 @@ test('script cancellation terminates the owning CDP target and fences page reuse
 });
 
 test('timed-out element scripts terminate in the child session rather than the root', async () => {
-  const running = deferred();
+  const running = Promise.withResolvers();
   const calls = [];
   const { guest, cdp, debug } = fixture((method, _params, sessionId) => {
     calls.push({ method, sessionId });
@@ -129,8 +119,8 @@ test('timed-out element scripts terminate in the child session rather than the r
 });
 
 test('cancelled input is not replayed and dialog cleanup can release its pending dispatch', async () => {
-  const running = deferred();
-  const started = deferred();
+  const running = Promise.withResolvers();
+  const started = Promise.withResolvers();
   const calls = [];
   const { guest, cdp, debug } = fixture((method) => {
     calls.push(method);
@@ -156,8 +146,8 @@ test('cancelled input is not replayed and dialog cleanup can release its pending
 });
 
 test('a rejected termination does not release a still-running script, and another page remains usable', async () => {
-  const running = deferred();
-  const started = deferred();
+  const running = Promise.withResolvers();
+  const started = Promise.withResolvers();
   const calls = [];
   const { guest, cdp, debug } = fixture((method) => {
     calls.push(method);
@@ -186,8 +176,8 @@ test('a rejected termination does not release a still-running script, and anothe
 });
 
 test('cleanup wait timeout never lifts the fence on an unfinished dispatch', async () => {
-  const running = deferred();
-  const started = deferred();
+  const running = Promise.withResolvers();
+  const started = Promise.withResolvers();
   const calls = [];
   const { guest, cdp, debug } = fixture((method) => {
     calls.push(method);

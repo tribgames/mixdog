@@ -23,11 +23,11 @@
  */
 
 // ── models.dev ──────────────────────────────────────────────────────────────
-// Readers: _modelsDevRowToOverride (cost/limit/reasoning/reasoning_options/
+// Readers: _modelsDevMetadata (cost/limit/reasoning/reasoning_options/
 // interleaved.field/tool_call/modalities.input), _applyCodingUnfit
 // (tool_call, modalities.output), _releaseEpoch (release_date),
-// _stalenessFamily (family). `id`/`name` are NOT kept: both call sites pass
-// the model id explicitly, so the row-level copy would only duplicate the key.
+// _stalenessFamily (family). `id` is not kept: callers pass the model id
+// explicitly, so the row-level copy would only duplicate the key.
 const MODELSDEV_COST_FIELDS = ['input', 'output', 'cache_read', 'cache_write', 'tiers', 'context_over_200k'];
 const MODELSDEV_LIMIT_FIELDS = ['context', 'output'];
 const MODELSDEV_MODALITY_FIELDS = ['input', 'output'];
@@ -40,7 +40,8 @@ function pickPresent(source, fields) {
   for (const field of fields) {
     const value = source[field];
     if (value == null) continue;
-    (out ||= {})[field] = value;
+    out ||= {};
+    out[field] = value;
   }
   return out;
 }
@@ -51,7 +52,8 @@ function pickArrays(source, fields) {
   for (const field of fields) {
     const value = source[field];
     if (!Array.isArray(value)) continue;
-    (out ||= {})[field] = value;
+    out ||= {};
+    out[field] = value;
   }
   return out;
 }
@@ -59,8 +61,8 @@ function pickArrays(source, fields) {
 function projectModelsDevRow(row) {
   if (!row || typeof row !== 'object') return null;
   const out = {};
-  // `cost` gates _modelsDevMetadataSync entirely — a row without it yields no
-  // metadata, so an absent cost must stay absent rather than become {}.
+  // An absent cost must stay absent rather than become {}, which would
+  // incorrectly mark models.dev as the row's pricing source.
   const cost = pickPresent(row.cost, MODELSDEV_COST_FIELDS);
   if (cost) out.cost = cost;
   const limit = pickPresent(row.limit, MODELSDEV_LIMIT_FIELDS);

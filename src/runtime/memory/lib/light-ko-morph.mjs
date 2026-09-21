@@ -55,7 +55,7 @@ const HADA_ENDINGS = [
 ];
 
 function hangulFinalConsonantIndex(text) {
-  const point = String(text ?? '').codePointAt(String(text ?? '').length - 1);
+  const point = text.codePointAt(text.length - 1);
   if (!Number.isFinite(point) || point < 0xac00 || point > 0xd7a3) return null;
   return (point - 0xac00) % 28;
 }

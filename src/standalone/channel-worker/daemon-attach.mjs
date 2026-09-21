@@ -1,4 +1,3 @@
-// channel-worker/daemon-attach.mjs
 // The worker's one live attachment to the channel daemon: discover → verify
 // the daemon behind the discovery file → attach, spawning a daemon when none
 // answers, with a bounded deadline. A generation counter invalidates attaches

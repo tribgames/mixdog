@@ -102,6 +102,18 @@ test('a completed shell job remains owner-scoped and recoverable after memory lo
       await executeTaskTool({ action: 'read', task_id: jobId }, { sessionId: 'sess-other' }),
       /task not found/
     );
+    assert.match(
+      await executeTaskTool({ action: 'read', task_id: jobId }, { sessionId: 'sess-owner' }),
+      /no new output/
+    );
+    assert.match(
+      await executeTaskTool({ action: 'read', task_id: jobId, output: 'tail' }, { sessionId: 'sess-owner' }),
+      /version output/
+    );
+    assert.match(
+      await executeTaskTool({ action: 'read', task_id: jobId, output: 'tail' }, { sessionId: 'sess-other' }),
+      /task not found/
+    );
   } finally {
     retireShellJobRecord(jobId);
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;

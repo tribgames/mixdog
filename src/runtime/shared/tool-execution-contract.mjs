@@ -299,9 +299,10 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
   // Old in-flight producers and stored rows remain readable, but a new
   // enqueue always uses the tagged wire format, never the quoted wrapper.
   const split = /\n\nResult:\n/.exec(message);
-  const unwrapped = split && MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(message)
-    ? message.slice(split.index + split[0].length).replace(/^> ?/gm, '')
-    : message;
+  const unwrapped =
+    split && MODEL_VISIBLE_COMPLETION_ASYNC_HEADER_RE.test(message)
+      ? message.slice(split.index + split[0].length).replace(/^> ?/gm, '')
+      : message;
   const separator = /\r?\n\s*\r?\n/.exec(unwrapped);
   const head = separator ? unwrapped.slice(0, separator.index) : unwrapped;
   let result = separator ? unwrapped.slice(separator.index + separator[0].length) : '';
@@ -330,7 +331,14 @@ export function modelVisibleToolCompletionMessage(text, meta = {}) {
     const tagged = /<(?:final-answer|result)>\s*([\s\S]*?)\s*<\/(?:final-answer|result)>/.exec(result);
     if (tagged) result = tagged[1];
   }
-  return renderTaskCompletionEnvelope({ surface, id, tag: fields.tag || fields.label, status, result, error: fields.error });
+  return renderTaskCompletionEnvelope({
+    surface,
+    id,
+    tag: fields.tag || fields.label,
+    status,
+    result,
+    error: fields.error,
+  });
 }
 
 // Shared enqueue-fallback helper used by both the synchronous fallback path and

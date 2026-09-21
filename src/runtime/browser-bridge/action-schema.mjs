@@ -363,9 +363,6 @@ export function buildBrowserInputSchema(flatSchema, actions = BROWSER_ACTIONS) {
   };
 }
 
-/** `options.tool` names the tool that received the call; an action that
- *  belongs to the other browser tool is refused with the tool to call, so a
- *  model that guessed the wrong surface learns the split from the error. */
 function hasInputValue(input, name) {
   return Object.hasOwn(input, name) && input[name] !== undefined && input[name] !== null;
 }

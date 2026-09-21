@@ -113,6 +113,7 @@ function AgentPoolRow({
   // 완료보다 작업 완료), and the toast keeps 'Completed'.
   else if (done) elapsed = t('Task complete');
   else if (state === 'waiting') elapsed = t('Waiting for agents');
+  else if (state === 'unknown') elapsed = t('Unknown');
   const modelLabel = modelDisplayName(String(agent.model || ''), String(agent.provider || ''));
   const effortValue = String(agent.effort || '').trim();
   const prefetch = () => {

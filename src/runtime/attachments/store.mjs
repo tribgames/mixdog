@@ -230,10 +230,9 @@ function materializePastedTexts(pastedTexts) {
 function expandTextTokens(text, textRefs) {
   const value = String(text ?? '');
   TEXT_TOKEN_RE.lastIndex = 0;
-  let match;
   let offset = 0;
   const out = [];
-  while ((match = TEXT_TOKEN_RE.exec(value)) !== null) {
+  for (let match = TEXT_TOKEN_RE.exec(value); match !== null; match = TEXT_TOKEN_RE.exec(value)) {
     const ref = textRefs[String(match[1])];
     if (!ref) continue;
     if (match.index > offset) out.push({ type: 'text', text: value.slice(offset, match.index) });
@@ -247,11 +246,7 @@ function expandTextTokens(text, textRefs) {
 
 function materializeInlinePart(part) {
   if (!part || typeof part !== 'object' || isAttachmentReference(part)) return part;
-  if (part.type === 'image' && typeof part.data === 'string' && part.data) {
-    const { data, ...metadata } = part;
-    return { ...metadata, ...saveBuffer(Buffer.from(data, 'base64')) };
-  }
-  if (part.type === 'file' && typeof part.data === 'string' && part.data) {
+  if ((part.type === 'image' || part.type === 'file') && typeof part.data === 'string' && part.data) {
     const { data, ...metadata } = part;
     return { ...metadata, ...saveBuffer(Buffer.from(data, 'base64')) };
   }
@@ -475,8 +470,7 @@ export async function collectPromptAttachments({ now = Date.now(), minAgeMs = AT
     }
     referenceFiles += 1;
     const regex = /"attachmentRef"\s*:\s*"([a-f0-9]{64})"/g;
-    let match;
-    while ((match = regex.exec(raw)) !== null) referenced.add(match[1]);
+    for (let match = regex.exec(raw); match !== null; match = regex.exec(raw)) referenced.add(match[1]);
   }
 
   const cutoff = Number(now) - Math.max(0, Number(minAgeMs) || 0);

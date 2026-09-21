@@ -18,6 +18,12 @@ import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-
 import { isAgentOnlySession, isRootLeadSession, sessionVisibility } from './store-summary-visibility.mjs';
 import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
 import { listStoredAgentWorkers as assembleStoredAgentWorkers } from './store-agent-worker-pool.mjs';
+import {
+  TAG_TOMBSTONE_TTL_MS,
+  findTagTombstone,
+  tagTombstoneKey,
+  tombstoneBlocksWork,
+} from '../../../shared/agent-reap-state.mjs';
 
 // One cache per process: the daemon serves every cold pane read from it, and
 // the desktop service worker keeps its own for the deep-history prefetch.
@@ -331,14 +337,18 @@ function storedLeadWorkerIndexPath() {
   return join(dataDir(), 'lead-workers.json');
 }
 
-function storedAgentWorkerIndexRows() {
+function storedAgentWorkerIndex() {
   let parsed = null;
   try {
     parsed = JSON.parse(readFileSync(storedAgentWorkerIndexPath(), 'utf8'));
   } catch {
-    return [];
+    return null;
   }
-  return workerRows(parsed);
+  return parsed;
+}
+
+function storedAgentWorkerIndexRows() {
+  return workerRows(storedAgentWorkerIndex());
 }
 
 /** A worker index stores its rows as a list or as an id-keyed map. */
@@ -485,8 +495,8 @@ function projectChildWorkerRow(row, { now, heartbeatMtimes }) {
     model: cleanValue(row.model || session?.model) || null,
     effort: cleanValue(row.effort || session?.effort) || null,
     fast: row.fast === true || session?.fast === true,
-    status: declaredWorking && !working ? 'idle' : declaredStatus,
-    stage: declaredWorking && !working ? 'idle' : declaredStage,
+    status: declaredWorking && !working ? 'unknown' : declaredStatus,
+    stage: declaredWorking && !working ? 'unknown' : declaredStage,
     startedAt: row.startedAt || row.createdAt || session?.createdAt || null,
     turnStartedAt: working ? row.turnStartedAt || null : null,
     createdAt: row.createdAt || session?.createdAt || null,
@@ -619,8 +629,8 @@ function projectLeadWorkerRow(row, { now, heartbeatMtimes }) {
     model: cleanValue(row.model) || null,
     effort: cleanValue(row.effort) || null,
     fast: row.fast === true,
-    status: working ? declaredStatus : 'idle',
-    stage: working ? declaredStatus : 'idle',
+    status: !working && WORKING_AGENT_STATUS.test(declaredStatus) ? 'unknown' : declaredStatus,
+    stage: !working && WORKING_AGENT_STATUS.test(declaredStatus) ? 'unknown' : declaredStatus,
     startedAt: row.startedAt || row.createdAt || null,
     turnStartedAt: working ? row.turnStartedAt || null : null,
     createdAt: row.createdAt || null,
@@ -658,13 +668,35 @@ function pruneOrphanChildRows(bySessionId, { liveLeadSessionIds, heartbeatMtimes
 export function listStoredAgentWorkers() {
   const now = Date.now();
   const heartbeatMtimes = sessionHeartbeatMtimes();
+  const index = storedAgentWorkerIndex();
+  const rows = workerRows(index);
+  const byId = new Map(rows.map((row) => [cleanValue(row.sessionId), row]));
+  const tombstones = new Map(
+    Object.values(index?.tombstones || {})
+      .filter((row) => row && stampMs(row.reapedAt) >= now - TAG_TOMBSTONE_TTL_MS)
+      .map((row) => [tagTombstoneKey(row), row])
+  );
+  const isReaped = (sessionId) => {
+    const header = readWorkerSessionHeader(sessionId) || {};
+    const row = byId.get(sessionId);
+    const work = {
+      ...header,
+      ...row,
+      parentSessionId: workerParentSessionId(row, header),
+      ownerSessionId: workerOwnerSessionId(row, header),
+      clientHostPid: row?.clientHostPid || header.clientHostPid,
+      createdAt: row?.createdAt || header.createdAt,
+      turnStartedAt: row?.turnStartedAt || header.turnStartedAt,
+    };
+    return tombstoneBlocksWork(work, findTagTombstone(work, tombstones));
+  };
   return assembleStoredAgentWorkers({
     now,
     heartbeatMtimes,
-    storedAgentWorkerIndexRows,
+    storedAgentWorkerIndexRows: () => rows.filter((row) => !isReaped(cleanValue(row.sessionId))),
     projectChildWorkerRow,
     promoteHeartbeatSidecar: (bySessionId, sessionId, heartbeatAt) => {
-      if (withinPoolWindow(heartbeatAt, now)) {
+      if (withinPoolWindow(heartbeatAt, now) && !isReaped(sessionId)) {
         promoteHeartbeatSidecar(bySessionId, sessionId, heartbeatAt);
       }
     },

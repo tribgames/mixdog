@@ -217,6 +217,21 @@ test('a toast on the empty transcript carves an in-viewport hint row and sizes t
   assert.equal(layout.welcomePromptHintRows, 0);
 });
 
+test('a live spinner shares the hint slot width and leaves room for its separator', () => {
+  const input = layoutInput({
+    state: {
+      ...layoutInput().state,
+      spinner: { active: true, label: 'thinking' },
+      toasts: [{ text: 'oops', tone: 'error' }],
+    },
+  });
+  const layout = computeShellLayout(input);
+  assert.equal(layout.spinnerHintWidth, 42);
+  assert.equal(layout.guardHintWidth, 42);
+  assert.equal(layout.transientStatusWidth, 42);
+  assert.equal(layout.promptSpinnerColumns, 57);
+});
+
 test('closing the slash palette on the empty screen masks the reclaimed rows for one commit', () => {
   const panelTransition = {
     signature: '||||slash||input-visible|14|3|0|0|11',

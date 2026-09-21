@@ -1,6 +1,3 @@
-// Composer attachment ingestion: the shared budget policy plus the file ->
-// attachment conversion (engine-side image resize, PDF, inline text).
-// Composer.tsx keeps token insertion, draft edits and error surfacing.
 import type { RecordValue } from './desktop-types';
 import { fileLooksLikeText } from './file-content';
 import { asRecord } from './text-format';
@@ -209,10 +206,9 @@ async function resizedImage(
   return { data, mimeType, metadataText: '' };
 }
 
-/** Convert one dropped/pasted file into an attachment, rejecting anything the
- *  engine cannot inline. Returns null when `cancelled` turns true mid-read —
- *  the caller must stop ingesting the remaining files then. */
 type AttachmentInput = { file: File; id: number; displayName: string; cancelled: () => boolean };
+
+export class UnsupportedComposerFileError extends Error {}
 
 async function imageAttachment({
   file,
@@ -220,7 +216,10 @@ async function imageAttachment({
   displayName,
   cancelled,
 }: AttachmentInput): Promise<ComposerAttachment | null> {
-  if (!SUPPORTED_IMAGE_TYPES.test(file.type) || file.size > MAX_IMAGE_FILE_BYTES) {
+  if (!SUPPORTED_IMAGE_TYPES.test(file.type)) {
+    throw new UnsupportedComposerFileError(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
+  }
+  if (file.size > MAX_IMAGE_FILE_BYTES) {
     throw new Error(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
   }
   const raw = await base64Payload(file, `${displayName}: could not read image.`);
@@ -270,7 +269,10 @@ async function textAttachment(
     mimeKind.endsWith('+xml') ||
     TEXT_LIKE_EXTENSION.test(displayName) ||
     (await fileLooksLikeText(file));
-  if (!textLike || file.size > MAX_INLINE_FILE_BYTES) {
+  if (!textLike) {
+    throw new UnsupportedComposerFileError(`${displayName}: attach images, PDFs, or text files under 750 KB.`);
+  }
+  if (file.size > MAX_INLINE_FILE_BYTES) {
     throw new Error(`${displayName}: attach images, PDFs, or text files under 750 KB.`);
   }
   const text = await file.text();
@@ -289,6 +291,9 @@ async function textAttachment(
   };
 }
 
+/** Convert one dropped/pasted file into an attachment, rejecting anything the
+ *  engine cannot inline. Returns null when `cancelled` turns true mid-read —
+ *  the caller must stop ingesting the remaining files then. */
 export async function attachmentFromFile(
   file: File,
   options: {

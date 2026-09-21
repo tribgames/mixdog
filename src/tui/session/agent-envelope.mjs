@@ -27,11 +27,10 @@ function stripSyntheticAgentTags(text) {
 
 function splitBridgeEnvelope(text) {
   const value = String(text ?? '').trim();
-  if (!value) return { head: '', body: '' };
+  if (!value) return { body: '' };
   const match = /\n\s*\n/.exec(value);
-  if (!match) return { head: value, body: '' };
+  if (!match) return { body: '' };
   return {
-    head: value.slice(0, match.index).trim(),
     body: value.slice(match.index + match[0].length).trim(),
   };
 }
@@ -65,8 +64,7 @@ export function parseAgentResultEnvelope(text, fallback = {}) {
   const body = stripSyntheticAgentTags(restLines.join('\n'));
   const attrs = {};
   const attrRe = /([a-zA-Z][\w-]*)=("[^"]*"|'[^']*'|\S+)/g;
-  let match;
-  while ((match = attrRe.exec(head))) {
+  for (const match of head.matchAll(attrRe)) {
     attrs[match[1].toLowerCase()] = String(match[2] || '').replace(/^["']|["']$/g, '');
   }
   const providerModel = /\s([a-zA-Z0-9_.-]+)\/([^\s]+)\s*$/i.exec(head);
@@ -423,7 +421,8 @@ export function buildExecutionResponseToolItem(
 export function parseAgentJob(text) {
   const value = String(text || '');
   const notification = parseTaskNotification(value);
-  if (notification) return { taskId: notification.taskId, status: notification.status, type: 'result', target: notification.tag };
+  if (notification)
+    return { taskId: notification.taskId, status: notification.status, type: 'result', target: notification.tag };
   const idMatch = /^agent task:\s*([^\s]+)/m.exec(value) || /^task_id:\s*([^\s]+)/m.exec(value);
   if (!idMatch) return null;
   const statusMatch = /^status:\s*([^\s(]+)/m.exec(value);

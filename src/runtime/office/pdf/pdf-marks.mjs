@@ -6,10 +6,9 @@
 import { extractPdfTextLayout, findPdfText } from './pdf-analysis.mjs';
 import { SAVE_OPTIONS, round2 } from './pdf-draw.mjs';
 import { loadPdf, selectedPages } from './pdf-edit-document.mjs';
+import { MAX_PDF_ANALYSIS_PAGES } from './pdf-limits.mjs';
 
 export const MARK_OPERATIONS = new Set(['highlight', 'add_link']);
-// pdf.js analysis takes at most this many pages per call.
-const MEASURE_CHUNK = 100;
 
 // A point on the page as displayed (bottom-left origin, after the page's own
 // rotation) back to the user space a drawing operator writes in.
@@ -66,9 +65,9 @@ export async function targetBoxes(document, operation, measure = null) {
     next = { bytes, pages: new Map() };
   }
   const missing = selected.map(({ index }) => index + 1).filter((page) => !next.pages.has(page));
-  for (let at = 0; at < missing.length; at += MEASURE_CHUNK) {
+  for (let at = 0; at < missing.length; at += MAX_PDF_ANALYSIS_PAGES) {
     const layout = await extractPdfTextLayout(next.bytes, {
-      pages: missing.slice(at, at + MEASURE_CHUNK),
+      pages: missing.slice(at, at + MAX_PDF_ANALYSIS_PAGES),
       shapes: false,
       maxItems: 500_000,
     });

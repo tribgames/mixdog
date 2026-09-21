@@ -12,11 +12,9 @@ function writeAt(file, content) {
 }
 
 function writeSkill(dir, name, body, extra = {}) {
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${body}\n---\n\n# ${body}\n`);
+  writeAt(join(dir, 'SKILL.md'), `---\nname: ${name}\ndescription: ${body}\n---\n\n# ${body}\n`);
   for (const [file, content] of Object.entries(extra)) {
-    mkdirSync(join(dir, file, '..'), { recursive: true });
-    writeFileSync(join(dir, file), content);
+    writeAt(join(dir, file), content);
   }
 }
 

@@ -154,7 +154,7 @@ test('workflow packs: create derives a free id, save/list/set round-trip, delete
     id: first.id,
     name: 'Review Flow',
     description: 'Two lines',
-    source: first.source,
+    source: 'user',
     body: 'Review first.',
     userOverride: true,
   });

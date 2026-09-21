@@ -18,9 +18,6 @@ import {
 import { createHash } from 'node:crypto';
 import { cloneJsonWithSharedStrings } from '../../../shared/json-snapshot.mjs';
 
-// If the cached request (sans input) matches the current one and the current
-// input starts with the cached input, return only the tail. Otherwise return
-// the full input (fresh turn).
 export function _sansInput(body, { normalizeWarmupGenerate = false } = {}) {
   const { input: _ignored, previous_response_id: _prevIgnored, generate, ...rest } = body;
   // Only OpenAI OAuth/Codex startup prewarm treats generate:false as a

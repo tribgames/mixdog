@@ -149,12 +149,16 @@ export function tokenizeRecallQuery(text, limit = 24) {
   return mergeRecallConceptTokens(text, lightKoMorphStems(text), limit);
 }
 
+function filterFtsTokens(tokens) {
+  return [...new Set(tokens)].filter(
+    (token) => Array.from(token).length >= 3 || (Array.from(token).length >= 2 && /[^\p{ASCII}]/u.test(token))
+  );
+}
+
 export function buildFtsQuery(text) {
   const tokens = tokenizeRecallQuery(text);
   if (tokens.length === 0) return '';
-  const ftsTokens = [...new Set(tokens)].filter(
-    (token) => Array.from(token).length >= 3 || (Array.from(token).length >= 2 && /[^\p{ASCII}]/u.test(token))
-  );
+  const ftsTokens = filterFtsTokens(tokens);
   if (ftsTokens.length === 0) return '';
   // websearch_to_tsquery handles tokenization + OR/AND/quoting itself; pass plain tokens space-joined.
   return ftsTokens
@@ -178,9 +182,7 @@ const FTS_OR_MIN_LEXEMES = 3;
 export function buildFtsPrefixQuery(text) {
   const tokens = tokenizeRecallQuery(text);
   if (tokens.length === 0) return null;
-  const ftsTokens = [...new Set(tokens)].filter(
-    (token) => Array.from(token).length >= 3 || (Array.from(token).length >= 2 && /[^\p{ASCII}]/u.test(token))
-  );
+  const ftsTokens = filterFtsTokens(tokens);
   if (ftsTokens.length === 0) return null;
 
   const lexemes = [];

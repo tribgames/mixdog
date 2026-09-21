@@ -237,7 +237,7 @@ export function BottomPanel({
       cleanupRef.current?.();
       setDragging(true);
       handle.setPointerCapture(event.pointerId);
-      const panel = handle.parentElement as HTMLElement | null;
+      const panel = handle.parentElement;
       // The panel grows UPWARD from its own bottom edge — the pane bottom now,
       // the window bottom before. Measure that anchor once: it never moves
       // during the drag, while window math broke for panes above a split.

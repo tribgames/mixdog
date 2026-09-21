@@ -156,7 +156,7 @@ export function registerDesktopIpc(
   };
   const invokeDesktopOperation = <T>(method: string, args: unknown[]): Promise<T> =>
     host.invokeDesktopOperation(method, args) as Promise<T>;
-  type ServiceOperation = (...args: any[]) => Promise<any>;
+  type ServiceOperation = (...args: unknown[]) => Promise<unknown>;
   const serviceOperation =
     (name: string): ServiceOperation =>
     (...args: unknown[]) =>

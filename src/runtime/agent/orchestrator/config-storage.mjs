@@ -55,17 +55,15 @@ export function normalizeWebSearchRoute(route) {
 export function normalizeMaintenanceRoutes(rawMaint) {
   const out = {};
   for (const [slot, value] of Object.entries(rawMaint || {})) {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const provider = normalizeAgentProviderId(value.provider);
-      const model = String(value.model || '').trim();
-      if (provider && model) {
-        const route = { provider, model };
-        const effort = String(value.effort || '').trim();
-        if (effort) route.effort = effort;
-        if (value.fast === true) route.fast = true;
-        out[slot] = route;
-      }
-    }
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const provider = normalizeAgentProviderId(value.provider);
+    const model = String(value.model || '').trim();
+    if (!provider || !model) continue;
+    const route = { provider, model };
+    const effort = String(value.effort || '').trim();
+    if (effort) route.effort = effort;
+    if (value.fast === true) route.fast = true;
+    out[slot] = route;
   }
   return out;
 }

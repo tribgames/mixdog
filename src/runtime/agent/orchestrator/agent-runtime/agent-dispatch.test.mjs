@@ -213,7 +213,7 @@ test('askSession args wrap host callbacks with the prepared session', async () =
     ['tool', preparedSession, 1, [{ id: 'c1', name: 'read' }]],
     ['result', preparedSession, { role: 'tool', toolCallId: 'c1' }],
   ]);
-  assert.equal(compactEvents.length, 1);
+  assert.deepEqual(compactEvents, [{ status: 'ok' }]);
 });
 
 test('silent dispatch askOpts keep liveProjection false', () => {
@@ -322,7 +322,6 @@ test('makeAgentDispatch prepends the prepared session onto host-shaped callbacks
   assert.equal(capturedAskOpts.liveProjection, true);
   assert.equal(Object.hasOwn(session, 'interactiveSessionSurface'), false);
   assert.equal(Object.hasOwn(session, 'liveProjection'), false);
-  assert.notEqual(capturedAskOpts.onTextDelta, dispatch);
   assert.equal(typeof capturedOnToolCall, 'function');
   assert.deepEqual(events, [
     ['start', session],

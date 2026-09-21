@@ -1,8 +1,6 @@
 // Runtime-shard client for distributed Agent control.
 //
-// A Lead runtime and every Subagent it creates used to share one worker
-// process even after top-level session sharding. Agent control now crosses the
-// existing shard IPC link: the daemon chooses a target shard, while the target
+// Agent control crosses the shard IPC link: the daemon chooses a target shard, while the target
 // keeps the ordinary persistent Agent tool/tag/session implementation.
 import { safeIpcSend } from '../runtime/shared/safe-ipc-send.mjs';
 import { isSessionRuntimeWorkerProcess } from '../runtime/shared/child-spawn-remote.mjs';

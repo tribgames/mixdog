@@ -334,23 +334,24 @@ export function baseRow(item, group, providerCfg = {}) {
   };
 }
 
+const PROVIDER_RANKS = {
+  'openai-oauth': 10,
+  'anthropic-oauth': 20,
+  'grok-oauth': 30,
+  'cursor-oauth': 35,
+  'antigravity-oauth': 36,
+  'opencode-go': 40,
+  openai: 50,
+  anthropic: 60,
+  deepseek: 70,
+  gemini: 80,
+  xai: 90,
+  'mixdog-local': 100,
+};
+
 function providerRank(row) {
   const id = String(row?.id || '').toLowerCase();
-  const ranks = {
-    'openai-oauth': 10,
-    'anthropic-oauth': 20,
-    'grok-oauth': 30,
-    'cursor-oauth': 35,
-    'antigravity-oauth': 36,
-    'opencode-go': 40,
-    openai: 50,
-    anthropic: 60,
-    deepseek: 70,
-    gemini: 80,
-    xai: 90,
-    'mixdog-local': 100,
-  };
-  return ranks[id] ?? 900;
+  return PROVIDER_RANKS[id] ?? 900;
 }
 
 export function applyKnownRemaining(row, known, { estimated = false } = {}) {
