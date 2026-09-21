@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.172 - 2026-09-21
+
 - A page no longer opens by announcing downloads it never made. Saved files
   belong to the session, but each page tracked what it had reported starting
   from zero, so every page opened afterwards greeted the caller with the whole
