@@ -92,9 +92,12 @@ test('cold pool reader does not trust an expired running worker row', () => {
       },
     });
 
+    // A row that claims to be running with no fresh heartbeat is reported as
+    // `unknown`, not as idle: the cold reader cannot see the runtime, so it
+    // states that rather than asserting a settled state it never observed.
     const row = listStoredAgentWorkers().find((entry) => entry.sessionId === 'stale');
-    assert.equal(row?.status, 'idle');
-    assert.equal(row?.stage, 'idle');
+    assert.equal(row?.status, 'unknown');
+    assert.equal(row?.stage, 'unknown');
     assert.equal(row?.turnStartedAt, null);
   } finally {
     if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;

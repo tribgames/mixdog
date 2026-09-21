@@ -9,6 +9,7 @@ export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClie
   let graceTimer = null;
   let sweepTimer = null;
   let everHadLifecycleClient = false;
+  let signalled = false;
 
   function lifecycleClientCount() {
     let count = 0;
@@ -31,10 +32,15 @@ export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClie
     // Never re-arm an ALREADY armed grace: the 5s sweep also calls this, and
     // cancel+rearm on every tick pushed the 10s deadline out forever — the
     // daemon could never self-shut down through the session front door.
-    if (graceTimer) return;
+    // Once the grace has fired, the sweep must not arm it again either: the
+    // shutdown signal was already sent, and re-arming repeated it every sweep
+    // tick for as long as the daemon took to go down. A lifecycle client that
+    // attaches again clears the latch, because that daemon is staying up.
+    if (graceTimer || signalled) return;
     graceTimer = setTimeout(() => {
       graceTimer = null;
       if (isClosed() || lifecycleClientCount() > 0) return;
+      signalled = true;
       log(`no clients remain (${reason}) — signalling shutdown`);
       try {
         onClientsEmpty();
@@ -47,6 +53,7 @@ export function createClientGrace({ clients, log, clientGraceMs, sweepMs, onClie
    *  cancel any pending grace. */
   function noteLifecycleClient() {
     everHadLifecycleClient = true;
+    signalled = false;
     cancel();
   }
 

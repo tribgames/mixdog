@@ -161,7 +161,7 @@ test('an apply_patch on a body the session already read makes a follow-up read r
   );
   // Executor (Native vs JS) depends on the engine-contract gate; the
   // snapshot contract is what this test pins.
-  assert.match(String(result), /^Applied 1 File/);
+  assert.match(String(result), /^\s*OK Modify poly\.c/);
 
   const reread = await executeBuiltinTool('read', { path: file }, dir, { sessionId });
   assert.equal(reread, `[file unchanged: ${file.replaceAll('\\', '/')}]`);

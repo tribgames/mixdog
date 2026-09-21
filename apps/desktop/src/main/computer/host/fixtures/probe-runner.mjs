@@ -7,9 +7,13 @@ import { powershellHostProgram } from '../../backend/program.ts';
 
 export async function runComputerProbe(probe) {
   let script = `[Console]::Error.WriteLine('probe:compile-host')\n${powershellHostProgram()}`;
-  const requestLoop = 'while ($true) {\n  $line = $__stdin.ReadLine()';
-  if (!script.includes(requestLoop)) throw new Error('native request-loop insertion point is missing');
-  script = script.replace(requestLoop, () => `${probe}\n${requestLoop}`);
+  // Anchored on the loop itself rather than on one spelling of its
+  // indentation: the host program is formatted with the rest of the
+  // PowerShell sources, and a reindent must not silently unanchor the probe.
+  const requestLoop = /while \(\$true\) \{\r?\n\s*\$line = \$__stdin\.ReadLine\(\)/;
+  const insertionPoint = script.match(requestLoop)?.[0];
+  if (!insertionPoint) throw new Error('native request-loop insertion point is missing');
+  script = script.replace(requestLoop, () => `${probe}\n${insertionPoint}`);
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-computer-safety-'));
   const path = join(directory, 'probe.ps1');
   try {

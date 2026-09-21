@@ -101,7 +101,11 @@ test('foreground shell completion always leads with exit status and preserves ex
     await executeBashTool({ command: `node -e 'process.exit(7)'`, timeout_ms: 10_000 }, process.cwd())
   );
   assert.equal(nonzero.explicitSuccess, true);
-  assert.match(nonzero.result, /^\[exit code: 7\]\n\[completed:/);
+  // The status line leads on its own: the `[completed: ...]` line it used to
+  // carry said nothing the exit code did not, and only the TUI still reads it
+  // off older transcripts.
+  assert.match(nonzero.result, /^\[exit code: 7\]\n\n\(no output\)/);
+  assert.doesNotMatch(nonzero.result, /\[completed:/);
 });
 
 test('foreground shell status remains first when destructive warnings are present', () => {

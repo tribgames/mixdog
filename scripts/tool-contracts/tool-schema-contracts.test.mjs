@@ -94,7 +94,7 @@ test('shell, edit, and task keep their execution contracts', () => {
   const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
   if (
     !/Completion notifications are automatic/i.test(publicTaskTool?.description || '') ||
-    !/Wait for completion instead of repeatedly polling task output/i.test(publicTaskTool?.description || '')
+    !/Wait instead of polling/i.test(publicTaskTool?.description || '')
   ) {
     throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
   }

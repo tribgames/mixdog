@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { PassThrough } from 'node:stream';
@@ -11,6 +11,9 @@ import { render } from 'ink';
 import stringWidth from 'string-width';
 
 test('TUI inspector navigates metadata, fetches on Enter, and bounds narrow previews', async (context) => {
+  // The bundle is written inside the project so its imports resolve against
+  // the repository's own node_modules; a fresh checkout has no .tmp yet.
+  mkdirSync(resolve('.tmp'), { recursive: true });
   const directory = mkdtempSync(resolve('.tmp/context-inspector-test-'));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const output = join(directory, 'inspector.mjs');

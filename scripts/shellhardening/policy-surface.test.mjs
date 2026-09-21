@@ -33,7 +33,7 @@ test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(taskTool.title, 'Task');
   assert.match(
     taskTool.description,
-    /Manage shell tasks.*Wait for completion instead of repeatedly polling.*Completion notifications are automatic/i
+    /Manage shell tasks.*Wait instead of polling.*completion notifications are automatic/i
   );
   assert.deepEqual(taskTool.inputSchema.properties.action.enum, ['list', 'read', 'wait', 'cancel']);
   assert.deepEqual(taskTool.inputSchema.required, ['action']);
@@ -41,7 +41,7 @@ test('shell execution policy matches sync-first background-task parity', () => {
   assert.equal(taskTool.inputSchema.properties.timeout_ms.minimum, 0);
   assert.equal(
     taskTool.inputSchema.properties.action.description,
-    'list all; read snapshot; wait for completion; cancel task.'
+    'list all; read next output; wait for completion and next output; cancel task.'
   );
   assert.equal(taskTool.inputSchema.properties.task_id.description, 'Shell task_id; required for read/wait/cancel.');
 }); // PS 7+
