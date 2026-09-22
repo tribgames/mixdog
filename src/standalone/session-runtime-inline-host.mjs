@@ -9,6 +9,7 @@
 import { createInlineAgentDispatch } from './session-runtime-inline-host/agent-dispatch.mjs';
 import { createInlineBootLoaders } from './session-runtime-inline-host/boot-loaders.mjs';
 import { createRuntimeRecords } from './session-runtime-inline-host/runtime-records.mjs';
+import { inlineStatus, inlineWorkloads } from './session-runtime-inline-host/telemetry.mjs';
 
 export function createInlineSessionRuntimeHost({
   cwd = process.cwd(),
@@ -99,23 +100,7 @@ export function createInlineSessionRuntimeHost({
       return null;
     },
     get workloads() {
-      const memory = process.memoryUsage();
-      return {
-        mode: 'in-process',
-        refreshedAt: Date.now(),
-        shardCount: 0,
-        shards: [],
-        worker: {
-          pid: process.pid,
-          runtimes: records.size,
-          memory: {
-            rss: memory.rss,
-            heapTotal: memory.heapTotal,
-            heapUsed: memory.heapUsed,
-            external: memory.external,
-          },
-        },
-      };
+      return inlineWorkloads(records.size);
     },
     async close(reason = 'session runtime host closed') {
       if (closePromise) return closePromise;
@@ -127,18 +112,7 @@ export function createInlineSessionRuntimeHost({
       return closePromise;
     },
     get status() {
-      return {
-        mode: 'in-process',
-        active: !closed,
-        worker: {
-          pid: process.pid,
-          pids: [process.pid],
-          runtimes: records.size,
-        },
-        shards: [],
-        shardCount: 0,
-        providerCooldown: null,
-      };
+      return inlineStatus(records.size, !closed);
     },
   };
 }

@@ -99,6 +99,22 @@ test('an invalid batch rolls back both originals and daily totals', (t) => {
   assert.deepEqual(ledger.rollup(), { days: {} });
 });
 
+test('a usage_events row with no daily index row contributes nothing instead of throwing', (t) => {
+  const kept = row({ responseId: 'kept' });
+  const orphan = row({ model: 'orphan-model', sessionId: 'orphan-session', responseId: 'orphan' });
+  const reference = store(t);
+  reference.record([kept]);
+  const ledger = store(t);
+  ledger.record([kept, orphan]);
+  // `daily` is a derived index: dropping the orphan route's row leaves its
+  // retained usage_events row without a matching day/route bucket. The
+  // rollup must skip that row and report the remaining route's arithmetic
+  // unchanged, rather than failing on the missing bucket.
+  ledger.db.exec("DELETE FROM daily WHERE model='orphan-model'");
+  assert.deepEqual(ledger.rollup(), reference.rollup());
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM usage_events').get().n, 2);
+});
+
 test('concurrent processes share one idempotent ledger without lost totals', async () => {
   const path = join(mkdtempSync(join(tmpdir(), 'mixdog-usage-concurrent-')), 'ledger.sqlite');
   new UsageLedger(path).close();

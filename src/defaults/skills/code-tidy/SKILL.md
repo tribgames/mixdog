@@ -77,6 +77,9 @@ limitation and ask before widening the work.
      end.** Start the next partition as soon as the current round closes.
      Never run two partitions concurrently, including when rounds are
      delegated: concurrent edits make each round's verification unattributable.
+     Each round declares the test lane it uses (runner plus paths); two rounds
+     must never share a lane that cannot run concurrently, because a
+     load-sensitive suite then fails for a reason neither round owns.
      Do not pause for user input between rounds — section 7 owns reporting.
    - **More than one partition runs under a Goal.** Record the partition list
      and the accumulating candidate inventory as durable tasks
@@ -107,9 +110,13 @@ limitation and ask before widening the work.
    only when the user set `tidy.downloads` to `ask` does a result carry
    `needsApproval` — then ask once**, list engines and bytes, and re-call
    that action with `approveDownloads:true`. → manual
-3. **Hard rule — never install toolchain engines** (rustfmt, gofmt, dart,
-   swift, zig, mix, dotnet): report `installHint`. Managed engines download
-   only through tidy (`auto`, `approveDownloads`, or `action:'install'`). → manual
+3. **Hard rule — engines run only through tidy, and never get installed by
+   hand** (rustfmt, gofmt, dart, swift, zig, mix, dotnet): report
+   `installHint`. Managed engines download only through tidy (`auto`,
+   `approveDownloads`, or `action:'install'`). An ad-hoc `npx <engine>`, global
+   binary, or package script is not verification — the name can resolve to an
+   unrelated package and report a false clean. An engine tidy cannot resolve
+   leaves its check blocked, never clean. → manual
 4. Plan the approved deterministic work with `fix` without `apply:true`;
    do not repeat an equivalent `check` first. Use one combined plan when both
    engines and structural rules are in scope:
@@ -144,6 +151,11 @@ definitions, and the final report template. This section owns the order.
    the behavior you will touch gets either the narrowest regression test that
    pins its observable output, or only SAFE-tier changes — say which. Prose
    files (skills, prompts, docs) have no behavior to pin.
+   Before extracting or moving anything, search the test suite for guards that
+   pin source text — tests reading source files as text, asserting statement or
+   call ordering, or restricting where an identifier may appear — and record
+   what each pins (`references/agent-cleanup.md` lists the shapes). A partition
+   whose guards were not searched does not start extracting.
 2. **Ladder, then lenses.** Run the deletion ladder on every selected source unit
    in the current round; only survivors go through the four lenses (reuse,
    quality, efficiency, altitude). Engine diagnostics point at units; they never
@@ -160,7 +172,10 @@ definitions, and the final report template. This section owns the order.
    - Use the partitions from section 2; accumulate the inventory across rounds,
      close each round with its brief note, and start the next partition
      immediately.
-   - Within one file or module, CAREFUL source units must be edited sequentially.
+   - Within one file or module, CAREFUL source units must be edited
+     sequentially. A round cut off mid-unit ends with that unit finished and
+     wired into its callers, or reverted: never leave behind a new module
+     nothing imports.
    - Apply by tier: SAFE as one batch; CAREFUL one source unit at a time; RISKY
      reported, never auto-applied. Within a tier: comments → dead code →
      defensive code → duplication → complexity → abstraction → performance.
@@ -186,7 +201,7 @@ a finding needs no Keep write-up.
 | Structural signal | Decision |
 |---|---|
 | File > 1,000 lines | Identify separable responsibilities and verify the cost of splitting |
-| Function > 50 lines, or nesting > 3 | Confirm mixed responsibilities or avoidable nesting before extracting |
+| Function > 50 lines, or nesting > 3 | Below roughly 100 lines, length alone is not a reason to act: name the symptom (duplication, a defect, demonstrated difficulty of change) or leave it. Above it, confirm mixed responsibilities or avoidable nesting before extracting |
 | Duplicated small helpers across files | Consolidate only when intent and behavior match |
 | Comments describing history (`extracted verbatim`, `moved from`, `behavior-preserving move`) | Remove only when no protected content or parsing behavior is lost |
 | Underscore-prefixed names exported across modules | Treat a rename as a RISKY contract change; report, never auto-rename |
@@ -198,8 +213,10 @@ and this table.
 Size alone neither mandates a split nor makes one RISKY. A confirmed
 responsibility-based split preserving behavior and entry points is CAREFUL:
 extract one source unit at a time with its required modules, and verify direct
-consumers. Moving the entire body elsewhere or cutting it into numbered chunks
-does not resolve the finding. An unperformed confirmed split stays unfinished.
+consumers. An extracted unit takes only the values it reads — a parameter it
+never uses is a defect, and the call site stops passing it. Moving the entire
+body elsewhere or cutting it into numbered chunks does not resolve the finding.
+An unperformed confirmed split stays unfinished.
 
 ## 5. Keep — never remove or rename
 - Validation and error handling at a trust boundary (user input, external
@@ -221,7 +238,8 @@ does not resolve the finding. An unperformed confirmed split stays unfinished.
   never introduced.
 
 ## 6. Pitfalls
-- Missing toolchain engine → `installHint` only; continue other engines.
+- Missing toolchain engine → `installHint` only; continue other engines and
+  report that engine's check as blocked, not clean.
 - User declines downloads → skip those engines; say so.
 - Tests/typecheck fail after apply → stop and undo only this run's edits with
   targeted patches while preserving prior or concurrent work. Never use
@@ -244,9 +262,12 @@ does not resolve the finding. An unperformed confirmed split stays unfinished.
   `references/dead-code.md` before deleting.
 
 ## 7. Round close and final report
-Close each round in the conversation with a few lines: the partition, what
-landed, the verification result, and whether the round is complete or
-unfinished. Keep the inventory in `references/agent-cleanup.md` form as you go;
+Close each round in the conversation with a few lines: the partition, its test
+lane, what landed, the verification result including every check that could not
+run, the round's function counts over 50, 100 and 150 lines, and whether the
+round is complete or unfinished. Report all three counts: decomposition moves
+mass downward, so functions over 100 falling while functions over 50 rise is
+progress, and a single threshold hides it. Keep the inventory in `references/agent-cleanup.md` form as you go;
 do not spend a full report on every round.
 
 Deliver the full report once, after the last partition, using the

@@ -461,6 +461,119 @@ function exportRoute(bucket, totalTokens) {
   };
 }
 
+/** Provider rows for the window: each provider's route totals plus its
+ *  per-model split, both ordered by tokens then cost. `modelLimit` truncates
+ *  only the model list, never the provider list. */
+function exportProviders(state, { totalTokens, modelLimit }) {
+  return [...state.providers.values()]
+    .map((bucket) => {
+      const models = [...bucket.models.values()]
+        .map((model) => ({ model: model.model, ...exportRoute(model, totalTokens) }))
+        .sort((a, b) => b.tokens - a.tokens || b.costUsd - a.costUsd);
+      return {
+        provider: bucket.provider,
+        providerKind: bucket.providerKind,
+        ...exportRoute(bucket, totalTokens),
+        modelCount: models.length,
+        models: modelLimit > 0 ? models.slice(0, modelLimit) : models,
+      };
+    })
+    .sort((a, b) => b.tokens - a.tokens || b.costUsd - a.costUsd);
+}
+
+/** One row per calendar day in the window, with its per-provider split.
+ *  A day with no traffic is still a day. Only the days that HAD usage are
+ *  collected upstream, so an idle stretch would otherwise vanish and pull the
+ *  surrounding days together — a fortnight off would read as continuous work.
+ *  Filling the calendar keeps a quiet day visible as a quiet day. */
+function exportDailySeries(state, { window, period, firstDay, endDay }) {
+  return calendarDays(window.days === null ? firstDay : usageRollupDayKey(window.fromMs), period?.endDay || endDay).map(
+    (day) => {
+      const bucket = state.daily.get(day);
+      const future = period ? { future: day > endDay } : {};
+      if (!bucket) {
+        return { day, turns: 0, tokens: 0, cacheTokens: 0, costUsd: 0, costKnownTurns: 0, providers: [], ...future };
+      }
+      return {
+        day: bucket.day,
+        turns: bucket.turns,
+        tokens: tokensOf(bucket),
+        cacheTokens: bucket.cacheRead + bucket.cacheWrite,
+        costUsd: round(bucket.costUsd, 6),
+        costKnownTurns: num(bucket.costKnownTurns),
+        unmeasuredTurns: num(bucket.unmeasuredTurns),
+        ...future,
+        providers: [...bucket.providers.values()]
+          .map((slice) => ({
+            provider: slice.provider,
+            turns: slice.turns,
+            tokens: tokensOf(slice),
+            costUsd: round(slice.costUsd, 6),
+            costKnownTurns: num(slice.costKnownTurns),
+            unmeasuredTurns: num(slice.unmeasuredTurns),
+          }))
+          .sort((a, b) => b.tokens - a.tokens),
+      };
+    }
+  );
+}
+
+/** Window totals: volume, spend and the derived per-day/per-session rates. */
+function exportTotals(state, { sessionTotals, totalTokens, cacheTokens, effectiveDays }) {
+  return {
+    sessions: sessionTotals.length,
+    sessionsComplete: state.sessionsComplete,
+    turns: state.turns,
+    days: effectiveDays,
+    input: state.input,
+    output: state.output,
+    tokens: totalTokens,
+    unmeasuredTurns: state.unmeasuredTurns,
+    cacheRead: state.cacheRead,
+    cacheWrite: state.cacheWrite,
+    cacheTokens,
+    totalTokens,
+    // How much of the prompt arrived from cache instead of being read again.
+    cacheHitRate: measuredRatio(
+      state.unmeasuredTurns,
+      state.cacheRead,
+      state.input + state.cacheRead + state.cacheWrite,
+      4
+    ),
+    costUsd: round(state.costUsd, 6),
+    costKnownTurns: state.costKnownTurns,
+    costUnpricedTurns: Math.max(0, state.turns - state.costKnownTurns),
+    // Priced by the provider vs derived from the catalog. A subscription turn
+    // lands in the second: real spend, but never an invoice line.
+    costBilled: round(state.costBilled, 6),
+    costEstimated: round(state.costEstimated, 6),
+    costPerDay: effectiveDays > 0 ? round(state.costUsd / effectiveDays, 6) : 0,
+    tokensPerSession: sessionTotals.length ? Math.round(totalTokens / sessionTotals.length) : 0,
+    medianTokensPerSession: Math.round(median(sessionTotals)),
+    avgDurationMs: state.durationTurns > 0 ? Math.round(state.durationMs / state.durationTurns) : 0,
+    // 1 = every turn carries a real price; below that some rows are unpriced.
+    costCoverage: state.turns > 0 ? round(state.costKnownTurns / state.turns, 4) : 0,
+  };
+}
+
+/** How much of the window the figures actually saw, and what they had to skip. */
+function exportCoverage(state, historyPending) {
+  return {
+    rollupDays: state.rollupDays,
+    eventDays: state.eventDays,
+    // Days rebuilt from transcripts, and whether that rebuild is still
+    // running — a surface can then say the older figures may still grow.
+    historyDays: state.historyDays,
+    historyPending: historyPending === true,
+    sessionsDropped: state.sessionsDropped,
+    // Days the rollup holds without a source split; excluded from a
+    // conversation-only view rather than guessed at.
+    unclassifiedDays: state.unclassifiedDays,
+    unclassifiedTurns: state.unclassifiedTurns,
+    partialDays: state.partialDays,
+  };
+}
+
 /**
  * @param {object} options
  * @param {Array}  [options.events] raw gateway usage events
@@ -503,55 +616,8 @@ export function usageStatsSnapshot({
   const spanDays = firstDay ? calendarDays(firstDay, endDay).length : 0;
   const effectiveDays = window.days === null ? spanDays : Math.max(1, window.days || 1);
 
-  const providers = [...state.providers.values()]
-    .map((bucket) => {
-      const models = [...bucket.models.values()]
-        .map((model) => ({ model: model.model, ...exportRoute(model, totalTokens) }))
-        .sort((a, b) => b.tokens - a.tokens || b.costUsd - a.costUsd);
-      return {
-        provider: bucket.provider,
-        providerKind: bucket.providerKind,
-        ...exportRoute(bucket, totalTokens),
-        modelCount: models.length,
-        models: modelLimit > 0 ? models.slice(0, modelLimit) : models,
-      };
-    })
-    .sort((a, b) => b.tokens - a.tokens || b.costUsd - a.costUsd);
-
-  // A day with no traffic is still a day. Only the days that HAD usage are
-  // collected above, so an idle stretch would otherwise vanish and pull the
-  // surrounding days together — a fortnight off would read as continuous work.
-  // Filling the calendar keeps a quiet day visible as a quiet day.
-  const daily = calendarDays(
-    window.days === null ? firstDay : usageRollupDayKey(window.fromMs),
-    period?.endDay || endDay
-  ).map((day) => {
-    const bucket = state.daily.get(day);
-    const future = period ? { future: day > endDay } : {};
-    if (!bucket) {
-      return { day, turns: 0, tokens: 0, cacheTokens: 0, costUsd: 0, costKnownTurns: 0, providers: [], ...future };
-    }
-    return {
-      day: bucket.day,
-      turns: bucket.turns,
-      tokens: tokensOf(bucket),
-      cacheTokens: bucket.cacheRead + bucket.cacheWrite,
-      costUsd: round(bucket.costUsd, 6),
-      costKnownTurns: num(bucket.costKnownTurns),
-      unmeasuredTurns: num(bucket.unmeasuredTurns),
-      ...future,
-      providers: [...bucket.providers.values()]
-        .map((slice) => ({
-          provider: slice.provider,
-          turns: slice.turns,
-          tokens: tokensOf(slice),
-          costUsd: round(slice.costUsd, 6),
-          costKnownTurns: num(slice.costKnownTurns),
-          unmeasuredTurns: num(slice.unmeasuredTurns),
-        }))
-        .sort((a, b) => b.tokens - a.tokens),
-    };
-  });
+  const providers = exportProviders(state, { totalTokens, modelLimit });
+  const daily = exportDailySeries(state, { window, period, firstDay, endDay });
 
   // "All time" has nothing before it to compare against.
   const earlier = period ? null : previousWindow(window);
@@ -572,40 +638,7 @@ export function usageStatsSnapshot({
       lastDay,
       activeDays: dayKeys.length,
     },
-    totals: {
-      sessions: sessionTotals.length,
-      sessionsComplete: state.sessionsComplete,
-      turns: state.turns,
-      days: effectiveDays,
-      input: state.input,
-      output: state.output,
-      tokens: totalTokens,
-      unmeasuredTurns: state.unmeasuredTurns,
-      cacheRead: state.cacheRead,
-      cacheWrite: state.cacheWrite,
-      cacheTokens,
-      totalTokens,
-      // How much of the prompt arrived from cache instead of being read again.
-      cacheHitRate: measuredRatio(
-        state.unmeasuredTurns,
-        state.cacheRead,
-        state.input + state.cacheRead + state.cacheWrite,
-        4
-      ),
-      costUsd: round(state.costUsd, 6),
-      costKnownTurns: state.costKnownTurns,
-      costUnpricedTurns: Math.max(0, state.turns - state.costKnownTurns),
-      // Priced by the provider vs derived from the catalog. A subscription turn
-      // lands in the second: real spend, but never an invoice line.
-      costBilled: round(state.costBilled, 6),
-      costEstimated: round(state.costEstimated, 6),
-      costPerDay: effectiveDays > 0 ? round(state.costUsd / effectiveDays, 6) : 0,
-      tokensPerSession: sessionTotals.length ? Math.round(totalTokens / sessionTotals.length) : 0,
-      medianTokensPerSession: Math.round(median(sessionTotals)),
-      avgDurationMs: state.durationTurns > 0 ? Math.round(state.durationMs / state.durationTurns) : 0,
-      // 1 = every turn carries a real price; below that some rows are unpriced.
-      costCoverage: state.turns > 0 ? round(state.costKnownTurns / state.turns, 4) : 0,
-    },
+    totals: exportTotals(state, { sessionTotals, totalTokens, cacheTokens, effectiveDays }),
     previous: prior
       ? {
           turns: prior.turns,
@@ -615,19 +648,6 @@ export function usageStatsSnapshot({
       : null,
     daily,
     providers,
-    coverage: {
-      rollupDays: state.rollupDays,
-      eventDays: state.eventDays,
-      // Days rebuilt from transcripts, and whether that rebuild is still
-      // running — a surface can then say the older figures may still grow.
-      historyDays: state.historyDays,
-      historyPending: historyPending === true,
-      sessionsDropped: state.sessionsDropped,
-      // Days the rollup holds without a source split; excluded from a
-      // conversation-only view rather than guessed at.
-      unclassifiedDays: state.unclassifiedDays,
-      unclassifiedTurns: state.unclassifiedTurns,
-      partialDays: state.partialDays,
-    },
+    coverage: exportCoverage(state, historyPending),
   };
 }

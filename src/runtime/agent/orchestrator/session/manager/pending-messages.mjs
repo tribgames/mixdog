@@ -1,17 +1,56 @@
 // Steering / pending-message queue with sync buffering and atomic persistence.
-import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { resolvePluginData } from '../../../../shared/plugin-paths.mjs';
-import { updateJsonAtomic } from '../../../../shared/atomic-file.mjs';
-import { loadSession, readSessionLifecycleStateFromDisk, saveSessionAsync } from '../store.mjs';
+import { loadSession } from '../store.mjs';
 import { ForeignPendingMessageController } from './foreign-pending-messages.mjs';
+import {
+  currentPendingLifecycleToken,
+  lifecycleTokenStale,
+  pendingLifecycleEpochMoved,
+  pendingLifecycleInvalidated,
+  pendingLifecycleToken,
+  pendingSessionLifecycle,
+} from './pending-lifecycle-epoch.mjs';
+import {
+  _pendingPersistTails,
+  chainSpoolTail,
+  isValidPendingSessionId,
+  normalizePendingStore,
+  pendingMessagesPath,
+  pendingWarn,
+  setSpoolQueue,
+  updateSpool,
+} from './pending-spool-file.mjs';
+import {
+  _ackedPendingIds,
+  _claimedPendingMessages,
+  _inDeliveryPendingIds,
+  claimPendingEntries,
+  dropPendingClaims,
+  pendingIdSet,
+  pruneEmptyPendingIdSet,
+} from './pending-claim-ledger.mjs';
+import { pruneCleanupConfirmedLedger } from './pending-delivered-ledger.mjs';
+// The durable delivered-id ledger on the session record lives in
+// pending-delivered-ledger.mjs; re-exported so prior importers stay unchanged.
+export { recordPendingMessageDelivery } from './pending-delivered-ledger.mjs';
+import {
+  _pendingPersistBuffers,
+  bumpPendingStateEpoch,
+  cancelPendingPersistRetry,
+  flushPendingMessagePersistsSync,
+  persistPendingMessages,
+  schedulePendingMessagePersist,
+  takeBufferedPendingMessages,
+} from './pending-persist-queue.mjs';
+// Stale/orphan spool retention lives in pending-spool-sweep.mjs; re-exported
+// so prior importers of this module stay unchanged.
+export { sweepOrphanedPendingMessages } from './pending-spool-sweep.mjs';
 import {
   COMPLETION_NOTIFICATION_KIND,
   PENDING_MODE_PROMPT,
   PENDING_MODE_TASK_NOTIFICATION,
   _groupPendingMessageEntries,
   _mergePendingMessageEntries,
-  completionExecutionId,
   completionWasDelivered,
   entryLifecycleToken,
   isCompletionNotificationEntry,
@@ -20,7 +59,6 @@ import {
   markCompletionEntry,
   modelVisiblePendingMessages,
   newPendingMessageId,
-  normalizePersistedEntry,
   pendingEntryMode,
   pendingMessageId,
   pendingMessageQueueEntry,
@@ -42,512 +80,12 @@ const _sessionPendingMessages = new Map();
 // ownership of a session. Hot-path drains consume this in-memory snapshot and
 // never touch the global spool (or its cross-process lock).
 const _hydratedPendingMessages = new Map();
-const PENDING_MESSAGES_FILE = 'session-pending-messages.json';
-const PENDING_MESSAGES_MODE = 0o600;
-const PENDING_ORPHAN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const PENDING_ORPHAN_GRACE_MS = 60 * 60 * 1000;
-const _pendingPersistBuffers = new Map();
-const _pendingPersistTails = new Map();
-const _inDeliveryPendingIds = new Map();
-const _ackedPendingIds = new Map();
 const _pendingHydrations = new Map();
-// Claim ledger for the in-delivery ids: the exact entries a drain handed to a
-// turn. A drain consumes the not-yet-flushed persist buffer, so without this
-// copy a failed turn could release ids whose payload exists nowhere (memory,
-// spool, replay) any more. Claims are dropped on ack (delivered) or on
-// release (restored below). A release may only restore while the session
-// record still accepts pending state — a tombstoned session refuses it however
-// old the claim is.
-const _claimedPendingMessages = new Map();
-let _pendingPersistImmediate = null;
-// Authoritative pending-state lifecycle gate. The DURABLE record is the only
-// authority: readSessionLifecycleStateFromDisk reports absence / open / closed
-// / unreadable straight from disk, bypassing every live/pending snapshot, so a
-// stale open live copy (e.g. an id under _droppedSaveIds) can never mask a
-// tombstone. Only an explicit create/reopen/new-generation record — never an
-// ordinary enqueue — makes a session writable again.
-//   'absent'     → never saved: open and writable (generation 0)
-//   'open'       → durable record at this generation
-//   'closed'     → tombstone: refuses every write
-//   'unreadable' → IO error / malformed / foreign record: FAIL CLOSED, and a
-//                  live snapshot may only ADD refusal, never open it
-function pendingSessionLifecycle(sessionId) {
-  let disk = null;
-  try {
-    disk = readSessionLifecycleStateFromDisk(sessionId);
-  } catch {
-    disk = null;
-  }
-  const state = disk?.state;
-  if (state === 'open' || state === 'closed') {
-    return { source: state, closed: state === 'closed', generation: Number(disk.generation) || 0 };
-  }
-  if (state === 'absent') return { source: 'absent', closed: false, generation: 0 };
-  // Unreadable/corrupt/foreign (or the read itself threw): never writable.
-  return { source: 'unreadable', closed: true, generation: 0 };
-}
-
-// Epoch token: the exact lifecycle a claim/enqueue/hydration was taken under.
-function pendingLifecycleToken(lifecycle) {
-  return `${lifecycle.source}:${lifecycle.generation}`;
-}
-
-function currentPendingLifecycleToken(sessionId) {
-  return pendingLifecycleToken(pendingSessionLifecycle(sessionId));
-}
-
-// Pure epoch comparison against an already-read lifecycle (no IO), so a caller
-// that judges many entries reads the durable record once.
-function lifecycleTokenStale(now, sinceToken) {
-  if (sinceToken === null || sinceToken === undefined) return false;
-  const separator = String(sinceToken).indexOf(':');
-  const sinceSource = String(sinceToken).slice(0, separator);
-  const sinceGeneration = Number(String(sinceToken).slice(separator + 1)) || 0;
-  // Only close/detach moves the durable generation, so a differing one means
-  // the session was closed/detached/reopened since: refuse.
-  if (now.generation !== sinceGeneration) return true;
-  // A record that was DURABLE at claim/hydration start must still be durable:
-  // an unreadable record must never be mistaken for an open session. The
-  // reverse (never-saved → first durable save at the same generation) is the
-  // ordinary lifecycle of a fresh session and stays valid.
-  if (sinceSource === 'open' && now.source !== 'open') return true;
-  return false;
-}
-
-// True when pending state for this session must NOT be (re)created/published:
-// tombstoned, or the durable lifecycle epoch moved since `sinceToken`.
-function pendingLifecycleInvalidated(sessionId, sinceToken = null) {
-  const now = pendingSessionLifecycle(sessionId);
-  if (now.closed) return true;
-  return lifecycleTokenStale(now, sinceToken);
-}
-
-// Epoch check for DESTRUCTIVE spool/ledger mutations (ack, prune, clear,
-// foreign drain). Deliberately tombstone-TOLERANT: deleting the rows of the
-// epoch that just closed is legitimate (the close path itself does it), while
-// a generation move — the reopened/detached owner taking over — means those
-// rows are no longer ours to touch. Callers re-evaluate this INSIDE the spool
-// transaction, immediately before mutating.
-function pendingLifecycleEpochMoved(sessionId, sinceToken = null) {
-  if (sinceToken === null || sinceToken === undefined) return false;
-  const now = pendingSessionLifecycle(sessionId);
-  const separator = String(sinceToken).indexOf(':');
-  const sinceGeneration = Number(String(sinceToken).slice(separator + 1)) || 0;
-  if (now.generation !== sinceGeneration) return true;
-  // An unreadable/foreign record is never authority for a deletion.
-  if (now.source === 'unreadable') return true;
-  return false;
-}
-
-function pendingIdSet(map, sessionId) {
-  let ids = map.get(sessionId);
-  if (!ids) {
-    ids = new Set();
-    map.set(sessionId, ids);
-  }
-  return ids;
-}
-
-// Ledger hygiene: an id set only exists while it actually suppresses ids.
-// Read paths (hydrate, release, ack) must never MATERIALIZE an empty set —
-// those accumulated one pair of dead Sets per resumable session and were
-// pruned only by an explicit session close.
-function pruneEmptyPendingIdSet(map, sessionId) {
-  const ids = map.get(sessionId);
-  if (ids && ids.size === 0) map.delete(sessionId);
-}
-
-function pendingMessagesPath() {
-  return join(resolvePluginData(), PENDING_MESSAGES_FILE);
-}
 
 // Exposed for live-share owners: they fs.watch this file for instant pickup
 // of cross-surface submits (the 3s drain tick remains the safety net).
 export function pendingMessagesSpoolPath() {
   return pendingMessagesPath();
-}
-
-// Single spool transaction shape: every mutation of the shared file is locked,
-// compact and non-fsync; `extra` only ever relaxes the lock timeout.
-function updateSpool(mutate, extra = null) {
-  return updateJsonAtomic(pendingMessagesPath(), mutate, {
-    compact: true,
-    lock: true,
-    mode: PENDING_MESSAGES_MODE,
-    fsync: false,
-    ...extra,
-  });
-}
-
-// Publish a session's queue inside a spool transaction. An emptied queue drops
-// the session row AND its touch stamp instead of persisting an empty array.
-function setSpoolQueue(next, sessionId, kept) {
-  if (kept.length > 0) {
-    next.sessions[sessionId] = kept;
-    return;
-  }
-  delete next.sessions[sessionId];
-  if (next.sessionTouchedAt) delete next.sessionTouchedAt[sessionId];
-}
-
-// Serialize one session's spool operations: the op becomes this session's tail
-// and removes itself once settled (never clobbering a newer tail).
-function chainSpoolTail(sessionId, operation, onSettled = null) {
-  _pendingPersistTails.set(sessionId, operation);
-  operation
-    .finally(() => {
-      if (_pendingPersistTails.get(sessionId) === operation) _pendingPersistTails.delete(sessionId);
-      onSettled?.();
-    })
-    .catch(() => {});
-  return operation;
-}
-
-function pendingWarn(message) {
-  try {
-    process.stderr.write(message);
-  } catch {
-    /* best-effort */
-  }
-}
-
-function isValidPendingSessionId(sessionId) {
-  return typeof sessionId === 'string' && /^[A-Za-z0-9_-]+$/.test(sessionId);
-}
-
-function isTuiSteeringPendingKey(sessionId) {
-  return typeof sessionId === 'string' && sessionId.startsWith('tui_');
-}
-
-function normalizeTuiSteeringQueueEntry(entry) {
-  if (typeof entry === 'string') {
-    const text = entry.trim();
-    return text || null;
-  }
-  if (!entry || typeof entry !== 'object') return null;
-  const rawText = [entry.text, entry.message, entry.content].find((value) => typeof value === 'string') ?? '';
-  if (rawText.trim()) {
-    const text = rawText.trim();
-    const id = typeof entry.id === 'string' && entry.id.trim() ? entry.id.trim() : null;
-    if (!id) return text;
-    const normalized = {
-      id,
-      text,
-      message: text,
-      enqueuedAt: Number(entry.enqueuedAt) || Date.now(),
-    };
-    if (entry.notificationKind !== COMPLETION_NOTIFICATION_KIND) return normalized;
-    const executionId = completionExecutionId(entry);
-    return { ...normalized, notificationKind: COMPLETION_NOTIFICATION_KIND, ...(executionId ? { executionId } : {}) };
-  }
-  return null;
-}
-
-function normalizePendingStore(raw) {
-  const sessions =
-    raw && typeof raw === 'object' && raw.sessions && typeof raw.sessions === 'object' ? raw.sessions : {};
-  const storeUpdatedAt = Number(raw?.updatedAt) || Date.now();
-  const touchedRaw =
-    raw && typeof raw === 'object' && raw.sessionTouchedAt && typeof raw.sessionTouchedAt === 'object'
-      ? raw.sessionTouchedAt
-      : {};
-  const out = { version: 1, updatedAt: storeUpdatedAt, sessions: {}, sessionTouchedAt: {} };
-  for (const [sid, value] of Object.entries(sessions)) {
-    if (!isValidPendingSessionId(sid) || !Array.isArray(value)) continue;
-    // Persisted rows are canonical {id, …} objects (persistPendingMessages
-    // normalizes at write time); anything else is dropped, not migrated.
-    const q = isTuiSteeringPendingKey(sid)
-      ? value.map(normalizeTuiSteeringQueueEntry).filter(Boolean)
-      : value
-          .filter((entry) => entry && typeof entry === 'object' && pendingMessageId(entry))
-          .map((entry) => normalizePersistedEntry(entry))
-          .filter(Boolean);
-    if (q.length > 0) {
-      out.sessions[sid] = q;
-      const touched = Number(touchedRaw[sid]);
-      out.sessionTouchedAt[sid] = Number.isFinite(touched) && touched > 0 ? touched : storeUpdatedAt;
-    }
-  }
-  return out;
-}
-
-function touchPendingSessionEntry(next, sessionId, now = Date.now()) {
-  if (!next.sessionTouchedAt || typeof next.sessionTouchedAt !== 'object') next.sessionTouchedAt = {};
-  next.sessionTouchedAt[sessionId] = now;
-}
-
-function persistPendingMessages(sessionId, messages) {
-  if (!isValidPendingSessionId(sessionId)) return 0;
-  const sourceMessages = Array.isArray(messages) ? messages : [messages];
-  const persistedMessages = sourceMessages
-    .map((entry) => {
-      const normalized = normalizePersistedEntry(entry);
-      if (!normalized) return null;
-      // Carry the lifecycle token observed when this entry was accepted
-      // so the commit below can drop it if the session moved on.
-      const token = entryLifecycleToken(entry);
-      return token ? stampLifecycleToken(normalized, token) : normalized;
-    })
-    .filter(Boolean);
-  if (persistedMessages.length === 0) return 0;
-  // State handle this write belongs to: a close/detach landing while the
-  // spool op is in flight invalidates its failure requeue AND its retry. The
-  // in-flight count also pins the handle against the size trim, so the
-  // capture below stays comparable however many other sessions churn.
-  const stateHandle = pendingStateHandle(sessionId);
-  const stateEpoch = stateHandle.epoch;
-  stateHandle.inFlight += 1;
-  // Async lock wait: this runs on the lead/TUI main process (tool-exec +
-  // steering persist). withFileLock waits off the event loop, so cross-
-  // process contention on the shared spool never freezes the renderer.
-  // Best-effort: the returned promise is fire-and-forget; depth is reported
-  // optimistically from the buffered batch length.
-  const operation = updateSpool((raw) => {
-    // Durable commit window: re-read the lifecycle INSIDE the spool lock.
-    // A cross-process close/detach between acceptance and this commit must
-    // drop the old-generation input without touching the new owner's rows.
-    const committable = persistedMessages.filter(
-      (entry) => !pendingLifecycleInvalidated(sessionId, entryLifecycleToken(entry))
-    );
-    if (committable.length === 0) return undefined;
-    const next = normalizePendingStore(raw);
-    const q = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
-    // Idempotent by id: a restored claim (releasePendingMessages) may be
-    // durable already, and re-appending it would leave two spool rows for
-    // one queued input (double replay after a restart).
-    const existingIds = new Set(q.map(pendingMessageId).filter(Boolean));
-    const additions = committable.filter((entry) => {
-      const id = pendingMessageId(entry);
-      if (id && existingIds.has(id)) return false;
-      if (id) existingIds.add(id);
-      return true;
-    });
-    if (additions.length === 0) return undefined;
-    q.push(...additions);
-    next.sessions[sessionId] = q;
-    const now = Date.now();
-    next.updatedAt = now;
-    touchPendingSessionEntry(next, sessionId, now);
-    return next;
-  })
-    .then((result) => {
-      // Landed: forget the failure backoff so the next transient error
-      // starts from the short delay again.
-      _pendingPersistRetryAttempts.delete(sessionId);
-      return result;
-    })
-    .catch((err) => {
-      pendingWarn(`[session] pending-message persist failed sessionId=${sessionId}: ${err?.message || err}\n`);
-      // Requeue on failure (lock timeout/contention): buffered messages
-      // were already cleared by the flush, so push them back — AND
-      // schedule the retry HERE. Waiting for "the next scheduled flush or
-      // session takeover" meant a FINAL submit (nothing else ever
-      // enqueues afterwards) stayed process-local forever, while
-      // enqueue/enqueueRemotePendingMessage had already reported success.
-      try {
-        // Closed/detached since this write started: its buffer and its
-        // retry timer were torn down on purpose — do not rebuild them.
-        if (!pendingStateUnchanged(sessionId, stateHandle, stateEpoch)) return;
-        const acked = _ackedPendingIds.get(sessionId);
-        const q = _pendingPersistBuffers.get(sessionId) || [];
-        q.push(...persistedMessages.filter((entry) => !acked?.has(pendingMessageId(entry))));
-        _pendingPersistBuffers.set(sessionId, q);
-        if (q.length > 0) schedulePendingPersistRetry(sessionId, stateHandle, stateEpoch);
-      } catch {}
-    });
-  // onSettled runs AFTER the requeue decision above, so the handle stays
-  // pinned for exactly as long as this write can still act on it.
-  chainSpoolTail(sessionId, operation, () => {
-    stateHandle.inFlight = Math.max(0, stateHandle.inFlight - 1);
-    trimPendingStateHandles();
-  });
-  return persistedMessages.length;
-}
-
-// Automatic retry for a FAILED durable commit. The failure path requeues the
-// batch into _pendingPersistBuffers; nothing else in this module ever moved it
-// again on its own, so transient lock contention on the shared spool could
-// strand accepted user input in process memory until the process exited.
-// Backoff is exponential and capped; the first attempts keep the event loop
-// alive (finishing a user message is real work), later ones are unref'd so a
-// permanently unwritable spool can never pin a shutting-down process.
-const PERSIST_RETRY_BASE_MS = 25;
-const PERSIST_RETRY_MAX_MS = 2000;
-const PERSIST_RETRY_REF_ATTEMPTS = 3;
-const PENDING_STATE_HANDLE_LIMIT = 512;
-const _pendingPersistRetryTimers = new Map();
-const _pendingPersistRetryAttempts = new Map();
-// Per-session state handle, bumped by _dropPendingMessageState. An async
-// persist that FAILS after a close/detach must not resurrect the retry timer
-// (and the requeued buffer) that the close just tore down — the retry loop
-// would then outlive the session forever.
-//
-// The fence is an (identity, epoch) PAIR, not a bare counter: a size-trimmed
-// counter map hands an evicted session back its DEFAULT generation, so a stale
-// capture from before the close compares equal again (ABA) and resurrects.
-// Object identity cannot be recreated by eviction, and a handle with a write
-// in flight or a retry armed is never evicted — so trimming can neither
-// confuse a stale capture nor discard a live requeue.
-const _pendingStateHandles = new Map();
-
-function pendingStateHandle(sessionId) {
-  let handle = _pendingStateHandles.get(sessionId);
-  if (!handle) {
-    handle = { epoch: 0, inFlight: 0 };
-    _pendingStateHandles.set(sessionId, handle);
-  }
-  return handle;
-}
-
-// True while the (identity, epoch) pair a write captured is still this
-// session's live pending state.
-function pendingStateUnchanged(sessionId, handle, epoch) {
-  return Boolean(handle) && _pendingStateHandles.get(sessionId) === handle && handle.epoch === epoch;
-}
-
-function trimPendingStateHandles() {
-  if (_pendingStateHandles.size <= PENDING_STATE_HANDLE_LIMIT) return;
-  for (const [sid, handle] of _pendingStateHandles) {
-    if (_pendingStateHandles.size <= PENDING_STATE_HANDLE_LIMIT) break;
-    if (handle.inFlight > 0 || _pendingPersistRetryTimers.has(sid)) continue;
-    _pendingStateHandles.delete(sid);
-  }
-}
-
-function bumpPendingStateEpoch(sessionId) {
-  pendingStateHandle(sessionId).epoch += 1;
-  trimPendingStateHandles();
-}
-
-function cancelPendingPersistRetry(sessionId, { resetBackoff = false } = {}) {
-  const timer = _pendingPersistRetryTimers.get(sessionId);
-  if (timer) {
-    try {
-      clearTimeout(timer);
-    } catch {
-      /* best-effort */
-    }
-  }
-  _pendingPersistRetryTimers.delete(sessionId);
-  if (resetBackoff) _pendingPersistRetryAttempts.delete(sessionId);
-}
-
-function schedulePendingPersistRetry(sessionId, stateHandle, stateEpoch) {
-  if (!isValidPendingSessionId(sessionId)) return;
-  // The session state this retry belongs to is gone (closed/detached).
-  if (!pendingStateUnchanged(sessionId, stateHandle, stateEpoch)) return;
-  if (_pendingPersistRetryTimers.has(sessionId)) return;
-  const attempts = (_pendingPersistRetryAttempts.get(sessionId) || 0) + 1;
-  _pendingPersistRetryAttempts.set(sessionId, attempts);
-  const delay = Math.min(PERSIST_RETRY_MAX_MS, PERSIST_RETRY_BASE_MS * 2 ** (attempts - 1));
-  const timer = setTimeout(() => {
-    _pendingPersistRetryTimers.delete(sessionId);
-    // Re-checked at fire time: a close between arming and firing wins.
-    if (!pendingStateUnchanged(sessionId, stateHandle, stateEpoch)) {
-      _pendingPersistRetryAttempts.delete(sessionId);
-      return;
-    }
-    const buffered = _pendingPersistBuffers.get(sessionId);
-    if (!buffered || buffered.length === 0) {
-      _pendingPersistRetryAttempts.delete(sessionId);
-      return;
-    }
-    _pendingPersistBuffers.delete(sessionId);
-    try {
-      persistPendingMessages(sessionId, buffered);
-    } catch {
-      // A synchronous throw must not drop the batch either.
-      const q = _pendingPersistBuffers.get(sessionId) || [];
-      q.push(...buffered);
-      _pendingPersistBuffers.set(sessionId, q);
-      schedulePendingPersistRetry(sessionId, stateHandle, stateEpoch);
-    }
-  }, delay);
-  if (attempts > PERSIST_RETRY_REF_ATTEMPTS) {
-    try {
-      timer.unref?.();
-    } catch {
-      /* ignore */
-    }
-  }
-  _pendingPersistRetryTimers.set(sessionId, timer);
-}
-
-function flushPendingMessagePersistsSync() {
-  if (_pendingPersistImmediate) {
-    try {
-      clearImmediate(_pendingPersistImmediate);
-    } catch {}
-    _pendingPersistImmediate = null;
-  }
-  if (_pendingPersistBuffers.size === 0) return;
-  const batches = [..._pendingPersistBuffers.entries()];
-  _pendingPersistBuffers.clear();
-  for (const [sid, messages] of batches) {
-    // This flush now owns the batch: a still-armed retry timer would only
-    // re-flush an empty buffer.
-    cancelPendingPersistRetry(sid);
-    persistPendingMessages(sid, messages);
-  }
-}
-
-function schedulePendingMessagePersist(sessionId, message) {
-  if (!isValidPendingSessionId(sessionId)) return 0;
-  const persistedMessage = normalizePersistedEntry(message);
-  if (!persistedMessage) return 0;
-  const token = entryLifecycleToken(message);
-  if (token) stampLifecycleToken(persistedMessage, token);
-  const q = _pendingPersistBuffers.get(sessionId) || [];
-  q.push(persistedMessage);
-  _pendingPersistBuffers.set(sessionId, q);
-  if (!_pendingPersistImmediate) {
-    _pendingPersistImmediate = setImmediate(() => {
-      _pendingPersistImmediate = null;
-      flushPendingMessagePersistsSync();
-    });
-  }
-  return q.length;
-}
-
-function takeBufferedPendingMessages(sessionId) {
-  if (!isValidPendingSessionId(sessionId)) return [];
-  const buffered = _pendingPersistBuffers.get(sessionId);
-  if (!buffered || buffered.length === 0) return [];
-  _pendingPersistBuffers.delete(sessionId);
-  return buffered.slice();
-}
-
-function claimPendingEntries(sessionId, entries) {
-  if (!Array.isArray(entries) || entries.length === 0) return;
-  const currentToken = currentPendingLifecycleToken(sessionId);
-  const prior = _claimedPendingMessages.get(sessionId);
-  // Claims are stamped with the lifecycle epoch observed at claim time; a
-  // claim from an older epoch is stale and never merges into the new one.
-  const claims = prior && prior.token === currentToken ? prior : { token: currentToken, entries: new Map() };
-  for (const entry of entries) {
-    const id = pendingMessageId(entry);
-    if (!id) continue;
-    // The token also rides on the delivered entry OBJECT: a later claim or
-    // ack may replace/remove this session's map state, and the old release
-    // must still judge itself by the epoch it was handed.
-    //
-    // NEVER restamp: the token an entry was ACCEPTED under is immutable.
-    // Overwriting it with the epoch current at claim time was exactly how
-    // a generation-0 entry that survived a generation-1 detach got
-    // legitimized (and then restored by a failed turn). Entries reaching
-    // here without a token were never stamped (legacy/foreign paths) and
-    // are claimed under the epoch observed now.
-    if (!entryLifecycleToken(entry)) stampLifecycleToken(entry, currentToken);
-    claims.entries.set(id, entry);
-  }
-  if (claims.entries.size > 0) _claimedPendingMessages.set(sessionId, claims);
-}
-
-function dropPendingClaims(sessionId, ids) {
-  const claims = _claimedPendingMessages.get(sessionId);
-  if (!claims) return;
-  for (const id of ids) claims.entries.delete(id);
-  if (claims.entries.size === 0) _claimedPendingMessages.delete(sessionId);
 }
 
 function pendingIdStillQueued(sessionId, id) {
@@ -661,55 +199,6 @@ function acknowledgePendingMessages(sessionId, deliveredEntries, options = {}) {
       return true;
     });
   return reported;
-}
-
-export function recordPendingMessageDelivery(session, deliveredEntries) {
-  if (!session || !Array.isArray(deliveredEntries) || deliveredEntries.length === 0) return;
-  const added = deliveredEntries.map(pendingMessageId).filter(Boolean);
-  if (added.length === 0) return;
-  const ledger = Array.isArray(session.deliveredPendingMessageIds)
-    ? session.deliveredPendingMessageIds.filter((id) => typeof id === 'string' && id)
-    : [];
-  // This may temporarily exceed the nominal bound while spool cleanup is
-  // failing. Never evict an ID whose durable spool copy may still exist.
-  session.deliveredPendingMessageIds = [...new Set([...ledger, ...added])];
-}
-
-async function pruneCleanupConfirmedLedger(
-  sessionId,
-  confirmedEntries,
-  session = null,
-  persist = null,
-  expectedToken = null
-) {
-  const confirmedIds = new Set(
-    (Array.isArray(confirmedEntries) ? confirmedEntries : []).map(pendingMessageId).filter(Boolean)
-  );
-  if (confirmedIds.size === 0) return false;
-  // Same atomic ownership rule as the spool ack: the ledger of a session
-  // whose durable epoch moved belongs to the reopened owner.
-  const token =
-    expectedToken ||
-    (Array.isArray(confirmedEntries) ? confirmedEntries.map(entryLifecycleToken).find(Boolean) : null) ||
-    null;
-  if (token && pendingLifecycleEpochMoved(sessionId, token)) return false;
-  const target = session || loadSession(sessionId);
-  if (!target) return false;
-  const ledger = Array.isArray(target.deliveredPendingMessageIds)
-    ? target.deliveredPendingMessageIds.filter((id) => typeof id === 'string' && id)
-    : [];
-  const kept = ledger.filter((id) => !confirmedIds.has(id));
-  if (kept.length === ledger.length) return false;
-  // Confirmed IDs need no replay protection and are removed immediately
-  // (therefore bounded below any finite confirmed-ID retention cap).
-  // Unconfirmed IDs are never size-evicted.
-  // Re-checked immediately before the mutation: the load above is an await
-  // boundary for the caller's chain.
-  if (token && pendingLifecycleEpochMoved(sessionId, token)) return false;
-  target.deliveredPendingMessageIds = kept;
-  if (typeof persist === 'function') await persist();
-  else await saveSessionAsync(target, { expectedGeneration: target.generation });
-  return true;
 }
 
 export function finalizePendingMessageDelivery(session, deliveredEntries, durableSave, persistPrunedLedger) {
@@ -916,56 +405,6 @@ function clearPersistedPendingMessages(sessionId) {
       pendingWarn(`[session] pending-message clear failed sessionId=${sessionId}: ${err?.message || err}\n`);
     });
   chainSpoolTail(sessionId, operation);
-}
-
-function shouldEvictPendingSession(sessionId, ttlMs, entryTouchedAt, now = Date.now()) {
-  if (isTuiSteeringPendingKey(sessionId)) {
-    const entryTouch = Number(entryTouchedAt) || 0;
-    if (entryTouch <= 0) return false;
-    return now - entryTouch > ttlMs;
-  }
-  const session = loadSession(sessionId);
-  if (session) {
-    const touched = Math.max(
-      Number(session.updatedAt) || 0,
-      Number(session.lastHeartbeatAt) || 0,
-      Number(session.createdAt) || 0
-    );
-    return touched > 0 && now - touched > ttlMs;
-  }
-  const entryTouch = Number(entryTouchedAt) || 0;
-  return entryTouch > 0 && now - entryTouch > PENDING_ORPHAN_GRACE_MS;
-}
-
-export async function sweepOrphanedPendingMessages({ ttlMs = PENDING_ORPHAN_TTL_MS } = {}) {
-  const now = Date.now();
-  const removed = [];
-  try {
-    await updateSpool((raw) => {
-      const next = normalizePendingStore(raw);
-      const ids = Object.keys(next.sessions);
-      if (ids.length === 0) return undefined;
-      for (const sid of ids) {
-        const entryTouchedAt = next.sessionTouchedAt?.[sid];
-        if (shouldEvictPendingSession(sid, ttlMs, entryTouchedAt, now)) {
-          setSpoolQueue(next, sid, []);
-          removed.push(sid);
-        }
-      }
-      if (removed.length === 0) return undefined;
-      next.updatedAt = now;
-      return next;
-    });
-  } catch (err) {
-    pendingWarn(`[session] pending-message sweep failed: ${err?.message || err}\n`);
-    return 0;
-  }
-  if (removed.length > 0) {
-    pendingWarn(
-      `[session] pending-message sweep: removed ${removed.length} stale/orphan queue(s) (ttl=${Math.round(ttlMs / 86400000)}d) (${removed.slice(0, 5).join(', ')}${removed.length > 5 ? `, +${removed.length - 5} more` : ''})\n`
-    );
-  }
-  return removed.length;
 }
 
 export function enqueuePendingMessage(sessionId, message) {
@@ -1345,12 +784,3 @@ export function _setPendingPersistTailForTest(sessionId, promise) {
     Promise.resolve(promise).catch(() => {})
   );
 }
-
-setImmediate(() => {
-  // Spool hygiene belongs to the lead/daemon process. Channel workers share
-  // the same spool file; a boot-time SYNC sweep in every child contends on
-  // the cross-process lock against the lead's writes for zero
-  // benefit — the lead already sweeps.
-  if (process.env.MIXDOG_WORKER_MODE === '1') return;
-  void sweepOrphanedPendingMessages().catch(() => {});
-});

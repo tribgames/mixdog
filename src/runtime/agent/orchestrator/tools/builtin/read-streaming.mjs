@@ -360,12 +360,12 @@ export async function streamHeadWindow(fullPath, st, n, readStateScope, source =
   return out;
 }
 
-export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
-  const windowed = await tryWindowedSmartReadSummary(fullPath, st, source, hooks);
-  if (windowed) return windowed;
-  const displayPath = hooks.displayPath || fullPath;
-
-  const fh = await fsPromises.open(fullPath, 'r');
+/**
+ * One forward pass over the file: renders the head rows and remembers only
+ * the byte offsets of the tail rows in a ring, so an arbitrarily large file
+ * costs one buffer plus the two windows. Bounded by READ_STREAM_TIMEOUT_MS.
+ */
+async function scanSmartReadLines(fh, st) {
   const CHUNK_BYTES = 1024 * 1024;
   const buf = Buffer.allocUnsafe(CHUNK_BYTES);
   const headRows = [];
@@ -397,104 +397,130 @@ export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_
   };
 
   const deadline = Date.now() + READ_STREAM_TIMEOUT_MS;
-  let scanCompleted = false;
-  try {
-    while (position < st.size) {
-      if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
-      const { bytesRead } = await fh.read(buf, 0, CHUNK_BYTES, position);
-      if (bytesRead <= 0) break;
-      if (!prefixHash && position === 0) {
-        prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
-      }
-      position += bytesRead;
-      let start = 0;
-      while (start < bytesRead) {
-        const nl = buf.indexOf(10, start);
-        if (nl === -1 || nl >= bytesRead) break;
-        const segment = buf.subarray(start, nl);
-        const lineBuf =
-          pendingParts.length === 0
-            ? segment
-            : Buffer.concat([...pendingParts, segment], pendingBytes + segment.length);
-        pendingParts = [];
-        pendingBytes = 0;
-        finishLine(lineBuf, currentLineStartByte, position - bytesRead + nl);
-        currentLineStartByte = position - bytesRead + nl + 1;
-        start = nl + 1;
-      }
-      if (start < bytesRead) {
-        const segment = buf.subarray(start, bytesRead);
-        if (segment.length > 0) {
-          pendingParts.push(Buffer.from(segment));
-          pendingBytes += segment.length;
-        }
+  while (position < st.size) {
+    if (Date.now() > deadline) throw new Error(`read timed out after ${READ_STREAM_TIMEOUT_MS}ms`);
+    const { bytesRead } = await fh.read(buf, 0, CHUNK_BYTES, position);
+    if (bytesRead <= 0) break;
+    if (!prefixHash && position === 0) {
+      prefixHash = hashText(buf.subarray(0, Math.min(bytesRead, 65536)));
+    }
+    position += bytesRead;
+    let start = 0;
+    while (start < bytesRead) {
+      const nl = buf.indexOf(10, start);
+      if (nl === -1 || nl >= bytesRead) break;
+      const segment = buf.subarray(start, nl);
+      const lineBuf =
+        pendingParts.length === 0 ? segment : Buffer.concat([...pendingParts, segment], pendingBytes + segment.length);
+      pendingParts = [];
+      pendingBytes = 0;
+      finishLine(lineBuf, currentLineStartByte, position - bytesRead + nl);
+      currentLineStartByte = position - bytesRead + nl + 1;
+      start = nl + 1;
+    }
+    if (start < bytesRead) {
+      const segment = buf.subarray(start, bytesRead);
+      if (segment.length > 0) {
+        pendingParts.push(Buffer.from(segment));
+        pendingBytes += segment.length;
       }
     }
-    if (pendingBytes > 0 || pendingParts.length > 0) {
-      const lineBuf = pendingParts.length === 1 ? pendingParts[0] : Buffer.concat(pendingParts, pendingBytes);
-      finishLine(lineBuf, currentLineStartByte, st.size);
-    }
-    scanCompleted = true;
-  } finally {
-    if (!scanCompleted) await fh.close().catch(() => {});
   }
+  if (pendingBytes > 0 || pendingParts.length > 0) {
+    const lineBuf = pendingParts.length === 1 ? pendingParts[0] : Buffer.concat(pendingParts, pendingBytes);
+    finishLine(lineBuf, currentLineStartByte, st.size);
+  }
+  return { headRows, headRaw, tailRing, tailCount, lineNo, prefixHash };
+}
+
+/** Materializes the remembered tail rows with ONE read of the window they
+ *  span, then renders each row from that buffer. */
+async function readSmartReadTail(fh, { tailRing, tailCount }) {
+  const tailLen = Math.min(tailCount, SMART_READ_TAIL_LINES);
+  const tailOffsets = [];
+  for (let i = tailCount - tailLen; i < tailCount; i++) {
+    const entry = tailRing[((i % SMART_READ_TAIL_LINES) + SMART_READ_TAIL_LINES) % SMART_READ_TAIL_LINES];
+    if (entry) tailOffsets.push(entry);
+  }
+  const tailEntries = [];
+  if (tailOffsets.length > 0) {
+    const firstStart = tailOffsets[0].startByte;
+    const lastEnd = tailOffsets[tailOffsets.length - 1].endByte;
+    const byteLen = Math.max(0, lastEnd - firstStart);
+    let tailWindow = Buffer.alloc(0);
+    if (byteLen > 0) {
+      tailWindow = Buffer.allocUnsafe(byteLen);
+      const { bytesRead } = await fh.read(tailWindow, 0, byteLen, firstStart);
+      if (bytesRead < byteLen) tailWindow = tailWindow.subarray(0, bytesRead);
+    }
+    for (const entry of tailOffsets) {
+      let rawBuf = tailWindow.subarray(entry.startByte - firstStart, entry.endByte - firstStart);
+      if (rawBuf.length > 0 && rawBuf[rawBuf.length - 1] === 13) rawBuf = rawBuf.subarray(0, rawBuf.length - 1);
+      const raw = rawBuf.toString('utf-8');
+      tailEntries.push({ lineNo: entry.lineNo, raw, rendered: renderReadLine(entry.lineNo, raw) });
+    }
+  }
+  return tailEntries;
+}
+
+/** Shrinks head and tail by whole rendered rows until the joined text fits
+ *  the byte cap, and reports which rows survived. */
+function fitSmartReadText({ headRows, headRaw, tailEntries, marker }) {
+  let headTake = headRows.length;
+  let tailTake = tailEntries.length;
+  let text = '';
+  let selectedHeadRows = headRows;
+  let selectedHeadRaw = headRaw;
+  let selectedTailEntries = tailEntries;
+  while (true) {
+    selectedHeadRows = headRows.slice(0, headTake);
+    selectedHeadRaw = headRaw.slice(0, headTake);
+    selectedTailEntries = tailEntries.slice(Math.max(0, tailEntries.length - tailTake));
+    const head = selectedHeadRows.join('\n');
+    const tail = selectedTailEntries.map((entry) => entry.rendered).join('\n');
+    text = `${head}\n${marker()}\n${tail}`;
+    // Byte-accurate compare against the byte-oriented cap; head/tail
+    // shrinking drops whole rendered rows so the seam never lands
+    // mid-codepoint.
+    if (Buffer.byteLength(text, 'utf8') <= READ_MAX_OUTPUT_BYTES || (headTake <= 1 && tailTake <= 1)) break;
+    if (headTake >= tailTake && headTake > 1) {
+      headTake = Math.max(1, Math.floor(headTake * 0.75));
+    } else if (tailTake > 1) {
+      tailTake = Math.max(1, Math.floor(tailTake * 0.75));
+    } else {
+      break;
+    }
+  }
+  return { text, selectedHeadRaw, selectedTailEntries };
+}
+
+export async function streamSmartReadSummary(fullPath, st, source = 'read_smart_stream', hooks = {}) {
+  const windowed = await tryWindowedSmartReadSummary(fullPath, st, source, hooks);
+  if (windowed) return windowed;
+  const displayPath = hooks.displayPath || fullPath;
+
+  const fh = await fsPromises.open(fullPath, 'r');
+  let scan = null;
+  try {
+    scan = await scanSmartReadLines(fh, st);
+  } finally {
+    if (!scan) await fh.close().catch(() => {});
+  }
+  const { headRows, headRaw, lineNo, prefixHash } = scan;
 
   try {
-    const tailLen = Math.min(tailCount, SMART_READ_TAIL_LINES);
-    const tailOffsets = [];
-    for (let i = tailCount - tailLen; i < tailCount; i++) {
-      const entry = tailRing[((i % SMART_READ_TAIL_LINES) + SMART_READ_TAIL_LINES) % SMART_READ_TAIL_LINES];
-      if (entry) tailOffsets.push(entry);
-    }
-    const tailEntries = [];
-    if (tailOffsets.length > 0) {
-      const firstStart = tailOffsets[0].startByte;
-      const lastEnd = tailOffsets[tailOffsets.length - 1].endByte;
-      const byteLen = Math.max(0, lastEnd - firstStart);
-      let tailWindow = Buffer.alloc(0);
-      if (byteLen > 0) {
-        tailWindow = Buffer.allocUnsafe(byteLen);
-        const { bytesRead } = await fh.read(tailWindow, 0, byteLen, firstStart);
-        if (bytesRead < byteLen) tailWindow = tailWindow.subarray(0, bytesRead);
-      }
-      for (const entry of tailOffsets) {
-        let rawBuf = tailWindow.subarray(entry.startByte - firstStart, entry.endByte - firstStart);
-        if (rawBuf.length > 0 && rawBuf[rawBuf.length - 1] === 13) rawBuf = rawBuf.subarray(0, rawBuf.length - 1);
-        const raw = rawBuf.toString('utf-8');
-        tailEntries.push({ lineNo: entry.lineNo, raw, rendered: renderReadLine(entry.lineNo, raw) });
-      }
-    }
+    const tailEntries = await readSmartReadTail(fh, scan);
     const headCount = Math.min(SMART_READ_HEAD_LINES, lineNo);
     const tailStartIdx = Math.max(headCount, lineNo - SMART_READ_TAIL_LINES);
     const elidedRows = tailStartIdx - headCount;
     if (elidedRows <= 0) return null;
 
-    let headTake = headRows.length;
-    let tailTake = tailEntries.length;
-    let text = '';
-    let selectedHeadRows = headRows;
-    let selectedHeadRaw = headRaw;
-    let selectedTailEntries = tailEntries;
-    const marker = () => buildSmartReadTruncationMarker(lineNo, st.size, displayPath);
-    while (true) {
-      selectedHeadRows = headRows.slice(0, headTake);
-      selectedHeadRaw = headRaw.slice(0, headTake);
-      selectedTailEntries = tailEntries.slice(Math.max(0, tailEntries.length - tailTake));
-      const head = selectedHeadRows.join('\n');
-      const tail = selectedTailEntries.map((entry) => entry.rendered).join('\n');
-      text = `${head}\n${marker()}\n${tail}`;
-      // Byte-accurate compare against the byte-oriented cap; head/tail
-      // shrinking drops whole rendered rows so the seam never lands
-      // mid-codepoint.
-      if (Buffer.byteLength(text, 'utf8') <= READ_MAX_OUTPUT_BYTES || (headTake <= 1 && tailTake <= 1)) break;
-      if (headTake >= tailTake && headTake > 1) {
-        headTake = Math.max(1, Math.floor(headTake * 0.75));
-      } else if (tailTake > 1) {
-        tailTake = Math.max(1, Math.floor(tailTake * 0.75));
-      } else {
-        break;
-      }
-    }
+    const { text, selectedHeadRaw, selectedTailEntries } = fitSmartReadText({
+      headRows,
+      headRaw,
+      tailEntries,
+      marker: () => buildSmartReadTruncationMarker(lineNo, st.size, displayPath),
+    });
 
     const ranges = [];
     const rangeHashes = [];

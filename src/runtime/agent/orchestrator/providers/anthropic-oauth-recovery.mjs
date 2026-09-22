@@ -5,14 +5,10 @@
  * retraction handshake (onTextReset) that must precede that replay.
  */
 import { PROVIDER_NONSTREAM_TOTAL_TIMEOUT_MS, createTimeoutSignal } from '../stall-policy.mjs';
-import {
-  AnthropicFallbackTriggeredError,
-  markProviderRecoveryExhausted,
-  resolveStallRetryBudget,
-  STREAM_STALL_RETRY_BUDGET_MS,
-} from './retry-classifier.mjs';
+import { AnthropicFallbackTriggeredError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
 import { cloneAnthropicEffortBody } from './effort-configuration.mjs';
 import { normalizeAnthropicNonStreamingResponse } from './lib/anthropic-request-utils.mjs';
+import { createAnthropicRecoveryGuards } from './anthropic-recovery-guards.mjs';
 
 /**
  * @param {object} deps
@@ -39,24 +35,6 @@ export function createAnthropicOAuthRecovery({
   onStageChange,
   onTextReset,
 }) {
-  // Shared logical-send window: provider fallback and loop replay consume
-  // the same recovery budget.
-  const stallRetryBudget = resolveStallRetryBudget(opts);
-  const requireTransportRecoveryBudget = (error, controller) => {
-    if (stallRetryBudget.allowStallRetry()) return;
-    try {
-      process.stderr.write(
-        `[anthropic-oauth] transport recovery budget exhausted (${STREAM_STALL_RETRY_BUDGET_MS}ms since first failure)\n`
-      );
-    } catch {}
-    try {
-      controller?.abort?.(error);
-    } catch {}
-    throw markProviderRecoveryExhausted(error, {
-      owner: 'anthropic-oauth-transport-budget',
-    });
-  };
-
   // Core non-streaming re-issue: abort the dead stream and repeat the
   // SAME request with stream:false. Shared by the exposed-text recovery
   // (which must first get the owner's onTextReset acknowledgement) and
@@ -139,45 +117,15 @@ export function createAnthropicOAuthRecovery({
     }
   };
 
-  // Exposed text AND exposed thinking are both retractable: the owner
-  // truncates its live tail / collapses the thinking segment and acks,
-  // after which the full request is repeated non-streaming. Only a
-  // dispatched or partially streamed tool call is a hard replay
-  // boundary (re-running would duplicate a side effect).
-  const recoverNonStreaming = async (midState, streamingError, controller) => {
-    const exposedChars = Number(midState?.emittedTextChars) || 0;
-    const exposedReasoning = midState?.emittedThinking === true;
-    if (
-      !onTextReset ||
-      (exposedChars <= 0 && !exposedReasoning) ||
-      midState.emittedToolCall ||
-      midState.partialToolCall
-    ) {
-      try {
-        streamingError.liveTextEmitted = true;
-        streamingError.unsafeToRetry = true;
-      } catch {}
-      throw streamingError;
-    }
-    let resetAccepted = false;
-    try {
-      resetAccepted =
-        (await onTextReset({
-          chars: exposedChars,
-          reasoning: exposedReasoning,
-          reason: 'anthropic-streaming-fallback',
-        })) === true;
-    } catch {}
-    if (!resetAccepted) {
-      try {
-        streamingError.liveTextEmitted = true;
-        streamingError.unsafeToRetry = true;
-      } catch {}
-      throw streamingError;
-    }
-    requireTransportRecoveryBudget(streamingError, controller);
-    return issueNonStreamingFallback(controller, streamingError);
-  };
+  // Transport-recovery budget + the exposed-output retraction handshake are
+  // transport-independent; both Anthropic providers share them.
+  const { requireTransportRecoveryBudget, recoverNonStreaming } = createAnthropicRecoveryGuards({
+    label: 'anthropic-oauth',
+    budgetOwner: 'anthropic-oauth-transport-budget',
+    opts,
+    onTextReset,
+    issueNonStreamingFallback,
+  });
 
   return { requireTransportRecoveryBudget, issueNonStreamingFallback, recoverNonStreaming };
 }

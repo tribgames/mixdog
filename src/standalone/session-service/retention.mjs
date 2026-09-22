@@ -12,7 +12,7 @@
  * daemon's lifetime by merely leaving a tab open); the next change rebuilds
  * it as one full frame.
  */
-import { hasActiveBackgroundTasks } from '../../runtime/shared/background-tasks.mjs';
+import { createBusyTracker } from './retention/busy.mjs';
 
 /**
  * @param {object} deps
@@ -31,43 +31,8 @@ export function createSessionRetention({
   destroy,
 }) {
   let evictTimer = null;
-
-  function stateBusy(state) {
-    return (
-      state?.busy === true || state?.commandBusy === true || (Array.isArray(state?.queued) && state.queued.length > 0)
-    );
-  }
-
-  function updateEntryBusy(entry, state) {
-    const next = stateBusy(state);
-    entry.busy = next;
-    return next;
-  }
-
-  function sessionBusy(entry) {
-    const sessionId = currentSessionId(entry);
-    // Detached views do not make their background commands disposable. Keep
-    // the owner runtime (and daemon self-shutdown guard) live until the task
-    // reaches a terminal state and its completion can be delivered back into
-    // this session.
-    if (sessionId && hasActiveBackgroundTasks({ callerSessionId: sessionId })) return true;
-    if (typeof entry?.busy === 'boolean') return entry.busy;
-    try {
-      return updateEntryBusy(entry, entry.runtime.getState?.() || {});
-    } catch {
-      // A session runtime we cannot read is never assumed idle — losing a live
-      // turn is far worse than holding an extra process for one sweep.
-      return true;
-    }
-  }
-
-  function liveBusyCount() {
-    let count = 0;
-    for (const entry of sessions) {
-      if (sessionBusy(entry)) count += 1;
-    }
-    return count;
-  }
+  const busy = createBusyTracker({ sessions, currentSessionId });
+  const { sessionBusy } = busy;
 
   function releaseProjection(entry) {
     if (!entry) return;
@@ -143,10 +108,7 @@ export function createSessionRetention({
   }
 
   return {
-    stateBusy,
-    updateEntryBusy,
-    sessionBusy,
-    liveBusyCount,
+    ...busy,
     releaseProjection,
     startEvictionSweep,
     stopEvictionSweepIfIdle,

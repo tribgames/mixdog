@@ -18,21 +18,19 @@
 import { createHash } from 'node:crypto';
 
 import { sendViaWebSocket } from './openai-oauth-ws.mjs';
-import { _combineUsageWithWarmup } from './openai-ws-events.mjs';
 import { acquireWebSocket, releaseWebSocket, hasPooledWebSocket } from './openai-ws-pool.mjs';
 import {
   armStartupPrewarmReservation,
   buildStartupPrewarmSendOpts,
   claimStartupPrewarmReservation,
   codexStartupPrefixHash,
-  discardStartupPrewarmReservation,
   hasStartupPrewarmReservation,
   resolveStartupPrewarmTarget,
   retireStartupPrewarmRecord,
   stampStartupPrewarmReservation,
-  startupPromptWarmupEnabled,
   traceStartupPrewarm,
 } from './openai-startup-prewarm.mjs';
+import { createOpenAiOAuthDispatch, isOpenAiOAuthHandshakeHttpFallback } from './openai-oauth-dispatch.mjs';
 import { _codexWsCompatibilityHeaders } from './openai-codex-metadata.mjs';
 import { resolveOpenAiTransportPolicy } from './openai-transport-policy.mjs';
 import {
@@ -40,14 +38,12 @@ import {
   resolveProviderPromptCacheLane,
   resolveProviderCacheKey,
 } from '../agent-runtime/cache-strategy.mjs';
-import { appendAgentTrace } from '../agent-trace.mjs';
 import { preconnect } from '../../../shared/llm/http-agent.mjs';
-import { sendViaHttpSse, _envFlag, _shouldUseOpenAIHttpFallback } from './openai-oauth-http-sse.mjs';
+import { sendViaHttpSse, _envFlag } from './openai-oauth-http-sse.mjs';
 import { warmCodexClientVersion } from './codex-client-meta.mjs';
 import { CODEX_BACKEND_ORIGIN } from './openai-codex-endpoints.mjs';
 import { loadTokens, refreshStoredTokens, tokensFileMtimeMs, TOKEN_REFRESH_SKEW_MS } from './openai-oauth-tokens.mjs';
 import {
-  codexCatalogHas,
   codexModelSupportsServiceTier,
   ensureLatestCodexModel,
   findCachedCodexModel,
@@ -59,7 +55,7 @@ export { _displayCodexModel };
 
 // Public test/integration entry retained alongside the transport module export.
 export { sendViaHttpSse };
-import { buildCodexStartupPrewarmBody, buildRequestBody } from './openai-responses-payload.mjs';
+import { buildRequestBody } from './openai-responses-payload.mjs';
 export {
   buildCodexStartupPrewarmBody,
   buildRequestBody,
@@ -92,30 +88,6 @@ export {
   codexModelSupportsServiceTier,
   findCachedCodexModel as _findCachedCodexModel,
 } from './openai-oauth-catalog.mjs';
-
-function openAiOAuthHandshakeErrorPolicy({ status }) {
-  if (Number(status) === 404) {
-    return { retry: false, httpFallback: true };
-  }
-  return null;
-}
-
-function isOpenAiOAuthHandshakeHttpFallback(err, externalSignal) {
-  if (
-    externalSignal?.aborted ||
-    err?.liveTextEmitted === true ||
-    err?.emittedToolCall === true ||
-    err?.toolCallEmitted === true ||
-    err?.unsafeToRetry === true
-  ) {
-    return false;
-  }
-  return (
-    Number(err?.httpStatus || err?.status || 0) === 404 &&
-    err?.wsFailurePhase === 'handshake' &&
-    err?.wsHttpFallbackEligible === true
-  );
-}
 
 export class OpenAIOAuthProvider {
   // OpenAI input_tokens already INCLUDES cached_tokens (cached is a subset),
@@ -237,7 +209,9 @@ export class OpenAIOAuthProvider {
     // cached) so the first turn after boot doesn't report the offline
     // floor and trip the backend's minimal_client_version gate.
     const _verP = warmCodexClientVersion();
-    let auth = await _authP;
+    // Credential holder: the 401 recovery below replaces the token and both
+    // dispatches must see the replacement.
+    const authState = { tokens: await _authP };
     await _verP;
     const body = await _bodyP;
     // poolKey != cacheKey by design. poolKey isolates socket/delta state per
@@ -247,10 +221,12 @@ export class OpenAIOAuthProvider {
     const poolKey = opts.sessionId || null;
     const cacheKey = body.prompt_cache_key || resolveProviderCacheKey(opts, 'openai-oauth');
     const startupPrefixHash = codexStartupPrefixHash(body);
-    let startupPrewarmHandle =
-      opts._startupPrewarmOnly === true
-        ? null
-        : this._claimStartupPrewarmHandle({ poolKey, cacheKey, prefixHash: startupPrefixHash });
+    const prewarmState = {
+      handle:
+        opts._startupPrewarmOnly === true
+          ? null
+          : this._claimStartupPrewarmHandle({ poolKey, cacheKey, prefixHash: startupPrefixHash }),
+    };
     const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
     const sendWs = typeof opts._sendViaWebSocketFn === 'function' ? opts._sendViaWebSocketFn : sendViaWebSocket;
     const sendHttp = typeof opts._sendViaHttpSseFn === 'function' ? opts._sendViaHttpSseFn : sendViaHttpSse;
@@ -259,183 +235,41 @@ export class OpenAIOAuthProvider {
     // retry budget. This mirrors _shouldUseOpenAIHttpFallback's `enabled`.
     const transportPolicy = resolveOpenAiTransportPolicy();
     const httpFallbackEnabled = transportPolicy.allowHttpFallback && _envFlag('MIXDOG_OPENAI_HTTP_FALLBACK', true);
-    const shouldUseHttpFallback = (error) => {
-      if (!httpFallbackEnabled) return false;
-      if (isOpenAiOAuthHandshakeHttpFallback(error, externalSignal)) return true;
-      const status = Number(error?.httpStatus || error?.status || 0);
-      return (
-        (status === 426 || error?.wsRetriesExhausted === true) && _shouldUseOpenAIHttpFallback(error, externalSignal)
-      );
-    };
     const _t1 = Date.now();
-    const recordLiveModel = (result) => {
-      if (result?.model && !codexCatalogHas(result.model)) {
-        void this._refreshModelCache();
-      }
-      if (result && opts.providerState !== undefined && result.providerState === undefined) {
-        result.providerState = opts.providerState;
-      }
-      return result;
-    };
-    const httpFallbackActive = () => {
-      if (!poolKey) return false;
-      const now = Date.now();
-      for (const [key, expiresAt] of this._httpFallbackUntilByPoolKey) {
-        if (!(expiresAt > now)) this._httpFallbackUntilByPoolKey.delete(key);
-      }
-      return (this._httpFallbackUntilByPoolKey.get(poolKey) || 0) > now;
-    };
-    const markStickyHttpFallback = () => {
-      if (!poolKey) return;
-      // Codex disables WebSockets for the remainder of this session after
-      // stream retry exhaustion or a typed unsupported upgrade (404/426).
-      this._httpFallbackUntilByPoolKey.set(poolKey, Number.POSITIVE_INFINITY);
-    };
-    const traceTransportError = (err, stage = 'primary', transport = 'websocket') => {
-      try {
-        appendAgentTrace({
-          sessionId: poolKey,
-          iteration,
-          kind: 'transport_error',
-          provider: 'openai-oauth',
-          model: useModel,
-          transport,
-          payload: {
-            stage,
-            error_code: err?.code || null,
-            error_http_status: Number(err?.httpStatus || 0) || null,
-            error_ws_close_code: err?.wsCloseCode ?? null,
-            error_classifier: err?.retryClassifier || err?.midstreamClassifier || null,
-            ws_retries: err?.midstreamRetries ?? null,
-            live_text_emitted: err?.liveTextEmitted === true || err?.unsafeToRetry === true,
-            message: String(err?.message || err || '').slice(0, 500),
-          },
-        });
-      } catch {}
-    };
-    const dispatchHttp = async (reason, originalErr = null, { sticky = false } = {}) => {
-      // Transport switching is a session decision, not an HTTP-success
-      // side effect. Persist it before the fallback can fail or abort.
-      if (sticky) markStickyHttpFallback();
-      appendAgentTrace({
-        sessionId: poolKey,
-        iteration,
-        kind: 'transport_fallback',
-        provider: 'openai-oauth',
-        model: useModel,
-        transport: 'http',
-        payload: {
-          from: 'websocket',
-          to: 'http',
-          reason,
-          error_code: originalErr?.code || null,
-          error_http_status: Number(originalErr?.httpStatus || 0) || null,
-          error_classifier: originalErr?.retryClassifier || originalErr?.midstreamClassifier || null,
-        },
-      });
-      if (reason === 'forced') {
-        if (_envFlag('MIXDOG_OPENAI_OAUTH_LOG_FORCED_FALLBACK', false)) {
-          process.stderr.write('[openai-oauth] WebSocket bypassed (forced); using HTTP/SSE\n');
-        }
-      } else {
-        if (!process.env.MIXDOG_QUIET_PROVIDER_LOG)
-          process.stderr.write(`[openai-oauth] WebSocket unhealthy (${reason}); falling back to HTTP/SSE\n`);
-      }
-      let result;
-      try {
-        result = await sendHttp({
-          auth,
-          body,
-          opts,
-          onStreamDelta,
-          onToolCall,
-          onTextDelta,
-          onStageChange,
-          externalSignal,
-          poolKey,
-          cacheKey,
-          iteration,
-          useModel,
-          fetchFn: opts._fetchFn,
-        });
-      } catch (httpErr) {
-        // The current transport owns the terminal decision, including
-        // auth, rate limits, cancellation and output-safety markers.
-        // Keep WS history outside `cause`: retry classifiers walk that
-        // chain and must not revive a stale transport failure.
-        if (originalErr && originalErr !== httpErr) {
-          try {
-            httpErr.previousTransportError = originalErr;
-          } catch {}
-        }
-        traceTransportError(httpErr, reason === 'forced' ? 'primary' : 'fallback', 'http');
-        throw httpErr;
-      }
-      if (originalErr?.__warmup?.usage) {
-        result.usage = _combineUsageWithWarmup(result.usage, originalErr.__warmup.usage, {
-          separateMainContext: true,
-        });
-      }
-      if (process.env.MIXDOG_DEBUG_AGENT) {
-        process.stderr.write(
-          `[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok transport=http-fallback\n`
-        );
-      }
-      return recordLiveModel(result);
-    };
-    const dispatchWs = (forceFresh = false, carriedWarmup = null) => {
-      const prewarmedHandle = forceFresh ? null : startupPrewarmHandle;
-      startupPrewarmHandle = null;
-      return sendWs({
-        auth,
-        body,
-        sendOpts: opts,
-        onStreamDelta,
-        onToolCall,
-        onTextDelta,
-        onStageChange,
-        externalSignal,
-        poolKey,
-        cacheKey,
-        iteration,
-        useModel,
-        displayModel: _displayCodexModel,
-        forceFresh,
-        handshakeErrorPolicy: openAiOAuthHandshakeErrorPolicy,
-        // Default refs-style recovery: keep using WS first. A transient
-        // first-byte / mid-stream stall closes the bad socket and retries on
-        // a fresh WS entry; only after the bounded WS retry budget is
-        // exhausted does openai-oauth fall back to HTTP/SSE. This preserves
-        // the hot WS/cache path for temporary blips while still preventing
-        // TUI-level hangs. Sticky HTTP fallback is only armed after this
-        // bounded reconnect budget is exhausted.
-        // Per-send warmup, matching the reference client: build from the
-        // stable request properties (instructions/tools/etc.) but never
-        // send the live transcript/user input. The completed
-        // generate:false response is retained by the WS transport and
-        // anchors the first real request. Gated by
-        // startupPromptWarmupEnabled() — see openai-startup-prewarm.mjs
-        // for why it is off by default.
-        warmupBody: startupPromptWarmupEnabled() ? buildCodexStartupPrewarmBody(body) : null,
-        _carriedWarmup: carriedWarmup,
-        _prewarmedHandle: prewarmedHandle,
-      });
-    };
+    // WS and HTTP/SSE dispatch, the sticky per-session transport switch, the
+    // fallback policy and the transport traces (openai-oauth-dispatch.mjs).
+    const dispatch = createOpenAiOAuthDispatch({
+      provider: this,
+      opts,
+      body,
+      authState,
+      prewarmState,
+      poolKey,
+      cacheKey,
+      iteration,
+      useModel,
+      externalSignal,
+      onStreamDelta,
+      onToolCall,
+      onTextDelta,
+      onStageChange,
+      sendWs,
+      sendHttp,
+      startedAt: _t1,
+      httpFallbackEnabled,
+    });
     if (
       transportPolicy.transport === 'http' ||
       (transportPolicy.allowHttpFallback &&
         (opts.forceHttpFallback === true ||
-          httpFallbackActive() ||
+          dispatch.httpFallbackActive() ||
           _envFlag('MIXDOG_OPENAI_OAUTH_FORCE_HTTP_FALLBACK', false)))
     ) {
-      // HTTP cannot adopt a reserved socket; give it back before the
-      // turn leaves the WS path for good.
-      discardStartupPrewarmReservation(startupPrewarmHandle, poolKey);
-      startupPrewarmHandle = null;
+      dispatch.discardPrewarmReservation();
       if (opts._startupPrewarmOnly === true) {
         return { startupPrewarm: false };
       }
-      return dispatchHttp('forced');
+      return dispatch.dispatchHttp('forced');
     }
 
     // Prefer WebSocket for hot cache/delta transport; fall back to HTTP/SSE
@@ -446,7 +280,7 @@ export class OpenAIOAuthProvider {
           `[agent-trace] provider-send-start model=${useModel} agent=${_sendAgent} sessionHash=${createHash('sha256').update(String(_sendSessionId)).digest('hex').slice(0, 8)} iteration=${iteration ?? '(none)'}\n`
         );
       }
-      const result = await dispatchWs(false);
+      const result = await dispatch.dispatchWs(false);
       if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`);
       }
@@ -455,9 +289,9 @@ export class OpenAIOAuthProvider {
       if (opts._startupPrewarmOnly === true && result?.startupPrewarmHandle) {
         stampStartupPrewarmReservation(result.startupPrewarmHandle, startupPrefixHash);
       }
-      return recordLiveModel(result);
+      return dispatch.recordLiveModel(result);
     } catch (err) {
-      traceTransportError(err, 'primary');
+      dispatch.traceTransportError(err, 'primary');
       if (opts._startupPrewarmOnly === true) throw err;
       const status = err?.httpStatus;
       // Live-text invariant: if the WS attempt already relayed a
@@ -473,17 +307,17 @@ export class OpenAIOAuthProvider {
           process.stderr.write(`[agent-trace] provider-${status}-retry attempt=1\n`);
         }
         this._refreshFallbackUntil = 0;
-        auth = await this.ensureAuth({ forceRefresh: true, reason: String(status) });
+        authState.tokens = await this.ensureAuth({ forceRefresh: true, reason: String(status) });
         try {
-          const result = await dispatchWs(true, err?.__warmup || null);
+          const result = await dispatch.dispatchWs(true, err?.__warmup || null);
           if (process.env.MIXDOG_DEBUG_AGENT) {
             process.stderr.write(`[agent-trace] provider-send-end elapsed=${Date.now() - _t1}ms result=ok\n`);
           }
-          return recordLiveModel(result);
+          return dispatch.recordLiveModel(result);
         } catch (retryErr) {
-          traceTransportError(retryErr, 'auth_retry');
-          if (shouldUseHttpFallback(retryErr)) {
-            return dispatchHttp(
+          dispatch.traceTransportError(retryErr, 'auth_retry');
+          if (dispatch.shouldUseHttpFallback(retryErr)) {
+            return dispatch.dispatchHttp(
               retryErr?.retryClassifier || retryErr?.code || retryErr?.message || 'ws_auth_retry_failed',
               retryErr,
               { sticky: true }
@@ -509,8 +343,8 @@ export class OpenAIOAuthProvider {
         await this._refreshModelCache();
         return this.send(messages, model, tools, { ...opts, _modelRetry: true });
       }
-      if (shouldUseHttpFallback(err)) {
-        return dispatchHttp(
+      if (dispatch.shouldUseHttpFallback(err)) {
+        return dispatch.dispatchHttp(
           err?.retryClassifier || err?.midstreamClassifier || err?.code || err?.message || 'ws_failed',
           err,
           { sticky: true }

@@ -38,15 +38,8 @@ import {
   probeDiskCodeGraphEntry,
   _setDiskCodeGraphEntry,
 } from './disk-cache.mjs';
-import {
-  _runGraphManifest,
-  _runGraphWalk,
-  _runGraphFiles,
-  _fileInfoFromRustRecord,
-  _reuseFileInfo,
-  callsWireSignatureToken,
-  awaitCallsWireProbe,
-} from './graph-binary.mjs';
+import { _runGraphManifest, callsWireSignatureToken, awaitCallsWireProbe } from './graph-binary.mjs';
+import { assembleGraphNodes, linkGraphImports, resolveGraphFileInfos } from './build-file-infos.mjs';
 import { _lookupCandidateNodes } from './symbol-index.mjs';
 import { _findDirProjectRoot } from './project-root.mjs';
 
@@ -55,7 +48,6 @@ import { _findDirProjectRoot } from './project-root.mjs';
 // spawn instead of fanning out. Entry removed on settle so the next caller
 // after a failure can retry.
 const _inflightAsyncBuilds = new Map();
-const CODE_GRAPH_FILES_ARG_MAX_CHARS = 16_000;
 
 function _usesWindowsPathSemantics(value) {
   return /^[A-Za-z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value);
@@ -240,57 +232,6 @@ export function _postCodeGraphWorkerSuccess(
 // collisions between scoped and ordinary builds.
 function _codeGraphInflightKey(graphCwd, { scoped = false, maxFiles = CODE_GRAPH_MAX_FILES, prefixes = [] } = {}) {
   return scoped ? JSON.stringify(['scope', graphCwd, maxFiles, prefixes]) : JSON.stringify(['root', graphCwd]);
-}
-
-// Keep the existing binary protocol while bounding Windows command-line size.
-// Each invocation still resolves against the whole tree. Duplicate lightweight
-// reused records are merged so relationship fields survive every chunk.
-async function _runGraphFilesChunked(
-  absRoot,
-  rels,
-  reusedMetas,
-  { maxArgChars = CODE_GRAPH_FILES_ARG_MAX_CHARS, runGraphFiles = _runGraphFiles } = {}
-) {
-  const budget = Math.max(1, Math.floor(Number(maxArgChars) || CODE_GRAPH_FILES_ARG_MAX_CHARS));
-  const chunks = [];
-  let chunk = [];
-  let chars = 0;
-  for (const rel of Array.isArray(rels) ? rels : []) {
-    const cost = String(rel).length + 3; // separator plus conservative quoting margin
-    if (cost > budget) throw new Error(`code-graph relative path exceeds --files argument budget: ${rel}`);
-    if (chunk.length && chars + cost > budget) {
-      chunks.push(chunk);
-      chunk = [];
-      chars = 0;
-    }
-    chunk.push(rel);
-    chars += cost;
-  }
-  if (chunk.length) chunks.push(chunk);
-
-  const merged = new Map();
-  for (const relChunk of chunks) {
-    const records = await runGraphFiles(absRoot, relChunk, reusedMetas);
-    for (const rec of Array.isArray(records) ? records : []) {
-      if (!rec || typeof rec.rel !== 'string') continue;
-      const previous = merged.get(rec.rel);
-      if (!previous) {
-        merged.set(rec.rel, rec);
-        continue;
-      }
-      const next = { ...previous, ...rec };
-      for (const field of ['resolvedImports', 'importedBy']) {
-        next[field] = [
-          ...new Set([
-            ...(Array.isArray(previous[field]) ? previous[field] : []),
-            ...(Array.isArray(rec[field]) ? rec[field] : []),
-          ]),
-        ];
-      }
-      merged.set(rec.rel, next);
-    }
-  }
-  return [...merged.values()];
 }
 
 function _codeGraphWorkerFailure(message) {
@@ -651,99 +592,18 @@ export async function _buildCodeGraph(
   }
 
   // 4. Build fileInfos. Reuse unchanged nodes by fp; parse the rest in Rust.
-  const reusable = [];
-  const freshRels = [];
-  // A node reused from a cache entry that was never hydrated carries NO call
-  // sites (the main entry has none; they live in the sidecar). Such a rebuild
-  // must stay eligible for the lazy sidecar read, otherwise one incremental
-  // build silently strips every unchanged file of its call sites.
-  let reusedWithoutCalls = false;
-  for (const meta of indexed) {
-    const previousNode = previousGraph?.nodes?.get(meta.rel) || null;
-    if (previousNode && previousNode.fingerprint === meta.fp) {
-      if (!Array.isArray(previousNode.calls)) reusedWithoutCalls = true;
-      reusable.push(_reuseFileInfo(previousNode, previousGraph, absRoot));
-    } else {
-      freshRels.push(meta.rel);
-    }
-  }
-  let fileInfos;
-  if (freshRels.length === 0) {
-    fileInfos = reusable;
-  } else if (reusable.length > 0 && freshRels.length <= 256) {
-    const recs = await _runGraphFilesChunked(absRoot, freshRels, reusable);
-    const reusedByRel = new Map(reusable.map((info) => [info.rel, info]));
-    const freshSet = new Set(freshRels);
-    fileInfos = [...reusable];
-    for (const rec of recs) {
-      if (freshSet.has(rec.rel)) {
-        fileInfos.push(_fileInfoFromRustRecord(rec, absRoot));
-      } else {
-        const reusedInfo = reusedByRel.get(rec.rel);
-        if (!reusedInfo) continue;
-        const resolved = Array.isArray(rec.resolvedImports)
-          ? rec.resolvedImports.filter((v) => typeof v === 'string')
-          : [];
-        reusedInfo.resolvedImports = resolved;
-        if (Array.isArray(rec.importedBy)) {
-          reusedInfo.importedBy = rec.importedBy.filter((v) => typeof v === 'string');
-        }
-      }
-    }
-  } else if (scoped.prefixes.length) {
-    const recs = await _runGraphFilesChunked(absRoot, freshRels, reusable);
-    fileInfos = recs.map((rec) => _fileInfoFromRustRecord(rec, absRoot));
-  } else {
-    let recs = await _runGraphWalk(absRoot);
-    if (recs.length > maxFiles) recs = recs.slice(0, maxFiles);
-    fileInfos = recs.map((rec) => _fileInfoFromRustRecord(rec, absRoot));
-  }
-  const allowedRels = new Set(indexed.map((meta) => meta.rel));
-  for (const info of fileInfos) {
-    info.resolvedImports = (info.resolvedImports || []).filter((rel) => allowedRels.has(rel));
-    info.importedBy = [];
-  }
-  const importedBy = new Map(fileInfos.map((info) => [info.rel, []]));
-  for (const info of fileInfos) {
-    for (const targetRel of info.resolvedImports) {
-      const sources = importedBy.get(targetRel);
-      if (sources) sources.push(info.rel);
-    }
-  }
-  for (const info of fileInfos) {
-    info.importedBy = [...new Set(importedBy.get(info.rel) || [])];
-  }
+  const { fileInfos, reusedWithoutCalls } = await resolveGraphFileInfos({
+    absRoot,
+    indexed,
+    previousGraph,
+    prefixes: scoped.prefixes,
+    maxFiles,
+  });
+  // 5. Import closure, restricted to the indexed scope.
+  linkGraphImports({ fileInfos, indexed });
   _trace('walk+parse');
-  const nodes = new Map();
-  const reverse = new Map();
-  for (const info of fileInfos) {
-    const resolvedImportsRel = Array.isArray(info.resolvedImports) ? info.resolvedImports : [];
-    const importedBy = Array.isArray(info.importedBy) ? info.importedBy : [];
-    const node = {
-      abs: info.abs,
-      rel: info.rel,
-      lang: info.lang,
-      fingerprint: info.fingerprint,
-      parseError: info.parseError || '',
-      rawImports: info.rawImports,
-      resolvedImportsRel,
-      resolvedImports: resolvedImportsRel.map((rel) => pathResolve(absRoot, rel)),
-      importedBy,
-      packageName: info.packageName,
-      namespaceName: info.namespaceName,
-      goPackageName: info.goPackageName,
-      topLevelTypes: info.topLevelTypes,
-      tokenSymbols: info.tokenSymbols,
-      symbols: Array.isArray(info.symbols) ? info.symbols : [],
-      // null = unknown (binary without `calls`), [] = no call sites.
-      calls: Array.isArray(info.calls) ? info.calls : null,
-    };
-    nodes.set(info.rel, node);
-    for (const rel of resolvedImportsRel) {
-      if (!reverse.has(rel)) reverse.set(rel, new Set());
-      reverse.get(rel).add(node.rel);
-    }
-  }
+  // 6. Node map + reverse-import index.
+  const { nodes, reverse } = assembleGraphNodes({ fileInfos, absRoot });
   _trace('assemble');
   const graph = _attachGraphRuntimeCaches({
     cwd: graphCwd,

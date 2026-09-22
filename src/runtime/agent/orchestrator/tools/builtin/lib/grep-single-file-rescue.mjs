@@ -88,48 +88,99 @@ export async function runGrepSingleFileRescue({
   const pathPrefix = (separator) => (withFilename ? `${searchPath}${separator}` : '');
   const numberPrefix = (index, separator) => (showLineNumbers ? `${index + 1}${separator}` : '');
 
+  // Shared by all three output modes; only `windowed`, `filenameOmitted` and
+  // `totalKnown` differ per mode.
+  const plainBase = {
+    patternCapNote,
+    outputMode,
+    headLimit,
+    offset,
+    searchPath,
+    grepResolvedPath,
+    workDir,
+    globPatterns,
+    beforeN,
+    afterN,
+    contextN,
+    patterns: list,
+  };
+
   if (outputMode === 'files_with_matches') {
-    const windowed = matched.length > 0 ? [String(searchPath)] : [];
     return renderPlain({
-      windowed,
-      patternCapNote,
-      outputMode,
-      headLimit,
-      offset,
-      searchPath,
-      grepResolvedPath,
-      workDir,
-      globPatterns,
+      ...plainBase,
+      windowed: matched.length > 0 ? [String(searchPath)] : [],
       filenameOmitted: false,
-      beforeN,
-      afterN,
-      contextN,
-      patterns: list,
     });
   }
   if (outputMode === 'count') {
-    const windowed = matched.length > 0 ? [`${pathPrefix(':')}${matched.length}`] : [];
     return renderPlain({
-      windowed,
-      patternCapNote,
-      outputMode,
-      headLimit,
-      offset,
-      searchPath,
-      grepResolvedPath,
-      workDir,
-      globPatterns,
+      ...plainBase,
+      windowed: matched.length > 0 ? [`${pathPrefix(':')}${matched.length}`] : [],
       filenameOmitted,
-      beforeN,
-      afterN,
-      contextN,
-      patterns: list,
     });
   }
 
   const before = Math.max(Number(beforeN) || 0, Number(contextN) || 0);
   const after = Math.max(Number(afterN) || 0, Number(contextN) || 0);
   const hasContext = before > 0 || after > 0;
+  const { lines, truncated } = renderRescueLines({
+    fileLines,
+    matched,
+    compiled,
+    onlyMatching,
+    before,
+    after,
+    hasContext,
+    pathPrefix,
+    numberPrefix,
+  });
+
+  if (hasContext) {
+    const body = formatGrepContextOutput({
+      allLines: lines,
+      workDir,
+      outputMode,
+      filenameOmitted,
+      headLimit,
+      offset,
+      searchPath,
+      totalKnown: !truncated,
+    });
+    return withRescueNotice(
+      patternCapNote +
+        (body.text ||
+          noMatchBody({
+            patterns: list,
+            searchPath,
+            globPatterns,
+          }))
+    );
+  }
+  return renderPlain({
+    ...plainBase,
+    windowed: offset > 0 ? lines.slice(offset) : lines,
+    filenameOmitted,
+    totalKnown: !truncated,
+  });
+}
+
+/**
+ * The rg-shaped body for the line-oriented modes: matched lines (or just the
+ * matched substrings under onlyMatching) plus their context window, with `--`
+ * between non-adjacent blocks. Stops at MAX_RESCUE_LINES and reports that the
+ * total is no longer known.
+ */
+function renderRescueLines({
+  fileLines,
+  matched,
+  compiled,
+  onlyMatching,
+  before,
+  after,
+  hasContext,
+  pathPrefix,
+  numberPrefix,
+}) {
   const isMatch = new Set(matched);
   const emit = new Set();
   for (const index of matched) {
@@ -166,45 +217,7 @@ export async function runGrepSingleFileRescue({
     }
     lines.push(`${pathPrefix('-')}${numberPrefix(index, '-')}${line}`);
   }
-
-  if (hasContext) {
-    const body = formatGrepContextOutput({
-      allLines: lines,
-      workDir,
-      outputMode,
-      filenameOmitted,
-      headLimit,
-      offset,
-      searchPath,
-      totalKnown: !truncated,
-    });
-    return withRescueNotice(
-      patternCapNote +
-        (body.text ||
-          noMatchBody({
-            patterns: list,
-            searchPath,
-            globPatterns,
-          }))
-    );
-  }
-  return renderPlain({
-    windowed: offset > 0 ? lines.slice(offset) : lines,
-    patternCapNote,
-    outputMode,
-    headLimit,
-    offset,
-    searchPath,
-    grepResolvedPath,
-    workDir,
-    globPatterns,
-    filenameOmitted,
-    beforeN,
-    afterN,
-    contextN,
-    patterns: list,
-    totalKnown: !truncated,
-  });
+  return { lines, truncated };
 }
 
 function noMatchBody({ patterns, searchPath, globPatterns }) {

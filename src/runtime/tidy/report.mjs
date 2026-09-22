@@ -3,6 +3,8 @@
 // caps with a `more` count first, then progressive trimming until the encoded
 // report fits the tool output budget.
 import { TOOL_OUTPUT_MAX_BYTES } from '../agent/orchestrator/tools/builtin/tool-output-limit.mjs';
+import { shadowNote } from './shadow.mjs';
+import { worktreeNotes } from './worktree.mjs';
 
 export const DIAGNOSTIC_CAP = 20;
 const FILE_LIST_CAP = 25;
@@ -104,6 +106,29 @@ function summarizeDiagnostics(rows = [], includeRules = true) {
   return { byRule: Object.fromEntries(byRule), byDir: Object.fromEntries(byDir) };
 }
 
+// Counts survive trimming the way every other summary does; only the file
+// samples shrink, so the two populations stay comparable at any cap.
+function shapeWorktreeGroup(group, cap) {
+  const page = pageList(group?.files, 0, cap);
+  return {
+    files: page.items,
+    ...(page.more ? { more: page.more } : {}),
+    fileCount: (group?.files || []).length,
+    findings: Number(group?.findings) || 0,
+  };
+}
+
+function shapeWorkingTree(workingTree, cap) {
+  // Three distinguishable states: a split, a git that failed (`error`, with a
+  // note), and no git to ask (`skipped`, silent).
+  if (workingTree.skipped) return { skipped: workingTree.skipped };
+  if (workingTree.error) return { error: workingTree.error };
+  return {
+    modified: shapeWorktreeGroup(workingTree.modified, cap),
+    clean: shapeWorktreeGroup(workingTree.clean, cap),
+  };
+}
+
 function structuralErrors(structural) {
   const errors = [
     ...(structural?.errors || []),
@@ -181,6 +206,8 @@ export function buildTidyReport({
   policy = null,
   rules = null,
   scope = null,
+  shadows = null,
+  workingTree = null,
   elapsedMs = 0,
   offset = 0,
   limit = DIAGNOSTIC_CAP,
@@ -222,6 +249,8 @@ export function buildTidyReport({
     rolled: rollupEngineCounts(results),
     structural,
     structuralSummary: summarizeDiagnostics(structural?.matches),
+    shadows: Array.isArray(shadows) ? shadows : [],
+    workingTree,
     passErrors,
     rules,
     installed,
@@ -230,6 +259,10 @@ export function buildTidyReport({
     notes: [
       ...notes,
       ...truncationNotes,
+      // A shadow and a clean-file population are reports, never failures: they
+      // change what the caller must read, not ok/status.
+      ...(Array.isArray(shadows) ? shadows.map(shadowNote) : []),
+      ...worktreeNotes(workingTree, action),
       ...[...new Set(passErrors.map((error) => error.language || 'unknown language'))].map(
         (language) => `${language} structural pass did not complete; see structural.errors`
       ),
@@ -272,6 +305,7 @@ function composeTidyReport(parts, diagnosticCap) {
     action,
     ...(parts.scope ? { scope: parts.scope } : {}),
     ...(action === 'results' ? {} : environmentHeader(parts)),
+    ...(parts.shadows.length ? { shadows: parts.shadows } : {}),
     ...(results
       ? {
           results: results.map((result, index) =>
@@ -284,6 +318,9 @@ function composeTidyReport(parts, diagnosticCap) {
       ? {
           structural: shapeStructural(structural, parts.structuralSummary, parts.passErrors, diagnosticCap, pageOffset),
         }
+      : {}),
+    ...(parts.workingTree
+      ? { workingTree: shapeWorkingTree(parts.workingTree, Math.min(FILE_LIST_CAP, diagnosticCap)) }
       : {}),
     ...(results || structural ? { paging: { offset: pageOffset, limit: diagnosticCap } } : {}),
     ...(parts.rules ? { rules: parts.rules } : {}),

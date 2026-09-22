@@ -42,123 +42,134 @@ function singleLine(value) {
     .trim();
 }
 
+// The /agents roster: worker rows then task rows.
+function renderRoster(value) {
+  const workers = Array.isArray(value.workers) ? value.workers : [];
+  const jobs = Array.isArray(value.jobs) ? value.jobs : [];
+  const lines = [`agents: ${workers.length} · tasks: ${jobs.length}`];
+  // Keep list bullets: agent cards distinguish these rows from authored responses.
+  for (const worker of workers) {
+    const status = worker.status || 'idle';
+    const stage = worker.worker_stage || worker.stage;
+    const progress = singleLine(worker.last_progress);
+    const summary = progress.length > 60 ? `${progress.slice(0, 59)}…` : progress;
+    lines.push(
+      `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}`
+    );
+  }
+  for (const job of jobs) {
+    const error = job.status === 'failed' ? singleLine(job.error) : '';
+    lines.push(`- ${job.task_id}  ${job.type}  ${job.status}  ${job.tag || '-'}${error ? ` error=${error}` : ''}`);
+  }
+  if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
+  return lines.join('\n');
+}
+
+// Runtime diagnostics of a task envelope: everything a fresh start ack omits.
+function taskDiagnosticLines(value) {
+  const lines = [];
+  if (value.agent) lines.push(`agent: ${value.agent}`);
+  if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
+  if (value.effort) lines.push(`effort: ${value.effort}`);
+  if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
+  if (value.stage || value.workerStatus)
+    lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
+  if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
+  if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
+  if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
+  if (value.watchdog) lines.push(`watchdog: ${value.watchdog}`);
+  if (Number.isFinite(value.queued_followups)) lines.push(`queued_followups: ${value.queued_followups}`);
+  if (value.diagnostic) lines.push(`diagnostic: ${value.diagnostic}`);
+  if (value.startedAt) lines.push(`started: ${compactIso(value.startedAt)}`);
+  if (value.finishedAt) lines.push(`finished: ${compactIso(value.finishedAt)}`);
+  const elapsed = elapsedFromStamps(value.startedAt, value.finishedAt, value.status);
+  if (elapsed) lines.push(`elapsed: ${elapsed}`);
+  return lines;
+}
+
+// A background task envelope (spawn/send/status/cancel ack, with or without a
+// finished result).
+function renderTask(value, includeDiagnostics) {
+  // Spawn/send acks: the task just started, so runtime diagnostics
+  // (worker_stage/last_progress/diagnostic/watchdog/silent_for) are
+  // always in their "not started yet" placeholder state — pure token
+  // cost for the model. Keep the ack minimal (existing surface rule:
+  // minimum characters, maximum information); full diagnostics remain
+  // on explicit status/read recovery calls.
+  const isStartAck =
+    !includeDiagnostics && value.status === 'running' && (value.type === 'spawn' || value.type === 'send');
+  const lines = [`agent task: ${value.task_id}`];
+  // Cancel/close acks can carry no status; never serialize a literal
+  // "status: undefined" into the envelope (the TUI card would titleize it).
+  if (value.status != null && String(value.status).trim() !== '') {
+    lines.push(`status: ${value.status}`);
+  }
+  if (value.type) lines.push(`type: ${value.type}`);
+  if (value.reused) lines.push('reused: true');
+  if (value.respawned) lines.push('respawned: true');
+  if (value.note) lines.push(`note: ${value.note}`);
+  if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
+  if (!isStartAck) lines.push(...taskDiagnosticLines(value));
+  if (value.error) lines.push(`error: ${value.error}`);
+  if (value.status === 'running') lines.push('notification: completion will be delivered; end the turn.');
+  if (value.result !== undefined) {
+    const result = value.result;
+    const content = typeof result === 'string' ? result : result?.content;
+    if (content) lines.push('', stripFinalAnswerWrapper(content));
+    else lines.push('', JSON.stringify(result, null, 2));
+  }
+  return lines.join('\n');
+}
+
+function renderQueued(value) {
+  return [
+    'agent message queued',
+    value.reused ? 'reused: true' : null,
+    `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
+    value.agent ? `agent: ${value.agent}` : null,
+    `queueDepth: ${value.queueDepth ?? 1}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function renderClosed(value) {
+  return [
+    `agent close: ${value.closed ? 'ok' : 'not closed'}`,
+    value.tag ? `tag: ${value.tag}` : null,
+    value.sessionId ? `sessionId: ${value.sessionId}` : null,
+    value.task_id ? `task_id: ${value.task_id}` : null,
+    value.forgotten ? 'forgotten: true' : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+// An agent's authored answer, optionally headed by its identity.
+function renderContent(value) {
+  if (value.handoffOnly === true) {
+    return stripFinalAnswerWrapper(value.content);
+  }
+  const header = [
+    value.respawned ? 'agent respawned' : 'agent result',
+    value.tag ? `tag=${value.tag}` : null,
+    value.agent ? `agent=${value.agent}` : null,
+    value.provider && value.model ? `${value.provider}/${value.model}` : null,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
+}
+
 export function renderResult(value, { includeDiagnostics = false } = {}) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
-    const lines = [];
-
-    if (Array.isArray(value.workers) || Array.isArray(value.jobs)) {
-      const workers = Array.isArray(value.workers) ? value.workers : [];
-      const jobs = Array.isArray(value.jobs) ? value.jobs : [];
-      lines.push(`agents: ${workers.length} · tasks: ${jobs.length}`);
-      // Keep list bullets: agent cards distinguish these rows from authored responses.
-      for (const worker of workers) {
-        const status = worker.status || 'idle';
-        const stage = worker.worker_stage || worker.stage;
-        const progress = singleLine(worker.last_progress);
-        const summary = progress.length > 60 ? `${progress.slice(0, 59)}…` : progress;
-        lines.push(
-          `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}`
-        );
-      }
-      for (const job of jobs) {
-        const error = job.status === 'failed' ? singleLine(job.error) : '';
-        lines.push(`- ${job.task_id}  ${job.type}  ${job.status}  ${job.tag || '-'}${error ? ` error=${error}` : ''}`);
-      }
-      if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
-      return lines.join('\n');
-    }
-
-    if (value.task_id) {
-      // Spawn/send acks: the task just started, so runtime diagnostics
-      // (worker_stage/last_progress/diagnostic/watchdog/silent_for) are
-      // always in their "not started yet" placeholder state — pure token
-      // cost for the model. Keep the ack minimal (existing surface rule:
-      // minimum characters, maximum information); full diagnostics remain
-      // on explicit status/read recovery calls.
-      const isStartAck =
-        !includeDiagnostics && value.status === 'running' && (value.type === 'spawn' || value.type === 'send');
-      lines.push(`agent task: ${value.task_id}`);
-      // Cancel/close acks can carry no status; never serialize a literal
-      // "status: undefined" into the envelope (the TUI card would titleize it).
-      if (value.status != null && String(value.status).trim() !== '') {
-        lines.push(`status: ${value.status}`);
-      }
-      if (value.type) lines.push(`type: ${value.type}`);
-      if (value.reused) lines.push('reused: true');
-      if (value.respawned) lines.push('respawned: true');
-      if (value.note) lines.push(`note: ${value.note}`);
-      if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
-      if (!isStartAck) {
-        if (value.agent) lines.push(`agent: ${value.agent}`);
-        if (value.provider && value.model) lines.push(`model: ${value.provider}/${value.model}`);
-        if (value.effort) lines.push(`effort: ${value.effort}`);
-        if (value.fast === true || value.fast === false) lines.push(`fast: ${value.fast ? 'on' : 'off'}`);
-        if (value.stage || value.workerStatus)
-          lines.push(`worker: ${value.workerStatus || 'unknown'}/${value.stage || 'unknown'}`);
-        if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
-        if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
-        if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
-        if (value.watchdog) lines.push(`watchdog: ${value.watchdog}`);
-        if (Number.isFinite(value.queued_followups)) lines.push(`queued_followups: ${value.queued_followups}`);
-        if (value.diagnostic) lines.push(`diagnostic: ${value.diagnostic}`);
-        if (value.startedAt) lines.push(`started: ${compactIso(value.startedAt)}`);
-        if (value.finishedAt) lines.push(`finished: ${compactIso(value.finishedAt)}`);
-        {
-          const elapsed = elapsedFromStamps(value.startedAt, value.finishedAt, value.status);
-          if (elapsed) lines.push(`elapsed: ${elapsed}`);
-        }
-      }
-      if (value.error) lines.push(`error: ${value.error}`);
-      if (value.status === 'running') lines.push('notification: completion will be delivered; end the turn.');
-      if (value.result !== undefined) {
-        const result = value.result;
-        const content = typeof result === 'string' ? result : result?.content;
-        if (content) lines.push('', stripFinalAnswerWrapper(content));
-        else lines.push('', JSON.stringify(result, null, 2));
-      }
-      return lines.join('\n');
-    }
-
-    if (value.queued) {
-      return [
-        'agent message queued',
-        value.reused ? 'reused: true' : null,
-        `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
-        value.agent ? `agent: ${value.agent}` : null,
-        `queueDepth: ${value.queueDepth ?? 1}`,
-      ]
-        .filter(Boolean)
-        .join('\n');
-    }
-
-    if (value.closed !== undefined) {
-      return [
-        `agent close: ${value.closed ? 'ok' : 'not closed'}`,
-        value.tag ? `tag: ${value.tag}` : null,
-        value.sessionId ? `sessionId: ${value.sessionId}` : null,
-        value.task_id ? `task_id: ${value.task_id}` : null,
-        value.forgotten ? 'forgotten: true' : null,
-      ]
-        .filter(Boolean)
-        .join('\n');
-    }
-
-    if (value.content !== undefined) {
-      if (value.handoffOnly === true) {
-        return stripFinalAnswerWrapper(value.content);
-      }
-      const header = [
-        value.respawned ? 'agent respawned' : 'agent result',
-        value.tag ? `tag=${value.tag}` : null,
-        value.agent ? `agent=${value.agent}` : null,
-        value.provider && value.model ? `${value.provider}/${value.model}` : null,
-      ]
-        .filter(Boolean)
-        .join(' ');
-      return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
-    }
+    if (Array.isArray(value.workers) || Array.isArray(value.jobs)) return renderRoster(value);
+    if (value.task_id) return renderTask(value, includeDiagnostics);
+    if (value.queued) return renderQueued(value);
+    if (value.closed !== undefined) return renderClosed(value);
+    if (value.content !== undefined) return renderContent(value);
   }
   return JSON.stringify(value, null, 2);
 }

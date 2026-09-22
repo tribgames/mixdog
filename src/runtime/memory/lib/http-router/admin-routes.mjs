@@ -5,7 +5,7 @@
  */
 import { readBody, sendJson, normalizeCoreProjectId } from '../http-wire.mjs';
 import { listCore, addCore, deleteCore } from '../core-memory-store.mjs';
-import { openTraceDatabase, insertAgentCalls, enqueueTraceEvents, registerTraceExitDrain } from '../trace-store.mjs';
+import { createAdminTraceRoutes } from './admin-trace-routes.mjs';
 
 // One admin route: any thrown error becomes `{ ok:false, error }` 500.
 const guarded = (handle) => async (req, res) => {
@@ -128,55 +128,9 @@ export function createAdminRoutes({
     sendJson(res, { ok: true, deleted: preCount, core_preserved: coreCount });
   });
 
-  // The trace DB opens lazily on the first record; null means tracing is
-  // disabled for this data dir.
-  const openTraceDb = async () => {
-    const existing = getTraceDb();
-    if (existing) return existing;
-    const traceDb = await openTraceDatabase(dataDir);
-    if (!traceDb) return null;
-    setTraceDb(traceDb);
-    registerTraceExitDrain(traceDb);
-    return traceDb;
-  };
-  const traceRecord = async (req, res) => {
-    let body;
-    try {
-      body = await readBody(req);
-    } catch (e) {
-      sendJson(res, { ok: false, error: e.message }, 400);
-      return;
-    }
-    if (!Array.isArray(body?.events)) {
-      sendJson(res, { ok: false, error: 'body.events must be an array' }, 400);
-      return;
-    }
-    if (body.events.length > 500) {
-      sendJson(res, { ok: false, error: 'too many events (max 500)' }, 413);
-      return;
-    }
-    let traceDb;
-    try {
-      traceDb = await openTraceDb();
-    } catch (e) {
-      sendJson(res, { ok: false, error: `trace DB unavailable: ${e.message}` }, 503);
-      return;
-    }
-    if (!traceDb) {
-      sendJson(res, { ok: true, queued: 0, disabled: true });
-      return;
-    }
-    try {
-      // Enqueue for async batched flush (100ms / 500-row window).
-      enqueueTraceEvents(traceDb, body.events);
-      // Use `queued` — events are async; `inserted` would imply durability.
-      sendJson(res, { ok: true, queued: body.events.length });
-      // Fire-and-forget into focused agent analytic tables.
-      insertAgentCalls(traceDb, body.events).catch((e) => log(`[trace] insertAgentCalls error: ${e?.message}\n`));
-    } catch (e) {
-      sendJson(res, { ok: false, error: e.message }, 500);
-    }
-  };
+  // /admin/trace-record and its lazily opened database
+  // (admin-trace-routes.mjs).
+  const traceRoutes = createAdminTraceRoutes({ dataDir, log, getTraceDb, setTraceDb });
 
   const shutdown = (_req, res) => {
     sendJson(res, { shutting_down: true }, 202);
@@ -207,7 +161,7 @@ export function createAdminRoutes({
     'POST /admin/entries/add': addEntry,
     'POST /admin/backfill': backfill,
     'POST /admin/purge': purge,
-    'POST /admin/trace-record': traceRecord,
+    ...traceRoutes,
     'POST /admin/shutdown': shutdown,
   };
 }

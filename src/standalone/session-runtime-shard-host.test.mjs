@@ -192,6 +192,21 @@ process.on('message', (message) => {
       });
       return;
     }
+    if (command === 'canonical-agent-control-cancel') {
+      const controlId = 'canonical-cancel-' + SHARD + '-' + requestId;
+      send({
+        type: 'agent-control',
+        controlId,
+        args: { type: 'spawn', tag: 'cancel-me', agent: 'worker', prompt: 'brief' },
+        context: {
+          callerSessionId: message.options?.sessionId || 'sess_cancel_parent',
+          callerCwd: process.cwd(),
+        },
+      });
+      setTimeout(() => send({ type: 'agent-control-cancel', controlId, reason: 'test cancel' }), 50);
+      respond(requestId, { pid: process.pid, shard: SHARD, controlId });
+      return;
+    }
     if (command === 'lag') {
       const value = Number(args[1]) || 0;
       send({ type: 'event-loop-lag', shard: SHARD, sample: {
@@ -360,6 +375,35 @@ test('runtime shard Agent control is executed by the daemon canonical controller
           sessionId: 'sess_canonical_child',
         };
       },
+    }
+  );
+});
+
+// A control requested on one shard whose work runs on another: the cancel
+// enters through the requesting child, aborts the canonical run, and must come
+// out on the shard that owns the dispatch.
+test('an Agent control cancel reaches the shard that owns the dispatched work', async () => {
+  const cancelDispatchId = dispatchIdForShard(1);
+  let hostRef = null;
+  await withShardHost(
+    async ({ host }) => {
+      hostRef = host;
+      const owner = await host.create({ sessionId: keyForShard(0, 'cancel-owner') });
+      const started = await owner.submitAsync('canonical-agent-control-cancel');
+      assert.equal(started.shard, 0);
+      const observer = await host.create({ sessionId: keyForShard(1, 'sess') });
+      const observed = await waitFor(async () => {
+        const row = await observer.submitAsync('syncs');
+        return row.cancels.includes(cancelDispatchId) ? row : null;
+      }, `shard 1 cancel for ${cancelDispatchId}`);
+      assert.equal(observed.shard, 1);
+    },
+    {
+      executeAgentControl: async (_args, context) =>
+        hostRef.agentDispatch(
+          { dispatchId: cancelDispatchId, agent: 'memory', delayMs: 2_000 },
+          { signal: context.signal }
+        ),
     }
   );
 });

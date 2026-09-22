@@ -1,8 +1,9 @@
 // session-calls/session-turns.mjs
 // The execution side of the protocol: submitting a prompt, aborting, tool
-// approval, materializing a session for daemon ownership, and resuming the
-// sessions that carry an active Goal after daemon replacement.
-import { SESSION_ID_PATTERN } from '../agent-tree.mjs';
+// approval, and materializing a session for daemon ownership. Resuming the
+// sessions that carry an active Goal after daemon replacement is wired in from
+// ./goal-recovery.mjs.
+import { createGoalRecovery } from './goal-recovery.mjs';
 import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
@@ -80,41 +81,12 @@ export function createSessionTurnCalls(ctx) {
     return entry.runtime;
   }
 
-  async function recoverActiveGoals() {
-    if (typeof listStoredActiveGoalSessionIds !== 'function') {
-      return { found: 0, resumed: 0, skipped: 0, failed: 0 };
-    }
-    let listed;
-    try {
-      listed = await listStoredActiveGoalSessionIds();
-    } catch (err) {
-      log(`active Goal discovery failed: ${err?.message || err}`);
-      return { found: 0, resumed: 0, skipped: 0, failed: 1 };
-    }
-    const sessionIds = [...new Set(Array.isArray(listed) ? listed : [])]
-      .map((sessionId) => String(sessionId || ''))
-      .filter((sessionId) => SESSION_ID_PATTERN.test(sessionId));
-    let resumed = 0;
-    let skipped = 0;
-    let failed = 0;
-    for (const sessionId of sessionIds) {
-      try {
-        if (typeof readStoredGoal === 'function') {
-          const goal = await readStoredGoal(sessionId);
-          if (goal?.status !== 'active') {
-            skipped += 1;
-            continue;
-          }
-        }
-        await materializeSession(sessionId);
-        resumed += 1;
-      } catch (err) {
-        failed += 1;
-        log(`active Goal recovery failed session=${sessionId}: ${err?.message || err}`);
-      }
-    }
-    return { found: sessionIds.length, resumed, skipped, failed };
-  }
+  const recoverActiveGoals = createGoalRecovery({
+    log,
+    readStoredGoal,
+    listStoredActiveGoalSessionIds,
+    materializeSession,
+  });
 
   async function abortSession({ sessionId, open: openHints = {}, options = {}, baseRevision = null } = {}) {
     const id = String(sessionId || '');

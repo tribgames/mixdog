@@ -56,14 +56,17 @@ import { createChannelTransport } from './channel-transport.mjs';
 import { createChannelSessionRouter } from './channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
 import { createSessionService } from './session-service.mjs';
-import { createSessionProtocolClient } from './session-protocol.mjs';
-import { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from '../session-runtime/goal-runtime.mjs';
+import { createLocalSessionBridge } from './daemon-local-session-bridge.mjs';
+import { createStoredSessionViews } from './daemon-stored-session-views.mjs';
 import { createDaemonSessionRuntimeHost } from './session-runtime-host-factory.mjs';
 import { getStandaloneMemoryRuntime } from './memory-runtime-proxy.mjs';
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
 import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 import { createDaemonLog } from './daemon-log.mjs';
 import { createDaemonTelemetry } from './daemon-telemetry.mjs';
+import { createChannelsRuntimeLoader } from './daemon-channels-loader.mjs';
+import { createDesktopRuntime } from './daemon-desktop-runtime.mjs';
+import { createCanonicalAgentControl } from './daemon-agent-control.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -378,20 +381,10 @@ function requestDaemonReplacement({ protocol, revision, version } = {}) {
   return true;
 }
 
-async function main() {
-  const startedAt = performance.now();
-  const bootPhases = createBootPhaseProfiler({ log, startedAt });
-  // processMs = fork → here (runtime start + module graph). The spawner sees
-  // only spawn → ready, so this is what separates a slow launch from a slow
-  // boot when the desktop attributes its daemon wait.
-  bootPhases.mark('daemon-main', { processMs: Math.round(process.uptime() * 1000) });
-  // The discovery file carries both privileged loopback tokens. POSIX roots
-  // are per-user and fail closed if another account owns the configured path.
-  ensurePrivateRuntimeRoot(RUNTIME_ROOT);
-
-  // Pid-verified singleton claim (claimSingletonOwner reclaims a dead-pid owner
-  // file and refuses only a LIVE peer). Loser exits so the spawner attaches to
-  // the winner instead of running a second daemon.
+/** Pid-verified singleton claim (claimSingletonOwner reclaims a dead-pid owner
+ *  file and refuses only a LIVE peer). Loser exits so the spawner attaches to
+ *  the winner instead of running a second daemon. */
+function claimDaemonOwnership(bootPhases) {
   const claim = claimSingletonOwner(OWNER_PATH, {
     kind: 'mixdog-daemon',
     pid: process.pid,
@@ -412,19 +405,11 @@ async function main() {
       releaseSingletonOwner(OWNER_PATH, process.pid);
     } catch {}
   });
-  registerMemoryRuntimeLazy();
-  agentDispatchBroker = createAgentDispatchBroker({
-    // Memory-cycle agents use the same lazy provider/orchestrator graph as
-    // session actors; it stays unloaded until a real cycle requests it.
-    dispatchAgent: (payload, options) => {
-      if (!sessionRuntimeHost) throw new Error('session runtime host is not ready');
-      return sessionRuntimeHost.agentDispatch(payload, options);
-    },
-    log,
-    onActivityChanged: () => {
-      maybeSelfShutdown('memory agent activity changed');
-    },
-  });
+}
+
+/** One line per finished turn: the daemon-side split of its latency is recorded
+ *  nowhere else, and the emitting runtime lives in this process. */
+function installTurnTimingLog() {
   process.on('mixdog:turn-timing', (row = {}) => {
     const ms = (value) => (Number.isFinite(value) ? Math.round(value) : -1);
     log(
@@ -435,332 +420,36 @@ async function main() {
         ` provider=${ms(row.providerMs)}ms`
     );
   });
+}
 
-  // Reclaim deferred garbage while nothing is in flight. V8 keeps a long-lived
-  // daemon's dead transcripts resident for as long as the heap limit stays out
-  // of sight; a measured sweep on this daemon returned 140MB in 98ms.
-  idleGc = createIdleGc({ isBusy: daemonHasWorkInFlight, log });
-  if (idleGc.arm()) log('idle gc armed');
-
-  // The channels runtime is imported AFTER the daemon env is set so worker-main
-  // skips runWorkerIpc; that import also triggers its boot side effects
-  // (config/service). It is now deferred past the ready handshake: a session
-  // view attaching to this same process must not wait out the channels graph,
-  // and every channels call awaits this promise anyway.
-  let channelsReady = null;
-  function ensureChannels() {
-    if (!channelsReady) {
-      channelsReady = import('../runtime/channels/index.mjs').then((module) => {
-        channels = module;
-        return module;
-      });
-    }
-    return channelsReady;
-  }
-
-  // Channels bring automation with them (schedules, webhook listener + tunnel,
-  // optional messaging service). A daemon spawned by a TUI starts them exactly
-  // as before; a daemon spawned for session views stays dormant until a channels
-  // client actually registers, so an app-only service runs no tunnels.
-  let channelsStartPromise = null;
-  function startChannels(options = {}) {
-    if (channelsStartPromise) return channelsStartPromise;
-    const messaging = options.messaging === true;
-    channelsStartPromise = ensureChannels()
-      .then((module) => module.start({ messaging }))
-      .catch((e) => {
-        channelsStartPromise = null;
-        log(`channels.start failed (non-fatal): ${e?.message || e}`);
-        throw e;
-      });
-    return channelsStartPromise;
-  }
-
-  // Accepted owner controls refresh active-instance context. The transport
-  // admits rebind only for the current manual owner.
-  const POINTER_TOOLS = new Set(['activate_channel_bridge', 'rebind_current_transcript']);
-  const handleCall = async (name, args, ctx) => {
-    const module = await ensureChannels();
-    if (ctx && POINTER_TOOLS.has(name)) {
-      try {
-        setOwnerContext({ leadPid: ctx.leadPid, cwd: ctx.cwd });
-      } catch {}
-    }
-    return module.handleToolCallWithBridgeRetry(name, args || {});
+/** What the session front door reports about this process: session counts plus
+ *  every admission/workload gate the daemon owns.
+ *  `busy` is what stops a newer install from draining a daemon that is
+ *  mid-turn: work outlives views AND installs. */
+function daemonStatusSnapshot() {
+  return {
+    sessions: sessionService.size,
+    busy: sessionService.busyCount,
+    sessionService: sessionService.status,
+    sessionRuntime: sessionRuntimeHost.status,
+    sessionRuntimeWorkload: sessionRuntimeHost.workloads,
+    workload: {
+      resources: resourceAdmission.snapshot(),
+      childSpawns: childSpawnSnapshot(),
+      toolIo: toolWorkloadSnapshot(),
+      // MCP runs in session/agent workers, never in this daemon process.
+      mcp: {},
+      providers: providerAdmissionScheduler.snapshot(),
+      streamParsing: providerStreamJsonSnapshot(),
+    },
+    memory: memoryUsageBytes(),
+    ...eventLoopStatus(),
   };
-  transport = createChannelTransport({
-    handleCall,
-    agentBroker: agentDispatchBroker,
-    log,
-    // The durable channel link lives in this file. Without it a restart loses
-    // the pinned session (nothing to restore) and every catalog reports Remote
-    // disabled because no state ever reaches getRemoteSessionState().
-    remoteIntentPath: remoteIntentPath(RUNTIME_ROOT),
-    onRemoteStateChange: (state) => {
-      remoteSessionState = {
-        enabled: state?.enabled === true,
-        sessionId: state?.sessionId ?? null,
-        cwd: state?.cwd ?? null,
-        daemonPid: state?.daemonPid ?? process.pid,
-        updatedAt: state?.updatedAt ?? Date.now(),
-      };
-    },
-    // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
-    // registry as the liveness signal).
-    onClientsEmpty: () => {
-      maybeSelfShutdown('no live channel clients');
-    },
-    // First channels client in: bring the channels runtime up (see startChannels).
-    onClientRegistered: () => {
-      startChannels();
-    },
-  });
-  const routeChannelNotification = createChannelSessionRouter({
-    getSessionService: () => sessionService,
-    // Channel-remote session pinning is retired; route by discovery only.
-    getSessionId: () => null,
-    log,
-  });
-  setChannelNotifySink((method, params) => {
-    if (routeChannelNotification(method, params)) return;
-    transport.notify(method, params);
-  });
-  const { port, token } = await bootPhases.measure('channel-transport-start', () => transport.start());
-  // Memory-cycle agent dispatch is rare and initializes on first use. Eagerly
-  // loading its provider graph here consumed the control loop before any
-  // memory cycle requested it.
+}
 
-  const localSessionClients = new Map();
-  let nextLocalSessionClient = 0;
-  localSessionBridge = {
-    attach({ onFrame = () => {}, onFatal = () => {} } = {}) {
-      const clientToken = `daemon_local_${process.pid}_${++nextLocalSessionClient}`;
-      let closed = false;
-      localSessionClients.set(clientToken, { onFrame, onFatal });
-      return createSessionProtocolClient({
-        call(name, args = {}, options = {}) {
-          if (closed) throw new Error('daemon-local session client is closed');
-          return sessionService.handleCall(name, args, {
-            clientToken,
-            ...(options?.callId ? { callId: String(options.callId) } : {}),
-          });
-        },
-        async close(reason = 'local session view closed') {
-          if (closed) return;
-          closed = true;
-          localSessionClients.delete(clientToken);
-          try {
-            sessionService.releaseClient(clientToken);
-          } catch {}
-          log(`${reason} (${clientToken})`);
-        },
-      });
-    },
-    publish(frame, targetTokens = null) {
-      const targets = targetTokens ? new Set(targetTokens) : null;
-      for (const [clientToken, client] of localSessionClients) {
-        if (targets && !targets.has(clientToken)) continue;
-        try {
-          client.onFrame(frame);
-        } catch {}
-      }
-    },
-    async close(reason = 'daemon shutdown') {
-      for (const [clientToken, client] of localSessionClients) {
-        try {
-          client.onFatal(reason);
-        } catch {}
-        try {
-          sessionService.releaseClient(clientToken);
-        } catch {}
-      }
-      localSessionClients.clear();
-    },
-  };
-  const desktopRuntime = {
-    async attachSessionClient(options = {}) {
-      if (!localSessionBridge) throw new Error('daemon-local session client is unavailable');
-      return localSessionBridge.attach(options);
-    },
-    loadProjects: () => import('./projects.mjs'),
-    loadSessionStore: () => import('../runtime/agent/orchestrator/session/store-summary-reader.mjs'),
-    loadStatuslineSegments: () => import('../ui/statusline-segments.mjs'),
-    loadConfig: () => import('../runtime/shared/config.mjs'),
-    loadDocumentPreview: () => import('../runtime/office/pdf/document-preview.mjs'),
-    async executeCodeGraphTool(name, args, cwd) {
-      const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
-      return graph.executeCodeGraphTool(name, args, cwd);
-    },
-  };
-  let canonicalAgentToolPromise = null;
-  function canonicalAgentTool() {
-    if (!sessionService) {
-      return Promise.reject(new Error('canonical session service is not ready'));
-    }
-    canonicalAgentToolPromise ??= Promise.all([
-      import('./agent-tool.mjs'),
-      import('../runtime/agent/orchestrator/config.mjs'),
-      import('../runtime/agent/orchestrator/providers/registry.mjs'),
-    ])
-      .then(([agentModule, cfgMod, reg]) =>
-        agentModule.createStandaloneAgent({
-          cfgMod,
-          reg,
-          mgr: sessionService.agentManager,
-          dataDir: cfgMod.getPluginData(),
-          cwd: CWD,
-          awaitKeychainPrewarm: async () => {},
-          isKeychainPrewarmReady: () => true,
-          sessionSurface: sessionService.agentSurface,
-          notifySessionCompletion(ownerSessionId, text, meta = {}) {
-            return sessionRuntimeHost?.notifySessionCompletion?.(ownerSessionId, text, meta) === true;
-          },
-        })
-      )
-      .catch((error) => {
-        canonicalAgentToolPromise = null;
-        throw error;
-      });
-    return canonicalAgentToolPromise;
-  }
-  async function executeCanonicalAgentControl(args = {}, context = {}) {
-    const tool = await canonicalAgentTool();
-    const parentSessionId = String(context?.callerSessionId || '').trim();
-    await sessionService.rehydrateAgentSessions();
-    const scopedContext = {
-      ...context,
-      callerSessionId: parentSessionId || null,
-      ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
-    };
-    if (String(args?.type || '') === '__close_all') {
-      await tool.closeAll?.(String(args?.reason || 'agent owner closed'), { callerSessionId: parentSessionId || null });
-      await sessionService.cancelAgentDescendants(parentSessionId, String(args?.reason || 'agent owner closed'));
-      return 'agent close all: ok';
-    }
-    return await tool.execute(args, scopedContext);
-  }
-  sessionRuntimeHost = createDaemonSessionRuntimeHost({
-    cwd: CWD,
-    log,
-    measureBootPhase: bootPhases.measure,
-    executeAgentControl: executeCanonicalAgentControl,
-  });
-  // Codex-style runtime: daemon routing and independent async session actors
-  // share one V8 isolate and module graph. CPU-heavy work stays in bounded
-  // native helpers/worker pools instead of duplicating the whole runtime.
-  log(`session runtime mode=${sessionRuntimeHost.status.mode}`);
-  const bootCoordinator = createDaemonBootCoordinator({
-    prewarmKeychain: () => sessionRuntimeHost.prewarmKeychain(),
-    recoverActiveGoals: () => sessionService.recoverActiveGoals(),
-    // The modules every rail catalog request needs (session summaries,
-    // projects, statusline segments) — warm them once the desktop is up so
-    // the first Sessions/Projects click reads a hot module graph.
-    prewarmCatalogs: () =>
-      Promise.all([
-        desktopRuntime.loadSessionStore(),
-        desktopRuntime.loadProjects(),
-        desktopRuntime.loadStatuslineSegments(),
-        import('../runtime/agent/orchestrator/session/store.mjs'),
-      ]),
-    measure: (phase, task) => bootPhases.measure(phase, task),
-    log,
-  });
-  sessionService = createSessionService({
-    createSessionRuntime: (options) => sessionRuntimeHost.create(options),
-    sessionExists: async (sessionId) => {
-      const store = await desktopRuntime.loadSessionStore();
-      return store.storedSessionExists?.(sessionId) === true;
-    },
-    // View seam: session.read/subscribe on a cold session serve this disk
-    // projection instead of materializing a runtime (see
-    // session-service.mjs stored-session views).
-    readStoredSession: async (sessionId, options = {}) => {
-      const store = await desktopRuntime.loadSessionStore();
-      if (typeof store.readStoredSessionTranscript !== 'function') return null;
-      return (await store.readStoredSessionTranscript(sessionId, options)) ?? null;
-    },
-    readStoredGoal: async (sessionId) =>
-      readStoredGoalSnapshot({
-        dataDir: DATA_DIR,
-        sessionId,
-      }),
-    listStoredActiveGoalSessionIds: async () =>
-      listStoredActiveGoalSessionIds({
-        dataDir: DATA_DIR,
-      }),
-    listSessions: async (options = {}) => {
-      if (options.includeAgentOnly === true) {
-        // Agent discovery is metadata-only. Exact session reads/subscriptions
-        // keep using the canonical session id after the user opens a worker.
-        const store = await import('../runtime/agent/orchestrator/session/store.mjs');
-        const summaries = store.listStoredSessionSummaries({
-          refreshFromStorage: options.refreshFromStorage === true,
-        });
-        const viewStore = await desktopRuntime.loadSessionStore();
-        const links = viewStore.listStoredAgentWorkerLinks?.() || [];
-        if (!links.length) return summaries;
-        const linksById = new Map(links.map((link) => [link.sessionId, link]));
-        return summaries.map((row) => {
-          if (row?.parentSessionId) return row;
-          const link = linksById.get(row?.id);
-          return link ? { ...row, ...link, id: row.id } : row;
-        });
-      }
-      const store = await desktopRuntime.loadSessionStore();
-      return store.listStoredSessionSummaries({
-        refreshFromStorage: options.refreshFromStorage === true,
-      });
-    },
-    getRemoteSessionState: () => remoteSessionState,
-    desktopRuntime,
-    onFrame: (frame, targetTokens) => {
-      localSessionBridge?.publish(frame, targetTokens);
-      sessionTransport?.broadcast(frame, targetTokens);
-    },
-    onExternalClientsChanged: () => {
-      maybeSelfShutdown('remote clients changed');
-    },
-    onDesktopReady: () => bootCoordinator.notifyDesktopReady(),
-    log,
-  });
-  sessionTransport = createSessionTransport({
-    // ctx carries the CLIENT token: the session service refcounts views across
-    // processes with it, so a terminal exiting cannot destroy the session a
-    // desktop window is still streaming.
-    handleCall: (name, args, ctx) => sessionService.handleCall(name, args, ctx),
-    log,
-    // `busy` is what stops a newer install from draining a daemon that is
-    // mid-turn: work outlives views AND installs.
-    getStatus: () => ({
-      sessions: sessionService.size,
-      busy: sessionService.busyCount,
-      sessionService: sessionService.status,
-      sessionRuntime: sessionRuntimeHost.status,
-      sessionRuntimeWorkload: sessionRuntimeHost.workloads,
-      workload: {
-        resources: resourceAdmission.snapshot(),
-        childSpawns: childSpawnSnapshot(),
-        toolIo: toolWorkloadSnapshot(),
-        // MCP runs in session/agent workers, never in this daemon process.
-        mcp: {},
-        providers: providerAdmissionScheduler.snapshot(),
-        streamParsing: providerStreamJsonSnapshot(),
-      },
-      memory: memoryUsageBytes(),
-      ...eventLoopStatus(),
-    }),
-    onClientsEmpty: () => {
-      maybeSelfShutdown('no live session clients');
-    },
-    onClientRegistered: (client) => bootCoordinator.notifyClientRegistered(client),
-    onClientDropped: (token) => {
-      try {
-        sessionService.releaseClient(token);
-      } catch {}
-    },
-    onUpgradeRequested: requestDaemonReplacement,
-  });
-  const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
+/** The file every attacher reads to find this daemon: wire identity plus both
+ *  loopback endpoints and their privileged tokens. */
+function publishDaemonDiscovery({ channel, session }) {
   writeJsonAtomicSync(
     DAEMON_DISCOVERY_PATH,
     {
@@ -771,18 +460,19 @@ async function main() {
       pid: process.pid,
       startedAt: Date.now(),
       endpoints: {
-        channel: { port, token },
-        session: { port: sessionEndpoint.port, token: sessionEndpoint.token },
+        channel: { port: channel.port, token: channel.token },
+        session: { port: session.port, token: session.token },
       },
     },
     { compact: true, secret: true }
   );
-  bootPhases.mark('discovery-published');
-  log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
+}
 
-  // Ready handshake for the spawner first. Transport is already listening;
-  // signal ready before the heavy
-  // channel-worker connect so the spawner's ready wait never blocks on service I/O.
+/** Ready handshake for the spawner, plus the log-sink handoff pinned to the
+ *  same boundary. Transport is already listening; signal ready before the heavy
+ *  channel-worker connect so the spawner's ready wait never blocks on service
+ *  I/O. */
+function announceDaemonReady({ port, token, startedAt, bootPhases }) {
   // Take over file logging from the spawner at the ready boundary. No rotate
   // here: the spawner already bounds the file at its own boot (channel-worker
   // rotateBoundedLog), and rotating now would race other processes' buffered
@@ -812,12 +502,179 @@ async function main() {
   // memory-pressure file is too sparse to be that record.
   daemonTelemetry.emit('boot');
   daemonTelemetry.start();
+}
+
+/** The channels front door: pointer-routed calls over HTTP+SSE. Creating the
+ *  transport also wires the channels notification sink (session-bound
+ *  notifications reach the session service, the rest fan out to channel
+ *  clients); starting it yields this daemon's channel endpoint. */
+async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
+  transport = createChannelTransport({
+    handleCall: channelsRuntime.handleCall,
+    agentBroker: agentDispatchBroker,
+    log,
+    // The durable channel link lives in this file. Without it a restart loses
+    // the pinned session (nothing to restore) and every catalog reports Remote
+    // disabled because no state ever reaches getRemoteSessionState().
+    remoteIntentPath: remoteIntentPath(RUNTIME_ROOT),
+    onRemoteStateChange: (state) => {
+      remoteSessionState = {
+        enabled: state?.enabled === true,
+        sessionId: state?.sessionId ?? null,
+        cwd: state?.cwd ?? null,
+        daemonPid: state?.daemonPid ?? process.pid,
+        updatedAt: state?.updatedAt ?? Date.now(),
+      };
+    },
+    // Self-shutdown when the last attached TUI leaves (reuses the SSE/client
+    // registry as the liveness signal).
+    onClientsEmpty: () => {
+      maybeSelfShutdown('no live channel clients');
+    },
+    // First channels client in: bring the channels runtime up (see the loader).
+    onClientRegistered: () => {
+      channelsRuntime.start();
+    },
+  });
+  const routeChannelNotification = createChannelSessionRouter({
+    getSessionService: () => sessionService,
+    // Channel-remote session pinning is retired; route by discovery only.
+    getSessionId: () => null,
+    log,
+  });
+  setChannelNotifySink((method, params) => {
+    if (routeChannelNotification(method, params)) return;
+    transport.notify(method, params);
+  });
+  return bootPhases.measure('channel-transport-start', () => transport.start());
+}
+
+async function main() {
+  const startedAt = performance.now();
+  const bootPhases = createBootPhaseProfiler({ log, startedAt });
+  // processMs = fork → here (runtime start + module graph). The spawner sees
+  // only spawn → ready, so this is what separates a slow launch from a slow
+  // boot when the desktop attributes its daemon wait.
+  bootPhases.mark('daemon-main', { processMs: Math.round(process.uptime() * 1000) });
+  // The discovery file carries both privileged loopback tokens. POSIX roots
+  // are per-user and fail closed if another account owns the configured path.
+  ensurePrivateRuntimeRoot(RUNTIME_ROOT);
+
+  claimDaemonOwnership(bootPhases);
+  registerMemoryRuntimeLazy();
+  agentDispatchBroker = createAgentDispatchBroker({
+    // Memory-cycle agents use the same lazy provider/orchestrator graph as
+    // session actors; it stays unloaded until a real cycle requests it.
+    dispatchAgent: (payload, options) => {
+      if (!sessionRuntimeHost) throw new Error('session runtime host is not ready');
+      return sessionRuntimeHost.agentDispatch(payload, options);
+    },
+    log,
+    onActivityChanged: () => {
+      maybeSelfShutdown('memory agent activity changed');
+    },
+  });
+  installTurnTimingLog();
+
+  // Reclaim deferred garbage while nothing is in flight. V8 keeps a long-lived
+  // daemon's dead transcripts resident for as long as the heap limit stays out
+  // of sight; a measured sweep on this daemon returned 140MB in 98ms.
+  idleGc = createIdleGc({ isBusy: daemonHasWorkInFlight, log });
+  if (idleGc.arm()) log('idle gc armed');
+
+  const channelsRuntime = createChannelsRuntimeLoader({
+    log,
+    // shutdown() tears the channels runtime down in a fixed order, so the
+    // module handle stays on this process rather than inside the loader.
+    onLoaded: (module) => {
+      channels = module;
+    },
+    setOwnerContext,
+  });
+  const { port, token } = await startChannelFrontDoor({ channelsRuntime, bootPhases });
+  // Memory-cycle agent dispatch is rare and initializes on first use. Eagerly
+  // loading its provider graph here consumed the control loop before any
+  // memory cycle requested it.
+
+  localSessionBridge = createLocalSessionBridge({ getSessionService: () => sessionService, log });
+  const desktopRuntime = createDesktopRuntime({ getLocalSessionBridge: () => localSessionBridge });
+  const storedSessionViews = createStoredSessionViews({ desktopRuntime, dataDir: DATA_DIR });
+  const agentControl = createCanonicalAgentControl({
+    getSessionService: () => sessionService,
+    getSessionRuntimeHost: () => sessionRuntimeHost,
+    cwd: CWD,
+  });
+  sessionRuntimeHost = createDaemonSessionRuntimeHost({
+    cwd: CWD,
+    log,
+    measureBootPhase: bootPhases.measure,
+    executeAgentControl: agentControl.execute,
+  });
+  // Codex-style runtime: daemon routing and independent async session actors
+  // share one V8 isolate and module graph. CPU-heavy work stays in bounded
+  // native helpers/worker pools instead of duplicating the whole runtime.
+  log(`session runtime mode=${sessionRuntimeHost.status.mode}`);
+  const bootCoordinator = createDaemonBootCoordinator({
+    prewarmKeychain: () => sessionRuntimeHost.prewarmKeychain(),
+    recoverActiveGoals: () => sessionService.recoverActiveGoals(),
+    // The modules every rail catalog request needs (session summaries,
+    // projects, statusline segments) — warm them once the desktop is up so
+    // the first Sessions/Projects click reads a hot module graph.
+    prewarmCatalogs: () =>
+      Promise.all([
+        desktopRuntime.loadSessionStore(),
+        desktopRuntime.loadProjects(),
+        desktopRuntime.loadStatuslineSegments(),
+        import('../runtime/agent/orchestrator/session/store.mjs'),
+      ]),
+    measure: (phase, task) => bootPhases.measure(phase, task),
+    log,
+  });
+  sessionService = createSessionService({
+    createSessionRuntime: (options) => sessionRuntimeHost.create(options),
+    ...storedSessionViews,
+    getRemoteSessionState: () => remoteSessionState,
+    desktopRuntime,
+    onFrame: (frame, targetTokens) => {
+      localSessionBridge?.publish(frame, targetTokens);
+      sessionTransport?.broadcast(frame, targetTokens);
+    },
+    onExternalClientsChanged: () => {
+      maybeSelfShutdown('remote clients changed');
+    },
+    onDesktopReady: () => bootCoordinator.notifyDesktopReady(),
+    log,
+  });
+  sessionTransport = createSessionTransport({
+    // ctx carries the CLIENT token: the session service refcounts views across
+    // processes with it, so a terminal exiting cannot destroy the session a
+    // desktop window is still streaming.
+    handleCall: (name, args, ctx) => sessionService.handleCall(name, args, ctx),
+    log,
+    getStatus: daemonStatusSnapshot,
+    onClientsEmpty: () => {
+      maybeSelfShutdown('no live session clients');
+    },
+    onClientRegistered: (client) => bootCoordinator.notifyClientRegistered(client),
+    onClientDropped: (token) => {
+      try {
+        sessionService.releaseClient(token);
+      } catch {}
+    },
+    onUpgradeRequested: requestDaemonReplacement,
+  });
+  const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
+  publishDaemonDiscovery({ channel: { port, token }, session: sessionEndpoint });
+  bootPhases.mark('discovery-published');
+  log(`session front door on 127.0.0.1:${sessionEndpoint.port}`);
+
+  announceDaemonReady({ port, token, startedAt, bootPhases });
 
   // Automation may spawn the shared daemon; keep schedules/webhooks live.
   // A TUI-spawned daemon keeps the historical eager start (its channels client
   // is already on the way). A session-spawned one waits for a real channels
   // client — see the transport's onClientRegistered hook.
-  if (process.env.MIXDOG_DAEMON_SPAWNED_FOR !== 'session') startChannels();
+  if (process.env.MIXDOG_DAEMON_SPAWNED_FOR !== 'session') channelsRuntime.start();
 
   // A pinned channel session outlives the daemon that pinned it. Reactivate the
   // durable intent AFTER the ready handshake (activation itself brings the

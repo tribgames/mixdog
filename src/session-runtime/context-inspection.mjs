@@ -277,10 +277,13 @@ function sectionDrafts(sections, index, tokens, reminder) {
     const skillLabel = SKILL_SECTION_LABELS.get(heading.trim().toLowerCase());
     let category = 'system';
     if (bucket === 'memory') category = 'memory';
+    // A section that already knows what it holds (a skill body) files itself;
+    // the envelope it travelled in does not decide its category.
+    if (section.category) category = section.category;
     return {
       id: `message:${index}:section:${sectionIndex}`,
       category,
-      group: reminder ? 'reminder' : 'instruction',
+      group: section.group || (reminder ? 'reminder' : 'instruction'),
       label: label(section.label || skillLabel || heading),
       tokens: shares[sectionIndex],
       kind: 'instruction',
@@ -369,7 +372,10 @@ function ordinalCounter() {
 function frameSections(message, text, reminder) {
   if (reminder) {
     const skill = latestSkillBodies([{ ...message, content: text }])[0];
-    if (skill) return [{ text, label: `Skill: ${skill.name}` }];
+    // A skill body rides in as a reminder, but it is what a skill costs, not
+    // system framing: it belongs to Skills, beside the Skill tool definition,
+    // grouped as what it is — loaded on demand (user: 스킬 분류 제대로 안된거).
+    if (skill) return [{ text, label: `Skill: ${skill.name}`, category: 'skills', group: 'loaded' }];
     if (parseTaskNotification(text)) return [{ text, label: 'Task notification' }];
     return reminderSections(text);
   }

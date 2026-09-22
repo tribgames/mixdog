@@ -25,6 +25,85 @@ function handoffOwnerIsLive(pid) {
 }
 
 /**
+ * One session's spool queue, split into what this process takes and what stays
+ * on disk. A foreign user message is taken (and parked with a handoff stamp
+ * until the consumer owns a copy); an entry already handed off stays until its
+ * release window expires or its owner is gone; everything else is kept.
+ *
+ * Appends to `request.taken` / `request.released`, tightens
+ * `request.rescanDueAt` to the earliest live handoff deadline, and returns the
+ * entries the queue keeps.
+ */
+function takeForeignMessagesFromQueue(queue, request, handoffReleaseMs) {
+  const now = Date.now();
+  const kept = [];
+  for (const entry of queue) {
+    const id = pendingMessageId(entry);
+    const handoffAt = Number(entry?.handoffAt) || 0;
+    const handoffPid = Number(entry?.handoffPid) || 0;
+    if (handoffAt > 0) {
+      const dueAt = handoffAt + handoffReleaseMs;
+      const expired = now >= dueAt;
+      if (!expired) {
+        request.rescanDueAt = request.rescanDueAt === 0 ? dueAt : Math.min(request.rescanDueAt, dueAt);
+      }
+      if (handoffPid === process.pid) {
+        if (expired) {
+          if (id) request.released.push(id);
+          continue;
+        }
+        kept.push(entry);
+        continue;
+      }
+      if (!expired || handoffOwnerIsLive(handoffPid)) {
+        kept.push(entry);
+        continue;
+      }
+    }
+    const text = pendingMessageText(entry);
+    const foreignUser =
+      id &&
+      !request.localIds.has(id) &&
+      !isCompletionNotificationEntry(entry) &&
+      text &&
+      !isInternalRuntimeNotificationText(text);
+    const normalized = normalizePendingMessageEntry(entry);
+    const structured = Array.isArray(normalized?.content) || Boolean(normalized?.options);
+    if (foreignUser && isStaleUserInjection(entry)) {
+      const lateText = lateDeliveryText(text, entry);
+      const content = Array.isArray(normalized?.content)
+        ? [
+            {
+              type: 'text',
+              text: lateText.slice(0, lateText.length - text.length),
+            },
+            ...normalized.content,
+          ]
+        : lateText;
+      request.taken.push({
+        ...(structured ? { content } : {}),
+        text: lateText,
+        id,
+        ...(normalized?.options ? { options: normalized.options } : {}),
+      });
+    } else if (foreignUser) {
+      request.taken.push({
+        ...(structured ? { content: normalized?.content ?? text } : {}),
+        text,
+        id,
+        ...(normalized?.options ? { options: normalized.options } : {}),
+      });
+    } else {
+      kept.push(entry);
+      continue;
+    }
+    // Park rather than delete until the consumer owns a copy.
+    kept.push({ ...entry, handoffAt: now, handoffPid: process.pid });
+  }
+  return kept;
+}
+
+/**
  * Owns cross-process pending-message polling and the durable two-phase handoff.
  * Queue storage and lifecycle authority stay in the parent pending-message
  * service and are supplied as narrow callbacks.
@@ -260,71 +339,7 @@ export class ForeignPendingMessageController {
             request.lifecycleDecided = true;
             const queue = Array.isArray(next.sessions[sessionId]) ? next.sessions[sessionId] : [];
             if (queue.length === 0) continue;
-            const now = Date.now();
-            const kept = [];
-            for (const entry of queue) {
-              const id = pendingMessageId(entry);
-              const handoffAt = Number(entry?.handoffAt) || 0;
-              const handoffPid = Number(entry?.handoffPid) || 0;
-              if (handoffAt > 0) {
-                const dueAt = handoffAt + this._handoffReleaseMs;
-                const expired = now >= dueAt;
-                if (!expired) {
-                  request.rescanDueAt = request.rescanDueAt === 0 ? dueAt : Math.min(request.rescanDueAt, dueAt);
-                }
-                if (handoffPid === process.pid) {
-                  if (expired) {
-                    if (id) request.released.push(id);
-                    continue;
-                  }
-                  kept.push(entry);
-                  continue;
-                }
-                if (!expired || handoffOwnerIsLive(handoffPid)) {
-                  kept.push(entry);
-                  continue;
-                }
-              }
-              const text = pendingMessageText(entry);
-              const foreignUser =
-                id &&
-                !request.localIds.has(id) &&
-                !isCompletionNotificationEntry(entry) &&
-                text &&
-                !isInternalRuntimeNotificationText(text);
-              const normalized = normalizePendingMessageEntry(entry);
-              const structured = Array.isArray(normalized?.content) || Boolean(normalized?.options);
-              if (foreignUser && isStaleUserInjection(entry)) {
-                const lateText = lateDeliveryText(text, entry);
-                const content = Array.isArray(normalized?.content)
-                  ? [
-                      {
-                        type: 'text',
-                        text: lateText.slice(0, lateText.length - text.length),
-                      },
-                      ...normalized.content,
-                    ]
-                  : lateText;
-                request.taken.push({
-                  ...(structured ? { content } : {}),
-                  text: lateText,
-                  id,
-                  ...(normalized?.options ? { options: normalized.options } : {}),
-                });
-              } else if (foreignUser) {
-                request.taken.push({
-                  ...(structured ? { content: normalized?.content ?? text } : {}),
-                  text,
-                  id,
-                  ...(normalized?.options ? { options: normalized.options } : {}),
-                });
-              } else {
-                kept.push(entry);
-                continue;
-              }
-              // Park rather than delete until the consumer owns a copy.
-              kept.push({ ...entry, handoffAt: now, handoffPid: process.pid });
-            }
+            const kept = takeForeignMessagesFromQueue(queue, request, this._handoffReleaseMs);
             if (request.taken.length === 0 && request.released.length === 0) continue;
             changed = true;
             setSpoolQueue(next, sessionId, kept);

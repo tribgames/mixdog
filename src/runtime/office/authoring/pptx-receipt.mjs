@@ -364,6 +364,33 @@ export function slideReceipt(slide) {
     coverage: 0,
     grammar: 'text',
   };
+  const read = readShapes(shapes, receipt);
+  receipt.presets = [...read.presets];
+  if (Object.keys(read.specs).length) receipt.specs = read.specs;
+  receipt.coverage = Math.min(1, Number((read.covered / CANVAS_AREA).toFixed(2)));
+  receipt.grammar = pageGrammar(receipt, read);
+  const observed = observe(read.seen, {
+    textBoxes: read.textBoxes,
+    visuals: read.visuals,
+    content: read.content,
+    blocks: read.blocks,
+    surfaces: read.surfaces,
+    constructs: read.constructs,
+    labels: diagramLabels(read.textBoxes, read.constructs),
+    fills: read.fills,
+    titleBox: read.titleBox,
+  });
+  if (observed) receipt.observe = observed;
+  return receipt;
+}
+
+/**
+ * One pass over the slide's shapes: counts them into the receipt and sorts
+ * their footprints into the vocabularies the observations read — visuals,
+ * content, spacing blocks, surfaces, drawn constructs — plus the covered
+ * area, the fill weights and the largest text box.
+ */
+function readShapes(shapes, receipt) {
   let covered = 0;
   let beatField = false;
   const presets = new Set();
@@ -466,45 +493,50 @@ export function slideReceipt(slide) {
       }
     }
   }
-  receipt.presets = [...presets];
-  if (Object.keys(specs).length) receipt.specs = specs;
-  receipt.coverage = Math.min(1, Number((covered / CANVAS_AREA).toFixed(2)));
-  // Page grammar (composition.md §7): a beat is a dark page or one a dark or saturated field owns; an evidence page
-  // carries a chart, a table, a picture, a group, a stat, or a drawn construction (three or more contours and
-  // connectors); the rest is a text page. The reference decks (thirteen, 400 pages) run beats on one page in eight
-  // and evidence on two of three; the deck's shares sit in deck.shape and the sequence in deck.rhythm.grammar.
-  // Evidence first: a chart on a dark page is an evidence page of a dark deck (Krafton), not a beat.
-  const evidencePage =
-    receipt.charts + receipt.tables + receipt.pictures + receipt.groups > 0 ||
-    constructs.length >= 3 ||
-    specs.stat ||
-    specs.structure ||
-    specs.chevrons;
-  if (evidencePage) receipt.grammar = 'evidence';
-  else if (receipt.background === 'dark' || beatField) receipt.grammar = 'beat';
-  else receipt.grammar = 'text';
-  // Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
-  // a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
-  // alignment and gap readings and are counted instead.
-  const labels = textBoxes.filter(
-    (box) =>
-      box.width <= 2.5 * 72 &&
-      box.height <= 0.4 * 72 &&
-      constructs.some((construct) => rectangleGap(box, construct) <= 0.3 * 72)
-  );
-  const observed = observe(seen, {
+  return {
+    covered,
+    beatField,
+    presets,
     textBoxes,
     visuals,
     content,
     blocks,
     surfaces,
     constructs,
-    labels,
     fills,
     titleBox,
-  });
-  if (observed) receipt.observe = observed;
-  return receipt;
+    seen,
+    specs,
+  };
+}
+
+// Page grammar (composition.md §7): a beat is a dark page or one a dark or saturated field owns; an evidence page
+// carries a chart, a table, a picture, a group, a stat, or a drawn construction (three or more contours and
+// connectors); the rest is a text page. The reference decks (thirteen, 400 pages) run beats on one page in eight
+// and evidence on two of three; the deck's shares sit in deck.shape and the sequence in deck.rhythm.grammar.
+// Evidence first: a chart on a dark page is an evidence page of a dark deck (Krafton), not a beat.
+function pageGrammar(receipt, { constructs, specs, beatField }) {
+  const evidencePage =
+    receipt.charts + receipt.tables + receipt.pictures + receipt.groups > 0 ||
+    constructs.length >= 3 ||
+    specs.stat ||
+    specs.structure ||
+    specs.chevrons;
+  if (evidencePage) return 'evidence';
+  if (receipt.background === 'dark' || beatField) return 'beat';
+  return 'text';
+}
+
+// Diagram labels — small text bound to a contour or connector (a node's name, an axis tick, a dumbbell value,
+// a legend entry) — belong to their device, not to the page's columns and spacing steps: they leave the
+// alignment and gap readings and are counted instead.
+function diagramLabels(textBoxes, constructs) {
+  return textBoxes.filter(
+    (box) =>
+      box.width <= 2.5 * 72 &&
+      box.height <= 0.4 * 72 &&
+      constructs.some((construct) => rectangleGap(box, construct) <= 0.3 * 72)
+  );
 }
 
 // The whole deck: per-slide receipts, totals, the families that never appear,

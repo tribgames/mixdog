@@ -1,9 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getAgentApiKey } from '../../../shared/provider-api-key.mjs';
 import { canFallbackNonStreaming, withRetry } from './retry-classifier.mjs';
-import { traceAgentUsage, appendAgentTrace } from '../agent-trace.mjs';
-import { createProviderReplay } from './lib/provider-replay.mjs';
-import { geminiThinkingConfig } from './gemini-thinking.mjs';
+import { appendAgentTrace } from '../agent-trace.mjs';
 import {
   PROVIDER_CACHE_CREATE_TIMEOUT_MS,
   PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS,
@@ -12,43 +10,40 @@ import {
   createPassthroughSignal,
 } from '../stall-policy.mjs';
 import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
+import { GEMINI_FIRST_BYTE_TIMEOUT_MS, consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
+import { geminiTextLeakGuardFor, streamGeminiSdkAttempt } from './gemini-sdk-request.mjs';
+import { emitGeminiToolCalls } from './gemini-schema.mjs';
+import { buildGeminiRequest, geminiCachedRestBody } from './gemini-request-body.mjs';
 import {
-  GEMINI_FIRST_BYTE_TIMEOUT_MS,
-  geminiTimeoutError,
-  createGeminiTextLeakGuard,
-  consumeGeminiRestStreamResponse,
-  consumeGeminiSdkStream,
-  stampGeminiRpcError,
-} from './gemini-stream.mjs';
+  geminiIncompleteError,
+  geminiSendResult,
+  parseGeminiCandidate,
+  resolveGeminiUsage,
+} from './gemini-response.mjs';
 import {
-  toGeminiTools,
-  toGeminiNativeTools,
-  toGeminiToolConfig,
-  toGeminiContents,
-  parseToolCalls,
-  emitGeminiToolCalls,
-  collectGeminiGroundingSources,
-  parseGeminiTextPartMetadata,
-} from './gemini-schema.mjs';
-import {
-  _estimateGeminiCacheTokens,
-  _geminiCacheMinTokens,
-  _geminiCachePrefixCount,
-  _geminiCachePrefixContents,
-  _geminiCachePrefixHash,
-  _geminiGlobalCacheKey,
   _getGeminiGlobalCache,
   _setGeminiGlobalCache,
   _geminiGlobalCacheNameIsLive,
   _attachGeminiCacheState,
-  _resolveGeminiCacheUsage,
   writeGeminiCacheTrace,
   geminiGlobalCacheCreates,
   GEMINI_GLOBAL_CACHE_DELETE_GRACE_MS,
   _geminiCredentialFingerprint,
   _invalidateGeminiCachesForCredentialFingerprint,
-  _invalidateGeminiCacheName,
 } from './gemini-cache.mjs';
+import {
+  awaitSharedCreate,
+  dropRejectedGeminiCache,
+  geminiCacheCreateBody,
+  geminiCacheEntry,
+  geminiCachePrefixIdentity,
+  geminiCacheStateDecision,
+  geminiCacheTunables,
+  geminiExplicitCacheDisabled,
+  geminiPrefixBelowMinimum,
+  joinInFlightGeminiCreate,
+  traceGeminiCache,
+} from './gemini-cache-policy.mjs';
 import {
   GEMINI_MODELS as MODELS,
   DEFAULT_GEMINI_MODEL as DEFAULT_MODEL,
@@ -112,460 +107,12 @@ function signalRequesting(opts) {
   } catch {}
 }
 
-function traceGeminiCache(opts, iteration, kind, payload) {
-  try {
-    appendAgentTrace({ sessionId: opts.sessionId || opts.session?.id || null, iteration, kind, payload });
-  } catch {}
-}
-
 function geminiRetryLogger(opts, tag) {
   return ({ attempt, lastErr }) => {
     signalRequesting(opts);
     process.stderr.write(
       `${tag} retry attempt ${attempt + 1} after ${lastErr?.message || lastErr?.code || 'transient error'}\n`
     );
-  };
-}
-
-// Explicit-cache tunables. The prefix is rebuilt every N iterations so
-// recent turns also enter the cached prefix. Cache TTL (storage is billed
-// per token-hour, so shorter is cheaper) defaults to 5m: agent tool loops
-// re-request within seconds, and the refresh-every-4-iterations rebuild
-// re-arms the TTL well before expiry. Long-idle sessions just pay one cold
-// rebuild on resume.
-function geminiCacheTunables() {
-  const refreshEveryN =
-    Number(process.env.MIXDOG_GEMINI_CACHE_REFRESH_EVERY) > 0
-      ? Number(process.env.MIXDOG_GEMINI_CACHE_REFRESH_EVERY)
-      : 4;
-  const ttlSeconds =
-    Number(process.env.MIXDOG_GEMINI_CACHE_TTL_SECONDS) > 0 ? Number(process.env.MIXDOG_GEMINI_CACHE_TTL_SECONDS) : 300;
-  return { refreshEveryN, ttlSeconds };
-}
-
-// The recorded prefix length and the hash the current request produces at
-// that length; both null when the state records no prefix.
-function geminiStatePrefix(state, model, request) {
-  const statePrefixContentCount = Number.isFinite(Number(state?.cachePrefixContentCount))
-    ? Math.max(0, Math.trunc(Number(state.cachePrefixContentCount)))
-    : null;
-  const currentStatePrefixHash =
-    statePrefixContentCount != null
-      ? _geminiCachePrefixHash({ model, ...request, prefixCount: statePrefixContentCount })
-      : null;
-  return { statePrefixContentCount, currentStatePrefixHash };
-}
-
-// Whether the session's recorded cache can still be attached (live TTL,
-// same model, credential and prefix) and whether it is fresh enough to
-// reuse outright. Reuse requires remaining TTL headroom so we never attach a
-// cache that expires mid-request — scaled with TTL (25%, clamped to
-// 10s..6m); the old fixed 6-minute floor silently disabled reuse for any
-// TTL <= 6m, forcing a full-price rebuild every turn.
-function geminiCacheStateDecision({
-  state,
-  model,
-  credentialFingerprint,
-  request,
-  currentIter,
-  now,
-  ttlSeconds,
-  refreshEveryN,
-}) {
-  const { contents } = request;
-  const reuseHeadroomMs = Math.min(6 * 60 * 1000, Math.max(10 * 1000, ttlSeconds * 250));
-  const cacheLiveMs = state?.cacheExpiresAt ? state.cacheExpiresAt - now : 0;
-  const itersSinceCreate = state?.cacheCreatedAtIter != null ? currentIter - state.cacheCreatedAtIter : Infinity;
-  const { statePrefixContentCount, currentStatePrefixHash } = geminiStatePrefix(state, model, request);
-  const modelMatches = !!state?.cacheName && state?.cacheModel === model;
-  const credentialMatches = !!state?.cacheName && state?.cacheCredentialFingerprint === credentialFingerprint;
-  const prefixMatches =
-    !!state?.cacheName &&
-    statePrefixContentCount != null &&
-    statePrefixContentCount <= (Array.isArray(contents) ? contents.length : 0) &&
-    !!state?.cachePrefixHash &&
-    state.cachePrefixHash === currentStatePrefixHash;
-  const canAttachState = !!state?.cacheName && cacheLiveMs > 0 && modelMatches && credentialMatches && prefixMatches;
-  const canReuseState = canAttachState && cacheLiveMs > reuseHeadroomMs && itersSinceCreate < refreshEveryN;
-  return {
-    canAttachState,
-    canReuseState,
-    trace: {
-      hasState: !!state?.cacheName,
-      stateCacheName: state?.cacheName || null,
-      stateCreatedAtIter: state?.cacheCreatedAtIter ?? null,
-      stateCacheModel: state?.cacheModel || null,
-      statePrefixContentCount,
-      statePrefixHash: state?.cachePrefixHash || null,
-      currentStatePrefixHash,
-      modelMatches,
-      credentialMatches,
-      prefixMatches,
-      canAttachState,
-      cacheLiveMs,
-      itersSinceCreate,
-      refreshEveryN,
-      decision: canReuseState ? 'reuse' : 'rebuild',
-      contentsLen: Array.isArray(contents) ? contents.length : 0,
-    },
-  };
-}
-
-// Wait on a shared create while still honouring THIS caller's abort: the
-// create itself is process-global and must outlive any single session, so
-// the caller only stops waiting (resolving null) instead of cancelling the
-// work for everyone.
-function awaitSharedCreate(task, signal) {
-  if (!(signal instanceof AbortSignal))
-    return task.then(
-      (v) => v,
-      () => null
-    );
-  if (signal.aborted) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const onAbort = () => resolve(null);
-    signal.addEventListener('abort', onAbort, { once: true });
-    task.then(
-      (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
-      },
-      () => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(null);
-      }
-    );
-  });
-}
-
-// cachedContents request body: system/tools/toolConfig plus the
-// conversation prefix (everything except the latest user/tool input that
-// the generateContent call will carry). cachedContents only accepts
-// role='user' or 'model'; generateContent uses role='function' for
-// tool_result turns, so that is collapsed to 'user' (functionResponse parts
-// remain inside).
-function geminiCacheCreateBody({
-  model,
-  ttlSeconds,
-  systemInstruction,
-  geminiTools,
-  toolConfig,
-  contents,
-  cachePrefixContentCount,
-}) {
-  const cachePrefixContents = _geminiCachePrefixContents(contents, cachePrefixContentCount);
-  const body = {
-    model: `models/${model}`,
-    ttl: `${ttlSeconds}s`,
-  };
-  if (systemInstruction) {
-    body.systemInstruction = { parts: [{ text: systemInstruction }] };
-  }
-  if (Array.isArray(geminiTools) && geminiTools.length) {
-    body.tools = geminiTools;
-  }
-  if (toolConfig) body.toolConfig = toolConfig;
-  if (cachePrefixContents.length) {
-    body.contents = cachePrefixContents;
-  }
-  return body;
-}
-
-// Request pieces shared by the cached REST path and the SDK path.
-function buildGeminiRequest(messages, useModel, tools, opts) {
-  // Gemini returns thought summaries only when the request asks for them.
-  // Without this the reasoning channel stays empty for the whole turn and
-  // the model's only visible output is the plain pre-tool text, so every
-  // round reads as another preamble. On by default for every model; an
-  // explicit opts.includeThoughts still wins.
-  const thinkingConfig = geminiThinkingConfig(useModel, opts, { includeThoughts: true });
-  const generationConfig = thinkingConfig ? { thinkingConfig } : undefined;
-  const systemInstruction =
-    messages
-      .filter((m) => m.role === 'system')
-      .map((m) => m.content)
-      .join('\n\n') || undefined;
-  const chatMsgs = messages.filter((m) => m.role !== 'system');
-  const contents = toGeminiContents(chatMsgs, useModel);
-  if (!contents.length) throw new Error('No messages to send');
-
-  const nativeGeminiTools = toGeminiNativeTools(opts.nativeTools);
-  const functionGeminiTools = tools?.length ? [toGeminiTools(tools)] : [];
-  const geminiTools =
-    nativeGeminiTools.length || functionGeminiTools.length ? [...nativeGeminiTools, ...functionGeminiTools] : undefined;
-  const toolConfig = functionGeminiTools.length ? toGeminiToolConfig(opts.toolChoice) : undefined;
-  return { generationConfig, systemInstruction, contents, geminiTools, toolConfig };
-}
-
-function geminiTextLeakGuardFor({ tools, callbacks }) {
-  return createGeminiTextLeakGuard({
-    knownToolNames: tools?.map((t) => t.name).filter(Boolean) ?? [],
-    onTextDelta: callbacks.onTextDelta,
-    onToolCall: callbacks.onToolCall,
-    onStreamDelta: callbacks.onStreamDelta,
-  });
-}
-
-// Mirrors the REST branch's signal lifetime: the request controller stays
-// linked to the parent (attemptSignal) for the FULL stream — connect AND
-// body — so a parent / client / gateway abort after first byte still
-// cancels the underlying SDK request (the SSE idle watchdog is off by
-// default). The first-byte timer only bounds the connect phase and is
-// cleared once the stream starts, so it can never kill a live,
-// still-producing stream.
-function linkSdkRequestController(attemptSignal) {
-  const controller = new AbortController();
-  let parentAbortListener = null;
-  let firstByteTimer = null;
-  const detachParent = () => {
-    if (parentAbortListener && attemptSignal) {
-      try {
-        attemptSignal.removeEventListener('abort', parentAbortListener);
-      } catch {}
-      parentAbortListener = null;
-    }
-  };
-  const clearConnectTimer = () => {
-    if (firstByteTimer) {
-      clearTimeout(firstByteTimer);
-      firstByteTimer = null;
-    }
-  };
-  if (attemptSignal) {
-    if (attemptSignal.aborted) {
-      try {
-        controller.abort(attemptSignal.reason);
-      } catch {}
-    } else {
-      parentAbortListener = () => {
-        try {
-          controller.abort(attemptSignal.reason);
-        } catch {}
-      };
-      attemptSignal.addEventListener('abort', parentAbortListener, { once: true });
-    }
-  }
-  firstByteTimer = setTimeout(() => {
-    try {
-      controller.abort(geminiTimeoutError('Gemini SDK first byte', GEMINI_FIRST_BYTE_TIMEOUT_MS));
-    } catch {}
-  }, GEMINI_FIRST_BYTE_TIMEOUT_MS);
-  if (firstByteTimer.unref) firstByteTimer.unref();
-  return { controller, detachParent, clearConnectTimer };
-}
-
-async function streamGeminiSdkAttempt(genModel, stream, attemptSignal) {
-  const { contents, callbacks } = stream;
-  const link = linkSdkRequestController(attemptSignal);
-  const { controller } = link;
-  try {
-    let streamResult;
-    try {
-      streamResult = await genModel.generateContentStream({ contents }, { signal: controller.signal });
-    } catch (err) {
-      if (controller.signal.aborted) {
-        throw controller.signal.reason instanceof Error ? controller.signal.reason : err;
-      }
-      throw stampGeminiRpcError(err);
-    }
-    // First byte / headers received: drop the connect-phase timer but KEEP
-    // the parent link attached so a later abort during streaming still
-    // reaches the request.
-    link.clearConnectTimer();
-    const textLeakGuard = geminiTextLeakGuardFor(stream);
-    const response = await consumeGeminiSdkStream(streamResult, {
-      signal: attemptSignal,
-      onStreamDelta: callbacks.onStreamDelta,
-      onTextDelta: callbacks.onTextDelta,
-      textLeakGuard,
-      label: 'Gemini SDK streamGenerateContent',
-      cancelGeneration: (reason) => {
-        if (!controller.signal.aborted) controller.abort(reason);
-      },
-    });
-    return { response, textLeakGuard };
-  } finally {
-    link.clearConnectTimer();
-    link.detachParent();
-  }
-}
-
-// Candidate text and tool calls after the text-leak guard: leaked
-// (text-embedded) tool calls are appended to the native ones and empty the
-// provider replay.
-function parseGeminiCandidate(response, textLeakGuard) {
-  const candidate = response.candidates?.[0] || null;
-  const responseParts = candidate?.content?.parts ?? [];
-  const textParts = responseParts.filter((p) => p?.thought !== true && 'text' in p);
-  const rawContent = textParts.map((p) => ('text' in p ? p.text : '')).join('');
-  const providerMetadata = parseGeminiTextPartMetadata(responseParts);
-  const content = textLeakGuard?.enabled ? textLeakGuard.scrubAssistantText(rawContent) : rawContent;
-  const leakedToolCalls = textLeakGuard?.getLeakedToolCalls() ?? [];
-  const providerReplay = createProviderReplay('gemini', leakedToolCalls.length ? [] : responseParts);
-  let nativeToolCalls = parseToolCalls(candidate?.content?.parts ?? []);
-  if (textLeakGuard?.enabled) {
-    nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
-  }
-  let toolCalls = nativeToolCalls;
-  if (leakedToolCalls.length) {
-    toolCalls = toolCalls?.length ? [...toolCalls, ...leakedToolCalls] : leakedToolCalls;
-  }
-  return {
-    candidate,
-    content,
-    providerMetadata,
-    providerReplay,
-    nativeToolCalls,
-    toolCalls,
-    citations: collectGeminiGroundingSources(candidate),
-  };
-}
-
-// Inspect candidate.finishReason — Gemini reports terminal status here.
-// Only STOP (and the legacy "FINISH_REASON_STOP") plus tool/function-call
-// paths represent a fully delivered turn. MAX_TOKENS / SAFETY / RECITATION /
-// OTHER all mean the candidate was cut off before the model finished, and
-// surfacing the partial text as final would silently accept a truncated
-// answer. Those become a typed provider-incomplete error so the loop can
-// decide whether to retry, nudge, or surface to the user. Missing
-// finishReason (still streaming / unknown) is left alone — existing success
-// paths for genuinely complete responses keep working. Newly-added
-// safety/image/tool/malformed reasons are incomplete by default instead of
-// silently accepting partial or empty output.
-function geminiIncompleteError(response, parsed, useModel) {
-  const promptBlockReason = response.promptFeedback?.blockReason || null;
-  const finishReason = parsed.candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
-  const normalizedFinishReason = String(finishReason || '').replace(/^FINISH_REASON_/, '');
-  if (!finishReason || normalizedFinishReason === 'STOP') return null;
-  return Object.assign(new Error(`Gemini response incomplete: finishReason=${finishReason}`), {
-    name: 'ProviderIncompleteError',
-    code: 'PROVIDER_INCOMPLETE',
-    providerIncomplete: true,
-    finishReason,
-    partialContent: parsed.content,
-    partialToolCalls: parsed.toolCalls,
-    partialProviderReplay: parsed.providerReplay,
-    providerMetadata: parsed.providerMetadata,
-    model: useModel,
-    rawUsage: response.usageMetadata || null,
-  });
-}
-
-// Normalized usage from usageMetadata, recorded to the usage trace. cachedTokens
-// reuses the exact value the cache trace resolved (including the
-// cachedFallback when cachedContentTokenCount / total_cached_tokens
-// under-reports).
-function resolveGeminiUsage(response, opts, cachedContent, useModel) {
-  const um = response.usageMetadata || null;
-  if (!um) return null;
-  const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
-  const { inputTokens, reportedCachedTokens, cachedFallbackTokens, cachedTokens, cacheTokenSource } =
-    _resolveGeminiCacheUsage({
-      usageMetadata: um,
-      cachedContent,
-      providerState: opts.providerState,
-    });
-  const outputTokens =
-    (um.candidatesTokenCount || um.candidates_token_count || 0) +
-    (um.thoughtsTokenCount || um.thoughts_token_count || 0);
-  const resolvedUsage = {
-    inputTokens,
-    outputTokens,
-    cachedTokens,
-    raw: um,
-    // Gemini promptTokenCount is total (cachedContentTokenCount is a
-    // subset). Alias the resolver's normalized total directly.
-    promptTokens: inputTokens,
-  };
-  if (cachedContent && inputTokens > 0 && cachedTokens <= 0) {
-    traceGeminiCache(opts, iteration, 'gemini_cache_anomaly', {
-      reason: 'cached_content_attached_but_zero_cached_tokens',
-      inputTokens,
-      reportedCachedTokens,
-      cachedFallbackTokens,
-      cacheTokenSource,
-      cacheName: opts.providerState?.gemini?.cacheName || null,
-      cachePrefixContentCount: opts.providerState?.gemini?.cachePrefixContentCount ?? null,
-    });
-  }
-  traceAgentUsage({
-    sessionId: opts.sessionId || opts.session?.id || null,
-    iteration,
-    inputTokens: resolvedUsage.inputTokens,
-    outputTokens: resolvedUsage.outputTokens,
-    cachedTokens: resolvedUsage.cachedTokens,
-    cacheWriteTokens: 0,
-    promptTokens: resolvedUsage.promptTokens,
-    model: useModel,
-    modelDisplay: useModel,
-    rawUsage: um,
-    provider: 'gemini',
-  });
-  return resolvedUsage;
-}
-
-// Kill-switch: MIXDOG_GEMINI_EXPLICIT_CACHE=0 skips cachedContents
-// entirely and relies on Gemini's implicit prefix caching (2.5+/3.x
-// default, same 90% discount, no storage fee). A/B probe knob.
-function geminiExplicitCacheDisabled() {
-  const explicitMode = String(process.env.MIXDOG_GEMINI_EXPLICIT_CACHE || '')
-    .trim()
-    .toLowerCase();
-  return ['0', 'false', 'off', 'no'].includes(explicitMode);
-}
-
-// The prefix identity one cachedContents entry is keyed on: the content
-// count + hash of the reusable prefix, and the process-global cache key.
-function geminiCachePrefixIdentity({ model, request, credentialFingerprint }) {
-  const cachePrefixContentCount = _geminiCachePrefixCount(request.contents);
-  const cachePrefixHash = _geminiCachePrefixHash({ model, ...request, prefixCount: cachePrefixContentCount });
-  const globalCacheKey = _geminiGlobalCacheKey({
-    credentialFingerprint,
-    model,
-    cachePrefixHash,
-    cachePrefixContentCount,
-  });
-  return { prefix: { cachePrefixContentCount, cachePrefixHash }, globalCacheKey };
-}
-
-// A WAITER on an in-flight create never inherits the creation duty: it waits
-// for exactly that create and, when that yields nothing, takes whatever
-// another caller published for the same prefix meanwhile. Null means
-// "proceed uncached this turn".
-async function joinInFlightGeminiCreate(inFlightCreate, { globalCacheKey, opts, currentIter, prefix }) {
-  const created = await awaitSharedCreate(inFlightCreate, opts.signal);
-  if (created?.cacheName) {
-    traceGeminiCache(opts, currentIter, 'gemini_cache_global_wait_hit', {
-      cacheName: created.cacheName,
-      cacheTokenSize: created.cacheTokenSize,
-      ...prefix,
-    });
-    return created;
-  }
-  // Failed or abandoned wait: another caller may still have published
-  // a usable cache for this exact prefix meanwhile.
-  return _getGeminiGlobalCache(globalCacheKey, Date.now());
-}
-
-function geminiCacheEntry({
-  cacheName,
-  ttlSeconds,
-  model,
-  cacheTokenSize,
-  cachePrefixContentCount,
-  cachePrefixHash,
-  credentialFingerprint,
-}) {
-  const createdAt = Date.now();
-  return {
-    cacheName,
-    cacheCreatedAt: createdAt,
-    cacheExpiresAt: createdAt + ttlSeconds * 1000,
-    cacheModel: model,
-    cacheTokenSize,
-    cachePrefixContentCount,
-    cachePrefixHash,
-    cacheCredentialFingerprint: credentialFingerprint,
   };
 }
 
@@ -581,63 +128,6 @@ function throwIfGeminiAborted(signal) {
   if (!signal?.aborted) return;
   const reason = signal.reason;
   throw reason instanceof Error ? reason : new Error('Gemini request aborted by session close');
-}
-
-function geminiSendResult(parsed, useModel, opts, resolvedUsage) {
-  return {
-    content: parsed.content,
-    model: useModel,
-    toolCalls: parsed.toolCalls,
-    citations: parsed.citations.length ? parsed.citations : undefined,
-    providerReplay: parsed.providerReplay,
-    providerMetadata: parsed.providerMetadata,
-    providerState: opts.providerState,
-    // Use the same normalized usage object traceAgentUsage recorded,
-    // including snake_case SDK aliases and cache-create fallback.
-    usage: resolvedUsage || undefined,
-  };
-}
-
-// The generateContent body for a cached prefix. The cache carries the
-// recorded prefix; every uncached tail turn is sent, not just the last
-// message, so reused cachedContents preserve full conversation context
-// between periodic refreshes.
-function geminiCachedRestBody({ opts, contents, cachedContent, generationConfig }) {
-  const cachedPrefixContentCount = Number.isFinite(Number(opts.providerState?.gemini?.cachePrefixContentCount))
-    ? Math.max(0, Math.min(contents.length, Math.trunc(Number(opts.providerState.gemini.cachePrefixContentCount))))
-    : 0;
-  const deltaContents = contents.slice(cachedPrefixContentCount);
-  return {
-    contents: deltaContents.length ? deltaContents : contents.slice(-1),
-    cachedContent,
-    ...(generationConfig ? { generationConfig } : {}),
-  };
-}
-
-// The server rejected the cache itself: forget it globally and on the
-// session's provider state so the replay runs uncached.
-function dropRejectedGeminiCache(cachedContent, opts) {
-  _invalidateGeminiCacheName(cachedContent);
-  if (opts.providerState?.gemini?.cacheName === cachedContent) {
-    const { gemini: _dropGemini, ...rest } = opts.providerState;
-    opts.providerState = rest;
-  }
-}
-
-// Pre-flight invariant: cachedContents.create rejects prefixes below
-// the model-specific minimum. Skip the POST entirely when the estimate
-// is under threshold so we don't spam 400 responses turn-after-turn.
-function geminiPrefixBelowMinimum({ model, systemInstruction, geminiTools, contents, opts, currentIter }) {
-  const minTokens = _geminiCacheMinTokens(model);
-  const estimatedTokens = _estimateGeminiCacheTokens(systemInstruction, geminiTools, contents);
-  if (estimatedTokens >= minTokens) return false;
-  traceGeminiCache(opts, currentIter, 'gemini_cache_skip', {
-    reason: 'prefix_below_min',
-    estimatedTokens,
-    minTokens,
-    model,
-  });
-  return true;
 }
 
 export class GeminiProvider {

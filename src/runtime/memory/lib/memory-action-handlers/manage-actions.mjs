@@ -19,6 +19,84 @@ const numericId = (value) => {
   return Number.isFinite(id) && id > 0 ? id : null;
 };
 
+/**
+ * Insert the manual row and promote it to a classified root in one
+ * transaction: the row has to exist before it can name itself as its own
+ * chunk_root. Returns the new id.
+ */
+async function insertManualRootEntry(db, { element, summary, category, nowMs, sourceRef, projectId }) {
+  let newId;
+  await db.transaction(async (tx) => {
+    const result = await tx.query(
+      `
+              INSERT INTO entries(ts, role, content, source_ref, session_id, project_id)
+              VALUES ($1, 'system', $2, $3, NULL, $4)
+              RETURNING id
+            `,
+      [nowMs, `${element} — ${summary}`, sourceRef, projectId]
+    );
+    newId = Number(result.rows[0].id);
+    const score = computeEntryScore(category, nowMs, nowMs);
+    await tx.query(
+      `
+              UPDATE entries
+              SET chunk_root = $1, is_root = 1, element = $2, category = $3, summary = $4,
+                  status = 'pending', score = $5, last_seen_at = $6
+              WHERE id = $7
+            `,
+      [newId, element, category, summary, score, nowMs, newId]
+    );
+  });
+  return newId;
+}
+
+/**
+ * Validate an edit request against the stored root and resolve the row it
+ * produces: which fields change, the recomputed score, the composed content
+ * column, and whether the embedding has to be resynced. Returns `{ error }`
+ * instead when the request cannot be applied.
+ */
+function resolveManageEdit(existing, args) {
+  const newElement = trimOrNull(args.element);
+  const newSummary = trimOrNull(args.summary);
+  const newCategory = trimOrNull(args.category)?.toLowerCase() ?? null;
+  if (!newElement && !newSummary && !newCategory) {
+    return { error: { text: 'manage edit requires at least one field: element, summary, category', isError: true } };
+  }
+  if (newCategory && !VALID_CATEGORY.has(newCategory)) {
+    return {
+      error: {
+        text: `manage edit: invalid category "${newCategory}". Valid: ${[...VALID_CATEGORY].join(', ')}`,
+        isError: true,
+      },
+    };
+  }
+
+  const finalElement = newElement ?? existing.element;
+  const finalSummary = newSummary ?? existing.summary;
+  const finalCategory = newCategory ?? existing.category;
+  const nowMs = Date.now();
+  // Guard null element/summary: a category-only edit on a root whose
+  // element or summary is NULL would otherwise persist literal
+  // 'null — null' content and explode on finalSummary.slice() below.
+  // Empty-string sentinels for the content composition + render keep the
+  // row consistent with what's actually stored.
+  const elementStr = finalElement == null ? '' : String(finalElement);
+  const summaryStr = finalSummary == null ? '' : String(finalSummary);
+  const summarySuffix = summaryStr ? ` — ${summaryStr}` : '';
+  return {
+    finalElement,
+    finalSummary,
+    finalCategory,
+    nowMs,
+    score: computeEntryScore(finalCategory, nowMs, nowMs),
+    textChanged: newElement != null || newSummary != null,
+    elementStr,
+    summaryStr,
+    composedContent: elementStr || summaryStr ? `${elementStr}${summarySuffix}` : '',
+  };
+}
+
 export function createManageActions({ getDb, log }) {
   async function add(args) {
     const db = getDb();
@@ -40,27 +118,13 @@ export function createManageActions({ getDb, log }) {
     const sourceRef = `manual:${nowMs}-${process.pid}`;
     const manageProjectId = resolveProjectScope(typeof args.cwd === 'string' && args.cwd ? args.cwd : null);
     try {
-      let newId;
-      await db.transaction(async (tx) => {
-        const result = await tx.query(
-          `
-              INSERT INTO entries(ts, role, content, source_ref, session_id, project_id)
-              VALUES ($1, 'system', $2, $3, NULL, $4)
-              RETURNING id
-            `,
-          [nowMs, `${element} — ${summary}`, sourceRef, manageProjectId]
-        );
-        newId = Number(result.rows[0].id);
-        const score = computeEntryScore(category, nowMs, nowMs);
-        await tx.query(
-          `
-              UPDATE entries
-              SET chunk_root = $1, is_root = 1, element = $2, category = $3, summary = $4,
-                  status = 'pending', score = $5, last_seen_at = $6
-              WHERE id = $7
-            `,
-          [newId, element, category, summary, score, nowMs, newId]
-        );
+      const newId = await insertManualRootEntry(db, {
+        element,
+        summary,
+        category,
+        nowMs,
+        sourceRef,
+        projectId: manageProjectId,
       });
       await syncRootEmbedding(db, newId);
       return { text: `added (id=${newId}): [${category}] ${element} — ${summary.slice(0, 200)}` };
@@ -81,34 +145,10 @@ export function createManageActions({ getDb, log }) {
     if (!existing) return { text: `manage edit: no entry with id=${id}`, isError: true };
     if (existing.is_root !== 1) return { text: `manage edit: id=${id} is not a root`, isError: true };
 
-    const newElement = trimOrNull(args.element);
-    const newSummary = trimOrNull(args.summary);
-    const newCategory = trimOrNull(args.category)?.toLowerCase() ?? null;
-    if (!newElement && !newSummary && !newCategory) {
-      return { text: 'manage edit requires at least one field: element, summary, category', isError: true };
-    }
-    if (newCategory && !VALID_CATEGORY.has(newCategory)) {
-      return {
-        text: `manage edit: invalid category "${newCategory}". Valid: ${[...VALID_CATEGORY].join(', ')}`,
-        isError: true,
-      };
-    }
-
-    const finalElement = newElement ?? existing.element;
-    const finalSummary = newSummary ?? existing.summary;
-    const finalCategory = newCategory ?? existing.category;
-    const nowMs = Date.now();
-    const score = computeEntryScore(finalCategory, nowMs, nowMs);
-    const textChanged = newElement != null || newSummary != null;
-    // Guard null element/summary: a category-only edit on a root whose
-    // element or summary is NULL would otherwise persist literal
-    // 'null — null' content and explode on finalSummary.slice() below.
-    // Empty-string sentinels for the content composition + render keep the
-    // row consistent with what's actually stored.
-    const elementStr = finalElement == null ? '' : String(finalElement);
-    const summaryStr = finalSummary == null ? '' : String(finalSummary);
-    const summarySuffix = summaryStr ? ` — ${summaryStr}` : '';
-    const composedContent = elementStr || summaryStr ? `${elementStr}${summarySuffix}` : '';
+    const resolved = resolveManageEdit(existing, args);
+    if (resolved.error) return resolved.error;
+    const { finalElement, finalSummary, finalCategory, nowMs, score, textChanged, elementStr, summaryStr } = resolved;
+    const composedContent = resolved.composedContent;
 
     try {
       await db.transaction(async (tx) => {

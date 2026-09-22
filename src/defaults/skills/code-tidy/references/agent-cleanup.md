@@ -18,6 +18,25 @@ Passing tests that do not exercise the affected behavior are not proof.
 An intended change to failures, returned values, compatibility, or concurrency
 is RISKY: report it as a separate correction or migration, not a cleanup edit.
 
+**Source-text guards.** Some tests assert on source text rather than behavior,
+so an extraction breaks them without touching behavior: a packaging test that
+reads three files as one concatenated string and enforces five `indexOf`
+orderings; a repo-wide audit asserting an identifier appears in no file outside
+two named modules; a coverage test requiring literal action names to stay in
+one file. Search the suite for them first (reads of source paths, ordering
+`indexOf` chains, identifier-absence assertions) and record what each pins;
+moving code across such a guard is a contract change, not a tidying.
+
+**Dependency arrays.** A hook or watcher dependency array that contradicts its
+own body — the body reads values the array does not key — is a defect
+candidate, not an idiom to preserve and report. Verify reachability at the
+producer: when the key can actually repeat (two publishers stamping
+`Date.now()` in the same millisecond drop the second update), fix it by adding
+the values the body reads while keeping the existing key, with a test that
+fails without the fix, delivered as its own change set under "Bugs found".
+When the producer makes repetition unreachable, leave the array and record that
+evidence as `kept`.
+
 ## Deletion ladder
 
 Run the ladder on every selected unit (function, class, module, config knob)
@@ -221,6 +240,7 @@ Noticed but not applied (report-only or out of scope)
 
 Bugs found (not fixed here): <correctness issues surfaced while cleaning>
 Verification: tests <passed/failed/skipped/baseline-excluded counts> · typecheck <result> · lint <remaining diagnostics>
+Blocked or unavailable verification (required; write "none"): <check> — <engine unresolved through tidy | runner broken | lane conflict> → <paths left unverified>
 Needs your decision: <one consolidated list — RISKY findings, bugs found, unresolved intent, unfinished candidates>
 Next round: <scope and IDs planned for next round, or none if overall complete>
 ```

@@ -17,6 +17,8 @@ import { readEnginesManifest } from './install.mjs';
 import { resolveEngines, runnableEngines } from './resolve.mjs';
 import { DIAGNOSTIC_CAP, RESULTS_PAGE_MAX, buildTidyReport, tidyToolResult } from './report.mjs';
 import { runProcess } from './process.mjs';
+import { detectEngineShadows } from './shadow.mjs';
+import { listWorkingTreeChanges, splitFindingsByWorktree } from './worktree.mjs';
 
 const GRAPH_LANGS_TIMEOUT_MS = 8000;
 // Argv-safe --files batches. Larger scopes stay scoped: omitting --files makes
@@ -83,6 +85,34 @@ function matchFileKey(file, cwd) {
     .replace(/\/+$/, '');
   if (root && (raw === root || raw.startsWith(`${root}/`))) return raw.slice(root.length + 1);
   return raw.replace(/^\.\//, '');
+}
+
+// Rows apply would act on, per file: engine diagnostics, the files an engine
+// would rewrite (a formatter reports no diagnostics at all), and structural
+// matches. Every one of them is a reason apply touches that file.
+function findingFilesByCount({ results, structural, cwd }) {
+  const counts = new Map();
+  const add = (file) => {
+    const key = matchFileKey(file, cwd);
+    if (!key) return;
+    counts.set(key, (counts.get(key) || 0) + 1);
+  };
+  for (const result of results || []) {
+    for (const row of result.diagnostics || []) add(row.file);
+    for (const file of result.filesChanged || []) add(file);
+  }
+  for (const match of structural?.matches || []) add(match.file);
+  return counts;
+}
+
+/** The two populations a caller has to separate before `fix apply:true`. */
+async function splitRunFindings({ cwd, results, structural, signal }) {
+  const findings = findingFilesByCount({ results, structural, cwd });
+  if (findings.size === 0) return null;
+  const { files, error, skipped } = await listWorkingTreeChanges({ cwd, signal });
+  if (skipped) return { skipped };
+  if (!files) return { error };
+  return splitFindingsByWorktree(findings, files);
 }
 
 function reportHasMore(report) {
@@ -306,6 +336,7 @@ async function scanAction({ cwd, scope, languageFilter, engineFilter, signal, st
     languageSource: detected.source,
     engines: resolution.engines,
     policy: resolution.policy,
+    shadows: await detectEngineShadows({ engines: resolution.engines, signal }),
     ...(scope.length ? { scope } : {}),
     notes: [
       ...(detected.note ? [detected.note] : []),
@@ -366,6 +397,8 @@ async function runAction({ action, args, cwd, scope, languageFilter, engineFilte
     languageSource: detected.source,
     engines: resolution.engines,
     policy: resolution.policy,
+    shadows: await detectEngineShadows({ engines: resolution.engines, signal }),
+    workingTree: await splitRunFindings({ cwd, results, structural, signal }),
     results,
     structural,
     needsApproval,

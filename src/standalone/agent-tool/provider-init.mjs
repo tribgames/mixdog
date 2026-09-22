@@ -25,6 +25,77 @@
 // such a dropped request does not resolve immediately — it awaits the
 // provider's latest settled init (tracked as a rolling "ready" promise) so the
 // caller only proceeds once the newest config is live.
+function effectiveProviderConfig(config, provider) {
+  const providers = { ...(config.providers || {}) };
+  providers[provider] = { ...(providers[provider] || {}), enabled: true };
+  return providers;
+}
+
+function providerInitSignature(provider, effectiveProviders) {
+  let body;
+  try {
+    body = JSON.stringify(effectiveProviders);
+  } catch {
+    body = String(Date.now());
+  } // unserializable → force a fresh init
+  return `${provider}\u0000${body}`;
+}
+
+// Wait for the PRIOR chain link, but never longer than `gateMs`. A prior init
+// that HANGS (never settles) must not poison the chain and wedge every later
+// request behind it. A hung init can never *complete* against the registry, so
+// it cannot land-after and clobber a newer config (goal c only fears
+// slow-but-completing inits) — so proceeding once the gate expires is safe.
+// The caller's gate defaults to the spawn-prep cap; 0 disables it.
+function gateOnPrior(prior, gateMs) {
+  const settled = Promise.resolve(prior).catch(() => {});
+  if (!(gateMs > 0)) return settled;
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
+        resolve();
+      }
+    };
+    const timer = setTimeout(finish, gateMs);
+    timer.unref?.();
+    settled.then(
+      () => {
+        clearTimeout(timer);
+        finish();
+      },
+      () => {
+        clearTimeout(timer);
+        finish();
+      }
+    );
+  });
+}
+
+// Open a new generation for this provider: repoint the rolling `ready` deferred
+// to THIS gen and make the previous gen's deferred ADOPT the new one, so any
+// superseded caller awaiting an older deferred transitively waits for the
+// newest init (goal d).
+function beginGeneration(s, sigKey) {
+  const gen = ++s.latestGen;
+  s.latestSig = sigKey;
+  const prevReady = s.ready;
+  let resolveReady;
+  const readyPromise = new Promise((r) => {
+    resolveReady = r;
+  });
+  s.ready = { gen, promise: readyPromise, resolve: resolveReady };
+  if (prevReady && prevReady.gen < gen) {
+    try {
+      prevReady.resolve(readyPromise);
+    } catch {
+      /* already settled */
+    }
+  }
+  return { gen, readyPromise, resolveReady };
+}
+
 export function createProviderInit(reg, providerChainGateMs) {
   // Per-provider state. `chain` serializes the ACTUAL initProviders() calls so
   // two different config signatures never run concurrently (goal c). `latestGen`
@@ -35,20 +106,9 @@ export function createProviderInit(reg, providerChainGateMs) {
   // superseded caller transitively waits for the latest init (goal d).
   const _providerState = new Map(); // provider -> state
   const _providerInitPending = new Map(); // provider -> { sigKey, promise } identical-sig collapse
-  // Upper bound on how long a queued init waits for the PRIOR chain link before
-  // proceeding anyway. A prior init that HANGS (never settles) must not poison
-  // the chain and wedge every later request behind it. A hung init can never
-  // *complete* against the registry, so it cannot land-after and clobber a
-  // newer config (goal c only fears slow-but-completing inits) — so proceeding
-  // once the gate expires is safe. Defaults to the spawn-prep cap; 0 disables.
   const PROVIDER_CHAIN_GATE_MS = providerChainGateMs;
   function providerRegistered(provider) {
     return typeof reg.getProvider !== 'function' || Boolean(reg.getProvider(provider));
-  }
-  function effectiveProviderConfig(config, provider) {
-    const providers = { ...(config.providers || {}) };
-    providers[provider] = { ...(providers[provider] || {}), enabled: true };
-    return providers;
   }
   function providerStateFor(provider) {
     let s = _providerState.get(provider);
@@ -57,40 +117,6 @@ export function createProviderInit(reg, providerChainGateMs) {
       _providerState.set(provider, s);
     }
     return s;
-  }
-  function providerInitSignature(provider, effectiveProviders) {
-    let body;
-    try {
-      body = JSON.stringify(effectiveProviders);
-    } catch {
-      body = String(Date.now());
-    } // unserializable → force a fresh init
-    return `${provider}\u0000${body}`;
-  }
-  function gateOnPrior(prior) {
-    const settled = Promise.resolve(prior).catch(() => {});
-    if (!(PROVIDER_CHAIN_GATE_MS > 0)) return settled;
-    return new Promise((resolve) => {
-      let done = false;
-      const finish = () => {
-        if (!done) {
-          done = true;
-          resolve();
-        }
-      };
-      const timer = setTimeout(finish, PROVIDER_CHAIN_GATE_MS);
-      timer.unref?.();
-      settled.then(
-        () => {
-          clearTimeout(timer);
-          finish();
-        },
-        () => {
-          clearTimeout(timer);
-          finish();
-        }
-      );
-    });
   }
   function ensureProvider(config, provider) {
     const effective = effectiveProviderConfig(config, provider);
@@ -105,29 +131,12 @@ export function createProviderInit(reg, providerChainGateMs) {
     // flight — share its caller promise.
     const pending = _providerInitPending.get(provider);
     if (pending && pending.sigKey === sigKey) return pending.promise;
-    // New generation. Repoint the rolling `ready` deferred to THIS gen and make
-    // the previous gen's deferred ADOPT the new one, so any superseded caller
-    // awaiting an older deferred transitively waits for the newest init (d).
-    const gen = ++s.latestGen;
-    s.latestSig = sigKey;
-    const prevReady = s.ready;
-    let resolveReady;
-    const readyPromise = new Promise((r) => {
-      resolveReady = r;
-    });
-    s.ready = { gen, promise: readyPromise, resolve: resolveReady };
-    if (prevReady && prevReady.gen < gen) {
-      try {
-        prevReady.resolve(readyPromise);
-      } catch {
-        /* already settled */
-      }
-    }
+    const { gen, readyPromise, resolveReady } = beginGeneration(s, sigKey);
     // Serialize the ACTUAL init behind the prior chain link (gated so a hung
     // prior cannot wedge the chain). A superseded gen's chain link settles
     // quickly — it never awaits a later gen — so there is no deadlock.
     const prior = s.chain;
-    const chainLink = gateOnPrior(prior).then(async () => {
+    const chainLink = gateOnPrior(prior, PROVIDER_CHAIN_GATE_MS).then(async () => {
       if (s.latestGen !== gen) {
         // Superseded before we ran: drop our (stale) init entirely (goal c).
         // Our `ready` deferred already adopts the newer gen, so the caller below

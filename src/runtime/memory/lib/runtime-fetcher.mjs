@@ -424,82 +424,62 @@ function probeTar() {
   _tarProbed = true;
 }
 
-export async function ensureRuntime(dataDir) {
-  const key = resolve(dataDir);
-  if (runtimeCache.has(key)) return runtimeCache.get(key);
-
-  const runtimeBaseDir = join(key, 'runtime');
-  mkdirSync(runtimeBaseDir, { recursive: true });
-
-  // Entry GC: always clean staging-* (partial extracts from prior crashes), but
-  // preserve runtime-${currentVer} so a sibling child's just-completed swap is
-  // not wiped. multi-process race protection.
-  gcRuntimeDir(runtimeBaseDir, readActiveVersion(runtimeBaseDir));
-
-  const manifest = await loadManifest(key);
-  const pkey = platformKey();
-  let selectedKey = null;
-  let asset = null;
+/**
+ * The manifest asset this platform installs, or a graceful-degrade error
+ * naming why memory cannot run here. win32-arm64 falls back to the emulated
+ * win32-x64 asset, so the selected key is returned alongside.
+ */
+function selectRuntimeAsset(manifest, pkey) {
   for (const candidateKey of platformKeyCandidates()) {
     const candidateAsset = manifest.assets?.[candidateKey];
-    if (isUsableAsset(candidateAsset)) {
-      selectedKey = candidateKey;
-      asset = candidateAsset;
-      break;
-    }
+    if (isUsableAsset(candidateAsset)) return { asset: candidateAsset, selectedKey: candidateKey };
   }
-  if (!asset) {
-    const primaryAsset = manifest.assets?.[pkey];
-    if (!primaryAsset) {
-      // Platform/arch absent from the manifest entirely (e.g. an exotic arch).
-      // The memory PG runtime cannot start here; fail with a single clear,
-      // actionable message. The memory worker's init().catch reports this as
-      // degraded and the rest of mixdog (agent, tools) keeps working without
-      // memory.
-      const supported =
-        Object.keys(manifest.assets || {})
-          .filter((k) => isUsableAsset(manifest.assets[k]))
-          .join(', ') || '(none)';
-      throw new Error(
-        `[runtime-fetcher] memory runtime not available on ${pkey}: ` +
-          `no runtime asset for this platform/arch in the manifest. ` +
-          `Supported: ${supported}. ` +
-          `Memory is disabled on this platform; the rest of mixdog continues to work.`
-      );
-    }
-    // Platform/arch present but explicitly marked unsupported or carrying a
-    // placeholder/TBD payload (e.g. linux-arm64). Same graceful-degrade path.
+  const primaryAsset = manifest.assets?.[pkey];
+  if (!primaryAsset) {
+    // Platform/arch absent from the manifest entirely (e.g. an exotic arch).
+    // The memory PG runtime cannot start here; fail with a single clear,
+    // actionable message. The memory worker's init().catch reports this as
+    // degraded and the rest of mixdog (agent, tools) keeps working without
+    // memory.
+    const supported =
+      Object.keys(manifest.assets || {})
+        .filter((k) => isUsableAsset(manifest.assets[k]))
+        .join(', ') || '(none)';
     throw new Error(
       `[runtime-fetcher] memory runtime not available on ${pkey}: ` +
-        `this platform/arch is marked unsupported (no validated runtime asset). ` +
+        `no runtime asset for this platform/arch in the manifest. ` +
+        `Supported: ${supported}. ` +
         `Memory is disabled on this platform; the rest of mixdog continues to work.`
     );
   }
+  // Platform/arch present but explicitly marked unsupported or carrying a
+  // placeholder/TBD payload (e.g. linux-arm64). Same graceful-degrade path.
+  throw new Error(
+    `[runtime-fetcher] memory runtime not available on ${pkey}: ` +
+      `this platform/arch is marked unsupported (no validated runtime asset). ` +
+      `Memory is disabled on this platform; the rest of mixdog continues to work.`
+  );
+}
 
-  if (selectedKey !== pkey) {
-    __mixdogMemoryLog('[runtime-fetcher] win32-arm64 has no native runtime; using win32-x64 under emulation\n');
-  }
+/** Fast path: the active-version pointer names this version and the extracted
+ *  tree carries the expected sha256. Returns the reusable dir, else null. */
+function cachedRuntimeDir(runtimeBaseDir, version, sha256) {
+  if (readActiveVersion(runtimeBaseDir) !== version) return null;
+  const verDir = runtimeVerDir(runtimeBaseDir, version);
+  if (!existsSync(join(verDir, '.version-sha256'))) return null;
+  const stored = readFileSync(join(verDir, '.version-sha256'), 'utf8').trim();
+  return stored === sha256 ? verDir : null;
+}
 
-  const { url, sha256, size } = asset;
-  const version = `pg${manifest.pg?.major}.${manifest.pg?.minor}+pgvector-${manifest.pgvector?.version}`;
-
-  // Fast path: active-version pointer exists and matches expected sha256.
-  const currentVer = readActiveVersion(runtimeBaseDir);
-  if (currentVer === version) {
-    const verDir = runtimeVerDir(runtimeBaseDir, version);
-    if (existsSync(join(verDir, '.version-sha256'))) {
-      const stored = readFileSync(join(verDir, '.version-sha256'), 'utf8').trim();
-      if (stored === sha256) {
-        const result = { runtimeDir: verDir, ...runtimePaths(verDir), version };
-        runtimeCache.set(key, result);
-        return result;
-      }
-    }
-  }
-
+/**
+ * Download → verify → extract → atomic swap, all under one cross-process
+ * staging lock, ending with the stale-version GC. Returns the installed
+ * runtime-{version} directory.
+ */
+async function installRuntimeVersion({ runtimeBaseDir, url, sha256, size, version, pkey }) {
   // tar is only required for the download/extract path. Probe here (not at
-  // function entry) so a machine without tar can still reuse an
-  // already-extracted, sha-matching cached runtime via the fast path above.
+  // ensureRuntime entry) so a machine without tar can still reuse an
+  // already-extracted, sha-matching cached runtime via the fast path.
   probeTar();
 
   __mixdogMemoryLog(`[runtime-fetcher] downloading runtime ${version} for ${pkey} (~${size} bytes) …\n`);
@@ -586,6 +566,34 @@ export async function ensureRuntime(dataDir) {
   }
 
   __mixdogMemoryLog(`[runtime-fetcher] runtime ready at ${verDir}\n`);
+  return verDir;
+}
+
+export async function ensureRuntime(dataDir) {
+  const key = resolve(dataDir);
+  if (runtimeCache.has(key)) return runtimeCache.get(key);
+
+  const runtimeBaseDir = join(key, 'runtime');
+  mkdirSync(runtimeBaseDir, { recursive: true });
+
+  // Entry GC: always clean staging-* (partial extracts from prior crashes), but
+  // preserve runtime-${currentVer} so a sibling child's just-completed swap is
+  // not wiped. multi-process race protection.
+  gcRuntimeDir(runtimeBaseDir, readActiveVersion(runtimeBaseDir));
+
+  const manifest = await loadManifest(key);
+  const pkey = platformKey();
+  const { asset, selectedKey } = selectRuntimeAsset(manifest, pkey);
+  if (selectedKey !== pkey) {
+    __mixdogMemoryLog('[runtime-fetcher] win32-arm64 has no native runtime; using win32-x64 under emulation\n');
+  }
+
+  const { url, sha256, size } = asset;
+  const version = `pg${manifest.pg?.major}.${manifest.pg?.minor}+pgvector-${manifest.pgvector?.version}`;
+
+  const verDir =
+    cachedRuntimeDir(runtimeBaseDir, version, sha256) ??
+    (await installRuntimeVersion({ runtimeBaseDir, url, sha256, size, version, pkey }));
 
   const result = { runtimeDir: verDir, ...runtimePaths(verDir), version };
   runtimeCache.set(key, result);

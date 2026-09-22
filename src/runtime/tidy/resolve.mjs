@@ -62,7 +62,8 @@ const VENV_DIRS = ['.venv', 'venv'];
 const VENV_BIN_DIRS = process.platform === 'win32' ? ['Scripts', 'bin'] : ['bin', 'Scripts'];
 const WINDOWS_BIN_SUFFIXES = ['.exe', '.cmd', '.bat', ''];
 
-function binNames(name) {
+/** Platform-specific file names one binary name can take on disk. */
+export function binNames(name) {
   return process.platform === 'win32' ? WINDOWS_BIN_SUFFIXES.map((suffix) => `${name}${suffix}`) : [name];
 }
 
@@ -234,6 +235,12 @@ async function refineManagedModules(engines, { hostModuleProbe, signal }) {
   });
 }
 
+/** First version-looking token in a `--version` output, or ''. */
+export function parseVersionText(text) {
+  const match = String(text || '').match(/\d+\.\d+(?:\.\d+)?(?:[-+][0-9a-zA-Z.]+)?/);
+  return match ? match[0] : '';
+}
+
 async function probeVersion(engine, signal) {
   const entry = engineEntry(engine.id);
   const args = [...(engine.args || []), ...(entry?.versionArgs || ['--version'])];
@@ -241,9 +248,7 @@ async function probeVersion(engine, signal) {
     timeoutMs: VERSION_PROBE_TIMEOUT_MS,
     signal,
   });
-  const text = `${result.stdout}\n${result.stderr}`;
-  const match = text.match(/\d+\.\d+(?:\.\d+)?(?:[-+][0-9a-zA-Z.]+)?/);
-  return match ? match[0] : '';
+  return parseVersionText(`${result.stdout}\n${result.stderr}`);
 }
 
 /**

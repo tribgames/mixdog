@@ -46,24 +46,9 @@ function resolveReasoningEffort(provider, useModel, opts) {
   return normalizeOpencodeGoReasoningEffort(opts.effort ?? provider.config?.reasoningEffort, modelInfo);
 }
 
-/**
- * Send one turn over `POST {baseURL}/responses` (streaming) using the
- * provider's existing OpenAI SDK client. Returns the same result shape as
- * the chat/completions path so the agent loop stays wire-agnostic.
- */
-export async function sendCompatResponses(provider, messages, useModel, tools, opts = {}) {
-  const replayProvider = compatResponsesReplayProvider(provider.name);
-  const signal = opts.signal || null;
-  if (signal?.aborted) {
-    const reason = signal.reason;
-    throw reason instanceof Error ? reason : new Error(`${provider.name} Responses request aborted by session close`);
-  }
-  const label = `${provider.name}:responses`;
-  const { input, previousResponseId, continuationResetReason } = toXaiResponsesInput(messages, opts.providerState, {
-    model: useModel,
-    stateKey: COMPAT_RESPONSES_STATE_KEY,
-    replayProvider,
-  });
+/** The request body: lowered transcript plus the per-turn knobs (output cap,
+ *  tools and tool choice, reasoning effort). */
+function buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts }) {
   const params = {
     model: useModel,
     input,
@@ -81,16 +66,19 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
   applyCompatToolChoice(params, opts);
   const reasoningEffort = resolveReasoningEffort(provider, useModel, opts);
   if (reasoningEffort) params.reasoning = { effort: reasoningEffort };
+  return params;
+}
 
-  try {
-    opts.onStageChange?.('requesting');
-  } catch {
-    /* heartbeat best-effort */
-  }
+/**
+ * Open the stream and consume it, under two nested retry budgets: an inner
+ * first-byte attempt (single try, own timeout) and the outer transport retry
+ * that re-opens the request. A content-idle stall is terminal for this
+ * transport, so it is marked recovery-exhausted rather than retried.
+ */
+async function streamCompatResponses({ provider, params, label, signal, opts }) {
   const totalSignal = createPassthroughSignal(signal);
-  let streamed;
   try {
-    streamed = await withRetry(
+    return await withRetry(
       async ({ signal: attemptSignal }) => {
         const stream = await withRetry(
           ({ signal: openSignal }) =>
@@ -152,6 +140,34 @@ export async function sendCompatResponses(provider, messages, useModel, tools, o
   } finally {
     totalSignal.cleanup();
   }
+}
+
+/**
+ * Send one turn over `POST {baseURL}/responses` (streaming) using the
+ * provider's existing OpenAI SDK client. Returns the same result shape as
+ * the chat/completions path so the agent loop stays wire-agnostic.
+ */
+export async function sendCompatResponses(provider, messages, useModel, tools, opts = {}) {
+  const replayProvider = compatResponsesReplayProvider(provider.name);
+  const signal = opts.signal || null;
+  if (signal?.aborted) {
+    const reason = signal.reason;
+    throw reason instanceof Error ? reason : new Error(`${provider.name} Responses request aborted by session close`);
+  }
+  const label = `${provider.name}:responses`;
+  const { input, previousResponseId, continuationResetReason } = toXaiResponsesInput(messages, opts.providerState, {
+    model: useModel,
+    stateKey: COMPAT_RESPONSES_STATE_KEY,
+    replayProvider,
+  });
+  const params = buildCompatResponsesParams({ provider, useModel, input, previousResponseId, tools, opts });
+
+  try {
+    opts.onStageChange?.('requesting');
+  } catch {
+    /* heartbeat best-effort */
+  }
+  const streamed = await streamCompatResponses({ provider, params, label, signal, opts });
   const response = streamed.response;
   const usage = response?.usage || null;
   const inputTokens = Number(usage?.input_tokens ?? usage?.prompt_tokens ?? 0);

@@ -49,7 +49,7 @@ test('inspection conserves estimates and reports every item without exposing pre
     [answer.kind, answer.role, answer.ordinal, answer.label],
     ['message', 'assistant', 1, 'assistant · 1']
   );
-  assert.equal(result.entries.find((row) => row.label === 'Skill: sample').category, 'system');
+  assert.equal(result.entries.find((row) => row.label === 'Skill: sample').category, 'skills');
   const many = inspectContext(
     fixture({ messages: Array.from({ length: 1001 }, (_, index) => ({ role: 'user', content: `message ${index}` })) })
   );
@@ -106,7 +106,7 @@ test('runtime-authored user rows read as system sections and skill sections name
   );
 });
 
-test('injected skill bodies are system context while actual tool results remain tool results', () => {
+test('injected skill bodies file under skills while actual tool results remain tool results', () => {
   const body = '<skill>\n<name>sample</name>\nSkill instructions.\n</skill>';
   const input = fixture({
     messages: [
@@ -121,7 +121,7 @@ test('injected skill bodies are system context while actual tool results remain 
   const result = inspectContext(input);
   assert.deepEqual(
     result.entries.map((entry) => entry.category),
-    ['system', 'system', 'assistant', 'toolResults']
+    ['system', 'skills', 'assistant', 'toolResults']
   );
   for (const entry of result.entries) {
     assert.equal(inspectContext(input, { entryId: entry.id, revision: result.revision }).preview.text, body);
@@ -142,7 +142,7 @@ test('runtime provenance and text blocks distinguish injected context from human
     [{ role: 'user', content: notification, meta: { source: 'task-notification' } }, 'system'],
     [{ role: 'user', content: notification }, 'system'],
     [{ role: 'user', content: [{ type: 'text', text: reminder }] }, 'system'],
-    [{ role: 'user', content: [{ type: 'text', text: '<skill>\n<name>sample</name>\nBody\n</skill>' }] }, 'system'],
+    [{ role: 'user', content: [{ type: 'text', text: '<skill>\n<name>sample</name>\nBody\n</skill>' }] }, 'skills'],
     [{ role: 'user', content: 'Injected skill body', meta: 'skill' }, 'system'],
     [{ role: 'user', content: 'Reference files: example.txt' }, 'system'],
     [{ role: 'user', content: '<mixdog-runtime kind="context-attachment">\nContext\n</mixdog-runtime>' }, 'system'],

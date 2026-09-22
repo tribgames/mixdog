@@ -1,41 +1,19 @@
 import { appendFileSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { detectMicrosoftOffice, resetMicrosoftOfficeSessionsForTest } from './com/com-adapter.mjs';
-import { pdfOcrReadiness } from './pdf/pdf-analysis.mjs';
-import { describeOfficeCapabilities } from './capabilities.mjs';
-import { qpdfAvailable, securePdf } from './pdf/pdf-security.mjs';
-import { unicodeFontPath } from './pdf/pdf-fonts.mjs';
+import { resetMicrosoftOfficeSessionsForTest } from './com/com-adapter.mjs';
 import { defaultOfficeDataDir } from './core/journal.mjs';
-import { inspectOfficeDesignLibrary } from './design/library/design-library.mjs';
-import { applyBatch, closeSession, finalize, issues, qa, render, save, validate } from './core/office-actions.mjs';
-import { openCreateOrAttachOffice } from './core/office-actions-open.mjs';
-import { getOfficeElement, queryOfficeDocument } from './core/office-actions-read.mjs';
-import { authorPptx } from './authoring/pptx-author-action.mjs';
+import { runSessionlessOfficeAction } from './core/office-sessionless-actions.mjs';
+import { dispatchOfficeSessionAction } from './core/office-session-dispatch.mjs';
 import {
-  FILE_KIND_TO_FORMAT,
   OfficeConflictError,
-  documentFormat,
   documentSessionKey,
   documentSessions,
   ensureOfficeSessionDesign,
   finalizeOfficeResult,
   isMicrosoftOfficeSession,
-  normalizeOfficeFormat,
   sessions,
   toolResult,
 } from './core/office-core.mjs';
-import { fullPath, resolveSession, selectMode, snapshot } from './core/office-sessions.mjs';
-import {
-  assertTransactionUnchanged,
-  beginTransaction,
-  commitTransaction,
-  pendingOfficeTransactions,
-  recoverOfficeTransaction,
-  rollbackTransaction,
-  transactionDocumentDiff,
-  transactionView,
-} from './core/office-transactions.mjs';
+import { resolveSession } from './core/office-sessions.mjs';
 
 export { initializeOfficeTransactions } from './core/office-transactions.mjs';
 
@@ -71,80 +49,8 @@ async function runOfficeTool(args = {}, { cwd = process.cwd(), dataDir = default
   try {
     if (signal?.aborted) throw new Error('Office Use operation was cancelled');
     const action = String(args.action || '').toLowerCase();
-    if (action === 'detect') {
-      const office = await detectMicrosoftOffice({
-        format: args.path ? documentFormat(args.path) : '',
-        path: args.path ? fullPath(args.path, cwd) : '',
-      });
-      return toolResult({
-        ok: true,
-        microsoftOffice: office,
-        portable: {
-          ooxml: true,
-          pdf: true,
-          formats: Object.keys(FILE_KIND_TO_FORMAT),
-          pdfSecurity: { available: await qpdfAvailable(), backend: 'qpdf' },
-          pdfUnicodeFont: await unicodeFontPath(),
-          pdfOcr: await pdfOcrReadiness(dataDir),
-        },
-        pendingTransactions: await pendingOfficeTransactions(dataDir),
-        designLibrary: await inspectOfficeDesignLibrary({ dataDir }),
-      });
-    }
-    if (action === 'transactions') {
-      return toolResult({ ok: true, transactions: await pendingOfficeTransactions(dataDir) });
-    }
-    if (action === 'recover') {
-      return toolResult(await recoverOfficeTransaction(args, dataDir));
-    }
-    if (action === 'secure') {
-      const input = fullPath(args.path, cwd);
-      if (documentFormat(input) !== 'pdf') throw new Error('secure supports PDF files only');
-      const output = fullPath(args.output, cwd);
-      const mode = String(args.security || '').toLowerCase();
-      if (!['encrypt', 'decrypt'].includes(mode)) throw new Error('secure requires security: encrypt or decrypt');
-      await mkdir(dirname(output), { recursive: true });
-      return toolResult(
-        finalizeOfficeResult(
-          await securePdf({
-            input,
-            output,
-            mode,
-            password: String(args.password || ''),
-            ownerPassword: String(args.ownerPassword || ''),
-          }),
-          { action, startedAt }
-        )
-      );
-    }
-    if (action === 'describe' && !args.session) {
-      let format = '';
-      if (args.path) format = documentFormat(args.path);
-      else if (args.format) format = normalizeOfficeFormat(args.format);
-      let backend = '';
-      if (format && args.path) {
-        const selected = await selectMode(args.mode, format, fullPath(args.path, cwd));
-        backend = selected.backend;
-      }
-      return toolResult(
-        describeOfficeCapabilities({
-          format,
-          backend: backend || String(args.backend || ''),
-          target: args.target,
-          operation: args.operation,
-        })
-      );
-    }
-    if (action === 'author') {
-      const authored = await authorPptx(args, { cwd, dataDir, signal });
-      const images = Array.isArray(authored?._images) ? authored._images : [];
-      delete authored._images;
-      const session = authored.session ? sessions.get(authored.session) : null;
-      return toolResult(finalizeOfficeResult(authored, { action, session, startedAt }), false, images);
-    }
-    if (action === 'open' || action === 'attach' || action === 'create') {
-      return await openCreateOrAttachOffice({ action, args, cwd, dataDir, signal, startedAt });
-    }
+    const sessionless = await runSessionlessOfficeAction({ action, args, cwd, dataDir, signal, startedAt });
+    if (sessionless) return sessionless;
     const { session, implicit } = await resolveSession(signal ? { ...args, __signal: signal } : args, cwd, dataDir, {
       readOnly: READ_ONLY_ACTIONS.has(action) && args.autoFix !== true,
     });
@@ -155,66 +61,7 @@ async function runOfficeTool(args = {}, { cwd = process.cwd(), dataDir = default
     });
     activeSession = session;
     session.activeSignal = signal;
-    let value;
-    if (action === 'describe') {
-      value = describeOfficeCapabilities({
-        format: session.format,
-        backend: session.backend,
-        target: args.target,
-        operation: args.operation,
-      });
-    } else if (action === 'begin') value = await beginTransaction(session);
-    else if (action === 'diff') {
-      if (!session.transaction) throw new Error('No active Office transaction to diff');
-      const current = await assertTransactionUnchanged(session);
-      session.transaction.currentDocument = current.document;
-      session.transaction.diff = transactionDocumentDiff(session.transaction, current.document);
-      value = {
-        ok: true,
-        session: session.id,
-        transaction: transactionView(session.transaction),
-      };
-    } else if (action === 'commit') value = await commitTransaction(session);
-    else if (action === 'rollback') value = await rollbackTransaction(session);
-    else if (action === 'snapshot') value = await snapshot(session, args);
-    else if (action === 'get') value = await getOfficeElement(session, args);
-    else if (action === 'query') value = await queryOfficeDocument(session, args, cwd, signal);
-    else if (action === 'batch') {
-      if (args.finalize === true && session.transaction) {
-        throw new Error('Commit or roll back the active Office transaction before using batch with finalize:true');
-      }
-      const batch = await applyBatch(session, {
-        ...args,
-        __cwd: cwd,
-        ...(args.finalize === true ? { save: true } : {}),
-      });
-      value =
-        args.finalize === true
-          ? {
-              ...(await finalize(
-                session,
-                {
-                  ...args,
-                  __alreadySaved: batch.saved === true,
-                },
-                cwd,
-                signal
-              )),
-              batch,
-            }
-          : batch;
-    } else if (action === 'issues') value = await issues(session, args);
-    else if (action === 'qa') value = await qa(session, args, cwd);
-    else if (action === 'validate') value = await validate(session, args);
-    else if (action === 'render') value = await render(session, args, cwd);
-    else if (action === 'save') value = await save(session);
-    else if (action === 'finalize') value = await finalize(session, args, cwd, signal);
-    else if (action === 'close') value = await closeSession(session, { save: args.save === true, signal });
-    else {
-      throw new Error(
-        `Unsupported Office Use action "${action || '(missing)'}". Use action:"describe" to inspect capabilities.`
-      );
-    }
+    const value = await dispatchOfficeSessionAction({ action, session, args, cwd, signal });
     if (implicit && action !== 'close') value.implicitSession = true;
     const images = Array.isArray(value?._images) ? value._images : [];
     if (value && typeof value === 'object') delete value._images;

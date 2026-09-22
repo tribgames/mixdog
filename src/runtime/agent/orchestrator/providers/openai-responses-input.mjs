@@ -10,6 +10,84 @@ import {
   nativeToolSearchOutputInput,
 } from './custom-tool-wire.mjs';
 
+/**
+ * One tool result → its wire item. Which item depends on how the call was
+ * lowered: a custom tool answers with custom_tool_call_output, a native
+ * search call with tool_search_output (whose text has to ride along as user
+ * media, since that item carries no text field), everything else with
+ * function_call_output.
+ */
+function pushToolResult(m, { out, pendingToolMedia, customToolCallNameById, nativeSearchCalls, opts }) {
+  const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
+  if (customToolCallNameById.has(m.toolCallId || '')) {
+    out.push({
+      type: 'custom_tool_call_output',
+      call_id: m.toolCallId || '',
+      name: customToolCallNameById.get(m.toolCallId || '') || undefined,
+      output,
+    });
+    if (mediaContent) pendingToolMedia.push(...mediaContent);
+    return;
+  }
+  const searchCall = nativeSearchCalls.get(m.toolCallId || '');
+  if (searchCall) {
+    const nativeSearchOutput = nativeToolSearchOutputInput(m, opts.nativeToolSearchProvider || 'openai-oauth') || {
+      type: 'tool_search_output',
+      call_id: m.toolCallId || '',
+      status: 'completed',
+      execution: 'client',
+      tools: [],
+    };
+    out.push(nativeSearchOutput);
+    // Native search outputs have no text field. Keep skill status,
+    // missing dependencies and failed/denied loader results visible,
+    // without manufacturing a search call for an ordinary function.
+    if (searchCall.arguments?.name || !nativeSearchOutput.tools.length) {
+      pendingToolMedia.push({ type: 'input_text', text: output });
+    }
+    if (mediaContent) pendingToolMedia.push(...mediaContent);
+    return;
+  }
+  out.push({
+    type: 'function_call_output',
+    call_id: m.toolCallId || '',
+    output: m.nativeToolSearch?.openaiTools?.length
+      ? `${output}\nThis ordinary function result cannot register native tools. Use tool_search with names:${JSON.stringify(m.nativeToolSearch.openaiTools.map((tool) => tool.name))} to load their definitions.`
+      : output,
+  });
+  if (mediaContent) pendingToolMedia.push(...mediaContent);
+}
+
+/**
+ * An assistant turn's tool calls → their wire items, remembering which id was
+ * lowered as a custom tool or a native search call so the matching result
+ * lowers the same way.
+ */
+function pushAssistantToolCalls(toolCalls, { out, customToolCallNameById, nativeSearchCalls }) {
+  for (const tc of toolCalls) {
+    const nativeSearchCall = nativeToolSearchCallInput(tc);
+    if (nativeSearchCall) {
+      nativeSearchCalls.set(tc.id, nativeSearchCall);
+      out.push(nativeSearchCall);
+    } else if (isCustomToolCallRecord(tc)) {
+      if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
+      out.push({
+        type: 'custom_tool_call',
+        call_id: tc.id,
+        name: tc.name,
+        input: customToolInputFromArguments(tc.name, tc.arguments),
+      });
+    } else {
+      out.push({
+        type: 'function_call',
+        call_id: tc.id,
+        name: tc.name === 'tool_search' ? 'load_tool' : tc.name,
+        arguments: JSON.stringify(tc.arguments),
+      });
+    }
+  }
+}
+
 export function convertMessagesToResponsesInput(messages, opts = {}) {
   const out = [];
   const pendingToolMedia = [];
@@ -61,44 +139,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
       out.push({ type: 'configuration_update', reasoning: { effort: changedEffort } });
     }
     if (m.role === 'tool') {
-      const { output, mediaContent } = splitToolContentForOpenAIResponses(m.content);
-      if (customToolCallNameById.has(m.toolCallId || '')) {
-        out.push({
-          type: 'custom_tool_call_output',
-          call_id: m.toolCallId || '',
-          name: customToolCallNameById.get(m.toolCallId || '') || undefined,
-          output,
-        });
-        if (mediaContent) pendingToolMedia.push(...mediaContent);
-        continue;
-      }
-      const searchCall = nativeSearchCalls.get(m.toolCallId || '');
-      if (searchCall) {
-        const nativeSearchOutput = nativeToolSearchOutputInput(m, opts.nativeToolSearchProvider || 'openai-oauth') || {
-          type: 'tool_search_output',
-          call_id: m.toolCallId || '',
-          status: 'completed',
-          execution: 'client',
-          tools: [],
-        };
-        out.push(nativeSearchOutput);
-        // Native search outputs have no text field. Keep skill status,
-        // missing dependencies and failed/denied loader results visible,
-        // without manufacturing a search call for an ordinary function.
-        if (searchCall.arguments?.name || !nativeSearchOutput.tools.length) {
-          pendingToolMedia.push({ type: 'input_text', text: output });
-        }
-        if (mediaContent) pendingToolMedia.push(...mediaContent);
-        continue;
-      }
-      out.push({
-        type: 'function_call_output',
-        call_id: m.toolCallId || '',
-        output: m.nativeToolSearch?.openaiTools?.length
-          ? `${output}\nThis ordinary function result cannot register native tools. Use tool_search with names:${JSON.stringify(m.nativeToolSearch.openaiTools.map((tool) => tool.name))} to load their definitions.`
-          : output,
-      });
-      if (mediaContent) pendingToolMedia.push(...mediaContent);
+      pushToolResult(m, { out, pendingToolMedia, customToolCallNameById, nativeSearchCalls, opts });
       continue;
     }
     flushToolMedia();
@@ -130,28 +171,7 @@ export function convertMessagesToResponsesInput(messages, opts = {}) {
           wireMessage('assistant', normalizeContentForOpenAIResponses(m.content, { role: 'assistant' }), m.phase)
         );
       pushReasoningItems(m, 'after');
-      for (const tc of m.toolCalls) {
-        const nativeSearchCall = nativeToolSearchCallInput(tc);
-        if (nativeSearchCall) {
-          nativeSearchCalls.set(tc.id, nativeSearchCall);
-          out.push(nativeSearchCall);
-        } else if (isCustomToolCallRecord(tc)) {
-          if (tc.id) customToolCallNameById.set(tc.id, tc.name || '');
-          out.push({
-            type: 'custom_tool_call',
-            call_id: tc.id,
-            name: tc.name,
-            input: customToolInputFromArguments(tc.name, tc.arguments),
-          });
-        } else {
-          out.push({
-            type: 'function_call',
-            call_id: tc.id,
-            name: tc.name === 'tool_search' ? 'load_tool' : tc.name,
-            arguments: JSON.stringify(tc.arguments),
-          });
-        }
-      }
+      pushAssistantToolCalls(m.toolCalls, { out, customToolCallNameById, nativeSearchCalls });
       continue;
     }
     out.push(

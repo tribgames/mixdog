@@ -20,8 +20,14 @@ import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
 import { beginDaemonSpawnCapture, daemonDataDir } from './daemon-crash-capture.mjs';
-import { createFrameStream } from './session-client/frame-stream.mjs';
-import { createStreamReconnect } from './session-client/stream-reconnect.mjs';
+import { createAttachmentCalls } from './session-client/attachment-calls.mjs';
+import {
+  EVENT_STREAM_LIVENESS_TIMEOUT_MS,
+  EVENT_STREAM_RECONNECT_BASE_MS,
+  EVENT_STREAM_RECONNECT_BUDGET_MS,
+  EVENT_STREAM_RECONNECT_MAX_MS,
+  createStreamLink,
+} from './session-client/stream-link.mjs';
 import { createSessionProxyFactory } from './session-proxy.mjs';
 
 function daemonAgentFor(control, urgent) {
@@ -71,20 +77,6 @@ const daemonControlAgent = new http.Agent({
   maxSockets: 4,
   maxFreeSockets: 2,
 });
-const URGENT_CALLS = new Set([
-  'session.submit',
-  'session.abort',
-  'session.approve',
-  'session.unsubscribe',
-  'desktop.control',
-  'desktop.unsubscribe',
-]);
-const EVENT_STREAM_RECONNECT_BASE_MS = 1_000;
-const EVENT_STREAM_RECONNECT_MAX_MS = 30_000;
-// Keepalive silence is detected independently
-// from TCP close, and a continuously failing reconnect storm is bounded.
-const EVENT_STREAM_LIVENESS_TIMEOUT_MS = 45_000;
-const EVENT_STREAM_RECONNECT_BUDGET_MS = 10 * 60_000;
 const DEFAULT_DAEMON_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_DAEMON_UPGRADE_TIMEOUT_MS = 120_000;
 const DAEMON_OWNER_POLL_MS = 50;
@@ -484,93 +476,33 @@ export async function attachSession({
   const clientToken = reg?.token;
   if (!clientToken) throw new Error('session registration returned no client token');
 
-  let closed = false;
-  let fatalSignalled = false;
-  const reconnectBaseMs = Math.max(1, Number(streamReconnectBaseMs) || EVENT_STREAM_RECONNECT_BASE_MS);
-
-  function signalFatal(reason) {
-    if (closed || fatalSignalled) return;
-    fatalSignalled = true;
-    reconnect.stop();
-    stream.destroy();
-    try {
-      onFatal(reason);
-    } catch {}
-  }
-  const stream = createFrameStream({
+  const link = createStreamLink({
+    discovery,
     port,
     serverToken,
     clientToken,
-    livenessMs: Math.max(1, Number(streamLivenessTimeoutMs) || EVENT_STREAM_LIVENESS_TIMEOUT_MS),
     onFrame,
-    log,
-    onHealthy: () => reconnect.markHealthy(),
-    onLoss: (reason) => reconnect.schedule(reason),
-    onFatal: signalFatal,
-  });
-  const reconnect = createStreamReconnect({
-    discovery,
-    baseMs: reconnectBaseMs,
-    maxMs: Math.max(reconnectBaseMs, Number(streamReconnectMaxMs) || EVENT_STREAM_RECONNECT_MAX_MS),
-    budgetMs: Math.max(reconnectBaseMs, Number(streamReconnectBudgetMs) || EVENT_STREAM_RECONNECT_BUDGET_MS),
-    log,
+    onFatal,
+    onDisconnect: onStreamDisconnect,
+    onReconnect: onStreamReconnect,
+    reconnectBaseMs: streamReconnectBaseMs,
+    reconnectMaxMs: streamReconnectMaxMs,
+    reconnectBudgetMs: streamReconnectBudgetMs,
+    livenessTimeoutMs: streamLivenessTimeoutMs,
     readDiscovery: () => readSessionDiscovery(),
     probeHealth: probeSessionHealth,
     pidAlive: isPidAlive,
-    onDisconnect: onStreamDisconnect,
-    onReconnect: onStreamReconnect,
-    onFatal: signalFatal,
-    reopen: () => stream.open(),
+    log,
   });
-  stream.open();
-
-  async function call(name, args = {}, { timeoutMs = 300_000, callId = null } = {}) {
-    let out;
-    try {
-      out = await request({
-        port,
-        token: serverToken,
-        method: 'POST',
-        path: '/call',
-        body: { token: clientToken, name, args: args || {}, ...(callId ? { callId } : {}) },
-        timeoutMs,
-        urgent: URGENT_CALLS.has(name),
-      });
-    } catch (err) {
-      // Transport death (daemon restarted/unreachable) is recoverable by
-      // re-attaching; a session error comes back as a 200 {error} envelope.
-      err.daemonTransportError = true;
-      throw err;
-    }
-    if (out?.error) {
-      // Preserve the daemon's machine-readable classification across the wire.
-      const err = new Error(out.error);
-      if (out.code) err.code = String(out.code);
-      throw err;
-    }
-    return out?.result;
-  }
-
-  async function close(reason = 'client close') {
-    if (closed) return;
-    closed = true;
-    reconnect.stop();
-    stream.destroy();
-    try {
-      await request({
-        port,
-        token: serverToken,
-        method: 'POST',
-        path: '/client/deregister',
-        body: { token: clientToken },
-        timeoutMs: 1500,
-        control: true,
-      });
-    } catch {
-      /* the daemon sweep reaps us anyway */
-    }
-    log(`detached (${reason})`);
-  }
+  link.open();
+  const { call, close } = createAttachmentCalls({
+    request,
+    port,
+    serverToken,
+    clientToken,
+    stopStream: link.stop,
+    log,
+  });
 
   return {
     call,

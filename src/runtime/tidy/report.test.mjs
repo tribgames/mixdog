@@ -118,6 +118,33 @@ test('structural output reports matches, fixable count, applied files and reject
   assert.deepEqual(report.structural.rejected, [{ file: 'c.js', reason: 'overlapping fixes' }]);
 });
 
+test('the working-tree split, a failed git and a missing git stay three distinguishable states', () => {
+  const split = buildTidyReport({
+    action: 'fix',
+    engines,
+    workingTree: {
+      modified: { files: ['src/a.py'], findings: 2 },
+      clean: { files: ['scripts/build.mjs'], findings: 1 },
+    },
+  });
+  assert.deepEqual(split.workingTree.modified, { files: ['src/a.py'], fileCount: 1, findings: 2 });
+  assert.deepEqual(split.workingTree.clean, { files: ['scripts/build.mjs'], fileCount: 1, findings: 1 });
+  assert.match(split.notes.join(' '), /workingTree\.clean: 1 file\(s\)/);
+
+  const failed = buildTidyReport({ action: 'check', engines, workingTree: { error: 'not a git repository' } });
+  assert.deepEqual(failed.workingTree, { error: 'not a git repository' });
+  assert.equal(failed.workingTree.skipped, undefined);
+  assert.match(failed.notes.join(' '), /working-tree split unavailable: not a git repository/);
+
+  const noGit = buildTidyReport({ action: 'check', engines, workingTree: { skipped: 'git is not installed' } });
+  assert.deepEqual(noGit.workingTree, { skipped: 'git is not installed' });
+  assert.equal(noGit.workingTree.error, undefined);
+  assert.deepEqual(noGit.notes || [], [], 'a machine without git gets no warning');
+
+  const absent = buildTidyReport({ action: 'check', engines });
+  assert.equal(Object.hasOwn(absent, 'workingTree'), false, 'no findings means no split to report');
+});
+
 test('needsApproval and dry-run notes ride along with the report', () => {
   const report = buildTidyReport({
     action: 'fix',

@@ -1,16 +1,16 @@
 /**
  * remote-binding.mjs — the durable Remote pin of the channel transport: the
- * persisted remote intent (session + transcript a manual ON pinned), its
- * restore on daemon boot, the exclusive chain every binding call runs on,
- * and publication of the derived remote-session state (listener + file).
+ * exclusive chain every binding call runs on, and the boot restore of a
+ * persisted remote intent. The intent file itself lives in ./remote-intent.mjs
+ * and the derived remote-session state in ./remote-state.mjs; both are wired
+ * here so callers keep one binding facade.
  *
  * Shared transport state read/written here: pinnedSessionId, remoteIntent,
- * remoteAcquired, stickyRemoteFrame, pointerToken (for the published cwd),
- * clients, closed.
+ * remoteAcquired, stickyRemoteFrame, closed.
  */
-import { rmSync } from 'node:fs';
-import { writeJsonAtomicSync } from '../../runtime/shared/atomic-file.mjs';
-import { ACTIVATE_TOOL, normalizeRemoteIntent } from '../channel-binding.mjs';
+import { ACTIVATE_TOOL } from '../channel-binding.mjs';
+import { createRemoteIntentStore } from './remote-intent.mjs';
+import { createRemoteStatePublisher } from './remote-state.mjs';
 
 // Sticky replay cache for the bridge remote-state notify. The daemon emits
 // 'notifications/mixdog/remote' {state:'acquired'} at boot (and 'superseded'
@@ -39,7 +39,8 @@ export function createRemoteBinding({
   // binding call therefore runs alone on this chain.
   let bindingChain = Promise.resolve();
   let remoteRestorePromise = null;
-  let remoteStateSignature = '';
+  const publishRemoteState = createRemoteStatePublisher({ state, log, remoteStatePath, onRemoteStateChange });
+  const { writeRemoteIntent, clearRemoteIntent } = createRemoteIntentStore({ state, log, remoteIntentPath });
 
   function runExclusiveBinding(run) {
     const result = bindingChain.then(run, run);
@@ -48,43 +49,6 @@ export function createRemoteBinding({
       () => {}
     );
     return result;
-  }
-
-  function writeRemoteIntent(args, sessionId, cwd = null) {
-    state.pinnedSessionId = sessionId;
-    if (!remoteIntentPath) return;
-    const intent = normalizeRemoteIntent({
-      sessionId,
-      transcriptPath: args?.transcriptPath,
-      cwd,
-      updatedAt: Date.now(),
-    });
-    if (!intent) {
-      log(`remote intent not persisted: session/transcript mismatch session=${sessionId || '?'}`);
-      return;
-    }
-    state.remoteIntent = intent;
-    try {
-      writeJsonAtomicSync(remoteIntentPath, intent, { compact: true });
-    } catch (err) {
-      log(`remote intent write failed: ${err?.message || err}`);
-    }
-  }
-
-  function clearRemoteIntent(reason, sessionId = null) {
-    const expectedSessionId = String(sessionId || '').trim();
-    if (expectedSessionId && state.pinnedSessionId !== expectedSessionId) return false;
-    state.pinnedSessionId = null;
-    state.remoteIntent = null;
-    if (remoteIntentPath) {
-      try {
-        rmSync(remoteIntentPath, { force: true });
-      } catch (err) {
-        log(`remote intent clear failed (${reason}): ${err?.message || err}`);
-      }
-    }
-    log(`remote intent cleared (${reason})`);
-    return true;
   }
 
   function restoreRemoteIntent() {
@@ -129,39 +93,6 @@ export function createRemoteBinding({
     });
     remoteRestorePromise = restore;
     return restore;
-  }
-
-  function publishRemoteState() {
-    const pointerClient = state.pointerToken ? state.clients.get(state.pointerToken) : null;
-    const sessionId = String(state.remoteAcquired ? state.pinnedSessionId : '');
-    const remoteState = {
-      enabled: state.remoteAcquired === true && Boolean(sessionId),
-      sessionId: state.remoteAcquired === true && sessionId ? sessionId : null,
-      cwd: pointerClient?.cwd ?? state.remoteIntent?.cwd ?? null,
-      daemonPid: process.pid,
-      updatedAt: Date.now(),
-    };
-    const signature = JSON.stringify([
-      remoteState.enabled,
-      remoteState.sessionId,
-      remoteState.cwd,
-      remoteState.daemonPid,
-    ]);
-    if (signature === remoteStateSignature) return;
-    remoteStateSignature = signature;
-    if (typeof onRemoteStateChange === 'function') {
-      try {
-        onRemoteStateChange(remoteState);
-      } catch (err) {
-        log(`remote session state listener failed: ${err?.message || err}`);
-      }
-    }
-    if (!remoteStatePath) return;
-    try {
-      writeJsonAtomicSync(remoteStatePath, remoteState, { compact: true });
-    } catch (err) {
-      log(`remote session state write failed: ${err?.message || err}`);
-    }
   }
 
   return { runExclusiveBinding, writeRemoteIntent, clearRemoteIntent, restoreRemoteIntent, publishRemoteState };

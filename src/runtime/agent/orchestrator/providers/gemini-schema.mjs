@@ -426,6 +426,17 @@ function convertSchema(schema) {
   }
   if (Number.isFinite(result.minimum) && Number.isFinite(result.maximum) && result.minimum > result.maximum)
     return schemaFallback('empty numeric range');
+  convertSchemaChildren(result);
+  projectUnionBranches(result);
+  delete result.allOf;
+  delete result.not;
+  return pruneTypeSpecificKeywords(result, rawType) ?? result;
+}
+
+/** Recurse into the object's properties and the array's items. A `required`
+ *  name with no representable schema gets an explicit conflict property so
+ *  the declaration cannot silently widen. */
+function convertSchemaChildren(result) {
   if ((result.properties && typeof result.properties === 'object') || Array.isArray(result.required)) {
     const props = {};
     for (const [key, val] of Object.entries(result.properties || {})) {
@@ -445,52 +456,58 @@ function convertSchema(schema) {
   if (result.items && typeof result.items === 'object') {
     result.items = convertSchema(result.items);
   }
-  // Gemini function declarations support anyOf, but not oneOf/allOf/not.
-  // oneOf is safely relaxed to anyOf. Object allOf branches are projected
-  // into the local properties/required set where representable; other allOf
-  // and all not constraints are conservatively dropped.
-  //
-  // Two Gemini-specific normalizations are also applied per combinator
-  // subschema:
-  //   1. Inject `type: OBJECT` when a subschema uses object-only keys
-  //      (`required` / `properties`) without an explicit type — Gemini
-  //      rejects `required` outside of OBJECT type.
-  //   2. Materialize a local `properties` map from the parent's properties
-  //      when the subschema only carries `required: [names]` — Gemini
-  //      validates that every name in `required` exists in *this*
-  //      subschema's `properties` (it does not inherit from the parent
-  //      the way JSON Schema's compositional model does).
+}
+
+// Gemini function declarations support anyOf, but not oneOf/allOf/not.
+// oneOf is safely relaxed to anyOf. Object allOf branches are projected
+// into the local properties/required set where representable; other allOf
+// and all not constraints are conservatively dropped.
+//
+// Two Gemini-specific normalizations are also applied per combinator
+// subschema:
+//   1. Inject `type: OBJECT` when a subschema uses object-only keys
+//      (`required` / `properties`) without an explicit type — Gemini
+//      rejects `required` outside of OBJECT type.
+//   2. Materialize a local `properties` map from the parent's properties
+//      when the subschema only carries `required: [names]` — Gemini
+//      validates that every name in `required` exists in *this*
+//      subschema's `properties` (it does not inherit from the parent
+//      the way JSON Schema's compositional model does).
+function projectUnionBranches(result) {
   const unionBranches = [
     ...(Array.isArray(result.anyOf) ? result.anyOf : []),
     ...(Array.isArray(result.oneOf) ? result.oneOf : []),
   ];
   delete result.oneOf;
-  if (unionBranches.length) {
-    result.anyOf = unionBranches
-      .map((s) => {
-        const sub = convertSchema(s);
-        if (sub && typeof sub === 'object') {
-          const usesObjectKeys = sub.required !== undefined || sub.properties !== undefined;
-          if (usesObjectKeys && sub.type === undefined) {
-            sub.type = toSchemaType('object');
-          }
-          if (Array.isArray(sub.required) && !sub.properties && result.properties) {
-            const projected = {};
-            for (const k of sub.required) {
-              if (Object.hasOwn(result.properties, k)) {
-                defineSchemaProperty(projected, k, result.properties[k]);
-              }
-            }
-            if (Object.keys(projected).length > 0) sub.properties = projected;
-          }
+  if (!unionBranches.length) return;
+  result.anyOf = unionBranches
+    .map((s) => {
+      const sub = convertSchema(s);
+      if (sub && typeof sub === 'object') {
+        const usesObjectKeys = sub.required !== undefined || sub.properties !== undefined;
+        if (usesObjectKeys && sub.type === undefined) {
+          sub.type = toSchemaType('object');
         }
-        return sub;
-      })
-      .filter(Boolean);
-    if (!result.anyOf.length) delete result.anyOf;
-  }
-  delete result.allOf;
-  delete result.not;
+        if (Array.isArray(sub.required) && !sub.properties && result.properties) {
+          const projected = {};
+          for (const k of sub.required) {
+            if (Object.hasOwn(result.properties, k)) {
+              defineSchemaProperty(projected, k, result.properties[k]);
+            }
+          }
+          if (Object.keys(projected).length > 0) sub.properties = projected;
+        }
+      }
+      return sub;
+    })
+    .filter(Boolean);
+  if (!result.anyOf.length) delete result.anyOf;
+}
+
+/** Drop every keyword that does not belong to the resolved type, then sanity
+ *  the surviving min/max pairs. Returns a conflict schema for an empty range,
+ *  else null (the caller keeps `result`). */
+function pruneTypeSpecificKeywords(result, rawType) {
   const typeSpecific = {
     string: new Set(['minLength', 'maxLength', 'pattern', 'format']),
     array: new Set(['minItems', 'maxItems', 'items']),
@@ -530,7 +547,7 @@ function convertSchema(schema) {
   }
   if (result.minimum !== undefined && !Number.isFinite(result.minimum)) delete result.minimum;
   if (result.maximum !== undefined && !Number.isFinite(result.maximum)) delete result.maximum;
-  return result;
+  return null;
 }
 
 // Gemini's legacy Schema requires typed values. An unconstrained JSON value

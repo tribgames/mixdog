@@ -3,23 +3,13 @@
  * Sessions are saved to disk so CLI and MCP server can share state,
  * and sessions survive server restarts (resume).
  */
-import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync, statSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
-import { getPluginData } from '../config.mjs';
-import { isAgentOwner } from '../agent-owner.mjs';
-import { readTopLevelLifecycleRecord, isLifecycleUnreadable } from './lifecycle-scan.mjs';
-import {
-  readCanonicalSessionRecord as _readCanonicalRecord,
-  CANONICAL_RECORD_UNREADABLE as LIFECYCLE_AMBIGUOUS,
-} from './store/canonical-reader.mjs';
-import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../../../../lib/mixdog-debug.cjs';
-import { getStoreDir, sessionPath, deleteHeartbeat, deleteSessionPresence } from './store/paths-heartbeat.mjs';
+import { sessionPath } from './store/paths-heartbeat.mjs';
 import {
   guardedSaveOptions as _guardedSaveOptions,
   cancelSessionWrites as _cancelSessionWrites,
-  isCancelledWrite as _isCancelledWrite,
   acquireWriteCommit as _acquireWriteCommit,
   releaseWriteCommit as _releaseWriteCommit,
   waitForWriteCommit as _waitForWriteCommit,
@@ -51,27 +41,23 @@ export {
   isSessionHeartbeatOwnerDead,
   isProcessAlive,
 } from './store/paths-heartbeat.mjs';
-import { _readStoredSessionCached } from './store/load-cache.mjs';
-import { probePath, PROBE_PRESENT, PROBE_ABSENT } from './store/fs-probe.mjs';
 // Every canonical commit now goes through _commitSessionWrite (fault-aware
 // rename + scratch ownership), so the raw rename helper is no longer imported.
 import { _sessionForDisk, _ensureLifecycleFields } from './store/serialize.mjs';
 import {
   _cacheSessionSummary,
-  _uncacheSessionSummary,
   _rollbackCachedSessionSummary,
   _queueSessionSummaryUpsert,
-  _queueSessionSummaryRemoval,
-  _summaryCacheVersions,
 } from './store/summary-cache.mjs';
+import { _shouldDrop, _sessionWriteAuthorityRefusal } from './store/write-admission.mjs';
+// Durable lifecycle reads, heartbeat freshness and live-cache reclamation are
+// owned by dedicated modules; re-exported so prior importers of store.mjs
+// stay unchanged.
+export { readSessionLifecycleFromDisk, readSessionLifecycleStateFromDisk } from './store/lifecycle-read.mjs';
+export { readSessionHeartbeatMtime } from './store/liveness-veto.mjs';
+export { evictLiveSession, evictIdleLiveSessions } from './store/live-cache-eviction.mjs';
 import {
-  _liveSessions,
-  _droppedSaveIds,
   setLiveSession,
-  _clearLiveSession,
-  LIVE_MEDIA_RETENTION_MS,
-  _messagesCarryLiveMedia,
-  clearSessionSaveError,
   _recordSaveFailure,
   _recordSaveDrop,
   _clearSaveStateIfCurrent,
@@ -79,26 +65,24 @@ import {
   _acquireSessionIncarnation,
   _releaseSessionIncarnation,
   _isCurrentSessionIncarnation,
-  _retireSessionIncarnation,
-  _clearSessionSaveState,
   SAVE_OUTCOME_SAVED,
   SAVE_OUTCOME_DROPPED,
   SAVE_OUTCOME_STALE,
-  hasSessionSaveFailure,
-  getFailedSaveSnapshot,
-  _recordLifecycleCommitFailure,
-  clearSessionLifecycleCommitError,
 } from './store/live-state.mjs';
 import {
   _saveWorkerPending,
   _saveAsyncQueued,
-  _saveAsyncInflight,
   _deferredSessionSaves,
   _resetSaveWorkerBookkeeping,
-  purgeSessionSaveBookkeeping as _purgeSessionSaveBookkeeping,
-  _setLiveSessionPublisher,
-  _setSessionWriteAuthorityCheck,
 } from './store/save-worker.mjs';
+import { _publishLiveSession } from './store/session-observers.mjs';
+import {
+  _savePending,
+  _debounceTimers,
+  _clearDebounce,
+  _releasePayloadIncarnation,
+  _releasePendingSlot,
+} from './store/pending-saves.mjs';
 import {
   _commitSessionWrite,
   _discardSaveTmp,
@@ -116,74 +100,12 @@ export { saveSessionAsync, saveSessionAsyncDeferred } from './store/save-worker.
 // flush path.
 export { parkSessionSnapshotForDrain, unparkSessionSnapshotForDrain } from './store/save-worker.mjs';
 
-// ── Hard-delete purge hooks ─────────────────────────────────────────────────
-// Owners of parked snapshots (usage-metrics) register a SYNCHRONOUS cleanup
-// here. deleteSession runs them while it still holds the id's commit lock, so
-// no timer retry and no exit-drain entry survives the unlink. Layering stays
-// intact: the store never imports manager code.
-const _sessionPurgeHooks = new Set();
-const _liveSessionSubscribers = new Set();
-
-export function registerSessionPurgeHook(hook) {
-  if (typeof hook !== 'function') return () => {};
-  _sessionPurgeHooks.add(hook);
-  return () => _sessionPurgeHooks.delete(hook);
-}
-
-/** In-process session publication seam.
- *
- * The runtime worker uses this to project agent sessions through the daemon's
- * ordinary session-state lane. Persistence remains independent: subscribers
- * observe the same immutable session object that was admitted to the live
- * cache, before disk debounce or I/O can delay a visible pane. */
-export function subscribeLiveSessions(listener) {
-  if (typeof listener !== 'function') return () => {};
-  _liveSessionSubscribers.add(listener);
-  return () => _liveSessionSubscribers.delete(listener);
-}
-
-function _publishLiveSession(session) {
-  for (const listener of [..._liveSessionSubscribers]) {
-    try {
-      listener(session);
-    } catch {
-      /* observers never affect persistence */
-    }
-  }
-}
-
-_setLiveSessionPublisher(_publishLiveSession);
-
-function _runSessionPurgeHooks(id) {
-  for (const hook of _sessionPurgeHooks) {
-    try {
-      hook(id);
-    } catch {
-      /* a cleanup hook never breaks delete */
-    }
-  }
-}
-
-/** Module-level map tracking in-flight saves per session ID to prevent concurrent write corruption. */
-const _savePending = new Map();
-
-/**
- * Release a payload's incarnation reference exactly once. Payloads that are
- * coalesced away (replaced in a pending slot), dropped by a delete or retired
- * by the drain never reach _doSave*, so their reference is freed here.
- */
-function _releasePayloadIncarnation(payload) {
-  if (!payload?.incarnation) return;
-  _releaseSessionIncarnation(payload.incarnation);
-  payload.incarnation = null;
-}
-
-/** Drop every payload reference a pending slot still owns. */
-function _releasePendingSlot(pending) {
-  if (!pending) return;
-  _releasePayloadIncarnation(pending.payload);
-  _releasePayloadIncarnation(pending.queued);
-}
+// Observer registries (hard-delete purge hooks + the in-process live-session
+// publication seam) live in store/session-observers.mjs; re-exported here so
+// prior importers of store.mjs stay unchanged.
+export { registerSessionPurgeHook, subscribeLiveSessions } from './store/session-observers.mjs';
+// Pending-write slots, debounce timers and their incarnation references live
+// in store/pending-saves.mjs (imported above).
 
 /**
  * Surface an async save rejection. The id-wide error marker may only be
@@ -196,149 +118,6 @@ function _recordAsyncSaveError(_id, _payload, err) {
   // second, unconditional one here is exactly how a delayed rejection used
   // to mark a hard-deleted or re-created id.
   process.stderr.write(`[session-store] save failed: ${err?.message}\n`);
-}
-
-/**
- * Cheap authoritative lifecycle read straight from disk (no live/pending
- * cache). Used by askSession's split-brain re-adoption: a new ask on a
- * non-closed session claims ownership by adopting the on-disk generation.
- * Returns null for BOTH true absence and an unreadable record; callers that
- * must tell those apart use readSessionLifecycleStateFromDisk below.
- */
-export function readSessionLifecycleFromDisk(id) {
-  const state = readSessionLifecycleStateFromDisk(id);
-  if (state.state !== 'open' && state.state !== 'closed') return null;
-  return { generation: state.generation, closed: state.state === 'closed' };
-}
-
-/**
- * Same durable read, but with the outcome discriminated so a caller can fail
- * CLOSED on an unreadable/corrupt/foreign record while still allowing true
- * absence (a never-saved session):
- *   'absent'     — no such file (ENOENT/ENOTDIR)
- *   'open'       — durable record, not tombstoned (generation carried)
- *   'closed'     — durable tombstone (generation carried)
- *   'unreadable' — IO error, malformed JSON, an ambiguous record (duplicate
- *                  top-level `id`/lifecycle keys), or an identity that is not
- *                  EXACTLY this session: missing, empty, non-string or
- *                  foreign `id` all fail closed. Only a truly absent file is
- *                  'absent'; a malformed/identity-less legacy record is not.
- */
-export function readSessionLifecycleStateFromDisk(id) {
-  if (!id) return { state: 'unreadable', generation: 0 };
-  let raw;
-  try {
-    raw = readFileSync(sessionPath(id), 'utf-8');
-  } catch (err) {
-    const code = err?.code;
-    if (code === 'ENOENT' || code === 'ENOTDIR') return { state: 'absent', generation: 0 };
-    return { state: 'unreadable', generation: 0 };
-  }
-  // ONE authority, no fallback: readTopLevelLifecycleRecord already IS the
-  // strict parse, so a malformed/ambiguous document ends here. A JSON.parse
-  // retry would resolve duplicate keys last-wins and defeat the check —
-  // even (especially) when one of the duplicates matches the requested id.
-  const onDisk = readTopLevelLifecycleRecord(raw);
-  if (isLifecycleUnreadable(onDisk)) return { state: 'unreadable', generation: 0 };
-  // Durable identity is MANDATORY: the record is this session's authority
-  // only when its top-level `id` is a non-empty string exactly equal to the
-  // requested id. Missing / empty / non-string identity is not "probably
-  // ours" — it is an unowned or malformed record and fails closed exactly
-  // like a foreign one. (A never-written session is reported 'absent'
-  // above; that is the only backwards-compatible opening.)
-  if (onDisk.id !== id) {
-    return { state: 'unreadable', generation: 0 };
-  }
-  return {
-    state: onDisk.closed === true ? 'closed' : 'open',
-    generation: typeof onDisk.generation === 'number' ? onDisk.generation : 0,
-  };
-}
-
-/**
- * Freshness of a session's `.hb` heartbeat sidecar (0 when absent). Used by
- * the fork-on-resume guard: a fresh heartbeat published by another process
- * means the session is actively being driven there RIGHT NOW.
- */
-export function readSessionHeartbeatMtime(id) {
-  if (!id) return 0;
-  return _heartbeatMtime(id);
-}
-
-/** True while any pending/in-flight persistence still references this id. */
-function _hasPendingPersistence(id) {
-  if (_savePending.has(id) || _saveAsyncInflight.has(id) || _saveAsyncQueued.has(id)) return true;
-  for (const [, pending] of _deferredSessionSaves) {
-    if (pending?.session?.id === id) return true;
-  }
-  return false;
-}
-
-/**
- * Drop one session's same-process snapshot once its state is durable on disk.
- * No-op while any write for the id is still pending/in flight.
- */
-export function evictLiveSession(id) {
-  if (!id || _hasPendingPersistence(id)) return false;
-  return _liveSessions.delete(id);
-}
-
-/**
- * Idle sweep for the same-process snapshot cache. _liveSessions previously
- * grew without bound — every clear-fork and every touched user session pinned
- * its FULL message array (image bytes included) for process lifetime, the
- * observed multi-GB RSS leak. Disk is the source of truth for anything not
- * actively owned by this process, so an entry is dropped when it (a) has no
- * live runtime owner, (b) has no pending persistence, and (c) already exists
- * on disk — loadSession then falls back to the session file. Media-carrying
- * snapshots get a grace TTL (see LIVE_MEDIA_RETENTION_MS) because eviction is
- * lossy for them; text-only snapshots evict losslessly right away.
- */
-export function evictIdleLiveSessions(options = {}) {
-  const isSessionLive = typeof options.isSessionLive === 'function' ? options.isSessionLive : null;
-  const now = Date.now();
-  let evicted = 0;
-  for (const [id, session] of [..._liveSessions.entries()]) {
-    if (isSessionLive?.(id)) continue;
-    if (_hasPendingPersistence(id)) continue;
-    // Durability proof for the eviction: only a POSITIVELY observed file
-    // may replace the snapshot. An unreadable probe is not a durable copy.
-    if (probePath(sessionPath(id)).state !== PROBE_PRESENT) continue;
-    // A dropped last save means the disk copy is BEHIND this snapshot
-    // (ownership split-brain). Evicting would lose the only complete
-    // transcript; keep it until a save lands again (re-adoption).
-    if (_droppedSaveIds.has(id)) continue;
-    // Same reasoning for a save that FAILED at the commit edge (rename/IO
-    // fault): the file on disk is the last-good copy from BEFORE the
-    // failed write, so this snapshot is the only good state for the newest
-    // turn. `existsSync` above is satisfied by exactly that stale file, so
-    // without this guard the idle sweep silently discards the newer
-    // transcript. Pinned only until a save lands (clearSessionSaveError).
-    if (hasSessionSaveFailure(id)) continue;
-    if (_messagesCarryLiveMedia(session?.messages)) {
-      const lastActive = Math.max(session?.updatedAt || 0, session?.lastUsedAt || 0);
-      if (lastActive > 0 && now - lastActive <= LIVE_MEDIA_RETENTION_MS) continue;
-    }
-    _liveSessions.delete(id);
-    // With no pending persistence the rollback-race version counter for
-    // this id is dead weight — reclaim it too (it regrows from 1 on the
-    // next save, which is safe precisely because nothing is in flight).
-    _summaryCacheVersions.delete(id);
-    evicted++;
-  }
-  return evicted;
-}
-
-// ── 150 ms debounce window ────────────────────────────────────────────────────
-// Multiple tool-result writes within a turn collapse to one tmp+rename per
-// session. The timer is unref'd so it never keeps the process alive.
-const _debounceTimers = new Map(); // id → NodeJS.Timeout
-function _clearDebounce(id) {
-  const t = _debounceTimers.get(id);
-  if (t) {
-    clearTimeout(t);
-    _debounceTimers.delete(id);
-  }
 }
 
 // Self-registered exit drain; bare 'exit' hook stays as idempotent backup. Use the more comprehensive
@@ -600,100 +379,6 @@ function _snapshotFromAttempt(attemptedJson, id) {
   }
 }
 
-/**
- * Write admission for ONE save attempt. Consulted upfront, after the scratch
- * write and again while the commit lock is held, so the final verdict is
- * taken under the lock, immediately before the rename.
- *
- * OWNERSHIP FIRST, freshness second. Every save — guarded or not — must find
- * OUR record (or nothing) at the canonical path:
- *   absent                        → this write creates the file;
- *   ambiguous/unreadable          → refuse (never "open at generation 0");
- *   foreign / identity-less id    → refuse, with or without a generation
- *                                   guard: an ordinary appendMessage save
- *                                   must not rename over another session's
- *                                   record just because it carries no
- *                                   expectedGeneration;
- *   ours                          → apply the generation rules below.
- * NOTHING is exempt. The old `allowClosed` opt-out is gone: it existed for a
- * tombstone plant that has not gone through this path in a long time (the
- * barriers write the canonical file themselves), and any surviving caller of
- * it would have been able to skip the absent-vs-owned-vs-ambiguous check
- * entirely — the exact hole this guard exists to close.
- */
-function _shouldDrop(id, opts) {
-  if (_isCancelledWrite(opts)) return true;
-  const expected = typeof opts?.expectedGeneration === 'number' ? opts.expectedGeneration : null;
-  const target = sessionPath(id);
-  let record;
-  try {
-    record = _readCanonicalRecord(target, true);
-  } catch {
-    // The guard could not establish WHAT is on disk. Refusing the write is
-    // the only safe verdict: the alternative renames over a record whose
-    // ownership/tombstone state is unknown.
-    return true;
-  }
-  // Ambiguous/corrupt record (duplicate top-level lifecycle keys, malformed
-  // JSON, unreadable file that nonetheless exists). It must NEVER be read as
-  // "open at generation 0" — that is precisely the fail-open that lets a
-  // late save resurrect a session over an ambiguous tombstone. Drop.
-  if (record === LIFECYCLE_AMBIGUOUS) return true;
-  if (!record) return false; // no file on disk → this save creates it
-  // Durable identity is mandatory, exactly as for every other authority
-  // read: a record naming another session (or naming none at all) is not
-  // ours to overwrite.
-  if (record.id !== id) return true;
-  if (expected === null) return false; // unguarded save over our own record
-  const generation = typeof record.generation === 'number' ? record.generation : 0;
-  // Closed with a generation at least as new as ours: our write is stale.
-  if (record.closed === true) return generation >= expected;
-  // Not closed, but `generation` also doubles as an ownership counter:
-  // normal in-place saves (updateSession/appendMessage/etc.) never bump
-  // it, only closeSession()-family calls do (markSessionClosed and its
-  // non-tombstoning sibling bumpSessionGeneration). So if disk
-  // generation is strictly greater than what this write expected,
-  // ownership moved on (session was detached-closed and possibly
-  // resumed) after our turn started — drop the stale write rather than
-  // let it clobber whatever happened after the handoff.
-  return generation > expected;
-}
-
-// ── Lifecycle read for the ownership guard ───────────────────────────────────
-// _shouldDrop consults this up to three times per save (upfront, post-temp
-// write, in-commit) and every consult re-reads the file, deliberately: this is
-// the input to a DROP decision, and the only cheap identity a memo could key
-// on (mtimeMs + size) does NOT move for a same-size rewrite inside one clock
-// tick — a generation bump such as 1 → 2 — so a cached lifecycle could hide
-// the very ownership move this guard exists to detect.
-//
-// Three distinct outcomes, never collapsed: `null` = no file (write freely),
-// LIFECYCLE_AMBIGUOUS = a file exists but its bytes cannot be trusted (refuse
-// the write), otherwise the strict record itself ({ doc, id, closed,
-// generation }) — the single disk authority shared by the save guard and the
-// lifecycle barriers.
-// canonical-reader.mjs may reuse primitive authority after exact byte equality,
-// never by stat. Full lifecycle barriers still parse a private document.
-
-// Pre-admission authority for the async/worker path (registered here because
-// save-worker.mjs cannot import this module back). A refusal keeps the caller
-// from publishing ANY owned state — no live snapshot, no optimistic summary.
-function _sessionWriteAuthorityRefusal(id) {
-  if (!id) return null;
-  let authority;
-  try {
-    authority = _readCanonicalRecord(sessionPath(id), true);
-  } catch {
-    // A THROWN authority check is never acceptance: fail closed.
-    return 'unreadable';
-  }
-  if (authority === LIFECYCLE_AMBIGUOUS) return 'ambiguous';
-  if (authority && authority.id !== id) return 'foreign';
-  return null; // absent (creatable) or ours
-}
-
-_setSessionWriteAuthorityCheck(_sessionWriteAuthorityRefusal);
-
 // ONE absolute budget for the WHOLE drain: the commit-lock waits and the
 // bounded commit acquisitions of every id share it, so exit cost cannot scale
 // with the number of contended sessions. Exit must never hang on a stuck
@@ -952,438 +637,16 @@ async function _doSave(payload) {
   }
 }
 
-/**
- * Atomically mark a session closed on disk with a bumped generation.
- * Returns the new generation, or null if the session file doesn't exist.
- * Used by closeSession() to plant a tombstone that races against in-flight
- * saveSession() calls.
- */
-function _heartbeatMtime(id) {
-  try {
-    const path = join(getStoreDir(), `${id}.hb`);
-    return existsSync(path) ? statSync(path).mtimeMs || 0 : 0;
-  } catch {
-    return 0;
-  }
-}
+// Durable lifecycle barriers (tombstone plant + detach generation bump) live
+// in store/lifecycle-barriers.mjs; re-exported so prior importers of
+// store.mjs stay unchanged.
+export { markSessionClosed, bumpSessionGeneration } from './store/lifecycle-barriers.mjs';
+// Session reads live in store/load-session.mjs, same facade contract.
+export { loadSession } from './store/load-session.mjs';
 
-function _runtimeLivenessVeto(id, options = {}) {
-  return typeof options.isSessionLive === 'function' && options.isSessionLive(id);
-}
-
-function _heartbeatLivenessVeto(id, options = {}) {
-  const heartbeatMtime = _heartbeatMtime(id);
-  if (!(heartbeatMtime > 0)) return false;
-  const hasHeartbeatSnapshot = Object.hasOwn(options, 'heartbeatSnapshotMtime');
-  const snapshotMtime = Number(options.heartbeatSnapshotMtime) || 0;
-  if (hasHeartbeatSnapshot && heartbeatMtime > snapshotMtime) return true;
-  const freshMs = Number(options.heartbeatFreshMs);
-  return Number.isFinite(freshMs) && freshMs > 0 && Date.now() - heartbeatMtime <= freshMs;
-}
-
-function _deleteHeartbeatUnlessNewer(id, options = {}) {
-  const hasHeartbeatSnapshot = Object.hasOwn(options, 'heartbeatSnapshotMtime');
-  const snapshotMtime = Number(options.heartbeatSnapshotMtime) || 0;
-  if (!hasHeartbeatSnapshot || _heartbeatMtime(id) <= snapshotMtime) {
-    deleteHeartbeat(id);
-  }
-}
-
-// Cancellation truth, single rule: an UNCONFIRMED stop outranks a confirmed
-// one, in either direction (already on disk, or requested by this close). A
-// cancel whose kill was never proven must never be rewritten as a success —
-// not by a re-close, not by an idle sweep, not by a later tombstone rewrite.
-const _CANCEL_CLOSE_REASON = /^(?:cli-agent-close(?:-all)?|agent-task-cancel)$/i;
-const _CANCEL_UNCONFIRMED_STATUS = /^cancel[-_\s]?(?:unconfirmed|pending)$/i;
-
-function _cleanCancelStatus(value) {
-  return String(value || '').trim();
-}
-
-function _mergeCancelStatus(existing, requested) {
-  const prev = _cleanCancelStatus(existing);
-  const next = _cleanCancelStatus(requested);
-  if (_CANCEL_UNCONFIRMED_STATUS.test(next) || _CANCEL_UNCONFIRMED_STATUS.test(prev)) return 'cancel-unconfirmed';
-  return next || prev || 'cancelled';
-}
-
-export function markSessionClosed(id, reason = 'manual', options = {}) {
-  // Only a fresh failure from THIS attempt may be observed by closeSession's
-  // durable-barrier check — a veto must not surface a stale error.
-  clearSessionLifecycleCommitError(id);
-  // Caller-provided probes may re-enter the store, so evaluate them before
-  // taking the non-reentrant Atomics commit lock. A veto must also precede
-  // pending-save cancellation so debounce durability remains intact.
-  if (_runtimeLivenessVeto(id, options) || _heartbeatLivenessVeto(id, options)) return null;
-  const closeGuard = _guardedSaveOptions(id);
-  const commitControl = _acquireWriteCommit(closeGuard);
-  if (commitControl === false) return null;
-  try {
-    // Cross-process heartbeat revival after full-TTL silence is accepted as a
-    // best-effort race: the tombstone resurrection guard is the authoritative
-    // post-race arbiter. Re-stat here, but never invoke caller code under lock.
-    if (_heartbeatLivenessVeto(id, options)) return null;
-    // ── Durable authority, read under the commit lock, BEFORE any disruption ──
-    // The tombstone rewrites the canonical file, so the bytes it is derived
-    // from must be provably ours. A duplicate/ambiguous/foreign/identity-less
-    // record is NEVER re-serialized through a lenient parse or replaced from
-    // live memory: refuse the barrier and surface the cause, exactly like a
-    // failed commit (closeSession must not report a close that never fenced
-    // anything).
-    const authority = _readCanonicalRecord(sessionPath(id));
-    if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
-      const err = new Error(`[session-store] ${id}: refusing to close — canonical record is unreadable or foreign`);
-      err.code = 'ELIFECYCLEUNREADABLE';
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
-    // Only a committed close may disrupt pending persistence.
-    _clearDebounce(id);
-    _cancelSessionWrites(id);
-    _uncacheSessionSummary(id);
-    const existing = loadSession(id);
-    if (!existing) return null;
-    // Re-close idempotence: a session that is ALREADY tombstoned keeps its
-    // ORIGINAL close time (updatedAt) and generation. The old code refreshed
-    // updatedAt=Date.now() on every call, so the 5-min idle sweep re-closing a
-    // stale summary row reset the tombstone age each cycle — tombstones never
-    // matured past the sweep threshold (immortality loop). Preserving the
-    // original close time lets the age accumulate so the tombstone sweep can
-    // reclaim it.
-    //
-    // The alreadyClosed / original-close-time / generation decision MUST come
-    // from the ON-DISK record, read cache-bypassing — NOT from loadSession(),
-    // which can serve a stale in-memory OPEN payload (a pending debounced save
-    // or a _liveSessions entry) after a late save. Deciding off that stale open
-    // copy would make a re-close of an already-tombstoned session look like a
-    // FIRST close and reset updatedAt+generation, resurrecting the exact
-    // immortality refresh this guard prevents. The disk file is the
-    // authoritative tombstone state.
-    const onDisk = authority ? authority.doc : null;
-    const alreadyClosed = onDisk ? onDisk.closed === true || onDisk.status === 'closed' : existing.closed === true;
-    // When the on-disk copy is already closed, base the (idempotent) tombstone
-    // rewrite on IT rather than on `existing`, so a stale open in-memory
-    // payload can never clobber the persisted tombstone's content/fields.
-    const base = alreadyClosed && onDisk ? onDisk : existing;
-    const closeTime =
-      alreadyClosed && typeof base.updatedAt === 'number' && base.updatedAt > 0 ? base.updatedAt : Date.now();
-    const newGen = (typeof base.generation === 'number' ? base.generation : 0) + (alreadyClosed ? 0 : 1);
-    const tombstone = {
-      ...base,
-      closed: true,
-      closedReason: alreadyClosed ? base.closedReason || reason : reason,
-      status: 'closed',
-      generation: newGen,
-      updatedAt: closeTime,
-      // Agent cancel/close must survive the worker-index drop: the pool
-      // summary reads cancelStatus even when the row is already gone.
-      // `options.cancelStatus` is the close path's OWN answer about the kill
-      // (see closeSession): an unconfirmed stop must reach disk instead of the
-      // default confirmed `cancelled`, and a later re-stamp must never
-      // downgrade it.
-      ...(_CANCEL_CLOSE_REASON.test(String(reason || '').trim()) || _cleanCancelStatus(options.cancelStatus)
-        ? {
-            cancelStatus: _mergeCancelStatus(base.cancelStatus, options.cancelStatus),
-            cancelledAt: base.cancelledAt || closeTime,
-          }
-        : {}),
-    };
-    // Bypass the queue + guard — this IS the tombstone write.
-    const target = sessionPath(id);
-    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
-    try {
-      writeFileSync(tmp, JSON.stringify(_sessionForDisk(tombstone)), 'utf-8');
-      _commitSessionWrite(tmp, target, id);
-      _untrackSaveTmp(tmp);
-    } catch (err) {
-      // The durable lifecycle barrier did NOT land: no tombstone, no
-      // generation bump, nothing fencing a late save. Same contract as a
-      // failed session save — reclaim the scratch file, pin the live
-      // snapshot (non-evictable, not shadowed by the stale disk copy) and
-      // publish the cause so closeSession refuses to report success.
-      _discardSaveTmp(tmp);
-      _recordSaveFailure(id, err, null, existing);
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
-    _savePending.delete(id);
-    clearSessionSaveError(id);
-    _clearLiveSession(id);
-    // Preserve a sidecar published strictly after the sweep's scan snapshot.
-    _deleteHeartbeatUnlessNewer(id, options);
-    _queueSessionSummaryUpsert(tombstone);
-    _droppedSaveIds.delete(id);
-    // Structured close metric. Single emission point because every close
-    // path funnels through markSessionClosed. lifeMs = updatedAt-createdAt
-    // straddles the tombstone (updatedAt was just set to Date.now()), so
-    // it reflects the session's full lifetime including the close turn.
-    try {
-      const _dataDir = getPluginData();
-      // Emit the close metric only on the FIRST close — a re-close of an
-      // already-tombstoned session is a no-op idempotent write and must not
-      // spam the close log or double-count lifetimes.
-      if (_dataDir && !alreadyClosed) {
-        const _ts = new Date().toISOString();
-        const _lifeMs =
-          typeof existing.createdAt === 'number' && existing.createdAt > 0
-            ? tombstone.updatedAt - existing.createdAt
-            : 0;
-        const _agent = existing.agent || '-';
-        const _owner = existing.owner || '-';
-        const _toolEventsPath = join(_dataDir, 'tool-events.log');
-        rotateBoundedLog(_toolEventsPath, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES);
-        void fsp
-          .appendFile(
-            _toolEventsPath,
-            `[${_ts}] [session-close] owner=${_owner} agent=${_agent} reason=${reason} lifeMs=${_lifeMs} id=${id}\n`
-          )
-          .catch(() => {});
-      }
-    } catch {
-      /* logger never breaks the close path */
-    }
-    return newGen;
-  } finally {
-    _releaseWriteCommit(commitControl);
-  }
-}
-
-/**
- * Bump a session's generation WITHOUT planting a closed:true tombstone.
- * Used by closeSession(id, reason, { tombstone: false }) — the runtime side
- * (heartbeat, bash shells, controller, in-memory entry) is detached, but the
- * session file itself stays valid/resumable. The generation bump alone is
- * what protects it from a late save race: any saveSession() still in flight
- * from the detached turn was issued with the OLD generation as its
- * `expectedGeneration`, so once we bump the on-disk generation here, that
- * late write's own _shouldDrop() check (generation-as-ownership-counter
- * rule, see below) sees disk generation > expected and drops itself instead
- * of clobbering whatever the resumed session writes next.
- * Returns the new generation, or null if the session file doesn't exist.
- */
-export function bumpSessionGeneration(id, reason = 'detach') {
-  clearSessionLifecycleCommitError(id);
-  // The detach barrier is a canonical write and MUST take the same commit
-  // lock as markSessionClosed. Cancellation alone is not a barrier: a writer
-  // that already passed its cancellation check can still be holding (or
-  // about to take) the rename lock, and would then land AFTER the generation
-  // bump — exactly the late-save clobber this function exists to prevent.
-  // Holding the lock serialises it before us; taking it after cancellation
-  // makes _acquireWriteCommit refuse it (it re-checks cancellation while
-  // holding the lock).
-  const detachGuard = _guardedSaveOptions(id);
-  const commitControl = _acquireWriteCommit(detachGuard);
-  if (commitControl === false) return null;
-  try {
-    // Same durable authority as the tombstone barrier: the detach write
-    // replaces the canonical file, so unreadable/ambiguous/foreign bytes
-    // are refused (and surfaced) instead of rewritten from memory.
-    const authority = _readCanonicalRecord(sessionPath(id));
-    if (authority === LIFECYCLE_AMBIGUOUS || (authority && authority.id !== id)) {
-      const err = new Error(`[session-store] ${id}: refusing to detach — canonical record is unreadable or foreign`);
-      err.code = 'ELIFECYCLEUNREADABLE';
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
-    // Only a VALIDATED barrier may disrupt pending persistence: on an
-    // ambiguous/foreign refusal above the debounced save stays scheduled
-    // and usable.
-    _clearDebounce(id);
-    _cancelSessionWrites(id);
-    _uncacheSessionSummary(id);
-    const existing = loadSession(id);
-    if (!existing) return null;
-    const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
-    const detached = { ...existing, generation: newGen, updatedAt: Date.now(), detachedReason: reason };
-    const target = sessionPath(id);
-    const tmp = _trackSaveTmp(`${target}.${randomBytes(6).toString('hex')}.tmp`);
-    try {
-      writeFileSync(tmp, JSON.stringify(_sessionForDisk(detached)), 'utf-8');
-      _commitSessionWrite(tmp, target, id);
-      _untrackSaveTmp(tmp);
-    } catch (err) {
-      // Detach barrier failed — identical contract to the tombstone path.
-      _discardSaveTmp(tmp);
-      _recordSaveFailure(id, err, null, existing);
-      _recordLifecycleCommitFailure(id, err, reason);
-      return null;
-    }
-    _savePending.delete(id);
-    clearSessionSaveError(id);
-    _clearLiveSession(id);
-    deleteHeartbeat(id);
-    _queueSessionSummaryUpsert(detached);
-    _droppedSaveIds.delete(id);
-    return newGen;
-  } finally {
-    _releaseWriteCommit(commitControl);
-  }
-}
-
-export function loadSession(id) {
-  const path = sessionPath(id);
-  const pending = _savePending.get(id);
-  const live = _liveSessions.get(id);
-  const preferInMemory = (stored) => {
-    // Read-your-writes: queued state is newer than the payload being written.
-    const inMemory = (pending?.queued || pending?.payload)?.session;
-    if (inMemory?.id === id) return inMemory;
-    if (live?.id !== id) return null;
-    // A higher disk generation means another process took ownership. A
-    // dropped save is the exception: the live copy still contains unsaved
-    // content, so a generation bump must not discard the only complete copy.
-    const liveGen = typeof live.generation === 'number' ? live.generation : 0;
-    const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
-    if (stored && storedGen > liveGen && !_droppedSaveIds.has(id)) return null;
-    return live;
-  };
-  // An existing file owns this identity. Its contents must validate before
-  // fresher in-memory state is allowed to shadow it. The cache retains a
-  // validated disk header, rather than a second transcript, when that header
-  // proves the live/pending snapshot will be served.
-  const disk = _readStoredSessionCached(id, path, { preferInMemory });
-  if (disk.exists && !disk.session) {
-    // An existing-but-unreadable file OWNS the identity: an externally
-    // corrupted, foreign, ambiguous or half-written file from another
-    // writer is REPORTED (null), never masked by whatever this process
-    // happens to hold in memory.
-    //
-    // Exactly ONE exception, and it is evidence-based rather than
-    // state-based: the snapshot whose OWN write to this path failed in
-    // this process (getFailedSaveSnapshot). That failure proves the bytes
-    // never landed, so this copy is strictly newer than the file and is
-    // the only good same-process copy — hiding it would turn a surfaced
-    // save failure into silent session loss for every public reader.
-    // A generic pending payload / _liveSessions entry proves nothing about
-    // disk and may NOT stand in: unrelated corruption stays visible.
-    // Lifecycle and pending-ownership authorities do not come through
-    // here at all (they read the durable record directly), so they keep
-    // seeing 'unreadable' and failing closed.
-    const recovered = getFailedSaveSnapshot(id);
-    if (recovered?.id === id) return _ensureLifecycleFields(recovered);
-    return null;
-  }
-  const inMemory = preferInMemory(disk.session);
-  if (inMemory) return _ensureLifecycleFields(inMemory);
-  if (live?.id === id) _liveSessions.delete(id);
-  return disk.session ? _ensureLifecycleFields(disk.session) : null;
-}
-
-/** Strictly enumerate child-agent session files linked to one visible parent.
- * Used only by explicit parent deletion; ordinary close/context switches keep
- * the relationship intact. */
-export function listOwnedAgentSessionIds(ownerSessionId) {
-  const ownerId = String(ownerSessionId || '').trim();
-  if (!/^[A-Za-z0-9_-]+$/.test(ownerId)) return [];
-  const dir = getStoreDir();
-  if (probePath(dir).state !== PROBE_PRESENT) return [];
-  let files;
-  try {
-    files = readdirSync(dir).filter((file) => file.endsWith('.json'));
-  } catch {
-    return [];
-  }
-  const ids = [];
-  for (const file of files) {
-    const candidateId = file.slice(0, -5);
-    if (!candidateId || candidateId === ownerId || !/^[A-Za-z0-9_-]+$/.test(candidateId)) continue;
-    try {
-      const record = readTopLevelLifecycleRecord(readFileSync(join(dir, file), 'utf8'));
-      if (isLifecycleUnreadable(record) || record.id !== candidateId) continue;
-      const session = record.doc;
-      if (!isAgentOwner(session)) continue;
-      const linkedOwner = String(session.ownerSessionId || session.parentSessionId || '').trim();
-      if (linkedOwner === ownerId) ids.push(candidateId);
-    } catch {
-      /* unreadable/vanished records are never deletion targets */
-    }
-  }
-  return ids;
-}
-
-export function deleteSession(id, options = {}) {
-  // Keep caller probes and all vetoes ahead of the non-reentrant lock and
-  // ahead of pending-save disruption, matching markSessionClosed().
-  if (_runtimeLivenessVeto(id, options) || _heartbeatLivenessVeto(id, options)) return false;
-  const deleteGuard = _guardedSaveOptions(id);
-  const commitControl = _acquireWriteCommit(deleteGuard);
-  if (commitControl === false) return false;
-  try {
-    // Cross-process revival after full-TTL silence remains best-effort; the
-    // tombstone resurrection guard is authoritative. Only re-stat .hb here.
-    if (_heartbeatLivenessVeto(id, options)) return false;
-    // ── 1. unlink FIRST, still holding the commit lock ─────────────────────
-    // A failed unlink is NOT a delete: the canonical bytes are still there, so
-    // nothing may be purged, cancelled or closed — every pending write, parked
-    // snapshot and metrics timer stays usable and persistable.
-    const path = sessionPath(id);
-    const probe = probePath(path);
-    // An unreadable probe is NOT absence: purging markers/pending state while
-    // the canonical bytes survive would strand a live session behind a file
-    // nobody owns any more. Nothing was deleted, so report exactly that.
-    if (probe.state !== PROBE_PRESENT && probe.state !== PROBE_ABSENT) return false;
-    // CONTRACT: an ABSENT canonical record is a SUCCESSFUL (idempotent)
-    // delete — the session does not exist once this call returns, so the id's
-    // local state is purged and `true` is reported. `false` is reserved for
-    // "nothing was deleted AND nothing was mutated": a liveness veto, a
-    // contended commit lock, an unreadable probe, ambiguous/foreign bytes, or
-    // a failed unlink.
-    if (probe.state === PROBE_PRESENT) {
-      // STRICT OWNERSHIP AT THE COMMIT EDGE. The bytes are re-read here,
-      // under the same commit lock, immediately before the unlink — not
-      // inferred from the earlier stat, and not from any cache: between the
-      // probe and this read another process can rename a different session's
-      // record (or a torn write) onto this path, and an unlink is
-      // irreversible. Ambiguous/foreign bytes are therefore never deleted.
-      const record = _readCanonicalRecord(path);
-      if (record === LIFECYCLE_AMBIGUOUS) return false;
-      if (record !== null) {
-        if (record.id !== id) return false;
-        try {
-          unlinkSync(path);
-        } catch {
-          return false; // canonical file survives → nothing was deleted
-        }
-      }
-      // record === null: the file vanished inside this window — fall through
-      // to the absent contract (nothing removed, local state still purged).
-    }
-    // ── 2. finalize UNDER THE SAME LOCK ────────────────────────────────────
-    // The file is gone. Cancellation + purge happen before the lock is
-    // released, so a writer waiting for the lock is refused by its own
-    // cancellation re-check instead of renaming the file back, and no parked
-    // snapshot, timer or deferred entry survives to resurrect it.
-    // Retire the id's incarnation: every write, queued payload and parked
-    // snapshot stamped BEFORE this point becomes permanently non-current, so
-    // its settlement moves no marker and touches no bookkeeping — and a
-    // re-created id gets a brand new incarnation of its own.
-    _retireSessionIncarnation(id);
-    _cancelSessionWrites(id);
-    _clearDebounce(id);
-    _releasePendingSlot(_savePending.get(id));
-    _savePending.delete(id);
-    _purgeSessionSaveBookkeeping(id);
-    _runSessionPurgeHooks(id);
-    // Preserve a sidecar published strictly after the sweep's scan snapshot.
-    _deleteHeartbeatUnlessNewer(id, options);
-    deleteSessionPresence(id);
-    _clearLiveSession(id);
-    // The file is gone: every marker of the retired incarnation goes with it
-    // (save error + failed-snapshot evidence, split-brain drop flag, lifecycle
-    // commit error), so a re-created id starts clean.
-    _clearSessionSaveState(id);
-    clearSessionLifecycleCommitError(id);
-    // deferSummaryUpdate: bulk callers (tombstone sweep) remove thousands of
-    // rows — a per-id _removeSessionSummary would parse+rewrite the multi-MB
-    // summary index once PER DELETION. They batch the index update themselves.
-    if (options.deferSummaryUpdate === true) _uncacheSessionSummary(id);
-    else _queueSessionSummaryRemoval(id);
-    // Both PRESENT-and-unlinked and ABSENT reach here: the session is gone.
-    return true;
-  } finally {
-    _releaseWriteCommit(commitControl);
-  }
-}
+// Hard delete + owned-agent enumeration live in store/session-delete.mjs;
+// re-exported here so prior importers of store.mjs stay unchanged.
+export { deleteSession, listOwnedAgentSessionIds } from './store/session-delete.mjs';
 
 // Listing / summaries / stale sweeping live in store/listing.mjs; re-exported
 // here so importers keep one session-store entry point.
@@ -1394,4 +657,4 @@ export {
   sweepStaleSessions,
   sweepStaleSessionsCooperative,
 } from './store/listing.mjs';
-export { _savePending };
+export { _savePending } from './store/pending-saves.mjs';

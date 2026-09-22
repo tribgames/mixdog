@@ -79,39 +79,59 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   // resumable on disk. Leave every runtime structure intact and report
   // failure in all of them.
   if (typeof newGen !== 'number') {
-    const commitError = getSessionLifecycleCommitError(id);
-    let detail = 'no durable barrier written (veto, contended commit, or missing record)';
-    if (commitError) {
-      const code = commitError.code ? ` (${commitError.code})` : '';
-      detail = `${commitError.message}${code}`;
-    }
-    if (entry) {
-      entry.lastError = `session close failed: ${detail}`;
-      entry.closeBarrierError = commitError || { message: detail, code: null, reason, at: Date.now() };
-    }
-    try {
-      process.stderr.write(
-        `[agent-close] session=${id} reason=${reason} tombstone=${tombstone} ` +
-          `FAILED durable lifecycle barrier: ${detail}\n`
-      );
-    } catch {
-      /* best-effort */
-    }
+    reportCloseBarrierFailure({ id, reason, tombstone, entry });
     return false;
   }
-  // A session owns every shell process it started, including commands still
-  // in the foreground. Cancel by immutable owner identity before the runtime
-  // entry is cleared so a direct agent/session close cannot orphan a tree.
-  //
-  // The kill's OWN answer decides what is recorded. A survivor this host can
-  // no longer signal (the Windows git-bash background child) was never proven
-  // stopped: the shell layer already answers `cancel-unconfirmed` for it, and
-  // overwriting that with the tombstone's default confirmed `cancelled` is a
-  // false success the pool and desktop then render as a clean cancellation.
-  // Carry the real confirmation through and re-stamp the durable tombstone
-  // with the unconfirmed outcome. The re-stamp is idempotent: markSessionClosed
-  // keeps the original close time and generation and only upgrades the cancel
-  // scalars (unconfirmed never downgrades back to cancelled).
+  cancelOwnedShellProcesses({ id, reason, tombstone });
+  // prepareCloseSnapshot was folded into the synchronous generation write
+  // above. Only now is it safe to remove the crash fallback.
+  clearTurnCheckpoint(id);
+  teardownSessionRuntime({ id, entry, reason, tombstone, newGen });
+  return true;
+}
+
+/**
+ * The durable lifecycle barrier never landed. Record why on the runtime entry
+ * and on stderr, and leave every runtime structure intact — the session is
+ * still open and resumable on disk.
+ */
+function reportCloseBarrierFailure({ id, reason, tombstone, entry }) {
+  const commitError = getSessionLifecycleCommitError(id);
+  let detail = 'no durable barrier written (veto, contended commit, or missing record)';
+  if (commitError) {
+    const code = commitError.code ? ` (${commitError.code})` : '';
+    detail = `${commitError.message}${code}`;
+  }
+  if (entry) {
+    entry.lastError = `session close failed: ${detail}`;
+    entry.closeBarrierError = commitError || { message: detail, code: null, reason, at: Date.now() };
+  }
+  try {
+    process.stderr.write(
+      `[agent-close] session=${id} reason=${reason} tombstone=${tombstone} ` +
+        `FAILED durable lifecycle barrier: ${detail}\n`
+    );
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
+ * A session owns every shell process it started, including commands still
+ * in the foreground. Cancel by immutable owner identity before the runtime
+ * entry is cleared so a direct agent/session close cannot orphan a tree.
+ *
+ * The kill's OWN answer decides what is recorded. A survivor this host can
+ * no longer signal (the Windows git-bash background child) was never proven
+ * stopped: the shell layer already answers `cancel-unconfirmed` for it, and
+ * overwriting that with the tombstone's default confirmed `cancelled` is a
+ * false success the pool and desktop then render as a clean cancellation.
+ * Carry the real confirmation through and re-stamp the durable tombstone
+ * with the unconfirmed outcome. The re-stamp is idempotent: markSessionClosed
+ * keeps the original close time and generation and only upgrades the cancel
+ * scalars (unconfirmed never downgrades back to cancelled).
+ */
+function cancelOwnedShellProcesses({ id, reason, tombstone }) {
   let cancelConfirmed = true;
   try {
     cancelConfirmed = cancelNativeTasks({ ownerSessionId: id })?.confirmed !== false;
@@ -120,9 +140,15 @@ export function closeSession(id, reason = 'manual', opts = {}) {
     cancelConfirmed = false;
   }
   if (tombstone && !cancelConfirmed) markSessionClosed(id, reason, { cancelStatus: 'cancel-unconfirmed' });
-  // prepareCloseSnapshot was folded into the synchronous generation write
-  // above. Only now is it safe to remove the crash fallback.
-  clearTurnCheckpoint(id);
+}
+
+/**
+ * Everything that lives only as long as the running session: the runtime
+ * entry's closed state and controller abort, provider connections, the
+ * session-scoped read caches and pending-message state, and the deferred
+ * runtime-map clear.
+ */
+function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
   // 2. Mark runtime as closed so post-await validation in askSession fires.
   if (entry) {
     entry.closed = true;
@@ -182,7 +208,6 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   setImmediate(() => {
     _clearSessionRuntime(id);
   });
-  return true;
 }
 export function abortSessionTurn(id, reason = 'turn-abort') {
   if (!id) return false;

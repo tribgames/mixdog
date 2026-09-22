@@ -7,10 +7,9 @@
  * _sendFrame and re-exports the drain hooks for legacy import paths.
  */
 import WebSocket from 'ws';
-import { errText } from '../../../shared/err-text.mjs';
 import { createHash, randomBytes } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
-import { appendFileSync, chmodSync } from 'node:fs';
+import { attachHandshakeFailureHandlers, captureHandshakeUpgrade } from './openai-ws-handshake.mjs';
 import { codexOriginator, codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
 import {
   PROVIDER_WS_ACQUIRE_TIMEOUT_MS,
@@ -29,9 +28,7 @@ import {
   _codexBetaFeatures,
   _dumpHandshakeHeaders,
   _dumpFrame,
-  _formatRedactedHeaders,
   _cfCookieHeader,
-  _cfCookieCapture,
 } from './openai-ws-headers.mjs';
 import { clearAllCodexTurnStates, clearCodexTurnStateScope, retireCodexTurnStateOwner } from './openai-turn-state.mjs';
 export function _wsErrLabel(p) {
@@ -609,95 +606,19 @@ function _openSocket({ auth, sessionToken, externalSignal, cacheKey, codexHeader
     try {
       acquireTimer.unref?.();
     } catch {}
-    socket.once('upgrade', (res) => {
-      try {
-        _cfCookieCapture(auth, res?.headers?.['set-cookie']);
-        // Probe: dump the full 101-upgrade response header set so we can
-        // see what the server actually issues (turn-state investigation).
-        if (process.env.MIXDOG_WS_UPGRADE_HEADER_PROBE) {
-          const all = res?.headers && typeof res.headers === 'object' ? _formatRedactedHeaders(res.headers) : '(none)';
-          const line = `[ws-upgrade-probe] ts=${new Date().toISOString()} status=${res?.statusCode} headers={ ${all} }\n`;
-          process.stderr.write(line);
-          // Bench runners swallow child stderr on success; persist to a
-          // file so the probe survives (value of the env var = path, or
-          // default under tmp).
-          try {
-            const probePath =
-              process.env.MIXDOG_WS_UPGRADE_HEADER_PROBE !== '1'
-                ? process.env.MIXDOG_WS_UPGRADE_HEADER_PROBE
-                : `${process.env.TEMP || process.env.TMPDIR || '.'}/mixdog-ws-upgrade-probe.log`;
-            appendFileSync(probePath, line, { encoding: 'utf8', mode: 0o600 });
-            try {
-              chmodSync(probePath, 0o600);
-            } catch {}
-          } catch {}
-        }
-      } catch {}
-    });
+    socket.once('upgrade', (res) => captureHandshakeUpgrade(auth, res));
     socket.once('open', () => {
       if (process.env.MIXDOG_DEBUG_AGENT) {
         process.stderr.write(`[agent-trace] ws-open-ok elapsed=${Date.now() - _wsOpenStart}ms\n`);
       }
       settle(true, { socket });
     });
-    socket.once('error', (err) => {
-      if (process.env.MIXDOG_DEBUG_AGENT) {
-        process.stderr.write(
-          `[agent-trace] ws-open-fail kind=error msg=${String(err?.message || err).slice(0, 120)} elapsed=${Date.now() - _wsOpenStart}ms\n`
-        );
-      }
-      try {
-        socket.terminate();
-      } catch {}
-      settle(
-        false,
-        err instanceof Error
-          ? err
-          : Object.assign(new Error(errText(err) || 'openai-oauth WS error'), { wsErrorEvent: true, original: err })
-      );
-    });
-    socket.once('close', (code, reason) => {
-      // Half-open handshake: the peer closed before 'open'/'error' fired
-      // (TCP RST / TLS edge). Without this the connect Promise never
-      // settles and only the 600s outer watchdog can break the stall
-      // (observed stage=requesting 601s hang). Open-path closes are
-      // no-ops here because settle() has already flipped `settled`.
-      if (settled) return;
-      try {
-        socket.terminate();
-      } catch {}
-      settle(
-        false,
-        Object.assign(new Error(`${_wsErrLabel(_wsAuthKind(auth))} handshake closed before open (code=${code})`), {
-          wsCloseCode: code,
-          wsCloseReason: reason?.toString ? reason.toString('utf-8') : '',
-        })
-      );
-    });
-    socket.once('unexpected-response', (_req, res) => {
-      if (settled) return;
-      const status = res?.statusCode || 0;
-      let body = '';
-      res.on('data', (c) => {
-        if (body.length < 2048) body += c.toString('utf-8');
-      });
-      res.on('end', () => {
-        if (process.env.MIXDOG_DEBUG_AGENT) {
-          process.stderr.write(
-            `[agent-trace] ws-open-fail kind=http status=${status} body=${body.slice(0, 120)} elapsed=${Date.now() - _wsOpenStart}ms\n`
-          );
-        }
-        try {
-          socket.terminate();
-        } catch {}
-        settle(
-          false,
-          Object.assign(new Error(`${_wsErrLabel(_wsAuthKind(auth))} handshake ${status}: ${body.slice(0, 200)}`), {
-            httpStatus: status,
-            httpBody: body,
-          })
-        );
-      });
+    attachHandshakeFailureHandlers({
+      socket,
+      errLabel: _wsErrLabel(_wsAuthKind(auth)),
+      openStart: _wsOpenStart,
+      isSettled: () => settled,
+      settle,
     });
     if (externalSignal) {
       const onAbort = () => {

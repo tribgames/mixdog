@@ -31,22 +31,11 @@ function dumpAntigravityRequest(body) {
     writeFileSync(join(dir, name), JSON.stringify(body, null, 2));
   } catch {}
 }
-import { withRetry } from './retry-classifier.mjs';
-import { traceAgentUsage } from '../agent-trace.mjs';
-import { createProviderReplay } from './lib/provider-replay.mjs';
-import { createPassthroughSignal, createTimeoutSignal } from '../stall-policy.mjs';
-import { getLlmDispatcher, preconnect } from '../../../shared/llm/http-agent.mjs';
-import {
-  GEMINI_FIRST_BYTE_TIMEOUT_MS,
-  createGeminiTextLeakGuard,
-  consumeGeminiRestStreamResponse,
-} from './gemini-stream.mjs';
-import {
-  parseToolCalls,
-  emitGeminiToolCalls,
-  collectGeminiGroundingSources,
-  parseGeminiTextPartMetadata,
-} from './gemini-schema.mjs';
+import { createPassthroughSignal } from '../stall-policy.mjs';
+import { preconnect } from '../../../shared/llm/http-agent.mjs';
+import { createAntigravityStreamCollector } from './antigravity-stream.mjs';
+import { createAntigravityRequest } from './antigravity-transport.mjs';
+import { finalizeAntigravityTurn } from './antigravity-response.mjs';
 import {
   CONTENT_ENDPOINT,
   ANTIGRAVITY_MODELS,
@@ -56,7 +45,6 @@ import {
   ensureAntigravityVersion,
   hasAntigravityOAuthCredentials,
   loadTokens,
-  _scrubTokens,
 } from './antigravity-oauth-tokens.mjs';
 import {
   antigravityModelCache,
@@ -69,65 +57,9 @@ import {
 
 const CLAUDE_THINKING_BETA = 'interleaved-thinking-2025-05-14';
 
-function antigravityError(res, text, endpoint) {
-  let payload = null;
-  try {
-    payload = text ? JSON.parse(text) : null;
-  } catch {
-    /* not JSON */
-  }
-  const detail = payload?.error || null;
-  const message = detail?.message || text?.slice(0, 300) || '';
-  const err = new Error(`Antigravity ${res.status} (${endpoint}): ${_scrubTokens(message)}`);
-  err.status = res.status;
-  err.httpStatus = res.status;
-  err.headers = res.headers;
-  err.initialResponseError = true;
-  if (detail) {
-    err.error = detail;
-    err.data = payload;
-    if (detail.status) err.geminiStatus = detail.status;
-  }
-  // Account verification is terminal and actionable: surface the URL Google
-  // returns instead of a raw API body the user cannot act on.
-  // Google puts the link in the error details, not the message text.
-  const validationDetail = Array.isArray(detail?.details)
-    ? detail.details.find(
-        (entry) => entry?.reason === 'VALIDATION_REQUIRED' && typeof entry.metadata?.validation_url === 'string'
-      )
-    : null;
-  const validationUrl =
-    validationDetail?.metadata.validation_url ||
-    /https:\/\/\S*(?:accounts|console)\.google\.com\/\S+/.exec(message || '')?.[0] ||
-    '';
-  if (res.status === 403 && /VALIDATION_REQUIRED/i.test(text || '')) {
-    err.message = `Antigravity requires account verification${validationUrl ? `: open ${validationUrl} , complete the check, then retry` : ''}`;
-    err.validationUrl = validationUrl || undefined;
-    err.unsafeToRetry = true;
-  }
-  return err;
-}
-
 async function storedAuth(options) {
   const tokens = await ensureAccessToken(options);
   return { accessToken: tokens.access_token, projectId: tokens.project_id, email: tokens.email || '' };
-}
-
-// A retired wire id answers with one plain-text notice and no finishReason.
-// That is a terminal answer about the model, not a truncated stream.
-const RETIRED_MODEL_NOTICE = /\bno longer (?:available|supported)\b/i;
-
-function retiredModelError(err, streamedText, model) {
-  if (!(err?.code === 'TRUNCATED_STREAM' && /no finishReason/.test(String(err?.message || '')))) return null;
-  const text = String(streamedText || '').trim();
-  if (!RETIRED_MODEL_NOTICE.test(text)) return null;
-  return Object.assign(new Error(`Antigravity retired ${model}: ${text}`), {
-    code: 'MODEL_RETIRED',
-    status: 404,
-    httpStatus: 404,
-    unsafeToRetry: true,
-    modelRetired: true,
-  });
 }
 
 export class AntigravityOAuthProvider {
@@ -176,17 +108,19 @@ export class AntigravityOAuthProvider {
       };
     }
     const onToolCall = typeof opts.onToolCall === 'function' ? opts.onToolCall : null;
-    // Streamed text is kept so a retirement notice can be told apart from
-    // a truncated stream when the gateway omits the finishReason.
-    let streamedText = '';
-    const onTextDelta =
-      typeof opts.onTextDelta === 'function'
-        ? (text) => {
-            if (typeof text === 'string') streamedText += text;
-            opts.onTextDelta(text);
-          }
-        : null;
+    // Relayed through opts so the callback keeps its original receiver.
+    const onTextDelta = typeof opts.onTextDelta === 'function' ? (text) => opts.onTextDelta(text) : null;
     const onStreamDelta = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
+    // Per-turn stream record: live text mirror, ordered parts, native/leaked
+    // tool calls and the exposure marks a failed attempt carries
+    // (antigravity-stream.mjs).
+    const collector = createAntigravityStreamCollector({
+      tools,
+      useModel,
+      onToolCall,
+      onTextDelta,
+      onStreamDelta,
+    });
     if (signal?.aborted) {
       const reason = signal.reason;
       throw reason instanceof Error ? reason : new Error('Antigravity request aborted');
@@ -211,136 +145,21 @@ export class AntigravityOAuthProvider {
       ...(isClaudeModel(useModel) ? { 'anthropic-beta': CLAUDE_THINKING_BETA } : {}),
     };
 
-    let textLeakGuard = null;
-    let terminalFailure = null;
-    let streamedParts = [];
-    let streamedNativeToolCalls = [];
-    const seenNativeToolIds = new Set();
-    const emittedToolIds = new Set();
-    const dispatchToolCall = onToolCall
-      ? (call) => {
-          // A failure already observed in this chunk must win over both
-          // native calls and calls recovered from its text.
-          if (terminalFailure || emittedToolIds.has(call.id)) return;
-          emittedToolIds.add(call.id);
-          onToolCall(call);
-        }
-      : null;
-    const onChunk = (chunk) => {
-      const candidate = chunk?.candidates?.[0];
-      const finishReason =
-        candidate?.finishReason ||
-        (chunk?.promptFeedback?.blockReason ? `PROMPT_${chunk.promptFeedback.blockReason}` : null);
-      if (finishReason && String(finishReason).replace(/^FINISH_REASON_/, '') !== 'STOP') {
-        terminalFailure ||= finishReason;
-      }
-      if (!onToolCall) return;
-      const parts = candidate?.content?.parts ?? [];
-      streamedParts.push(...parts);
-      if (terminalFailure || !parts.some((part) => part?.functionCall)) return;
-      // Parse against the turn's parts so anonymous call IDs keep the
-      // same ordinal as final parsing, even across separate SSE chunks.
-      const fresh = (parseToolCalls(streamedParts) || []).filter((call) => {
-        if (seenNativeToolIds.has(call.id)) return false;
-        seenNativeToolIds.add(call.id);
-        return true;
-      });
-      const calls = textLeakGuard?.enabled ? textLeakGuard.filterNativeToolCalls(fresh) : fresh;
-      if (calls?.length) streamedNativeToolCalls.push(...calls);
-      emitGeminiToolCalls(calls, dispatchToolCall);
-    };
     const passthrough = createPassthroughSignal(signal);
     const endpoint = this._contentEndpoint();
     let lastErr = null;
     let response = null;
-    const requestOnce = () =>
-      withRetry(
-        async ({ signal: attemptSignal }) => {
-          try {
-            opts.onStageChange?.('requesting');
-          } catch {
-            /* heartbeat */
-          }
-          const firstByte = createTimeoutSignal(attemptSignal, GEMINI_FIRST_BYTE_TIMEOUT_MS, 'Antigravity first byte');
-          let res;
-          try {
-            res = await this._fetch(`${endpoint}/v1internal:streamGenerateContent?alt=sse`, {
-              method: 'POST',
-              headers,
-              body,
-              signal: firstByte.signal,
-              dispatcher: getLlmDispatcher(),
-            });
-          } catch (err) {
-            // Fetch surfaces AbortError; rethrow the timer/parent
-            // reason so same-host retry sees EPROVIDERTIMEOUT and
-            // a caller cancel stays a cancel.
-            if (firstByte.signal.aborted && firstByte.signal.reason instanceof Error) {
-              throw firstByte.signal.reason;
-            }
-            throw err;
-          } finally {
-            firstByte.cleanup();
-          }
-          if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            throw antigravityError(res, text, endpoint);
-          }
-          textLeakGuard = createGeminiTextLeakGuard({
-            knownToolNames: tools?.map((t) => t.name).filter(Boolean) ?? [],
-            onTextDelta,
-            onToolCall: dispatchToolCall,
-            onStreamDelta,
-          });
-          streamedText = '';
-          terminalFailure = null;
-          streamedParts = [];
-          streamedNativeToolCalls = [];
-          seenNativeToolIds.clear();
-          emittedToolIds.clear();
-          try {
-            return await consumeGeminiRestStreamResponse(res, {
-              signal: attemptSignal,
-              onStreamDelta,
-              onTextDelta,
-              onChunk,
-              textLeakGuard,
-              label: 'Antigravity streamGenerateContent',
-              // Cloud Code Assist nests the Gemini payload under
-              // `response`; in-band error events stay top level.
-              unwrapChunk: (chunk) => (chunk && typeof chunk === 'object' && chunk.response ? chunk.response : chunk),
-            });
-          } catch (streamErr) {
-            const error = retiredModelError(streamErr, streamedText, useModel) || streamErr;
-            // Native calls now run before EOF. Preserve
-            // their history and prohibit resampling after
-            // a tool callback.
-            if (emittedToolIds.size) {
-              error.emittedToolCall = true;
-              error.unsafeToRetry = true;
-              const leaked = textLeakGuard.getLeakedToolCalls();
-              error.partialToolCalls = [...streamedNativeToolCalls, ...leaked];
-              const replay = createProviderReplay('antigravity', leaked.length ? [] : streamedParts);
-              if (replay) replay.requestContext = { model: useModel };
-              if (replay) error.partialProviderReplay = replay;
-            }
-            throw error;
-          }
-        },
-        {
-          signal: passthrough.signal,
-          onRetry: ({ attempt, lastErr: retryErr }) => {
-            try {
-              opts.onStageChange?.('requesting');
-            } catch {
-              /* heartbeat */
-            }
-            process.stderr.write(
-              `[antigravity] retry ${attempt + 1} after ${retryErr?.message || 'transient error'}\n`
-            );
-          },
-        }
-      );
+    // One retried POST to streamGenerateContent, first-byte window and typed
+    // non-OK errors included (antigravity-transport.mjs).
+    const requestOnce = createAntigravityRequest({
+      fetchFn: this._fetch,
+      endpoint,
+      headers,
+      body,
+      opts,
+      signal: passthrough.signal,
+      collector,
+    });
     try {
       try {
         response = await requestOnce();
@@ -367,7 +186,7 @@ export class AntigravityOAuthProvider {
           // bearer changes; the already-serialized body stays valid.
           this._projectId = refreshed.projectId;
           headers.Authorization = `Bearer ${refreshed.accessToken}`;
-          textLeakGuard = null;
+          collector.releaseGuard();
           process.stderr.write('[antigravity] 401 — refreshed credentials and retrying once\n');
           // A second failure escapes this catch; only one refresh is attempted.
           response = await requestOnce();
@@ -380,84 +199,9 @@ export class AntigravityOAuthProvider {
     }
     if (!response) throw lastErr || new Error('Antigravity returned no response');
 
-    const candidate = response.candidates?.[0] || null;
-    const responseParts = candidate?.content?.parts ?? [];
-    const textParts = responseParts.filter((p) => p?.thought !== true && 'text' in p);
-    const rawContent = textParts.map((p) => ('text' in p ? p.text : '')).join('');
-    const providerMetadata = parseGeminiTextPartMetadata(responseParts);
-    const content = textLeakGuard?.enabled ? textLeakGuard.scrubAssistantText(rawContent) : rawContent;
-    const leakedToolCalls = textLeakGuard?.getLeakedToolCalls() ?? [];
-    const providerReplay = createProviderReplay(
-      'antigravity',
-      leakedToolCalls.length || rawContent !== content ? [] : responseParts
-    );
-    // Thought signatures are only valid for the model family that minted
-    // them; the request builder consults this when the route changes.
-    if (providerReplay) providerReplay.requestContext = { model: useModel };
-    let nativeToolCalls;
-    if (!onToolCall) nativeToolCalls = parseToolCalls(responseParts);
-    else if (streamedNativeToolCalls.length) nativeToolCalls = streamedNativeToolCalls;
-    if (!onToolCall && textLeakGuard?.enabled) nativeToolCalls = textLeakGuard.filterNativeToolCalls(nativeToolCalls);
-    let toolCalls = nativeToolCalls;
-    if (leakedToolCalls.length) {
-      toolCalls = toolCalls?.length ? [...toolCalls, ...leakedToolCalls] : leakedToolCalls;
-    }
-    const citations = collectGeminiGroundingSources(candidate);
-
-    const promptBlockReason = response.promptFeedback?.blockReason || null;
-    const finishReason =
-      terminalFailure || candidate?.finishReason || (promptBlockReason ? `PROMPT_${promptBlockReason}` : null);
-    const normalizedFinish = String(finishReason || '').replace(/^FINISH_REASON_/, '');
-    if (finishReason && normalizedFinish !== 'STOP') {
-      throw Object.assign(new Error(`Antigravity response incomplete: finishReason=${finishReason}`), {
-        name: 'ProviderIncompleteError',
-        code: 'PROVIDER_INCOMPLETE',
-        providerIncomplete: true,
-        finishReason,
-        partialContent: content,
-        partialToolCalls: toolCalls,
-        partialProviderReplay: providerReplay,
-        providerMetadata,
-        model: useModel,
-        rawUsage: response.usageMetadata || null,
-        ...(emittedToolIds.size ? { emittedToolCall: true, unsafeToRetry: true } : {}),
-      });
-    }
-
-    const um = response.usageMetadata || null;
-    let usage;
-    if (um) {
-      const inputTokens = um.promptTokenCount || um.prompt_token_count || 0;
-      const cachedTokens = um.cachedContentTokenCount || um.cached_content_token_count || 0;
-      const outputTokens =
-        (um.candidatesTokenCount || um.candidates_token_count || 0) +
-        (um.thoughtsTokenCount || um.thoughts_token_count || 0);
-      usage = { inputTokens, outputTokens, cachedTokens, promptTokens: inputTokens, raw: um };
-      traceAgentUsage({
-        sessionId: opts.sessionId || opts.session?.id || null,
-        iteration: Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null,
-        inputTokens,
-        outputTokens,
-        cachedTokens,
-        cacheWriteTokens: 0,
-        promptTokens: inputTokens,
-        model: useModel,
-        modelDisplay: useModel,
-        rawUsage: um,
-        provider: 'antigravity-oauth',
-      });
-    }
-
-    return {
-      content,
-      model: useModel,
-      toolCalls,
-      citations: citations.length ? citations : undefined,
-      providerReplay,
-      providerMetadata,
-      providerState: opts.providerState,
-      usage,
-    };
+    // Leak-scrubbed text, replay parts, tool calls, citations, the
+    // finishReason verdict and usage accounting (antigravity-response.mjs).
+    return finalizeAntigravityTurn({ response, collector, useModel, opts, onToolCall });
   }
 
   async _fetchRawModels(signal = null) {

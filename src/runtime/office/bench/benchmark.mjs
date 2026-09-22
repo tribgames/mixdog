@@ -239,6 +239,99 @@ async function fullVisualDiff(source, output, outputDirectory, { signal = null }
   };
 }
 
+/**
+ * Walk the whole document through the paginated snapshot and report what the
+ * walk cost: calls, units returned/scanned, the reported total and the last
+ * page limit. Progress is reported on the first, every 25th and the last call.
+ */
+async function walkSnapshotPages({ session, context, path, onProgress }) {
+  let cursor = null;
+  let calls = 0;
+  let returned = 0;
+  let scanned = 0;
+  let total = 0;
+  let finalLimit = 0;
+  do {
+    const page = resultValue(await executeOfficeTool(officeBenchmarkSnapshotRequest(session, cursor), context));
+    const pagination = page.document?.pagination || {};
+    calls += 1;
+    returned += Number(pagination.returned || 0);
+    scanned += Number(pagination.scanned || 0);
+    total = Math.max(total, Number(pagination.total || 0));
+    finalLimit = Number(pagination.limit || finalLimit);
+    cursor = pagination.nextCursor || null;
+    // scanned counts spreadsheet cells and only Excel reports it. Word and
+    // PowerPoint report returned units, so a bare scanned printed 0 progress
+    // for them however far the walk had actually gone.
+    const covered = scanned || returned;
+    if (calls === 1 || calls % 25 === 0 || !cursor) {
+      onProgress?.({
+        phase: 'snapshot',
+        path,
+        calls,
+        scanned,
+        returned,
+        total,
+        message: `snapshot ${basename(path)}: ${covered}/${total || '?'} units in ${calls} call(s)`,
+      });
+    }
+  } while (cursor && calls < 10_000);
+  if (cursor) throw new Error('Office benchmark snapshot exceeded 10,000 pagination calls');
+  return { calls, returned, scanned, total, finalLimit };
+}
+
+/**
+ * Render the first page and compare the round-tripped document against the
+ * original — or record why the comparison was skipped (a policy that does not
+ * ask for the full visual pass, or no compatibility renderer). Writes
+ * visualPolicy / visualRequired / render / visual onto the report.
+ */
+async function runVisualPhase(report, { path, output, outputDirectory, extension, session, context, signal }) {
+  report.visualPolicy = officeBenchmarkVisualPolicy({
+    format: report.format,
+    totalCells: report.snapshot.value?.total || 0,
+  });
+  report.visualRequired =
+    report.visualPolicy.mode === 'full' &&
+    (report.format === 'pdf' || report.validation.value?.compatibility?.available === true);
+  if (report.visualRequired) {
+    const previewPath = join(outputDirectory, `${basename(path, extension)}.preview.pdf`);
+    report.render = await timed(async () =>
+      resultValue(
+        await executeOfficeTool(
+          {
+            action: 'render',
+            session,
+            output: previewPath,
+            pages: [1],
+            maxWidth: 900,
+          },
+          context
+        )
+      )
+    );
+    report.visual = await timed(async () => await fullVisualDiff(path, output, outputDirectory, { signal }));
+    return;
+  }
+  const reason =
+    report.visualPolicy.mode !== 'full'
+      ? report.visualPolicy.reason
+      : 'LibreOffice compatibility rendering is unavailable; visual comparison was not run.';
+  report.render = {
+    ok: true,
+    skipped: true,
+    reason,
+    durationMs: 0,
+  };
+  report.visual = {
+    ok: true,
+    skipped: true,
+    available: false,
+    reason,
+    durationMs: 0,
+  };
+}
+
 async function benchmarkDocument(
   path,
   outputDirectory,
@@ -278,41 +371,7 @@ async function benchmarkDocument(
       return report;
     }
     session = opened.value.session;
-    const snapshot = await timed(async () => {
-      let cursor = null;
-      let calls = 0;
-      let returned = 0;
-      let scanned = 0;
-      let total = 0;
-      let finalLimit = 0;
-      do {
-        const page = resultValue(await executeOfficeTool(officeBenchmarkSnapshotRequest(session, cursor), context));
-        const pagination = page.document?.pagination || {};
-        calls += 1;
-        returned += Number(pagination.returned || 0);
-        scanned += Number(pagination.scanned || 0);
-        total = Math.max(total, Number(pagination.total || 0));
-        finalLimit = Number(pagination.limit || finalLimit);
-        cursor = pagination.nextCursor || null;
-        // scanned counts spreadsheet cells and only Excel reports it. Word and
-        // PowerPoint report returned units, so a bare scanned printed 0 progress
-        // for them however far the walk had actually gone.
-        const covered = scanned || returned;
-        if (calls === 1 || calls % 25 === 0 || !cursor) {
-          onProgress?.({
-            phase: 'snapshot',
-            path,
-            calls,
-            scanned,
-            returned,
-            total,
-            message: `snapshot ${basename(path)}: ${covered}/${total || '?'} units in ${calls} call(s)`,
-          });
-        }
-      } while (cursor && calls < 10_000);
-      if (cursor) throw new Error('Office benchmark snapshot exceeded 10,000 pagination calls');
-      return { calls, returned, scanned, total, finalLimit };
-    });
+    const snapshot = await timed(async () => await walkSnapshotPages({ session, context, path, onProgress }));
     report.snapshot = snapshot;
     if (controller.signal.aborted) {
       report.timedOut = true;
@@ -342,54 +401,15 @@ async function benchmarkDocument(
         )
       )
     );
-    report.visualPolicy = officeBenchmarkVisualPolicy({
-      format: report.format,
-      totalCells: report.snapshot.value?.total || 0,
+    await runVisualPhase(report, {
+      path,
+      output,
+      outputDirectory,
+      extension,
+      session,
+      context,
+      signal: controller.signal,
     });
-    report.visualRequired =
-      report.visualPolicy.mode === 'full' &&
-      (report.format === 'pdf' || report.validation.value?.compatibility?.available === true);
-    if (report.visualRequired) {
-      const previewPath = join(outputDirectory, `${basename(path, extension)}.preview.pdf`);
-      report.render = await timed(async () =>
-        resultValue(
-          await executeOfficeTool(
-            {
-              action: 'render',
-              session,
-              output: previewPath,
-              pages: [1],
-              maxWidth: 900,
-            },
-            context
-          )
-        )
-      );
-      report.visual = await timed(
-        async () =>
-          await fullVisualDiff(path, output, outputDirectory, {
-            signal: controller.signal,
-          })
-      );
-    } else {
-      const reason =
-        report.visualPolicy.mode !== 'full'
-          ? report.visualPolicy.reason
-          : 'LibreOffice compatibility rendering is unavailable; visual comparison was not run.';
-      report.render = {
-        ok: true,
-        skipped: true,
-        reason,
-        durationMs: 0,
-      };
-      report.visual = {
-        ok: true,
-        skipped: true,
-        available: false,
-        reason,
-        durationMs: 0,
-      };
-    }
     report.timedOut = controller.signal.aborted;
     report.visualThresholdPercent = 0.5;
     report.success =

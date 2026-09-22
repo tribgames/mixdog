@@ -118,55 +118,47 @@ function writeHookInput(child, input, onError) {
   }
 }
 
-export function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null, { signal } = {}) {
-  throwIfAborted(signal);
-  const projectDir = payload.cwd || process.cwd();
-  const effectivePluginData = handler._pluginData || pluginData || null;
-  const stdin = JSON.stringify(payload);
-  const timeoutMs = Math.round(handlerTimeoutS(handler, eventName) * 1000);
-  const spec = commandSpawnSpec(handler, projectDir, effectivePluginData);
-  const baseOpts = {
-    cwd: existsSync(projectDir) ? projectDir : undefined,
-    env: hookEnv(projectDir, effectivePluginData, payload, handler._pluginRoot || null),
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  };
-
-  if (handler.async === true) {
-    try {
-      const child = spawn(
-        spec.command,
-        spec.args,
-        withProcessGroup({
-          ...baseOpts,
-          stdio: ['pipe', 'ignore', 'ignore'],
-        })
-      );
-      // Explicit async hooks outlive the initiating turn, but retain a bounded lifetime.
-      const killTimer = setTimeout(() => terminateTree(child), timeoutMs);
-      killTimer.unref?.();
-      child.on('error', () => clearTimeout(killTimer));
-      child.on('close', () => clearTimeout(killTimer));
-      child.on('error', (error) => {
-        if (typeof onSpawnError === 'function') onSpawnError(error);
-      });
-      writeHookInput(child, stdin, (error) => {
-        terminateTree(child);
-        if (typeof onSpawnError === 'function') onSpawnError(error);
-      });
-      child.unref?.();
-      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', async: true });
-    } catch (error) {
-      return Promise.resolve({
-        exitCode: -1,
-        stdout: '',
-        stderr: error?.message || String(error),
-        timedOut: false,
-        spawnError: error,
-      });
-    }
+// Detached run: the hook outlives the initiating turn, so nothing is captured
+// and only a bounded kill timer keeps its lifetime finite.
+function runDetached({ spec, baseOpts, stdin, timeoutMs, onSpawnError }) {
+  try {
+    const child = spawn(
+      spec.command,
+      spec.args,
+      withProcessGroup({
+        ...baseOpts,
+        stdio: ['pipe', 'ignore', 'ignore'],
+      })
+    );
+    // Explicit async hooks outlive the initiating turn, but retain a bounded lifetime.
+    const killTimer = setTimeout(() => terminateTree(child), timeoutMs);
+    killTimer.unref?.();
+    child.on('error', () => clearTimeout(killTimer));
+    child.on('close', () => clearTimeout(killTimer));
+    child.on('error', (error) => {
+      if (typeof onSpawnError === 'function') onSpawnError(error);
+    });
+    writeHookInput(child, stdin, (error) => {
+      terminateTree(child);
+      if (typeof onSpawnError === 'function') onSpawnError(error);
+    });
+    child.unref?.();
+    return Promise.resolve({ exitCode: 0, stdout: '', stderr: '', async: true });
+  } catch (error) {
+    return Promise.resolve({
+      exitCode: -1,
+      stdout: '',
+      stderr: error?.message || String(error),
+      timedOut: false,
+      spawnError: error,
+    });
   }
+}
 
+// Captured run: the turn awaits the hook, so stdout/stderr are buffered under a
+// byte cap and the run settles exactly once — on close, timeout, abort or a
+// spawn/stdin failure.
+function runCaptured({ spec, baseOpts, stdin, timeoutMs, signal }) {
   return new Promise((resolveRun) => {
     let child;
     let settled = false;
@@ -246,4 +238,23 @@ export function runCommandHandler(handler, payload, eventName, pluginData, onSpa
       fail(error);
     });
   });
+}
+
+export function runCommandHandler(handler, payload, eventName, pluginData, onSpawnError = null, { signal } = {}) {
+  throwIfAborted(signal);
+  const projectDir = payload.cwd || process.cwd();
+  const effectivePluginData = handler._pluginData || pluginData || null;
+  const run = {
+    spec: commandSpawnSpec(handler, projectDir, effectivePluginData),
+    baseOpts: {
+      cwd: existsSync(projectDir) ? projectDir : undefined,
+      env: hookEnv(projectDir, effectivePluginData, payload, handler._pluginRoot || null),
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe'],
+    },
+    stdin: JSON.stringify(payload),
+    timeoutMs: Math.round(handlerTimeoutS(handler, eventName) * 1000),
+  };
+  if (handler.async === true) return runDetached({ ...run, onSpawnError });
+  return runCaptured({ ...run, signal });
 }

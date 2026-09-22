@@ -270,27 +270,23 @@ export function splitCycle1Row(row, sourceBudget) {
   return fragments.length ? fragments : [row];
 }
 
-export async function generateCycle1Chunks(
-  rows,
-  {
-    callLlm,
-    request = {},
-    inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET,
-    signal = request.signal,
-    layer = 1,
-    summaryTokenBudget,
-  } = {}
-) {
-  if (layer !== 1 && layer !== 2) throw new RangeError('chunk layer must be 1 or 2');
-  if (summaryTokenBudget != null && (!Number.isSafeInteger(summaryTokenBudget) || summaryTokenBudget < 0)) {
-    throw new RangeError('summaryTokenBudget must be a nonnegative integer');
-  }
-  const startedAt = Date.now();
-  const stats = { groupingCalls: 0, verificationCalls: 0, llmMs: 0, verificationMs: 0, retries: 0, fragments: 0 };
-  const sourceBudget = cycle1SourceBudget(inputTokenBudget);
-  const sourceTokens = chunkCompression('', rows).sourceTokens;
-  const targetTokens = layer === 2 ? Math.min(Math.floor(sourceTokens / 2), summaryTokenBudget ?? Infinity) : null;
-  const failures = [];
+/**
+ * One packet in, its accepted chunks out: prompt the model, parse and
+ * validate the grouping, and separate the chunks that actually compressed
+ * from the ones that came back longer than their rows. `stats` and
+ * `failures` are the caller's own accumulators.
+ */
+function createCycle1PacketGenerator({
+  callLlm,
+  request,
+  signal,
+  inputTokenBudget,
+  layer,
+  targetTokens,
+  sourceTokens,
+  stats,
+  failures,
+}) {
   const call = async (prompt) => {
     signal?.throwIfAborted();
     if (estimateTokens(prompt) > inputTokenBudget) throw new Error('cycle1 prompt exceeds input token budget');
@@ -361,6 +357,54 @@ export async function generateCycle1Chunks(
     ];
   }
 
+  return { generatePacket, generateWithRewrite };
+}
+
+export async function generateCycle1Chunks(
+  rows,
+  {
+    callLlm,
+    request = {},
+    inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET,
+    signal = request.signal,
+    layer = 1,
+    summaryTokenBudget,
+  } = {}
+) {
+  if (layer !== 1 && layer !== 2) throw new RangeError('chunk layer must be 1 or 2');
+  if (summaryTokenBudget != null && (!Number.isSafeInteger(summaryTokenBudget) || summaryTokenBudget < 0)) {
+    throw new RangeError('summaryTokenBudget must be a nonnegative integer');
+  }
+  const startedAt = Date.now();
+  const stats = { groupingCalls: 0, verificationCalls: 0, llmMs: 0, verificationMs: 0, retries: 0, fragments: 0 };
+  const sourceBudget = cycle1SourceBudget(inputTokenBudget);
+  const sourceTokens = chunkCompression('', rows).sourceTokens;
+  const targetTokens = layer === 2 ? Math.min(Math.floor(sourceTokens / 2), summaryTokenBudget ?? Infinity) : null;
+  const failures = [];
+  const result = (candidates) =>
+    projectCycle1Result({
+      candidates,
+      rows,
+      layer,
+      sourceTokens,
+      targetTokens,
+      summaryTokenBudget,
+      failures,
+      stats,
+      startedAt,
+    });
+  const { generatePacket, generateWithRewrite } = createCycle1PacketGenerator({
+    callLlm,
+    request,
+    signal,
+    inputTokenBudget,
+    layer,
+    targetTokens,
+    sourceTokens,
+    stats,
+    failures,
+  });
+
   let chunks = [];
   if (!rows.length || (layer === 2 && targetTokens < 1)) return result([]);
   if (layer === 2 && estimateTokens(chunkSourceText(rows)) > sourceBudget) {
@@ -415,61 +459,77 @@ export async function generateCycle1Chunks(
     chunks = [];
   }
   return result(chunks);
+}
 
-  function result(candidates) {
-    let compression;
-    if (layer === 2) {
-      const coveredIndexes = new Set(candidates.flatMap((chunk) => chunk._idxList));
-      const units = [
-        ...candidates.map((chunk) => ({ index: Math.min(...chunk._idxList), text: chunk.summary })),
-        ...rows.flatMap((row, i) =>
-          coveredIndexes.has(i + 1) ? [] : [{ index: i + 1, text: String(row.content ?? '') }]
-        ),
-      ].sort((a, b) => a.index - b.index);
-      const candidateTokens = estimateTokens(units.map((unit) => unit.text).join('\n'));
-      const targetMet = candidates.length > 0 && candidateTokens <= targetTokens;
-      const fitsContext = summaryTokenBudget == null || candidateTokens <= summaryTokenBudget;
-      const used = candidates.length > 0 && candidateTokens < sourceTokens && fitsContext;
-      compression = {
-        layer,
-        sourceTokens,
-        candidateTokens,
-        targetTokens,
-        targetMet,
-        used,
-        outputTokens: used ? candidateTokens : sourceTokens,
-      };
-      if (!used) {
-        if (candidates.length && !fitsContext) {
-          failures.push({
-            reason: 'context_budget_exceeded',
-            member_ids: rows.map((row) => Number(row.id)),
-            candidateTokens,
-            availableTokens: summaryTokenBudget,
-          });
-        }
-        candidates = [];
-      }
-    }
-    const covered = new Set();
-    const accepted = candidates
-      .map((chunk) => {
-        const members = chunk._idxList
-          .slice()
-          .sort((a, b) => a - b)
-          .map((n) => rows[n - 1]);
-        for (const member of members) covered.add(String(member.id));
-        return { ...chunk, members, quality: { ...makeChunkQuality(chunk.summary, members), layer } };
-      })
-      .sort((a, b) => Math.min(...a._idxList) - Math.min(...b._idxList));
-    return {
-      chunks: accepted,
-      rawRowIds: rows.filter((row) => !covered.has(String(row.id))).map((row) => Number(row.id)),
-      invalidChunks: failures,
-      stats: { ...stats, totalMs: Date.now() - startedAt },
-      ...(compression ? { compression } : {}),
+/**
+ * What one cycle-1/2 pass reports: for layer 2 the compression verdict that
+ * decides whether the candidate summaries are used at all (target met, context
+ * budget, net shrink), then the accepted chunks with their members and quality,
+ * the rows left raw, the recorded failures and the call stats.
+ */
+function projectCycle1Result({
+  candidates,
+  rows,
+  layer,
+  sourceTokens,
+  targetTokens,
+  summaryTokenBudget,
+  failures,
+  stats,
+  startedAt,
+}) {
+  let compression;
+  if (layer === 2) {
+    const coveredIndexes = new Set(candidates.flatMap((chunk) => chunk._idxList));
+    const units = [
+      ...candidates.map((chunk) => ({ index: Math.min(...chunk._idxList), text: chunk.summary })),
+      ...rows.flatMap((row, i) =>
+        coveredIndexes.has(i + 1) ? [] : [{ index: i + 1, text: String(row.content ?? '') }]
+      ),
+    ].sort((a, b) => a.index - b.index);
+    const candidateTokens = estimateTokens(units.map((unit) => unit.text).join('\n'));
+    const targetMet = candidates.length > 0 && candidateTokens <= targetTokens;
+    const fitsContext = summaryTokenBudget == null || candidateTokens <= summaryTokenBudget;
+    const used = candidates.length > 0 && candidateTokens < sourceTokens && fitsContext;
+    compression = {
+      layer,
+      sourceTokens,
+      candidateTokens,
+      targetTokens,
+      targetMet,
+      used,
+      outputTokens: used ? candidateTokens : sourceTokens,
     };
+    if (!used) {
+      if (candidates.length && !fitsContext) {
+        failures.push({
+          reason: 'context_budget_exceeded',
+          member_ids: rows.map((row) => Number(row.id)),
+          candidateTokens,
+          availableTokens: summaryTokenBudget,
+        });
+      }
+      candidates = [];
+    }
   }
+  const covered = new Set();
+  const accepted = candidates
+    .map((chunk) => {
+      const members = chunk._idxList
+        .slice()
+        .sort((a, b) => a - b)
+        .map((n) => rows[n - 1]);
+      for (const member of members) covered.add(String(member.id));
+      return { ...chunk, members, quality: { ...makeChunkQuality(chunk.summary, members), layer } };
+    })
+    .sort((a, b) => Math.min(...a._idxList) - Math.min(...b._idxList));
+  return {
+    chunks: accepted,
+    rawRowIds: rows.filter((row) => !covered.has(String(row.id))).map((row) => Number(row.id)),
+    invalidChunks: failures,
+    stats: { ...stats, totalMs: Date.now() - startedAt },
+    ...(compression ? { compression } : {}),
+  };
 }
 
 // Call only with the selected OLD chunk bodies; recent conversation and fixed

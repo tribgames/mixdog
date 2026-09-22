@@ -1,11 +1,6 @@
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
-import {
-  readSection,
-  updateSection,
-  updateSectionAsync,
-  getAgentApiKey,
-  AGENT_PROVIDER_ENV,
-} from '../../shared/config.mjs';
+import { readSection, updateSection, updateSectionAsync, AGENT_PROVIDER_ENV } from '../../shared/config.mjs';
+import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { normalizeExtensionScopes } from '../../shared/extension-scopes.mjs';
 import { applyConfigPatch, diffConfig } from '../../shared/config-patch.mjs';
 import { normalizeWorkflowSelection } from '../../shared/orchestration.mjs';
@@ -23,7 +18,6 @@ import {
   normalizeWebSearchRoute,
   removeRetiredAgentFields,
 } from './config-storage.mjs';
-import { OPENAI_COMPAT_PRESETS } from './providers/openai-compat-presets.mjs';
 import { oauthCredentialProbeState, isOAuthProviderAvailable } from './providers/oauth-credential-probes.mjs';
 
 export const {
@@ -132,6 +126,36 @@ async function persistAgentConfigAsync(build) {
   await updateSectionAsync('agent', (current) => build(hasKeys(current) ? current : {}));
 }
 
+// Self-ref guard: mcpServers.mixdog / mcpServers["trib-plugin"] would
+// self-spawn through the in-process tool adapter. Strip on ingress so
+// user-edited configs cannot brick the agent boot; the strip is also
+// persisted so the bad entry does not survive the next save. Mutates `raw`
+// (the read-time snapshot) to match what is returned.
+function sanitizeStoredMcpServers(raw) {
+  const mcpServers = raw.mcpServers && typeof raw.mcpServers === 'object' ? { ...raw.mcpServers } : {};
+  if (!mcpServers.mixdog && !mcpServers['trib-plugin']) return mcpServers;
+  delete mcpServers.mixdog;
+  delete mcpServers['trib-plugin'];
+  raw.mcpServers = mcpServers;
+  try {
+    // Rebase the self-ref strip onto the in-lock current so a
+    // concurrent writer's unrelated edits are not reverted by
+    // this read-time sanitize.
+    persistAgentConfig((current) => {
+      const cur = { ...current };
+      // updateSection already supplies the agent section.
+      const curMcp = cur.mcpServers && typeof cur.mcpServers === 'object' ? { ...cur.mcpServers } : {};
+      delete curMcp.mixdog;
+      delete curMcp['trib-plugin'];
+      cur.mcpServers = curMcp;
+      return cur;
+    });
+  } catch (err) {
+    process.stderr.write(`[config] persist sanitized config failed: ${err?.message}\n`);
+  }
+  return mcpServers;
+}
+
 // Recap toggle (recap.enabled, default true) gates ONLY the background memory
 // cycles. The memory module itself is always-on.
 function normalizeRecapConfig(rawRecap) {
@@ -149,49 +173,7 @@ export function loadConfig(options = {}) {
       const storageNeedsMigration = agentConfigStorageNeedsMigration(raw);
       raw = canonicalizeAgentStorage(raw);
       const defaults = buildDefaultConfig({ detectCredentials: includeSecrets });
-      // Deep-merge provider subkeys: unknown per-provider values are
-      // preserved through save/load so future fields round-trip
-      // without schema updates here.
-      const mergedProviders = { ...defaults.providers };
-      if (raw.providers && typeof raw.providers === 'object') {
-        for (const [name, val] of Object.entries(raw.providers)) {
-          if (val && typeof val === 'object') {
-            mergedProviders[name] = { ...(mergedProviders[name] || {}), ...val };
-            // A STORED `enabled` is the user's own decision (setup
-            // UI disable / hand edit) and outranks the probe: keep
-            // it authoritative by dropping the probe-availability
-            // marker, so a disable still removes the provider even
-            // while its credential file happens to be unreadable.
-            if (Object.hasOwn(val, 'enabled')) {
-              delete mergedProviders[name].credentialProbeUnavailable;
-            }
-          } else {
-            mergedProviders[name] = val;
-          }
-        }
-      }
-      // Provider API keys live in the OS keychain (std env / MIXDOG_AGENT_*
-      // -> keychain), never plaintext in config. Overlay them so the
-      // provider clients see config.apiKey populated.
-      // AGENT_PROVIDER_ENV covers first-class key providers; OPENAI_COMPAT_PRESETS
-      // covers compat providers (opencode-go, …) whose key also lives in
-      // the keychain. Without the union, a compat provider with a valid
-      // stored key still ships 'no-key' → 401.
-      if (includeSecrets) {
-        for (const name of new Set([...Object.keys(AGENT_PROVIDER_ENV), ...Object.keys(OPENAI_COMPAT_PRESETS)])) {
-          const kc = getAgentApiKey(name);
-          if (kc) {
-            mergedProviders[name] = {
-              ...(mergedProviders[name] || {}),
-              apiKey: kc,
-              enabled: raw.providers?.[name]?.enabled !== false,
-            };
-          }
-        }
-      }
-      // Cursor account access is OAuth-only. The dashboard's "API"
-      // meter is a quota bucket on that account, not a separate provider.
-      delete mergedProviders['cursor-api'];
+      const mergedProviders = mergeStoredProviders({ raw, defaults, includeSecrets });
       // Drop unknown maintenance keys (e.g. truly legacy slot names from
       // pre-removal installs). Every valid fallback slot lives in
       // DEFAULT_MAINTENANCE, so the allow-list below is the single
@@ -202,31 +184,7 @@ export function loadConfig(options = {}) {
         if (allowedMaintKeys.has(k)) rawMaint[k] = v;
       }
 
-      // Self-ref guard: mcpServers.mixdog / mcpServers["trib-plugin"]
-      // would self-spawn through the in-process tool adapter. Strip on
-      // ingress so user-edited configs cannot brick the agent boot.
-      const mcpServers = raw.mcpServers && typeof raw.mcpServers === 'object' ? { ...raw.mcpServers } : {};
-      if (mcpServers.mixdog || mcpServers['trib-plugin']) {
-        delete mcpServers.mixdog;
-        delete mcpServers['trib-plugin'];
-        raw.mcpServers = mcpServers;
-        try {
-          // Rebase the self-ref strip onto the in-lock current so a
-          // concurrent writer's unrelated edits are not reverted by
-          // this read-time sanitize.
-          persistAgentConfig((current) => {
-            const cur = { ...current };
-            // updateSection already supplies the agent section.
-            const curMcp = cur.mcpServers && typeof cur.mcpServers === 'object' ? { ...cur.mcpServers } : {};
-            delete curMcp.mixdog;
-            delete curMcp['trib-plugin'];
-            cur.mcpServers = curMcp;
-            return cur;
-          });
-        } catch (err) {
-          process.stderr.write(`[config] persist sanitized config failed: ${err?.message}\n`);
-        }
-      }
+      const mcpServers = sanitizeStoredMcpServers(raw);
       const recapConfig = normalizeRecapConfig(raw.recap);
 
       const rawPresets = Array.isArray(raw.presets) ? raw.presets : [];

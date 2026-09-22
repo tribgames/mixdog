@@ -1,27 +1,14 @@
 /**
- * agent-tool/spawn-flow/spawn-prep.mjs — spawn preparation: the validated
- * spawn plan (agent / preset / tag / cwd / prompt), the in-process session
- * spec, session creation through the canonical surface or the local
- * builder, tag binding + statusline route, and the transport prewarm.
+ * agent-tool/spawn-flow/spawn-prep.mjs — spawn preparation: session creation
+ * through the canonical surface or the local builder, tag binding + statusline
+ * route, and the transport prewarm. The validated spawn plan and the session
+ * spec it produces live in ./spawn-plan.mjs.
  */
-import { resolve } from 'node:path';
-import {
-  agentDefinitionExists,
-  clean,
-  normalizeAgentName,
-  presetKey,
-  readAgentFrontmatterPermission,
-  resolvePrompt,
-  terminalPidForContext,
-  writeAgentStatuslineRoute,
-} from '../helpers.mjs';
-import { isAgentDisabled } from '../../../runtime/shared/agent-route-config.mjs';
-import { normalizeAgentPermission } from '../../../runtime/shared/markdown-frontmatter.mjs';
-import { resolveAgentSpawnPreset } from '../spawn-preset.mjs';
+import { presetKey, writeAgentStatuslineRoute } from '../helpers.mjs';
 import { resolveAgentWatchdogPolicy } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
-import { AGENT_OWNER } from '../../../runtime/agent/orchestrator/agent-owner.mjs';
 import { getProvider } from '../../../runtime/agent/orchestrator/providers/registry.mjs';
+import { createSpawnPlanner } from './spawn-plan.mjs';
 
 /** The route fields every worker-row and tag record carries. */
 export function presetDescriptor(agent, preset, presetName) {
@@ -70,62 +57,16 @@ export function createSpawnPreparer({
   sessionSurface = null,
   refreshTagsFromSessions,
 }) {
-  /** Shared spawn-prep validations (agent/preset/tag/cwd/prompt). */
-  async function resolveSpawnPlan(args, callerCwd, context, prepState) {
-    const config = cfgMod.loadConfig();
-    const agent = normalizeAgentName(args.agent);
-    if (!agent) throw new Error('agent spawn: agent is required');
-    // Deleted/unknown agents fail here: settings-deleted custom roles would
-    // otherwise still spawn as role-less generic agents by remembered name.
-    if (!agentDefinitionExists(agent, dataDir, STANDALONE_SOURCE_ROOT)) {
-      throw new Error(`agent spawn: unknown agent "${agent}"`);
-    }
-    // Switched off in settings: the role is dropped from the Lead prompt, so a
-    // spawn can only arrive from a stale name. Refuse instead of running it.
-    if (isAgentDisabled(config, agent)) {
-      throw new Error(`agent spawn: agent "${agent}" is turned off`);
-    }
-    const agentPermission = readAgentFrontmatterPermission(agent, dataDir, STANDALONE_SOURCE_ROOT);
-    const agentPerm = normalizeAgentPermission(agentPermission) || null;
-    const { presetName, preset } = resolveAgentSpawnPreset(config, args);
-    const tag = clean(args.tag) || nextTag(agent, context);
-    // Any resolved same-tag binding in this terminal (live or lingering trace)
-    // blocks a fresh spawn. execute() routes live reuse before prepareSpawn.
-    if (resolveTag(tag, context, { scanSessions: wantsSessionScan(args) })) {
-      throw new Error(`agent spawn: tag "${tag}" already exists`);
-    }
-    const baseCwd = resolve(callerCwd || defaultCwd || process.cwd());
-    const workerCwd = clean(args.cwd) ? resolve(baseCwd, args.cwd) : baseCwd;
-    const prompt = await resolvePrompt(args, workerCwd);
-    if (prepState?.timedOut) {
-      throw new Error('agent spawn prep timed out before session bind');
-    }
-    return { config, agent, agentPerm, presetName, preset, tag, workerCwd, prompt };
-  }
-
-  /** Build the normalized in-process agent session spec. */
-  function spawnSessionSpec(plan, args, context) {
-    const { agent, agentPerm, presetName, preset, tag, workerCwd } = plan;
-    return {
-      agent,
-      presetName,
-      preset,
-      runtimeSpec: cfgMod.resolveRuntimeSpec(preset, { lane: 'agent', agentId: tag }),
-      owner: AGENT_OWNER,
-      cwd: workerCwd,
-      sourceType: 'cli',
-      sourceName: agent,
-      parentSessionId: clean(context?.callerSessionId || context?.sessionId) || null,
-      ownerSessionId: clean(context?.ownerSessionId) || clean(context?.callerSessionId || context?.sessionId) || null,
-      visibility: 'agent-only',
-      clientHostPid: terminalPidForContext(context) || null,
-      agentTag: tag,
-      taskType: clean(args.taskType) || clean(args.typeHint) || undefined,
-      permission: agentPerm || undefined,
-      cacheKeyOverride: args.cacheKey || undefined,
-      mcpScopeId,
-    };
-  }
+  const { resolveSpawnPlan, spawnSessionSpec } = createSpawnPlanner({
+    cfgMod,
+    dataDir,
+    STANDALONE_SOURCE_ROOT,
+    defaultCwd,
+    mcpScopeId,
+    nextTag,
+    resolveTag,
+    wantsSessionScan,
+  });
 
   /** Shared post-create wiring. Lead sessions write a gateway-session route on
    *  create; agent sessions are built through prepareAgentSession()/the remote

@@ -515,6 +515,151 @@ test('a >200-file scoped check never walks cwd and results pages the stored matc
   assert.equal(scanned.includes('.runtime/scratch.kt'), false);
 });
 
+/** A mixdog-graph stand-in that reports one match per scanned file. */
+function matchEveryFileGraph(root) {
+  const script = join(root, 'match-graph.mjs');
+  writeFileSync(
+    script,
+    `
+    process.stdin.resume();
+    const args = process.argv.slice(2);
+    if (args.includes('--langs')) {
+      process.stdout.write(JSON.stringify({
+        languages: [{ id: 'javascript', extensions: ['js', 'mjs'], scan: true, extract: true }],
+      }));
+      process.exit(0);
+    }
+    if (args.includes('--scan')) {
+      const index = args.indexOf('--files');
+      const files = index < 0 ? [] : args.slice(index + 1).filter((arg) => !String(arg).startsWith('--'));
+      for (const file of files) {
+        process.stdout.write(JSON.stringify({
+          file,
+          lang: 'javascript',
+          ruleId: 'no-debugger',
+          severity: 'warning',
+          message: 'debugger',
+          range: { start: { line: 1, column: 1 }, end: { line: 1, column: 9 }, byteOffset: [0, 8] },
+        }) + '\\n');
+      }
+      process.stdout.write(JSON.stringify({ summary: { files: files.length, matches: files.length, rules: 1 } }) + '\\n');
+      process.exit(0);
+    }
+    process.exit(0);
+    `
+  );
+  const windows = process.platform === 'win32';
+  const wrapper = join(root, windows ? 'match-graph.cmd' : 'match-graph.sh');
+  writeFileSync(
+    wrapper,
+    windows
+      ? `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`
+      : `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`,
+    windows ? {} : { mode: 0o755 }
+  );
+  return wrapper;
+}
+
+test('fix separates findings in modified files from findings in files that are clean in the repository', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'tidy-worktree-tool-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src', 'touched.js'), 'export const a = 1;\n');
+  writeFileSync(join(root, 'src', 'untouched.js'), 'export const b = 2;\n');
+  const commands = [
+    ['init'],
+    ['add', '.'],
+    ['-c', 'user.email=tidy@example.invalid', '-c', 'user.name=Tidy', 'commit', '-m', 'init'],
+  ];
+  for (const args of commands) {
+    const git = await runProcess('git', args, { cwd: root, timeoutMs: 30_000 });
+    if (git.code !== 0) {
+      t.skip('git is unavailable in this environment');
+      return;
+    }
+  }
+  // One file the caller is working on, one untracked file, one file that only a
+  // directory scope drags in.
+  writeFileSync(join(root, 'src', 'touched.js'), 'export const a = 11;\n');
+  writeFileSync(join(root, 'src', 'fresh.js'), 'export const c = 3;\n');
+
+  const childScript = join(root, 'probe-worktree.mjs');
+  writeFileSync(
+    childScript,
+    `
+    import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
+    const result = await executeTidyTool(
+      { action: 'fix', paths: ['src'], engines: ['__none__'] },
+      { cwd: ${JSON.stringify(root)} }
+    );
+    process.stdout.write(JSON.stringify({ isError: Boolean(result.isError), body: JSON.parse(result.content[0].text) }));
+    `
+  );
+  const result = await runProcess(process.execPath, [childScript], {
+    cwd: root,
+    env: { ...process.env, MIXDOG_GRAPH_BIN: matchEveryFileGraph(root) },
+    timeoutMs: 120_000,
+  });
+  assert.equal(result.code, 0, result.stderr.slice(0, 800));
+  const { isError, body } = JSON.parse(result.stdout);
+
+  assert.equal(isError, false, 'the split is a report, not a failure');
+  assert.equal(body.ok, true);
+  assert.equal(body.structural.matchesCount, 3);
+  assert.deepEqual(body.workingTree.modified.files, ['src/fresh.js', 'src/touched.js']);
+  assert.equal(body.workingTree.modified.fileCount, 2);
+  assert.equal(body.workingTree.modified.findings, 2);
+  assert.deepEqual(body.workingTree.clean.files, ['src/untouched.js']);
+  assert.equal(body.workingTree.clean.fileCount, 1);
+  assert.equal(body.workingTree.clean.findings, 1);
+  assert.match(body.notes.join(' '), /workingTree\.clean: 1 file\(s\)/);
+  assert.match(body.notes.join(' '), /apply:true writes them too/);
+});
+
+test('scan names a same-named binary the environment resolves but tidy does not run', async (t) => {
+  const root = await gitProject(t);
+  if (!root) {
+    t.skip('git is unavailable in this environment');
+    return;
+  }
+  const windows = process.platform === 'win32';
+  const cache = join(root, 'npm-cache');
+  const binDir = join(cache, '_npx', 'b040de3f3c289dd6', 'node_modules', '.bin');
+  mkdirSync(binDir, { recursive: true });
+  const shadowPath = join(binDir, windows ? 'biome.cmd' : 'biome');
+  writeFileSync(
+    shadowPath,
+    windows ? '@echo off\r\necho biome 0.3.3\r\n' : '#!/bin/sh\necho "biome 0.3.3"\n',
+    windows ? {} : { mode: 0o755 }
+  );
+
+  const childScript = join(root, 'probe-shadow.mjs');
+  writeFileSync(
+    childScript,
+    `
+    import { executeTidyTool } from ${JSON.stringify(new URL('./tool.mjs', import.meta.url).href)};
+    const result = await executeTidyTool({ action: 'scan', paths: ['.'] }, { cwd: ${JSON.stringify(root)} });
+    process.stdout.write(JSON.stringify({ isError: Boolean(result.isError), body: JSON.parse(result.content[0].text) }));
+    `
+  );
+  const result = await runProcess(process.execPath, [childScript], {
+    cwd: root,
+    env: { ...process.env, npm_config_cache: cache },
+    timeoutMs: 120_000,
+  });
+  assert.equal(result.code, 0, result.stderr.slice(0, 800));
+  const { isError, body } = JSON.parse(result.stdout);
+
+  assert.equal(isError, false, 'a shadow is a report, not an error');
+  assert.equal(body.ok, true);
+  const shadow = (body.shadows || []).find((row) => row.id === 'biome' && row.via === 'npx-cache');
+  assert.ok(shadow, `expected a biome shadow: ${JSON.stringify(body.shadows)}`);
+  assert.equal(shadow.shadow.path, shadowPath);
+  assert.equal(shadow.shadow.version, '0.3.3');
+  assert.equal(typeof shadow.engine.source, 'string');
+  assert.match(body.notes.join(' '), /not the biome tidy uses/);
+});
+
 test('results filters cached rules and directory prefixes before paging without mutating the cache', async () => {
   const cwd = process.cwd();
   const sessionId = 'tidy-filtered-results';

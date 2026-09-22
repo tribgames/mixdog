@@ -1,30 +1,15 @@
 /**
  * hook-bus/event-runner.mjs — running the standard handlers of one event:
- * matcher selection with per-handler dedupe, the trust gate for project
- * hooks, dispatch by handler type, and the sequential aggregation that
- * short-circuits once a denial-capable event is blocked.
+ * matcher selection with per-handler dedupe, and the sequential aggregation
+ * that short-circuits once a denial-capable event is blocked. Running a single
+ * handler (trust gate, type dispatch) lives in ./handler-dispatch.mjs.
  */
 import { throwIfAborted } from '../../runtime/shared/abort-race.mjs';
-import {
-  NO_MATCHER_EVENTS,
-  SUPPORTED_HANDLER_TYPES,
-  EXIT2_BLOCK_EVENTS,
-  TOP_LEVEL_DECISION_EVENTS,
-} from './constants.mjs';
+import { NO_MATCHER_EVENTS, EXIT2_BLOCK_EVENTS, TOP_LEVEL_DECISION_EVENTS } from './constants.mjs';
 import { matchFieldFor, matcherFires } from './config.mjs';
-import {
-  ifConditionPasses,
-  parseHandlerOutput,
-  runCommandHandler,
-  runHttpHandler,
-  runMcpToolHandler,
-  runPromptHandler,
-} from './handlers.mjs';
+import { parseHandlerOutput } from './handlers.mjs';
+import { createHandlerDispatch } from './handler-dispatch.mjs';
 import { handlerDedupeKey, shellCountFor } from './rules.mjs';
-
-// Executable/network handlers from an untrusted project hooks file are an
-// RCE + exfil vector without a user-level trust opt-in.
-const TRUST_GATED_TYPES = new Set(['command', 'http', 'mcp_tool']);
 
 // A failed run is reported as a hook:error and skipped; returns the message
 // or null when the run produced usable output.
@@ -76,59 +61,7 @@ export function createEventRunner({ loadConfig, emit, cursor, pluginData, prompt
     return handlers;
   }
 
-  const runners = {
-    command(handler, payload, eventName, { signal }) {
-      if (!handler.command) return null;
-      const reportSpawnError = (error) => {
-        emit('hook:error', {
-          name: payload.tool_name || eventName,
-          error: `hook spawn failed: ${error?.message || error}`,
-        });
-      };
-      return runCommandHandler(handler, payload, eventName, pluginData, reportSpawnError, { signal });
-    },
-    http(handler, payload, eventName, { signal }) {
-      if (!handler.url) return null;
-      return runHttpHandler(handler, payload, eventName, { signal });
-    },
-    mcp_tool(handler, payload, eventName, { signal }) {
-      if (typeof mcpToolRunner !== 'function') {
-        emit('hook:error', { name: payload.tool_name || eventName, error: 'handler type mcp_tool not configured' });
-        return null;
-      }
-      return runMcpToolHandler(handler, payload, eventName, mcpToolRunner, { signal });
-    },
-    prompt(handler, payload, eventName, { signal }) {
-      if (typeof promptRunner !== 'function') {
-        emit('hook:error', { name: payload.tool_name || eventName, error: 'handler type prompt not configured' });
-        return null;
-      }
-      return runPromptHandler(handler, payload, eventName, promptRunner, { signal });
-    },
-  };
-
-  async function runOneHandler(handler, eventName, payload, { signal } = {}) {
-    throwIfAborted(signal);
-    if (!handler || typeof handler !== 'object') return null;
-    if (!ifConditionPasses(handler.if, eventName, payload.tool_name, payload.tool_input)) return null;
-    const type = String(handler.type || '').trim();
-    if (!SUPPORTED_HANDLER_TYPES.has(type)) {
-      emit('hook:error', {
-        name: payload.tool_name || eventName,
-        error: `unsupported hook type: ${type || '(missing)'}`,
-      });
-      return null;
-    }
-    if (handler._untrusted === true && TRUST_GATED_TYPES.has(type)) {
-      emit('hook:error', {
-        name: payload.tool_name || eventName,
-        error: `blocked ${type} hook from untrusted project (add project to trustedProjects to enable)`,
-      });
-      return null;
-    }
-    const runner = runners[type];
-    return runner ? await runner(handler, payload, eventName, { signal }) : null;
-  }
+  const runOneHandler = createHandlerDispatch({ emit, pluginData, promptRunner, mcpToolRunner });
 
   async function runEventHandlers(eventName, payload, { signal } = {}) {
     throwIfAborted(signal);
