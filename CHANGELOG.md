@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v0.9.173 - 2026-09-22
+
 - A restored queued message keeps the text the daemon confirmed. Restoring one
   publishes twice in the same breath — the local guess first, the daemon's
   answer a moment later — and both were stamped with the clock. When they
